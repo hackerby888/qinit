@@ -3,6 +3,7 @@
 import { statSync, readFileSync } from "node:fs";
 import { compile, type BuildOpts } from "./recipe";
 import { extractIdl, type ContractIdl } from "./idl";
+import { buildCalleePrelude } from "./intercontract";
 import { k12Hex } from "@qinit/core";
 
 export type { BuildOpts } from "./recipe";
@@ -20,7 +21,14 @@ export interface BuildResult {
 }
 
 export async function buildContract(o: BuildOpts): Promise<BuildResult> {
-  const c = await compile(o);
+  // Inter-contract: scan the contract for CALL_OTHER_CONTRACT_* and auto-derive the callee prelude
+  // (callee type headers at their indices + per-fn inputType constants) from contract_def.h.
+  let calleePrelude = o.calleePrelude;
+  if (calleePrelude === undefined) {
+    try { calleePrelude = buildCalleePrelude(o.corePath, readFileSync(o.contractPath, "utf8"), o.dynCallees ?? {}); }
+    catch (e: any) { return { ok: false, stderr: "inter-contract resolve failed: " + String(e?.message ?? e) }; }
+  }
+  const c = await compile({ ...o, calleePrelude });
   if (!c.ok) return { ok: false, so: c.so, stderr: c.stderr };
   const size = statSync(c.so).size;
   let hash: string | undefined;

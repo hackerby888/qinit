@@ -32,6 +32,14 @@ export function Deploy({ args }: { args: string[] }) {
         const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";
         const rpc = new LiteRpc(rpcBase);
 
+        // Inter-contract: repeatable --callee Name=/abs/header.h@slot (dynamic callees, deployed earlier).
+        const dynCallees: Record<string, { header: string; index: number }> = {};
+        for (let i = 0; i < args.length; i++) {
+          if (args[i] !== "--callee") continue;
+          const m = (args[i + 1] ?? "").match(/^(\w+)=(.+)@(\d+)$/);
+          if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
+        }
+
         // Wait for the node to be TICKING (advancing), not just RPC-up — broadcasting during
         // early boot crashes the node (network/peer state not ready). See feedback memory.
         add("waiting for node to tick…");
@@ -51,7 +59,7 @@ export function Deploy({ args }: { args: string[] }) {
         add("building .so …");
         const b = await buildContract({
           contractPath: resolve(o.contract ?? cfg.contract ?? "fixtures/Counter.h"),
-          name, slot, corePath: core, outDir: resolve("dist/contracts"),
+          name, slot, corePath: core, outDir: resolve("dist/contracts"), dynCallees,
         });
         if (!b.ok) { add("✗ build failed"); add((b.stderr ?? "").split("\n").slice(0, 12).join("\n")); setDone(true); return; }
         const so = readFileSync(b.so!);

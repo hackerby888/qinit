@@ -11,6 +11,8 @@ export interface BuildOpts {
   corePath: string;     // qubic-core-lite root
   outDir: string;
   clang?: string;       // default clang++-18
+  calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
+  dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
 }
 
 export function genWrapper(o: BuildOpts): string {
@@ -26,13 +28,14 @@ export function genWrapper(o: BuildOpts): string {
 #include <array>
 #include <limits>
 #define LITE_DYN_SO_BUILD
-#define CONTRACT_INDEX ${o.slot}
-#define CONTRACT_STATE_TYPE ${o.name}
-#define CONTRACT_STATE2_TYPE ${o.name}2
 #include "contract_core/pre_qpi_def.h"
 #include "contracts/qpi.h"
 #include "contract_core/qpi_proposal_voting.h"
 #include "oracle_core/oracle_interfaces_def.h"
+${o.calleePrelude ?? ""}
+#define CONTRACT_INDEX ${o.slot}
+#define CONTRACT_STATE_TYPE ${o.name}
+#define CONTRACT_STATE2_TYPE ${o.name}2
 #include "${o.contractPath}"
 // QPI data-structure impls operate on contract-local memory -> .so-safe. CAUTION: after the contract.
 // Collection + LinkedList are clean (only qpi.h + memory).
