@@ -2,7 +2,9 @@
 //   types : uint8/16/32/64, sint8/16/32/64, id, bit ; struct { t, t } ; array [N; elem]
 //   output format = types only:              "{ [16;id], uint16, uint8 }"
 //   input  format = values (carry their type):"ABC…(60-char)id, 5uint64, [2; 1uint64, 2uint64]"
-// Little-endian, packed. id <-> 60-char identity via @qinit/core (async, wasm). "" = empty.
+// Matches the C++ ABI: NATURAL ALIGNMENT (no packing). Each field is padded to its alignment
+// (uint16→2, uint32→4, uint64/id→8), structs to their max member alignment. id <-> 60-char
+// identity via @qinit/core (async, wasm). "" = empty.
 import { bytesToIdentity, identityToBytes } from "@qinit/core";
 
 const SCALAR_SIZE: Record<string, number> = {
@@ -17,6 +19,17 @@ export type TypeNode =
   | { kind: "id" }
   | { kind: "array"; count: number; elem: TypeNode }
   | { kind: "struct"; fields: TypeNode[] };
+
+const roundUp = (off: number, align: number) => (align <= 1 ? off : Math.ceil(off / align) * align);
+
+function alignOf(n: TypeNode): number {
+  switch (n.kind) {
+    case "scalar": return n.size;     // 1/2/4/8
+    case "id": return 8;              // m256i = 4x uint64 -> align 8
+    case "array": return alignOf(n.elem);
+    case "struct": return n.fields.length ? Math.max(...n.fields.map(alignOf)) : 1;
+  }
+}
 
 // ---------- type-grammar parser (output layout / decode schema) ----------
 function parseType(s: string, i: number): [TypeNode, number] {
@@ -58,7 +71,7 @@ export function parseLayout(fmt: string): TypeNode {
   return { kind: "struct", fields: parts.map((p) => parseType(p, 0)[0]) };
 }
 
-// ---------- output decode (async: id -> 60-char identity) ----------
+// ---------- output decode (aligned; async: id -> 60-char identity) ----------
 async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[any, number]> {
   switch (node.kind) {
     case "scalar": {
@@ -76,13 +89,14 @@ async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[an
     }
     case "array": {
       const arr: any[] = [];
-      for (let k = 0; k < node.count; k++) { const [val, no] = await decodeNode(v, off, node.elem); arr.push(val); off = no; }
+      const ea = alignOf(node.elem);
+      for (let k = 0; k < node.count; k++) { off = roundUp(off, ea); const [val, no] = await decodeNode(v, off, node.elem); arr.push(val); off = no; }
       return [arr, off];
     }
     case "struct": {
       const obj: any[] = [];
-      for (const f of node.fields) { const [val, no] = await decodeNode(v, off, f); obj.push(val); off = no; }
-      return [obj, off];
+      for (const f of node.fields) { off = roundUp(off, alignOf(f)); const [val, no] = await decodeNode(v, off, f); obj.push(val); off = no; }
+      return [obj, roundUp(off, alignOf(node))];
     }
   }
 }
@@ -93,7 +107,7 @@ export async function decodeOutput(bytes: Uint8Array, fmt: string): Promise<any>
   return val;
 }
 
-// ---------- input encode (value-driven, async for id) ----------
+// ---------- input encode (value-driven, aligned, async for id) ----------
 function hexToBytes(hex: string): Uint8Array {
   const h = hex.startsWith("0x") ? hex.slice(2) : hex;
   const out = new Uint8Array(h.length / 2);
@@ -115,25 +129,41 @@ function splitTop(s: string): string[] {
   return parts.map((x) => x.trim()).filter((x) => x.length);
 }
 
-// Encode one value token. Scalars carry a type suffix; id by identity (or 64-hex);
-// {…}=struct (each field a value token), [N; …]=array (N informational; encode listed elems).
+// Alignment of a value token (mirrors alignOf on the type the value carries).
+function tokenAlign(tok: string): number {
+  tok = tok.trim();
+  if (tok[0] === "{") { const p = splitTop(tok.slice(1, tok.lastIndexOf("}"))); return p.length ? Math.max(...p.map(tokenAlign)) : 1; }
+  if (tok[0] === "[") { const inner = tok.slice(1, tok.lastIndexOf("]")); const semi = inner.indexOf(";"); const p = splitTop(semi >= 0 ? inner.slice(semi + 1) : inner); return p.length ? tokenAlign(p[0]) : 1; }
+  if (tok.endsWith("id")) return 8;
+  const m = tok.match(/^-?\d+([a-z0-9]+)$/);
+  return m ? (SCALAR_SIZE[m[1]] ?? 1) : 1;
+}
+const padTo = (out: number[], align: number) => { while (align > 1 && out.length % align) out.push(0); };
+
+// Encode one value token at the current (aligned) offset = out.length.
 async function encodeToken(tok: string, out: number[]): Promise<void> {
   tok = tok.trim();
   if (!tok) return;
   if (tok[0] === "{") {
-    for (const t of splitTop(tok.slice(1, tok.lastIndexOf("}")))) await encodeToken(t, out);
+    const parts = splitTop(tok.slice(1, tok.lastIndexOf("}")));
+    const sa = parts.length ? Math.max(...parts.map(tokenAlign)) : 1;
+    padTo(out, sa);
+    for (const t of parts) await encodeToken(t, out);
+    padTo(out, sa); // trailing struct padding
     return;
   }
   if (tok[0] === "[") {
     const inner = tok.slice(1, tok.lastIndexOf("]"));
     const semi = inner.indexOf(";");
-    for (const t of splitTop(semi >= 0 ? inner.slice(semi + 1) : inner)) await encodeToken(t, out);
+    const parts = splitTop(semi >= 0 ? inner.slice(semi + 1) : inner);
+    for (const t of parts) await encodeToken(t, out); // each elem self-aligns -> stride
     return;
   }
   if (tok.endsWith("id")) {
     const v = tok.slice(0, -2).trim();
     const b = /^(0x)?[0-9a-fA-F]{64}$/.test(v) ? hexToBytes(v) : identityToBytes(v);
     if (b.length !== 32) throw new Error(`id must resolve to 32 bytes: '${v}'`);
+    padTo(out, 8);
     for (const x of b) out.push(x);
     return;
   }
@@ -142,6 +172,7 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
   const [, numStr, type] = m;
   const size = SCALAR_SIZE[type];
   if (!size) throw new Error(`unknown input type '${type}'`);
+  padTo(out, size);
   const buf = new Uint8Array(size);
   const dv = new DataView(buf.buffer);
   if (size === 8) dv.setBigUint64(0, BigInt(numStr), true);
@@ -151,11 +182,14 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
   for (const x of buf) out.push(x);
 }
 
-// Top-level value tokens (comma-separated). "" = empty input.
+// Top-level value tokens (comma-separated) = an implicit struct. "" = empty input.
 export async function encodeInput(fmt: string): Promise<Uint8Array> {
   const t = (fmt ?? "").trim();
   if (!t) return new Uint8Array(0);
+  const parts = splitTop(t);
   const out: number[] = [];
-  for (const tok of splitTop(t)) await encodeToken(tok, out);
+  const sa = parts.length ? Math.max(...parts.map(tokenAlign)) : 1;
+  for (const tok of parts) await encodeToken(tok, out);
+  padTo(out, sa); // round the whole input struct to its alignment
   return new Uint8Array(out);
 }
