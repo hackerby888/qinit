@@ -38,16 +38,17 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   return { ok: true, so: c.so, size, hash, undef, idl };
 }
 
-// QPI symbols left unresolved in the .so — must be provided by lite_dyn_abi.h
-// (resolved at dlopen via the host vtable; missing ones fail at load, not build).
+// Symbols the .so leaves unresolved that the host/ABI must provide — anything dlopen RTLD_NOW
+// would fail on. Report ALL undefined except the C++/libc runtime (resolved at load by libstdc++).
+// (Earlier a narrow QPI-only filter silently missed `bs` and `setMem` -> dlopen failed at runtime.)
 async function undefinedQpiSymbols(so: string): Promise<string[]> {
   const p = Bun.spawn(["nm", "-D", "-u", "-C", so], { stdout: "pipe", stderr: "pipe" });
   const out = await new Response(p.stdout).text();
   await p.exited;
-  const re = /(QPI::|QpiContext|__qpi|__log|__beginFunction|__endFunction|__markContract|__pauseLog|__resumeLog|__acquireScratch|__releaseScratch|K12)/;
+  const runtime = /(@GLIBC|@CXXABI|@GCC|_ITM_|__gmon_start__|__cxa_|__gxx_personality|_Unwind_|std::|operator new|operator delete)/;
   return out
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => l.startsWith("U ") && re.test(l))
+    .filter((l) => l.startsWith("U ") && !runtime.test(l))
     .map((l) => l.slice(2).trim());
 }
