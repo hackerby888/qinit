@@ -1,0 +1,20 @@
+{
+  "name": "qinit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*"],
+  "bin": { "qinit": "./dist/qinit" },
+  "scripts": {
+    "dev": "bun run packages/cli/src/index.tsx",
+    "build:bin": "bun build packages/cli/src/index.tsx --compile --minify --outfile dist/qinit",
+    "build:all": "bun run scripts/build-matrix.ts",
+    "smoke": "bun run packages/cli/src/index.tsx smoke",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.6.0"
+  }
+}

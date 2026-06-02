@@ -1,0 +1,6 @@
+# Pin exact versions on install for reproducible standalone-binary builds.
+[install]
+exact = true
+
+[test]
+coverage = false

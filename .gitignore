@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.so
+*.log
+.DS_Store
+.env
+qinit.idl.json
+contracts_dyn/

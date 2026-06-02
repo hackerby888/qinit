@@ -1,0 +1,10 @@
+{
+  "name": "@qinit/core",
+  "version": "0.0.0",
+  "type": "module",
+  "module": "src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@qubic-lib/qubic-ts-library": "latest"
+  }
+}
