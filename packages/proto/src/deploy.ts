@@ -61,17 +61,20 @@ export interface DeployParams {
   finalHashHex: string;
   abiVersion?: number;
   stateLayoutVersion?: number;
+  name?: string; // stored on-chain per slot -> tooling resolves name -> slot
 }
 
-// sessionId(8) targetSlot(4) finalHash(32) abiVersion(4) stateLayoutVersion(4) = 52
+// sessionId(8) targetSlot(4) finalHash(32) abiVersion(4) stateLayoutVersion(4) name(32) = 84
 export function encodeDeploy(p: DeployParams): Uint8Array {
-  const b = new Uint8Array(52);
+  const b = new Uint8Array(84);
   const v = new DataView(b.buffer);
   v.setBigUint64(0, p.sessionId, true);
   v.setUint32(8, p.targetSlot, true);
   b.set(hexToBytes(p.finalHashHex, 32), 12);
   v.setUint32(44, p.abiVersion ?? 1, true);
   v.setUint32(48, p.stateLayoutVersion ?? 0, true);
+  const nm = (p.name ?? "").slice(0, 31);
+  for (let i = 0; i < nm.length; i++) b[52 + i] = nm.charCodeAt(i) & 0x7f;
   return b;
 }
 

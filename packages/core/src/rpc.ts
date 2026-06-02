@@ -8,10 +8,10 @@ export interface TickInfo {
 
 export interface DynEntry { inputType: number; inputSize: number; outputSize: number; }
 export interface DynContract {
-  index: number; constructed: boolean; version: number; codeHash: string;
+  index: number; armed: boolean; constructed: boolean; version: number; name: string; codeHash: string;
   functions: DynEntry[]; procedures: DynEntry[];
 }
-export interface DynRegistry { contracts: DynContract[]; }
+export interface DynRegistry { contracts: DynContract[]; slotBase: number; slotCount: number; }
 
 export class LiteRpc {
   constructor(private base = "http://127.0.0.1:41841") {}

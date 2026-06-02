@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { readFileSync, existsSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { LiteRpc } from "@qinit/core";
 import { callFunction, invokeProcedure } from "@qinit/proto";
@@ -39,17 +40,36 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
     (async () => {
       try {
         const rpc = new LiteRpc(rpcBase);
-        const idx = Number(o.idx);
-        const entry = Number(o.entry);
+        const idl: any = (() => { try { return existsSync("qinit.idl.json") ? JSON.parse(readFileSync("qinit.idl.json", "utf8")) : {}; } catch { return {}; } })();
+
+        // contract: accept a name (resolve via registry) or a slot index.
+        let idx = Number(o.idx);
+        if (Number.isNaN(idx)) {
+          const reg = await rpc.dynRegistry();
+          const c = (reg.contracts ?? []).find((x) => x.armed && (x.name || "").toLowerCase() === String(o.idx).toLowerCase());
+          if (!c) throw new Error(`no deployed contract named '${o.idx}'`);
+          idx = c.index;
+        }
+        // entry: accept a fn/proc name (resolve via IDL) or an inputType number.
+        const tbl = (o.mode === "fn" ? idl[String(idx)]?.functions : idl[String(idx)]?.procedures) ?? {};
+        let entry = Number(o.entry);
+        let ie: any = tbl[String(entry)];
+        if (Number.isNaN(entry)) {
+          const hit = Object.entries(tbl).find(([, e]: any) => (e.name || "").toLowerCase() === String(o.entry).toLowerCase());
+          if (!hit) throw new Error(`no ${o.mode} named '${o.entry}' on contract ${idx} (build/deploy to populate IDL)`);
+          entry = Number(hit[0]); ie = hit[1];
+        }
+        const inFmt = o.in ?? ie?.in ?? "";
+
         if (o.mode === "fn") {
-          const out = await callFunction(rpc, idx, entry, o.in ?? "", o.out ?? "");
+          const out = await callFunction(rpc, idx, entry, inFmt, o.out ?? ie?.out ?? "");
           add(`fn ${idx}/${entry} -> ${JSON.stringify(out, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`);
         } else {
           const ti: any = await rpc.tickInfo();
           const tick = (ti.tick ?? ti.currentTick ?? 0) + 8;
           const r = await invokeProcedure({
             seed: o.seed ?? "a".repeat(55), rpcBase, contractIndex: idx, procId: entry,
-            amount: Number(o.amount ?? 0), inFmt: o.in ?? "", tick,
+            amount: Number(o.amount ?? 0), inFmt, tick,
           });
           add(`proc ${idx}/${entry} @tick ${tick}: ${r.ok ? "ok " + (r.txId ?? "").slice(0, 16) : "FAIL code=" + r.code + " " + (r.message ?? "")}`);
         }

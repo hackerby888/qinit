@@ -74,28 +74,28 @@ export function New({ args }: { args: string[] }) {
 
   useEffect(() => {
     try {
-      if (!o.name) { add("usage: qinit new <name> [--slot N] [--core PATH]"); setDone(true); return; }
+      if (!o.name) { add("usage: qinit new <name> [--core PATH]"); setDone(true); return; }
       const dir = o.name;
       const name = toIdent(o.name);
-      const slot = Number(o.slot ?? 28);
       const core = o.core ?? process.env.QINIT_CORE ?? "/home/kali/Projects/qubic-core-lite";
       if (existsSync(dir)) { add(`✗ '${dir}' already exists`); setDone(true); return; }
 
       mkdirSync(join(dir, "contracts"), { recursive: true });
       writeFileSync(join(dir, "contracts", `${name}.h`), contractTemplate());
+      // No slot: the framework auto-allocates one at deploy by name (reuse-or-first-free).
       writeFileSync(join(dir, "qinit.json"), JSON.stringify(
-        { name, contract: `contracts/${name}.h`, slot, core, rpc: "http://127.0.0.1:41841" }, null, 2) + "\n");
+        { name, contract: `contracts/${name}.h`, core, rpc: "http://127.0.0.1:41841" }, null, 2) + "\n");
       writeFileSync(join(dir, ".gitignore"), ["dist/", "*.so", "*.log", "qinit.idl.json", "contracts_dyn/", ".DS_Store"].join("\n") + "\n");
       writeFileSync(join(dir, "README.md"),
         `# ${name}\n\nQubic dynamic contract (scaffolded by qinit).\n\n` +
         "```bash\nqinit build                 # compile contracts/" + name + ".h -> .so + IDL\n" +
-        "qinit deploy --seed <55-char-seed>   # build + upload + deploy to a ticking node\n" +
+        "qinit deploy --seed <55-char-seed>   # build + upload + deploy (slot auto-allocated by name)\n" +
         "qinit call                  # interactive: pick contract -> fn/proc\n```\n\n" +
-        `Config in \`qinit.json\` (name, contract, slot ${slot}, core, rpc).\n`);
+        "Config in `qinit.json` (name, contract, core, rpc). The deploy slot is chosen automatically.\n");
 
       add(`✓ created ${dir}/`);
       add(`  contracts/${name}.h`);
-      add(`  qinit.json   (slot ${slot})`);
+      add(`  qinit.json`);
       add(`  .gitignore, README.md`);
       add("");
       add(`next:  cd ${dir} && qinit build`);

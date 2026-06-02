@@ -5,7 +5,7 @@ import { Box, Text, useApp } from "ink";
 import { buildContract } from "@qinit/build";
 import { buildSignedTx, broadcastTx, broadcastTxs, LiteRpc, k12Hex } from "@qinit/core";
 import {
-  encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX,
+  encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX, resolveSlot,
 } from "@qinit/proto";
 import { loadConfig } from "../config";
 
@@ -27,20 +27,10 @@ export function Deploy({ args }: { args: string[] }) {
       try {
         const cfg = loadConfig();
         const core = o.core ?? cfg.core ?? process.env.QINIT_CORE ?? "/home/kali/Projects/qubic-core-lite";
-        const slot = Number(o.slot ?? cfg.slot ?? 28);
+        const name = o.name ?? cfg.name ?? "Counter";
         const seed = o.seed ?? "a".repeat(55);
         const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";
         const rpc = new LiteRpc(rpcBase);
-
-        add("building .so …");
-        const b = await buildContract({
-          contractPath: resolve(o.contract ?? cfg.contract ?? "fixtures/Counter.h"),
-          name: o.name ?? cfg.name ?? "Counter", slot, corePath: core, outDir: resolve("dist/contracts"),
-        });
-        if (!b.ok) { add("✗ build failed"); add((b.stderr ?? "").split("\n").slice(0, 12).join("\n")); setDone(true); return; }
-        const so = readFileSync(b.so!);
-        const hash = b.hash ?? (await k12Hex(new Uint8Array(so)));
-        add(`built ${so.length}B  k12 ${hash.slice(0, 16)}…`);
 
         // Wait for the node to be TICKING (advancing), not just RPC-up — broadcasting during
         // early boot crashes the node (network/peer state not ready). See feedback memory.
@@ -52,8 +42,24 @@ export function Deploy({ args }: { args: string[] }) {
         }
         if (cur <= t0 + 3) { add("✗ node not ticking"); setDone(true); return; }
         add(`node ticking at ${cur}`);
-        // Upload txs land together in uploadTick; Deploy in a later tick so the blob is
-        // already complete when it is processed. Big offset covers send time.
+
+        // Resolve the slot by name (user never picks one): reuse if already deployed, else first free.
+        const ov = (o.slot ?? cfg.slot) !== undefined && (o.slot ?? cfg.slot) !== "" ? Number(o.slot ?? cfg.slot) : undefined;
+        const { slot, reused } = await resolveSlot(rpc, name, ov);
+        add(`${name} → slot ${slot} ${reused ? "(reuse/upgrade)" : "(new)"}`);
+
+        add("building .so …");
+        const b = await buildContract({
+          contractPath: resolve(o.contract ?? cfg.contract ?? "fixtures/Counter.h"),
+          name, slot, corePath: core, outDir: resolve("dist/contracts"),
+        });
+        if (!b.ok) { add("✗ build failed"); add((b.stderr ?? "").split("\n").slice(0, 12).join("\n")); setDone(true); return; }
+        const so = readFileSync(b.so!);
+        const hash = b.hash ?? (await k12Hex(new Uint8Array(so)));
+        add(`built ${so.length}B  k12 ${hash.slice(0, 16)}…`);
+
+        // Re-read tick after the (multi-second) build so the offsets aren't stale.
+        try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? cur; } catch {}
         const uploadTick = cur + 8;
         const deployTick = cur + 9;
         add(`upload @tick ${uploadTick}, deploy @tick ${deployTick}`);
@@ -73,7 +79,7 @@ export function Deploy({ args }: { args: string[] }) {
         const bad = ur.find((r) => !r.ok);
         if (bad) add(`  first failure: code=${bad.code} ${bad.message ?? ""}`);
 
-        const dr = await broadcastTx(await mk(LITE_TX.DEPLOY, encodeDeploy({ sessionId: session, targetSlot: slot, finalHashHex: hash }), deployTick), rpcBase);
+        const dr = await broadcastTx(await mk(LITE_TX.DEPLOY, encodeDeploy({ sessionId: session, targetSlot: slot, finalHashHex: hash, name }), deployTick), rpcBase);
         add(`Deploy broadcast: ${dr.ok ? "ok " + (dr.transactionId ?? "").slice(0, 16) : "FAIL code=" + dr.code + " " + (dr.message ?? "")}`);
 
         // Merge the build IDL into ./qinit.idl.json keyed by slot -> interactive /call shows names.

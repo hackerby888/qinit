@@ -64,7 +64,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
       try {
         setIdl(loadIdl());
         const reg = await new LiteRpc(rpcBase).dynRegistry();
-        setContracts(reg.contracts ?? []);
+        setContracts((reg.contracts ?? []).filter((c) => c.armed)); // only deployed slots, not free ones
         setStage("contract");
       } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setStage("done"); }
     })();
@@ -91,7 +91,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   };
 
   const labelFor = (c: DynContract, e: Entry) => `${nameOf(c)}.${e.name ?? (e.kind + "#" + e.inputType)}`;
-  const nameOf = (c: DynContract) => idl[String(c.index)]?.name ?? `contract ${c.index}`;
+  const nameOf = (c: DynContract) => c.name || idl[String(c.index)]?.name || `contract ${c.index}`;
 
   // ---- entries for the chosen contract (registry truth, merged with IDL names/formats) ----
   const entriesFor = (c: DynContract): Entry[] => {
