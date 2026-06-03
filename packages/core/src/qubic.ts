@@ -3,9 +3,6 @@
 // dist layout (node_modules/@qubic-lib/qubic-ts-library/dist) and adjust the path.
 // Surfacing exactly this is part of the M0 standalone-binary smoke test.
 import { QubicHelper } from "@qubic-lib/qubic-ts-library/dist/qubicHelper";
-// Static import via the same path QubicHelper uses internally (dist/crypto), so the
-// bundler dedups to the working module under --compile.
-import * as qcrypto from "@qubic-lib/qubic-ts-library/dist/crypto";
 
 export interface IdentityResult {
   identity: string;       // 60 uppercase letters
@@ -29,8 +26,11 @@ function toHex(bytes: Uint8Array): string {
 // The lib's crypto default export is a Promise resolving to { schnorrq, K12 } once
 // the wasm is initialized.
 export async function k12Hex(bytes: Uint8Array): Promise<string> {
-  // Works under `bun run dev`; pending in the --compile binary (see M1 notes / fix in M2 packaging).
-  const { K12 } = await (qcrypto as any).default;
+  // Static CJS require -> bun bundles + dedups to the SAME crypto instance QubicHelper inits.
+  // ESM `import *` / createRequire resolved a second, uninitialized Emscripten instance under --compile.
+  // @ts-ignore - require is provided by bun (and bundled at compile time for a literal specifier)
+  const cryptoMod: any = require("@qubic-lib/qubic-ts-library/dist/crypto");
+  const { K12 } = await (cryptoMod.default ?? cryptoMod);
   const out = new Uint8Array(32);
   K12(bytes, out, 32);
   return toHex(out);
