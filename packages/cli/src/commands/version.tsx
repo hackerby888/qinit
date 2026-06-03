@@ -1,9 +1,10 @@
 import { useEffect } from "react";
-import { Text, useApp } from "ink";
+import { useApp } from "ink";
 import { VERSION } from "../version";
+import { Banner } from "../ui";
 
 export function Version() {
   const { exit } = useApp();
   useEffect(() => { exit(); }, [exit]);
-  return <Text>qinit {VERSION}</Text>;
+  return <Banner version={VERSION} tagline="Anchor-like framework for Qubic dynamic contracts" />;
 }

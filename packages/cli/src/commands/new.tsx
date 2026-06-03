@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { Header, theme } from "../ui";
 
 function parse(args: string[]): { name?: string; slot?: string; core?: string } {
   const o: any = {};
@@ -104,5 +105,16 @@ export function New({ args }: { args: string[] }) {
   }, []);
   useEffect(() => { if (done) exit(); }, [done]);
 
-  return <Box flexDirection="column">{log.map((l, i) => <Text key={i}>{l}</Text>)}</Box>;
+  const lineColor = (l: string) =>
+    l.startsWith("✓") ? theme.ok : l.startsWith("✗") || l.startsWith("ERROR") ? theme.err : undefined;
+  return (
+    <Box flexDirection="column">
+      <Header cmd="new" />
+      {log.map((l, i) =>
+        l.startsWith("next:")
+          ? <Text key={i}><Text dimColor>next:</Text> <Text bold color={theme.accent}>{l.slice(5).trim()}</Text></Text>
+          : <Text key={i} color={lineColor(l)} dimColor={l.startsWith("  ")}>{l}</Text>,
+      )}
+    </Box>
+  );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Box, Text, useApp } from "ink";
+import { Box, useApp } from "ink";
+import { Header, Spinner, Panel, Status } from "../ui";
 
 interface Check { name: string; ok: boolean; detail: string }
 
@@ -49,16 +50,18 @@ export function Doctor() {
     }
   }, [checks, exit]);
 
-  if (!checks) return <Text>running checks…</Text>;
+  const allOk = checks?.every((c) => c.ok) ?? false;
   return (
     <Box flexDirection="column">
-      {checks.map((c) => (
-        <Text key={c.name}>
-          <Text color={c.ok ? "green" : "red"}>{c.ok ? "✓" : "✗"}</Text>{" "}
-          <Text bold>{c.name.padEnd(28)}</Text>
-          <Text dimColor>{c.detail}</Text>
-        </Text>
-      ))}
+      <Header cmd="doctor" />
+      {!checks && <Spinner label="running checks" />}
+      {checks && (
+        <Panel title="toolchain" color={allOk ? "#22c55e" : "#ef4444"}>
+          {checks.map((c) => (
+            <Status key={c.name} ok={c.ok} label={c.name} detail={c.detail} pad={30} />
+          ))}
+        </Panel>
+      )}
     </Box>
   );
 }
