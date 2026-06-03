@@ -53,11 +53,18 @@ export async function deployContract(o: DeployOpts, log: (s: string) => void): P
   const uploads: Uint8Array[] = [];
   uploads.push(await mk(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId: session, totalSize: so.length, chunkCount: chunks.length, finalHashHex: hash }), uploadTick));
   for (let i = 0; i < chunks.length; i++) uploads.push(await mk(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: session, seq: i, bytes: chunks[i] }), uploadTick));
-  const ur = await broadcastTxs(uploads, o.rpcBase);
-  const okc = ur.filter((r) => r.ok).length;
-  log(`uploads broadcast: ${okc}/${ur.length} ok`);
-  const bad = ur.find((r) => !r.ok);
-  if (bad) log(`  first failure: code=${bad.code} ${bad.message ?? ""}`);
+  // Broadcast all upload txs; retry any that fail (network) up to 3 rounds. (Final arm is verified
+  // by codeHash below — this just resends broadcast-level failures proactively.)
+  let pend = uploads.slice();
+  for (let attempt = 0; attempt <= 3 && pend.length; attempt++) {
+    const res = await broadcastTxs(pend, o.rpcBase);
+    const failed = pend.filter((_, k) => !res[k].ok);
+    log(`uploads broadcast: ${pend.length - failed.length}/${pend.length} ok${attempt ? ` (retry ${attempt})` : ""}`);
+    if (failed.length) { const b = res.find((r) => !r.ok); log(`  failure: code=${b?.code} ${b?.message ?? ""}`); }
+    pend = failed;
+    if (pend.length) await new Promise((r) => setTimeout(r, 600));
+  }
+  if (pend.length) { log(`✗ ${pend.length} upload tx(s) failed after retries`); return { ok: false, slot, hash, error: "upload failed" }; }
 
   const dr = await broadcastTx(await mk(LITE_TX.DEPLOY, encodeDeploy({ sessionId: session, targetSlot: slot, finalHashHex: hash, name: o.name }), deployTick), o.rpcBase);
   log(`Deploy broadcast: ${dr.ok ? "ok " + (dr.transactionId ?? "").slice(0, 16) : "FAIL code=" + dr.code + " " + (dr.message ?? "")}`);
@@ -73,12 +80,23 @@ export async function deployContract(o: DeployOpts, log: (s: string) => void): P
     } catch (e: any) { log("idl merge skipped: " + String(e?.message ?? e)); }
   }
 
-  log("polling node …");
-  let last = cur;
-  for (let i = 0; i < 60; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
-    try { const t: any = await rpc.tickInfo(); last = t.tick ?? t.currentTick ?? last; if (last > deployTick + 3) break; } catch {}
+  // Confirm the slot actually ARMED with OUR code (not just "broadcast ok"): poll dyn-registry
+  // until armed && codeHash == the uploaded .so hash. Catches unfunded seed / dropped chunks / mismatch.
+  let armed = false, onNode = "";
+  if (dr.ok) {
+    log("confirming on-chain arm …");
+    const want = hash.toLowerCase();
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      try {
+        const reg = await rpc.dynRegistry();
+        const c = (reg.contracts ?? []).find((x) => x.index === slot);
+        if (c?.armed) { onNode = (c.codeHash || "").toLowerCase(); if (onNode === want) { armed = true; break; } }
+      } catch {}
+    }
+    log(armed
+      ? `armed ✓ slot ${slot} codeHash ${want.slice(0, 16)}…`
+      : `✗ not armed: slot ${slot} on-node '${onNode.slice(0, 16) || "—"}…' want '${want.slice(0, 16)}…'`);
   }
-  log(last > deployTick ? `node ticking at ${last} (past deploy) — check node log for LITEDYN messages` : `✗ node tick ${last} did not pass ${deployTick}`);
-  return { ok: dr.ok, slot, reused, hash, txId: dr.transactionId };
+  return { ok: dr.ok && armed, slot, reused, hash, txId: dr.transactionId };
 }

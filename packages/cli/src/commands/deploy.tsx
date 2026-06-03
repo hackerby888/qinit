@@ -33,15 +33,15 @@ function deriveSteps(log: string[]): Phase[] {
     else if (l.includes("build failed")) set("build", "fail");
     if (l.startsWith("uploads broadcast:")) { const m = l.match(/(\d+)\/(\d+) ok/); set("upload", m && m[1] === m[2] ? "ok" : "fail", m ? `${m[1]}/${m[2]}` : undefined); }
     if (l.startsWith("Deploy broadcast:")) set("deploy", l.includes("FAIL") ? "fail" : "ok", l.replace("Deploy broadcast: ", ""));
-    if (l.startsWith("polling node")) set("confirm", "active");
-    else if (l.includes("(past deploy)")) set("confirm", "ok");
-    else if (l.includes("did not pass")) set("confirm", "fail");
+    if (l.startsWith("confirming on-chain arm")) set("confirm", "active");
+    else if (l.startsWith("armed ✓")) set("confirm", "ok");
+    else if (l.startsWith("✗ not armed")) set("confirm", "fail");
     if (l.startsWith("ERROR")) { const a = P.find((x) => x.state === "active"); if (a) a.state = "fail"; }
   }
   return P;
 }
 function isPhaseLine(l: string): boolean {
-  return /^waiting for node|not ticking|^node ticking at \d+$|→ slot|^building \.so|^built |build failed|^uploads broadcast:|^Deploy broadcast:|^polling node|\(past deploy\)|did not pass|^upload @tick/.test(l);
+  return /^waiting for node|not ticking|^node ticking at \d+$|→ slot|^building \.so|^built |build failed|^uploads broadcast:|^Deploy broadcast:|^confirming on-chain arm|^armed ✓|^✗ not armed|^upload @tick/.test(l);
 }
 
 export function Deploy({ args }: { args: string[] }) {
