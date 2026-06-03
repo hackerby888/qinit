@@ -39,6 +39,12 @@ export class LiteRpc {
     return this.get<DynRegistry>("/live/v1/dyn-registry");
   }
 
+  /** Testnet-only funded seed for signing txs when none is given (GET /live/v1/dev/funded-seed). */
+  async fundedSeed(): Promise<string | undefined> {
+    try { return (await this.get<{ seed?: string }>("/live/v1/dev/funded-seed")).seed; }
+    catch { return undefined; }
+  }
+
   /** Call a contract function (read-only) via POST /live/v1/querySmartContract. */
   async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
     const r = await fetch(this.base + "/live/v1/querySmartContract", {

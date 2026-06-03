@@ -6,3 +6,9 @@ export type { SignedTx, TxInput } from "./tx";
 export { LiteRpc } from "./rpc";
 export type { TickInfo, DynRegistry, DynContract, DynEntry } from "./rpc";
 export { broadcastTx, broadcastTxs } from "./net";
+export type { BroadcastResult } from "./net";
+export {
+  RELEASE_REPO, cacheRoot, cacheDir, cacheHeaders, sha256Hex, loadManifest, fetchVerify,
+  extractTarGz, currentPath, readCurrent, writeCurrent,
+} from "./fetch";
+export type { AssetRef, Manifest, CurrentPointer } from "./fetch";

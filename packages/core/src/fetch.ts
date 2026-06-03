@@ -1,0 +1,64 @@
+// Cache + fetch + verify for synced assets (core-header snapshot now; prebuilt node later).
+// Cache layout: ~/.cache/qinit/<version>/core-headers/ (+ node/Qubic), pointer at current.json.
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+// Release source = the user's fork. NEVER qubic/core-lite (upstream) — see project memory.
+export const RELEASE_REPO = "hackerby888/core-lite";
+
+export function cacheRoot(): string {
+  return process.env.QINIT_CACHE ?? join(homedir(), ".cache", "qinit");
+}
+export function cacheDir(version: string): string {
+  return join(cacheRoot(), version);
+}
+export function sha256Hex(buf: Uint8Array): string {
+  return createHash("sha256").update(buf).digest("hex");
+}
+
+export interface AssetRef { url: string; sha256: string; }
+export interface Manifest { version: string; node?: AssetRef; headers?: AssetRef; }
+
+// Pull the release manifest that pins {node, headers} for one version (ABI-consistent set).
+export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise<Manifest> {
+  const path = ref === "latest" ? "latest/download" : `download/${ref}`;
+  const url = `https://github.com/${repo}/releases/${path}/qinit-manifest.json`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`manifest fetch failed (HTTP ${r.status}) from ${url}`);
+  return (await r.json()) as Manifest;
+}
+
+// Download an asset and verify its sha256 (mismatch => throw, never cache a bad blob).
+export async function fetchVerify(asset: AssetRef): Promise<Uint8Array> {
+  const r = await fetch(asset.url);
+  if (!r.ok) throw new Error(`download failed (HTTP ${r.status}): ${asset.url}`);
+  const buf = new Uint8Array(await r.arrayBuffer());
+  if (asset.sha256) {
+    const got = sha256Hex(buf);
+    if (got !== asset.sha256) throw new Error(`sha256 mismatch for ${asset.url}\n  want ${asset.sha256}\n  got  ${got}`);
+  }
+  return buf;
+}
+
+// Extract a .tar.gz buffer into destDir (system tar; gzip is universal — no zstd dep).
+export async function extractTarGz(tarGz: Uint8Array, destDir: string): Promise<void> {
+  mkdirSync(destDir, { recursive: true });
+  const p = Bun.spawn(["tar", "xzf", "-", "-C", destDir], { stdin: tarGz, stdout: "pipe", stderr: "pipe" });
+  const err = await new Response(p.stderr).text();
+  await p.exited;
+  if (p.exitCode !== 0) throw new Error("tar extract failed: " + err);
+}
+
+// current.json — pointer to the active synced version (what resolveCore() uses).
+export interface CurrentPointer { version: string; coreHeaders: string; node?: string; syncedAt: string; }
+export function currentPath(): string { return join(cacheRoot(), "current.json"); }
+export function readCurrent(): CurrentPointer | null {
+  try { return JSON.parse(readFileSync(currentPath(), "utf8")) as CurrentPointer; } catch { return null; }
+}
+export function writeCurrent(p: CurrentPointer): void {
+  mkdirSync(cacheRoot(), { recursive: true });
+  writeFileSync(currentPath(), JSON.stringify(p, null, 2));
+}
+export function cacheHeaders(version: string): string { return join(cacheDir(version), "core-headers"); }

@@ -5,6 +5,7 @@ import { LiteRpc } from "@qinit/core";
 import { callFunction, invokeProcedure } from "@qinit/proto";
 import { CallInteractive } from "./call-interactive";
 import { loadConfig } from "../config";
+import { Header, Spinner, theme } from "../ui";
 
 // Non-interactive forms (qubic-cli style):
 //   qinit call --fn   <idx> <fnId>   --in "<fmt>" --out "<fmt>"
@@ -68,7 +69,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           const ti: any = await rpc.tickInfo();
           const tick = (ti.tick ?? ti.currentTick ?? 0) + 8;
           const r = await invokeProcedure({
-            seed: o.seed ?? "a".repeat(55), rpcBase, contractIndex: idx, procId: entry,
+            seed: o.seed ?? (await rpc.fundedSeed()) ?? "a".repeat(55), rpcBase, contractIndex: idx, procId: entry,
             amount: Number(o.amount ?? 0), inFmt, tick,
           });
           add(`proc ${idx}/${entry} @tick ${tick}: ${r.ok ? "ok " + (r.txId ?? "").slice(0, 16) : "FAIL code=" + r.code + " " + (r.message ?? "")}`);
@@ -79,5 +80,13 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
   }, []);
   useEffect(() => { if (done) exit(); }, [done]);
 
-  return <Box flexDirection="column">{log.map((l, i) => <Text key={i}>{l}</Text>)}{!done && <Text dimColor>…</Text>}</Box>;
+  return (
+    <Box flexDirection="column">
+      <Header cmd="call" />
+      {log.map((l, i) => (
+        <Text key={i} color={l.startsWith("ERROR") || l.includes("FAIL") ? theme.err : l.includes("->") || l.includes(": ok") ? theme.ok : undefined}>{l}</Text>
+      ))}
+      {!done && <Spinner label="calling" />}
+    </Box>
+  );
 }

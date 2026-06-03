@@ -1,6 +1,9 @@
 // Command router. One-shot: each command renders, does its work, then exits.
 import { Doctor } from "./commands/doctor";
 import { Smoke } from "./commands/smoke";
+import { Sync } from "./commands/sync";
+import { Node } from "./commands/node";
+import { Up } from "./commands/up";
 import { Build } from "./commands/build";
 import { Deploy } from "./commands/deploy";
 import { Call } from "./commands/call";
@@ -14,6 +17,12 @@ export function App({ command, args }: { command: string; args: string[] }) {
       return <New args={args} />;
     case "doctor":
       return <Doctor />;
+    case "sync":
+      return <Sync args={args} />;
+    case "node":
+      return <Node args={args} />;
+    case "up":
+      return <Up args={args} />;
     case "smoke":
       return <Smoke />;
     case "build":

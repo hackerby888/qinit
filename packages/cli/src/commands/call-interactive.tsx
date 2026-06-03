@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, type DynContract } from "@qinit/core";
 import { callFunction, invokeProcedure } from "@qinit/proto";
 import { existsSync, readFileSync } from "node:fs";
+import { Header, Spinner, Panel, theme } from "../ui";
 
 // Optional local IDL (names + format strings) keyed by contract index, merged over the registry.
 //   { "28": { name, functions:{ "1":{name,in,out} }, procedures:{ "1":{name,in} } } }
@@ -27,11 +28,17 @@ function Select<T>({ label, items, onSelect }: { label: string; items: { label: 
   });
   return (
     <Box flexDirection="column">
-      <Text bold>{label}</Text>
-      {items.map((it, k) => (
-        <Text key={k} color={k === i ? "cyan" : undefined}>{k === i ? "› " : "  "}{it.label}</Text>
-      ))}
-      {!items.length && <Text dimColor>  (none)</Text>}
+      <Text bold color={theme.accent}>{label}</Text>
+      <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
+        {items.map((it, k) => (
+          <Text key={k}>
+            {k === i ? <Text color={theme.brand} bold>▸ </Text> : <Text>  </Text>}
+            <Text color={k === i ? theme.info : undefined} bold={k === i}>{it.label}</Text>
+          </Text>
+        ))}
+        {!items.length && <Text dimColor>(none)</Text>}
+      </Box>
+      <Text dimColor>  ↑/↓ move · ↵ select</Text>
     </Box>
   );
 }
@@ -44,7 +51,12 @@ function TextPrompt({ label, initial, onSubmit }: { label: string; initial?: str
     else if (key.backspace || key.delete) setV((p) => p.slice(0, -1));
     else if (input && !key.ctrl && !key.meta) setV((p) => p + input);
   });
-  return <Text>{label}: <Text color="green">{v}</Text><Text inverse> </Text></Text>;
+  return (
+    <Box flexDirection="column">
+      <Text><Text color={theme.accent} bold>? </Text><Text bold>{label}</Text></Text>
+      <Text>  <Text color={theme.brand}>❯ </Text><Text color={theme.ok}>{v}</Text><Text inverse> </Text></Text>
+    </Box>
+  );
 }
 
 type Entry = { kind: "fn" | "proc"; inputType: number; inputSize: number; outputSize: number; name?: string; in?: string; out?: string };
@@ -78,12 +90,12 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
       const rpc = new LiteRpc(rpcBase);
       const idx = s.c!.index, e = s.e!;
       if (e.kind === "fn") {
-        const out = await callFunction(rpc, idx, e.inputType, s.input ?? "", s.out ?? e.out ?? "");
+        const out = await callFunction(rpc, idx, e.inputType, s.input ?? "", e.out ?? "");
         add(`${labelFor(s.c!, e)} -> ${JSON.stringify(out, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`);
       } else {
         const ti: any = await rpc.tickInfo();
         const tick = (ti.tick ?? 0) + 8;
-        const r = await invokeProcedure({ seed: s.seed ?? seed ?? "a".repeat(55), rpcBase, contractIndex: idx, procId: e.inputType, amount: Number(s.amount ?? 0), inFmt: s.input ?? "", tick });
+        const r = await invokeProcedure({ seed: s.seed || seed || (await rpc.fundedSeed()) || "a".repeat(55), rpcBase, contractIndex: idx, procId: e.inputType, amount: Number(s.amount ?? 0), inFmt: s.input ?? "", tick });
         add(`${labelFor(s.c!, e)} @tick ${tick}: ${r.ok ? "ok " + (r.txId ?? "").slice(0, 16) : "FAIL " + (r.message ?? r.code)}`);
       }
     } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); }
@@ -101,29 +113,38 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     return [...fns, ...pcs];
   };
 
-  if (stage === "loading") return <Text dimColor>loading registry…</Text>;
-  if (stage === "done") return <Box flexDirection="column">{result.map((l, i) => <Text key={i}>{l}</Text>)}</Box>;
-  if (stage === "running") return <Text dimColor>calling…</Text>;
+  const wrap = (el: React.ReactNode) => <Box flexDirection="column"><Header cmd="call" />{el}</Box>;
+
+  if (stage === "loading") return wrap(<Spinner label="loading registry" />);
+  if (stage === "running") return wrap(<Spinner label="calling" />);
+  if (stage === "done")
+    return wrap(
+      <Panel title="result" color={theme.ok}>
+        {result.map((l, i) => (
+          <Text key={i} color={l.startsWith("ERROR") || l.includes("FAIL") ? theme.err : l.includes("->") || l.includes(": ok") ? theme.ok : undefined}>{l}</Text>
+        ))}
+      </Panel>,
+    );
 
   if (stage === "contract")
-    return <Select label="Pick a deployed contract:" items={contracts.map((c) => ({ label: `${nameOf(c)}  [idx ${c.index}] ${c.constructed ? "✓" : "armed"}  ${c.functions.length} fn / ${c.procedures.length} proc`, value: c }))} onSelect={(c) => { setSel({ c }); setStage("entry"); }} />;
+    return wrap(<Select label="Pick a deployed contract:" items={contracts.map((c) => ({ label: `${nameOf(c)}  [idx ${c.index}] ${c.constructed ? "✓" : "armed"}  ${c.functions.length} fn / ${c.procedures.length} proc`, value: c }))} onSelect={(c) => { setSel({ c }); setStage("entry"); }} />);
 
   if (stage === "entry") {
     const items = entriesFor(sel.c!).map((e) => ({ label: `${e.kind === "fn" ? "fn  " : "proc"} ${e.name ?? "#" + e.inputType}  (in ${e.inputSize}B${e.kind === "fn" ? ", out " + e.outputSize + "B" : ""})`, value: e }));
-    return <Select label={`${nameOf(sel.c!)} — pick a function/procedure:`} items={items} onSelect={(e) => { setSel((s) => ({ ...s, e })); setStage("input"); }} />;
+    return wrap(<Select label={`${nameOf(sel.c!)} — pick a function/procedure:`} items={items} onSelect={(e) => { setSel((s) => ({ ...s, e })); setStage("input"); }} />);
   }
 
   if (stage === "input")
-    return <TextPrompt label={`input (${sel.e!.kind === "fn" ? "values+type, e.g. 5uint64; empty=none" : "values+type"})`} initial={sel.e!.in ?? ""} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); setStage(sel.e!.kind === "fn" ? "output" : "amount"); }} />;
+    return wrap(<TextPrompt label={`input (${sel.e!.kind === "fn" ? "values+type, e.g. 5uint64; empty=none" : "values+type"})`} initial={sel.e!.in ?? ""} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); setStage(sel.e!.kind === "fn" ? "output" : "amount"); }} />);
 
   if (stage === "output")
-    return <TextPrompt label="output format (types only, e.g. uint64 or { id, uint16 })" initial={sel.e!.out ?? ""} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />;
+    return wrap(<TextPrompt label="output format (types only, e.g. uint64 or { id, uint16 })" initial={sel.e!.out ?? ""} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />);
 
   if (stage === "amount")
-    return <TextPrompt label="amount (qus)" initial="0" onSubmit={(amount) => { setSel((s) => ({ ...s, amount })); setStage("seed"); }} />;
+    return wrap(<TextPrompt label="amount (qus)" initial="0" onSubmit={(amount) => { setSel((s) => ({ ...s, amount })); setStage("seed"); }} />);
 
   if (stage === "seed")
-    return <TextPrompt label="signer seed (55 lowercase)" initial={seed ?? ""} onSubmit={(sd) => { const ns = { ...sel, seed: sd }; setSel(ns); run(ns); }} />;
+    return wrap(<TextPrompt label="signer seed (55 lowercase)" initial={seed ?? ""} onSubmit={(sd) => { const ns = { ...sel, seed: sd }; setSel(ns); run(ns); }} />);
 
   return null;
 }

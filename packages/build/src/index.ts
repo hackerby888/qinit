@@ -9,6 +9,8 @@ import { k12Hex } from "@qinit/core";
 export type { BuildOpts } from "./recipe";
 export { extractIdl } from "./idl";
 export type { ContractIdl, IdlEntry } from "./idl";
+export { buildSnapshot } from "./snapshot";
+export type { SnapshotResult } from "./snapshot";
 
 export interface BuildResult {
   ok: boolean;
