@@ -11,7 +11,9 @@
     "build:all": "bun run scripts/build-matrix.ts",
     "smoke": "bun run packages/cli/src/index.tsx smoke",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "test:compiled": "bash scripts/check-compiled.sh",
+    "test:node": "bash scripts/smoke-node.sh"
   },
   "devDependencies": {
     "bun-types": "latest",
