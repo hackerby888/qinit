@@ -9,6 +9,7 @@ const COMMANDS: [string, string][] = [
   ["sync", "fetch/build the core-header snapshot into the cache"],
   ["node", "run / status / stop / get the dev node (run --bin <path>)"],
   ["up", "one command: sync headers + get node + run (reuses a ticking node)"],
+  ["dev", "watch the contract -> auto build+deploy on save (q to quit)"],
   ["build", "compile a contract .h -> .so (+ hash, unresolved-symbol report)"],
   ["deploy", "build + chunk-upload + deploy a contract to a node"],
   ["call", "call a contract function (--fn) or invoke a procedure (--proc)"],
