@@ -4,7 +4,7 @@ import { VERSION } from "../version";
 import { Banner, theme } from "../ui";
 
 const COMMANDS: [string, string][] = [
-  ["new", "scaffold a new contract project (contracts/, qinit.json)"],
+  ["new", "scaffold a project: new <name> --template counter|hashmap|asset|intercontract"],
   ["doctor", "check toolchain (clang-18, node, core headers, qubic lib)"],
   ["sync", "fetch/build the core-header snapshot into the cache"],
   ["node", "run / status / stop / get the dev node (run --bin <path>)"],
