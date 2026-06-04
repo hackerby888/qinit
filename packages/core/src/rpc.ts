@@ -39,6 +39,12 @@ export class LiteRpc {
     return this.get<DynRegistry>("/live/v1/dyn-registry");
   }
 
+  /** Exact tx confirmation (GET /live/v1/tx-status/{tick}/{txId}) — needs the tx-status addon.
+   * found => included; processed => node ticked past {tick} (verdict final). */
+  txStatus(tick: number, txId: string) {
+    return this.get<{ tick: number; currentTick: number; txId: string; found: boolean; moneyFlew: boolean; processed: boolean }>(`/live/v1/tx-status/${tick}/${txId}`);
+  }
+
   /** Testnet-only funded seed for signing txs when none is given (GET /live/v1/dev/funded-seed). */
   async fundedSeed(): Promise<string | undefined> {
     try { return (await this.get<{ seed?: string }>("/live/v1/dev/funded-seed")).seed; }

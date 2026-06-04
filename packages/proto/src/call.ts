@@ -36,10 +36,14 @@ export async function callFunction(
 }
 
 // Invoke a contract procedure (signed tx). tick must be a near-future, accepted tick.
+// confirm: poll the tx-status RPC until the tx is processed (Anchor .rpc()-style) — exact
+// landed/dropped verdict instead of a tick guess. Falls back to a tick-margin wait if the
+// node lacks the addon. included=false with confirmed=true => the tx was dropped.
 export async function invokeProcedure(opts: {
   seed: string; rpcBase: string; contractIndex: number; procId: number;
   amount: number; inFmt: string; tick: number;
-}): Promise<BroadcastResult & { txId?: string }> {
+  confirm?: boolean; rpc?: LiteRpc; confirmTimeoutMs?: number;
+}): Promise<BroadcastResult & { txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {
   const tx = await buildSignedTx(opts.seed, {
     destination: contractAddress(opts.contractIndex),
     amount: opts.amount,
@@ -48,5 +52,20 @@ export async function invokeProcedure(opts: {
     payload: await encodeInput(opts.inFmt),
   });
   const r = await broadcastTx(tx.bytes, opts.rpcBase);
-  return { ...r, txId: tx.id };
+  const res = { ...r, txId: tx.id, tick: opts.tick };
+  if (!opts.confirm) return res;
+  const rpc = opts.rpc ?? new LiteRpc(opts.rpcBase);
+  const deadline = Date.now() + (opts.confirmTimeoutMs ?? 30000);
+  const sleep = (ms: number) => new Promise((s) => setTimeout(s, ms));
+  for (;;) {
+    try {
+      const st = await rpc.txStatus(opts.tick, tx.id);
+      if (st.processed) return { ...res, confirmed: true, included: st.found, moneyFlew: st.moneyFlew };
+    } catch {
+      // addon missing — degrade to a tick-margin wait (node passed the target tick)
+      try { const ti = await rpc.tickInfo(); if ((ti.tick ?? 0) > opts.tick) return { ...res, confirmed: false }; } catch {}
+    }
+    if (Date.now() > deadline) return { ...res, confirmed: false };
+    await sleep(300);
+  }
 }

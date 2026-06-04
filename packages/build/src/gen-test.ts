@@ -9,16 +9,17 @@ export const testRuntimeSource: string = RUNTIME as unknown as string;
 // A starter bun:test spec for the counter template (overwritten only if no test exists).
 export function sampleTest(name: string): string {
   return `import { test, expect, beforeAll } from "bun:test";
-import { ${name}, provider, settle } from "./.qinit";
+import { ${name}, provider } from "./.qinit";
 
 let c: ${name};
 beforeAll(() => { c = new ${name}(provider()); });
 
 test("${name}: starts at zero and increments", async () => {
   expect((await c.Get()).value).toBe(0n);
-  await c.Inc();          // procedure: signed tx ~8 ticks ahead
-  await settle();         // wait past the offset so the tick is processed
+  const r = await c.Inc();   // auto-confirms via the tx-status RPC (resolves once processed)
+  expect(r.confirmed).toBe(true);  // node gave an exact verdict (not a tick guess)
+  expect(r.included).toBe(true);   // the tx actually landed on-chain
   expect((await c.Get()).value).toBe(1n);
-}, 60000);                // procedures are tick-bound — give them room (qinit test passes --timeout too)
+}, 60000);                // procedures are tick-bound (confirm waits ~8 ticks); give them room
 `;
 }

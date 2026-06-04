@@ -74,12 +74,12 @@ export function generateClient(idl: ContractIdl, index: number, opts?: { runtime
     const param = e.inFields.length ? (inFlat ? `args: ${e.name}_input, ` : "inFmt: string, ") : "";
     const inFmt = !e.inFields.length ? '""' : inFlat ? inTmpl(e.inFields) : "inFmt";
     L.push("");
-    L.push(`  /** transaction */`);
-    L.push(`  async ${e.name}(${param}opts: { seed?: string; amount?: number } = {}): Promise<{ ok: boolean; txId?: string }> {`);
+    L.push(`  /** transaction — auto-confirms (resolves once processed) unless { confirm: false } */`);
+    L.push(`  async ${e.name}(${param}opts: { seed?: string; amount?: number; confirm?: boolean } = {}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`);
     L.push(`    const ti = (await this.rpc.tickInfo()) as { tick?: number };`);
     L.push(`    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed()) ?? "a".repeat(55);`);
-    L.push(`    const r = await invokeProcedure({ seed, rpcBase: this.rpcBase, contractIndex: this.index, procId: ${id}, amount: opts.amount ?? 0, inFmt: ${inFmt}, tick: (ti.tick ?? 0) + 8 });`);
-    L.push(`    return { ok: r.ok, txId: r.txId };`);
+    L.push(`    const r = await invokeProcedure({ seed, rpcBase: this.rpcBase, contractIndex: this.index, procId: ${id}, amount: opts.amount ?? 0, inFmt: ${inFmt}, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc });`);
+    L.push(`    return { ok: r.ok, txId: r.txId, tick: r.tick, confirmed: r.confirmed, included: r.included, moneyFlew: r.moneyFlew };`);
     L.push(`  }`);
   }
   L.push(`}`);
