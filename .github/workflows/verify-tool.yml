@@ -64,8 +64,9 @@ jobs:
         if: steps.gate.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}   # gh needs this without a checkout
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || \
-            gh release create "$TAG" -t "contractverify (auto-tracking upstream)" \
-              -n "Prebuilt Qubic contract-verify tool, re-published when upstream changes. Consumed by \`qinit\` (daily auto-update)."
-          gh release upload "$TAG" contractverify-linux-x64 verify-manifest.json --clobber
+          gh release create "$TAG" contractverify-linux-x64 verify-manifest.json \
+            --title "contractverify (auto-tracking upstream)" \
+            --notes "Prebuilt Qubic contract-verify tool, re-published when upstream changes. Consumed by qinit (daily auto-update)." \
+          || gh release upload "$TAG" contractverify-linux-x64 verify-manifest.json --clobber
