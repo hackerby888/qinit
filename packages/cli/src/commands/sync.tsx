@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve } from "node:path";
 import { buildSnapshot } from "@qinit/build";
-import { cacheDir, cacheHeaders, updateCurrent, loadManifest, fetchVerify, extractTarGz } from "@qinit/core";
+import { cacheDir, cacheHeaders, updateCurrent, loadManifest, fetchVerify, extractTarGz, autoUpdateVerifyTool } from "@qinit/core";
 import { Header, Spinner, Panel, KV, theme } from "../ui";
 
 function parse(args: string[]): Record<string, string> {
@@ -16,6 +16,11 @@ function parse(args: string[]): Record<string, string> {
 }
 
 type State = { phase: "run"; msg: string } | { phase: "ok"; rows: [string, string][] } | { phase: "err"; msg: string };
+
+const verifyRow = (vu: { action: string; version?: string }): string =>
+  vu.action === "unsupported" ? "no build for this platform"
+  : vu.action === "offline" ? "unreachable (skipped)"
+  : `${(vu.version ?? "").slice(0, 12) || "—"} (${vu.action})`;
 
 // qinit sync --from <core-checkout>   build a header snapshot locally (works today, no CI)
 // qinit sync [--ref <tag>]            fetch the published snapshot from the fork's releases
@@ -32,8 +37,10 @@ export function Sync({ args }: { args: string[] }) {
           const version = "local";
           const r = await buildSnapshot(core, cacheDir(version));
           updateCurrent({ headersVersion: version, coreHeaders: r.root });
+          const vu = await autoUpdateVerifyTool({ force: true });
           setS({ phase: "ok", rows: [
             ["source", core], ["version", version], ["files", String(r.fileCount)], ["cache", r.root],
+            ["verify", verifyRow(vu)],
           ]});
         } else {
           const ref = o.ref || "latest";
@@ -44,8 +51,10 @@ export function Sync({ args }: { args: string[] }) {
           const root = cacheHeaders(m.version);
           await extractTarGz(buf, root);
           updateCurrent({ headersVersion: m.version, coreHeaders: root });
+          const vu = await autoUpdateVerifyTool({ force: true });
           setS({ phase: "ok", rows: [
             ["version", m.version], ["sha256", m.headers.sha256.slice(0, 16) + "…"], ["cache", root],
+            ["verify", verifyRow(vu)],
           ]});
         }
       } catch (e: any) { setS({ phase: "err", msg: String(e?.message ?? e) }); }

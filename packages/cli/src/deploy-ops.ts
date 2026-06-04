@@ -3,7 +3,7 @@
 import { resolve } from "node:path";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { buildContract, type ContractIdl } from "@qinit/build";
-import { buildSignedTx, broadcastTx, LiteRpc, k12Hex, readCurrent } from "@qinit/core";
+import { buildSignedTx, broadcastTx, LiteRpc, k12Hex, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
 import { encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX, resolveSlot } from "@qinit/proto";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
@@ -38,6 +38,10 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   const pin = readCurrent();
   if (pin?.headersVersion && pin?.nodeVersion && pin.headersVersion !== pin.nodeVersion)
     emit({ note: `⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit up'` });
+
+  // Daily-cached, best-effort verify-tool auto-update (offline = skip).
+  const vu = await autoUpdateVerifyTool();
+  if (vu.action === "updated" || vu.action === "installed") emit({ note: `↻ contractverify ${vu.action} → ${vu.version}` });
 
   // tick — wait until advancing (broadcasting during boot crashes the node)
   emit({ step: "tick", state: "active", detail: "waiting for node…" });

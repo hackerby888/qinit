@@ -69,7 +69,10 @@ export async function extractTarGz(tarGz: Uint8Array, destDir: string): Promise<
 export interface CurrentPointer {
   headersVersion?: string; coreHeaders?: string;
   nodeVersion?: string; node?: string;
-  verify?: string; // path to the cached contractverify tool
+  verify?: string;          // path to the cached contractverify tool
+  verifySha?: string;       // sha256 of the cached tool (drives auto-update)
+  verifyVersion?: string;   // upstream image digest / version it was built from
+  verifyCheckedAt?: string; // last time we checked the manifest (daily-cached gate)
   syncedAt?: string;
 }
 export function currentPath(): string { return join(cacheRoot(), "current.json"); }
@@ -84,3 +87,58 @@ export function updateCurrent(patch: Partial<CurrentPointer>): CurrentPointer {
   return next;
 }
 export function cacheHeaders(version: string): string { return join(cacheDir(version), "core-headers"); }
+
+// ---- contractverify tool distribution + auto-update --------------------------
+// The verify tool ships in its own moving release (re-published when upstream changes), so it
+// updates independently of the node/headers version set. version = upstream image digest.
+export const VERIFY_REPO = "hackerby888/qinit";
+export const VERIFY_TAG = "verify-latest";
+export interface VerifyManifest { version: string; assets: Record<string, AssetRef>; }
+
+export function toolsDir(): string { return join(cacheRoot(), "tools"); }
+export function cachedVerifyToolPath(): string {
+  return join(toolsDir(), process.platform === "win32" ? "contractverify.exe" : "contractverify");
+}
+// e.g. linux-x64, darwin-arm64, windows-x64 — the manifest key for this host.
+export function verifyPlatformKey(): string {
+  const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : process.arch;
+  const os = process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "windows" : "linux";
+  return `${os}-${arch}`;
+}
+export async function loadVerifyManifest(repo = VERIFY_REPO): Promise<VerifyManifest> {
+  const url = `https://github.com/${repo}/releases/download/${VERIFY_TAG}/verify-manifest.json`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`verify manifest fetch failed (HTTP ${r.status})`);
+  return (await r.json()) as VerifyManifest;
+}
+
+export interface VerifyUpdate { action: "none" | "installed" | "updated" | "current" | "offline" | "unsupported"; version?: string; }
+// Daily-cached, best-effort, never throws. Compares the published sha256 to the cached tool's and
+// pulls when newer. `force` ignores the age gate (used by `qinit sync`). Offline/unreachable = no-op.
+export async function autoUpdateVerifyTool(opts?: { force?: boolean; maxAgeMs?: number }): Promise<VerifyUpdate> {
+  if (process.env.QINIT_NO_UPDATE) return { action: "none" };
+  const cur = readCurrent() ?? {};
+  const maxAge = opts?.maxAgeMs ?? 24 * 3600 * 1000;
+  const last = cur.verifyCheckedAt ? Date.parse(cur.verifyCheckedAt) : 0;
+  if (!opts?.force && Date.now() - last < maxAge) return { action: "none" };
+
+  let m: VerifyManifest;
+  try { m = await loadVerifyManifest(); } catch { return { action: "offline" }; }
+  const asset = m.assets[verifyPlatformKey()];
+  if (!asset) { updateCurrent({ verifyCheckedAt: new Date().toISOString() }); return { action: "unsupported" }; }
+
+  const tool = cachedVerifyToolPath();
+  const have = existsSync(tool);
+  if (have && cur.verifySha === asset.sha256) {
+    updateCurrent({ verifyCheckedAt: new Date().toISOString() });
+    return { action: "current", version: m.version };
+  }
+  try {
+    const buf = await fetchVerify(asset);
+    mkdirSync(toolsDir(), { recursive: true });
+    writeFileSync(tool, buf);
+    Bun.spawnSync(["chmod", "+x", tool]);
+    updateCurrent({ verify: tool, verifySha: asset.sha256, verifyVersion: m.version, verifyCheckedAt: new Date().toISOString() });
+    return { action: have ? "updated" : "installed", version: m.version };
+  } catch { return { action: "offline" }; }
+}

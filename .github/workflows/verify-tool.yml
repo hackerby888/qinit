@@ -1,0 +1,71 @@
+# Auto-track the upstream Qubic contract-verify tool and re-publish it as a moving release
+# (verify-latest) that `qinit` clients auto-pull. Republishes ONLY when upstream changes, so a
+# new upstream build => a new asset => clients update on their next daily check.
+#
+# Source of truth: the docker image the upstream action ships. Only linux-x64 is extractable from
+# that image; arm64/darwin/windows would need a from-source matrix (cmake + flex + CppParser) — TODO.
+name: contractverify tool
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"            # weekly (Mon 06:00 UTC) — pick up upstream changes
+  workflow_dispatch:               # manual refresh
+  push:
+    paths: [".github/workflows/verify-tool.yml"]   # publish on first install / edits
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/franziska-mueller/qubic-contract-verify:latest
+      TAG: verify-latest
+    steps:
+      - name: Pull upstream image
+        run: docker pull "$IMAGE"
+
+      - name: Resolve upstream version (image id)
+        id: ver
+        run: echo "version=$(docker inspect --format '{{.Id}}' "$IMAGE")" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if unchanged
+        id: gate
+        run: |
+          url="https://github.com/${{ github.repository }}/releases/download/${TAG}/verify-manifest.json"
+          cur="$(curl -fsSL "$url" | jq -r '.version' 2>/dev/null || echo none)"
+          if [ "$cur" = "${{ steps.ver.outputs.version }}" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "no upstream change ($cur) — nothing to publish"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "upstream changed: $cur -> ${{ steps.ver.outputs.version }}"
+          fi
+
+      - name: Extract linux-x64 binary
+        if: steps.gate.outputs.changed == 'true'
+        run: |
+          cid="$(docker create "$IMAGE")"
+          docker cp "$cid:/contract-verify/build/src/contractverify" ./contractverify-linux-x64
+          docker rm "$cid"
+          chmod +x contractverify-linux-x64
+          file contractverify-linux-x64
+
+      - name: Build manifest
+        if: steps.gate.outputs.changed == 'true'
+        run: |
+          sha="$(sha256sum contractverify-linux-x64 | cut -d' ' -f1)"
+          base="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          jq -n --arg v "${{ steps.ver.outputs.version }}" \
+                --arg url "$base/contractverify-linux-x64" --arg sha "$sha" \
+            '{version:$v, assets:{"linux-x64":{url:$url, sha256:$sha}}}' > verify-manifest.json
+          cat verify-manifest.json
+
+      - name: Publish (moving verify-latest release)
+        if: steps.gate.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" -t "contractverify (auto-tracking upstream)" \
+              -n "Prebuilt Qubic contract-verify tool, re-published when upstream changes. Consumed by \`qinit\` (daily auto-update)."
+          gh release upload "$TAG" contractverify-linux-x64 verify-manifest.json --clobber

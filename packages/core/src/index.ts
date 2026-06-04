@@ -10,5 +10,7 @@ export type { BroadcastResult } from "./net";
 export {
   RELEASE_REPO, cacheRoot, cacheDir, cacheHeaders, sha256Hex, loadManifest, fetchVerify,
   extractTarGz, currentPath, readCurrent, updateCurrent,
+  VERIFY_REPO, VERIFY_TAG, toolsDir, cachedVerifyToolPath, verifyPlatformKey,
+  loadVerifyManifest, autoUpdateVerifyTool,
 } from "./fetch";
-export type { AssetRef, Manifest, CurrentPointer } from "./fetch";
+export type { AssetRef, Manifest, CurrentPointer, VerifyManifest, VerifyUpdate } from "./fetch";

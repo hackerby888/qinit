@@ -3,6 +3,7 @@ import { resolve, join, basename } from "node:path";
 import { writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { buildContract, type BuildResult } from "@qinit/build";
+import { autoUpdateVerifyTool, type VerifyUpdate } from "@qinit/core";
 import { loadConfig, resolveCore } from "../config";
 import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
 
@@ -15,7 +16,7 @@ function parse(args: string[]): Record<string, string> {
   return o;
 }
 
-type State = { phase: "run" } | { phase: "done"; r: BuildResult };
+type State = { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate };
 
 export function Build({ args }: { args: string[] }) {
   const { exit } = useApp();
@@ -23,30 +24,30 @@ export function Build({ args }: { args: string[] }) {
   const [s, setS] = useState<State>({ phase: "run" });
 
   useEffect(() => {
-    try {
-      const cfg = loadConfig();
-      const core = resolveCore(o.core, cfg.core);
-      const contractPath = resolve(o.contract ?? cfg.contract ?? "fixtures/Counter.h");
-      // Name derived from the contract filename (Counter.h -> Counter); --name / cfg.name override.
-      const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
-      const outDir = resolve(o.out ?? "dist/contracts");
-      // Inter-contract: repeatable --callee Name=/abs/header.h@slot (mirrors deploy).
-      const dynCallees: Record<string, { header: string; index: number }> = {};
-      for (let i = 0; i < args.length; i++) {
-        if (args[i] !== "--callee") continue;
-        const m = (args[i + 1] ?? "").match(/^(\w+)=(.+)@(\d+)$/);
-        if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
-      }
-      buildContract({
-        contractPath,
-        name, slot: Number(o.slot ?? cfg.slot ?? 28), corePath: core, outDir, dynCallees,
-      }).then((r) => {
+    (async () => {
+      try {
+        const cfg = loadConfig();
+        const core = resolveCore(o.core, cfg.core);
+        const contractPath = resolve(o.contract ?? cfg.contract ?? "fixtures/Counter.h");
+        // Name derived from the contract filename (Counter.h -> Counter); --name / cfg.name override.
+        const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
+        const outDir = resolve(o.out ?? "dist/contracts");
+        // Inter-contract: repeatable --callee Name=/abs/header.h@slot (mirrors deploy).
+        const dynCallees: Record<string, { header: string; index: number }> = {};
+        for (let i = 0; i < args.length; i++) {
+          if (args[i] !== "--callee") continue;
+          const m = (args[i + 1] ?? "").match(/^(\w+)=(.+)@(\d+)$/);
+          if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
+        }
+        // Daily-cached, best-effort verify-tool auto-update (never blocks; offline = skip).
+        const vu = await autoUpdateVerifyTool();
+        const r = await buildContract({ contractPath, name, slot: Number(o.slot ?? cfg.slot ?? 28), corePath: core, outDir, dynCallees });
         if (r.ok && r.idl) try { writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2)); } catch {}
-        setS({ phase: "done", r });
-      });
-    } catch (e: any) {
-      setS({ phase: "done", r: { ok: false, stderr: String(e?.message ?? e) } });
-    }
+        setS({ phase: "done", r, vu });
+      } catch (e: any) {
+        setS({ phase: "done", r: { ok: false, stderr: String(e?.message ?? e) } });
+      }
+    })();
   }, []);
   useEffect(() => {
     if (s.phase === "done") { process.exitCode = s.r.ok ? 0 : 1; exit(); }
@@ -85,6 +86,9 @@ export function Build({ args }: { args: string[] }) {
           ["k12 ", r.hash ?? "(pending)"],
         ]} />
       </Panel>
+      {s.vu && (s.vu.action === "updated" || s.vu.action === "installed") && (
+        <Box marginTop={1}><Text color={theme.info}>↻ contractverify {s.vu.action} → {s.vu.version}</Text></Box>
+      )}
       <Box marginTop={1}>
         {v?.available === false
           ? <Status ok={null} label="protocol rules" detail="skipped — verify tool not synced (run qinit sync)" pad={16} />
