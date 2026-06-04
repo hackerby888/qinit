@@ -86,23 +86,27 @@ export async function deployContract(o: DeployOpts, log: (s: string) => void): P
     } catch (e: any) { log("idl merge skipped: " + String(e?.message ?? e)); }
   }
 
-  // Confirm the slot actually ARMED with OUR code (not just "broadcast ok"): poll dyn-registry
-  // until armed && codeHash == the uploaded .so hash. Catches unfunded seed / dropped chunks / mismatch.
-  let armed = false, onNode = "";
-  if (dr.ok) {
+  // Confirm the slot actually ARMED with OUR code (not just "broadcast ok"), and on failure say WHY:
+  // the dyn-registry tells us whether the deploy landed at all (slot empty = upload/deploy dropped)
+  // vs landed with the wrong code (deploy didn't take). Catches unfunded seed / dropped chunks / mismatch.
+  let armed = false;
+  if (!dr.ok) {
+    log(`✗ deploy tx not broadcast (code ${dr.code}) — nothing landed`);
+  } else {
     log("confirming on-chain arm …");
     const want = hash.toLowerCase();
+    let present = false, onNode = "";
     for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       try {
         const reg = await rpc.dynRegistry();
         const c = (reg.contracts ?? []).find((x) => x.index === slot);
-        if (c?.armed) { onNode = (c.codeHash || "").toLowerCase(); if (onNode === want) { armed = true; break; } }
+        if (c) { present = !!c.armed; onNode = (c.codeHash || "").toLowerCase(); if (c.armed && onNode === want) { armed = true; break; } }
       } catch {}
     }
-    log(armed
-      ? `armed ✓ slot ${slot} codeHash ${want.slice(0, 16)}…`
-      : `✗ not armed: slot ${slot} on-node '${onNode.slice(0, 16) || "—"}…' want '${want.slice(0, 16)}…'`);
+    if (armed) log(`armed ✓ slot ${slot} codeHash ${want.slice(0, 16)}…`);
+    else if (!present) log(`✗ not armed: slot ${slot} empty — upload/deploy didn't land (chunks dropped, tick missed, or seed unfunded)`);
+    else log(`✗ not armed: slot ${slot} holds different code (on-node ${onNode.slice(0, 16)}… ≠ yours ${want.slice(0, 16)}…) — your deploy didn't take`);
   }
   return { ok: dr.ok && armed, slot, reused, hash, txId: dr.transactionId };
 }
