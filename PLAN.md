@@ -1,11 +1,11 @@
-# Qinit — Anchor-like framework for Qubic dynamic contracts
+# Qinit — framework for Qubic dynamic contracts
 
 **Status:** plan / greenfield.
 **Pairs with:** `qubic-core-lite/src/extensions/DYNAMIC_CONTRACTS.md` — Qinit is the dev-facing
 toolchain (client side) for that on-chain runtime-deploy mechanism, and the vehicle we use to
 actually exercise/test it.
 
-Qinit is to Qubic dynamic contracts what Anchor is to Solana: scaffold → build → deploy → test →
+Qinit is the framework for Qubic dynamic contracts: scaffold → build → deploy → test →
 typed client, in one polished CLI.
 
 ---
@@ -172,7 +172,7 @@ Then:
   inputType, fields, output}], errors }`.
 - Codegen: IDL → a typed TS client — `await program.methods.foo({...}).proc()` /
   `await program.views.bar({...}).call()` — that encodes inputs to the contract's structs, builds/signs
-  txs (proc) or RPC (fn), and decodes outputs. Mirrors `@coral-xyz/anchor`'s ergonomics.
+  txs (proc) or RPC (fn), and decodes outputs.
 - Layout codec: map Qubic primitive types (`uint64`, `sint32`, `id`/m256i, `Array<T,N>`, QPI
   collections' wire forms) ↔ TS, little-endian, matching the C++ struct packing.
 

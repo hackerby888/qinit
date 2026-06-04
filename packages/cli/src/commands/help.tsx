@@ -25,7 +25,7 @@ export function Help({ unknown, command }: { unknown?: boolean; command?: string
   return (
     <Box flexDirection="column">
       {unknown && <Box marginBottom={1}><Text><Text color={theme.warn}>✗ unknown command:</Text> <Text bold>{command}</Text></Text></Box>}
-      <Banner version={VERSION} tagline="Anchor-like framework for Qubic dynamic contracts" />
+      <Banner version={VERSION} tagline="Framework for Qubic dynamic contracts" />
       <Text dimColor>usage: <Text color={theme.info}>qinit</Text> &lt;command&gt; [args]</Text>
       <Box marginTop={1} flexDirection="column">
         {COMMANDS.map(([name, desc]) => (

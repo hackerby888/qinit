@@ -1,6 +1,6 @@
 # Qinit
 
-Anchor-like framework for **Qubic dynamic contracts** — scaffold → build → deploy → test → typed
+Framework for **Qubic dynamic contracts** — scaffold → build → deploy → test → typed
 client, shipped as a single standalone binary. Pairs with
 `qubic-core-lite/src/extensions/DYNAMIC_CONTRACTS.md`.
 

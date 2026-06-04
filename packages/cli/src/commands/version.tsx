@@ -6,5 +6,5 @@ import { Banner } from "../ui";
 export function Version() {
   const { exit } = useApp();
   useEffect(() => { exit(); }, [exit]);
-  return <Banner version={VERSION} tagline="Anchor-like framework for Qubic dynamic contracts" />;
+  return <Banner version={VERSION} tagline="Framework for Qubic dynamic contracts" />;
 }
