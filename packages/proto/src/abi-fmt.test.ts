@@ -65,3 +65,20 @@ test("deep nested: array of structs with an inner array", async () => {
   const b = await encodeInput("[2; { 1uint32, [2; 2uint16, 3uint16] }, { 4uint32, [2; 5uint16, 6uint16] }]");
   expect(await decodeOutput(b, "[2; { uint32, [2; uint16] }]")).toEqual([[1, [2, 3]], [4, [5, 6]]]);
 });
+
+test("rejects a malformed id (not 60-char identity nor 64-hex)", async () => {
+  await expect(encodeInput("abcid")).rejects.toThrow(/id must be/);
+  await expect(encodeInput("notavalidlowercaseidentitynotavalidlowercaseidentitynotavaid")).rejects.toThrow(/id must be/);
+});
+
+test("rejects a malformed m256i (not 64 hex)", async () => {
+  await expect(encodeInput("zzzm256i")).rejects.toThrow(/m256i must be/);
+  await expect(encodeInput("00112233m256i")).rejects.toThrow(/m256i must be/);
+});
+
+test("rejects scalar out of range / bad bit", async () => {
+  await expect(encodeInput("300uint8")).rejects.toThrow(/out of range/);
+  await expect(encodeInput("-1uint8")).rejects.toThrow(/out of range/);
+  await expect(encodeInput("70000uint16")).rejects.toThrow(/out of range/);
+  await expect(encodeInput("2bit")).rejects.toThrow(/bit must be/);
+});

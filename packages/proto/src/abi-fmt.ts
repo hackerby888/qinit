@@ -118,6 +118,7 @@ export async function decodeOutput(bytes: Uint8Array, fmt: string): Promise<any>
 // ---------- input encode (value-driven, aligned, async for id) ----------
 function hexToBytes(hex: string): Uint8Array {
   const h = hex.startsWith("0x") ? hex.slice(2) : hex;
+  if (h.length % 2 !== 0 || /[^0-9a-fA-F]/.test(h)) throw new Error(`invalid hex: '${hex}'`);
   const out = new Uint8Array(h.length / 2);
   for (let k = 0; k < out.length; k++) out[k] = parseInt(h.slice(k * 2, k * 2 + 2), 16);
   return out;
@@ -170,32 +171,44 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
   }
   if (tok.endsWith("id")) {
     const v = tok.slice(0, -2).trim();
-    const b = /^(0x)?[0-9a-fA-F]{64}$/.test(v) ? hexToBytes(v) : identityToBytes(v);
-    if (b.length !== 32) throw new Error(`id must resolve to 32 bytes: '${v}'`);
+    let b: Uint8Array;
+    if (/^(0x)?[0-9a-fA-F]{64}$/.test(v)) b = hexToBytes(v);
+    else if (/^[A-Z]{60}$/.test(v)) b = identityToBytes(v);
+    else throw new Error(`id must be a 60-char identity (A-Z) or a 64-hex pubkey, got '${v}'`);
+    if (b.length !== 32) throw new Error(`id did not resolve to 32 bytes: '${v}'`);
     padTo(out, 8);
     for (const x of b) out.push(x);
     return;
   }
   if (tok.endsWith("m256i")) {
     const v = tok.slice(0, -5).trim().replace(/^0x/, "");
-    const b = hexToBytes(v);
-    if (b.length !== 32) throw new Error(`m256i needs 64 hex chars: '${v}'`);
+    if (!/^[0-9a-fA-F]{64}$/.test(v)) throw new Error(`m256i must be 64 hex chars (32 bytes), got '${v}'`);
     padTo(out, 8);
-    for (const x of b) out.push(x);
+    for (const x of hexToBytes(v)) out.push(x);
     return;
   }
   const m = tok.match(/^(-?\d+)([a-z0-9]+)$/);
-  if (!m) throw new Error(`cannot parse input token '${tok}'`);
+  if (!m) throw new Error(`cannot parse value token '${tok}' (expected <number><type>, e.g. 5uint64)`);
   const [, numStr, type] = m;
   const size = SCALAR_SIZE[type];
-  if (!size) throw new Error(`unknown input type '${type}'`);
+  if (!size) throw new Error(`unknown type '${type}' in '${tok}'`);
+  const signed = type.startsWith("sint");
+  const val = BigInt(numStr);
+  if (type === "bit") {
+    if (val < 0n || val > 1n) throw new Error(`bit must be 0 or 1, got ${numStr}`);
+  } else {
+    const bits = BigInt(size * 8);
+    const min = signed ? -(1n << (bits - 1n)) : 0n;
+    const max = signed ? (1n << (bits - 1n)) - 1n : (1n << bits) - 1n;
+    if (val < min || val > max) throw new Error(`${type} out of range: ${numStr} (allowed ${min}..${max})`);
+  }
   padTo(out, size);
   const buf = new Uint8Array(size);
   const dv = new DataView(buf.buffer);
-  if (size === 8) dv.setBigUint64(0, BigInt(numStr), true);
-  else if (size === 4) dv.setUint32(0, Number(numStr) >>> 0, true);
-  else if (size === 2) dv.setUint16(0, Number(numStr) & 0xffff, true);
-  else dv.setUint8(0, Number(numStr) & 0xff);
+  if (size === 8) dv.setBigUint64(0, val & ((1n << 64n) - 1n), true); // mask -> two's complement
+  else if (size === 4) dv.setUint32(0, Number(val) >>> 0, true);
+  else if (size === 2) dv.setUint16(0, Number(val) & 0xffff, true);
+  else dv.setUint8(0, Number(val) & 0xff);
   for (const x of buf) out.push(x);
 }
 
