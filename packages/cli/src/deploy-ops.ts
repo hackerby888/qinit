@@ -62,7 +62,12 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   // build
   emit({ step: "build", state: "active", detail: "compiling…" });
   const b = await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir: o.outDir ?? resolve("dist/contracts"), dynCallees: o.dynCallees });
-  if (!b.ok) { emit({ step: "build", state: "fail", detail: "build failed" }); emit({ note: (b.stderr ?? "").split("\n").slice(0, 14).join("\n") }); return { ok: false, slot, error: "build failed" }; }
+  if (!b.ok) {
+    const why = b.verify && !b.verify.ok && b.verify.errors.length ? `protocol: ${b.verify.errors[0]}` : "compile failed";
+    emit({ step: "build", state: "fail", detail: why });
+    emit({ note: (b.stderr ?? "").split("\n").slice(0, 14).join("\n") });
+    return { ok: false, slot, error: why };
+  }
   const so = readFileSync(b.so!);
   const hash = b.hash ?? (await k12Hex(new Uint8Array(so)));
   emit({ step: "build", state: "ok", detail: `${so.length}B · k12 ${hash.slice(0, 12)}…` });

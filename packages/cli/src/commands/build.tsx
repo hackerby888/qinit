@@ -4,7 +4,7 @@ import { writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { buildContract, type BuildResult } from "@qinit/build";
 import { loadConfig, resolveCore } from "../config";
-import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
+import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
 
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
@@ -58,13 +58,23 @@ export function Build({ args }: { args: string[] }) {
     return (
       <Box flexDirection="column">
         <Header cmd="build" />
-        <Panel title="build failed" color={theme.err}>
-          <Text dimColor>{(r.stderr ?? "").split("\n").slice(0, 25).join("\n")}</Text>
-        </Panel>
+        {r.verify && !r.verify.ok && r.verify.errors.length ? (
+          <Panel title="protocol violations" color={theme.err}>
+            <Box flexDirection="column" width={Math.min(100, termCols() - 4)}>
+              {r.verify.errors.map((e, i) => <Text key={i} wrap="wrap"><Text color={theme.err}>✗ </Text>{e}</Text>)}
+            </Box>
+            <Box marginTop={1}><Text dimColor>fix these qpi.h rule breaks, then re-run qinit build</Text></Box>
+          </Panel>
+        ) : (
+          <Panel title="build failed" color={theme.err}>
+            <Text dimColor>{(r.stderr ?? "").split("\n").slice(0, 25).join("\n")}</Text>
+          </Panel>
+        )}
       </Box>
     );
   }
   const undef = r.undef ?? [];
+  const v = r.verify;
   return (
     <Box flexDirection="column">
       <Header cmd="build" />
@@ -76,11 +86,16 @@ export function Build({ args }: { args: string[] }) {
         ]} />
       </Panel>
       <Box marginTop={1}>
+        {v?.available === false
+          ? <Status ok={null} label="protocol rules" detail="skipped — verify tool not synced (run qinit sync)" pad={16} />
+          : <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />}
+      </Box>
+      <Box marginTop={1}>
         {undef.length === 0
-          ? <Status ok={true} label="QPI symbols" detail="none unresolved — minimal ABI satisfies this contract" pad={12} />
+          ? <Status ok={true} label="QPI symbols" detail="none unresolved — minimal ABI satisfies this contract" pad={16} />
           : (
             <Box flexDirection="column">
-              <Status ok={false} label="QPI symbols" detail={`${undef.length} unresolved — forwarders still needed`} pad={12} />
+              <Status ok={false} label="QPI symbols" detail={`${undef.length} unresolved — forwarders still needed`} pad={16} />
               {undef.slice(0, 40).map((u, i) => <Text key={i} dimColor>  {u}</Text>)}
             </Box>
           )}

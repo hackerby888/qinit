@@ -4,6 +4,7 @@ import { statSync, readFileSync } from "node:fs";
 import { compile, type BuildOpts } from "./recipe";
 import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
+import { verifyContract, type VerifyResult } from "./verify";
 import { k12Hex } from "@qinit/core";
 
 export type { BuildOpts } from "./recipe";
@@ -12,6 +13,8 @@ export type { ContractIdl, IdlEntry, Field } from "./idl";
 export { generateClient } from "./gen-client";
 export { buildSnapshot } from "./snapshot";
 export type { SnapshotResult } from "./snapshot";
+export { verifyContract, resolveVerifyTool } from "./verify";
+export type { VerifyResult } from "./verify";
 
 export interface BuildResult {
   ok: boolean;
@@ -20,10 +23,18 @@ export interface BuildResult {
   hash?: string;
   undef?: string[];
   idl?: ContractIdl;
+  verify?: VerifyResult;
   stderr?: string;
 }
 
 export async function buildContract(o: BuildOpts): Promise<BuildResult> {
+  // Protocol-rule gate first (cheap, fails before clang): reject contracts that break the
+  // qpi.h restrictions. Skipped (not failed) when the verify tool isn't synced on this box.
+  const verify = await verifyContract(o.contractPath, o.name);
+  if (verify.available && !verify.ok) {
+    return { ok: false, verify, stderr: ["Qubic protocol violations:", ...verify.errors.map((e) => "  • " + e)].join("\n") };
+  }
+
   // Inter-contract: scan the contract for CALL_OTHER_CONTRACT_* and auto-derive the callee prelude
   // (callee type headers at their indices + per-fn inputType constants) from contract_def.h.
   let calleePrelude = o.calleePrelude;
@@ -46,7 +57,7 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   const undef = await undefinedQpiSymbols(c.so);
   let idl: ContractIdl | undefined;
   try { idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name); } catch { idl = undefined; }
-  return { ok: true, so: c.so, size, hash, undef, idl };
+  return { ok: true, so: c.so, size, hash, undef, idl, verify };
 }
 
 // Symbols the .so leaves unresolved that the host/ABI must provide — anything dlopen RTLD_NOW

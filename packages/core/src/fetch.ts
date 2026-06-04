@@ -69,6 +69,7 @@ export async function extractTarGz(tarGz: Uint8Array, destDir: string): Promise<
 export interface CurrentPointer {
   headersVersion?: string; coreHeaders?: string;
   nodeVersion?: string; node?: string;
+  verify?: string; // path to the cached contractverify tool
   syncedAt?: string;
 }
 export function currentPath(): string { return join(cacheRoot(), "current.json"); }

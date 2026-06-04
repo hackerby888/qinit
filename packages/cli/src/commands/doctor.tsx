@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { Header, Spinner, Panel, Status, theme } from "../ui";
 import { resolveCore } from "../config";
+import { resolveVerifyTool } from "@qinit/build";
 
-interface Check { name: string; ok: boolean; detail: string; fix?: string }
+interface Check { name: string; ok: boolean | null; detail: string; fix?: string; optional?: boolean }
 
 async function cmdVersion(cmd: string, args: string[], missingHint: string, fix: string): Promise<Check> {
   try {
@@ -39,6 +40,14 @@ async function runChecks(): Promise<Check[]> {
   } catch (e: any) {
     checks.push({ name: "@qubic-lib/qubic-ts-library", ok: false, detail: String(e?.message ?? e), fix: "bun install   (reinstall deps)" });
   }
+
+  // Optional: the protocol-rule checker. Absent => qinit build still works, just skips the rule gate.
+  const vtool = resolveVerifyTool();
+  checks.push({
+    name: "contract-verify tool", optional: true, ok: vtool ? true : null,
+    detail: vtool ?? "not synced — qinit build will skip the qpi.h rule check",
+    fix: vtool ? undefined : "qinit sync   ·   or set QINIT_VERIFY=/path/to/contractverify",
+  });
   return checks;
 }
 
@@ -47,15 +56,17 @@ export function Doctor() {
   const [checks, setChecks] = useState<Check[] | null>(null);
 
   useEffect(() => { runChecks().then(setChecks); }, []);
+  // Optional checks (e.g. the verify tool) don't fail the gate; only required ones do.
+  const required = (c: Check) => !c.optional;
   useEffect(() => {
     if (checks) {
-      process.exitCode = checks.every((c) => c.ok) ? 0 : 1;
+      process.exitCode = checks.filter(required).every((c) => c.ok === true) ? 0 : 1;
       exit();
     }
   }, [checks, exit]);
 
-  const allOk = checks?.every((c) => c.ok) ?? false;
-  const fixes = checks?.filter((c) => !c.ok && c.fix) ?? [];
+  const allOk = checks?.filter(required).every((c) => c.ok === true) ?? false;
+  const fixes = checks?.filter((c) => c.ok !== true && c.fix) ?? [];
   return (
     <Box flexDirection="column">
       <Header cmd="doctor" />
