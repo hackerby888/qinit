@@ -36,14 +36,15 @@ export function New({ args }: { args: string[] }) {
       if (!TEMPLATE_KINDS.includes(kind)) { add(`✗ unknown template '${kind}' — pick: ${TEMPLATE_KINDS.join(", ")}`); setDone(true); return; }
       const dir = o.name;
       const name = toIdent(o.name);
-      const core = o.core ?? process.env.QINIT_CORE ?? "/home/kali/Projects/qubic-core-lite";
+      const core = o.core ?? process.env.QINIT_CORE; // pin only if explicit; else qinit.json omits it -> synced cache (portable)
       if (existsSync(dir)) { add(`✗ '${dir}' already exists`); setDone(true); return; }
 
       mkdirSync(join(dir, "contracts"), { recursive: true });
       writeFileSync(join(dir, "contracts", `${name}.h`), templateSource(kind));
       // No slot: the framework auto-allocates one at deploy by name (reuse-or-first-free).
-      writeFileSync(join(dir, "qinit.json"), JSON.stringify(
-        { name, contract: `contracts/${name}.h`, core, rpc: "http://127.0.0.1:41841" }, null, 2) + "\n");
+      const cfg: Record<string, unknown> = { name, contract: `contracts/${name}.h`, rpc: "http://127.0.0.1:41841" };
+      if (core) cfg.core = core; // omitted by default -> resolveCore uses the synced cache, project is machine-portable
+      writeFileSync(join(dir, "qinit.json"), JSON.stringify(cfg, null, 2) + "\n");
       writeFileSync(join(dir, ".gitignore"), ["dist/", "*.so", "*.log", "qinit.idl.json", "contracts_dyn/", ".DS_Store"].join("\n") + "\n");
       writeFileSync(join(dir, "README.md"),
         `# ${name}\n\nQubic dynamic contract (\`qinit new --template ${kind}\`).\n\n` +
