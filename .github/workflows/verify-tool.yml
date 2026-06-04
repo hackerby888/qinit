@@ -1,9 +1,11 @@
 # Auto-track the upstream Qubic contract-verify tool and re-publish it as a moving release
-# (verify-latest) that `qinit` clients auto-pull. Republishes ONLY when upstream changes, so a
-# new upstream build => a new asset => clients update on their next daily check.
+# (verify-latest) that `qinit` clients auto-pull. Republishes when upstream changes OR when a new
+# platform is added, so a new upstream build => a new asset => clients update on their next check.
 #
-# Source of truth: the docker image the upstream action ships. Only linux-x64 is extractable from
-# that image; arm64/darwin/windows would need a from-source matrix (cmake + flex + CppParser) — TODO.
+# linux-x64 is extracted from the upstream docker image (amd64-only). darwin-arm64 (Apple Silicon —
+# the dominant web3-dev platform) is BUILT FROM SOURCE on a macos-14 runner (cmake + flex + CppParser),
+# since the docker image can't supply it. A darwin build failure degrades gracefully: the manifest
+# just omits that platform and those clients report `unsupported` (build still works, rule check skipped).
 name: contractverify tool
 
 on:
@@ -16,57 +18,103 @@ on:
 permissions:
   contents: write
 
+env:
+  TAG: verify-latest
+  IMAGE: ghcr.io/franziska-mueller/qubic-contract-verify:latest
+  UPSTREAM: https://github.com/Franziska-Mueller/qubic-contract-verify
+
 jobs:
-  publish:
+  # linux-x64 from the docker image; also resolves the version + change gate for the whole run.
+  linux-x64:
     runs-on: ubuntu-latest
-    env:
-      IMAGE: ghcr.io/franziska-mueller/qubic-contract-verify:latest
-      TAG: verify-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      changed: ${{ steps.gate.outputs.changed }}
     steps:
       - name: Pull upstream image
         run: docker pull "$IMAGE"
-
       - name: Resolve upstream version (image id)
         id: ver
         run: echo "version=$(docker inspect --format '{{.Id}}' "$IMAGE")" >> "$GITHUB_OUTPUT"
-
-      - name: Skip if unchanged
+      - name: Change gate
         id: gate
         run: |
           url="https://github.com/${{ github.repository }}/releases/download/${TAG}/verify-manifest.json"
-          cur="$(curl -fsSL "$url" | jq -r '.version' 2>/dev/null || echo none)"
-          if [ "$cur" = "${{ steps.ver.outputs.version }}" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "no upstream change ($cur) — nothing to publish"
+          cur="$(curl -fsSL "$url" 2>/dev/null || echo '{}')"
+          curVer="$(echo "$cur" | jq -r '.version' 2>/dev/null || echo none)"
+          hasDarwin="$(echo "$cur" | jq -r '.assets["darwin-arm64"] // empty' 2>/dev/null)"
+          # republish if upstream changed OR a platform we now build is missing from the live manifest
+          if [ "$curVer" = "${{ steps.ver.outputs.version }}" ] && [ -n "$hasDarwin" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "up to date ($curVer, all platforms present)"
           else
-            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "upstream changed: $cur -> ${{ steps.ver.outputs.version }}"
+            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "republish: ver $curVer->${{ steps.ver.outputs.version }} darwin=$hasDarwin"
           fi
-
       - name: Extract linux-x64 binary
         if: steps.gate.outputs.changed == 'true'
         run: |
           cid="$(docker create "$IMAGE")"
           docker cp "$cid:/contract-verify/build/src/contractverify" ./contractverify-linux-x64
           docker rm "$cid"
-          chmod +x contractverify-linux-x64
-          file contractverify-linux-x64
-
-      - name: Build manifest
+          chmod +x contractverify-linux-x64 && file contractverify-linux-x64
+      - name: Upload artifact
         if: steps.gate.outputs.changed == 'true'
-        run: |
-          sha="$(sha256sum contractverify-linux-x64 | cut -d' ' -f1)"
-          base="https://github.com/${{ github.repository }}/releases/download/${TAG}"
-          jq -n --arg v "${{ steps.ver.outputs.version }}" \
-                --arg url "$base/contractverify-linux-x64" --arg sha "$sha" \
-            '{version:$v, assets:{"linux-x64":{url:$url, sha256:$sha}}}' > verify-manifest.json
-          cat verify-manifest.json
+        uses: actions/upload-artifact@v4
+        with: { name: contractverify-linux-x64, path: contractverify-linux-x64, if-no-files-found: error }
 
+  # darwin-arm64 from source (Apple Silicon runner). Best-effort: failure omits the platform.
+  darwin-arm64:
+    needs: linux-x64
+    if: needs.linux-x64.outputs.changed == 'true'
+    runs-on: macos-14
+    steps:
+      - name: Build contractverify from source
+        run: |
+          set -x
+          git clone --depth 1 "$UPSTREAM" src
+          cd src
+          git config url."https://github.com/".insteadOf "git@github.com:"   # submodule uses git@ -> https
+          git submodule update --init --recursive
+          brew install flex cmake
+          export PATH="$(brew --prefix flex)/bin:$PATH"   # brew flex is keg-only
+          cmake -S deps/CppParser -B deps/CppParser/builds -DCMAKE_BUILD_TYPE=Release
+          cmake --build deps/CppParser/builds --config Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_CONTRACTVERIFY_TESTS=OFF \
+            -Dcppparser_DIR="$PWD/deps/CppParser/builds"
+          cmake --build build --config Release
+          cp build/src/contractverify "$GITHUB_WORKSPACE/contractverify-darwin-arm64"
+          file "$GITHUB_WORKSPACE/contractverify-darwin-arm64"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with: { name: contractverify-darwin-arm64, path: contractverify-darwin-arm64, if-no-files-found: error }
+
+  # Aggregate whatever platform artifacts built into one manifest + the moving release.
+  publish:
+    needs: [linux-x64, darwin-arm64]
+    if: ${{ always() && needs.linux-x64.result == 'success' && needs.linux-x64.outputs.changed == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with: { path: dist, pattern: "contractverify-*", merge-multiple: true }
+      - name: Build manifest (only platforms that produced a binary)
+        run: |
+          BASE="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          assets='{}'
+          for key in linux-x64 darwin-arm64; do
+            f="dist/contractverify-$key"
+            [ -f "$f" ] || { echo "skip $key (no artifact)"; continue; }
+            chmod +x "$f"
+            sha="$(sha256sum "$f" | cut -d' ' -f1)"
+            assets="$(echo "$assets" | jq --arg k "$key" --arg u "$BASE/contractverify-$key" --arg s "$sha" '. + {($k):{url:$u,sha256:$s}}')"
+          done
+          jq -n --arg v "${{ needs.linux-x64.outputs.version }}" --argjson a "$assets" '{version:$v, assets:$a}' > dist/verify-manifest.json
+          cat dist/verify-manifest.json
       - name: Publish (moving verify-latest release)
-        if: steps.gate.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}   # gh needs this without a checkout
         run: |
-          gh release create "$TAG" contractverify-linux-x64 verify-manifest.json \
+          gh release create "$TAG" dist/contractverify-* dist/verify-manifest.json \
             --title "contractverify (auto-tracking upstream)" \
             --notes "Prebuilt Qubic contract-verify tool, re-published when upstream changes. Consumed by qinit (daily auto-update)." \
-          || gh release upload "$TAG" contractverify-linux-x64 verify-manifest.json --clobber
+          || gh release upload "$TAG" dist/contractverify-* dist/verify-manifest.json --clobber
