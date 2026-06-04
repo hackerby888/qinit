@@ -6,6 +6,27 @@ client, shipped as a single standalone binary. Pairs with
 
 See [PLAN.md](./PLAN.md) for the full design and milestones.
 
+## Install
+
+Prebuilt binary (no Bun needed):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hackerby888/qinit/main/install.sh | sh
+```
+
+Installs `qinit` to `~/.local/bin` (override with `QINIT_BIN`). Or download from
+[Releases](https://github.com/hackerby888/qinit/releases/latest):
+
+| OS | arch | asset |
+|----|------|-------|
+| Linux | x64 | `qinit-linux-x64` |
+| Linux | arm64 | `qinit-linux-arm64` |
+| macOS | Apple Silicon | `qinit-darwin-arm64` |
+| macOS | Intel | `qinit-darwin-x64` |
+| Windows | x64 | `qinit-windows-x64.exe` |
+
+Then `qinit doctor`. (Building from source is below.)
+
 ## Status — M0 (bin skeleton)
 
 Bun workspaces + `--compile` standalone-binary config, an Ink CLI, `doctor`, and the crypto smoke

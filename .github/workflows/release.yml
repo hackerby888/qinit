@@ -1,0 +1,54 @@
+# Publishes prebuilt qinit CLI binaries (5 targets) to a GitHub release.
+# Install: curl -fsSL https://raw.githubusercontent.com/hackerby888/qinit/main/install.sh | sh
+name: qinit-cli-release
+
+on:
+  push:
+    tags: ["qinit-cli-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "release tag"
+        required: true
+        default: "qinit-cli-dev"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Resolve tag
+        id: t
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Install deps
+        run: bun install
+
+      # Stamp the release version (tag minus 'qinit-cli-v') so `qinit version` reports it.
+      - name: Stamp version
+        run: |
+          V="${{ steps.t.outputs.tag }}"; V="${V#qinit-cli-}"; V="${V#v}"
+          sed -i -E "s/(VERSION = \")[^\"]*(\")/\1$V\2/" packages/cli/src/version.ts
+          grep VERSION packages/cli/src/version.ts
+
+      - name: Build all targets
+        run: bun run build:all
+
+      - name: Checksums
+        run: cd dist && sha256sum qinit-* > SHA256SUMS && cat SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.t.outputs.tag }}"
+          NOTES="qinit CLI prebuilt binaries. Install: curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh"
+          gh release create "$TAG" dist/qinit-* dist/SHA256SUMS install.sh --title "$TAG" --notes "$NOTES" \
+          || gh release upload "$TAG" dist/qinit-* dist/SHA256SUMS install.sh --clobber
