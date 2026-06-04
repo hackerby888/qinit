@@ -3,13 +3,12 @@ import { Box, Text, useApp, useInput } from "ink";
 import { resolve, basename } from "node:path";
 import { statSync } from "node:fs";
 import { loadConfig, resolveCore } from "../config";
-import { deployContract } from "../deploy-ops";
+import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
 import { nodeContracts } from "../node-ops";
-import { Header, Spinner, Panel, theme } from "../ui";
+import { Header, StepRow, type StepState, Panel, theme } from "../ui";
 
-// qinit dev [--contract] [--name] [--seed] [--rpc] [--callee ...]
-// Watch the contract (+ callee headers) -> auto build+deploy on save -> show registry. q to quit.
-// No subcommand for `dev` — parse from i=0 (unlike `node <sub>` which skips args[0]).
+interface SS { state: StepState; detail?: string; pct?: number; startedAt?: number; elapsedMs?: number }
+
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) { const a = args[i]; if (a.startsWith("--")) o[a.slice(2)] = args[++i] ?? ""; }
@@ -32,32 +31,41 @@ export function Dev({ args }: { args: string[] }) {
   let core = "", coreErr = "";
   try { core = resolveCore(o.core, cfg.core); } catch (e: any) { coreErr = String(e?.message ?? e); }
 
-  const [logLines, setLogLines] = useState<string[]>([]);
+  const [steps, setSteps] = useState<Record<string, SS>>({});
+  const [notes, setNotes] = useState<string[]>([]);
+  const [result, setResult] = useState<DeployResult | null>(null);
   const [contracts, setContracts] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [runs, setRuns] = useState(0);
   const busyRef = useRef(false);
   const pending = useRef(false);
 
+  const emit = (e: Ev) => {
+    if ("note" in e) { setNotes((n) => [...n, e.note]); return; }
+    setSteps((s) => {
+      const prev = s[e.step] ?? {} as SS;
+      const startedAt = e.state === "active" && !prev.startedAt ? Date.now() : prev.startedAt;
+      const elapsedMs = (e.state === "ok" || e.state === "fail") && startedAt ? Date.now() - startedAt : prev.elapsedMs;
+      return { ...s, [e.step]: { state: e.state, detail: e.detail ?? prev.detail, pct: e.pct ?? prev.pct, startedAt, elapsedMs } };
+    });
+  };
+
   const redeploy = async () => {
-    if (busyRef.current) { pending.current = true; return; } // coalesce saves during a deploy
+    if (busyRef.current) { pending.current = true; return; }
     busyRef.current = true; setBusy(true);
-    const lines: string[] = [];
-    setLogLines([]);
-    try {
-      await deployContract({ contractPath, name, core, rpcBase, seed: o.seed, dynCallees }, (s) => { lines.push(s); setLogLines([...lines]); });
-    } catch (e: any) { lines.push("ERROR: " + String(e?.message ?? e)); setLogLines([...lines]); }
+    setSteps({}); setNotes([]); setResult(null);
+    try { setResult(await deployContract({ contractPath, name, core, rpcBase, seed: o.seed, dynCallees }, emit)); }
+    catch (e: any) { setNotes((n) => [...n, "ERROR: " + String(e?.message ?? e)]); }
     try { setContracts(await nodeContracts(rpcBase)); } catch {}
     setRuns((n) => n + 1);
     busyRef.current = false; setBusy(false);
-    if (pending.current) { pending.current = false; redeploy(); } // a save arrived mid-deploy
+    if (pending.current) { pending.current = false; redeploy(); }
   };
 
   useEffect(() => {
     if (coreErr) return;
-    redeploy(); // initial deploy
-    // Poll mtimes via setInterval: fs.watch/watchFile don't deliver events in the --compile binary,
-    // but a plain timer does (same mechanism the spinner uses). Robust to editors' rename-on-save.
+    redeploy();
+    // Poll mtimes (fs.watch doesn't fire in the --compile binary; a timer does).
     const files = [contractPath, ...Object.values(dynCallees).map((c) => c.header)];
     const mtime = (f: string) => { try { return statSync(f).mtimeMs; } catch { return 0; } };
     const seen = new Map(files.map((f) => [f, mtime(f)]));
@@ -67,25 +75,26 @@ export function Dev({ args }: { args: string[] }) {
     }, 700);
     return () => { clearInterval(iv); clearTimeout(t); };
   }, []);
-  // isActive TTY-only: useInput enables stdin raw mode, which throws in a non-TTY (piped/CI).
   useInput((input, key) => { if (input === "q" || (key.ctrl && input === "c")) exit(); }, { isActive: !!process.stdin.isTTY });
 
   if (coreErr) return <Box flexDirection="column"><Header cmd="dev" /><Panel title="no core headers" color={theme.err}><Text>{coreErr}</Text></Panel></Box>;
 
+  const last = result ? (result.ok ? "armed ✓" : `✗ ${result.reason ?? "failed"}`) : busy ? "deploying…" : "—";
   return (
     <Box flexDirection="column">
       <Header cmd="dev" />
-      <Text dimColor>watching <Text color={theme.accent}>{name}</Text> ({basename(contractPath)}) · {rpcBase} · runs {runs} · <Text bold>q</Text> to quit</Text>
+      <Text dimColor>
+        watching <Text color={theme.accent}>{name}</Text> ({basename(contractPath)}) · run #{runs} · last{" "}
+        <Text color={result?.ok ? theme.ok : result ? theme.err : undefined}>{last}</Text> · <Text bold>q</Text> quit
+      </Text>
       <Box marginTop={1} flexDirection="column">
-        {logLines.slice(-8).map((l, i) => (
-          <Text key={i} color={l.startsWith("✗") || l.startsWith("ERROR") ? theme.err : l.includes("idl ->") || l.includes("(past deploy)") ? theme.ok : undefined} dimColor={l.startsWith("  ")}>{l}</Text>
-        ))}
+        {STEPS.map(({ key, label }) => {
+          const s = steps[key] ?? { state: "pending" as StepState };
+          return <StepRow key={key} state={s.state} label={label} detail={s.detail} pct={s.pct} elapsedMs={s.elapsedMs} />;
+        })}
       </Box>
-      <Box marginTop={1}>
-        {busy
-          ? <Spinner label="deploying" />
-          : <Panel title={`armed (${contracts.length})`} color={theme.info}><Text>{contracts.length ? contracts.join(", ") : "(none)"}</Text></Panel>}
-      </Box>
+      {notes.length > 0 && <Box marginTop={1} flexDirection="column">{notes.slice(-4).map((n, i) => <Text key={i} color={/^[✗⚠E]/.test(n) ? theme.err : undefined} dimColor={!/^[✗⚠E]/.test(n)}>{n}</Text>)}</Box>}
+      <Box marginTop={1}><Panel title={`armed (${contracts.length})`} color={theme.info}><Text>{contracts.length ? contracts.join(", ") : "(none)"}</Text></Panel></Box>
     </Box>
   );
 }

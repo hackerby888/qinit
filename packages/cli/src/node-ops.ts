@@ -18,13 +18,13 @@ export async function killNode(): Promise<void> {
 export function nodeAlive(): boolean { return Bun.spawnSync(["pgrep", "-x", "Qubic"]).exitCode === 0; }
 
 // Download + cache the prebuilt node from the fork's release (manifest-pinned).
-export async function fetchNodeBin(ref: string): Promise<{ bin: string; version: string }> {
+export async function fetchNodeBin(ref: string, onProgress?: (recv: number, total: number) => void): Promise<{ bin: string; version: string }> {
   const m = await loadManifest(ref);
   if (!m.node) throw new Error(`manifest ${m.version} has no node asset (publish via CI first)`);
   const dir = join(cacheRoot(), m.version, "node");
   const bin = join(dir, "Qubic");
   if (!existsSync(bin)) {
-    const buf = await fetchVerify(m.node);
+    const buf = await fetchVerify(m.node, onProgress);
     mkdirSync(dir, { recursive: true });
     writeFileSync(bin, buf);
     Bun.spawnSync(["chmod", "+x", bin]);

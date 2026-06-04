@@ -31,10 +31,22 @@ export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise
 }
 
 // Download an asset and verify its sha256 (mismatch => throw, never cache a bad blob).
-export async function fetchVerify(asset: AssetRef): Promise<Uint8Array> {
+// onProgress(received, total) streams download bytes for a live progress bar.
+export async function fetchVerify(asset: AssetRef, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {
   const r = await fetch(asset.url);
   if (!r.ok) throw new Error(`download failed (HTTP ${r.status}): ${asset.url}`);
-  const buf = new Uint8Array(await r.arrayBuffer());
+  let buf: Uint8Array;
+  if (onProgress && r.body) {
+    const total = Number(r.headers.get("content-length") ?? 0);
+    const reader = r.body.getReader();
+    const parts: Uint8Array[] = [];
+    let recv = 0;
+    for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); recv += value.length; onProgress(recv, total); }
+    buf = new Uint8Array(recv);
+    let off = 0; for (const p of parts) { buf.set(p, off); off += p.length; }
+  } else {
+    buf = new Uint8Array(await r.arrayBuffer());
+  }
   if (asset.sha256) {
     const got = sha256Hex(buf);
     if (got !== asset.sha256) throw new Error(`sha256 mismatch for ${asset.url}\n  want ${asset.sha256}\n  got  ${got}`);

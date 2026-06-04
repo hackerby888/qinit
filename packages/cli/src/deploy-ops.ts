@@ -1,112 +1,137 @@
 // Build + chunk-upload + deploy a contract to a ticking node. Shared by `qinit deploy` and `qinit dev`.
-// Emits stable log strings (deploy.tsx's deriveSteps parses them).
+// Emits STRUCTURED progress events (step state + live detail + pct) so the UI can show a rich pipeline.
 import { resolve } from "node:path";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { buildSignedTx, broadcastTx, broadcastTxs, LiteRpc, k12Hex, readCurrent } from "@qinit/core";
+import { buildContract, type ContractIdl } from "@qinit/build";
+import { buildSignedTx, broadcastTx, LiteRpc, k12Hex, readCurrent } from "@qinit/core";
 import { encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX, resolveSlot } from "@qinit/proto";
+
+export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
+export type Ev =
+  | { step: StepKey; state: "active" | "ok" | "fail"; detail?: string; pct?: number }
+  | { note: string };
+
+export const STEPS: { key: StepKey; label: string }[] = [
+  { key: "tick", label: "node ticking" },
+  { key: "slot", label: "resolve slot" },
+  { key: "build", label: "build .so" },
+  { key: "upload", label: "upload" },
+  { key: "deploy", label: "deploy" },
+  { key: "confirm", label: "confirm" },
+];
 
 export interface DeployOpts {
   contractPath: string; name: string; core: string; rpcBase: string;
   seed?: string; dynCallees?: Record<string, { header: string; index: number }>;
   slotOverride?: number; outDir?: string;
 }
-export interface DeployResult { ok: boolean; slot?: number; reused?: boolean; hash?: string; txId?: string; error?: string; }
+export interface DeployResult {
+  ok: boolean; slot?: number; reused?: boolean; hash?: string; txId?: string;
+  armed?: boolean; reason?: string; idl?: ContractIdl; error?: string;
+}
 
-export async function deployContract(o: DeployOpts, log: (s: string) => void): Promise<DeployResult> {
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Promise<DeployResult> {
   const rpc = new LiteRpc(o.rpcBase);
 
-  // Warn if the synced headers and node are different versions — building against headers that
-  // don't match the running node risks a silent ABI mismatch. `qinit up` aligns them.
   const pin = readCurrent();
   if (pin?.headersVersion && pin?.nodeVersion && pin.headersVersion !== pin.nodeVersion)
-    log(`⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit up' to align`);
+    emit({ note: `⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit up'` });
 
-  // Wait until the node is TICKING (advancing) — broadcasting during early boot crashes it.
-  log("waiting for node to tick…");
+  // tick — wait until advancing (broadcasting during boot crashes the node)
+  emit({ step: "tick", state: "active", detail: "waiting for node…" });
   let t0 = -1, cur = 0;
   for (let i = 0; i < 90; i++) {
-    try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? ti.currentTick ?? 0; if (t0 < 0) t0 = cur; if (cur > t0 + 3) break; } catch {}
-    await new Promise((r) => setTimeout(r, 1000));
+    try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? ti.currentTick ?? 0; if (t0 < 0) t0 = cur; emit({ step: "tick", state: "active", detail: `tick ${cur}` }); if (cur > t0 + 3) break; } catch {}
+    await sleep(1000);
   }
-  if (cur <= t0 + 3) { log("✗ node not ticking"); return { ok: false, error: "node not ticking" }; }
-  log(`node ticking at ${cur}`);
+  if (cur <= t0 + 3) { emit({ step: "tick", state: "fail", detail: "not ticking" }); return { ok: false, error: "node not ticking" }; }
+  emit({ step: "tick", state: "ok", detail: `tick ${cur}` });
 
-  // No seed: ask the node for a funded testnet seed; else a*55.
+  // seed — funded one from the node if none given
   let seed = o.seed;
-  if (!seed) { const f = await rpc.fundedSeed(); if (f) { seed = f; log("using node funded seed"); } }
+  if (!seed) { const f = await rpc.fundedSeed(); if (f) { seed = f; emit({ note: "using node funded seed" }); } }
   seed = seed ?? "a".repeat(55);
 
+  // slot — resolve by name (reuse or first free)
+  emit({ step: "slot", state: "active" });
   const { slot, reused } = await resolveSlot(rpc, o.name, o.slotOverride);
-  log(`${o.name} → slot ${slot} ${reused ? "(reuse/upgrade)" : "(new)"}`);
+  emit({ step: "slot", state: "ok", detail: `slot ${slot} ${reused ? "(reuse)" : "(new)"}` });
 
-  log("building .so …");
+  // build
+  emit({ step: "build", state: "active", detail: "compiling…" });
   const b = await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir: o.outDir ?? resolve("dist/contracts"), dynCallees: o.dynCallees });
-  if (!b.ok) { log("✗ build failed"); log((b.stderr ?? "").split("\n").slice(0, 12).join("\n")); return { ok: false, slot, error: "build failed" }; }
+  if (!b.ok) { emit({ step: "build", state: "fail", detail: "build failed" }); emit({ note: (b.stderr ?? "").split("\n").slice(0, 14).join("\n") }); return { ok: false, slot, error: "build failed" }; }
   const so = readFileSync(b.so!);
   const hash = b.hash ?? (await k12Hex(new Uint8Array(so)));
-  log(`built ${so.length}B  k12 ${hash.slice(0, 16)}…`);
+  emit({ step: "build", state: "ok", detail: `${so.length}B · k12 ${hash.slice(0, 12)}…` });
 
-  // Re-read tick after the (multi-second) build so offsets aren't stale.
   try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? cur; } catch {}
   const uploadTick = cur + 8, deployTick = cur + 9;
-  log(`upload @tick ${uploadTick}, deploy @tick ${deployTick}`);
 
   const session = newSessionId();
   const chunks = chunkSo(new Uint8Array(so));
   const mk = async (it: number, p: Uint8Array, t: number) => (await buildSignedTx(seed!, { tick: t, inputType: it, payload: p })).bytes;
-
   const uploads: Uint8Array[] = [];
   uploads.push(await mk(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId: session, totalSize: so.length, chunkCount: chunks.length, finalHashHex: hash }), uploadTick));
   for (let i = 0; i < chunks.length; i++) uploads.push(await mk(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: session, seq: i, bytes: chunks[i] }), uploadTick));
-  // Broadcast all upload txs; retry any that fail (network) up to 3 rounds. (Final arm is verified
-  // by codeHash below — this just resends broadcast-level failures proactively.)
-  let pend = uploads.slice();
+
+  // upload — live N/total progress, per-chunk retry up to 3 rounds
+  const total = uploads.length;
+  const done = new Set<number>();
+  emit({ step: "upload", state: "active", detail: `0/${total}`, pct: 0 });
+  let pend = uploads.map((bts, i) => ({ bts, i }));
   for (let attempt = 0; attempt <= 3 && pend.length; attempt++) {
-    const res = await broadcastTxs(pend, o.rpcBase);
-    const failed = pend.filter((_, k) => !res[k].ok);
-    log(`uploads broadcast: ${pend.length - failed.length}/${pend.length} ok${attempt ? ` (retry ${attempt})` : ""}`);
-    if (failed.length) { const b = res.find((r) => !r.ok); log(`  failure: code=${b?.code} ${b?.message ?? ""}`); }
-    pend = failed;
-    if (pend.length) await new Promise((r) => setTimeout(r, 600));
+    const fail: typeof pend = [];
+    for (const u of pend) {
+      const r = await broadcastTx(u.bts, o.rpcBase);
+      if (r.ok) done.add(u.i); else fail.push(u);
+      emit({ step: "upload", state: "active", detail: `${done.size}/${total}`, pct: done.size / total });
+    }
+    pend = fail;
+    if (pend.length) { emit({ note: `retry ${attempt + 1}: ${pend.length} chunk(s)` }); await sleep(600); }
   }
-  if (pend.length) { log(`✗ ${pend.length} upload tx(s) failed after retries`); return { ok: false, slot, hash, error: "upload failed" }; }
+  if (done.size < total) { emit({ step: "upload", state: "fail", detail: `${done.size}/${total}` }); emit({ note: `✗ ${total - done.size} upload tx(s) failed after retries` }); return { ok: false, slot, hash, error: "upload failed" }; }
+  emit({ step: "upload", state: "ok", detail: `${total}/${total} chunks`, pct: 1 });
 
+  // deploy
+  emit({ step: "deploy", state: "active" });
   const dr = await broadcastTx(await mk(LITE_TX.DEPLOY, encodeDeploy({ sessionId: session, targetSlot: slot, finalHashHex: hash, name: o.name }), deployTick), o.rpcBase);
-  log(`Deploy broadcast: ${dr.ok ? "ok " + (dr.transactionId ?? "").slice(0, 16) : "FAIL code=" + dr.code + " " + (dr.message ?? "")}`);
+  if (!dr.ok) {
+    emit({ step: "deploy", state: "fail", detail: `code ${dr.code}` });
+    emit({ step: "confirm", state: "fail", detail: "nothing landed" });
+    return { ok: false, slot, hash, reason: "not-broadcast", error: "deploy not broadcast" };
+  }
+  emit({ step: "deploy", state: "ok", detail: `tx ${(dr.transactionId ?? "").slice(0, 12)}…` });
 
-  // Merge the build IDL into ./qinit.idl.json keyed by slot.
-  if (dr.ok && b.idl) {
+  if (b.idl) {
     try {
       const p = "qinit.idl.json";
       const all = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {};
       all[String(slot)] = { name: b.idl.name, functions: b.idl.functions, procedures: b.idl.procedures };
       writeFileSync(p, JSON.stringify(all, null, 2));
-      log(`idl -> qinit.idl.json [${slot}] = ${b.idl.name} (${Object.keys(b.idl.functions).length} fn / ${Object.keys(b.idl.procedures).length} proc)`);
-    } catch (e: any) { log("idl merge skipped: " + String(e?.message ?? e)); }
+    } catch {}
   }
 
-  // Confirm the slot actually ARMED with OUR code (not just "broadcast ok"), and on failure say WHY:
-  // the dyn-registry tells us whether the deploy landed at all (slot empty = upload/deploy dropped)
-  // vs landed with the wrong code (deploy didn't take). Catches unfunded seed / dropped chunks / mismatch.
-  let armed = false;
-  if (!dr.ok) {
-    log(`✗ deploy tx not broadcast (code ${dr.code}) — nothing landed`);
-  } else {
-    log("confirming on-chain arm …");
-    const want = hash.toLowerCase();
-    let present = false, onNode = "";
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      try {
-        const reg = await rpc.dynRegistry();
-        const c = (reg.contracts ?? []).find((x) => x.index === slot);
-        if (c) { present = !!c.armed; onNode = (c.codeHash || "").toLowerCase(); if (c.armed && onNode === want) { armed = true; break; } }
-      } catch {}
-    }
-    if (armed) log(`armed ✓ slot ${slot} codeHash ${want.slice(0, 16)}…`);
-    else if (!present) log(`✗ not armed: slot ${slot} empty — upload/deploy didn't land (chunks dropped, tick missed, or seed unfunded)`);
-    else log(`✗ not armed: slot ${slot} holds different code (on-node ${onNode.slice(0, 16)}… ≠ yours ${want.slice(0, 16)}…) — your deploy didn't take`);
+  // confirm — poll dyn-registry until armed && codeHash matches; classify the failure
+  emit({ step: "confirm", state: "active", detail: "polling arm…" });
+  const want = hash.toLowerCase();
+  let armed = false, present = false, onNode = "", last = cur;
+  for (let i = 0; i < 60; i++) {
+    await sleep(1000);
+    try {
+      const ti: any = await rpc.tickInfo(); last = ti.tick ?? last;
+      const reg = await rpc.dynRegistry();
+      const c = (reg.contracts ?? []).find((x) => x.index === slot);
+      if (c) { present = !!c.armed; onNode = (c.codeHash || "").toLowerCase(); if (c.armed && onNode === want) { armed = true; break; } }
+      emit({ step: "confirm", state: "active", detail: `tick ${last}` });
+    } catch {}
   }
-  return { ok: dr.ok && armed, slot, reused, hash, txId: dr.transactionId };
+  let reason: string | undefined;
+  if (armed) emit({ step: "confirm", state: "ok", detail: `armed · ${want.slice(0, 12)}…` });
+  else if (!present) { reason = "empty"; emit({ step: "confirm", state: "fail", detail: "slot empty — didn't land" }); emit({ note: "upload/deploy didn't land (chunks dropped, tick missed, or seed unfunded)" }); }
+  else { reason = "wrong-code"; emit({ step: "confirm", state: "fail", detail: "different code — didn't take" }); emit({ note: `on-node ${onNode.slice(0, 12)}… ≠ yours ${want.slice(0, 12)}…` }); }
+
+  return { ok: armed, slot, reused, hash, txId: dr.transactionId, armed, reason, idl: b.idl };
 }

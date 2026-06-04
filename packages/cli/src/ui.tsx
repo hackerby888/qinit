@@ -144,3 +144,29 @@ export function Step({ state, label, detail }: { state: StepState; label: string
     </Text>
   );
 }
+
+// ---- progress bar + timings ------------------------------------------------
+export function Bar({ pct, width = 22 }: { pct: number; width?: number }) {
+  const p = Math.max(0, Math.min(1, pct || 0));
+  const fill = Math.round(p * width);
+  return <Text><Text color={theme.info}>{"▓".repeat(fill)}</Text><Text dimColor>{"░".repeat(width - fill)}</Text> <Text dimColor>{Math.round(p * 100)}%</Text></Text>;
+}
+export const fmtMs = (ms?: number) => (ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
+
+// Rich pipeline row: glyph + fixed-width label + live detail OR progress bar + elapsed.
+export function StepRow({ state, label, detail, pct, elapsedMs }:
+  { state: StepState; label: string; detail?: string; pct?: number; elapsedMs?: number }) {
+  const f = useFrame();
+  const glyph =
+    state === "ok" ? <Text color={theme.ok}>✓</Text> :
+    state === "fail" ? <Text color={theme.err}>✗</Text> :
+    state === "active" ? <Text color={theme.info}>{FRAMES[f % FRAMES.length]}</Text> :
+    <Text dimColor>◌</Text>;
+  return (
+    <Text>
+      {glyph} <Text bold={state !== "pending"} color={state === "pending" ? theme.mute : undefined}>{label.padEnd(14)}</Text>
+      {pct != null && state === "active" ? <Bar pct={pct} /> : detail ? <Text dimColor>{detail}</Text> : null}
+      {state === "ok" && elapsedMs ? <Text dimColor>{`  ${fmtMs(elapsedMs)}`}</Text> : null}
+    </Text>
+  );
+}

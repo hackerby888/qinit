@@ -39,7 +39,8 @@ export function Sync({ args }: { args: string[] }) {
           const ref = o.ref || "latest";
           const m = await loadManifest(ref);
           if (!m.headers) throw new Error(`manifest ${m.version} has no headers asset`);
-          const buf = await fetchVerify(m.headers);
+          const buf = await fetchVerify(m.headers, (rc, tt) =>
+            setS({ phase: "run", msg: tt ? `downloading headers ${(rc / 1024).toFixed(0)}/${(tt / 1024).toFixed(0)} KB` : `downloading headers ${(rc / 1024).toFixed(0)} KB` }));
           const root = cacheHeaders(m.version);
           await extractTarGz(buf, root);
           updateCurrent({ headersVersion: m.version, coreHeaders: root });

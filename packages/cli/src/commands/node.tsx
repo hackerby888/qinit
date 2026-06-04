@@ -10,6 +10,8 @@ function parse(args: string[]): Record<string, string> {
   for (let i = 1; i < args.length; i++) { const a = args[i]; if (a.startsWith("--")) o[a.slice(2)] = args[++i] ?? ""; }
   return o;
 }
+const dlLabel = (recv: number, total: number) =>
+  total ? `downloading node ${(recv / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB` : `downloading node ${(recv / 1e6).toFixed(0)} MB`;
 
 type Line = { t: string; ok?: boolean };
 type State = { phase: "run"; spin: string } | { phase: "done"; title: string; color: string; lines: Line[]; rows?: [string, string][] };
@@ -29,7 +31,7 @@ export function Node({ args }: { args: string[] }) {
         if (sub === "run") {
           // Prefer the CI/gh-synced node; --bin only overrides for a local build. Auto-fetch if neither.
           let bin = o.bin ? resolve(o.bin) : cachedNode();
-          if (!bin) { setS({ phase: "run", spin: "fetching node from release" }); bin = (await fetchNodeBin(o.ref || "latest")).bin; }
+          if (!bin) { bin = (await fetchNodeBin(o.ref || "latest", (rc, tt) => setS({ phase: "run", spin: dlLabel(rc, tt) }))).bin; }
           const waitS = Number(o.wait || 60);
           setS({ phase: "run", spin: "stopping any running node" });
           await killNode();
@@ -68,7 +70,7 @@ export function Node({ args }: { args: string[] }) {
 
         if (sub === "get") {
           setS({ phase: "run", spin: `fetching node ${o.ref || "latest"}` });
-          const { bin, version } = await fetchNodeBin(o.ref || "latest");
+          const { bin, version } = await fetchNodeBin(o.ref || "latest", (rc, tt) => setS({ phase: "run", spin: dlLabel(rc, tt) }));
           add(`node ${version} cached`, true);
           setS({ phase: "done", title: "node fetched ✓", color: theme.ok, lines: L, rows: [["version", version], ["bin", bin]] });
           return;
