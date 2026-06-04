@@ -69,17 +69,23 @@ jobs:
     steps:
       - name: Build contractverify from source
         run: |
-          set -x
-          git clone --depth 1 "$UPSTREAM" src
+          set -ex
+          # global so superproject AND nested submodules clone over https (.gitmodules uses git@)
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git clone --recurse-submodules "$UPSTREAM" src
           cd src
-          git config url."https://github.com/".insteadOf "git@github.com:"   # submodule uses git@ -> https
-          git submodule update --init --recursive
-          brew install flex cmake
-          export PATH="$(brew --prefix flex)/bin:$PATH"   # brew flex is keg-only
-          cmake -S deps/CppParser -B deps/CppParser/builds -DCMAKE_BUILD_TYPE=Release
+          brew install flex bison           # cmake is preinstalled on macos-14
+          FLEX="$(brew --prefix flex)/bin/flex"
+          export PATH="$(brew --prefix flex)/bin:$(brew --prefix bison)/bin:$PATH"
+          echo "cmake=$(cmake --version | head -1) flex=$($FLEX --version)"
+          # CppParser dependency
+          cmake -S deps/CppParser -B deps/CppParser/builds -DCMAKE_BUILD_TYPE=Release -DFLEX_EXECUTABLE="$FLEX"
           cmake --build deps/CppParser/builds --config Release
+          ls deps/CppParser/builds/*.cmake 2>/dev/null || true
+          # contractverify tool — help cmake find the just-built CppParser config
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_CONTRACTVERIFY_TESTS=OFF \
-            -Dcppparser_DIR="$PWD/deps/CppParser/builds"
+            -Dcppparser_DIR="$PWD/deps/CppParser/builds" \
+            -DCMAKE_PREFIX_PATH="$PWD/deps/CppParser/builds" -DFLEX_EXECUTABLE="$FLEX"
           cmake --build build --config Release
           cp build/src/contractverify "$GITHUB_WORKSPACE/contractverify-darwin-arm64"
           file "$GITHUB_WORKSPACE/contractverify-darwin-arm64"
