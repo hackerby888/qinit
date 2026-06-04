@@ -77,7 +77,7 @@ export function Header({ cmd }: { cmd: string }) {
 export function Banner({ version, tagline }: { version: string; tagline: string }) {
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Box borderStyle="round" borderColor={theme.brand} paddingX={1}>
+      <Box borderStyle="round" borderColor={theme.brand} paddingX={1} alignSelf="flex-start">
         <Text>
           <Text color={theme.accent}>◆ </Text>
           <Grad text="qinit" />
@@ -96,7 +96,7 @@ export function Panel({ title, color = theme.info, children }:
   return (
     <Box flexDirection="column">
       {title && <Box><Badge text={title} color={color} /></Box>}
-      <Box borderStyle="round" borderColor={color} paddingX={1} flexDirection="column">{children}</Box>
+      <Box borderStyle="round" borderColor={color} paddingX={1} flexDirection="column" alignSelf="flex-start">{children}</Box>
     </Box>
   );
 }
