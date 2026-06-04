@@ -19,7 +19,7 @@ async function cmdVersion(cmd: string, args: string[], missingHint: string, fix:
 async function runChecks(): Promise<Check[]> {
   const checks: Check[] = [];
   checks.push(await cmdVersion("clang++-18", ["--version"], "not found — needed to build .so",
-    "sudo apt install clang-18  (or: bash -c \"$(wget -O - https://apt.llvm.org/llvm.sh)\" -- 18)"));
+    "sudo apt install clang-18  or  bash -c \"$(wget -O - https://apt.llvm.org/llvm.sh)\" -- 18"));
   checks.push(await cmdVersion("node", ["--version"], "not found — needed by qinit", "install Node 20+ from nodejs.org or your package manager"));
 
   // Cache-aware: prefer the synced header cache, fall back to QINIT_CORE / --core.
@@ -72,8 +72,10 @@ export function Doctor() {
           <Panel title="to fix" color={theme.warn}>
             {fixes.map((c) => (
               <Box key={c.name} flexDirection="column">
-                <Text><Text color={theme.warn}>{c.name}</Text></Text>
-                <Text>  <Text dimColor>$ </Text><Text color={theme.accent}>{c.fix}</Text></Text>
+                <Text color={theme.warn}>{c.name}</Text>
+                {(c.fix ?? "").split("  or  ").map((p, i) => (
+                  <Text key={i}>  <Text dimColor>{i === 0 ? "$ " : "or "}</Text><Text color={theme.accent}>{p.trim()}</Text></Text>
+                ))}
               </Box>
             ))}
           </Panel>

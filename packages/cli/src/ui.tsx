@@ -110,7 +110,7 @@ export function Status({ ok, label, detail, pad = 22 }:
   return (
     <Text>
       <Text color={col}>{glyph}</Text> <Text bold>{label.padEnd(pad)}</Text>
-      {detail ? <Text dimColor>{detail}</Text> : null}
+      {detail ? <Text dimColor>{truncMid(detail, Math.max(12, termCols() - pad - 8))}</Text> : null}
     </Text>
   );
 }
@@ -121,7 +121,7 @@ export function KV({ rows }: { rows: [string, string][] }) {
   return (
     <Box flexDirection="column">
       {rows.map(([k, v], i) => (
-        <Text key={i}><Text color={theme.info}>{k.padEnd(w)}</Text>  <Text>{v}</Text></Text>
+        <Text key={i}><Text color={theme.info}>{k.padEnd(w)}</Text>  <Text>{truncMid(v, Math.max(12, termCols() - w - 8))}</Text></Text>
       ))}
     </Box>
   );
@@ -153,6 +153,16 @@ export function Bar({ pct, width = 22 }: { pct: number; width?: number }) {
 }
 export const fmtMs = (ms?: number) => (ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
+// Keep one line inside the terminal so it never wraps past a panel border.
+// truncEnd keeps the head (errors/labels); truncMid keeps head+tail (paths/digests).
+export const termCols = () => Math.max(40, process.stdout.columns || 80);
+export const truncEnd = (s: string, max: number) => (s.length <= max ? s : s.slice(0, Math.max(1, max - 1)) + "…");
+export const truncMid = (s: string, max: number) => {
+  if (s.length <= max) return s;
+  const keep = Math.max(2, max - 1), head = Math.ceil(keep / 2), tail = keep - head;
+  return s.slice(0, head) + "…" + s.slice(s.length - tail);
+};
+
 // Rich pipeline row: glyph + fixed-width label + live detail OR progress bar + elapsed.
 export function StepRow({ state, label, detail, pct, elapsedMs }:
   { state: StepState; label: string; detail?: string; pct?: number; elapsedMs?: number }) {
@@ -165,7 +175,7 @@ export function StepRow({ state, label, detail, pct, elapsedMs }:
   return (
     <Text>
       {glyph} <Text bold={state !== "pending"} color={state === "pending" ? theme.mute : undefined}>{label.padEnd(14)}</Text>
-      {pct != null && state === "active" ? <Bar pct={pct} /> : detail ? <Text dimColor>{detail}</Text> : null}
+      {pct != null && state === "active" ? <Bar pct={pct} /> : detail ? <Text dimColor>{truncEnd(detail, Math.max(12, termCols() - 24))}</Text> : null}
       {state === "ok" && elapsedMs ? <Text dimColor>{`  ${fmtMs(elapsedMs)}`}</Text> : null}
     </Text>
   );
