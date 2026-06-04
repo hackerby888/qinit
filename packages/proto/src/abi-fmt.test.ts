@@ -53,3 +53,15 @@ test("id round-trip (32-byte pubkey <-> 60-char identity)", async () => {
 test("empty input encodes to zero bytes", async () => {
   expect((await encodeInput("")).length).toBe(0);
 });
+
+test("m256i (digest) round-trips as hex, not an identity", async () => {
+  const dg = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+  const b = await encodeInput(dg + "m256i");
+  expect(b.length).toBe(32);
+  expect(await decodeOutput(b, "m256i")).toBe(dg);
+});
+
+test("deep nested: array of structs with an inner array", async () => {
+  const b = await encodeInput("[2; { 1uint32, [2; 2uint16, 3uint16] }, { 4uint32, [2; 5uint16, 6uint16] }]");
+  expect(await decodeOutput(b, "[2; { uint32, [2; uint16] }]")).toEqual([[1, [2, 3]], [4, [5, 6]]]);
+});

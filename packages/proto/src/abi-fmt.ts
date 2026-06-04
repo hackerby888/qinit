@@ -17,6 +17,7 @@ const SCALAR_SIZE: Record<string, number> = {
 export type TypeNode =
   | { kind: "scalar"; type: string; size: number; signed: boolean; big: boolean }
   | { kind: "id" }
+  | { kind: "bytes"; size: number } // m256i as raw hex (a digest, NOT an identity)
   | { kind: "array"; count: number; elem: TypeNode }
   | { kind: "struct"; fields: TypeNode[] };
 
@@ -26,6 +27,7 @@ function alignOf(n: TypeNode): number {
   switch (n.kind) {
     case "scalar": return n.size;     // 1/2/4/8
     case "id": return 8;              // m256i = 4x uint64 -> align 8
+    case "bytes": return n.size >= 8 ? 8 : 1; // bytes32 (m256i) -> align 8
     case "array": return alignOf(n.elem);
     case "struct": return n.fields.length ? Math.max(...n.fields.map(alignOf)) : 1;
   }
@@ -58,6 +60,7 @@ function parseType(s: string, i: number): [TypeNode, number] {
   while (j < s.length && /[A-Za-z0-9]/.test(s[j])) j++;
   const tok = s.slice(i, j);
   if (tok === "id") return [{ kind: "id" }, j];
+  if (tok === "m256i") return [{ kind: "bytes", size: 32 }, j]; // m256i raw hex (vs id = identity)
   const size = SCALAR_SIZE[tok];
   if (!size) throw new Error(`unknown type '${tok}'`);
   return [{ kind: "scalar", type: tok, size, signed: tok.startsWith("sint"), big: size === 8 }, j];
@@ -86,6 +89,11 @@ async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[an
       const b = new Uint8Array(32);
       for (let k = 0; k < 32; k++) b[k] = v.getUint8(off + k);
       return [await bytesToIdentity(b), off + 32];
+    }
+    case "bytes": {
+      let h = "";
+      for (let k = 0; k < node.size; k++) h += v.getUint8(off + k).toString(16).padStart(2, "0");
+      return [h, off + node.size];
     }
     case "array": {
       const arr: any[] = [];
@@ -135,6 +143,7 @@ function tokenAlign(tok: string): number {
   if (tok[0] === "{") { const p = splitTop(tok.slice(1, tok.lastIndexOf("}"))); return p.length ? Math.max(...p.map(tokenAlign)) : 1; }
   if (tok[0] === "[") { const inner = tok.slice(1, tok.lastIndexOf("]")); const semi = inner.indexOf(";"); const p = splitTop(semi >= 0 ? inner.slice(semi + 1) : inner); return p.length ? tokenAlign(p[0]) : 1; }
   if (tok.endsWith("id")) return 8;
+  if (tok.endsWith("m256i")) return 8;
   const m = tok.match(/^-?\d+([a-z0-9]+)$/);
   return m ? (SCALAR_SIZE[m[1]] ?? 1) : 1;
 }
@@ -163,6 +172,14 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     const v = tok.slice(0, -2).trim();
     const b = /^(0x)?[0-9a-fA-F]{64}$/.test(v) ? hexToBytes(v) : identityToBytes(v);
     if (b.length !== 32) throw new Error(`id must resolve to 32 bytes: '${v}'`);
+    padTo(out, 8);
+    for (const x of b) out.push(x);
+    return;
+  }
+  if (tok.endsWith("m256i")) {
+    const v = tok.slice(0, -5).trim().replace(/^0x/, "");
+    const b = hexToBytes(v);
+    if (b.length !== 32) throw new Error(`m256i needs 64 hex chars: '${v}'`);
     padTo(out, 8);
     for (const x of b) out.push(x);
     return;
