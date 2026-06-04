@@ -5,6 +5,7 @@ import { statSync } from "node:fs";
 import { loadConfig, resolveCore } from "../config";
 import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
 import { nodeContracts } from "../node-ops";
+import { LiteRpc } from "@qinit/core";
 import { Header, StepRow, type StepState, Panel, theme } from "../ui";
 
 interface SS { state: StepState; detail?: string; pct?: number; startedAt?: number; elapsedMs?: number }
@@ -37,6 +38,7 @@ export function Dev({ args }: { args: string[] }) {
   const [contracts, setContracts] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [runs, setRuns] = useState(0);
+  const [tick, setTick] = useState<number | null>(null);
   const busyRef = useRef(false);
   const pending = useRef(false);
 
@@ -75,26 +77,66 @@ export function Dev({ args }: { args: string[] }) {
     }, 700);
     return () => { clearInterval(iv); clearTimeout(t); };
   }, []);
+  // Live node heartbeat — drives the tick counter + up/down dot in the status card.
+  useEffect(() => {
+    const rpc = new LiteRpc(rpcBase);
+    const ping = async () => { try { const ti: any = await rpc.tickInfo(); setTick(ti.tick ?? ti.currentTick ?? null); } catch { setTick(null); } };
+    ping();
+    const iv = setInterval(ping, 1500);
+    return () => clearInterval(iv);
+  }, []);
   useInput((input, key) => { if (input === "q" || (key.ctrl && input === "c")) exit(); }, { isActive: !!process.stdin.isTTY });
 
   if (coreErr) return <Box flexDirection="column"><Header cmd="dev" /><Panel title="no core headers" color={theme.err}><Text>{coreErr}</Text></Panel></Box>;
 
-  const last = result ? (result.ok ? "armed ✓" : `✗ ${result.reason ?? "failed"}`) : busy ? "deploying…" : "—";
+  const ok = result?.ok;
+  const runNo = busy ? runs + 1 : runs;
+  const lastText = result ? (ok ? "armed ✓" : `failed: ${result.reason ?? "?"}`) : busy ? "deploying…" : "idle";
+  const lastColor = ok ? theme.ok : result ? theme.err : busy ? theme.info : theme.mute;
+  const live = tick != null;
+  const pipeColor = busy ? theme.info : ok ? theme.ok : result ? theme.err : theme.info;
+  const isErr = (n: string) => /^(✗|⚠|ERROR)/.test(n);
+
   return (
     <Box flexDirection="column">
       <Header cmd="dev" />
-      <Text dimColor>
-        watching <Text color={theme.accent}>{name}</Text> ({basename(contractPath)}) · run #{runs} · last{" "}
-        <Text color={result?.ok ? theme.ok : result ? theme.err : undefined}>{last}</Text> · <Text bold>q</Text> quit
-      </Text>
-      <Box marginTop={1} flexDirection="column">
-        {STEPS.map(({ key, label }) => {
-          const s = steps[key] ?? { state: "pending" as StepState };
-          return <StepRow key={key} state={s.state} label={label} detail={s.detail} pct={s.pct} elapsedMs={s.elapsedMs} />;
-        })}
+
+      <Panel title="watch" color={theme.brand}>
+        <Text><Text bold color={theme.accent}>◆ {name}</Text>{"   "}<Text dimColor>{basename(contractPath)}</Text></Text>
+        <Box>
+          <Text>run <Text bold>#{runNo}</Text>{"   "}</Text>
+          <Text bold color={lastColor}>{lastText}</Text>
+          <Text dimColor>{"   ·   "}</Text>
+          <Text color={live ? theme.ok : theme.err}>{live ? "●" : "○"}</Text>
+          <Text dimColor> {live ? `tick ${tick}` : "node down"}</Text>
+        </Box>
+        <Text dimColor>rpc {rpcBase.replace(/^https?:\/\//, "")}{"   ·   "}<Text bold color={theme.accent}>q</Text> quit</Text>
+      </Panel>
+
+      <Box marginTop={1}>
+        <Panel title={busy ? `run #${runNo}  …` : "pipeline"} color={pipeColor}>
+          {STEPS.map(({ key, label }) => {
+            const s = steps[key] ?? { state: "pending" as StepState };
+            return <StepRow key={key} state={s.state} label={label} detail={s.detail} pct={s.pct} elapsedMs={s.elapsedMs} />;
+          })}
+        </Panel>
       </Box>
-      {notes.length > 0 && <Box marginTop={1} flexDirection="column">{notes.slice(-4).map((n, i) => <Text key={i} color={/^[✗⚠E]/.test(n) ? theme.err : undefined} dimColor={!/^[✗⚠E]/.test(n)}>{n}</Text>)}</Box>}
-      <Box marginTop={1}><Panel title={`armed (${contracts.length})`} color={theme.info}><Text>{contracts.length ? contracts.join(", ") : "(none)"}</Text></Panel></Box>
+
+      {notes.length > 0 && (
+        <Box marginTop={1}>
+          <Panel title="notes" color={theme.warn}>
+            {notes.slice(-4).map((n, i) => <Text key={i} color={isErr(n) ? theme.err : undefined} dimColor={!isErr(n)}>{n}</Text>)}
+          </Panel>
+        </Box>
+      )}
+
+      <Box marginTop={1}>
+        <Panel title={`armed (${contracts.length})`} color={theme.info}>
+          {contracts.length
+            ? contracts.map((c, i) => <Text key={i}><Text color={theme.ok}>●</Text> {c}</Text>)
+            : <Text dimColor>none yet — deploy to arm</Text>}
+        </Panel>
+      </Box>
     </Box>
   );
 }
