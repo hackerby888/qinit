@@ -11,6 +11,7 @@ const COMMANDS: [string, string][] = [
   ["up", "one command: sync headers + get node + run (reuses a ticking node)"],
   ["dev", "watch the contract -> auto build+deploy on save (q to quit)"],
   ["build", "compile a contract .h -> .so (+ hash, unresolved-symbol report)"],
+  ["gen", "generate a typed TS client from the contract IDL"],
   ["deploy", "build + chunk-upload + deploy a contract to a node"],
   ["call", "call a contract function (--fn) or invoke a procedure (--proc)"],
   ["smoke", "run the standalone-binary crypto smoke test"],

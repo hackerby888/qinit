@@ -4,7 +4,8 @@
 // procedures:{[inputType]:{name,in}} }. Light regex parse — handles flat structs, Array<T,N>,
 // nested structs (one+ levels), id; unknown types pass through verbatim.
 
-export interface IdlEntry { name: string; in: string; out?: string }
+export interface Field { name: string; type: string } // type = codec token (uint64, id, bytes32, [N;T], { ... })
+export interface IdlEntry { name: string; in: string; out?: string; inFields: Field[]; outFields?: Field[] }
 export interface ContractIdl {
   name: string;
   functions: Record<string, IdlEntry>;
@@ -38,7 +39,7 @@ function typeToken(type: string, structs: Map<string, string>): string {
   const am = type.match(/^Array\s*<\s*([\s\S]+)\s*,\s*(\d+)\s*>$/);
   if (am) return `[${am[2]};${typeToken(am[1], structs)}]`;
   if (SCALARS.has(type)) return type;
-  if (type === "m256i" || type === "id") return "id";
+  if (type === "m256i") return "m256i"; // raw hex (id is the identity alias, handled by SCALARS)
   if (structs.has(type)) return `{ ${parseFields(structs.get(type)!, structs).join(", ")} }`;
   return type; // unknown — best effort, surfaced verbatim
 }
@@ -63,12 +64,31 @@ function fmtOf(structs: Map<string, string>, structName: string): string {
   return parseFields(body, structs).join(", ");
 }
 
+// Same as parseFields but keeps the field NAME (for typed codegen).
+function fieldsForStruct(structs: Map<string, string>, structName: string): Field[] {
+  const body = structs.get(structName);
+  if (body === undefined) return [];
+  const clean = body.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  const out: Field[] = [];
+  for (let raw of clean.split(";")) {
+    raw = raw.trim();
+    if (!raw) continue;
+    const m = raw.match(/^([\s\S]+?)\s+(\w+)$/);
+    if (!m) continue;
+    out.push({ name: m[2], type: typeToken(m[1], structs) });
+  }
+  return out;
+}
+
 export function extractIdl(source: string, name: string): ContractIdl {
   const structs = collectStructs(source);
   const idl: ContractIdl = { name, functions: {}, procedures: {} };
   for (const m of source.matchAll(/REGISTER_USER_FUNCTION\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
-    idl.functions[m[2]] = { name: m[1], in: fmtOf(structs, m[1] + "_input"), out: fmtOf(structs, m[1] + "_output") };
+    idl.functions[m[2]] = {
+      name: m[1], in: fmtOf(structs, m[1] + "_input"), out: fmtOf(structs, m[1] + "_output"),
+      inFields: fieldsForStruct(structs, m[1] + "_input"), outFields: fieldsForStruct(structs, m[1] + "_output"),
+    };
   for (const m of source.matchAll(/REGISTER_USER_PROCEDURE\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
-    idl.procedures[m[2]] = { name: m[1], in: fmtOf(structs, m[1] + "_input") };
+    idl.procedures[m[2]] = { name: m[1], in: fmtOf(structs, m[1] + "_input"), inFields: fieldsForStruct(structs, m[1] + "_input") };
   return idl;
 }

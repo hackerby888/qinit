@@ -6,6 +6,7 @@ import { Node } from "./commands/node";
 import { Up } from "./commands/up";
 import { Dev } from "./commands/dev";
 import { Build } from "./commands/build";
+import { Gen } from "./commands/gen";
 import { Deploy } from "./commands/deploy";
 import { Call } from "./commands/call";
 import { New } from "./commands/new";
@@ -30,6 +31,8 @@ export function App({ command, args }: { command: string; args: string[] }) {
       return <Smoke />;
     case "build":
       return <Build args={args} />;
+    case "gen":
+      return <Gen args={args} />;
     case "deploy":
       return <Deploy args={args} />;
     case "call":
