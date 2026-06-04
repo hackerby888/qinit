@@ -3,7 +3,7 @@
 import { resolve } from "node:path";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
-import { buildSignedTx, broadcastTx, broadcastTxs, LiteRpc, k12Hex } from "@qinit/core";
+import { buildSignedTx, broadcastTx, broadcastTxs, LiteRpc, k12Hex, readCurrent } from "@qinit/core";
 import { encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX, resolveSlot } from "@qinit/proto";
 
 export interface DeployOpts {
@@ -15,6 +15,12 @@ export interface DeployResult { ok: boolean; slot?: number; reused?: boolean; ha
 
 export async function deployContract(o: DeployOpts, log: (s: string) => void): Promise<DeployResult> {
   const rpc = new LiteRpc(o.rpcBase);
+
+  // Warn if the synced headers and node are different versions — building against headers that
+  // don't match the running node risks a silent ABI mismatch. `qinit up` aligns them.
+  const pin = readCurrent();
+  if (pin?.headersVersion && pin?.nodeVersion && pin.headersVersion !== pin.nodeVersion)
+    log(`⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit up' to align`);
 
   // Wait until the node is TICKING (advancing) — broadcasting during early boot crashes it.
   log("waiting for node to tick…");

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { resolve } from "node:path";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
+import { readCurrent } from "@qinit/core";
 import { killNode, nodeAlive, fetchNodeBin, cachedNode, launchNode, waitTicking, nodeStatus } from "../node-ops";
 
 function parse(args: string[]): Record<string, string> {
@@ -49,6 +50,9 @@ export function Node({ args }: { args: string[] }) {
           add(st.ticking ? "rpc: up, ticking" : "rpc: up, not advancing", st.ticking);
           const rows: [string, string][] = [["tick", String(st.tick)], ["epoch", String(st.epoch)], ["dyn slots", `${st.armed} armed / ${st.slotCount}`]];
           if (st.contracts.length) rows.push(["contracts", st.contracts.join(", ")]);
+          const cur = readCurrent();
+          if (cur?.headersVersion || cur?.nodeVersion) rows.push(["synced", `headers ${cur?.headersVersion ?? "—"} · node ${cur?.nodeVersion ?? "—"}`]);
+          if (cur?.headersVersion && cur?.nodeVersion && cur.headersVersion !== cur.nodeVersion) add("⚠ headers/node version drift — run `qinit up`", false);
           setS({ phase: "done", title: st.ticking ? "node up ✓" : "node up (idle)", color: st.ticking ? theme.ok : theme.warn, lines: L, rows });
           return;
         }

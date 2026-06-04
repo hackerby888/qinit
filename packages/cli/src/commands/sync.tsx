@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve } from "node:path";
 import { buildSnapshot } from "@qinit/build";
-import { cacheDir, cacheHeaders, writeCurrent, loadManifest, fetchVerify, extractTarGz } from "@qinit/core";
+import { cacheDir, cacheHeaders, updateCurrent, loadManifest, fetchVerify, extractTarGz } from "@qinit/core";
 import { Header, Spinner, Panel, KV, theme } from "../ui";
 
 function parse(args: string[]): Record<string, string> {
@@ -31,7 +31,7 @@ export function Sync({ args }: { args: string[] }) {
           const core = resolve(o.from);
           const version = "local";
           const r = await buildSnapshot(core, cacheDir(version));
-          writeCurrent({ version, coreHeaders: r.root, syncedAt: new Date().toISOString() });
+          updateCurrent({ headersVersion: version, coreHeaders: r.root });
           setS({ phase: "ok", rows: [
             ["source", core], ["version", version], ["files", String(r.fileCount)], ["cache", r.root],
           ]});
@@ -42,7 +42,7 @@ export function Sync({ args }: { args: string[] }) {
           const buf = await fetchVerify(m.headers);
           const root = cacheHeaders(m.version);
           await extractTarGz(buf, root);
-          writeCurrent({ version: m.version, coreHeaders: root, syncedAt: new Date().toISOString() });
+          updateCurrent({ headersVersion: m.version, coreHeaders: root });
           setS({ phase: "ok", rows: [
             ["version", m.version], ["sha256", m.headers.sha256.slice(0, 16) + "…"], ["cache", root],
           ]});

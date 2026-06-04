@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
-import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, writeCurrent } from "@qinit/core";
+import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent } from "@qinit/core";
 import { fetchNodeBin, cachedNode, nodeStatus, nodeContracts, killNode, launchNode, waitTicking } from "../node-ops";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 
@@ -42,7 +42,7 @@ export function Up({ args }: { args: string[] }) {
         if (o.offline) {
           const cur = readCurrent();
           if (!cur?.coreHeaders || !existsSync(cur.coreHeaders)) throw new Error("offline: no synced headers — run `qinit up` online first");
-          version = cur.version;
+          version = cur.headersVersion ?? "cached";
         } else {
           const m = await loadManifest(ref);
           version = m.version; headersAsset = m.headers; nodeAsset = m.node;
@@ -52,12 +52,12 @@ export function Up({ args }: { args: string[] }) {
         set("headers", "active");
         const cur0 = readCurrent();
         if (o.offline) set("headers", "ok", `reuse ${version}`);
-        else if (cur0?.version === version && cur0.coreHeaders && existsSync(cur0.coreHeaders)) set("headers", "ok", `cached ${version}`);
+        else if (cur0?.headersVersion === version && cur0.coreHeaders && existsSync(cur0.coreHeaders)) set("headers", "ok", `cached ${version}`);
         else {
           if (!headersAsset) throw new Error(`manifest ${version} has no headers asset`);
           const root = cacheHeaders(version);
           await extractTarGz(await fetchVerify(headersAsset), root);
-          writeCurrent({ version, coreHeaders: root, node: readCurrent()?.node, syncedAt: new Date().toISOString() });
+          updateCurrent({ headersVersion: version, coreHeaders: root });
           set("headers", "ok", `fetched ${version}`);
         }
 

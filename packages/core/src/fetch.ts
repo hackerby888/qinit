@@ -51,14 +51,23 @@ export async function extractTarGz(tarGz: Uint8Array, destDir: string): Promise<
   if (p.exitCode !== 0) throw new Error("tar extract failed: " + err);
 }
 
-// current.json — pointer to the active synced version (what resolveCore() uses).
-export interface CurrentPointer { version: string; coreHeaders: string; node?: string; syncedAt: string; }
+// current.json — headers vs node tracked with SEPARATE versions so one update never clobbers
+// the other's version (prevents node/headers drift, which would mean building against headers
+// that don't match the running node = silent ABI mismatch).
+export interface CurrentPointer {
+  headersVersion?: string; coreHeaders?: string;
+  nodeVersion?: string; node?: string;
+  syncedAt?: string;
+}
 export function currentPath(): string { return join(cacheRoot(), "current.json"); }
 export function readCurrent(): CurrentPointer | null {
   try { return JSON.parse(readFileSync(currentPath(), "utf8")) as CurrentPointer; } catch { return null; }
 }
-export function writeCurrent(p: CurrentPointer): void {
+// Merge-write: updating headers preserves node info (and vice versa).
+export function updateCurrent(patch: Partial<CurrentPointer>): CurrentPointer {
+  const next = { ...(readCurrent() ?? {}), ...patch, syncedAt: new Date().toISOString() };
   mkdirSync(cacheRoot(), { recursive: true });
-  writeFileSync(currentPath(), JSON.stringify(p, null, 2));
+  writeFileSync(currentPath(), JSON.stringify(next, null, 2));
+  return next;
 }
 export function cacheHeaders(version: string): string { return join(cacheDir(version), "core-headers"); }

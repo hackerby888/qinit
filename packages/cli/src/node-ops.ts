@@ -1,7 +1,7 @@
 // Shared node lifecycle ops (no UI) used by `qinit node` and `qinit up`.
 import { openSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { LiteRpc, cacheRoot, readCurrent, writeCurrent, loadManifest, fetchVerify } from "@qinit/core";
+import { LiteRpc, cacheRoot, readCurrent, updateCurrent, loadManifest, fetchVerify } from "@qinit/core";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const scratchDir = () => join(cacheRoot(), "run");
@@ -29,8 +29,7 @@ export async function fetchNodeBin(ref: string): Promise<{ bin: string; version:
     writeFileSync(bin, buf);
     Bun.spawnSync(["chmod", "+x", bin]);
   }
-  const cur = readCurrent();
-  writeCurrent({ version: m.version, coreHeaders: cur?.coreHeaders ?? "", node: bin, syncedAt: new Date().toISOString() });
+  updateCurrent({ nodeVersion: m.version, node: bin });
   return { bin, version: m.version };
 }
 export function cachedNode(): string | undefined { const n = readCurrent()?.node; return n && existsSync(n) ? n : undefined; }

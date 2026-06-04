@@ -9,6 +9,6 @@ export { broadcastTx, broadcastTxs } from "./net";
 export type { BroadcastResult } from "./net";
 export {
   RELEASE_REPO, cacheRoot, cacheDir, cacheHeaders, sha256Hex, loadManifest, fetchVerify,
-  extractTarGz, currentPath, readCurrent, writeCurrent,
+  extractTarGz, currentPath, readCurrent, updateCurrent,
 } from "./fetch";
 export type { AssetRef, Manifest, CurrentPointer } from "./fetch";
