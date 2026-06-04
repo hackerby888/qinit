@@ -11,6 +11,7 @@ export type { BuildOpts } from "./recipe";
 export { extractIdl } from "./idl";
 export type { ContractIdl, IdlEntry, Field } from "./idl";
 export { generateClient } from "./gen-client";
+export { testRuntimeSource, sampleTest } from "./gen-test";
 export { buildSnapshot } from "./snapshot";
 export type { SnapshotResult } from "./snapshot";
 export { verifyContract, resolveVerifyTool } from "./verify";

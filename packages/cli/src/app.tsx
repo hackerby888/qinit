@@ -8,6 +8,7 @@ import { Dev } from "./commands/dev";
 import { Build } from "./commands/build";
 import { Gen } from "./commands/gen";
 import { Deploy } from "./commands/deploy";
+import { Test } from "./commands/test";
 import { Call } from "./commands/call";
 import { New } from "./commands/new";
 import { Help } from "./commands/help";
@@ -35,6 +36,8 @@ export function App({ command, args }: { command: string; args: string[] }) {
       return <Gen args={args} />;
     case "deploy":
       return <Deploy args={args} />;
+    case "test":
+      return <Test args={args} />;
     case "call":
       return <Call args={args} />;
     case "version":
