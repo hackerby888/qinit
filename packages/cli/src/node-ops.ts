@@ -1,7 +1,7 @@
 // Shared node lifecycle ops (no UI) used by `qinit node` and `qinit up`.
 import { openSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { LiteRpc, cacheRoot, readCurrent, updateCurrent, loadManifest, fetchVerify } from "@qinit/core";
+import { LiteRpc, cacheRoot, readCurrent, updateCurrent, loadManifest, fetchVerify, verifyPlatformKey } from "@qinit/core";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const scratchDir = () => join(cacheRoot(), "run");
@@ -20,11 +20,14 @@ export function nodeAlive(): boolean { return Bun.spawnSync(["pgrep", "-x", "Qub
 // Download + cache the prebuilt node from the fork's release (manifest-pinned).
 export async function fetchNodeBin(ref: string, onProgress?: (recv: number, total: number) => void): Promise<{ bin: string; version: string }> {
   const m = await loadManifest(ref);
-  if (!m.node) throw new Error(`manifest ${m.version} has no node asset (publish via CI first)`);
+  // per-platform node (linux-x64/linux-arm64); fall back to legacy single `node` (= linux-x64).
+  const plat = verifyPlatformKey();
+  const asset = m.nodes?.[plat] ?? m.node;
+  if (!asset) throw new Error(`manifest ${m.version} has no node asset for ${plat} (publish via CI first)`);
   const dir = join(cacheRoot(), m.version, "node");
   const bin = join(dir, "Qubic");
   if (!existsSync(bin)) {
-    const buf = await fetchVerify(m.node, onProgress);
+    const buf = await fetchVerify(asset, onProgress);
     mkdirSync(dir, { recursive: true });
     writeFileSync(bin, buf);
     Bun.spawnSync(["chmod", "+x", bin]);

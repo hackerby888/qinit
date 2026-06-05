@@ -19,7 +19,8 @@ export function sha256Hex(buf: Uint8Array): string {
 }
 
 export interface AssetRef { url: string; sha256: string; }
-export interface Manifest { version: string; node?: AssetRef; headers?: AssetRef; }
+// node = back-compat (linux-x64); nodes = per-platform map keyed by verifyPlatformKey() (linux-x64, linux-arm64, …)
+export interface Manifest { version: string; node?: AssetRef; nodes?: Record<string, AssetRef>; headers?: AssetRef; }
 
 // Pull the release manifest that pins {node, headers} for one version (ABI-consistent set).
 export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise<Manifest> {
