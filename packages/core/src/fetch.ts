@@ -1,7 +1,7 @@
 // Cache + fetch + verify for synced assets (core-header snapshot now; prebuilt node later).
 // Cache layout: ~/.cache/qinit/<version>/core-headers/ (+ node/Qubic), pointer at current.json.
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -151,7 +151,8 @@ const WASM_TC_BASE = "https://github.com/hackerby888/qinit/releases/download/was
 export function wasmToolchainDir(): string { return join(cacheRoot(), "wasm-clang"); }
 export function haveWasmToolchainCache(): boolean {
   const d = wasmToolchainDir();
-  return existsSync(join(d, "llvm.wasm")) && existsSync(join(d, "bundle.json"));
+  if (!existsSync(join(d, "llvm.wasm"))) return false;
+  try { return readdirSync(d).some((f) => /^bundle-.*\.json$/.test(f)); } catch { return false; }
 }
 // Fetch+verify+extract the toolchain tarball into ~/.cache/qinit/wasm-clang/. No-op if already cached.
 export async function fetchWasmToolchain(onProgress?: (recv: number, total: number) => void): Promise<{ dir: string; cached: boolean }> {

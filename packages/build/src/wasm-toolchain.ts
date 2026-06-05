@@ -5,7 +5,7 @@
 // (-fno-exceptions -DLITEDYN_CONTRACT_TU) so the .so needs only host-resolved cross-ABI symbols.
 import { join, dirname } from "node:path";
 import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { WASI, WASIProcExit, File, Directory, OpenFile, ConsoleStdout, PreopenDirectory, type Inode } from "@bjorn3/browser_wasi_shim";
 import { genWrapper, type BuildOpts, type CompileResult } from "./recipe";
@@ -25,20 +25,23 @@ export function toolchainDir(): string {
 }
 export function haveWasmToolchain(): boolean {
   const d = toolchainDir();
-  return existsSync(join(d, "llvm.wasm")) && existsSync(join(d, "bundle.json")) && existsSync(join(d, "bundle"));
+  if (!existsSync(join(d, "llvm.wasm"))) return false;
+  try { return readdirSync(d).some((f) => /^bundle-.*\.json$/.test(f)); } catch { return false; }
 }
 
 // Recursively load a host directory into an in-memory browser_wasi_shim tree. Skips VCS/build junk so
 // mounting a full core checkout (not just a header snapshot) doesn't slurp .git/build/ into memory.
 const LOADDIR_SKIP = new Set([".git", "build", "dist", "node_modules", ".cache", ".idea", ".vscode", "test"]);
-async function loadDir(host: string): Promise<Map<string, Inode>> {
+// skipJunk only for the CORE checkout (avoid .git/build/…); the bundle tree must load fully — its
+// clang-resource path lives under .../build/usr/include, which the skip set would otherwise drop.
+async function loadDir(host: string, skipJunk = false): Promise<Map<string, Inode>> {
   const m = new Map<string, Inode>();
   for (const name of await readdir(host)) {
-    if (LOADDIR_SKIP.has(name) || name.startsWith("cmake-build")) continue;
+    if (skipJunk && (LOADDIR_SKIP.has(name) || name.startsWith("cmake-build"))) continue;
     const p = join(host, name);
     const s = await stat(p).catch(() => null);
     if (!s) continue;
-    if (s.isDirectory()) m.set(name, new Directory(await loadDir(p)));
+    if (s.isDirectory()) m.set(name, new Directory(await loadDir(p, skipJunk)));
     else if (s.isFile()) m.set(name, new File(await readFile(p)));
   }
   return m;
@@ -86,9 +89,11 @@ export async function compileWasm(o: WasmBuildOpts): Promise<CompileResult> {
   // must be preloaded. The `bundle/` dir mirrors host absolute paths of the curated transitive header set
   // (libc++ + clang-resource + libc, from `clang -M`); bundle.json lists the -isystem dirs (those abs paths).
   // Mount bundle at root, add the core tree (qpi.h etc) + the generated wrapper.
-  const manifest = JSON.parse(await readFile(join(tc, "bundle.json"), "utf8")) as { wasm: string; isystem: string[] };
-  const rootMap = await loadDir(join(tc, "bundle"));            // top-level: usr, home, … (abs-path tree)
-  rootMap.set("core", new Directory(await loadDir(o.corePath))); // qpi.h, contract_core/, extensions/, …
+  const manifestPath = join(tc, `bundle-${plat}.json`);
+  if (!existsSync(manifestPath)) throw new Error(`wasm toolchain: no header bundle for ${plat} at ${tc} (run \`qinit up\`)`);
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { wasm: string; isystem: string[] };
+  const rootMap = await loadDir(join(tc, `bundle-${plat}`));    // per-platform abs-path header tree (usr, home, …)
+  rootMap.set("core", new Directory(await loadDir(o.corePath, true))); // qpi.h, contract_core/, … (skip .git/build)
   // genWrapper #includes the contract by its absolute HOST path, which isn't on the in-memory FS — mount it
   // at a stable path and rewrite the include to match.
   rootMap.set("contract.src.h", new File(await readFile(o.contractPath)));
