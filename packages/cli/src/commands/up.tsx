@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
-import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent } from "@qinit/core";
+import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent, fetchWasmToolchain, haveWasmToolchainCache } from "@qinit/core";
 import { fetchNodeBin, cachedNode, nodeStatus, nodeContracts, killNode, launchNode, waitTicking } from "../node-ops";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 
@@ -28,6 +28,7 @@ export function Up({ args }: { args: string[] }) {
   const [steps, setSteps] = useState<Phase[]>([
     { key: "headers", label: "core headers", state: "pending" },
     { key: "node", label: "node binary", state: "pending" },
+    { key: "toolchain", label: "wasm toolchain", state: "pending" },
     { key: "run", label: "node running", state: "pending" },
   ]);
   const [done, setDone] = useState<{ title: string; color: string; rows: [string, string][] } | null>(null);
@@ -69,6 +70,14 @@ export function Up({ args }: { args: string[] }) {
           if (!c) throw new Error("offline: no cached node — run `qinit up` online first");
           bin = c; set("node", "ok", "reuse cached");
         } else { bin = (await fetchNodeBin(ref)).bin; set("node", "ok", `ready ${version}`); }
+
+        // wasm contract toolchain: fetch the bundled clang.wasm (zero-native-dep `qinit build`). Best-effort
+        // — its absence just falls back to native clang at build time, so never fail `up` over it.
+        set("toolchain", "active");
+        try {
+          if (o.offline) set("toolchain", haveWasmToolchainCache() ? "ok" : "active", haveWasmToolchainCache() ? "cached" : "offline — skipped");
+          else { const t = await fetchWasmToolchain((rc, tt) => set("toolchain", "active", tt ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `${(rc / 1e6) | 0} MB`)); set("toolchain", "ok", t.cached ? "cached" : "fetched"); }
+        } catch { set("toolchain", "ok", "unavailable — native clang fallback"); }
 
         // Run: reuse a node that's already ticking (keeps deployed state); else (re)launch.
         set("run", "active", "checking");

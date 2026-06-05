@@ -143,3 +143,22 @@ export async function autoUpdateVerifyTool(opts?: { force?: boolean; maxAgeMs?: 
     return { action: have ? "updated" : "installed", version: m.version };
   } catch { return { action: "offline" }; }
 }
+
+// ---- wasm contract toolchain (clang.wasm + header bundle) ---------------------
+// Fetched by `qinit up` (folded into setup — no separate `toolchain get`). Moving release on the fork,
+// rebuilt only when LLVM bumps. Lets `qinit build --toolchain wasm` compile contracts with zero native deps.
+const WASM_TC_BASE = "https://github.com/hackerby888/qinit/releases/download/wasm-clang-latest";
+export function wasmToolchainDir(): string { return join(cacheRoot(), "wasm-clang"); }
+export function haveWasmToolchainCache(): boolean {
+  const d = wasmToolchainDir();
+  return existsSync(join(d, "llvm.wasm")) && existsSync(join(d, "bundle.json"));
+}
+// Fetch+verify+extract the toolchain tarball into ~/.cache/qinit/wasm-clang/. No-op if already cached.
+export async function fetchWasmToolchain(onProgress?: (recv: number, total: number) => void): Promise<{ dir: string; cached: boolean }> {
+  const dir = wasmToolchainDir();
+  if (haveWasmToolchainCache()) return { dir, cached: true };
+  const sha = (await (await fetch(WASM_TC_BASE + "/wasm-clang.tar.gz.sha256")).text()).trim().split(/\s+/)[0];
+  const buf = await fetchVerify({ url: WASM_TC_BASE + "/wasm-clang.tar.gz", sha256: sha }, onProgress);
+  await extractTarGz(buf, dir);
+  return { dir, cached: false };
+}
