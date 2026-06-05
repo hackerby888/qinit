@@ -13,6 +13,12 @@ export interface DynContract {
 }
 export interface DynRegistry { contracts: DynContract[]; slotBase: number; slotCount: number; }
 
+export interface DynUpload {
+  active: boolean; sessionId: string; totalSize: number; chunkSize: number;
+  chunkCount: number; receivedCount: number; complete: boolean; finalHash: string;
+  missing: number[]; missingCount: number;
+}
+
 export class LiteRpc {
   constructor(private base = "http://127.0.0.1:41841") {}
 
@@ -37,6 +43,12 @@ export class LiteRpc {
   /** Deployed dynamic contracts + their fn/proc inputTypes (GET /live/v1/dyn-registry). */
   dynRegistry() {
     return this.get<DynRegistry>("/live/v1/dyn-registry");
+  }
+
+  /** Active upload session — assembled chunk count + which seqs are still missing (GET /live/v1/dyn-upload).
+   * Lets deploy confirm the node assembled the full .so (and resend only missing chunks) before DEPLOY. */
+  dynUpload() {
+    return this.get<DynUpload>("/live/v1/dyn-upload");
   }
 
   /** Exact tx confirmation (GET /live/v1/tx-status/{tick}/{txId}) — needs the tx-status addon.
