@@ -37,6 +37,21 @@ export async function fetchNodeBin(ref: string, onProgress?: (recv: number, tota
 }
 export function cachedNode(): string | undefined { const n = readCurrent()?.node; return n && existsSync(n) ? n : undefined; }
 
+// Resolve the node binary to run: prefer the latest/pinned release (fetchNodeBin no-op-skips the
+// download when that version is already cached) and fall back to a cached node only when the manifest
+// is unreachable (offline). Fixes the stale-cache bug — callers that checked cachedNode() first would
+// silently run a long-cached older version (e.g. v0.0.3) against newer tooling instead of the release.
+export async function ensureNode(ref = "latest", onProgress?: (recv: number, total: number) => void): Promise<{ bin: string; version: string; stale: boolean }> {
+  try {
+    const r = await fetchNodeBin(ref, onProgress);
+    return { ...r, stale: false };
+  } catch {
+    const bin = cachedNode();
+    if (bin) return { bin, version: readCurrent()?.nodeVersion ?? "cached", stale: true };
+    throw new Error("no node: latest release unreachable and nothing cached (run `qinit up` online first)");
+  }
+}
+
 export interface LaunchOpts { bin: string; dir?: string; mode?: string; peers?: string; keep?: boolean; }
 // Detached launch (node outlives qinit). Fresh scratch unless keep; never in-tree.
 export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: string } {

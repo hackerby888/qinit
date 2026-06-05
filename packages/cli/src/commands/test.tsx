@@ -4,7 +4,7 @@ import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { loadConfig, resolveCore } from "../config";
 import { deployContract, type Ev } from "../deploy-ops";
-import { launchNode, waitTicking, killNode, cachedNode, fetchNodeBin } from "../node-ops";
+import { launchNode, waitTicking, killNode, ensureNode } from "../node-ops";
 import { LiteRpc } from "@qinit/core";
 import { testRuntimeSource, sampleTest, generateClient, extractIdl } from "@qinit/build";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
@@ -60,15 +60,22 @@ export function Test({ args }: { args: string[] }) {
         spin("checking node");
         if (!(await isTicking(rpcBase))) {
           spin("starting ephemeral node");
-          let bin = o.bin ? resolve(o.bin) : cachedNode();
-          if (!bin) { spin("fetching node"); bin = (await fetchNodeBin(o.ref || "latest", (rc, tt) => spin(tt ? `node ${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `node ${(rc / 1e6) | 0} MB`))).bin; }
+          // Prefer the latest release node; fall back to a cached one only offline (don't silently
+          // run a stale pinned version against newer tooling).
+          let bin = o.bin ? resolve(o.bin) : "";
+          let nodeNote = "";
+          if (!bin) {
+            spin("resolving node");
+            const r = await ensureNode(o.ref || "latest", (rc, tt) => spin(tt ? `node ${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `node ${(rc / 1e6) | 0} MB`));
+            bin = r.bin; if (r.stale) nodeNote = ` · cached ${r.version} (offline)`;
+          }
           await killNode();
           launchNode({ bin, mode: o["node-mode"], peers: o.peers });
           ownNode = true;
           spin("waiting for ticking");
           const w = await waitTicking(rpcBase, Number(o.wait || 60));
           if (!w.ticking) { add("node", false, w.exited ? "exited early — see log" : "not ticking"); setS({ phase: "done", lines: L, ok: false, output: "", rows: [] }); return; }
-          add("node", true, `ephemeral · ticking at ${w.tick}`);
+          add("node", true, `ephemeral · ticking at ${w.tick}${nodeNote}`);
         } else { add("node", true, "reused running node"); }
 
         // 2) build + deploy (also runs the protocol-rule gate).

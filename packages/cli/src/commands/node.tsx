@@ -3,7 +3,7 @@ import { Box, useApp } from "ink";
 import { resolve } from "node:path";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { readCurrent } from "@qinit/core";
-import { killNode, nodeAlive, fetchNodeBin, cachedNode, launchNode, waitTicking, nodeStatus } from "../node-ops";
+import { killNode, nodeAlive, fetchNodeBin, ensureNode, launchNode, waitTicking, nodeStatus } from "../node-ops";
 
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
@@ -29,9 +29,10 @@ export function Node({ args }: { args: string[] }) {
       const add = (t: string, ok?: boolean) => L.push({ t, ok });
       try {
         if (sub === "run") {
-          // Prefer the CI/gh-synced node; --bin only overrides for a local build. Auto-fetch if neither.
-          let bin = o.bin ? resolve(o.bin) : cachedNode();
-          if (!bin) { bin = (await fetchNodeBin(o.ref || "latest", (rc, tt) => setS({ phase: "run", spin: dlLabel(rc, tt) }))).bin; }
+          // Prefer the latest release; --bin only overrides for a local build; cached node is the
+          // offline fallback (don't run a stale pinned version when a newer release exists).
+          let bin = o.bin ? resolve(o.bin) : "";
+          if (!bin) { const r = await ensureNode(o.ref || "latest", (rc, tt) => setS({ phase: "run", spin: dlLabel(rc, tt) })); bin = r.bin; if (r.stale) add(`offline — cached ${r.version}`, true); }
           const waitS = Number(o.wait || 60);
           setS({ phase: "run", spin: "stopping any running node" });
           await killNode();
