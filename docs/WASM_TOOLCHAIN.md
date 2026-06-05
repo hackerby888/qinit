@@ -51,6 +51,33 @@ Native two-step proven end-to-end; the wasm artifact is the sole remaining gate.
   `llvm-project` `main+wasm` patch set (upstream LLVM doesn't build clean to wasm yet) + wasi-sdk.
   Multi-hour, fragile, ~tens of GB. **This is the go/no-go cost.**
 
+## Doability re-verified (2026-06-05) — gate de-risked, still real
+
+Re-checked the gate; it improved materially since the 2026-06-03 spike:
+
+- **Runner risk KILLED (empirical).** `@yowasp/clang` (LLVM 22, ~105 MB, WASI) runs under **bun** in our
+  env: `runClang(['clang','-c','--target=wasm32-wasi','-O2',…])` compiled C→wasm `.o` (`\0asm`, 388 B) in
+  **678 ms**, self-fetching+caching. So Stage 1 (bun WASI runs LLVM-scale wasm) is proven, not a gamble —
+  reuse YoWASP's WASI harness or `@wasmer/sdk`.
+- **Upstream-clean build (the doc's top risk).** `YoWASP/llvm-project` (the out-of-tree `main+wasm` patch
+  set) was **archived 2026-03-11** — the wasm-host support landed upstream. clang/lld build to
+  `wasm32-wasi` from stock LLVM now; no fragile fork to track.
+- **Multi-target = one cmake flag.** `LLVM_TARGETS_TO_BUILD="X86;WebAssembly"` + ELF lld. LLVM backends are
+  host-independent C++, so a wasm-hosted clang with X86 compiled in emits x86-64 ELF. YoWASP ships
+  WebAssembly-only for **size** (browser/PyPI), not a technical limit.
+- **Gate CONFIRMED (empirical).** The prebuilt has NO X86: `clang --print-targets` → `wasm32, wasm64` only;
+  `--target=x86_64-unknown-linux-gnu -c` → "No available targets compatible with triple". So we must
+  produce our own multi-target clang.wasm — no shortcut prebuilt exists.
+
+**Verdict: DOABLE.** Risk dropped from "fragile out-of-tree multi-hour gamble" to "deterministic, one-time
+heavy CI build + packaging." Only remaining cost: produce the X86-enabled `clang.wasm`+`ld.lld` — a standard
+LLVM cross-build (wasi-sdk host) with the extra target, multi-hour, ~tens-GB, **once per LLVM version**,
+cached as a ~105–150 MB release artifact (lazy-fetched). The practical risk is CI logistics (disk/RAM for an
+LLVM build on free runners): mitigate with a Release / `clang;lld`-only / `LLVM_BUILD_LLVM_DYLIB=OFF` config +
+ccache, or a larger runner. Revised Stage 0 = run that build once → compile Counter via bun (runner proven) →
+dlopen in the prebuilt node (link recipe validated §Stage-0). If the build won't fit the runner after
+reasonable effort → fall back to #5 (docker).
+
 ## The two hard mechanics (both have clean answers)
 
 ### 1. No subprocess spawn under WASI → split clang and lld
