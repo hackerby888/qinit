@@ -121,6 +121,9 @@ jobs:
       - name: Publish (moving verify-latest release)
         run: |
           gh release create "$TAG" dist/contractverify-* dist/verify-manifest.json \
-            --title "contractverify (auto-tracking upstream)" \
+            --title "contractverify (auto-tracking upstream)" --latest=false \
             --notes "Prebuilt Qubic contract-verify tool, re-published when upstream changes. Consumed by qinit (daily auto-update)." \
           || gh release upload "$TAG" dist/contractverify-* dist/verify-manifest.json --clobber
+          # This is a tool artifact, not the qinit CLI — never let it claim the repo's "latest"
+          # (else install.sh's old /releases/latest path, and the repo page, point at the wrong release).
+          gh release edit "$TAG" --latest=false || true
