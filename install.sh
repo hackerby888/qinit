@@ -1,5 +1,5 @@
 #!/bin/sh
-# qinit installer — downloads the prebuilt binary for this OS/arch from the latest GitHub release.
+# qinit installer — downloads the prebuilt binary for this OS/arch from the newest qinit-cli release.
 #   curl -fsSL https://raw.githubusercontent.com/hackerby888/qinit/main/install.sh | sh
 set -eu
 REPO="hackerby888/qinit"
@@ -18,7 +18,13 @@ case "$arch" in
 esac
 
 asset="qinit-$o-$a"
-base="https://github.com/$REPO/releases/latest/download"
+# GitHub's "latest" release can be claimed by other releases in this repo (the contractverify
+# auto-track publishes a newer `verify-latest`), so /releases/latest/download/qinit-* 404s. Resolve
+# the newest qinit-cli-* tag explicitly from the API instead.
+TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases" 2>/dev/null \
+  | grep -oE '"tag_name": *"qinit-cli-[^"]+"' | head -n1 | sed -E 's/.*"(qinit-cli-[^"]+)".*/\1/')
+[ -n "$TAG" ] || { echo "qinit: could not resolve a qinit-cli release tag (GitHub API unreachable or rate-limited)"; exit 1; }
+base="https://github.com/$REPO/releases/download/$TAG"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 echo "qinit: downloading $asset …"
