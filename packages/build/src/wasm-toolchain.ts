@@ -89,7 +89,10 @@ export async function compileWasm(o: WasmBuildOpts): Promise<CompileResult> {
   const manifest = JSON.parse(await readFile(join(tc, "bundle.json"), "utf8")) as { wasm: string; isystem: string[] };
   const rootMap = await loadDir(join(tc, "bundle"));            // top-level: usr, home, … (abs-path tree)
   rootMap.set("core", new Directory(await loadDir(o.corePath))); // qpi.h, contract_core/, extensions/, …
-  rootMap.set("wrapper.cpp", new File(new TextEncoder().encode(wrapperSrc)));
+  // genWrapper #includes the contract by its absolute HOST path, which isn't on the in-memory FS — mount it
+  // at a stable path and rewrite the include to match.
+  rootMap.set("contract.src.h", new File(await readFile(o.contractPath)));
+  rootMap.set("wrapper.cpp", new File(new TextEncoder().encode(wrapperSrc.split(o.contractPath).join("/contract.src.h"))));
   const root = new PreopenDirectory("/", rootMap);
   const mod = await WebAssembly.compile(await readFile(join(tc, manifest.wasm)));
   const isystem = manifest.isystem.flatMap((d) => ["-isystem", d]);
