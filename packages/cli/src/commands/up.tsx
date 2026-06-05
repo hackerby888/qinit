@@ -76,7 +76,7 @@ export function Up({ args }: { args: string[] }) {
         set("toolchain", "active");
         try {
           if (o.offline) set("toolchain", haveWasmToolchainCache() ? "ok" : "active", haveWasmToolchainCache() ? "cached" : "offline — skipped");
-          else { const t = await fetchWasmToolchain((rc, tt) => set("toolchain", "active", tt ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `${(rc / 1e6) | 0} MB`)); set("toolchain", "ok", t.cached ? "cached" : "fetched"); }
+          else { const t = await fetchWasmToolchain((rc: number, tt: number) => set("toolchain", "active", tt ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `${(rc / 1e6) | 0} MB`)); set("toolchain", "ok", t.cached ? "cached" : "fetched"); }
         } catch { set("toolchain", "ok", "unavailable — native clang fallback"); }
 
         // Run: reuse a node that's already ticking (keeps deployed state); else (re)launch.
