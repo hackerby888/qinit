@@ -25,13 +25,16 @@ export function toolchainDir(): string {
 }
 export function haveWasmToolchain(): boolean {
   const d = toolchainDir();
-  return existsSync(join(d, "llvm.wasm")) && existsSync(join(d, "headers"));
+  return existsSync(join(d, "llvm.wasm")) && existsSync(join(d, "bundle.json")) && existsSync(join(d, "bundle"));
 }
 
-// Recursively load a host directory into an in-memory browser_wasi_shim tree.
+// Recursively load a host directory into an in-memory browser_wasi_shim tree. Skips VCS/build junk so
+// mounting a full core checkout (not just a header snapshot) doesn't slurp .git/build/ into memory.
+const LOADDIR_SKIP = new Set([".git", "build", "dist", "node_modules", ".cache", ".idea", ".vscode", "test"]);
 async function loadDir(host: string): Promise<Map<string, Inode>> {
   const m = new Map<string, Inode>();
   for (const name of await readdir(host)) {
+    if (LOADDIR_SKIP.has(name) || name.startsWith("cmake-build")) continue;
     const p = join(host, name);
     const s = await stat(p).catch(() => null);
     if (!s) continue;
@@ -79,25 +82,23 @@ export async function compileWasm(o: WasmBuildOpts): Promise<CompileResult> {
   await writeFile(wrapperPath, wrapperSrc);
   const soHost = join(o.outDir, `${o.name}.${tgt.ext}`);
 
-  // Assemble the in-memory FS: header bundle (clang resource + C++ stdlib) + the core headers
-  // (qpi.h etc, mounted from corePath) + the generated wrapper. browser_wasi_shim is in-memory only,
-  // so everything clang may #include must be preloaded.
-  const headers = await loadDir(join(tc, "headers"));            // bundled, platform-agnostic
-  const core = new Directory(await loadDir(o.corePath));         // qpi.h, contract_core/, etc
-  const rootMap = new Map<string, Inode>([
-    ["wrapper.cpp", new File(new TextEncoder().encode(wrapperSrc))],
-    ["core", core],
-    ["headers", new Directory(headers)],
-  ]);
+  // Assemble the in-memory FS. browser_wasi_shim is in-memory only, so every header clang may #include
+  // must be preloaded. The `bundle/` dir mirrors host absolute paths of the curated transitive header set
+  // (libc++ + clang-resource + libc, from `clang -M`); bundle.json lists the -isystem dirs (those abs paths).
+  // Mount bundle at root, add the core tree (qpi.h etc) + the generated wrapper.
+  const manifest = JSON.parse(await readFile(join(tc, "bundle.json"), "utf8")) as { wasm: string; isystem: string[] };
+  const rootMap = await loadDir(join(tc, "bundle"));            // top-level: usr, home, … (abs-path tree)
+  rootMap.set("core", new Directory(await loadDir(o.corePath))); // qpi.h, contract_core/, extensions/, …
+  rootMap.set("wrapper.cpp", new File(new TextEncoder().encode(wrapperSrc)));
   const root = new PreopenDirectory("/", rootMap);
-  const mod = await WebAssembly.compile(await readFile(join(tc, "llvm.wasm")));
+  const mod = await WebAssembly.compile(await readFile(join(tc, manifest.wasm)));
+  const isystem = manifest.isystem.flatMap((d) => ["-isystem", d]);
 
   // 1) clang -> .o (freestanding; cross-emit the node target). Mirrors recipe.ts flags + the bundle includes.
   const cc = runTool(mod, [
     "clang", "-c", `--target=${tgt.triple}`, "-std=c++20", "-O2", "-fPIC", "-fno-rtti", "-fno-exceptions",
     "-DLITEDYN_CONTRACT_TU", ...(plat === "linux-x64" ? ["-mavx2"] : []),
-    "-nostdinc", "-nostdinc++",
-    "-isystem", "/headers/c++", "-isystem", "/headers/clang", "-isystem", "/headers/libc",
+    "-nostdinc", "-nostdinc++", ...isystem,
     "-I", "/core", "-I", "/core/src",
     "/wrapper.cpp", "-o", "/out.o",
   ], root);

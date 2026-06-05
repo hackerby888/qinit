@@ -24,6 +24,7 @@ export interface DeployOpts {
   contractPath: string; name: string; core: string; rpcBase: string;
   seed?: string; dynCallees?: Record<string, { header: string; index: number }>;
   slotOverride?: number; outDir?: string;
+  toolchain?: "native" | "wasm" | "auto"; platform?: string; // compiler backend + target node platform
 }
 export interface DeployResult {
   ok: boolean; slot?: number; reused?: boolean; hash?: string; txId?: string;
@@ -65,7 +66,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   // build
   emit({ step: "build", state: "active", detail: "compiling…" });
-  const b = await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir: o.outDir ?? resolve("dist/contracts"), dynCallees: o.dynCallees });
+  const b = await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir: o.outDir ?? resolve("dist/contracts"), dynCallees: o.dynCallees, toolchain: o.toolchain, platform: o.platform });
   if (!b.ok) {
     const why = b.verify && !b.verify.ok && b.verify.errors.length ? `protocol: ${b.verify.errors[0]}` : "compile failed";
     emit({ step: "build", state: "fail", detail: why });

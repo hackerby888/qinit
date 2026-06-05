@@ -81,7 +81,7 @@ export function Test({ args }: { args: string[] }) {
         // 2) build + deploy (also runs the protocol-rule gate).
         spin("deploying contract");
         let depDetail = "";
-        const dep = await deployContract({ contractPath, name, core, rpcBase, seed: o.seed }, (e: Ev) => {
+        const dep = await deployContract({ contractPath, name, core, rpcBase, seed: o.seed, toolchain: o.toolchain as any }, (e: Ev) => {
           if ("note" in e) return;
           if (e.state === "active" && e.detail) spin(`deploy · ${STEP_LABEL[e.step] ?? e.step}: ${e.detail}`);
           if (e.step === "build" && e.state === "fail") depDetail = e.detail ?? "build failed";
