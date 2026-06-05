@@ -2,10 +2,13 @@
 // The undefined-symbol list drives which QpiContext forwarders lite_dyn_abi.h still needs.
 import { statSync, readFileSync } from "node:fs";
 import { compile, type BuildOpts } from "./recipe";
+import { compileWasm, haveWasmToolchain, toolchainDir } from "./wasm-toolchain";
 import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
 import { k12Hex } from "@qinit/core";
+
+export { compileWasm, haveWasmToolchain, toolchainDir } from "./wasm-toolchain";
 
 export type { BuildOpts } from "./recipe";
 export { extractIdl } from "./idl";
@@ -43,7 +46,9 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
     try { calleePrelude = buildCalleePrelude(o.corePath, readFileSync(o.contractPath, "utf8"), o.dynCallees ?? {}); }
     catch (e: any) { return { ok: false, stderr: "inter-contract resolve failed: " + String(e?.message ?? e) }; }
   }
-  const c = await compile({ ...o, calleePrelude });
+  // Backend: wasm (bundled clang.wasm — zero native dep) or native clang. auto = wasm if cached.
+  const useWasm = o.toolchain === "wasm" || (o.toolchain !== "native" && o.toolchain === "auto" && haveWasmToolchain());
+  const c = useWasm ? await compileWasm({ ...o, calleePrelude }) : await compile({ ...o, calleePrelude });
   if (!c.ok) return { ok: false, so: c.so, stderr: c.stderr };
   const size = statSync(c.so).size;
   let hash: string | undefined;

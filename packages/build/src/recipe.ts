@@ -13,6 +13,8 @@ export interface BuildOpts {
   clang?: string;       // default clang++-18
   calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
   dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
+  toolchain?: "native" | "wasm" | "auto"; // compiler backend; auto = wasm if cached else native
+  platform?: string;    // target node platform for the wasm toolchain (linux-x64 | linux-arm64 | darwin-arm64)
 }
 
 export function genWrapper(o: BuildOpts): string {
