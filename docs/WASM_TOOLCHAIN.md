@@ -11,7 +11,21 @@ prebuilt testnet+dynamic `Qubic` from GitHub releases (#6). So both halves of th
 (compile, node) become "fetch + run", pinned by a release manifest.
 
 **Non-goals.** Not changing the deploy/upload/call path, the wrapper recipe, or the host
-ABI. Not supporting non-x86-64 node targets. Not embedding a C++ STL we don't already use.
+ABI. Not embedding a C++ STL we don't already use.
+
+**Multi-platform (updated 2026-06-05 — the node now ships linux-x64, linux-arm64, darwin-arm64).** The
+contract `.so`/`.dylib` must match the *node's* platform, so the toolchain is multi-target. This is where
+the wasm approach pays off: `clang.wasm` is host-independent and holds all backends — one build with
+`LLVM_TARGETS_TO_BUILD="X86;AArch64;WebAssembly"` cross-emits x86-64 ELF, aarch64 ELF, **and** arm64 Mach-O
+from any dev host; lld bundles ELF + Mach-O flavors. Pick `-target` by the node's platform.
+- **linux x64/arm64**: clean — add AArch64 + an aarch64 libstdc++/glibc sysroot (same recipe as x64).
+- **darwin-arm64**: harder but feasible. lld **ad-hoc-signs arm64 dylibs by default** (Apple Silicon
+  mandates a signature — D97994), so a cross-built dylib loads. `-undefined dynamic_lookup` **panics on
+  arm64 lld**, so don't use it — instead ship a **clean-room stub `.tbd`** for the libc++/libSystem symbols
+  the contract references (same idea as the linux stub-libs §2-B; `.tbd` is a symbol-list text file, no
+  Apple-SDK redistribution). libc++ *headers* are LLVM's (Apache-2.0, bundleable). Symbols bind at dlopen
+  against the node's libc++/libSystem. **Must validate** a cross-built dylib actually dlopens in the real
+  macOS node (lld's Mach-O cross path is less battle-tested).
 
 ## What the wasm toolchain must reproduce (measured, not guessed)
 
