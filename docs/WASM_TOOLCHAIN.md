@@ -27,6 +27,45 @@ from any dev host; lld bundles ELF + Mach-O flavors. Pick `-target` by the node'
   against the node's libc++/libSystem. **Must validate** a cross-built dylib actually dlopens in the real
   macOS node (lld's Mach-O cross path is less battle-tested).
 
+## No-sysroot approach — PROVEN 2026-06-05 (supersedes per-platform sysroots)
+
+Insight (from the contract model): a contract `.so` needs **no libc/STL of its own** — it talks to the host
+only through the `g_liteHost` vtable *pointer*, and `qpi.h` is freestanding-by-design (0 `#include`s,
+hand-rolls copy to avoid `memcpy`). So the `.so`'s externals can be reduced to symbols **every node already
+provides**, killing the per-platform sysroot entirely.
+
+**Measured spike (native clang-18, Counter):**
+- Baseline `.so`: **15 UND**, NEEDED libstdc++/libm/libgcc_s/libc.
+- With **`-fno-exceptions`** + one gated `throw` → **11 UND**, and the 5 STL-specific exception symbols
+  (`_Unwind_Resume`, `__gxx_personality_v0`, `std::terminate`, `__cxa_begin_catch`,
+  `__throw_bad_array_new_length`) are **gone**.
+- Remaining 11 are **only cross-ABI-standard + libc**: `operator new`/`operator delete` (Itanium ABI
+  `_Znwm`/`_ZdlPv` — identical in libstdc++ **and** libc++/libc++abi), `memcpy/memset/malloc/free/__cxa_atexit`
+  (libc — present in glibc **and** darwin libSystem), + weak `__gmon_start__`/`_ITM_*` (ignorable).
+- `dlopen` OK. So the same `.so` loads in a **libstdc++ linux node or a libc++ darwin node** — no STL/ABI
+  mismatch, because it references no STL-impl-specific symbols.
+
+**Consequences (this is the plan now):**
+- **No per-platform sysroot.** Compile needs only header-only std (`<cstdint>`/`<type_traits>`/… — shipped
+  *inside* clang) + (optionally) one platform-agnostic libc++ header bundle. Runtime symbols bind at the node.
+- **linux x64/arm64**: ELF defers the ~7 UND to `dlopen` (already works; only needs the existing crt framing).
+- **darwin-arm64**: a **tiny clean-room `.tbd`** listing those ~7 symbols (`operator new/delete`,
+  `mem*`, `malloc/free`, `__cxa_atexit`) → links the dylib, lld ad-hoc-signs it, symbols bind to the node's
+  libc++/libSystem. **No Apple SDK, no `-undefined dynamic_lookup`.** (Still validate dlopen in a real mac node.)
+- The whole "Stage 2 — sysroot packaging" reduces from per-platform libstdc++/glibc/SDK to **one header
+  bundle + a ~7-line `.tbd`**.
+
+**Merge-safety (the key constraint).** The *only* source change is **one gated line** in
+`src/extensions/utils.h` (fork-owned, never upstream): the node-only `hexToByte` throw becomes
+`#if defined(LITEDYN_CONTRACT_TU) return; #else throw … #endif`. Node builds (macro undefined) are
+**byte-identical**; upstream-shared core (`common_def.h`, `qpi_collection_impl.h`) is **untouched** —
+`<string>` stays included so they *parse*, but their helpers aren't *emitted* (unused), so they add no
+runtime symbol. The recipe (`packages/build/src/recipe.ts`) bakes `-fno-exceptions -DLITEDYN_CONTRACT_TU`.
+
+So #7 reduces to: **build the multi-target `clang.wasm`+`lld` (X86;AArch64;WebAssembly)** + bundle clang's
+own headers (+ optional libc++) + a per-OS `.tbd`/crt stub of ~7 symbols. The hard, licensing-fraught,
+per-platform sysroot stage is eliminated.
+
 ## What the wasm toolchain must reproduce (measured, not guessed)
 
 Current native recipe (`packages/build/src/recipe.ts`):

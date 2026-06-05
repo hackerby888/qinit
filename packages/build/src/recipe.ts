@@ -89,7 +89,11 @@ export async function compile(o: BuildOpts): Promise<CompileResult> {
   const clang = resolveClang(o.clang);
   // -mavx2 is mandatory: m256i uses AVX intrinsics and the host compiles with AVX2,
   // so the .so must match for the m256i pass-by-value ABI.
-  const args = ["-std=c++20", "-O2", "-fPIC", "-shared", "-fno-rtti", "-mavx2",
+  // -fno-exceptions + LITEDYN_CONTRACT_TU make the .so reference only cross-ABI-standard symbols
+  // (operator new/delete, libc mem*/malloc) that every node already provides, regardless of platform
+  // or STL (libstdc++ vs libc++) — so it needs no per-platform sysroot and loads anywhere. The macro
+  // gates the one node-only throw in extensions/utils.h; the node build (macro undefined) is unchanged.
+  const args = ["-std=c++20", "-O2", "-fPIC", "-shared", "-fno-rtti", "-fno-exceptions", "-DLITEDYN_CONTRACT_TU", "-mavx2",
     `-I${o.corePath}`, `-I${src}`, wrapper, "-o", so];
   const p = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
   const stderr = await new Response(p.stderr).text();
