@@ -34,7 +34,13 @@ export interface BuildResult {
 export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   // Protocol-rule gate first (cheap, fails before clang): reject contracts that break the
   // qpi.h restrictions. Skipped (not failed) when the verify tool isn't synced on this box.
-  const verify = await verifyContract(o.contractPath, o.name);
+  // Inter-contract callee names (--callee + CALL/INVOKE_OTHER_CONTRACT) are passed so the tool's
+  // false "scope resolution with prefix <DynCallee>" errors don't block a legit inter-contract deploy.
+  const calleeNames = [...new Set([
+    ...Object.keys(o.dynCallees ?? {}),
+    ...[...readFileSync(o.contractPath, "utf8").matchAll(/(?:CALL|INVOKE)_OTHER_CONTRACT_\w+\s*\(\s*(\w+)/g)].map((m) => m[1]),
+  ])];
+  const verify = await verifyContract(o.contractPath, o.name, { allowedPrefixes: calleeNames });
   if (verify.available && !verify.ok) {
     return { ok: false, verify, stderr: ["Qubic protocol violations:", ...verify.errors.map((e) => "  • " + e)].join("\n") };
   }

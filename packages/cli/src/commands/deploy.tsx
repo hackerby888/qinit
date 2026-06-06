@@ -9,14 +9,18 @@ import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
 
 interface SS { state: StepState; detail?: string; pct?: number; startedAt?: number; elapsedMs?: number }
 
-function parse(args: string[]): Record<string, string> {
+function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
   const o: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) if (args[i].startsWith("--")) o[args[i].slice(2)] = args[++i] ?? "";
-  return o;
+  const pos: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith("--")) o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
+    else pos.push(args[i]);
+  }
+  return { o, pos };
 }
 
 export function Deploy({ args }: { args: string[] }) {
-  const o = parse(args);
+  const { o, pos } = parse(args);
   const { exit } = useApp();
   const [steps, setSteps] = useState<Record<string, SS>>({});
   const [notes, setNotes] = useState<string[]>([]);
@@ -28,7 +32,9 @@ export function Deploy({ args }: { args: string[] }) {
     (async () => {
       try {
         const cfg = loadConfig();
-        const contractPath = resolve(o.contract ?? cfg.contract ?? "fixtures/Counter.h");
+        const cpath = o.contract ?? pos[0] ?? cfg.contract;
+        if (!cpath) throw new Error("no contract: pass `qinit deploy <file.h>` (or --contract <file.h>, or set contract in qinit.json)");
+        const contractPath = resolve(cpath);
         const nm = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
         setName(nm);
         const dynCallees: Record<string, { header: string; index: number }> = {};

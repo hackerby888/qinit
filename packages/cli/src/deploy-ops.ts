@@ -1,6 +1,7 @@
 // Build + chunk-upload + deploy a contract to a ticking node. Shared by `qinit deploy` and `qinit dev`.
 // Emits STRUCTURED progress events (step state + live detail + pct) so the UI can show a rich pipeline.
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { buildContract, type ContractIdl } from "@qinit/build";
 import { buildSignedTx, broadcastTx, LiteRpc, k12Hex, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
@@ -65,9 +66,30 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   const { slot, reused } = await resolveSlot(rpc, o.name, o.slotOverride);
   emit({ step: "slot", state: "ok", detail: `slot ${slot} ${reused ? "(reuse)" : "(new)"}` });
 
+  // inter-contract callees: for each CALL/INVOKE_OTHER_CONTRACT(<Name>) not given via --callee, resolve it from
+  // the node registry (name -> slot + .h source, submitted at the callee's own deploy) so no --callee is needed.
+  const dynCallees: Record<string, { header: string; index: number }> = { ...(o.dynCallees ?? {}) };
+  try {
+    const csrc = readFileSync(o.contractPath, "utf8");
+    const names = [...new Set([...csrc.matchAll(/(?:CALL|INVOKE)_OTHER_CONTRACT_\w+\s*\(\s*(\w+)/g)].map((m) => m[1]))];
+    const pending = names.filter((n) => !dynCallees[n]);
+    if (pending.length) {
+      const reg = await rpc.dynRegistry();
+      for (const n of pending) {
+        const c = (reg.contracts ?? []).find((x) => x.name === n && x.armed && x.source);
+        if (c) {
+          const tmp = join(tmpdir(), `qinit-callee-${n}.h`);
+          writeFileSync(tmp, c.source!);
+          dynCallees[n] = { header: tmp, index: c.index };
+          emit({ note: `callee ${n} → slot ${c.index} (from node)` });
+        }
+      }
+    }
+  } catch {}
+
   // build
   emit({ step: "build", state: "active", detail: "compiling…" });
-  const b = await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir: o.outDir ?? resolve("dist/contracts"), dynCallees: o.dynCallees, toolchain: o.toolchain, platform: o.platform, target: o.target });
+  const b = await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir: o.outDir ?? resolve("dist/contracts"), dynCallees, toolchain: o.toolchain, platform: o.platform, target: o.target });
   if (!b.ok) {
     const why = b.verify && !b.verify.ok && b.verify.errors.length ? `protocol: ${b.verify.errors[0]}` : "compile failed";
     emit({ step: "build", state: "fail", detail: why });
@@ -171,7 +193,11 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     } catch {}
   }
   let reason: string | undefined;
-  if (armed) emit({ step: "confirm", state: "ok", detail: `armed · ${want.slice(0, 12)}…` });
+  if (armed) {
+    emit({ step: "confirm", state: "ok", detail: `armed · ${want.slice(0, 12)}…` });
+    // submit this contract's .h to the node so later inter-contract callers can resolve it without --callee.
+    try { await rpc.putContractSource(slot, readFileSync(o.contractPath, "utf8")); } catch {}
+  }
   else if (!present) { reason = "empty"; emit({ step: "confirm", state: "fail", detail: "slot empty — didn't land" }); emit({ note: "upload/deploy didn't land (chunks dropped, tick missed, or seed unfunded)" }); }
   else { reason = "wrong-code"; emit({ step: "confirm", state: "fail", detail: "different code — didn't take" }); emit({ note: `on-node ${onNode.slice(0, 12)}… ≠ yours ${want.slice(0, 12)}…` }); }
 

@@ -42,6 +42,9 @@ ${o.calleePrelude ?? ""}
 #define ${o.name}_CONTRACT_INDEX ${o.slot}
 #define CONTRACT_STATE_TYPE ${o.name}
 #define CONTRACT_STATE2_TYPE ${o.name}2
+// Late-bind CALL/INVOKE_OTHER_CONTRACT to the callee's deployed code via the host (needs the callee
+// __contract_index + <Type>_<fn>_inputType consts from the prelude + CONTRACT_INDEX above).
+#include "extensions/lite_contract_calls.h"
 #include "${o.contractPath}"
 // QPI data-structure impls operate on contract-local memory -> .so-safe. CAUTION: after the contract.
 // Collection + LinkedList are clean (only qpi.h + memory).

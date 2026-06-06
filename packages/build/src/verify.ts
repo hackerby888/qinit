@@ -34,7 +34,10 @@ function concretize(src: string, name: string): string {
   return src.replaceAll("CONTRACT_STATE2_TYPE", `${name}2`).replaceAll("CONTRACT_STATE_TYPE", name);
 }
 
-export async function verifyContract(file: string, name: string, opts?: { oracle?: boolean }): Promise<VerifyResult> {
+// allowedPrefixes: inter-contract callee names (from --callee / CALL_OTHER_CONTRACT). The tool only whitelists
+// the upstream registered contracts, so it rejects `<DynCallee>::Type` scope resolution; those errors are false
+// for declared callees and are dropped here (all other rules still apply).
+export async function verifyContract(file: string, name: string, opts?: { oracle?: boolean; allowedPrefixes?: string[] }): Promise<VerifyResult> {
   const tool = resolveVerifyTool();
   const oracle = !!opts?.oracle || /oracle_interface/i.test(file);
   if (!tool) return { available: false, ok: true, oracle, errors: [] };
@@ -49,6 +52,11 @@ export async function verifyContract(file: string, name: string, opts?: { oracle
   const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
   await p.exited;
   const raw = (out + err).trim();
-  const errors = raw.split("\n").filter((l) => l.includes("[ ERROR ]")).map((l) => l.replace(/.*\[ ERROR \]\s*/, "").trim());
-  return { available: true, ok: p.exitCode === 0, oracle, errors, raw, tool };
+  const allErrors = raw.split("\n").filter((l) => l.includes("[ ERROR ]")).map((l) => l.replace(/.*\[ ERROR \]\s*/, "").trim());
+  const allow = opts?.allowedPrefixes ?? [];
+  const errors = allErrors.filter((e) => !allow.some((p) => e === `Scope resolution with prefix ${p} is not allowed.`));
+  const dropped = allErrors.length - errors.length;
+  // pass on a clean exit, or when the only violations were the declared-callee scope-resolution errors.
+  const ok = p.exitCode === 0 || (dropped > 0 && errors.length === 0);
+  return { available: true, ok, oracle, errors, raw, tool };
 }

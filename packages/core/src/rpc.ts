@@ -9,7 +9,7 @@ export interface TickInfo {
 export interface DynEntry { inputType: number; inputSize: number; outputSize: number; }
 export interface DynContract {
   index: number; armed: boolean; constructed: boolean; version: number; name: string; codeHash: string;
-  functions: DynEntry[]; procedures: DynEntry[];
+  functions: DynEntry[]; procedures: DynEntry[]; source?: string;
 }
 export interface DynRegistry { contracts: DynContract[]; slotBase: number; slotCount: number; }
 
@@ -76,5 +76,16 @@ export class LiteRpc {
     const j: any = await r.json().catch(() => ({}));
     if (typeof j.responseData !== "string") throw new Error(`querySmartContract: code=${j.code} ${j.message ?? r.status}`);
     return new Uint8Array(Buffer.from(j.responseData, "base64"));
+  }
+
+  /** Dev-only: store a deployed contract's .h source on the node (POST /live/v1/dev/contract-source?slot=N,
+   *  body = raw source) so inter-contract callers can resolve callees from the registry without --callee. */
+  async putContractSource(slot: number, source: string): Promise<boolean> {
+    try {
+      const r = await fetch(this.base + `/live/v1/dev/contract-source?slot=${slot}`, {
+        method: "POST", headers: { "content-type": "text/plain" }, body: source,
+      });
+      return r.ok;
+    } catch { return false; }
   }
 }
