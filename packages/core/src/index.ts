@@ -12,7 +12,6 @@ export {
   extractTarGz, currentPath, readCurrent, updateCurrent,
   VERIFY_REPO, VERIFY_TAG, toolsDir, cachedVerifyToolPath, verifyPlatformKey,
   loadVerifyManifest, autoUpdateVerifyTool,
-  wasmToolchainDir, haveWasmToolchainCache, fetchWasmToolchain,
   wasiSdkDir, wasiSdkPaths, haveWasiSdkCache, fetchWasiSdk,
 } from "./fetch";
 export type { AssetRef, Manifest, CurrentPointer, VerifyManifest, VerifyUpdate } from "./fetch";

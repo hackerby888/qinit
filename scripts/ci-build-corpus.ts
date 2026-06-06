@@ -23,7 +23,7 @@ const corpus: { name: string; path: string; dynCallees?: Callees; skipVerify?: b
 let failed = 0;
 for (const c of corpus) {
   // Proxy (slot 29) calls Counter (slot 28): caller index must be > callee.
-  const r = await buildContract({ contractPath: c.path, name: c.name, slot: 29, corePath: core, outDir: "/tmp/corpus", target: "wasm", dynCallees: c.dynCallees, skipVerify: c.skipVerify });
+  const r = await buildContract({ contractPath: c.path, name: c.name, slot: 29, corePath: core, outDir: "/tmp/corpus", dynCallees: c.dynCallees, skipVerify: c.skipVerify });
   if (r.ok) {
     console.log(`OK   ${c.name}  ${r.size ?? "?"}B`);
   } else {

@@ -45,7 +45,7 @@ export function New({ args }: { args: string[] }) {
       const cfg: Record<string, unknown> = { name, contract: `contracts/${name}.h`, rpc: "http://127.0.0.1:41841" };
       if (core) cfg.core = core; // omitted by default -> resolveCore uses the synced cache, project is machine-portable
       writeFileSync(join(dir, "qinit.json"), JSON.stringify(cfg, null, 2) + "\n");
-      writeFileSync(join(dir, ".gitignore"), ["dist/", "*.so", "*.log", "qinit.idl.json", "contracts_dyn/", ".DS_Store"].join("\n") + "\n");
+      writeFileSync(join(dir, ".gitignore"), ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts_dyn/", ".DS_Store"].join("\n") + "\n");
       writeFileSync(join(dir, "README.md"),
         `# ${name}\n\nQubic dynamic contract (\`qinit new --template ${kind}\`).\n\n` +
         "```bash\nqinit up        # sync headers + run a dev node\n" +

@@ -1,6 +1,6 @@
-// Compile a qpi.h-constrained contract .h into a dynamic-contract .so.
-// Pinned recipe from DYNAMIC_CONTRACTS.md §5.4: include qpi.h + lite_dyn_abi.h,
-// never contract_exec.h; define LITE_DYN_SO_BUILD + CONTRACT_INDEX/STATE_TYPE.
+// Compile a qpi.h-constrained contract .h into a wasm contract module (run by the node's WAMR engine).
+// Pinned recipe: include qpi.h + lite_wasm_tu.h, never contract_exec.h; define LITE_WASM_TU_BUILD +
+// CONTRACT_INDEX/STATE_TYPE.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { wasiSdkPaths } from "@qinit/core";
@@ -11,14 +11,10 @@ export interface BuildOpts {
   slot: number;         // CONTRACT_INDEX
   corePath: string;     // qubic-core-lite root
   outDir: string;
-  clang?: string;       // default clang++-18
   calleePrelude?: string; // inter-contract: callee type headers + inputType consts (from intercontract.ts)
   dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
-  toolchain?: "native" | "wasm" | "auto"; // compiler backend; auto = wasm if cached else native
-  platform?: string;    // target node platform for the wasm toolchain (linux-x64 | linux-arm64 | darwin-arm64)
-  target?: "so" | "wasm"; // OUTPUT format: native .so/.dylib (default) or a wasm contract (run by the node's WAMR engine)
-  wasmClang?: string;   // clang targeting wasm32-wasi (for target=wasm); default env WASM_CLANG / clang++
-  wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT
+  wasmClang?: string;   // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
+  wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
   skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some lite macros)
 }
 
@@ -131,31 +127,3 @@ export function resolveClang(pref?: string): string {
   throw new Error("no clang++ >= 18 found on PATH (clang required, not gcc)");
 }
 
-export interface CompileResult {
-  ok: boolean;
-  so: string;
-  wrapper: string;
-  stderr: string;
-  exitCode: number | null;
-}
-
-export async function compile(o: BuildOpts): Promise<CompileResult> {
-  const src = join(o.corePath, "src");
-  await mkdir(o.outDir, { recursive: true });
-  const wrapper = join(o.outDir, `${o.name}.wrapper.cpp`);
-  await writeFile(wrapper, genWrapper(o));
-  const so = join(o.outDir, `${o.name}.so`);
-  const clang = resolveClang(o.clang);
-  // -mavx2 is mandatory: m256i uses AVX intrinsics and the host compiles with AVX2,
-  // so the .so must match for the m256i pass-by-value ABI.
-  // -fno-exceptions + LITEDYN_CONTRACT_TU make the .so reference only cross-ABI-standard symbols
-  // (operator new/delete, libc mem*/malloc) that every node already provides, regardless of platform
-  // or STL (libstdc++ vs libc++) — so it needs no per-platform sysroot and loads anywhere. The macro
-  // gates the one node-only throw in extensions/utils.h; the node build (macro undefined) is unchanged.
-  const args = ["-std=c++20", "-O2", "-fPIC", "-shared", "-fno-rtti", "-fno-exceptions", "-DLITEDYN_CONTRACT_TU", "-mavx2",
-    `-I${o.corePath}`, `-I${src}`, wrapper, "-o", so];
-  const p = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
-  const stderr = await new Response(p.stderr).text();
-  await p.exited;
-  return { ok: p.exitCode === 0, so, wrapper, stderr, exitCode: p.exitCode };
-}

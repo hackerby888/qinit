@@ -5,12 +5,12 @@ import { Banner, theme } from "../ui";
 
 const COMMANDS: [string, string][] = [
   ["new", "scaffold a project: new <name> --template counter|hashmap|asset|intercontract"],
-  ["doctor", "check toolchain (clang-18, node, core headers, qubic lib)"],
+  ["doctor", "check toolchain (wasi-sdk, node, core headers, qubic lib)"],
   ["sync", "fetch/build the core-header snapshot into the cache"],
   ["node", "run / status / stop / get the dev node (run --bin <path>)"],
   ["up", "one command: sync headers + get node + run (reuses a ticking node)"],
   ["dev", "watch the contract -> auto build+deploy on save (q to quit)"],
-  ["build", "compile a contract .h -> .so (+ hash, unresolved-symbol report)"],
+  ["build", "compile a contract .h -> wasm (+ K12 hash, IDL)"],
   ["gen", "generate a typed TS client from the contract IDL"],
   ["deploy", "build + chunk-upload + deploy a contract to a node"],
   ["test", "deploy to an ephemeral node + run bun tests against it"],

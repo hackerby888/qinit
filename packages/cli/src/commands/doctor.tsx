@@ -3,6 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { Header, Spinner, Panel, Status, theme } from "../ui";
 import { resolveCore } from "../config";
 import { resolveVerifyTool } from "@qinit/build";
+import { wasiSdkPaths } from "@qinit/core";
 
 interface Check { name: string; ok: boolean | null; detail: string; fix?: string; optional?: boolean }
 
@@ -19,8 +20,14 @@ async function cmdVersion(cmd: string, args: string[], missingHint: string, fix:
 
 async function runChecks(): Promise<Check[]> {
   const checks: Check[] = [];
-  checks.push(await cmdVersion("clang++-18", ["--version"], "not found — needed to build .so",
-    "sudo apt install clang-18  or  bash -c \"$(wget -O - https://apt.llvm.org/llvm.sh)\" -- 18"));
+  // wasm compiler: the auto-fetched wasi-sdk, or a WASM_CLANG/WASI_SYSROOT override.
+  const sdk = wasiSdkPaths();
+  const envClang = process.env.WASM_CLANG;
+  checks.push(sdk
+    ? { name: "wasi-sdk (wasm compiler)", ok: true, detail: sdk.clang }
+    : envClang
+      ? { name: "wasi-sdk (wasm compiler)", ok: true, detail: `WASM_CLANG=${envClang}` }
+      : { name: "wasi-sdk (wasm compiler)", ok: false, detail: "not cached", fix: "qinit up   (auto-fetches the host wasi-sdk)" });
   checks.push(await cmdVersion("node", ["--version"], "not found — needed by qinit", "install Node 20+ from nodejs.org or your package manager"));
 
   // Cache-aware: prefer the synced header cache, fall back to QINIT_CORE / --core.

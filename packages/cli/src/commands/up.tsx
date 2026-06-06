@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
-import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent, fetchWasmToolchain, haveWasmToolchainCache, fetchWasiSdk, haveWasiSdkCache } from "@qinit/core";
+import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent, fetchWasiSdk, haveWasiSdkCache } from "@qinit/core";
 import { fetchNodeBin, cachedNode, nodeStatus, nodeContracts, killNode, launchNode, waitTicking } from "../node-ops";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 
@@ -28,7 +28,6 @@ export function Up({ args }: { args: string[] }) {
   const [steps, setSteps] = useState<Phase[]>([
     { key: "headers", label: "core headers", state: "pending" },
     { key: "node", label: "node binary", state: "pending" },
-    { key: "toolchain", label: "wasm toolchain", state: "pending" },
     { key: "wasi-sdk", label: "wasm compiler", state: "pending" },
     { key: "run", label: "node running", state: "pending" },
   ]);
@@ -72,16 +71,8 @@ export function Up({ args }: { args: string[] }) {
           bin = c; set("node", "ok", "reuse cached");
         } else { bin = (await fetchNodeBin(ref)).bin; set("node", "ok", `ready ${version}`); }
 
-        // wasm contract toolchain: fetch the bundled clang.wasm (zero-native-dep `qinit build`). Best-effort
-        // — its absence just falls back to native clang at build time, so never fail `up` over it.
-        set("toolchain", "active");
-        try {
-          if (o.offline) set("toolchain", haveWasmToolchainCache() ? "ok" : "active", haveWasmToolchainCache() ? "cached" : "offline — skipped");
-          else { const t = await fetchWasmToolchain((rc: number, tt: number) => set("toolchain", "active", tt ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `${(rc / 1e6) | 0} MB`)); set("toolchain", "ok", t.cached ? "cached" : "fetched"); }
-        } catch { set("toolchain", "ok", "unavailable — native clang fallback"); }
-
-        // wasm compiler: fetch the host's wasi-sdk (clang + wasi-sysroot) so `qinit build --target wasm`
-        // needs zero native deps. Best-effort — WASM_CLANG/WASI_SYSROOT or a native clang still work.
+        // wasm compiler: fetch the host's wasi-sdk (clang + wasi-sysroot) so `qinit build` needs zero
+        // native deps. Best-effort — WASM_CLANG/WASI_SYSROOT or a clang on PATH still work.
         set("wasi-sdk", "active");
         try {
           if (o.offline) set("wasi-sdk", "ok", haveWasiSdkCache() ? "cached" : "offline — skipped");

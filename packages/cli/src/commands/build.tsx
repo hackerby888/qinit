@@ -53,7 +53,7 @@ export function Build({ args }: { args: string[] }) {
     if (s.phase === "done") { process.exitCode = s.r.ok ? 0 : 1; exit(); }
   }, [s, exit]);
 
-  if (s.phase === "run") return <Box flexDirection="column"><Header cmd="build" /><Spinner label="compiling contract .so" /></Box>;
+  if (s.phase === "run") return <Box flexDirection="column"><Header cmd="build" /><Spinner label="compiling contract to wasm" /></Box>;
   const { r } = s;
   if (!r.ok) {
     return (
@@ -74,14 +74,13 @@ export function Build({ args }: { args: string[] }) {
       </Box>
     );
   }
-  const undef = r.undef ?? [];
   const v = r.verify;
   return (
     <Box flexDirection="column">
       <Header cmd="build" />
       <Panel title="built ✓" color={theme.ok}>
         <KV rows={[
-          [".so ", String(r.so)],
+          ["wasm", String(r.so)],
           ["size", `${r.size} bytes`],
           ["k12 ", r.hash ?? "(pending)"],
         ]} />
@@ -93,16 +92,6 @@ export function Build({ args }: { args: string[] }) {
         {v?.available === false
           ? <Status ok={null} label="protocol rules" detail="skipped — verify tool not synced (run qinit sync)" pad={16} />
           : <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />}
-      </Box>
-      <Box marginTop={1}>
-        {undef.length === 0
-          ? <Status ok={true} label="QPI symbols" detail="none unresolved — minimal ABI satisfies this contract" pad={16} />
-          : (
-            <Box flexDirection="column">
-              <Status ok={false} label="QPI symbols" detail={`${undef.length} unresolved — forwarders still needed`} pad={16} />
-              {undef.slice(0, 40).map((u, i) => <Text key={i} dimColor>  {u}</Text>)}
-            </Box>
-          )}
       </Box>
       {r.idl && (
         <Box marginTop={1}>

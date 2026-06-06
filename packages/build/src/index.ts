@@ -1,14 +1,10 @@
-// qinit build: contract .h -> .so + K12 hash + undefined-QPI-symbol report.
-// The undefined-symbol list drives which QpiContext forwarders lite_dyn_abi.h still needs.
+// qinit build: contract .h -> wasm module (run by the node's WAMR engine) + K12 hash + IDL.
 import { statSync, readFileSync } from "node:fs";
-import { compile, compileWasmContract, type BuildOpts } from "./recipe";
-import { compileWasm, haveWasmToolchain, toolchainDir } from "./wasm-toolchain";
+import { compileWasmContract, type BuildOpts } from "./recipe";
 import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
 import { k12Hex } from "@qinit/core";
-
-export { compileWasm, haveWasmToolchain, toolchainDir } from "./wasm-toolchain";
 
 export type { BuildOpts } from "./recipe";
 export { extractIdl } from "./idl";
@@ -22,10 +18,9 @@ export type { VerifyResult } from "./verify";
 
 export interface BuildResult {
   ok: boolean;
-  so?: string;
+  so?: string;     // path to the built wasm module (kept the `so` name: the artifact the deploy path uploads)
   size?: number;
   hash?: string;
-  undef?: string[];
   idl?: ContractIdl;
   verify?: VerifyResult;
   stderr?: string;
@@ -54,51 +49,14 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
     try { calleePrelude = buildCalleePrelude(o.corePath, readFileSync(o.contractPath, "utf8"), o.dynCallees ?? {}); }
     catch (e: any) { return { ok: false, stderr: "inter-contract resolve failed: " + String(e?.message ?? e) }; }
   }
-  // target=wasm: compile the contract TO a wasm module (run by the node's WAMR engine) instead of a native
-  // .so/.dylib. One platform-independent artifact; deployed down the same chunked-upload path (the node
-  // magic-sniffs '\0asm' -> wasm engine). See core WASM_CONTRACTS.md §13.11.
-  if (o.target === "wasm") {
-    const w = await compileWasmContract({ ...o, calleePrelude });
-    if (!w.ok) return { ok: false, so: w.wasm, stderr: w.stderr };
-    const wsize = statSync(w.wasm).size;
-    let whash: string | undefined;
-    try { whash = await k12Hex(new Uint8Array(readFileSync(w.wasm))); } catch { whash = undefined; }
-    let widl: ContractIdl | undefined;
-    try { widl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name); } catch { widl = undefined; }
-    return { ok: true, so: w.wasm, size: wsize, hash: whash, idl: widl, verify };
-  }
-
-  // Backend: wasm (bundled clang.wasm — zero native dep) or native clang. auto = wasm if cached.
-  const useWasm = o.toolchain === "wasm" || (o.toolchain !== "native" && o.toolchain === "auto" && haveWasmToolchain());
-  const c = useWasm ? await compileWasm({ ...o, calleePrelude }) : await compile({ ...o, calleePrelude });
-  if (!c.ok) return { ok: false, so: c.so, stderr: c.stderr };
-  const size = statSync(c.so).size;
+  // Compile the contract to a wasm module (run by the node's WAMR engine). One platform-independent
+  // artifact, deployed via the chunked-upload path (the node magic-sniffs '\0asm' -> wasm engine).
+  const w = await compileWasmContract({ ...o, calleePrelude });
+  if (!w.ok) return { ok: false, so: w.wasm, stderr: w.stderr };
+  const size = statSync(w.wasm).size;
   let hash: string | undefined;
-  try {
-    hash = await k12Hex(new Uint8Array(readFileSync(c.so)));
-  } catch {
-    // Works in dev; pending in the --compile binary (the libFourQ_K12 wasm inits
-    // QubicHelper's crypto instance, not a second direct import). Fix in M2 (deploy
-    // needs the hash) — likely route K12 through the helper's instance or vendor KT128.
-    hash = undefined;
-  }
-  const undef = await undefinedQpiSymbols(c.so);
+  try { hash = await k12Hex(new Uint8Array(readFileSync(w.wasm))); } catch { hash = undefined; }
   let idl: ContractIdl | undefined;
   try { idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name); } catch { idl = undefined; }
-  return { ok: true, so: c.so, size, hash, undef, idl, verify };
-}
-
-// Symbols the .so leaves unresolved that the host/ABI must provide — anything dlopen RTLD_NOW
-// would fail on. Report ALL undefined except the C++/libc runtime (resolved at load by libstdc++).
-// (Earlier a narrow QPI-only filter silently missed `bs` and `setMem` -> dlopen failed at runtime.)
-async function undefinedQpiSymbols(so: string): Promise<string[]> {
-  const p = Bun.spawn(["nm", "-D", "-u", "-C", so], { stdout: "pipe", stderr: "pipe" });
-  const out = await new Response(p.stdout).text();
-  await p.exited;
-  const runtime = /(@GLIBC|@CXXABI|@GCC|_ITM_|__gmon_start__|__cxa_|__gxx_personality|_Unwind_|std::|operator new|operator delete)/;
-  return out
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.startsWith("U ") && !runtime.test(l))
-    .map((l) => l.slice(2).trim());
+  return { ok: true, so: w.wasm, size, hash, idl, verify };
 }

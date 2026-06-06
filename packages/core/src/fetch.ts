@@ -144,27 +144,7 @@ export async function autoUpdateVerifyTool(opts?: { force?: boolean; maxAgeMs?: 
   } catch { return { action: "offline" }; }
 }
 
-// ---- wasm contract toolchain (clang.wasm + header bundle) ---------------------
-// Fetched by `qinit up` (folded into setup — no separate `toolchain get`). Moving release on the fork,
-// rebuilt only when LLVM bumps. Lets `qinit build --toolchain wasm` compile contracts with zero native deps.
-const WASM_TC_BASE = "https://github.com/hackerby888/qinit/releases/download/wasm-clang-latest";
-export function wasmToolchainDir(): string { return join(cacheRoot(), "wasm-clang"); }
-export function haveWasmToolchainCache(): boolean {
-  const d = wasmToolchainDir();
-  if (!existsSync(join(d, "llvm.wasm"))) return false;
-  try { return readdirSync(d).some((f) => /^bundle-.*\.json$/.test(f)); } catch { return false; }
-}
-// Fetch+verify+extract the toolchain tarball into ~/.cache/qinit/wasm-clang/. No-op if already cached.
-export async function fetchWasmToolchain(onProgress?: (recv: number, total: number) => void): Promise<{ dir: string; cached: boolean }> {
-  const dir = wasmToolchainDir();
-  if (haveWasmToolchainCache()) return { dir, cached: true };
-  const sha = (await (await fetch(WASM_TC_BASE + "/wasm-clang.tar.gz.sha256")).text()).trim().split(/\s+/)[0];
-  const buf = await fetchVerify({ url: WASM_TC_BASE + "/wasm-clang.tar.gz", sha256: sha }, onProgress);
-  await extractTarGz(buf, dir);
-  return { dir, cached: false };
-}
-
-// ---- wasi-sdk (clang + wasi-sysroot for `qinit build --target wasm`) ----------------------------
+// ---- wasi-sdk (clang + wasi-sysroot for `qinit build`) ------------------------------------------
 // Pinned to 29 (33 declares getrusage, breaking the toolchain's config assumptions). Upstream ships
 // prebuilts for every host (linux/macos/windows x x64/arm64), so we fetch the one matching this box.
 // The wasm CONTRACT artifact is OS-independent — only the COMPILER is per-host, hence a per-host download.
