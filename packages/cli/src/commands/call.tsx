@@ -35,6 +35,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
   const { exit } = useApp();
   const [log, setLog] = useState<string[]>([]);
   const [done, setDone] = useState(false);
+  const [status, setStatus] = useState("");
   const add = (s: string) => setLog((l) => [...l, s]);
 
   useEffect(() => {
@@ -68,11 +69,20 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
         } else {
           const ti: any = await rpc.tickInfo();
           const tick = (ti.tick ?? ti.currentTick ?? 0) + 8;
+          const settle = o["no-settle"] === undefined;   // default: wait until the proc actually ran; --no-settle to skip
           const r = await invokeProcedure({
             seed: o.seed ?? (await rpc.fundedSeed()) ?? "a".repeat(55), rpcBase, contractIndex: idx, procId: entry,
-            amount: Number(o.amount ?? 0), inFmt, tick,
+            amount: Number(o.amount ?? 0), inFmt, tick, confirm: settle, rpc,
+            onProgress: ({ tick: net, target }) =>
+              setStatus(`confirming · network tick ${net} → target ${target}` + (net < target ? ` (${target - net} to go)` : " · processing")),
           });
-          add(`proc ${idx}/${entry} @tick ${tick}: ${r.ok ? "ok " + (r.txId ?? "").slice(0, 16) : "FAIL code=" + r.code + " " + (r.message ?? "")}`);
+          setStatus("");
+          const txs = (r.txId ?? "").slice(0, 16);
+          if (!r.ok) add(`proc ${idx}/${entry} @tick ${tick}: FAIL code=${r.code} ${r.message ?? ""}`);
+          else if (!settle) add(`proc ${idx}/${entry} @tick ${tick}: ok ${txs} (broadcast)`);
+          else if (r.confirmed && r.included) add(`proc ${idx}/${entry} @tick ${tick}: ok · processed ${txs}`);
+          else if (r.confirmed && !r.included) add(`proc ${idx}/${entry} @tick ${tick}: DROPPED — not included ${txs}`);
+          else add(`proc ${idx}/${entry} @tick ${tick}: ok ${txs} (broadcast; unconfirmed — no tx-status addon or timed out)`);
         }
         setDone(true);
       } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setDone(true); }
@@ -84,9 +94,9 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
     <Box flexDirection="column">
       <Header cmd="call" />
       {log.map((l, i) => (
-        <Text key={i} color={l.startsWith("ERROR") || l.includes("FAIL") ? theme.err : l.includes("->") || l.includes(": ok") ? theme.ok : undefined}>{l}</Text>
+        <Text key={i} color={l.startsWith("ERROR") || l.includes("FAIL") || l.includes("DROPPED") ? theme.err : l.includes("->") || l.includes(": ok") ? theme.ok : undefined}>{l}</Text>
       ))}
-      {!done && <Spinner label="calling" />}
+      {!done && <Spinner label={status || "calling"} />}
     </Box>
   );
 }

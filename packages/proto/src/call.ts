@@ -43,6 +43,7 @@ export async function invokeProcedure(opts: {
   seed: string; rpcBase: string; contractIndex: number; procId: number;
   amount: number; inFmt: string; tick: number;
   confirm?: boolean; rpc?: LiteRpc; confirmTimeoutMs?: number;
+  onProgress?: (i: { tick: number; target: number }) => void; // live network-tick vs target while confirming
 }): Promise<BroadcastResult & { txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {
   const tx = await buildSignedTx(opts.seed, {
     destination: contractAddress(opts.contractIndex),
@@ -60,10 +61,11 @@ export async function invokeProcedure(opts: {
   for (;;) {
     try {
       const st = await rpc.txStatus(opts.tick, tx.id);
+      opts.onProgress?.({ tick: st.currentTick ?? 0, target: opts.tick });
       if (st.processed) return { ...res, confirmed: true, included: st.found, moneyFlew: st.moneyFlew };
     } catch {
       // addon missing — degrade to a tick-margin wait (node passed the target tick)
-      try { const ti = await rpc.tickInfo(); if ((ti.tick ?? 0) > opts.tick) return { ...res, confirmed: false }; } catch {}
+      try { const ti = await rpc.tickInfo(); const cur = ti.tick ?? 0; opts.onProgress?.({ tick: cur, target: opts.tick }); if (cur > opts.tick) return { ...res, confirmed: false }; } catch {}
     }
     if (Date.now() > deadline) return { ...res, confirmed: false };
     await sleep(300);
