@@ -1,7 +1,8 @@
-# CI: typecheck + unit tests + a wasm build-corpus against core-lite.
-# The corpus is the cross-repo drift catcher — it compiles the fixtures (+ the real QX/QEARN) to wasm against a
-# live core checkout, so a breaking change in core's qpi.h / contract macros / ABI turns this red instead of
-# silently surfacing at deploy time. The scheduled run re-checks against the core branch with no qinit change.
+# CI: typecheck + unit tests + a wasm build-corpus + a live deploy smoke, all against core-lite.
+# - corpus: cross-repo drift catcher — compiles the fixtures (+ real QX/QEARN) to wasm against a live core
+#   checkout, so a breaking change in core's qpi.h / contract macros / ABI turns this red.
+# - deploy-smoke: builds the core wasm node from the branch, boots it, and runs a real on-chain deploy +
+#   read + write (Get->Inc->Get=1) — catches deploy-pipeline regressions the corpus (compile-only) can't.
 name: test
 
 on:
@@ -70,3 +71,79 @@ jobs:
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run scripts/ci-build-corpus.ts
+
+  deploy-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout core-lite (${{ env.CORE_REF }})
+        uses: actions/checkout@v4
+        with:
+          repository: hackerby888/core-lite
+          ref: ${{ env.CORE_REF }}
+          path: core
+
+      - name: Build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake nasm ccache g++ \
+            libboost-stacktrace-dev libc++-dev libc++abi-dev libjsoncpp-dev uuid-dev \
+            zlib1g-dev libzstd-dev libfmt-dev liblzo2-dev liblz4-dev libssl-dev libffi-dev
+      - uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: core-node-wasm
+          max-size: 2G
+
+      # Deploy-ready node: TESTNET + LITE_RAM + PREFILL + wasm engine + tx-status addon, real (committed,
+      # public testnet) private_settings via ONLY_LOGGING=OFF. RAM-only (NO_USE_SWAP) fits the free runner.
+      - name: Build wasm node
+        working-directory: core
+        run: |
+          cmake -S . -B build-node -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DBUILD_BINARY=ON -DBUILD_TESTS=OFF -DENABLE_AVX512=OFF -DUSE_SANITIZER=OFF \
+            -DTESTNET=ON -DTESTNET_LITE_RAM=ON -DTESTNET_PREFILL_QUS=ON \
+            -DLITE_WASM_CONTRACTS=ON -DCMAKE_NO_USE_SWAP=ON -DADDON_TX_STATUS_REQUEST=ON -DONLY_LOGGING=OFF
+          cmake --build build-node --target Qubic -- -j$(nproc)
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install
+
+      - name: Cache wasi-sdk
+        id: wasisdk
+        uses: actions/cache@v4
+        with:
+          path: wasi-sdk
+          key: wasi-sdk-29.0-x86_64-linux
+      - name: Fetch wasi-sdk-29
+        if: steps.wasisdk.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o wasi-sdk.tar.gz \
+            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-29/wasi-sdk-29.0-x86_64-linux.tar.gz
+          mkdir -p wasi-sdk && tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components=1
+
+      - name: Boot node + deploy smoke
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+        run: |
+          mkdir -p run
+          ( cd run && "$GITHUB_WORKSPACE/core/build-node/src/Qubic" \
+              --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000 > node.log 2>&1 & echo $! > node.pid )
+          ok=0
+          for i in $(seq 1 50); do
+            t=$(curl -s http://127.0.0.1:41841/live/v1/tick-info 2>/dev/null | grep -oE '"tick":[0-9]+' | tail -1 | grep -oE '[0-9]+')
+            if [ -n "$t" ] && [ "$t" -gt 0 ]; then ok=1; echo "node ticking at $t"; break; fi
+            sleep 3
+          done
+          [ "$ok" = 1 ] || { echo "node never ticked"; tail -40 run/node.log; exit 1; }
+          set +e; bun run scripts/ci-deploy-smoke.ts; code=$?; set -e
+          kill "$(cat run/node.pid)" 2>/dev/null || true
+          echo "=== node.log tail ==="; tail -25 run/node.log
+          exit $code
