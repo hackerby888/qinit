@@ -15,6 +15,9 @@ export interface BuildOpts {
   dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
   toolchain?: "native" | "wasm" | "auto"; // compiler backend; auto = wasm if cached else native
   platform?: string;    // target node platform for the wasm toolchain (linux-x64 | linux-arm64 | darwin-arm64)
+  target?: "so" | "wasm"; // OUTPUT format: native .so/.dylib (default) or a wasm contract (run by the node's WAMR engine)
+  wasmClang?: string;   // clang targeting wasm32-wasi (for target=wasm); default env WASM_CLANG / clang++
+  wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT
 }
 
 export function genWrapper(o: BuildOpts): string {
@@ -53,6 +56,53 @@ ${o.calleePrelude ?? ""}
 #undef __releaseScratchpad
 #include "extensions/lite_dyn_abi.h"
 `;
+}
+
+// --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
+// Same TU as the .so, but binds to lite_wasm_tu.h (qpi.h calls -> "lhost" wasm imports + dispatch/reg/state
+// exports) instead of lite_dyn_abi.h. See core src/extensions/WASM_CONTRACTS.md §13.11.
+export function genWrapperWasm(o: BuildOpts): string {
+  return genWrapper(o)
+    .replace("#define LITE_DYN_SO_BUILD", "#define LITE_WASM_TU_BUILD")
+    .replace('#include "extensions/lite_dyn_abi.h"', '#include "extensions/lite_wasm_tu.h"');
+}
+
+export interface WasmCompileResult {
+  ok: boolean;
+  wasm: string;
+  wrapper: string;
+  stderr: string;
+  exitCode: number | null;
+}
+
+// clang must target wasm32-wasi (the bundled clang.wasm multitool has the WebAssembly backend; a native
+// wasi-sdk clang++ also works). wasmSysroot = the wasi-sysroot with libc++ headers.
+export async function compileWasmContract(
+  o: BuildOpts & { wasmClang?: string; wasmSysroot?: string },
+): Promise<WasmCompileResult> {
+  const src = join(o.corePath, "src");
+  await mkdir(o.outDir, { recursive: true });
+  const wrapper = join(o.outDir, `${o.name}.wasm.wrapper.cpp`);
+  await writeFile(wrapper, genWrapperWasm(o));
+  const wasm = join(o.outDir, `${o.name}.wasm`);
+  const clang = o.wasmClang ?? process.env.WASM_CLANG ?? "clang++";
+  const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT;
+  const shim = join(src, "extensions", "lite_wasm_intrinsics.h"); // wasm32 shims for the x86 platform intrinsics
+  // -DLITEDYN_CONTRACT_TU gates the node-only throw in utils.h; -fno-exceptions/-fno-rtti keep the module lean;
+  // reactor + --no-entry => a library wasm (no _start); --allow-undefined leaves the lhost imports unresolved
+  // (the node binds them). No -mavx2 (wasm); m256i is emulated via SIMDe.
+  const args = [
+    "--target=wasm32-wasi", "-std=c++20", "-O2", "-fno-rtti", "-fno-exceptions",
+    "-DLITEDYN_CONTRACT_TU", "-include", shim,
+    ...(sysroot ? [`--sysroot=${sysroot}`] : []),
+    `-I${o.corePath}`, `-I${src}`,
+    "-Wl,--no-entry", "-Wl,--allow-undefined", "-mexec-model=reactor",
+    wrapper, "-o", wasm,
+  ];
+  const p = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
+  const stderr = await new Response(p.stderr).text();
+  await p.exited;
+  return { ok: p.exitCode === 0, wasm, wrapper, stderr, exitCode: p.exitCode };
 }
 
 // Any clang >= 18 (clang only — relies on its intrinsics/ABI). Not gcc.

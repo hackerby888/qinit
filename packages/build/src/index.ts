@@ -1,7 +1,7 @@
 // qinit build: contract .h -> .so + K12 hash + undefined-QPI-symbol report.
 // The undefined-symbol list drives which QpiContext forwarders lite_dyn_abi.h still needs.
 import { statSync, readFileSync } from "node:fs";
-import { compile, type BuildOpts } from "./recipe";
+import { compile, compileWasmContract, type BuildOpts } from "./recipe";
 import { compileWasm, haveWasmToolchain, toolchainDir } from "./wasm-toolchain";
 import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
@@ -46,6 +46,20 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
     try { calleePrelude = buildCalleePrelude(o.corePath, readFileSync(o.contractPath, "utf8"), o.dynCallees ?? {}); }
     catch (e: any) { return { ok: false, stderr: "inter-contract resolve failed: " + String(e?.message ?? e) }; }
   }
+  // target=wasm: compile the contract TO a wasm module (run by the node's WAMR engine) instead of a native
+  // .so/.dylib. One platform-independent artifact; deployed down the same chunked-upload path (the node
+  // magic-sniffs '\0asm' -> wasm engine). See core WASM_CONTRACTS.md §13.11.
+  if (o.target === "wasm") {
+    const w = await compileWasmContract({ ...o, calleePrelude });
+    if (!w.ok) return { ok: false, so: w.wasm, stderr: w.stderr };
+    const wsize = statSync(w.wasm).size;
+    let whash: string | undefined;
+    try { whash = await k12Hex(new Uint8Array(readFileSync(w.wasm))); } catch { whash = undefined; }
+    let widl: ContractIdl | undefined;
+    try { widl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name); } catch { widl = undefined; }
+    return { ok: true, so: w.wasm, size: wsize, hash: whash, idl: widl, verify };
+  }
+
   // Backend: wasm (bundled clang.wasm — zero native dep) or native clang. auto = wasm if cached.
   const useWasm = o.toolchain === "wasm" || (o.toolchain !== "native" && o.toolchain === "auto" && haveWasmToolchain());
   const c = useWasm ? await compileWasm({ ...o, calleePrelude }) : await compile({ ...o, calleePrelude });
