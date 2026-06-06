@@ -47,11 +47,12 @@ set(CMAKE_EXE_LINKER_FLAGS "--sysroot ${WASI}/share/wasi-sysroot -lwasi-emulated
 END
 
 COMMON_OFF="-DLLVM_BUILD_RUNTIME=OFF -DLLVM_BUILD_TOOLS=OFF -DLLVM_INCLUDE_UTILS=OFF -DLLVM_INCLUDE_RUNTIMES=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF"
+CCACHE=""; command -v ccache >/dev/null && CCACHE="-DLLVM_CCACHE_BUILD=ON"   # resume cheaply across reruns (CI)
 
 # --- 1) native tblgen (matches the 21.1.4 source; host compiler) ---
 if ! [ -f "$TC/tblgen-build/bin/llvm-tblgen" -a -f "$TC/tblgen-build/bin/clang-tblgen" ]; then
   cmake -G Ninja -B "$TC/tblgen-build" -S "$SRC/llvm" \
-    -DCMAKE_BUILD_TYPE=MinSizeRel $COMMON_OFF \
+    -DCMAKE_BUILD_TYPE=MinSizeRel $COMMON_OFF $CCACHE \
     -DLLVM_TARGETS_TO_BUILD=WebAssembly -DLLVM_DEFAULT_TARGET_TRIPLE=wasm32-wasip1 \
     -DLLVM_ENABLE_PROJECTS="clang" -DCLANG_BUILD_TOOLS=OFF -DCLANG_INCLUDE_TESTS=OFF
   ninja -C "$TC/tblgen-build" llvm-tblgen clang-tblgen
@@ -66,7 +67,7 @@ cmake -G Ninja -B "$TC/build" -S "$SRC/llvm" \
   $TOOL_FLAGS \
   -DCMAKE_TOOLCHAIN_FILE="$TC/Toolchain-WASI-LLVM.cmake" \
   -DLLVM_NATIVE_TOOL_DIR="$TC/tblgen-build/bin" \
-  -DCMAKE_BUILD_TYPE=MinSizeRel -DLLVM_ENABLE_ASSERTIONS=ON \
+  -DCMAKE_BUILD_TYPE=MinSizeRel -DLLVM_ENABLE_ASSERTIONS=ON $CCACHE \
   -DLLVM_BUILD_SHARED_LIBS=OFF -DLLVM_ENABLE_PIC=OFF -DLLVM_BUILD_STATIC=ON -DLLVM_ENABLE_THREADS=OFF \
   $COMMON_OFF -DLLVM_BUILD_UTILS=OFF \
   -DLLVM_TARGETS_TO_BUILD="X86;AArch64;WebAssembly" \
