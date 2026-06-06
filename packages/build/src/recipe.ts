@@ -39,6 +39,7 @@ export function genWrapper(o: BuildOpts): string {
 #include "oracle_core/oracle_interfaces_def.h"
 ${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
+#define ${o.name}_CONTRACT_INDEX ${o.slot}
 #define CONTRACT_STATE_TYPE ${o.name}
 #define CONTRACT_STATE2_TYPE ${o.name}2
 #include "${o.contractPath}"
