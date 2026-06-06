@@ -40,7 +40,9 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
     ...Object.keys(o.dynCallees ?? {}),
     ...[...readFileSync(o.contractPath, "utf8").matchAll(/(?:CALL|INVOKE)_OTHER_CONTRACT_\w+\s*\(\s*(\w+)/g)].map((m) => m[1]),
   ])];
-  const verify = await verifyContract(o.contractPath, o.name, { allowedPrefixes: calleeNames });
+  const verify = o.skipVerify
+    ? { available: false, ok: true, oracle: false, errors: [] as string[] }
+    : await verifyContract(o.contractPath, o.name, { allowedPrefixes: calleeNames });
   if (verify.available && !verify.ok) {
     return { ok: false, verify, stderr: ["Qubic protocol violations:", ...verify.errors.map((e) => "  • " + e)].join("\n") };
   }

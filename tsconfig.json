@@ -9,7 +9,7 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
-    "types": ["bun-types", "react"],
+    "types": ["bun-types"],
     "noEmit": true,
     "verbatimModuleSyntax": false
   },

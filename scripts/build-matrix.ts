@@ -1,4 +1,5 @@
 // Cross-compile standalone binaries for all shipping targets.
+export {}; // module marker so top-level await is allowed (file uses Bun globals, no imports)
 const targets = [
   "bun-linux-x64",
   "bun-linux-arm64",

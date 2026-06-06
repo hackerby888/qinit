@@ -18,6 +18,7 @@ export interface BuildOpts {
   target?: "so" | "wasm"; // OUTPUT format: native .so/.dylib (default) or a wasm contract (run by the node's WAMR engine)
   wasmClang?: string;   // clang targeting wasm32-wasi (for target=wasm); default env WASM_CLANG / clang++
   wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT
+  skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some lite macros)
 }
 
 export function genWrapper(o: BuildOpts): string {
