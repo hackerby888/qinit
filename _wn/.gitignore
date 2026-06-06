@@ -1,6 +1,0 @@
-dist/
-*.so
-*.log
-qinit.idl.json
-contracts_dyn/
-.DS_Store

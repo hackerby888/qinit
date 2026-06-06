@@ -1,6 +1,0 @@
-{
-  "name": "_wn",
-  "contract": "contracts/_wn.h",
-  "rpc": "http://127.0.0.1:41841",
-  "core": "/home/kali/Projects/qubic-core-lite-dyn"
-}
