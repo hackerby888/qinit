@@ -138,7 +138,9 @@ jobs:
               --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000 > node.log 2>&1 & echo $! > node.pid )
           ok=0
           for i in $(seq 1 50); do
-            t=$(curl -s http://127.0.0.1:41841/live/v1/tick-info 2>/dev/null | grep -oE '"tick":[0-9]+' | tail -1 | grep -oE '[0-9]+')
+            # `|| true`: the step shell is `bash -e`; an empty poll (node not up yet) makes grep exit 1,
+            # which would otherwise abort the whole step before the node finishes booting.
+            t=$(curl -s --max-time 3 http://127.0.0.1:41841/live/v1/tick-info 2>/dev/null | grep -oE '"tick":[0-9]+' | tail -1 | grep -oE '[0-9]+' || true)
             if [ -n "$t" ] && [ "$t" -gt 0 ]; then ok=1; echo "node ticking at $t"; break; fi
             sleep 3
           done
