@@ -29,6 +29,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     struct Last_input {};
     struct Last_output { sint64 result; };
 
+    struct Total_locals { Asset a; };   // QPI: no stack locals in a fn body — use the _locals struct
+
     PUBLIC_PROCEDURE(Issue)
     {
         output.result = qpi.issueAsset(input.name, SELF, 0, input.shares, 0);
@@ -41,12 +43,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         state.mut().lastResult = output.result;
     }
 
-    PUBLIC_FUNCTION(Total)
+    PUBLIC_FUNCTION_WITH_LOCALS(Total)
     {
-        Asset a;
-        a.issuer = SELF;
-        a.assetName = input.name;
-        output.shares = qpi.numberOfShares(a, AssetOwnershipSelect::any(), AssetPossessionSelect::any());
+        locals.a.issuer = SELF;
+        locals.a.assetName = input.name;
+        output.shares = qpi.numberOfShares(locals.a, AssetOwnershipSelect::any(), AssetPossessionSelect::any());
     }
 
     PUBLIC_FUNCTION(Issued)
