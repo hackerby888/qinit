@@ -163,3 +163,40 @@ export async function fetchWasmToolchain(onProgress?: (recv: number, total: numb
   await extractTarGz(buf, dir);
   return { dir, cached: false };
 }
+
+// ---- wasi-sdk (clang + wasi-sysroot for `qinit build --target wasm`) ----------------------------
+// Pinned to 29 (33 declares getrusage, breaking the toolchain's config assumptions). Upstream ships
+// prebuilts for every host (linux/macos/windows x x64/arm64), so we fetch the one matching this box.
+// The wasm CONTRACT artifact is OS-independent — only the COMPILER is per-host, hence a per-host download.
+const WASI_SDK_VER = "29";
+function wasiSdkAsset(): { url: string; base: string } {
+  const arch = process.arch === "arm64" ? "arm64" : "x86_64";
+  const os = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
+  const base = `wasi-sdk-${WASI_SDK_VER}.0-${arch}-${os}`;
+  return { url: `https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VER}/${base}.tar.gz`, base };
+}
+export function wasiSdkDir(): string { return join(cacheRoot(), "wasi-sdk"); }
+// Resolve clang++ + wasi-sysroot inside the cached sdk (the tarball keeps a nested top dir, so scan one level).
+export function wasiSdkPaths(): { root: string; clang: string; sysroot: string } | null {
+  const base = wasiSdkDir();
+  if (!existsSync(base)) return null;
+  for (const root of [base, ...readdirSync(base).map((d) => join(base, d))]) {
+    const clang = join(root, "bin", process.platform === "win32" ? "clang++.exe" : "clang++");
+    const sysroot = join(root, "share", "wasi-sysroot");
+    if (existsSync(clang) && existsSync(sysroot)) return { root, clang, sysroot };
+  }
+  return null;
+}
+export function haveWasiSdkCache(): boolean { return wasiSdkPaths() !== null; }
+// Fetch+extract the host's wasi-sdk into ~/.cache/qinit/wasi-sdk/. No-op if already cached. Best-effort
+// sha256 (upstream publishes a per-asset .sha256; if absent, rely on https transport integrity).
+export async function fetchWasiSdk(onProgress?: (recv: number, total: number) => void): Promise<{ dir: string; cached: boolean }> {
+  const dir = wasiSdkDir();
+  if (haveWasiSdkCache()) return { dir, cached: true };
+  const { url } = wasiSdkAsset();
+  let sha256 = "";
+  try { const r = await fetch(url + ".sha256"); if (r.ok) sha256 = (await r.text()).trim().split(/\s+/)[0] ?? ""; } catch {}
+  const buf = await fetchVerify({ url, sha256 }, onProgress);
+  await extractTarGz(buf, dir);
+  return { dir, cached: false };
+}

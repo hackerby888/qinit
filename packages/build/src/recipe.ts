@@ -3,6 +3,7 @@
 // never contract_exec.h; define LITE_DYN_SO_BUILD + CONTRACT_INDEX/STATE_TYPE.
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { wasiSdkPaths } from "@qinit/core";
 
 export interface BuildOpts {
   contractPath: string; // absolute path to the contract .h
@@ -90,8 +91,9 @@ export async function compileWasmContract(
   const wrapper = join(o.outDir, `${o.name}.wasm.wrapper.cpp`);
   await writeFile(wrapper, genWrapperWasm(o));
   const wasm = join(o.outDir, `${o.name}.wasm`);
-  const clang = o.wasmClang ?? process.env.WASM_CLANG ?? "clang++";
-  const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT;
+  const sdk = wasiSdkPaths();   // auto-fetched by `qinit up`; cached under ~/.cache/qinit/wasi-sdk
+  const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
+  const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
   const shim = join(src, "extensions", "lite_wasm_intrinsics.h"); // wasm32 shims for the x86 platform intrinsics
   // -DLITEDYN_CONTRACT_TU gates the node-only throw in utils.h; -fno-exceptions/-fno-rtti keep the module lean;
   // reactor + --no-entry => a library wasm (no _start); --allow-undefined leaves the lhost imports unresolved
