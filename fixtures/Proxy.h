@@ -16,22 +16,20 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
     struct ReadCounter_input {};
     struct ReadCounter_output { uint64 value; };
+    struct ReadCounter_locals { Counter::Get_input gi; Counter::Get_output go; };
     struct BumpCounter_input {};
     struct BumpCounter_output {};
+    struct BumpCounter_locals { Counter::Inc_input ii; Counter::Inc_output io; };
 
-    PUBLIC_FUNCTION(ReadCounter)
+    PUBLIC_FUNCTION_WITH_LOCALS(ReadCounter)
     {
-        Counter::Get_input gi;
-        Counter::Get_output go;
-        CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, gi, go);
-        output.value = go.value;
+        CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);
+        output.value = locals.go.value;
     }
 
-    PUBLIC_PROCEDURE(BumpCounter)
+    PUBLIC_PROCEDURE_WITH_LOCALS(BumpCounter)
     {
-        Counter::Inc_input ii;
-        Counter::Inc_output io;
-        INVOKE_OTHER_CONTRACT_PROCEDURE(Counter, Inc, ii, io, 0);
+        INVOKE_OTHER_CONTRACT_PROCEDURE(Counter, Inc, locals.ii, locals.io, 0);
     }
 
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
