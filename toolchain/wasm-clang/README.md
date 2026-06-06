@@ -30,10 +30,11 @@ Recipe = **YoWASP/clang `build.sh`** (their proven wasi config) + our two extra 
 - `CMAKE_BUILD_TYPE=MinSizeRel` + assertions (Release/Debug clang.wasm fails wasm validation — YoWASP note).
 - native tblgen built in-tree (matches the 21.1.4 source).
 - the **only** change vs YoWASP: `LLVM_TARGETS_TO_BUILD="X86;AArch64;WebAssembly"` (they ship WebAssembly-only).
-- target `llvm-driver` (busybox multitool). ~21 min LTO link; ~50 GB build tree, 22-core box.
+- target `llvm-driver` (busybox multitool). ~20 min LTO link; ~5 GB build tree (2.5 G src + 1.3 G build + 0.4 G wasi-sdk).
 
 ```sh
-# deps: cmake, ninja, a host clang; downloads wasi-sdk-29 + clones YoWASP llvm 21.1.4+wasm
+# self-bootstrapping from a clean clone. host tools: cmake, ninja, git, curl, a host clang.
+# fetches wasi-sdk-29 + shallow-clones YoWASP llvm 21.1.4+wasm into $HOME/wasm-toolchain, then builds.
 bash build-wasm-clang.sh        # -> $HOME/wasm-toolchain/build/bin/llvm
 ```
 

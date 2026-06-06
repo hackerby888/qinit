@@ -9,6 +9,21 @@ TC="$HOME/wasm-toolchain"
 export PATH="$HOME/.local/bin:$PATH"
 WASI="$TC/wasi-sdk-29"
 SRC="$TC/llvm-yowasp"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- 0) bootstrap (idempotent): host tools + wasi-sdk-29 + YoWASP llvm source ---
+# Reproducible from a clean clone: stages the two deps the build needs. ~5 GB tree, ~20 min on a many-core box.
+for t in cmake ninja git curl clang; do command -v "$t" >/dev/null || { echo "missing host tool: $t"; exit 1; }; done
+mkdir -p "$TC"
+if ! [ -d "$WASI" ]; then
+  echo "fetching wasi-sdk-29 (host toolchain) …"
+  curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-29/wasi-sdk-29.0-x86_64-linux.tar.gz | tar -xz -C "$TC"
+  mv "$TC/wasi-sdk-29.0-x86_64-linux" "$WASI"
+fi
+if ! [ -d "$SRC/llvm" ]; then
+  echo "cloning YoWASP llvm-project (llvmorg-21.1.4+wasm, shallow; carries the wasi posix-stub patch set) …"
+  git clone --depth 1 --branch llvmorg-21.1.4+wasm https://github.com/YoWASP/llvm-project.git "$SRC"
+fi
 
 # --- toolchain file (verbatim from YoWASP build.sh: wasip1, lime1, mman-only, stack-first, LTO) ---
 cat > "$TC/Toolchain-WASI-LLVM.cmake" <<END
@@ -45,7 +60,7 @@ fi
 # --- 2) the wasm clang+lld multitool, with X86;AArch64 added ---
 # Reuse YoWASP's exact per-tool ON/OFF set — they disable ~90 tools (gsymutil, clang-check, clang-repl, …)
 # that call wasi-stubbed Support symbols (e.g. PrintStackTraceOnErrorSignal); building extras breaks the link.
-REF=/home/kali/Projects/Qinit/toolchain/wasm-clang/yowasp-build.sh.ref
+REF="$HERE/yowasp-build.sh.ref"
 TOOL_FLAGS=$(grep -oE '\-D(LLVM_TOOL_[A-Z0-9_]+_BUILD|CLANG_TOOL_[A-Z0-9_]+_BUILD|LLD_BUILD_TOOLS|CLANG_BUILD_TOOLS|CLANG_LINKS_TO_CREATE)=[^ ]+' "$REF" | sort -u | tr '\n' ' ')
 cmake -G Ninja -B "$TC/build" -S "$SRC/llvm" \
   $TOOL_FLAGS \
