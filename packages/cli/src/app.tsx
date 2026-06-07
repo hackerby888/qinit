@@ -15,6 +15,8 @@ import { State } from "./commands/state";
 import { Clean } from "./commands/clean";
 import { Cheat } from "./commands/cheat";
 import { Seed } from "./commands/seed";
+import { Tick } from "./commands/tick";
+import { Epoch } from "./commands/epoch";
 import { Update } from "./commands/update";
 import { Uninstall } from "./commands/uninstall";
 import { New } from "./commands/new";
@@ -55,6 +57,10 @@ export function App({ command, args }: { command: string; args: string[] }) {
       return <Clean args={args} />;
     case "seed":
       return <Seed args={args} />;
+    case "tick":
+      return <Tick args={args} />;
+    case "epoch":
+      return <Epoch args={args} />;
     case "cheat-sheet":
     case "cheat":
     case "--cheat-sheet":

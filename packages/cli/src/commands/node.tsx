@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { resolve } from "node:path";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
-import { readCurrent } from "@qinit/core";
+import { readCurrent, LiteRpc } from "@qinit/core";
 import { killNode, nodeAlive, fetchNodeBin, ensureNode, launchNode, waitTicking, nodeStatus } from "../node-ops";
 
 function parse(args: string[]): Record<string, string> {
@@ -52,6 +52,7 @@ export function Node({ args }: { args: string[] }) {
           if (!st.up) { add("rpc: down (node not reachable)", false); setS({ phase: "done", title: "node down", color: theme.err, lines: L }); return; }
           add(st.ticking ? "rpc: up, ticking" : "rpc: up, not yet ticking", st.ticking);
           const rows: [string, string][] = [["tick", String(st.tick)], ["epoch", String(st.epoch)], ["dyn slots", `${st.armed} armed / ${st.slotCount}`]];
+          try { const ei = await new LiteRpc(rpcBase).epochInfo(); rows.splice(2, 0, ["epoch last tick", `${ei.epochLastTick}  (${ei.ticksLeft} left)`]); } catch {}
           if (st.contracts.length) rows.push(["contracts", st.contracts.join(", ")]);
           const cur = readCurrent();
           if (cur?.headersVersion || cur?.nodeVersion) rows.push(["synced", `headers ${cur?.headersVersion ?? "—"} · node ${cur?.nodeVersion ?? "—"}`]);

@@ -95,6 +95,23 @@ export class LiteRpc {
     return this.get<{ seeds: string[]; count: number }>(`/live/v1/dev/funded-seeds?limit=${limit}`);
   }
 
+  /** Testnet-only current-epoch tick window (GET /live/v1/dev/epoch-info). */
+  epochInfo() {
+    return this.get<{ epoch: number; tick: number; initialTick: number; epochLastTick: number; ticksLeft: number; duration: number }>("/live/v1/dev/epoch-info");
+  }
+  /** Testnet-only: advance the chain by n ticks (GET /live/v1/dev/advance-tick?n). Capped at the epoch's last tick. */
+  advanceTick(n: number) {
+    return this.get<{ from: number; requested: number; target: number; reached: number; epochLastTick: number; cappedAtEpochEnd: boolean }>(`/live/v1/dev/advance-tick?n=${n}`);
+  }
+  /** Testnet-only: advance to epochLastTick - gap (GET /live/v1/dev/advance-to-last?gap), default gap 3. */
+  advanceToLast(gap = 3) {
+    return this.get<{ from: number; target: number; reached: number; epochLastTick: number; epoch: number }>(`/live/v1/dev/advance-to-last?gap=${gap}`);
+  }
+  /** Testnet-only: advance to the next epoch via the node's seamless transition (GET /live/v1/dev/advance-epoch). */
+  advanceEpoch() {
+    return this.get<{ fromEpoch: number; toEpoch: number; fromTick: number; tick: number; initialTick: number; switched: boolean }>("/live/v1/dev/advance-epoch");
+  }
+
   /** Call a contract function (read-only) via POST /live/v1/querySmartContract. */
   async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
     let r: Response;

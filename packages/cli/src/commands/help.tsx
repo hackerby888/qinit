@@ -9,6 +9,8 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
     ["up", "one command: sync headers + get node + run (reuses a ticking node)"],
     ["doctor", "check toolchain (wasi-sdk, node.js, core headers, qubic lib)"],
     ["node", "run / status / stop / get the dev node (run --bin <path>)"],
+    ["tick", "show epoch tick window; tick advance <n> / advance-to-last [gap] (testnet)"],
+    ["epoch", "show epoch info; epoch advance -> next epoch via seamless transition (testnet)"],
     ["clean", "remove all qinit cache (node, headers, wasi-sdk, tools); --dry-run to preview"],
     ["self-update", "update qinit to the newest release; --force / --dry-run"],
     ["uninstall", "remove qinit + its cache (--yes to confirm, --keep-cache)"],
