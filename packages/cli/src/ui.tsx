@@ -116,12 +116,13 @@ export function Status({ ok, label, detail, pad = 22 }:
 }
 
 // ---- key/value table -------------------------------------------------------
-export function KV({ rows }: { rows: [string, string][] }) {
+// full=true → never truncate values (for copy-pasteable ids / txids / hashes).
+export function KV({ rows, full }: { rows: [string, string][]; full?: boolean }) {
   const w = Math.max(0, ...rows.map(([k]) => k.length));
   return (
     <Box flexDirection="column">
       {rows.map(([k, v], i) => (
-        <Text key={i}><Text color={theme.info}>{k.padEnd(w)}</Text>  <Text>{truncMid(v, Math.max(12, termCols() - w - 8))}</Text></Text>
+        <Text key={i}><Text color={theme.info}>{k.padEnd(w)}</Text>  <Text wrap={full ? "wrap" : undefined}>{full ? v : truncMid(v, Math.max(12, termCols() - w - 8))}</Text></Text>
       ))}
     </Box>
   );

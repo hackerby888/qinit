@@ -2,7 +2,7 @@
 // `qinit call --trace`, and `qinit state`. Style: a Status header line + indented label->value rows.
 import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
-import { Status, theme, truncMid, truncEnd, termCols } from "./ui";
+import { Status, theme, truncEnd, termCols } from "./ui";
 import { type TraceView as TraceData, type StateDump, labelOff, sevColor, jstr } from "./trace-format";
 
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
@@ -26,7 +26,7 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
     { label: "in", node: <Text>{truncEnd(view.inDecoded, termCols() - 8)}</Text> },
     { label: "out", node: <Text>{truncEnd(view.outDecoded, termCols() - 8)}</Text> },
   ];
-  if (e.kind === 1) rows.push({ label: "caller", node: <Text>{truncMid(view.caller, 30)}</Text> });
+  if (e.kind === 1) rows.push({ label: "caller", node: <Text wrap="wrap">{view.caller}</Text> });   // full id — copy-pasteable
   rows.push({
     label: "state",
     node: e.stateDiff.length

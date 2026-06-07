@@ -85,7 +85,7 @@ export function Deploy({ args }: { args: string[] }) {
       {result?.ok && (
         <Box marginTop={1}>
           <Panel title="deployed ✓" color={theme.ok}>
-            <KV rows={[
+            <KV full rows={[
               ["contract", name],
               ["slot", String(result.slot)],
               ["address", addr || `id(${result.slot},0,0,0)`],

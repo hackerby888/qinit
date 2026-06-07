@@ -96,7 +96,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
         const ti: any = await rpc.tickInfo();
         const tick = (ti.tick ?? 0) + 8;
         const r = await invokeProcedure({ seed: s.seed || seed || (await rpc.fundedSeed()) || "a".repeat(55), rpcBase, contractIndex: idx, procId: e.inputType, amount: Number(s.amount ?? 0), inFmt: s.input ?? "", tick });
-        add(`${labelFor(s.c!, e)} @tick ${tick}: ${r.ok ? "ok " + (r.txId ?? "").slice(0, 16) : "FAIL " + (r.message ?? r.code)}`);
+        add(`${labelFor(s.c!, e)} @tick ${tick}: ${r.ok ? "ok " + (r.txId ?? "") : "FAIL " + (r.message ?? r.code)}`);
       }
     } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); }
     setStage("done");

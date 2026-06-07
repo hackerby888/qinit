@@ -126,7 +126,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
             onProgress: ({ tick: net, target }) => setConfirm((c) => ({ start: c?.start ?? net, net, target })),
           });
           setConfirm(null);
-          const txs = (r.txId ?? "").slice(0, 16) || "—";
+          const txs = (r.txId ?? "") || "—";   // full txid — user pastes it into the explorer
           const detail = !r.ok ? `FAIL${r.code != null ? " code=" + r.code : ""}` : !settle ? "broadcast"
             : r.confirmed && r.included ? "processed" : r.confirmed && !r.included ? "dropped — not included" : "broadcast · unconfirmed";
           const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;

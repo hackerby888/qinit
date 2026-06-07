@@ -13,7 +13,7 @@ export type StateReader = { stateRead(slot: number, off: number, len: number): P
 const roundUp = (o: number, a: number) => (a <= 1 ? o : Math.ceil(o / a) * a);
 export const hexToBytes = (h: string) => { const s = h.startsWith("0x") ? h.slice(2) : h; const a = new Uint8Array(s.length >> 1); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 16); return a; };
 export const jstr = (v: any) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
-export const shortKey = (k: unknown) => (typeof k === "string" && k.length === 60 ? k.slice(0, 10) + "…" : jstr(k));
+export const keyLabel = (k: unknown) => (typeof k === "string" ? k : jstr(k));   // full id/string (copy-pasteable); jstr for numeric keys
 
 // per-field StateData layout walk (alignment-aware) — names a changed byte offset + locates container fields.
 // A single struct-typed field uses per-field layoutOf (NOT join+structFieldOffsets, which unwraps it wrong).
@@ -44,10 +44,10 @@ export async function decodeColumns(rpc: StateReader, idx: number, fields: State
       const sr = await rpc.stateRead(idx, f.off, Math.min(f.size, 262144));
       const buf = hexToBytes(sr.hex); const c = f.container;
       const ents = c.kind === "hashmap"
-        ? (await decodeHashMap(buf, c.keyFmt, c.valFmt!, c.capacity)).map((x) => `${shortKey(x.key)} = ${jstr(x.value)}`)
+        ? (await decodeHashMap(buf, c.keyFmt, c.valFmt!, c.capacity)).map((x) => `${keyLabel(x.key)} = ${jstr(x.value)}`)
         : c.kind === "collection"
-          ? (await decodeCollection(buf, c.valFmt!, c.capacity)).map((x) => `${shortKey(x.pov)}: ${jstr(x.value)} (p${x.priority})`)
-          : (await decodeHashSet(buf, c.keyFmt, c.capacity)).map((x) => shortKey(x.key));
+          ? (await decodeCollection(buf, c.valFmt!, c.capacity)).map((x) => `${keyLabel(x.pov)}: ${jstr(x.value)} (p${x.priority})`)
+          : (await decodeHashSet(buf, c.keyFmt, c.capacity)).map((x) => keyLabel(x.key));
       out.push({ name: f.name, entries: ents.length > 10 ? ents.slice(0, 10).concat("… +" + (ents.length - 10)) : ents });
     } catch {}
   }
