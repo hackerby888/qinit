@@ -7,7 +7,7 @@ import { extractIdl } from "@qinit/build";
 import { describeTrace, jstr, type TraceView as TraceData } from "../trace-format";
 import { TraceView } from "../views";
 import { CallInteractive } from "./call-interactive";
-import { loadConfig } from "../config";
+import { loadConfig, resolveSeed } from "../config";
 import { Header, Spinner, Status, Bar, theme } from "../ui";
 
 type Result = { ok: boolean | null; label: string; detail?: string; rows?: [string, string][]; err?: string };
@@ -121,7 +121,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           const tick = (ti.tick ?? ti.currentTick ?? 0) + 8;
           const settle = o["no-settle"] === undefined;   // default: wait until the proc actually ran; --no-settle to skip
           const r = await invokeProcedure({
-            seed: o.seed ?? (await rpc.fundedSeed()) ?? "a".repeat(55), rpcBase, contractIndex: idx, procId: entry,
+            seed: await resolveSeed(rpc, o.seed), rpcBase, contractIndex: idx, procId: entry,
             amount: Number(o.amount ?? 0), inFmt, tick, confirm: settle, rpc,
             onProgress: ({ tick: net, target }) => setConfirm((c) => ({ start: c?.start ?? net, net, target })),
           });

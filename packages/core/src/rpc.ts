@@ -90,6 +90,10 @@ export class LiteRpc {
     try { return (await this.get<{ seed?: string }>("/live/v1/dev/funded-seed")).seed; }
     catch { return undefined; }
   }
+  /** Testnet-only funded-seed list (GET /live/v1/dev/funded-seeds?limit) — for `qinit seed` to pick from. */
+  fundedSeeds(limit = 32) {
+    return this.get<{ seeds: string[]; count: number }>(`/live/v1/dev/funded-seeds?limit=${limit}`);
+  }
 
   /** Call a contract function (read-only) via POST /live/v1/querySmartContract. */
   async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {

@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { buildContract, type ContractIdl } from "@qinit/build";
 import { buildSignedTx, broadcastTx, LiteRpc, k12Hex, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
 import { encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX, resolveSlot } from "@qinit/proto";
+import { savedSeed } from "./config";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
 export type Ev =
@@ -54,8 +55,9 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   if (cur <= t0 + 3) { emit({ step: "tick", state: "fail", detail: "not ticking" }); return { ok: false, error: "node not ticking" }; }
   emit({ step: "tick", state: "ok", detail: `tick ${cur}` });
 
-  // seed — funded one from the node if none given
+  // seed precedence: --seed > saved pick (`qinit seed`) > node funded seed > dev default
   let seed = o.seed;
+  if (!seed) { const sv = savedSeed(); if (sv) { seed = sv; emit({ note: "using saved seed (qinit seed)" }); } }
   if (!seed) { const f = await rpc.fundedSeed(); if (f) { seed = f; emit({ note: "using node funded seed" }); } }
   seed = seed ?? "a".repeat(55);
 

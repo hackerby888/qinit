@@ -4,6 +4,7 @@ import { LiteRpc, type DynContract } from "@qinit/core";
 import { callFunction, invokeProcedure } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { existsSync, readFileSync } from "node:fs";
+import { resolveSeed } from "../config";
 import { Header, Spinner, Panel, theme } from "../ui";
 
 // Optional local IDL (names + format strings) keyed by contract index, merged over the registry.
@@ -114,7 +115,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
         const tick = (ti.tick ?? 0) + 8;
         // confirm=true: wait until the tx is actually processed so the user sees success/dropped, not just "broadcast".
         const r = await invokeProcedure({
-          seed: s.seed || seed || (await rpc.fundedSeed()) || "a".repeat(55), rpcBase, contractIndex: idx, procId: e.inputType,
+          seed: await resolveSeed(rpc, s.seed || seed), rpcBase, contractIndex: idx, procId: e.inputType,
           amount: Number(s.amount ?? 0), inFmt: s.input ?? "", tick, confirm: true, rpc,
           onProgress: ({ tick: net, target }) => setStatus(`confirming · tick ${net} → ${target}${net < target ? ` (${target - net} to go)` : " · processing"}`),
         });
@@ -189,11 +190,9 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   if (stage === "output")
     return wrap(<TextPrompt label="output format (types only, e.g. uint64 or { id, uint16 })" initial={sel.e!.out ?? ""} complete={completeType} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />);
 
+  // amount is the last prompt — seed is auto-resolved (saved pick > node funded > default), no prompt.
   if (stage === "amount")
-    return wrap(<TextPrompt label="amount (qus)" initial="0" onSubmit={(amount) => { setSel((s) => ({ ...s, amount })); setStage("seed"); }} />);
-
-  if (stage === "seed")
-    return wrap(<TextPrompt label="signer seed (55 lowercase)" initial={seed ?? ""} onSubmit={(sd) => { const ns = { ...sel, seed: sd }; setSel(ns); run(ns); }} />);
+    return wrap(<TextPrompt label="amount (qus)" initial="0" onSubmit={(amount) => { const ns = { ...sel, amount }; setSel(ns); run(ns); }} />);
 
   return null;
 }
