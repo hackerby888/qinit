@@ -63,3 +63,15 @@ test("sweep: all system contracts parse without throwing", () => {
     expect(() => stateFieldsOf(extractIdl(readFileSync(`${CORE}/${f}`, "utf8"), f.replace(".h", "")))).not.toThrow();
   }
 });
+
+test("bare struct name resolves to the shallowest (contract-level) struct, not a nested same-named shadow", () => {
+  const src = `using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Order { id a; sint64 b; };                 // contract-level: id(32)+sint64(8) = 40
+  struct StateData { Array<Order, 4> q; };
+  struct Foo_output { struct Order { id a; sint64 b; sint64 c; }; Order x; };   // deeper shadow: 48
+  INITIALIZE() {}
+};`;
+  const q = stateFieldsOf(extractIdl(src, "T")).find((f) => f.name === "q")!;
+  expect(q.size).toBe(160);   // 4 * contract-level Order(40); the nested 48-byte Order must NOT shadow it
+});

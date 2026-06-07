@@ -44,11 +44,14 @@ function collectStructs(src: string): Map<string, string> {
     }
     all.push({ name: m[1], open, close: i - 1 });
   }
+  const bareDepth = new Map<string, number>();
   for (const s of all) {
     const body = src.slice(s.open + 1, s.close);
-    out.set(s.name, body);   // bare name (last-declared wins on collision — the scoped keys below disambiguate)
     const parents = all.filter((p) => p.open < s.open && p.close > s.close).sort((a, b) => a.open - b.open).map((p) => p.name);
-    for (let k = 0; k < parents.length; k++) out.set([...parents.slice(k), s.name].join("::"), body);   // every scoped suffix
+    // bare name resolves to the SHALLOWEST struct (e.g. the contract-level `Order` a StateData field references),
+    // not the last-declared — a deeper function-nested struct of the same name must not shadow it.
+    if (!bareDepth.has(s.name) || parents.length < bareDepth.get(s.name)!) { out.set(s.name, body); bareDepth.set(s.name, parents.length); }
+    for (let k = 0; k < parents.length; k++) out.set([...parents.slice(k), s.name].join("::"), body);   // every scoped suffix (exact refs)
   }
   return out;
 }
