@@ -28,7 +28,7 @@ export interface DeployOpts {
 }
 export interface DeployResult {
   ok: boolean; slot?: number; reused?: boolean; hash?: string; txId?: string;
-  armed?: boolean; reason?: string; idl?: ContractIdl; error?: string;
+  armed?: boolean; constructed?: boolean; reason?: string; idl?: ContractIdl; error?: string;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -176,28 +176,40 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     } catch {}
   }
 
-  // confirm — poll dyn-registry until armed && codeHash matches; classify the failure
+  // confirm — poll dyn-registry until armed && codeHash, then until constructed (INITIALIZE runs a few ticks
+  // after arming). "ready" means constructed = callable; an armed-but-unconstructed result is flagged so the
+  // user knows a call may read pre-INITIALIZE state. Classify the failure otherwise.
   emit({ step: "confirm", state: "active", detail: "polling arm…" });
   const want = hash.toLowerCase();
-  let armed = false, present = false, onNode = "", last = cur;
-  for (let i = 0; i < 60; i++) {
+  let armed = false, constructed = false, present = false, onNode = "", last = cur;
+  for (let i = 0; i < 75; i++) {
     await sleep(1000);
     try {
       const ti: any = await rpc.tickInfo(); last = ti.tick ?? last;
       const reg = await rpc.dynRegistry();
       const c = (reg.contracts ?? []).find((x) => x.index === slot);
-      if (c) { present = !!c.armed; onNode = (c.codeHash || "").toLowerCase(); if (c.armed && onNode === want) { armed = true; break; } }
+      if (c) {
+        present = !!c.armed; onNode = (c.codeHash || "").toLowerCase();
+        if (c.armed && onNode === want) {
+          armed = true;
+          if (c.constructed) { constructed = true; break; }
+          emit({ step: "confirm", state: "active", detail: `armed · constructing… tick ${last}` });
+          continue;
+        }
+      }
       emit({ step: "confirm", state: "active", detail: `tick ${last}` });
     } catch {}
   }
   let reason: string | undefined;
   if (armed) {
-    emit({ step: "confirm", state: "ok", detail: `armed · ${want.slice(0, 12)}…` });
     // submit this contract's .h to the node so later inter-contract callers can resolve it without --callee.
     try { await rpc.putContractSource(slot, readFileSync(o.contractPath, "utf8")); } catch {}
+    if (constructed) emit({ step: "confirm", state: "ok", detail: `ready · ${want.slice(0, 12)}…` });
+    else { emit({ step: "confirm", state: "ok", detail: `armed (construct pending) · ${want.slice(0, 12)}…` });
+           emit({ note: "⚠ armed but INITIALIZE hasn't settled — a call now may read pre-init state; retry shortly" }); }
   }
   else if (!present) { reason = "empty"; emit({ step: "confirm", state: "fail", detail: "slot empty — didn't land" }); emit({ note: "upload/deploy didn't land (chunks dropped, tick missed, or seed unfunded)" }); }
   else { reason = "wrong-code"; emit({ step: "confirm", state: "fail", detail: "different code — didn't take" }); emit({ note: `on-node ${onNode.slice(0, 12)}… ≠ yours ${want.slice(0, 12)}…` }); }
 
-  return { ok: armed, slot, reused, hash, txId: dr.transactionId, armed, reason, idl: b.idl };
+  return { ok: armed, slot, reused, hash, txId: dr.transactionId, armed, constructed, reason, idl: b.idl };
 }

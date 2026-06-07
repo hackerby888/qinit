@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { LiteRpc } from "@qinit/core";
 import { callFunction, invokeProcedure } from "@qinit/proto";
+import { extractIdl } from "@qinit/build";
 import { CallInteractive } from "./call-interactive";
 import { loadConfig } from "../config";
 import { Header, Spinner, theme } from "../ui";
@@ -52,20 +53,37 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           if (!c) throw new Error(`no deployed contract named '${o.idx}'`);
           idx = c.index;
         }
-        // entry: accept a fn/proc name (resolve via IDL) or an inputType number.
-        const tbl = (o.mode === "fn" ? idl[String(idx)]?.functions : idl[String(idx)]?.procedures) ?? {};
+        // entry: accept a fn/proc name (resolve via IDL) or an inputType number. Prefer the local
+        // qinit.idl.json; if absent for this slot, derive the IDL from the node-stored contract source
+        // (dyn-registry) so a name call works for any deployed contract, not just locally-built ones.
+        let tbl: any = (o.mode === "fn" ? idl[String(idx)]?.functions : idl[String(idx)]?.procedures);
+        if (!tbl || !Object.keys(tbl).length) {
+          try {
+            const reg = await rpc.dynRegistry();
+            const c = (reg.contracts ?? []).find((x) => x.index === idx);
+            if (c?.source) { const d = extractIdl(c.source, c.name || "Contract"); tbl = o.mode === "fn" ? d.functions : d.procedures; }
+          } catch {}
+        }
+        tbl = tbl ?? {};
         let entry = Number(o.entry);
         let ie: any = tbl[String(entry)];
         if (Number.isNaN(entry)) {
           const hit = Object.entries(tbl).find(([, e]: any) => (e.name || "").toLowerCase() === String(o.entry).toLowerCase());
-          if (!hit) throw new Error(`no ${o.mode} named '${o.entry}' on contract ${idx} (build/deploy to populate IDL)`);
+          if (!hit) throw new Error(`no ${o.mode} named '${o.entry}' on contract ${idx} (no local IDL and node has no source for this slot)`);
           entry = Number(hit[0]); ie = hit[1];
         }
         const inFmt = o.in ?? ie?.in ?? "";
 
+        // node-side runtime error: the most recent dispatch trap on this slot (dyn-registry lastError),
+        // so a contract that traps shows WHY here instead of only in the node console.
+        const nodeErr = async (): Promise<string> => {
+          try { const reg = await rpc.dynRegistry(); const c = (reg.contracts ?? []).find((x) => x.index === idx); return c?.lastError ? ` · contract error: ${c.lastError}` : ""; } catch { return ""; }
+        };
+
         if (o.mode === "fn") {
           const out = await callFunction(rpc, idx, entry, inFmt, o.out ?? ie?.out ?? "");
-          add(`fn ${idx}/${entry} -> ${JSON.stringify(out, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`);
+          const ne = (out == null || (typeof out === "object" && Object.keys(out).length === 0)) ? await nodeErr() : "";
+          add(`fn ${idx}/${entry} -> ${JSON.stringify(out, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}${ne}`);
         } else {
           const ti: any = await rpc.tickInfo();
           const tick = (ti.tick ?? ti.currentTick ?? 0) + 8;
@@ -78,11 +96,11 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           });
           setStatus("");
           const txs = (r.txId ?? "").slice(0, 16);
-          if (!r.ok) add(`proc ${idx}/${entry} @tick ${tick}: FAIL code=${r.code} ${r.message ?? ""}`);
+          if (!r.ok) add(`proc ${idx}/${entry} @tick ${tick}: FAIL code=${r.code} ${r.message ?? ""}${await nodeErr()}`);
           else if (!settle) add(`proc ${idx}/${entry} @tick ${tick}: ok ${txs} (broadcast)`);
-          else if (r.confirmed && r.included) add(`proc ${idx}/${entry} @tick ${tick}: ok · processed ${txs}`);
-          else if (r.confirmed && !r.included) add(`proc ${idx}/${entry} @tick ${tick}: DROPPED — not included ${txs}`);
-          else add(`proc ${idx}/${entry} @tick ${tick}: ok ${txs} (broadcast; unconfirmed — no tx-status addon or timed out)`);
+          else if (r.confirmed && r.included) add(`proc ${idx}/${entry} @tick ${tick}: ok · processed ${txs}${await nodeErr()}`);
+          else if (r.confirmed && !r.included) add(`proc ${idx}/${entry} @tick ${tick}: DROPPED — not included ${txs}${await nodeErr()}`);
+          else add(`proc ${idx}/${entry} @tick ${tick}: ok ${txs} (broadcast; unconfirmed — no tx-status addon or timed out)${await nodeErr()}`);
         }
         setDone(true);
       } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setDone(true); }

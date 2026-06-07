@@ -10,6 +10,7 @@ import { Gen } from "./commands/gen";
 import { Deploy } from "./commands/deploy";
 import { Test } from "./commands/test";
 import { Call } from "./commands/call";
+import { Ls } from "./commands/ls";
 import { New } from "./commands/new";
 import { Help } from "./commands/help";
 import { Version } from "./commands/version";
@@ -40,6 +41,8 @@ export function App({ command, args }: { command: string; args: string[] }) {
       return <Test args={args} />;
     case "call":
       return <Call args={args} />;
+    case "ls":
+      return <Ls args={args} />;
     case "version":
     case "--version":
     case "-v":

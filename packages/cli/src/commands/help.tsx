@@ -13,6 +13,7 @@ const COMMANDS: [string, string][] = [
   ["build", "compile a contract .h -> wasm (+ K12 hash, IDL)"],
   ["gen", "generate a typed TS client from the contract IDL"],
   ["deploy", "build + chunk-upload + deploy a contract to a node"],
+  ["ls", "list contracts deployed on the node (slot / name / state / hash)"],
   ["test", "deploy to an ephemeral node + run bun tests against it"],
   ["call", "call a contract function (--fn) or invoke a procedure (--proc)"],
   ["smoke", "run the standalone-binary crypto smoke test"],

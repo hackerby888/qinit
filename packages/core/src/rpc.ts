@@ -9,7 +9,7 @@ export interface TickInfo {
 export interface DynEntry { inputType: number; inputSize: number; outputSize: number; }
 export interface DynContract {
   index: number; armed: boolean; constructed: boolean; version: number; name: string; codeHash: string;
-  functions: DynEntry[]; procedures: DynEntry[]; source?: string;
+  functions: DynEntry[]; procedures: DynEntry[]; source?: string; lastError?: string;
 }
 export interface DynRegistry { contracts: DynContract[]; slotBase: number; slotCount: number; }
 
