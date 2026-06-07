@@ -233,6 +233,7 @@ export function extractIdl(source: string, name: string): ContractIdl {
   // log-struct catalog: any flat (leaf) struct with a `sint8 _terminator` marker; keep only the fields before it.
   const logStructs: LogStruct[] = [];
   for (const [sname, body] of structs) {
+    if (sname.includes("::")) continue;                        // scoped-name alias of a struct already visited by its bare name
     if (/\bstruct\b/.test(body)) continue;                     // container struct (nested defs) — its leaf children are collected separately
     const fs = fieldsForStruct(structs, sname);
     const ti = fs.findIndex((f) => f.name === "_terminator");
