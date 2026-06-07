@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, bytesToIdentity, type DebugEntry, type DynContract } from "@qinit/core";
-import { decodeOutput, layoutOf, decodeHashMap, decodeHashSet, decodeCollection } from "@qinit/proto";
+import { decodeOutput, layoutOf, decodeHashMap, decodeHashSet, decodeCollection, decodeLog, type DecodedLog } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { loadConfig } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
@@ -99,6 +99,7 @@ function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?
   const [caller, setCaller] = useState("…");
   const [fields, setFields] = useState<StateField[]>([]);
   const [cols, setCols] = useState<ColView[]>([]);
+  const [logs, setLogs] = useState<DecodedLog[]>([]);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -109,9 +110,11 @@ function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?
       if (e.kind === 1 && !/^0+$/.test(e.invocator)) { try { cal = await bytesToIdentity(hexToBytes(e.invocator)); } catch { cal = "0x" + e.invocator.slice(0, 16) + "…"; } }
       let flds: StateField[] = [];
       const colv: ColView[] = [];
+      let catalog: { name: string; fmt: string; fields: string[] }[] = [];
       try {
         if (source) {
           const idl = extractIdl(source, name);
+          catalog = idl.logStructs ?? [];
           const ent: any = (e.kind === 0 ? idl.functions : idl.procedures)?.[String(e.entry)];
           if (ent?.in && e.inHex) inS = jstr(await decodeOutput(hexToBytes(e.inHex), ent.in));
           if (ent?.out && e.outHex) outS = jstr(await decodeOutput(hexToBytes(e.outHex), ent.out));
@@ -135,10 +138,15 @@ function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?
           }
         }
       } catch {}
-      if (alive) { setIo({ in: inS, out: outS }); setCaller(cal); setFields(flds); setCols(colv); }
+      // contract LOG_* calls: size-match the bytes against the log-struct catalog + decode (hex fallback).
+      let lgs: DecodedLog[] = [];
+      try { if (e.logs?.length) lgs = await Promise.all(e.logs.map((l) => decodeLog(l.type, l.size, l.hex, catalog))); } catch {}
+      if (alive) { setIo({ in: inS, out: outS }); setCaller(cal); setFields(flds); setCols(colv); setLogs(lgs); }
     })();
     return () => { alive = false; };
   }, [e.seq]);
+
+  const sevColor = (s: string) => (s === "ERROR" ? theme.err : s === "WARN" ? theme.accent : s === "INFO" ? theme.ok : undefined);
 
   // map a changed byte offset to its StateData field (name[+rel]); raw @off if no layout / unmatched.
   const labelOff = (off: number): string => {
@@ -168,6 +176,16 @@ function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?
           {c.entries.length ? <Box flexDirection="column">{c.entries.map((x, i) => <Text key={i} wrap="truncate-end">{x}</Text>)}</Box> : <Text dimColor>empty</Text>}
         </Panel>
       ))}
+      {logs.length ? (
+        <Panel title={`logs (${logs.length})`}>
+          <Box flexDirection="column">{logs.map((l, i) => (
+            <Text key={i} wrap="truncate-end">
+              <Text bold color={sevColor(l.severity)}>{l.severity}</Text>{" "}
+              {l.name ? <><Text color={theme.accent}>{l.name}</Text> <Text dimColor>{jstr(l.fields)}</Text></> : <Text dimColor>{l.size}B {l.hex.slice(0, 34)}…</Text>}
+            </Text>
+          ))}</Box>
+        </Panel>
+      ) : null}
       {e.hostCalls.length ? (
         <Panel title={`host calls (${e.hostCalls.length})`}>
           <Box flexDirection="column">{e.hostCalls.map((h, i) => <Text key={i}><Text color={theme.accent}>{h.name}</Text> <Text dimColor>{h.detail}</Text></Text>)}</Box>

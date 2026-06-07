@@ -7,11 +7,15 @@
 // type = codec token (uint64, id, bytes32, [N;T], { ... }); container = QPI HashMap/HashSet meta (for logical decode)
 export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number } }
 export interface IdlEntry { name: string; in: string; out?: string; inFields: Field[]; outFields?: Field[] }
+// A qpi LOG_* struct (ends with `sint8 _terminator`): fmt/fields cover only the members BEFORE the terminator
+// (what the node logs). The decoder size-matches a log's byte count against these. fmt = comma-joined types.
+export interface LogStruct { name: string; fmt: string; fields: string[] }
 export interface ContractIdl {
   name: string;
   functions: Record<string, IdlEntry>;
   procedures: Record<string, IdlEntry>;
-  state?: Field[];   // StateData fields (name + codec type) for field-level state-diff naming
+  state?: Field[];        // StateData fields (name + codec type) for field-level state-diff naming
+  logStructs?: LogStruct[]; // log-message struct catalog (for contract-log decode in the debugger)
 }
 
 const SCALARS = new Set([
@@ -126,5 +130,16 @@ export function extractIdl(source: string, name: string): ContractIdl {
   for (const m of source.matchAll(/REGISTER_USER_PROCEDURE\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
     idl.procedures[m[2]] = { name: m[1], in: fmtOf(structs, m[1] + "_input"), inFields: fieldsForStruct(structs, m[1] + "_input") };
   if (structs.has("StateData")) idl.state = fieldsForStruct(structs, "StateData");   // for field-level state diff
+  // log-struct catalog: any flat (leaf) struct with a `sint8 _terminator` marker; keep only the fields before it.
+  const logStructs: LogStruct[] = [];
+  for (const [sname, body] of structs) {
+    if (/\bstruct\b/.test(body)) continue;                     // container struct (nested defs) — its leaf children are collected separately
+    const fs = fieldsForStruct(structs, sname);
+    const ti = fs.findIndex((f) => f.name === "_terminator");
+    if (ti <= 0) continue;                                      // not a log struct, or nothing before terminator
+    const real = fs.slice(0, ti);
+    logStructs.push({ name: sname, fmt: real.map((f) => f.type).join(", "), fields: real.map((f) => f.name) });
+  }
+  if (logStructs.length) idl.logStructs = logStructs;
   return idl;
 }
