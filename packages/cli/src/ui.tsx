@@ -157,10 +157,15 @@ export function Step({ state, label, detail }: { state: StepState; label: string
 }
 
 // ---- progress bar + timings ------------------------------------------------
+// Gradient progress bar with gradient bracket caps — fill runs theme.gradFrom -> theme.gradTo.
 export function Bar({ pct, width = 22 }: { pct: number; width?: number }) {
   const p = Math.max(0, Math.min(1, pct || 0));
   const fill = Math.round(p * width);
-  return <Text><Text color={theme.info}>{"▓".repeat(fill)}</Text><Text dimColor>{"░".repeat(width - fill)}</Text> <Text dimColor>{Math.round(p * 100)}%</Text></Text>;
+  const cells = Array.from({ length: width }, (_, i) =>
+    i < fill
+      ? <Text key={i} color={lerp(theme.gradFrom, theme.gradTo, width < 2 ? 0 : i / (width - 1))}>█</Text>
+      : <Text key={i} dimColor>░</Text>);
+  return <Text><Text color={theme.gradFrom}>▕</Text>{cells}<Text color={theme.gradTo}>▏</Text> <Text dimColor>{Math.round(p * 100)}%</Text></Text>;
 }
 export const fmtMs = (ms?: number) => (ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
