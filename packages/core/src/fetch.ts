@@ -31,6 +31,41 @@ export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise
   return (await r.json()) as Manifest;
 }
 
+// ---- qinit CLI self-update / install resolution (the CLI binary release; mirrors install.sh) ----
+export const CLI_REPO = "hackerby888/qinit";
+
+// qinit-<os>-<arch> asset for this host. Throws on unsupported (windows: manual .exe).
+export function cliAssetName(): string {
+  const o = process.platform === "linux" ? "linux" : process.platform === "darwin" ? "darwin" : "";
+  const a = process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : "";
+  if (!o || !a) throw new Error(`unsupported host for self-update: ${process.platform}/${process.arch} (windows: download qinit-windows-x64.exe manually)`);
+  return `qinit-${o}-${a}`;
+}
+
+// Newest qinit-cli-* tag via the GitHub API (NOT /releases/latest — verify-latest hijacks it). null if none.
+export async function resolveCliTag(repo = CLI_REPO): Promise<string | null> {
+  const r = await fetch(`https://api.github.com/repos/${repo}/releases`, { headers: { "user-agent": "qinit", accept: "application/vnd.github+json" } });
+  if (!r.ok) throw new Error(`GitHub API ${r.status} listing ${repo} releases`);
+  const rel = (await r.json()) as Array<{ tag_name?: string }>;
+  return rel.map((x) => x.tag_name ?? "").find((t) => t.startsWith("qinit-cli-")) || null;
+}
+
+export function cliReleaseUrls(tag: string, repo = CLI_REPO): { asset: string; sums: string; name: string } {
+  const name = cliAssetName();
+  const base = `https://github.com/${repo}/releases/download/${tag}`;
+  return { asset: `${base}/${name}`, sums: `${base}/SHA256SUMS`, name };
+}
+
+// Pull the sha256 for `name` from a SHA256SUMS file ("<sha>  <name>" lines); "" if missing/unreachable.
+export async function fetchCliSha(sumsUrl: string, name: string): Promise<string> {
+  try {
+    const r = await fetch(sumsUrl);
+    if (!r.ok) return "";
+    for (const line of (await r.text()).split("\n")) { const m = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/); if (m && m[2] === name) return m[1].toLowerCase(); }
+  } catch {}
+  return "";
+}
+
 // Download an asset and verify its sha256 (mismatch => throw, never cache a bad blob).
 // onProgress(received, total) streams download bytes for a live progress bar.
 export async function fetchVerify(asset: AssetRef, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {

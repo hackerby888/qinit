@@ -8,6 +8,8 @@ const COMMANDS: [string, string][] = [
   ["doctor", "check toolchain (wasi-sdk, node, core headers, qubic lib)"],
   ["node", "run / status / stop / get the dev node (run --bin <path>)"],
   ["clean", "remove all qinit cache (node, headers, wasi-sdk, tools); --dry-run to preview"],
+  ["self-update", "update qinit to the newest release; --force / --dry-run"],
+  ["uninstall", "remove qinit + its cache (--yes to confirm, --keep-cache)"],
   ["up", "one command: sync headers + get node + run (reuses a ticking node)"],
   ["dev", "watch the contract -> auto build+deploy on save (q to quit)"],
   ["build", "compile a contract .h -> wasm (+ K12 hash, IDL)"],

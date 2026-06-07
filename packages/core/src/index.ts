@@ -13,5 +13,6 @@ export {
   VERIFY_REPO, VERIFY_TAG, toolsDir, cachedVerifyToolPath, verifyPlatformKey,
   loadVerifyManifest, autoUpdateVerifyTool,
   wasiSdkDir, wasiSdkPaths, haveWasiSdkCache, fetchWasiSdk,
+  CLI_REPO, cliAssetName, resolveCliTag, cliReleaseUrls, fetchCliSha,
 } from "./fetch";
 export type { AssetRef, Manifest, CurrentPointer, VerifyManifest, VerifyUpdate } from "./fetch";

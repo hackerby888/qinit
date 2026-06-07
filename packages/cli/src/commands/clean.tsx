@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { existsSync, rmSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
 import { cacheRoot } from "@qinit/core";
-import { killNode, nodeAlive } from "../node-ops";
+import { cacheInfo, wipeCache, human, type CacheItem } from "../cache-ops";
 import { Header, Status, Spinner, KV, theme } from "../ui";
 
 // qinit clean [--dry-run]
@@ -14,17 +12,8 @@ function parse(args: string[]): Record<string, string> {
   for (const a of args) if (a.startsWith("--")) o[a.slice(2)] = "";
   return o;
 }
-function dirSize(p: string): number {
-  let s = 0;
-  for (const e of readdirSync(p, { withFileTypes: true })) {
-    const fp = join(p, e.name);
-    try { s += e.isDirectory() ? dirSize(fp) : statSync(fp).size; } catch {}
-  }
-  return s;
-}
-const human = (n: number) => (n < 1024 ? n + "B" : n < 1048576 ? Math.round(n / 1024) + "KB" : (n / 1048576).toFixed(1) + "MB");
 
-type S = { phase: "run" | "empty" | "done" | "err"; items?: { name: string; sz: number }[]; total?: number; killed?: boolean; err?: string };
+type S = { phase: "run" | "empty" | "done" | "err"; items?: CacheItem[]; total?: number; killed?: boolean; err?: string };
 
 export function Clean({ args }: { args: string[] }) {
   const o = parse(args);
@@ -36,17 +25,13 @@ export function Clean({ args }: { args: string[] }) {
   useEffect(() => {
     (async () => {
       try {
-        if (!existsSync(root)) { setS({ phase: "empty" }); return; }
-        let killed = false;
-        if (nodeAlive()) { await killNode(); killed = true; }   // a running node holds locks under <cache>/run
-        const items = readdirSync(root).map((name) => {
-          const p = join(root, name);
-          let sz = 0; try { sz = statSync(p).isDirectory() ? dirSize(p) : statSync(p).size; } catch {}
-          return { name, sz };
-        }).sort((a, b) => b.sz - a.sz);
-        const total = items.reduce((a, e) => a + e.sz, 0);
-        if (!dry) rmSync(root, { recursive: true, force: true });
-        setS({ phase: "done", items, total, killed });
+        if (dry) {
+          const info = cacheInfo();
+          setS(info.exists ? { phase: "done", items: info.items, total: info.total, killed: false } : { phase: "empty" });
+          return;
+        }
+        const w = await wipeCache();
+        setS(w.exists ? { phase: "done", items: w.items, total: w.total, killed: w.killed } : { phase: "empty" });
       } catch (e: any) { setS({ phase: "err", err: String(e?.message ?? e) }); }
     })();
   }, []);

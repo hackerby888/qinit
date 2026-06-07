@@ -13,6 +13,8 @@ import { Ls } from "./commands/ls";
 import { Debug } from "./commands/debug";
 import { State } from "./commands/state";
 import { Clean } from "./commands/clean";
+import { Update } from "./commands/update";
+import { Uninstall } from "./commands/uninstall";
 import { New } from "./commands/new";
 import { Help } from "./commands/help";
 import { Version } from "./commands/version";
@@ -49,6 +51,10 @@ export function App({ command, args }: { command: string; args: string[] }) {
       return <State args={args} />;
     case "clean":
       return <Clean args={args} />;
+    case "self-update":
+      return <Update args={args} />;
+    case "uninstall":
+      return <Uninstall args={args} />;
     case "version":
     case "--version":
     case "-v":
