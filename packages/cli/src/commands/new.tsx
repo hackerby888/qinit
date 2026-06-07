@@ -38,6 +38,9 @@ export function New({ args }: { args: string[] }) {
       if (existsSync("qinit.json")) { add("✗ already inside a qinit project (qinit.json is here) — cd out before `qinit new`"); setDone(true); return; }
       const dir = o.name;
       const name = toIdent(o.name);
+      // a contract named after a QPI type (Asset, Entity, …) makes the generated wrapper ambiguous -> won't compile
+      const RESERVED = ["Asset", "Entity", "Array", "Collection", "HashMap", "HashSet"];
+      if (RESERVED.includes(name)) { add(`✗ '${name}' collides with a QPI type — pick another name (reserved: ${RESERVED.join(", ")})`); setDone(true); return; }
       const core = o.core ?? process.env.QINIT_CORE; // pin only if explicit; else qinit.json omits it -> synced cache (portable)
       if (existsSync(dir)) { add(`✗ '${dir}' already exists`); setDone(true); return; }
 

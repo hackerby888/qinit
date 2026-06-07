@@ -73,11 +73,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         state.mut().total += input.amount;
     }
 
-    PUBLIC_FUNCTION(BalanceOf)
+    struct BalanceOf_locals { uint64 v; };
+    PUBLIC_FUNCTION_WITH_LOCALS(BalanceOf)
     {
-        uint64 v = 0;
-        state.get().balances.get(input.who, v);
-        output.amount = v;
+        locals.v = 0;
+        state.get().balances.get(input.who, locals.v);
+        output.amount = locals.v;
     }
 
     PUBLIC_FUNCTION(Stats)
@@ -134,12 +135,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         state.mut().lastResult = output.result;
     }
 
-    PUBLIC_FUNCTION(Total)
+    struct Total_locals { QPI::Asset a; };   // QPI:: qualified so it never clashes with a contract named "Asset"
+    PUBLIC_FUNCTION_WITH_LOCALS(Total)
     {
-        Asset a;
-        a.issuer = SELF;
-        a.assetName = input.name;
-        output.shares = qpi.numberOfShares(a, AssetOwnershipSelect::any(), AssetPossessionSelect::any());
+        locals.a.issuer = SELF;
+        locals.a.assetName = input.name;
+        output.shares = qpi.numberOfShares(locals.a, AssetOwnershipSelect::any(), AssetPossessionSelect::any());
     }
 
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
@@ -176,19 +177,17 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     struct BumpCounter_input {};
     struct BumpCounter_output {};
 
-    PUBLIC_FUNCTION(ReadCounter)
+    struct ReadCounter_locals { Counter::Get_input gi; Counter::Get_output go; };
+    PUBLIC_FUNCTION_WITH_LOCALS(ReadCounter)
     {
-        Counter::Get_input gi;
-        Counter::Get_output go;
-        CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, gi, go);
-        output.value = go.value;
+        CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);
+        output.value = locals.go.value;
     }
 
-    PUBLIC_PROCEDURE(BumpCounter)
+    struct BumpCounter_locals { Counter::Inc_input ii; Counter::Inc_output io; };
+    PUBLIC_PROCEDURE_WITH_LOCALS(BumpCounter)
     {
-        Counter::Inc_input ii;
-        Counter::Inc_output io;
-        INVOKE_OTHER_CONTRACT_PROCEDURE(Counter, Inc, ii, io, 0);
+        INVOKE_OTHER_CONTRACT_PROCEDURE(Counter, Inc, locals.ii, locals.io, 0);
     }
 
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
