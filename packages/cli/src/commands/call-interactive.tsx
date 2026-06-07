@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, type DynContract } from "@qinit/core";
-import { callFunction, invokeProcedure } from "@qinit/proto";
+import { callFunction, invokeProcedure, TX_TICK_OFFSET } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { existsSync, readFileSync } from "node:fs";
 import { resolveSeed } from "../config";
@@ -112,7 +112,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
         add(`${labelFor(s.c!, e)} -> ${JSON.stringify(out, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`);
       } else {
         const ti: any = await rpc.tickInfo();
-        const tick = (ti.tick ?? 0) + 8;
+        const tick = (ti.tick ?? 0) + TX_TICK_OFFSET;
         // confirm=true: wait until the tx is actually processed so the user sees success/dropped, not just "broadcast".
         const r = await invokeProcedure({
           seed: await resolveSeed(rpc, s.seed || seed), rpcBase, contractIndex: idx, procId: e.inputType,

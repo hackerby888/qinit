@@ -15,3 +15,8 @@ export const CHUNK_HEADER_SIZE = 14;                       // UploadChunk: sessi
 // shipped value every deploy uses — do NOT bump without re-testing the chunked-upload path against core.
 export const CHUNK_DATA_MAX = 1008;
 export const TX_HEADER_SIZE = 144;                        // src32+dst32+amount8+tick4+inputType2+inputSize2+sig64
+
+// Ticks ahead of the current tick to schedule an outgoing tx. The dev node runs --ticking-delay 1000
+// (~1 tick/s), so +3 gives ~3 s for the tx to propagate and land in a future tick — the minimum that
+// clears the "tick already in progress" window without making the user wait. NOT a protocol constant.
+export const TX_TICK_OFFSET = 3;

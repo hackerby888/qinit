@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { LiteRpc, type DebugEntry } from "@qinit/core";
-import { callFunction, invokeProcedure, jsonToInputFmt } from "@qinit/proto";
+import { callFunction, invokeProcedure, jsonToInputFmt, TX_TICK_OFFSET } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, jstr, type TraceView as TraceData } from "../trace-format";
 import { TraceView } from "../views";
@@ -118,7 +118,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           setResult({ ok: ne ? false : true, label, rows: [["out", jstr(out)]], err: ne || undefined });
         } else {
           const ti: any = await rpc.tickInfo();
-          const tick = (ti.tick ?? ti.currentTick ?? 0) + 8;
+          const tick = (ti.tick ?? ti.currentTick ?? 0) + TX_TICK_OFFSET;
           const settle = o["no-settle"] === undefined;   // default: wait until the proc actually ran; --no-settle to skip
           const r = await invokeProcedure({
             seed: await resolveSeed(rpc, o.seed), rpcBase, contractIndex: idx, procId: entry,

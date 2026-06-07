@@ -8,6 +8,7 @@ export {
   newSessionId,
 } from "./deploy";
 export type { UploadBeginParams, UploadChunkParams, DeployParams } from "./deploy";
+export { TX_TICK_OFFSET } from "./protocol";
 export { encodeInput, encodeInputJson, jsonToInputFmt, decodeOutput, parseLayout, structFieldOffsets, layoutOf } from "./abi-fmt";
 export { decodeHashMap, decodeHashSet, decodeCollection } from "./decode-container";
 export type { MapEntry, SetEntry, CollEntry } from "./decode-container";

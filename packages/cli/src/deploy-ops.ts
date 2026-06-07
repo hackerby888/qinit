@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { buildContract, type ContractIdl } from "@qinit/build";
 import { buildSignedTx, broadcastTx, LiteRpc, k12Hex, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
-import { encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX, resolveSlot } from "@qinit/proto";
+import { encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX, resolveSlot, TX_TICK_OFFSET } from "@qinit/proto";
 import { savedSeed } from "./config";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
@@ -103,7 +103,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? cur; } catch {}
   const curTick = async () => { try { const ti: any = await rpc.tickInfo(); return (ti.tick ?? ti.currentTick ?? cur) as number; } catch { return cur; } };
   const waitTickReach = async (target: number, tries = 25) => { let t = cur; for (let i = 0; i < tries; i++) { t = await curTick(); if (t >= target) break; await sleep(1000); } return t; };
-  const uploadTick = cur + 8;
+  const uploadTick = cur + TX_TICK_OFFSET;
 
   const session = newSessionId();
   const chunks = chunkSo(new Uint8Array(so));
@@ -142,13 +142,13 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
       if (u.complete) { assembled = true; break; }
       const miss = (u.missing ?? []).filter((s) => s < chunks.length);
       if (!miss.length) { await waitTickReach((await curTick()) + 1); continue; }  // count lagging — recheck
-      const t = (await curTick()) + 5;
+      const t = (await curTick()) + TX_TICK_OFFSET;
       for (const seq of miss) await broadcastTx(await mk(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: session, seq, bytes: chunks[seq] }), t), o.rpcBase);
       emit({ note: `assembly: resent ${miss.length} missing chunk(s) [round ${round + 1}]` });
       await waitTickReach(t + 1);
     } else {
       // session not active on-node (BEGIN dropped/superseded) — resend BEGIN + all chunks at a fresh tick.
-      const t = (await curTick()) + 5;
+      const t = (await curTick()) + TX_TICK_OFFSET;
       await broadcastTx(await mk(LITE_TX.UPLOAD_BEGIN, encodeUploadBegin({ sessionId: session, totalSize: so.length, chunkCount: chunks.length, finalHashHex: hash }), t), o.rpcBase);
       for (let i = 0; i < chunks.length; i++) await broadcastTx(await mk(LITE_TX.UPLOAD_CHUNK, encodeUploadChunk({ sessionId: session, seq: i, bytes: chunks[i] }), t), o.rpcBase);
       emit({ note: `assembly: re-sent BEGIN + ${chunks.length} chunk(s) [round ${round + 1}]` });
@@ -160,7 +160,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   // deploy — at a fresh tick, since the assembly confirm above may have consumed several ticks
   emit({ step: "deploy", state: "active" });
-  const deployTick = (await curTick()) + 6;
+  const deployTick = (await curTick()) + TX_TICK_OFFSET;
   const dr = await broadcastTx(await mk(LITE_TX.DEPLOY, encodeDeploy({ sessionId: session, targetSlot: slot, finalHashHex: hash, name: o.name }), deployTick), o.rpcBase);
   if (!dr.ok) {
     emit({ step: "deploy", state: "fail", detail: `code ${dr.code}` });
