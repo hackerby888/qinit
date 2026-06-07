@@ -60,6 +60,12 @@ export function Help({ unknown, command }: { unknown?: boolean; command?: string
           </Box>
         ));
       })()}
+      <Box marginTop={1} flexDirection="column">
+        <Text bold color={theme.brand}>examples</Text>
+        <Text>{"  "}<Text color={theme.accent}>{`qinit call --proc Mytoken 1 --args '{"to":"<ID>","amount":100}'`}</Text></Text>
+        <Text>{"  "}<Text color={theme.accent}>{`qinit call --fn   Mytoken 1 --args '{"who":"<ID>"}' --out uint64`}</Text></Text>
+        <Text dimColor>{"  "}--proc signs a tx + waits for it to process · --fn is a read-only query · see `qinit cheat-sheet`</Text>
+      </Box>
     </Box>
   );
 }
