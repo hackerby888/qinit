@@ -37,14 +37,23 @@ function collectStructs(src: string): Map<string, string> {
 // Map one member type to a codec token.
 function typeToken(type: string, structs: Map<string, string>): string {
   type = type.trim().replace(/^QPI::/, "");
-  // Array<T, N> -> [N; T]; N may be an arithmetic expression (e.g. 64*1024*1024) -> evaluate it (digits +
-  // arithmetic only, so it's safe). Non-numeric sizes (symbolic consts) pass through (best-effort).
-  const am = type.match(/^Array\s*<\s*([\s\S]+?)\s*,\s*([^<>]+?)\s*>$/);
-  if (am) {
-    let n = am[2].trim();
-    if (/^[0-9*+\-()\s]+$/.test(n)) { try { n = String(Function(`return (${n})`)() >>> 0); } catch {} }
-    return `[${n};${typeToken(am[1], structs)}]`;
+  const tt = (x: string) => typeToken(x, structs);
+  // size may be an arithmetic expr (e.g. 64*1024*1024) -> evaluate (digits+arithmetic only, so safe).
+  const evalN = (s: string): number | null => (/^[0-9*+\-()\s]+$/.test(s.trim()) ? (() => { try { return Function(`return (${s})`)() >>> 0; } catch { return null; } })() : null);
+  // QPI containers -> equivalent struct layouts so field offsets/sizes match the C++ StateData (names the
+  // field; contents stay raw bytes). Covers scalar/id K/V/T; nested-generic params fall through to raw.
+  let m: RegExpMatchArray | null;
+  if ((m = type.match(/^HashMap\s*<\s*([^,<>]+?)\s*,\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
+    const L = evalN(m[3]); if (L != null) return `{ [${L};{ ${tt(m[1])}, ${tt(m[2])} }], [${Math.ceil(L * 2 / 64)};uint64], uint64, uint64 }`;
   }
+  if ((m = type.match(/^HashSet\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
+    const L = evalN(m[2]); if (L != null) return `{ [${L};${tt(m[1])}], [${Math.ceil(L * 2 / 64)};uint64], uint64, uint64 }`;
+  }
+  if ((m = type.match(/^Collection\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
+    const L = evalN(m[2]); if (L != null) return `{ [${L};{ uint64, sint64, sint64, sint64 }], [${Math.ceil(L * 2 / 64)};uint64], [${L};{ ${tt(m[1])}, sint64, sint64, sint64, sint64, sint64 }], uint64, uint64 }`;
+  }
+  const am = type.match(/^Array\s*<\s*([\s\S]+?)\s*,\s*([^<>]+?)\s*>$/);
+  if (am) { const n = evalN(am[2]); return `[${n != null ? n : am[2].trim()};${tt(am[1])}]`; }
   if (SCALARS.has(type)) return type;
   if (type === "m256i") return "m256i"; // raw hex (id is the identity alias, handled by SCALARS)
   if (structs.has(type)) return `{ ${parseFields(structs.get(type)!, structs).join(", ")} }`;
