@@ -17,6 +17,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     uint128 big;
     Color c;
     Asset asset;
+    DateAndTime when;
     Inner inner;
     Wrap::Order scoped;
     sint64 a, b, cc;
@@ -38,6 +39,7 @@ test("parser: native, uint128, enum, Asset, nested + scoped struct, multi-var, c
   expect(by.big.size).toBe(16);                            // uint128
   expect(by.c.size).toBe(4);                               // enum -> uint32
   expect(by.asset.size).toBe(40);                          // Asset { id(32), uint64(8) }
+  expect(by.when.size).toBe(8);                            // DateAndTime -> uint64
   expect(by.inner.size).toBe(8);                           // custom struct { uint64 }
   expect(by.scoped.size).toBe(40);                         // Wrap::Order { id, uint64 }
   expect(by.a.size).toBe(8); expect(by.b.size).toBe(8); expect(by.cc.size).toBe(8);  // multi-var split

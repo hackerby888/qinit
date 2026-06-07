@@ -160,6 +160,7 @@ function typeToken(type: string, structs: Map<string, string>): string {
   if (SCALARS.has(type)) return type;
   if (type === "m256i" || type === "uint128" || type === "sint128") return type;   // raw-hex / 128-bit (abi-fmt sizes them)
   if (type === "Asset") return "{ id, uint64 }";   // QPI built-in: { id issuer; uint64 assetName }
+  if (type === "DateAndTime") return "uint64";     // QPI built-in: a single bit-packed uint64
   if (g_enums.has(type)) return "uint32";   // C++ enum -> underlying int (4 bytes)
   // resolve a struct by exact (incl. scoped Parent::Child) name, else the bare last segment of a scoped type
   const sname = structs.has(type) ? type : type.includes("::") && structs.has(type.split("::").pop()!) ? type.split("::").pop()! : null;
