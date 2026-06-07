@@ -14,7 +14,7 @@ export const THEMES: Record<string, Theme> = {
   ocean:   { gradFrom: "#3b82f6", gradTo: "#22d3ee", brand: "#3b82f6", accent: "#38bdf8", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#38bdf8", mute: "gray" },
   rose:    { gradFrom: "#f43f5e", gradTo: "#fb7185", brand: "#f43f5e", accent: "#a78bfa", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#fb7185", mute: "gray" },
   amber:   { gradFrom: "#f59e0b", gradTo: "#fde047", brand: "#f59e0b", accent: "#fb7185", ok: "#22c55e", err: "#ef4444", warn: "#f97316", info: "#fbbf24", mute: "gray" },
-  mono:    { gradFrom: "#a1a1aa", gradTo: "#fafafa", brand: "#d4d4d8", accent: "#fafafa", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#a1a1aa", mute: "gray" },
+  mono:    { gradFrom: "#64748b", gradTo: "#cbd5e1", brand: "#94a3b8", accent: "#cbd5e1", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#94a3b8", mute: "gray" },
 };
 export const THEME_NAMES = Object.keys(THEMES);
 
