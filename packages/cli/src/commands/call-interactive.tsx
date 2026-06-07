@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, type DynContract } from "@qinit/core";
 import { callFunction, invokeProcedure } from "@qinit/proto";
+import { extractIdl } from "@qinit/build";
 import { existsSync, readFileSync } from "node:fs";
 import { Header, Spinner, Panel, theme } from "../ui";
 
@@ -106,10 +107,16 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   const nameOf = (c: DynContract) => c.name || idl[String(c.index)]?.name || `contract ${c.index}`;
 
   // ---- entries for the chosen contract (registry truth, merged with IDL names/formats) ----
+  // names + in/out fmts: prefer the local qinit.idl.json, else derive from the node-stored contract source
+  // (dyn-registry) via extractIdl — so the picker auto-fills in/out even without a local IDL.
   const entriesFor = (c: DynContract): Entry[] => {
     const di = idl[String(c.index)];
-    const fns: Entry[] = (c.functions ?? []).map((f) => ({ kind: "fn", ...f, name: di?.functions?.[String(f.inputType)]?.name, in: di?.functions?.[String(f.inputType)]?.in, out: di?.functions?.[String(f.inputType)]?.out }));
-    const pcs: Entry[] = (c.procedures ?? []).map((p) => ({ kind: "proc", ...p, name: di?.procedures?.[String(p.inputType)]?.name, in: di?.procedures?.[String(p.inputType)]?.in }));
+    let src: { functions?: Record<string, any>; procedures?: Record<string, any> } | null = null;
+    try { if (c.source) src = extractIdl(c.source, c.name || "Contract"); } catch {}
+    const fnIdl = (it: number) => di?.functions?.[String(it)] ?? src?.functions?.[String(it)];
+    const pcIdl = (it: number) => di?.procedures?.[String(it)] ?? src?.procedures?.[String(it)];
+    const fns: Entry[] = (c.functions ?? []).map((f) => ({ kind: "fn", ...f, name: fnIdl(f.inputType)?.name, in: fnIdl(f.inputType)?.in, out: fnIdl(f.inputType)?.out }));
+    const pcs: Entry[] = (c.procedures ?? []).map((p) => ({ kind: "proc", ...p, name: pcIdl(p.inputType)?.name, in: pcIdl(p.inputType)?.in }));
     return [...fns, ...pcs];
   };
 
