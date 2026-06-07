@@ -34,6 +34,8 @@ export function New({ args }: { args: string[] }) {
       if (!o.name) { add(`usage: qinit new <name> [--template ${TEMPLATE_KINDS.join("|")}] [--core PATH]`); setDone(true); return; }
       const kind = (o.template || "counter") as TemplateKind;
       if (!TEMPLATE_KINDS.includes(kind)) { add(`✗ unknown template '${kind}' — pick: ${TEMPLATE_KINDS.join(", ")}`); setDone(true); return; }
+      // refuse nesting: a folder created by `qinit new` has qinit.json — making another project here gets messy
+      if (existsSync("qinit.json")) { add("✗ already inside a qinit project (qinit.json is here) — cd out before `qinit new`"); setDone(true); return; }
       const dir = o.name;
       const name = toIdent(o.name);
       const core = o.core ?? process.env.QINIT_CORE; // pin only if explicit; else qinit.json omits it -> synced cache (portable)
