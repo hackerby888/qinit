@@ -180,3 +180,47 @@ export function StepRow({ state, label, detail, pct, elapsedMs }:
     </Text>
   );
 }
+
+// ---- table -----------------------------------------------------------------
+// Auto-width columns from content (capped to the terminal); per-column align/color/dim/max; truncMid cells.
+// `selected` (row index) inverse-highlights a row — for interactive lists (debug). gap = 2 spaces.
+export interface Column { header: string; align?: "left" | "right"; color?: string; dim?: boolean; max?: number }
+export function Table({ columns, rows, selected, rowColor }:
+  { columns: Column[]; rows: string[][]; selected?: number; rowColor?: (i: number) => string | undefined }) {
+  const gap = 2;
+  const widths = columns.map((c, i) => {
+    const w = Math.max(c.header.length, 0, ...rows.map((r) => (r[i] ?? "").length));
+    return c.max ? Math.min(w, c.max) : w;
+  });
+  // shrink the widest columns until the row fits the terminal
+  let over = widths.reduce((a, b) => a + b, 0) + gap * Math.max(0, columns.length - 1) - termCols();
+  while (over > 0) {
+    let mi = 0; for (let i = 1; i < widths.length; i++) if (widths[i] > widths[mi]) mi = i;
+    if (widths[mi] <= 6) break;
+    widths[mi]--; over--;
+  }
+  const cell = (s: string, i: number) => {
+    const v = truncMid(s ?? "", widths[i]);
+    return columns[i].align === "right" ? v.padStart(widths[i]) : v.padEnd(widths[i]);
+  };
+  const sp = " ".repeat(gap);
+  const Row = ({ r, ri }: { r: string[]; ri?: number }) => {
+    const rc = ri !== undefined ? rowColor?.(ri) : undefined;
+    return (
+      <Box>
+        {columns.map((c, i) => (
+          <Text key={i} inverse={ri === selected} dimColor={ri === undefined || (c.dim && ri !== selected && !rc)}
+            color={ri === selected ? undefined : ri === undefined ? undefined : (rc ?? c.color)}>
+            {cell(ri === undefined ? c.header : (r[i] ?? ""), i)}{i < columns.length - 1 ? sp : ""}
+          </Text>
+        ))}
+      </Box>
+    );
+  };
+  return (
+    <Box flexDirection="column">
+      <Row r={columns.map((c) => c.header)} />
+      {rows.map((r, ri) => <Row key={ri} r={r} ri={ri} />)}
+    </Box>
+  );
+}

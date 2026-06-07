@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
-import { LiteRpc } from "@qinit/core";
+import { LiteRpc, type DebugEntry } from "@qinit/core";
 import { callFunction, invokeProcedure, jsonToInputFmt } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
-import { describeTrace, fmtLog, labelOff } from "../trace-format";
+import { describeTrace, jstr, type TraceView as TraceData } from "../trace-format";
+import { TraceView } from "../views";
 import { CallInteractive } from "./call-interactive";
 import { loadConfig } from "../config";
-import { Header, Spinner, theme } from "../ui";
+import { Header, Spinner, Status, Bar, theme } from "../ui";
+
+type Result = { ok: boolean | null; label: string; detail?: string; rows?: [string, string][]; err?: string };
+type Trace = { e: DebugEntry; name: string; view: TraceData };
+type Confirm = { start: number; net: number; target: number };
 
 // Non-interactive forms (qubic-cli style):
 //   qinit call --fn   <idx> <fnId>   --in "<fmt>" --out "<fmt>"
@@ -38,10 +43,11 @@ export function Call({ args }: { args: string[] }) {
 
 function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: string }) {
   const { exit } = useApp();
-  const [log, setLog] = useState<string[]>([]);
+  const [result, setResult] = useState<Result | null>(null);
+  const [trace, setTrace] = useState<Trace | null>(null);
+  const [confirm, setConfirm] = useState<Confirm | null>(null);
+  const [note, setNote] = useState("");
   const [done, setDone] = useState(false);
-  const [status, setStatus] = useState("");
-  const add = (s: string) => setLog((l) => [...l, s]);
 
   useEffect(() => {
     (async () => {
@@ -99,16 +105,17 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           } catch {}
         }
 
-        // node-side runtime error: the most recent dispatch trap on this slot (dyn-registry lastError),
-        // so a contract that traps shows WHY here instead of only in the node console.
+        // node-side runtime error: the most recent dispatch trap on this slot (dyn-registry lastError).
         const nodeErr = async (): Promise<string> => {
-          try { const reg = await rpc.dynRegistry(); const c = (reg.contracts ?? []).find((x) => x.index === idx); return c?.lastError ? ` · contract error: ${c.lastError}` : ""; } catch { return ""; }
+          try { const reg = await rpc.dynRegistry(); const c = (reg.contracts ?? []).find((x) => x.index === idx); return c?.lastError ?? ""; } catch { return ""; }
         };
+        const label = `${o.idx}.${ie?.name ?? (o.mode === "fn" ? "fn#" : "proc#") + entry}`;
 
         if (o.mode === "fn") {
           const out = await callFunction(rpc, idx, entry, inFmt, o.out ?? ie?.out ?? "");
-          const ne = (out == null || (typeof out === "object" && Object.keys(out).length === 0)) ? await nodeErr() : "";
-          add(`fn ${idx}/${entry} -> ${JSON.stringify(out, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}${ne}`);
+          const empty = out == null || (typeof out === "object" && Object.keys(out).length === 0);
+          const ne = empty ? await nodeErr() : "";
+          setResult({ ok: ne ? false : true, label, rows: [["out", jstr(out)]], err: ne || undefined });
         } else {
           const ti: any = await rpc.tickInfo();
           const tick = (ti.tick ?? ti.currentTick ?? 0) + 8;
@@ -116,54 +123,54 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           const r = await invokeProcedure({
             seed: o.seed ?? (await rpc.fundedSeed()) ?? "a".repeat(55), rpcBase, contractIndex: idx, procId: entry,
             amount: Number(o.amount ?? 0), inFmt, tick, confirm: settle, rpc,
-            onProgress: ({ tick: net, target }) =>
-              setStatus(`confirming · network tick ${net} → target ${target}` + (net < target ? ` (${target - net} to go)` : " · processing")),
+            onProgress: ({ tick: net, target }) => setConfirm((c) => ({ start: c?.start ?? net, net, target })),
           });
-          setStatus("");
-          const txs = (r.txId ?? "").slice(0, 16);
-          if (!r.ok) add(`proc ${idx}/${entry} @tick ${tick}: FAIL code=${r.code} ${r.message ?? ""}${await nodeErr()}`);
-          else if (!settle) add(`proc ${idx}/${entry} @tick ${tick}: ok ${txs} (broadcast)`);
-          else if (r.confirmed && r.included) add(`proc ${idx}/${entry} @tick ${tick}: ok · processed ${txs}${await nodeErr()}`);
-          else if (r.confirmed && !r.included) add(`proc ${idx}/${entry} @tick ${tick}: DROPPED — not included ${txs}${await nodeErr()}`);
-          else add(`proc ${idx}/${entry} @tick ${tick}: ok ${txs} (broadcast; unconfirmed — no tx-status addon or timed out)${await nodeErr()}`);
+          setConfirm(null);
+          const txs = (r.txId ?? "").slice(0, 16) || "—";
+          const detail = !r.ok ? `FAIL${r.code != null ? " code=" + r.code : ""}` : !settle ? "broadcast"
+            : r.confirmed && r.included ? "processed" : r.confirmed && !r.included ? "dropped — not included" : "broadcast · unconfirmed";
+          const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
+          setResult({ ok, label, detail, rows: [["tx", txs], ["tick", String(tick)]], err: (await nodeErr()) || (!r.ok ? r.message : undefined) });
         }
 
         if (wantTrace) {
-          let shown = false;
-          for (let i = 0; i < 12 && !shown; i++) {
+          let te: DebugEntry | undefined;
+          for (let i = 0; i < 12 && !te; i++) {
             const t = await rpc.debugTrace(sinceSeq, 200);
-            const te = (t.entries ?? []).filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (o.mode === "fn" ? 0 : 1) && x.entry === entry).pop();
-            if (te) {
-              const v = await describeTrace(te, traceSrc, traceName, rpc);
-              add(`── trace seq ${te.seq} · ${te.ok ? "ok" : "trap"} · ${((te.execNs / 1000) | 0)}µs`);
-              add(`   in:  ${v.inDecoded}`);
-              add(`   out: ${v.outDecoded}`);
-              if (te.kind === 1) add(`   caller: ${v.caller}`);
-              if (te.trap) add(`   trap: ${te.trap}`);
-              if (te.stateDiff?.length) { add(`   state:`); for (const d of te.stateDiff.slice(0, 12)) add(`     ${labelOff(v.fields, d.off)}: ${d.before} → ${d.after}`); }
-              else add(`   state: (no change)`);
-              for (const c of v.cols) add(`   ${c.name}: ${c.entries.join(", ") || "empty"}`);
-              for (const l of v.logs) add(`   log ${fmtLog(l)}`);
-              for (const h of te.hostCalls ?? []) add(`   host ${h.name} ${h.detail}`);
-              shown = true;
-            } else await sleep(700);
+            te = (t.entries ?? []).filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (o.mode === "fn" ? 0 : 1) && x.entry === entry).pop();
+            if (!te) await sleep(700);
           }
-          if (!shown) add("(no trace captured — is the debug toggle available on this node?)");
+          if (te) setTrace({ e: te, name: traceName, view: await describeTrace(te, traceSrc, traceName, rpc) });
+          else setNote("(no trace captured — is the debug toggle available on this node?)");
           try { await rpc.setDebug(false); } catch {}
         }
         setDone(true);
-      } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setDone(true); }
+      } catch (e: any) { setResult({ ok: false, label: "call", err: String(e?.message ?? e) }); setDone(true); }
     })();
   }, []);
   useEffect(() => { if (done) exit(); }, [done]);
 
+  const rw = Math.max(2, ...(result?.rows ?? []).map(([k]) => k.length));
+  const pct = confirm && confirm.target > confirm.start ? (confirm.net - confirm.start) / (confirm.target - confirm.start) : 1;
   return (
     <Box flexDirection="column">
       <Header cmd="call" />
-      {log.map((l, i) => (
-        <Text key={i} color={l.startsWith("ERROR") || l.includes("FAIL") || l.includes("DROPPED") ? theme.err : l.includes("->") || l.includes(": ok") ? theme.ok : undefined}>{l}</Text>
-      ))}
-      {!done && <Spinner label={status || "calling"} />}
+      {result && (
+        <Box flexDirection="column">
+          <Status ok={result.ok} label={result.label} detail={result.detail} pad={Math.max(14, result.label.length + 2)} />
+          {result.rows?.length ? (
+            <Box flexDirection="column" marginLeft={2}>
+              {result.rows.map(([k, v], i) => <Text key={i}><Text color={theme.info}>{k.padEnd(rw)}</Text>  {v}</Text>)}
+            </Box>
+          ) : null}
+          {result.err ? <Box marginLeft={2}><Text color={theme.err}>{result.err}</Text></Box> : null}
+        </Box>
+      )}
+      {trace && <Box marginTop={1}><TraceView e={trace.e} name={trace.name} view={trace.view} /></Box>}
+      {note && <Text dimColor>{note}</Text>}
+      {!done && (confirm
+        ? <Text><Bar pct={pct} /> <Text dimColor>tick {confirm.net}→{confirm.target}</Text></Text>
+        : <Spinner label="calling" />)}
     </Box>
   );
 }

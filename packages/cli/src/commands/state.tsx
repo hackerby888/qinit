@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { LiteRpc } from "@qinit/core";
 import { readState, type StateDump } from "../trace-format";
+import { StateView } from "../views";
 import { loadConfig } from "../config";
-import { Header, Panel, Spinner, theme } from "../ui";
+import { Header, Spinner, theme } from "../ui";
 
 // qinit state <name|slot> [--rpc <url>]
 // Decode + print a deployed contract's CURRENT state: scalar fields (named, decoded) + container contents.
@@ -49,18 +50,7 @@ export function State({ args }: { args: string[] }) {
     <Box flexDirection="column">
       <Header cmd="state" />
       {lines.map((l, i) => <Text key={i} color={l.startsWith("ERROR") ? theme.err : undefined}>{l}</Text>)}
-      {dump ? (
-        <>
-          <Panel title={`${name} · state`}>
-            {dump.fields.length ? dump.fields.map((f, i) => <Text key={i}><Text bold>{f.name}</Text>: {f.value}</Text>) : <Text dimColor>no scalar fields</Text>}
-          </Panel>
-          {dump.cols.map((c) => (
-            <Panel key={c.name} title={`${c.name} · ${c.entries.length ? c.entries.length + " entries" : "empty"}`}>
-              {c.entries.length ? <Box flexDirection="column">{c.entries.map((x, i) => <Text key={i} wrap="truncate-end">{x}</Text>)}</Box> : <Text dimColor>empty</Text>}
-            </Panel>
-          ))}
-        </>
-      ) : (!done ? <Spinner label="reading state" /> : null)}
+      {dump ? <StateView name={name} dump={dump} /> : (!done ? <Spinner label="reading state" /> : null)}
     </Box>
   );
 }
