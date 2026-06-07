@@ -87,9 +87,10 @@ export function Cheat() {
       <Panel title="3 · deploy + call" color={theme.ok}>
         <Text><C>qinit deploy</C>  <D>build + upload + arm</D></Text>
         <Text><C>qinit call</C>  <D>interactive picker (Tab-completes types; auto-fills known in/out)</D></Text>
-        <D>non-interactive:</D>
-        <Text>{"  "}<C>{`qinit call --proc Mytoken 1 --args '{"to":"<ID>","amount":100}'`}</C></Text>
-        <Text>{"  "}<C>{`qinit call --fn   Mytoken 1 --args '{"who":"<ID>"}' --out uint64`}</C></Text>
+        <D>non-interactive (--in "&lt;format&gt;", the standard):</D>
+        <Text>{"  "}<C>{`qinit call --proc Mytoken 1 --in "<ID>id, 100uint64"`}</C></Text>
+        <Text>{"  "}<C>{`qinit call --fn   Mytoken 1 --in "<ID>id" --out uint64`}</C></Text>
+        <D>{"  "}(JSON also works: --args {`'{"to":"<ID>","amount":100}'`})</D>
       </Panel>
 
       <Panel title="4 · input / output formats" color={theme.accent}>
@@ -100,7 +101,7 @@ export function Cheat() {
         <Fmt k="m256i" ex="<64 hex>m256i" note="a digest" />
         <Fmt k="struct" ex="{ 5uint64, 1bit }" />
         <Fmt k="array" ex="[3; 1uint64, 2uint64, 3uint64]" />
-        <Fmt k="json" ex={`--args '{"to":"<ID>","amount":100}'`} note="keyed by field name" />
+        <Fmt k="json" ex={`--args '{"to":"<ID>","amount":100}'`} note="optional alt, keyed by field name" />
         <Box marginTop={1}><Text bold>output</Text></Box>
         <D>  types only (no values):</D>
         <Fmt k="scalar" ex="uint64" />

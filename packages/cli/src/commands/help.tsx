@@ -25,9 +25,9 @@ const GROUPS: { title: string; items: Cmd[] }[] = [
   ]},
   { title: "deploy & interact", items: [
     { name: "deploy", desc: "build + chunk-upload + deploy a contract to a node" },
-    { name: "call", desc: "call a fn (--fn) / proc (--proc); --args '<json>' input, --trace post-call view", ex: [
-      `qinit call --proc Mytoken 1 --args '{"to":"<ID>","amount":100}'`,
-      `qinit call --fn   Mytoken 1 --args '{"who":"<ID>"}' --out uint64`,
+    { name: "call", desc: "call a fn (--fn) / proc (--proc); --in \"<format>\" input, --trace post-call view", ex: [
+      `qinit call --proc Mytoken 1 --in "<ID>id, 100uint64"`,
+      `qinit call --fn   Mytoken 1 --in "<ID>id" --out uint64`,
       "--proc signs a tx + waits for it to process · --fn is a read-only query",
     ]},
     { name: "seed", desc: "pick a funded signer seed (saved + auto-used everywhere); --show / --clear" },
