@@ -76,7 +76,17 @@ function TextPrompt({ label, initial, onSubmit, complete }: { label: string; ini
   );
 }
 
-type Entry = { kind: "fn" | "proc"; inputType: number; inputSize: number; outputSize: number; name?: string; in?: string; out?: string };
+// Friendly struct shape (field name + type) shown above the prompt so devs see the shape without the source.
+const fieldStruct = (fields?: Field[]): string | null =>
+  fields === undefined ? null : fields.length === 0 ? "{ }" : `{ ${fields.map((f) => `${f.type} ${f.name}`).join("; ")} }`;
+function StructHint({ label, name, fields }: { label: string; name?: string; fields?: Field[] }) {
+  const s = fieldStruct(fields);
+  if (s === null) return null;
+  return <Text>  <Text dimColor>{label}</Text> <Text color={theme.brand}>{name}</Text> <Text color={theme.info}>{s}</Text></Text>;
+}
+
+type Field = { name: string; type: string };
+type Entry = { kind: "fn" | "proc"; inputType: number; inputSize: number; outputSize: number; name?: string; in?: string; out?: string; inFields?: Field[]; outFields?: Field[] };
 type Stage = "loading" | "contract" | "entry" | "input" | "output" | "amount" | "seed" | "running" | "done";
 
 export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: string }) {
@@ -168,8 +178,8 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     try { if (c.source) src = extractIdl(c.source, c.name || "Contract"); } catch {}
     const fnIdl = (it: number) => di?.functions?.[String(it)] ?? src?.functions?.[String(it)];
     const pcIdl = (it: number) => di?.procedures?.[String(it)] ?? src?.procedures?.[String(it)];
-    const fns: Entry[] = (c.functions ?? []).map((f) => ({ kind: "fn", ...f, name: fnIdl(f.inputType)?.name, in: fnIdl(f.inputType)?.in, out: fnIdl(f.inputType)?.out }));
-    const pcs: Entry[] = (c.procedures ?? []).map((p) => ({ kind: "proc", ...p, name: pcIdl(p.inputType)?.name, in: pcIdl(p.inputType)?.in }));
+    const fns: Entry[] = (c.functions ?? []).map((f) => ({ kind: "fn", ...f, name: fnIdl(f.inputType)?.name, in: fnIdl(f.inputType)?.in, out: fnIdl(f.inputType)?.out, inFields: fnIdl(f.inputType)?.inFields, outFields: fnIdl(f.inputType)?.outFields }));
+    const pcs: Entry[] = (c.procedures ?? []).map((p) => ({ kind: "proc", ...p, name: pcIdl(p.inputType)?.name, in: pcIdl(p.inputType)?.in, inFields: pcIdl(p.inputType)?.inFields }));
     return [...fns, ...pcs];
   };
 
@@ -195,10 +205,21 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   }
 
   if (stage === "input")
-    return wrap(<TextPrompt label={`input (${sel.e!.kind === "fn" ? "values+type, e.g. 5uint64; empty=none" : "values+type"})`} initial={sel.e!.in ?? ""} complete={completeType} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />);
+    return wrap(
+      <Box flexDirection="column">
+        <StructHint label="input " name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_input`} fields={sel.e!.inFields} />
+        {/* input is never auto-filled — dev fills the values themselves (output below is auto-filled) */}
+        <TextPrompt label={`input (${sel.e!.kind === "fn" ? "values+type, e.g. 5uint64; empty=none" : "values+type"})`} initial="" complete={completeType} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />
+      </Box>,
+    );
 
   if (stage === "output")
-    return wrap(<TextPrompt label="output format (types only, e.g. uint64 or { id, uint16 })" initial={sel.e!.out ?? ""} complete={completeType} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />);
+    return wrap(
+      <Box flexDirection="column">
+        <StructHint label="output" name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_output`} fields={sel.e!.outFields} />
+        <TextPrompt label="output format (types only, e.g. uint64 or { id, uint16 })" initial={sel.e!.out ?? ""} complete={completeType} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />
+      </Box>,
+    );
 
   // amount is the last prompt — seed is auto-resolved (saved pick > node funded > default), no prompt.
   if (stage === "amount")
