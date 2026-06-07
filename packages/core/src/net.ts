@@ -10,11 +10,14 @@ export interface BroadcastResult {
 
 export async function broadcastTx(txBytes: Uint8Array, rpcBase = "http://127.0.0.1:41841"): Promise<BroadcastResult> {
   const b64 = Buffer.from(txBytes).toString("base64");
-  const r = await fetch(rpcBase + "/live/v1/broadcast-transaction", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ encodedTransaction: b64 }),
-  });
+  let r: Response;
+  try {
+    r = await fetch(rpcBase + "/live/v1/broadcast-transaction", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ encodedTransaction: b64 }),
+    });
+  } catch (e: any) { throw new Error(`node unreachable at ${rpcBase} — is it running? (qinit up)  [${e?.message ?? e}]`); }
   const j: any = await r.json().catch(() => ({}));
   return {
     ok: r.ok && j.peersBroadcasted >= 1 && j.code == null,

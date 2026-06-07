@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { LiteRpc, type DynContract } from "@qinit/core";
 import { loadConfig } from "../config";
-import { Header, Spinner, Table, theme, type Column } from "../ui";
+import { Header, Spinner, Panel, Table, theme, type Column } from "../ui";
 
 // qinit ls [--rpc <url>]  — list contracts deployed on the node (from the dyn-registry).
 function parse(args: string[]): Record<string, string> {
@@ -36,11 +36,13 @@ export function Ls({ args }: { args: string[] }) {
     <Box flexDirection="column">
       <Header cmd="ls" />
       {rows.length === 0 ? <Text dimColor>no contracts deployed — try: <Text bold color={theme.accent}>qinit deploy</Text></Text> : (
-        <Table
-          columns={COLS}
-          rows={rows.map((c) => [String(c.index), c.name || "-", stateOf(c), `${c.functions?.length ?? 0}/${c.procedures?.length ?? 0}`, "v" + (c.version ?? 0), (c.codeHash || "").slice(0, 16)])}
-          rowColor={(i) => { const st = stateOf(rows[i]); return st === "constructing" ? theme.warn : st === "empty" ? theme.mute : undefined; }}
-        />
+        <Panel title={`contracts · ${rows.length}`} color={theme.brand}>
+          <Table
+            columns={COLS}
+            rows={rows.map((c) => [String(c.index), c.name || "-", stateOf(c), `${c.functions?.length ?? 0}/${c.procedures?.length ?? 0}`, "v" + (c.version ?? 0), (c.codeHash || "").slice(0, 16) + "…"])}
+            rowColor={(i) => { const st = stateOf(rows[i]); return st === "constructing" ? theme.warn : st === "empty" ? theme.mute : undefined; }}
+          />
+        </Panel>
       )}
     </Box>
   );

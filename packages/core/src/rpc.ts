@@ -35,9 +35,12 @@ export class LiteRpc {
   constructor(private base = "http://127.0.0.1:41841") {}
 
   private async get<T = unknown>(path: string): Promise<T> {
-    const r = await fetch(this.base + path);
-    if (!r.ok) throw new Error(`RPC GET ${path} -> ${r.status}`);
-    return (await r.json()) as T;
+    let r: Response;
+    try { r = await fetch(this.base + path); }
+    catch (e: any) { throw new Error(`node unreachable at ${this.base} — is it running? (qinit up)  [${e?.message ?? e}]`); }
+    if (!r.ok) throw new Error(`RPC GET ${path} → HTTP ${r.status}`);
+    try { return (await r.json()) as T; }
+    catch { throw new Error(`RPC GET ${path}: malformed JSON response from the node`); }
   }
 
   /** Current tick / epoch — used to stamp outgoing transactions. */
@@ -90,14 +93,17 @@ export class LiteRpc {
 
   /** Call a contract function (read-only) via POST /live/v1/querySmartContract. */
   async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
-    const r = await fetch(this.base + "/live/v1/querySmartContract", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        contractIndex, inputType, inputSize: input.length,
-        requestData: Buffer.from(input).toString("base64"),
-      }),
-    });
+    let r: Response;
+    try {
+      r = await fetch(this.base + "/live/v1/querySmartContract", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contractIndex, inputType, inputSize: input.length,
+          requestData: Buffer.from(input).toString("base64"),
+        }),
+      });
+    } catch (e: any) { throw new Error(`node unreachable at ${this.base} — is it running? (qinit up)  [${e?.message ?? e}]`); }
     const j: any = await r.json().catch(() => ({}));
     if (typeof j.responseData !== "string") throw new Error(`querySmartContract: code=${j.code} ${j.message ?? r.status}`);
     return new Uint8Array(Buffer.from(j.responseData, "base64"));

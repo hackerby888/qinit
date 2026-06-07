@@ -20,6 +20,7 @@ const COMMANDS: [string, string][] = [
   ["state", "decode + print a deployed contract's current state (fields + containers)"],
   ["test", "deploy to an ephemeral node + run bun tests against it"],
   ["call", "call a fn (--fn) / proc (--proc); --args '<json>' input, --trace post-call view"],
+  ["cheat-sheet", "one-screen guide: setup → contract → deploy → call (+ input/output formats)"],
   ["smoke", "run the standalone-binary crypto smoke test"],
   ["version", "print version"],
   ["help", "show this help"],

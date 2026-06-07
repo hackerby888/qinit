@@ -44,18 +44,33 @@ function Select<T>({ label, items, onSelect }: { label: string; items: { label: 
   );
 }
 
-// Single-line text prompt (chars / backspace / enter).
-function TextPrompt({ label, initial, onSubmit }: { label: string; initial?: string; onSubmit: (v: string) => void }) {
+// qpi value/type tokens — complete the trailing type fragment of the last comma-separated token (Tab to accept).
+const QPI_TYPES = ["uint64", "uint32", "uint16", "uint8", "sint64", "sint32", "sint16", "sint8", "id", "bit", "m256i"];
+function completeType(v: string): string | null {
+  const cut = v.lastIndexOf(",");
+  const head = v.slice(0, cut + 1), seg = v.slice(cut + 1);   // last token (may carry a leading space)
+  const m = seg.match(/[a-z][a-z0-9]*$/);                     // trailing lowercase-led type fragment
+  if (!m) return null;
+  const hit = QPI_TYPES.find((t) => t.startsWith(m[0]) && t !== m[0]);
+  return hit ? head + seg.slice(0, seg.length - m[0].length) + hit : null;
+}
+
+// Single-line text prompt (chars / backspace / enter). `complete` adds ghost-text type autocomplete + Tab.
+function TextPrompt({ label, initial, onSubmit, complete }: { label: string; initial?: string; onSubmit: (v: string) => void; complete?: (v: string) => string | null }) {
   const [v, setV] = useState(initial ?? "");
+  const ghost = complete?.(v) ?? null;
+  const rest = ghost && ghost.length > v.length && ghost.startsWith(v) ? ghost.slice(v.length) : "";
   useInput((input, key) => {
     if (key.return) onSubmit(v);
+    else if (key.tab && ghost) setV(ghost);
     else if (key.backspace || key.delete) setV((p) => p.slice(0, -1));
     else if (input && !key.ctrl && !key.meta) setV((p) => p + input);
   });
   return (
     <Box flexDirection="column">
       <Text><Text color={theme.accent} bold>? </Text><Text bold>{label}</Text></Text>
-      <Text>  <Text color={theme.brand}>❯ </Text><Text color={theme.ok}>{v}</Text><Text inverse> </Text></Text>
+      <Text>  <Text color={theme.brand}>❯ </Text><Text color={theme.ok}>{v}</Text><Text dimColor>{rest}</Text><Text inverse> </Text></Text>
+      {rest ? <Text dimColor>  ⇥ tab → {ghost}</Text> : null}
     </Box>
   );
 }
@@ -70,6 +85,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   const [idl, setIdl] = useState<Idl>({});
   const [sel, setSel] = useState<{ c?: DynContract; e?: Entry; input?: string; amount?: string; seed?: string }>({});
   const [result, setResult] = useState<string[]>([]);
+  const [status, setStatus] = useState("");
   const add = (s: string) => setResult((l) => [...l, s]);
 
   useEffect(() => {
@@ -96,8 +112,19 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
       } else {
         const ti: any = await rpc.tickInfo();
         const tick = (ti.tick ?? 0) + 8;
-        const r = await invokeProcedure({ seed: s.seed || seed || (await rpc.fundedSeed()) || "a".repeat(55), rpcBase, contractIndex: idx, procId: e.inputType, amount: Number(s.amount ?? 0), inFmt: s.input ?? "", tick });
-        add(`${labelFor(s.c!, e)} @tick ${tick}: ${r.ok ? "ok " + (r.txId ?? "") : "FAIL " + (r.message ?? r.code)}`);
+        // confirm=true: wait until the tx is actually processed so the user sees success/dropped, not just "broadcast".
+        const r = await invokeProcedure({
+          seed: s.seed || seed || (await rpc.fundedSeed()) || "a".repeat(55), rpcBase, contractIndex: idx, procId: e.inputType,
+          amount: Number(s.amount ?? 0), inFmt: s.input ?? "", tick, confirm: true, rpc,
+          onProgress: ({ tick: net, target }) => setStatus(`confirming · tick ${net} → ${target}${net < target ? ` (${target - net} to go)` : " · processing"}`),
+        });
+        setStatus("");
+        const verdict = !r.ok ? `FAIL ${r.message ?? r.code ?? ""}`
+          : r.confirmed && r.included ? "processed ✓" : r.confirmed && !r.included ? "DROPPED — not included"
+          : "broadcast (unconfirmed — no tx-status addon or timed out)";
+        let ne = "";   // surface the contract's last trap reason if it failed
+        try { const c2 = (await rpc.dynRegistry()).contracts?.find((x) => x.index === idx); if (c2?.lastError) ne = ` · contract error: ${c2.lastError}`; } catch {}
+        add(`${labelFor(s.c!, e)} @tick ${tick}: ${verdict}  ${r.txId ?? ""}${ne}`);
       }
     } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); }
     setStage("done");
@@ -138,7 +165,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   const wrap = (el: React.ReactNode) => <Box flexDirection="column"><Header cmd="call" />{el}</Box>;
 
   if (stage === "loading") return wrap(<Spinner label="loading registry" />);
-  if (stage === "running") return wrap(<Spinner label="calling" />);
+  if (stage === "running") return wrap(<Spinner label={status || "calling"} />);
   if (stage === "done")
     return wrap(
       <Panel title="result" color={theme.ok}>
@@ -157,10 +184,10 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   }
 
   if (stage === "input")
-    return wrap(<TextPrompt label={`input (${sel.e!.kind === "fn" ? "values+type, e.g. 5uint64; empty=none" : "values+type"})`} initial={sel.e!.in ?? ""} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />);
+    return wrap(<TextPrompt label={`input (${sel.e!.kind === "fn" ? "values+type, e.g. 5uint64; empty=none" : "values+type"})`} initial={sel.e!.in ?? ""} complete={completeType} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />);
 
   if (stage === "output")
-    return wrap(<TextPrompt label="output format (types only, e.g. uint64 or { id, uint16 })" initial={sel.e!.out ?? ""} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />);
+    return wrap(<TextPrompt label="output format (types only, e.g. uint64 or { id, uint16 })" initial={sel.e!.out ?? ""} complete={completeType} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />);
 
   if (stage === "amount")
     return wrap(<TextPrompt label="amount (qus)" initial="0" onSubmit={(amount) => { setSel((s) => ({ ...s, amount })); setStage("seed"); }} />);

@@ -69,7 +69,9 @@ export async function fetchCliSha(sumsUrl: string, name: string): Promise<string
 // Download an asset and verify its sha256 (mismatch => throw, never cache a bad blob).
 // onProgress(received, total) streams download bytes for a live progress bar.
 export async function fetchVerify(asset: AssetRef, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {
-  const r = await fetch(asset.url);
+  let r: Response;
+  try { r = await fetch(asset.url); }
+  catch (e: any) { throw new Error(`network error downloading ${asset.url} — check your connection  [${e?.message ?? e}]`); }
   if (!r.ok) throw new Error(`download failed (HTTP ${r.status}): ${asset.url}`);
   let buf: Uint8Array;
   if (onProgress && r.body) {
