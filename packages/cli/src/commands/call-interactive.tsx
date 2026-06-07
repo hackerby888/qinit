@@ -103,6 +103,21 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     setStage("done");
   };
 
+  // Skip prompts the IDL already answers: no input prompt when the input struct has zero fields (in===""), no
+  // output prompt when the out fmt is known. A no-arg getter (in="", out known) thus runs with zero prompts.
+  const noInput = (e: Entry) => e.in !== undefined && e.in.trim() === "";
+  const startEntry = (e: Entry) => {
+    const ns = { ...sel, e, input: "" };
+    setSel(ns);
+    if (!noInput(e)) { setStage("input"); return; }
+    if (e.kind === "fn") { if (e.out !== undefined) run(ns); else setStage("output"); }
+    else setStage("amount");
+  };
+  const afterInput = (ns: typeof sel) => {
+    if (ns.e!.kind === "fn") { if (ns.e!.out !== undefined) run(ns); else setStage("output"); }
+    else setStage("amount");
+  };
+
   const labelFor = (c: DynContract, e: Entry) => `${nameOf(c)}.${e.name ?? (e.kind + "#" + e.inputType)}`;
   const nameOf = (c: DynContract) => c.name || idl[String(c.index)]?.name || `contract ${c.index}`;
 
@@ -137,12 +152,12 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     return wrap(<Select label="Pick a deployed contract:" items={contracts.map((c) => ({ label: `${nameOf(c)}  [idx ${c.index}] ${c.constructed ? "✓" : "armed"}  ${c.functions.length} fn / ${c.procedures.length} proc`, value: c }))} onSelect={(c) => { setSel({ c }); setStage("entry"); }} />);
 
   if (stage === "entry") {
-    const items = entriesFor(sel.c!).map((e) => ({ label: `${e.kind === "fn" ? "fn  " : "proc"} ${e.name ?? "#" + e.inputType}  (in ${e.inputSize}B${e.kind === "fn" ? ", out " + e.outputSize + "B" : ""})`, value: e }));
-    return wrap(<Select label={`${nameOf(sel.c!)} — pick a function/procedure:`} items={items} onSelect={(e) => { setSel((s) => ({ ...s, e })); setStage("input"); }} />);
+    const items = entriesFor(sel.c!).map((e) => ({ label: `${e.kind === "fn" ? "fn  " : "proc"} ${e.name ?? "#" + e.inputType}  (${noInput(e) ? "no input" : "in " + e.inputSize + "B"}${e.kind === "fn" ? ", out " + e.outputSize + "B" : ""})`, value: e }));
+    return wrap(<Select label={`${nameOf(sel.c!)} — pick a function/procedure:`} items={items} onSelect={(e) => startEntry(e)} />);
   }
 
   if (stage === "input")
-    return wrap(<TextPrompt label={`input (${sel.e!.kind === "fn" ? "values+type, e.g. 5uint64; empty=none" : "values+type"})`} initial={sel.e!.in ?? ""} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); setStage(sel.e!.kind === "fn" ? "output" : "amount"); }} />);
+    return wrap(<TextPrompt label={`input (${sel.e!.kind === "fn" ? "values+type, e.g. 5uint64; empty=none" : "values+type"})`} initial={sel.e!.in ?? ""} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />);
 
   if (stage === "output")
     return wrap(<TextPrompt label="output format (types only, e.g. uint64 or { id, uint16 })" initial={sel.e!.out ?? ""} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />);
