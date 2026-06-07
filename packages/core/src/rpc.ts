@@ -20,11 +20,12 @@ export interface DynUpload {
 }
 
 export interface DebugHostCall { name: string; detail: string; }
+export interface DebugStateRegion { off: number; before: string; after: string; }  // changed byte run (hex)
 export interface DebugEntry {
   seq: number; tick: number; index: number; entry: number; kind: number; ok: boolean;
   execNs: number; inSize: number; outSize: number; stateSize: number; stateTruncated: boolean;
   invocator: string; invocationReward: number;
-  inHex: string; outHex: string; stateBeforeHex: string; stateAfterHex: string;
+  inHex: string; outHex: string; stateDiff: DebugStateRegion[];
   trap?: string; hostCalls: DebugHostCall[];
 }
 export interface DebugTrace { enabled: boolean; entries: DebugEntry[]; }

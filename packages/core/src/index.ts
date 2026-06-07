@@ -4,7 +4,7 @@ export type { IdentityResult, CryptoSmokeResult } from "./qubic";
 export { buildSignedTx, LITE_DEPLOY_ADDRESS } from "./tx";
 export type { SignedTx, TxInput } from "./tx";
 export { LiteRpc } from "./rpc";
-export type { TickInfo, DynRegistry, DynContract, DynEntry, DebugTrace, DebugEntry, DebugHostCall } from "./rpc";
+export type { TickInfo, DynRegistry, DynContract, DynEntry, DebugTrace, DebugEntry, DebugHostCall, DebugStateRegion } from "./rpc";
 export { broadcastTx, broadcastTxs } from "./net";
 export type { BroadcastResult } from "./net";
 export {

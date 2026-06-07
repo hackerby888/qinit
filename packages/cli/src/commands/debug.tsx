@@ -19,17 +19,6 @@ const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const hexToBytes = (h: string) => { const a = new Uint8Array((h.length / 2) | 0); for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; };
 const jstr = (v: any) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
 
-// byte-level state diff (v1: no StateData layout) — list changed offsets in the captured prefix.
-function stateDiff(before: string, after: string): { off: number; b: string; a: string }[] {
-  const out: { off: number; b: string; a: string }[] = [];
-  const n = Math.min(before.length, after.length);
-  for (let i = 0; i < n && out.length < 24; i += 2) {
-    const b = before.substr(i, 2), a = after.substr(i, 2);
-    if (b !== a) out.push({ off: i / 2, b, a });
-  }
-  return out;
-}
-
 export function Debug({ args }: { args: string[] }) {
   const o = parse(args);
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
@@ -119,13 +108,13 @@ function Detail({ e, name, source }: { e: DebugEntry; name: string; source?: str
     return () => { alive = false; };
   }, [e.seq]);
 
-  const diff = stateDiff(e.stateBeforeHex, e.stateAfterHex);
   return (
     <Box flexDirection="column">
       <Panel title={`${name} · ${kindName(e.kind)}#${e.entry}`} color={e.ok ? theme.ok : theme.err}>
         <KV rows={[
           ["tick", String(e.tick)], ["ok", e.ok ? "yes" : "no"], ["exec", ((e.execNs / 1000) | 0) + " µs"],
-          ["reward", String(e.invocationReward)], ["caller", e.invocator.replace(/0+$/, "").slice(0, 16) || "0"],
+          ["reward", String(e.invocationReward)],
+          ["caller", e.kind === 1 && !/^0+$/.test(e.invocator) ? e.invocator.slice(0, 16) + "…" : "(none)"],
         ]} />
       </Panel>
       {e.trap ? <Panel title="trap" color={theme.err}><Text color={theme.err} wrap="wrap">{e.trap}</Text></Panel> : null}
@@ -133,9 +122,9 @@ function Detail({ e, name, source }: { e: DebugEntry; name: string; source?: str
         <Text wrap="truncate-end">in:  {io.in}</Text>
         <Text wrap="truncate-end">out: {io.out}</Text>
       </Panel>
-      <Panel title={"state diff" + (e.stateTruncated ? " (state > capture cap)" : "")}>
-        {diff.length ? diff.map((d, i) => <Text key={i}>@{d.off}: <Text color={theme.err}>{d.b}</Text> → <Text color={theme.ok}>{d.a}</Text></Text>)
-          : <Text dimColor>no change in first {(e.stateBeforeHex.length / 2) | 0}B</Text>}
+      <Panel title={`state diff${e.stateTruncated ? " (truncated)" : ""}${e.stateDiff.length ? " · " + e.stateDiff.length + " region(s)" : ""}`}>
+        {e.stateDiff.length ? e.stateDiff.slice(0, 12).map((d, i) => <Text key={i}>@{d.off}: <Text color={theme.err}>{d.before}</Text> → <Text color={theme.ok}>{d.after}</Text></Text>)
+          : <Text dimColor>no state change</Text>}
       </Panel>
       {e.hostCalls.length ? (
         <Panel title={`host calls (${e.hostCalls.length})`}>
