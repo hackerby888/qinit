@@ -4,7 +4,7 @@ import { LiteRpc, type DebugEntry, type DynContract } from "@qinit/core";
 import { describeTrace, type TraceView as TraceData } from "../trace-format";
 import { TraceView } from "../views";
 import { loadConfig } from "../config";
-import { Header, Table, theme, type Column } from "../ui";
+import { Header, Table, Spinner, theme, type Column } from "../ui";
 
 // qinit debug [--rpc <url>] [--contract <name|slot>]
 // Live wasm contract-call inspector: enables the node debug toggle, polls the trace ring, shows each
@@ -74,21 +74,28 @@ export function Debug({ args }: { args: string[] }) {
     <Box flexDirection="column">
       <Header cmd="debug" />
       <Text dimColor>{enabled ? "● capturing" : "toggle off"} · {list.length} calls · ↑/↓ select · q quit{err ? "   err: " + err : ""}</Text>
-      <Box marginTop={1}>
-        <Box flexDirection="column" width={46} marginRight={2}>
-          {list.length === 0 ? <Text dimColor>no calls yet — invoke a contract</Text> : (
+      {list.length === 0 ? (
+        <Box marginTop={1} flexDirection="column">
+          {enabled
+            ? <Text color={theme.brand}><Spinner label="waiting for a contract invocation" /></Text>
+            : <Text color={theme.warn}>capture is off — no traces will appear</Text>}
+          <Text dimColor>  invoke a contract from another terminal: <Text color={theme.info}>qinit call</Text> (or <Text color={theme.info}>qinit deploy</Text>)</Text>
+        </Box>
+      ) : (
+        <Box marginTop={1}>
+          <Box flexDirection="column" width={46} marginRight={2}>
             <Table
               columns={LIST_COLS}
               rows={win.map((e) => [String(e.tick), nameOf(e.index), kindName(e.kind) + "#" + e.entry, e.ok ? "✓" : "✗", ((e.execNs / 1000) | 0) + "µs"])}
               selected={selClamped - start}
               rowColor={(i) => (!win[i].ok ? theme.err : undefined)}
             />
-          )}
+          </Box>
+          <Box flexDirection="column" flexGrow={1}>
+            {cur ? <Detail e={cur} name={nameOf(cur.index)} source={reg.current.find((c) => c.index === cur.index)?.source} rpc={rpc} /> : <Text dimColor>—</Text>}
+          </Box>
         </Box>
-        <Box flexDirection="column" flexGrow={1}>
-          {cur ? <Detail e={cur} name={nameOf(cur.index)} source={reg.current.find((c) => c.index === cur.index)?.source} rpc={rpc} /> : <Text dimColor>—</Text>}
-        </Box>
-      </Box>
+      )}
     </Box>
   );
 }

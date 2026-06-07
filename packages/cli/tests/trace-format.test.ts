@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { describeTrace, readState, type StateReader } from "../src/trace-format";
+import { describeTrace, readState, fmtDiffVal, type StateReader, type StateField } from "../src/trace-format";
 
 // LE bytes / hex helpers
 const le = (n: bigint | number, w: number) => { let v = BigInt.asUintN(64, BigInt(n)); const b: number[] = []; for (let i = 0; i < w; i++) { b.push(Number(v & 0xffn)); v >>= 8n; } return b; };
@@ -99,6 +99,18 @@ test("describeTrace: no StateData -> empty fields/cols, io still decoded, fn cal
   expect(v.inDecoded).toBe('"5"');
   expect(v.outDecoded).toBe('"9"');
   expect(v.caller).toBe("(none)");                                // kind 0 (fn) carries no signer
+});
+
+test("fmtDiffVal: integer fields render the LE byte-run as decimal; ids/bytes stay hex", () => {
+  const fields: StateField[] = [
+    { name: "counter", off: 0, size: 8, type: "uint64" },
+    { name: "owner", off: 8, size: 32, type: "id" },
+  ];
+  expect(fmtDiffVal(fields, 0, "64")).toBe("100");      // 0x64 LE -> 100 (the reported bug)
+  expect(fmtDiffVal(fields, 0, "00")).toBe("0");
+  expect(fmtDiffVal(fields, 0, "2c01")).toBe("300");    // multi-byte LE
+  expect(fmtDiffVal(fields, 8, "ab12")).toBe("ab12");   // id field -> hex passthrough
+  expect(fmtDiffVal(fields, 99, "64")).toBe("64");      // unknown offset -> hex (no field type)
 });
 
 test("describeTrace/readState: a stateRead failure degrades gracefully", async () => {

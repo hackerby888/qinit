@@ -27,6 +27,17 @@ export function labelOff(fields: StateField[], off: number): string {
   return f ? f.name + (off > f.off ? "+" + (off - f.off) : "") : "@" + off;
 }
 
+// Format a changed-byte run for the state diff. Integer fields -> decimal (the run is little-endian, e.g. "64" -> 100);
+// everything else (id / m256i / raw bytes) stays hex so it's still copy-pasteable.
+const isIntType = (t: string) => /^(uint|sint)(8|16|32|64)$/.test(t) || t === "bit";
+export function fmtDiffVal(fields: StateField[], off: number, hex: string): string {
+  const f = fields.find((x) => off >= x.off && off < x.off + x.size);
+  if (!f || !isIntType(f.type) || !/^[0-9a-fA-F]+$/.test(hex)) return hex;
+  let v = 0n;
+  for (let i = 0; i + 1 < hex.length; i += 2) v |= BigInt(parseInt(hex.slice(i, i + 2), 16)) << BigInt((i / 2) * 8);
+  return v.toString();
+}
+
 // log _type -> enum name map; log-named enums applied last so they win value collisions with unrelated enums.
 export function enumMap(idl: { enums?: { name: string; members: Record<string, string> }[] }): Record<string, string> {
   const m: Record<string, string> = {};

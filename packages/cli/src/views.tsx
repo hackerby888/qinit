@@ -3,7 +3,7 @@
 import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
 import { Status, theme, truncEnd, termCols } from "./ui";
-import { type TraceView as TraceData, type StateDump, labelOff, sevColor, jstr } from "./trace-format";
+import { type TraceView as TraceData, type StateDump, labelOff, fmtDiffVal, sevColor, jstr } from "./trace-format";
 
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const execµs = (ns: number) => (ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`);
@@ -31,7 +31,7 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
     label: "state",
     node: e.stateDiff.length
       ? <Text>{e.stateDiff.slice(0, 12).map((d, i) => (
-          <Text key={i}>{i ? "  " : ""}<Text bold>{labelOff(view.fields, d.off)}</Text> <Text color={theme.err}>{d.before}</Text>→<Text color={theme.ok}>{d.after}</Text></Text>
+          <Text key={i}>{i ? "  " : ""}<Text bold>{labelOff(view.fields, d.off)}</Text> <Text color={theme.err}>{fmtDiffVal(view.fields, d.off, d.before)}</Text>→<Text color={theme.ok}>{fmtDiffVal(view.fields, d.off, d.after)}</Text></Text>
         ))}{e.stateTruncated ? <Text dimColor> (truncated)</Text> : null}</Text>
       : <Text dimColor>(no change)</Text>,
   });
