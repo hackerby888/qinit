@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, bytesToIdentity, type DebugEntry, type DynContract } from "@qinit/core";
-import { decodeOutput, structFieldOffsets } from "@qinit/proto";
+import { decodeOutput, structFieldOffsets, decodeHashMap, decodeHashSet } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { loadConfig } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
@@ -81,18 +81,23 @@ export function Debug({ args }: { args: string[] }) {
           })}
         </Box>
         <Box flexDirection="column" flexGrow={1}>
-          {cur ? <Detail e={cur} name={nameOf(cur.index)} source={reg.current.find((c) => c.index === cur.index)?.source} /> : <Text dimColor>—</Text>}
+          {cur ? <Detail e={cur} name={nameOf(cur.index)} source={reg.current.find((c) => c.index === cur.index)?.source} rpc={rpc} /> : <Text dimColor>—</Text>}
         </Box>
       </Box>
     </Box>
   );
 }
 
-type StateField = { name: string; off: number; size: number };
-function Detail({ e, name, source }: { e: DebugEntry; name: string; source?: string }) {
+type Container = { kind: "hashmap" | "hashset"; keyFmt: string; valFmt?: string; capacity: number };
+type StateField = { name: string; off: number; size: number; container?: Container };
+type ColView = { name: string; entries: string[] };
+const shortKey = (k: unknown) => (typeof k === "string" && k.length === 60 ? k.slice(0, 10) + "…" : jstr(k));
+
+function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?: string; rpc: LiteRpc }) {
   const [io, setIo] = useState<{ in: string; out: string }>({ in: "…", out: "…" });
   const [caller, setCaller] = useState("…");
   const [fields, setFields] = useState<StateField[]>([]);
+  const [cols, setCols] = useState<ColView[]>([]);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -102,19 +107,31 @@ function Detail({ e, name, source }: { e: DebugEntry; name: string; source?: str
       let cal = "(none)";
       if (e.kind === 1 && !/^0+$/.test(e.invocator)) { try { cal = await bytesToIdentity(hexToBytes(e.invocator)); } catch { cal = "0x" + e.invocator.slice(0, 16) + "…"; } }
       let flds: StateField[] = [];
+      const colv: ColView[] = [];
       try {
         if (source) {
           const idl = extractIdl(source, name);
           const ent: any = (e.kind === 0 ? idl.functions : idl.procedures)?.[String(e.entry)];
           if (ent?.in && e.inHex) inS = jstr(await decodeOutput(hexToBytes(e.inHex), ent.in));
           if (ent?.out && e.outHex) outS = jstr(await decodeOutput(hexToBytes(e.outHex), ent.out));
-          if (idl.state?.length) {                                  // StateData field map for diff naming
+          if (idl.state?.length) {                                  // StateData field map for diff naming + container decode
             const offs = structFieldOffsets(idl.state.map((f) => f.type).join(", "));
-            flds = idl.state.map((f, i) => ({ name: f.name, off: offs[i]?.off ?? 0, size: offs[i]?.size ?? 0 }));
+            flds = idl.state.map((f, i) => ({ name: f.name, off: offs[i]?.off ?? 0, size: offs[i]?.size ?? 0, container: f.container }));
+            for (const f of flds) {                                 // logical-entry decode of current container contents
+              if (!f.container) continue;
+              try {
+                const sr = await rpc.stateRead(e.index, f.off, Math.min(f.size, 262144));
+                const buf = hexToBytes(sr.hex); const c = f.container;
+                const ents = c.kind === "hashmap"
+                  ? (await decodeHashMap(buf, c.keyFmt, c.valFmt!, c.capacity)).map((x) => `${shortKey(x.key)} = ${jstr(x.value)}`)
+                  : (await decodeHashSet(buf, c.keyFmt, c.capacity)).map((x) => shortKey(x.key));
+                colv.push({ name: f.name, entries: ents.length > 10 ? ents.slice(0, 10).concat("… +" + (ents.length - 10)) : ents });
+              } catch {}
+            }
           }
         }
       } catch {}
-      if (alive) { setIo({ in: inS, out: outS }); setCaller(cal); setFields(flds); }
+      if (alive) { setIo({ in: inS, out: outS }); setCaller(cal); setFields(flds); setCols(colv); }
     })();
     return () => { alive = false; };
   }, [e.seq]);
@@ -142,6 +159,11 @@ function Detail({ e, name, source }: { e: DebugEntry; name: string; source?: str
         {e.stateDiff.length ? e.stateDiff.slice(0, 12).map((d, i) => <Text key={i}><Text bold>{labelOff(d.off)}</Text>: <Text color={theme.err}>{d.before}</Text> → <Text color={theme.ok}>{d.after}</Text></Text>)
           : <Text dimColor>no state change</Text>}
       </Panel>
+      {cols.map((c) => (
+        <Panel key={c.name} title={`${c.name} · ${c.entries.length ? c.entries.length + " entries" : "empty"} (current)`}>
+          {c.entries.length ? <Box flexDirection="column">{c.entries.map((x, i) => <Text key={i} wrap="truncate-end">{x}</Text>)}</Box> : <Text dimColor>empty</Text>}
+        </Panel>
+      ))}
       {e.hostCalls.length ? (
         <Panel title={`host calls (${e.hostCalls.length})`}>
           <Box flexDirection="column">{e.hostCalls.map((h, i) => <Text key={i}><Text color={theme.accent}>{h.name}</Text> <Text dimColor>{h.detail}</Text></Text>)}</Box>

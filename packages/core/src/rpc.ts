@@ -76,6 +76,10 @@ export class LiteRpc {
   setDebug(on: boolean) {
     return this.get<{ enabled: boolean }>(`/live/v1/dev/debug?on=${on ? 1 : 0}`);
   }
+  /** Read current contract state bytes (GET /live/v1/dev/state-read) — for the debugger's container decode. */
+  stateRead(slot: number, off: number, len: number) {
+    return this.get<{ off: number; len: number; stateSize: number; hex: string }>(`/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`);
+  }
 
   /** Testnet-only funded seed for signing txs when none is given (GET /live/v1/dev/funded-seed). */
   async fundedSeed(): Promise<string | undefined> {

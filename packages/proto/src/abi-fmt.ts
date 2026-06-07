@@ -53,6 +53,12 @@ export function structFieldOffsets(fmt: string): { off: number; size: number }[]
   return out;
 }
 
+// Total size + alignment of a layout (the C++ array stride of a T is roundUp(size, align)). For container decode.
+export function layoutOf(fmt: string): { size: number; align: number } {
+  const n = parseLayout(fmt);
+  return { size: sizeOf(n), align: alignOf(n) };
+}
+
 // ---------- type-grammar parser (output layout / decode schema) ----------
 function parseType(s: string, i: number): [TypeNode, number] {
   while (i < s.length && /\s/.test(s[i])) i++;

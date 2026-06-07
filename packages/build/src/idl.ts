@@ -4,7 +4,8 @@
 // procedures:{[inputType]:{name,in}} }. Light regex parse — handles flat structs, Array<T,N>,
 // nested structs (one+ levels), id; unknown types pass through verbatim.
 
-export interface Field { name: string; type: string } // type = codec token (uint64, id, bytes32, [N;T], { ... })
+// type = codec token (uint64, id, bytes32, [N;T], { ... }); container = QPI HashMap/HashSet meta (for logical decode)
+export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset"; keyFmt: string; valFmt?: string; capacity: number } }
 export interface IdlEntry { name: string; in: string; out?: string; inFields: Field[]; outFields?: Field[] }
 export interface ContractIdl {
   name: string;
@@ -34,12 +35,26 @@ function collectStructs(src: string): Map<string, string> {
   return out;
 }
 
+// size may be an arithmetic expr (e.g. 64*1024*1024) -> evaluate (digits+arithmetic only, so safe).
+const evalN = (s: string): number | null => (/^[0-9*+\-()\s]+$/.test(s.trim()) ? (() => { try { return Function(`return (${s})`)() >>> 0; } catch { return null; } })() : null);
+
+// QPI container metadata (kind + element key/value fmts + capacity) for logical-entry decode, else undefined.
+function containerMeta(rawType: string, structs: Map<string, string>): Field["container"] {
+  const t = rawType.trim().replace(/^QPI::/, "");
+  let m: RegExpMatchArray | null;
+  if ((m = t.match(/^HashMap\s*<\s*([^,<>]+?)\s*,\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
+    const L = evalN(m[3]); if (L != null) return { kind: "hashmap", keyFmt: typeToken(m[1], structs), valFmt: typeToken(m[2], structs), capacity: L };
+  }
+  if ((m = t.match(/^HashSet\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
+    const L = evalN(m[2]); if (L != null) return { kind: "hashset", keyFmt: typeToken(m[1], structs), capacity: L };
+  }
+  return undefined;
+}
+
 // Map one member type to a codec token.
 function typeToken(type: string, structs: Map<string, string>): string {
   type = type.trim().replace(/^QPI::/, "");
   const tt = (x: string) => typeToken(x, structs);
-  // size may be an arithmetic expr (e.g. 64*1024*1024) -> evaluate (digits+arithmetic only, so safe).
-  const evalN = (s: string): number | null => (/^[0-9*+\-()\s]+$/.test(s.trim()) ? (() => { try { return Function(`return (${s})`)() >>> 0; } catch { return null; } })() : null);
   // QPI containers -> equivalent struct layouts so field offsets/sizes match the C++ StateData (names the
   // field; contents stay raw bytes). Covers scalar/id K/V/T; nested-generic params fall through to raw.
   let m: RegExpMatchArray | null;
@@ -91,7 +106,7 @@ function fieldsForStruct(structs: Map<string, string>, structName: string): Fiel
     if (!raw) continue;
     const m = raw.match(/^([\s\S]+?)\s+(\w+)$/);
     if (!m) continue;
-    out.push({ name: m[2], type: typeToken(m[1], structs) });
+    out.push({ name: m[2], type: typeToken(m[1], structs), container: containerMeta(m[1], structs) });
   }
   return out;
 }
