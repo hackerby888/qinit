@@ -6,6 +6,7 @@ import { extractIdl } from "@qinit/build";
 import { existsSync, readFileSync } from "node:fs";
 import { resolveSeed } from "../config";
 import { loadContracts, systemAsDyn } from "../contracts";
+import { fmtVal } from "../trace-format";
 import { Header, Spinner, Panel, theme } from "../ui";
 
 // Optional local IDL (names + format strings) keyed by contract index, merged over the registry.
@@ -136,7 +137,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
       add("≡ " + equivCmd(s.c!, e, s));   // the non-interactive equivalent — copy-paste to repeat this call
       if (e.kind === "fn") {
         const out = await callFunction(rpc, idx, e.inputType, s.input ?? "", e.out ?? "");
-        add(`${labelFor(s.c!, e)} -> ${JSON.stringify(out, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`);
+        add(`${labelFor(s.c!, e)} -> ${fmtVal(out)}`);
       } else {
         const ti: any = await rpc.tickInfo();
         const tick = (ti.tick ?? 0) + TX_TICK_OFFSET;

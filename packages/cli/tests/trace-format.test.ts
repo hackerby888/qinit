@@ -121,3 +121,15 @@ test("describeTrace/readState: a stateRead failure degrades gracefully", async (
   expect(dump.fields).toEqual([{ name: "counter", value: "(read failed)" }]);
   expect(dump.cols).toHaveLength(0);
 });
+
+import { fmtVal } from "../src/trace-format";
+test("fmtVal: run-length-group long runs, keep short literal, cap unless full", () => {
+  expect(fmtVal([0, 0, 0])).toBe("[0, 0, 0]");                       // short run kept literal
+  expect(fmtVal(Array(100).fill(0))).toBe("[0 ×100]");              // long run collapsed
+  expect(fmtVal([1, 2, 2, 2, 2, 2, 2, 3])).toBe("[1, 2 ×6, 3]");    // run >= 6 collapsed, rest literal
+  expect(fmtVal([5n, 7n])).toBe("[5, 7]");                          // bigint
+  const varied = Array.from({ length: 50 }, (_, i) => i);
+  expect(fmtVal(varied)).toContain("+18 more (--all)");             // 50 -> cap 32 + 18 more
+  expect(fmtVal(varied, true)).not.toContain("more");              // full -> all 50
+  expect(fmtVal([["A", "0"], ["A", "0"], ["A", "0"], ["A", "0"], ["A", "0"], ["A", "0"]])).toBe(`[["A", "0"] ×6]`);  // nested struct run
+});

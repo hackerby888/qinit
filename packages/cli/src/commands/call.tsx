@@ -4,7 +4,7 @@ import { Box, Text, useApp } from "ink";
 import { LiteRpc, type DebugEntry } from "@qinit/core";
 import { callFunction, invokeProcedure, jsonToInputFmt, TX_TICK_OFFSET } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
-import { describeTrace, jstr, type TraceView as TraceData } from "../trace-format";
+import { describeTrace, jstr, fmtVal, type TraceView as TraceData } from "../trace-format";
 import { TraceView } from "../views";
 import { CallInteractive } from "./call-interactive";
 import { loadConfig, resolveSeed } from "../config";
@@ -105,7 +105,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           const out = await callFunction(rpc, idx, entry, inFmt, o.out ?? ie?.out ?? "");
           const empty = out == null || (typeof out === "object" && Object.keys(out).length === 0);
           const ne = empty ? await nodeErr() : "";
-          setResult({ ok: ne ? false : true, label, rows: [["out", jstr(out)]], err: ne || undefined });
+          setResult({ ok: ne ? false : true, label, rows: [["out", fmtVal(out, o.all !== undefined)]], err: ne || undefined });
         } else {
           const ti: any = await rpc.tickInfo();
           const tick = (ti.tick ?? ti.currentTick ?? 0) + TX_TICK_OFFSET;

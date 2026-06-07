@@ -51,18 +51,20 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
 }
 
 // A contract's decoded current state (scalars + containers), compact.
-export function StateView({ name, dump }: { name: string; dump: StateDump }) {
+export function StateView({ name, dump, full }: { name: string; dump: StateDump; full?: boolean }) {
+  // full -> wrap (show everything); else truncate each line to the terminal so long values don't trip the output.
+  const cell = (s: string, pad: number) => full ? <Text wrap="wrap">{s}</Text> : <Text>{truncEnd(s, termCols() - pad)}</Text>;
   return (
     <Box flexDirection="column">
       <Status ok={null} label={`${name} state`} />
       {dump.fields.length
-        ? <Rows rows={dump.fields.map((f) => ({ label: f.name, node: <Text>{truncEnd(f.value, termCols() - 12)}</Text> }))} />
+        ? <Rows rows={dump.fields.map((f) => ({ label: f.name, node: cell(f.value, 12) }))} />
         : <Box marginLeft={2}><Text dimColor>no scalar fields</Text></Box>}
       {dump.cols.map((c) => (
         <Box key={c.name} flexDirection="column" marginTop={1}>
           <Text><Text color={theme.accent}>{c.name}</Text> <Text dimColor>· {c.entries.length ? c.entries.length + " entries" : "empty"}</Text></Text>
           <Box flexDirection="column" marginLeft={2}>
-            {c.entries.length ? c.entries.map((x, i) => <Text key={i}>{truncEnd(x, termCols() - 4)}</Text>) : <Text dimColor>empty</Text>}
+            {c.entries.length ? c.entries.map((x, i) => <Text key={i}>{cell(x, 4)}</Text>) : <Text dimColor>empty</Text>}
           </Box>
         </Box>
       ))}

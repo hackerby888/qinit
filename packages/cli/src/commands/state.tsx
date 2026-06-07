@@ -9,14 +9,15 @@ import { Header, Spinner, GradLine, theme } from "../ui";
 
 // qinit state [<name|slot>] [--rpc <url>]
 // Decode + print a deployed contract's CURRENT state. No target -> interactive picker of deployed contracts.
-function parse(args: string[]): { target: string; rpc?: string } {
-  let target = ""; let rpc: string | undefined;
+function parse(args: string[]): { target: string; rpc?: string; all: boolean } {
+  let target = ""; let rpc: string | undefined; let all = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--rpc") rpc = args[++i];
+    else if (a === "--all") all = true;
     else if (!a.startsWith("--") && !target) target = a;
   }
-  return { target, rpc };
+  return { target, rpc, all };
 }
 
 export function State({ args }: { args: string[] }) {
@@ -38,7 +39,7 @@ export function State({ args }: { args: string[] }) {
       if (!c.source) throw new Error(`node has no source for slot ${c.index} — cannot decode state`);
       setName(c.name || String(c.index));
       const rpc = new LiteRpc(rpcBase);
-      setDump(await readState(rpc, c.index, c.source, c.name || "Contract"));
+      setDump(await readState(rpc, c.index, c.source, c.name || "Contract", o.all));
       setPhase("show");
     } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setPhase("done"); }
   };
@@ -96,7 +97,7 @@ export function State({ args }: { args: string[] }) {
         </Box>
       )}
       {phase === "loading" && <Spinner label="reading state" />}
-      {dump ? <StateView name={name} dump={dump} /> : null}
+      {dump ? <StateView name={name} dump={dump} full={o.all} /> : null}
     </Box>
   );
 }
