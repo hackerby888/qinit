@@ -75,3 +75,38 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   const q = stateFieldsOf(extractIdl(src, "T")).find((f) => f.name === "q")!;
   expect(q.size).toBe(160);   // 4 * contract-level Order(40); the nested 48-byte Order must NOT shadow it
 });
+
+test("enum underlying type sizes the field (enum class : uint8 -> 1B, not 4B)", () => {
+  const src = `using namespace QPI;
+enum class EState : uint8 { A, B };
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { uint8 a; EState s; uint16 b; uint64 tail; };
+  INITIALIZE() {}
+};`;
+  const by = Object.fromEntries(stateFieldsOf(extractIdl(src, "T")).map((f) => [f.name, f]));
+  expect(by.s.size).toBe(1);          // enum class : uint8 -> 1 byte
+  expect(by.b.off).toBe(2);           // a(1)+s(1) -> uint16 at 2 (would be 6 if s were uint32)
+  expect(by.tail.off).toBe(8);
+});
+
+test("BitArray<L> and bit_4096 size as uint64[ceil(L/64)]", () => {
+  const src = `using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData { BitArray<256> flags; bit_4096 big; uint64 n; };
+  INITIALIZE() {}
+};`;
+  const by = Object.fromEntries(stateFieldsOf(extractIdl(src, "T")).map((f) => [f.name, f]));
+  expect(by.flags.size).toBe(32);     // 256/64 = 4 uint64 = 32B
+  expect(by.big.size).toBe(512);      // 4096/64 = 64 uint64 = 512B
+});
+
+test("typedef alias resolves to its target type", () => {
+  const src = `using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Order { id a; sint64 b; };
+  typedef Order _Order;
+  struct StateData { _Order o; };
+  INITIALIZE() {}
+};`;
+  expect(stateFieldsOf(extractIdl(src, "T")).find((f) => f.name === "o")!.size).toBe(40);   // id(32)+sint64(8)
+});

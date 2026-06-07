@@ -14,7 +14,7 @@ export interface IdlEntry { name: string; in: string; out?: string; inFields: Fi
 // (what the node logs). The decoder size-matches a log's byte count against these. fmt = comma-joined types.
 export interface LogStruct { name: string; fmt: string; fields: string[] }
 // A C++ enum -> { value: memberName } (value stringified). Used to resolve a log's `_type` discriminator to a name.
-export interface EnumDef { name: string; members: Record<string, string> }
+export interface EnumDef { name: string; members: Record<string, string>; base?: string }
 export interface ContractIdl {
   name: string;
   functions: Record<string, IdlEntry>;
@@ -59,7 +59,15 @@ function collectStructs(src: string): Map<string, string> {
 // constexpr constants (name -> value) resolved from the contract source, so array/container sizes that use a
 // named constant (e.g. QEARN's Array<RoundInfo, QEARN_MAX_EPOCHS>) evaluate. Set per extractIdl().
 let g_consts = new Map<string, number>();
-let g_enums = new Set<string>();   // enum type names (sized as their underlying int) — set per extractIdl()
+let g_enums = new Map<string, string>();   // enum name -> underlying codec type — set per extractIdl()
+let g_typedefs = new Map<string, string>();   // typedef/using alias -> target type — set per extractIdl()
+// `typedef <target> <name>;` and `using <name> = <target>;` (skip function-pointer/template-heavy ones).
+function collectTypedefs(src: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of src.matchAll(/typedef\s+([\w:][\w:<>,\s*&]*?)\s+(\w+)\s*;/g)) if (!m[1].includes("(")) out.set(m[2], m[1].trim());
+  for (const m of src.matchAll(/using\s+(\w+)\s*=\s*([^;]+);/g)) if (!m[2].includes("(")) out.set(m[1], m[2].trim());
+  return out;
+}
 // Normalize a size expression: strip int suffixes + rewrite QPI div/mul/mod<T>(a,b) helpers to arithmetic.
 function normalizeExpr(e: string): string {
   e = e.replace(/(\d)[uUlL]+/g, "$1");
@@ -98,10 +106,10 @@ const evalN = (s: string): number | null => {
 // Collect every `enum [class] Name [: base] { A=0, B, ... }` into name -> { value: member } (C++ auto-increment).
 function collectEnums(src: string): EnumDef[] {
   const out: EnumDef[] = [];
-  const re = /enum\s+(?:class\s+|struct\s+)?(\w+)\s*(?::\s*\w+\s*)?\{([^}]*)\}/g;
+  const re = /enum\s+(?:class\s+|struct\s+)?(\w+)\s*(?::\s*([\w: ]+?)\s*)?\{([^}]*)\}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) {
-    const body = m[2].replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    const body = m[3].replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
     const members: Record<string, string> = {};
     let next = 0;
     for (const part of body.split(",")) {
@@ -112,9 +120,17 @@ function collectEnums(src: string): EnumDef[] {
       members[String(val)] = mm[1];
       next = val + 1;
     }
-    if (Object.keys(members).length) out.push({ name: m[1], members });
+    if (Object.keys(members).length) out.push({ name: m[1], members, base: m[2]?.trim() });
   }
   return out;
+}
+
+// underlying type of an enum -> codec type (default C++ int = uint32). `enum class X : uint8` -> uint8 (1 byte).
+function enumType(base?: string): string {
+  if (!base) return "uint32";
+  const b = base.replace(/^QPI::/, "").replace(/\s+/g, " ");
+  if (SCALARS.has(b) || b === "uint128" || b === "sint128") return b;
+  return NATIVE[b] ?? "uint32";
 }
 
 // QPI container metadata (kind + element key/value fmts + capacity) for logical-entry decode, else undefined.
@@ -164,7 +180,11 @@ function typeToken(type: string, structs: Map<string, string>): string {
   if (type === "m256i" || type === "uint128" || type === "sint128") return type;   // raw-hex / 128-bit (abi-fmt sizes them)
   if (type === "Asset") return "{ id, uint64 }";   // QPI built-in: { id issuer; uint64 assetName }
   if (type === "DateAndTime") return "uint64";     // QPI built-in: a single bit-packed uint64
-  if (g_enums.has(type)) return "uint32";   // C++ enum -> underlying int (4 bytes)
+  if (type === "bit_4096") return "[64; uint64]";  // QPI typedef BitArray<4096>
+  const bam = type.match(/^BitArray\s*<\s*([^<>]+?)\s*>$/);   // QPI BitArray<L> = uint64[ceil(L/64)]
+  if (bam) { const L = evalN(bam[1]); if (L != null) return `[${Math.ceil(L / 64)}; uint64]`; }
+  if (g_enums.has(type)) return g_enums.get(type)!;   // enum -> its underlying type (default uint32)
+  if (g_typedefs.has(type)) return typeToken(g_typedefs.get(type)!, structs);   // resolve typedef/using alias
   // resolve a struct by exact (incl. scoped Parent::Child) name, else the bare last segment of a scoped type
   const sname = structs.has(type) ? type : type.includes("::") && structs.has(type.split("::").pop()!) ? type.split("::").pop()! : null;
   if (sname) return `{ ${parseFields(structs.get(sname)!, structs).join(", ")} }`;
@@ -223,7 +243,8 @@ function fieldsForStruct(structs: Map<string, string>, structName: string): Fiel
 
 export function extractIdl(source: string, name: string): ContractIdl {
   g_consts = collectConsts(source);   // resolve constexpr sizes before parsing struct/array layouts
-  g_enums = new Set(collectEnums(source).map((e) => e.name));   // enum-typed fields size as their underlying int
+  g_enums = new Map(collectEnums(source).map((e) => [e.name, enumType(e.base)]));   // enum-typed fields size as their underlying type
+  g_typedefs = collectTypedefs(source);
   const structs = collectStructs(source);
   const idl: ContractIdl = { name, functions: {}, procedures: {} };
   for (const m of source.matchAll(/REGISTER_USER_FUNCTION\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
