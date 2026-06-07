@@ -35,7 +35,7 @@ export function Smoke() {
         <Panel title="crypto smoke" color={s.r.ok ? "#22c55e" : "#ef4444"}>
           <Status ok={s.r.ok} label={s.r.note} pad={0} />
           <Box marginTop={1}>
-            <KV rows={[["identity ", s.r.identity], ["publicKey", s.r.publicKeyHex]]} />
+            <KV full rows={[["identity ", s.r.identity], ["publicKey", s.r.publicKeyHex]]} />
           </Box>
         </Panel>
       )}

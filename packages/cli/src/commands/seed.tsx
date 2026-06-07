@@ -50,7 +50,8 @@ export function Seed({ args }: { args: string[] }) {
   }, { isActive: Boolean(process.stdin.isTTY) });
 
   const cur = savedSeed();
-  const start = Math.max(0, i - 6);
+  const WIN = 8;   // each item renders 2 lines (full id + full seed) — keep the visible window short
+  const start = Math.max(0, Math.min(i - 4, items.length - WIN));
   return (
     <Box flexDirection="column">
       <Header cmd="seed" />
@@ -59,11 +60,15 @@ export function Seed({ args }: { args: string[] }) {
       {phase === "done" && msg.map((m, k) => <Text key={k} color={m.startsWith("ERROR") ? theme.err : theme.ok}>{m}</Text>)}
       {phase === "pick" && (
         <Box flexDirection="column">
-          <Text dimColor>↑/↓ select · ↵ save · q quit{cur ? "   current: " + cur.slice(0, 8) + "…" : ""}</Text>
+          <Text dimColor>↑/↓ select · ↵ save · q quit</Text>
+          {cur ? <Text dimColor>current: <Text color={theme.ok}>{cur}</Text></Text> : null}
           <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
-            {items.slice(start, start + 13).map((it, k) => {
+            {items.slice(Math.max(0, start), Math.max(0, start) + WIN).map((it, k) => {
               const idx = start + k, sel = idx === i;
-              return <Text key={idx} inverse={sel}>{sel ? "▸ " : "  "}<Text color={sel ? undefined : theme.info}>{it.id.slice(0, 18)}…</Text>  <Text dimColor>{it.seed.slice(0, 12)}…</Text>{it.seed === cur ? <Text color={theme.ok}> ✓ current</Text> : null}</Text>;
+              return <Box key={idx} flexDirection="column">
+                <Text inverse={sel}>{sel ? "▸ " : "  "}<Text color={sel ? undefined : theme.info}>{it.id}</Text>{it.seed === cur ? <Text color={theme.ok}> ✓ current</Text> : null}</Text>
+                <Text dimColor>{"  "}{it.seed}</Text>
+              </Box>;
             })}
           </Box>
         </Box>

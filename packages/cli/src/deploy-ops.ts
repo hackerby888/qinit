@@ -167,7 +167,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     emit({ step: "confirm", state: "fail", detail: "nothing landed" });
     return { ok: false, slot, hash, reason: "not-broadcast", error: "deploy not broadcast" };
   }
-  emit({ step: "deploy", state: "ok", detail: `tx ${(dr.transactionId ?? "").slice(0, 12)}…` });
+  emit({ step: "deploy", state: "ok", detail: `tx ${dr.transactionId ?? "—"}` });   // full txid — copy into the explorer
 
   if (b.idl) {
     try {
