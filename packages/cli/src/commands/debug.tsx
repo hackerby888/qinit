@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { LiteRpc, type DebugEntry, type DynContract } from "@qinit/core";
-import { decodeOutput } from "@qinit/proto";
+import { LiteRpc, bytesToIdentity, type DebugEntry, type DynContract } from "@qinit/core";
+import { decodeOutput, structFieldOffsets } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { loadConfig } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
@@ -88,33 +88,49 @@ export function Debug({ args }: { args: string[] }) {
   );
 }
 
+type StateField = { name: string; off: number; size: number };
 function Detail({ e, name, source }: { e: DebugEntry; name: string; source?: string }) {
   const [io, setIo] = useState<{ in: string; out: string }>({ in: "…", out: "…" });
+  const [caller, setCaller] = useState("…");
+  const [fields, setFields] = useState<StateField[]>([]);
   useEffect(() => {
     let alive = true;
     (async () => {
       let inS = e.inHex ? "0x" + e.inHex : "(none)";
       let outS = e.outHex ? "0x" + e.outHex : "(none)";
+      // caller: procedures carry the tx-signer id -> render the 60-char Qubic identity; none for fn/sysproc.
+      let cal = "(none)";
+      if (e.kind === 1 && !/^0+$/.test(e.invocator)) { try { cal = await bytesToIdentity(hexToBytes(e.invocator)); } catch { cal = "0x" + e.invocator.slice(0, 16) + "…"; } }
+      let flds: StateField[] = [];
       try {
         if (source) {
           const idl = extractIdl(source, name);
           const ent: any = (e.kind === 0 ? idl.functions : idl.procedures)?.[String(e.entry)];
           if (ent?.in && e.inHex) inS = jstr(await decodeOutput(hexToBytes(e.inHex), ent.in));
           if (ent?.out && e.outHex) outS = jstr(await decodeOutput(hexToBytes(e.outHex), ent.out));
+          if (idl.state?.length) {                                  // StateData field map for diff naming
+            const offs = structFieldOffsets(idl.state.map((f) => f.type).join(", "));
+            flds = idl.state.map((f, i) => ({ name: f.name, off: offs[i]?.off ?? 0, size: offs[i]?.size ?? 0 }));
+          }
         }
       } catch {}
-      if (alive) setIo({ in: inS, out: outS });
+      if (alive) { setIo({ in: inS, out: outS }); setCaller(cal); setFields(flds); }
     })();
     return () => { alive = false; };
   }, [e.seq]);
+
+  // map a changed byte offset to its StateData field (name[+rel]); raw @off if no layout / unmatched.
+  const labelOff = (off: number): string => {
+    const f = fields.find((x) => off >= x.off && off < x.off + x.size);
+    return f ? f.name + (off > f.off ? "+" + (off - f.off) : "") : "@" + off;
+  };
 
   return (
     <Box flexDirection="column">
       <Panel title={`${name} · ${kindName(e.kind)}#${e.entry}`} color={e.ok ? theme.ok : theme.err}>
         <KV rows={[
           ["tick", String(e.tick)], ["ok", e.ok ? "yes" : "no"], ["exec", ((e.execNs / 1000) | 0) + " µs"],
-          ["reward", String(e.invocationReward)],
-          ["caller", e.kind === 1 && !/^0+$/.test(e.invocator) ? e.invocator.slice(0, 16) + "…" : "(none)"],
+          ["reward", String(e.invocationReward)], ["caller", caller],
         ]} />
       </Panel>
       {e.trap ? <Panel title="trap" color={theme.err}><Text color={theme.err} wrap="wrap">{e.trap}</Text></Panel> : null}
@@ -123,7 +139,7 @@ function Detail({ e, name, source }: { e: DebugEntry; name: string; source?: str
         <Text wrap="truncate-end">out: {io.out}</Text>
       </Panel>
       <Panel title={`state diff${e.stateTruncated ? " (truncated)" : ""}${e.stateDiff.length ? " · " + e.stateDiff.length + " region(s)" : ""}`}>
-        {e.stateDiff.length ? e.stateDiff.slice(0, 12).map((d, i) => <Text key={i}>@{d.off}: <Text color={theme.err}>{d.before}</Text> → <Text color={theme.ok}>{d.after}</Text></Text>)
+        {e.stateDiff.length ? e.stateDiff.slice(0, 12).map((d, i) => <Text key={i}><Text bold>{labelOff(d.off)}</Text>: <Text color={theme.err}>{d.before}</Text> → <Text color={theme.ok}>{d.after}</Text></Text>)
           : <Text dimColor>no state change</Text>}
       </Panel>
       {e.hostCalls.length ? (

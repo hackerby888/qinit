@@ -10,6 +10,7 @@ export interface ContractIdl {
   name: string;
   functions: Record<string, IdlEntry>;
   procedures: Record<string, IdlEntry>;
+  state?: Field[];   // StateData fields (name + codec type) for field-level state-diff naming
 }
 
 const SCALARS = new Set([
@@ -36,8 +37,14 @@ function collectStructs(src: string): Map<string, string> {
 // Map one member type to a codec token.
 function typeToken(type: string, structs: Map<string, string>): string {
   type = type.trim().replace(/^QPI::/, "");
-  const am = type.match(/^Array\s*<\s*([\s\S]+)\s*,\s*(\d+)\s*>$/);
-  if (am) return `[${am[2]};${typeToken(am[1], structs)}]`;
+  // Array<T, N> -> [N; T]; N may be an arithmetic expression (e.g. 64*1024*1024) -> evaluate it (digits +
+  // arithmetic only, so it's safe). Non-numeric sizes (symbolic consts) pass through (best-effort).
+  const am = type.match(/^Array\s*<\s*([\s\S]+?)\s*,\s*([^<>]+?)\s*>$/);
+  if (am) {
+    let n = am[2].trim();
+    if (/^[0-9*+\-()\s]+$/.test(n)) { try { n = String(Function(`return (${n})`)() >>> 0); } catch {} }
+    return `[${n};${typeToken(am[1], structs)}]`;
+  }
   if (SCALARS.has(type)) return type;
   if (type === "m256i") return "m256i"; // raw hex (id is the identity alias, handled by SCALARS)
   if (structs.has(type)) return `{ ${parseFields(structs.get(type)!, structs).join(", ")} }`;
@@ -90,5 +97,6 @@ export function extractIdl(source: string, name: string): ContractIdl {
     };
   for (const m of source.matchAll(/REGISTER_USER_PROCEDURE\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
     idl.procedures[m[2]] = { name: m[1], in: fmtOf(structs, m[1] + "_input"), inFields: fieldsForStruct(structs, m[1] + "_input") };
+  if (structs.has("StateData")) idl.state = fieldsForStruct(structs, "StateData");   // for field-level state diff
   return idl;
 }

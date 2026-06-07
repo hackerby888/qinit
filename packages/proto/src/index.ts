@@ -8,6 +8,6 @@ export {
   newSessionId,
 } from "./deploy";
 export type { UploadBeginParams, UploadChunkParams, DeployParams } from "./deploy";
-export { encodeInput, decodeOutput, parseLayout } from "./abi-fmt";
+export { encodeInput, decodeOutput, parseLayout, structFieldOffsets } from "./abi-fmt";
 export type { TypeNode } from "./abi-fmt";
 export { callFunction, invokeProcedure, contractAddress, resolveSlot } from "./call";

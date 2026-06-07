@@ -33,6 +33,26 @@ function alignOf(n: TypeNode): number {
   }
 }
 
+function sizeOf(n: TypeNode): number {
+  switch (n.kind) {
+    case "scalar": return n.size;
+    case "id": return 32;             // identity = 32 bytes on the wire
+    case "bytes": return n.size;
+    case "array": return n.count * roundUp(sizeOf(n.elem), alignOf(n.elem)); // padded element stride
+    case "struct": { let o = 0; for (const f of n.fields) { o = roundUp(o, alignOf(f)); o += sizeOf(f); } return roundUp(o, alignOf(n)); }
+  }
+}
+
+// Byte offset + size of each top-level field of a layout (matches the decode/struct alignment). Used to map
+// a changed state byte offset back to a field name (the debugger's field-level state diff).
+export function structFieldOffsets(fmt: string): { off: number; size: number }[] {
+  const node = parseLayout(fmt);
+  const fields = node.kind === "struct" ? node.fields : [node];
+  const out: { off: number; size: number }[] = []; let off = 0;
+  for (const f of fields) { off = roundUp(off, alignOf(f)); out.push({ off, size: sizeOf(f) }); off += sizeOf(f); }
+  return out;
+}
+
 // ---------- type-grammar parser (output layout / decode schema) ----------
 function parseType(s: string, i: number): [TypeNode, number] {
   while (i < s.length && /\s/.test(s[i])) i++;
