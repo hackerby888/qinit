@@ -7,14 +7,14 @@ import { wasiSdkPaths } from "@qinit/core";
 
 interface Check { name: string; ok: boolean | null; detail: string; fix?: string; optional?: boolean }
 
-async function cmdVersion(cmd: string, args: string[], missingHint: string, fix: string): Promise<Check> {
+async function cmdVersion(cmd: string, args: string[], missingHint: string, fix: string, label = cmd): Promise<Check> {
   try {
     const p = Bun.spawn([cmd, ...args], { stdout: "pipe", stderr: "pipe" });
     await p.exited;
     const firstLine = (await new Response(p.stdout).text()).split("\n")[0]?.trim() ?? "";
-    return { name: cmd, ok: p.exitCode === 0, detail: p.exitCode === 0 ? firstLine : missingHint, fix: p.exitCode === 0 ? undefined : fix };
+    return { name: label, ok: p.exitCode === 0, detail: p.exitCode === 0 ? firstLine : missingHint, fix: p.exitCode === 0 ? undefined : fix };
   } catch {
-    return { name: cmd, ok: false, detail: missingHint, fix };
+    return { name: label, ok: false, detail: missingHint, fix };
   }
 }
 
@@ -28,7 +28,7 @@ async function runChecks(): Promise<Check[]> {
     : envClang
       ? { name: "wasi-sdk (wasm compiler)", ok: true, detail: `WASM_CLANG=${envClang}` }
       : { name: "wasi-sdk (wasm compiler)", ok: false, detail: "not cached", fix: "qinit up   (auto-fetches the host wasi-sdk)" });
-  checks.push(await cmdVersion("node", ["--version"], "not found — needed by qinit", "install Node 20+ from nodejs.org or your package manager"));
+  checks.push(await cmdVersion("node", ["--version"], "not found — needed by qinit", "install Node 20+ from nodejs.org or your package manager", "node.js (js runtime)"));
 
   // Cache-aware: prefer the synced header cache, fall back to QINIT_CORE / --core.
   let qpi = "", hasQpi = false, coreErr = "";
