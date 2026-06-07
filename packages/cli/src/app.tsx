@@ -12,6 +12,7 @@ import { Test } from "./commands/test";
 import { Call } from "./commands/call";
 import { Ls } from "./commands/ls";
 import { Debug } from "./commands/debug";
+import { State } from "./commands/state";
 import { New } from "./commands/new";
 import { Help } from "./commands/help";
 import { Version } from "./commands/version";
@@ -46,6 +47,8 @@ export function App({ command, args }: { command: string; args: string[] }) {
       return <Ls args={args} />;
     case "debug":
       return <Debug args={args} />;
+    case "state":
+      return <State args={args} />;
     case "version":
     case "--version":
     case "-v":

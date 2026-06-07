@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { LiteRpc } from "@qinit/core";
-import { callFunction, invokeProcedure } from "@qinit/proto";
+import { callFunction, invokeProcedure, jsonToInputFmt } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
+import { describeTrace, fmtLog, labelOff } from "../trace-format";
 import { CallInteractive } from "./call-interactive";
 import { loadConfig } from "../config";
 import { Header, Spinner, theme } from "../ui";
@@ -11,7 +12,10 @@ import { Header, Spinner, theme } from "../ui";
 // Non-interactive forms (qubic-cli style):
 //   qinit call --fn   <idx> <fnId>   --in "<fmt>" --out "<fmt>"
 //   qinit call --proc <idx> <procId> --amount N --in "<fmt>" --seed <55>
+//   --args '<json>'  encode the input from a field-name JSON object (or positional array) via the IDL
+//   --trace          after the call, print the captured debug trace (decoded I/O, state diff, logs, host-calls)
 // No --fn/--proc  -> interactive picker driven by the node's dyn-registry.
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {
@@ -72,7 +76,28 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           if (!hit) throw new Error(`no ${o.mode} named '${o.entry}' on contract ${idx} (no local IDL and node has no source for this slot)`);
           entry = Number(hit[0]); ie = hit[1];
         }
-        const inFmt = o.in ?? ie?.in ?? "";
+        // input: --args '<json>' (field-name keyed) encodes via the IDL field schema; else raw --in fmt; else
+        // fall back to the IDL type fmt (only valid when the entry takes no input).
+        let inFmt: string;
+        if (o.args !== undefined) {
+          const flds = ie?.inFields;
+          if (!flds || !flds.length) throw new Error(`--args needs the input field schema for ${o.mode} ${idx}/${entry} (build/deploy locally, or the node must have the contract source)`);
+          try { inFmt = jsonToInputFmt(flds, JSON.parse(o.args)); }
+          catch (er: any) { throw new Error("--args: " + String(er?.message ?? er)); }
+        } else inFmt = o.in ?? ie?.in ?? "";
+
+        // --trace: capture the call in the node debug ring. Enable + note the latest seq BEFORE dispatch.
+        const wantTrace = o.trace !== undefined;
+        let sinceSeq = 0; let traceSrc: string | undefined; let traceName = String(idx);
+        if (wantTrace) {
+          try {
+            await rpc.setDebug(true);
+            const reg = await rpc.dynRegistry();
+            const c = (reg.contracts ?? []).find((x) => x.index === idx);
+            traceSrc = c?.source; traceName = c?.name || String(idx);
+            sinceSeq = ((await rpc.debugTrace(0, 500)).entries ?? []).reduce((mx, en) => Math.max(mx, en.seq), 0);
+          } catch {}
+        }
 
         // node-side runtime error: the most recent dispatch trap on this slot (dyn-registry lastError),
         // so a contract that traps shows WHY here instead of only in the node console.
@@ -101,6 +126,30 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           else if (r.confirmed && r.included) add(`proc ${idx}/${entry} @tick ${tick}: ok · processed ${txs}${await nodeErr()}`);
           else if (r.confirmed && !r.included) add(`proc ${idx}/${entry} @tick ${tick}: DROPPED — not included ${txs}${await nodeErr()}`);
           else add(`proc ${idx}/${entry} @tick ${tick}: ok ${txs} (broadcast; unconfirmed — no tx-status addon or timed out)${await nodeErr()}`);
+        }
+
+        if (wantTrace) {
+          let shown = false;
+          for (let i = 0; i < 12 && !shown; i++) {
+            const t = await rpc.debugTrace(sinceSeq, 200);
+            const te = (t.entries ?? []).filter((x) => x.index === idx && x.seq > sinceSeq && x.kind === (o.mode === "fn" ? 0 : 1) && x.entry === entry).pop();
+            if (te) {
+              const v = await describeTrace(te, traceSrc, traceName, rpc);
+              add(`── trace seq ${te.seq} · ${te.ok ? "ok" : "trap"} · ${((te.execNs / 1000) | 0)}µs`);
+              add(`   in:  ${v.inDecoded}`);
+              add(`   out: ${v.outDecoded}`);
+              if (te.kind === 1) add(`   caller: ${v.caller}`);
+              if (te.trap) add(`   trap: ${te.trap}`);
+              if (te.stateDiff?.length) { add(`   state:`); for (const d of te.stateDiff.slice(0, 12)) add(`     ${labelOff(v.fields, d.off)}: ${d.before} → ${d.after}`); }
+              else add(`   state: (no change)`);
+              for (const c of v.cols) add(`   ${c.name}: ${c.entries.join(", ") || "empty"}`);
+              for (const l of v.logs) add(`   log ${fmtLog(l)}`);
+              for (const h of te.hostCalls ?? []) add(`   host ${h.name} ${h.detail}`);
+              shown = true;
+            } else await sleep(700);
+          }
+          if (!shown) add("(no trace captured — is the debug toggle available on this node?)");
+          try { await rpc.setDebug(false); } catch {}
         }
         setDone(true);
       } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setDone(true); }

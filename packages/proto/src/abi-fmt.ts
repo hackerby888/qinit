@@ -238,6 +238,47 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
   for (const x of buf) out.push(x);
 }
 
+// ---------- JSON -> input value-format (field-name keyed; reuses the encodeInput grammar) ----------
+// Build the value-format string encodeInput consumes from a JSON object keyed by field name (or a positional
+// array). Top-level fields are named via `fields`; NESTED structs/arrays take positional JSON arrays (a type
+// token carries no inner names). Lets `qinit call --args '{"dst":"ABC…","amount":1000}'` replace hand fmt.
+function jsonValueToFmt(typeTok: string, value: any): string {
+  typeTok = typeTok.trim();
+  if (typeTok[0] === "{") {
+    const parts = splitTop(typeTok.slice(1, typeTok.lastIndexOf("}")));
+    if (!Array.isArray(value)) throw new Error(`nested struct '${typeTok}' needs a positional JSON array, got ${JSON.stringify(value)}`);
+    if (value.length !== parts.length) throw new Error(`struct '${typeTok}' expects ${parts.length} values, got ${value.length}`);
+    return `{ ${parts.map((p, i) => jsonValueToFmt(p, value[i])).join(", ")} }`;
+  }
+  if (typeTok[0] === "[") {
+    const inner = typeTok.slice(1, typeTok.lastIndexOf("]"));
+    const semi = inner.indexOf(";");
+    const n = parseInt(inner.slice(0, semi), 10);
+    const elem = inner.slice(semi + 1).trim();
+    if (!Array.isArray(value)) throw new Error(`array '${typeTok}' needs a JSON array, got ${JSON.stringify(value)}`);
+    if (value.length !== n) throw new Error(`array '${typeTok}' expects ${n} elements, got ${value.length}`);
+    return `[${n}; ${value.map((v) => jsonValueToFmt(elem, v)).join(", ")}]`;
+  }
+  if (typeTok === "id" || typeTok === "m256i") {
+    const s = String(value).replace(/^0x/, "");
+    return `${s}${typeTok}`;   // encodeToken validates the identity/hex shape
+  }
+  if (typeof value === "boolean") return `${value ? 1 : 0}${typeTok}`;
+  if (value === undefined || value === null) throw new Error(`missing value for '${typeTok}'`);
+  return `${BigInt(value)}${typeTok}`;  // number / bigint / numeric-string; rejects floats
+}
+
+export function jsonToInputFmt(fields: { name: string; type: string }[], json: any): string {
+  const arr = Array.isArray(json)
+    ? json
+    : fields.map((f) => { if (json == null || !(f.name in json)) throw new Error(`missing input field '${f.name}'`); return json[f.name]; });
+  return fields.map((f, i) => jsonValueToFmt(f.type, arr[i])).join(", ");
+}
+
+export async function encodeInputJson(fields: { name: string; type: string }[], json: any): Promise<Uint8Array> {
+  return encodeInput(jsonToInputFmt(fields, json));
+}
+
 // Top-level value tokens (comma-separated) = an implicit struct. "" = empty input.
 export async function encodeInput(fmt: string): Promise<Uint8Array> {
   const t = (fmt ?? "").trim();

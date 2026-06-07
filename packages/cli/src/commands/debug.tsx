@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { LiteRpc, bytesToIdentity, type DebugEntry, type DynContract } from "@qinit/core";
-import { decodeOutput, layoutOf, decodeHashMap, decodeHashSet, decodeCollection, decodeLog, type DecodedLog } from "@qinit/proto";
-import { extractIdl } from "@qinit/build";
+import { LiteRpc, type DebugEntry, type DynContract } from "@qinit/core";
+import { describeTrace, labelOff, jstr, type TraceView } from "../trace-format";
 import { loadConfig } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
 
@@ -15,10 +14,7 @@ function parse(args: string[]): Record<string, string> {
   return o;
 }
 const pad = (s: string, n: number) => (s.length >= n ? s.slice(0, n - 1) + " " : s + " ".repeat(n - s.length));
-const roundUp = (o: number, a: number) => (a <= 1 ? o : Math.ceil(o / a) * a);
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
-const hexToBytes = (h: string) => { const a = new Uint8Array((h.length / 2) | 0); for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; };
-const jstr = (v: any) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
 
 export function Debug({ args }: { args: string[] }) {
   const o = parse(args);
@@ -89,90 +85,33 @@ export function Debug({ args }: { args: string[] }) {
   );
 }
 
-type Container = { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number };
-type StateField = { name: string; off: number; size: number; container?: Container };
-type ColView = { name: string; entries: string[] };
-const shortKey = (k: unknown) => (typeof k === "string" && k.length === 60 ? k.slice(0, 10) + "…" : jstr(k));
-
 function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?: string; rpc: LiteRpc }) {
-  const [io, setIo] = useState<{ in: string; out: string }>({ in: "…", out: "…" });
-  const [caller, setCaller] = useState("…");
-  const [fields, setFields] = useState<StateField[]>([]);
-  const [cols, setCols] = useState<ColView[]>([]);
-  const [logs, setLogs] = useState<DecodedLog[]>([]);
+  const [v, setV] = useState<TraceView | null>(null);
   useEffect(() => {
     let alive = true;
-    (async () => {
-      let inS = e.inHex ? "0x" + e.inHex : "(none)";
-      let outS = e.outHex ? "0x" + e.outHex : "(none)";
-      // caller: procedures carry the tx-signer id -> render the 60-char Qubic identity; none for fn/sysproc.
-      let cal = "(none)";
-      if (e.kind === 1 && !/^0+$/.test(e.invocator)) { try { cal = await bytesToIdentity(hexToBytes(e.invocator)); } catch { cal = "0x" + e.invocator.slice(0, 16) + "…"; } }
-      let flds: StateField[] = [];
-      const colv: ColView[] = [];
-      let catalog: { name: string; fmt: string; fields: string[] }[] = [];
-      let emap: Record<string, string> = {};
-      try {
-        if (source) {
-          const idl = extractIdl(source, name);
-          catalog = idl.logStructs ?? [];
-          // _type -> enum name; log-named enums applied last so they win value collisions with unrelated enums
-          for (const en of idl.enums ?? []) if (!/log/i.test(en.name)) Object.assign(emap, en.members);
-          for (const en of idl.enums ?? []) if (/log/i.test(en.name)) Object.assign(emap, en.members);
-          const ent: any = (e.kind === 0 ? idl.functions : idl.procedures)?.[String(e.entry)];
-          if (ent?.in && e.inHex) inS = jstr(await decodeOutput(hexToBytes(e.inHex), ent.in));
-          if (ent?.out && e.outHex) outS = jstr(await decodeOutput(hexToBytes(e.outHex), ent.out));
-          if (idl.state?.length) {                                  // StateData field map for diff naming + container decode
-            // per-field walk (NOT join+structFieldOffsets — a single struct-typed field collapses + unwraps wrong)
-            let acc = 0;
-            flds = idl.state.map((f) => { const L = layoutOf(f.type); acc = roundUp(acc, L.align); const r = { name: f.name, off: acc, size: L.size, container: f.container }; acc += L.size; return r; });
-            for (const f of flds) {                                 // logical-entry decode of current container contents
-              if (!f.container) continue;
-              try {
-                const sr = await rpc.stateRead(e.index, f.off, Math.min(f.size, 262144));
-                const buf = hexToBytes(sr.hex); const c = f.container;
-                const ents = c.kind === "hashmap"
-                  ? (await decodeHashMap(buf, c.keyFmt, c.valFmt!, c.capacity)).map((x) => `${shortKey(x.key)} = ${jstr(x.value)}`)
-                  : c.kind === "collection"
-                    ? (await decodeCollection(buf, c.valFmt!, c.capacity)).map((x) => `${shortKey(x.pov)}: ${jstr(x.value)} (p${x.priority})`)
-                    : (await decodeHashSet(buf, c.keyFmt, c.capacity)).map((x) => shortKey(x.key));
-                colv.push({ name: f.name, entries: ents.length > 10 ? ents.slice(0, 10).concat("… +" + (ents.length - 10)) : ents });
-              } catch {}
-            }
-          }
-        }
-      } catch {}
-      // contract LOG_* calls: size-match the bytes against the log-struct catalog + decode (hex fallback).
-      let lgs: DecodedLog[] = [];
-      try { if (e.logs?.length) lgs = await Promise.all(e.logs.map((l) => decodeLog(l.type, l.size, l.hex, catalog, emap))); } catch {}
-      if (alive) { setIo({ in: inS, out: outS }); setCaller(cal); setFields(flds); setCols(colv); setLogs(lgs); }
-    })();
+    describeTrace(e, source, name, rpc).then((view) => { if (alive) setV(view); }).catch(() => {});
     return () => { alive = false; };
   }, [e.seq]);
 
   const sevColor = (s: string) => (s === "ERROR" ? theme.err : s === "WARN" ? theme.accent : s === "INFO" ? theme.ok : undefined);
-
-  // map a changed byte offset to its StateData field (name[+rel]); raw @off if no layout / unmatched.
-  const labelOff = (off: number): string => {
-    const f = fields.find((x) => off >= x.off && off < x.off + x.size);
-    return f ? f.name + (off > f.off ? "+" + (off - f.off) : "") : "@" + off;
-  };
+  const cols = v?.cols ?? [];
+  const logs = v?.logs ?? [];
 
   return (
     <Box flexDirection="column">
       <Panel title={`${name} · ${kindName(e.kind)}#${e.entry}`} color={e.ok ? theme.ok : theme.err}>
         <KV rows={[
           ["tick", String(e.tick)], ["ok", e.ok ? "yes" : "no"], ["exec", ((e.execNs / 1000) | 0) + " µs"],
-          ["reward", String(e.invocationReward)], ["caller", caller],
+          ["reward", String(e.invocationReward)], ["caller", v?.caller ?? "…"],
         ]} />
       </Panel>
       {e.trap ? <Panel title="trap" color={theme.err}><Text color={theme.err} wrap="wrap">{e.trap}</Text></Panel> : null}
       <Panel title="input / output">
-        <Text wrap="truncate-end">in:  {io.in}</Text>
-        <Text wrap="truncate-end">out: {io.out}</Text>
+        <Text wrap="truncate-end">in:  {v?.inDecoded ?? "…"}</Text>
+        <Text wrap="truncate-end">out: {v?.outDecoded ?? "…"}</Text>
       </Panel>
       <Panel title={`state diff${e.stateTruncated ? " (truncated)" : ""}${e.stateDiff.length ? " · " + e.stateDiff.length + " region(s)" : ""}`}>
-        {e.stateDiff.length ? e.stateDiff.slice(0, 12).map((d, i) => <Text key={i}><Text bold>{labelOff(d.off)}</Text>: <Text color={theme.err}>{d.before}</Text> → <Text color={theme.ok}>{d.after}</Text></Text>)
+        {e.stateDiff.length ? e.stateDiff.slice(0, 12).map((d, i) => <Text key={i}><Text bold>{labelOff(v?.fields ?? [], d.off)}</Text>: <Text color={theme.err}>{d.before}</Text> → <Text color={theme.ok}>{d.after}</Text></Text>)
           : <Text dimColor>no state change</Text>}
       </Panel>
       {cols.map((c) => (
