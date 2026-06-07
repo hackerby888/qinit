@@ -6,6 +6,7 @@
   "exports": { ".": "./src/index.ts" },
   "dependencies": {
     "@qinit/core": "workspace:*",
+    "@qinit/proto": "workspace:*",
     "@bjorn3/browser_wasi_shim": "^0.4.2"
   }
 }

@@ -5,6 +5,7 @@
 // where 1 = occupied (00 empty, 10 marked-for-removal -> both excluded). qpi_hash_map_impl.h:38/130/186.
 // (Collection's PoV + per-PoV BST layout is not decoded here.)
 import { decodeOutput, structFieldOffsets, layoutOf } from "./abi-fmt";
+import { flagWordCount, hashMapElemFmt, collectionElemFmt, COLLECTION_POV_FMT } from "./qpi-layout";
 
 const roundUp = (o: number, a: number) => (a <= 1 ? o : Math.ceil(o / a) * a);
 
@@ -26,7 +27,7 @@ function sint64At(buf: Uint8Array, off: number): bigint {
 }
 
 export async function decodeHashMap(buf: Uint8Array, keyFmt: string, valFmt: string, capacity: number): Promise<MapEntry[]> {
-  const elemFmt = `${keyFmt}, ${valFmt}`;
+  const elemFmt = hashMapElemFmt(keyFmt, valFmt);
   const el = layoutOf(elemFmt); const stride = roundUp(el.size, el.align);
   const [kf, vf] = structFieldOffsets(elemFmt);            // {off,size} of key, value within the element
   const flagsOff = capacity * stride;
@@ -59,12 +60,12 @@ export async function decodeHashSet(buf: Uint8Array, keyFmt: string, capacity: n
 // For each occupied PoV, in-order-traverse its priority BST (left,node,right). qpi stores higher priority on
 // the left, so in-order yields priority-queue order: head first = highest priority.
 export async function decodeCollection(buf: Uint8Array, valFmt: string, capacity: number): Promise<CollEntry[]> {
-  const povFmt = "id, uint64, sint64, sint64, sint64";
-  const elemFmt = `${valFmt}, sint64, sint64, sint64, sint64, sint64`;
+  const povFmt = COLLECTION_POV_FMT;
+  const elemFmt = collectionElemFmt(valFmt);
   const povStride = roundUp(layoutOf(povFmt).size, layoutOf(povFmt).align);     // 64
   const elemStride = roundUp(layoutOf(elemFmt).size, layoutOf(elemFmt).align);
   const flagsOff = capacity * povStride;
-  const elemsOff = flagsOff + Math.ceil(capacity * 2 / 64) * 8;
+  const elemsOff = flagsOff + flagWordCount(capacity) * 8;
   const pf = structFieldOffsets(povFmt);    // [id, population, head, tail, bstRoot]
   const ef = structFieldOffsets(elemFmt);   // [value, priority, povIndex, bstParent, bstLeft, bstRight]
   const cap = BigInt(capacity);

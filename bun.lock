@@ -15,6 +15,7 @@
       "dependencies": {
         "@bjorn3/browser_wasi_shim": "^0.4.2",
         "@qinit/core": "workspace:*",
+        "@qinit/proto": "workspace:*",
       },
     },
     "packages/cli": {

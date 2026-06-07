@@ -4,6 +4,9 @@
 // procedures:{[inputType]:{name,in}} }. Light regex parse — handles flat structs, Array<T,N>,
 // nested structs (one+ levels), id; unknown types pass through verbatim.
 
+// QPI container layouts come from @qinit/proto qpi-layout (single source of truth shared with the decoders).
+import { hashMapFmt, hashSetFmt, collectionFmt } from "@qinit/proto";
+
 // type = codec token (uint64, id, bytes32, [N;T], { ... }); container = QPI HashMap/HashSet meta (for logical decode)
 export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number } }
 export interface IdlEntry { name: string; in: string; out?: string; inFields: Field[]; outFields?: Field[] }
@@ -91,14 +94,13 @@ function typeToken(type: string, structs: Map<string, string>): string {
   // field; contents stay raw bytes). Covers scalar/id K/V/T; nested-generic params fall through to raw.
   let m: RegExpMatchArray | null;
   if ((m = type.match(/^HashMap\s*<\s*([^,<>]+?)\s*,\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[3]); if (L != null) return `{ [${L};{ ${tt(m[1])}, ${tt(m[2])} }], [${Math.ceil(L * 2 / 64)};uint64], uint64, uint64 }`;
+    const L = evalN(m[3]); if (L != null) return hashMapFmt(tt(m[1]), tt(m[2]), L);
   }
   if ((m = type.match(/^HashSet\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[2]); if (L != null) return `{ [${L};${tt(m[1])}], [${Math.ceil(L * 2 / 64)};uint64], uint64, uint64 }`;
+    const L = evalN(m[2]); if (L != null) return hashSetFmt(tt(m[1]), L);
   }
   if ((m = type.match(/^Collection\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    // PoV{ id value; uint64 population; sint64 head, tail, bstRoot } + flags + Element{ T; sint64 prio,pov,parent,left,right } + 2 counters
-    const L = evalN(m[2]); if (L != null) return `{ [${L};{ id, uint64, sint64, sint64, sint64 }], [${Math.ceil(L * 2 / 64)};uint64], [${L};{ ${tt(m[1])}, sint64, sint64, sint64, sint64, sint64 }], uint64, uint64 }`;
+    const L = evalN(m[2]); if (L != null) return collectionFmt(tt(m[1]), L);
   }
   const am = type.match(/^Array\s*<\s*([\s\S]+?)\s*,\s*([^<>]+?)\s*>$/);
   if (am) { const n = evalN(am[2]); return `[${n != null ? n : am[2].trim()};${tt(am[1])}]`; }

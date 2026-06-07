@@ -52,6 +52,11 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install
 
+      - name: Protocol drift guard (qinit constants vs core)
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+        run: bun run scripts/check-protocol-drift.ts
+
       - name: Cache wasi-sdk
         id: wasisdk
         uses: actions/cache@v4

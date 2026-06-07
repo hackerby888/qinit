@@ -2,15 +2,9 @@
 // These payloads ride lite-range transaction inputTypes to the system destination (dest == 0).
 // Little-endian, packed. The core host-side handlers mirror these exact layouts.
 
-// Lite transaction inputTypes (must match the core's processTickTransaction cases).
-export const LITE_TX = {
-  UPLOAD_BEGIN: 240,
-  UPLOAD_CHUNK: 241,
-  DEPLOY: 242,
-} as const;
-
-// MAX_INPUT_SIZE is 1024; UploadChunk header is 14 bytes -> 1008 data bytes/chunk.
-export const CHUNK_DATA_MAX = 1008;
+// Lite transaction inputTypes + chunk sizing live in ./protocol (mirrored against core by the drift guard).
+import { LITE_TX, CHUNK_DATA_MAX } from "./protocol";
+export { LITE_TX, CHUNK_DATA_MAX };
 
 function hexToBytes(hex: string, len: number): Uint8Array {
   if (hex.length !== len * 2) throw new Error(`expected ${len}-byte hex, got ${hex.length / 2}`);

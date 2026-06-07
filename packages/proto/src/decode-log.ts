@@ -4,11 +4,10 @@
 // the end of the last real field (structFieldOffsets), NOT layoutOf().size (which adds tail pad). We size-match
 // the logged byte count against the contract's log-struct catalog; a unique hit decodes via decodeOutput.
 import { decodeOutput, structFieldOffsets } from "./abi-fmt";
+import { LOG_SEVERITY as SEVERITY } from "./protocol";
 
 export interface LogCatalogEntry { name: string; fmt: string; fields: string[] } // fmt = comma-joined types; fields = names
 export interface DecodedLog { severity: string; type: number; size: number; name?: string; typeName?: string; fields?: Record<string, unknown>; hex: string }
-
-const SEVERITY: Record<number, string> = { 4: "ERROR", 5: "WARN", 6: "INFO", 7: "DEBUG" };
 
 // offsetof(_terminator): end of the last field — internal padding included, tail padding excluded.
 export function loggedSizeOf(fmt: string): number {

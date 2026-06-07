@@ -15,3 +15,5 @@ export { decodeLog, loggedSizeOf } from "./decode-log";
 export type { LogCatalogEntry, DecodedLog } from "./decode-log";
 export type { TypeNode } from "./abi-fmt";
 export { callFunction, invokeProcedure, contractAddress, resolveSlot } from "./call";
+export * from "./qpi-layout";   // QPI container layout: single source of truth (idl.ts + decoders share it)
+export { LOG_SEVERITY, MAX_INPUT_SIZE, CHUNK_HEADER_SIZE, TX_HEADER_SIZE } from "./protocol"; // LITE_TX/CHUNK_DATA_MAX via ./deploy
