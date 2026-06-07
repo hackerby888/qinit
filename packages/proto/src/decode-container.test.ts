@@ -1,8 +1,10 @@
 import { test, expect } from "bun:test";
-import { decodeHashMap, decodeHashSet } from "./decode-container";
+import { decodeHashMap, decodeHashSet, decodeCollection } from "./decode-container";
 
 // little-endian uint64 bytes
 const le = (n: bigint): number[] => { const b: number[] = []; for (let i = 0; i < 8; i++) b.push(Number((n >> BigInt(8 * i)) & 0xffn)); return b; };
+// little-endian signed int64 (handles -1 = NULL_INDEX)
+const i64 = (n: number | bigint): number[] => { let v = BigInt.asUintN(64, BigInt(n)); const b: number[] = []; for (let i = 0; i < 8; i++) { b.push(Number(v & 0xffn)); v >>= 8n; } return b; };
 // flag word for occupied slots `occ` and marked-removed slots `rem` (2 bits/slot, within one uint64 = 32 slots)
 const flags = (occ: number[], rem: number[] = []): bigint => {
   let w = 0n;
@@ -52,6 +54,34 @@ test("HashSet<uint64,4>: occupied keys", async () => {
 test("empty container -> no entries", async () => {
   expect(await decodeHashMap(new Uint8Array(80), "uint64", "uint64", 4)).toEqual([]);
   expect(await decodeHashSet(new Uint8Array(48), "uint64", 4)).toEqual([]);
+});
+
+test("Collection<uint64,4>: per-PoV in-order BST walk = priority order", async () => {
+  const cap = 4, povStride = 64, flagsOff = cap * povStride, elemsOff = flagsOff + 8, es = 48;
+  const buf = new Uint8Array(elemsOff + cap * es + 16);
+  buf.set(i64(0), 56);                       // PoV0.bstRootIndex = 0 (id = all-zero)
+  buf.set(le(1n), flagsOff);                 // PoV0 occupied (flag 01)
+  const E = (off: number, value: number, prio: number, parent: number, left: number, right: number) => {
+    buf.set(i64(value), off); buf.set(i64(prio), off + 8); buf.set(i64(0), off + 16);   // value, priority, povIndex
+    buf.set(i64(parent), off + 24); buf.set(i64(left), off + 32); buf.set(i64(right), off + 40);
+  };
+  E(elemsOff + 0, 100, 5, -1, 1, 2);         // root
+  E(elemsOff + 48, 50, 2, 0, -1, -1);        // left child  (priority 2)
+  E(elemsOff + 96, 150, 9, 0, -1, -1);       // right child (priority 9)
+  const e = await decodeCollection(buf, "uint64", 4);
+  expect(e.map((x) => [x.value, x.priority])).toEqual([[50n, 2n], [100n, 5n], [150n, 9n]]);  // in-order
+  expect(typeof e[0].pov).toBe("string"); expect((e[0].pov as string).length).toBe(60);
+});
+
+test("Collection: empty + single-element root", async () => {
+  const cap = 4, elemsOff = cap * 64 + 8;
+  expect(await decodeCollection(new Uint8Array(elemsOff + cap * 48 + 16), "uint64", 4)).toEqual([]);
+  const buf = new Uint8Array(elemsOff + cap * 48 + 16);
+  buf.set(i64(0), 56); buf.set(le(1n), cap * 64);                       // PoV0 occupied, root=0
+  buf.set(i64(7), elemsOff); buf.set(i64(3), elemsOff + 8);             // elem0 value=7 prio=3
+  buf.set(i64(-1), elemsOff + 32); buf.set(i64(-1), elemsOff + 40);     // no children
+  const e = await decodeCollection(buf, "uint64", 4);
+  expect(e.map((x) => [x.value, x.priority])).toEqual([[7n, 3n]]);
 });
 
 test("flags spanning >32 slots use the second flag word", async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, bytesToIdentity, type DebugEntry, type DynContract } from "@qinit/core";
-import { decodeOutput, structFieldOffsets, decodeHashMap, decodeHashSet } from "@qinit/proto";
+import { decodeOutput, layoutOf, decodeHashMap, decodeHashSet, decodeCollection } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { loadConfig } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
@@ -15,6 +15,7 @@ function parse(args: string[]): Record<string, string> {
   return o;
 }
 const pad = (s: string, n: number) => (s.length >= n ? s.slice(0, n - 1) + " " : s + " ".repeat(n - s.length));
+const roundUp = (o: number, a: number) => (a <= 1 ? o : Math.ceil(o / a) * a);
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const hexToBytes = (h: string) => { const a = new Uint8Array((h.length / 2) | 0); for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; };
 const jstr = (v: any) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
@@ -88,7 +89,7 @@ export function Debug({ args }: { args: string[] }) {
   );
 }
 
-type Container = { kind: "hashmap" | "hashset"; keyFmt: string; valFmt?: string; capacity: number };
+type Container = { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number };
 type StateField = { name: string; off: number; size: number; container?: Container };
 type ColView = { name: string; entries: string[] };
 const shortKey = (k: unknown) => (typeof k === "string" && k.length === 60 ? k.slice(0, 10) + "…" : jstr(k));
@@ -115,8 +116,9 @@ function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?
           if (ent?.in && e.inHex) inS = jstr(await decodeOutput(hexToBytes(e.inHex), ent.in));
           if (ent?.out && e.outHex) outS = jstr(await decodeOutput(hexToBytes(e.outHex), ent.out));
           if (idl.state?.length) {                                  // StateData field map for diff naming + container decode
-            const offs = structFieldOffsets(idl.state.map((f) => f.type).join(", "));
-            flds = idl.state.map((f, i) => ({ name: f.name, off: offs[i]?.off ?? 0, size: offs[i]?.size ?? 0, container: f.container }));
+            // per-field walk (NOT join+structFieldOffsets — a single struct-typed field collapses + unwraps wrong)
+            let acc = 0;
+            flds = idl.state.map((f) => { const L = layoutOf(f.type); acc = roundUp(acc, L.align); const r = { name: f.name, off: acc, size: L.size, container: f.container }; acc += L.size; return r; });
             for (const f of flds) {                                 // logical-entry decode of current container contents
               if (!f.container) continue;
               try {
@@ -124,7 +126,9 @@ function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?
                 const buf = hexToBytes(sr.hex); const c = f.container;
                 const ents = c.kind === "hashmap"
                   ? (await decodeHashMap(buf, c.keyFmt, c.valFmt!, c.capacity)).map((x) => `${shortKey(x.key)} = ${jstr(x.value)}`)
-                  : (await decodeHashSet(buf, c.keyFmt, c.capacity)).map((x) => shortKey(x.key));
+                  : c.kind === "collection"
+                    ? (await decodeCollection(buf, c.valFmt!, c.capacity)).map((x) => `${shortKey(x.pov)}: ${jstr(x.value)} (p${x.priority})`)
+                    : (await decodeHashSet(buf, c.keyFmt, c.capacity)).map((x) => shortKey(x.key));
                 colv.push({ name: f.name, entries: ents.length > 10 ? ents.slice(0, 10).concat("… +" + (ents.length - 10)) : ents });
               } catch {}
             }

@@ -5,7 +5,7 @@
 // nested structs (one+ levels), id; unknown types pass through verbatim.
 
 // type = codec token (uint64, id, bytes32, [N;T], { ... }); container = QPI HashMap/HashSet meta (for logical decode)
-export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset"; keyFmt: string; valFmt?: string; capacity: number } }
+export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number } }
 export interface IdlEntry { name: string; in: string; out?: string; inFields: Field[]; outFields?: Field[] }
 export interface ContractIdl {
   name: string;
@@ -48,6 +48,9 @@ function containerMeta(rawType: string, structs: Map<string, string>): Field["co
   if ((m = t.match(/^HashSet\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
     const L = evalN(m[2]); if (L != null) return { kind: "hashset", keyFmt: typeToken(m[1], structs), capacity: L };
   }
+  if ((m = t.match(/^Collection\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {   // pov key is always `id`
+    const L = evalN(m[2]); if (L != null) return { kind: "collection", keyFmt: "id", valFmt: typeToken(m[1], structs), capacity: L };
+  }
   return undefined;
 }
 
@@ -65,7 +68,8 @@ function typeToken(type: string, structs: Map<string, string>): string {
     const L = evalN(m[2]); if (L != null) return `{ [${L};${tt(m[1])}], [${Math.ceil(L * 2 / 64)};uint64], uint64, uint64 }`;
   }
   if ((m = type.match(/^Collection\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[2]); if (L != null) return `{ [${L};{ uint64, sint64, sint64, sint64 }], [${Math.ceil(L * 2 / 64)};uint64], [${L};{ ${tt(m[1])}, sint64, sint64, sint64, sint64, sint64 }], uint64, uint64 }`;
+    // PoV{ id value; uint64 population; sint64 head, tail, bstRoot } + flags + Element{ T; sint64 prio,pov,parent,left,right } + 2 counters
+    const L = evalN(m[2]); if (L != null) return `{ [${L};{ id, uint64, sint64, sint64, sint64 }], [${Math.ceil(L * 2 / 64)};uint64], [${L};{ ${tt(m[1])}, sint64, sint64, sint64, sint64, sint64 }], uint64, uint64 }`;
   }
   const am = type.match(/^Array\s*<\s*([\s\S]+?)\s*,\s*([^<>]+?)\s*>$/);
   if (am) { const n = evalN(am[2]); return `[${n != null ? n : am[2].trim()};${tt(am[1])}]`; }
