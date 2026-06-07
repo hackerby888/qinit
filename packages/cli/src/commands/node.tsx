@@ -50,7 +50,7 @@ export function Node({ args }: { args: string[] }) {
         if (sub === "status") {
           const st = await nodeStatus(rpcBase);
           if (!st.up) { add("rpc: down (node not reachable)", false); setS({ phase: "done", title: "node down", color: theme.err, lines: L }); return; }
-          add(st.ticking ? "rpc: up, ticking" : "rpc: up, not advancing", st.ticking);
+          add(st.ticking ? "rpc: up, ticking" : "rpc: up, not yet ticking", st.ticking);
           const rows: [string, string][] = [["tick", String(st.tick)], ["epoch", String(st.epoch)], ["dyn slots", `${st.armed} armed / ${st.slotCount}`]];
           if (st.contracts.length) rows.push(["contracts", st.contracts.join(", ")]);
           const cur = readCurrent();
