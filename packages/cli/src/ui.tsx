@@ -205,14 +205,26 @@ export function Table({ columns, rows, selected, rowColor }:
     return columns[i].align === "right" ? v.padStart(widths[i]) : v.padEnd(widths[i]);
   };
   const sp = " ".repeat(gap);
-  const Row = ({ r, ri }: { r: string[]; ri?: number }) => {
-    const rc = ri !== undefined ? rowColor?.(ri) : undefined;
+  // header: one continuous gradient-background band (dark bold text) across the full table width.
+  const headerText = columns.map((c, i) => cell(c.header, i) + (i < columns.length - 1 ? sp : "")).join("");
+  const hn = headerText.length;
+  const Header = () => (
+    <Box>
+      <Text bold>
+        {[...headerText].map((ch, i) => (
+          <Text key={i} backgroundColor={lerp(theme.gradFrom, theme.gradTo, hn < 2 ? 0 : i / (hn - 1))} color="#0a0a0a">{ch}</Text>
+        ))}
+      </Text>
+    </Box>
+  );
+  const Row = ({ r, ri }: { r: string[]; ri: number }) => {
+    const rc = rowColor?.(ri);
     return (
       <Box>
         {columns.map((c, i) => (
-          <Text key={i} inverse={ri === selected} dimColor={ri === undefined || (c.dim && ri !== selected && !rc)}
-            color={ri === selected ? undefined : ri === undefined ? undefined : (rc ?? c.color)}>
-            {cell(ri === undefined ? c.header : (r[i] ?? ""), i)}{i < columns.length - 1 ? sp : ""}
+          <Text key={i} inverse={ri === selected} dimColor={c.dim && ri !== selected && !rc}
+            color={ri === selected ? undefined : (rc ?? c.color)}>
+            {cell(r[i] ?? "", i)}{i < columns.length - 1 ? sp : ""}
           </Text>
         ))}
       </Box>
@@ -220,7 +232,7 @@ export function Table({ columns, rows, selected, rowColor }:
   };
   return (
     <Box flexDirection="column">
-      <Row r={columns.map((c) => c.header)} />
+      <Header />
       {rows.map((r, ri) => <Row key={ri} r={r} ri={ri} />)}
     </Box>
   );
