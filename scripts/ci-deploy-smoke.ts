@@ -2,8 +2,10 @@
 // on-chain — Get()=0 after INITIALIZE, Inc() tx, Get()=1. Exits non-zero on any mismatch. Run by
 // .github/workflows/test.yml against a freshly built node. Needs QINIT_CORE + a ticking node on QINIT_RPC.
 import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import { deployContract } from "../packages/cli/src/deploy-ops";
-import { callFunction, invokeProcedure } from "../packages/proto/src/index";
+import { callFunction, invokeProcedure, decodeLog } from "../packages/proto/src/index";
+import { extractIdl } from "../packages/build/src/index";
 import { LiteRpc } from "../packages/core/src/index";
 
 const rpcBase = process.env.QINIT_RPC ?? "http://127.0.0.1:41841";
@@ -61,7 +63,41 @@ for (let i = 0; i < 8; i++) {
   await sleep(1500);
 }
 if (!dbgOk) fail("debug trace missing the Inc state diff (counter 00->01) — mprotect capture broken?");
+
+// log-decode gate: deploy Logger, Emit(2) -> the trace must carry INFO logs decoded against the struct
+// catalog WITH the _type enum name (LogValue). Exercises the node logs[] capture + client size-match decode.
+console.log("deploy Logger…");
+const depL = await deployContract(
+  { contractPath: resolve("fixtures/Logger.h"), name: "Logger", core, rpcBase },
+  (e: any) => { if (!("note" in e)) console.log(`  ${e.step}: ${e.state}${e.detail ? " — " + e.detail : ""}`); },
+);
+if (!depL.ok || depL.slot == null) fail("deploy Logger: " + JSON.stringify(depL));
+const lidx = depL.slot!;
+console.log("deployed Logger slot", lidx);
+const idlL = extractIdl(readFileSync(resolve("fixtures/Logger.h"), "utf8"), "Logger");
+const emapL: Record<string, string> = {};
+for (const en of idlL.enums ?? []) Object.assign(emapL, en.members);
+const tiL: any = await rpc.tickInfo();
+const tickL = (tiL.tick ?? tiL.currentTick ?? 0) + 6;
+console.log("Emit(2) @tick", tickL);
+const rL: any = await invokeProcedure({ seed, rpcBase, contractIndex: lidx, procId: 1, amount: 0, inFmt: "2uint64", tick: tickL, confirm: true, rpc });
+if (!rL.ok || !rL.confirmed) fail("Emit not confirmed: " + JSON.stringify(rL));
+let logOk = false;
+for (let i = 0; i < 10; i++) {
+  const t = await rpc.debugTrace(0, 200);
+  const emit = (t.entries ?? []).find((e) => e.index === lidx && e.kind === 1 && (e.logs?.length ?? 0) > 0);
+  if (emit) {
+    const l = emit.logs[0];
+    const d = await decodeLog(l.type, l.size, l.hex, idlL.logStructs ?? [], emapL);
+    console.log("log decode: " + JSON.stringify(d, (_k, x) => (typeof x === "bigint" ? x.toString() : x)));
+    logOk = d.severity === "INFO" && d.name === "LogMsg" && d.fields?.value !== undefined && d.typeName === "LogValue";
+    break;
+  }
+  await sleep(1500);
+}
+if (!logOk) fail("debug trace missing decoded LOG_* (logs[] wire / decode / enum-name broken?)");
+
 await rpc.setDebug(false);
 if (!(await rpc.tickInfo())) fail("node unresponsive after debug");   // node survived the SIGSEGV-handler path
 
-console.log("SMOKE OK — deploy + read + write + debug-trace verified on-chain (slot " + idx + ")");
+console.log("SMOKE OK — deploy + read + write + debug-trace + log-decode verified on-chain (slots " + idx + "," + lidx + ")");

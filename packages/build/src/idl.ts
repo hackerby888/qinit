@@ -10,12 +10,15 @@ export interface IdlEntry { name: string; in: string; out?: string; inFields: Fi
 // A qpi LOG_* struct (ends with `sint8 _terminator`): fmt/fields cover only the members BEFORE the terminator
 // (what the node logs). The decoder size-matches a log's byte count against these. fmt = comma-joined types.
 export interface LogStruct { name: string; fmt: string; fields: string[] }
+// A C++ enum -> { value: memberName } (value stringified). Used to resolve a log's `_type` discriminator to a name.
+export interface EnumDef { name: string; members: Record<string, string> }
 export interface ContractIdl {
   name: string;
   functions: Record<string, IdlEntry>;
   procedures: Record<string, IdlEntry>;
   state?: Field[];        // StateData fields (name + codec type) for field-level state-diff naming
   logStructs?: LogStruct[]; // log-message struct catalog (for contract-log decode in the debugger)
+  enums?: EnumDef[];      // enums (e.g. log message kinds) -> name the `_type` discriminator
 }
 
 const SCALARS = new Set([
@@ -41,6 +44,28 @@ function collectStructs(src: string): Map<string, string> {
 
 // size may be an arithmetic expr (e.g. 64*1024*1024) -> evaluate (digits+arithmetic only, so safe).
 const evalN = (s: string): number | null => (/^[0-9*+\-()\s]+$/.test(s.trim()) ? (() => { try { return Function(`return (${s})`)() >>> 0; } catch { return null; } })() : null);
+
+// Collect every `enum [class] Name [: base] { A=0, B, ... }` into name -> { value: member } (C++ auto-increment).
+function collectEnums(src: string): EnumDef[] {
+  const out: EnumDef[] = [];
+  const re = /enum\s+(?:class\s+|struct\s+)?(\w+)\s*(?::\s*\w+\s*)?\{([^}]*)\}/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    const body = m[2].replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    const members: Record<string, string> = {};
+    let next = 0;
+    for (const part of body.split(",")) {
+      const mm = part.trim().match(/^(\w+)\s*(?:=\s*(.+))?$/);
+      if (!mm) continue;
+      let val = next;
+      if (mm[2] !== undefined) { const ev = evalN(mm[2]); if (ev != null) val = ev; }
+      members[String(val)] = mm[1];
+      next = val + 1;
+    }
+    if (Object.keys(members).length) out.push({ name: m[1], members });
+  }
+  return out;
+}
 
 // QPI container metadata (kind + element key/value fmts + capacity) for logical-entry decode, else undefined.
 function containerMeta(rawType: string, structs: Map<string, string>): Field["container"] {
@@ -141,5 +166,7 @@ export function extractIdl(source: string, name: string): ContractIdl {
     logStructs.push({ name: sname, fmt: real.map((f) => f.type).join(", "), fields: real.map((f) => f.name) });
   }
   if (logStructs.length) idl.logStructs = logStructs;
+  const enums = collectEnums(source);
+  if (enums.length) idl.enums = enums;
   return idl;
 }

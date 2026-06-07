@@ -69,6 +69,23 @@ test("severity map covers ERROR/WARN/INFO/DEBUG + unknown", async () => {
   expect(await sev(9)).toBe("type9");
 });
 
+test("decodeLog resolves the _type discriminator to its enum name", async () => {
+  const cat = [{ name: "LogMsg", fmt: "uint32, uint32, uint64", fields: ["_contractIndex", "_type", "value"] }];
+  const enums = { "0": "Started", "1": "Ticked", "2": "Done" };
+  const buf = [...le(7, 4), ...le(2, 4), ...le(99, 8)];               // _type = 2 -> "Done"
+  const d = await decodeLog(6, 16, hexOf(buf), cat, enums);
+  expect(d.typeName).toBe("Done");
+  expect(d.fields).toEqual({ _contractIndex: 7, _type: 2, value: 99n });
+});
+
+test("decodeLog leaves typeName undefined with no enum map or unknown value", async () => {
+  const cat = [{ name: "LogMsg", fmt: "uint32, uint32, uint64", fields: ["_contractIndex", "_type", "value"] }];
+  const noMap = await decodeLog(6, 16, hexOf([...le(0, 4), ...le(1, 4), ...le(1, 8)]), cat);
+  expect(noMap.typeName).toBeUndefined();
+  const unknownVal = await decodeLog(6, 16, hexOf([...le(0, 4), ...le(9, 4), ...le(1, 8)]), cat, { "0": "Started" });
+  expect(unknownVal.typeName).toBeUndefined();
+});
+
 test("id field decodes to a 60-char identity at its padded offset", async () => {
   const cat = [{ name: "Q", fmt: "uint32, id, sint64", fields: ["ci", "who", "amt"] }];
   expect(loggedSizeOf(cat[0].fmt)).toBe(48);                          // u32@0, id@8 (4B pad), sint64@40

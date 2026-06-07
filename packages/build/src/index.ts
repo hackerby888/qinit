@@ -8,7 +8,7 @@ import { k12Hex } from "@qinit/core";
 
 export type { BuildOpts } from "./recipe";
 export { extractIdl } from "./idl";
-export type { ContractIdl, IdlEntry, Field } from "./idl";
+export type { ContractIdl, IdlEntry, Field, LogStruct, EnumDef } from "./idl";
 export { generateClient } from "./gen-client";
 export { testRuntimeSource, sampleTest } from "./gen-test";
 export { buildSnapshot } from "./snapshot";

@@ -6,7 +6,7 @@
 import { decodeOutput, structFieldOffsets } from "./abi-fmt";
 
 export interface LogCatalogEntry { name: string; fmt: string; fields: string[] } // fmt = comma-joined types; fields = names
-export interface DecodedLog { severity: string; type: number; size: number; name?: string; fields?: Record<string, unknown>; hex: string }
+export interface DecodedLog { severity: string; type: number; size: number; name?: string; typeName?: string; fields?: Record<string, unknown>; hex: string }
 
 const SEVERITY: Record<number, string> = { 4: "ERROR", 5: "WARN", 6: "INFO", 7: "DEBUG" };
 
@@ -26,7 +26,8 @@ function hexToBytes(h: string): Uint8Array {
 }
 
 // Match a log's full byte size (NOT the possibly-capped hex) against the catalog; a unique struct decodes.
-export async function decodeLog(type: number, size: number, hex: string, catalog: LogCatalogEntry[]): Promise<DecodedLog> {
+// `enums` (value -> member name) resolves the `_type` discriminator field to its enum name (DecodedLog.typeName).
+export async function decodeLog(type: number, size: number, hex: string, catalog: LogCatalogEntry[], enums?: Record<string, string>): Promise<DecodedLog> {
   const severity = SEVERITY[type] ?? `type${type}`;
   const base: DecodedLog = { severity, type, size, hex: "0x" + (hex.startsWith("0x") ? hex.slice(2) : hex) };
   const hit = catalog.filter((s) => { try { return loggedSizeOf(s.fmt) === size; } catch { return false; } });
@@ -36,7 +37,9 @@ export async function decodeLog(type: number, size: number, hex: string, catalog
       const vals = Array.isArray(decoded) ? decoded : [decoded];
       const fields: Record<string, unknown> = {};
       hit[0].fields.forEach((n, i) => { fields[n] = vals[i]; });
-      return { ...base, name: hit[0].name, fields };
+      const tv = fields["_type"];
+      const typeName = enums && (typeof tv === "number" || typeof tv === "bigint") ? enums[String(tv)] : undefined;
+      return { ...base, name: hit[0].name, ...(typeName ? { typeName } : {}), fields };
     } catch {}
   }
   return base;   // 0 or >1 size matches, or decode threw -> hex + severity only

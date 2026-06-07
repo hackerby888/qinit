@@ -1,6 +1,9 @@
 // Logging fixture: emits a contract LOG_INFO event from a procedure (tx-paired -> stored).
 using namespace QPI;
 
+// Log message kinds: the debugger resolves LogMsg._type back to these names.
+enum LogKind { LogStarted = 0, LogValue = 1, LogDone = 2 };
+
 struct CONTRACT_STATE2_TYPE
 {
 };
@@ -24,7 +27,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     PUBLIC_PROCEDURE_WITH_LOCALS(Emit)
     {
         locals.m._contractIndex = 0;
-        locals.m._type = 0;
+        locals.m._type = LogValue;
         locals.m._terminator = 0;
         for (locals.i = 0; locals.i < input.value; locals.i++) { locals.m.value = locals.i; LOG_INFO(locals.m); }
         state.mut().count += 1;

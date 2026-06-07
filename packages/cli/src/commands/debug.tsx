@@ -111,10 +111,14 @@ function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?
       let flds: StateField[] = [];
       const colv: ColView[] = [];
       let catalog: { name: string; fmt: string; fields: string[] }[] = [];
+      let emap: Record<string, string> = {};
       try {
         if (source) {
           const idl = extractIdl(source, name);
           catalog = idl.logStructs ?? [];
+          // _type -> enum name; log-named enums applied last so they win value collisions with unrelated enums
+          for (const en of idl.enums ?? []) if (!/log/i.test(en.name)) Object.assign(emap, en.members);
+          for (const en of idl.enums ?? []) if (/log/i.test(en.name)) Object.assign(emap, en.members);
           const ent: any = (e.kind === 0 ? idl.functions : idl.procedures)?.[String(e.entry)];
           if (ent?.in && e.inHex) inS = jstr(await decodeOutput(hexToBytes(e.inHex), ent.in));
           if (ent?.out && e.outHex) outS = jstr(await decodeOutput(hexToBytes(e.outHex), ent.out));
@@ -140,7 +144,7 @@ function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?
       } catch {}
       // contract LOG_* calls: size-match the bytes against the log-struct catalog + decode (hex fallback).
       let lgs: DecodedLog[] = [];
-      try { if (e.logs?.length) lgs = await Promise.all(e.logs.map((l) => decodeLog(l.type, l.size, l.hex, catalog))); } catch {}
+      try { if (e.logs?.length) lgs = await Promise.all(e.logs.map((l) => decodeLog(l.type, l.size, l.hex, catalog, emap))); } catch {}
       if (alive) { setIo({ in: inS, out: outS }); setCaller(cal); setFields(flds); setCols(colv); setLogs(lgs); }
     })();
     return () => { alive = false; };
@@ -181,7 +185,7 @@ function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?
           <Box flexDirection="column">{logs.map((l, i) => (
             <Text key={i} wrap="truncate-end">
               <Text bold color={sevColor(l.severity)}>{l.severity}</Text>{" "}
-              {l.name ? <><Text color={theme.accent}>{l.name}</Text> <Text dimColor>{jstr(l.fields)}</Text></> : <Text dimColor>{l.size}B {l.hex.slice(0, 34)}…</Text>}
+              {l.name ? <><Text color={theme.accent}>{l.name}{l.typeName ? "·" + l.typeName : ""}</Text> <Text dimColor>{jstr(l.fields)}</Text></> : <Text dimColor>{l.size}B {l.hex.slice(0, 34)}…</Text>}
             </Text>
           ))}</Box>
         </Panel>
