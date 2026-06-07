@@ -2,7 +2,7 @@
 // `qinit call --trace`, and `qinit state`. Style: a Status header line + indented label->value rows.
 import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
-import { Status, theme, truncEnd, termCols } from "./ui";
+import { Status, theme, truncEnd, truncMid, termCols } from "./ui";
 import { type TraceView as TraceData, type StateDump, labelOff, fmtDiffVal, sevColor, jstr } from "./trace-format";
 
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
@@ -35,7 +35,7 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
         ))}{e.stateTruncated ? <Text dimColor> (truncated)</Text> : null}</Text>
       : <Text dimColor>(no change)</Text>,
   });
-  for (const c of view.cols) rows.push({ label: c.name, node: <Text dimColor>{truncEnd(c.entries.join(", ") || "empty", termCols() - 12)}</Text> });
+  for (const c of view.cols) rows.push({ label: c.name, node: <Text dimColor>{truncMid(c.entries.join(", ") || "empty", termCols() - 12)}</Text> });
   for (const l of view.logs) rows.push({
     label: "log",
     node: <Text><Text bold color={sevColor(l.severity)}>{l.severity}</Text> {l.name ? <Text>{l.name}{l.typeName ? "·" + l.typeName : ""} <Text dimColor>{jstr(l.fields)}</Text></Text> : <Text dimColor>{l.size}B</Text>}</Text>,
@@ -53,7 +53,8 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
 // A contract's decoded current state (scalars + containers), compact.
 export function StateView({ name, dump, full }: { name: string; dump: StateDump; full?: boolean }) {
   // full -> wrap (show everything); else truncate each line to the terminal so long values don't trip the output.
-  const cell = (s: string, pad: number) => full ? <Text wrap="wrap">{s}</Text> : <Text>{truncEnd(s, termCols() - pad)}</Text>;
+  // truncMid keeps head + tail, so a grouped value's tail (×N / "first K of N" / "+N more (--all)") stays visible.
+  const cell = (s: string, pad: number) => full ? <Text wrap="wrap">{s}</Text> : <Text>{truncMid(s, termCols() - pad)}</Text>;
   return (
     <Box flexDirection="column">
       <Status ok={null} label={`${name} state`} />
