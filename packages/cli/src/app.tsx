@@ -11,6 +11,7 @@ import { Deploy } from "./commands/deploy";
 import { Test } from "./commands/test";
 import { Call } from "./commands/call";
 import { Ls } from "./commands/ls";
+import { Debug } from "./commands/debug";
 import { New } from "./commands/new";
 import { Help } from "./commands/help";
 import { Version } from "./commands/version";
@@ -43,6 +44,8 @@ export function App({ command, args }: { command: string; args: string[] }) {
       return <Call args={args} />;
     case "ls":
       return <Ls args={args} />;
+    case "debug":
+      return <Debug args={args} />;
     case "version":
     case "--version":
     case "-v":

@@ -19,6 +19,16 @@ export interface DynUpload {
   missing: number[]; missingCount: number;
 }
 
+export interface DebugHostCall { name: string; detail: string; }
+export interface DebugEntry {
+  seq: number; tick: number; index: number; entry: number; kind: number; ok: boolean;
+  execNs: number; inSize: number; outSize: number; stateSize: number; stateTruncated: boolean;
+  invocator: string; invocationReward: number;
+  inHex: string; outHex: string; stateBeforeHex: string; stateAfterHex: string;
+  trap?: string; hostCalls: DebugHostCall[];
+}
+export interface DebugTrace { enabled: boolean; entries: DebugEntry[]; }
+
 export class LiteRpc {
   constructor(private base = "http://127.0.0.1:41841") {}
 
@@ -55,6 +65,15 @@ export class LiteRpc {
    * found => included; processed => node ticked past {tick} (verdict final). */
   txStatus(tick: number, txId: string) {
     return this.get<{ tick: number; currentTick: number; txId: string; found: boolean; moneyFlew: boolean; processed: boolean }>(`/live/v1/tx-status/${tick}/${txId}`);
+  }
+
+  /** Recent wasm contract-call traces (GET /live/v1/debug-trace?since&limit) — the `qinit debug` data source. */
+  debugTrace(since = 0, limit = 64) {
+    return this.get<DebugTrace>(`/live/v1/debug-trace?since=${since}&limit=${limit}`);
+  }
+  /** Toggle trace capture on the node (GET /live/v1/dev/debug?on=0|1). Off by default. */
+  setDebug(on: boolean) {
+    return this.get<{ enabled: boolean }>(`/live/v1/dev/debug?on=${on ? 1 : 0}`);
   }
 
   /** Testnet-only funded seed for signing txs when none is given (GET /live/v1/dev/funded-seed). */
