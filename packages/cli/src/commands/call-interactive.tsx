@@ -47,13 +47,20 @@ function Select<T>({ label, items, onSelect }: { label: string; items: { label: 
 
 // qpi value/type tokens — complete the trailing type fragment of the last comma-separated token (Tab to accept).
 const QPI_TYPES = ["uint64", "uint32", "uint16", "uint8", "sint64", "sint32", "sint16", "sint8", "id", "bit", "m256i"];
-function completeType(v: string): string | null {
-  const cut = v.lastIndexOf(",");
-  const head = v.slice(0, cut + 1), seg = v.slice(cut + 1);   // last token (may carry a leading space)
-  const m = seg.match(/[a-z][a-z0-9]*$/);                     // trailing lowercase-led type fragment
-  if (!m) return null;
-  const hit = QPI_TYPES.find((t) => t.startsWith(m[0]) && t !== m[0]);
-  return hit ? head + seg.slice(0, seg.length - m[0].length) + hit : null;
+// Schema-aware completer: the field at the current comma position expects a known type, so prefer it
+// (e.g. SC field is uint32 -> "1u" suggests uint32, not the generic-first uint64). Falls back to generic.
+export function completerFor(fields?: Field[]) {
+  return (v: string): string | null => {
+    const cut = v.lastIndexOf(",");
+    const head = v.slice(0, cut + 1), seg = v.slice(cut + 1);   // last token (may carry a leading space)
+    const m = seg.match(/[a-z][a-z0-9]*$/);                     // trailing lowercase-led type fragment
+    if (!m) return null;
+    const idx = (head.match(/,/g) || []).length;               // current field index = commas before this token
+    const exp = fields?.[idx]?.type;
+    const cands = exp && QPI_TYPES.includes(exp) ? [exp, ...QPI_TYPES] : QPI_TYPES;
+    const hit = cands.find((t) => t.startsWith(m[0]) && t !== m[0]);
+    return hit ? head + seg.slice(0, seg.length - m[0].length) + hit : null;
+  };
 }
 
 // Single-line text prompt (chars / backspace / enter). `complete` adds ghost-text type autocomplete + Tab.
@@ -214,7 +221,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
       <Box flexDirection="column">
         <SchemaBox kind="input" name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_input`} fields={sel.e!.inFields} />
         {/* input is never auto-filled — dev fills the values themselves (output below is auto-filled) */}
-        <TextPrompt label={`values+type per field, e.g. 5uint64${sel.e!.kind === "fn" ? "  (empty = none)" : ""}`} initial="" complete={completeType} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />
+        <TextPrompt label={`values+type per field, e.g. 5uint64${sel.e!.kind === "fn" ? "  (empty = none)" : ""}`} initial="" complete={completerFor(sel.e!.inFields)} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />
       </Box>,
     );
 
@@ -222,7 +229,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     return wrap(
       <Box flexDirection="column">
         <SchemaBox kind="output" name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_output`} fields={sel.e!.outFields} />
-        <TextPrompt label="output types only, e.g. uint64 or { id, uint16 }" initial={sel.e!.out ?? ""} complete={completeType} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />
+        <TextPrompt label="output types only, e.g. uint64 or { id, uint16 }" initial={sel.e!.out ?? ""} complete={completerFor(sel.e!.outFields)} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />
       </Box>,
     );
 
