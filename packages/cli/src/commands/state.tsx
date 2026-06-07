@@ -4,6 +4,7 @@ import { LiteRpc, type DynContract } from "@qinit/core";
 import { readState, type StateDump } from "../trace-format";
 import { StateView } from "../views";
 import { loadConfig } from "../config";
+import { loadContracts, systemAsDyn } from "../contracts";
 import { Header, Spinner, GradLine, theme } from "../ui";
 
 // qinit state [<name|slot>] [--rpc <url>]
@@ -26,6 +27,7 @@ export function State({ args }: { args: string[] }) {
   const [dump, setDump] = useState<StateDump | null>(null);
   const [name, setName] = useState("");
   const [contracts, setContracts] = useState<DynContract[]>([]);
+  const [userCount, setUserCount] = useState(0);   // contracts[0..userCount) deployed, rest system
   const [i, setI] = useState(0);
   const [phase, setPhase] = useState<"loading" | "pick" | "show" | "done">("loading");
   const add = (s: string) => setLines((l) => [...l, s]);
@@ -45,17 +47,17 @@ export function State({ args }: { args: string[] }) {
     (async () => {
       try {
         const rpc = new LiteRpc(rpcBase);
-        const reg = await rpc.dynRegistry();
-        const armed = (reg.contracts ?? []).filter((x) => x.armed);
+        const { user, system } = await loadContracts(rpc);   // deployed first, then system (catalog)
+        const all = [...user, ...system.map(systemAsDyn)];
         if (o.target) {
-          const c = armed.find((x) => String(x.index) === o.target || (x.name || "").toLowerCase() === o.target.toLowerCase());
-          if (!c) throw new Error(`no deployed contract '${o.target}'`);
+          const c = all.find((x) => String(x.index) === o.target || (x.name || "").toLowerCase() === o.target.toLowerCase());
+          if (!c) throw new Error(`no contract '${o.target}' (deployed or system — run \`qinit up\` for system)`);
           await load(c);
           return;
         }
-        if (!armed.length) throw new Error("no deployed contracts on the node");
-        if (!process.stdin.isTTY) throw new Error(`specify a contract: qinit state <name|slot> (deployed: ${armed.map((c) => c.name || c.index).join(", ")})`);
-        setContracts(armed); setPhase("pick");
+        if (!all.length) throw new Error("no contracts — deploy one, or run `qinit up` to load system contracts");
+        if (!process.stdin.isTTY) throw new Error(`specify a contract: qinit state <name|slot> (${all.map((c) => c.name || c.index).join(", ")})`);
+        setContracts(all); setUserCount(user.length); setPhase("pick");
       } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setPhase("done"); }
     })();
   }, []);
@@ -77,13 +79,19 @@ export function State({ args }: { args: string[] }) {
         <Box flexDirection="column">
           <Text dimColor>↑/↓ select · ↵ show state · q quit</Text>
           <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
-            {contracts.map((c, idx) => {
-              const sel = idx === i;
-              const detail = `slot ${c.index} · ${c.functions?.length ?? 0}fn/${c.procedures?.length ?? 0}proc${c.source ? "" : " · no source"}`;
-              return sel
-                ? <GradLine key={c.index} text={`▸ ${(c.name || "—").padEnd(16)} ${detail}`} />
-                : <Text key={c.index}>{"  "}<Text color={theme.brand}>{(c.name || "—").padEnd(16)}</Text> <Text dimColor>{detail}</Text></Text>;
-            })}
+            {(() => {
+              const row = (c: DynContract, idx: number) => {
+                const sel = idx === i;
+                const detail = `idx ${c.index} · ${c.functions?.length ?? 0}fn/${c.procedures?.length ?? 0}proc`;
+                return sel
+                  ? <GradLine key={c.index} text={`▸ ${(c.name || "—").padEnd(16)} ${detail}`} />
+                  : <Text key={c.index}>{"  "}<Text color={theme.brand}>{(c.name || "—").padEnd(16)}</Text> <Text dimColor>{detail}</Text></Text>;
+              };
+              const out: React.ReactNode[] = [];
+              if (userCount > 0) { out.push(<Text key="hu" color={theme.mute} bold>  deployed</Text>); contracts.slice(0, userCount).forEach((c, k) => out.push(row(c, k))); }
+              if (contracts.length > userCount) { out.push(<Text key="hs" color={theme.mute} bold>  system</Text>); contracts.slice(userCount).forEach((c, k) => out.push(row(c, userCount + k))); }
+              return out;
+            })()}
           </Box>
         </Box>
       )}

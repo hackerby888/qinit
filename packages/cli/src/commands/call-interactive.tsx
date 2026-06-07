@@ -5,6 +5,7 @@ import { callFunction, invokeProcedure, TX_TICK_OFFSET } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { existsSync, readFileSync } from "node:fs";
 import { resolveSeed } from "../config";
+import { loadContracts, systemAsDyn } from "../contracts";
 import { Header, Spinner, Panel, theme } from "../ui";
 
 // Optional local IDL (names + format strings) keyed by contract index, merged over the registry.
@@ -20,24 +21,24 @@ function loadIdl(path?: string): Idl {
   return {};
 }
 
-// Arrow-key single-select list.
-function Select<T>({ label, items, onSelect }: { label: string; items: { label: string; value: T }[]; onSelect: (v: T) => void }) {
-  const [i, setI] = useState(0);
+// Arrow-key single-select list. `header` items are non-selectable group separators (skipped on navigation).
+type SelItem<T> = { label: string; value?: T; header?: boolean };
+function Select<T>({ label, items, onSelect }: { label: string; items: SelItem<T>[]; onSelect: (v: T) => void }) {
+  const first = Math.max(0, items.findIndex((x) => !x.header));
+  const [i, setI] = useState(first);
+  const step = (dir: number) => setI((p) => { for (let k = 0, n = p; k < items.length; k++) { n = (n + dir + items.length) % items.length; if (!items[n].header) return n; } return p; });
   useInput((_in, key) => {
-    if (key.upArrow) setI((p) => (p - 1 + items.length) % items.length);
-    else if (key.downArrow) setI((p) => (p + 1) % items.length);
-    else if (key.return && items.length) onSelect(items[i].value);
+    if (key.upArrow) step(-1);
+    else if (key.downArrow) step(1);
+    else if (key.return && items[i] && !items[i].header) onSelect(items[i].value as T);
   });
   return (
     <Box flexDirection="column">
       <Text bold color={theme.accent}>{label}</Text>
       <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
-        {items.map((it, k) => (
-          <Text key={k}>
-            {k === i ? <Text color={theme.brand} bold>▸ </Text> : <Text>  </Text>}
-            <Text color={k === i ? theme.info : undefined} bold={k === i}>{it.label}</Text>
-          </Text>
-        ))}
+        {items.map((it, k) => it.header
+          ? <Text key={k} color={theme.mute} bold>{"  "}{it.label}</Text>
+          : <Text key={k}>{k === i ? <Text color={theme.brand} bold>▸ </Text> : <Text>  </Text>}<Text color={k === i ? theme.info : undefined} bold={k === i}>{it.label}</Text></Text>)}
         {!items.length && <Text dimColor>(none)</Text>}
       </Box>
       <Text dimColor>  ↑/↓ move · ↵ select</Text>
@@ -105,6 +106,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   const { exit } = useApp();
   const [stage, setStage] = useState<Stage>("loading");
   const [contracts, setContracts] = useState<DynContract[]>([]);
+  const [userCount, setUserCount] = useState(0);   // contracts[0..userCount) = deployed, rest = system
   const [idl, setIdl] = useState<Idl>({});
   const [sel, setSel] = useState<{ c?: DynContract; e?: Entry; input?: string; amount?: string; seed?: string }>({});
   const [result, setResult] = useState<string[]>([]);
@@ -115,8 +117,10 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     (async () => {
       try {
         setIdl(loadIdl());
-        const reg = await new LiteRpc(rpcBase).dynRegistry();
-        setContracts((reg.contracts ?? []).filter((c) => c.armed)); // only deployed slots, not free ones
+        const { user, system } = await loadContracts(new LiteRpc(rpcBase));   // deployed first, then system (catalog)
+        const combined = [...user, ...system.map(systemAsDyn)];
+        if (!combined.length) { add("no contracts — deploy one, or run `qinit up` to load system contracts"); setStage("done"); return; }
+        setContracts(combined); setUserCount(user.length);
         setStage("contract");
       } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setStage("done"); }
     })();
@@ -208,8 +212,15 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
       </Panel>,
     );
 
-  if (stage === "contract")
-    return wrap(<Select label="Pick a deployed contract:" items={contracts.map((c) => ({ label: `${nameOf(c)}  [idx ${c.index}] ${c.constructed ? "✓" : "armed"}  ${c.functions.length} fn / ${c.procedures.length} proc`, value: c }))} onSelect={(c) => { setSel({ c }); setStage("entry"); }} />);
+  if (stage === "contract") {
+    const item = (c: DynContract) => ({ label: `${nameOf(c)}  [idx ${c.index}]  ${c.functions.length} fn / ${c.procedures.length} proc`, value: c });
+    const u = contracts.slice(0, userCount), s = contracts.slice(userCount);
+    const items = [
+      ...(u.length ? [{ label: "deployed", header: true }, ...u.map(item)] : []),
+      ...(s.length ? [{ label: "system", header: true }, ...s.map(item)] : []),
+    ];
+    return wrap(<Select label="Pick a contract:" items={items} onSelect={(c) => { setSel({ c }); setStage("entry"); }} />);
+  }
 
   if (stage === "entry") {
     const items = entriesFor(sel.c!).map((e) => ({ label: `${e.kind === "fn" ? "fn  " : "proc"} ${e.name ?? "#" + e.inputType}  (${noInput(e) ? "no input" : "in " + e.inputSize + "B"}${e.kind === "fn" ? ", out " + e.outputSize + "B" : ""})`, value: e }));

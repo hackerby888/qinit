@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { LiteRpc, type DynContract } from "@qinit/core";
+import type { SystemContract } from "@qinit/build";
 import { loadConfig } from "../config";
+import { loadSystem } from "../contracts";
 import { Header, Spinner, Panel, Table, theme, type Column } from "../ui";
 
-// qinit ls [--rpc <url>]  — list contracts deployed on the node (from the dyn-registry).
+// qinit ls [--rpc <url>]  — user-deployed contracts (dyn-registry) first, then built-in system contracts (catalog).
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) { const a = args[i]; if (a.startsWith("--")) o[a.slice(2)] = args[++i] ?? ""; }
@@ -14,36 +16,49 @@ const COLS: Column[] = [
   { header: "slot", align: "right" }, { header: "name", max: 20 }, { header: "state" },
   { header: "fn·proc", align: "right" }, { header: "ver", align: "right" }, { header: "k12", dim: true, max: 16 },
 ];
+const SYS_COLS: Column[] = [
+  { header: "idx", align: "right" }, { header: "name", max: 16 }, { header: "fn·proc", align: "right" }, { header: "source", dim: true, max: 24 },
+];
 const stateOf = (c: DynContract) => (!c.armed ? "empty" : c.constructed ? "ready" : "constructing");
 
 export function Ls({ args }: { args: string[] }) {
   const o = parse(args);
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
-  const [s, setS] = useState<{ phase: "run" | "done" | "err"; rows?: DynContract[]; err?: string }>({ phase: "run" });
+  const [s, setS] = useState<{ phase: "run" | "done"; user?: DynContract[]; system?: SystemContract[]; nodeDown?: boolean }>({ phase: "run" });
 
   useEffect(() => { (async () => {
-    try { const reg = await new LiteRpc(rpcBase).dynRegistry(); setS({ phase: "done", rows: reg.contracts ?? [] }); }
-    catch (e: any) { setS({ phase: "err", err: String(e?.message ?? e) }); }
+    let user: DynContract[] = []; let nodeDown = false;
+    try { user = (await new LiteRpc(rpcBase).dynRegistry()).contracts ?? []; } catch { nodeDown = true; }
+    setS({ phase: "done", user, system: loadSystem(), nodeDown });   // system from the snapshot — shows even if the node is down
   })(); }, []);
   useEffect(() => { if (s.phase !== "run") { const t = setTimeout(() => exit(), 20); return () => clearTimeout(t); } }, [s.phase]);
 
-  if (s.phase === "run") return <Box flexDirection="column"><Header cmd="ls" /><Spinner label="loading dyn-registry" /></Box>;
-  if (s.phase === "err") return <Box flexDirection="column"><Header cmd="ls" /><Text color={theme.err}>ERROR: {s.err}</Text></Box>;
+  if (s.phase === "run") return <Box flexDirection="column"><Header cmd="ls" /><Spinner label="loading contracts" /></Box>;
 
-  const rows = (s.rows ?? []).filter((c) => c.armed || (c.name && c.name.length));
+  const user = (s.user ?? []).filter((c) => c.armed || (c.name && c.name.length));
+  const system = s.system ?? [];
   return (
     <Box flexDirection="column">
       <Header cmd="ls" />
-      {rows.length === 0 ? <Text dimColor>no contracts deployed — try: <Text bold color={theme.accent}>qinit deploy</Text></Text> : (
-        <Panel title={`contracts · ${rows.length}`} color={theme.brand}>
-          <Table
-            columns={COLS}
-            rows={rows.map((c) => [String(c.index), c.name || "-", stateOf(c), `${c.functions?.length ?? 0}/${c.procedures?.length ?? 0}`, "v" + (c.version ?? 0), (c.codeHash || "").slice(0, 16) + "…"])}
-            rowColor={(i) => { const st = stateOf(rows[i]); return st === "constructing" ? theme.warn : st === "empty" ? theme.mute : undefined; }}
-          />
+      {user.length > 0 && (
+        <Panel title={`deployed · ${user.length}`} color={theme.brand}>
+          <Table columns={COLS}
+            rows={user.map((c) => [String(c.index), c.name || "-", stateOf(c), `${c.functions?.length ?? 0}/${c.procedures?.length ?? 0}`, "v" + (c.version ?? 0), (c.codeHash || "").slice(0, 16) + "…"])}
+            rowColor={(i) => { const st = stateOf(user[i]); return st === "constructing" ? theme.warn : st === "empty" ? theme.mute : undefined; }} />
         </Panel>
       )}
+      {system.length > 0 && (
+        <Panel title={`system · ${system.length}`} color={theme.info}>
+          <Table columns={SYS_COLS}
+            rows={system.map((c) => [String(c.index), c.name, `${Object.keys(c.idl.functions).length}/${Object.keys(c.idl.procedures).length}`, c.file])} />
+        </Panel>
+      )}
+      {user.length === 0 && (s.nodeDown
+        ? <Text dimColor>node unreachable — deployed contracts hidden. <Text bold color={theme.accent}>qinit up</Text> to start it.</Text>
+        : system.length === 0
+          ? <Text dimColor>no contracts — <Text bold color={theme.accent}>qinit deploy</Text>, or <Text bold color={theme.accent}>qinit up</Text> for system contracts</Text>
+          : null)}
     </Box>
   );
 }

@@ -3,10 +3,10 @@
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { buildContract, type ContractIdl } from "@qinit/build";
+import { buildContract, systemNames, type ContractIdl } from "@qinit/build";
 import { buildSignedTx, broadcastTx, LiteRpc, k12Hex, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
 import { encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX, resolveSlot, TX_TICK_OFFSET } from "@qinit/proto";
-import { savedSeed } from "./config";
+import { savedSeed, resolveCore } from "./config";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
 export type Ev =
@@ -36,6 +36,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Promise<DeployResult> {
   const rpc = new LiteRpc(o.rpcBase);
+
+  // refuse a name that collides with a built-in system contract (QX, QEARN, …) — keeps name resolution unambiguous.
+  try {
+    if (systemNames(resolveCore(o.core)).has(o.name.toLowerCase())) {
+      emit({ step: "build", state: "fail", detail: `'${o.name}' is a system contract name` });
+      return { ok: false, error: `'${o.name}' is a reserved system contract name — pick another` };
+    }
+  } catch { /* no core snapshot resolvable -> build would fail later anyway; skip the guard */ }
 
   const pin = readCurrent();
   if (pin?.headersVersion && pin?.nodeVersion && pin.headersVersion !== pin.nodeVersion)

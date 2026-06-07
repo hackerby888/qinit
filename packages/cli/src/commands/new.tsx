@@ -3,6 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Header, theme } from "../ui";
+import { loadSystem } from "../contracts";
 import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "../templates";
 
 function parse(args: string[]): { name?: string; slot?: string; core?: string; template?: string } {
@@ -41,6 +42,8 @@ export function New({ args }: { args: string[] }) {
       // a contract named after a QPI type (Asset, Entity, …) makes the generated wrapper ambiguous -> won't compile
       const RESERVED = ["Asset", "Entity", "Array", "Collection", "HashMap", "HashSet"];
       if (RESERVED.includes(name)) { add(`✗ '${name}' collides with a QPI type — pick another name (reserved: ${RESERVED.join(", ")})`); setDone(true); return; }
+      // also refuse a built-in system-contract name (best-effort: needs the snapshot; deploy re-checks authoritatively)
+      if (loadSystem().some((c) => c.name.toLowerCase() === name.toLowerCase())) { add(`✗ '${name}' is a system contract name — pick another`); setDone(true); return; }
       const core = o.core ?? process.env.QINIT_CORE; // pin only if explicit; else qinit.json omits it -> synced cache (portable)
       if (existsSync(dir)) { add(`✗ '${dir}' already exists`); setDone(true); return; }
 

@@ -8,6 +8,7 @@ import { describeTrace, jstr, type TraceView as TraceData } from "../trace-forma
 import { TraceView } from "../views";
 import { CallInteractive } from "./call-interactive";
 import { loadConfig, resolveSeed } from "../config";
+import { loadContracts, resolveContract } from "../contracts";
 import { Header, Spinner, Status, Bar, theme } from "../ui";
 
 type Result = { ok: boolean | null; label: string; detail?: string; rows?: [string, string][]; err?: string };
@@ -55,24 +56,16 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
         const rpc = new LiteRpc(rpcBase);
         const idl: any = (() => { try { return existsSync("qinit.idl.json") ? JSON.parse(readFileSync("qinit.idl.json", "utf8")) : {}; } catch { return {}; } })();
 
-        // contract: accept a name (resolve via registry) or a slot index.
-        let idx = Number(o.idx);
-        if (Number.isNaN(idx)) {
-          const reg = await rpc.dynRegistry();
-          const c = (reg.contracts ?? []).find((x) => x.armed && (x.name || "").toLowerCase() === String(o.idx).toLowerCase());
-          if (!c) throw new Error(`no deployed contract named '${o.idx}'`);
-          idx = c.index;
-        }
-        // entry: accept a fn/proc name (resolve via IDL) or an inputType number. Prefer the local
-        // qinit.idl.json; if absent for this slot, derive the IDL from the node-stored contract source
-        // (dyn-registry) so a name call works for any deployed contract, not just locally-built ones.
+        // contract: resolve a name or index across user-deployed (first) then built-in system contracts.
+        const sets = await loadContracts(rpc);
+        const rc = resolveContract(String(o.idx), sets);
+        if (!rc) throw new Error(`no contract '${o.idx}' (deployed or system — run \`qinit up\` to load system contracts)`);
+        const idx = rc.index;
+        // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
+        // contract source (node dyn-registry source for user contracts, snapshot source for system contracts).
         let tbl: any = (o.mode === "fn" ? idl[String(idx)]?.functions : idl[String(idx)]?.procedures);
-        if (!tbl || !Object.keys(tbl).length) {
-          try {
-            const reg = await rpc.dynRegistry();
-            const c = (reg.contracts ?? []).find((x) => x.index === idx);
-            if (c?.source) { const d = extractIdl(c.source, c.name || "Contract"); tbl = o.mode === "fn" ? d.functions : d.procedures; }
-          } catch {}
+        if ((!tbl || !Object.keys(tbl).length) && rc.source) {
+          const d = extractIdl(rc.source, rc.name); tbl = o.mode === "fn" ? d.functions : d.procedures;
         }
         tbl = tbl ?? {};
         let entry = Number(o.entry);
@@ -94,13 +87,10 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
 
         // --trace: capture the call in the node debug ring. Enable + note the latest seq BEFORE dispatch.
         const wantTrace = o.trace !== undefined;
-        let sinceSeq = 0; let traceSrc: string | undefined; let traceName = String(idx);
+        let sinceSeq = 0; const traceSrc = rc.source; const traceName = rc.name;
         if (wantTrace) {
           try {
             await rpc.setDebug(true);
-            const reg = await rpc.dynRegistry();
-            const c = (reg.contracts ?? []).find((x) => x.index === idx);
-            traceSrc = c?.source; traceName = c?.name || String(idx);
             sinceSeq = ((await rpc.debugTrace(0, 500)).entries ?? []).reduce((mx, en) => Math.max(mx, en.seq), 0);
           } catch {}
         }
