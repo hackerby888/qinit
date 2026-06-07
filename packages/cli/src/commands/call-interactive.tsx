@@ -107,6 +107,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     try {
       const rpc = new LiteRpc(rpcBase);
       const idx = s.c!.index, e = s.e!;
+      add("≡ " + equivCmd(s.c!, e, s));   // the non-interactive equivalent — copy-paste to repeat this call
       if (e.kind === "fn") {
         const out = await callFunction(rpc, idx, e.inputType, s.input ?? "", e.out ?? "");
         add(`${labelFor(s.c!, e)} -> ${JSON.stringify(out, (_k, v) => (typeof v === "bigint" ? v.toString() : v))}`);
@@ -147,6 +148,15 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   };
 
   const labelFor = (c: DynContract, e: Entry) => `${nameOf(c)}.${e.name ?? (e.kind + "#" + e.inputType)}`;
+  // the equivalent non-interactive command (name + entry both accept name-or-number in `qinit call`)
+  const equivCmd = (c: DynContract, e: Entry, s: typeof sel) => {
+    const entry = e.name ?? e.inputType;
+    const parts = ["qinit call", e.kind === "fn" ? "--fn" : "--proc", String(nameOf(c)), String(entry)];
+    if ((s.input ?? "").trim()) parts.push(`--in "${s.input!.trim()}"`);
+    if (e.kind === "fn" && (e.out ?? "").trim()) parts.push(`--out "${e.out!.trim()}"`);
+    if (e.kind === "proc" && Number(s.amount ?? 0) > 0) parts.push(`--amount ${s.amount}`);
+    return parts.join(" ");
+  };
   const nameOf = (c: DynContract) => c.name || idl[String(c.index)]?.name || `contract ${c.index}`;
 
   // ---- entries for the chosen contract (registry truth, merged with IDL names/formats) ----
