@@ -17,6 +17,7 @@ import { Cheat } from "./commands/cheat";
 import { Seed } from "./commands/seed";
 import { Tick } from "./commands/tick";
 import { Epoch } from "./commands/epoch";
+import { ThemeCmd } from "./commands/theme";
 import { Update } from "./commands/update";
 import { Uninstall } from "./commands/uninstall";
 import { New } from "./commands/new";
@@ -61,6 +62,8 @@ export function App({ command, args }: { command: string; args: string[] }) {
       return <Tick args={args} />;
     case "epoch":
       return <Epoch args={args} />;
+    case "theme":
+      return <ThemeCmd args={args} />;
     case "cheat-sheet":
     case "cheat":
     case "--cheat-sheet":

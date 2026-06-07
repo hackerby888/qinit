@@ -37,6 +37,7 @@ const GROUPS: { title: string; items: Cmd[] }[] = [
     { name: "test", desc: "deploy to an ephemeral node + run bun tests against it" },
   ]},
   { title: "misc", items: [
+    { name: "theme", desc: "pick a UI color variant (default|emerald|ocean|rose|amber|mono); applies everywhere" },
     { name: "cheat-sheet", desc: "one-screen guide: setup → contract → deploy → call (+ input/output formats)" },
     { name: "smoke", desc: "run the standalone-binary crypto smoke test" },
     { name: "version", desc: "print version" },

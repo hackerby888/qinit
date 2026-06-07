@@ -4,17 +4,27 @@
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 
-export const theme = {
-  gradFrom: "#7c5cff", // violet
-  gradTo: "#22d3ee",   // cyan
-  brand: "#7c5cff",
-  accent: "#f472b6",   // pink
-  ok: "#22c55e",
-  err: "#ef4444",
-  warn: "#f59e0b",
-  info: "#22d3ee",
-  mute: "gray" as const,
+export type Theme = { gradFrom: string; gradTo: string; brand: string; accent: string; ok: string; err: string; warn: string; info: string; mute: string };
+
+// Color variants. ok/err/warn stay semantic (green/red/amber); brand/accent/info/gradient carry the "look".
+// Pick with `qinit theme`; the choice persists and every command's UI follows it.
+export const THEMES: Record<string, Theme> = {
+  default: { gradFrom: "#7c5cff", gradTo: "#22d3ee", brand: "#7c5cff", accent: "#f472b6", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#22d3ee", mute: "gray" },
+  emerald: { gradFrom: "#10b981", gradTo: "#a7f3d0", brand: "#10b981", accent: "#f59e0b", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#2dd4bf", mute: "gray" },
+  ocean:   { gradFrom: "#3b82f6", gradTo: "#22d3ee", brand: "#3b82f6", accent: "#38bdf8", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#38bdf8", mute: "gray" },
+  rose:    { gradFrom: "#f43f5e", gradTo: "#fb7185", brand: "#f43f5e", accent: "#a78bfa", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#fb7185", mute: "gray" },
+  amber:   { gradFrom: "#f59e0b", gradTo: "#fde047", brand: "#f59e0b", accent: "#fb7185", ok: "#22c55e", err: "#ef4444", warn: "#f97316", info: "#fbbf24", mute: "gray" },
+  mono:    { gradFrom: "#a1a1aa", gradTo: "#fafafa", brand: "#d4d4d8", accent: "#fafafa", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#a1a1aa", mute: "gray" },
 };
+export const THEME_NAMES = Object.keys(THEMES);
+
+// Mutable so a saved choice applied at startup (applyTheme) is seen by every component that reads `theme.*`.
+export const theme: Theme = { ...THEMES.default };
+export function applyTheme(name?: string): string {
+  const key = name && THEMES[name] ? name : "default";
+  Object.assign(theme, THEMES[key]);
+  return key;
+}
 
 // ---- color helpers ---------------------------------------------------------
 function hx(c: string): [number, number, number] {

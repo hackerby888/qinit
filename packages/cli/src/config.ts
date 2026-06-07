@@ -34,6 +34,17 @@ export function setSavedSeed(seed: string): void {
 }
 export function clearSavedSeed(): void { try { rmSync(seedStorePath()); } catch {} }
 
+// Globally-chosen UI color theme (set by `qinit theme`), applied at startup so every command follows it.
+export function themeStorePath(): string {
+  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "qinit", "theme");
+}
+export function savedTheme(): string | undefined {
+  try { return readFileSync(themeStorePath(), "utf8").trim() || undefined; } catch { return undefined; }
+}
+export function setSavedTheme(name: string): void {
+  const p = themeStorePath(); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, name + "\n");
+}
+
 // Seed precedence: explicit (--seed) > saved pick (`qinit seed`) > node funded seed > dev default.
 export async function resolveSeed(rpc: { fundedSeed(): Promise<string | undefined> }, explicit?: string): Promise<string> {
   if (explicit) { assertSeed(explicit); return explicit; }
