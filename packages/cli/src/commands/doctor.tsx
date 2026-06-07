@@ -38,7 +38,7 @@ async function runChecks(): Promise<Check[]> {
     name: "qubic-core-lite headers",
     ok: hasQpi,
     detail: hasQpi ? qpi : (coreErr || "headers not found"),
-    fix: hasQpi ? undefined : "qinit sync            (fetch published snapshot)  or  qinit sync --from <core-checkout>",
+    fix: hasQpi ? undefined : "qinit up              (fetch published snapshot)  or  set QINIT_CORE=<core-checkout>",
   });
 
   try {
@@ -52,8 +52,8 @@ async function runChecks(): Promise<Check[]> {
   const vtool = resolveVerifyTool();
   checks.push({
     name: "contract-verify tool", optional: true, ok: vtool ? true : null,
-    detail: vtool ?? "not synced — qinit build will skip the qpi.h rule check",
-    fix: vtool ? undefined : "qinit sync   ·   or set QINIT_VERIFY=/path/to/contractverify",
+    detail: vtool ?? "not fetched — qinit build will skip the qpi.h rule check",
+    fix: vtool ? undefined : "qinit up   ·   or set QINIT_VERIFY=/path/to/contractverify",
   });
   return checks;
 }

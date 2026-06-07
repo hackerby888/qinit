@@ -6,7 +6,6 @@ import { Banner, theme } from "../ui";
 const COMMANDS: [string, string][] = [
   ["new", "scaffold a project: new <name> --template counter|hashmap|asset|intercontract"],
   ["doctor", "check toolchain (wasi-sdk, node, core headers, qubic lib)"],
-  ["sync", "fetch/build the core-header snapshot into the cache"],
   ["node", "run / status / stop / get the dev node (run --bin <path>)"],
   ["clean", "remove all qinit cache (node, headers, wasi-sdk, tools); --dry-run to preview"],
   ["up", "one command: sync headers + get node + run (reuses a ticking node)"],

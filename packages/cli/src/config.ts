@@ -19,12 +19,12 @@ export function loadConfig(path = "qinit.json"): QinitConfig {
   return {};
 }
 
-// Where to find core headers for compiling: explicit checkout > env > synced snapshot cache.
-// No checkout and no `qinit sync` => actionable error.
+// Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache.
+// No checkout and no fetched snapshot => actionable error.
 export function resolveCore(cliCore?: string, cfgCore?: string): string {
   const explicit = cliCore || cfgCore || process.env.QINIT_CORE;
   if (explicit) return resolve(explicit);
   const cur = readCurrent();
   if (cur?.coreHeaders && existsSync(cur.coreHeaders)) return cur.coreHeaders;
-  throw new Error("no core headers: pass --core <checkout>, set QINIT_CORE, or run `qinit sync --from <core>`");
+  throw new Error("no core headers: run `qinit up` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>");
 }
