@@ -126,8 +126,20 @@ export async function readState(rpc: StateReader, idx: number, source: string, n
   for (const f of fields) {
     if (f.bad) { scalars.push({ name: f.name, value: `(undecodable: ${f.type} — fields below not shown)` }); continue; }
     if (f.container) continue;                               // containers shown via decodeColumns below
+    const CAP = 262144;                                      // the node's state-read window
     try {
-      const dv = await decodeOutput(hexToBytes((await rpc.stateRead(idx, f.off, Math.min(f.size, 262144))).hex), f.type);
+      // a plain Array<T,N> field larger than the read window: decode only the elements that fit + "first K of N".
+      const am = f.type.match(/^\[(\d+)\s*;\s*([\s\S]+)\]$/);
+      if (am && f.size > CAP) {
+        const n = Number(am[1]); const elem = am[2].trim();
+        const el = layoutOf(elem); const stride = Math.max(1, roundUp(el.size, el.align));
+        const buf = hexToBytes((await rpc.stateRead(idx, f.off, CAP)).hex);
+        const k = Math.min(n, Math.floor(buf.length / stride));
+        const dv = await decodeOutput(buf, `[${k}; ${elem}]`);
+        scalars.push({ name: f.name, value: `${fmtVal(dv, full)}  (first ${k} of ${n})` });
+        continue;
+      }
+      const dv = await decodeOutput(hexToBytes((await rpc.stateRead(idx, f.off, Math.min(f.size, CAP))).hex), f.type);
       scalars.push({ name: f.name, value: typeof dv === "object" && dv !== null ? fmtVal(dv, full) : String(dv) });  // bare scalar unquoted; struct/array run-length-grouped
     } catch { scalars.push({ name: f.name, value: "(read failed)" }); }
   }
