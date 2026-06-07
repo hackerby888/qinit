@@ -4,7 +4,7 @@ import { LiteRpc, type DynContract } from "@qinit/core";
 import { readState, type StateDump } from "../trace-format";
 import { StateView } from "../views";
 import { loadConfig } from "../config";
-import { Header, Spinner, theme } from "../ui";
+import { Header, Spinner, GradLine, theme } from "../ui";
 
 // qinit state [<name|slot>] [--rpc <url>]
 // Decode + print a deployed contract's CURRENT state. No target -> interactive picker of deployed contracts.
@@ -79,7 +79,10 @@ export function State({ args }: { args: string[] }) {
           <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
             {contracts.map((c, idx) => {
               const sel = idx === i;
-              return <Text key={c.index} inverse={sel}>{sel ? "▸ " : "  "}<Text color={sel ? undefined : theme.brand}>{(c.name || "—").padEnd(16)}</Text> <Text dimColor>slot {c.index} · {c.functions?.length ?? 0}fn/{c.procedures?.length ?? 0}proc{c.source ? "" : " · no source"}</Text></Text>;
+              const detail = `slot ${c.index} · ${c.functions?.length ?? 0}fn/${c.procedures?.length ?? 0}proc${c.source ? "" : " · no source"}`;
+              return sel
+                ? <GradLine key={c.index} text={`▸ ${(c.name || "—").padEnd(16)} ${detail}`} />
+                : <Text key={c.index}>{"  "}<Text color={theme.brand}>{(c.name || "—").padEnd(16)}</Text> <Text dimColor>{detail}</Text></Text>;
             })}
           </Box>
         </Box>

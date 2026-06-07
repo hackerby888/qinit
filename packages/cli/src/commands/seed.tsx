@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, deriveIdentity } from "@qinit/core";
 import { savedSeed, setSavedSeed, clearSavedSeed, seedStorePath, loadConfig } from "../config";
-import { Header, Spinner, theme } from "../ui";
+import { Header, Spinner, GradLine, theme } from "../ui";
 
 // qinit seed [--clear] [--show] [--rpc <url>]
 // Pick one of the node's funded seeds; saved globally (XDG config, 0600) and auto-used wherever a seed is needed.
@@ -65,8 +65,11 @@ export function Seed({ args }: { args: string[] }) {
           <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
             {items.slice(Math.max(0, start), Math.max(0, start) + WIN).map((it, k) => {
               const idx = start + k, sel = idx === i;
+              const cm = it.seed === cur ? "  ✓ current" : "";
               return <Box key={idx} flexDirection="column">
-                <Text inverse={sel}>{sel ? "▸ " : "  "}<Text color={sel ? undefined : theme.info}>{it.id}</Text>{it.seed === cur ? <Text color={theme.ok}> ✓ current</Text> : null}</Text>
+                {sel
+                  ? <GradLine text={"▸ " + it.id + cm} />
+                  : <Text>{"  "}<Text color={theme.info}>{it.id}</Text>{it.seed === cur ? <Text color={theme.ok}> ✓ current</Text> : null}</Text>}
                 <Text dimColor>{"  "}{it.seed}</Text>
               </Box>;
             })}

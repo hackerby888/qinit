@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedTheme, setSavedTheme } from "../config";
-import { Header, Grad, THEMES, THEME_NAMES, applyTheme, theme } from "../ui";
+import { Header, Grad, GradLine, THEMES, THEME_NAMES, applyTheme, theme } from "../ui";
 
 // qinit theme            -> interactive picker (live preview); ↵ saves, q cancels
 // qinit theme <name>     -> set directly
@@ -58,7 +58,7 @@ export function ThemeCmd({ args }: { args: string[] }) {
           <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
             {THEME_NAMES.map((name, idx) => {
               const sel = idx === i;
-              return <Text key={name} inverse={sel}>{sel ? "▸ " : "  "}<Text color={sel ? undefined : theme.brand}>{name.padEnd(9)}</Text> <Swatch name={name} />{name === cur ? <Text color={theme.ok}> ✓ current</Text> : null}</Text>;
+              return <Text key={name}>{sel ? <GradLine text={"▸ " + name.padEnd(9)} /> : <Text>{"  "}<Text color={theme.brand}>{name.padEnd(9)}</Text></Text>} <Swatch name={name} />{name === cur ? <Text color={theme.ok}> ✓ current</Text> : null}</Text>;
             })}
           </Box>
         </Box>

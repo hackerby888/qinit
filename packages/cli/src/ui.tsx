@@ -48,6 +48,18 @@ export function Grad({ text, from = theme.gradFrom, to = theme.gradTo, bold = tr
   );
 }
 
+// WHITE text on a per-char gradient background — the standard highlight (table header, selected picker row).
+// Global rule: text on a gradient background is always white.
+export function GradLine({ text, from = theme.gradFrom, to = theme.gradTo, bold = true }:
+  { text: string; from?: string; to?: string; bold?: boolean }) {
+  const n = text.length;
+  return (
+    <Text bold={bold}>
+      {[...text].map((ch, i) => <Text key={i} backgroundColor={lerp(from, to, n < 2 ? 0 : i / (n - 1))} color="#ffffff">{ch}</Text>)}
+    </Text>
+  );
+}
+
 // Gradient horizontal rule.
 export function Rule({ width = 50 }: { width?: number }) {
   return <Grad text={"─".repeat(width)} bold={false} />;
@@ -220,25 +232,16 @@ export function Table({ columns, rows, selected, rowColor }:
     return columns[i].align === "right" ? v.padStart(widths[i]) : v.padEnd(widths[i]);
   };
   const sp = " ".repeat(gap);
-  // header: one continuous gradient-background band (dark bold text) across the full table width.
-  const headerText = columns.map((c, i) => cell(c.header, i) + (i < columns.length - 1 ? sp : "")).join("");
-  const hn = headerText.length;
-  const Header = () => (
-    <Box>
-      <Text bold>
-        {[...headerText].map((ch, i) => (
-          <Text key={i} backgroundColor={lerp(theme.gradFrom, theme.gradTo, hn < 2 ? 0 : i / (hn - 1))} color="#0a0a0a">{ch}</Text>
-        ))}
-      </Text>
-    </Box>
-  );
+  const rowText = (cells: string[]) => columns.map((c, i) => cell(cells[i] ?? "", i) + (i < columns.length - 1 ? sp : "")).join("");
+  // header: one continuous gradient-background band (white bold text) across the full table width.
+  const Header = () => <Box><GradLine text={rowText(columns.map((c) => c.header))} /></Box>;
   const Row = ({ r, ri }: { r: string[]; ri: number }) => {
+    if (ri === selected) return <Box><GradLine text={rowText(r)} /></Box>;   // selected -> gradient bg, white text
     const rc = rowColor?.(ri);
     return (
       <Box>
         {columns.map((c, i) => (
-          <Text key={i} inverse={ri === selected} dimColor={c.dim && ri !== selected && !rc}
-            color={ri === selected ? undefined : (rc ?? c.color)}>
+          <Text key={i} dimColor={c.dim && !rc} color={rc ?? c.color}>
             {cell(r[i] ?? "", i)}{i < columns.length - 1 ? sp : ""}
           </Text>
         ))}
