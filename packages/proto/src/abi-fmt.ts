@@ -87,6 +87,7 @@ function parseType(s: string, i: number): [TypeNode, number] {
   const tok = s.slice(i, j);
   if (tok === "id") return [{ kind: "id" }, j];
   if (tok === "m256i") return [{ kind: "bytes", size: 32 }, j]; // m256i raw hex (vs id = identity)
+  if (tok === "uint128" || tok === "sint128") return [{ kind: "bytes", size: 16 }, j]; // 128-bit -> raw hex (offsets correct)
   const size = SCALAR_SIZE[tok];
   if (!size) throw new Error(`unknown type '${tok}'`);
   return [{ kind: "scalar", type: tok, size, signed: tok.startsWith("sint"), big: size === 8 }, j];

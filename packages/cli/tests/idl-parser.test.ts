@@ -1,0 +1,63 @@
+import { test, expect } from "bun:test";
+import { extractIdl } from "@qinit/build";
+import { stateFieldsOf } from "../src/trace-format";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+
+const SRC = `using namespace QPI;
+constexpr uint64 CAP = 4 * 2;
+constexpr uint64 HALF = div<uint64>(CAP, 2);
+enum Color { Red, Green };
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Inner { uint64 x; };
+  struct Wrap { struct Order { id who; uint64 amt; }; };
+  struct StateData {
+    unsigned int nativeU;
+    int nativeI;
+    uint128 big;
+    Color c;
+    Asset asset;
+    Inner inner;
+    Wrap::Order scoped;
+    sint64 a, b, cc;
+    Array<Inner, CAP> arr;
+    void helper() { nativeI = 1; }
+  };
+  struct Get_input {}; struct Get_output { uint64 v; };
+  PUBLIC_FUNCTION(Get) { }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
+  INITIALIZE() {}
+};`;
+
+test("parser: native, uint128, enum, Asset, nested + scoped struct, multi-var, constexpr/div size, methods", () => {
+  const sf = stateFieldsOf(extractIdl(SRC, "T"));
+  const by = Object.fromEntries(sf.map((f) => [f.name, f]));
+  expect(sf.some((f) => f.bad)).toBe(false);              // everything resolves
+  expect(by.nativeU.size).toBe(4);                         // unsigned int -> uint32
+  expect(by.nativeI.size).toBe(4);                         // int -> sint32
+  expect(by.big.size).toBe(16);                            // uint128
+  expect(by.c.size).toBe(4);                               // enum -> uint32
+  expect(by.asset.size).toBe(40);                          // Asset { id(32), uint64(8) }
+  expect(by.inner.size).toBe(8);                           // custom struct { uint64 }
+  expect(by.scoped.size).toBe(40);                         // Wrap::Order { id, uint64 }
+  expect(by.a.size).toBe(8); expect(by.b.size).toBe(8); expect(by.cc.size).toBe(8);  // multi-var split
+  expect(by.arr.size).toBe(8 * 8);                         // Array<Inner, CAP=8> stride 8
+  expect(by.helper).toBeUndefined();                       // method stripped, not a field
+});
+
+test("parser: unresolvable field type degrades gracefully (marks bad + stops)", () => {
+  const bad = `struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { uint64 ok; Array<X, SOME_EXTERNAL_DEFINE> nope; uint64 after; }; INITIALIZE() {} };`;
+  const sf = stateFieldsOf(extractIdl(bad, "B"));
+  expect(sf[0].name).toBe("ok");
+  expect(sf.find((f) => f.bad)?.name).toBe("nope");        // unsizable -> bad
+  expect(sf.some((f) => f.name === "after")).toBe(false);  // stops (later offsets unknown)
+});
+
+// Optional sweep: every system contract parses without crashing (skipped if the core checkout isn't present).
+const CORE = "/home/kali/Projects/qubic-core-lite/src/contracts";
+test("sweep: all system contracts parse without throwing", () => {
+  if (!existsSync(CORE)) return;
+  for (const f of readdirSync(CORE).filter((x) => x.endsWith(".h") && !["qpi.h", "math_lib.h"].includes(x))) {
+    expect(() => stateFieldsOf(extractIdl(readFileSync(`${CORE}/${f}`, "utf8"), f.replace(".h", "")))).not.toThrow();
+  }
+});

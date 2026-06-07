@@ -6,7 +6,7 @@ import { extractIdl } from "@qinit/build";
 import { bytesToIdentity, type DebugEntry } from "@qinit/core";
 
 export type Container = { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number };
-export type StateField = { name: string; off: number; size: number; type: string; container?: Container };
+export type StateField = { name: string; off: number; size: number; type: string; container?: Container; bad?: boolean };
 export type ColView = { name: string; entries: string[] };
 export type StateReader = { stateRead(slot: number, off: number, len: number): Promise<{ hex: string }> };
 
@@ -18,8 +18,14 @@ export const keyLabel = (k: unknown) => (typeof k === "string" ? k : jstr(k));  
 // per-field StateData layout walk (alignment-aware) — names a changed byte offset + locates container fields.
 // A single struct-typed field uses per-field layoutOf (NOT join+structFieldOffsets, which unwraps it wrong).
 export function stateFieldsOf(idl: { state?: { name: string; type: string; container?: Container }[] }): StateField[] {
-  let acc = 0;
-  return (idl.state ?? []).map((f) => { const L = layoutOf(f.type); acc = roundUp(acc, L.align); const r = { name: f.name, off: acc, size: L.size, type: f.type, container: f.container }; acc += L.size; return r; });
+  let acc = 0; const out: StateField[] = [];
+  for (const f of idl.state ?? []) {
+    let L: { size: number; align: number };
+    // unsizable type (e.g. a field whose size depends on an external #define) -> mark + stop: later offsets are unknown.
+    try { L = layoutOf(f.type); } catch { out.push({ name: f.name, off: acc, size: 0, type: f.type, container: f.container, bad: true }); break; }
+    acc = roundUp(acc, L.align); out.push({ name: f.name, off: acc, size: L.size, type: f.type, container: f.container }); acc += L.size;
+  }
+  return out;
 }
 
 export function labelOff(fields: StateField[], off: number): string {
@@ -100,6 +106,7 @@ export async function readState(rpc: StateReader, idx: number, source: string, n
   const fields = stateFieldsOf(idl);
   const scalars: { name: string; value: string }[] = [];
   for (const f of fields) {
+    if (f.bad) { scalars.push({ name: f.name, value: `(undecodable: ${f.type} — fields below not shown)` }); continue; }
     if (f.container) continue;                               // containers shown via decodeColumns below
     try {
       const dv = await decodeOutput(hexToBytes((await rpc.stateRead(idx, f.off, Math.min(f.size, 262144))).hex), f.type);
