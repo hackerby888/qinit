@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { LITE_TX, LOG_SEVERITY, CHUNK_DATA_MAX, MAX_INPUT_SIZE, CHUNK_HEADER_SIZE } from "./protocol";
+import { LITE_TX, LOG_SEVERITY, CHUNK_DATA_MAX, MAX_INPUT_SIZE, CHUNK_HEADER_SIZE } from "../src/protocol";
 
 // These lock the qinit side; scripts/check-protocol-drift.ts locks them against core in CI.
 test("LITE_TX deploy inputTypes", () => {

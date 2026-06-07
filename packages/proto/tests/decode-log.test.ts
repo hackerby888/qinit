@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { decodeLog, loggedSizeOf } from "./decode-log";
+import { decodeLog, loggedSizeOf } from "../src/decode-log";
 
 const hexOf = (b: number[]) => b.map((x) => (x & 0xff).toString(16).padStart(2, "0")).join("");
 // little-endian bytes of n (width bytes); BigInt.asUintN handles signed inputs

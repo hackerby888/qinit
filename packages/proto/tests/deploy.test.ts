@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
-import { LITE_TX, CHUNK_DATA_MAX, encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId } from "./deploy";
-import { contractAddress } from "./call";
+import { LITE_TX, CHUNK_DATA_MAX, encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId } from "../src/deploy";
+import { contractAddress } from "../src/call";
 
 const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const u32le = (b: Uint8Array, o: number) => new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(o, true);

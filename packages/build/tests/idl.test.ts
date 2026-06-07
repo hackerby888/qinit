@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { extractIdl } from "./idl";
+import { extractIdl } from "../src/idl";
 
 const SRC = `
 using namespace QPI;

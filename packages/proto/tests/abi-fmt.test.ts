@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { encodeInput, decodeOutput, structFieldOffsets, layoutOf, parseLayout } from "./abi-fmt";
+import { encodeInput, decodeOutput, structFieldOffsets, layoutOf, parseLayout } from "../src/abi-fmt";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const bytes = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16)));

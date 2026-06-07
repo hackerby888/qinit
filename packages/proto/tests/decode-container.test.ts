@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { decodeHashMap, decodeHashSet, decodeCollection } from "./decode-container";
+import { decodeHashMap, decodeHashSet, decodeCollection } from "../src/decode-container";
 
 // little-endian uint64 bytes
 const le = (n: bigint): number[] => { const b: number[] = []; for (let i = 0; i < 8; i++) b.push(Number((n >> BigInt(8 * i)) & 0xffn)); return b; };

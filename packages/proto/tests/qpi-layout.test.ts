@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
-import { flagWordCount, hashMapFmt, hashSetFmt, collectionFmt, hashMapElemFmt, collectionElemFmt, COLLECTION_POV_FMT } from "./qpi-layout";
-import { layoutOf } from "./abi-fmt";
+import { flagWordCount, hashMapFmt, hashSetFmt, collectionFmt, hashMapElemFmt, collectionElemFmt, COLLECTION_POV_FMT } from "../src/qpi-layout";
+import { layoutOf } from "../src/abi-fmt";
 
 test("flagWordCount: 2 bits/slot, 32 slots/uint64 word", () => {
   expect([1, 32, 33, 64, 1024].map(flagWordCount)).toEqual([1, 1, 2, 2, 32]);

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { describeTrace, readState, type StateReader } from "./trace-format";
+import { describeTrace, readState, type StateReader } from "../src/trace-format";
 
 // LE bytes / hex helpers
 const le = (n: bigint | number, w: number) => { let v = BigInt.asUintN(64, BigInt(n)); const b: number[] = []; for (let i = 0; i < w; i++) { b.push(Number(v & 0xffn)); v >>= 8n; } return b; };

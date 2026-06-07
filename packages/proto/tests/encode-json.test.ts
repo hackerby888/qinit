@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { jsonToInputFmt, encodeInputJson, encodeInput, decodeOutput } from "./abi-fmt";
+import { jsonToInputFmt, encodeInputJson, encodeInput, decodeOutput } from "../src/abi-fmt";
 
 test("jsonToInputFmt: flat scalars by field name", () => {
   expect(jsonToInputFmt([{ name: "value", type: "uint64" }], { value: 3 })).toBe("3uint64");

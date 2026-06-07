@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { k12Hex, deriveIdentity, bytesToIdentity, identityToBytes } from "./qubic";
+import { k12Hex, deriveIdentity, bytesToIdentity, identityToBytes } from "../src/qubic";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
