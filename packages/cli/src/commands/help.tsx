@@ -36,12 +36,12 @@ export function Help({ unknown, command }: { unknown?: boolean; command?: string
       <Banner version={VERSION} tagline="Framework for Qubic dynamic contracts" />
       <Text dimColor>usage: <Text color={theme.info}>qinit</Text> &lt;command&gt; [args]</Text>
       <Box marginTop={1} flexDirection="column">
-        {COMMANDS.map(([name, desc]) => (
+        {(() => { const w = Math.max(...COMMANDS.map(([n]) => n.length)) + 2; return COMMANDS.map(([name, desc]) => (
           <Text key={name}>
-            {"  "}<Text bold color={theme.accent}>{name.padEnd(10)}</Text>
+            {"  "}<Text bold color={theme.accent}>{name.padEnd(w)}</Text>
             <Text dimColor>{desc}</Text>
           </Text>
-        ))}
+        )); })()}
       </Box>
     </Box>
   );
