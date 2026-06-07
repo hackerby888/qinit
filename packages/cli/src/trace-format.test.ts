@@ -57,3 +57,55 @@ test("readState: scalar fields decoded + container entries", async () => {
   expect(dump.cols[0].name).toBe("bal");
   expect(dump.cols[0].entries[0]).toContain("42");
 });
+
+// signed i64 LE (for collection BST indices)
+const i64 = (n: number | bigint) => { let v = BigInt.asUintN(64, BigInt(n)); const b: number[] = []; for (let i = 0; i < 8; i++) { b.push(Number(v & 0xffn)); v >>= 8n; } return b; };
+const mkEntry = (o: Partial<any>): any => ({ seq: 1, tick: 1, index: 0, entry: 1, kind: 1, ok: true, execNs: 0, invocator: "11".repeat(32), invocationReward: 0, inHex: "", outHex: "", stateDiff: [], hostCalls: [], logs: [], ...o });
+
+test("describeTrace: multi-field input decodes to a tuple", async () => {
+  const SRC_MULTI = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct Pair_input { uint64 a; uint64 b; }; struct Pair_output {}; PUBLIC_PROCEDURE(Pair) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Pair, 1); } INITIALIZE() {} };`;
+  const v = await describeTrace(mkEntry({ inHex: hx([...le(5, 8), ...le(7, 8)]) }), SRC_MULTI, "M", fakeRpc({}));
+  expect(v.inDecoded).toBe('["5","7"]');
+});
+
+test("describeTrace: Collection state field is decoded into cols (priority order)", async () => {
+  const SRC_COLL = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { Collection<uint64, 4> q; }; struct Add_input { id pov; uint64 v; sint64 p; }; struct Add_output {}; PUBLIC_PROCEDURE(Add) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Add, 1); } INITIALIZE() {} };`;
+  const cap = 4, elemsOff = cap * 64 + 8;
+  const b = new Array(elemsOff + cap * 48 + 16).fill(0);
+  i64(0).forEach((x, i) => (b[56 + i] = x));          // PoV0.bstRoot = elem0
+  b[cap * 64] = 1;                                     // PoV0 occupied
+  i64(7).forEach((x, i) => (b[elemsOff + i] = x));     // elem0 value=7
+  i64(3).forEach((x, i) => (b[elemsOff + 8 + i] = x)); // priority=3
+  i64(-1).forEach((x, i) => (b[elemsOff + 32 + i] = x)); i64(-1).forEach((x, i) => (b[elemsOff + 40 + i] = x)); // no children
+  const v = await describeTrace(mkEntry({ index: 1 }), SRC_COLL, "Coll", fakeRpc({ 0: hx(b) }));
+  expect(v.cols[0].name).toBe("q");
+  expect(v.cols[0].entries[0]).toContain("7");
+  expect(v.cols[0].entries[0]).toContain("p3");
+});
+
+test("describeTrace: HashSet state field is decoded into cols", async () => {
+  const SRC_SET = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { HashSet<id, 4> seen; }; struct Mark_input { id who; }; struct Mark_output {}; PUBLIC_PROCEDURE(Mark) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Mark, 1); } INITIALIZE() {} };`;
+  const b = new Array(4 * 32 + 16).fill(0); b[4 * 32] = 1;       // slot0 (all-zero id) occupied
+  const v = await describeTrace(mkEntry({ index: 2 }), SRC_SET, "Set", fakeRpc({ 0: hx(b) }));
+  expect(v.cols[0].name).toBe("seen");
+  expect(v.cols[0].entries).toHaveLength(1);
+});
+
+test("describeTrace: no StateData -> empty fields/cols, io still decoded, fn caller (none)", async () => {
+  const SRC_NS = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct Foo_input { uint64 a; }; struct Foo_output { uint64 r; }; PUBLIC_FUNCTION(Foo) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Foo, 1); } INITIALIZE() {} };`;
+  const v = await describeTrace(mkEntry({ kind: 0, inHex: hx(le(5, 8)), outHex: hx(le(9, 8)) }), SRC_NS, "NS", fakeRpc({}));
+  expect(v.fields).toHaveLength(0);
+  expect(v.cols).toHaveLength(0);
+  expect(v.inDecoded).toBe('"5"');
+  expect(v.outDecoded).toBe('"9"');
+  expect(v.caller).toBe("(none)");                                // kind 0 (fn) carries no signer
+});
+
+test("describeTrace/readState: a stateRead failure degrades gracefully", async () => {
+  const boom: StateReader = { stateRead: async () => { throw new Error("rpc down"); } };
+  const v = await describeTrace(mkEntry({ index: 7 }), SRC, "Counter", boom);
+  expect(v.cols).toHaveLength(0);                                 // decodeColumns swallowed the error
+  const dump = await readState(boom, 7, SRC, "Counter");
+  expect(dump.fields).toEqual([{ name: "counter", value: "(read failed)" }]);
+  expect(dump.cols).toHaveLength(0);
+});

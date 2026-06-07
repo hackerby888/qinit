@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { jsonToInputFmt, encodeInputJson, encodeInput } from "./abi-fmt";
+import { jsonToInputFmt, encodeInputJson, encodeInput, decodeOutput } from "./abi-fmt";
 
 test("jsonToInputFmt: flat scalars by field name", () => {
   expect(jsonToInputFmt([{ name: "value", type: "uint64" }], { value: 3 })).toBe("3uint64");
@@ -38,4 +38,33 @@ test("encodeInputJson === encodeInput of the equivalent fmt (incl alignment)", a
   const b = await encodeInputJson([{ name: "s", type: "{ uint8, uint64 }" }], { s: [5, 9] });
   expect([...b]).toEqual([...(await encodeInput("{ 5uint8, 9uint64 }"))]);
   expect(b.length).toBe(16);
+});
+
+test("jsonToInputFmt: float value is rejected (BigInt refuses non-integers)", () => {
+  expect(() => jsonToInputFmt([{ name: "n", type: "uint64" }], { n: 3.5 })).toThrow();
+});
+
+test("jsonToInputFmt: null/undefined value throws", () => {
+  expect(() => jsonToInputFmt([{ name: "v", type: "uint64" }], { v: null })).toThrow(/missing value/);
+});
+
+test("jsonToInputFmt: extra JSON keys are ignored (only declared fields used)", () => {
+  expect(jsonToInputFmt([{ name: "a", type: "uint64" }], { a: 1, unrelated: 99 })).toBe("1uint64");
+});
+
+test("encodeInputJson: a bad id surfaces the encode-time validation error", async () => {
+  await expect(encodeInputJson([{ name: "dst", type: "id" }], { dst: "tooshort" })).rejects.toThrow(/id must be/);
+});
+
+test("encodeInputJson: m256i field round-trips (64-hex -> 32 bytes)", async () => {
+  const dg = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
+  const b = await encodeInputJson([{ name: "d", type: "m256i" }], { d: dg });
+  expect(b.length).toBe(32);
+  expect(await decodeOutput(b, "m256i")).toBe(dg);
+});
+
+test("encodeInputJson: deep nested array-of-structs (positional) round-trips", async () => {
+  const fields = [{ name: "xs", type: "[2;{ uint32, uint32 }]" }];
+  const b = await encodeInputJson(fields, { xs: [[1, 2], [3, 4]] });
+  expect(await decodeOutput(b, "[2;{ uint32, uint32 }]")).toEqual([[1, 2], [3, 4]]);
 });

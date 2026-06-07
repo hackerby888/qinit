@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { encodeInput, decodeOutput } from "./abi-fmt";
+import { encodeInput, decodeOutput, structFieldOffsets, layoutOf, parseLayout } from "./abi-fmt";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const bytes = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16)));
@@ -81,4 +81,41 @@ test("rejects scalar out of range / bad bit", async () => {
   await expect(encodeInput("-1uint8")).rejects.toThrow(/out of range/);
   await expect(encodeInput("70000uint16")).rejects.toThrow(/out of range/);
   await expect(encodeInput("2bit")).rejects.toThrow(/bit must be/);
+});
+
+test("bit round-trips 0/1", async () => {
+  expect(await decodeOutput(await encodeInput("1bit"), "bit")).toBe(1);
+  expect(await decodeOutput(await encodeInput("0bit"), "bit")).toBe(0);
+});
+
+// ---- structFieldOffsets / layoutOf / parseLayout: the alignment math decode-log + state-diff rely on ----
+test("structFieldOffsets: internal padding (uint8 then uint64 lands at 8)", () => {
+  expect(structFieldOffsets("uint8, uint64")).toEqual([{ off: 0, size: 1 }, { off: 8, size: 8 }]);
+  expect(structFieldOffsets("uint64, uint8")).toEqual([{ off: 0, size: 8 }, { off: 8, size: 1 }]);
+});
+
+test("structFieldOffsets: a nested struct field is aligned + sized as a unit", () => {
+  // uint32@0(4), then {uint8,uint64} (align 8, size 16) @8
+  expect(structFieldOffsets("uint32, { uint8, uint64 }")).toEqual([{ off: 0, size: 4 }, { off: 8, size: 16 }]);
+});
+
+test("layoutOf: TAIL padding included (sizeof != end-of-last-field)", () => {
+  expect(layoutOf("{ uint64, uint8 }")).toEqual({ size: 16, align: 8 });  // 9 bytes used -> padded to 16
+  expect(layoutOf("uint8")).toEqual({ size: 1, align: 1 });
+  expect(layoutOf("m256i")).toEqual({ size: 32, align: 8 });
+  expect(layoutOf("[3;uint16]")).toEqual({ size: 6, align: 2 });          // 3 * stride(2)
+});
+
+test("layoutOf: HashMap<id,uint64,1024> expansion sizeof = 41232 (matches C++ StateData)", () => {
+  // [1024;{id,uint64}]=40960 + [32;uint64] flags=256 + uint64 + uint64 = 41232 (DbgMap marker offset)
+  expect(layoutOf("{ [1024;{ id, uint64 }], [32;uint64], uint64, uint64 }").size).toBe(41232);
+});
+
+test("parseLayout: empty -> empty struct; unknown type throws", () => {
+  expect(parseLayout("")).toEqual({ kind: "struct", fields: [] });
+  expect(() => parseLayout("notatype")).toThrow(/unknown type/);
+});
+
+test("decodeOutput on a truncated buffer throws (out-of-bounds read)", async () => {
+  await expect(decodeOutput(new Uint8Array(4), "uint64")).rejects.toThrow();  // needs 8 bytes
 });

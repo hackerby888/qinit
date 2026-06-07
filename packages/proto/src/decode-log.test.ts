@@ -86,6 +86,32 @@ test("decodeLog leaves typeName undefined with no enum map or unknown value", as
   expect(unknownVal.typeName).toBeUndefined();
 });
 
+test("capped hex (node truncates >256B): size > available bytes -> hex fallback, no crash", async () => {
+  const cat = [{ name: "Big", fmt: "uint64, uint64, uint64", fields: ["a", "b", "c"] }]; // loggedSize 24
+  const short = hexOf(le(1, 8).concat(le(2, 8)));                // only 16 of 24 bytes present
+  const d = await decodeLog(6, 24, short, cat);                  // size matches but decode reads OOB
+  expect(d.severity).toBe("INFO");
+  expect(d.name).toBeUndefined();                                // decode threw -> fallback
+  expect(d.fields).toBeUndefined();
+  expect(d.hex).toBe("0x" + short);
+});
+
+test("a malformed fmt in the catalog is skipped, a valid sibling still matches", async () => {
+  const cat = [{ name: "bad", fmt: "struct nope", fields: [] }, { name: "good", fmt: "uint64", fields: ["v"] }];
+  const d = await decodeLog(6, 8, hexOf(le(5, 8)), cat);        // loggedSizeOf("struct nope") throws -> filtered
+  expect(d.name).toBe("good");
+  expect(d.fields).toEqual({ v: 5n });
+});
+
+test("m256i field in a log struct decodes as raw hex at its padded offset", async () => {
+  const cat = [{ name: "L", fmt: "uint32, m256i", fields: ["ci", "digest"] }];  // u32@0, m256i@8 (4B pad) -> 40
+  expect(loggedSizeOf(cat[0].fmt)).toBe(40);
+  const digest = Array.from({ length: 32 }, (_, i) => i);
+  const d = await decodeLog(6, 40, hexOf([...le(1, 4), 0, 0, 0, 0, ...digest]), cat);
+  expect(d.name).toBe("L");
+  expect(d.fields).toEqual({ ci: 1, digest: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" });
+});
+
 test("id field decodes to a 60-char identity at its padded offset", async () => {
   const cat = [{ name: "Q", fmt: "uint32, id, sint64", fields: ["ci", "who", "amt"] }];
   expect(loggedSizeOf(cat[0].fmt)).toBe(48);                          // u32@0, id@8 (4B pad), sint64@40
