@@ -69,20 +69,25 @@ function TextPrompt({ label, initial, onSubmit, complete }: { label: string; ini
   });
   return (
     <Box flexDirection="column">
-      <Text><Text color={theme.accent} bold>? </Text><Text bold>{label}</Text></Text>
-      <Text>  <Text color={theme.brand}>❯ </Text><Text color={theme.ok}>{v}</Text><Text color={theme.mute} dimColor>{rest}</Text><Text inverse> </Text></Text>
-      {rest ? <Text dimColor>  ⇥ tab → {ghost}</Text> : null}
+      {/* eye-catching prompt: a rounded box with a bright caret, like the Claude Code input */}
+      <Box borderStyle="round" borderColor={theme.brand} paddingX={1}>
+        <Text><Text color={theme.brand} bold>❯ </Text><Text color={theme.ok}>{v}</Text><Text color={theme.mute} dimColor>{rest}</Text><Text inverse> </Text></Text>
+      </Box>
+      <Text dimColor>  {label}{rest ? `    ⇥ tab → ${ghost}` : "    ↵ submit"}</Text>
     </Box>
   );
 }
 
-// Friendly struct shape (field name + type) shown above the prompt so devs see the shape without the source.
-const fieldStruct = (fields?: Field[]): string | null =>
-  fields === undefined ? null : fields.length === 0 ? "{ }" : `{ ${fields.map((f) => `${f.type} ${f.name}`).join("; ")} }`;
-function StructHint({ label, name, fields }: { label: string; name?: string; fields?: Field[] }) {
-  const s = fieldStruct(fields);
-  if (s === null) return null;
-  return <Text>  <Text dimColor>{label}</Text> <Text color={theme.brand}>{name}</Text> <Text color={theme.info}>{s}</Text></Text>;
+// Friendly schema shown in a bordered, titled box above the prompt — so devs see the field shape at a glance.
+function SchemaBox({ kind, name, fields }: { kind: "input" | "output"; name?: string; fields?: Field[] }) {
+  if (fields === undefined) return null;
+  return (
+    <Panel title={`${kind}${name ? "  ·  " + name : ""}`} color={kind === "input" ? theme.info : theme.accent}>
+      {fields.length === 0
+        ? <Text dimColor>(no fields)</Text>
+        : fields.map((f, i) => <Text key={i}><Text color={theme.info}>{f.type.padEnd(10)}</Text> <Text bold>{f.name}</Text></Text>)}
+    </Panel>
+  );
 }
 
 type Field = { name: string; type: string };
@@ -207,17 +212,17 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   if (stage === "input")
     return wrap(
       <Box flexDirection="column">
-        <StructHint label="input " name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_input`} fields={sel.e!.inFields} />
+        <SchemaBox kind="input" name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_input`} fields={sel.e!.inFields} />
         {/* input is never auto-filled — dev fills the values themselves (output below is auto-filled) */}
-        <TextPrompt label={`input (${sel.e!.kind === "fn" ? "values+type, e.g. 5uint64; empty=none" : "values+type"})`} initial="" complete={completeType} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />
+        <TextPrompt label={`values+type per field, e.g. 5uint64${sel.e!.kind === "fn" ? "  (empty = none)" : ""}`} initial="" complete={completeType} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />
       </Box>,
     );
 
   if (stage === "output")
     return wrap(
       <Box flexDirection="column">
-        <StructHint label="output" name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_output`} fields={sel.e!.outFields} />
-        <TextPrompt label="output format (types only, e.g. uint64 or { id, uint16 })" initial={sel.e!.out ?? ""} complete={completeType} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />
+        <SchemaBox kind="output" name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_output`} fields={sel.e!.outFields} />
+        <TextPrompt label="output types only, e.g. uint64 or { id, uint16 }" initial={sel.e!.out ?? ""} complete={completeType} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />
       </Box>,
     );
 
