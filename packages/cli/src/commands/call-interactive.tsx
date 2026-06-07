@@ -70,7 +70,7 @@ function TextPrompt({ label, initial, onSubmit, complete }: { label: string; ini
   return (
     <Box flexDirection="column">
       <Text><Text color={theme.accent} bold>? </Text><Text bold>{label}</Text></Text>
-      <Text>  <Text color={theme.brand}>❯ </Text><Text color={theme.ok}>{v}</Text><Text dimColor>{rest}</Text><Text inverse> </Text></Text>
+      <Text>  <Text color={theme.brand}>❯ </Text><Text color={theme.ok}>{v}</Text><Text color={theme.mute} dimColor>{rest}</Text><Text inverse> </Text></Text>
       {rest ? <Text dimColor>  ⇥ tab → {ghost}</Text> : null}
     </Box>
   );
