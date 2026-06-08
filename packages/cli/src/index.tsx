@@ -5,6 +5,12 @@ import { App } from "./app";
 import { applyTheme } from "./ui";
 import { savedTheme } from "./config";
 
+// Safety net for async throws that escape a command's try/catch — print one clean line + exit 1
+// (instead of a raw stack dump that can also leave the terminal in Ink raw-mode).
+const die = (label: string, e: unknown) => { process.stderr.write(`\nqinit: ${label}: ${e instanceof Error ? e.message : String(e)}\n`); process.exit(1); };
+process.on("unhandledRejection", (e) => die("unhandled error", e));
+process.on("uncaughtException", (e) => die("fatal error", e));
+
 applyTheme(savedTheme());   // apply the saved color variant before anything renders
 
 const [, , command = "help", ...args] = process.argv;

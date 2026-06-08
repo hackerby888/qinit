@@ -1,5 +1,9 @@
 // Client for the qubic-core-lite built-in HTTP RPC (GET-only; default :41841).
 // Fast path for on-chain reads — current tick, spectrum, and (later) the deploy registry.
+import { fetchT } from "./net";
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export interface TickInfo {
   tick: number;
   epoch: number;
@@ -34,13 +38,20 @@ export interface DebugTrace { enabled: boolean; entries: DebugEntry[]; }
 export class LiteRpc {
   constructor(private base = "http://127.0.0.1:41841") {}
 
-  private async get<T = unknown>(path: string): Promise<T> {
-    let r: Response;
-    try { r = await fetch(this.base + path); }
-    catch (e: any) { throw new Error(`node unreachable at ${this.base} — is it running? (qinit up)  [${e?.message ?? e}]`); }
-    if (!r.ok) throw new Error(`RPC GET ${path} → HTTP ${r.status}`);
-    try { return (await r.json()) as T; }
-    catch { throw new Error(`RPC GET ${path}: malformed JSON response from the node`); }
+  // GETs are idempotent reads: a connect/timeout failure is retried (bounded, backoff) so a momentary
+  // blip during node boot/load doesn't fail the command. An HTTP non-2xx is a real answer -> not retried.
+  private async get<T = unknown>(path: string, tries = 3): Promise<T> {
+    for (let a = 0; ; a++) {
+      let r: Response;
+      try { r = await fetchT(this.base + path, undefined, 10000); }
+      catch (e: any) {
+        if (a < tries - 1) { await sleep(200 * (a + 1)); continue; }
+        throw new Error(`node unreachable at ${this.base} — is it running? (qinit up)  [${e?.message ?? e}]`);
+      }
+      if (!r.ok) throw new Error(`RPC GET ${path} → HTTP ${r.status}`);
+      try { return (await r.json()) as T; }
+      catch { throw new Error(`RPC GET ${path}: malformed JSON response from the node`); }
+    }
   }
 
   /** Current tick / epoch — used to stamp outgoing transactions. */
@@ -116,14 +127,14 @@ export class LiteRpc {
   async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
     let r: Response;
     try {
-      r = await fetch(this.base + "/live/v1/querySmartContract", {
+      r = await fetchT(this.base + "/live/v1/querySmartContract", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           contractIndex, inputType, inputSize: input.length,
           requestData: Buffer.from(input).toString("base64"),
         }),
-      });
+      }, 15000);
     } catch (e: any) { throw new Error(`node unreachable at ${this.base} — is it running? (qinit up)  [${e?.message ?? e}]`); }
     const j: any = await r.json().catch(() => ({}));
     if (typeof j.responseData !== "string") throw new Error(`querySmartContract: code=${j.code} ${j.message ?? r.status}`);
@@ -134,9 +145,9 @@ export class LiteRpc {
    *  body = raw source) so inter-contract callers can resolve callees from the registry without --callee. */
   async putContractSource(slot: number, source: string): Promise<boolean> {
     try {
-      const r = await fetch(this.base + `/live/v1/dev/contract-source?slot=${slot}`, {
+      const r = await fetchT(this.base + `/live/v1/dev/contract-source?slot=${slot}`, {
         method: "POST", headers: { "content-type": "text/plain" }, body: source,
-      });
+      }, 15000);
       return r.ok;
     } catch { return false; }
   }

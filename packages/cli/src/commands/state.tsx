@@ -39,6 +39,7 @@ export function State({ args }: { args: string[] }) {
       if (!c.source) throw new Error(`node has no source for slot ${c.index} — cannot decode state`);
       setName(c.name || String(c.index));
       const rpc = new LiteRpc(rpcBase);
+      await rpc.tickInfo();   // fail fast + loud if the node is unreachable (else readState silently fills "(read failed)")
       setDump(await readState(rpc, c.index, c.source, c.name || "Contract", o.all));
       setPhase("show");
     } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setPhase("done"); }
@@ -62,7 +63,7 @@ export function State({ args }: { args: string[] }) {
       } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setPhase("done"); }
     })();
   }, []);
-  useEffect(() => { if (phase === "show" || phase === "done") { const t = setTimeout(() => exit(), 50); return () => clearTimeout(t); } }, [phase]);
+  useEffect(() => { if (phase === "show" || phase === "done") { if (lines.some((l) => l.startsWith("ERROR"))) process.exitCode = 1; const t = setTimeout(() => exit(), 50); return () => clearTimeout(t); } }, [phase]);
 
   useInput((input, key) => {
     if (phase !== "pick") return;

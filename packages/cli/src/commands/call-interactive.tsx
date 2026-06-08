@@ -67,7 +67,7 @@ export function completerFor(fields?: Field[]) {
 
 // Placeholder template: one "<field>type" token per field — shows the exact value+type syntax to type
 // (greyed, vanishes once the dev types). undefined when the schema is unknown -> no placeholder.
-const tmplOf = (fields?: Field[]) => (fields && fields.length ? fields.map((f) => `<${f.name}>${f.type}`).join(", ") : undefined);
+export const tmplOf = (fields?: Field[]) => (fields && fields.length ? fields.map((f) => `<${f.name}>${f.type}`).join(", ") : undefined);
 
 // Single-line text prompt (chars / backspace / enter). `complete` adds ghost-text type autocomplete + Tab.
 // `placeholder` is shown greyed when the field is empty (input template hint) and disappears on first keystroke.
@@ -118,7 +118,7 @@ type Field = { name: string; type: string };
 type Entry = { kind: "fn" | "proc"; inputType: number; inputSize: number; outputSize: number; name?: string; in?: string; out?: string; inFields?: Field[]; outFields?: Field[] };
 
 // All-zero, schema-matched input sample for an entry — shown when the user's input fails to encode.
-function zeroSample(e: Entry): string | null {
+export function zeroSample(e: Entry): string | null {
   try {
     const fmt = e.in ?? (e.inFields ?? []).map((f) => f.type).join(", ");
     return fmt.trim() ? zeroInputFmt(fmt) : null;

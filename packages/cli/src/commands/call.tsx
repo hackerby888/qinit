@@ -145,7 +145,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
       } catch (e: any) { setResult({ ok: false, label: "call", err: String(e?.message ?? e) }); setDone(true); }
     })();
   }, []);
-  useEffect(() => { if (done) exit(); }, [done]);
+  useEffect(() => { if (done) { if (result?.ok === false) process.exitCode = 1; exit(); } }, [done]);   // failure -> non-zero for scripts/CI
 
   const rw = Math.max(2, ...(result?.rows ?? []).map(([k]) => k.length));
   const pct = confirm && confirm.target > confirm.start ? (confirm.net - confirm.start) / (confirm.target - confirm.start) : 1;

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { fetchT } from "./net";
 
 // Release source = the user's fork. NEVER qubic/core-lite (upstream) — see project memory.
 export const RELEASE_REPO = "hackerby888/core-lite";
@@ -26,7 +27,7 @@ export interface Manifest { version: string; node?: AssetRef; nodes?: Record<str
 export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise<Manifest> {
   const path = ref === "latest" ? "latest/download" : `download/${ref}`;
   const url = `https://github.com/${repo}/releases/${path}/qinit-manifest.json`;
-  const r = await fetch(url);
+  const r = await fetchT(url, undefined, 15000);
   if (!r.ok) throw new Error(`manifest fetch failed (HTTP ${r.status}) from ${url}`);
   return (await r.json()) as Manifest;
 }
@@ -44,7 +45,7 @@ export function cliAssetName(): string {
 
 // Newest qinit-cli-* tag via the GitHub API (NOT /releases/latest — verify-latest hijacks it). null if none.
 export async function resolveCliTag(repo = CLI_REPO): Promise<string | null> {
-  const r = await fetch(`https://api.github.com/repos/${repo}/releases`, { headers: { "user-agent": "qinit", accept: "application/vnd.github+json" } });
+  const r = await fetchT(`https://api.github.com/repos/${repo}/releases`, { headers: { "user-agent": "qinit", accept: "application/vnd.github+json" } }, 15000);
   if (!r.ok) throw new Error(`GitHub API ${r.status} listing ${repo} releases`);
   const rel = (await r.json()) as Array<{ tag_name?: string }>;
   return rel.map((x) => x.tag_name ?? "").find((t) => t.startsWith("qinit-cli-")) || null;
@@ -59,7 +60,7 @@ export function cliReleaseUrls(tag: string, repo = CLI_REPO): { asset: string; s
 // Pull the sha256 for `name` from a SHA256SUMS file ("<sha>  <name>" lines); "" if missing/unreachable.
 export async function fetchCliSha(sumsUrl: string, name: string): Promise<string> {
   try {
-    const r = await fetch(sumsUrl);
+    const r = await fetchT(sumsUrl, undefined, 15000);
     if (!r.ok) return "";
     for (const line of (await r.text()).split("\n")) { const m = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/); if (m && m[2] === name) return m[1].toLowerCase(); }
   } catch {}
@@ -70,7 +71,7 @@ export async function fetchCliSha(sumsUrl: string, name: string): Promise<string
 // onProgress(received, total) streams download bytes for a live progress bar.
 export async function fetchVerify(asset: AssetRef, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {
   let r: Response;
-  try { r = await fetch(asset.url); }
+  try { r = await fetchT(asset.url, undefined, 30000); }   // 30s connect/TTFB guard; the body then streams untimed
   catch (e: any) { throw new Error(`network error downloading ${asset.url} — check your connection  [${e?.message ?? e}]`); }
   if (!r.ok) throw new Error(`download failed (HTTP ${r.status}): ${asset.url}`);
   let buf: Uint8Array;
@@ -145,7 +146,7 @@ export function verifyPlatformKey(): string {
 }
 export async function loadVerifyManifest(repo = VERIFY_REPO): Promise<VerifyManifest> {
   const url = `https://github.com/${repo}/releases/download/${VERIFY_TAG}/verify-manifest.json`;
-  const r = await fetch(url);
+  const r = await fetchT(url, undefined, 15000);
   if (!r.ok) throw new Error(`verify manifest fetch failed (HTTP ${r.status})`);
   return (await r.json()) as VerifyManifest;
 }
@@ -212,7 +213,7 @@ export async function fetchWasiSdk(onProgress?: (recv: number, total: number) =>
   if (haveWasiSdkCache()) return { dir, cached: true };
   const { url } = wasiSdkAsset();
   let sha256 = "";
-  try { const r = await fetch(url + ".sha256"); if (r.ok) sha256 = (await r.text()).trim().split(/\s+/)[0] ?? ""; } catch {}
+  try { const r = await fetchT(url + ".sha256", undefined, 15000); if (r.ok) sha256 = (await r.text()).trim().split(/\s+/)[0] ?? ""; } catch {}
   const buf = await fetchVerify({ url, sha256 }, onProgress);
   await extractTarGz(buf, dir);
   return { dir, cached: false };
