@@ -2,6 +2,8 @@
 //   types : uint8/16/32/64, sint8/16/32/64, id, bit ; struct { t, t } ; array [N; elem]
 //   output format = types only:              "{ [16;id], uint16, uint8 }"
 //   input  format = values (carry their type):"ABC…(60-char)id, 5uint64, [2; 1uint64, 2uint64]"
+//   input  repeat shorthand: "<tok> ×N" (× / * / x, spaces optional) -> N copies, e.g. "[64; 0uint64 ×64]"
+//                            or "[64; 9uint32x32]" = 32 copies of 9uint32
 // Matches the C++ ABI: NATURAL ALIGNMENT (no packing). Each field is padded to its alignment
 // (uint16→2, uint32→4, uint64/id→8), structs to their max member alignment. id <-> 60-char
 // identity via @qinit/core (async, wasm). "" = empty.
@@ -165,9 +167,25 @@ function splitTop(s: string): string[] {
   return parts.map((x) => x.trim()).filter((x) => x.length);
 }
 
+// Expand the "<token> ×N" repeat shorthand (mirrors the output formatter's run-length display) into N copies
+// of the token. Multiplier is ×, *, or x (spaces optional — "9uint32x32" is valid; no value-token type
+// contains x, and 0x… hex ends in id/m256i so it never trails x<digits>). Applied to each comma-separated
+// element/field, so e.g. "[64; 0uint64 ×64]" or "{1uint64,2uint64} ×3" expands before encoding.
+const REPEAT_RE = /^(.+?)\s*[×*x]\s*(\d+)$/;
+function expandReps(parts: string[]): string[] {
+  const out: string[] = [];
+  for (const p of parts) {
+    const m = p.match(REPEAT_RE);
+    if (m) { const tok = m[1].trim(); const n = parseInt(m[2], 10); for (let k = 0; k < n; k++) out.push(tok); }
+    else out.push(p);
+  }
+  return out;
+}
+
 // Alignment of a value token (mirrors alignOf on the type the value carries).
 function tokenAlign(tok: string): number {
-  tok = tok.trim();
+  tok = tok.trim().replace(REPEAT_RE, "$1").trim();   // a "tok ×N" repeat aligns as the base token
+
   if (tok[0] === "{") { const p = splitTop(tok.slice(1, tok.lastIndexOf("}"))); return p.length ? Math.max(...p.map(tokenAlign)) : 1; }
   if (tok[0] === "[") { const inner = tok.slice(1, tok.lastIndexOf("]")); const semi = inner.indexOf(";"); const p = splitTop(semi >= 0 ? inner.slice(semi + 1) : inner); return p.length ? tokenAlign(p[0]) : 1; }
   if (tok.endsWith("id")) return 8;
@@ -182,7 +200,7 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
   tok = tok.trim();
   if (!tok) return;
   if (tok[0] === "{") {
-    const parts = splitTop(tok.slice(1, tok.lastIndexOf("}")));
+    const parts = expandReps(splitTop(tok.slice(1, tok.lastIndexOf("}"))));
     const sa = parts.length ? Math.max(...parts.map(tokenAlign)) : 1;
     padTo(out, sa);
     for (const t of parts) await encodeToken(t, out);
@@ -192,7 +210,7 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
   if (tok[0] === "[") {
     const inner = tok.slice(1, tok.lastIndexOf("]"));
     const semi = inner.indexOf(";");
-    const parts = splitTop(semi >= 0 ? inner.slice(semi + 1) : inner);
+    const parts = expandReps(splitTop(semi >= 0 ? inner.slice(semi + 1) : inner));
     for (const t of parts) await encodeToken(t, out); // each elem self-aligns -> stride
     return;
   }
@@ -280,11 +298,29 @@ export async function encodeInputJson(fields: { name: string; type: string }[], 
   return encodeInput(jsonToInputFmt(fields, json));
 }
 
+// Build an ALL-ZERO input value-format from a type-format (the input scheme) — same grammar encodeInput
+// consumes — so a user whose input fails to parse gets a valid, copy-pasteable sample matching their entry.
+// Throws if a field has no representable input token (e.g. a non-m256i bytes type) -> caller shows no sample.
+export function zeroInputFmt(fmt: string): string {
+  const emit = (n: TypeNode): string => {
+    switch (n.kind) {
+      case "scalar": return `0${n.type}`;
+      case "id": return `${"0".repeat(64)}id`;
+      case "bytes": if (n.size === 32) return `${"0".repeat(64)}m256i`; throw new Error(`no input token for ${n.size}-byte field`);
+      case "array": return `[${n.count}; ${emit(n.elem)} ×${n.count}]`;
+      case "struct": return `{ ${n.fields.map(emit).join(", ")} }`;
+    }
+  };
+  const node = parseLayout(fmt);
+  // top-level struct renders WITHOUT braces (mirrors encodeInput's implicit top-level struct of the input fields)
+  return node.kind === "struct" ? node.fields.map(emit).join(", ") : emit(node);
+}
+
 // Top-level value tokens (comma-separated) = an implicit struct. "" = empty input.
 export async function encodeInput(fmt: string): Promise<Uint8Array> {
   const t = (fmt ?? "").trim();
   if (!t) return new Uint8Array(0);
-  const parts = splitTop(t);
+  const parts = expandReps(splitTop(t));
   const out: number[] = [];
   const sa = parts.length ? Math.max(...parts.map(tokenAlign)) : 1;
   for (const tok of parts) await encodeToken(tok, out);

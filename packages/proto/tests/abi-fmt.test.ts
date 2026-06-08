@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { encodeInput, decodeOutput, structFieldOffsets, layoutOf, parseLayout } from "../src/abi-fmt";
+import { encodeInput, decodeOutput, structFieldOffsets, layoutOf, parseLayout, zeroInputFmt } from "../src/abi-fmt";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const bytes = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16)));
@@ -118,4 +118,45 @@ test("parseLayout: empty -> empty struct; unknown type throws", () => {
 
 test("decodeOutput on a truncated buffer throws (out-of-bounds read)", async () => {
   await expect(decodeOutput(new Uint8Array(4), "uint64")).rejects.toThrow();  // needs 8 bytes
+});
+
+test("repeat shorthand: ×N expands to N copies (array, byte-exact + == hand-expanded)", async () => {
+  const short = await encodeInput("[4; 9uint32 ×4]");
+  const long = await encodeInput("[4; 9uint32, 9uint32, 9uint32, 9uint32]");
+  expect(hex(short)).toBe(hex(long));
+  expect(hex(short)).toBe("09000000".repeat(4));
+  expect(await decodeOutput(short, "[4; uint32]")).toEqual([9, 9, 9, 9]);
+});
+
+test("repeat shorthand: x and * variants, spaces optional (9uint32x32 valid)", async () => {
+  const ref = await encodeInput("[3; 7uint64, 7uint64, 7uint64]");
+  expect(hex(await encodeInput("[3; 7uint64x3]"))).toBe(hex(ref));       // bare x, no space
+  expect(hex(await encodeInput("[3; 7uint64 * 3]"))).toBe(hex(ref));     // * with spaces
+  expect(hex(await encodeInput("[3; 7uint64×3]"))).toBe(hex(ref));       // × no space
+  expect((await encodeInput("[64; 0uint64 ×64]")).length).toBe(64 * 8);  // the RANDOM reveal case
+});
+
+test("repeat shorthand: struct + top-level reps; non-repeat tokens untouched", async () => {
+  const ref = await encodeInput("{1uint32, 2uint32}, {1uint32, 2uint32}, 5uint64");
+  expect(hex(await encodeInput("{1uint32, 2uint32} ×2, 5uint64"))).toBe(hex(ref));   // struct repeat
+  expect(hex(await encodeInput("5uint64 ×3"))).toBe(hex(await encodeInput("5uint64, 5uint64, 5uint64")));
+  expect((await encodeInput("ee".repeat(32) + "id")).length).toBe(32);  // 64-hex id (no x): unaffected
+});
+
+test("zeroInputFmt: builds a schema-matched all-zero sample (scalar/id/array/struct)", async () => {
+  expect(zeroInputFmt("uint64")).toBe("0uint64");
+  expect(zeroInputFmt("[64; uint64], id")).toBe(`[64; 0uint64 ×64], ${"0".repeat(64)}id`);
+  expect(zeroInputFmt("{ uint32, id }")).toBe(`0uint32, ${"0".repeat(64)}id`);   // top-level struct -> implicit field list (no braces, encodeInput-consistent)
+  expect(zeroInputFmt("uint16, uint32")).toBe("0uint16, 0uint32");
+  expect(zeroInputFmt("m256i")).toBe(`${"0".repeat(64)}m256i`);
+});
+
+test("zeroInputFmt: the sample is valid input — encodes to exactly the layout size", async () => {
+  for (const fmt of ["uint64", "[64; uint64], id", "{ uint32, id }", "uint16, uint32", "m256i", "[3; { uint8, uint64 }]"]) {
+    const sample = zeroInputFmt(fmt);
+    const b = await encodeInput(sample);
+    expect(hex(b)).toBe("00".repeat(b.length));            // all zero
+    expect(b.length).toBe(layoutOf(fmt).size);             // matches the entry's input scheme byte-for-byte
+  }
+  expect(() => zeroInputFmt("uint128")).toThrow();          // no input token for a 16-byte field -> caller shows none
 });

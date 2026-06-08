@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { LiteRpc, type DebugEntry } from "@qinit/core";
-import { callFunction, invokeProcedure, jsonToInputFmt, TX_TICK_OFFSET } from "@qinit/proto";
+import { callFunction, invokeProcedure, jsonToInputFmt, encodeInput, zeroInputFmt, TX_TICK_OFFSET } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, jstr, fmtVal, type TraceView as TraceData } from "../trace-format";
 import { TraceView } from "../views";
@@ -84,6 +84,13 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           try { inFmt = jsonToInputFmt(flds, JSON.parse(o.args)); }
           catch (er: any) { throw new Error("--args: " + String(er?.message ?? er)); }
         } else inFmt = o.in ?? ie?.in ?? "";
+
+        // pre-validate the input encodes; on failure show a schema-matched all-zero sample (no tx is sent).
+        try { await encodeInput(inFmt); }
+        catch (enc: any) {
+          let z = ""; try { const f = ie?.in ?? (ie?.inFields ?? []).map((x: any) => x.type).join(", "); if (f?.trim()) z = zeroInputFmt(f); } catch {}
+          throw new Error(`bad input: ${enc?.message ?? enc}${z ? `\nall-zero sample: ${z}` : ""}`);
+        }
 
         // --trace: capture the call in the node debug ring. Enable + note the latest seq BEFORE dispatch.
         const wantTrace = o.trace !== undefined;

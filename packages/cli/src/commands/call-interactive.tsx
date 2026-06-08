@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, type DynContract } from "@qinit/core";
-import { callFunction, invokeProcedure, TX_TICK_OFFSET } from "@qinit/proto";
+import { callFunction, invokeProcedure, encodeInput, zeroInputFmt, TX_TICK_OFFSET } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { existsSync, readFileSync } from "node:fs";
 import { resolveSeed } from "../config";
@@ -42,7 +42,7 @@ function Select<T>({ label, items, onSelect }: { label: string; items: SelItem<T
           : <Text key={k}>{k === i ? <Text color={theme.brand} bold>▸ </Text> : <Text>  </Text>}<Text color={k === i ? theme.info : undefined} bold={k === i}>{it.label}</Text></Text>)}
         {!items.length && <Text dimColor>(none)</Text>}
       </Box>
-      <Text dimColor>  ↑/↓ move · ↵ select</Text>
+      <Text dimColor>  ↑/↓ move · ↵ select · esc back</Text>
     </Box>
   );
 }
@@ -65,24 +65,39 @@ export function completerFor(fields?: Field[]) {
   };
 }
 
+// Placeholder template: one "<field>type" token per field — shows the exact value+type syntax to type
+// (greyed, vanishes once the dev types). undefined when the schema is unknown -> no placeholder.
+const tmplOf = (fields?: Field[]) => (fields && fields.length ? fields.map((f) => `<${f.name}>${f.type}`).join(", ") : undefined);
+
 // Single-line text prompt (chars / backspace / enter). `complete` adds ghost-text type autocomplete + Tab.
-function TextPrompt({ label, initial, onSubmit, complete }: { label: string; initial?: string; onSubmit: (v: string) => void; complete?: (v: string) => string | null }) {
+// `placeholder` is shown greyed when the field is empty (input template hint) and disappears on first keystroke.
+function TextPrompt({ label, initial, onSubmit, complete, placeholder }: { label: string; initial?: string; onSubmit: (v: string) => void; complete?: (v: string) => string | null; placeholder?: string }) {
   const [v, setV] = useState(initial ?? "");
+  const [cur, setCur] = useState((initial ?? "").length);                    // caret position (0..v.length)
   const ghost = complete?.(v) ?? null;
   const rest = ghost && ghost.length > v.length && ghost.startsWith(v) ? ghost.slice(v.length) : "";
+  const set = (nv: string, nc?: number) => { setV(nv); setCur(Math.max(0, Math.min(nv.length, nc ?? nv.length))); };
   useInput((input, key) => {
     if (key.return) onSubmit(v);
-    else if (key.tab && ghost) setV(ghost);
-    else if (key.backspace || key.delete) setV((p) => p.slice(0, -1));
-    else if (input && !key.ctrl && !key.meta) setV((p) => p + input);
+    else if (key.tab && ghost) set(ghost);                                   // accept type completion
+    else if (key.leftArrow) setCur((c) => Math.max(0, c - 1));
+    else if (key.rightArrow) { if (v === "" && placeholder) set(placeholder); else setCur((c) => Math.min(v.length, c + 1)); }
+    else if (key.ctrl && input === "a") setCur(0);                           // home
+    else if (key.ctrl && input === "e") setCur(v.length);                    // end
+    else if (key.backspace || key.delete) { if (cur > 0) set(v.slice(0, cur - 1) + v.slice(cur), cur - 1); }   // delete char before caret
+    else if (input && !key.ctrl && !key.meta) set(v.slice(0, cur) + input + v.slice(cur), cur + input.length); // insert at caret
   });
+  // render the caret AT `cur`: text before + inverse char (or a space at EOL) + text after + dim ghost completion.
+  const before = v.slice(0, cur), atChar = v.slice(cur, cur + 1) || " ", after = v.slice(cur + 1);
   return (
     <Box flexDirection="column">
       {/* eye-catching prompt: a rounded box with a bright caret, like the Claude Code input */}
       <Box borderStyle="round" borderColor={theme.brand} paddingX={1}>
-        <Text><Text color={theme.brand} bold>❯ </Text><Text color={theme.ok}>{v}</Text><Text color={theme.mute} dimColor>{rest}</Text><Text inverse> </Text></Text>
+        {v === "" && placeholder
+          ? <Text><Text color={theme.brand} bold>❯ </Text><Text inverse> </Text><Text color={theme.mute} dimColor>{placeholder}</Text></Text>
+          : <Text><Text color={theme.brand} bold>❯ </Text><Text color={theme.ok}>{before}</Text><Text inverse>{atChar}</Text><Text color={theme.ok}>{after}</Text><Text color={theme.mute} dimColor>{rest}</Text></Text>}
       </Box>
-      <Text dimColor>  {label}{rest ? `    ⇥ tab → ${ghost}` : "    ↵ submit"}</Text>
+      <Text dimColor>  {label}{rest ? `    ⇥ tab → ${ghost}` : v === "" && placeholder ? "    → fill template · ↵ submit" : "    ↵ submit"}    esc back</Text>
     </Box>
   );
 }
@@ -101,6 +116,14 @@ function SchemaBox({ kind, name, fields }: { kind: "input" | "output"; name?: st
 
 type Field = { name: string; type: string };
 type Entry = { kind: "fn" | "proc"; inputType: number; inputSize: number; outputSize: number; name?: string; in?: string; out?: string; inFields?: Field[]; outFields?: Field[] };
+
+// All-zero, schema-matched input sample for an entry — shown when the user's input fails to encode.
+function zeroSample(e: Entry): string | null {
+  try {
+    const fmt = e.in ?? (e.inFields ?? []).map((f) => f.type).join(", ");
+    return fmt.trim() ? zeroInputFmt(fmt) : null;
+  } catch { return null; }
+}
 type Stage = "loading" | "contract" | "entry" | "input" | "output" | "amount" | "seed" | "running" | "done";
 
 export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: string }) {
@@ -128,10 +151,24 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   }, []);
   useEffect(() => { if (stage === "done") { const t = setTimeout(() => exit(), 50); return () => clearTimeout(t); } }, [stage]);
 
+  // Esc = go back one step (contract = first step -> quit). Parent-level so it works in every stage; Select/
+  // TextPrompt don't consume Esc, so this fires without clashing with their own keys. Mid-call/terminal: ignored.
+  const back = () => {
+    setStatus("");
+    if (stage === "entry") setStage("contract");
+    else if (stage === "input") setStage("entry");
+    else if (stage === "output" || stage === "amount") setStage(sel.e && !noInput(sel.e) ? "input" : "entry");
+    else if (stage === "contract") exit();
+  };
+  useInput((_i, key) => { if (key.escape) back(); });
+
   // ---- run the selected call ----
   const run = async (s: typeof sel) => {
     setStage("running");
     try {
+      // pre-validate the input encodes; on failure show a schema-matched all-zero sample (no tx is sent)
+      try { await encodeInput(s.input ?? ""); }
+      catch (enc: any) { add("✗ bad input: " + String(enc?.message ?? enc)); const z = zeroSample(s.e!); if (z) add("all-zero sample: " + z); setStage("done"); return; }
       const rpc = new LiteRpc(rpcBase);
       const idx = s.c!.index, e = s.e!;
       add("≡ " + equivCmd(s.c!, e, s));   // the non-interactive equivalent — copy-paste to repeat this call
@@ -195,12 +232,17 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     try { if (c.source) src = extractIdl(c.source, c.name || "Contract"); } catch {}
     const fnIdl = (it: number) => di?.functions?.[String(it)] ?? src?.functions?.[String(it)];
     const pcIdl = (it: number) => di?.procedures?.[String(it)] ?? src?.procedures?.[String(it)];
-    const fns: Entry[] = (c.functions ?? []).map((f) => ({ kind: "fn", ...f, name: fnIdl(f.inputType)?.name, in: fnIdl(f.inputType)?.in, out: fnIdl(f.inputType)?.out, inFields: fnIdl(f.inputType)?.inFields, outFields: fnIdl(f.inputType)?.outFields }));
-    const pcs: Entry[] = (c.procedures ?? []).map((p) => ({ kind: "proc", ...p, name: pcIdl(p.inputType)?.name, in: pcIdl(p.inputType)?.in, inFields: pcIdl(p.inputType)?.inFields }));
+    // sort by inputType (registration id) — node dyn-registry returns entries hashmap-ordered (looks random);
+    // stable ascending order makes the first-listed entry deterministic and matches source declaration order.
+    const byId = (a: Entry, b: Entry) => a.inputType - b.inputType;
+    const fns: Entry[] = (c.functions ?? []).map((f) => ({ kind: "fn" as const, ...f, name: fnIdl(f.inputType)?.name, in: fnIdl(f.inputType)?.in, out: fnIdl(f.inputType)?.out, inFields: fnIdl(f.inputType)?.inFields, outFields: fnIdl(f.inputType)?.outFields })).sort(byId);
+    const pcs: Entry[] = (c.procedures ?? []).map((p) => ({ kind: "proc" as const, ...p, name: pcIdl(p.inputType)?.name, in: pcIdl(p.inputType)?.in, inFields: pcIdl(p.inputType)?.inFields })).sort(byId);
     return [...fns, ...pcs];
   };
 
-  const wrap = (el: React.ReactNode) => <Box flexDirection="column"><Header cmd="call" />{el}</Box>;
+  // key the stage subtree by `stage` so each step REMOUNTS fresh — otherwise React reuses the same Select/
+  // TextPrompt across stages and its useState (cursor index / typed value) leaks over (stale/no default select).
+  const wrap = (el: React.ReactNode) => <Box flexDirection="column"><Header cmd="call" /><Box key={stage} flexDirection="column">{el}</Box></Box>;
 
   if (stage === "loading") return wrap(<Spinner label="loading registry" />);
   if (stage === "running") return wrap(<Spinner label={status || "calling"} />);
@@ -208,7 +250,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     return wrap(
       <Panel title="result" color={theme.ok}>
         {result.map((l, i) => (
-          <Text key={i} color={l.startsWith("ERROR") || l.includes("FAIL") ? theme.err : l.includes("->") || l.includes(": ok") ? theme.ok : undefined}>{l}</Text>
+          <Text key={i} color={l.startsWith("ERROR") || l.startsWith("✗") || l.includes("FAIL") ? theme.err : l.includes("->") || l.includes(": ok") ? theme.ok : undefined}>{l}</Text>
         ))}
       </Panel>,
     );
@@ -232,8 +274,8 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     return wrap(
       <Box flexDirection="column">
         <SchemaBox kind="input" name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_input`} fields={sel.e!.inFields} />
-        {/* input is never auto-filled — dev fills the values themselves (output below is auto-filled) */}
-        <TextPrompt label={`values+type per field, e.g. 5uint64${sel.e!.kind === "fn" ? "  (empty = none)" : ""}`} initial="" complete={completerFor(sel.e!.inFields)} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />
+        {/* input is never auto-filled — the schema shows as a greyed placeholder template, the dev types the values */}
+        <TextPrompt label={`<value>type per field, e.g. 5uint64 · [N; v…] arrays · ×N repeats${sel.e!.kind === "fn" ? "  (empty = none)" : ""}`} initial={sel.input ?? ""} placeholder={tmplOf(sel.e!.inFields)} complete={completerFor(sel.e!.inFields)} onSubmit={(input) => { const ns = { ...sel, input }; setSel(ns); afterInput(ns); }} />
       </Box>,
     );
 
@@ -241,13 +283,13 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     return wrap(
       <Box flexDirection="column">
         <SchemaBox kind="output" name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_output`} fields={sel.e!.outFields} />
-        <TextPrompt label="output types only, e.g. uint64 or { id, uint16 }" initial={sel.e!.out ?? ""} complete={completerFor(sel.e!.outFields)} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />
+        <TextPrompt label="output types only, e.g. uint64 or { id, uint16 }" initial={sel.e!.out ?? ""} placeholder={sel.e!.outFields?.length ? sel.e!.outFields.map((f) => f.type).join(", ") : undefined} complete={completerFor(sel.e!.outFields)} onSubmit={(out) => { const ns = { ...sel, out } as any; setSel(ns); run(ns); }} />
       </Box>,
     );
 
   // amount is the last prompt — seed is auto-resolved (saved pick > node funded > default), no prompt.
   if (stage === "amount")
-    return wrap(<TextPrompt label="amount (qus)" initial="0" onSubmit={(amount) => { const ns = { ...sel, amount }; setSel(ns); run(ns); }} />);
+    return wrap(<TextPrompt label="amount (qus)" initial={sel.amount ?? "0"} onSubmit={(amount) => { const ns = { ...sel, amount }; setSel(ns); run(ns); }} />);
 
   return null;
 }
