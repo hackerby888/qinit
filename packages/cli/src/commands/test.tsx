@@ -11,7 +11,7 @@ import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) { const a = args[i]; if (a.startsWith("--")) o[a.slice(2)] = args[++i] ?? ""; }
+  for (let i = 0; i < args.length; i++) { const a = args[i]; if (a.startsWith("--")) { const n = args[i + 1]; o[a.slice(2)] = (n !== undefined && !n.startsWith("--")) ? args[++i] : ""; } }
   return o;
 }
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
@@ -81,7 +81,7 @@ export function Test({ args }: { args: string[] }) {
         // 2) build + deploy (also runs the protocol-rule gate).
         spin("deploying contract");
         let depDetail = "";
-        const dep = await deployContract({ contractPath, name, core, rpcBase, seed: o.seed }, (e: Ev) => {
+        const dep = await deployContract({ contractPath, name, core, rpcBase, seed: o.seed, skipVerify: "skip-verify" in o }, (e: Ev) => {
           if ("note" in e) return;
           if (e.state === "active" && e.detail) spin(`deploy · ${STEP_LABEL[e.step] ?? e.step}: ${e.detail}`);
           if (e.step === "build" && e.state === "fail") depDetail = e.detail ?? "build failed";
