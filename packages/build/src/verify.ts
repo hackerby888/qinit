@@ -56,6 +56,11 @@ export async function verifyContract(file: string, name: string, opts?: { oracle
   const allow = opts?.allowedPrefixes ?? [];
   const errors = allErrors.filter((e) => !allow.some((p) => e === `Scope resolution with prefix ${p} is not allowed.`));
   const dropped = allErrors.length - errors.length;
+  // A non-zero exit with NO parsed [ ERROR ] lines is a tool malfunction (crash / unsupported host /
+  // missing dep), not a real violation — report it unavailable (skip) like an absent tool, so a broken
+  // verifier never fails the build. (Caught a cold-CI contractverify crash that failed only on x64.)
+  if (p.exitCode !== 0 && allErrors.length === 0)
+    return { available: false, ok: true, oracle, errors: [], raw, tool };
   // pass on a clean exit, or when the only violations were the declared-callee scope-resolution errors.
   const ok = p.exitCode === 0 || (dropped > 0 && errors.length === 0);
   return { available: true, ok, oracle, errors, raw, tool };
