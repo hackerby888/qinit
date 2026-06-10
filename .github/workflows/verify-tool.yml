@@ -86,6 +86,8 @@ jobs:
     needs: linux-x64
     if: needs.linux-x64.outputs.changed == 'true'
     runs-on: macos-14
+    continue-on-error: true   # best-effort: a darwin build failure omits the platform, never reds the run
+                              # (linux-x64 is the portable, always-published binary)
     steps:
       - name: Build contractverify from source
         run: |
@@ -98,8 +100,8 @@ jobs:
           FLEX="$(brew --prefix flex)/bin/flex"
           export PATH="$(brew --prefix flex)/bin:$(brew --prefix bison)/bin:$PATH"
           echo "cmake=$(cmake --version | head -1) flex=$($FLEX --version)"
-          # CppParser dependency
-          cmake -S deps/CppParser -B deps/CppParser/builds -DCMAKE_BUILD_TYPE=Release -DFLEX_EXECUTABLE="$FLEX"
+          # CppParser dependency (-DCMAKE_CXX_CLANG_TIDY="" — its CMakeLists enables clang-tidy, absent on macos-14)
+          cmake -S deps/CppParser -B deps/CppParser/builds -DCMAKE_BUILD_TYPE=Release -DFLEX_EXECUTABLE="$FLEX" -DCMAKE_CXX_CLANG_TIDY=""
           cmake --build deps/CppParser/builds --config Release
           ls deps/CppParser/builds/*.cmake 2>/dev/null || true
           # contractverify tool — help cmake find the just-built CppParser config
