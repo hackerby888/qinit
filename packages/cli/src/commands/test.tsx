@@ -48,8 +48,8 @@ export function Test({ args }: { args: string[] }) {
 
     (async () => {
       try {
-        // bun is required to run the test files.
-        if (Bun.spawnSync(["sh", "-c", "command -v bun"]).exitCode !== 0) {
+        // bun is required to run the test files. (Bun.which is cross-platform — no `sh` on Windows.)
+        if (!Bun.which("bun")) {
           add("bun", false, "not found — qinit test needs bun (https://bun.sh)");
           setS({ phase: "done", lines: L, ok: false, output: "", rows: [] }); return;
         }

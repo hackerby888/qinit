@@ -53,10 +53,12 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   const vu = await autoUpdateVerifyTool();
   if (vu.action === "updated" || vu.action === "installed") emit({ note: `↻ contractverify ${vu.action} → ${vu.version}` });
 
-  // tick — wait until advancing (broadcasting during boot crashes the node)
+  // tick — wait until advancing (broadcasting during boot crashes the node). 300s: a cold node can
+  // stall a few minutes in its first ticks (initial-epoch work; seen on the Windows port) before
+  // settling into a steady rate — a ticking node exits this loop within seconds either way.
   emit({ step: "tick", state: "active", detail: "waiting for node…" });
   let t0 = -1, cur = 0;
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < 300; i++) {
     try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? ti.currentTick ?? 0; if (t0 < 0) t0 = cur; emit({ step: "tick", state: "active", detail: `tick ${cur}` }); if (cur > t0 + 3) break; } catch {}
     await sleep(1000);
   }

@@ -7,15 +7,24 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const scratchDir = () => join(cacheRoot(), "run");
 const pidFile = (s: string) => join(s, "node.pid");
 
-// pkill any node + confirm gone (stale instance holds the port/locks).
+const isWin = process.platform === "win32";
+
+// pkill (taskkill on Windows) any node + confirm gone (stale instance holds the port/locks).
 export async function killNode(): Promise<void> {
-  Bun.spawnSync(["pkill", "-x", "Qubic"]);
+  if (isWin) Bun.spawnSync(["taskkill", "/F", "/IM", "Qubic.exe"]);
+  else Bun.spawnSync(["pkill", "-x", "Qubic"]);
   for (let i = 0; i < 20; i++) {
-    if (Bun.spawnSync(["pgrep", "-x", "Qubic"]).exitCode !== 0) return;
+    if (!nodeAlive()) return;
     await sleep(250);
   }
 }
-export function nodeAlive(): boolean { return Bun.spawnSync(["pgrep", "-x", "Qubic"]).exitCode === 0; }
+export function nodeAlive(): boolean {
+  if (isWin) {
+    const r = Bun.spawnSync(["tasklist", "/NH", "/FI", "IMAGENAME eq Qubic.exe"]);
+    return new TextDecoder().decode(r.stdout).includes("Qubic.exe");
+  }
+  return Bun.spawnSync(["pgrep", "-x", "Qubic"]).exitCode === 0;
+}
 
 // Download + cache the prebuilt node from the fork's release (manifest-pinned).
 export async function fetchNodeBin(ref: string, onProgress?: (recv: number, total: number) => void): Promise<{ bin: string; version: string }> {
@@ -25,12 +34,12 @@ export async function fetchNodeBin(ref: string, onProgress?: (recv: number, tota
   const asset = m.nodes?.[plat] ?? m.node;
   if (!asset) throw new Error(`manifest ${m.version} has no node asset for ${plat} (publish via CI first)`);
   const dir = join(cacheRoot(), m.version, "node");
-  const bin = join(dir, "Qubic");
+  const bin = join(dir, isWin ? "Qubic.exe" : "Qubic");
   if (!existsSync(bin)) {
     const buf = await fetchVerify(asset, onProgress);
     mkdirSync(dir, { recursive: true });
     writeFileSync(bin, buf);
-    Bun.spawnSync(["chmod", "+x", bin]);
+    if (!isWin) Bun.spawnSync(["chmod", "+x", bin]);
   }
   updateCurrent({ nodeVersion: m.version, node: bin });
   return { bin, version: m.version };

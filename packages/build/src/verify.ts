@@ -22,9 +22,7 @@ export function resolveVerifyTool(): string | null {
   const cands = [process.env.QINIT_VERIFY, readCurrent()?.verify, join(cacheRoot(), "tools", "contractverify")]
     .filter(Boolean) as string[];
   for (const c of cands) if (existsSync(c)) return c;
-  const w = Bun.spawnSync(["sh", "-c", "command -v contractverify"]);
-  if (w.exitCode === 0) { const p = new TextDecoder().decode(w.stdout).trim(); if (p) return p; }
-  return null;
+  return Bun.which("contractverify"); // cross-platform PATH lookup (no `sh` on Windows)
 }
 
 // The contract .h uses the CONTRACT_STATE(2)_TYPE macros (substituted at compile by the build
