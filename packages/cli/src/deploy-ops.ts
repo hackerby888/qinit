@@ -110,7 +110,9 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? cur; } catch {}
   const curTick = async () => { try { const ti: any = await rpc.tickInfo(); return (ti.tick ?? ti.currentTick ?? cur) as number; } catch { return cur; } };
-  const waitTickReach = async (target: number, tries = 25) => { let t = cur; for (let i = 0; i < tries; i++) { t = await curTick(); if (t >= target) break; await sleep(1000); } return t; };
+  // tries is a per-second poll budget; early-exits on reach, so a high cap only matters for slow nodes
+  // (e.g. a RAM-constrained CI box ticking ~8s/tick) — keeps deploy from racing ahead of a lagging chain.
+  const waitTickReach = async (target: number, tries = 90) => { let t = cur; for (let i = 0; i < tries; i++) { t = await curTick(); if (t >= target) break; await sleep(1000); } return t; };
   const uploadTick = cur + TX_TICK_OFFSET;
 
   const session = newSessionId();
@@ -192,7 +194,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   emit({ step: "confirm", state: "active", detail: "polling arm…" });
   const want = hash.toLowerCase();
   let armed = false, constructed = false, present = false, onNode = "", last = cur;
-  for (let i = 0; i < 75; i++) {
+  for (let i = 0; i < 200; i++) {   // ~per-second poll budget; early-exits on armed+constructed (slow nodes tick ~8s)
     await sleep(1000);
     try {
       const ti: any = await rpc.tickInfo(); last = ti.tick ?? last;
