@@ -12,6 +12,11 @@ on:
   schedule:
     - cron: "0 6 * * 1"            # weekly (Mon 06:00 UTC) — pick up upstream changes
   workflow_dispatch:               # manual refresh
+    inputs:
+      force:
+        description: "Force rebuild + republish even if the upstream version is unchanged"
+        type: boolean
+        default: false
   push:
     paths: [".github/workflows/verify-tool.yml"]   # publish on first install / edits
 
@@ -24,9 +29,11 @@ env:
   UPSTREAM: https://github.com/Franziska-Mueller/qubic-contract-verify
 
 jobs:
-  # linux-x64 from the docker image; also resolves the version + change gate for the whole run.
+  # linux-x64 built from source (portable); the docker image still resolves the version + change gate.
+  # ubuntu-22.04 (glibc 2.35) + static libstdc++ -> binary loads on glibc >= 2.35. The docker-extracted
+  # binary needed GCC13/glibc 2.38 and failed to load on common runners (ubuntu-22.04). See memory.
   linux-x64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       version: ${{ steps.ver.outputs.version }}
       changed: ${{ steps.gate.outputs.changed }}
@@ -44,18 +51,31 @@ jobs:
           curVer="$(echo "$cur" | jq -r '.version' 2>/dev/null || echo none)"
           hasDarwin="$(echo "$cur" | jq -r '.assets["darwin-arm64"] // empty' 2>/dev/null)"
           # republish if upstream changed OR a platform we now build is missing from the live manifest
-          if [ "$curVer" = "${{ steps.ver.outputs.version }}" ] && [ -n "$hasDarwin" ]; then
+          if [ "$curVer" = "${{ steps.ver.outputs.version }}" ] && [ -n "$hasDarwin" ] && [ "${{ github.event.inputs.force }}" != "true" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"; echo "up to date ($curVer, all platforms present)"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"; echo "republish: ver $curVer->${{ steps.ver.outputs.version }} darwin=$hasDarwin"
           fi
-      - name: Extract linux-x64 binary
+      - name: Build linux-x64 from source (portable — glibc 2.35 base + static libstdc++)
         if: steps.gate.outputs.changed == 'true'
         run: |
-          cid="$(docker create "$IMAGE")"
-          docker cp "$cid:/contract-verify/build/src/contractverify" ./contractverify-linux-x64
-          docker rm "$cid"
-          chmod +x contractverify-linux-x64 && file contractverify-linux-x64
+          set -ex
+          sudo apt-get update -y && sudo apt-get install -y flex bison cmake g++ git
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git clone --recurse-submodules "$UPSTREAM" src
+          cd src
+          cmake -S deps/CppParser -B deps/CppParser/builds -DCMAKE_BUILD_TYPE=Release
+          cmake --build deps/CppParser/builds --config Release -j"$(nproc)"
+          # static libstdc++/libgcc => no GLIBCXX_3.4.3x dependency; built on 22.04 => GLIBC floor 2.35.
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_CONTRACTVERIFY_TESTS=OFF \
+            -Dcppparser_DIR="$PWD/deps/CppParser/builds" -DCMAKE_PREFIX_PATH="$PWD/deps/CppParser/builds" \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+          cmake --build build --config Release -j"$(nproc)"
+          cp build/src/contractverify "$GITHUB_WORKSPACE/contractverify-linux-x64"
+          chmod +x "$GITHUB_WORKSPACE/contractverify-linux-x64"
+          file "$GITHUB_WORKSPACE/contractverify-linux-x64"
+          echo "max symbol versions (should be no GLIBCXX, GLIBC <= 2.35):"
+          objdump -T "$GITHUB_WORKSPACE/contractverify-linux-x64" | grep -oE 'GLIBC(XX)?_[0-9.]+' | sort -V | uniq | tail -5
       - name: Upload artifact
         if: steps.gate.outputs.changed == 'true'
         uses: actions/upload-artifact@v4
