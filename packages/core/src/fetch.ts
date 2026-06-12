@@ -96,7 +96,9 @@ export async function fetchVerify(asset: AssetRef, onProgress?: (recv: number, t
 // Extract a .tar.gz buffer into destDir (system tar; gzip is universal — no zstd dep).
 export async function extractTarGz(tarGz: Uint8Array, destDir: string): Promise<void> {
   mkdirSync(destDir, { recursive: true });
-  const p = Bun.spawn(["tar", "xzf", "-", "-C", destDir], { stdin: tarGz, stdout: "pipe", stderr: "pipe" });
+  // Extract via the spawn cwd, not `tar -C <dir>`: on Windows the Git-bash MSYS tar mangles a
+  // `C:\...` path passed to -C ("Cannot open"). cwd is applied by the OS, so tar never parses it.
+  const p = Bun.spawn(["tar", "xzf", "-"], { stdin: tarGz, cwd: destDir, stdout: "pipe", stderr: "pipe" });
   const err = await new Response(p.stderr).text();
   await p.exited;
   if (p.exitCode !== 0) throw new Error("tar extract failed: " + err);
