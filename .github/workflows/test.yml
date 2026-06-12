@@ -24,8 +24,14 @@ env:
   CORE_REF: ${{ github.event.inputs.core_ref || 'feat/dynamic-contracts' }}
 
 jobs:
+  # Typecheck + unit tests on every host OS — qinit ships per-host process/tar/path code, so a
+  # Linux-only run lets portability bugs (e.g. MSYS `tar -C` mangling) reach core's smoke undetected.
   lint-test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -141,15 +147,12 @@ jobs:
           mkdir -p run
           ( cd run && "$GITHUB_WORKSPACE/core/build-node/src/Qubic" \
               --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000 > node.log 2>&1 & echo $! > node.pid )
-          ok=0
-          for i in $(seq 1 50); do
-            # `|| true`: the step shell is `bash -e`; an empty poll (node not up yet) makes grep exit 1,
-            # which would otherwise abort the whole step before the node finishes booting.
-            t=$(curl -s --max-time 3 http://127.0.0.1:41841/live/v1/tick-info 2>/dev/null | grep -oE '"tick":[0-9]+' | tail -1 | grep -oE '[0-9]+' || true)
-            if [ -n "$t" ] && [ "$t" -gt 0 ]; then ok=1; echo "node ticking at $t"; break; fi
-            sleep 3
-          done
-          [ "$ok" = 1 ] || { echo "node never ticked"; tail -40 run/node.log; exit 1; }
+          # Robust boot-wait via the shared poller (retries under set -e; see scripts/poll-node-json.sh).
+          if t=$(bash scripts/poll-node-json.sh http://127.0.0.1:41841/live/v1/tick-info '.tick // 0' 50 3); then
+            echo "node ticking at $t"
+          else
+            echo "node never ticked"; tail -40 run/node.log; exit 1
+          fi
           set +e; bun run scripts/ci-deploy-smoke.ts; code=$?; set -e
           kill "$(cat run/node.pid)" 2>/dev/null || true
           echo "=== node.log tail ==="; tail -25 run/node.log
