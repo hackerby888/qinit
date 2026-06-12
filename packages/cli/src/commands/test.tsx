@@ -4,8 +4,8 @@ import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { loadConfig, resolveCore } from "../config";
 import { deployContract, type Ev } from "../deploy-ops";
-import { launchNode, waitTicking, killNode, ensureNode } from "../node-ops";
-import { LiteRpc } from "@qinit/core";
+import { launchNode, waitTicking, killNode, ensureNode, scratchDir } from "../node-ops";
+import { LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
 import { testRuntimeSource, sampleTest, generateClient, extractIdl } from "@qinit/build";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 
@@ -127,8 +127,15 @@ export function Test({ args }: { args: string[] }) {
         const p = Bun.spawn(["bun", ...bunArgs], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
         const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
         await p.exited;
-        const output = stripAnsi((out + err).trim());
+        let output = stripAnsi((out + err).trim());
         const ok = p.exitCode === 0;
+        if (!ok) {   // append a source-mapped backtrace of the latest node trap (node.log + the slot's line map)
+          try {
+            const all = existsSync(join(root, "qinit.idl.json")) ? JSON.parse(readFileSync(join(root, "qinit.idl.json"), "utf8")) : {};
+            const log = join(scratchDir(), "node.log");
+            if (existsSync(log)) { const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), { lineMapPath: all[String(dep.slot)]?.linesJson }); if (bt?.frames.length) output += "\n\n" + formatTrapBacktrace(bt); }
+          } catch {}
+        }
         add("tests", ok, ok ? "all passed" : "failures (see below)");
 
         if (ownNode && o.keep === undefined) await killNode();

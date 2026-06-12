@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
-import { LiteRpc, type DebugEntry } from "@qinit/core";
+import { LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
+import { scratchDir } from "../node-ops";
 import { callFunction, invokeProcedure, jsonToInputFmt, encodeInput, zeroInputFmt, TX_TICK_OFFSET } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, jstr, fmtVal, type TraceView as TraceData } from "../trace-format";
@@ -106,13 +108,27 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
         const nodeErr = async (): Promise<string> => {
           try { const reg = await rpc.dynRegistry(); const c = (reg.contracts ?? []).find((x) => x.index === idx); return c?.lastError ?? ""; } catch { return ""; }
         };
+        // upgrade a raw trap string to a source-mapped backtrace via node.log + the slot's DWARF sidecar.
+        const enrichErr = async (raw: string): Promise<string | undefined> => {
+          if (!raw) return undefined;
+          try {
+            const all = existsSync("qinit.idl.json") ? JSON.parse(readFileSync("qinit.idl.json", "utf8")) : {};
+            const lineMapPath = all[String(idx)]?.linesJson;
+            const log = join(scratchDir(), "node.log");
+            if (existsSync(log)) {
+              const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), { lineMapPath });
+              if (bt?.frames.length) return formatTrapBacktrace(bt);
+            }
+          } catch {}
+          return raw;
+        };
         const label = `${o.idx}.${ie?.name ?? (o.mode === "fn" ? "fn#" : "proc#") + entry}`;
 
         if (o.mode === "fn") {
           const out = await callFunction(rpc, idx, entry, inFmt, o.out ?? ie?.out ?? "");
           const empty = out == null || (typeof out === "object" && Object.keys(out).length === 0);
           const ne = empty ? await nodeErr() : "";
-          setResult({ ok: ne ? false : true, label, rows: [["out", fmtVal(out, o.all !== undefined)]], err: ne || undefined });
+          setResult({ ok: ne ? false : true, label, rows: [["out", fmtVal(out, o.all !== undefined)]], err: await enrichErr(ne) });
         } else {
           const ti: any = await rpc.tickInfo();
           const tick = (ti.tick ?? ti.currentTick ?? 0) + TX_TICK_OFFSET;
@@ -127,7 +143,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           const detail = !r.ok ? `FAIL${r.code != null ? " code=" + r.code : ""}` : !settle ? "broadcast"
             : r.confirmed && r.included ? "processed" : r.confirmed && !r.included ? "dropped — not included" : "broadcast · unconfirmed";
           const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
-          setResult({ ok, label, detail, rows: [["tx", txs], ["tick", String(tick)]], err: (await nodeErr()) || (!r.ok ? r.message : undefined) });
+          setResult({ ok, label, detail, rows: [["tx", txs], ["tick", String(tick)]], err: (await enrichErr(await nodeErr())) || (!r.ok ? r.message : undefined) });
         }
 
         if (wantTrace) {

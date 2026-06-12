@@ -186,7 +186,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     try {
       const p = "qinit.idl.json";
       const all = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {};
-      all[String(slot)] = { name: b.idl.name, functions: b.idl.functions, procedures: b.idl.procedures };
+      all[String(slot)] = { name: b.idl.name, functions: b.idl.functions, procedures: b.idl.procedures, codeHash: hash, debugWasm: b.debugWasm ? resolve(b.debugWasm) : undefined, linesJson: b.linesJson ? resolve(b.linesJson) : undefined };
       writeFileSync(p, JSON.stringify(all, null, 2));
     } catch {}
   }

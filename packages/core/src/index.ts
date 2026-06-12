@@ -16,3 +16,5 @@ export {
   CLI_REPO, cliAssetName, resolveCliTag, cliReleaseUrls, fetchCliSha,
 } from "./fetch";
 export type { AssetRef, Manifest, CurrentPointer, VerifyManifest, VerifyUpdate } from "./fetch";
+export { resolveTrapBacktrace, formatTrapBacktrace, decodeTrapCause } from "./backtrace";
+export type { TrapFrame, TrapBacktrace } from "./backtrace";

@@ -1,8 +1,11 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { LiteRpc, type DebugEntry, type DynContract } from "@qinit/core";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry, type DynContract } from "@qinit/core";
 import { describeTrace, type TraceView as TraceData } from "../trace-format";
 import { TraceView } from "../views";
+import { scratchDir } from "../node-ops";
 import { loadConfig } from "../config";
 import { Header, Table, Spinner, theme, type Column } from "../ui";
 
@@ -102,10 +105,24 @@ export function Debug({ args }: { args: string[] }) {
 
 function Detail({ e, name, source, rpc }: { e: DebugEntry; name: string; source?: string; rpc: LiteRpc }) {
   const [v, setV] = useState<TraceData | null>(null);
+  const [bt, setBt] = useState<string>("");
   useEffect(() => {
     let alive = true;
     describeTrace(e, source, name, rpc).then((view) => { if (alive) setV(view); }).catch(() => {});
+    setBt("");
+    if (!e.ok) {   // trapped call: source-mapped backtrace from node.log + the slot's line map
+      try {
+        const all = existsSync("qinit.idl.json") ? JSON.parse(readFileSync("qinit.idl.json", "utf8")) : {};
+        const log = join(scratchDir(), "node.log");
+        if (existsSync(log)) { const b = resolveTrapBacktrace(readFileSync(log, "utf8"), { lineMapPath: all[String(e.index)]?.linesJson }); if (b?.frames.length && alive) setBt(formatTrapBacktrace(b)); }
+      } catch {}
+    }
     return () => { alive = false; };
   }, [e.seq]);
-  return v ? <TraceView e={e} name={name} view={v} /> : <Text dimColor>decoding…</Text>;
+  return (
+    <Box flexDirection="column">
+      {v ? <TraceView e={e} name={name} view={v} /> : <Text dimColor>decoding…</Text>}
+      {bt ? <Box marginTop={1} flexDirection="column">{bt.split("\n").map((l, i) => <Text key={i} color={theme.err}>{l}</Text>)}</Box> : null}
+    </Box>
+  );
 }

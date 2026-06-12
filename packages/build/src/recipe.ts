@@ -1,9 +1,10 @@
 // Compile a qpi.h-constrained contract .h into a wasm contract module (run by the node's WAMR engine).
 // Pinned recipe: include qpi.h + lite_wasm_tu.h, never contract_exec.h; define LITE_WASM_TU_BUILD +
 // CONTRACT_INDEX/STATE_TYPE.
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
 import { wasiSdkPaths } from "@qinit/core";
+import { writeLineMap } from "./linemap";
 
 export interface BuildOpts {
   contractPath: string; // absolute path to the contract .h
@@ -75,6 +76,8 @@ export interface WasmCompileResult {
   wrapper: string;
   stderr: string;
   exitCode: number | null;
+  debugWasm?: string;   // -g DWARF sidecar; the deployed wasm is stripped
+  linesJson?: string;   // build-time {fileOffset -> file:line:func} map for trap backtraces (100% at -O0)
 }
 
 // clang must target wasm32-wasi (the bundled clang.wasm multitool has the WebAssembly backend; a native
@@ -95,7 +98,9 @@ export async function compileWasmContract(
   // reactor + --no-entry => a library wasm (no _start); --allow-undefined leaves the lhost imports unresolved
   // (the node binds them). No -mavx2 (wasm); m256i is emulated via SIMDe.
   const args = [
-    "--target=wasm32-wasi", "-std=c++20", "-O2", "-fno-rtti", "-fno-exceptions",
+    // -O0 -g: every instruction keeps a source line -> 100%-resolvable trap backtraces (testnet dev node;
+    // perf traded for debuggability). The deployed wasm is DWARF-stripped below; offsets stay identical.
+    "--target=wasm32-wasi", "-std=c++20", "-O0", "-g", "-fno-rtti", "-fno-exceptions",
     "-DLITEDYN_CONTRACT_TU", "-include", shim,
     ...(sysroot ? [`--sysroot=${sysroot}`] : []),
     `-I${o.corePath}`, `-I${src}`,
@@ -105,7 +110,21 @@ export async function compileWasmContract(
   const p = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
   const stderr = await new Response(p.stderr).text();
   await p.exited;
-  return { ok: p.exitCode === 0, wasm, wrapper, stderr, exitCode: p.exitCode };
+  // -g leaves DWARF in `wasm`: copy it as the debug sidecar (qinit symbolizes trap offsets against it), then
+  // strip DWARF from the deployed wasm in place -> code byte-identical, so offsets still match the sidecar.
+  let debugWasm: string | undefined, linesJson: string | undefined;
+  if (p.exitCode === 0) {
+    try {
+      const dir = clang.includes("/") ? clang.slice(0, clang.lastIndexOf("/") + 1) : "";
+      const tool = (n: string) => dir + n;   // llvm-{strip,objdump,dwarfdump} next to clang, else PATH
+      const dbg = join(o.outDir, `${o.name}.debug.wasm`);
+      await copyFile(wasm, dbg);              // keep the DWARF copy as the sidecar
+      const lj = join(o.outDir, `${o.name}.lines.json`);
+      if (writeLineMap(dbg, lj, { objdump: tool("llvm-objdump"), dwarfdump: tool("llvm-dwarfdump") })) linesJson = lj;
+      if (Bun.spawnSync([tool("llvm-strip"), "--strip-debug", wasm]).exitCode === 0) debugWasm = dbg;   // deploy stripped
+    } catch {}
+  }
+  return { ok: p.exitCode === 0, wasm, wrapper, stderr, exitCode: p.exitCode, debugWasm, linesJson };
 }
 
 // Any clang >= 18 (clang only — relies on its intrinsics/ABI). Not gcc.

@@ -24,6 +24,8 @@ export interface BuildResult {
   hash?: string;
   idl?: ContractIdl;
   verify?: VerifyResult;
+  debugWasm?: string;   // -g DWARF sidecar (deployed wasm is stripped)
+  linesJson?: string;   // {fileOffset -> file:line:func} map for source-mapped trap backtraces
   stderr?: string;
 }
 
@@ -59,5 +61,5 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   try { hash = await k12Hex(new Uint8Array(readFileSync(w.wasm))); } catch { hash = undefined; }
   let idl: ContractIdl | undefined;
   try { idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name); } catch { idl = undefined; }
-  return { ok: true, so: w.wasm, size, hash, idl, verify };
+  return { ok: true, so: w.wasm, size, hash, idl, verify, debugWasm: w.debugWasm, linesJson: w.linesJson };
 }
