@@ -43,6 +43,19 @@ jobs:
       - name: Unit tests
         run: bun test
 
+  # contractverify every fixtures/*.h against the qpi.h protocol rules (the AST checker, not just a wasm
+  # compile). The script self-fetches the cached verify tool; a fixture that drifts out of compliance reds it.
+  verify-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install
+      - name: contractverify fixtures
+        run: bun run scripts/verify-fixtures.ts
+
   corpus:
     runs-on: ubuntu-latest
     steps:
@@ -153,7 +166,10 @@ jobs:
           else
             echo "node never ticked"; tail -40 run/node.log; exit 1
           fi
-          set +e; bun run scripts/ci-deploy-smoke.ts; code=$?; set -e
+          set +e
+          bun run scripts/ci-deploy-smoke.ts; c1=$?
+          bun run scripts/gauntlet-smoke.ts;  c2=$?   # QPI edge-case gauntlet (div/mod, wrap, K12, HashMap, ...)
+          set -e
           kill "$(cat run/node.pid)" 2>/dev/null || true
           echo "=== node.log tail ==="; tail -25 run/node.log
-          exit $code
+          [ $c1 -eq 0 ] && [ $c2 -eq 0 ]
