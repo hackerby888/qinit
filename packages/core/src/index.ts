@@ -5,10 +5,10 @@ export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./tx";
 export type { SignedTx, TxInput } from "./tx";
 export { LiteRpc } from "./rpc";
 export type { TickInfo, DynRegistry, DynContract, DynEntry, DebugTrace, DebugEntry, DebugHostCall, DebugStateRegion } from "./rpc";
-export { broadcastTx, broadcastTxs, fetchT } from "./net";
+export { broadcastTx, broadcastTxs, fetchT, readBody } from "./net";
 export type { BroadcastResult } from "./net";
 export {
-  RELEASE_REPO, cacheRoot, cacheDir, cacheHeaders, sha256Hex, loadManifest, fetchVerify,
+  RELEASE_REPO, cacheRoot, cacheDir, cacheHeaders, sha256Hex, atomicWrite, loadManifest, fetchVerify,
   extractTarGz, currentPath, readCurrent, updateCurrent,
   VERIFY_REPO, VERIFY_TAG, toolsDir, cachedVerifyToolPath, verifyPlatformKey,
   loadVerifyManifest, autoUpdateVerifyTool,
@@ -16,5 +16,6 @@ export {
   CLI_REPO, cliAssetName, resolveCliTag, cliReleaseUrls, fetchCliSha,
 } from "./fetch";
 export type { AssetRef, Manifest, CurrentPointer, VerifyManifest, VerifyUpdate } from "./fetch";
+export { debug } from "./debug";
 export { resolveTrapBacktrace, formatTrapBacktrace, decodeTrapCause } from "./backtrace";
 export type { TrapFrame, TrapBacktrace } from "./backtrace";

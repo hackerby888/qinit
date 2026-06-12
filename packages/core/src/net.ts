@@ -9,6 +9,33 @@ export async function fetchT(url: string, init?: RequestInit, ms = 10000): Promi
   finally { clearTimeout(timer); }
 }
 
+// Read a response body fully with an INACTIVITY watchdog: if no chunk arrives for `stallMs`, abort.
+// fetchT's timeout only guards until the headers arrive — this guards the body, so a stalled stream
+// (slow-loris / dropped mid-download) is killed instead of hanging forever. A slow-but-progressing
+// large download is fine (the timer resets on every chunk). onProgress streams bytes for a progress bar.
+export async function readBody(r: Response, stallMs = 60000, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {
+  if (!r.body) return new Uint8Array(await r.arrayBuffer());
+  const total = Number(r.headers.get("content-length") ?? 0);
+  const reader = r.body.getReader();
+  const parts: Uint8Array[] = [];
+  let recv = 0, stalled = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = () => { clearTimeout(timer); timer = setTimeout(() => { stalled = true; reader.cancel().catch(() => {}); }, stallMs); };
+  try {
+    arm();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      arm();
+      parts.push(value); recv += value.length; onProgress?.(recv, total);
+    }
+  } finally { clearTimeout(timer); }
+  if (stalled) throw new Error(`download stalled — no data for ${stallMs}ms`);
+  const buf = new Uint8Array(recv);
+  let off = 0; for (const p of parts) { buf.set(p, off); off += p.length; }
+  return buf;
+}
+
 // Broadcast a signed tx via the node's built-in RPC: POST /live/v1/broadcast-transaction
 // with { encodedTransaction: <base64> }. The endpoint checkValidity + verifies the signature
 // server-side, so its response also tells us whether our tx crafting/signing is correct.

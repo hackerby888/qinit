@@ -1,10 +1,11 @@
 // Cache + fetch + verify for synced assets (core-header snapshot now; prebuilt node later).
 // Cache layout: ~/.cache/qinit/<version>/core-headers/ (+ node/Qubic), pointer at current.json.
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { fetchT } from "./net";
+import { fetchT, readBody } from "./net";
+import { debug } from "./debug";
 
 // Release source = the user's fork. NEVER qubic/core-lite (upstream) — see project memory.
 export const RELEASE_REPO = "hackerby888/core-lite";
@@ -17,6 +18,14 @@ export function cacheDir(version: string): string {
 }
 export function sha256Hex(buf: Uint8Array): string {
   return createHash("sha256").update(buf).digest("hex");
+}
+
+// Write a file atomically: a kill mid-write must never leave a torn file that existsSync treats as a
+// valid cache hit. Write a sibling tmp, then rename (atomic on the same filesystem).
+export function atomicWrite(file: string, data: Uint8Array | string): void {
+  const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, file);
 }
 
 export interface AssetRef { url: string; sha256: string; }
@@ -63,7 +72,7 @@ export async function fetchCliSha(sumsUrl: string, name: string): Promise<string
     const r = await fetchT(sumsUrl, undefined, 15000);
     if (!r.ok) return "";
     for (const line of (await r.text()).split("\n")) { const m = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/); if (m && m[2] === name) return m[1].toLowerCase(); }
-  } catch {}
+  } catch (e) { debug("fetchCliSha: SHA256SUMS fetch failed", e); }
   return "";
 }
 
@@ -74,18 +83,7 @@ export async function fetchVerify(asset: AssetRef, onProgress?: (recv: number, t
   try { r = await fetchT(asset.url, undefined, 30000); }   // 30s connect/TTFB guard; the body then streams untimed
   catch (e: any) { throw new Error(`network error downloading ${asset.url} — check your connection  [${e?.message ?? e}]`); }
   if (!r.ok) throw new Error(`download failed (HTTP ${r.status}): ${asset.url}`);
-  let buf: Uint8Array;
-  if (onProgress && r.body) {
-    const total = Number(r.headers.get("content-length") ?? 0);
-    const reader = r.body.getReader();
-    const parts: Uint8Array[] = [];
-    let recv = 0;
-    for (;;) { const { done, value } = await reader.read(); if (done) break; parts.push(value); recv += value.length; onProgress(recv, total); }
-    buf = new Uint8Array(recv);
-    let off = 0; for (const p of parts) { buf.set(p, off); off += p.length; }
-  } else {
-    buf = new Uint8Array(await r.arrayBuffer());
-  }
+  const buf = await readBody(r, 60000, onProgress);   // body guarded by an inactivity watchdog (net.readBody)
   if (asset.sha256) {
     const got = sha256Hex(buf);
     if (got !== asset.sha256) throw new Error(`sha256 mismatch for ${asset.url}\n  want ${asset.sha256}\n  got  ${got}`);
@@ -217,6 +215,12 @@ export async function fetchWasiSdk(onProgress?: (recv: number, total: number) =>
   let sha256 = "";
   try { const r = await fetchT(url + ".sha256", undefined, 15000); if (r.ok) sha256 = (await r.text()).trim().split(/\s+/)[0] ?? ""; } catch {}
   const buf = await fetchVerify({ url, sha256 }, onProgress);
-  await extractTarGz(buf, dir);
+  // Atomic install: extract into a sibling tmp dir, then swap it into place. A kill mid-extract leaves
+  // the tmp (ignored), never a half-populated wasi-sdk/ that haveWasiSdkCache() would accept as valid.
+  const tmp = `${dir}.tmp.${process.pid}`;
+  rmSync(tmp, { recursive: true, force: true });
+  await extractTarGz(buf, tmp);
+  rmSync(dir, { recursive: true, force: true });
+  renameSync(tmp, dir);
   return { dir, cached: false };
 }
