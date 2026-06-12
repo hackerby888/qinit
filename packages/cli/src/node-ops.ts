@@ -1,7 +1,8 @@
 // Shared node lifecycle ops (no UI) used by `qinit node` and `qinit up`.
-import { openSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { openSync, closeSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
-import { LiteRpc, cacheRoot, readCurrent, updateCurrent, loadManifest, fetchVerify, verifyPlatformKey } from "@qinit/core";
+import { LiteRpc, cacheRoot, readCurrent, updateCurrent, loadManifest, fetchVerify, verifyPlatformKey, atomicWrite, debug } from "@qinit/core";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const scratchDir = () => join(cacheRoot(), "run");
@@ -9,16 +10,34 @@ const pidFile = (s: string) => join(s, "node.pid");
 
 const isWin = process.platform === "win32";
 
-// pkill (taskkill on Windows) any node + confirm gone (stale instance holds the port/locks).
-export async function killNode(): Promise<void> {
-  if (isWin) Bun.spawnSync(["taskkill", "/F", "/IM", "Qubic.exe"]);
-  else Bun.spawnSync(["pkill", "-x", "Qubic"]);
+// PID of the qinit-managed node, recovered from the on-disk pidfile (survives across qinit invocations).
+function trackedPid(scratch: string): number | undefined {
+  try { const p = parseInt(readFileSync(pidFile(scratch), "utf8").trim(), 10); return Number.isFinite(p) && p > 0 ? p : undefined; }
+  catch { return undefined; }
+}
+// Liveness without sending a real signal: kill(pid,0) throws ESRCH if gone, EPERM if alive-but-not-ours.
+function pidAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (e: any) { return e?.code === "EPERM"; }
+}
+
+// Stop ONLY the node qinit started (by tracked PID) + confirm gone. Never a broad pkill/taskkill by
+// image name — that also kills unrelated Qubic instances on a multi-node dev box. No pidfile => nothing
+// of ours to stop (a foreign node keeps running; a fresh launch then surfaces a clear port-in-use error).
+export async function killNode(scratch = scratchDir()): Promise<void> {
+  scratch = resolve(scratch);
+  const pid = trackedPid(scratch);
+  if (pid === undefined) return;
+  try { if (isWin) Bun.spawnSync(["taskkill", "/F", "/PID", String(pid)]); else process.kill(pid, "SIGKILL"); } catch {}
   for (let i = 0; i < 20; i++) {
-    if (!nodeAlive()) return;
+    if (!pidAlive(pid)) { try { rmSync(pidFile(scratch)); } catch {} return; }
     await sleep(250);
   }
 }
-export function nodeAlive(): boolean {
+// Is the qinit-managed node up? Prefer the tracked PID; fall back to a broad image-name probe only when
+// there is no pidfile (answers "is any Qubic running", e.g. before a fresh `up`).
+export function nodeAlive(scratch = scratchDir()): boolean {
+  const pid = trackedPid(resolve(scratch));
+  if (pid !== undefined) return pidAlive(pid);
   if (isWin) {
     const r = Bun.spawnSync(["tasklist", "/NH", "/FI", "IMAGENAME eq Qubic.exe"]);
     return new TextDecoder().decode(r.stdout).includes("Qubic.exe");
@@ -38,7 +57,7 @@ export async function fetchNodeBin(ref: string, onProgress?: (recv: number, tota
   if (!existsSync(bin)) {
     const buf = await fetchVerify(asset, onProgress);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(bin, buf);
+    atomicWrite(bin, buf);
     if (!isWin) Bun.spawnSync(["chmod", "+x", bin]);
   }
   updateCurrent({ nodeVersion: m.version, node: bin });
@@ -69,11 +88,16 @@ export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: 
   mkdirSync(scratch, { recursive: true });
   const log = join(scratch, "node.log");
   const fd = openSync(log, "a");
-  const proc = Bun.spawn([o.bin, "--peers", o.peers || "127.0.0.1", "--node-mode", o.mode || "3", "--ticking-delay", "1000"],
-    { cwd: scratch, stdin: "ignore", stdout: fd, stderr: fd });
-  proc.unref();
-  writeFileSync(pidFile(scratch), String(proc.pid));
-  return { pid: proc.pid, scratch, log };
+  // detached + unref so the node OUTLIVES qinit (notably `qinit up`/`test --keep`). A non-detached child
+  // is killed when the parent process exits on Windows; detached:true gives it its own process group on
+  // every OS. windowsHide stops a console window popping up.
+  const child = spawn(o.bin, ["--peers", o.peers || "127.0.0.1", "--node-mode", o.mode || "3", "--ticking-delay", "1000"],
+    { cwd: scratch, stdio: ["ignore", fd, fd], detached: true, windowsHide: true });
+  child.unref();
+  closeSync(fd);   // child holds its own dup; don't keep the parent's copy open
+  const pid = child.pid ?? 0;
+  writeFileSync(pidFile(scratch), String(pid));
+  return { pid, scratch, log };
 }
 
 // Poll RPC until the tick advances (ticking) or the process exits / times out.
@@ -98,7 +122,7 @@ export async function nodeContracts(rpcBase: string): Promise<string[]> {
   try {
     const reg: any = await new LiteRpc(rpcBase).dynRegistry();
     return (reg.contracts ?? []).filter((c: any) => c.armed).map((c: any) => `${c.name || c.index}@${c.index}`);
-  } catch { return []; }
+  } catch (e) { debug("nodeContracts: dyn-registry read failed", e); return []; }
 }
 
 export interface NodeStatus { up: boolean; ticking: boolean; tick: number; epoch: number; armed: number; slotCount: number; contracts: string[]; }
@@ -117,5 +141,5 @@ export async function nodeStatus(rpcBase: string): Promise<NodeStatus> {
       armed: armed.length, slotCount: reg.slotCount ?? 0,
       contracts: armed.map((c: any) => `${c.name || c.index}@${c.index}${c.constructed ? "" : " (armed)"}`),
     };
-  } catch { return { up: false, ticking: false, tick: 0, epoch: 0, armed: 0, slotCount: 0, contracts: [] }; }
+  } catch (e) { debug("nodeStatus: rpc read failed", e); return { up: false, ticking: false, tick: 0, epoch: 0, armed: 0, slotCount: 0, contracts: [] }; }
 }

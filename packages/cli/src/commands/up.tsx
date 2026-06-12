@@ -89,7 +89,7 @@ export function Up({ args }: { args: string[] }) {
         } else {
           const why = !st.up ? "no node" : st.ticking ? "--restart" : "node idle";
           set("run", "active", `${why} → launching`);
-          await killNode();
+          await killNode(o.dir);
           const l = launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers });
           scratch = l.scratch;
           const w = await waitTicking(rpcBase, Number(o.wait || 90));
