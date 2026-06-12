@@ -1,6 +1,6 @@
 // Unified contract discovery: user-deployed (dyn-registry) first, then built-in system contracts (catalog).
 // Shared by call / ls / state so a name or index resolves the same everywhere.
-import { LiteRpc, type DynContract } from "@qinit/core";
+import { LiteRpc, debug, type DynContract } from "@qinit/core";
 import { systemContracts, type SystemContract } from "@qinit/build";
 import { layoutOf } from "@qinit/proto";
 import { resolveCore } from "./config";
@@ -9,9 +9,12 @@ const fmtSize = (fmt?: string): number => { try { return fmt ? layoutOf(fmt).siz
 
 export type ContractSets = { user: DynContract[]; system: SystemContract[] };
 
-// System catalog from the fetched snapshot; [] (never throws) if no snapshot / parse issue.
+// System catalog from the fetched snapshot; [] (never throws). No snapshot = benign (user contracts still
+// resolve); a snapshot that's present but fails to parse is a real issue -> debug-log the cause, not silent.
 export function loadSystem(): SystemContract[] {
-  try { return systemContracts(resolveCore()); } catch { return []; }
+  let core: string;
+  try { core = resolveCore(); } catch { return []; }   // no snapshot yet
+  try { return systemContracts(core); } catch (e: any) { debug("loadSystem: system catalog parse failed", e); return []; }
 }
 
 export async function loadContracts(rpc: LiteRpc): Promise<ContractSets> {

@@ -22,10 +22,25 @@ export const STEPS: { key: StepKey; label: string }[] = [
   { key: "confirm", label: "confirm" },
 ];
 
+// Truthful tick-wait failure: a node that never answered is UNREACHABLE, not "not ticking" — say which,
+// with the actionable hint (mirrors LiteRpc's wording). Pure so it's unit-tested without a node.
+export function tickFailureMessage(reached: boolean, rpcBase: string): string {
+  return reached ? "node not ticking" : `node unreachable at ${rpcBase} — is it running? (qinit up)`;
+}
+
+// Classify a deploy that never armed by the ACTUAL cause: a dyn-registry that never read back (node too
+// old / RPC down) is "unknown", NOT "slot empty" — the old message blamed a dropped deploy wrongly.
+export function classifyConfirm(s: { present: boolean; regOk: boolean; onNode: string; want: string }): { reason: string; detail: string; note: string } {
+  if (!s.regOk) return { reason: "registry-unreadable", detail: "couldn't read dyn-registry", note: "couldn't read /dyn-registry (node too old or RPC down) — deploy state unknown" };
+  if (!s.present) return { reason: "empty", detail: "slot empty — didn't land", note: "upload/deploy didn't land (chunks dropped, tick missed, or seed unfunded)" };
+  return { reason: "wrong-code", detail: "different code — didn't take", note: `on-node ${s.onNode.slice(0, 12)}… ≠ yours ${s.want.slice(0, 12)}…` };
+}
+
 export interface DeployOpts {
   contractPath: string; name: string; core: string; rpcBase: string;
   seed?: string; dynCallees?: Record<string, { header: string; index: number }>;
   slotOverride?: number; outDir?: string; skipVerify?: boolean;
+  rpc?: LiteRpc;   // injectable (tests pass a mock; prod builds one from rpcBase)
 }
 export interface DeployResult {
   ok: boolean; slot?: number; reused?: boolean; hash?: string; txId?: string;
@@ -35,7 +50,7 @@ export interface DeployResult {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Promise<DeployResult> {
-  const rpc = new LiteRpc(o.rpcBase);
+  const rpc = o.rpc ?? new LiteRpc(o.rpcBase);
 
   // refuse a name that collides with a built-in system contract (QX, QEARN, …) — keeps name resolution unambiguous.
   try {
@@ -57,12 +72,20 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   // stall a few minutes in its first ticks (initial-epoch work; seen on the Windows port) before
   // settling into a steady rate — a ticking node exits this loop within seconds either way.
   emit({ step: "tick", state: "active", detail: "waiting for node…" });
-  let t0 = -1, cur = 0;
+  let t0 = -1, cur = 0, reached = false, miss = 0;
   for (let i = 0; i < 300; i++) {
-    try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? ti.currentTick ?? 0; if (t0 < 0) t0 = cur; emit({ step: "tick", state: "active", detail: `tick ${cur}` }); if (cur > t0 + 3) break; } catch {}
+    try {
+      const ti: any = await rpc.tickInfo(); reached = true; miss = 0;
+      cur = ti.tick ?? ti.currentTick ?? 0; if (t0 < 0) t0 = cur;
+      emit({ step: "tick", state: "active", detail: `tick ${cur}` });
+      if (cur > t0 + 3) break;
+    } catch { if (!reached && ++miss >= 15) break; }   // fail fast: never answered -> unreachable, not slow
     await sleep(1000);
   }
-  if (cur <= t0 + 3) { emit({ step: "tick", state: "fail", detail: "not ticking" }); return { ok: false, error: "node not ticking" }; }
+  if (!reached || cur <= t0 + 3) {
+    emit({ step: "tick", state: "fail", detail: reached ? "not ticking" : "unreachable" });
+    return { ok: false, error: tickFailureMessage(reached, o.rpcBase) };
+  }
   emit({ step: "tick", state: "ok", detail: `tick ${cur}` });
 
   // seed precedence: --seed > saved pick (`qinit seed`) > node funded seed > dev default
@@ -109,6 +132,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   const so = readFileSync(b.so!);
   const hash = b.hash ?? (await k12Hex(new Uint8Array(so)));
   emit({ step: "build", state: "ok", detail: `${so.length}B · k12 ${hash.slice(0, 12)}…` });
+  if (b.idlError) emit({ note: "⚠ IDL parse failed — no typed client/state names: " + b.idlError });
 
   try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? cur; } catch {}
   const curTick = async () => { try { const ti: any = await rpc.tickInfo(); return (ti.tick ?? ti.currentTick ?? cur) as number; } catch { return cur; } };
@@ -196,12 +220,12 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   // user knows a call may read pre-INITIALIZE state. Classify the failure otherwise.
   emit({ step: "confirm", state: "active", detail: "polling arm…" });
   const want = hash.toLowerCase();
-  let armed = false, constructed = false, present = false, onNode = "", last = cur;
+  let armed = false, constructed = false, present = false, onNode = "", last = cur, regOk = false;
   for (let i = 0; i < 420; i++) {   // ~per-second poll budget; early-exits on armed+constructed (slow nodes tick ~8s; the Windows port can stall ticks for minutes)
     await sleep(1000);
     try {
       const ti: any = await rpc.tickInfo(); last = ti.tick ?? last;
-      const reg = await rpc.dynRegistry();
+      const reg = await rpc.dynRegistry(); regOk = true;
       const c = (reg.contracts ?? []).find((x) => x.index === slot);
       if (c) {
         present = !!c.armed; onNode = (c.codeHash || "").toLowerCase();
@@ -223,8 +247,12 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     else { emit({ step: "confirm", state: "ok", detail: `armed (construct pending) · ${want.slice(0, 12)}…` });
            emit({ note: "⚠ armed but INITIALIZE hasn't settled — a call now may read pre-init state; retry shortly" }); }
   }
-  else if (!present) { reason = "empty"; emit({ step: "confirm", state: "fail", detail: "slot empty — didn't land" }); emit({ note: "upload/deploy didn't land (chunks dropped, tick missed, or seed unfunded)" }); }
-  else { reason = "wrong-code"; emit({ step: "confirm", state: "fail", detail: "different code — didn't take" }); emit({ note: `on-node ${onNode.slice(0, 12)}… ≠ yours ${want.slice(0, 12)}…` }); }
+  else {
+    const cl = classifyConfirm({ present, regOk, onNode, want });
+    reason = cl.reason;
+    emit({ step: "confirm", state: "fail", detail: cl.detail });
+    emit({ note: cl.note });
+  }
 
   return { ok: armed, slot, reused, hash, txId: dr.transactionId, armed, constructed, reason, idl: b.idl };
 }
