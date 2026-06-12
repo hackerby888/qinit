@@ -19,6 +19,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     struct Set_output {};
     struct BalanceOf_input { id who; };
     struct BalanceOf_output { uint64 amount; };
+    struct BalanceOf_locals { uint64 v; };
     struct Stats_input {};
     struct Stats_output { uint64 total; uint64 population; };
 
@@ -29,11 +30,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         state.mut().recent.set(0, input.amount);
     }
 
-    PUBLIC_FUNCTION(BalanceOf)
+    PUBLIC_FUNCTION_WITH_LOCALS(BalanceOf)
     {
-        uint64 v = 0;
-        state.get().balances.get(input.who, v);
-        output.amount = v;
+        locals.v = 0;
+        state.get().balances.get(input.who, locals.v);
+        output.amount = locals.v;
     }
 
     PUBLIC_FUNCTION(Stats)

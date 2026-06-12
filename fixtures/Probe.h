@@ -14,15 +14,15 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
     struct Bal_input { id who; };
     struct Bal_output { sint64 incoming; sint64 outgoing; };
+    struct Bal_locals { Entity e; };
     struct Info_input {};
     struct Info_output { id arbitrator; sint64 reserve; };
 
-    PUBLIC_FUNCTION(Bal)
+    PUBLIC_FUNCTION_WITH_LOCALS(Bal)
     {
-        Entity e;
-        qpi.getEntity(input.who, e);
-        output.incoming = e.incomingAmount;
-        output.outgoing = e.outgoingAmount;
+        qpi.getEntity(input.who, locals.e);
+        output.incoming = locals.e.incomingAmount;
+        output.outgoing = locals.e.outgoingAmount;
     }
 
     PUBLIC_FUNCTION(Info)
