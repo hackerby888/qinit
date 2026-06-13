@@ -6,6 +6,9 @@ import { test, expect } from "bun:test";
 import { join } from "node:path";
 
 const repoRoot = join(import.meta.dir, "..", "..", "..");
+// The poller is a bash script that shells out to curl + jq. Skip on hosts missing any of them (e.g. a
+// Windows dev box without Git Bash/jq); CI (Linux runners + the Git-bash windows runner) has all three.
+const canPoll = ["bash", "curl", "jq"].every((c) => !!Bun.which(c));
 
 // async Bun.spawn (NOT spawnSync): a sync spawn blocks the event loop, so the in-process Bun.serve
 // could not answer the script's curl. Awaiting lets the server respond while bash runs.
@@ -16,7 +19,7 @@ async function runPoll(url: string, filter: string, tries = "3", nap = "1") {
   return { out, code: p.exitCode };
 }
 
-test("poll-node-json.sh echoes the field and exits 0 when present", async () => {
+test.skipIf(!canPoll)("poll-node-json.sh echoes the field and exits 0 when present", async () => {
   const srv = Bun.serve({ port: 0, fetch: () => new Response(JSON.stringify({ digest: "deadbeef" })) });
   try {
     const { out, code } = await runPoll(`http://127.0.0.1:${srv.port}/x`, ".digest // empty");
@@ -25,7 +28,7 @@ test("poll-node-json.sh echoes the field and exits 0 when present", async () => 
   } finally { srv.stop(true); }
 });
 
-test("poll-node-json.sh retries then exits 1 when the value never appears", async () => {
+test.skipIf(!canPoll)("poll-node-json.sh retries then exits 1 when the value never appears", async () => {
   const srv = Bun.serve({ port: 0, fetch: () => new Response("{}") });
   try {
     const { out, code } = await runPoll(`http://127.0.0.1:${srv.port}/x`, ".digest // empty", "2", "1");
@@ -34,7 +37,7 @@ test("poll-node-json.sh retries then exits 1 when the value never appears", asyn
   } finally { srv.stop(true); }
 });
 
-test("poll-node-json.sh treats 0 as not-ready (so a tick poll waits past tick 0)", async () => {
+test.skipIf(!canPoll)("poll-node-json.sh treats 0 as not-ready (so a tick poll waits past tick 0)", async () => {
   const srv = Bun.serve({ port: 0, fetch: () => new Response(JSON.stringify({ tick: 0 })) });
   try {
     const { code } = await runPoll(`http://127.0.0.1:${srv.port}/x`, ".tick // 0", "2", "1");

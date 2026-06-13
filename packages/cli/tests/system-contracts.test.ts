@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { systemContracts, systemNames } from "@qinit/build";
 import { resolveContract, type ContractSets } from "../src/contracts";
 
@@ -45,7 +45,7 @@ test("resolveContract: user before system; by name or index", () => {
 
 // --- snapshot sweep (skipped if no `qinit up` snapshot) ---
 test("systemContracts: snapshot catalog has QX/QEARN with fns", () => {
-  const snap = `${process.env.HOME}/.cache/qinit/qinit-v0.0.31/core-headers`;
+  const snap = join(homedir(), ".cache", "qinit", "qinit-v0.0.31", "core-headers");   // $HOME is unset on Windows
   if (!existsSync(snap)) return;
   const cat = systemContracts(snap);
   const qx = cat.find((c) => c.name === "QX");

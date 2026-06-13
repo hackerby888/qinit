@@ -140,6 +140,21 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   // (e.g. a RAM-constrained CI box ticking ~8s/tick, or the Windows port's multi-minute tick stalls)
   // — keeps deploy from racing ahead of a lagging chain.
   const waitTickReach = async (target: number, tries = 300) => { let t = cur; for (let i = 0; i < tries; i++) { t = await curTick(); if (t >= target) break; await sleep(1000); } return t; };
+
+  // Fail-fast on a pathologically slow chain (e.g. the free windows-latest CI runner, whose ~190x-slower
+  // loopback drags ticks to ~50s). The upload + arm need dozens of ticks, so without this the per-step 300s
+  // waits stack and burn the whole job timeout -> the run is CANCELLED (no clean failure, no logs). Probe the
+  // tick rate briefly (early-exit the instant it looks healthy), and abort with a clear message if it's far
+  // slower than even a RAM-constrained node (~8s/tick is fine). A normal node clears this in ~5s.
+  { const ps = Date.now(); const base = cur; let adv = 0;
+    while (Date.now() - ps < 30000) { await sleep(2000); adv = (await curTick()) - base; if (adv >= 3) break; }
+    if (adv < 2) {
+      const spt = adv > 0 ? Math.round((Date.now() - ps) / 1000 / adv) : Infinity;
+      const r = spt === Infinity ? ">30" : String(spt);
+      emit({ step: "upload", state: "fail", detail: `chain too slow (~${r}s/tick)` });
+      return { ok: false, slot, hash, error: `node ticking far too slowly (~${r}s/tick) to deploy within budget — aborting before upload (under-provisioned runner?)` };
+    } }
+  cur = await curTick();                              // refresh: the probe advanced the chain
   const uploadTick = cur + TX_TICK_OFFSET;
 
   const session = newSessionId();

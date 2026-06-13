@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, renameSync } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { cacheInfo, wipeCache, human } from "../cache-ops";
@@ -13,12 +13,15 @@ function parse(args: string[]): Record<string, string> {
   for (const a of args) if (a.startsWith("--")) o[a.slice(2)] = "";
   return o;
 }
+const isWin = process.platform === "win32";
 // the running exe (unless dev: bun/node) + the canonical install path, de-duped.
 function binTargets(): string[] {
   const out: string[] = [];
   const self = process.execPath;
   if (basename(self) !== "bun" && basename(self) !== "node") out.push(self);
-  const installed = join(process.env.QINIT_BIN || join(homedir(), ".local", "bin"), "qinit");
+  // canonical install dir: install.ps1 -> %LOCALAPPDATA%\qinit\bin (qinit.exe); install.sh -> ~/.local/bin (qinit)
+  const dir = process.env.QINIT_BIN || (isWin ? join(process.env.LOCALAPPDATA || homedir(), "qinit", "bin") : join(homedir(), ".local", "bin"));
+  const installed = join(dir, isWin ? "qinit.exe" : "qinit");
   if (existsSync(installed)) out.push(installed);
   return out.filter((p, i, a) => a.indexOf(p) === i);
 }
@@ -39,7 +42,10 @@ export function Uninstall({ args }: { args: string[] }) {
         let freed = 0, killed = false;
         if (!keepCache) { const w = await wipeCache(); freed = w.total; killed = w.killed; }
         const removed: string[] = [];
-        for (const b of bins) { try { unlinkSync(b); removed.push(b); } catch {} }   // unlinking the running exe is fine on linux/macOS
+        for (const b of bins) {
+          try { unlinkSync(b); removed.push(b); }                                            // running exe is unlinkable on linux/macOS
+          catch { if (isWin) { try { renameSync(b, b + ".old"); removed.push(b); } catch {} } }  // Windows locks a running .exe -> rename aside so PATH no longer resolves qinit
+        }
         setS({ phase: "done", bins, removed, freed, killed });
       } catch (e: any) { setS({ phase: "err", err: String(e?.message ?? e) }); }
     })();
