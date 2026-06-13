@@ -2,7 +2,7 @@
 import { openSync, closeSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
-import { LiteRpc, cacheRoot, readCurrent, updateCurrent, loadManifest, fetchVerify, verifyPlatformKey, atomicWrite, debug } from "@qinit/core";
+import { LiteRpc, cacheRoot, readCurrent, updateCurrent, loadManifest, fetchVerify, verifyPlatformKey, atomicWrite, extractTarGz, debug } from "@qinit/core";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const scratchDir = () => join(cacheRoot(), "run");
@@ -57,8 +57,15 @@ export async function fetchNodeBin(ref: string, onProgress?: (recv: number, tota
   if (!existsSync(bin)) {
     const buf = await fetchVerify(asset, onProgress);
     mkdirSync(dir, { recursive: true });
-    atomicWrite(bin, buf);
-    if (!isWin) Bun.spawnSync(["chmod", "+x", bin]);
+    if (asset.url.endsWith(".tar.gz") || asset.url.endsWith(".tgz")) {
+      // Windows node ships as a tar.gz bundle: Qubic.exe + its vcpkg applocal DLLs (ffi-8/openssl/c-ares/
+      // zlib/brotli), which the exe needs to launch. Extract the whole dir, not a single file.
+      await extractTarGz(buf, dir);
+      if (!existsSync(bin)) throw new Error(`node archive ${asset.url} did not contain ${isWin ? "Qubic.exe" : "Qubic"}`);
+    } else {
+      atomicWrite(bin, buf);   // linux/macOS: a bare single binary
+      if (!isWin) Bun.spawnSync(["chmod", "+x", bin]);
+    }
   }
   updateCurrent({ nodeVersion: m.version, node: bin });
   return { bin, version: m.version };

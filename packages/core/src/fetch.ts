@@ -44,12 +44,14 @@ export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise
 // ---- qinit CLI self-update / install resolution (the CLI binary release; mirrors install.sh) ----
 export const CLI_REPO = "hackerby888/qinit";
 
-// qinit-<os>-<arch> asset for this host. Throws on unsupported (windows: manual .exe).
+// qinit-<os>-<arch>[.exe] asset for this host. Windows ships only x64 (bun-windows-x64) — ARM64 Windows
+// runs that under emulation, so map win/arm64 -> x64.
 export function cliAssetName(): string {
-  const o = process.platform === "linux" ? "linux" : process.platform === "darwin" ? "darwin" : "";
-  const a = process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : "";
-  if (!o || !a) throw new Error(`unsupported host for self-update: ${process.platform}/${process.arch} (windows: download qinit-windows-x64.exe manually)`);
-  return `qinit-${o}-${a}`;
+  const p = process.platform;
+  const o = p === "linux" ? "linux" : p === "darwin" ? "darwin" : p === "win32" ? "windows" : "";
+  const a = p === "win32" ? "x64" : process.arch === "x64" ? "x64" : process.arch === "arm64" ? "arm64" : "";
+  if (!o || !a) throw new Error(`unsupported host for self-update: ${p}/${process.arch}`);
+  return `qinit-${o}-${a}${p === "win32" ? ".exe" : ""}`;
 }
 
 // Newest qinit-cli-* tag via the GitHub API (NOT /releases/latest — verify-latest hijacks it). null if none.
@@ -176,7 +178,7 @@ export async function autoUpdateVerifyTool(opts?: { force?: boolean; maxAgeMs?: 
     const buf = await fetchVerify(asset);
     mkdirSync(toolsDir(), { recursive: true });
     writeFileSync(tool, buf);
-    Bun.spawnSync(["chmod", "+x", tool]);
+    if (process.platform !== "win32") Bun.spawnSync(["chmod", "+x", tool]);   // no chmod on Windows (no exec bit)
     updateCurrent({ verify: tool, verifySha: asset.sha256, verifyVersion: m.version, verifyCheckedAt: new Date().toISOString() });
     return { action: have ? "updated" : "installed", version: m.version };
   } catch { return { action: "offline" }; }

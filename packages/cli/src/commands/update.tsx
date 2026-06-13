@@ -37,9 +37,23 @@ export function Update({ args }: { args: string[] }) {
         const sha = await fetchCliSha(sums, name);
         const buf = await fetchVerify({ url: asset, sha256: sha }, (r, t) => t && setPct(r / t));
         const tmp = self + ".new";                                   // same dir => atomic rename, no cross-fs copy
-        writeFileSync(tmp, buf); chmodSync(tmp, 0o755);
-        try { renameSync(tmp, self); }
-        catch (e: any) { try { unlinkSync(tmp); } catch {} throw new Error(`could not replace ${self} (${e?.code ?? e}) — bin dir not writable; re-run install.sh or use sudo`); }
+        writeFileSync(tmp, buf);
+        if (process.platform === "win32") {
+          // Windows locks a running .exe against OVERWRITE but ALLOWS RENAME: move self aside, swap .new in.
+          // The running process keeps the renamed handle; the next launch picks up the new binary.
+          const old = self + ".old";
+          try { unlinkSync(old); } catch {}                          // clear a prior .old (now unlocked)
+          try { renameSync(self, old); renameSync(tmp, self); }
+          catch (e: any) {
+            try { renameSync(old, self); } catch {}                  // best-effort rollback
+            try { unlinkSync(tmp); } catch {}
+            throw new Error(`could not replace ${self} (${e?.code ?? e}) — close other qinit processes or re-run install.ps1`);
+          }
+        } else {
+          chmodSync(tmp, 0o755);
+          try { renameSync(tmp, self); }
+          catch (e: any) { try { unlinkSync(tmp); } catch {} throw new Error(`could not replace ${self} (${e?.code ?? e}) — bin dir not writable; re-run install.sh or use sudo`); }
+        }
         setS({ phase: "done", from: VERSION, to });
       } catch (e: any) { setS({ phase: "err", err: String(e?.message ?? e) }); }
     })();
@@ -50,7 +64,7 @@ export function Update({ args }: { args: string[] }) {
     <Box flexDirection="column">
       <Header cmd="self-update" />
       {s.phase === "run" && (pct != null ? <Text><Bar pct={pct} /> <Text dimColor>downloading</Text></Text> : <Spinner label="checking for updates" />)}
-      {s.phase === "dev" && <Text color={theme.warn}>self-update only updates the installed binary — in dev, rebuild or use install.sh</Text>}
+      {s.phase === "dev" && <Text color={theme.warn}>self-update only updates the installed binary — in dev, rebuild or use the installer (install.sh / install.ps1)</Text>}
       {s.phase === "dry" && <Box flexDirection="column"><Status ok={null} label={`latest ${s.tag}`} detail={`current v${VERSION}`} /><Text dimColor>  {s.asset}</Text></Box>}
       {s.phase === "uptodate" && <Status ok={true} label={`already on the latest (v${s.to})`} />}
       {s.phase === "done" && <Box flexDirection="column"><Status ok={true} label={`updated v${s.from} → v${s.to}`} /><Box marginTop={1}><Text dimColor>restart qinit to use the new version</Text></Box></Box>}
