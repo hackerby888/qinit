@@ -115,8 +115,14 @@ export async function compileWasmContract(
   let debugWasm: string | undefined, linesJson: string | undefined;
   if (p.exitCode === 0) {
     try {
-      const dir = clang.includes("/") ? clang.slice(0, clang.lastIndexOf("/") + 1) : "";
-      const tool = (n: string) => dir + n;   // llvm-{strip,objdump,dwarfdump} next to clang, else PATH
+      // clang's directory — handle BOTH separators. On Windows WASM_CLANG is a backslash path
+      // (C:\...\bin\clang++.exe), so the old '/'-only split left dir="" -> llvm-strip/objdump/dwarfdump fell
+      // back to bare names not on the Windows PATH -> the deployed wasm kept its DWARF (fatter, and code bytes
+      // diverged from the stripped linux/macOS wasm) and trap line-maps were skipped. Append .exe on Windows.
+      const cut = Math.max(clang.lastIndexOf("/"), clang.lastIndexOf("\\"));
+      const dir = cut >= 0 ? clang.slice(0, cut + 1) : "";
+      const exe = process.platform === "win32" ? ".exe" : "";
+      const tool = (n: string) => dir + n + exe;   // llvm-{strip,objdump,dwarfdump} next to clang, else PATH
       const dbg = join(o.outDir, `${o.name}.debug.wasm`);
       await copyFile(wasm, dbg);              // keep the DWARF copy as the sidecar
       const lj = join(o.outDir, `${o.name}.lines.json`);
