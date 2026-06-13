@@ -49,6 +49,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ steps.t.outputs.tag }}"
-          NOTES="qinit CLI prebuilt binaries. Install: curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh"
-          gh release create "$TAG" dist/qinit-* dist/SHA256SUMS install.sh --title "$TAG" --notes "$NOTES" \
-          || gh release upload "$TAG" dist/qinit-* dist/SHA256SUMS install.sh --clobber
+          NOTES=$'qinit CLI prebuilt binaries.\nInstall (Linux/macOS): curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh\nInstall (Windows): irm https://raw.githubusercontent.com/${{ github.repository }}/main/install.ps1 | iex'
+          gh release create "$TAG" dist/qinit-* dist/SHA256SUMS install.sh install.ps1 --title "$TAG" --notes "$NOTES" \
+          || gh release upload "$TAG" dist/qinit-* dist/SHA256SUMS install.sh install.ps1 --clobber
