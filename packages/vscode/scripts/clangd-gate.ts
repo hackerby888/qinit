@@ -17,11 +17,14 @@ const requested = process.argv.slice(2);
 const fixtures = requested.length ? requested : ["Counter", "Token", "Bank", "Proxy", "Logger"];
 
 const core = resolveCore(process.env.QINIT_CORE);
-const wasi = wasiSdkPaths();
-if (!wasi) { console.error("no wasi-sdk synced — run `qinit up` (or set WASM_CLANG/WASI_SYSROOT)"); process.exit(2); }
+// wasi from the synced cache (local `qinit up`) or WASM_CLANG/WASI_SYSROOT env (CI), mirroring recipe.ts.
+const sdk = wasiSdkPaths();
+const wasiClang = process.env.WASM_CLANG ?? sdk?.clang;
+const wasiSysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
+if (!wasiClang) { console.error("no wasi-sdk — run `qinit up` (or set WASM_CLANG/WASI_SYSROOT)"); process.exit(2); }
 
 console.log(`core:       ${core}`);
-console.log(`wasi clang: ${wasi.clang}`);
+console.log(`wasi clang: ${wasiClang}`);
 console.log(`clangd:     ${CLANGD}\n`);
 
 const INTERESTING = /error:|fatal error:|file not found|use of undeclared|no member named|unknown type name|no template named/i;
@@ -32,10 +35,10 @@ for (const fx of fixtures) {
   const ws = mkdtempSync(join(tmpdir(), "qpi-gate-"));
   try {
     const cfg = generateClangdConfig({
-      contractPath, corePath: core, wasiClang: wasi.clang, wasiSysroot: wasi.sysroot, workspaceRoot: ws,
+      contractPath, corePath: core, wasiClang, wasiSysroot, workspaceRoot: ws,
     });
     const p = Bun.spawnSync(
-      [CLANGD, `--check=${cfg.wrapperPath}`, `--compile-commands-dir=${cfg.dir}`, `--query-driver=${wasi.clang}`, "--log=error"],
+      [CLANGD, `--check=${cfg.wrapperPath}`, `--compile-commands-dir=${cfg.dir}`, `--query-driver=${wasiClang}`, "--log=error"],
       { stdout: "pipe", stderr: "pipe" },
     );
     const log = (p.stdout?.toString() ?? "") + (p.stderr?.toString() ?? "");
