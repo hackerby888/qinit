@@ -55,4 +55,22 @@ suite("Qubic QPI extension", function () {
     assert.ok(/QPI function/.test(text), `hover should name the QPI function; got: ${text}`);
     assert.ok(/index/.test(text), `hover should show the index; got: ${text}`);
   });
+
+  test("CodeLens exposes contract + per-fn call actions", async () => {
+    const doc = await open("Counter.h");
+    const lenses = await vscode.commands.executeCommand("vscode.executeCodeLensProvider", doc.uri);
+    const titles = (lenses || []).map((l) => (l.command && l.command.title) || "").join(" | ");
+    assert.ok(/build/.test(titles), `expected a build lens; got: ${titles}`);
+    assert.ok(/call get/.test(titles), `expected a 'call get' lens; got: ${titles}`);
+  });
+
+  test("quick-fix offers Array<T, N> for a bracket violation", async () => {
+    const doc = await open("Bad.h");
+    await sleep(1500);
+    const brackets = vscode.languages.getDiagnostics(doc.uri).filter((d) => String(d.code) === "qpi/no-brackets");
+    assert.ok(brackets.length, "should have a bracket diagnostic");
+    const actions = await vscode.commands.executeCommand("vscode.executeCodeActionProvider", doc.uri, brackets[0].range);
+    const titles = (actions || []).map((a) => a.title);
+    assert.ok(titles.some((t) => /Array<T, N>/.test(t)), `expected the Array<T, N> quick-fix; got: ${titles.join(", ")}`);
+  });
 });

@@ -65,6 +65,24 @@ function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: str
   ];
 }
 
+// Make clangd the sole C++ IntelliSense provider in the project: disable the Microsoft C/C++
+// extension's engine so it never squiggles QPI code it can't understand (it has no qpi.h, so it would
+// redline `uint64`, `id`, `PUBLIC_FUNCTION`, etc.). clangd, configured by our DB, resolves it fully.
+// Merge-safe: only adds the key when absent, and never rewrites a settings.json we can't parse cleanly.
+export function ensureEditorSettings(workspaceRoot: string): void {
+  const dir = join(workspaceRoot, ".vscode");
+  const file = join(dir, "settings.json");
+  let settings: Record<string, unknown> = {};
+  if (existsSync(file)) {
+    try { settings = JSON.parse(readFileSync(file, "utf8")); } catch { return; } // JSONC/garbled → don't risk clobbering
+    if (typeof settings !== "object" || settings === null || Array.isArray(settings)) return;
+    if ("C_Cpp.intelliSenseEngine" in settings) return; // respect an explicit user choice
+  }
+  settings["C_Cpp.intelliSenseEngine"] = "disabled";
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
+}
+
 export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   const name = deriveName(o.contractPath, o.name);
   const slot = o.slot ?? DEFAULT_SLOT;
@@ -86,10 +104,16 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
 
   const args = [...compileArgs(o), fwd(wrapperPath)];
 
-  // compile_commands.json: a single entry whose `file` is the wrapper TU. When the user opens the
-  // contract .h, clangd finds it's #included by this TU and serves it in the TU's context.
+  // compile_commands.json — MERGE this contract's entry into any existing DB so multi-contract
+  // projects keep one entry per .h: opening contract B must not drop contract A's config. Keyed by
+  // the wrapper path (unique per contract name); re-generating the same contract replaces its entry.
   const dbPath = join(dir, "compile_commands.json");
-  writeFileSync(dbPath, JSON.stringify([{ directory: fwd(dir), file: fwd(wrapperPath), arguments: args }], null, 2) + "\n");
+  const entry = { directory: fwd(dir), file: fwd(wrapperPath), arguments: args };
+  let entries: Array<{ file?: string }> = [];
+  try { const j = JSON.parse(readFileSync(dbPath, "utf8")); if (Array.isArray(j)) entries = j; } catch { /* fresh or corrupt DB → start clean */ }
+  entries = entries.filter((e) => e && e.file !== entry.file);
+  entries.push(entry);
+  writeFileSync(dbPath, JSON.stringify(entries, null, 2) + "\n");
 
   // Workspace .clangd: point clangd at the DB. Written only if absent, so a user's own .clangd wins.
   const dotClangdPath = join(o.workspaceRoot, ".clangd");
@@ -101,6 +125,8 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
       "",
     ].join("\n"));
   }
+
+  ensureEditorSettings(o.workspaceRoot); // clangd is the C++ provider here — silence cpptools squiggles
 
   return { dir, wrapperPath, dbPath, dotClangdPath, name, slot, args };
 }

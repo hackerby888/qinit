@@ -4,7 +4,7 @@
 import type { QpiFinding } from "./qpi-rules";
 
 // Replace comment bodies with spaces (offsets preserved) so commented-out macros don't false-fire.
-function blankComments(src: string): string {
+export function blankComments(src: string): string {
   let out = "";
   let i = 0;
   const n = src.length;

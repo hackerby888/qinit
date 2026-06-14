@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { generateClangdConfig, deriveName, DEFAULT_SLOT } from "../src/clangd-config";
+import { generateClangdConfig, deriveName, DEFAULT_SLOT, ensureEditorSettings } from "../src/clangd-config";
 
 const COUNTER = resolve("fixtures", "Counter.h");
 const hasFixture = existsSync(COUNTER);
@@ -78,6 +78,44 @@ test.if(hasFixture)("generateClangdConfig: does not clobber a user's existing .c
     require("node:fs").writeFileSync(dot, "# user owned\n");
     generateClangdConfig({ contractPath: COUNTER, corePath: "/fake/core", wasiClang: "/fake/clang++", workspaceRoot: ws });
     expect(readFileSync(dot, "utf8")).toBe("# user owned\n");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test.if(hasFixture)("multi-contract: a second contract adds a second DB entry; regen doesn't duplicate", () => {
+  const ws = mkdtempSync(join(tmpdir(), "qpi-multi-"));
+  try {
+    const base = { corePath: "/fake/core", wasiClang: "/fake/clang++", workspaceRoot: ws };
+    const TOKEN = resolve("fixtures", "Token.h");
+    const expected = existsSync(TOKEN) ? 2 : 1;
+    generateClangdConfig({ ...base, contractPath: COUNTER });
+    if (existsSync(TOKEN)) generateClangdConfig({ ...base, contractPath: TOKEN });
+    const dbPath = join(ws, ".qinit", "clangd", "compile_commands.json");
+    expect(JSON.parse(readFileSync(dbPath, "utf8")).length).toBe(expected);
+    generateClangdConfig({ ...base, contractPath: COUNTER }); // re-generate Counter
+    expect(JSON.parse(readFileSync(dbPath, "utf8")).length).toBe(expected); // not duplicated
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
+});
+
+test.if(hasFixture)("ensureEditorSettings disables cpptools IntelliSense, but respects an existing choice", () => {
+  const ws = mkdtempSync(join(tmpdir(), "qpi-set-"));
+  try {
+    generateClangdConfig({ contractPath: COUNTER, corePath: "/fake/core", wasiClang: "/fake/clang++", workspaceRoot: ws });
+    expect(JSON.parse(readFileSync(join(ws, ".vscode", "settings.json"), "utf8"))["C_Cpp.intelliSenseEngine"]).toBe("disabled");
+    // a second project where the user already set the key — must not be overwritten
+    const ws2 = mkdtempSync(join(tmpdir(), "qpi-set2-"));
+    try {
+      const fs = require("node:fs");
+      fs.mkdirSync(join(ws2, ".vscode"));
+      fs.writeFileSync(join(ws2, ".vscode", "settings.json"), JSON.stringify({ "C_Cpp.intelliSenseEngine": "default" }));
+      ensureEditorSettings(ws2);
+      expect(JSON.parse(readFileSync(join(ws2, ".vscode", "settings.json"), "utf8"))["C_Cpp.intelliSenseEngine"]).toBe("default");
+    } finally {
+      rmSync(ws2, { recursive: true, force: true });
+    }
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }

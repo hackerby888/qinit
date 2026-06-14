@@ -13,6 +13,8 @@ import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
 import { registerCommands } from "./commands";
 import { VerifyRunner } from "./verify-runner";
+import { QpiCodeLens } from "./codelens";
+import { QpiCodeActions } from "./codeactions";
 
 let warnedAt = 0;
 function warnOncePerMinute(msg: string): void {
@@ -85,6 +87,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeTextDocument((e) => diags.schedule(e.document)),
     vscode.workspace.onDidCloseTextDocument((d) => { diags.clear(d.uri); verify.clear(d.uri); }),
     vscode.languages.registerHoverProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new IdlHover()),
+    vscode.languages.registerCodeLensProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new QpiCodeLens()),
+    vscode.languages.registerCodeActionsProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new QpiCodeActions(), QpiCodeActions.metadata),
     vscode.commands.registerCommand("qpi.regenerateConfig", () => {
       const doc = vscode.window.activeTextEditor?.document;
       if (!doc) { vscode.window.showInformationMessage("Qubic QPI: open a contract header first."); return; }
