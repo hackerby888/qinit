@@ -14,7 +14,7 @@ test("deriveName: basename without extension; explicit override wins", () => {
   expect(deriveName("/a/b/Counter.h", "")).toBe("Counter"); // empty override ignored
 });
 
-test.if(hasFixture)("generateClangdConfig: wrapper is genWrapperWasm verbatim; DB mirrors the recipe minus link flags", () => {
+test.if(hasFixture)("generateClangdConfig: prefix carries the wrapper preamble; DB parses the contract with it", () => {
   const ws = mkdtempSync(join(tmpdir(), "qpi-cfg-"));
   try {
     const r = generateClangdConfig({
@@ -28,22 +28,24 @@ test.if(hasFixture)("generateClangdConfig: wrapper is genWrapperWasm verbatim; D
     expect(r.name).toBe("Counter");
     expect(r.slot).toBe(DEFAULT_SLOT);
 
-    // --- the wrapper TU is the wasm build's, not the .so build's ---
-    const wrapper = readFileSync(r.wrapperPath, "utf8");
-    expect(wrapper).toContain("#define LITE_WASM_TU_BUILD");
-    expect(wrapper).toContain('#include "extensions/lite_wasm_tu.h"');
-    expect(wrapper).not.toContain("#define LITE_DYN_SO_BUILD");
-    expect(wrapper).toContain("#define CONTRACT_STATE_TYPE Counter");
-    expect(wrapper).toContain(`#define CONTRACT_INDEX ${DEFAULT_SLOT}`);
-    expect(wrapper).toContain('#include "contracts/qpi.h"');
-    // the contract is #included by forward-slash absolute path (valid C++ literal on Windows)
-    expect(wrapper).toContain('#include "' + COUNTER.replace(/\\/g, "/") + '"');
+    // --- the prefix is the wasm-build PREAMBLE: defines + qpi.h, but NOT the contract include nor the
+    //     post-contract impl tail (neither is needed to parse the contract) ---
+    const prefix = readFileSync(r.prefixPath, "utf8");
+    expect(prefix).toContain("#define LITE_WASM_TU_BUILD");
+    expect(prefix).toContain("#define CONTRACT_STATE_TYPE Counter");
+    expect(prefix).toContain("#define CONTRACT_STATE2_TYPE Counter2");
+    expect(prefix).toContain(`#define CONTRACT_INDEX ${DEFAULT_SLOT}`);
+    expect(prefix).toContain('#include "contracts/qpi.h"');
+    expect(prefix).not.toContain("#define LITE_DYN_SO_BUILD");
+    expect(prefix).not.toContain('#include "extensions/lite_wasm_tu.h"');            // impl tail excluded
+    expect(prefix).not.toContain('#include "' + COUNTER.replace(/\\/g, "/") + '"');  // contract include excluded
 
-    // --- compile_commands.json mirrors recipe.ts:compileWasmContract minus codegen/link-only flags ---
+    // --- compile_commands.json: `file` IS the contract, parsed with `-include <prefix> -x c++` ---
     const dbText = readFileSync(r.dbPath, "utf8");
     const db = JSON.parse(dbText);
     expect(db).toHaveLength(1);
     const args: string[] = db[0].arguments;
+    expect(args[0]).toBe("/fake/wasi/bin/clang++"); // argv[0] = real driver (query-driver match)
     expect(args).toContain("--target=wasm32-wasi");
     expect(args).toContain("-std=c++20");
     expect(args).toContain("-DLITEDYN_CONTRACT_TU");
@@ -52,8 +54,10 @@ test.if(hasFixture)("generateClangdConfig: wrapper is genWrapperWasm verbatim; D
     expect(args).toContain("--sysroot=/fake/wasi/sysroot");
     expect(args).toContain("-I/fake/core");
     expect(args).toContain("-I/fake/core/src");
-    expect(args[0]).toBe("/fake/wasi/bin/clang++"); // argv[0] = real driver (query-driver match)
-    expect(db[0].file).toBe(r.wrapperPath.replace(/\\/g, "/"));
+    expect(args).toContain(r.prefixPath.replace(/\\/g, "/")); // the preamble is force-included
+    expect(args.slice(-3)).toEqual(["-x", "c++", r.contractFile]); // contract is the main C++ file + the DB `file`
+    expect(db[0].file).toBe(r.contractFile);
+    expect(r.contractFile).toBe(COUNTER.replace(/\\/g, "/"));
     // codegen/link-only flags MUST be dropped — clangd can't use them
     expect(args).not.toContain("-O0");
     expect(args).not.toContain("-g");

@@ -38,7 +38,7 @@ for (const fx of fixtures) {
       contractPath, corePath: core, wasiClang, wasiSysroot, workspaceRoot: ws,
     });
     const p = Bun.spawnSync(
-      [CLANGD, `--check=${cfg.wrapperPath}`, `--compile-commands-dir=${cfg.dir}`, `--query-driver=${wasiClang}`, "--log=error"],
+      [CLANGD, `--check=${cfg.contractFile}`, `--compile-commands-dir=${cfg.dir}`, `--query-driver=${wasiClang}`, "--log=error"],
       { stdout: "pipe", stderr: "pipe" },
     );
     const log = (p.stdout?.toString() ?? "") + (p.stderr?.toString() ?? "");

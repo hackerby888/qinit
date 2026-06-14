@@ -1,13 +1,20 @@
-// Generate the clangd compile DB that turns a qpi.h contract *fragment* into a fully-resolved C++
-// translation unit for the editor — WITHOUT the author having to `#include "qpi.h"` (which the
-// verifier forbids, and which doc/contracts.md tells authors to add then delete).
+// Generate the clangd compile DB that turns a qpi.h-constrained contract .h into a fully-resolved C++
+// translation unit FOR THE EDITOR — without the author needing the `#include "qpi.h"` dev-hack, and
+// without the Microsoft C/C++ engine redlining code it can't parse.
 //
-// The TU is `genWrapperWasm()` VERBATIM — the exact bytes `qinit build` compiles (recipe.ts) — so
-// clangd's view never drifts from the real wasm build. The opened contract `.h` resolves as a header
-// of this single TU (it is `#include`d mid-wrapper, with qpi.h + the impl headers around it).
+// Mechanism: the real wasm TU is `genWrapperWasm()` (qinit build's exact recipe). For the editor we
+// take its PREAMBLE (everything before the `#include "<contract>"`) and write it as `<Name>.prefix.h`,
+// then add a compile_commands.json entry whose `file` is the CONTRACT ITSELF with `-include <prefix.h>`.
+// clangd parses the opened contract as the main file WITH that preamble in scope, so CONTRACT_INDEX /
+// CONTRACT_STATE_TYPE / qpi.h are all defined → the PUBLIC_*/REGISTER_* macros resolve and
+// `state.mut()` / `input` / containers complete.
 //
-// Pure (node:fs/path + @qinit/build string templating only — no `vscode`, no Bun), so it is unit-
-// testable under `bun test` and bundles cleanly into the Node extension host.
+// Why not `file` = the wrapper.cpp? Because for "open the contract", clangd parses the OPENED file as
+// the main file using the chosen command — the wrapper's in-source `#define`s never reach it, so the
+// macros break (undeclared CONTRACT_INDEX, __FunctionOrProcedureBeginEndGuard, …). The trailing impl
+// headers in the full wrapper aren't needed merely to PARSE the contract, so the preamble suffices.
+//
+// Pure (node:fs/path + @qinit/build string templating only — no `vscode`, no Bun).
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 import { genWrapperWasm, type BuildOpts } from "@qinit/build/recipe";
@@ -37,7 +44,8 @@ export interface ClangdInputs {
 
 export interface ClangdConfig {
   dir: string;          // <ws>/.qinit/clangd
-  wrapperPath: string;  // <Name>.wasm.wrapper.cpp — the TU clangd parses
+  prefixPath: string;   // <Name>.prefix.h — the wrapper preamble, force-included before the contract
+  contractFile: string; // the contract .h (forward-slashed) — the DB `file` + the clangd --check target
   dbPath: string;       // compile_commands.json
   dotClangdPath: string; // <ws>/.clangd
   name: string;
@@ -45,9 +53,8 @@ export interface ClangdConfig {
   args: string[];       // the compile command (argv) written into the DB
 }
 
-// The compile arguments mirror recipe.ts:compileWasmContract MINUS the codegen/link-only flags
-// (`-O0 -g`, `-Wl,*`, `-mexec-model=reactor`, `-o`) that clangd neither needs nor understands.
-// NO_UEFI / LITE_WASM_TU_BUILD / CONTRACT_* are #defined inside the wrapper, not on the command line.
+// Base flags mirror recipe.ts:compileWasmContract MINUS codegen/link-only flags (`-O0 -g`, `-Wl,*`,
+// `-mexec-model=reactor`, `-o`). The caller appends `-include <prefix> -x c++ <contract>`.
 function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: string }): string[] {
   const core = fwd(o.corePath);
   const shim = fwd(join(o.corePath, "src", "extensions", "lite_wasm_intrinsics.h"));
@@ -66,9 +73,8 @@ function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: str
 }
 
 // Make clangd the sole C++ IntelliSense provider in the project: disable the Microsoft C/C++
-// extension's engine so it never squiggles QPI code it can't understand (it has no qpi.h, so it would
-// redline `uint64`, `id`, `PUBLIC_FUNCTION`, etc.). clangd, configured by our DB, resolves it fully.
-// Merge-safe: only adds the key when absent, and never rewrites a settings.json we can't parse cleanly.
+// extension's engine so it never squiggles QPI code it can't understand (no qpi.h). Merge-safe: only
+// adds the key when absent, and never rewrites a settings.json we can't parse cleanly.
 export function ensureEditorSettings(workspaceRoot: string): void {
   const dir = join(workspaceRoot, ".vscode");
   const file = join(dir, "settings.json");
@@ -87,28 +93,32 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   const name = deriveName(o.contractPath, o.name);
   const slot = o.slot ?? DEFAULT_SLOT;
   const contractPath = resolve(o.contractPath);
+  const contractFile = fwd(contractPath);
   const dir = join(o.workspaceRoot, ".qinit", "clangd");
   mkdirSync(dir, { recursive: true });
 
-  // Inter-contract prelude — the same input the real build feeds genWrapperWasm. Best-effort: a
-  // contract with no CALL_OTHER_CONTRACT_* yields "" (without touching corePath), and a resolve
-  // failure must not kill IntelliSense for the rest of the file.
+  // Inter-contract prelude — same input the real build feeds genWrapperWasm. Best-effort: a contract
+  // with no CALL_OTHER_CONTRACT_* yields "" (without touching corePath); a resolve failure must not
+  // kill IntelliSense.
   let calleePrelude = "";
   try { calleePrelude = buildCalleePrelude(o.corePath, readFileSync(contractPath, "utf8"), o.dynCallees ?? {}); } catch { /* no prelude */ }
 
-  // The TU = genWrapperWasm verbatim. Pass the contract path forward-slashed so the emitted
-  // `#include "<contract>"` is a valid C++ string literal on Windows (backslashes are escape chars).
-  const opts: BuildOpts = { contractPath: fwd(contractPath), name, slot, corePath: o.corePath, outDir: dir, calleePrelude };
-  const wrapperPath = join(dir, `${name}.wasm.wrapper.cpp`);
-  writeFileSync(wrapperPath, genWrapperWasm(opts));
+  // Preamble = genWrapperWasm() up to (not including) the `#include "<contract>"`. It carries NO_UEFI,
+  // LITE_WASM_TU_BUILD, the std prefix, pre_qpi_def.h, qpi.h, CONTRACT_INDEX/STATE_TYPE, etc.
+  const opts: BuildOpts = { contractPath: contractFile, name, slot, corePath: o.corePath, outDir: dir, calleePrelude };
+  const wrapper = genWrapperWasm(opts);
+  const cut = wrapper.indexOf(`#include "${contractFile}"`);
+  const preamble = cut >= 0 ? wrapper.slice(0, cut) : wrapper;
+  const prefixPath = join(dir, `${name}.prefix.h`);
+  writeFileSync(prefixPath, preamble);
 
-  const args = [...compileArgs(o), fwd(wrapperPath)];
+  // The contract is parsed as the main file WITH the preamble force-included before it.
+  const args = [...compileArgs(o), "-include", fwd(prefixPath), "-x", "c++", contractFile];
 
-  // compile_commands.json — MERGE this contract's entry into any existing DB so multi-contract
-  // projects keep one entry per .h: opening contract B must not drop contract A's config. Keyed by
-  // the wrapper path (unique per contract name); re-generating the same contract replaces its entry.
+  // compile_commands.json — `file` is the CONTRACT, so clangd uses this exact command when the contract
+  // is opened (no fragile header→TU heuristic). MERGE one entry per contract (multi-contract projects).
   const dbPath = join(dir, "compile_commands.json");
-  const entry = { directory: fwd(dir), file: fwd(wrapperPath), arguments: args };
+  const entry = { directory: fwd(dir), file: contractFile, arguments: args };
   let entries: Array<{ file?: string }> = [];
   try { const j = JSON.parse(readFileSync(dbPath, "utf8")); if (Array.isArray(j)) entries = j; } catch { /* fresh or corrupt DB → start clean */ }
   entries = entries.filter((e) => e && e.file !== entry.file);
@@ -128,5 +138,5 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
 
   ensureEditorSettings(o.workspaceRoot); // clangd is the C++ provider here — silence cpptools squiggles
 
-  return { dir, wrapperPath, dbPath, dotClangdPath, name, slot, args };
+  return { dir, prefixPath, contractFile, dbPath, dotClangdPath, name, slot, args };
 }

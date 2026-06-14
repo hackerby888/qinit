@@ -60,7 +60,7 @@ function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): 
       name: primary ? cfg.name : undefined,
       slot: primary ? cfg.slot : undefined,
     });
-    out.appendLine(`clangd config ready: ${r.name} (slot ${r.slot}) -> ${r.wrapperPath}`);
+    out.appendLine(`clangd config ready: ${r.name} (slot ${r.slot}) -> ${r.prefixPath}`);
   } catch (e: any) {
     out.appendLine("generate failed: " + String(e?.message ?? e));
   }
