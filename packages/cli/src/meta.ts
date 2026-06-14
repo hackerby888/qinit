@@ -21,6 +21,12 @@ export const META: Record<string, CommandMeta> = {
       ["--wait <s>", "seconds to wait for the node to tick (default: 90)"]],
   },
   doctor: { group: "setup & node", summary: "check toolchain (wasi-sdk, node.js, core headers, qubic lib)" },
+  ext: {
+    group: "setup & node", json: true,
+    summary: "install the VS Code / Cursor extension (QPI IntelliSense + live diagnostics)",
+    usage: "install [--vsix <path>] [--editor <cmd>]",
+    flags: [["--vsix <path>", "install a local .vsix instead of the marketplace build"], ["--editor <cmd>", "code | cursor | windsurf | codium"]],
+  },
   node: {
     group: "setup & node", json: true,
     summary: "run / status / stop / get the dev node",

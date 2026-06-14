@@ -5,6 +5,7 @@ import { Doctor } from "./commands/doctor";
 import { Smoke } from "./commands/smoke";
 import { Node } from "./commands/node";
 import { Up } from "./commands/up";
+import { Ext } from "./commands/ext";
 import { Dev } from "./commands/dev";
 import { Build } from "./commands/build";
 import { Gen } from "./commands/gen";
@@ -59,6 +60,8 @@ function route(command: string, args: string[]): ReactNode {
       return <Node args={args} />;
     case "up":
       return <Up args={args} />;
+    case "ext":
+      return <Ext args={args} />;
     case "dev":
       return <Dev args={args} />;
     case "smoke":
