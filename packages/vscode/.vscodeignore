@@ -1,7 +1,11 @@
 src/**
 tests/**
 scripts/**
+test-integration/**
+test-fixtures/**
 node_modules/**
+.vscode-test/**
+.vscode-test.mjs
 tsconfig.json
 esbuild.mjs
 **/*.ts

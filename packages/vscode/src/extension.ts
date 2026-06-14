@@ -84,7 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidSaveTextDocument(onDoc),
     vscode.workspace.onDidChangeTextDocument((e) => diags.schedule(e.document)),
     vscode.workspace.onDidCloseTextDocument((d) => { diags.clear(d.uri); verify.clear(d.uri); }),
-    vscode.languages.registerHoverProvider({ language: "cpp", scheme: "file" }, new IdlHover()),
+    vscode.languages.registerHoverProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new IdlHover()),
     vscode.commands.registerCommand("qpi.regenerateConfig", () => {
       const doc = vscode.window.activeTextEditor?.document;
       if (!doc) { vscode.window.showInformationMessage("Qubic QPI: open a contract header first."); return; }

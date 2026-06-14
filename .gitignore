@@ -9,3 +9,4 @@ contracts_dyn/
 .qinit/
 .clangd
 *.vsix
+.vscode-test/

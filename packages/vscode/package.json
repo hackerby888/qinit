@@ -43,14 +43,19 @@
     "watch": "bun esbuild.mjs --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "package": "bun esbuild.mjs && bunx @vscode/vsce package --no-dependencies -o qpi-vscode.vsix",
-    "gate": "bun run scripts/clangd-gate.ts"
+    "gate": "bun run scripts/clangd-gate.ts",
+    "test:int": "bun esbuild.mjs && vscode-test"
   },
   "devDependencies": {
     "@qinit/build": "workspace:*",
     "@qinit/core": "workspace:*",
     "@qinit/proto": "workspace:*",
+    "@types/mocha": "^10.0.7",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.85.0",
-    "esbuild": "^0.24.0"
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "esbuild": "^0.24.0",
+    "mocha": "^10.7.0"
   }
 }
