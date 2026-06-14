@@ -74,6 +74,13 @@ export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: D
     s += `#include "${c.include}"\n`;
     s += `#undef CONTRACT_INDEX\n#undef CONTRACT_STATE_TYPE\n#undef CONTRACT_STATE2_TYPE\n`;
   }
+  // Callee CONTRACT_INDEX constants. The full build gets these from contract_def.h, but the
+  // single-contract TU (qinit lite build + the editor) doesn't include it — so a contract that uses a
+  // callee's index directly (e.g. QUtil: `id(QX_CONTRACT_INDEX, 0, 0, 0)`) needs them here. Guarded so
+  // that when contract_def.h IS in scope, its #define wins and there's no redefinition.
+  s += "// ---- callee <Type>_CONTRACT_INDEX constants ----\n";
+  for (const c of all)
+    s += `#ifndef ${c.type}_CONTRACT_INDEX\n#define ${c.type}_CONTRACT_INDEX ${c.index}\n#endif\n`;
   s += "// ---- generated <Type>_<fn>_inputType constants ----\n";
   for (const c of all)
     for (const r of parseRegisters(c.src))

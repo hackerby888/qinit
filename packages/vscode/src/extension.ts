@@ -9,7 +9,9 @@ import * as vscode from "vscode";
 import { join, resolve } from "node:path";
 import { resolveCore, wasiSdkPaths, loadConfig } from "@qinit/core/project";
 import { generateClangdConfig } from "./clangd-config";
+import { dynCalleesFromNode } from "./callees";
 import { findProjectRoot, isContractDoc, QINIT_JSON } from "./project-util";
+import type { DynCallees } from "@qinit/build/intercontract";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
 import { VerifyRunner } from "./verify-runner";
@@ -22,8 +24,9 @@ function warnOncePerMinute(msg: string): void {
 }
 
 // (Re)generate the clangd compile DB for a contract document (M1). Silent for non-contracts and
-// non-projects; warns (at most once a minute) when the toolchain isn't synced.
-function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): void {
+// non-projects; warns (at most once a minute) when the toolchain isn't synced. Async because it
+// resolves inter-contract callees from the running node (best-effort) — never rejects.
+async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): Promise<void> {
   if (!isContractDoc(doc)) return;
   const root = findProjectRoot(doc.fileName);
   if (!root) return;
@@ -46,6 +49,16 @@ function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): 
     return;
   }
 
+  // Resolve qinit-deployed inter-contract callees from the running node's stored sources (best-effort:
+  // {} if this contract calls nobody, or the node is down). In-core callees resolve via contract_def.h.
+  let dynCallees: DynCallees = {};
+  try {
+    const rpcBase = vscode.workspace.getConfiguration("qpi").get<string>("rpc") || cfg.rpc || "http://127.0.0.1:41841";
+    dynCallees = await dynCalleesFromNode(rpcBase, doc.getText(), join(root, ".qinit", "clangd", "callees"));
+  } catch (e: any) {
+    out.appendLine("dynCallees: " + String(e?.message ?? e));
+  }
+
   // Use qinit.json's name/slot only for the project's primary contract; other headers default to
   // their basename + slot 28 so multi-header projects each get a correct TU.
   const primary = !!cfg.contract && resolve(join(root, cfg.contract)) === resolve(doc.fileName);
@@ -58,8 +71,10 @@ function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): 
       workspaceRoot: root,
       name: primary ? cfg.name : undefined,
       slot: primary ? cfg.slot : undefined,
+      dynCallees,
     });
-    out.appendLine(`clangd config ready: ${r.name} (slot ${r.slot}) -> ${r.prefixPath}`);
+    const n = Object.keys(dynCallees).length;
+    out.appendLine(`clangd config ready: ${r.name} (slot ${r.slot})${n ? `, ${n} callee(s) from node` : ""} -> ${r.prefixPath}`);
   } catch (e: any) {
     out.appendLine("generate failed: " + String(e?.message ?? e));
   }
@@ -75,7 +90,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // authoritative Tier-B contractverify pass (a CLI shell-out, save-frequency).
   const onDoc = (doc?: vscode.TextDocument) => {
     if (!doc) return;
-    regenerateClangd(doc, out);
+    void regenerateClangd(doc, out); // async (node callee resolution); never rejects
     diags.refresh(doc);
     verify.run(doc);
   };
@@ -87,10 +102,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidCloseTextDocument((d) => { diags.clear(d.uri); verify.clear(d.uri); }),
     vscode.languages.registerHoverProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new IdlHover()),
     vscode.languages.registerCodeActionsProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new QpiCodeActions(), QpiCodeActions.metadata),
-    vscode.commands.registerCommand("qpi.regenerateConfig", () => {
+    vscode.commands.registerCommand("qpi.regenerateConfig", async () => {
       const doc = vscode.window.activeTextEditor?.document;
       if (!doc) { vscode.window.showInformationMessage("Qubic QPI: open a contract header first."); return; }
-      regenerateClangd(doc, out);
+      await regenerateClangd(doc, out);
       diags.refresh(doc);
       vscode.window.showInformationMessage("Qubic QPI: clangd config regenerated.");
     }),

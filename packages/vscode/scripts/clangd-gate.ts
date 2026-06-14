@@ -6,10 +6,11 @@
 //   QINIT_CORE=/path/to/core-lite bun run packages/vscode/scripts/clangd-gate.ts [Name ...]
 // Needs `clangd` on PATH (or $CLANGD) — ideally the same major version as the wasi-sdk clang. wasi from
 // the synced cache (local `qinit up`) or WASM_CLANG/WASI_SYSROOT env (CI).
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { resolveCore, wasiSdkPaths } from "@qinit/core/project";
+import { scanCallees, type DynCallees } from "@qinit/build/intercontract";
 import { generateClangdConfig } from "../src/clangd-config";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../.."); // packages/vscode/scripts -> repo root
@@ -36,30 +37,48 @@ function entryFor(name: string): { name: string; path: string } | null {
 const names = requested.length ? requested : ["Counter", "Token", "Bank", "Proxy", "Logger", ...Object.keys(REAL)];
 const entries = names.map(entryFor).filter((e): e is { name: string; path: string } => e !== null);
 
+// Offline inter-contract resolution: a fixture that calls a sibling fixture (e.g. Proxy -> Counter)
+// gets that sibling fed as a dyn callee — the same DynCallees the extension builds from the node's
+// stored sources at runtime. In-core callees (QX's, etc.) resolve via contract_def.h, not here.
+function siblingCallees(source: string): DynCallees {
+  const out: DynCallees = {};
+  for (const callee of scanCallees(source)) {
+    const sib = join(REPO_ROOT, "fixtures", callee + ".h");
+    if (existsSync(sib)) out[callee] = { header: sib, index: 1 };
+  }
+  return out;
+}
+
 console.log(`core:       ${core}`);
 console.log(`wasi clang: ${wasiClang}`);
 console.log(`clangd:     ${CLANGD}`);
 console.log(`contracts:  ${entries.map((e) => e.name).join(", ")}\n`);
 
-const INTERESTING = /error:|fatal error:|file not found|use of undeclared|no member named|unknown type name|no template named/i;
+// clangd --check logs each real code diagnostic as `E[ts] [code] Line N: message`. Match THAT — not
+// "error:" (which never appears in clangd's format, so the old filter passed everything blindly), and
+// not the "All checks completed, N errors" summary (which also tallies tweak-availability probes like
+// SpecialMembers "Class body in wrong file" — code-action noise, not contract errors).
+const DIAG = /^E\[[\d:.]+\]\s+\[\w+\]\s+Line\s+\d+:/;
 
 let failures = 0;
 for (const { name, path: contractPath } of entries) {
   const ws = mkdtempSync(join(tmpdir(), "qpi-gate-"));
   try {
-    const cfg = generateClangdConfig({ contractPath, corePath: core, wasiClang, wasiSysroot, workspaceRoot: ws, name });
+    const dynCallees = siblingCallees(readFileSync(contractPath, "utf8"));
+    const cfg = generateClangdConfig({ contractPath, corePath: core, wasiClang, wasiSysroot, workspaceRoot: ws, name, dynCallees });
     const p = Bun.spawnSync(
       [CLANGD, `--check=${cfg.contractFile}`, `--compile-commands-dir=${cfg.dir}`, `--query-driver=${wasiClang}`, "--log=error"],
       { stdout: "pipe", stderr: "pipe" },
     );
     const log = (p.stdout?.toString() ?? "") + (p.stderr?.toString() ?? "");
-    const errorLines = log.split("\n").filter((l) => /error:|fatal error:/.test(l));
+    const errorLines = log.split("\n").filter((l) => DIAG.test(l));
     const ok = errorLines.length === 0;
-    console.log(`${ok ? "PASS" : "FAIL"}  ${name.padEnd(10)} (${errorLines.length} error lines)`);
+    const callees = Object.keys(dynCallees);
+    console.log(`${ok ? "PASS" : "FAIL"}  ${name.padEnd(10)} (${errorLines.length} errors)${callees.length ? `  [callees: ${callees.join(", ")}]` : ""}`);
     if (!ok) {
       failures++;
-      const shown = log.split("\n").filter((l) => INTERESTING.test(l)).slice(0, 30);
-      console.log(shown.map((l) => "      " + l.trim()).join("\n") || "      (no diagnostic lines captured — check clangd output / exit)");
+      const shown = [...new Set(errorLines.map((l) => l.replace(/^E\[[^\]]*\]\s*/, "").trim()))].slice(0, 30);
+      console.log(shown.map((l) => "      " + l).join("\n"));
     }
   } finally {
     rmSync(ws, { recursive: true, force: true });
