@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { scanQpi, scanLocals } from "../src/lint/qpi-rules";
+import { scanQpi, scanLocals, scanLocalsForm } from "../src/lint/qpi-rules";
 
 const rulesOf = (s: string) => new Set(scanQpi(s).map((f) => f.rule));
 
@@ -85,6 +85,28 @@ test("scanLocals: real fixtures stay clean (they use _WITH_LOCALS / state)", () 
   if (!existsSync(dir)) return;
   for (const f of readdirSync(dir).filter((x) => x.endsWith(".h"))) {
     const hits = scanLocals(readFileSync(join(dir, f), "utf8")).map((x) => x.rule);
+    expect({ file: f, hits }).toEqual({ file: f, hits: [] });
+  }
+});
+
+// --- scanLocalsForm (plain function uses/defines locals → hint to use _WITH_LOCALS) ---
+test("scanLocalsForm hints _WITH_LOCALS when a plain function defines or uses locals", () => {
+  const withStruct = `struct X : public ContractBase { struct Do_locals { uint64 d; }; PUBLIC_PROCEDURE(Do) { locals.d = 1; } };`;
+  expect(scanLocalsForm(withStruct).map((f) => f.rule)).toEqual(["qpi/needs-with-locals"]);
+  expect(scanLocalsForm(withStruct)[0].message).toContain("PUBLIC_PROCEDURE_WITH_LOCALS(Do)");
+  // uses locals without a struct → still hinted
+  expect(scanLocalsForm(`struct X : public ContractBase { PUBLIC_FUNCTION(Q) { output.v = locals.tmp; } };`).map((f) => f.rule)).toEqual(["qpi/needs-with-locals"]);
+  // correct _WITH_LOCALS usage → no hint
+  expect(scanLocalsForm(`struct X : public ContractBase { struct Q_locals { uint64 t; }; PUBLIC_FUNCTION_WITH_LOCALS(Q) { locals.t = 1; } };`)).toEqual([]);
+  // plain function with no locals → no hint
+  expect(scanLocalsForm(`struct X : public ContractBase { PUBLIC_FUNCTION(Q) { output.v = 1; } };`)).toEqual([]);
+});
+
+test("scanLocalsForm: real fixtures stay clean", () => {
+  const dir = resolve("fixtures");
+  if (!existsSync(dir)) return;
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".h"))) {
+    const hits = scanLocalsForm(readFileSync(join(dir, f), "utf8")).map((x) => x.rule);
     expect({ file: f, hits }).toEqual({ file: f, hits: [] });
   }
 });

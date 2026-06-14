@@ -183,6 +183,50 @@ const STMT_KEYWORDS = new Set([
   "delete", "this", "true", "false", "nullptr", "operator", "template",
 ]);
 
+// Detect a function/procedure that needs the `_WITH_LOCALS` form but uses the plain one: it either
+// defines a `<Name>_locals` struct (which the plain macro re-typedefs to empty `QPI::NoData` → clang's
+// cryptic "typedef redefinition") or uses `locals.` in its body (which would be empty). Turn that into
+// an actionable hint pointing at `_WITH_LOCALS`.
+export function scanLocalsForm(source: string): QpiFinding[] {
+  const src = blankCommentsAndStrings(source);
+  const out: QpiFinding[] = [];
+
+  const userLocals = new Set<string>(); // names with a user-defined `struct <Name>_locals`
+  for (const m of src.matchAll(/\bstruct\s+(\w+)_locals\b/g)) userLocals.add(m[1]);
+
+  const macroRe = /\b(PUBLIC|PRIVATE)_(FUNCTION|PROCEDURE)(_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/gd;
+  let m: RegExpExecArray | null;
+  while ((m = macroRe.exec(src))) {
+    if (m[3]) continue; // already the _WITH_LOCALS form
+    const name = m[4];
+
+    // does the body reference `locals.`?
+    let usesLocals = false;
+    let k = m.index + m[0].length;
+    while (k < src.length && src[k] !== "{" && src[k] !== ";") k++;
+    if (src[k] === "{") {
+      let depth = 0, i = k;
+      for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}") { depth--; if (!depth) { i++; break; } } }
+      usesLocals = /\blocals\s*\./.test(src.slice(k, i));
+    }
+
+    const definesLocals = userLocals.has(name);
+    if (!usesLocals && !definesLocals) continue;
+    const form = `${m[1]}_${m[2]}`;
+    const [ms, me] = m.indices![0];
+    out.push({
+      rule: "qpi/needs-with-locals",
+      message: definesLocals
+        ? `\`${name}\` has a \`${name}_locals\` struct, but \`${form}(${name})\` ignores it and re-typedefs \`${name}_locals\` to empty (QPI::NoData). Use \`${form}_WITH_LOCALS(${name})\` so \`locals\` is your struct.`
+        : `\`${name}\` uses \`locals\`, but \`${form}(${name})\` provides none (locals = empty QPI::NoData). Use \`${form}_WITH_LOCALS(${name})\` and declare \`struct ${name}_locals { … };\`.`,
+      offset: ms,
+      length: me - ms,
+      severity: "warn",
+    });
+  }
+  return out;
+}
+
 // Detect stack-local variable declarations inside QPI function/procedure bodies (forbidden — use the
 // *_WITH_LOCALS form + a `<fn>_locals` struct, or store state via `state.mut()`). Conservative: only
 // the unambiguous `<Type> <name>;` / `<Type> <name> = …;` / `for (<Type> <name> = …` forms — never
