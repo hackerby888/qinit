@@ -8,8 +8,7 @@ const rulesOf = (s: string) => new Set(scanQpi(s).map((f) => f.rule));
 test("flags each forbidden construct (one crafted violation per rule)", () => {
   expect(rulesOf('auto s = "hi";')).toContain("qpi/no-string");
   expect(rulesOf("char c = 'a';")).toContain("qpi/no-char");
-  expect(rulesOf('#include "qpi.h"')).toContain("qpi/no-preprocessor");
-  expect(rulesOf('#include "qpi.h"')).not.toContain("qpi/no-string"); // the include path isn't a QPI string literal
+  expect(rulesOf("#define FOO 1")).toContain("qpi/no-preprocessor");
   expect(rulesOf("uint64 q = a / b;")).toContain("qpi/no-division");
   expect(rulesOf("uint64 r = a % b;")).toContain("qpi/no-modulo");
   expect(rulesOf("uint64 arr[4];")).toContain("qpi/no-brackets");
@@ -22,6 +21,14 @@ test("flags each forbidden construct (one crafted violation per rule)", () => {
   expect(rulesOf("QpiContext ctx;")).toContain("qpi/no-qpicontext");
   expect(rulesOf("typedef uint64 Money;")).toContain("qpi/no-global-typedef");
   expect(rulesOf("using Money = uint64;")).toContain("qpi/no-global-using");
+});
+
+test("the qpi.h dev-include is an exception (no diagnostics); other directives are not", () => {
+  expect(rulesOf('#include "qpi.h"')).toEqual(new Set());
+  expect(rulesOf('#include "contracts/qpi.h"')).toEqual(new Set());
+  expect(rulesOf("#include <qpi.h>")).toEqual(new Set());
+  expect(rulesOf('#include "other.h"')).toContain("qpi/no-preprocessor");
+  expect(rulesOf("#pragma once")).toContain("qpi/no-preprocessor");
 });
 
 test("comments and string bodies do not trigger inner rules", () => {

@@ -61,8 +61,17 @@ export function scanQpi(src: string): QpiFinding[] {
 
     // --- single-character rules ---
     if (c === "#") {
-      push("qpi/no-preprocessor", "Preprocessor directives (`#`) are forbidden. This extension provides IntelliSense without `#include \"qpi.h\"` — remove it before deploying.", i, 1, "info");
-      while (i < n && src[i] !== "\n") i++; // skip the rest of the directive — its path string isn't a QPI string literal
+      let j = i;
+      while (j < n && src[j] !== "\n") j++;
+      const directive = src.slice(i, j);
+      // The qpi.h dev-include is the sanctioned IntelliSense workaround (doc/contracts.md) and this
+      // extension makes it harmless — treat it as an exception (no diagnostic). Every OTHER preprocessor
+      // directive stays forbidden. Either way, skip the rest of the line so its path string isn't
+      // mis-flagged as a QPI string literal.
+      if (!/^#\s*include\s*[<"][^>"]*qpi\.h[>"]/.test(directive)) {
+        push("qpi/no-preprocessor", "Preprocessor directives (`#`) are forbidden in QPI (remove before deploying).", i, 1, "info");
+      }
+      i = j;
       continue;
     }
     if (c === "/") { // not a comment (handled above) -> division (or /=)
