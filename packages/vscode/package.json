@@ -29,6 +29,11 @@
           "type": "string",
           "default": "",
           "description": "Path to a core-lite checkout. Overrides QINIT_CORE and the snapshot synced by `qinit up`."
+        },
+        "qpi.qinitPath": {
+          "type": "string",
+          "default": "qinit",
+          "description": "The `qinit` CLI used for verify/build/deploy. Defaults to `qinit` on PATH."
         }
       }
     }

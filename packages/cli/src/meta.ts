@@ -51,6 +51,12 @@ export const META: Record<string, CommandMeta> = {
   dev: { group: "develop", summary: "watch the contract -> auto build+deploy on save (q to quit)", usage: "[<file.h>]", flags: [["--rpc <url>", "node RPC base"], ["--seed <seed>", "signer seed"]] },
   build: { group: "develop", summary: "compile a contract .h -> wasm (+ K12 hash, IDL)", usage: "<file.h>", flags: [["--name <n>", "contract name"], ["--out <dir>", "output dir"], ["--slot <n>", "contract slot"], ["--core <path>", "core headers checkout"]] },
   gen: { group: "develop", summary: "generate a typed TS client from the contract IDL", usage: "<file.h>", flags: [["--name <n>", "contract name"], ["--out <dir>", "output dir"], ["--slot <n>", "contract slot"]] },
+  verify: {
+    group: "develop", json: true,
+    summary: "check a contract against the qpi.h protocol rules (contractverify)",
+    usage: "<file.h>",
+    flags: [["--name <n>", "contract name"], ["--callee <n>=<hdr>@<i>", "declared inter-contract callee (repeatable)"]],
+  },
 
   deploy: {
     group: "deploy & interact", json: true,

@@ -12,6 +12,7 @@ import { findProjectRoot, isContractDoc, QINIT_JSON } from "./project-util";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
 import { registerCommands } from "./commands";
+import { VerifyRunner } from "./verify-runner";
 
 let warnedAt = 0;
 function warnOncePerMinute(msg: string): void {
@@ -66,19 +67,23 @@ function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): 
 export function activate(context: vscode.ExtensionContext): void {
   const out = vscode.window.createOutputChannel("Qubic QPI");
   const diags = new QpiDiagnostics();
-  context.subscriptions.push(out, diags);
+  const verify = new VerifyRunner();
+  context.subscriptions.push(out, diags, verify);
 
+  // open/save: regenerate the clangd DB, run the instant Tier-A diagnostics, and kick off the
+  // authoritative Tier-B contractverify pass (a CLI shell-out, save-frequency).
   const onDoc = (doc?: vscode.TextDocument) => {
     if (!doc) return;
     regenerateClangd(doc, out);
     diags.refresh(doc);
+    verify.run(doc);
   };
 
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(onDoc),
     vscode.workspace.onDidSaveTextDocument(onDoc),
     vscode.workspace.onDidChangeTextDocument((e) => diags.schedule(e.document)),
-    vscode.workspace.onDidCloseTextDocument((d) => diags.clear(d.uri)),
+    vscode.workspace.onDidCloseTextDocument((d) => { diags.clear(d.uri); verify.clear(d.uri); }),
     vscode.languages.registerHoverProvider({ language: "cpp", scheme: "file" }, new IdlHover()),
     vscode.commands.registerCommand("qpi.regenerateConfig", () => {
       const doc = vscode.window.activeTextEditor?.document;
