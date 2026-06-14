@@ -73,4 +73,16 @@ suite("Qubic QPI extension", function () {
     const titles = (actions || []).map((a) => a.title);
     assert.ok(titles.some((t) => /Array<T, N>/.test(t)), `expected the Array<T, N> quick-fix; got: ${titles.join(", ")}`);
   });
+
+  test("locals diagnostics fire; the qpi.h dev-include is exempt", async () => {
+    const doc = await open("Locals.h");
+    await sleep(2500);
+    const diags = vscode.languages.getDiagnostics(doc.uri);
+    const qpiCodes = diags.filter((d) => String(d.source) === "qpi").map((d) => String(d.code));
+    assert.ok(qpiCodes.includes("qpi/stack-local"), `expected qpi/stack-local; got [${qpiCodes.join(", ")}]`);
+    assert.ok(qpiCodes.includes("qpi/needs-with-locals"), `expected qpi/needs-with-locals; got [${qpiCodes.join(", ")}]`);
+    // the `#include "contracts/qpi.h"` on line 3 (index 2) must carry NO qpi diagnostic
+    const onInclude = diags.filter((d) => String(d.source) === "qpi" && d.range.start.line === 2);
+    assert.strictEqual(onInclude.length, 0, `qpi.h include should be exempt; got [${onInclude.map((d) => d.code).join(", ")}]`);
+  });
 });

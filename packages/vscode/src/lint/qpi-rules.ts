@@ -52,8 +52,9 @@ export function scanQpi(src: string): QpiFinding[] {
       const quote = c;
       const start = i;
       i++;
-      while (i < n && src[i] !== quote) { if (src[i] === "\\") i++; i++; }
-      i++; // closing quote
+      while (i < n && src[i] !== quote) i += src[i] === "\\" ? 2 : 1;
+      if (i < n) i++; // consume the closing quote if present
+      if (i > n) i = n; // clamp: an unterminated literal / trailing backslash must not overshoot the source
       if (quote === '"') push("qpi/no-string", "String literals (`\"`) are forbidden in QPI — they can address arbitrary memory.", start, Math.max(1, i - start));
       else push("qpi/no-char", "Character literals (`'`) are forbidden in QPI.", start, Math.max(1, i - start));
       continue;
@@ -96,6 +97,26 @@ export function scanQpi(src: string): QpiFinding[] {
       i++;
       while (i < n && isIdChar(src[i])) i++;
       const word = src.slice(start, i);
+
+      // STATIC_ASSERT(...) / static_assert(...) is a COMPILE-TIME assertion: its message string and
+      // its condition (even `/`, `%`) are not runtime QPI violations. Skip the whole call so we don't
+      // flag e.g. STATIC_ASSERT(A == B, "A == B"). (qpi.h's STATIC_ASSERT macro accepts a message; real
+      // contracts like Pulse.h use it.)
+      if (word === "STATIC_ASSERT" || word === "static_assert") {
+        let j = i;
+        while (j < n && /\s/.test(src[j])) j++;
+        if (src[j] === "(") {
+          let depth = 0;
+          for (; j < n; j++) {
+            const ch = src[j];
+            if (ch === '"' || ch === "'") { const q = ch; j++; while (j < n && src[j] !== q) { if (src[j] === "\\") j++; j++; } }
+            else if (ch === "(") depth++;
+            else if (ch === ")") { depth--; if (depth === 0) { j++; break; } }
+          }
+          i = j;
+          continue;
+        }
+      }
 
       if (word.includes("__")) {
         push("qpi/no-dunder", "Double underscores (`__`) are reserved for internal use and forbidden in contracts.", start, word.length);
@@ -143,7 +164,10 @@ function blankCommentsAndStrings(src: string): string {
     }
     if (c === '"' || c === "'") {
       const q = c; out += " "; i++;
-      while (i < n && src[i] !== q) { if (src[i] === "\\") { out += " "; i++; } out += " "; i++; }
+      while (i < n && src[i] !== q) {
+        if (src[i] === "\\" && i + 1 < n) { out += "  "; i += 2; } // escape: 2 source chars -> 2 spaces
+        else { out += " "; i++; }
+      }
       if (i < n) { out += " "; i++; }
       continue;
     }
@@ -155,8 +179,11 @@ function blankCommentsAndStrings(src: string): string {
 // The contract "functions" whose bodies hold user code (where stack locals are forbidden). Lifecycle
 // hooks + PUBLIC/PRIVATE functions/procedures (incl. _WITH_LOCALS — you still can't declare a raw local
 // there; you use the `locals` struct).
-const FN_MACRO =
-  /\b(?:PUBLIC|PRIVATE)_(?:FUNCTION|PROCEDURE)(?:_WITH_LOCALS)?\s*\([^)]*\)|\b(?:INITIALIZE|BEGIN_EPOCH|END_EPOCH|BEGIN_TICK|END_TICK|POST_INCOMING_TRANSFER|EXPAND)\s*\(\s*\)/g;
+const LIFECYCLE = "INITIALIZE|BEGIN_EPOCH|END_EPOCH|BEGIN_TICK|END_TICK|POST_INCOMING_TRANSFER|PRE_ACQUIRE_SHARES|POST_ACQUIRE_SHARES|PRE_RELEASE_SHARES|POST_RELEASE_SHARES|EXPAND";
+const FN_MACRO = new RegExp(
+  `\\b(?:PUBLIC|PRIVATE)_(?:FUNCTION|PROCEDURE)(?:_WITH_LOCALS)?\\s*\\([^)]*\\)|\\b(?:${LIFECYCLE})(?:_WITH_LOCALS)?\\s*\\(\\s*\\)`,
+  "g",
+);
 
 // [open, close) brace ranges of every contract function body in (already-blanked) src.
 function functionBodies(src: string): Array<[number, number]> {
@@ -194,35 +221,42 @@ export function scanLocalsForm(source: string): QpiFinding[] {
   const userLocals = new Set<string>(); // names with a user-defined `struct <Name>_locals`
   for (const m of src.matchAll(/\bstruct\s+(\w+)_locals\b/g)) userLocals.add(m[1]);
 
-  const macroRe = /\b(PUBLIC|PRIVATE)_(FUNCTION|PROCEDURE)(_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/gd;
-  let m: RegExpExecArray | null;
-  while ((m = macroRe.exec(src))) {
-    if (m[3]) continue; // already the _WITH_LOCALS form
-    const name = m[4];
-
-    // does the body reference `locals.`?
+  // For one plain (non-_WITH_LOCALS) function/hook: flag it if its body uses `locals.` or a
+  // `<name>_locals` struct exists — both mean the author needs the _WITH_LOCALS form.
+  const check = (name: string, plainForm: string, withForm: string, afterMacro: number, span: [number, number]) => {
     let usesLocals = false;
-    let k = m.index + m[0].length;
+    let k = afterMacro;
     while (k < src.length && src[k] !== "{" && src[k] !== ";") k++;
     if (src[k] === "{") {
       let depth = 0, i = k;
       for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}") { depth--; if (!depth) { i++; break; } } }
       usesLocals = /\blocals\s*\./.test(src.slice(k, i));
     }
-
-    const definesLocals = userLocals.has(name);
-    if (!usesLocals && !definesLocals) continue;
-    const form = `${m[1]}_${m[2]}`;
-    const [ms, me] = m.indices![0];
+    if (!usesLocals && !userLocals.has(name)) return;
     out.push({
       rule: "qpi/needs-with-locals",
-      message: definesLocals
-        ? `\`${name}\` has a \`${name}_locals\` struct, but \`${form}(${name})\` ignores it and re-typedefs \`${name}_locals\` to empty (QPI::NoData). Use \`${form}_WITH_LOCALS(${name})\` so \`locals\` is your struct.`
-        : `\`${name}\` uses \`locals\`, but \`${form}(${name})\` provides none (locals = empty QPI::NoData). Use \`${form}_WITH_LOCALS(${name})\` and declare \`struct ${name}_locals { … };\`.`,
-      offset: ms,
-      length: me - ms,
+      message: userLocals.has(name)
+        ? `\`${name}\` has a \`${name}_locals\` struct, but \`${plainForm}\` ignores it and re-typedefs \`${name}_locals\` to empty (QPI::NoData). Use \`${withForm}\` so \`locals\` is your struct.`
+        : `\`${name}\` uses \`locals\`, but \`${plainForm}\` provides none (locals = empty QPI::NoData). Use \`${withForm}\` and declare \`struct ${name}_locals { … };\`.`,
+      offset: span[0],
+      length: span[1] - span[0],
       severity: "warn",
     });
+  };
+
+  let m: RegExpExecArray | null;
+  // Named user functions/procedures: PUBLIC/PRIVATE_FUNCTION/PROCEDURE(Name).
+  const namedRe = /\b(PUBLIC|PRIVATE)_(FUNCTION|PROCEDURE)(_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/gd;
+  while ((m = namedRe.exec(src))) {
+    if (m[3]) continue; // already _WITH_LOCALS
+    const form = `${m[1]}_${m[2]}`;
+    check(m[4], `${form}(${m[4]})`, `${form}_WITH_LOCALS(${m[4]})`, m.index + m[0].length, m.indices![0]);
+  }
+  // Lifecycle hooks: INITIALIZE() etc. — the hook name itself is the `<name>_locals` base.
+  const lifeRe = new RegExp(`\\b(${LIFECYCLE})(_WITH_LOCALS)?\\s*\\(\\s*\\)`, "gd");
+  while ((m = lifeRe.exec(src))) {
+    if (m[2]) continue; // already _WITH_LOCALS
+    check(m[1], `${m[1]}()`, `${m[1]}_WITH_LOCALS()`, m.index + m[0].length, m.indices![0]);
   }
   return out;
 }

@@ -76,6 +76,13 @@ jobs:
           QINIT_CORE: ${{ github.workspace }}/core
         run: bun run scripts/check-protocol-drift.ts
 
+      # The QPI extension's Tier-A linter must raise 0 warning/error findings on the real deployed
+      # contracts (they're valid QPI) — a regression guard against linter false positives.
+      - name: QPI linter false-positive gate (real contracts)
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+        run: bun run packages/vscode/scripts/lint-corpus.ts
+
       - name: Cache wasi-sdk
         id: wasisdk
         uses: actions/cache@v4
