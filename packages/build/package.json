@@ -3,7 +3,11 @@
   "version": "0.0.0",
   "type": "module",
   "module": "src/index.ts",
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./recipe": "./src/recipe.ts",
+    "./intercontract": "./src/intercontract.ts"
+  },
   "dependencies": {
     "@qinit/core": "workspace:*",
     "@qinit/proto": "workspace:*",

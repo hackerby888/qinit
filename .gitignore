@@ -6,3 +6,6 @@ dist/
 .env
 qinit.idl.json
 contracts_dyn/
+.qinit/
+.clangd
+*.vsix

@@ -1,0 +1,43 @@
+{
+  "name": "qpi-vscode",
+  "displayName": "Qubic QPI",
+  "description": "CLion-grade IntelliSense + live QPI-rule diagnostics for Qubic dynamic contracts.",
+  "version": "0.0.1",
+  "publisher": "qubic",
+  "private": true,
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages", "Linters"],
+  "extensionDependencies": ["llvm-vs-code-extensions.vscode-clangd"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onLanguage:cpp", "workspaceContains:qinit.json"],
+  "contributes": {
+    "commands": [
+      { "command": "qpi.regenerateConfig", "title": "Regenerate clangd config", "category": "Qubic QPI" }
+    ],
+    "configuration": {
+      "title": "Qubic QPI",
+      "properties": {
+        "qpi.core": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a core-lite checkout. Overrides QINIT_CORE and the snapshot synced by `qinit up`."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "bun esbuild.mjs",
+    "watch": "bun esbuild.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "package": "bun esbuild.mjs && bunx @vscode/vsce package --no-dependencies -o qpi-vscode.vsix",
+    "gate": "bun run scripts/clangd-gate.ts"
+  },
+  "devDependencies": {
+    "@qinit/build": "workspace:*",
+    "@qinit/core": "workspace:*",
+    "@qinit/proto": "workspace:*",
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.0"
+  }
+}

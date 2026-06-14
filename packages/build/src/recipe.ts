@@ -3,7 +3,7 @@
 // CONTRACT_INDEX/STATE_TYPE.
 import { mkdir, writeFile, copyFile } from "node:fs/promises";
 import { join } from "node:path";
-import { wasiSdkPaths } from "@qinit/core";
+import { wasiSdkPaths } from "@qinit/core/project";
 import { writeLineMap } from "./linemap";
 
 export interface BuildOpts {

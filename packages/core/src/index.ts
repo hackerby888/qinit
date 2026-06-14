@@ -16,6 +16,8 @@ export {
   CLI_REPO, cliAssetName, resolveCliTag, cliReleaseUrls, fetchCliSha,
 } from "./fetch";
 export type { AssetRef, Manifest, CurrentPointer, VerifyManifest, VerifyUpdate } from "./fetch";
+export { loadConfig, resolveCore } from "./project";
+export type { QinitConfig } from "./project";
 export { debug } from "./debug";
 export { resolveTrapBacktrace, formatTrapBacktrace, decodeTrapCause } from "./backtrace";
 export type { TrapFrame, TrapBacktrace } from "./backtrace";

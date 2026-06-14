@@ -1,24 +1,13 @@
-// Per-project config (qinit.json), read by build/deploy/call so commands run
-// flag-free inside a `qinit new` project. Precedence: CLI flag > qinit.json > default.
+// Per-project config (qinit.json) + core resolution now live in @qinit/core (project.ts) so the
+// VS Code extension can share them without pulling in Ink/React. Re-exported here for back-compat:
+// every command still does `import { loadConfig, resolveCore } from "../config"`.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
-import { resolve, join, dirname } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { readCurrent, assertSeed } from "@qinit/core";
+import { assertSeed } from "@qinit/core";
 
-export interface QinitConfig {
-  name?: string;
-  contract?: string;
-  slot?: number;
-  core?: string;
-  rpc?: string;
-}
-
-export function loadConfig(path = "qinit.json"): QinitConfig {
-  try {
-    if (existsSync(path)) return JSON.parse(readFileSync(path, "utf8")) as QinitConfig;
-  } catch {}
-  return {};
-}
+export { loadConfig, resolveCore } from "@qinit/core";
+export type { QinitConfig } from "@qinit/core";
 
 // qinit's config dir. Honors $XDG_CONFIG_HOME on every platform (tests + power users rely on it); otherwise
 // %APPDATA%\qinit on Windows (idiomatic) and ~/.config/qinit elsewhere. Back-compat: an existing
@@ -68,12 +57,3 @@ export async function resolveSeed(rpc: { fundedSeed(): Promise<string | undefine
   return funded ?? "a".repeat(55);
 }
 
-// Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache.
-// No checkout and no fetched snapshot => actionable error.
-export function resolveCore(cliCore?: string, cfgCore?: string): string {
-  const explicit = cliCore || cfgCore || process.env.QINIT_CORE;
-  if (explicit) return resolve(explicit);
-  const cur = readCurrent();
-  if (cur?.coreHeaders && existsSync(cur.coreHeaders)) return cur.coreHeaders;
-  throw new Error("no core headers: run `qinit up` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>");
-}

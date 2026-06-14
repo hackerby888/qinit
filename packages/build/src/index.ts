@@ -7,6 +7,9 @@ import { verifyContract, type VerifyResult } from "./verify";
 import { k12Hex } from "@qinit/core";
 
 export type { BuildOpts } from "./recipe";
+export { genWrapper, genWrapperWasm } from "./recipe";
+export { buildCalleePrelude, parseRegisters, scanCallees, parseContractDef } from "./intercontract";
+export type { DynCallees, CalleeDef } from "./intercontract";
 export { extractIdl } from "./idl";
 export type { ContractIdl, IdlEntry, Field, LogStruct, EnumDef } from "./idl";
 export { systemContracts, systemNames, type SystemContract } from "./system-contracts";
