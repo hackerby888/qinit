@@ -64,6 +64,12 @@ function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: str
     "-std=c++20",
     "-fno-rtti",
     "-fno-exceptions",
+    // Editor-only suppressions for artifacts of the parse-only TU (we omit the post-contract impl
+    // headers that the real build links): -Wundefined-inline fires because qpi.h declares inlines
+    // (__qpiAllocLocals/__qpiFreeLocals, used by CALL/_WITH_LOCALS) whose bodies live in those omitted
+    // headers. These are valid QPI — never redline them. (The real build, which includes the impls,
+    // doesn't see these, so the editor stays in step.)
+    "-Wno-undefined-inline",
     "-DLITEDYN_CONTRACT_TU",
     "-include", shim,
     ...(o.wasiSysroot ? [`--sysroot=${fwd(o.wasiSysroot)}`] : []),

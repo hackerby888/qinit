@@ -51,6 +51,7 @@ test.if(hasFixture)("generateClangdConfig: prefix carries the wrapper preamble; 
     expect(args).toContain("-DLITEDYN_CONTRACT_TU");
     expect(args).toContain("-fno-rtti");
     expect(args).toContain("-fno-exceptions");
+    expect(args).toContain("-Wno-undefined-inline"); // editor-only: impls omitted from the parse TU
     expect(args).toContain("--sysroot=/fake/wasi/sysroot");
     expect(args).toContain("-I/fake/core");
     expect(args).toContain("-I/fake/core/src");
