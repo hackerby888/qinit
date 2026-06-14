@@ -2,7 +2,8 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { generateClangdConfig, deriveName, DEFAULT_SLOT, ensureEditorSettings } from "../src/clangd-config";
+import { generateClangdConfig, deriveName, DEFAULT_SLOT, ensureEditorSettings, detectStateType } from "../src/clangd-config";
+import { writeFileSync } from "node:fs";
 
 const COUNTER = resolve("fixtures", "Counter.h");
 const hasFixture = existsSync(COUNTER);
@@ -12,6 +13,27 @@ test("deriveName: basename without extension; explicit override wins", () => {
   expect(deriveName("C:\\proj\\Token.h")).toBe("Token");
   expect(deriveName("/a/b/Counter.h", "MyState")).toBe("MyState");
   expect(deriveName("/a/b/Counter.h", "")).toBe("Counter"); // empty override ignored
+});
+
+test("detectStateType reads the `struct <Name> : public ContractBase` from source", () => {
+  expect(detectStateType("struct ESCROW : public ContractBase {}")).toBe("ESCROW");
+  expect(detectStateType("struct MyToken:public ContractBase{}")).toBe("MyToken");
+  expect(detectStateType("struct CONTRACT_STATE_TYPE : public ContractBase {}")).toBe("CONTRACT_STATE_TYPE");
+  expect(detectStateType("uint64 x; // no contract here")).toBeUndefined();
+});
+
+test("CONTRACT_STATE_TYPE comes from the source struct, not the filename / qinit.json", () => {
+  const ws = mkdtempSync(join(tmpdir(), "qpi-name-"));
+  try {
+    // state struct (Escrow) differs from BOTH the file name (Counter.h) and the passed name (Counter)
+    const f = join(ws, "Counter.h");
+    writeFileSync(f, "using namespace QPI;\nstruct Escrow2 {};\nstruct Escrow : public ContractBase { struct StateData { uint64 x; }; };\n");
+    const r = generateClangdConfig({ contractPath: f, corePath: "/fake/core", wasiClang: "/fake/clang++", workspaceRoot: ws, name: "Counter" });
+    expect(r.name).toBe("Escrow");
+    expect(readFileSync(r.prefixPath, "utf8")).toContain("#define CONTRACT_STATE_TYPE Escrow");
+  } finally {
+    rmSync(ws, { recursive: true, force: true });
+  }
 });
 
 test.if(hasFixture)("generateClangdConfig: prefix carries the wrapper preamble; DB parses the contract with it", () => {

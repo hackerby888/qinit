@@ -104,11 +104,23 @@ export function ensureEditorSettings(workspaceRoot: string): void {
   writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
 }
 
+// The contract's state struct name (`struct <Name> : public ContractBase`) — authoritative for
+// CONTRACT_STATE_TYPE, since the file's content may diverge from qinit.json (renamed/pasted code).
+export function detectStateType(source: string): string | undefined {
+  return source.match(/\bstruct\s+(\w+)\s*:\s*public\s+ContractBase\b/)?.[1];
+}
+
 export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
-  const name = deriveName(o.contractPath, o.name);
-  const slot = o.slot ?? DEFAULT_SLOT;
   const contractPath = resolve(o.contractPath);
   const contractFile = fwd(contractPath);
+  let source = "";
+  try { source = readFileSync(contractPath, "utf8"); } catch { /* not yet on disk */ }
+  // CONTRACT_STATE_TYPE name: the actual `struct <Name> : public ContractBase` in the SOURCE wins —
+  // the file may not match qinit.json (e.g. you pasted ESCROW into Counter.h). Fall back to qinit.json
+  // `name`/basename for the fixture style (`struct CONTRACT_STATE_TYPE`, which the wrapper renames).
+  const detected = detectStateType(source);
+  const name = detected && detected !== "CONTRACT_STATE_TYPE" ? detected : deriveName(o.contractPath, o.name);
+  const slot = o.slot ?? DEFAULT_SLOT;
   const dir = join(o.workspaceRoot, ".qinit", "clangd");
   mkdirSync(dir, { recursive: true });
 
@@ -116,7 +128,7 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   // with no CALL_OTHER_CONTRACT_* yields "" (without touching corePath); a resolve failure must not
   // kill IntelliSense.
   let calleePrelude = "";
-  try { calleePrelude = buildCalleePrelude(o.corePath, readFileSync(contractPath, "utf8"), o.dynCallees ?? {}); } catch { /* no prelude */ }
+  try { calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}); } catch { /* no prelude */ }
 
   // Preamble = genWrapperWasm() up to (not including) the `#include "<contract>"`. It carries NO_UEFI,
   // LITE_WASM_TU_BUILD, the std prefix, pre_qpi_def.h, qpi.h, CONTRACT_INDEX/STATE_TYPE, etc.
