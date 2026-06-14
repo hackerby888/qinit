@@ -96,6 +96,16 @@ export async function fetchVerify(asset: AssetRef, onProgress?: (recv: number, t
 // Extract a .tar.gz buffer into destDir (system tar; gzip is universal — no zstd dep).
 export async function extractTarGz(tarGz: Uint8Array, destDir: string): Promise<void> {
   mkdirSync(destDir, { recursive: true });
+  // `tar` is the one external tool the fetch path needs (node bundle, wasi-sdk, headers). Surface a clear,
+  // actionable error instead of a cryptic spawn ENOENT when it's absent. Windows 10 (1803+)/11 ship tar.exe
+  // in System32, and macOS/Linux/Git-for-Windows all provide it — only a stripped or pre-1803 box won't.
+  if (!Bun.which("tar")) {
+    throw new Error(
+      process.platform === "win32"
+        ? "`tar` not found on PATH. Windows 10 (1803+) and 11 include it at C:\\Windows\\System32\\tar.exe — if it's missing, install Git for Windows (it ships tar) and reopen your terminal."
+        : "`tar` not found on PATH — install it with your package manager (e.g. `apt install tar`).",
+    );
+  }
   // Extract via the spawn cwd, not `tar -C <dir>`: on Windows the Git-bash MSYS tar mangles a
   // `C:\...` path passed to -C ("Cannot open"). cwd is applied by the OS, so tar never parses it.
   const p = Bun.spawn(["tar", "xzf", "-"], { stdin: tarGz, cwd: destDir, stdout: "pipe", stderr: "pipe" });

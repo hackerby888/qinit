@@ -20,10 +20,24 @@ export function loadConfig(path = "qinit.json"): QinitConfig {
   return {};
 }
 
-// Globally-chosen signing seed (a key) — stored in XDG config, NOT the committed qinit.json. `qinit seed` sets it;
-// every command that needs a seed uses it (so the user picks once and it auto-fills everywhere).
+// qinit's config dir. Honors $XDG_CONFIG_HOME on every platform (tests + power users rely on it); otherwise
+// %APPDATA%\qinit on Windows (idiomatic) and ~/.config/qinit elsewhere. Back-compat: an existing
+// ~/.config/qinit written by an earlier Windows build is honored so a saved seed is never orphaned by the move.
+function configDir(): string {
+  const xdg = process.env.XDG_CONFIG_HOME;
+  if (xdg) return join(xdg, "qinit");
+  if (process.platform === "win32") {
+    const appData = join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "qinit");
+    const legacy = join(homedir(), ".config", "qinit");
+    return !existsSync(appData) && existsSync(legacy) ? legacy : appData;
+  }
+  return join(homedir(), ".config", "qinit");
+}
+
+// Globally-chosen signing seed (a key) — stored in qinit's config dir, NOT the committed qinit.json. `qinit seed`
+// sets it; every command that needs a seed uses it (so the user picks once and it auto-fills everywhere).
 export function seedStorePath(): string {
-  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "qinit", "seed");
+  return join(configDir(), "seed");
 }
 export function savedSeed(): string | undefined {
   try { const s = readFileSync(seedStorePath(), "utf8").trim(); return /^[a-z]{55}$/.test(s) ? s : undefined; } catch { return undefined; }
@@ -36,7 +50,7 @@ export function clearSavedSeed(): void { try { rmSync(seedStorePath()); } catch 
 
 // Globally-chosen UI color theme (set by `qinit theme`), applied at startup so every command follows it.
 export function themeStorePath(): string {
-  return join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "qinit", "theme");
+  return join(configDir(), "theme");
 }
 export function savedTheme(): string | undefined {
   try { return readFileSync(themeStorePath(), "utf8").trim() || undefined; } catch { return undefined; }
