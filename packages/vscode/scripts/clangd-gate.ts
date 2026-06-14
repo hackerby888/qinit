@@ -12,6 +12,7 @@ import { join, resolve } from "node:path";
 import { resolveCore, wasiSdkPaths } from "@qinit/core/project";
 import { scanCallees, type DynCallees } from "@qinit/build/intercontract";
 import { generateClangdConfig } from "../src/clangd-config";
+import { clangdErrorLines } from "../src/clangd-diag";
 
 const REPO_ROOT = resolve(import.meta.dir, "../../.."); // packages/vscode/scripts -> repo root
 const CLANGD = process.env.CLANGD ?? "clangd";
@@ -54,12 +55,6 @@ console.log(`wasi clang: ${wasiClang}`);
 console.log(`clangd:     ${CLANGD}`);
 console.log(`contracts:  ${entries.map((e) => e.name).join(", ")}\n`);
 
-// clangd --check logs each real code diagnostic as `E[ts] [code] Line N: message`. Match THAT — not
-// "error:" (which never appears in clangd's format, so the old filter passed everything blindly), and
-// not the "All checks completed, N errors" summary (which also tallies tweak-availability probes like
-// SpecialMembers "Class body in wrong file" — code-action noise, not contract errors).
-const DIAG = /^E\[[\d:.]+\]\s+\[\w+\]\s+Line\s+\d+:/;
-
 let failures = 0;
 for (const { name, path: contractPath } of entries) {
   const ws = mkdtempSync(join(tmpdir(), "qpi-gate-"));
@@ -71,7 +66,7 @@ for (const { name, path: contractPath } of entries) {
       { stdout: "pipe", stderr: "pipe" },
     );
     const log = (p.stdout?.toString() ?? "") + (p.stderr?.toString() ?? "");
-    const errorLines = log.split("\n").filter((l) => DIAG.test(l));
+    const errorLines = clangdErrorLines(log);
     const ok = errorLines.length === 0;
     const callees = Object.keys(dynCallees);
     console.log(`${ok ? "PASS" : "FAIL"}  ${name.padEnd(10)} (${errorLines.length} errors)${callees.length ? `  [callees: ${callees.join(", ")}]` : ""}`);

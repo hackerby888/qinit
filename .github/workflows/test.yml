@@ -184,7 +184,21 @@ jobs:
   # QPI VS Code extension. Unit tests run in lint-test (bun test); these two prove the parts that need a
   # toolchain or a real editor: the clangd enablement gate, and the providers in a headless VS Code.
   vscode-clangd-check:
-    runs-on: ubuntu-latest
+    # The clangd enablement gate on Linux (gating) + macOS (advisory until proven green). The asset
+    # names match @qinit/core fetch.ts so we exercise the exact per-OS toolchain `qinit up` would sync.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            wasi_asset: wasi-sdk-29.0-x86_64-linux
+            clangd_asset: clangd-linux-20.1.0
+          - os: macos-latest          # Apple Silicon runner
+            wasi_asset: wasi-sdk-29.0-arm64-macos
+            clangd_asset: clangd-mac-20.1.0
+            advisory: true
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.advisory || false }}
     steps:
       - uses: actions/checkout@v4
       - name: Checkout core-lite (${{ env.CORE_REF }})
@@ -202,19 +216,22 @@ jobs:
         uses: actions/cache@v4
         with:
           path: wasi-sdk
-          key: wasi-sdk-29.0-x86_64-linux
+          key: ${{ matrix.wasi_asset }}
       - name: Fetch wasi-sdk-29
         if: steps.wasisdk.outputs.cache-hit != 'true'
         run: |
           curl -fsSL -o wasi-sdk.tar.gz \
-            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-29/wasi-sdk-29.0-x86_64-linux.tar.gz
+            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-29/${{ matrix.wasi_asset }}.tar.gz
           mkdir -p wasi-sdk && tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components=1
       - name: Install clangd 20 (match the wasi-sdk clang major)
         run: |
           curl -fsSL -o clangd.zip \
-            https://github.com/clangd/clangd/releases/download/20.1.0/clangd-linux-20.1.0.zip
+            https://github.com/clangd/clangd/releases/download/20.1.0/${{ matrix.clangd_asset }}.zip
           unzip -q clangd.zip
           echo "${{ github.workspace }}/clangd_20.1.0/bin" >> "$GITHUB_PATH"
+      - name: Clear quarantine on the macOS clangd binary
+        if: runner.os == 'macOS'
+        run: xattr -dr com.apple.quarantine clangd_20.1.0 || true
       - name: clangd enablement gate (clangd --check on the generated DB)
         env:
           QINIT_CORE: ${{ github.workspace }}/core
