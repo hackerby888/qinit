@@ -125,3 +125,98 @@ export function scanQpi(src: string): QpiFinding[] {
 
   return out;
 }
+
+// Blank comments + string/char literals with spaces (offsets + newlines preserved) so the structural
+// regexes below never match inside them.
+function blankCommentsAndStrings(src: string): string {
+  let out = "";
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i], c2 = src[i + 1];
+    if (c === "/" && c2 === "/") { while (i < n && src[i] !== "\n") { out += " "; i++; } continue; }
+    if (c === "/" && c2 === "*") {
+      out += "  "; i += 2;
+      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) { out += src[i] === "\n" ? "\n" : " "; i++; }
+      if (i < n) { out += "  "; i += 2; }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      const q = c; out += " "; i++;
+      while (i < n && src[i] !== q) { if (src[i] === "\\") { out += " "; i++; } out += " "; i++; }
+      if (i < n) { out += " "; i++; }
+      continue;
+    }
+    out += c; i++;
+  }
+  return out;
+}
+
+// The contract "functions" whose bodies hold user code (where stack locals are forbidden). Lifecycle
+// hooks + PUBLIC/PRIVATE functions/procedures (incl. _WITH_LOCALS — you still can't declare a raw local
+// there; you use the `locals` struct).
+const FN_MACRO =
+  /\b(?:PUBLIC|PRIVATE)_(?:FUNCTION|PROCEDURE)(?:_WITH_LOCALS)?\s*\([^)]*\)|\b(?:INITIALIZE|BEGIN_EPOCH|END_EPOCH|BEGIN_TICK|END_TICK|POST_INCOMING_TRANSFER|EXPAND)\s*\(\s*\)/g;
+
+// [open, close) brace ranges of every contract function body in (already-blanked) src.
+function functionBodies(src: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let m: RegExpExecArray | null;
+  FN_MACRO.lastIndex = 0;
+  while ((m = FN_MACRO.exec(src))) {
+    let k = m.index + m[0].length;
+    while (k < src.length && src[k] !== "{" && src[k] !== ";") k++;
+    if (src[k] !== "{") continue; // no body
+    let depth = 0, i = k;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") { depth--; if (depth === 0) { i++; break; } }
+    }
+    ranges.push([k, i]);
+  }
+  return ranges;
+}
+
+const STMT_KEYWORDS = new Set([
+  "return", "if", "else", "for", "while", "do", "switch", "case", "break", "continue", "default", "goto",
+  "const", "static", "constexpr", "struct", "class", "enum", "union", "typedef", "using", "sizeof", "new",
+  "delete", "this", "true", "false", "nullptr", "operator", "template",
+]);
+
+// Detect stack-local variable declarations inside QPI function/procedure bodies (forbidden — use the
+// *_WITH_LOCALS form + a `<fn>_locals` struct, or store state via `state.mut()`). Conservative: only
+// the unambiguous `<Type> <name>;` / `<Type> <name> = …;` / `for (<Type> <name> = …` forms — never
+// calls (`foo(...)`), member access (`state.x = …`), or assignments. Restricted to function bodies, so
+// struct fields (StateData, *_input/_output/_locals) are never touched.
+export function scanLocals(source: string): QpiFinding[] {
+  const src = blankCommentsAndStrings(source);
+  const out: QpiFinding[] = [];
+  const seen = new Set<number>();
+  // Trailing `;`/`=` is a LOOKAHEAD so it isn't consumed — otherwise consecutive declarations
+  // (`A x; B y;`) would lose the `;` that anchors the next one.
+  const decl = /(?:^|[;{})])\s*([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)\s+([A-Za-z_]\w*)\s*(?=;|=(?!=))/gd;
+  const forInit = /\bfor\s*\(\s*([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)\s+([A-Za-z_]\w*)\s*=(?!=)/gd;
+
+  for (const [s, e] of functionBodies(src)) {
+    const body = src.slice(s, e);
+    for (const rx of [decl, forInit]) {
+      rx.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = rx.exec(body))) {
+        if (STMT_KEYWORDS.has(m[1]) || STMT_KEYWORDS.has(m[2])) continue;
+        const [ns] = m.indices![2];
+        const offset = s + ns;
+        if (seen.has(offset)) continue;
+        seen.add(offset);
+        out.push({
+          rule: "qpi/stack-local",
+          message: `Stack-local \`${m[2]}\` is forbidden in QPI — declare it in a \`<fn>_locals\` struct (use the *_WITH_LOCALS form), or keep state in StateData via \`state.mut()\`.`,
+          offset,
+          length: m[2].length,
+          severity: "warn",
+        });
+      }
+    }
+  }
+  return out;
+}

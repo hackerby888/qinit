@@ -2,7 +2,7 @@
 // on contract documents and publishes them to a DiagnosticCollection. Debounced on edit, immediate
 // on open/save. Both engines are pure offset->finding; this maps offsets to editor ranges.
 import * as vscode from "vscode";
-import { scanQpi, type QpiFinding } from "./lint/qpi-rules";
+import { scanQpi, scanLocals, type QpiFinding } from "./lint/qpi-rules";
 import { idlChecks } from "./lint/idl-checks";
 import { findProjectRoot, isContractDoc } from "./project-util";
 
@@ -39,7 +39,7 @@ export class QpiDiagnostics implements vscode.Disposable {
   refresh(doc: vscode.TextDocument): void {
     if (!this.applies(doc)) { this.coll.delete(doc.uri); return; }
     const text = doc.getText();
-    const findings = [...scanQpi(text), ...idlChecks(text)];
+    const findings = [...scanQpi(text), ...scanLocals(text), ...idlChecks(text)];
     this.coll.set(doc.uri, findings.map((f) => toDiagnostic(doc, f)));
   }
 

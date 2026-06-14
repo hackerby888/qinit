@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { scanQpi } from "../src/lint/qpi-rules";
+import { scanQpi, scanLocals } from "../src/lint/qpi-rules";
 
 const rulesOf = (s: string) => new Set(scanQpi(s).map((f) => f.rule));
 
@@ -51,5 +51,40 @@ test("real fixtures stay clean — zero false positives", () => {
   for (const f of readdirSync(dir).filter((x) => x.endsWith(".h"))) {
     const findings = scanQpi(readFileSync(join(dir, f), "utf8")).map((x) => x.rule);
     expect({ file: f, findings }).toEqual({ file: f, findings: [] });
+  }
+});
+
+// --- scanLocals (stack-local declarations inside function bodies) ---
+const localsOf = (s: string) => scanLocals(s).map((f) => f.message.match(/`(\w+)`/)![1]);
+const inProc = (body: string) => `struct X : public ContractBase { PUBLIC_PROCEDURE(Do) { ${body} } };`;
+
+test("scanLocals flags stack-local declarations (incl. consecutive) inside a function body", () => {
+  expect(localsOf(inProc("uint64 x; uint64 y = 1;"))).toEqual(["x", "y"]);
+  expect(localsOf(inProc("Get_output out; Get_input in;"))).toEqual(["out", "in"]);
+  expect(localsOf(inProc("for (uint64 i = 0; i < 3; i = i + 1) { }"))).toEqual(["i"]);
+});
+
+test("scanLocals does not flag assignments, calls, member access, or keywords", () => {
+  expect(scanLocals(inProc("state.mut().counter += 1;"))).toEqual([]);
+  expect(scanLocals(inProc("output.value = state.get().counter;"))).toEqual([]);
+  expect(scanLocals(inProc("CALL(Get, in, out);"))).toEqual([]);
+  expect(scanLocals(inProc("return;"))).toEqual([]);
+});
+
+test("scanLocals only looks inside function bodies — struct fields are not locals", () => {
+  const src = `struct X : public ContractBase {
+    struct StateData { uint64 counter; };
+    struct Do_input { uint64 amount; };
+    PUBLIC_FUNCTION(Q) { output.v = state.get().counter; }
+  };`;
+  expect(scanLocals(src)).toEqual([]);
+});
+
+test("scanLocals: real fixtures stay clean (they use _WITH_LOCALS / state)", () => {
+  const dir = resolve("fixtures");
+  if (!existsSync(dir)) return;
+  for (const f of readdirSync(dir).filter((x) => x.endsWith(".h"))) {
+    const hits = scanLocals(readFileSync(join(dir, f), "utf8")).map((x) => x.rule);
+    expect({ file: f, hits }).toEqual({ file: f, hits: [] });
   }
 });
