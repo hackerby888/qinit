@@ -49,14 +49,39 @@ export function idlChecks(source: string): QpiFinding[] {
   }
 
   // PUBLIC_FUNCTION/PROCEDURE[_WITH_LOCALS](name) defined but never registered → unreachable on-chain.
+  const publicNames = new Set<string>();
   for (const m of src.matchAll(/PUBLIC_(FUNCTION|PROCEDURE)(?:_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/gd)) {
     const name = m[2];
+    publicNames.add(name);
     if (!registered.has(name)) {
       const [s, e] = m.indices![2];
       out.push({
         rule: "qpi/unregistered",
         message: `\`${name}\` is defined but never registered — add REGISTER_USER_${m[1]}(${name}, <index>) so it's callable on-chain.`,
         offset: s, length: e - s, severity: "warn",
+      });
+    }
+  }
+
+  // Complex types with internal hash/list state are forbidden in the PUBLIC interface — a contract's
+  // `<fn>_input`/`<fn>_output` may use only scalars, `id`, `Array`, `BitArray`, and structs of those
+  // (doc/contracts.md:631; they can carry inconsistent state across the inter-contract boundary). The
+  // size caps (input ≤1024, output ≤65535, locals ≤32KB) are already static_assert'd in qpi.h, so
+  // clangd flags those — this catches the type rule the compiler won't.
+  const FORBIDDEN = /\b(Collection|LinkedList|HashMap|HashSet)\b/g;
+  for (const m of src.matchAll(/\bstruct\s+(\w+)_(input|output)\b\s*\{/g)) {
+    if (!publicNames.has(m[1])) continue; // only the PUBLIC interface
+    let depth = 1, i = m.index! + m[0].length;
+    const bodyStart = i;
+    for (; i < src.length && depth > 0; i++) { if (src[i] === "{") depth++; else if (src[i] === "}") depth--; }
+    const body = src.slice(bodyStart, Math.max(bodyStart, i - 1));
+    let f: RegExpExecArray | null;
+    FORBIDDEN.lastIndex = 0;
+    while ((f = FORBIDDEN.exec(body))) {
+      out.push({
+        rule: "qpi/public-complex-type",
+        message: `\`${f[1]}\` is forbidden in the public interface (\`${m[1]}_${m[2]}\`) — complex types can carry inconsistent internal state across the call boundary. Use scalars, \`id\`, \`Array\`, or \`BitArray\`.`,
+        offset: bodyStart + f.index, length: f[1].length, severity: "warn",
       });
     }
   }

@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { calleesFromRegistry, dynCalleesFromNode } from "../src/callees";
+import { calleesFromRegistry, dynCalleesFromNode, findCalleeRefs, unresolvedCalleeRefs } from "../src/callees";
 
 const PROC = (calls: string) => `using namespace QPI;
 struct M : public ContractBase {
@@ -61,4 +61,21 @@ test("dynCalleesFromNode: node unreachable -> {} (best-effort, fast-fail, no 30s
   const t0 = Date.now();
   expect(await dynCalleesFromNode("http://127.0.0.1:9", src, join(tmpdir(), "nope"))).toEqual({});
   expect(Date.now() - t0).toBeLessThan(3000);
+});
+
+test("findCalleeRefs locates callee-name tokens and ignores commented-out calls", () => {
+  const src = `PUBLIC_FUNCTION_WITH_LOCALS(R) {
+    CALL_OTHER_CONTRACT_FUNCTION(QX, gi, go);
+    // CALL_OTHER_CONTRACT_FUNCTION(Ghost, x, y);
+    INVOKE_OTHER_CONTRACT_PROCEDURE(Foo, i, o, 0);
+  }`;
+  const refs = findCalleeRefs(src);
+  expect(refs.map((r) => r.name).sort()).toEqual(["Foo", "QX"]); // Ghost is commented out
+  for (const r of refs) expect(src.slice(r.offset, r.offset + r.length)).toBe(r.name); // offsets land on the token
+});
+
+test("unresolvedCalleeRefs flags only callees absent from the known set", () => {
+  const src = "CALL_OTHER_CONTRACT_FUNCTION(QX, a, b); INVOKE_OTHER_CONTRACT_PROCEDURE(Mystery, c, d, 0);";
+  expect(unresolvedCalleeRefs(src, new Set(["QX", "QUOTTERY"])).map((r) => r.name)).toEqual(["Mystery"]);
+  expect(unresolvedCalleeRefs(src, new Set(["QX", "Mystery"]))).toEqual([]);
 });

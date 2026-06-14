@@ -2,6 +2,28 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { DynRegistry, DynContract } from "@qinit/core/rpc";
 import { scanCallees, type DynCallees } from "@qinit/build/intercontract";
+import { blankCommentsAndStrings } from "./lint/qpi-rules";
+
+// Position-aware callee references: each CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE
+// (+ _E) call and the offset of its callee-name token. Comments/strings are blanked first (offsets
+// preserved) so a commented-out call isn't reported.
+export function findCalleeRefs(source: string): { name: string; offset: number; length: number }[] {
+  const src = blankCommentsAndStrings(source);
+  const out: { name: string; offset: number; length: number }[] = [];
+  const re = /(?:CALL_OTHER_CONTRACT_FUNCTION|INVOKE_OTHER_CONTRACT_PROCEDURE)(?:_E)?\s*\(\s*(\w+)\s*,/gd;
+  for (const m of src.matchAll(re)) {
+    const [s, e] = m.indices![1];
+    out.push({ name: m[1], offset: s, length: e - s });
+  }
+  return out;
+}
+
+// Callee references that resolve to NEITHER an in-core contract (contract_def.h) nor a known dynamic
+// (node-deployed) callee — they'll have no declarations in the editor TU, so clangd shows raw
+// "undeclared identifier" errors. The caller turns these into one actionable diagnostic instead.
+export function unresolvedCalleeRefs(source: string, known: Set<string>): { name: string; offset: number; length: number }[] {
+  return findCalleeRefs(source).filter((r) => !known.has(r.name));
+}
 
 // Dynamic inter-contract resolution for the editor. A qinit-deployed contract that does
 // CALL_OTHER_CONTRACT_*(Foo, …) needs Foo's declarations to parse. Foo isn't in core's contract_def.h
