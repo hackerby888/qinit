@@ -149,7 +149,7 @@ export function scanQpi(src: string): QpiFinding[] {
 
 // Blank comments + string/char literals with spaces (offsets + newlines preserved) so the structural
 // regexes below never match inside them.
-function blankCommentsAndStrings(src: string): string {
+export function blankCommentsAndStrings(src: string): string {
   let out = "";
   let i = 0;
   const n = src.length;
@@ -202,6 +202,38 @@ function functionBodies(src: string): Array<[number, number]> {
     ranges.push([k, i]);
   }
   return ranges;
+}
+
+export interface EnclosingFn {
+  name: string | null;   // the function/hook name (Inc, INITIALIZE); base for the `<name>_locals` struct
+  withLocals: boolean;   // already in the *_WITH_LOCALS form?
+  macroStart: number; macroEnd: number;  // the macro invocation span, e.g. `PUBLIC_PROCEDURE(Inc)`
+  bodyStart: number; bodyEnd: number;     // [ `{` , just-past-`}` ) of the body
+}
+
+// The contract function whose body contains `offset` (the FN_MACRO + its braces). null if `offset` is
+// not inside any function body. Works on raw source (blanks comments/strings internally).
+export function enclosingFunction(source: string, offset: number): EnclosingFn | null {
+  const src = blankCommentsAndStrings(source);
+  FN_MACRO.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = FN_MACRO.exec(src))) {
+    let k = m.index + m[0].length;
+    while (k < src.length && src[k] !== "{" && src[k] !== ";") k++;
+    if (src[k] !== "{") continue;
+    let depth = 0, i = k;
+    for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}") { depth--; if (!depth) { i++; break; } } }
+    if (offset >= k && offset < i) {
+      const named = m[0].match(/(?:PUBLIC|PRIVATE)_(?:FUNCTION|PROCEDURE)(_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/);
+      const life = m[0].match(new RegExp(`(${LIFECYCLE})(_WITH_LOCALS)?\\s*\\(\\s*\\)`));
+      return {
+        name: named ? named[2] : life ? life[1] : null,
+        withLocals: named ? !!named[1] : life ? !!life[2] : false,
+        macroStart: m.index, macroEnd: m.index + m[0].length, bodyStart: k, bodyEnd: i,
+      };
+    }
+  }
+  return null;
 }
 
 const STMT_KEYWORDS = new Set([
