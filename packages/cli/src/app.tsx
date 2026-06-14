@@ -23,8 +23,10 @@ import { ThemeCmd } from "./commands/theme";
 import { Update } from "./commands/update";
 import { Uninstall } from "./commands/uninstall";
 import { New } from "./commands/new";
-import { Help } from "./commands/help";
+import { Help, Usage } from "./commands/help";
 import { Version } from "./commands/version";
+import { nearest } from "./args";
+import { META, COMMANDS } from "./meta";
 
 // Catch a render-time throw in any command so the CLI shows one clean line + exits 1, never a raw React crash.
 function Crash({ err }: { err: Error }) {
@@ -43,6 +45,10 @@ export function App({ command, args }: { command: string; args: string[] }) {
 }
 
 function route(command: string, args: string[]): ReactNode {
+  // Per-command help: `qinit <cmd> --help` / `-h` shows that command's usage + flags.
+  const canon = command === "cheat" || command === "--cheat-sheet" ? "cheat-sheet"
+    : command === "--version" || command === "-v" ? "version" : command;
+  if ((args.includes("--help") || args.includes("-h")) && canon in META) return <Usage cmd={canon} />;
   switch (command) {
     case "new":
       return <New args={args} />;
@@ -97,7 +103,8 @@ function route(command: string, args: string[]): ReactNode {
     case "help":
     case "--help":
     case "-h":
+      return <Help />;
     default:
-      return <Help unknown={command !== "help" && !command.startsWith("-")} command={command} />;
+      return <Help unknown={!command.startsWith("-")} command={command} suggestion={nearest(command, COMMANDS)} />;
   }
 }

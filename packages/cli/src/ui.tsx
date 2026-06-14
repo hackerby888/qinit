@@ -3,6 +3,7 @@
 // spinner, and a phase step-list. Pure ink <Box>/<Text> + ANSI hex colors via chalk.
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
+import { output } from "./args";
 
 export type Theme = { gradFrom: string; gradTo: string; brand: string; accent: string; ok: string; err: string; warn: string; info: string; mute: string };
 
@@ -40,6 +41,7 @@ function lerp(a: string, b: string, t: number): string {
 // Per-character gradient text.
 export function Grad({ text, from = theme.gradFrom, to = theme.gradTo, bold = true }:
   { text: string; from?: string; to?: string; bold?: boolean }) {
+  if (output.plain) return <Text bold={bold}>{text}</Text>;
   const n = text.length;
   return (
     <Text bold={bold}>
@@ -52,6 +54,7 @@ export function Grad({ text, from = theme.gradFrom, to = theme.gradTo, bold = tr
 // Global rule: text on a gradient background is always white.
 export function GradLine({ text, from = theme.gradFrom, to = theme.gradTo, bold = true }:
   { text: string; from?: string; to?: string; bold?: boolean }) {
+  if (output.plain) return <Text bold={bold}>{text}</Text>;
   const n = text.length;
   return (
     <Text bold={bold}>
@@ -70,6 +73,7 @@ const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "
 export function useFrame(interval = 80): number {
   const [f, setF] = useState(0);
   useEffect(() => {
+    if (output.plain) return;   // plain/piped/CI: don't animate (avoids spinner frame-churn in logs)
     const id = setInterval(() => setF((x) => x + 1), interval);
     return () => clearInterval(id);
   }, [interval]);
@@ -82,6 +86,7 @@ export function Spinner({ label, color = theme.info }: { label: string; color?: 
 
 // ---- chips / badges --------------------------------------------------------
 export function Badge({ text, color = theme.brand }: { text: string; color?: string }) {
+  if (output.plain) return <Text bold>{`[${text}]`}</Text>;
   return <Text backgroundColor={color} color="#000000" bold>{` ${text} `}</Text>;
 }
 
@@ -173,6 +178,7 @@ export function Step({ state, label, detail }: { state: StepState; label: string
 export function Bar({ pct, width = 22 }: { pct: number; width?: number }) {
   const p = Math.max(0, Math.min(1, pct || 0));
   const fill = Math.round(p * width);
+  if (output.plain) return <Text>{"█".repeat(fill)}{"░".repeat(Math.max(0, width - fill))} {Math.round(p * 100)}%</Text>;
   const cells = Array.from({ length: width }, (_, i) =>
     i < fill
       ? <Text key={i} color={lerp(theme.gradFrom, theme.gradTo, width < 2 ? 0 : i / (width - 1))}>█</Text>

@@ -4,17 +4,18 @@ import { existsSync } from "node:fs";
 import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent, fetchWasiSdk, haveWasiSdkCache } from "@qinit/core";
 import { fetchNodeBin, cachedNode, nodeStatus, nodeContracts, killNode, launchNode, waitTicking } from "../node-ops";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
+import { parseArgs, output } from "../args";
 
 // qinit up [--ref <tag>] [--restart] [--offline] [--rpc] [--wait]
 // One command: sync headers + get node + run. Reuses a node that's already ticking (preserves
 // deployed contracts); restarts only a stale/idle node or on --restart. Skips re-fetch when cached.
+// Shared parser — fixes the prior off-by-one (the loop started at index 1, so the FIRST flag was dropped:
+// `qinit up --offline` ran online, `qinit up --ref X` ignored the ref). Booleans normalized to "1" so the
+// existing truthy checks (o.restart / o.offline) keep working unchanged.
 function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = {};
-  for (let i = 1; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--restart" || a === "--offline") o[a.slice(2)] = "1";
-    else if (a.startsWith("--")) o[a.slice(2)] = args[++i] ?? "";
-  }
+  const a = parseArgs(args, { booleans: ["restart", "offline"] });
+  const o: Record<string, string> = { ...a.flags };
+  for (const b of ["restart", "offline"]) if (a.has(b)) o[b] = "1";
   return o;
 }
 
@@ -112,8 +113,12 @@ export function Up({ args }: { args: string[] }) {
       }
     })();
   }, []);
-  useEffect(() => { if (done) { process.exitCode = done.color === theme.err ? 1 : 0; const t = setTimeout(() => exit(), 50); return () => clearTimeout(t); } }, [done]);
+  useEffect(() => { if (done) {
+    if (output.json) process.stdout.write(JSON.stringify({ ok: done.color !== theme.err, ...Object.fromEntries(done.rows) }) + "\n");
+    process.exitCode = done.color === theme.err ? 1 : 0; const t = setTimeout(() => exit(), 50); return () => clearTimeout(t);
+  } }, [done]);
 
+  if (output.json) return null;
   return (
     <Box flexDirection="column">
       <Header cmd="up" />

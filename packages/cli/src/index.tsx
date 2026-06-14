@@ -4,6 +4,7 @@ import { render } from "ink";
 import { App } from "./app";
 import { applyTheme } from "./ui";
 import { savedTheme } from "./config";
+import { initOutput } from "./args";
 
 // Safety net for async throws that escape a command's try/catch — print one clean line + exit 1
 // (instead of a raw stack dump that can also leave the terminal in Ink raw-mode).
@@ -14,5 +15,6 @@ process.on("uncaughtException", (e) => die("fatal error", e));
 applyTheme(savedTheme());   // apply the saved color variant before anything renders
 
 const [, , command = "help", ...args] = process.argv;
+initOutput(args);   // detect --json / --plain (and auto-plain when piped / NO_COLOR) before rendering
 const { waitUntilExit } = render(<App command={command} args={args} />);
 await waitUntilExit();

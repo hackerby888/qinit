@@ -6,6 +6,7 @@ import { bytesToIdentity } from "@qinit/core";
 import { loadConfig, resolveCore } from "../config";
 import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
+import { output } from "../args";
 
 interface SS { state: StepState; detail?: string; pct?: number; startedAt?: number; elapsedMs?: number }
 
@@ -66,8 +67,12 @@ export function Deploy({ args }: { args: string[] }) {
       }
     })();
   }, []);
-  useEffect(() => { if (result) { process.exitCode = result.ok ? 0 : 1; const t = setTimeout(() => exit(), 60); return () => clearTimeout(t); } }, [result]);
+  useEffect(() => { if (result) {
+    if (output.json) process.stdout.write(JSON.stringify({ ok: result.ok, contract: name, slot: result.slot ?? null, address: addr || null, tx: result.txId ?? null, codeHash: result.hash ?? null, error: result.ok ? null : (result.reason ?? result.error ?? null) }) + "\n");
+    process.exitCode = result.ok ? 0 : 1; const t = setTimeout(() => exit(), 60); return () => clearTimeout(t);
+  } }, [result]);
 
+  if (output.json) return null;
   return (
     <Box flexDirection="column">
       <Header cmd="deploy" />

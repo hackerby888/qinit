@@ -5,6 +5,7 @@ import type { SystemContract } from "@qinit/build";
 import { loadConfig } from "../config";
 import { loadSystem } from "../contracts";
 import { Header, Spinner, Panel, Table, theme, type Column } from "../ui";
+import { output } from "../args";
 
 // qinit ls [--rpc <url>]  — user-deployed contracts (dyn-registry) first, then built-in system contracts (catalog).
 function parse(args: string[]): Record<string, string> {
@@ -32,8 +33,16 @@ export function Ls({ args }: { args: string[] }) {
     try { user = (await new LiteRpc(rpcBase).dynRegistry()).contracts ?? []; } catch { nodeDown = true; }
     setS({ phase: "done", user, system: loadSystem(), nodeDown });   // system from the snapshot — shows even if the node is down
   })(); }, []);
-  useEffect(() => { if (s.phase !== "run") { const t = setTimeout(() => exit(), 20); return () => clearTimeout(t); } }, [s.phase]);
+  useEffect(() => { if (s.phase !== "run") {
+    if (output.json) process.stdout.write(JSON.stringify({
+      deployed: (s.user ?? []).map((c) => ({ slot: c.index, name: c.name || null, state: stateOf(c), version: c.version ?? 0, codeHash: c.codeHash || null })),
+      system: (s.system ?? []).map((c) => ({ index: c.index, name: c.name, file: c.file })),
+      nodeDown: !!s.nodeDown,
+    }) + "\n");
+    const t = setTimeout(() => exit(), 20); return () => clearTimeout(t);
+  } }, [s.phase]);
 
+  if (output.json) return null;
   if (s.phase === "run") return <Box flexDirection="column"><Header cmd="ls" /><Spinner label="loading contracts" /></Box>;
 
   const user = (s.user ?? []).filter((c) => c.armed || (c.name && c.name.length));
