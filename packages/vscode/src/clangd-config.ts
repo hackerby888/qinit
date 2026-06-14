@@ -88,9 +88,15 @@ export function ensureEditorSettings(workspaceRoot: string): void {
   if (existsSync(file)) {
     try { settings = JSON.parse(readFileSync(file, "utf8")); } catch { return; } // JSONC/garbled → don't risk clobbering
     if (typeof settings !== "object" || settings === null || Array.isArray(settings)) return;
-    if ("C_Cpp.intelliSenseEngine" in settings) return; // respect an explicit user choice
   }
-  settings["C_Cpp.intelliSenseEngine"] = "disabled";
+  // clangd is the C++ provider here. Turn the MS C/C++ extension's engine off AND force its error
+  // squiggles off — its default `enabledIfIncludesResolve` still squiggles "cannot open qpi.h" using
+  // its own includePath (it doesn't read our compile DB). Set each only if absent, so a user choice wins.
+  let changed = false;
+  for (const [k, v] of [["C_Cpp.intelliSenseEngine", "disabled"], ["C_Cpp.errorSquiggles", "disabled"]] as const) {
+    if (!(k in settings)) { settings[k] = v; changed = true; }
+  }
+  if (!changed) return;
   mkdirSync(dir, { recursive: true });
   writeFileSync(file, JSON.stringify(settings, null, 2) + "\n");
 }

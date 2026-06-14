@@ -109,7 +109,9 @@ test.if(hasFixture)("ensureEditorSettings disables cpptools IntelliSense, but re
   const ws = mkdtempSync(join(tmpdir(), "qpi-set-"));
   try {
     generateClangdConfig({ contractPath: COUNTER, corePath: "/fake/core", wasiClang: "/fake/clang++", workspaceRoot: ws });
-    expect(JSON.parse(readFileSync(join(ws, ".vscode", "settings.json"), "utf8"))["C_Cpp.intelliSenseEngine"]).toBe("disabled");
+    const s = JSON.parse(readFileSync(join(ws, ".vscode", "settings.json"), "utf8"));
+    expect(s["C_Cpp.intelliSenseEngine"]).toBe("disabled");
+    expect(s["C_Cpp.errorSquiggles"]).toBe("disabled");
     // a second project where the user already set the key — must not be overwritten
     const ws2 = mkdtempSync(join(tmpdir(), "qpi-set2-"));
     try {

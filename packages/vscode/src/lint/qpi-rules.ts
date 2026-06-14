@@ -62,7 +62,8 @@ export function scanQpi(src: string): QpiFinding[] {
     // --- single-character rules ---
     if (c === "#") {
       push("qpi/no-preprocessor", "Preprocessor directives (`#`) are forbidden. This extension provides IntelliSense without `#include \"qpi.h\"` — remove it before deploying.", i, 1, "info");
-      i++; continue;
+      while (i < n && src[i] !== "\n") i++; // skip the rest of the directive — its path string isn't a QPI string literal
+      continue;
     }
     if (c === "/") { // not a comment (handled above) -> division (or /=)
       push("qpi/no-division", "The `/` operator is forbidden (division by zero is undefined). Use `div(a, b)`.", i, c2 === "=" ? 2 : 1);

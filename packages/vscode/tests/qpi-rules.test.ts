@@ -9,6 +9,7 @@ test("flags each forbidden construct (one crafted violation per rule)", () => {
   expect(rulesOf('auto s = "hi";')).toContain("qpi/no-string");
   expect(rulesOf("char c = 'a';")).toContain("qpi/no-char");
   expect(rulesOf('#include "qpi.h"')).toContain("qpi/no-preprocessor");
+  expect(rulesOf('#include "qpi.h"')).not.toContain("qpi/no-string"); // the include path isn't a QPI string literal
   expect(rulesOf("uint64 q = a / b;")).toContain("qpi/no-division");
   expect(rulesOf("uint64 r = a % b;")).toContain("qpi/no-modulo");
   expect(rulesOf("uint64 arr[4];")).toContain("qpi/no-brackets");
