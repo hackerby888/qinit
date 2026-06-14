@@ -2,8 +2,9 @@
 //   M1 — clangd enablement: on opening/saving a contract header in a qinit project, (re)generate the
 //        per-contract clangd compile DB so the bundled vscode-clangd gives full IntelliSense with no
 //        manual `#include "qpi.h"`.
-//   M2 — live QPI diagnostics (Tier-A lexer + IDL checks), IDL hover, and a command palette that
-//        shells the `qinit` CLI for build/deploy/call/gen/test/up.
+//   M2 — live QPI diagnostics (Tier-A lexer + IDL checks), IDL hover, and an Array<T,N> quick-fix.
+// Deliberately UI-light: no build/deploy/call buttons (CodeLens) or palette actions — use the `qinit`
+// CLI in a terminal for those. The extension is purely editor smarts.
 import * as vscode from "vscode";
 import { join, resolve } from "node:path";
 import { resolveCore, wasiSdkPaths, loadConfig } from "@qinit/core/project";
@@ -11,9 +12,7 @@ import { generateClangdConfig } from "./clangd-config";
 import { findProjectRoot, isContractDoc, QINIT_JSON } from "./project-util";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
-import { registerCommands } from "./commands";
 import { VerifyRunner } from "./verify-runner";
-import { QpiCodeLens } from "./codelens";
 import { QpiCodeActions } from "./codeactions";
 
 let warnedAt = 0;
@@ -87,7 +86,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeTextDocument((e) => diags.schedule(e.document)),
     vscode.workspace.onDidCloseTextDocument((d) => { diags.clear(d.uri); verify.clear(d.uri); }),
     vscode.languages.registerHoverProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new IdlHover()),
-    vscode.languages.registerCodeLensProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new QpiCodeLens()),
     vscode.languages.registerCodeActionsProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new QpiCodeActions(), QpiCodeActions.metadata),
     vscode.commands.registerCommand("qpi.regenerateConfig", () => {
       const doc = vscode.window.activeTextEditor?.document;
@@ -97,7 +95,6 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage("Qubic QPI: clangd config regenerated.");
     }),
   );
-  registerCommands(context);
 
   onDoc(vscode.window.activeTextEditor?.document); // handle the already-open editor on activation
 }

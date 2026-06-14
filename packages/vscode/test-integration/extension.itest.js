@@ -19,13 +19,14 @@ async function open(name) {
 suite("Qubic QPI extension", function () {
   this.timeout(120000);
 
-  test("activates and registers the palette commands", async () => {
+  test("activates; keeps the maintenance command, drops the build/deploy/call actions", async () => {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext, "extension is present");
     await ext.activate();
     const cmds = await vscode.commands.getCommands(true);
-    for (const c of ["qpi.regenerateConfig", "qpi.build", "qpi.deploy", "qpi.up"]) {
-      assert.ok(cmds.includes(c), `command ${c} should be registered`);
+    assert.ok(cmds.includes("qpi.regenerateConfig"), "qpi.regenerateConfig should be registered");
+    for (const c of ["qpi.build", "qpi.deploy", "qpi.call", "qpi.gen", "qpi.test", "qpi.up"]) {
+      assert.ok(!cmds.includes(c), `command ${c} should NOT be registered (removed for simplicity)`);
     }
   });
 
@@ -56,12 +57,11 @@ suite("Qubic QPI extension", function () {
     assert.ok(/index/.test(text), `hover should show the index; got: ${text}`);
   });
 
-  test("CodeLens exposes contract + per-fn call actions", async () => {
+  test("no QPI CodeLens buttons (removed for simplicity)", async () => {
     const doc = await open("Counter.h");
     const lenses = await vscode.commands.executeCommand("vscode.executeCodeLensProvider", doc.uri);
     const titles = (lenses || []).map((l) => (l.command && l.command.title) || "").join(" | ");
-    assert.ok(/build/.test(titles), `expected a build lens; got: ${titles}`);
-    assert.ok(/call get/.test(titles), `expected a 'call get' lens; got: ${titles}`);
+    assert.ok(!/build|deploy|call|gen client/i.test(titles), `expected no QPI action lenses; got: ${titles}`);
   });
 
   test("quick-fix offers Array<T, N> for a bracket violation", async () => {

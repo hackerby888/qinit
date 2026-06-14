@@ -14,15 +14,7 @@
   "activationEvents": ["onLanguage:cpp", "workspaceContains:qinit.json"],
   "contributes": {
     "commands": [
-      { "command": "qpi.regenerateConfig", "title": "Regenerate clangd config", "category": "Qubic QPI" },
-      { "command": "qpi.build", "title": "Build contract", "category": "Qubic QPI" },
-      { "command": "qpi.deploy", "title": "Deploy contract", "category": "Qubic QPI" },
-      { "command": "qpi.call", "title": "Call a contract function", "category": "Qubic QPI" },
-      { "command": "qpi.gen", "title": "Generate client", "category": "Qubic QPI" },
-      { "command": "qpi.test", "title": "Test on an ephemeral node", "category": "Qubic QPI" },
-      { "command": "qpi.up", "title": "Start node / sync toolchain", "category": "Qubic QPI" },
-      { "command": "qpi.doctor", "title": "Doctor", "category": "Qubic QPI" },
-      { "command": "qpi.new", "title": "New contract project", "category": "Qubic QPI" }
+      { "command": "qpi.regenerateConfig", "title": "Regenerate clangd config", "category": "Qubic QPI" }
     ],
     "configuration": {
       "title": "Qubic QPI",

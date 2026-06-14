@@ -8,9 +8,9 @@ CLion-grade IntelliSense and live protocol diagnostics for Qubic dynamic contrac
 - **Live QPI rule diagnostics (Tier-A)** — instant, comment/string-aware checks for the `qpi.h` restrictions (forbidden `"` `'` `#` `/` `%` `[` `]` `__`, `float`/`double`/`union`/`const_cast`, global `typedef`/`using`, …).
 - **Authoritative diagnostics (Tier-B)** — runs `contractverify` on save and surfaces violations inline.
 - **IDL hover** — hover a registered function/procedure to see its on-chain index and input/output codec.
-- **CodeLens** — build / deploy / gen-client on the contract; call on each registered function.
 - **Quick-fixes** — e.g. `T[N]` → `Array<T, N>`.
-- **Command palette** — build, deploy, call, gen, test, up, doctor, new.
+
+It's deliberately UI-light: no build/deploy/call buttons or palette actions — run those with the `qinit` CLI in a terminal. The extension focuses on editor smarts.
 
 ## Requirements
 
