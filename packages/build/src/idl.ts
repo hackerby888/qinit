@@ -5,7 +5,7 @@
 // nested structs (one+ levels), id; unknown types pass through verbatim.
 
 // QPI container layouts come from @qinit/proto qpi-layout (single source of truth shared with the decoders).
-import { hashMapFmt, hashSetFmt, collectionFmt } from "@qinit/proto";
+import { hashMapFmt, hashSetFmt, collectionFmt } from "@qinit/proto/qpi-layout";
 
 // type = codec token (uint64, id, bytes32, [N;T], { ... }); container = QPI HashMap/HashSet meta (for logical decode)
 export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number } }

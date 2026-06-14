@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./recipe": "./src/recipe.ts",
-    "./intercontract": "./src/intercontract.ts"
+    "./intercontract": "./src/intercontract.ts",
+    "./idl": "./src/idl.ts"
   },
   "dependencies": {
     "@qinit/core": "workspace:*",
