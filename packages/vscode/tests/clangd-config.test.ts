@@ -53,8 +53,11 @@ test.if(hasFixture)("generateClangdConfig: prefix carries the wrapper preamble; 
     expect(args).toContain("-fno-exceptions");
     expect(args).toContain("-Wno-undefined-inline"); // editor-only: impls omitted from the parse TU
     expect(args).toContain("--sysroot=/fake/wasi/sysroot");
-    expect(args).toContain("-I/fake/core");
-    expect(args).toContain("-I/fake/core/src");
+    // core headers are -isystem (qpi.h internals -> excluded from clangd's cross-file index)
+    expect(args).toContain("-isystem");
+    expect(args).toContain("/fake/core");
+    expect(args).toContain("/fake/core/src");
+    expect(args.some((a) => a.startsWith("-I/fake/core"))).toBe(false);
     expect(args).toContain(r.prefixPath.replace(/\\/g, "/")); // the preamble is force-included
     expect(args.slice(-3)).toEqual(["-x", "c++", r.contractFile]); // contract is the main C++ file + the DB `file`
     expect(db[0].file).toBe(r.contractFile);
@@ -69,8 +72,11 @@ test.if(hasFixture)("generateClangdConfig: prefix carries the wrapper preamble; 
     // --- forward slashes everywhere in the DB (clangd requirement on Windows) ---
     expect(dbText.includes("\\")).toBe(false);
 
-    // --- .clangd points clangd at the DB ---
-    expect(readFileSync(r.dotClangdPath, "utf8")).toContain("CompilationDatabase: .qinit/clangd");
+    // --- .clangd points clangd at the DB + trims the completion flood ---
+    const dotClangd = readFileSync(r.dotClangdPath, "utf8");
+    expect(dotClangd).toContain("CompilationDatabase: .qinit/clangd");
+    expect(dotClangd).toContain("AllScopes: No");
+    expect(dotClangd).toContain("HeaderInsertion: Never");
   } finally {
     rmSync(ws, { recursive: true, force: true });
   }

@@ -4,7 +4,7 @@ CLion-grade IntelliSense and live protocol diagnostics for Qubic dynamic contrac
 
 ## Features
 
-- **Full C++ IntelliSense** — completion, hover, go-to-definition into `qpi.h`, signature help — with **no manual `#include "qpi.h"`**. The extension generates a per-contract clangd compile database so the editor sees exactly what `qinit build` compiles (no drift).
+- **Full C++ IntelliSense** — completion, hover, go-to-definition into `qpi.h`, signature help — with **no manual `#include "qpi.h"`**. The extension generates a per-contract clangd compile database so the editor sees exactly what `qinit build` compiles (no drift). Completion is tuned to the QPI surface (`state.`/`input.`/`qpi.`/`Array.`, the QPI types) — the core headers are loaded as *system* headers and `Completion.AllScopes` is off, so clangd doesn't flood you with cross-namespace `std::`/OS symbols or `__`-reserved internals. (It's a real C++ engine, so a few in-scope internals can still appear if you scroll — type the member you want.)
 - **Live QPI rule diagnostics (Tier-A)** — instant, comment/string-aware checks for the `qpi.h` restrictions (forbidden `"` `'` `#` `/` `%` `[` `]` `__`, `float`/`double`/`union`/`const_cast`, global `typedef`/`using`, …).
 - **Authoritative diagnostics (Tier-B)** — runs `contractverify` on save and surfaces violations inline.
 - **IDL hover** — hover a registered function/procedure to see its on-chain index and input/output codec.

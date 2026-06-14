@@ -221,6 +221,12 @@ jobs:
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run packages/vscode/scripts/clangd-gate.ts
+      - name: clangd completion probe (public API completes; no cross-scope flood)
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+        run: bun run packages/vscode/scripts/clangd-complete.ts
 
   vscode-it:
     runs-on: ubuntu-latest
