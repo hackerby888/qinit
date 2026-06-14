@@ -16,7 +16,7 @@
 //
 // Pure (node:fs/path + @qinit/build string templating only — no `vscode`, no Bun).
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
-import { join, resolve, basename } from "node:path";
+import { join, resolve } from "node:path";
 import { genWrapperWasm, type BuildOpts } from "@qinit/build/recipe";
 import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
 
@@ -25,10 +25,12 @@ export const DEFAULT_SLOT = 28; // mirrors packages/cli/src/commands/build.tsx (
 // clangd requires forward slashes in compile_commands.json and in #include literals, even on Windows.
 const fwd = (p: string) => p.replace(/\\/g, "/");
 
-// CONTRACT_STATE_TYPE name: explicit (qinit.json `name`), else the file basename — identical to
-// build.tsx (`cfg.name ?? basename(contractPath)`), so the editor's TU matches a real build.
+// CONTRACT_STATE_TYPE name: explicit (qinit.json `name`), else the file basename — like build.tsx
+// (`cfg.name ?? basename(contractPath)`), so the editor's TU matches a real build. Splits on BOTH `/`
+// and `\` so a Windows-style path resolves the same on Linux/macOS (node's POSIX basename ignores `\`).
 export function deriveName(contractPath: string, explicit?: string): string {
-  return explicit && explicit.length ? explicit : basename(contractPath).replace(/\.[^.]+$/, "");
+  if (explicit && explicit.length) return explicit;
+  return (contractPath.split(/[/\\]/).pop() ?? contractPath).replace(/\.[^.]+$/, "");
 }
 
 export interface ClangdInputs {
