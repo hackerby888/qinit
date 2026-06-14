@@ -64,6 +64,17 @@ test("scanLocals flags stack-local declarations (incl. consecutive) inside a fun
   expect(localsOf(inProc("for (uint64 i = 0; i < 3; i = i + 1) { }"))).toEqual(["i"]);
 });
 
+test("scanLocals flags TEMPLATED-type stack locals (Array/HashMap/QPI::), not comparisons", () => {
+  expect(localsOf(inProc("Array<uint64, 4> arr;"))).toEqual(["arr"]);
+  expect(localsOf(inProc("HashMap<id, uint64, 1024> m;"))).toEqual(["m"]);
+  expect(localsOf(inProc("QPI::Array<uint64, 8> q;"))).toEqual(["q"]);
+  // the reported case: a scalar local AND a templated local in the same body
+  expect(localsOf(inProc("uint64 x = state.get().counter; Array<uint64, 4> arr;"))).toEqual(["x", "arr"]);
+  // a comparison is not a templated declaration → flags only the real local
+  expect(localsOf(inProc("uint64 y = a < b;"))).toEqual(["y"]);
+  expect(scanLocals(inProc("for (locals.i = 0; locals.i < N; ++locals.i) { state.mut().t += locals.i; }"))).toEqual([]);
+});
+
 test("scanLocals does not flag assignments, calls, member access, or keywords", () => {
   expect(scanLocals(inProc("state.mut().counter += 1;"))).toEqual([]);
   expect(scanLocals(inProc("output.value = state.get().counter;"))).toEqual([]);

@@ -270,10 +270,13 @@ export function scanLocals(source: string): QpiFinding[] {
   const src = blankCommentsAndStrings(source);
   const out: QpiFinding[] = [];
   const seen = new Set<number>();
+  // A type may be templated — `Array<uint64, 4>`, `HashMap<id, V, 1024>`, `QPI::Array<…>` (one level
+  // of `<>` nesting). Without this, `Array<…> x;` slips past the stack-local check.
+  const TYPE = "[A-Za-z_]\\w*(?:::[A-Za-z_]\\w*)*(?:\\s*<(?:[^<>]|<[^<>]*>)*>)?";
   // Trailing `;`/`=` is a LOOKAHEAD so it isn't consumed — otherwise consecutive declarations
   // (`A x; B y;`) would lose the `;` that anchors the next one.
-  const decl = /(?:^|[;{})])\s*([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)\s+([A-Za-z_]\w*)\s*(?=;|=(?!=))/gd;
-  const forInit = /\bfor\s*\(\s*([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)\s+([A-Za-z_]\w*)\s*=(?!=)/gd;
+  const decl = new RegExp(`(?:^|[;{})])\\s*(${TYPE})\\s+([A-Za-z_]\\w*)\\s*(?=;|=(?!=))`, "gd");
+  const forInit = new RegExp(`\\bfor\\s*\\(\\s*(${TYPE})\\s+([A-Za-z_]\\w*)\\s*=(?!=)`, "gd");
 
   for (const [s, e] of functionBodies(src)) {
     const body = src.slice(s, e);
