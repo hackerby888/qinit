@@ -42,9 +42,15 @@ test("verifyPlatformKey is <os>-<arch> for this host", () => {
   expect(verifyPlatformKey()).toBe(`${os}-${arch}`);
 });
 
-test("cliAssetName / cliReleaseUrls: unix shape, or throws on windows", () => {
+test("cliAssetName / cliReleaseUrls: per-host asset shape", () => {
+  const base = "https://github.com/hackerby888/qinit/releases/download/qinit-cli-v1.2.3";
   if (process.platform === "win32") {
-    expect(() => cliAssetName()).toThrow(/unsupported host/);   // windows downloads the .exe manually
+    // windows ships only x64 (.exe); `qinit update` self-fetches it (install.ps1 does the first install).
+    expect(cliAssetName()).toBe("qinit-windows-x64.exe");
+    const u = cliReleaseUrls("qinit-cli-v1.2.3");
+    expect(u.name).toBe("qinit-windows-x64.exe");
+    expect(u.asset).toBe(`${base}/qinit-windows-x64.exe`);
+    expect(u.sums).toBe(`${base}/SHA256SUMS`);
     return;
   }
   const o = process.platform === "darwin" ? "darwin" : "linux";
@@ -52,6 +58,6 @@ test("cliAssetName / cliReleaseUrls: unix shape, or throws on windows", () => {
   expect(cliAssetName()).toBe(`qinit-${o}-${a}`);
   const u = cliReleaseUrls("qinit-cli-v1.2.3");
   expect(u.name).toBe(`qinit-${o}-${a}`);
-  expect(u.asset).toBe(`https://github.com/hackerby888/qinit/releases/download/qinit-cli-v1.2.3/qinit-${o}-${a}`);
-  expect(u.sums).toBe("https://github.com/hackerby888/qinit/releases/download/qinit-cli-v1.2.3/SHA256SUMS");
+  expect(u.asset).toBe(`${base}/qinit-${o}-${a}`);
+  expect(u.sums).toBe(`${base}/SHA256SUMS`);
 });
