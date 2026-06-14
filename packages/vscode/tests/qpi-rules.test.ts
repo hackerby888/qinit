@@ -75,6 +75,30 @@ test("scanLocals flags TEMPLATED-type stack locals (Array/HashMap/QPI::), not co
   expect(scanLocals(inProc("for (locals.i = 0; locals.i < N; ++locals.i) { state.mut().t += locals.i; }"))).toEqual([]);
 });
 
+test("scanLocals covers EVERY QPI data structure + scalar declared on the stack", () => {
+  const decls: Record<string, string> = {
+    Array: "Array<uint64, 4> a;",
+    HashMap: "HashMap<id, uint64, 1024> m;",
+    HashSet: "HashSet<id, 512> s;",
+    Collection: "Collection<Foo, 8> c;",
+    LinkedList: "LinkedList<Bar, 16> l;",
+    BitArray: "BitArray<256> b;",
+    bit_4096: "bit_4096 z;",
+    id: "id who;",
+    uint64: "uint64 n;",
+    sint64: "sint64 d = 0;",
+    bit: "bit flag;",
+    m256i: "m256i raw;",
+    uint128: "uint128 big;",
+    Asset: "Asset asset;",
+    "QPI::Array": "QPI::Array<uint64, 8> q;",
+    nestedTemplate: "HashMap<id, Array<uint64, 2>, 8> nested;",
+  };
+  for (const [kind, decl] of Object.entries(decls)) {
+    expect({ [kind]: scanLocals(inProc(decl)).length }).toEqual({ [kind]: 1 });
+  }
+});
+
 test("scanLocals does not flag assignments, calls, member access, or keywords", () => {
   expect(scanLocals(inProc("state.mut().counter += 1;"))).toEqual([]);
   expect(scanLocals(inProc("output.value = state.get().counter;"))).toEqual([]);
