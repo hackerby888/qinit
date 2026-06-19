@@ -50,16 +50,17 @@ test("governance: setShareholderProposal invokes the callee's SET_SHAREHOLDER_PR
   await initK12();
 
   const sim = new Sim();
-  sim.deploy(28, await wasm("Gov")); // callee (defines SET_SHAREHOLDER_PROPOSAL)
-  sim.deploy(29, await wasm("Gov")); // caller
+  sim.deploy(28, await wasm("ShareReceiver")); // callee (defines SET_SHAREHOLDER_PROPOSAL)
+  sim.deploy(29, await wasm("ShareProposer")); // caller
 
-  const input = new Uint8Array(4); // Propose_input { uint16 calleeIdx; uint8 firstByte }
+  const input = new Uint8Array(2); // ShareProposer Propose_input { uint16 target }
   new DataView(input.buffer).setUint16(0, 28, true);
-  input[2] = 0xab;
+  sim.procedure(29, 1, input); // ShareProposer.Propose(target=28) -> ShareReceiver SET_SHAREHOLDER_PROPOSAL
 
-  const out = sim.procedure(29, 1, input); // Gov@29.Propose -> Gov@28 SET_SHAREHOLDER_PROPOSAL
-  expect(new DataView(out.buffer, out.byteOffset, out.byteLength).getUint16(0, true)).toBe(42); // proposal index
-  expect(sim.query(28, 1)[0]).toBe(0xab); // Gov@28.GetLast.lastByte = the proposal's first byte
+  const out = sim.query(28, 1); // ShareReceiver.GetLast -> { uint64 byte0; uint64 count }
+  const dv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+  expect(dv.getBigUint64(0, true)).toBe(222n); // the proposal's first byte (ShareProposer writes 222)
+  expect(dv.getBigUint64(8, true)).toBe(1n); // callback count
 });
 
 test("governance guards: callee lacks the sysproc + self-call -> INVALID_PROPOSAL_INDEX", async () => {
@@ -67,7 +68,7 @@ test("governance guards: callee lacks the sysproc + self-call -> INVALID_PROPOSA
 
   const sim = new Sim();
   sim.deploy(28, await wasm("Counter")); // no SET_SHAREHOLDER_PROPOSAL
-  sim.deploy(29, await wasm("Gov"));
+  sim.deploy(29, await wasm("ShareProposer"));
   const ORIG = new Uint8Array(32);
   const PROP = new Uint8Array(1024);
 
