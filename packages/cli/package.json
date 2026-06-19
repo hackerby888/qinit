@@ -6,6 +6,7 @@
     "@qinit/core": "workspace:*",
     "@qinit/build": "workspace:*",
     "@qinit/proto": "workspace:*",
+    "@qinit/engine": "workspace:*",
     "ink": "^5.1.0",
     "react": "^18.3.1",
     "react-devtools-core": "file:../../stubs/react-devtools-core"
