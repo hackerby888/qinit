@@ -24,6 +24,17 @@ export interface HostServices {
   epoch(): number;
   markDirty(slot: number): void;
   log(slot: number, level: number, msg: Uint8Array): void;
+  transfer(slot: number, dest: Uint8Array, amount: bigint, transferType: number): bigint;
+  burn(slot: number, amount: bigint, burnedFor: number): bigint;
+}
+
+// Per-call context written into the contract's 256-byte QpiContext header (qpi.h QpiContext layout). The
+// contract reads these as struct fields (qpi.invocator()/originator()/invocationReward()/...), NOT host imports.
+export interface CallCtx {
+  invocator?: Uint8Array;  // 32-byte id
+  originator?: Uint8Array; // 32-byte id
+  invocationReward?: bigint;
+  entryPoint?: number;
 }
 
 export class ContractAbort extends Error {
@@ -102,20 +113,36 @@ export class Contract {
     this.u8().fill(0, this.stateAddr, this.stateAddr + this.stateSize);
   }
 
+  // Build the 256-byte QpiContext header the contract reads (currentContract*, originator, invocator,
+  // invocationReward, entryPoint) — qpi.h QpiContext field layout (offsets 0/4/8/40/72/104/112).
+  private writeCtx(ctx: CallCtx) {
+    const u8 = this.u8();
+    const base = this.ctxAddr;
+    u8.fill(0, base, base + 256);
+    const dv = new DataView(this.mem.buffer);
+    dv.setUint32(base + 0, this.slot >>> 0, true); // _currentContractIndex
+    dv.setInt32(base + 4, -1, true); // _stackIndex
+    dv.setBigUint64(base + 8, BigInt(this.slot), true); // _currentContractId = id(slot,0,0,0)
+    if (ctx.originator && ctx.originator.length >= 32) u8.set(ctx.originator.subarray(0, 32), base + 40);
+    if (ctx.invocator && ctx.invocator.length >= 32) u8.set(ctx.invocator.subarray(0, 32), base + 72);
+    dv.setBigInt64(base + 104, ctx.invocationReward ?? 0n, true); // _invocationReward
+    dv.setUint8(base + 112, (ctx.entryPoint ?? 0) & 0xff); // _entryPoint
+  }
+
   // Marshal one call through the instance (mirrors liteWasmDispatch): write ctx header + input, zero output,
   // call dispatch(kind,it,inOff,outOff,localsOff), copy the output back out.
-  invoke(kind: number, it: number, input: Uint8Array = new Uint8Array(0)): Uint8Array {
+  invoke(kind: number, it: number, input: Uint8Array = new Uint8Array(0), ctx: CallCtx = {}): Uint8Array {
     const inOff = this.ioBase;
     const outOff = this.ioBase + IN_SZ;
     const localsOff = this.ioBase + IN_SZ + OUT_SZ;
     const outSize = this.outSizeFor(kind, it);
     const pre = this.u8();
-    pre.fill(0, this.ctxAddr, this.ctxAddr + 256);        // zeroed QpiContext header (MVP: no ctx-field reads yet)
     pre.fill(0, outOff, outOff + OUT_SZ);
     if (input.length) pre.set(input, inOff);
+    this.writeCtx(ctx);
     this.arenaBump = this.arenaBase;
     this.ex.dispatch(kind >>> 0, it >>> 0, inOff >>> 0, outOff >>> 0, localsOff >>> 0);
-    return this.u8().slice(outOff, outOff + outSize);     // fresh view after dispatch
+    return this.u8().slice(outOff, outOff + outSize); // fresh view after dispatch
   }
 
   state(): Uint8Array {
@@ -174,10 +201,13 @@ export class Contract {
       isContractId: (_id: number) => 0,
       arbitrator: (out: number) => u8().fill(0, out, out + 32),
       computor: (_i: number, out: number) => u8().fill(0, out, out + 32),
-      // value / ledger
-      transfer: nyi("transfer"),
-      transferTyped: nyi("transferTyped"),
-      burn: nyi("burn"),
+      // value / ledger (delegated to Layer 2; return the contract's new balance per qpi_spectrum_impl.h)
+      transfer: (destOff: number, amount: bigint) =>
+        this.host.transfer(this.slot, u8().slice(destOff, destOff + 32), amount, 2 /*qpiTransfer*/),
+      transferTyped: (destOff: number, amount: bigint, type: number) =>
+        this.host.transfer(this.slot, u8().slice(destOff, destOff + 32), amount, type & 0xff),
+      burn: (amount: bigint, burnedFor: number) =>
+        this.host.burn(this.slot, amount, burnedFor >>> 0),
       // assets / shares
       isAssetIssued: () => 0,
       issueAsset: nyi("issueAsset"),

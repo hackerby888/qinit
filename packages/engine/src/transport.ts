@@ -87,12 +87,14 @@ export class InProcessEngine implements NodeTransport {
   async broadcastTx(txBytes: Uint8Array): Promise<BroadcastResult> {
     try {
       const v = new DataView(txBytes.buffer, txBytes.byteOffset, txBytes.byteLength);
+      const source = txBytes.slice(0, 32);
       const dest = v.getBigUint64(32, true);
+      const amount = v.getBigInt64(64, true);
       const inputType = v.getUint16(76, true);
       const inputSize = v.getUint16(78, true);
       const payload = txBytes.slice(80, 80 + inputSize);
       if (dest === 99999n) this.handleDeployTx(inputType, payload);
-      else this.sim.procedure(Number(dest), inputType, payload);
+      else this.sim.procedure(Number(dest), inputType, payload, { invocator: source, originator: source, reward: amount });
       return { ok: true };
     } catch (e: any) {
       return { ok: false, message: String(e?.message ?? e) };
