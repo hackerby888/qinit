@@ -46,6 +46,10 @@ export interface HostServices {
   distributeDividends(slot: number, amountPerShare: bigint): number;
   callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Uint8Array): { error: number; output: Uint8Array };
   invokeProcedure(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, reward: bigint, originator: Uint8Array): { error: number; output: Uint8Array };
+  nextId(id: Uint8Array): Uint8Array;
+  prevId(id: Uint8Array): Uint8Array;
+  setShareholderProposal(callerSlot: number, calleeIdx: number, proposal: Uint8Array, reward: bigint, originator: Uint8Array): number;
+  setShareholderVotes(callerSlot: number, calleeIdx: number, vote: Uint8Array, reward: bigint, originator: Uint8Array): number;
 }
 
 // Per-call context written into the contract's 256-byte QpiContext header (qpi.h QpiContext layout). The
@@ -177,9 +181,6 @@ export class Contract {
   // ops throw loudly (not silently wrong) until Layer 2 models them.
   private imports(): WebAssembly.Imports {
     const u8 = () => this.u8();
-    const nyi = (name: string) => () => {
-      throw new Error("host import unimplemented in MVP: " + name);
-    };
     const lhost: Record<string, Function> = {
       // infra / logging
       beginFn: (_id: number) => {},
@@ -228,8 +229,12 @@ export class Contract {
         return e ? 1 : 0;
       },
       queryFeeReserve: (_ci: number) => 1000000n,          // positive so any BEGIN/END_TICK gating passes
-      nextId: nyi("nextId"),
-      prevId: nyi("prevId"),
+      nextId: (idOff: number, outOff: number) => {
+        u8().set(this.host.nextId(u8().slice(idOff, idOff + 32)), outOff);
+      },
+      prevId: (idOff: number, outOff: number) => {
+        u8().set(this.host.prevId(u8().slice(idOff, idOff + 32)), outOff);
+      },
       isContractId: (_id: number) => 0,
       arbitrator: (out: number) => u8().fill(0, out, out + 32),
       computor: (_i: number, out: number) => u8().fill(0, out, out + 32),
@@ -268,8 +273,16 @@ export class Contract {
         if (r.error === 0 && r.output.length) u8().set(r.output.subarray(0, Math.min(outSize, r.output.length)), outOff);
         return r.error;
       },
-      liteSetShareholderProposal: nyi("liteSetShareholderProposal"),
-      liteSetShareholderVotes: nyi("liteSetShareholderVotes"),
+      liteSetShareholderProposal: (calleeIdx: number, propOff: number, reward: bigint) => {
+        const proposal = u8().slice(propOff, propOff + 1024);
+        const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
+        return this.host.setShareholderProposal(this.slot, calleeIdx >>> 0, proposal, reward, originator);
+      },
+      liteSetShareholderVotes: (calleeIdx: number, voteOff: number, voteSize: number, reward: bigint) => {
+        const vote = u8().slice(voteOff, voteOff + voteSize);
+        const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
+        return this.host.setShareholderVotes(this.slot, calleeIdx >>> 0, vote, reward, originator);
+      },
     };
     // WASI: contracts link a few wasi-libc stdio stubs (fd_write/fd_seek/fd_close) via malloc/abort paths;
     // a correct run never calls them. Any unlisted import returns 0 (ESUCCESS); proc_exit throws.

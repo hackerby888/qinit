@@ -27,6 +27,8 @@ const CALL_ERR_NONE = 0;
 const CALL_ERR_ALLOC = 3;
 const CALL_ERR_INACTIVE = 4;
 
+const INVALID_PROPOSAL_INDEX = 0xffff; // qpi.h:1847 — setShareholderProposal's error sentinel
+
 interface Holding {
   owner: Uint8Array;
   possessor: Uint8Array;
@@ -89,6 +91,10 @@ export class Sim {
       distributeDividends: (slot, amountPerShare) => this.doDistributeDividends(slot, amountPerShare),
       callFunction: (callerSlot, calleeIdx, inputType, input, originator) => this.doCallFunction(callerSlot, calleeIdx, inputType, input, originator),
       invokeProcedure: (callerSlot, calleeIdx, inputType, input, reward, originator) => this.doInvokeProcedure(callerSlot, calleeIdx, inputType, input, reward, originator),
+      nextId: (id) => this.nextId(id),
+      prevId: (id) => this.prevId(id),
+      setShareholderProposal: (callerSlot, calleeIdx, proposal, reward, originator) => this.doSetShareholderProposal(callerSlot, calleeIdx, proposal, reward, originator),
+      setShareholderVotes: (callerSlot, calleeIdx, vote, reward, originator) => this.doSetShareholderVotes(callerSlot, calleeIdx, vote, reward, originator),
     };
   }
 
@@ -149,6 +155,28 @@ export class Sim {
   // Faucet: seed an identity with balance (the in-process testnet pre-funds test/seed accounts).
   fund(id: Uint8Array, amount: bigint): void {
     this.credit(id, amount, this.tickN);
+  }
+
+  // Spectrum iteration (qpi.nextId/prevId) — the next/previous occupied entity id; zero if none. The node
+  // walks the spectrum hash array; the dev engine uses a deterministic id order over the occupied entities.
+  nextId(id: Uint8Array): Uint8Array {
+    const target = this.key(id);
+    let best: string | null = null;
+    for (const k of this.spectrum.keys()) {
+      if (k > target && (best === null || k < best)) best = k;
+    }
+
+    return best === null ? new Uint8Array(32) : hexToBytes32(best);
+  }
+
+  prevId(id: Uint8Array): Uint8Array {
+    const target = this.key(id);
+    let best: string | null = null;
+    for (const k of this.spectrum.keys()) {
+      if (k < target && (best === null || k > best)) best = k;
+    }
+
+    return best === null ? new Uint8Array(32) : hexToBytes32(best);
   }
 
   // The slot index if `id` is a deployed contract's id (id(slot,0,0,0)), else -1.
@@ -425,6 +453,53 @@ export class Sim {
     }
   }
 
+  private transferReward(callerSlot: number, calleeIdx: number, reward: bigint): void {
+    const callerCid = this.contractId(callerSlot);
+    if (this.balance(callerCid) < reward) return;
+
+    this.debit(callerCid, reward);
+    this.credit(this.contractId(calleeIdx), reward);
+  }
+
+  // Shareholder governance (qpi.setShareholderProposal) — invoke the callee's SET_SHAREHOLDER_PROPOSAL sysproc
+  // (1024-byte proposal in, uint16 proposal index out). Mirrors contract_exec.h:805.
+  doSetShareholderProposal(callerSlot: number, calleeIdx: number, proposal: Uint8Array, reward: bigint, originator: Uint8Array): number {
+    if (calleeIdx === callerSlot || calleeIdx === 0 || !this.contracts.has(calleeIdx) || reward < 0n) return INVALID_PROPOSAL_INDEX;
+    if (this.callDepth >= MAX_CALL_DEPTH) return INVALID_PROPOSAL_INDEX;
+
+    const callee = this.contracts.get(calleeIdx)!;
+    if (!callee.hasSysproc(SP.SET_SHAREHOLDER_PROPOSAL)) return INVALID_PROPOSAL_INDEX;
+
+    if (reward > 0n) this.transferReward(callerSlot, calleeIdx, reward);
+
+    this.callDepth++;
+    try {
+      const out = callee.invoke(KIND.SYSPROC, SP.SET_SHAREHOLDER_PROPOSAL, proposal, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_PROPOSAL });
+      return out.length >= 2 ? new DataView(out.buffer, out.byteOffset, out.byteLength).getUint16(0, true) : 0;
+    } finally {
+      this.callDepth--;
+    }
+  }
+
+  // qpi.setShareholderVotes — invoke the callee's SET_SHAREHOLDER_VOTES sysproc; returns the success bit.
+  doSetShareholderVotes(callerSlot: number, calleeIdx: number, vote: Uint8Array, reward: bigint, originator: Uint8Array): number {
+    if (calleeIdx === callerSlot || calleeIdx === 0 || !this.contracts.has(calleeIdx) || reward < 0n) return 0;
+    if (this.callDepth >= MAX_CALL_DEPTH) return 0;
+
+    const callee = this.contracts.get(calleeIdx)!;
+    if (!callee.hasSysproc(SP.SET_SHAREHOLDER_VOTES)) return 0;
+
+    if (reward > 0n) this.transferReward(callerSlot, calleeIdx, reward);
+
+    this.callDepth++;
+    try {
+      const out = callee.invoke(KIND.SYSPROC, SP.SET_SHAREHOLDER_VOTES, vote, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_VOTES });
+      return out.length >= 1 ? out[0] : 0;
+    } finally {
+      this.callDepth--;
+    }
+  }
+
   // Direct procedure call (IDE/tests convenience): credit the reward, then run. The canonical on-chain path is
   // applyTx (a tx to the contract address); this is the same effect without building a tx.
   procedure(slot: number, it: number, input?: Uint8Array, opts: ProcedureOpts = {}): Uint8Array {
@@ -491,4 +566,10 @@ export class Sim {
   digest(slot: number): string {
     return this.contracts.get(slot)!.digest();
   }
+}
+
+function hexToBytes32(hex: string): Uint8Array {
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
 }

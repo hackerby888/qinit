@@ -41,7 +41,7 @@ export function Build({ args }: { args: string[] }) {
         }
         // Daily-cached, best-effort verify-tool auto-update (never blocks; offline = skip).
         const vu = await autoUpdateVerifyTool();
-        const r = await buildContract({ contractPath, name, slot: Number(o.slot ?? cfg.slot ?? 28), corePath: core, outDir, dynCallees });
+        const r = await buildContract({ contractPath, name, slot: Number(o.slot ?? cfg.slot ?? 28), corePath: core, outDir, dynCallees, skipVerify: "skip-verify" in o });
         if (r.ok && r.idl) try { writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2)); } catch {}
         setS({ phase: "done", r, vu });
       } catch (e: any) {
