@@ -26,6 +26,8 @@ export class EngineServer {
     const json = (data: unknown, status = 200): Response =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
+    await eng.seedFaucet(); // pre-fund the funded-seed account so regular txs have balance
+
     this.ticker = setInterval(() => {
       eng.advanceTick(1);
     }, 50);
@@ -49,6 +51,13 @@ export class EngineServer {
           }
           if (path === "/live/v1/dev/contract-digest") {
             return json({ digest: eng.sim.digest(Number(q.get("slot"))) });
+          }
+          if (path.startsWith("/live/v1/balances/")) {
+            return json({ balance: await eng.balance(decodeURIComponent(path.slice("/live/v1/balances/".length))) });
+          }
+          if (path === "/query/v1/getTransactionsForTick" && req.method === "POST") {
+            const body = (await req.json()) as { tickNumber?: number; tick?: number };
+            return json({ transactions: await eng.tickTransactions(Number(body.tickNumber ?? body.tick ?? 0)) });
           }
           if (path.startsWith("/live/v1/tx-status/")) {
             const parts = path.split("/"); // ["", "live", "v1", "tx-status", tick, txId]

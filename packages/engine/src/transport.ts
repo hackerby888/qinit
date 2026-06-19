@@ -3,8 +3,9 @@
 // an HTTP node. Deploy works two ways: deploy() (direct, for the IDE) and the on-chain
 // UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol via broadcastTx (drop-in for qinit's deploy-ops).
 import type {
-  NodeTransport, TxStatus, StateRead, TickInfo, DynRegistry, DynContract, DynEntry, DynUpload, DebugTrace, BroadcastResult,
+  NodeTransport, TxStatus, StateRead, TickInfo, DynRegistry, DynContract, DynEntry, DynUpload, DebugTrace, BroadcastResult, EntityInfo, TxInfo,
 } from "@qinit/core";
+import { bytesToIdentity, identityToBytes, deriveIdentity } from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX } from "@qinit/proto";
 import { Sim } from "./sim";
 import { Contract, KIND } from "./runtime";
@@ -74,31 +75,49 @@ export class InProcessEngine implements NodeTransport {
   }
 
   async txStatus(tick: number, txId: string): Promise<TxStatus> {
-    return { tick, currentTick: this.sim.tickN, txId, found: true, moneyFlew: false, processed: true };
+    // Single-authority engine: every broadcast tx is included + processed. moneyFlew is best-effort (the
+    // engine's tickdata txId is K12(tx)->identity; qinit's tx.id may differ, so an unknown id defaults true).
+    const r = this.sim.txByHash(txId);
+    return { tick, currentTick: this.sim.tickN, txId, found: true, moneyFlew: r?.moneyFlew ?? true, processed: true };
   }
 
   async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
     return this.sim.query(contractIndex, inputType, input); // function call (kind=0)
   }
 
-  // Decode a signed tx and route it: dest==99999 -> deploy wire protocol; else -> contract procedure. The
-  // signature is NOT verified (consensus simplified, no security). Layout = canonical Qubic tx:
-  // src[32] dest[32] amount[8] tick[4] inputType[2] inputSize[2] payload[inputSize] sig[64].
+  // Decode a signed tx and dispatch it faithfully (qubic.cpp processTickTransaction). The signature is NOT
+  // verified (consensus simplified). Layout = src[32] dest[32] amount[8] tick[4] inputType[2] inputSize[2]
+  // payload[inputSize] sig[64]. dest==99999 -> deploy wire protocol; otherwise sim.applyTx routes by
+  // (destination, inputType): a contract procedure (registered inputType), a plain transfer to a contract, or a
+  // regular user-to-user transfer.
   async broadcastTx(txBytes: Uint8Array): Promise<BroadcastResult> {
     try {
       const v = new DataView(txBytes.buffer, txBytes.byteOffset, txBytes.byteLength);
       const source = txBytes.slice(0, 32);
-      const dest = v.getBigUint64(32, true);
+      const destBytes = txBytes.slice(32, 64);
+      const destLo = v.getBigUint64(32, true);
       const amount = v.getBigInt64(64, true);
       const inputType = v.getUint16(76, true);
       const inputSize = v.getUint16(78, true);
       const payload = txBytes.slice(80, 80 + inputSize);
-      if (dest === 99999n) this.handleDeployTx(inputType, payload);
-      else this.sim.procedure(Number(dest), inputType, payload, { invocator: source, originator: source, reward: amount });
-      return { ok: true };
+
+      if (destLo === 99999n) {
+        this.handleDeployTx(inputType, payload);
+        return { ok: true };
+      }
+
+      const txId = await this.txId(txBytes);
+      this.sim.applyTx(source, destBytes, amount, inputType, payload, txId);
+      return { ok: true, transactionId: txId };
     } catch (e: any) {
       return { ok: false, message: String(e?.message ?? e) };
     }
+  }
+
+  // Transaction id = identity(K12(tx without its 64-byte signature)) — matches qinit's buildSignedTx tx.id.
+  private async txId(txBytes: Uint8Array): Promise<string> {
+    const body = txBytes.length > 64 ? txBytes.slice(0, txBytes.length - 64) : txBytes;
+    return bytesToIdentity(k12Bytes(body));
   }
 
   // UPLOAD_BEGIN / UPLOAD_CHUNK / DEPLOY — mirrors core-lite lite_dynamic_contracts.h LE decode + the proto
@@ -149,4 +168,55 @@ export class InProcessEngine implements NodeTransport {
   async putContractSource(_slot: number, _source: string): Promise<boolean> {
     return true;
   }
+
+  // ---- regular txs / spectrum / tickdata ----
+  async balance(id: string): Promise<EntityInfo> {
+    const bytes = this.idToBytes(id);
+    const e = this.sim.entityOf(bytes);
+
+    return {
+      id,
+      balance: this.sim.balance(bytes).toString(),
+      incomingAmount: (e?.incomingAmount ?? 0n).toString(),
+      outgoingAmount: (e?.outgoingAmount ?? 0n).toString(),
+      numberOfIncomingTransfers: e?.numberOfIncomingTransfers ?? 0,
+      numberOfOutgoingTransfers: e?.numberOfOutgoingTransfers ?? 0,
+      latestIncomingTransferTick: e?.latestIncomingTransferTick ?? 0,
+      latestOutgoingTransferTick: e?.latestOutgoingTransferTick ?? 0,
+    };
+  }
+
+  async tickTransactions(tick: number): Promise<TxInfo[]> {
+    return this.sim.tickTransactions(tick).map((r) => ({
+      txId: r.txId,
+      tick: r.tick,
+      source: r.source,
+      dest: r.dest,
+      amount: r.amount.toString(),
+      inputType: r.inputType,
+      moneyFlew: r.moneyFlew,
+    }));
+  }
+
+  // Pre-fund the funded-seed identity so regular txs from seed accounts have balance (faucet).
+  async seedFaucet(amount = 1000000000000n): Promise<void> {
+    const { publicKeyHex } = await deriveIdentity("a".repeat(55));
+    this.sim.fund(hexToBytes(publicKeyHex), amount);
+  }
+
+  // Credit an identity directly (tests / IDE faucet).
+  fund(id: Uint8Array, amount: bigint): void {
+    this.sim.fund(id, amount);
+  }
+
+  private idToBytes(id: string): Uint8Array {
+    if (/^[0-9a-fA-F]{64}$/.test(id)) return hexToBytes(id);
+    return identityToBytes(id); // 60-char identity
+  }
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
 }

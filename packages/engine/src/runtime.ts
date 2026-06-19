@@ -18,6 +18,17 @@ export const SP = {
 // MUST match LITE_WASM_*_SZ in core-lite src/extensions/lite_wasm_contracts.h.
 const IN_SZ = 64 * 1024, OUT_SZ = 64 * 1024, LOCALS_SZ = 32 * 1024;
 
+// Spectrum entity record — mirrors QPI::Entity (qpi.h:1615): publicKey + incoming/outgoing amounts, transfer
+// counts, latest transfer ticks. balance = incomingAmount - outgoingAmount.
+export interface Entity {
+  incomingAmount: bigint;
+  outgoingAmount: bigint;
+  numberOfIncomingTransfers: number;
+  numberOfOutgoingTransfers: number;
+  latestIncomingTransferTick: number;
+  latestOutgoingTransferTick: number;
+}
+
 // The chain-sim (Layer 2) injects these; Layer 1 stays pure mechanics.
 export interface HostServices {
   tick(): number;
@@ -26,6 +37,7 @@ export interface HostServices {
   log(slot: number, level: number, msg: Uint8Array): void;
   transfer(slot: number, dest: Uint8Array, amount: bigint, transferType: number): bigint;
   burn(slot: number, amount: bigint, burnedFor: number): bigint;
+  getEntity(id: Uint8Array): Entity | null;
   issueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint;
   isAssetIssued(issuer: Uint8Array, name: bigint): number;
   numberOfShares(asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array): bigint;
@@ -199,8 +211,20 @@ export class Contract {
       prevSpectrumDigest: (out: number) => u8().fill(0, out, out + 32),
       prevUniverseDigest: (out: number) => u8().fill(0, out, out + 32),
       prevComputerDigest: (out: number) => u8().fill(0, out, out + 32),
-      // identity / spectrum (MVP: not modeled)
-      getEntity: nyi("getEntity"),
+      // identity / spectrum
+      getEntity: (idOff: number, entityOff: number) => {
+        const id = u8().slice(idOff, idOff + 32);
+        const e = this.host.getEntity(id);
+        const dv = new DataView(this.mem.buffer);
+        u8().set(id, entityOff); // QPI::Entity.publicKey
+        dv.setBigInt64(entityOff + 32, e ? e.incomingAmount : 0n, true);
+        dv.setBigInt64(entityOff + 40, e ? e.outgoingAmount : 0n, true);
+        dv.setUint32(entityOff + 48, e ? e.numberOfIncomingTransfers : 0, true);
+        dv.setUint32(entityOff + 52, e ? e.numberOfOutgoingTransfers : 0, true);
+        dv.setUint32(entityOff + 56, e ? e.latestIncomingTransferTick : 0, true);
+        dv.setUint32(entityOff + 60, e ? e.latestOutgoingTransferTick : 0, true);
+        return e ? 1 : 0;
+      },
       queryFeeReserve: (_ci: number) => 1000000n,          // positive so any BEGIN/END_TICK gating passes
       nextId: nyi("nextId"),
       prevId: nyi("prevId"),

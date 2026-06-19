@@ -1,8 +1,9 @@
-// Layer 2 — chain-sim. Drives contracts: deploy/registry, tick/epoch, the lifecycle sweep skeleton, and
-// (phase 3) the money model — an in-memory spectrum (id -> balance), invocationReward crediting,
-// transfer/burn, and the POST_INCOMING_TRANSFER trigger with anti-reentrancy. Mirrors core-lite
-// qpi_spectrum_impl.h (__transfer / burn) and qubic.cpp's USER_PROCEDURE_CALL flow.
-import { Contract, HostServices, KIND, SP } from "./runtime";
+// Layer 2 — chain-sim. Drives contracts + a single-authority testnet: deploy/registry, tick/epoch, the
+// lifecycle sweep, the money model (spectrum of Entity records, invocationReward, transfer/burn,
+// POST_INCOMING_TRANSFER), assets, and the faithful transaction dispatcher (applyTx) — a SC procedure call is
+// just a tx to the contract address with inputType=procId + payload, exactly like qubic.cpp
+// processTickTransaction. Mirrors core-lite qpi_spectrum_impl.h / qpi_asset_impl.h.
+import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
 import { toHex } from "./k12";
 
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
@@ -11,6 +12,11 @@ const EP_USER_PROCEDURE = 11; // contract_def.h USER_PROCEDURE_CALL (contractSys
 const ZERO32 = new Uint8Array(32);
 const NUMBER_OF_COMPUTORS = 8; // testnet dynamic-contracts committee (consensus-irrelevant for the dev sim)
 
+// qpi.h TransferType
+const TT_STANDARD = 0;
+const TT_PROCEDURE = 1;
+const TT_QPI = 2;
+
 interface Holding {
   owner: Uint8Array;
   possessor: Uint8Array;
@@ -18,12 +24,23 @@ interface Holding {
   posMgmt: number;
   shares: bigint;
 }
+
 interface AssetRec {
   issuer: Uint8Array;
   name: bigint;
   decimals: number;
   unit: bigint;
   holdings: Map<string, Holding>;
+}
+
+export interface TxRecord {
+  txId: string;
+  tick: number;
+  source: string; // hex id
+  dest: string; // hex id
+  amount: bigint;
+  inputType: number;
+  moneyFlew: boolean;
 }
 
 export interface ProcedureOpts {
@@ -38,9 +55,11 @@ export class Sim {
   contracts = new Map<number, Contract>();
   dirty = new Set<number>();
   host: HostServices;
-  private ledger = new Map<string, bigint>(); // spectrum: hex(id) -> balance
+  private spectrum = new Map<string, Entity>(); // hex(id) -> Entity (balance = incoming - outgoing)
   private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
   private assets = new Map<string, AssetRec>(); // universe: assetKey -> issuance + holdings
+  private txByTick = new Map<number, TxRecord[]>();
+  private txById = new Map<string, TxRecord>();
 
   constructor() {
     this.host = {
@@ -50,6 +69,7 @@ export class Sim {
       log: () => {},
       transfer: (slot, dest, amount, type) => this.doTransfer(slot, dest, amount, type),
       burn: (slot, amount) => this.doBurn(slot, amount),
+      getEntity: (id) => this.entityOf(id),
       issueAsset: (slot, name, issuer, decimals, shares, unit, invocator) => this.doIssueAsset(slot, name, issuer, decimals, shares, unit, invocator),
       isAssetIssued: (issuer, name) => (this.findAsset(issuer, name) ? 1 : 0),
       numberOfShares: (asset, ownSel, posSel) => this.doNumberOfShares(asset, ownSel, posSel),
@@ -59,28 +79,70 @@ export class Sim {
     };
   }
 
-  // ---- ledger ----
+  // ---- spectrum (Entity records; balance = incomingAmount - outgoingAmount) ----
   private contractId(slot: number): Uint8Array {
     const a = new Uint8Array(32);
     new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
     return a;
   }
+
   private key(id: Uint8Array): string {
     return toHex(id.subarray(0, 32));
   }
-  balance(id: Uint8Array): bigint {
-    return this.ledger.get(this.key(id)) ?? 0n;
+
+  private emptyEntity(): Entity {
+    return { incomingAmount: 0n, outgoingAmount: 0n, numberOfIncomingTransfers: 0, numberOfOutgoingTransfers: 0, latestIncomingTransferTick: 0, latestOutgoingTransferTick: 0 };
   }
+
+  entityOf(id: Uint8Array): Entity | null {
+    return this.spectrum.get(this.key(id)) ?? null;
+  }
+
+  balance(id: Uint8Array): bigint {
+    const e = this.spectrum.get(this.key(id));
+    return e ? e.incomingAmount - e.outgoingAmount : 0n;
+  }
+
   balanceOf(slot: number): bigint {
     return this.balance(this.contractId(slot));
   }
-  credit(id: Uint8Array, amount: bigint): void {
-    this.ledger.set(this.key(id), this.balance(id) + amount);
+
+  credit(id: Uint8Array, amount: bigint, tick = this.tickN): void {
+    const k = this.key(id);
+    let e = this.spectrum.get(k);
+    if (!e) {
+      e = this.emptyEntity();
+      this.spectrum.set(k, e);
+    }
+
+    e.incomingAmount += amount;
+    e.numberOfIncomingTransfers++;
+    e.latestIncomingTransferTick = tick;
   }
+
+  debit(id: Uint8Array, amount: bigint, tick = this.tickN): void {
+    const k = this.key(id);
+    let e = this.spectrum.get(k);
+    if (!e) {
+      e = this.emptyEntity();
+      this.spectrum.set(k, e);
+    }
+
+    e.outgoingAmount += amount;
+    e.numberOfOutgoingTransfers++;
+    e.latestOutgoingTransferTick = tick;
+  }
+
+  // Faucet: seed an identity with balance (the in-process testnet pre-funds test/seed accounts).
+  fund(id: Uint8Array, amount: bigint): void {
+    this.credit(id, amount, this.tickN);
+  }
+
   // The slot index if `id` is a deployed contract's id (id(slot,0,0,0)), else -1.
   private contractSlotOf(id: Uint8Array): number {
     const dv = new DataView(id.buffer, id.byteOffset, id.byteLength);
     if (dv.getBigUint64(8, true) !== 0n || dv.getBigUint64(16, true) !== 0n || dv.getBigUint64(24, true) !== 0n) return -1;
+
     const slot = Number(dv.getBigUint64(0, true));
     return this.contracts.has(slot) ? slot : -1;
   }
@@ -94,7 +156,7 @@ export class Sim {
     const remaining = this.balance(cur) - amount;
     if (remaining < 0n) return remaining; // insufficient — nothing moves
 
-    this.ledger.set(this.key(cur), remaining);
+    this.debit(cur, amount);
     this.credit(dest, amount);
     this.notifyPIT(dest, cur, amount, type);
 
@@ -108,7 +170,7 @@ export class Sim {
     const remaining = this.balance(cur) - amount;
     if (remaining < 0n) return remaining;
 
-    this.ledger.set(this.key(cur), remaining);
+    this.debit(cur, amount);
 
     return remaining;
   }
@@ -118,16 +180,20 @@ export class Sim {
     for (let i = 0; i < 32; i++) if (a[i] !== b[i]) return false;
     return true;
   }
+
   private isZeroId(a: Uint8Array): boolean {
     for (let i = 0; i < 32; i++) if (a[i] !== 0) return false;
     return true;
   }
+
   private assetKey(issuer: Uint8Array, name: bigint): string {
     return toHex(issuer.subarray(0, 32)) + ":" + name.toString();
   }
+
   private holdingKey(owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): string {
     return toHex(owner.subarray(0, 32)) + ":" + toHex(possessor.subarray(0, 32)) + ":" + ownMgmt + ":" + posMgmt;
   }
+
   private findAsset(issuer: Uint8Array, name: bigint): AssetRec | undefined {
     return this.assets.get(this.assetKey(issuer, name));
   }
@@ -176,6 +242,7 @@ export class Sim {
   private doNumberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint {
     const asset = this.findAsset(issuer, name);
     if (!asset) return 0n;
+
     const h = asset.holdings.get(this.holdingKey(owner, possessor, ownMgmt, posMgmt));
     return h ? h.shares : 0n;
   }
@@ -214,7 +281,7 @@ export class Sim {
     const cur = this.contractId(slot);
     if (this.balance(cur) < total) return 0;
 
-    this.ledger.set(this.key(cur), this.balance(cur) - total);
+    this.debit(cur, total);
 
     return 1;
   }
@@ -288,20 +355,76 @@ export class Sim {
     return this.contracts.get(slot)!.invoke(KIND.FUNCTION, it, input);
   }
 
-  // Invoke a user procedure. reward>0 credits the contract + fires POST_INCOMING_TRANSFER (procedureTransaction)
-  // BEFORE the procedure runs (qubic.cpp contractProcessor USER_PROCEDURE_CALL).
-  procedure(slot: number, it: number, input?: Uint8Array, opts: ProcedureOpts = {}): Uint8Array {
+  // Run a user procedure: POST_INCOMING_TRANSFER (procedureTransaction) if reward>0, then the procedure.
+  // Does NOT credit — the caller (procedure() or applyTx()) has already moved the reward into the contract.
+  private runProcedure(slot: number, it: number, input: Uint8Array, invocator: Uint8Array, originator: Uint8Array, reward: bigint): Uint8Array {
     const c = this.contracts.get(slot)!;
+    if (reward > 0n) this.notifyPIT(this.contractId(slot), invocator, reward, TT_PROCEDURE);
+
+    return c.invoke(KIND.PROCEDURE, it, input, { invocator, originator, invocationReward: reward, entryPoint: EP_USER_PROCEDURE });
+  }
+
+  // Direct procedure call (IDE/tests convenience): credit the reward, then run. The canonical on-chain path is
+  // applyTx (a tx to the contract address); this is the same effect without building a tx.
+  procedure(slot: number, it: number, input?: Uint8Array, opts: ProcedureOpts = {}): Uint8Array {
     const reward = opts.reward ?? 0n;
     const invocator = opts.invocator ?? ZERO32;
     const originator = opts.originator ?? invocator;
 
-    if (reward > 0n) {
-      this.credit(this.contractId(slot), reward);
-      this.notifyPIT(this.contractId(slot), invocator, reward, 1 /*procedureTransaction*/);
+    if (reward > 0n) this.credit(this.contractId(slot), reward);
+
+    return this.runProcedure(slot, it, input ?? new Uint8Array(0), invocator, originator, reward);
+  }
+
+  // The faithful transaction dispatcher (qubic.cpp processTickTransaction). A SC procedure call is a tx to the
+  // contract address with inputType=procId + payload; a plain transfer is any other (dest=user, or dest=contract
+  // with a non-procedure inputType). Money moves first (debit source, credit dest), then routing by dest+type.
+  applyTx(source: Uint8Array, dest: Uint8Array, amount: bigint, inputType: number, payload: Uint8Array, txId: string): { moneyFlew: boolean } {
+    const tick = this.tickN;
+    let moneyFlew = false;
+
+    if (amount > 0n && this.balance(source) >= amount) {
+      this.debit(source, amount, tick);
+      this.credit(dest, amount, tick);
+      moneyFlew = true;
+    }
+    const reward = moneyFlew ? amount : 0n;
+
+    const slot = this.contractSlotOf(dest);
+    if (slot >= 0) {
+      const c = this.contracts.get(slot)!;
+      const isProcedure = c.entries.some((e) => e.kind === KIND.PROCEDURE && e.it === inputType);
+
+      if (isProcedure) {
+        this.runProcedure(slot, inputType, payload, source, source, reward);
+      } else if (reward > 0n) {
+        this.notifyPIT(dest, source, reward, TT_STANDARD); // plain incoming transfer to a contract
+      }
+    }
+    // dest is a plain user identity: the debit/credit above is the whole transfer.
+
+    this.recordTx({ txId, tick, source: this.key(source), dest: this.key(dest), amount, inputType, moneyFlew });
+    return { moneyFlew };
+  }
+
+  // ---- tickdata (lite: per-tick tx history + tx-by-id) ----
+  private recordTx(r: TxRecord): void {
+    let list = this.txByTick.get(r.tick);
+    if (!list) {
+      list = [];
+      this.txByTick.set(r.tick, list);
     }
 
-    return c.invoke(KIND.PROCEDURE, it, input, { invocator, originator, invocationReward: reward, entryPoint: EP_USER_PROCEDURE });
+    list.push(r);
+    this.txById.set(r.txId, r);
+  }
+
+  tickTransactions(tick: number): TxRecord[] {
+    return this.txByTick.get(tick) ?? [];
+  }
+
+  txByHash(txId: string): TxRecord | undefined {
+    return this.txById.get(txId);
   }
 
   digest(slot: number): string {
