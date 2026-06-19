@@ -20,6 +20,7 @@ export class InProcessEngine implements NodeTransport {
   readonly slotCount: number;
   private meta = new Map<number, SlotMeta>();
   private upload: UploadSession | null = null;
+  private sources = new Map<number, string>(); // deployed .h source per slot (for callee auto-resolution)
 
   constructor(opts: { slotBase?: number; slotCount?: number } = {}) {
     this.slotBase = opts.slotBase ?? 28;
@@ -57,7 +58,7 @@ export class InProcessEngine implements NodeTransport {
       }
       const pick = (kind: number): DynEntry[] =>
         c.entries.filter((e) => e.kind === kind).map((e) => ({ inputType: e.it, inputSize: e.inSize, outputSize: e.outSize }));
-      contracts.push({ index: s, armed: true, constructed: true, version: m.version, name: m.name, codeHash: m.codeHash, functions: pick(KIND.FUNCTION), procedures: pick(KIND.PROCEDURE) });
+      contracts.push({ index: s, armed: true, constructed: true, version: m.version, name: m.name, codeHash: m.codeHash, functions: pick(KIND.FUNCTION), procedures: pick(KIND.PROCEDURE), source: this.sources.get(s) });
     }
     return { contracts, slotBase: this.slotBase, slotCount: this.slotCount };
   }
@@ -165,7 +166,8 @@ export class InProcessEngine implements NodeTransport {
     return "a".repeat(55);
   }
 
-  async putContractSource(_slot: number, _source: string): Promise<boolean> {
+  async putContractSource(slot: number, source: string): Promise<boolean> {
+    this.sources.set(slot, source);
     return true;
   }
 

@@ -44,6 +44,8 @@ export interface HostServices {
   numberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint;
   transferShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint;
   distributeDividends(slot: number, amountPerShare: bigint): number;
+  callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Uint8Array): { error: number; output: Uint8Array };
+  invokeProcedure(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, reward: bigint, originator: Uint8Array): { error: number; output: Uint8Array };
 }
 
 // Per-call context written into the contract's 256-byte QpiContext header (qpi.h QpiContext layout). The
@@ -249,9 +251,23 @@ export class Contract {
       transferShareOwnershipAndPossession: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, newOwnerOff: number) =>
         this.host.transferShares(this.slot, name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), shares, u8().slice(newOwnerOff, newOwnerOff + 32)),
       distributeDividends: (amountPerShare: bigint) => this.host.distributeDividends(this.slot, amountPerShare),
-      // inter-contract
-      liteCallFunction: nyi("liteCallFunction"),
-      liteInvokeProcedure: nyi("liteInvokeProcedure"),
+      // inter-contract: in/out are offsets in the CALLER's memory; route to the callee Contract, write the
+      // result back, return the InterContractCallError code. The callee's originator propagates from the
+      // caller's ctx header (offset 40).
+      liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number) => {
+        const input = u8().slice(inOff, inOff + inSize);
+        const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
+        const r = this.host.callFunction(this.slot, calleeIdx >>> 0, inputType & 0xffff, input, originator);
+        if (r.error === 0 && r.output.length) u8().set(r.output.subarray(0, Math.min(outSize, r.output.length)), outOff);
+        return r.error;
+      },
+      liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint) => {
+        const input = u8().slice(inOff, inOff + inSize);
+        const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
+        const r = this.host.invokeProcedure(this.slot, calleeIdx >>> 0, inputType & 0xffff, input, reward, originator);
+        if (r.error === 0 && r.output.length) u8().set(r.output.subarray(0, Math.min(outSize, r.output.length)), outOff);
+        return r.error;
+      },
       liteSetShareholderProposal: nyi("liteSetShareholderProposal"),
       liteSetShareholderVotes: nyi("liteSetShareholderVotes"),
     };

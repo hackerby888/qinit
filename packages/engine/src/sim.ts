@@ -16,6 +16,16 @@ const NUMBER_OF_COMPUTORS = 8; // testnet dynamic-contracts committee (consensus
 const TT_STANDARD = 0;
 const TT_PROCEDURE = 1;
 const TT_QPI = 2;
+const TT_PROCEDURE_BY_OTHER_CONTRACT = 6;
+
+const EP_USER_FUNCTION = 12; // contract_def.h USER_FUNCTION_CALL (contractSystemProcedureCount=10, +2)
+const MAX_CALL_DEPTH = 10; // NUMBER_OF_CONTRACT_EXECUTION_BUFFERS (recursion-depth guard)
+const EMPTY = new Uint8Array(0);
+
+// InterContractCallError (qpi.h:68-75) — the codes liteCallFunction/liteInvokeProcedure return.
+const CALL_ERR_NONE = 0;
+const CALL_ERR_ALLOC = 3;
+const CALL_ERR_INACTIVE = 4;
 
 interface Holding {
   owner: Uint8Array;
@@ -60,6 +70,7 @@ export class Sim {
   private assets = new Map<string, AssetRec>(); // universe: assetKey -> issuance + holdings
   private txByTick = new Map<number, TxRecord[]>();
   private txById = new Map<string, TxRecord>();
+  private callDepth = 0; // inter-contract nesting depth
 
   constructor() {
     this.host = {
@@ -76,6 +87,8 @@ export class Sim {
       numberOfPossessedShares: (name, issuer, owner, possessor, ownMgmt, posMgmt) => this.doNumberOfPossessedShares(name, issuer, owner, possessor, ownMgmt, posMgmt),
       transferShares: (slot, name, issuer, owner, possessor, shares, newOwner) => this.doTransferShares(slot, name, issuer, owner, possessor, shares, newOwner),
       distributeDividends: (slot, amountPerShare) => this.doDistributeDividends(slot, amountPerShare),
+      callFunction: (callerSlot, calleeIdx, inputType, input, originator) => this.doCallFunction(callerSlot, calleeIdx, inputType, input, originator),
+      invokeProcedure: (callerSlot, calleeIdx, inputType, input, reward, originator) => this.doInvokeProcedure(callerSlot, calleeIdx, inputType, input, reward, originator),
     };
   }
 
@@ -357,11 +370,59 @@ export class Sim {
 
   // Run a user procedure: POST_INCOMING_TRANSFER (procedureTransaction) if reward>0, then the procedure.
   // Does NOT credit — the caller (procedure() or applyTx()) has already moved the reward into the contract.
-  private runProcedure(slot: number, it: number, input: Uint8Array, invocator: Uint8Array, originator: Uint8Array, reward: bigint): Uint8Array {
+  private runProcedure(slot: number, it: number, input: Uint8Array, invocator: Uint8Array, originator: Uint8Array, reward: bigint, transferType = TT_PROCEDURE): Uint8Array {
     const c = this.contracts.get(slot)!;
-    if (reward > 0n) this.notifyPIT(this.contractId(slot), invocator, reward, TT_PROCEDURE);
+    if (reward > 0n) this.notifyPIT(this.contractId(slot), invocator, reward, transferType);
 
     return c.invoke(KIND.PROCEDURE, it, input, { invocator, originator, invocationReward: reward, entryPoint: EP_USER_PROCEDURE });
+  }
+
+  // Inter-contract function call (liteCallFunction) — route to whatever Contract is at calleeIdx (a user
+  // contract or a wasm-deployed system contract; no native/wasm distinction). Returns the
+  // InterContractCallError + the callee's output bytes.
+  doCallFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Uint8Array): { error: number; output: Uint8Array } {
+    const callee = this.contracts.get(calleeIdx);
+    if (!callee) return { error: CALL_ERR_INACTIVE, output: EMPTY };
+    if (calleeIdx >= callerSlot) return { error: CALL_ERR_INACTIVE, output: EMPTY }; // lower-index rule
+    if (this.callDepth >= MAX_CALL_DEPTH) return { error: CALL_ERR_ALLOC, output: EMPTY };
+
+    this.callDepth++;
+    try {
+      const invocator = this.contractId(callerSlot);
+      const output = callee.invoke(KIND.FUNCTION, inputType, input, { invocator, originator, invocationReward: 0n, entryPoint: EP_USER_FUNCTION });
+      return { error: CALL_ERR_NONE, output };
+    } finally {
+      this.callDepth--;
+    }
+  }
+
+  // Inter-contract procedure invocation (liteInvokeProcedure) — transfer the reward (caller contract -> callee
+  // contract), then run the callee procedure (fires its POST_INCOMING_TRANSFER, procedureInvocationByOtherContract).
+  doInvokeProcedure(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, reward: bigint, originator: Uint8Array): { error: number; output: Uint8Array } {
+    const callee = this.contracts.get(calleeIdx);
+    if (!callee) return { error: CALL_ERR_INACTIVE, output: EMPTY };
+    if (calleeIdx >= callerSlot) return { error: CALL_ERR_INACTIVE, output: EMPTY };
+    if (this.callDepth >= MAX_CALL_DEPTH) return { error: CALL_ERR_ALLOC, output: EMPTY };
+
+    let r = reward;
+    if (r > 0n) {
+      const callerCid = this.contractId(callerSlot);
+      if (this.balance(callerCid) >= r) {
+        this.debit(callerCid, r);
+        this.credit(this.contractId(calleeIdx), r);
+      } else {
+        r = 0n; // insufficient — the node sets the reward to 0
+      }
+    }
+
+    this.callDepth++;
+    try {
+      const invocator = this.contractId(callerSlot);
+      const output = this.runProcedure(calleeIdx, inputType, input, invocator, originator, r, TT_PROCEDURE_BY_OTHER_CONTRACT);
+      return { error: CALL_ERR_NONE, output };
+    } finally {
+      this.callDepth--;
+    }
   }
 
   // Direct procedure call (IDE/tests convenience): credit the reward, then run. The canonical on-chain path is
