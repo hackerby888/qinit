@@ -1,6 +1,7 @@
 // Client for the qubic-core-lite built-in HTTP RPC (GET-only; default :41841).
 // Fast path for on-chain reads — current tick, spectrum, and (later) the deploy registry.
-import { fetchT } from "./net";
+import { fetchT, broadcastTx as netBroadcastTx } from "./net";
+import type { NodeTransport, EntityInfo, TxInfo } from "./transport";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -35,7 +36,7 @@ export interface DebugEntry {
 }
 export interface DebugTrace { enabled: boolean; entries: DebugEntry[]; }
 
-export class LiteRpc {
+export class LiteRpc implements NodeTransport {
   constructor(private base = "http://127.0.0.1:41841") {}
 
   // GETs are idempotent reads: a connect/timeout failure is retried (bounded, backoff) so a momentary
@@ -123,6 +124,11 @@ export class LiteRpc {
     return this.get<{ fromEpoch: number; toEpoch: number; fromTick: number; tick: number; initialTick: number; switched: boolean }>("/live/v1/dev/advance-epoch");
   }
 
+  /** Broadcast a signed tx (POST /live/v1/broadcast-transaction) — folded into NodeTransport. */
+  broadcastTx(txBytes: Uint8Array) {
+    return netBroadcastTx(txBytes, this.base);
+  }
+
   /** Call a contract function (read-only) via POST /live/v1/querySmartContract. */
   async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
     let r: Response;
@@ -150,5 +156,43 @@ export class LiteRpc {
       }, 15000);
       return r.ok;
     } catch { return false; }
+  }
+
+  /** Spectrum balance / entity (GET /live/v1/balances/{id}). */
+  async balance(id: string): Promise<EntityInfo> {
+    const j = await this.get<{ balance?: Record<string, unknown> }>(`/live/v1/balances/${id}`);
+    const b = j.balance ?? {};
+    return {
+      id: String(b.id ?? id),
+      balance: String(b.balance ?? "0"),
+      incomingAmount: String(b.incomingAmount ?? "0"),
+      outgoingAmount: String(b.outgoingAmount ?? "0"),
+      numberOfIncomingTransfers: Number(b.numberOfIncomingTransfers ?? 0),
+      numberOfOutgoingTransfers: Number(b.numberOfOutgoingTransfers ?? 0),
+      latestIncomingTransferTick: Number(b.latestIncomingTransferTick ?? 0),
+      latestOutgoingTransferTick: Number(b.latestOutgoingTransferTick ?? 0),
+    };
+  }
+
+  /** Transactions in a tick (POST /query/v1/getTransactionsForTick) — lite tickdata. */
+  async tickTransactions(tick: number): Promise<TxInfo[]> {
+    try {
+      const r = await fetchT(this.base + "/query/v1/getTransactionsForTick", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tickNumber: tick }),
+      }, 10000);
+      const j = (await r.json().catch(() => ({}))) as { transactions?: Record<string, unknown>[] };
+      const txs = Array.isArray(j.transactions) ? j.transactions : [];
+      return txs.map((t) => ({
+        txId: String(t.txId ?? t.transactionId ?? ""),
+        tick,
+        source: String(t.sourceId ?? t.source ?? ""),
+        dest: String(t.destId ?? t.destination ?? ""),
+        amount: String(t.amount ?? "0"),
+        inputType: Number(t.inputType ?? 0),
+        moneyFlew: Boolean(t.moneyFlew ?? true),
+      }));
+    } catch {
+      return [];
+    }
   }
 }

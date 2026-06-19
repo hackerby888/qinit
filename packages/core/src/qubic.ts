@@ -36,6 +36,26 @@ export async function k12Hex(bytes: Uint8Array): Promise<string> {
   return toHex(out);
 }
 
+// Synchronous K12 for callers that hash inside a tight loop or a wasm host import (e.g. the TS SC engine's
+// `lh_k12` + state digest), where awaiting per call isn't possible. Resolve the crypto module once via
+// initK12(), then hash synchronously against the SAME instance k12Hex uses.
+let _k12Sync: ((input: Uint8Array, out: Uint8Array, outLen: number) => void) | null = null;
+
+export async function initK12(): Promise<void> {
+  if (_k12Sync) return;
+  // @ts-ignore - require is provided by bun (see k12Hex above for the resolution rationale)
+  const cryptoMod: any = require("@qubic-lib/qubic-ts-library/dist/crypto");
+  const { K12 } = await (cryptoMod.default ?? cryptoMod);
+  _k12Sync = K12;
+}
+
+export function k12Sync(bytes: Uint8Array): Uint8Array {
+  if (!_k12Sync) throw new Error("k12 not initialized — await initK12() first");
+  const out = new Uint8Array(32);
+  _k12Sync(bytes, out, 32);
+  return out;
+}
+
 // Deriving an identity exercises K12 (subseed) + FourQ (public key) in the
 // library's wasm crypto — the thing we must prove works in the compiled binary.
 export async function deriveIdentity(seed: string): Promise<IdentityResult> {
