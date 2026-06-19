@@ -26,6 +26,12 @@ export interface HostServices {
   log(slot: number, level: number, msg: Uint8Array): void;
   transfer(slot: number, dest: Uint8Array, amount: bigint, transferType: number): bigint;
   burn(slot: number, amount: bigint, burnedFor: number): bigint;
+  issueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint;
+  isAssetIssued(issuer: Uint8Array, name: bigint): number;
+  numberOfShares(asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array): bigint;
+  numberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint;
+  transferShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint;
+  distributeDividends(slot: number, amountPerShare: bigint): number;
 }
 
 // Per-call context written into the contract's 256-byte QpiContext header (qpi.h QpiContext layout). The
@@ -209,12 +215,16 @@ export class Contract {
       burn: (amount: bigint, burnedFor: number) =>
         this.host.burn(this.slot, amount, burnedFor >>> 0),
       // assets / shares
-      isAssetIssued: () => 0,
-      issueAsset: nyi("issueAsset"),
-      numberOfShares: () => 0n,
-      numberOfPossessedShares: () => 0n,
-      transferShareOwnershipAndPossession: nyi("transferShareOwnershipAndPossession"),
-      distributeDividends: nyi("distributeDividends"),
+      isAssetIssued: (issOff: number, name: bigint) => this.host.isAssetIssued(u8().slice(issOff, issOff + 32), name),
+      issueAsset: (name: bigint, issOff: number, dec: number, shares: bigint, unit: bigint) =>
+        this.host.issueAsset(this.slot, name, u8().slice(issOff, issOff + 32), (dec << 24) >> 24, shares, unit, u8().slice(this.ctxAddr + 72, this.ctxAddr + 104)),
+      numberOfShares: (aOff: number, oOff: number, pOff: number) =>
+        this.host.numberOfShares(u8().slice(aOff, aOff + 40), u8().slice(oOff, oOff + 40), u8().slice(pOff, pOff + 40)),
+      numberOfPossessedShares: (name: bigint, issOff: number, ownOff: number, posOff: number, ownMgmt: number, posMgmt: number) =>
+        this.host.numberOfPossessedShares(name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), ownMgmt & 0xffff, posMgmt & 0xffff),
+      transferShareOwnershipAndPossession: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, newOwnerOff: number) =>
+        this.host.transferShares(this.slot, name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), shares, u8().slice(newOwnerOff, newOwnerOff + 32)),
+      distributeDividends: (amountPerShare: bigint) => this.host.distributeDividends(this.slot, amountPerShare),
       // inter-contract
       liteCallFunction: nyi("liteCallFunction"),
       liteInvokeProcedure: nyi("liteInvokeProcedure"),
