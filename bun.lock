@@ -45,6 +45,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@qinit/core": "workspace:*",
+        "@qinit/proto": "workspace:*",
       },
     },
     "packages/proto": {

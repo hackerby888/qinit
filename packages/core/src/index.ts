@@ -4,7 +4,8 @@ export type { IdentityResult, CryptoSmokeResult } from "./qubic";
 export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./tx";
 export type { SignedTx, TxInput } from "./tx";
 export { LiteRpc } from "./rpc";
-export type { TickInfo, DynRegistry, DynContract, DynEntry, DebugTrace, DebugEntry, DebugHostCall, DebugStateRegion } from "./rpc";
+export type { TickInfo, DynRegistry, DynContract, DynEntry, DynUpload, DebugTrace, DebugEntry, DebugHostCall, DebugStateRegion } from "./rpc";
+export type { NodeTransport, TxStatus, StateRead } from "./transport";
 export { broadcastTx, broadcastTxs, fetchT, readBody } from "./net";
 export type { BroadcastResult } from "./net";
 export {

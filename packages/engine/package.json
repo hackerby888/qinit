@@ -6,6 +6,7 @@
   "module": "src/index.ts",
   "exports": { ".": "./src/index.ts" },
   "dependencies": {
-    "@qinit/core": "workspace:*"
+    "@qinit/core": "workspace:*",
+    "@qinit/proto": "workspace:*"
   }
 }

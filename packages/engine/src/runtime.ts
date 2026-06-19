@@ -39,6 +39,7 @@ export class Contract {
   sysMask = 0;
   private outSizes = new Map<string, number>();   // user entries: "kind:it" -> outSize
   private sysOutSizes = new Map<number, number>(); // sysproc id -> outSize
+  entries: { it: number; kind: number; inSize: number; outSize: number }[] = []; // registered fns/procs
 
   private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module) {
     this.inst = new WebAssembly.Instance(mod, this.imports());
@@ -62,8 +63,12 @@ export class Contract {
 
   // Fresh views each use — memory.grow detaches the underlying ArrayBuffer, so never hold a view
   // across a dispatch.
-  private u8() { return new Uint8Array(this.mem.buffer); }
-  private dv() { return new DataView(this.mem.buffer); }
+  private u8() {
+    return new Uint8Array(this.mem.buffer);
+  }
+  private dv() {
+    return new DataView(this.mem.buffer);
+  }
 
   private readRegistry() {
     this.sysMask = this.ex.reg_sysproc_mask() >>> 0;
@@ -74,7 +79,9 @@ export class Contract {
       const dv = this.dv();                               // LiteWasmTuInfo { u32 inputType, kind, inSize, outSize }
       const it = dv.getUint32(scratch, true);
       const kind = dv.getUint32(scratch + 4, true);
+      const inSize = dv.getUint32(scratch + 8, true);
       const outSize = dv.getUint32(scratch + 12, true);
+      this.entries.push({ it, kind, inSize, outSize });
       this.outSizes.set(kind + ":" + it, outSize);
     }
     for (let sp = 0; sp < 12; sp++) {
@@ -82,14 +89,18 @@ export class Contract {
     }
   }
 
-  hasSysproc(sp: number): boolean { return ((this.sysMask >>> sp) & 1) === 1; }
+  hasSysproc(sp: number): boolean {
+    return ((this.sysMask >>> sp) & 1) === 1;
+  }
 
   private outSizeFor(kind: number, it: number): number {
     if (kind === KIND.SYSPROC) return this.sysOutSizes.get(it) ?? 0;
     return this.outSizes.get(kind + ":" + it) ?? 0;
   }
 
-  zeroState() { this.u8().fill(0, this.stateAddr, this.stateAddr + this.stateSize); }
+  zeroState() {
+    this.u8().fill(0, this.stateAddr, this.stateAddr + this.stateSize);
+  }
 
   // Marshal one call through the instance (mirrors liteWasmDispatch): write ctx header + input, zero output,
   // call dispatch(kind,it,inOff,outOff,localsOff), copy the output back out.
@@ -107,15 +118,21 @@ export class Contract {
     return this.u8().slice(outOff, outOff + outSize);     // fresh view after dispatch
   }
 
-  state(): Uint8Array { return this.u8().slice(this.stateAddr, this.stateAddr + this.stateSize); }
-  digest(): string { return toHex(k12Bytes(this.state())); }
+  state(): Uint8Array {
+    return this.u8().slice(this.stateAddr, this.stateAddr + this.stateSize);
+  }
+  digest(): string {
+    return toHex(k12Bytes(this.state()));
+  }
 
   // The "lhost" import table (core-lite src/extensions/lite_wasm_imports.h LHOST_TABLE) + WASI stubs.
   // The contract wires only the subset it declares; extras are ignored. Effectful ledger/asset/inter-contract
   // ops throw loudly (not silently wrong) until Layer 2 models them.
   private imports(): WebAssembly.Imports {
     const u8 = () => this.u8();
-    const nyi = (name: string) => () => { throw new Error("host import unimplemented in MVP: " + name); };
+    const nyi = (name: string) => () => {
+      throw new Error("host import unimplemented in MVP: " + name);
+    };
     const lhost: Record<string, Function> = {
       // infra / logging
       beginFn: (_id: number) => {},
@@ -135,7 +152,9 @@ export class Contract {
         this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size)),
       k12: (inOff: number, len: number, outOff: number) =>
         u8().set(k12Bytes(u8().slice(inOff, inOff + len)), outOff),
-      abort: (code: number) => { throw new ContractAbort(code); },
+      abort: (code: number) => {
+        throw new ContractAbort(code);
+      },
       // time / tick (read-only)
       epoch: () => this.host.epoch() & 0xffff,
       tick: () => this.host.tick() >>> 0,

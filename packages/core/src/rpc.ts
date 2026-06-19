@@ -1,6 +1,7 @@
 // Client for the qubic-core-lite built-in HTTP RPC (GET-only; default :41841).
 // Fast path for on-chain reads — current tick, spectrum, and (later) the deploy registry.
-import { fetchT } from "./net";
+import { fetchT, broadcastTx as netBroadcastTx } from "./net";
+import type { NodeTransport } from "./transport";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -35,7 +36,7 @@ export interface DebugEntry {
 }
 export interface DebugTrace { enabled: boolean; entries: DebugEntry[]; }
 
-export class LiteRpc {
+export class LiteRpc implements NodeTransport {
   constructor(private base = "http://127.0.0.1:41841") {}
 
   // GETs are idempotent reads: a connect/timeout failure is retried (bounded, backoff) so a momentary
@@ -121,6 +122,11 @@ export class LiteRpc {
   /** Testnet-only: advance to the next epoch via the node's seamless transition (GET /live/v1/dev/advance-epoch). */
   advanceEpoch() {
     return this.get<{ fromEpoch: number; toEpoch: number; fromTick: number; tick: number; initialTick: number; switched: boolean }>("/live/v1/dev/advance-epoch");
+  }
+
+  /** Broadcast a signed tx (POST /live/v1/broadcast-transaction) — folded into NodeTransport. */
+  broadcastTx(txBytes: Uint8Array) {
+    return netBroadcastTx(txBytes, this.base);
   }
 
   /** Call a contract function (read-only) via POST /live/v1/querySmartContract. */
