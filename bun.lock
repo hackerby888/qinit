@@ -40,6 +40,13 @@
         "@qubic-lib/qubic-ts-library": "latest",
       },
     },
+    "packages/engine": {
+      "name": "@qinit/engine",
+      "version": "0.0.0",
+      "dependencies": {
+        "@qinit/core": "workspace:*",
+      },
+    },
     "packages/proto": {
       "name": "@qinit/proto",
       "version": "0.0.0",
@@ -58,6 +65,8 @@
     "@qinit/cli": ["@qinit/cli@workspace:packages/cli"],
 
     "@qinit/core": ["@qinit/core@workspace:packages/core"],
+
+    "@qinit/engine": ["@qinit/engine@workspace:packages/engine"],
 
     "@qinit/proto": ["@qinit/proto@workspace:packages/proto"],
 
