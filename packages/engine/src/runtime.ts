@@ -4,6 +4,9 @@
 // The contract bytes run unchanged; this supplies the "lhost" import table, the per-call marshalling, and
 // the resident-state digest. See plan: /home/kali/.claude/plans/resilient-exploring-stonebraker.md
 import { k12Bytes, toHex } from "./k12";
+import type { TraceRecorder } from "./trace";
+
+const EMPTY = new Uint8Array(0);
 
 export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2 } as const;
 
@@ -65,6 +68,13 @@ export class ContractAbort extends Error {
   constructor(public code: number) { super("contract abort " + code); }
 }
 
+function trapMessage(err: unknown): string {
+  if (err instanceof ContractAbort) {
+    return `abort(${err.code})`;
+  }
+  return String((err as Error)?.message ?? err);
+}
+
 export class Contract {
   inst: WebAssembly.Instance;
   mem: WebAssembly.Memory;
@@ -75,6 +85,7 @@ export class Contract {
   private outSizes = new Map<string, number>();   // user entries: "kind:it" -> outSize
   private sysOutSizes = new Map<number, number>(); // sysproc id -> outSize
   entries: { it: number; kind: number; inSize: number; outSize: number }[] = []; // registered fns/procs
+  trace?: TraceRecorder; // set by the Sim when debug tracing is on
 
   private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module) {
     this.inst = new WebAssembly.Instance(mod, this.imports());
@@ -165,8 +176,28 @@ export class Contract {
     if (input.length) pre.set(input, inOff);
     this.writeCtx(ctx);
     this.arenaBump = this.arenaBase;
-    this.ex.dispatch(kind >>> 0, it >>> 0, inOff >>> 0, outOff >>> 0, localsOff >>> 0);
-    return this.u8().slice(outOff, outOff + outSize); // fresh view after dispatch
+
+    // Debug trace (opt-in): snapshot state, open an entry, time the dispatch, capture a trap. Nesting
+    // (inter-contract calls / sysprocs) is handled by the recorder's stack — each invoke is one entry.
+    const rec = this.trace?.enabled ? this.trace : null;
+    const stateBefore = rec ? this.state() : EMPTY;
+    const e = rec ? rec.begin({ tick: this.host.tick(), index: this.slot, entry: it, kind, invocator: ctx.invocator, invocationReward: ctx.invocationReward ?? 0n, input, stateBefore }) : null;
+    const t0 = rec ? performance.now() : 0;
+
+    try {
+      this.ex.dispatch(kind >>> 0, it >>> 0, inOff >>> 0, outOff >>> 0, localsOff >>> 0);
+    } catch (err) {
+      if (rec) {
+        rec.end(e, { output: EMPTY, ok: false, trap: trapMessage(err), stateBefore, stateAfter: this.state(), execNs: (performance.now() - t0) * 1e6 });
+      }
+      throw err;
+    }
+
+    const output = this.u8().slice(outOff, outOff + outSize); // fresh view after dispatch
+    if (rec) {
+      rec.end(e, { output, ok: true, stateBefore, stateAfter: this.state(), execNs: (performance.now() - t0) * 1e6 });
+    }
+    return output;
   }
 
   state(): Uint8Array {
