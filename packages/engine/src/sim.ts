@@ -66,6 +66,7 @@ export interface ProcedureOpts {
 export class Sim {
   tickN = 0;
   epochN = 0;
+  epochLength = 3000; // TESTNET_EPOCH_DURATION (core public_settings.h) — epoch switches when the tick crosses a multiple
   contracts = new Map<number, Contract>();
   dirty = new Set<number>();
   host: HostServices;
@@ -403,6 +404,22 @@ export class Sim {
       const c = this.contracts.get(s)!;
       if (c.hasSysproc(SP.END_TICK)) c.invoke(KIND.SYSPROC, SP.END_TICK, new Uint8Array(0), { entryPoint: SP.END_TICK });
     }
+  }
+
+  // Advance one tick. When the new tick reaches an epoch boundary (a multiple of epochLength) the chain
+  // switches epoch first — END_EPOCH of the closing epoch, epoch++, then BEGIN_EPOCH of the new one (core's
+  // SystemProcedureID order) — before this tick's BEGIN_TICK/END_TICK run. This is how the live network
+  // fires the epoch lifecycle; deploy still runs only INITIALIZE, so a contract's first BEGIN_EPOCH lands at
+  // the next boundary (mirroring construction mid-epoch on the node).
+  advance(): void {
+    const nextTick = this.tickN + 1;
+    if (this.epochLength > 0 && nextTick % this.epochLength === 0) {
+      this.endEpoch();
+      this.epochN++;
+      this.beginEpoch();
+    }
+    this.beginTick();
+    this.endTick();
   }
 
   query(slot: number, it: number, input?: Uint8Array): Uint8Array {
