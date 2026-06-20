@@ -7,7 +7,7 @@ import type {
 } from "@qinit/core";
 import { bytesToIdentity, identityToBytes, deriveIdentity } from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX } from "@qinit/proto";
-import { Sim } from "./sim";
+import { Sim, type AssetSnapshot } from "./sim";
 import { Contract, KIND } from "./runtime";
 import { k12Bytes, toHex } from "./k12";
 
@@ -150,6 +150,11 @@ export class InProcessEngine implements NodeTransport {
 
   async debugTrace(): Promise<DebugTrace> {
     return this.sim.getTrace();
+  }
+
+  // Read-only snapshot of the asset universe (issued assets + share holdings) — the IDE assets inspector.
+  assetUniverse(): AssetSnapshot[] {
+    return this.sim.assetUniverse();
   }
 
   async setDebug(on: boolean): Promise<{ enabled: boolean }> {
