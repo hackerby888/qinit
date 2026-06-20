@@ -4,6 +4,9 @@
 // The contract bytes run unchanged; this supplies the "lhost" import table, the per-call marshalling, and
 // the resident-state digest. See plan: /home/kali/.claude/plans/resilient-exploring-stonebraker.md
 import { k12Bytes, toHex } from "./k12";
+import type { TraceRecorder } from "./trace";
+
+const EMPTY = new Uint8Array(0);
 
 export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2 } as const;
 
@@ -65,6 +68,13 @@ export class ContractAbort extends Error {
   constructor(public code: number) { super("contract abort " + code); }
 }
 
+function trapMessage(err: unknown): string {
+  if (err instanceof ContractAbort) {
+    return `abort(${err.code})`;
+  }
+  return String((err as Error)?.message ?? err);
+}
+
 export class Contract {
   inst: WebAssembly.Instance;
   mem: WebAssembly.Memory;
@@ -75,6 +85,7 @@ export class Contract {
   private outSizes = new Map<string, number>();   // user entries: "kind:it" -> outSize
   private sysOutSizes = new Map<number, number>(); // sysproc id -> outSize
   entries: { it: number; kind: number; inSize: number; outSize: number }[] = []; // registered fns/procs
+  trace?: TraceRecorder; // set by the Sim when debug tracing is on
 
   private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module) {
     this.inst = new WebAssembly.Instance(mod, this.imports());
@@ -165,8 +176,28 @@ export class Contract {
     if (input.length) pre.set(input, inOff);
     this.writeCtx(ctx);
     this.arenaBump = this.arenaBase;
-    this.ex.dispatch(kind >>> 0, it >>> 0, inOff >>> 0, outOff >>> 0, localsOff >>> 0);
-    return this.u8().slice(outOff, outOff + outSize); // fresh view after dispatch
+
+    // Debug trace (opt-in): snapshot state, open an entry, time the dispatch, capture a trap. Nesting
+    // (inter-contract calls / sysprocs) is handled by the recorder's stack — each invoke is one entry.
+    const rec = this.trace?.enabled ? this.trace : null;
+    const stateBefore = rec ? this.state() : EMPTY;
+    const e = rec ? rec.begin({ tick: this.host.tick(), index: this.slot, entry: it, kind, invocator: ctx.invocator, invocationReward: ctx.invocationReward ?? 0n, input, stateBefore }) : null;
+    const t0 = rec ? performance.now() : 0;
+
+    try {
+      this.ex.dispatch(kind >>> 0, it >>> 0, inOff >>> 0, outOff >>> 0, localsOff >>> 0);
+    } catch (err) {
+      if (rec) {
+        rec.end(e, { output: EMPTY, ok: false, trap: trapMessage(err), stateBefore, stateAfter: this.state(), execNs: (performance.now() - t0) * 1e6 });
+      }
+      throw err;
+    }
+
+    const output = this.u8().slice(outOff, outOff + outSize); // fresh view after dispatch
+    if (rec) {
+      rec.end(e, { output, ok: true, stateBefore, stateAfter: this.state(), execNs: (performance.now() - t0) * 1e6 });
+    }
+    return output;
   }
 
   state(): Uint8Array {
@@ -174,6 +205,16 @@ export class Contract {
   }
   digest(): string {
     return toHex(k12Bytes(this.state()));
+  }
+
+  // Record an effectful host-ABI call (transfer/burn/asset/inter-contract) onto the active debug entry —
+  // the host-event timeline the debugger/IDE shows next to the state diff. The detail thunk runs only when
+  // tracing is enabled, so the hot path pays nothing when it's off.
+  private recHost(name: string, detail: () => string): void {
+    const rec = this.trace;
+    if (rec?.enabled) {
+      rec.hostCall(name, detail());
+    }
   }
 
   // The "lhost" import table (core-lite src/extensions/lite_wasm_imports.h LHOST_TABLE) + WASI stubs.
@@ -239,23 +280,45 @@ export class Contract {
       arbitrator: (out: number) => u8().fill(0, out, out + 32),
       computor: (_i: number, out: number) => u8().fill(0, out, out + 32),
       // value / ledger (delegated to Layer 2; return the contract's new balance per qpi_spectrum_impl.h)
-      transfer: (destOff: number, amount: bigint) =>
-        this.host.transfer(this.slot, u8().slice(destOff, destOff + 32), amount, 2 /*qpiTransfer*/),
-      transferTyped: (destOff: number, amount: bigint, type: number) =>
-        this.host.transfer(this.slot, u8().slice(destOff, destOff + 32), amount, type & 0xff),
-      burn: (amount: bigint, burnedFor: number) =>
-        this.host.burn(this.slot, amount, burnedFor >>> 0),
+      transfer: (destOff: number, amount: bigint) => {
+        const dest = u8().slice(destOff, destOff + 32);
+        const r = this.host.transfer(this.slot, dest, amount, 2 /*qpiTransfer*/);
+        this.recHost("transfer", () => `→ ${shortId(dest)} ${amount}${r < 0n ? " ✗" : ""}`);
+        return r;
+      },
+      transferTyped: (destOff: number, amount: bigint, type: number) => {
+        const dest = u8().slice(destOff, destOff + 32);
+        const r = this.host.transfer(this.slot, dest, amount, type & 0xff);
+        this.recHost("transfer", () => `→ ${shortId(dest)} ${amount} (type ${type & 0xff})${r < 0n ? " ✗" : ""}`);
+        return r;
+      },
+      burn: (amount: bigint, burnedFor: number) => {
+        const r = this.host.burn(this.slot, amount, burnedFor >>> 0);
+        this.recHost("burn", () => `${amount}${r < 0n ? " ✗" : ""}`);
+        return r;
+      },
       // assets / shares
       isAssetIssued: (issOff: number, name: bigint) => this.host.isAssetIssued(u8().slice(issOff, issOff + 32), name),
-      issueAsset: (name: bigint, issOff: number, dec: number, shares: bigint, unit: bigint) =>
-        this.host.issueAsset(this.slot, name, u8().slice(issOff, issOff + 32), (dec << 24) >> 24, shares, unit, u8().slice(this.ctxAddr + 72, this.ctxAddr + 104)),
+      issueAsset: (name: bigint, issOff: number, dec: number, shares: bigint, unit: bigint) => {
+        const r = this.host.issueAsset(this.slot, name, u8().slice(issOff, issOff + 32), (dec << 24) >> 24, shares, unit, u8().slice(this.ctxAddr + 72, this.ctxAddr + 104));
+        this.recHost("issueAsset", () => `${assetName(name)} shares=${shares}`);
+        return r;
+      },
       numberOfShares: (aOff: number, oOff: number, pOff: number) =>
         this.host.numberOfShares(u8().slice(aOff, aOff + 40), u8().slice(oOff, oOff + 40), u8().slice(pOff, pOff + 40)),
       numberOfPossessedShares: (name: bigint, issOff: number, ownOff: number, posOff: number, ownMgmt: number, posMgmt: number) =>
         this.host.numberOfPossessedShares(name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), ownMgmt & 0xffff, posMgmt & 0xffff),
-      transferShareOwnershipAndPossession: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, newOwnerOff: number) =>
-        this.host.transferShares(this.slot, name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), shares, u8().slice(newOwnerOff, newOwnerOff + 32)),
-      distributeDividends: (amountPerShare: bigint) => this.host.distributeDividends(this.slot, amountPerShare),
+      transferShareOwnershipAndPossession: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, newOwnerOff: number) => {
+        const newOwner = u8().slice(newOwnerOff, newOwnerOff + 32);
+        const r = this.host.transferShares(this.slot, name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), shares, newOwner);
+        this.recHost("transferShares", () => `${assetName(name)} ${shares} → ${shortId(newOwner)}`);
+        return r;
+      },
+      distributeDividends: (amountPerShare: bigint) => {
+        const r = this.host.distributeDividends(this.slot, amountPerShare);
+        this.recHost("distributeDividends", () => `${amountPerShare}/share`);
+        return r;
+      },
       // inter-contract: in/out are offsets in the CALLER's memory; route to the callee Contract, write the
       // result back, return the InterContractCallError code. The callee's originator propagates from the
       // caller's ctx header (offset 40).
@@ -263,6 +326,7 @@ export class Contract {
         const input = u8().slice(inOff, inOff + inSize);
         const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
         const r = this.host.callFunction(this.slot, calleeIdx >>> 0, inputType & 0xffff, input, originator);
+        this.recHost("callFunction", () => `→ @${calleeIdx >>> 0} fn #${inputType & 0xffff}${r.error ? ` ✗ err ${r.error}` : ""}`);
         if (r.error === 0 && r.output.length) u8().set(r.output.subarray(0, Math.min(outSize, r.output.length)), outOff);
         return r.error;
       },
@@ -270,6 +334,7 @@ export class Contract {
         const input = u8().slice(inOff, inOff + inSize);
         const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
         const r = this.host.invokeProcedure(this.slot, calleeIdx >>> 0, inputType & 0xffff, input, reward, originator);
+        this.recHost("invokeProcedure", () => `→ @${calleeIdx >>> 0} proc #${inputType & 0xffff} reward=${reward}${r.error ? ` ✗ err ${r.error}` : ""}`);
         if (r.error === 0 && r.output.length) u8().set(r.output.subarray(0, Math.min(outSize, r.output.length)), outOff);
         return r.error;
       },
@@ -295,4 +360,35 @@ export class Contract {
     const env = new Proxy({} as Record<string, Function>, { get: () => () => 0 });
     return { lhost, env, wasi_snapshot_preview1: wasi } as unknown as WebAssembly.Imports;
   }
+}
+
+// A compact label for a 32-byte id in a host-call detail line: a contract id (id(slot,0,0,0)) shows as
+// `@slot`, any other identity as a short hex prefix.
+function shortId(id: Uint8Array): string {
+  let high = false;
+  for (let i = 8; i < 32; i++) {
+    if (id[i] !== 0) {
+      high = true;
+      break;
+    }
+  }
+  if (!high) {
+    return "@" + new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true).toString();
+  }
+  return toHex(id.subarray(0, 6)) + "…";
+}
+
+// qpi packs an asset name as up to 7 ASCII bytes little-endian in a uint64 — decode it back to text for the
+// host-call detail (falls back to the numeric value if it isn't printable).
+function assetName(name: bigint): string {
+  let s = "";
+  let n = name;
+  for (let i = 0; i < 7 && n > 0n; i++) {
+    const b = Number(n & 0xffn);
+    if (b >= 0x20 && b < 0x7f) {
+      s += String.fromCharCode(b);
+    }
+    n >>= 8n;
+  }
+  return s || name.toString();
 }

@@ -5,6 +5,8 @@
 // processTickTransaction. Mirrors core-lite qpi_spectrum_impl.h / qpi_asset_impl.h.
 import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
 import { toHex } from "./k12";
+import { TraceRecorder } from "./trace";
+import type { DebugTrace } from "@qinit/core";
 
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
 const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
@@ -73,13 +75,14 @@ export class Sim {
   private txByTick = new Map<number, TxRecord[]>();
   private txById = new Map<string, TxRecord>();
   private callDepth = 0; // inter-contract nesting depth
+  private recorder = new TraceRecorder(); // debug-trace capture (opt-in via setDebug)
 
   constructor() {
     this.host = {
       tick: () => this.tickN,
       epoch: () => this.epochN,
       markDirty: (slot) => this.dirty.add(slot),
-      log: () => {},
+      log: (_slot, level, msg) => this.recorder.log(level, msg),
       transfer: (slot, dest, amount, type) => this.doTransfer(slot, dest, amount, type),
       burn: (slot, amount) => this.doBurn(slot, amount),
       getEntity: (id) => this.entityOf(id),
@@ -355,10 +358,20 @@ export class Sim {
   // Deploy + construct: node zeroes state then runs INITIALIZE (qubic.cpp contractProcessor INITIALIZE).
   deploy(slot: number, wasm: Uint8Array): Contract {
     const c = Contract.load(wasm, slot, this.host);
+    c.trace = this.recorder;
     this.contracts.set(slot, c);
     c.zeroState();
     if (c.hasSysproc(SP.INITIALIZE)) c.invoke(KIND.SYSPROC, SP.INITIALIZE, new Uint8Array(0), { entryPoint: SP.INITIALIZE });
     return c;
+  }
+
+  // Debug tracing — wired to the node's /dev/debug + /debug-trace RPC by the transport.
+  setDebug(on: boolean): void {
+    this.recorder.setEnabled(on);
+  }
+
+  getTrace(): DebugTrace {
+    return this.recorder.trace();
   }
 
   beginEpoch(): void {

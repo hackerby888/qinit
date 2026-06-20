@@ -149,10 +149,11 @@ export class InProcessEngine implements NodeTransport {
   }
 
   async debugTrace(): Promise<DebugTrace> {
-    return { enabled: false, entries: [] };
+    return this.sim.getTrace();
   }
 
   async setDebug(on: boolean): Promise<{ enabled: boolean }> {
+    this.sim.setDebug(on);
     return { enabled: on };
   }
 
