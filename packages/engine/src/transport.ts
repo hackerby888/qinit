@@ -34,11 +34,11 @@ export class InProcessEngine implements NodeTransport {
     return c;
   }
 
-  // Advance the chain n ticks (BEGIN_TICK asc -> END_TICK desc each). The IDE/test drives time explicitly.
+  // Advance the chain n ticks (each: epoch switch on a boundary, then BEGIN_TICK asc -> END_TICK desc). The
+  // IDE/test drives time explicitly.
   advanceTick(n = 1): number {
     for (let i = 0; i < n; i++) {
-      this.sim.beginTick();
-      this.sim.endTick();
+      this.sim.advance();
     }
     return this.sim.tickN;
   }
