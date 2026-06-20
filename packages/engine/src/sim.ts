@@ -47,6 +47,31 @@ interface AssetRec {
   holdings: Map<string, Holding>;
 }
 
+// A JSON-able view of one asset + its holdings, for inspection tools (the IDE assets panel).
+export interface AssetSnapshot {
+  issuer: string; // hex 32-byte id (a contract or user)
+  name: string; // decoded ASCII name (e.g. "QX")
+  decimals: number;
+  unit: string;
+  totalShares: string;
+  holdings: { owner: string; possessor: string; ownMgmt: number; posMgmt: number; shares: string }[];
+}
+
+// A qpi asset name is a uint64 of packed little-endian ASCII (A-Z then 0-9/A-Z, up to 7 bytes, zero-padded).
+function assetNameToString(name: bigint): string {
+  let s = "";
+  let n = name;
+  for (let i = 0; i < 8; i++) {
+    const c = Number(n & 0xffn);
+    n >>= 8n;
+    if (c === 0) {
+      break;
+    }
+    s += String.fromCharCode(c);
+  }
+  return s;
+}
+
 export interface TxRecord {
   txId: string;
   tick: number;
@@ -329,6 +354,21 @@ export class Sim {
     this.debit(cur, total);
 
     return 1;
+  }
+
+  // Read-only snapshot of the asset universe (every issued asset + its share holdings) for inspection tools.
+  // Plain JSON-able values: ids as hex, shares/unit as decimal strings, name decoded to its ASCII form.
+  assetUniverse(): AssetSnapshot[] {
+    const out: AssetSnapshot[] = [];
+    for (const a of this.assets.values()) {
+      let total = 0n;
+      const holdings = [...a.holdings.values()].map((h) => {
+        total += h.shares;
+        return { owner: toHex(h.owner.subarray(0, 32)), possessor: toHex(h.possessor.subarray(0, 32)), ownMgmt: h.ownMgmt, posMgmt: h.posMgmt, shares: h.shares.toString() };
+      });
+      out.push({ issuer: toHex(a.issuer.subarray(0, 32)), name: assetNameToString(a.name), decimals: a.decimals, unit: a.unit.toString(), totalShares: total.toString(), holdings });
+    }
+    return out;
   }
 
   // Fire the dest contract's POST_INCOMING_TRANSFER callback (nested, synchronous), if registered.
