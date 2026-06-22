@@ -3,7 +3,7 @@
 // (real qinit-built wasm), asserting the universe (issuance + holdings) the C++ semantics produce. Assets are
 // NOT in the contract-state digest (they live in the universe), so these assert return values + holdings.
 import { test, expect } from "bun:test";
-import { initK12 } from "../src/k12";
+import { initK12, deriveKeysSync, signSync, k12Bytes } from "../src/k12";
 import { Sim } from "../src/sim";
 
 const FIX = import.meta.dir + "/fixtures";
@@ -218,4 +218,27 @@ test("the approve path: PRE_RELEASE_SHARES lets another contract acquire managem
   expect(i64(sim.query(29, 1))).toBe(0n); // acquireShares returned the paid fee (0) on success
   expect(sharesByMgmt(sim, 29)).toBe(400n); // 400 now managed by the acquirer
   expect(sharesByMgmt(sim, 28)).toBe(600n); // 600 still managed by the issuer
+});
+
+test("newly-exposed qpi wasm imports resolve: dayOfWeek + signatureValidity real, IPO/mining/oracle stubbed", async () => {
+  await initK12();
+
+  const sim = new Sim();
+  sim.deploy(29, await wasm("ApiProbe")); // calls all 9 newly-exposed qpi methods
+
+  // Probe = dayOfWeek(2024-01-01) + ipoBidPrice(stub -1) + getOracleQueryStatus(stub 0)
+  const p = new Uint8Array(24); // { uint8 year; uint8 month; uint8 day; ...; }
+  p[0] = 24; p[1] = 1; p[2] = 1;
+  const dow = (new Date(Date.UTC(2024, 0, 1)).getUTCDay() + 4) % 7; // qubic dayOfWeek (0 = Wednesday)
+  expect(i64(sim.query(29, 1, p))).toBe(BigInt(dow) - 1n); // every import resolved; the stubs returned defaults
+
+  // Verify = signatureValidity against a real FourQ signature
+  const kp = deriveKeysSync("z".repeat(55));
+  const digest = k12Bytes(new Uint8Array([1, 2, 3]));
+  const sig = signSync(kp.privateKey, kp.publicKey, digest);
+  const v = new Uint8Array(128); // { id entity; id digest; Array<sint8,64> sig }
+  v.set(kp.publicKey, 0);
+  v.set(digest, 32);
+  v.set(sig, 64);
+  expect(i64(sim.query(29, 2, v))).toBe(1n); // a valid signature verifies through wasm -> lhost -> host
 });

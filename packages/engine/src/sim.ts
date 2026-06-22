@@ -4,7 +4,7 @@
 // just a tx to the contract address with inputType=procId + payload, exactly like qubic.cpp
 // processTickTransaction. Mirrors core-lite qpi_spectrum_impl.h / qpi_asset_impl.h.
 import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
-import { toHex, k12Bytes } from "./k12";
+import { toHex, k12Bytes, verifySync } from "./k12";
 import { TraceRecorder } from "./trace";
 import {
   Committee, type CommitteeOpts, type TickStateDigests,
@@ -174,6 +174,15 @@ export class Sim {
       transferShares: (slot, name, issuer, owner, possessor, shares, newOwner) => this.doTransferShares(slot, name, issuer, owner, possessor, shares, newOwner),
       acquireShares: (slot, name, issuer, owner, possessor, shares, srcOwnMgmt, srcPosMgmt, fee) => this.acquireShares(slot, name, issuer, owner, possessor, shares, srcOwnMgmt, srcPosMgmt, fee),
       releaseShares: (slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee) => this.releaseShares(slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee),
+      dayOfWeek: (year, month, day) => (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7, // qubic dayOfWeek: 0 = Wednesday
+      signatureValidity: (entity, digest, signature) => (verifySync(entity, digest, signature) ? 1 : 0),
+      bidInIPO: () => -1n, // IPO bidding is not modeled in the dev engine — report "no bids registered"
+      ipoBidId: () => ZERO32,
+      ipoBidPrice: () => -1n, // -1 = invalid contract index (qpi.h)
+      computeMiningFunction: () => ZERO32, // mining is not modeled in the dev engine
+      initMiningSeed: () => {},
+      getOracleQueryStatus: () => 0, // oracle is not modeled — ORACLE_QUERY_STATUS default
+      unsubscribeOracle: () => 0,
       distributeDividends: (slot, amountPerShare) => this.doDistributeDividends(slot, amountPerShare),
       callFunction: (callerSlot, calleeIdx, inputType, input, originator) => this.doCallFunction(callerSlot, calleeIdx, inputType, input, originator),
       invokeProcedure: (callerSlot, calleeIdx, inputType, input, reward, originator) => this.doInvokeProcedure(callerSlot, calleeIdx, inputType, input, reward, originator),

@@ -18,6 +18,8 @@ const corpus: { name: string; path: string; dynCallees?: Callees; skipVerify?: b
   { name: "ShareManager", path: fx("ShareManager.h"), skipVerify: true },
   // the approve side: implements the PRE_RELEASE_SHARES callback.
   { name: "ShareApprover", path: fx("ShareApprover.h"), skipVerify: true },
+  // exercises the rest of the newly-exposed qpi wasm imports (dayOfWeek, signatureValidity, IPO/mining/oracle).
+  { name: "ApiProbe", path: fx("ApiProbe.h"), skipVerify: true },
   { name: "BigState", path: fx("BigState.h") },
   { name: "Proxy", path: fx("Proxy.h"), dynCallees: { Counter: { header: fx("Counter.h"), index: 28 } } },
   { name: "QX", path: core + "/src/contracts/Qx.h" },

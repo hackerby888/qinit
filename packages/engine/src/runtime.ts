@@ -38,6 +38,8 @@ const HOST_WEIGHT: Record<string, bigint> = {
   numberOfShares: 5n, numberOfPossessedShares: 3n,
   transferShareOwnershipAndPossession: 20n, distributeDividends: 20n,
   acquireShares: 30n, releaseShares: 30n,
+  dayOfWeek: 1n, signatureValidity: 5n, bidInIPO: 10n, ipoBidId: 2n, ipoBidPrice: 2n,
+  computeMiningFunction: 5n, initMiningSeed: 2n, getOracleQueryStatus: 1n, unsubscribeOracle: 5n,
   liteCallFunction: 20n, liteInvokeProcedure: 20n,
   liteSetShareholderProposal: 20n, liteSetShareholderVotes: 20n,
 };
@@ -98,6 +100,15 @@ export interface HostServices {
   transferShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint;
   acquireShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, srcOwnMgmt: number, srcPosMgmt: number, offeredFee: bigint): bigint;
   releaseShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, dstOwnMgmt: number, dstPosMgmt: number, offeredFee: bigint): bigint;
+  dayOfWeek(year: number, month: number, day: number): number;
+  signatureValidity(entity: Uint8Array, digest: Uint8Array, signature: Uint8Array): number;
+  bidInIPO(slot: number, ipoContractIndex: number, price: bigint, quantity: number): bigint;
+  ipoBidId(ipoContractIndex: number, ipoBidIndex: number): Uint8Array;
+  ipoBidPrice(ipoContractIndex: number, ipoBidIndex: number): bigint;
+  computeMiningFunction(miningSeed: Uint8Array, publicKey: Uint8Array, nonce: Uint8Array): Uint8Array;
+  initMiningSeed(miningSeed: Uint8Array): void;
+  getOracleQueryStatus(queryId: bigint): number;
+  unsubscribeOracle(oracleSubscriptionId: number): number;
   distributeDividends(slot: number, amountPerShare: bigint): number;
   callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Uint8Array): { error: number; output: Uint8Array };
   invokeProcedure(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, reward: bigint, originator: Uint8Array): { error: number; output: Uint8Array };
@@ -437,6 +448,21 @@ export class Contract {
         this.recHost("releaseShares", () => `${assetName(name)} ${shares} → mgmt ${dstPosMgmt & 0xffff}`);
         return r;
       },
+      // date / signature / IPO / mining / oracle-status — see HostServices (the dev engine stubs IPO/mining/oracle)
+      dayOfWeek: (year: number, month: number, day: number) => this.host.dayOfWeek(year & 0xff, month & 0xff, day & 0xff),
+      signatureValidity: (entOff: number, digOff: number, sigOff: number) =>
+        this.host.signatureValidity(u8().slice(entOff, entOff + 32), u8().slice(digOff, digOff + 32), u8().slice(sigOff, sigOff + 64)),
+      bidInIPO: (idx: number, price: bigint, qty: number) => this.host.bidInIPO(this.slot, idx >>> 0, price, qty >>> 0),
+      ipoBidId: (idx: number, bid: number, outOff: number) => {
+        u8().set(this.host.ipoBidId(idx >>> 0, bid >>> 0).subarray(0, 32), outOff);
+      },
+      ipoBidPrice: (idx: number, bid: number) => this.host.ipoBidPrice(idx >>> 0, bid >>> 0),
+      computeMiningFunction: (sOff: number, pkOff: number, nOff: number, outOff: number) => {
+        u8().set(this.host.computeMiningFunction(u8().slice(sOff, sOff + 32), u8().slice(pkOff, pkOff + 32), u8().slice(nOff, nOff + 32)).subarray(0, 32), outOff);
+      },
+      initMiningSeed: (sOff: number) => this.host.initMiningSeed(u8().slice(sOff, sOff + 32)),
+      getOracleQueryStatus: (queryId: bigint) => this.host.getOracleQueryStatus(queryId),
+      unsubscribeOracle: (sub: number) => this.host.unsubscribeOracle(sub | 0),
       distributeDividends: (amountPerShare: bigint) => {
         const r = this.host.distributeDividends(this.slot, amountPerShare);
         this.recHost("distributeDividends", () => `${amountPerShare}/share`);
