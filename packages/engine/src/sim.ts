@@ -520,8 +520,8 @@ export class Sim {
 
     const input = new Uint8Array(128); // PreManagementRightsTransfer_input { Asset(40) owner(32) possessor(32) shares(8) offeredFee(8) otherContractIndex(2) }
     const dv = new DataView(input.buffer);
-    dv.setBigUint64(0, name, true);
-    input.set(issuer.subarray(0, 32), 8);
+    input.set(issuer.subarray(0, 32), 0); // Asset.issuer
+    dv.setBigUint64(32, name, true); // Asset.assetName
     input.set(owner.subarray(0, 32), 40);
     input.set(possessor.subarray(0, 32), 72);
     dv.setBigInt64(104, shares, true);

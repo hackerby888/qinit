@@ -193,3 +193,29 @@ test("a wasm contract can call qpi.acquireShares (the lhost import resolves end-
   // the call reached qpi.acquireShares end-to-end (no LinkError); the host denied it -> INVALID_AMOUNT
   expect(i64(sim.query(29, 1))).toBe(INVALID_AMOUNT);
 });
+
+test("the approve path: PRE_RELEASE_SHARES lets another contract acquire management rights (through wasm)", async () => {
+  await initK12();
+
+  const sim = new Sim();
+  sim.deploy(28, await wasm("ShareApprover")); // built --slot 28: issues + approves releases via PRE_RELEASE_SHARES
+  sim.deploy(29, await wasm("ShareManager")); // built --slot 29: acquires
+  const A = cid(28); // the source manager == issuer == holder
+
+  sim.procedure(28, 1, issueIn(TOKEN, 1000n)); // owner = possessor = id(28), managed by contract 28
+  expect(sharesByMgmt(sim, 28)).toBe(1000n);
+
+  const acq = new Uint8Array(96);
+  const adv = new DataView(acq.buffer);
+  adv.setBigUint64(0, TOKEN, true);
+  acq.set(A, 8); // issuer
+  acq.set(A, 40); // holder (owner == possessor == id(28))
+  adv.setBigInt64(72, 400n, true); // shares
+  adv.setUint16(80, 28, true); // srcMgmt
+  adv.setBigInt64(88, 0n, true); // fee
+  sim.procedure(29, 2, acq); // Acquire -> acquireShares -> PRE_RELEASE_SHARES on 28 approves -> rights move to 29
+
+  expect(i64(sim.query(29, 1))).toBe(0n); // acquireShares returned the paid fee (0) on success
+  expect(sharesByMgmt(sim, 29)).toBe(400n); // 400 now managed by the acquirer
+  expect(sharesByMgmt(sim, 28)).toBe(600n); // 600 still managed by the issuer
+});
