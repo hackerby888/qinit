@@ -772,7 +772,7 @@ export class Sim {
     return this.ticks.get(tick)?.aligned ?? 0;
   }
 
-  // The arbitrator-signed Computors wire list for the current epoch. slotCount pads for the qubic-cli bridge.
+  // The arbitrator-signed Computors wire list for the current epoch. slotCount pads for the peer-protocol bridge.
   signedComputorList(slotCount?: number): Uint8Array {
     return this.getCommittee().signedComputorList(this.epochN, slotCount);
   }

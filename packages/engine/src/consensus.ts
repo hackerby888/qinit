@@ -62,7 +62,7 @@ export class Committee {
 
   // The signed Computors wire struct (core-lite computors.h): epoch(2) + publicKeys[slotCount*32] +
   // arbitrator signature(64) over K12(struct − signature). slotCount defaults to the committee size; the
-  // qubic-cli bridge pads to 676 (the real NUMBER_OF_COMPUTORS) so the cli can parse it.
+  // peer-protocol bridge pads to the protocol's 676-slot list (the real NUMBER_OF_COMPUTORS).
   signedComputorList(epoch: number, slotCount = this.computors.length): Uint8Array {
     const size = 2 + slotCount * DIGEST_SIZE + SIG_SIZE;
     const buf = new Uint8Array(size);

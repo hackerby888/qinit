@@ -1,8 +1,8 @@
-// qubic-cli TCP bridge — a Bun.listen server that speaks the Qubic peer protocol and drives an InProcessEngine,
-// so the official C++ client (`qubic-cli -nodeip 127.0.0.1 -nodeport <port> ...`) runs against the in-process
-// sim. On connect it sends the ExchangePublicPeers handshake, then for each framed request it dispatches by
-// message type to the engine + consensus (Part A) and writes the matching response. Bun-only (Bun.listen); kept
-// out of the browser barrel (separate "@qinit/engine/peer" entry).
+// Qubic peer-protocol TCP server — a Bun.listen server that speaks the Qubic peer protocol and drives an
+// InProcessEngine, so an external Qubic client can run against the in-process sim over TCP. On connect it sends
+// the ExchangePublicPeers handshake, then for each framed request it dispatches by message type to the engine +
+// consensus and writes the matching response. Bun-only (Bun.listen); kept out of the browser barrel (separate
+// "@qinit/engine/peer" entry).
 import { InProcessEngine } from "./transport";
 import { initK12, toHex } from "./k12";
 import { identityToBytes } from "@qinit/core";
@@ -28,14 +28,14 @@ export class PeerServer {
     this.engine = engine;
   }
 
-  // Listen on `port` (21841 = the cli's default node port). Auto-advances one tick every `tickMs` so gettick
-  // moves + broadcast txs land; `tickMs` is also reported as the chain's tickDuration. Pre-funds the funded seed.
+  // Listen on `port` (21841 = the default Qubic node port). Auto-advances one tick every `tickMs` so the current
+  // tick advances + broadcast txs land; `tickMs` is also reported as the chain's tickDuration. Pre-funds the funded seed.
   async start(port = 21841, tickMs = 50): Promise<PeerServerHandle> {
     await initK12();
     await this.engine.seedFaucet();
     this.engine.sim.tickDuration = tickMs;
 
-    // Present a realistic, ticking chain to the cli: a non-zero epoch (qubic-cli treats epoch 0 as "no data")
+    // Present a realistic, ticking chain to a client: a non-zero epoch (a client treats epoch 0 as "no data")
     // and a few finalized ticks so the very first query already carries a tick + quorum votes.
     if (this.engine.sim.epochN === 0) {
       this.engine.sim.epochN = 1;
@@ -128,10 +128,11 @@ export class PeerServer {
         return this.respondComputors(dejavu);
       case MSG.REQUEST_QUORUM_TICK:
         return this.respondQuorumTick(payload, dejavu);
-      case MSG.REQUEST_ISSUED_ASSETS:
       case MSG.REQUEST_OWNED_ASSETS:
+        return this.respondOwnedAssets(payload, dejavu);
+      case MSG.REQUEST_ISSUED_ASSETS:
       case MSG.REQUEST_POSSESSED_ASSETS:
-        return codec.endResponse(dejavu); // asset streaming over the peer protocol — empty for now (HTTP has it)
+        return codec.endResponse(dejavu); // issued/possessed streaming — empty for now (owned assets cover the asset query)
       case MSG.PROCESS_SPECIAL_COMMAND:
         return codec.frame(MSG.PROCESS_SPECIAL_COMMAND, payload, dejavu); // ack: echo the command struct
       default:
@@ -174,7 +175,7 @@ export class PeerServer {
     try {
       out = await this.engine.querySmartContract(req.contractIndex, req.inputType, req.input);
     } catch {
-      out = new Uint8Array(0); // unknown contract / function -> empty output (cli reads it as a failed call)
+      out = new Uint8Array(0); // unknown contract / function -> empty output (a client reads it as a failed call)
     }
     return codec.frame(MSG.RESPOND_CONTRACT_FUNCTION, out, dejavu);
   }
@@ -213,7 +214,7 @@ export class PeerServer {
   }
 
   // REQUEST_TICK_TRANSACTIONS — stream the tick's raw txs as BROADCAST_TRANSACTION packets, then END_RESPONSE
-  // (the cli's -checktxontick / tick-data flow scans these for a tx hash).
+  // (a tick-transactions query scans these for a tx hash).
   private respondTickTransactions(payload: Uint8Array, dejavu: number): Uint8Array {
     const tick = codec.decodeTick(payload);
     const frames: Uint8Array[] = [];
@@ -221,6 +222,34 @@ export class PeerServer {
       const raw = this.engine.rawTx(r.txId);
       if (raw) {
         frames.push(codec.frame(MSG.BROADCAST_TRANSACTION, raw, dejavu));
+      }
+    }
+
+    frames.push(codec.endResponse(dejavu));
+    return concatAll(frames);
+  }
+
+  // REQUEST_OWNED_ASSETS — stream a RespondOwnedAssets per holding the queried account owns, with
+  // the asset's issuance record attached, then END_RESPONSE.
+  private respondOwnedAssets(payload: Uint8Array, dejavu: number): Uint8Array {
+    const owner = payload.subarray(0, 32);
+    const ownerHex = toHex(owner);
+    const frames: Uint8Array[] = [];
+
+    for (const a of this.engine.sim.assetUniverse()) {
+      for (const h of a.holdings) {
+        if (h.owner !== ownerHex) {
+          continue;
+        }
+        const enc = codec.encodeRespondOwnedAssets({
+          owner,
+          issuer: hexToBytes32(a.issuer),
+          name: a.name,
+          decimals: a.decimals,
+          shares: BigInt(h.shares),
+          managingContractIndex: h.ownMgmt,
+        });
+        frames.push(codec.frame(MSG.RESPOND_OWNED_ASSETS, enc, dejavu));
       }
     }
 
@@ -237,7 +266,7 @@ export class PeerServer {
   }
 
   private respondComputors(dejavu: number): Uint8Array {
-    // Arbitrator-signed Computors list (Part A), padded to the cli's 676-slot struct.
+    // Arbitrator-signed Computors list, padded to the 676-slot computor list.
     const list = this.engine.sim.signedComputorList(codec.CLI_NUMBER_OF_COMPUTORS);
     return codec.frame(MSG.BROADCAST_COMPUTORS, list, dejavu);
   }
@@ -249,7 +278,7 @@ export class PeerServer {
       return codec.endResponse(dejavu);
     }
 
-    // Stream each computor's signed Tick vote (352 B, the cli's Tick layout) then END_RESPONSE.
+    // Stream each computor's signed Tick vote (352 B, the protocol's Tick layout) then END_RESPONSE.
     const frames = rec.votes.map((v) => codec.frame(MSG.BROADCAST_TICK, v, dejavu));
     frames.push(codec.endResponse(dejavu));
     return concatAll(frames);
@@ -274,6 +303,14 @@ function concatAll(parts: Uint8Array[]): Uint8Array {
   for (const p of parts) {
     out.set(p, off);
     off += p.length;
+  }
+  return out;
+}
+
+function hexToBytes32(hex: string): Uint8Array {
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 32 && i * 2 + 1 < hex.length; i++) {
+    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   }
   return out;
 }

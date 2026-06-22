@@ -1,5 +1,5 @@
-// qubic-cli peer codec — the pure wire layer. Asserts the 8-byte header round-trips, the request decoders
-// read the cli's struct layouts, and the response encoders place fields at the offsets the cli reads.
+// Peer-protocol codec — the pure wire layer. Asserts the 8-byte header round-trips, the request decoders read
+// the protocol struct layouts, and the response encoders place fields at the offsets a client reads.
 import { test, expect } from "bun:test";
 import * as codec from "../src/peer-codec";
 import { MSG } from "../src/peer-codec";
@@ -76,6 +76,25 @@ test("encodeCurrentTickInfo lays out tick/epoch/alignedVotes", () => {
   expect(d.getUint32(4, true)).toBe(123);
   expect(d.getUint16(8, true)).toBe(6);
   expect(d.getUint32(12, true)).toBe(100);
+});
+
+test("encodeRespondOwnedAssets lays out the ownership + issuance records", () => {
+  const owner = new Uint8Array(32).fill(0x22);
+  const issuer = new Uint8Array(32).fill(0x33);
+  const enc = codec.encodeRespondOwnedAssets({ owner, issuer, name: "QTOKEN", decimals: 2, shares: 5000n, managingContractIndex: 29 });
+  const d = dv(enc);
+
+  expect(enc.length).toBe(48 + 48 + 4 + 4);
+  // ownership record @0
+  expect(enc.subarray(0, 32)).toEqual(owner);
+  expect(enc[32]).toBe(2); // type = ownership
+  expect(d.getUint16(34, true)).toBe(29); // managingContractIndex
+  expect(d.getBigInt64(40, true)).toBe(5000n); // numberOfShares
+  // issuance record @48
+  expect(enc.subarray(48, 80)).toEqual(issuer);
+  expect(enc[80]).toBe(1); // type = issuance
+  expect(String.fromCharCode(...enc.subarray(81, 87))).toBe("QTOKEN"); // name @48+33
+  expect(enc[88]).toBe(2); // numberOfDecimalPlaces @48+40
 });
 
 test("encodeTxStatus sets the moneyFlew bitmask + packs the digests", () => {

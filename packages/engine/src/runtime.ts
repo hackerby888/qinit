@@ -2,7 +2,7 @@
 // (core-lite: src/extensions/lite_wasm_contracts.h + lite_wasm_imports.h), driving the browser/Bun
 // `WebAssembly` API instead of WAMR. One Contract == one WebAssembly.Instance of a built contract .wasm.
 // The contract bytes run unchanged; this supplies the "lhost" import table, the per-call marshalling, and
-// the resident-state digest. See plan: /home/kali/.claude/plans/resilient-exploring-stonebraker.md
+// the resident-state digest.
 import { k12Bytes, toHex } from "./k12";
 import type { TraceRecorder } from "./trace";
 

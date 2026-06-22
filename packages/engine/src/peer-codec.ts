@@ -1,13 +1,13 @@
-// qubic-cli peer-protocol codec — the pure, framework-free wire layer for the TCP bridge (peer-server.ts).
+// Qubic peer-protocol codec — the pure, framework-free wire layer for the TCP bridge (peer-server.ts).
 // Mirrors core-lite src/network_messages/{header.h, network_message_type.h, entity.h, tick.h, contract.h,
 // system_info.h}. Every packet is an 8-byte RequestResponseHeader (size[3] LE | type | dejavu[4]) followed by
-// a typed payload, where `size` counts the header too. Response struct sizes follow the qubic-cli build
-// (defines.h: SPECTRUM_DEPTH 24, NUMBER_OF_TRANSACTIONS_PER_TICK 1024, NUMBER_OF_COMPUTORS 676) — the cli is
-// forgiving on size (zero-pads to its sizeof) but strict on `type`, so we emit the meaningful field prefix.
+// a typed payload, where `size` counts the header too. Response struct sizes follow the mainnet Qubic protocol
+// (SPECTRUM_DEPTH 24, NUMBER_OF_TRANSACTIONS_PER_TICK 1024, NUMBER_OF_COMPUTORS 676) — a client zero-pads short
+// payloads to its struct size but matches strictly on `type`, so we emit the meaningful field prefix.
 export const HEADER_SIZE = 8;
-export const SPECTRUM_DEPTH = 24; // qubic-cli defines.h — RespondEntity sibling count
-export const TXS_PER_TICK = 1024; // qubic-cli NUMBER_OF_TRANSACTIONS_PER_TICK
-export const CLI_NUMBER_OF_COMPUTORS = 676; // qubic-cli NUMBER_OF_COMPUTORS — computor-list slot count
+export const SPECTRUM_DEPTH = 24; // RespondEntity sibling count (mainnet protocol)
+export const TXS_PER_TICK = 1024; // NUMBER_OF_TRANSACTIONS_PER_TICK (mainnet protocol)
+export const CLI_NUMBER_OF_COMPUTORS = 676; // NUMBER_OF_COMPUTORS — computor-list slot count (mainnet protocol)
 
 // network_message_type.h — only the types the bridge handles.
 export const MSG = {
@@ -163,7 +163,7 @@ export interface SystemInfoFields {
   numberOfTransactions: number;
 }
 
-// RespondSystemInfo (system_info.h) — only the fields the engine can back; the rest stay zero (cli zero-pads).
+// RespondSystemInfo (system_info.h) — only the fields the engine can back; the rest stay zero (a client zero-pads).
 export function encodeSystemInfo(s: SystemInfoFields): Uint8Array {
   const buf = new Uint8Array(128);
   const dv = new DataView(buf.buffer);
@@ -202,8 +202,45 @@ export function encodeTxStatus(currentTick: number, tick: number, txDigests: Uin
   return buf;
 }
 
+export interface OwnedAssetView {
+  owner: Uint8Array; // 32 — the queried account
+  issuer: Uint8Array; // 32
+  name: string; // up to 7 ASCII (A-Z, digits)
+  decimals: number;
+  shares: bigint;
+  managingContractIndex: number;
+}
+
+// RespondOwnedAssets (structs.h) — the AssetRecord ownership variant + the issuance AssetRecord + tick +
+// universeIndex (siblings[ASSETS_DEPTH] are zero-padded by a client). AssetRecord is a 48-byte union:
+// ownership = publicKey(32) type(1) pad(1) managingContractIndex(2) issuanceIndex(4) numberOfShares(8);
+// issuance  = publicKey(32) type(1) name(7) numberOfDecimalPlaces(1) unitOfMeasurement(7). type: 1=issuance, 2=ownership.
+export function encodeRespondOwnedAssets(v: OwnedAssetView): Uint8Array {
+  const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4);
+  const dv = new DataView(buf.buffer);
+
+  // [0..48] ownership record
+  buf.set(v.owner.subarray(0, 32), 0);
+  buf[32] = 2; // ASSET_TYPE_OWNERSHIP
+  dv.setUint16(34, v.managingContractIndex & 0xffff, true);
+  dv.setBigInt64(40, v.shares, true);
+
+  // [48..96] issuance record
+  buf.set(v.issuer.subarray(0, 32), 48);
+  buf[48 + 32] = 1; // ASSET_TYPE_ISSUANCE
+  for (let i = 0; i < 7 && i < v.name.length; i++) {
+    buf[48 + 33 + i] = v.name.charCodeAt(i) & 0xff;
+  }
+  buf[48 + 40] = v.decimals & 0xff;
+
+  // [96] tick, [100] universeIndex — left zero
+  return buf;
+}
+
+const ASSET_RECORD_SIZE = 48;
+
 // TickData (tick.h) for BROADCAST_FUTURE_TICK_DATA — computorIndex(2) epoch(2) tick(4) time(8) timelock(32)
-// then transactionDigests[TXS_PER_TICK*32]. We fill the metadata + the known tx digests; the cli zero-pads.
+// then transactionDigests[TXS_PER_TICK*32]. We fill the metadata + the known tx digests; a client zero-pads.
 export function encodeTickData(epoch: number, tick: number, txDigests: Uint8Array[]): Uint8Array {
   const digestsOff = 48; // 2+2+4 + (millisecond 2 + second..year 6) + timelock 32
   const buf = new Uint8Array(digestsOff + txDigests.length * 32);
