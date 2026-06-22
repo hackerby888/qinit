@@ -115,8 +115,10 @@ export interface EntityFields {
   latestOutgoingTransferTick: number;
 }
 
-// RespondEntity (entity.h): EntityRecord(64) + tick(4) + spectrumIndex(4) + siblings[SPECTRUM_DEPTH*32].
-export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: number, spectrumIndex: number): Uint8Array {
+// RespondEntity (entity.h): EntityRecord(64) + tick(4) + spectrumIndex(4) + siblings[SPECTRUM_DEPTH*32]. The
+// siblings are the merkle proof — a client recomputes the spectrum root from (EntityRecord, spectrumIndex,
+// siblings) and checks it against the quorum-committed spectrumDigest.
+export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: number, spectrumIndex: number, siblings: Uint8Array[] = []): Uint8Array {
   const buf = new Uint8Array(64 + 4 + 4 + SPECTRUM_DEPTH * 32);
   const dv = new DataView(buf.buffer);
   buf.set(id.subarray(0, 32), 0);
@@ -128,6 +130,11 @@ export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: numbe
   dv.setUint32(60, e.latestOutgoingTransferTick, true);
   dv.setUint32(64, tick >>> 0, true);
   dv.setInt32(68, spectrumIndex, true);
+
+  const sibOff = 72;
+  for (let i = 0; i < siblings.length && i < SPECTRUM_DEPTH; i++) {
+    buf.set(siblings[i].subarray(0, 32), sibOff + i * 32);
+  }
   return buf;
 }
 

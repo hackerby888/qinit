@@ -166,7 +166,8 @@ export class PeerServer {
       latestIncomingTransferTick: 0,
       latestOutgoingTransferTick: 0,
     };
-    const enc = codec.encodeRespondEntity(id, fields, sim.tickN, e ? 0 : -1);
+    const proof = sim.spectrumProof(id);
+    const enc = codec.encodeRespondEntity(id, fields, sim.tickN, proof.index, proof.siblings);
     return codec.frame(MSG.RESPOND_ENTITY, enc, dejavu);
   }
 

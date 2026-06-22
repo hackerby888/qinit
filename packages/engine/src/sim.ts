@@ -1124,6 +1124,18 @@ export class Sim {
     return this.universeTree.root();
   }
 
+  // The merkle proof for an entity: its leaf index + the 24 sibling hashes from the leaf to the spectrum root.
+  // A client recomputes the root from (EntityRecord, index, siblings) and checks it against spectrumDigest.
+  spectrumProof(id: Uint8Array): { index: number; siblings: Uint8Array[] } {
+    this.spectrumDigest(); // flush pending leaf updates so the tree reflects the current state
+    const index = this.spectrumIdx.get(this.key(id));
+    if (index === undefined || !this.spectrumTree) {
+      return { index: -1, siblings: [] };
+    }
+
+    return { index, siblings: this.spectrumTree.siblings(index) };
+  }
+
   // Produce + store this tick's quorum record. The leader (computor[tick % N]) packs the tick's per-tx digests
   // into a signed TickData; every computor then signs a Tick vote whose transactionDigest commits K12(TickData),
   // and the aligned count must reach QUORUM (always, for an honest committee) for the tick to be valid.

@@ -65,6 +65,18 @@ test("encodeRespondEntity places balance fields at the EntityRecord offsets", ()
   expect(d.getUint32(64, true)).toBe(42); // tick
 });
 
+test("encodeRespondEntity writes the merkle-proof siblings at the spectrum offset", () => {
+  const id = new Uint8Array(32).fill(0x11);
+  const sib = Array.from({ length: 24 }, (_, i) => new Uint8Array(32).fill(i + 1));
+  const enc = codec.encodeRespondEntity(id, {
+    incomingAmount: 1n, outgoingAmount: 0n, numberOfIncomingTransfers: 1, numberOfOutgoingTransfers: 0, latestIncomingTransferTick: 0, latestOutgoingTransferTick: 0,
+  }, 1, 7, sib);
+
+  expect(dv(enc).getInt32(68, true)).toBe(7); // spectrumIndex
+  expect(enc.subarray(72, 104)).toEqual(sib[0]); // first sibling @72
+  expect(enc.subarray(72 + 23 * 32, 72 + 24 * 32)).toEqual(sib[23]); // last sibling
+});
+
 test("encodeCurrentTickInfo lays out tick/epoch/alignedVotes", () => {
   const enc = codec.encodeCurrentTickInfo({
     tickDuration: 1000, epoch: 2, tick: 123, numberOfAlignedVotes: 6, numberOfMisalignedVotes: 0, initialTick: 100,

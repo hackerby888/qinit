@@ -9,6 +9,7 @@ import { PeerServer } from "../src/peer-server";
 import * as codec from "../src/peer-codec";
 import { MSG } from "../src/peer-codec";
 import { TICKDATA_SIZE, TICK_SIZE, tickDataMessage, tickDataSignature, tickVoteMessage, tickVoteSignature } from "../src/consensus";
+import { rootFromSiblings } from "../src/merkle";
 
 const FIX = import.meta.dir + "/fixtures";
 
@@ -107,6 +108,36 @@ test("entity request returns the funded balance", async () => {
     const d = dv(f.payload);
     expect(f.payload.subarray(0, 32)).toEqual(id);
     expect(d.getBigInt64(32, true)).toBe(5000n); // incomingAmount
+  } finally {
+    stop();
+  }
+});
+
+test("entity request serves a merkle proof that recomputes the spectrum root", async () => {
+  await initK12();
+  const engine = new InProcessEngine();
+  const A = new Uint8Array(32).fill(0x33);
+  engine.fund(A, 7000n);
+  engine.fund(new Uint8Array(32).fill(0x44), 100n); // a second entity, so A's path has real siblings
+
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0);
+
+  try {
+    const frames = await exchange(port, codec.frame(MSG.REQUEST_ENTITY, A, 5));
+    const f = frames.find((x) => x.type === MSG.RESPOND_ENTITY)!;
+    const d = dv(f.payload);
+
+    const record = f.payload.subarray(0, 64); // EntityRecord — the proof's leaf input
+    const index = d.getInt32(68, true);
+    expect(index).toBeGreaterThanOrEqual(0);
+    const siblings: Uint8Array[] = [];
+    for (let i = 0; i < 24; i++) {
+      siblings.push(f.payload.subarray(72 + i * 32, 72 + i * 32 + 32));
+    }
+
+    // record + index + siblings -> the committed spectrum root (the check a client / the cli performs)
+    expect(toHex(rootFromSiblings(record, index, siblings))).toBe(toHex(engine.sim.spectrumDigest()));
   } finally {
     stop();
   }
