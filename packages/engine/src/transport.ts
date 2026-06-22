@@ -21,6 +21,7 @@ export class InProcessEngine implements NodeTransport {
   private meta = new Map<number, SlotMeta>();
   private upload: UploadSession | null = null;
   private sources = new Map<number, string>(); // deployed .h source per slot (for callee auto-resolution)
+  private rawTxs = new Map<string, Uint8Array>(); // hex(K12(tx body)) -> raw tx bytes (peer REQUEST_TRANSACTION_INFO)
 
   constructor(opts: { slotBase?: number; slotCount?: number } = {}) {
     this.slotBase = opts.slotBase ?? 28;
@@ -107,6 +108,8 @@ export class InProcessEngine implements NodeTransport {
         return { ok: true };
       }
 
+      const body = txBytes.length > 64 ? txBytes.slice(0, txBytes.length - 64) : txBytes;
+      this.rawTxs.set(toHex(k12Bytes(body)), txBytes); // keyed by the tx digest the peer protocol queries by
       const txId = await this.txId(txBytes);
       this.sim.applyTx(source, destBytes, amount, inputType, payload, txId);
       return { ok: true, transactionId: txId };
@@ -215,6 +218,12 @@ export class InProcessEngine implements NodeTransport {
   // Credit an identity directly (tests / IDE faucet).
   fund(id: Uint8Array, amount: bigint): void {
     this.sim.fund(id, amount);
+  }
+
+  // The raw bytes of a broadcast tx, keyed by hex(K12(tx body)) — the digest the peer REQUEST_TRANSACTION_INFO
+  // queries by. Undefined if never seen.
+  rawTx(digestHex: string): Uint8Array | undefined {
+    return this.rawTxs.get(digestHex);
   }
 
   private idToBytes(id: string): Uint8Array {

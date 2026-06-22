@@ -17,6 +17,11 @@
       "bun": "./src/server.ts",
       "types": "./src/server.ts",
       "import": "./dist/server.js"
+    },
+    "./peer": {
+      "bun": "./src/peer-server.ts",
+      "types": "./src/peer-server.ts",
+      "import": "./dist/peer.js"
     }
   },
   "files": [

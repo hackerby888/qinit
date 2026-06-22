@@ -33,7 +33,15 @@ const server = await Bun.build({
   external: [...base.external, "bun"],
 });
 
-const failed = [main, server].filter((r) => !r.success);
+// The qubic-cli TCP bridge — Node/Bun (uses Bun.listen), like the HTTP server entry.
+const peer = await Bun.build({
+  ...base,
+  entrypoints: ["src/peer-server.ts"],
+  target: "node",
+  external: [...base.external, "bun"],
+});
+
+const failed = [main, server, peer].filter((r) => !r.success);
 if (failed.length > 0) {
   for (const r of failed) {
     for (const log of r.logs) {
@@ -43,4 +51,4 @@ if (failed.length > 0) {
   process.exit(1);
 }
 
-console.log("built dist/index.js + dist/server.js");
+console.log("built dist/index.js + dist/server.js + dist/peer.js");
