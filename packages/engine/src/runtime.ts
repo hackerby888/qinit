@@ -53,6 +53,21 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
+// Decompose a unix-ms timestamp into the qpi date/time fields (UTC). `year` is the qubic 2-digit form
+// (year - 2000), matching the node's year() accessor + the Tick struct's uint8 year.
+export function dateFields(ms: number): { year: number; month: number; day: number; hour: number; minute: number; second: number; milli: number } {
+  const d = new Date(ms);
+  return {
+    year: (d.getUTCFullYear() - 2000) & 0xff,
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+    second: d.getUTCSeconds(),
+    milli: d.getUTCMilliseconds(),
+  };
+}
+
 // Spectrum entity record — mirrors QPI::Entity (qpi.h:1615): publicKey + incoming/outgoing amounts, transfer
 // counts, latest transfer ticks. balance = incomingAmount - outgoingAmount.
 export interface Entity {
@@ -68,6 +83,7 @@ export interface Entity {
 export interface HostServices {
   tick(): number;
   epoch(): number;
+  nowMs(): number;
   markDirty(slot: number): void;
   log(slot: number, level: number, msg: Uint8Array): void;
   transfer(slot: number, dest: Uint8Array, amount: bigint, transferType: number): bigint;
@@ -332,8 +348,16 @@ export class Contract {
       epoch: () => this.host.epoch() & 0xffff,
       tick: () => this.host.tick() >>> 0,
       numberOfTickTransactions: () => 0,
-      day: () => 0, year: () => 0, hour: () => 0, minute: () => 0, month: () => 0, second: () => 0,
-      millisecond: () => 0,
+      // qpi date/time: derived from the chain clock (year is the qubic 2-digit form, year - 2000, like
+      // QpiContextFunctionCall::year). now() (the packed 8-byte DateAndTime) is left zero — contracts read the
+      // individual accessors.
+      day: () => dateFields(this.host.nowMs()).day,
+      year: () => dateFields(this.host.nowMs()).year,
+      hour: () => dateFields(this.host.nowMs()).hour,
+      minute: () => dateFields(this.host.nowMs()).minute,
+      month: () => dateFields(this.host.nowMs()).month,
+      second: () => dateFields(this.host.nowMs()).second,
+      millisecond: () => dateFields(this.host.nowMs()).milli,
       now: (out: number) => u8().fill(0, out, out + 8),
       // etalon-tick digests (zeroed in the sim)
       prevSpectrumDigest: (out: number) => u8().fill(0, out, out + 32),

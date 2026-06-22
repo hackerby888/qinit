@@ -124,6 +124,24 @@ test("consensus is additive — it does not change a contract's StateData digest
   expect(u64(sim.query(28, GET))).toBe(1n);
 });
 
+test("chain clock advances with ticks and stamps the tick-vote timestamp", async () => {
+  await initK12();
+  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+
+  const t0 = sim.nowMs();
+  for (let i = 0; i < 4; i++) {
+    sim.advance();
+  }
+  expect(sim.nowMs()).toBe(t0 + 4 * sim.tickDuration); // deterministic: timeBaseMs + tick*tickDuration
+
+  // the latest vote carries the decomposed timestamp (year = UTC year - 2000, like the node's year())
+  const vote = sim.tickRecord(sim.tickN)!.votes[0];
+  const d = new Date(sim.nowMs());
+  expect(vote[15]).toBe((d.getUTCFullYear() - 2000) & 0xff); // year @15
+  expect(vote[14]).toBe(d.getUTCMonth() + 1); // month @14
+  expect(vote[13]).toBe(d.getUTCDate()); // day @13
+});
+
 test("spectrum digest changes when balances move, universe digest when assets change", async () => {
   await initK12();
   const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });

@@ -140,6 +140,7 @@ export class Sim {
   private committee: Committee | null = null; // derived lazily on first advance (needs initK12 resolved)
   private ticks = new Map<number, TickRecord>(); // per-tick quorum record: votes + aligned count + digests
   tickDuration = 50; // ms/tick surfaced to clients; set by the server to match its auto-tick interval
+  timeBaseMs = Date.UTC(2024, 0, 1); // chain clock origin (tick 0); the chain clock = timeBaseMs + tick*tickDuration
   private mempoolMode: boolean; // when true, broadcast txs are deferred to their scheduled tick (opt-in)
   private mempool = new Map<number, QueuedTx[]>(); // scheduled tick -> txs awaiting that tick
   private feeMode: FeeMode; // "off" (default; IDE behaviour) or "metered" (execution-fee model on)
@@ -155,6 +156,7 @@ export class Sim {
     this.host = {
       tick: () => this.tickN,
       epoch: () => this.epochN,
+      nowMs: () => this.nowMs(),
       markDirty: (slot) => this.dirty.add(slot),
       log: (_slot, level, msg) => this.recorder.log(level, msg),
       transfer: (slot, dest, amount, type) => this.doTransfer(slot, dest, amount, type),
@@ -846,6 +848,12 @@ export class Sim {
     return this.getCommittee().quorum;
   }
 
+  // The chain clock (unix ms) at the current tick — deterministic: timeBaseMs + tick * tickDuration. Backs the
+  // qpi date/time accessors + the tick-vote timestamp. Set timeBaseMs to wall-clock for a live feel.
+  nowMs(): number {
+    return this.timeBaseMs + this.tickN * this.tickDuration;
+  }
+
   entityCount(): number {
     return this.spectrum.size;
   }
@@ -920,7 +928,7 @@ export class Sim {
     const votes: Uint8Array[] = [];
     let aligned = 0;
     for (const c of committee.computors) {
-      const vote = buildTickVote(c, this.epochN, this.tickN, digests);
+      const vote = buildTickVote(c, this.epochN, this.tickN, digests, this.nowMs());
       votes.push(vote);
       if (voteIsAligned(vote, digests)) {
         aligned++;

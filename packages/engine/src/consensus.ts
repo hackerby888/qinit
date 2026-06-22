@@ -4,6 +4,7 @@
 // src/network_messages/{tick.h, computors.h, common_def.h} + the qubic.cpp tick processor. All crypto is the
 // sync FourQ/K12 from @qinit/core (deriveKeysSync / signSync), so Sim.advance() stays synchronous.
 import { k12Bytes, deriveKeysSync, signSync, type KeyPair } from "./k12";
+import { dateFields } from "./runtime";
 
 export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55); // arbitrator identity = derive("aaa…a")
 export const DEFAULT_NUMBER_OF_COMPUTORS = 8; // core-lite LITE testnet committee (common_def.h)
@@ -143,14 +144,24 @@ function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
 // committed as prev*Digest and as salted*Digest = K12(pubKey ‖ prevDigest). Time fields and the u32
 // resource/tx-body digests are zeroed (deterministic; not modeled in the dev sim). The signature is FourQ over
 // K12(Tick − signature), with the mainnet TARGET_TICK_VOTE_SIGNATURE proof-of-work intentionally skipped.
-export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests): Uint8Array {
+export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests, timeMs: number): Uint8Array {
   const buf = new Uint8Array(TICK_SIZE);
   const dv = new DataView(buf.buffer);
 
   dv.setUint16(0, c.index, true);
   dv.setUint16(2, epoch & 0xffff, true);
   dv.setUint32(4, tick >>> 0, true);
-  // [8..16] time, [16..32] resource-testing / tx-body u32 digests — left zero (deterministic)
+
+  // [8..16] timestamp: millisecond(2) second minute hour day month year(1 each); [16..32] resource-testing /
+  // tx-body u32 digests left zero (deterministic).
+  const t = dateFields(timeMs);
+  dv.setUint16(8, t.milli & 0xffff, true);
+  buf[10] = t.second;
+  buf[11] = t.minute;
+  buf[12] = t.hour;
+  buf[13] = t.day;
+  buf[14] = t.month;
+  buf[15] = t.year;
 
   buf.set(d.spectrum, 32);
   buf.set(d.universe, 64);
