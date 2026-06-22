@@ -5,10 +5,11 @@
 // processTickTransaction. Mirrors core-lite qpi_spectrum_impl.h / qpi_asset_impl.h.
 import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
 import { toHex, k12Bytes, verifySync } from "./k12";
+import { SparseMerkle } from "./merkle";
 import { TraceRecorder } from "./trace";
 import {
   Committee, type CommitteeOpts, type TickStateDigests,
-  buildTickVote, buildTickData, voteIsAligned, merkleRoot, canonicalDigest,
+  buildTickVote, buildTickData, voteIsAligned, merkleRoot,
   DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS,
 } from "./consensus";
 import type { DebugTrace } from "@qinit/core";
@@ -134,6 +135,12 @@ export class Sim {
   dirty = new Set<number>();
   host: HostServices;
   private spectrum = new Map<string, Entity>(); // hex(id) -> Entity (balance = incoming - outgoing)
+  private spectrumTree: SparseMerkle | null = null; // incremental 2^24 merkle; root = spectrumDigest
+  private spectrumIdx = new Map<string, number>(); // entity id -> stable leaf index
+  private spectrumDirty = new Set<string>(); // entity ids whose leaf changed since the last digest
+  private universeTree: SparseMerkle | null = null; // incremental 2^24 merkle; root = universeDigest
+  private universeIdx = new Map<string, number>(); // assetKey\0holdingKey -> stable leaf index
+  private universeDirty = new Set<string>(); // holdings whose leaf changed since the last digest
   private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
   private assets = new Map<string, AssetRec>(); // universe: assetKey -> issuance + holdings
   private txByTick = new Map<number, TxRecord[]>();
@@ -301,6 +308,7 @@ export class Sim {
     e.incomingAmount += amount;
     e.numberOfIncomingTransfers++;
     e.latestIncomingTransferTick = tick;
+    this.spectrumDirty.add(k);
   }
 
   debit(id: Uint8Array, amount: bigint, tick = this.tickN): void {
@@ -314,6 +322,7 @@ export class Sim {
     e.outgoingAmount += amount;
     e.numberOfOutgoingTransfers++;
     e.latestOutgoingTransferTick = tick;
+    this.spectrumDirty.add(k);
   }
 
   // Faucet: seed an identity with balance (the in-process testnet pre-funds test/seed accounts).
@@ -425,6 +434,7 @@ export class Sim {
     const holdings = new Map<string, Holding>();
     holdings.set(this.holdingKey(issuer, issuer, slot, slot), { owner: issuer.slice(0, 32), possessor: issuer.slice(0, 32), ownMgmt: slot, posMgmt: slot, shares });
     this.assets.set(k, { issuer: issuer.slice(0, 32), name, decimals, unit, holdings });
+    this.markHoldingDirty(k, this.holdingKey(issuer, issuer, slot, slot));
 
     return shares;
   }
@@ -480,6 +490,10 @@ export class Sim {
     if (d) d.shares += shares;
     else asset.holdings.set(dk, { owner: newOwner.slice(0, 32), possessor: newOwner.slice(0, 32), ownMgmt: slot, posMgmt: slot, shares });
 
+    const ak = this.assetKey(issuer, name);
+    this.markHoldingDirty(ak, hk);
+    this.markHoldingDirty(ak, dk);
+
     return h.shares; // remaining shares of the source possessor
   }
 
@@ -515,6 +529,10 @@ export class Sim {
     } else {
       asset.holdings.set(dk, { owner: owner.slice(0, 32), possessor: possessor.slice(0, 32), ownMgmt: dstMgmt, posMgmt: dstMgmt, shares });
     }
+
+    const ak = this.assetKey(issuer, name);
+    this.markHoldingDirty(ak, sk);
+    this.markHoldingDirty(ak, dk);
 
     return true;
   }
@@ -1027,38 +1045,83 @@ export class Sim {
     return merkleRoot(leaves, MAX_NUMBER_OF_CONTRACTS);
   }
 
-  // spectrumDigest — testnet-canonical: K12 over the occupied entities serialized in sorted-id order.
-  spectrumDigest(): Uint8Array {
-    const parts: Uint8Array[] = [];
-    for (const id of [...this.spectrum.keys()].sort()) {
-      const e = this.spectrum.get(id)!;
-      const rec = new Uint8Array(48);
-      rec.set(hexToBytes32(id), 0);
+  // The 64-byte EntityRecord whose K12 is the spectrum leaf (the layout a client reads back from getEntity).
+  private entityRecord(k: string): Uint8Array {
+    const rec = new Uint8Array(64);
+    rec.set(hexToBytes32(k), 0);
+    const e = this.spectrum.get(k);
+    if (e) {
       const dv = new DataView(rec.buffer);
       dv.setBigInt64(32, e.incomingAmount, true);
       dv.setBigInt64(40, e.outgoingAmount, true);
-      parts.push(rec);
+      dv.setUint32(48, e.numberOfIncomingTransfers, true);
+      dv.setUint32(52, e.numberOfOutgoingTransfers, true);
+      dv.setUint32(56, e.latestIncomingTransferTick, true);
+      dv.setUint32(60, e.latestOutgoingTransferTick, true);
     }
-
-    return canonicalDigest(parts);
+    return rec;
   }
 
-  // universeDigest — testnet-canonical: K12 over the asset holdings serialized in sorted (asset, holding) order.
-  universeDigest(): Uint8Array {
-    const parts: Uint8Array[] = [];
-    for (const k of [...this.assets.keys()].sort()) {
-      const a = this.assets.get(k)!;
-      for (const hk of [...a.holdings.keys()].sort()) {
-        const h = a.holdings.get(hk)!;
-        const rec = new Uint8Array(72);
-        rec.set(h.owner.subarray(0, 32), 0);
-        rec.set(h.possessor.subarray(0, 32), 32);
-        new DataView(rec.buffer).setBigInt64(64, h.shares, true);
-        parts.push(rec);
-      }
+  // A deterministic per-holding record whose K12 is the universe leaf.
+  private holdingRecord(issuer: Uint8Array, name: bigint, h: Holding): Uint8Array {
+    const rec = new Uint8Array(120);
+    const dv = new DataView(rec.buffer);
+    rec.set(issuer.subarray(0, 32), 0);
+    dv.setBigUint64(32, name, true);
+    rec.set(h.owner.subarray(0, 32), 40);
+    rec.set(h.possessor.subarray(0, 32), 72);
+    dv.setUint16(104, h.ownMgmt, true);
+    dv.setUint16(106, h.posMgmt, true);
+    dv.setBigInt64(108, h.shares, true);
+    return rec;
+  }
+
+  // Assign (and remember) a stable leaf index for a tree key.
+  private leafIndex(map: Map<string, number>, key: string): number {
+    const existing = map.get(key);
+    if (existing !== undefined) {
+      return existing;
     }
 
-    return canonicalDigest(parts);
+    const idx = map.size;
+    map.set(key, idx);
+    return idx;
+  }
+
+  private markHoldingDirty(assetKey: string, holdingKey: string): void {
+    this.universeDirty.add(assetKey + " " + holdingKey);
+  }
+
+  // spectrumDigest — the root of the incremental 2^24 merkle. Only entities whose balance changed since the last
+  // call are rehashed (24 nodes each); empty subtrees collapse to a precomputed hash. leaf = K12(EntityRecord).
+  spectrumDigest(): Uint8Array {
+    if (!this.spectrumTree) {
+      this.spectrumTree = new SparseMerkle(k12Bytes(new Uint8Array(64)));
+    }
+
+    for (const k of this.spectrumDirty) {
+      this.spectrumTree.setLeaf(this.leafIndex(this.spectrumIdx, k), k12Bytes(this.entityRecord(k)));
+    }
+    this.spectrumDirty.clear();
+    return this.spectrumTree.root();
+  }
+
+  // universeDigest — the root of the incremental 2^24 merkle over asset holdings. A deleted holding's leaf goes
+  // back to the empty-leaf hash. leaf = K12(holdingRecord).
+  universeDigest(): Uint8Array {
+    if (!this.universeTree) {
+      this.universeTree = new SparseMerkle(k12Bytes(new Uint8Array(120)));
+    }
+
+    for (const gk of this.universeDirty) {
+      const sep = gk.indexOf(" ");
+      const asset = this.assets.get(gk.slice(0, sep));
+      const h = asset?.holdings.get(gk.slice(sep + 1));
+      const leaf = asset && h ? k12Bytes(this.holdingRecord(asset.issuer, asset.name, h)) : k12Bytes(new Uint8Array(120));
+      this.universeTree.setLeaf(this.leafIndex(this.universeIdx, gk), leaf);
+    }
+    this.universeDirty.clear();
+    return this.universeTree.root();
   }
 
   // Produce + store this tick's quorum record. The leader (computor[tick % N]) packs the tick's per-tx digests
