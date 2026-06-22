@@ -7,7 +7,7 @@ import type {
 } from "@qinit/core";
 import { bytesToIdentity, identityToBytes, deriveIdentity } from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX } from "@qinit/proto";
-import { Sim, type AssetSnapshot } from "./sim";
+import { Sim, type AssetSnapshot, type FeeMode } from "./sim";
 import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
 import { k12Bytes, toHex, verifySync } from "./k12";
@@ -26,11 +26,26 @@ export class InProcessEngine implements NodeTransport {
 
   private verifySigs: boolean;
 
-  constructor(opts: { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean } = {}) {
-    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool });
+  // `fees`/`mempool`/`verifySigs` are all off by default — the engine behaves exactly as before (no fee gating,
+  // immediate apply, no signature check) so the IDE and its digests are unchanged. The peer entry opts in.
+  constructor(opts: { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint } = {}) {
+    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool, fees: opts.fees, defaultReserve: opts.defaultReserve });
     this.slotBase = opts.slotBase ?? 28;
     this.slotCount = opts.slotCount ?? 4;
     this.verifySigs = opts.verifySigs ?? false;
+  }
+
+  // Execution-fee reserve controls (no-ops on behaviour when fees are "off"; see Sim).
+  feeReserve(slot: number): bigint {
+    return this.sim.feeReserveOf(slot);
+  }
+
+  setFeeReserve(slot: number, amount: bigint): void {
+    this.sim.setFeeReserve(slot, amount);
+  }
+
+  ipo(slot: number, finalPrice: bigint): void {
+    this.sim.ipo(slot, finalPrice);
   }
 
   // Direct deploy (IDE / tests): bypass the chunk protocol — load wasm into the slot + construct (INITIALIZE).
