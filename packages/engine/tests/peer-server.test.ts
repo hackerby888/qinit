@@ -3,11 +3,12 @@
 // current-tick-info (with real aligned votes), entity balance, a contract-function call, and the
 // arbitrator-signed computor list.
 import { test, expect } from "bun:test";
-import { initK12 } from "../src/k12";
+import { initK12, k12Bytes, toHex, verifySync } from "../src/k12";
 import { InProcessEngine } from "../src/transport";
 import { PeerServer } from "../src/peer-server";
 import * as codec from "../src/peer-codec";
 import { MSG } from "../src/peer-codec";
+import { TICKDATA_SIZE, TICK_SIZE, tickDataMessage, tickDataSignature, tickVoteMessage, tickVoteSignature } from "../src/consensus";
 
 const FIX = import.meta.dir + "/fixtures";
 
@@ -147,6 +148,126 @@ test("computor-list request returns the arbitrator-signed 676-slot list", async 
     expect(f).toBeDefined();
     // epoch(2) + 676 pubkeys*32 + signature(64)
     expect(f.payload.length).toBe(2 + codec.CLI_NUMBER_OF_COMPUTORS * 32 + 64);
+  } finally {
+    stop();
+  }
+});
+
+test("tick-data request returns the signed TickData and its leader signature verifies", async () => {
+  await initK12();
+  const engine = new InProcessEngine();
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0);
+
+  try {
+    engine.advanceTick(4);
+    const tick = 3;
+    const req = new Uint8Array(4);
+    dv(req).setUint32(0, tick, true);
+
+    const frames = await exchange(port, codec.frame(MSG.REQUEST_TICK_DATA, req, 7));
+    const f = frames.find((x) => x.type === MSG.BROADCAST_FUTURE_TICK_DATA)!;
+    expect(f).toBeDefined();
+    expect(f.payload.length).toBe(TICKDATA_SIZE); // 139376
+
+    const leaderIndex = dv(f.payload).getUint16(0, true);
+    expect(leaderIndex).toBe(tick % 8); // default committee size
+    const leader = engine.sim.getCommittee().computors[leaderIndex];
+    expect(verifySync(leader.publicKey, tickDataMessage(f.payload), tickDataSignature(f.payload))).toBe(true);
+  } finally {
+    stop();
+  }
+});
+
+test("quorum-tick request streams the committee's verifiable Tick votes", async () => {
+  await initK12();
+  const engine = new InProcessEngine();
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0);
+
+  try {
+    engine.advanceTick(4);
+    const req = new Uint8Array(4);
+    dv(req).setUint32(0, 3, true);
+
+    const frames = await exchange(port, codec.frame(MSG.REQUEST_QUORUM_TICK, req, 8));
+    const votes = frames.filter((x) => x.type === MSG.BROADCAST_TICK);
+    expect(votes.length).toBe(8); // one vote per computor
+    expect(frames.some((x) => x.type === MSG.END_RESPONSE)).toBe(true);
+
+    const committee = engine.sim.getCommittee();
+    for (const v of votes) {
+      expect(v.payload.length).toBe(TICK_SIZE); // 352
+      const idx = dv(v.payload).getUint16(0, true);
+      expect(verifySync(committee.computors[idx].publicKey, tickVoteMessage(v.payload), tickVoteSignature(v.payload))).toBe(true);
+    }
+  } finally {
+    stop();
+  }
+});
+
+test("system-info request reports epoch/tick and entity count", async () => {
+  await initK12();
+  const engine = new InProcessEngine();
+  engine.fund(new Uint8Array(32).fill(0x44), 10n);
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0);
+
+  try {
+    engine.advanceTick(2);
+
+    const frames = await exchange(port, codec.frame(MSG.REQUEST_SYSTEM_INFO, new Uint8Array(0), 9));
+    const f = frames.find((x) => x.type === MSG.RESPOND_SYSTEM_INFO)!;
+    expect(f).toBeDefined();
+    const d = dv(f.payload);
+    expect(d.getUint32(4, true)).toBeGreaterThanOrEqual(2); // tick
+    expect(d.getUint32(24, true)).toBeGreaterThanOrEqual(1); // numberOfEntities (the funded id)
+  } finally {
+    stop();
+  }
+});
+
+test("transaction-info request returns the stored raw tx by its digest", async () => {
+  await initK12();
+  const engine = new InProcessEngine(); // verifySigs off -> a well-formed tx is accepted without a real signature
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0);
+
+  try {
+    const tx = new Uint8Array(144); // source(32) dest(32) amount(8) tick(4) inputType(2) inputSize(2) ... sig(64)
+    tx.fill(0x05, 0, 32);
+    tx.fill(0x06, 32, 64);
+    dv(tx).setUint32(72, 1, true); // tick
+    await engine.broadcastTx(tx);
+
+    const full = k12Bytes(tx); // K12(full tx incl. sig) — one of the three keys rawTxs is indexed by
+    const frames = await exchange(port, codec.frame(MSG.REQUEST_TRANSACTION_INFO, full, 10));
+    const f = frames.find((x) => x.type === MSG.BROADCAST_TRANSACTION)!;
+    expect(f).toBeDefined();
+    expect(toHex(f.payload)).toBe(toHex(tx));
+  } finally {
+    stop();
+  }
+});
+
+test("a malformed request does not kill the connection", async () => {
+  await initK12();
+  const engine = new InProcessEngine();
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0);
+
+  try {
+    engine.advanceTick(2);
+
+    // a truncated contract-function frame (the decoder reads past its 2-byte body) followed by a valid request
+    const garbage = codec.frame(MSG.REQUEST_CONTRACT_FUNCTION, new Uint8Array(2), 11);
+    const good = codec.frame(MSG.REQUEST_CURRENT_TICK_INFO, new Uint8Array(0), 12);
+    const both = new Uint8Array(garbage.length + good.length);
+    both.set(garbage, 0);
+    both.set(good, garbage.length);
+
+    const frames = await exchange(port, both);
+    expect(frames.some((x) => x.type === MSG.RESPOND_CURRENT_TICK_INFO)).toBe(true);
   } finally {
     stop();
   }

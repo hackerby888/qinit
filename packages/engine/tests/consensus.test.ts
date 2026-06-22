@@ -6,7 +6,7 @@
 import { test, expect } from "bun:test";
 import { initK12, k12Bytes, toHex, deriveKeysSync, verifySync } from "../src/k12";
 import { Sim } from "../src/sim";
-import { Committee, merkleRoot, quorumOf, tickVoteMessage, tickVoteSignature } from "../src/consensus";
+import { Committee, merkleRoot, quorumOf, tickVoteMessage, tickVoteSignature, buildTickVote, voteIsAligned } from "../src/consensus";
 
 const FIX = import.meta.dir + "/fixtures";
 const GET = 1; // Counter Get function
@@ -149,4 +149,29 @@ test("spectrum digest changes when balances move, universe digest when assets ch
   const before = toHex(sim.spectrumDigest());
   sim.fund(new Uint8Array(32).fill(0x11), 1000n);
   expect(toHex(sim.spectrumDigest())).not.toBe(before);
+});
+
+test("a tampered Tick vote fails signature verification and misaligns", async () => {
+  await initK12();
+  const committee = new Committee({ computorSeeds: SEEDS4 });
+  const c = committee.computors[0];
+  const digests = {
+    spectrum: k12Bytes(new Uint8Array([1])),
+    universe: k12Bytes(new Uint8Array([2])),
+    computer: k12Bytes(new Uint8Array([3])),
+    transaction: k12Bytes(new Uint8Array([4])),
+    expectedNextTransaction: new Uint8Array(32),
+  };
+
+  const vote = buildTickVote(c, 1, 7, digests, Date.UTC(2024, 0, 1));
+  expect(verifySync(c.publicKey, tickVoteMessage(vote), tickVoteSignature(vote))).toBe(true);
+  expect(voteIsAligned(vote, digests)).toBe(true);
+
+  // the same vote must NOT align to a different transaction digest (the etalon moved)
+  expect(voteIsAligned(vote, { ...digests, transaction: k12Bytes(new Uint8Array([99])) })).toBe(false);
+
+  // flipping a committed digest byte invalidates the signature
+  const bad = vote.slice();
+  bad[32] ^= 0xff; // first byte of the spectrum-digest field
+  expect(verifySync(c.publicKey, tickVoteMessage(bad), tickVoteSignature(bad))).toBe(false);
 });

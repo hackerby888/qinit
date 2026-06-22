@@ -109,3 +109,118 @@ it("-getasset shows an issued asset's holding", async () => {
     stop();
   }
 });
+
+it("-gettickdata + -readtickdata verify the leader's signed TickData", async () => {
+  const { port, stop } = await serve();
+  try {
+    const tdFile = "/tmp/qinit-cli-td.bin";
+    const compFile = "/tmp/qinit-cli-td-comps.bin";
+    await runCli(port, ["-getcomputorlist", compFile]);
+
+    // tick 3 is finalized: the server pre-advances 5 ticks before it starts serving.
+    const got = await runCli(port, ["-gettickdata", "3", tdFile]);
+    expect(got).toContain("Found");
+    expect(got).toContain("written to");
+
+    const read = await runCli(port, ["-readtickdata", tdFile, compFile]);
+    expect(read).toContain("Tick is VERIFIED"); // leader signature checks against computors[tick % N]
+    expect(read).toContain("Epoch: 1");
+    expect(read).toMatch(/Tick: 3\b/);
+  } finally {
+    stop();
+  }
+});
+
+it("a scheduled tx lands in its tick's TickData (-gettickdata finds it, -readtickdata verifies)", async () => {
+  const { port, stop } = await serve();
+  try {
+    const dest = (await deriveIdentity("b".repeat(55))).identity;
+    const sent = await runCli(port, ["-seed", "a".repeat(55), "-sendtoaddress", dest, "1"]);
+    const hint = sent.match(/-checktxontick (\d+) ([a-z]+)/);
+    expect(hint).not.toBeNull();
+    const txTick = Number(hint![1]);
+
+    // wait for the auto-ticking chain to pass the scheduled tick (offset 8, tick 50ms)
+    for (let i = 0; i < 80; i++) {
+      const cur = (await runCli(port, ["-getcurrenttick"])).match(/Tick:\s*(\d+)/);
+      if (cur && Number(cur[1]) > txTick) {
+        break;
+      }
+      await Bun.sleep(50);
+    }
+
+    const tdFile = "/tmp/qinit-cli-txtd.bin";
+    const compFile = "/tmp/qinit-cli-txtd-comps.bin";
+    await runCli(port, ["-getcomputorlist", compFile]);
+
+    const got = await runCli(port, ["-gettickdata", String(txTick), tdFile]);
+    expect(got).toContain(`Found 1 transactions in tick ${txTick}`);
+
+    const read = await runCli(port, ["-readtickdata", tdFile, compFile]);
+    expect(read).toContain("Tick is VERIFIED");
+    expect(read).toContain("Total number of transaction digests: 1");
+  } finally {
+    stop();
+  }
+});
+
+it("-getsysteminfo reports the version + entity count", async () => {
+  const { port, stop } = await serve();
+  try {
+    const out = await runCli(port, ["-getsysteminfo"]);
+    expect(out).toContain("Version:");
+    expect(out).toContain("NumberOfEntities:");
+  } finally {
+    stop();
+  }
+});
+
+it("-getquorumtick returns the tick's verifiable votes", async () => {
+  const { port, stop } = await serve();
+  try {
+    const compFile = "/tmp/qinit-cli-qt-comps.bin";
+    await runCli(port, ["-getcomputorlist", compFile]);
+
+    // tick 3 is finalized (the server pre-advances 5 ticks); the cli parses the 352-byte Tick votes
+    const out = await runCli(port, ["-getquorumtick", compFile, "3"]);
+    expect(out).toContain("quorum tick #3");
+    expect(out).toContain("Number of unique votes:");
+  } finally {
+    stop();
+  }
+});
+
+it("-sendcustomtransaction runs a contract procedure over the wire, and -gettxinfo returns its receipt", async () => {
+  const counter = await wasm("Counter");
+  const { port, stop } = await serve((e) => {
+    e.deploy(28, counter, "Counter");
+  });
+  try {
+    const id = await bytesToIdentity(contractId(28));
+    // inputType 1 = Counter Inc; amount 0; no extra data
+    const sent = await runCli(port, ["-seed", "a".repeat(55), "-sendcustomtransaction", id, "1", "0", "0", ""]);
+    const hint = sent.match(/-checktxontick (\d+) ([a-z]+)/);
+    expect(hint).not.toBeNull();
+    const txTick = Number(hint![1]);
+    const txHash = hint![2];
+
+    // the raw tx is retrievable immediately (indexed at broadcast, before the tick)
+    const info = await runCli(port, ["-gettxinfo", txHash]);
+    expect(info).toContain("~~~~~RECEIPT~~~~~");
+
+    // wait for the procedure's tick to be processed, then read the Counter
+    for (let i = 0; i < 80; i++) {
+      const cur = (await runCli(port, ["-getcurrenttick"])).match(/Tick:\s*(\d+)/);
+      if (cur && Number(cur[1]) > txTick) {
+        break;
+      }
+      await Bun.sleep(50);
+    }
+
+    const out = await runCli(port, ["-callcontractfunction", "28", "1", "", "uint64"]);
+    expect(out).toContain("Contract Function Output");
+    expect(out).toMatch(/\b1\b/); // Inc applied once -> Get == 1
+  } finally {
+    stop();
+  }
+});

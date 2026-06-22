@@ -55,6 +55,7 @@ jobs:
         with:
           repository: qubic/qubic-cli
           path: qubic-cli
+          submodules: recursive
       - name: Build qubic-cli
         run: |
           cmake -S qubic-cli -B qubic-cli/build -DCMAKE_BUILD_TYPE=Release
