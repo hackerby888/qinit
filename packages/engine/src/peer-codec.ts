@@ -6,6 +6,7 @@
 // payloads to its struct size but matches strictly on `type`, so we emit the meaningful field prefix.
 export const HEADER_SIZE = 8;
 export const SPECTRUM_DEPTH = 24; // RespondEntity sibling count (mainnet protocol)
+export const ASSETS_DEPTH = 24; // RespondOwnedAssets / RespondPossessedAssets sibling count
 export const TXS_PER_TICK = 4096; // NUMBER_OF_TRANSACTIONS_PER_TICK (common_def.h; must be 2^N)
 export const CLI_NUMBER_OF_COMPUTORS = 676; // NUMBER_OF_COMPUTORS — computor-list slot count (mainnet protocol)
 
@@ -222,8 +223,8 @@ export interface OwnedAssetView {
 // universeIndex (siblings[ASSETS_DEPTH] are zero-padded by a client). AssetRecord is a 48-byte union:
 // ownership = publicKey(32) type(1) pad(1) managingContractIndex(2) issuanceIndex(4) numberOfShares(8);
 // issuance  = publicKey(32) type(1) name(7) numberOfDecimalPlaces(1) unitOfMeasurement(7). type: 1=issuance, 2=ownership.
-export function encodeRespondOwnedAssets(v: OwnedAssetView): Uint8Array {
-  const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4);
+export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, siblings: Uint8Array[] = []): Uint8Array {
+  const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4 + ASSETS_DEPTH * 32);
   const dv = new DataView(buf.buffer);
 
   // [0..48] ownership record
@@ -240,7 +241,11 @@ export function encodeRespondOwnedAssets(v: OwnedAssetView): Uint8Array {
   }
   buf[48 + 40] = v.decimals & 0xff;
 
-  // [96] tick, [100] universeIndex — left zero
+  // [96] tick (zero), [100] universeIndex, [104] siblings — the ownership-record merkle proof
+  dv.setUint32(100, universeIndex >>> 0, true);
+  for (let i = 0; i < siblings.length && i < ASSETS_DEPTH; i++) {
+    buf.set(siblings[i].subarray(0, 32), 104 + i * 32);
+  }
   return buf;
 }
 
@@ -258,8 +263,8 @@ export interface PossessedAssetView {
 // RespondPossessedAssets (structs.h) — the possession AssetRecord + the ownership AssetRecord + the issuance
 // AssetRecord + tick + universeIndex (siblings[ASSETS_DEPTH] zero-padded by a client). AssetRecord type:
 // 1=issuance, 2=ownership, 3=possession. The possession variant's @36 field is the ownershipIndex (left zero).
-export function encodeRespondPossessedAssets(v: PossessedAssetView): Uint8Array {
-  const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4);
+export function encodeRespondPossessedAssets(v: PossessedAssetView, universeIndex = 0, siblings: Uint8Array[] = []): Uint8Array {
+  const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4 + ASSETS_DEPTH * 32);
   const dv = new DataView(buf.buffer);
 
   // [0..48] possession record
@@ -282,7 +287,11 @@ export function encodeRespondPossessedAssets(v: PossessedAssetView): Uint8Array 
   }
   buf[96 + 40] = v.decimals & 0xff;
 
-  // [144] tick, [148] universeIndex — left zero
+  // [144] tick (zero), [148] universeIndex, [152] siblings — the possession-record merkle proof
+  dv.setUint32(148, universeIndex >>> 0, true);
+  for (let i = 0; i < siblings.length && i < ASSETS_DEPTH; i++) {
+    buf.set(siblings[i].subarray(0, 32), 152 + i * 32);
+  }
   return buf;
 }
 

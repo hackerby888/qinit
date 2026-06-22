@@ -96,7 +96,7 @@ test("encodeRespondOwnedAssets lays out the ownership + issuance records", () =>
   const enc = codec.encodeRespondOwnedAssets({ owner, issuer, name: "QTOKEN", decimals: 2, shares: 5000n, managingContractIndex: 29 });
   const d = dv(enc);
 
-  expect(enc.length).toBe(48 + 48 + 4 + 4);
+  expect(enc.length).toBe(48 + 48 + 4 + 4 + 24 * 32); // records + tick + universeIndex + ASSETS_DEPTH siblings
   // ownership record @0
   expect(enc.subarray(0, 32)).toEqual(owner);
   expect(enc[32]).toBe(2); // type = ownership
@@ -116,7 +116,7 @@ test("encodeRespondPossessedAssets lays out possession + ownership + issuance re
   const enc = codec.encodeRespondPossessedAssets({ possessor, owner, issuer, name: "QTOKEN", decimals: 2, shares: 700n, possessionManagingContract: 30, ownershipManagingContract: 28 });
   const d = dv(enc);
 
-  expect(enc.length).toBe(48 + 48 + 48 + 4 + 4);
+  expect(enc.length).toBe(48 + 48 + 48 + 4 + 4 + 24 * 32); // records + tick + universeIndex + ASSETS_DEPTH siblings
   // possession record @0
   expect(enc.subarray(0, 32)).toEqual(possessor);
   expect(enc[32]).toBe(3); // type = possession

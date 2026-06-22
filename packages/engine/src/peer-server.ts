@@ -234,24 +234,18 @@ export class PeerServer {
   // the asset's issuance record attached, then END_RESPONSE.
   private respondOwnedAssets(payload: Uint8Array, dejavu: number): Uint8Array {
     const owner = payload.subarray(0, 32);
-    const ownerHex = toHex(owner);
     const frames: Uint8Array[] = [];
 
-    for (const a of this.engine.sim.assetUniverse()) {
-      for (const h of a.holdings) {
-        if (h.owner !== ownerHex) {
-          continue;
-        }
-        const enc = codec.encodeRespondOwnedAssets({
-          owner,
-          issuer: hexToBytes32(a.issuer),
-          name: a.name,
-          decimals: a.decimals,
-          shares: BigInt(h.shares),
-          managingContractIndex: h.ownMgmt,
-        });
-        frames.push(codec.frame(MSG.RESPOND_OWNED_ASSETS, enc, dejavu));
-      }
+    for (const p of this.engine.sim.universeProofOwned(owner)) {
+      const enc = codec.encodeRespondOwnedAssets({
+        owner,
+        issuer: p.issuer,
+        name: assetNameToString(p.name),
+        decimals: p.decimals,
+        shares: p.shares,
+        managingContractIndex: p.managingContractIndex,
+      }, p.index, p.siblings);
+      frames.push(codec.frame(MSG.RESPOND_OWNED_ASSETS, enc, dejavu));
     }
 
     frames.push(codec.endResponse(dejavu));
@@ -262,26 +256,20 @@ export class PeerServer {
   // the possession's managing contract, the ownership record, and the issuance record), then END_RESPONSE.
   private respondPossessedAssets(payload: Uint8Array, dejavu: number): Uint8Array {
     const possessor = payload.subarray(0, 32);
-    const possessorHex = toHex(possessor);
     const frames: Uint8Array[] = [];
 
-    for (const a of this.engine.sim.assetUniverse()) {
-      for (const h of a.holdings) {
-        if (h.possessor !== possessorHex) {
-          continue;
-        }
-        const enc = codec.encodeRespondPossessedAssets({
-          possessor,
-          owner: hexToBytes32(h.owner),
-          issuer: hexToBytes32(a.issuer),
-          name: a.name,
-          decimals: a.decimals,
-          shares: BigInt(h.shares),
-          possessionManagingContract: h.posMgmt,
-          ownershipManagingContract: h.ownMgmt,
-        });
-        frames.push(codec.frame(MSG.RESPOND_POSSESSED_ASSETS, enc, dejavu));
-      }
+    for (const p of this.engine.sim.universeProofPossessed(possessor)) {
+      const enc = codec.encodeRespondPossessedAssets({
+        possessor,
+        owner: p.owner,
+        issuer: p.issuer,
+        name: assetNameToString(p.name),
+        decimals: p.decimals,
+        shares: p.shares,
+        possessionManagingContract: p.managingContractIndex,
+        ownershipManagingContract: p.managingContractIndex,
+      }, p.index, p.siblings);
+      frames.push(codec.frame(MSG.RESPOND_POSSESSED_ASSETS, enc, dejavu));
     }
 
     frames.push(codec.endResponse(dejavu));
@@ -338,10 +326,17 @@ function concatAll(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-function hexToBytes32(hex: string): Uint8Array {
-  const out = new Uint8Array(32);
-  for (let i = 0; i < 32 && i * 2 + 1 < hex.length; i++) {
-    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+// Decode a packed little-endian ASCII asset name (uint64) to its string form, for the issuance record.
+function assetNameToString(name: bigint): string {
+  let s = "";
+  let n = name;
+  for (let i = 0; i < 8; i++) {
+    const c = Number(n & 0xffn);
+    n >>= 8n;
+    if (c === 0) {
+      break;
+    }
+    s += String.fromCharCode(c);
   }
-  return out;
+  return s;
 }

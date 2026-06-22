@@ -19,6 +19,7 @@ const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN
 const EP_USER_PROCEDURE = 11; // contract_def.h USER_PROCEDURE_CALL (contractSystemProcedureCount=10, +1)
 const ZERO32 = new Uint8Array(32);
 const TICK_HISTORY = 2000; // ticks of TickData + quorum records retained (memory bound; each TickData ~41 KB)
+const ASSET_RECORD_SIZE = 48; // structs.h AssetRecord (union) — the universe merkle leaf size
 
 // qpi.h TransferType
 const TT_STANDARD = 0;
@@ -1062,18 +1063,14 @@ export class Sim {
     return rec;
   }
 
-  // A deterministic per-holding record whose K12 is the universe leaf.
-  private holdingRecord(issuer: Uint8Array, name: bigint, h: Holding): Uint8Array {
-    const rec = new Uint8Array(120);
-    const dv = new DataView(rec.buffer);
-    rec.set(issuer.subarray(0, 32), 0);
-    dv.setBigUint64(32, name, true);
-    rec.set(h.owner.subarray(0, 32), 40);
-    rec.set(h.possessor.subarray(0, 32), 72);
-    dv.setUint16(104, h.ownMgmt, true);
-    dv.setUint16(106, h.posMgmt, true);
-    dv.setBigInt64(108, h.shares, true);
-    return rec;
+  // The 48-byte AssetRecord ownership / possession variants — the universe leaves, byte-identical to what a
+  // client hashes: publicKey(32) type(1) padding(1) managingContractIndex(2) crossRefIndex(4) numberOfShares(8).
+  private ownershipRecord(owner: Uint8Array, ownMgmt: number, shares: bigint): Uint8Array {
+    return assetRecord(owner, 2, ownMgmt, shares);
+  }
+
+  private possessionRecord(possessor: Uint8Array, posMgmt: number, shares: bigint): Uint8Array {
+    return assetRecord(possessor, 3, posMgmt, shares);
   }
 
   // Assign (and remember) a stable leaf index for a tree key.
@@ -1110,18 +1107,55 @@ export class Sim {
   // back to the empty-leaf hash. leaf = K12(holdingRecord).
   universeDigest(): Uint8Array {
     if (!this.universeTree) {
-      this.universeTree = new SparseMerkle(k12Bytes(new Uint8Array(120)));
+      this.universeTree = new SparseMerkle(k12Bytes(new Uint8Array(ASSET_RECORD_SIZE)));
     }
 
     for (const gk of this.universeDirty) {
       const sep = gk.indexOf(" ");
       const asset = this.assets.get(gk.slice(0, sep));
       const h = asset?.holdings.get(gk.slice(sep + 1));
-      const leaf = asset && h ? k12Bytes(this.holdingRecord(asset.issuer, asset.name, h)) : k12Bytes(new Uint8Array(120));
-      this.universeTree.setLeaf(this.leafIndex(this.universeIdx, gk), leaf);
+      const own = asset && h ? k12Bytes(this.ownershipRecord(h.owner, h.ownMgmt, h.shares)) : k12Bytes(new Uint8Array(ASSET_RECORD_SIZE));
+      const pos = asset && h ? k12Bytes(this.possessionRecord(h.possessor, h.posMgmt, h.shares)) : k12Bytes(new Uint8Array(ASSET_RECORD_SIZE));
+      this.universeTree.setLeaf(this.leafIndex(this.universeIdx, "o " + gk), own);
+      this.universeTree.setLeaf(this.leafIndex(this.universeIdx, "p " + gk), pos);
     }
     this.universeDirty.clear();
     return this.universeTree.root();
+  }
+
+  // Ownership proof for each asset ownerId owns: the ownership AssetRecord + its universe index + siblings, plus
+  // the issuance fields for the attached record. A client recomputes the universe root from the record.
+  universeProofOwned(ownerId: Uint8Array): { record: Uint8Array; issuer: Uint8Array; name: bigint; decimals: number; managingContractIndex: number; shares: bigint; index: number; siblings: Uint8Array[] }[] {
+    this.universeDigest();
+    const ownerHex = this.key(ownerId);
+    const out = [];
+    for (const [assetKey, asset] of this.assets) {
+      for (const [hk, h] of asset.holdings) {
+        if (this.key(h.owner) !== ownerHex) {
+          continue;
+        }
+        const index = this.universeIdx.get("o " + assetKey + " " + hk)!;
+        out.push({ record: this.ownershipRecord(h.owner, h.ownMgmt, h.shares), issuer: asset.issuer, name: asset.name, decimals: asset.decimals, managingContractIndex: h.ownMgmt, shares: h.shares, index, siblings: this.universeTree!.siblings(index) });
+      }
+    }
+    return out;
+  }
+
+  // Possession proof for each asset possessorId possesses (mirrors universeProofOwned).
+  universeProofPossessed(possessorId: Uint8Array): { record: Uint8Array; owner: Uint8Array; issuer: Uint8Array; name: bigint; decimals: number; managingContractIndex: number; shares: bigint; index: number; siblings: Uint8Array[] }[] {
+    this.universeDigest();
+    const posHex = this.key(possessorId);
+    const out = [];
+    for (const [assetKey, asset] of this.assets) {
+      for (const [hk, h] of asset.holdings) {
+        if (this.key(h.possessor) !== posHex) {
+          continue;
+        }
+        const index = this.universeIdx.get("p " + assetKey + " " + hk)!;
+        out.push({ record: this.possessionRecord(h.possessor, h.posMgmt, h.shares), owner: h.owner, issuer: asset.issuer, name: asset.name, decimals: asset.decimals, managingContractIndex: h.posMgmt, shares: h.shares, index, siblings: this.universeTree!.siblings(index) });
+      }
+    }
+    return out;
   }
 
   // The merkle proof for an entity: its leaf index + the 24 sibling hashes from the leaf to the spectrum root.
@@ -1212,4 +1246,16 @@ function hexToBytes32(hex: string): Uint8Array {
   const out = new Uint8Array(32);
   for (let i = 0; i < 32; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
   return out;
+}
+
+// A 48-byte AssetRecord (ownership type=2 / possession type=3 variant): publicKey(32) type(1) padding(1)
+// managingContractIndex(2) crossRefIndex(4, left 0) numberOfShares(8). The universe merkle leaf.
+function assetRecord(pubkey: Uint8Array, type: number, mgmt: number, shares: bigint): Uint8Array {
+  const rec = new Uint8Array(ASSET_RECORD_SIZE);
+  rec.set(pubkey.subarray(0, 32), 0);
+  rec[32] = type;
+  const dv = new DataView(rec.buffer);
+  dv.setUint16(34, mgmt & 0xffff, true);
+  dv.setBigInt64(40, shares, true);
+  return rec;
 }

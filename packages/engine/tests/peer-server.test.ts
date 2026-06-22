@@ -143,6 +143,40 @@ test("entity request serves a merkle proof that recomputes the spectrum root", a
   }
 });
 
+test("owned-assets request serves a merkle proof that recomputes the universe root", async () => {
+  await initK12();
+  const engine = new InProcessEngine();
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0);
+
+  try {
+    engine.deploy(28, await wasm("Token"));
+    const issue = new Uint8Array(16);
+    new DataView(issue.buffer).setBigUint64(0, 0x4e454b4f54n, true); // "TOKEN"
+    new DataView(issue.buffer).setBigInt64(8, 1000n, true);
+    engine.sim.procedure(28, 1, issue); // id(28) owns 1000
+
+    const id28 = new Uint8Array(32);
+    new DataView(id28.buffer).setBigUint64(0, 28n, true);
+
+    const frames = await exchange(port, codec.frame(MSG.REQUEST_OWNED_ASSETS, id28, 6));
+    const f = frames.find((x) => x.type === MSG.RESPOND_OWNED_ASSETS)!;
+    expect(f).toBeDefined();
+
+    const d = dv(f.payload);
+    const record = f.payload.subarray(0, 48); // the ownership AssetRecord — the proof's leaf
+    const index = d.getUint32(100, true);
+    const siblings: Uint8Array[] = [];
+    for (let i = 0; i < 24; i++) {
+      siblings.push(f.payload.subarray(104 + i * 32, 104 + i * 32 + 32));
+    }
+
+    expect(toHex(rootFromSiblings(record, index, siblings))).toBe(toHex(engine.sim.universeDigest()));
+  } finally {
+    stop();
+  }
+});
+
 test("contract-function request runs a Counter query through the engine", async () => {
   await initK12();
   const engine = new InProcessEngine();
