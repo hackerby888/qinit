@@ -204,13 +204,12 @@ export class PeerServer {
     return codec.frame(MSG.RESPOND_TX_STATUS, enc, dejavu);
   }
 
+  // REQUEST_TICK_DATA — return the leader's stored signed TickData for the tick (the artifact the votes commit
+  // to). An unfinalized / pruned tick has none, so an empty payload is sent (a client reads it as "no data").
   private respondTickData(payload: Uint8Array, dejavu: number): Uint8Array {
-    const sim = this.engine.sim;
     const tick = codec.decodeTick(payload);
-    const recs = sim.tickTransactions(tick);
-    const digests = recs.map((r) => identityToBytes(r.txId));
-    const enc = codec.encodeTickData(sim.epochN, tick, digests);
-    return codec.frame(MSG.BROADCAST_FUTURE_TICK_DATA, enc, dejavu);
+    const td = this.engine.sim.tickData(tick) ?? new Uint8Array(0);
+    return codec.frame(MSG.BROADCAST_FUTURE_TICK_DATA, td, dejavu);
   }
 
   // REQUEST_TICK_TRANSACTIONS — stream the tick's raw txs as BROADCAST_TRANSACTION packets, then END_RESPONSE

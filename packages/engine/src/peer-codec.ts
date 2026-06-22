@@ -1,12 +1,12 @@
 // Qubic peer-protocol codec — the pure, framework-free wire layer for the TCP bridge (peer-server.ts).
 // Mirrors core-lite src/network_messages/{header.h, network_message_type.h, entity.h, tick.h, contract.h,
 // system_info.h}. Every packet is an 8-byte RequestResponseHeader (size[3] LE | type | dejavu[4]) followed by
-// a typed payload, where `size` counts the header too. Response struct sizes follow the mainnet Qubic protocol
-// (SPECTRUM_DEPTH 24, NUMBER_OF_TRANSACTIONS_PER_TICK 1024, NUMBER_OF_COMPUTORS 676) — a client zero-pads short
+// a typed payload, where `size` counts the header too. Response struct sizes follow the Qubic protocol
+// (SPECTRUM_DEPTH 24, NUMBER_OF_TRANSACTIONS_PER_TICK 4096, NUMBER_OF_COMPUTORS 676) — a client zero-pads short
 // payloads to its struct size but matches strictly on `type`, so we emit the meaningful field prefix.
 export const HEADER_SIZE = 8;
 export const SPECTRUM_DEPTH = 24; // RespondEntity sibling count (mainnet protocol)
-export const TXS_PER_TICK = 1024; // NUMBER_OF_TRANSACTIONS_PER_TICK (mainnet protocol)
+export const TXS_PER_TICK = 4096; // NUMBER_OF_TRANSACTIONS_PER_TICK (common_def.h; must be 2^N)
 export const CLI_NUMBER_OF_COMPUTORS = 676; // NUMBER_OF_COMPUTORS — computor-list slot count (mainnet protocol)
 
 // network_message_type.h — only the types the bridge handles.
@@ -238,20 +238,3 @@ export function encodeRespondOwnedAssets(v: OwnedAssetView): Uint8Array {
 }
 
 const ASSET_RECORD_SIZE = 48;
-
-// TickData (tick.h) for BROADCAST_FUTURE_TICK_DATA — computorIndex(2) epoch(2) tick(4) time(8) timelock(32)
-// then transactionDigests[TXS_PER_TICK*32]. We fill the metadata + the known tx digests; a client zero-pads.
-export function encodeTickData(epoch: number, tick: number, txDigests: Uint8Array[]): Uint8Array {
-  const digestsOff = 48; // 2+2+4 + (millisecond 2 + second..year 6) + timelock 32
-  const buf = new Uint8Array(digestsOff + txDigests.length * 32);
-  const dv = new DataView(buf.buffer);
-  dv.setUint16(2, epoch & 0xffff, true);
-  dv.setUint32(4, tick >>> 0, true);
-
-  let off = digestsOff;
-  for (const d of txDigests) {
-    buf.set(d.subarray(0, 32), off);
-    off += 32;
-  }
-  return buf;
-}

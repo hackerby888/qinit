@@ -8,7 +8,7 @@ import { toHex, k12Bytes } from "./k12";
 import { TraceRecorder } from "./trace";
 import {
   Committee, type CommitteeOpts, type TickStateDigests,
-  buildTickVote, voteIsAligned, merkleRoot, canonicalDigest,
+  buildTickVote, buildTickData, voteIsAligned, merkleRoot, canonicalDigest,
   DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS,
 } from "./consensus";
 import type { DebugTrace } from "@qinit/core";
@@ -17,6 +17,7 @@ const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lit
 const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
 const EP_USER_PROCEDURE = 11; // contract_def.h USER_PROCEDURE_CALL (contractSystemProcedureCount=10, +1)
 const ZERO32 = new Uint8Array(32);
+const TICK_HISTORY = 2000; // ticks of TickData + quorum records retained (memory bound; each TickData ~41 KB)
 
 // qpi.h TransferType
 const TT_STANDARD = 0;
@@ -90,6 +91,7 @@ export interface TxRecord {
   amount: bigint;
   inputType: number;
   moneyFlew: boolean;
+  digest: Uint8Array; // K12(full signed tx) — the tick's TickData transactionDigests entry
 }
 
 export interface ProcedureOpts {
@@ -105,6 +107,7 @@ export interface TickRecord {
   aligned: number;
   total: number;
   digests: TickStateDigests;
+  tickData: Uint8Array; // the leader's signed TickData; the votes commit transaction = K12(tickData)
 }
 
 // A broadcast tx awaiting its scheduled tick (mempool mode). Holds the decoded applyTx arguments.
@@ -115,6 +118,7 @@ interface QueuedTx {
   inputType: number;
   payload: Uint8Array;
   txId: string;
+  digest: Uint8Array; // K12(full signed tx)
 }
 
 // Execution-fee accounting mode. "off" keeps the original behaviour (every contract always runs, queryFeeReserve
@@ -737,7 +741,7 @@ export class Sim {
   // The faithful transaction dispatcher (qubic.cpp processTickTransaction). A SC procedure call is a tx to the
   // contract address with inputType=procId + payload; a plain transfer is any other (dest=user, or dest=contract
   // with a non-procedure inputType). Money moves first (debit source, credit dest), then routing by dest+type.
-  applyTx(source: Uint8Array, dest: Uint8Array, amount: bigint, inputType: number, payload: Uint8Array, txId: string): { moneyFlew: boolean } {
+  applyTx(source: Uint8Array, dest: Uint8Array, amount: bigint, inputType: number, payload: Uint8Array, txId: string, digest: Uint8Array = ZERO32): { moneyFlew: boolean } {
     const tick = this.tickN;
     let moneyFlew = false;
 
@@ -769,16 +773,16 @@ export class Sim {
     }
     // dest is a plain user identity: the debit/credit above is the whole transfer.
 
-    this.recordTx({ txId, tick, source: this.key(source), dest: this.key(dest), amount, inputType, moneyFlew });
+    this.recordTx({ txId, tick, source: this.key(source), dest: this.key(dest), amount, inputType, moneyFlew, digest });
     return { moneyFlew };
   }
 
   // Submit a broadcast tx. In mempool mode a tx whose scheduled tick is still ahead is held until the chain
   // reaches that tick (drained in advance), so it is recorded under that tick; otherwise — and always when
   // mempool mode is off — it applies immediately at the current tick.
-  enqueueTx(scheduledTick: number, source: Uint8Array, dest: Uint8Array, amount: bigint, inputType: number, payload: Uint8Array, txId: string): { moneyFlew: boolean; queued: boolean } {
+  enqueueTx(scheduledTick: number, source: Uint8Array, dest: Uint8Array, amount: bigint, inputType: number, payload: Uint8Array, txId: string, digest: Uint8Array = ZERO32): { moneyFlew: boolean; queued: boolean } {
     if (!this.mempoolMode || scheduledTick <= this.tickN) {
-      const r = this.applyTx(source, dest, amount, inputType, payload, txId);
+      const r = this.applyTx(source, dest, amount, inputType, payload, txId, digest);
       return { moneyFlew: r.moneyFlew, queued: false };
     }
 
@@ -788,7 +792,7 @@ export class Sim {
       this.mempool.set(scheduledTick, q);
     }
 
-    q.push({ source, dest, amount, inputType, payload, txId });
+    q.push({ source, dest, amount, inputType, payload, txId, digest });
     return { moneyFlew: false, queued: true };
   }
 
@@ -801,7 +805,7 @@ export class Sim {
 
     this.mempool.delete(this.tickN);
     for (const t of q) {
-      this.applyTx(t.source, t.dest, t.amount, t.inputType, t.payload, t.txId);
+      this.applyTx(t.source, t.dest, t.amount, t.inputType, t.payload, t.txId, t.digest);
     }
   }
 
@@ -907,21 +911,23 @@ export class Sim {
     return canonicalDigest(parts);
   }
 
-  // transactionDigest — K12 over the tick's recorded transaction ids (deterministic; the sim's tick tx set).
-  private tickTransactionDigest(tick: number): Uint8Array {
-    const recs = this.txByTick.get(tick) ?? [];
-    return canonicalDigest(recs.map((r) => new TextEncoder().encode(r.txId)));
-  }
-
-  // Produce + store this tick's quorum record: every computor signs a Tick vote over the etalon digests; the
-  // aligned count must reach QUORUM (always, for an honest committee) for the tick to be valid.
+  // Produce + store this tick's quorum record. The leader (computor[tick % N]) packs the tick's per-tx digests
+  // into a signed TickData; every computor then signs a Tick vote whose transactionDigest commits K12(TickData),
+  // and the aligned count must reach QUORUM (always, for an honest committee) for the tick to be valid.
   private finalizeTick(): void {
     const committee = this.getCommittee();
+    const spectrum = this.spectrumDigest();
+    const universe = this.universeDigest();
+    const computer = this.computerDigest();
+
+    const txDigests = this.tickTransactions(this.tickN).map((r) => r.digest);
+    const tickData = buildTickData(committee, this.epochN, this.tickN, txDigests, { spectrum, universe, computer }, this.nowMs());
+
     const digests: TickStateDigests = {
-      spectrum: this.spectrumDigest(),
-      universe: this.universeDigest(),
-      computer: this.computerDigest(),
-      transaction: this.tickTransactionDigest(this.tickN),
+      spectrum,
+      universe,
+      computer,
+      transaction: k12Bytes(tickData),
       expectedNextTransaction: new Uint8Array(32),
     };
 
@@ -939,11 +945,31 @@ export class Sim {
       throw new Error(`tick ${this.tickN}: aligned votes ${aligned} < quorum ${committee.quorum}`);
     }
 
-    this.ticks.set(this.tickN, { votes, aligned, total: votes.length, digests });
+    this.ticks.set(this.tickN, { votes, aligned, total: votes.length, digests, tickData });
+    this.pruneTicks();
+  }
+
+  // Bound memory: keep the TickData + votes for the most recent TICK_HISTORY ticks only (each TickData ~41 KB).
+  private pruneTicks(): void {
+    if (this.ticks.size <= TICK_HISTORY) {
+      return;
+    }
+
+    const cutoff = this.tickN - TICK_HISTORY;
+    for (const t of this.ticks.keys()) {
+      if (t < cutoff) {
+        this.ticks.delete(t);
+      }
+    }
   }
 
   tickRecord(tick: number): TickRecord | undefined {
     return this.ticks.get(tick);
+  }
+
+  // The stored signed TickData for a finalized tick; undefined if never finalized or already pruned.
+  tickData(tick: number): Uint8Array | undefined {
+    return this.ticks.get(tick)?.tickData;
   }
 
   // Aligned votes for a tick (0 if not yet finalized) — CurrentTickInfo.numberOfAlignedVotes.

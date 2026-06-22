@@ -195,6 +195,81 @@ export function tickVoteSignature(vote: Uint8Array): Uint8Array {
   return vote.subarray(TICK_SIZE - SIG_SIZE, TICK_SIZE);
 }
 
+// ---- TickData (network_messages/tick.h; BROADCAST_FUTURE_TICK_DATA) ----
+// The leader-proposed transaction set for a tick, in the wire form an external Qubic client reads:
+// computorIndex(2) epoch(2) tick(4) [millisecond(2) second minute hour day month year(1 each)] timelock(32)
+// transactionDigests[NUMBER_OF_TRANSACTIONS_PER_TICK][32] contractFees[…](8 each) signature(64). The leader is
+// computor[tick % N]; the signature is FourQ over K12(TickData − signature) with computorIndex XORed by the
+// future-tick-data message type (the same domain-separation tweak qubic.cpp applies before verifying).
+export const TXS_PER_TICK = 4096; // NUMBER_OF_TRANSACTIONS_PER_TICK (common_def.h; must be 2^N)
+const TICKDATA_FEES_COUNT = 1024; // contractFees[1024] — a fixed 1024, independent of TXS_PER_TICK
+const TICKDATA_DIGESTS_OFFSET = 48; // past computorIndex/epoch/tick/time/timelock
+export const TICKDATA_SIZE = TICKDATA_DIGESTS_OFFSET + TXS_PER_TICK * DIGEST_SIZE + TICKDATA_FEES_COUNT * 8 + SIG_SIZE; // 139376
+const TICKDATA_TYPE = 8; // BROADCAST_FUTURE_TICK_DATA
+const TICKDATA_SIG_OFFSET = TICKDATA_SIZE - SIG_SIZE; // 139312
+
+// timelock = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) — the tick's committed state roots.
+function tickDataTimelock(spectrum: Uint8Array, universe: Uint8Array, computer: Uint8Array): Uint8Array {
+  const buf = new Uint8Array(3 * DIGEST_SIZE);
+  buf.set(spectrum.subarray(0, DIGEST_SIZE), 0);
+  buf.set(universe.subarray(0, DIGEST_SIZE), DIGEST_SIZE);
+  buf.set(computer.subarray(0, DIGEST_SIZE), 2 * DIGEST_SIZE);
+  return k12Bytes(buf);
+}
+
+// Build + sign the tick's TickData. The leader (computor[tick % N]) commits the tick's per-tx digests (each =
+// K12(full signed tx), in order, zero-padded to the capacity) and the state roots; contractFees stay zero.
+export function buildTickData(committee: Committee, epoch: number, tick: number, txDigests: Uint8Array[], roots: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array }, timeMs: number): Uint8Array {
+  const leaderIndex = tick % committee.size;
+  const leader = committee.computors[leaderIndex];
+
+  const buf = new Uint8Array(TICKDATA_SIZE);
+  const dv = new DataView(buf.buffer);
+
+  dv.setUint16(0, leaderIndex & 0xffff, true);
+  dv.setUint16(2, epoch & 0xffff, true);
+  dv.setUint32(4, tick >>> 0, true);
+
+  const t = dateFields(timeMs);
+  dv.setUint16(8, t.milli & 0xffff, true);
+  buf[10] = t.second;
+  buf[11] = t.minute;
+  buf[12] = t.hour;
+  buf[13] = t.day;
+  buf[14] = t.month;
+  buf[15] = t.year;
+
+  buf.set(tickDataTimelock(roots.spectrum, roots.universe, roots.computer), 16);
+
+  const count = Math.min(txDigests.length, TXS_PER_TICK);
+  for (let i = 0; i < count; i++) {
+    buf.set(txDigests[i].subarray(0, DIGEST_SIZE), TICKDATA_DIGESTS_OFFSET + i * DIGEST_SIZE);
+  }
+
+  // Domain-separate the signed message (XOR the index by the message type); the transmitted struct keeps the
+  // plain index. The signature is stored — the votes commit K12(the whole signed TickData).
+  dv.setUint16(0, (leaderIndex ^ TICKDATA_TYPE) & 0xffff, true);
+  const digest = k12Bytes(buf.subarray(0, TICKDATA_SIG_OFFSET));
+  const signature = signSync(leader.privateKey, leader.publicKey, digest);
+  dv.setUint16(0, leaderIndex & 0xffff, true);
+  buf.set(signature, TICKDATA_SIG_OFFSET);
+
+  return buf;
+}
+
+export function tickDataSignature(td: Uint8Array): Uint8Array {
+  return td.subarray(TICKDATA_SIG_OFFSET, TICKDATA_SIZE);
+}
+
+// The K12 message a TickData signature covers: the struct − signature, with computorIndex XORed by the
+// future-tick-data type. For signature verification in tests / the bridge.
+export function tickDataMessage(td: Uint8Array): Uint8Array {
+  const body = td.slice(0, TICKDATA_SIG_OFFSET);
+  const dv = new DataView(body.buffer);
+  dv.setUint16(0, (dv.getUint16(0, true) ^ TICKDATA_TYPE) & 0xffff, true);
+  return k12Bytes(body);
+}
+
 // Does a vote commit to the etalon (canonical) state digests? The aligned-vote count for quorum.
 export function voteIsAligned(vote: Uint8Array, d: TickStateDigests): boolean {
   return bytesEq(vote.subarray(32, 64), d.spectrum)
