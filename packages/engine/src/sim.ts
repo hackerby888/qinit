@@ -4,15 +4,19 @@
 // just a tx to the contract address with inputType=procId + payload, exactly like qubic.cpp
 // processTickTransaction. Mirrors core-lite qpi_spectrum_impl.h / qpi_asset_impl.h.
 import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
-import { toHex } from "./k12";
+import { toHex, k12Bytes } from "./k12";
 import { TraceRecorder } from "./trace";
+import {
+  Committee, type CommitteeOpts, type TickStateDigests,
+  buildTickVote, voteIsAligned, merkleRoot, canonicalDigest,
+  DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS,
+} from "./consensus";
 import type { DebugTrace } from "@qinit/core";
 
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
 const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
 const EP_USER_PROCEDURE = 11; // contract_def.h USER_PROCEDURE_CALL (contractSystemProcedureCount=10, +1)
 const ZERO32 = new Uint8Array(32);
-const NUMBER_OF_COMPUTORS = 8; // testnet dynamic-contracts committee (consensus-irrelevant for the dev sim)
 
 // qpi.h TransferType
 const TT_STANDARD = 0;
@@ -88,6 +92,15 @@ export interface ProcedureOpts {
   reward?: bigint; // invocationReward (Qu sent with the tx)
 }
 
+// A finalized tick's consensus record: the N computor votes, the aligned-vote count, and the etalon digests
+// they committed to. Stored per tick for the quorum-tick / current-tick-info queries.
+export interface TickRecord {
+  votes: Uint8Array[];
+  aligned: number;
+  total: number;
+  digests: TickStateDigests;
+}
+
 export class Sim {
   tickN = 0;
   epochN = 0;
@@ -102,8 +115,13 @@ export class Sim {
   private txById = new Map<string, TxRecord>();
   private callDepth = 0; // inter-contract nesting depth
   private recorder = new TraceRecorder(); // debug-trace capture (opt-in via setDebug)
+  private consensusOpts: CommitteeOpts; // computor-committee config (always-on quorum consensus)
+  private committee: Committee | null = null; // derived lazily on first advance (needs initK12 resolved)
+  private ticks = new Map<number, TickRecord>(); // per-tick quorum record: votes + aligned count + digests
+  tickDuration = 1000; // CurrentTickInfo.tickDuration surfaced to clients (ms; cosmetic in the sim)
 
-  constructor() {
+  constructor(opts: { consensus?: CommitteeOpts } = {}) {
+    this.consensusOpts = opts.consensus ?? {};
     this.host = {
       tick: () => this.tickN,
       epoch: () => this.epochN,
@@ -345,9 +363,9 @@ export class Sim {
   // per-shareholder computor-share payout is consensus-specific and not modeled in the dev sim.
   private doDistributeDividends(slot: number, amountPerShare: bigint): number {
     if (this.pitDepth > 0) return 0; // forbidden inside POST_INCOMING_TRANSFER
-    if (amountPerShare < 0n || amountPerShare * BigInt(NUMBER_OF_COMPUTORS) > MAX_AMOUNT) return 0;
+    if (amountPerShare < 0n || amountPerShare * BigInt(this.committeeSize()) > MAX_AMOUNT) return 0;
 
-    const total = amountPerShare * BigInt(NUMBER_OF_COMPUTORS);
+    const total = amountPerShare * BigInt(this.committeeSize());
     const cur = this.contractId(slot);
     if (this.balance(cur) < total) return 0;
 
@@ -460,6 +478,7 @@ export class Sim {
     }
     this.beginTick();
     this.endTick();
+    this.finalizeTick();
   }
 
   query(slot: number, it: number, input?: Uint8Array): Uint8Array {
@@ -635,6 +654,127 @@ export class Sim {
 
   digest(slot: number): string {
     return this.contracts.get(slot)!.digest();
+  }
+
+  // ---- tick consensus (N computors, quorum votes; core-lite tick.h / computors.h / common_def.h) ----
+  // The configured committee size, available without deriving keys (used for dividend payout + quorum sizing).
+  private committeeSize(): number {
+    return this.consensusOpts.computorSeeds?.length ?? this.consensusOpts.numberOfComputors ?? DEFAULT_NUMBER_OF_COMPUTORS;
+  }
+
+  // The committee, derived (sync FourQ) on first use — requires initK12() to have resolved the crypto module.
+  getCommittee(): Committee {
+    if (!this.committee) {
+      this.committee = new Committee(this.consensusOpts);
+    }
+
+    return this.committee;
+  }
+
+  quorum(): number {
+    return this.getCommittee().quorum;
+  }
+
+  entityCount(): number {
+    return this.spectrum.size;
+  }
+
+  txCount(): number {
+    return this.txById.size;
+  }
+
+  // computerDigest — the faithful K12 merkle over MAX_NUMBER_OF_CONTRACTS contract-state leaves (leaf =
+  // K12(StateData); an empty slot is zero). The one system digest the sim reproduces exactly vs core-lite.
+  computerDigest(): Uint8Array {
+    const leaves = new Map<number, Uint8Array>();
+    for (const [slot, c] of this.contracts) {
+      leaves.set(slot, k12Bytes(c.state()));
+    }
+
+    return merkleRoot(leaves, MAX_NUMBER_OF_CONTRACTS);
+  }
+
+  // spectrumDigest — testnet-canonical: K12 over the occupied entities serialized in sorted-id order.
+  spectrumDigest(): Uint8Array {
+    const parts: Uint8Array[] = [];
+    for (const id of [...this.spectrum.keys()].sort()) {
+      const e = this.spectrum.get(id)!;
+      const rec = new Uint8Array(48);
+      rec.set(hexToBytes32(id), 0);
+      const dv = new DataView(rec.buffer);
+      dv.setBigInt64(32, e.incomingAmount, true);
+      dv.setBigInt64(40, e.outgoingAmount, true);
+      parts.push(rec);
+    }
+
+    return canonicalDigest(parts);
+  }
+
+  // universeDigest — testnet-canonical: K12 over the asset holdings serialized in sorted (asset, holding) order.
+  universeDigest(): Uint8Array {
+    const parts: Uint8Array[] = [];
+    for (const k of [...this.assets.keys()].sort()) {
+      const a = this.assets.get(k)!;
+      for (const hk of [...a.holdings.keys()].sort()) {
+        const h = a.holdings.get(hk)!;
+        const rec = new Uint8Array(72);
+        rec.set(h.owner.subarray(0, 32), 0);
+        rec.set(h.possessor.subarray(0, 32), 32);
+        new DataView(rec.buffer).setBigInt64(64, h.shares, true);
+        parts.push(rec);
+      }
+    }
+
+    return canonicalDigest(parts);
+  }
+
+  // transactionDigest — K12 over the tick's recorded transaction ids (deterministic; the sim's tick tx set).
+  private tickTransactionDigest(tick: number): Uint8Array {
+    const recs = this.txByTick.get(tick) ?? [];
+    return canonicalDigest(recs.map((r) => new TextEncoder().encode(r.txId)));
+  }
+
+  // Produce + store this tick's quorum record: every computor signs a Tick vote over the etalon digests; the
+  // aligned count must reach QUORUM (always, for an honest committee) for the tick to be valid.
+  private finalizeTick(): void {
+    const committee = this.getCommittee();
+    const digests: TickStateDigests = {
+      spectrum: this.spectrumDigest(),
+      universe: this.universeDigest(),
+      computer: this.computerDigest(),
+      transaction: this.tickTransactionDigest(this.tickN),
+      expectedNextTransaction: new Uint8Array(32),
+    };
+
+    const votes: Uint8Array[] = [];
+    let aligned = 0;
+    for (const c of committee.computors) {
+      const vote = buildTickVote(c, this.epochN, this.tickN, digests);
+      votes.push(vote);
+      if (voteIsAligned(vote, digests)) {
+        aligned++;
+      }
+    }
+
+    if (aligned < committee.quorum) {
+      throw new Error(`tick ${this.tickN}: aligned votes ${aligned} < quorum ${committee.quorum}`);
+    }
+
+    this.ticks.set(this.tickN, { votes, aligned, total: votes.length, digests });
+  }
+
+  tickRecord(tick: number): TickRecord | undefined {
+    return this.ticks.get(tick);
+  }
+
+  // Aligned votes for a tick (0 if not yet finalized) — CurrentTickInfo.numberOfAlignedVotes.
+  alignedVotes(tick = this.tickN): number {
+    return this.ticks.get(tick)?.aligned ?? 0;
+  }
+
+  // The arbitrator-signed Computors wire list for the current epoch. slotCount pads for the qubic-cli bridge.
+  signedComputorList(slotCount?: number): Uint8Array {
+    return this.getCommittee().signedComputorList(this.epochN, slotCount);
   }
 }
 

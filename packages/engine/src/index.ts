@@ -3,5 +3,13 @@
 export { Contract, KIND, SP, ContractAbort } from "./runtime";
 export type { HostServices } from "./runtime";
 export { Sim } from "./sim";
+export type { TickRecord } from "./sim";
 export { InProcessEngine } from "./transport";
-export { initK12, k12Bytes, toHex } from "./k12";
+export { initK12, k12Bytes, toHex, deriveKeysSync, signSync, verifySync } from "./k12";
+export type { KeyPair } from "./k12";
+export {
+  Committee, quorumOf, randomSeed, merkleRoot, canonicalDigest,
+  buildTickVote, voteIsAligned, tickVoteMessage, tickVoteSignature,
+  DEFAULT_ARBITRATOR_SEED, DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS, TICK_SIZE,
+} from "./consensus";
+export type { Computor, CommitteeOpts, TickStateDigests } from "./consensus";
