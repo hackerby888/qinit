@@ -3,7 +3,7 @@
 // (real qinit-built wasm), asserting the universe (issuance + holdings) the C++ semantics produce. Assets are
 // NOT in the contract-state digest (they live in the universe), so these assert return values + holdings.
 import { test, expect } from "bun:test";
-import { initK12, deriveKeysSync, signSync, k12Bytes } from "../src/k12";
+import { initK12, deriveKeysSync, signSync, k12Bytes, toHex } from "../src/k12";
 import { Sim } from "../src/sim";
 
 const FIX = import.meta.dir + "/fixtures";
@@ -103,14 +103,14 @@ test("Dividend: distributeDividends debits balance + guards on insufficient fund
     return b;
   };
 
-  sim.procedure(28, 1, new Uint8Array(0), { reward: 100n }); // Fund -> balance 100
-  expect(sim.balanceOf(28)).toBe(100n);
+  sim.procedure(28, 1, new Uint8Array(0), { reward: 1000000n }); // Fund -> balance 1,000,000
+  expect(sim.balanceOf(28)).toBe(1000000n);
 
-  expect(u64(sim.procedure(28, 2, distIn(10n)))).toBe(1n); // 10 * NUMBER_OF_COMPUTORS(8) = 80 <= 100
-  expect(sim.balanceOf(28)).toBe(20n);
+  expect(u64(sim.procedure(28, 2, distIn(1n)))).toBe(1n); // 1 * 676 IPO shares = 676 <= 1,000,000
+  expect(sim.balanceOf(28)).toBe(1000000n - 676n);
 
-  expect(u64(sim.procedure(28, 2, distIn(100n)))).toBe(0n); // 800 > 20 -> false, no debit
-  expect(sim.balanceOf(28)).toBe(20n);
+  expect(u64(sim.procedure(28, 2, distIn(10000n)))).toBe(0n); // 10000 * 676 > remaining -> false, no debit
+  expect(sim.balanceOf(28)).toBe(1000000n - 676n);
 });
 
 const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
@@ -280,11 +280,11 @@ test("newly-exposed qpi wasm imports resolve: dayOfWeek + signatureValidity real
   const sim = new Sim();
   sim.deploy(29, await wasm("ApiProbe")); // calls all 9 newly-exposed qpi methods
 
-  // Probe = dayOfWeek(2024-01-01) + ipoBidPrice(stub -1) + getOracleQueryStatus(stub 0)
+  // Probe = dayOfWeek(2024-01-01) + ipoBidPrice(0,0)=1,000,000 + getOracleQueryStatus(stub 0)
   const p = new Uint8Array(24); // { uint8 year; uint8 month; uint8 day; ...; }
   p[0] = 24; p[1] = 1; p[2] = 1;
   const dow = (new Date(Date.UTC(2024, 0, 1)).getUTCDay() + 4) % 7; // qubic dayOfWeek (0 = Wednesday)
-  expect(i64(sim.query(29, 1, p))).toBe(BigInt(dow) - 1n); // every import resolved; the stubs returned defaults
+  expect(i64(sim.query(29, 1, p))).toBe(BigInt(dow) + 1000000n); // dayOfWeek + the default IPO share price
 
   // Verify = signatureValidity against a real FourQ signature
   const kp = deriveKeysSync("z".repeat(55));
@@ -295,4 +295,33 @@ test("newly-exposed qpi wasm imports resolve: dayOfWeek + signatureValidity real
   v.set(digest, 32);
   v.set(sig, 64);
   expect(i64(sim.query(29, 2, v))).toBe(1n); // a valid signature verifies through wasm -> lhost -> host
+});
+
+test("qpi host wiring: isContractId, arbitrator/computor, prevDigests, IPO bid queries", async () => {
+  await initK12();
+
+  const sim = new Sim();
+  sim.deploy(28, await wasm("Counter"));
+  const committee = sim.getCommittee();
+
+  // isContractId: a deployed contract's id -> 1; a non-contract id -> 0
+  expect(sim.host.isContractId(cid(28))).toBe(1);
+  expect(sim.host.isContractId(new Uint8Array(32).fill(0x77))).toBe(0);
+
+  // arbitrator / computor(i) expose the committee
+  expect(toHex(sim.host.arbitrator())).toBe(toHex(committee.arbitrator.publicKey));
+  expect(toHex(sim.host.computor(0))).toBe(toHex(committee.computors[0].publicKey));
+
+  // prev*Digest: zero before any tick, the committed roots after
+  expect(toHex(sim.host.prevSpectrumDigest())).toBe(toHex(new Uint8Array(32)));
+  sim.fund(new Uint8Array(32).fill(0x11), 100n);
+  sim.advance();
+  expect(toHex(sim.host.prevSpectrumDigest())).toBe(toHex(sim.spectrumDigest()));
+  expect(toHex(sim.host.prevComputerDigest())).toBe(toHex(sim.computerDigest()));
+
+  // IPO default: 676 shares, owned by the computors, 1,000,000 each
+  expect(sim.host.ipoBidPrice(28, 0)).toBe(1000000n);
+  expect(sim.host.ipoBidPrice(28, 675)).toBe(1000000n);
+  expect(sim.host.ipoBidPrice(28, 676)).toBe(-3n); // out of range
+  expect(toHex(sim.host.ipoBidId(28, 0))).toBe(toHex(committee.computors[0].publicKey));
 });

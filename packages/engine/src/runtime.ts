@@ -92,6 +92,12 @@ export interface HostServices {
   transfer(slot: number, dest: Uint8Array, amount: bigint, transferType: number): bigint;
   burn(slot: number, amount: bigint, burnedFor: number): bigint;
   getEntity(id: Uint8Array): Entity | null;
+  isContractId(id: Uint8Array): number;
+  arbitrator(): Uint8Array;
+  computor(index: number): Uint8Array;
+  prevSpectrumDigest(): Uint8Array;
+  prevUniverseDigest(): Uint8Array;
+  prevComputerDigest(): Uint8Array;
   queryFeeReserve(callerSlot: number, contractIndex: number): bigint;
   issueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint;
   isAssetIssued(issuer: Uint8Array, name: bigint): number;
@@ -373,10 +379,10 @@ export class Contract {
       second: () => dateFields(this.host.nowMs()).second,
       millisecond: () => dateFields(this.host.nowMs()).milli,
       now: (out: number) => u8().fill(0, out, out + 8),
-      // etalon-tick digests (zeroed in the sim)
-      prevSpectrumDigest: (out: number) => u8().fill(0, out, out + 32),
-      prevUniverseDigest: (out: number) => u8().fill(0, out, out + 32),
-      prevComputerDigest: (out: number) => u8().fill(0, out, out + 32),
+      // etalon-tick digests — the previous tick's committed state roots
+      prevSpectrumDigest: (out: number) => u8().set(this.host.prevSpectrumDigest().subarray(0, 32), out),
+      prevUniverseDigest: (out: number) => u8().set(this.host.prevUniverseDigest().subarray(0, 32), out),
+      prevComputerDigest: (out: number) => u8().set(this.host.prevComputerDigest().subarray(0, 32), out),
       // identity / spectrum
       getEntity: (idOff: number, entityOff: number) => {
         const id = u8().slice(idOff, idOff + 32);
@@ -398,9 +404,9 @@ export class Contract {
       prevId: (idOff: number, outOff: number) => {
         u8().set(this.host.prevId(u8().slice(idOff, idOff + 32)), outOff);
       },
-      isContractId: (_id: number) => 0,
-      arbitrator: (out: number) => u8().fill(0, out, out + 32),
-      computor: (_i: number, out: number) => u8().fill(0, out, out + 32),
+      isContractId: (idOff: number) => this.host.isContractId(u8().slice(idOff, idOff + 32)),
+      arbitrator: (out: number) => u8().set(this.host.arbitrator().subarray(0, 32), out),
+      computor: (i: number, out: number) => u8().set(this.host.computor(i >>> 0).subarray(0, 32), out),
       // value / ledger (delegated to Layer 2; return the contract's new balance per qpi_spectrum_impl.h)
       transfer: (destOff: number, amount: bigint) => {
         const dest = u8().slice(destOff, destOff + 32);

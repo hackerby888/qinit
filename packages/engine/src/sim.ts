@@ -20,6 +20,8 @@ const EP_USER_PROCEDURE = 11; // contract_def.h USER_PROCEDURE_CALL (contractSys
 const ZERO32 = new Uint8Array(32);
 const TICK_HISTORY = 2000; // ticks of TickData + quorum records retained (memory bound; each TickData ~41 KB)
 const ASSET_RECORD_SIZE = 48; // structs.h AssetRecord (union) — the universe merkle leaf size
+const IPO_SHARE_COUNT = 676; // NUMBER_OF_COMPUTORS — a contract's IPO shares: one per computor (0..675)
+const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
 
 // qpi.h TransferType
 const TT_STANDARD = 0;
@@ -142,6 +144,7 @@ export class Sim {
   private universeTree: SparseMerkle | null = null; // incremental 2^24 merkle; root = universeDigest
   private universeIdx = new Map<string, number>(); // assetKey\0holdingKey -> stable leaf index
   private universeDirty = new Set<string>(); // holdings whose leaf changed since the last digest
+  private lastDigests: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } = { spectrum: ZERO32, universe: ZERO32, computer: ZERO32 }; // previous tick's committed roots (qpi prev*Digest)
   private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
   private assets = new Map<string, AssetRec>(); // universe: assetKey -> issuance + holdings
   private txByTick = new Map<number, TxRecord[]>();
@@ -184,13 +187,19 @@ export class Sim {
       releaseShares: (slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee) => this.releaseShares(slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee),
       dayOfWeek: (year, month, day) => (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7, // qubic dayOfWeek: 0 = Wednesday
       signatureValidity: (entity, digest, signature) => (verifySync(entity, digest, signature) ? 1 : 0),
-      bidInIPO: () => -1n, // IPO bidding is not modeled in the dev engine — report "no bids registered"
-      ipoBidId: () => ZERO32,
-      ipoBidPrice: () => -1n, // -1 = invalid contract index (qpi.h)
+      bidInIPO: () => -1n, // the default IPO is already finalized (the 676 shares are held by the computors)
+      ipoBidId: (_ci, i) => (i >= 0 && i < IPO_SHARE_COUNT ? this.getCommittee().computors[i % this.committeeSize()].publicKey : ZERO32),
+      ipoBidPrice: (_ci, i) => (i >= 0 && i < IPO_SHARE_COUNT ? IPO_SHARE_PRICE : -3n), // -3 = invalid bid index (qpi.h)
       computeMiningFunction: () => ZERO32, // mining is not modeled in the dev engine
       initMiningSeed: () => {},
       getOracleQueryStatus: () => 0, // oracle is not modeled — ORACLE_QUERY_STATUS default
       unsubscribeOracle: () => 0,
+      isContractId: (id) => (this.contractSlotOf(id) >= 0 ? 1 : 0),
+      arbitrator: () => this.getCommittee().arbitrator.publicKey,
+      computor: (i) => this.getCommittee().computors[i % this.committeeSize()]?.publicKey ?? ZERO32,
+      prevSpectrumDigest: () => this.lastDigests.spectrum,
+      prevUniverseDigest: () => this.lastDigests.universe,
+      prevComputerDigest: () => this.lastDigests.computer,
       distributeDividends: (slot, amountPerShare) => this.doDistributeDividends(slot, amountPerShare),
       callFunction: (callerSlot, calleeIdx, inputType, input, originator) => this.doCallFunction(callerSlot, calleeIdx, inputType, input, originator),
       invokeProcedure: (callerSlot, calleeIdx, inputType, input, reward, originator) => this.doInvokeProcedure(callerSlot, calleeIdx, inputType, input, reward, originator),
@@ -641,17 +650,34 @@ export class Sim {
     return cb.fee;
   }
 
-  // Simplified: the in-PIT guard + range + balance (amountPerShare * NUMBER_OF_COMPUTORS) debit. The
-  // per-shareholder computor-share payout is consensus-specific and not modeled in the dev sim.
+  // distributeDividends — pay amountPerShare to each holder of the contract's IPO shares (the 676 computors,
+  // one share each by default). Total = amountPerShare * IPO_SHARE_COUNT, debited from the contract; each
+  // shareholder is credited its share of the total, firing its POST_INCOMING_TRANSFER if it is a contract.
+  // Forbidden inside a POST_INCOMING_TRANSFER callback.
   private doDistributeDividends(slot: number, amountPerShare: bigint): number {
     if (this.pitDepth > 0) return 0; // forbidden inside POST_INCOMING_TRANSFER
-    if (amountPerShare < 0n || amountPerShare * BigInt(this.committeeSize()) > MAX_AMOUNT) return 0;
+    if (amountPerShare < 0n || amountPerShare * BigInt(IPO_SHARE_COUNT) > MAX_AMOUNT) return 0;
 
-    const total = amountPerShare * BigInt(this.committeeSize());
+    const total = amountPerShare * BigInt(IPO_SHARE_COUNT);
     const cur = this.contractId(slot);
     if (this.balance(cur) < total) return 0;
 
+    if (amountPerShare === 0n) {
+      return 1;
+    }
+
+    const committee = this.getCommittee();
+    const base = Math.floor(IPO_SHARE_COUNT / committee.size);
+    const rem = IPO_SHARE_COUNT % committee.size;
     this.debit(cur, total);
+
+    for (let j = 0; j < committee.size; j++) {
+      const sharesHeld = BigInt(base + (j < rem ? 1 : 0)); // 676 shares spread over the committee
+      const payout = amountPerShare * sharesHeld;
+      const holder = committee.computors[j].publicKey;
+      this.credit(holder, payout);
+      this.notifyPIT(holder, cur, payout, TT_STANDARD); // fires POST_INCOMING_TRANSFER only if the holder is a contract
+    }
 
     return 1;
   }
@@ -1180,6 +1206,7 @@ export class Sim {
     const spectrum = this.spectrumDigest();
     const universe = this.universeDigest();
     const computer = this.computerDigest();
+    this.lastDigests = { spectrum, universe, computer }; // the next tick's contracts read these as prev*Digest
 
     const txDigests = this.tickTransactions(this.tickN).map((r) => r.digest);
     const tickData = buildTickData(committee, this.epochN, this.tickN, txDigests, { spectrum, universe, computer }, this.nowMs());
