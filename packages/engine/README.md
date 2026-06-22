@@ -87,9 +87,11 @@ The host import table (`HostServices`) supplies the qpi callbacks: time (tick/ep
 - `@qinit/engine/peer` — a TCP adapter (`PeerServer`) that speaks the Qubic peer protocol so the official
   `qubic-cli` drives the engine. Run `bun packages/engine/src/peer-main.ts 21841`, then
   `qubic-cli -nodeip 127.0.0.1 -nodeport 21841 -getcurrenttick` (wallet `-getbalance`/`-sendtoaddress`,
-  `-getsysteminfo`, `-getcomputorlist`, `-getquorumtick`, …). **Bun-only** (uses `Bun.listen`). Note: the
-  cli's hard-coded `ARBITRATOR` differs from the sim's, and txs apply immediately (future-tick scheduling is
-  not honoured) — single-authority-style timing on a single process playing all computors.
+  `-getsysteminfo`, `-getcomputorlist`, `-getquorumtick`, `-checktxontick`, …). **Bun-only** (uses
+  `Bun.listen`). Broadcast txs are deferred to their scheduled tick via an opt-in mempool
+  (`new InProcessEngine({ mempool: true })`, which `peer-main.ts` enables) so tick-scoped queries resolve; the
+  rest of the engine keeps immediate-apply by default. Note: the client's hard-coded `ARBITRATOR` differs from
+  the sim's, and one process plays all computors.
 
 ## Build & publishing
 

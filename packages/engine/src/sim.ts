@@ -101,6 +101,16 @@ export interface TickRecord {
   digests: TickStateDigests;
 }
 
+// A broadcast tx awaiting its scheduled tick (mempool mode). Holds the decoded applyTx arguments.
+interface QueuedTx {
+  source: Uint8Array;
+  dest: Uint8Array;
+  amount: bigint;
+  inputType: number;
+  payload: Uint8Array;
+  txId: string;
+}
+
 export class Sim {
   tickN = 0;
   epochN = 0;
@@ -119,9 +129,12 @@ export class Sim {
   private committee: Committee | null = null; // derived lazily on first advance (needs initK12 resolved)
   private ticks = new Map<number, TickRecord>(); // per-tick quorum record: votes + aligned count + digests
   tickDuration = 50; // ms/tick surfaced to clients; set by the server to match its auto-tick interval
+  private mempoolMode: boolean; // when true, broadcast txs are deferred to their scheduled tick (opt-in)
+  private mempool = new Map<number, QueuedTx[]>(); // scheduled tick -> txs awaiting that tick
 
-  constructor(opts: { consensus?: CommitteeOpts } = {}) {
+  constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean } = {}) {
     this.consensusOpts = opts.consensus ?? {};
+    this.mempoolMode = opts.mempool ?? false;
     this.host = {
       tick: () => this.tickN,
       epoch: () => this.epochN,
@@ -477,6 +490,7 @@ export class Sim {
       this.beginEpoch();
     }
     this.beginTick();
+    this.drainMempool();
     this.endTick();
     this.finalizeTick();
   }
@@ -630,6 +644,38 @@ export class Sim {
 
     this.recordTx({ txId, tick, source: this.key(source), dest: this.key(dest), amount, inputType, moneyFlew });
     return { moneyFlew };
+  }
+
+  // Submit a broadcast tx. In mempool mode a tx whose scheduled tick is still ahead is held until the chain
+  // reaches that tick (drained in advance), so it is recorded under that tick; otherwise — and always when
+  // mempool mode is off — it applies immediately at the current tick.
+  enqueueTx(scheduledTick: number, source: Uint8Array, dest: Uint8Array, amount: bigint, inputType: number, payload: Uint8Array, txId: string): { moneyFlew: boolean; queued: boolean } {
+    if (!this.mempoolMode || scheduledTick <= this.tickN) {
+      const r = this.applyTx(source, dest, amount, inputType, payload, txId);
+      return { moneyFlew: r.moneyFlew, queued: false };
+    }
+
+    let q = this.mempool.get(scheduledTick);
+    if (!q) {
+      q = [];
+      this.mempool.set(scheduledTick, q);
+    }
+
+    q.push({ source, dest, amount, inputType, payload, txId });
+    return { moneyFlew: false, queued: true };
+  }
+
+  // Apply the txs scheduled for the current tick (mempool mode), recording them under it.
+  private drainMempool(): void {
+    const q = this.mempool.get(this.tickN);
+    if (!q) {
+      return;
+    }
+
+    this.mempool.delete(this.tickN);
+    for (const t of q) {
+      this.applyTx(t.source, t.dest, t.amount, t.inputType, t.payload, t.txId);
+    }
   }
 
   // ---- tickdata (lite: per-tick tx history + tx-by-id) ----

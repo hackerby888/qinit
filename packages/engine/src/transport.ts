@@ -8,6 +8,7 @@ import type {
 import { bytesToIdentity, identityToBytes, deriveIdentity } from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX } from "@qinit/proto";
 import { Sim, type AssetSnapshot } from "./sim";
+import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
 import { k12Bytes, toHex } from "./k12";
 
@@ -15,7 +16,7 @@ interface SlotMeta { name: string; codeHash: string; version: number; }
 interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
 
 export class InProcessEngine implements NodeTransport {
-  readonly sim = new Sim();
+  readonly sim: Sim;
   readonly slotBase: number;
   readonly slotCount: number;
   private meta = new Map<number, SlotMeta>();
@@ -23,7 +24,8 @@ export class InProcessEngine implements NodeTransport {
   private sources = new Map<number, string>(); // deployed .h source per slot (for callee auto-resolution)
   private rawTxs = new Map<string, Uint8Array>(); // hex(K12(tx body)) -> raw tx bytes (peer REQUEST_TRANSACTION_INFO)
 
-  constructor(opts: { slotBase?: number; slotCount?: number } = {}) {
+  constructor(opts: { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean } = {}) {
+    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool });
     this.slotBase = opts.slotBase ?? 28;
     this.slotCount = opts.slotCount ?? 4;
   }
@@ -99,6 +101,7 @@ export class InProcessEngine implements NodeTransport {
       const destBytes = txBytes.slice(32, 64);
       const destLo = v.getBigUint64(32, true);
       const amount = v.getBigInt64(64, true);
+      const txTick = v.getUint32(72, true);
       const inputType = v.getUint16(76, true);
       const inputSize = v.getUint16(78, true);
       const payload = txBytes.slice(80, 80 + inputSize);
@@ -115,7 +118,7 @@ export class InProcessEngine implements NodeTransport {
       this.rawTxs.set(toHex(k12Bytes(body)), txBytes);
       this.rawTxs.set(toHex(k12Bytes(txBytes)), txBytes);
       this.rawTxs.set(txId, txBytes);
-      this.sim.applyTx(source, destBytes, amount, inputType, payload, txId);
+      this.sim.enqueueTx(txTick, source, destBytes, amount, inputType, payload, txId);
       return { ok: true, transactionId: txId };
     } catch (e: any) {
       return { ok: false, message: String(e?.message ?? e) };
