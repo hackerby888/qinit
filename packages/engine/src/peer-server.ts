@@ -118,6 +118,8 @@ export class PeerServer {
         return this.respondSystemInfo(dejavu);
       case MSG.REQUEST_TX_STATUS:
         return this.respondTxStatus(payload, dejavu);
+      case MSG.REQUEST_TICK_TRANSACTIONS:
+        return this.respondTickTransactions(payload, dejavu);
       case MSG.REQUEST_TICK_DATA:
         return this.respondTickData(payload, dejavu);
       case MSG.REQUEST_TRANSACTION_INFO:
@@ -208,6 +210,22 @@ export class PeerServer {
     const digests = recs.map((r) => identityToBytes(r.txId));
     const enc = codec.encodeTickData(sim.epochN, tick, digests);
     return codec.frame(MSG.BROADCAST_FUTURE_TICK_DATA, enc, dejavu);
+  }
+
+  // REQUEST_TICK_TRANSACTIONS — stream the tick's raw txs as BROADCAST_TRANSACTION packets, then END_RESPONSE
+  // (the cli's -checktxontick / tick-data flow scans these for a tx hash).
+  private respondTickTransactions(payload: Uint8Array, dejavu: number): Uint8Array {
+    const tick = codec.decodeTick(payload);
+    const frames: Uint8Array[] = [];
+    for (const r of this.engine.sim.tickTransactions(tick)) {
+      const raw = this.engine.rawTx(r.txId);
+      if (raw) {
+        frames.push(codec.frame(MSG.BROADCAST_TRANSACTION, raw, dejavu));
+      }
+    }
+
+    frames.push(codec.endResponse(dejavu));
+    return concatAll(frames);
   }
 
   private respondTxInfo(payload: Uint8Array, dejavu: number): Uint8Array | null {

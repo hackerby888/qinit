@@ -109,8 +109,12 @@ export class InProcessEngine implements NodeTransport {
       }
 
       const body = txBytes.length > 64 ? txBytes.slice(0, txBytes.length - 64) : txBytes;
-      this.rawTxs.set(toHex(k12Bytes(body)), txBytes); // keyed by the tx digest the peer protocol queries by
       const txId = await this.txId(txBytes);
+      // Index the raw tx by every digest the peer protocol might query by: K12(body, no sig) = qinit's txId,
+      // K12(full tx incl. sig) = the cli's tx hash, and the txId string (REQUEST_TICK_TRANSACTIONS).
+      this.rawTxs.set(toHex(k12Bytes(body)), txBytes);
+      this.rawTxs.set(toHex(k12Bytes(txBytes)), txBytes);
+      this.rawTxs.set(txId, txBytes);
       this.sim.applyTx(source, destBytes, amount, inputType, payload, txId);
       return { ok: true, transactionId: txId };
     } catch (e: any) {

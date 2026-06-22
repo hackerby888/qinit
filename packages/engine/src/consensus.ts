@@ -9,6 +9,7 @@ export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55); // arbitrator identity = 
 export const DEFAULT_NUMBER_OF_COMPUTORS = 8; // core-lite LITE testnet committee (common_def.h)
 export const MAX_NUMBER_OF_CONTRACTS = 1024; // common_def.h — computer-digest merkle leaf count
 export const TICK_SIZE = 352; // network_messages/tick.h, including the 64-byte signature
+const TICK_TYPE = 3; // BROADCAST_TICK — XORed into computorIndex for vote-signature domain separation (qubic.cpp)
 const SIG_SIZE = 64;
 const DIGEST_SIZE = 32;
 const SEED_ALPHABET = "abcdefghijklmnopqrstuvwxyz";
@@ -160,14 +161,23 @@ export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickS
   buf.set(d.transaction, 224);
   buf.set(d.expectedNextTransaction, 256);
 
+  // Domain-separate the signed message by XORing computorIndex with the Tick message type (qubic.cpp does the
+  // same XOR before verifying). The transmitted struct keeps the plain index.
+  dv.setUint16(0, (c.index ^ TICK_TYPE) & 0xffff, true);
   const digest = k12Bytes(buf.subarray(0, TICK_SIZE - SIG_SIZE));
-  buf.set(signSync(c.privateKey, c.publicKey, digest), TICK_SIZE - SIG_SIZE);
+  const signature = signSync(c.privateKey, c.publicKey, digest);
+  dv.setUint16(0, c.index, true);
+  buf.set(signature, TICK_SIZE - SIG_SIZE);
   return buf;
 }
 
-// The K12 message a tick vote's signature covers (Tick − signature) — for verification in tests / the bridge.
+// The K12 message a tick vote's signature covers: the Tick − signature, with computorIndex XORed by the Tick
+// message type (the qubic domain-separation tweak). For verification in tests / the bridge.
 export function tickVoteMessage(vote: Uint8Array): Uint8Array {
-  return k12Bytes(vote.subarray(0, TICK_SIZE - SIG_SIZE));
+  const body = vote.slice(0, TICK_SIZE - SIG_SIZE);
+  const dv = new DataView(body.buffer);
+  dv.setUint16(0, (dv.getUint16(0, true) ^ TICK_TYPE) & 0xffff, true);
+  return k12Bytes(body);
 }
 
 export function tickVoteSignature(vote: Uint8Array): Uint8Array {
