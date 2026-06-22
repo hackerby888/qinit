@@ -17,10 +17,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     struct Issue_output { sint64 result; };
     struct Acquire_input { uint64 name; id issuer; id holder; sint64 shares; uint16 srcMgmt; sint64 fee; };
     struct Acquire_output { sint64 result; };
+    struct Release_input { uint64 name; id issuer; id holder; sint64 shares; uint16 dstMgmt; sint64 fee; };
+    struct Release_output { sint64 result; };
     struct Last_input {};
     struct Last_output { sint64 result; };
 
     struct Acquire_locals { Asset a; };
+    struct Release_locals { Asset a; };
 
     PUBLIC_PROCEDURE(Issue)
     {
@@ -36,6 +39,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         state.mut().lastResult = output.result;
     }
 
+    PUBLIC_PROCEDURE_WITH_LOCALS(Release)
+    {
+        locals.a.issuer = input.issuer;
+        locals.a.assetName = input.name;
+        output.result = qpi.releaseShares(locals.a, input.holder, input.holder, input.shares, input.dstMgmt, input.dstMgmt, input.fee);
+        state.mut().lastResult = output.result;
+    }
+
     PUBLIC_FUNCTION(Last)
     {
         output.result = state.get().lastResult;
@@ -45,6 +56,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         REGISTER_USER_PROCEDURE(Issue, 1);
         REGISTER_USER_PROCEDURE(Acquire, 2);
+        REGISTER_USER_PROCEDURE(Release, 3);
         REGISTER_USER_FUNCTION(Last, 1);
     }
 

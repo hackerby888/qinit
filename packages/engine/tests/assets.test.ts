@@ -128,6 +128,19 @@ function sharesByMgmt(sim: Sim, mgmt: number): bigint {
   return sum;
 }
 
+// ShareManager Acquire/Release input: { uint64 name; id issuer; id holder; sint64 shares; uint16 mgmt; sint64 fee }
+function mgmtIn(name: bigint, issuer: Uint8Array, holder: Uint8Array, shares: bigint, mgmt: number, fee: bigint): Uint8Array {
+  const b = new Uint8Array(96);
+  const d = new DataView(b.buffer);
+  d.setBigUint64(0, name, true);
+  b.set(issuer.subarray(0, 32), 8);
+  b.set(holder.subarray(0, 32), 40);
+  d.setBigInt64(72, shares, true);
+  d.setUint16(80, mgmt, true);
+  d.setBigInt64(88, fee, true);
+  return b;
+}
+
 test("transferShareManagementRights moves the managing contract; the possessor is unchanged", async () => {
   await initK12();
 
@@ -218,6 +231,47 @@ test("the approve path: PRE_RELEASE_SHARES lets another contract acquire managem
   expect(i64(sim.query(29, 1))).toBe(0n); // acquireShares returned the paid fee (0) on success
   expect(sharesByMgmt(sim, 29)).toBe(400n); // 400 now managed by the acquirer
   expect(sharesByMgmt(sim, 28)).toBe(600n); // 600 still managed by the issuer
+});
+
+test("acquire with a non-zero fee (through wasm): the approver charges, the acquirer pays", async () => {
+  await initK12();
+
+  const sim = new Sim();
+  sim.deploy(28, await wasm("ShareApprover"));
+  sim.deploy(29, await wasm("ShareManager"));
+  const A = cid(28);
+
+  sim.procedure(28, 1, issueIn(TOKEN, 1000n));
+  const setFee = new Uint8Array(8);
+  new DataView(setFee.buffer).setBigInt64(0, 10n, true);
+  sim.procedure(28, 2, setFee); // SetFee(10): PRE_RELEASE_SHARES now requests a fee of 10
+  sim.fund(cid(29), 100n); // the acquirer needs balance to pay the fee
+
+  sim.procedure(29, 2, mgmtIn(TOKEN, A, A, 400n, 28, 10n)); // Acquire with offeredFee 10
+
+  expect(i64(sim.query(29, 1))).toBe(10n); // acquireShares returned the paid fee
+  expect(sim.balanceOf(28)).toBe(10n); // the approver received it
+  expect(sim.balanceOf(29)).toBe(90n); // the acquirer paid it
+  expect(sharesByMgmt(sim, 29)).toBe(400n);
+});
+
+test("release management rights back through wasm (PRE_ACQUIRE_SHARES approves)", async () => {
+  await initK12();
+
+  const sim = new Sim();
+  sim.deploy(28, await wasm("ShareApprover"));
+  sim.deploy(29, await wasm("ShareManager"));
+  const A = cid(28);
+
+  sim.procedure(28, 1, issueIn(TOKEN, 1000n));
+  sim.procedure(29, 2, mgmtIn(TOKEN, A, A, 400n, 28, 0n)); // acquire 400 -> managed by 29
+  expect(sharesByMgmt(sim, 29)).toBe(400n);
+
+  sim.procedure(29, 3, mgmtIn(TOKEN, A, A, 400n, 28, 0n)); // release 400 back to 28 (its PRE_ACQUIRE_SHARES approves)
+
+  expect(i64(sim.query(29, 1))).toBe(0n);
+  expect(sharesByMgmt(sim, 29)).toBe(0n); // released
+  expect(sharesByMgmt(sim, 28)).toBe(1000n); // all back to the issuer
 });
 
 test("newly-exposed qpi wasm imports resolve: dayOfWeek + signatureValidity real, IPO/mining/oracle stubbed", async () => {
