@@ -14,6 +14,8 @@ const corpus: { name: string; path: string; dynCallees?: Callees; skipVerify?: b
   { name: "Token", path: fx("Token.h") },
   // compile-only: exercises the SET_SHAREHOLDER_PROPOSAL sysproc macro, which the upstream verifier can't parse.
   { name: "ShareReceiver", path: fx("ShareReceiver.h"), skipVerify: true },
+  // exercises the acquireShares lhost binding (the share management-rights wasm import).
+  { name: "ShareManager", path: fx("ShareManager.h"), skipVerify: true },
   { name: "BigState", path: fx("BigState.h") },
   { name: "Proxy", path: fx("Proxy.h"), dynCallees: { Counter: { header: fx("Counter.h"), index: 28 } } },
   { name: "QX", path: core + "/src/contracts/Qx.h" },

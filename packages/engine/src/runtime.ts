@@ -37,6 +37,7 @@ const HOST_WEIGHT: Record<string, bigint> = {
   isAssetIssued: 2n, issueAsset: 50n,
   numberOfShares: 5n, numberOfPossessedShares: 3n,
   transferShareOwnershipAndPossession: 20n, distributeDividends: 20n,
+  acquireShares: 30n, releaseShares: 30n,
   liteCallFunction: 20n, liteInvokeProcedure: 20n,
   liteSetShareholderProposal: 20n, liteSetShareholderVotes: 20n,
 };
@@ -95,6 +96,8 @@ export interface HostServices {
   numberOfShares(asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array): bigint;
   numberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint;
   transferShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint;
+  acquireShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, srcOwnMgmt: number, srcPosMgmt: number, offeredFee: bigint): bigint;
+  releaseShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, dstOwnMgmt: number, dstPosMgmt: number, offeredFee: bigint): bigint;
   distributeDividends(slot: number, amountPerShare: bigint): number;
   callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Uint8Array): { error: number; output: Uint8Array };
   invokeProcedure(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, reward: bigint, originator: Uint8Array): { error: number; output: Uint8Array };
@@ -420,6 +423,18 @@ export class Contract {
         const newOwner = u8().slice(newOwnerOff, newOwnerOff + 32);
         const r = this.host.transferShares(this.slot, name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), shares, newOwner);
         this.recHost("transferShares", () => `${assetName(name)} ${shares} → ${shortId(newOwner)}`);
+        return r;
+      },
+      // share management rights — qpi acquireShares / releaseShares (qpi_asset_impl.h). The lhost imports are
+      // provided here; a wasm contract reaches them once the qpi wasm binding declares the imports.
+      acquireShares: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, srcOwnMgmt: number, srcPosMgmt: number, fee: bigint) => {
+        const r = this.host.acquireShares(this.slot, name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), shares, srcOwnMgmt & 0xffff, srcPosMgmt & 0xffff, fee);
+        this.recHost("acquireShares", () => `${assetName(name)} ${shares} ← mgmt ${srcPosMgmt & 0xffff}`);
+        return r;
+      },
+      releaseShares: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, dstOwnMgmt: number, dstPosMgmt: number, fee: bigint) => {
+        const r = this.host.releaseShares(this.slot, name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), shares, dstOwnMgmt & 0xffff, dstPosMgmt & 0xffff, fee);
+        this.recHost("releaseShares", () => `${assetName(name)} ${shares} → mgmt ${dstPosMgmt & 0xffff}`);
         return r;
       },
       distributeDividends: (amountPerShare: bigint) => {

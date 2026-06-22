@@ -170,3 +170,26 @@ test("acquireShares rejects owner != possessor (qpi keeps them equal)", async ()
 
   expect(sim.acquireShares(30, TOKEN, SELF, SELF, OTHER, 100n, 28, 28, 0n)).toBe(INVALID_AMOUNT);
 });
+
+test("a wasm contract can call qpi.acquireShares (the lhost import resolves end-to-end)", async () => {
+  await initK12();
+
+  const sim = new Sim();
+  sim.deploy(29, await wasm("ShareManager")); // built --slot 29 -> SELF = id(29)
+  const SELF = cid(29);
+
+  sim.procedure(29, 1, issueIn(TOKEN, 1000n)); // issue an asset managed by SELF (contract 29)
+
+  const acq = new Uint8Array(96); // { uint64 name; id issuer; id holder; sint64 shares; uint16 srcMgmt; sint64 fee }
+  const adv = new DataView(acq.buffer);
+  adv.setBigUint64(0, TOKEN, true);
+  acq.set(SELF, 8); // issuer
+  acq.set(SELF, 40); // holder (owner == possessor)
+  adv.setBigInt64(72, 1n, true); // shares
+  adv.setUint16(80, 28, true); // srcMgmt — the asset is actually managed by 29, so the host denies
+  adv.setBigInt64(88, 0n, true); // fee
+  sim.procedure(29, 2, acq); // Acquire -> qpi.acquireShares through wasm -> lhost -> the host
+
+  // the call reached qpi.acquireShares end-to-end (no LinkError); the host denied it -> INVALID_AMOUNT
+  expect(i64(sim.query(29, 1))).toBe(INVALID_AMOUNT);
+});

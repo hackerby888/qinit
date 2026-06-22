@@ -172,6 +172,8 @@ export class Sim {
       numberOfShares: (asset, ownSel, posSel) => this.doNumberOfShares(asset, ownSel, posSel),
       numberOfPossessedShares: (name, issuer, owner, possessor, ownMgmt, posMgmt) => this.doNumberOfPossessedShares(name, issuer, owner, possessor, ownMgmt, posMgmt),
       transferShares: (slot, name, issuer, owner, possessor, shares, newOwner) => this.doTransferShares(slot, name, issuer, owner, possessor, shares, newOwner),
+      acquireShares: (slot, name, issuer, owner, possessor, shares, srcOwnMgmt, srcPosMgmt, fee) => this.acquireShares(slot, name, issuer, owner, possessor, shares, srcOwnMgmt, srcPosMgmt, fee),
+      releaseShares: (slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee) => this.releaseShares(slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee),
       distributeDividends: (slot, amountPerShare) => this.doDistributeDividends(slot, amountPerShare),
       callFunction: (callerSlot, calleeIdx, inputType, input, originator) => this.doCallFunction(callerSlot, calleeIdx, inputType, input, originator),
       invokeProcedure: (callerSlot, calleeIdx, inputType, input, reward, originator) => this.doInvokeProcedure(callerSlot, calleeIdx, inputType, input, reward, originator),
