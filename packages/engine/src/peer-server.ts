@@ -15,6 +15,7 @@ interface ConnState {
 
 export interface PeerServerHandle {
   port: number;
+  tickMs: number;
   stop: () => void;
 }
 
@@ -27,11 +28,12 @@ export class PeerServer {
     this.engine = engine;
   }
 
-  // Listen on `port` (21841 = the cli's default node port). Auto-advances ticks so gettick moves + broadcast
-  // txs land, and pre-funds the funded seed so wallet txs have balance.
-  async start(port = 21841): Promise<PeerServerHandle> {
+  // Listen on `port` (21841 = the cli's default node port). Auto-advances one tick every `tickMs` so gettick
+  // moves + broadcast txs land; `tickMs` is also reported as the chain's tickDuration. Pre-funds the funded seed.
+  async start(port = 21841, tickMs = 50): Promise<PeerServerHandle> {
     await initK12();
     await this.engine.seedFaucet();
+    this.engine.sim.tickDuration = tickMs;
 
     // Present a realistic, ticking chain to the cli: a non-zero epoch (qubic-cli treats epoch 0 as "no data")
     // and a few finalized ticks so the very first query already carries a tick + quorum votes.
@@ -42,7 +44,7 @@ export class PeerServer {
 
     this.ticker = setInterval(() => {
       this.engine.advanceTick(1);
-    }, 50);
+    }, tickMs);
 
     const self = this;
     const server = Bun.listen<ConnState>({
@@ -60,7 +62,7 @@ export class PeerServer {
     });
     this.server = server;
 
-    return { port: server.port, stop: () => this.stop() };
+    return { port: server.port, tickMs, stop: () => this.stop() };
   }
 
   stop(): void {

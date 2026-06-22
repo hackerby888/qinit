@@ -118,7 +118,7 @@ export class Sim {
   private consensusOpts: CommitteeOpts; // computor-committee config (always-on quorum consensus)
   private committee: Committee | null = null; // derived lazily on first advance (needs initK12 resolved)
   private ticks = new Map<number, TickRecord>(); // per-tick quorum record: votes + aligned count + digests
-  tickDuration = 1000; // CurrentTickInfo.tickDuration surfaced to clients (ms; cosmetic in the sim)
+  tickDuration = 50; // ms/tick surfaced to clients; set by the server to match its auto-tick interval
 
   constructor(opts: { consensus?: CommitteeOpts } = {}) {
     this.consensusOpts = opts.consensus ?? {};

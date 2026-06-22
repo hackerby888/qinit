@@ -20,9 +20,10 @@ export class EngineServer {
   }
 
   // Serve on an ephemeral port (0) by default; auto-advances ticks so deploy's "is it ticking?" polls pass.
-  async start(port = 0): Promise<EngineServerHandle> {
+  async start(port = 0, tickMs = 50): Promise<EngineServerHandle> {
     await initK12(); // the engine's digest / codeHash / lh_k12 need the crypto module resolved
     const eng = this.engine;
+    eng.sim.tickDuration = tickMs;
     const json = (data: unknown, status = 200): Response =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
@@ -30,7 +31,7 @@ export class EngineServer {
 
     this.ticker = setInterval(() => {
       eng.advanceTick(1);
-    }, 50);
+    }, tickMs);
 
     const server = Bun.serve({
       port,
