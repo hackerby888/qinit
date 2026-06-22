@@ -13,3 +13,7 @@ export {
   DEFAULT_ARBITRATOR_SEED, DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS, TICK_SIZE,
 } from "./consensus";
 export type { Computor, CommitteeOpts, TickStateDigests } from "./consensus";
+export {
+  M256i, TickData, Tick, Transaction, EntityRecord, AssetRecord, RequestResponseHeader,
+  ASSET_TYPE, TXS_PER_TICK, TICKDATA_SIZE, DIGEST_SIZE, SIG_SIZE, ASSET_RECORD_SIZE,
+} from "./wire";

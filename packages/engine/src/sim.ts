@@ -12,6 +12,7 @@ import {
   buildTickVote, buildTickData, voteIsAligned, merkleRoot,
   DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS,
 } from "./consensus";
+import { EntityRecord, AssetRecord, ASSET_RECORD_SIZE } from "./wire";
 import type { DebugTrace } from "@qinit/core";
 
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
@@ -19,7 +20,6 @@ const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN
 const EP_USER_PROCEDURE = 11; // contract_def.h USER_PROCEDURE_CALL (contractSystemProcedureCount=10, +1)
 const ZERO32 = new Uint8Array(32);
 const TICK_HISTORY = 2000; // ticks of TickData + quorum records retained (memory bound; each TickData ~41 KB)
-const ASSET_RECORD_SIZE = 48; // structs.h AssetRecord (union) — the universe merkle leaf size
 const IPO_SHARE_COUNT = 676; // NUMBER_OF_COMPUTORS — a contract's IPO shares: one per computor (0..675)
 const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
 
@@ -1226,19 +1226,18 @@ export class Sim {
 
   // The 64-byte EntityRecord whose K12 is the spectrum leaf (the layout a client reads back from getEntity).
   private entityRecord(k: string): Uint8Array {
-    const rec = new Uint8Array(64);
-    rec.set(hexToBytes32(k), 0);
+    const rec = EntityRecord.alloc();
+    rec.publicKey = hexToBytes32(k);
     const e = this.spectrum.get(k);
     if (e) {
-      const dv = new DataView(rec.buffer);
-      dv.setBigInt64(32, e.incomingAmount, true);
-      dv.setBigInt64(40, e.outgoingAmount, true);
-      dv.setUint32(48, e.numberOfIncomingTransfers, true);
-      dv.setUint32(52, e.numberOfOutgoingTransfers, true);
-      dv.setUint32(56, e.latestIncomingTransferTick, true);
-      dv.setUint32(60, e.latestOutgoingTransferTick, true);
+      rec.incomingAmount = e.incomingAmount;
+      rec.outgoingAmount = e.outgoingAmount;
+      rec.numberOfIncomingTransfers = e.numberOfIncomingTransfers;
+      rec.numberOfOutgoingTransfers = e.numberOfOutgoingTransfers;
+      rec.latestIncomingTransferTick = e.latestIncomingTransferTick;
+      rec.latestOutgoingTransferTick = e.latestOutgoingTransferTick;
     }
-    return rec;
+    return rec.bytes;
   }
 
   // The 48-byte AssetRecord ownership / possession variants — the universe leaves, byte-identical to what a
@@ -1432,11 +1431,10 @@ function hexToBytes32(hex: string): Uint8Array {
 // A 48-byte AssetRecord (ownership type=2 / possession type=3 variant): publicKey(32) type(1) padding(1)
 // managingContractIndex(2) crossRefIndex(4, left 0) numberOfShares(8). The universe merkle leaf.
 function assetRecord(pubkey: Uint8Array, type: number, mgmt: number, shares: bigint): Uint8Array {
-  const rec = new Uint8Array(ASSET_RECORD_SIZE);
-  rec.set(pubkey.subarray(0, 32), 0);
-  rec[32] = type;
-  const dv = new DataView(rec.buffer);
-  dv.setUint16(34, mgmt & 0xffff, true);
-  dv.setBigInt64(40, shares, true);
-  return rec;
+  const rec = AssetRecord.alloc();
+  rec.publicKey = pubkey;
+  rec.type = type;
+  rec.managingContractIndex = mgmt;
+  rec.numberOfShares = shares;
+  return rec.bytes;
 }

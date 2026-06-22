@@ -4,10 +4,10 @@
 // a typed payload, where `size` counts the header too. Response struct sizes follow the Qubic protocol
 // (SPECTRUM_DEPTH 24, NUMBER_OF_TRANSACTIONS_PER_TICK 4096, NUMBER_OF_COMPUTORS 676) — a client zero-pads short
 // payloads to its struct size but matches strictly on `type`, so we emit the meaningful field prefix.
-export const HEADER_SIZE = 8;
-export const SPECTRUM_DEPTH = 24; // RespondEntity sibling count (mainnet protocol)
-export const ASSETS_DEPTH = 24; // RespondOwnedAssets / RespondPossessedAssets sibling count
-export const TXS_PER_TICK = 4096; // NUMBER_OF_TRANSACTIONS_PER_TICK (common_def.h; must be 2^N)
+import { RequestResponseHeader, EntityRecord, AssetRecord, ASSET_TYPE, SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK, ASSET_RECORD_SIZE } from "./wire";
+
+export { SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK };
+export const HEADER_SIZE = RequestResponseHeader.SIZE; // 8 — network_messages/header.h
 export const CLI_NUMBER_OF_COMPUTORS = 676; // NUMBER_OF_COMPUTORS — computor-list slot count (mainnet protocol)
 
 // network_message_type.h — only the types the bridge handles.
@@ -54,22 +54,18 @@ export function readHeader(buf: Uint8Array, off = 0): Header | null {
     return null;
   }
 
-  const size = buf[off] | (buf[off + 1] << 8) | (buf[off + 2] << 16);
-  const type = buf[off + 3];
-  const dv = new DataView(buf.buffer, buf.byteOffset + off, HEADER_SIZE);
-  const dejavu = dv.getUint32(4, true);
-  return { size: size === 0 ? 0x7fffffff : size, type, dejavu };
+  const h = RequestResponseHeader.wrap(buf, off);
+  return { size: h.size === 0 ? 0x7fffffff : h.size, type: h.type, dejavu: h.dejavu };
 }
 
 // Frame a response: 8-byte header (size = 8 + payload, the response `type`, echoed dejavu) + payload.
 export function frame(type: number, payload: Uint8Array, dejavu: number): Uint8Array {
   const size = HEADER_SIZE + payload.length;
   const out = new Uint8Array(size);
-  out[0] = size & 0xff;
-  out[1] = (size >> 8) & 0xff;
-  out[2] = (size >> 16) & 0xff;
-  out[3] = type & 0xff;
-  new DataView(out.buffer).setUint32(4, dejavu >>> 0, true);
+  const h = RequestResponseHeader.wrap(out);
+  h.size = size;
+  h.type = type;
+  h.dejavu = dejavu;
   out.set(payload, HEADER_SIZE);
   return out;
 }
@@ -120,15 +116,17 @@ export interface EntityFields {
 // siblings are the merkle proof — a client recomputes the spectrum root from (EntityRecord, spectrumIndex,
 // siblings) and checks it against the quorum-committed spectrumDigest.
 export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: number, spectrumIndex: number, siblings: Uint8Array[] = []): Uint8Array {
-  const buf = new Uint8Array(64 + 4 + 4 + SPECTRUM_DEPTH * 32);
+  const buf = new Uint8Array(EntityRecord.SIZE + 4 + 4 + SPECTRUM_DEPTH * 32);
+  const rec = EntityRecord.wrap(buf, 0);
+  rec.publicKey = id;
+  rec.incomingAmount = e.incomingAmount;
+  rec.outgoingAmount = e.outgoingAmount;
+  rec.numberOfIncomingTransfers = e.numberOfIncomingTransfers;
+  rec.numberOfOutgoingTransfers = e.numberOfOutgoingTransfers;
+  rec.latestIncomingTransferTick = e.latestIncomingTransferTick;
+  rec.latestOutgoingTransferTick = e.latestOutgoingTransferTick;
+
   const dv = new DataView(buf.buffer);
-  buf.set(id.subarray(0, 32), 0);
-  dv.setBigInt64(32, e.incomingAmount, true);
-  dv.setBigInt64(40, e.outgoingAmount, true);
-  dv.setUint32(48, e.numberOfIncomingTransfers, true);
-  dv.setUint32(52, e.numberOfOutgoingTransfers, true);
-  dv.setUint32(56, e.latestIncomingTransferTick, true);
-  dv.setUint32(60, e.latestOutgoingTransferTick, true);
   dv.setUint32(64, tick >>> 0, true);
   dv.setInt32(68, spectrumIndex, true);
 
@@ -225,23 +223,21 @@ export interface OwnedAssetView {
 // issuance  = publicKey(32) type(1) name(7) numberOfDecimalPlaces(1) unitOfMeasurement(7). type: 1=issuance, 2=ownership.
 export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, siblings: Uint8Array[] = []): Uint8Array {
   const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4 + ASSETS_DEPTH * 32);
-  const dv = new DataView(buf.buffer);
 
-  // [0..48] ownership record
-  buf.set(v.owner.subarray(0, 32), 0);
-  buf[32] = 2; // ASSET_TYPE_OWNERSHIP
-  dv.setUint16(34, v.managingContractIndex & 0xffff, true);
-  dv.setBigInt64(40, v.shares, true);
+  const own = AssetRecord.wrap(buf, 0);
+  own.publicKey = v.owner;
+  own.type = ASSET_TYPE.OWNERSHIP;
+  own.managingContractIndex = v.managingContractIndex;
+  own.numberOfShares = v.shares;
 
-  // [48..96] issuance record
-  buf.set(v.issuer.subarray(0, 32), 48);
-  buf[48 + 32] = 1; // ASSET_TYPE_ISSUANCE
-  for (let i = 0; i < 7 && i < v.name.length; i++) {
-    buf[48 + 33 + i] = v.name.charCodeAt(i) & 0xff;
-  }
-  buf[48 + 40] = v.decimals & 0xff;
+  const iss = AssetRecord.wrap(buf, ASSET_RECORD_SIZE);
+  iss.publicKey = v.issuer;
+  iss.type = ASSET_TYPE.ISSUANCE;
+  iss.nameString = v.name;
+  iss.numberOfDecimalPlaces = v.decimals;
 
   // [96] tick (zero), [100] universeIndex, [104] siblings — the ownership-record merkle proof
+  const dv = new DataView(buf.buffer);
   dv.setUint32(100, universeIndex >>> 0, true);
   for (let i = 0; i < siblings.length && i < ASSETS_DEPTH; i++) {
     buf.set(siblings[i].subarray(0, 32), 104 + i * 32);
@@ -265,34 +261,30 @@ export interface PossessedAssetView {
 // 1=issuance, 2=ownership, 3=possession. The possession variant's @36 field is the ownershipIndex (left zero).
 export function encodeRespondPossessedAssets(v: PossessedAssetView, universeIndex = 0, siblings: Uint8Array[] = []): Uint8Array {
   const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4 + ASSETS_DEPTH * 32);
-  const dv = new DataView(buf.buffer);
 
-  // [0..48] possession record
-  buf.set(v.possessor.subarray(0, 32), 0);
-  buf[32] = 3; // ASSET_TYPE_POSSESSION
-  dv.setUint16(34, v.possessionManagingContract & 0xffff, true);
-  dv.setBigInt64(40, v.shares, true);
+  const pos = AssetRecord.wrap(buf, 0);
+  pos.publicKey = v.possessor;
+  pos.type = ASSET_TYPE.POSSESSION;
+  pos.managingContractIndex = v.possessionManagingContract;
+  pos.numberOfShares = v.shares;
 
-  // [48..96] ownership record
-  buf.set(v.owner.subarray(0, 32), 48);
-  buf[48 + 32] = 2; // ASSET_TYPE_OWNERSHIP
-  dv.setUint16(48 + 34, v.ownershipManagingContract & 0xffff, true);
-  dv.setBigInt64(48 + 40, v.shares, true);
+  const own = AssetRecord.wrap(buf, ASSET_RECORD_SIZE);
+  own.publicKey = v.owner;
+  own.type = ASSET_TYPE.OWNERSHIP;
+  own.managingContractIndex = v.ownershipManagingContract;
+  own.numberOfShares = v.shares;
 
-  // [96..144] issuance record
-  buf.set(v.issuer.subarray(0, 32), 96);
-  buf[96 + 32] = 1; // ASSET_TYPE_ISSUANCE
-  for (let i = 0; i < 7 && i < v.name.length; i++) {
-    buf[96 + 33 + i] = v.name.charCodeAt(i) & 0xff;
-  }
-  buf[96 + 40] = v.decimals & 0xff;
+  const iss = AssetRecord.wrap(buf, 2 * ASSET_RECORD_SIZE);
+  iss.publicKey = v.issuer;
+  iss.type = ASSET_TYPE.ISSUANCE;
+  iss.nameString = v.name;
+  iss.numberOfDecimalPlaces = v.decimals;
 
   // [144] tick (zero), [148] universeIndex, [152] siblings — the possession-record merkle proof
+  const dv = new DataView(buf.buffer);
   dv.setUint32(148, universeIndex >>> 0, true);
   for (let i = 0; i < siblings.length && i < ASSETS_DEPTH; i++) {
     buf.set(siblings[i].subarray(0, 32), 152 + i * 32);
   }
   return buf;
 }
-
-const ASSET_RECORD_SIZE = 48;

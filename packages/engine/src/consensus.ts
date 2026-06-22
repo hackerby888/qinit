@@ -6,14 +6,14 @@
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "./k12";
 import { dateFields } from "./runtime";
 import { rootFromSiblings } from "./merkle";
+import { Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "./wire";
 
+export { TXS_PER_TICK, TICKDATA_SIZE };
 export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55); // arbitrator identity = derive("aaa…a")
 export const DEFAULT_NUMBER_OF_COMPUTORS = 8; // core-lite LITE testnet committee (common_def.h)
 export const MAX_NUMBER_OF_CONTRACTS = 1024; // common_def.h — computer-digest merkle leaf count
-export const TICK_SIZE = 352; // network_messages/tick.h, including the 64-byte signature
+export const TICK_SIZE = Tick.SIZE; // network_messages/tick.h (352), including the 64-byte signature
 const TICK_TYPE = 3; // BROADCAST_TICK — XORed into computorIndex for vote-signature domain separation (qubic.cpp)
-const SIG_SIZE = 64;
-const DIGEST_SIZE = 32;
 const SEED_ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 
 // QUORUM = floor(N*2/3)+1 (core-lite common_def.h:17).
@@ -146,41 +146,37 @@ function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
 // resource/tx-body digests are zeroed (deterministic; not modeled in the dev sim). The signature is FourQ over
 // K12(Tick − signature), with the mainnet TARGET_TICK_VOTE_SIGNATURE proof-of-work intentionally skipped.
 export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests, timeMs: number): Uint8Array {
-  const buf = new Uint8Array(TICK_SIZE);
-  const dv = new DataView(buf.buffer);
+  const v = Tick.alloc();
+  v.computorIndex = c.index;
+  v.epoch = epoch;
+  v.tick = tick;
 
-  dv.setUint16(0, c.index, true);
-  dv.setUint16(2, epoch & 0xffff, true);
-  dv.setUint32(4, tick >>> 0, true);
-
-  // [8..16] timestamp: millisecond(2) second minute hour day month year(1 each); [16..32] resource-testing /
-  // tx-body u32 digests left zero (deterministic).
+  // timestamp; the resource-testing / tx-body u32 digests stay zero (deterministic, not modeled in the dev sim).
   const t = dateFields(timeMs);
-  dv.setUint16(8, t.milli & 0xffff, true);
-  buf[10] = t.second;
-  buf[11] = t.minute;
-  buf[12] = t.hour;
-  buf[13] = t.day;
-  buf[14] = t.month;
-  buf[15] = t.year;
+  v.millisecond = t.milli;
+  v.second = t.second;
+  v.minute = t.minute;
+  v.hour = t.hour;
+  v.day = t.day;
+  v.month = t.month;
+  v.year = t.year;
 
-  buf.set(d.spectrum, 32);
-  buf.set(d.universe, 64);
-  buf.set(d.computer, 96);
-  buf.set(saltedDigest(c.publicKey, d.spectrum), 128);
-  buf.set(saltedDigest(c.publicKey, d.universe), 160);
-  buf.set(saltedDigest(c.publicKey, d.computer), 192);
-  buf.set(d.transaction, 224);
-  buf.set(d.expectedNextTransaction, 256);
+  v.prevSpectrumDigest = d.spectrum;
+  v.prevUniverseDigest = d.universe;
+  v.prevComputerDigest = d.computer;
+  v.saltedSpectrumDigest = saltedDigest(c.publicKey, d.spectrum);
+  v.saltedUniverseDigest = saltedDigest(c.publicKey, d.universe);
+  v.saltedComputerDigest = saltedDigest(c.publicKey, d.computer);
+  v.transactionDigest = d.transaction;
+  v.expectedNextTickTransactionDigest = d.expectedNextTransaction;
 
   // Domain-separate the signed message by XORing computorIndex with the Tick message type (qubic.cpp does the
   // same XOR before verifying). The transmitted struct keeps the plain index.
-  dv.setUint16(0, (c.index ^ TICK_TYPE) & 0xffff, true);
-  const digest = k12Bytes(buf.subarray(0, TICK_SIZE - SIG_SIZE));
-  const signature = signSync(c.privateKey, c.publicKey, digest);
-  dv.setUint16(0, c.index, true);
-  buf.set(signature, TICK_SIZE - SIG_SIZE);
-  return buf;
+  v.computorIndex = (c.index ^ TICK_TYPE) & 0xffff;
+  const digest = k12Bytes(v.bytes.subarray(0, TICK_SIZE - SIG_SIZE));
+  v.computorIndex = c.index;
+  v.signature = signSync(c.privateKey, c.publicKey, digest);
+  return v.bytes;
 }
 
 // The K12 message a tick vote's signature covers: the Tick − signature, with computorIndex XORed by the Tick
@@ -202,12 +198,7 @@ export function tickVoteSignature(vote: Uint8Array): Uint8Array {
 // transactionDigests[NUMBER_OF_TRANSACTIONS_PER_TICK][32] contractFees[…](8 each) signature(64). The leader is
 // computor[tick % N]; the signature is FourQ over K12(TickData − signature) with computorIndex XORed by the
 // future-tick-data message type (the same domain-separation tweak qubic.cpp applies before verifying).
-export const TXS_PER_TICK = 4096; // NUMBER_OF_TRANSACTIONS_PER_TICK (common_def.h; must be 2^N)
-const TICKDATA_FEES_COUNT = 1024; // contractFees[1024] — a fixed 1024, independent of TXS_PER_TICK
-const TICKDATA_DIGESTS_OFFSET = 48; // past computorIndex/epoch/tick/time/timelock
-export const TICKDATA_SIZE = TICKDATA_DIGESTS_OFFSET + TXS_PER_TICK * DIGEST_SIZE + TICKDATA_FEES_COUNT * 8 + SIG_SIZE; // 139376
-const TICKDATA_TYPE = 8; // BROADCAST_FUTURE_TICK_DATA
-const TICKDATA_SIG_OFFSET = TICKDATA_SIZE - SIG_SIZE; // 139312
+const TICKDATA_TYPE = 8; // BROADCAST_FUTURE_TICK_DATA — XORed into computorIndex for the signature domain
 
 // timelock = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) — the tick's committed state roots.
 function tickDataTimelock(spectrum: Uint8Array, universe: Uint8Array, computer: Uint8Array): Uint8Array {
@@ -224,48 +215,45 @@ export function buildTickData(committee: Committee, epoch: number, tick: number,
   const leaderIndex = tick % committee.size;
   const leader = committee.computors[leaderIndex];
 
-  const buf = new Uint8Array(TICKDATA_SIZE);
-  const dv = new DataView(buf.buffer);
-
-  dv.setUint16(0, leaderIndex & 0xffff, true);
-  dv.setUint16(2, epoch & 0xffff, true);
-  dv.setUint32(4, tick >>> 0, true);
+  const td = TickData.alloc();
+  td.computorIndex = leaderIndex;
+  td.epoch = epoch;
+  td.tick = tick;
 
   const t = dateFields(timeMs);
-  dv.setUint16(8, t.milli & 0xffff, true);
-  buf[10] = t.second;
-  buf[11] = t.minute;
-  buf[12] = t.hour;
-  buf[13] = t.day;
-  buf[14] = t.month;
-  buf[15] = t.year;
+  td.millisecond = t.milli;
+  td.second = t.second;
+  td.minute = t.minute;
+  td.hour = t.hour;
+  td.day = t.day;
+  td.month = t.month;
+  td.year = t.year;
 
-  buf.set(tickDataTimelock(roots.spectrum, roots.universe, roots.computer), 16);
+  td.timelock = tickDataTimelock(roots.spectrum, roots.universe, roots.computer);
 
   const count = Math.min(txDigests.length, TXS_PER_TICK);
   for (let i = 0; i < count; i++) {
-    buf.set(txDigests[i].subarray(0, DIGEST_SIZE), TICKDATA_DIGESTS_OFFSET + i * DIGEST_SIZE);
+    td.setTxDigest(i, txDigests[i]);
   }
 
   // Domain-separate the signed message (XOR the index by the message type); the transmitted struct keeps the
   // plain index. The signature is stored — the votes commit K12(the whole signed TickData).
-  dv.setUint16(0, (leaderIndex ^ TICKDATA_TYPE) & 0xffff, true);
-  const digest = k12Bytes(buf.subarray(0, TICKDATA_SIG_OFFSET));
-  const signature = signSync(leader.privateKey, leader.publicKey, digest);
-  dv.setUint16(0, leaderIndex & 0xffff, true);
-  buf.set(signature, TICKDATA_SIG_OFFSET);
+  td.computorIndex = (leaderIndex ^ TICKDATA_TYPE) & 0xffff;
+  const digest = k12Bytes(td.bytes.subarray(0, TickData.SIG_OFFSET));
+  td.computorIndex = leaderIndex;
+  td.signature = signSync(leader.privateKey, leader.publicKey, digest);
 
-  return buf;
+  return td.bytes;
 }
 
 export function tickDataSignature(td: Uint8Array): Uint8Array {
-  return td.subarray(TICKDATA_SIG_OFFSET, TICKDATA_SIZE);
+  return TickData.wrap(td).signature;
 }
 
 // The K12 message a TickData signature covers: the struct − signature, with computorIndex XORed by the
 // future-tick-data type. For signature verification in tests / the bridge.
 export function tickDataMessage(td: Uint8Array): Uint8Array {
-  const body = td.slice(0, TICKDATA_SIG_OFFSET);
+  const body = td.slice(0, TickData.SIG_OFFSET);
   const dv = new DataView(body.buffer);
   dv.setUint16(0, (dv.getUint16(0, true) ^ TICKDATA_TYPE) & 0xffff, true);
   return k12Bytes(body);
@@ -273,10 +261,11 @@ export function tickDataMessage(td: Uint8Array): Uint8Array {
 
 // Does a vote commit to the etalon (canonical) state digests? The aligned-vote count for quorum.
 export function voteIsAligned(vote: Uint8Array, d: TickStateDigests): boolean {
-  return bytesEq(vote.subarray(32, 64), d.spectrum)
-    && bytesEq(vote.subarray(64, 96), d.universe)
-    && bytesEq(vote.subarray(96, 128), d.computer)
-    && bytesEq(vote.subarray(224, 256), d.transaction);
+  const t = Tick.wrap(vote);
+  return t.prevSpectrumDigest.equals(d.spectrum)
+    && t.prevUniverseDigest.equals(d.universe)
+    && t.prevComputerDigest.equals(d.computer)
+    && t.transactionDigest.equals(d.transaction);
 }
 
 function bytesEq(a: Uint8Array, b: Uint8Array): boolean {

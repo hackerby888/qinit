@@ -11,6 +11,7 @@ import { Sim, type AssetSnapshot, type FeeMode } from "./sim";
 import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
 import { k12Bytes, toHex, verifySync } from "./k12";
+import { Transaction } from "./wire";
 
 interface SlotMeta { name: string; codeHash: string; version: number; }
 interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
@@ -114,15 +115,14 @@ export class InProcessEngine implements NodeTransport {
   // regular user-to-user transfer.
   async broadcastTx(txBytes: Uint8Array): Promise<BroadcastResult> {
     try {
-      const v = new DataView(txBytes.buffer, txBytes.byteOffset, txBytes.byteLength);
-      const source = txBytes.slice(0, 32);
-      const destBytes = txBytes.slice(32, 64);
-      const destLo = v.getBigUint64(32, true);
-      const amount = v.getBigInt64(64, true);
-      const txTick = v.getUint32(72, true);
-      const inputType = v.getUint16(76, true);
-      const inputSize = v.getUint16(78, true);
-      const payload = txBytes.slice(80, 80 + inputSize);
+      const tx = Transaction.wrap(txBytes);
+      const source = tx.sourcePublicKey.bytes.slice();
+      const destBytes = tx.destinationPublicKey.bytes.slice();
+      const destLo = tx.destinationPublicKey.u64(0);
+      const amount = tx.amount;
+      const txTick = tx.tick;
+      const inputType = tx.inputType;
+      const payload = tx.input.slice();
 
       if (destLo === 99999n) {
         this.handleDeployTx(inputType, payload);
