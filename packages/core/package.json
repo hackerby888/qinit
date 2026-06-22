@@ -5,6 +5,7 @@
   "module": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./browser": "./src/browser.ts",
     "./project": "./src/project.ts",
     "./rpc": "./src/rpc.ts"
   },

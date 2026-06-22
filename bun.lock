@@ -43,8 +43,11 @@
     },
     "packages/engine": {
       "name": "@qinit/engine",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
+        "@qubic-lib/qubic-ts-library": "latest",
+      },
+      "devDependencies": {
         "@qinit/core": "workspace:*",
         "@qinit/proto": "workspace:*",
       },

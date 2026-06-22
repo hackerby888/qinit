@@ -1,7 +1,7 @@
+// Public API of @qinit/engine — the framework-agnostic Qubic smart-contract simulation engine. Browser- and
+// Node-safe (no node:fs, no Bun). The HTTP adapter (EngineServer, Bun-only) is a separate entry: "@qinit/engine/server".
 export { Contract, KIND, SP, ContractAbort } from "./runtime";
 export type { HostServices } from "./runtime";
 export { Sim } from "./sim";
 export { InProcessEngine } from "./transport";
-export { EngineServer } from "./server";
-export type { EngineServerHandle } from "./server";
 export { initK12, k12Bytes, toHex } from "./k12";
