@@ -26,8 +26,14 @@ const EMPTY = new Uint8Array(0);
 
 // InterContractCallError (qpi.h:68-75) — the codes liteCallFunction/liteInvokeProcedure return.
 const CALL_ERR_NONE = 0;
+const CALL_ERR_INSUFFICIENT_FEES = 2; // CallErrorInsufficientFees — callee has no execution-fee reserve
 const CALL_ERR_ALLOC = 3;
 const CALL_ERR_INACTIVE = 4;
+
+// Execution-fee model (core-lite doc/execution_fees.md, opt-in via `new Sim({ fees: "metered" })`).
+const CONTRACT_COUNT = 1024; // MAX_NUMBER_OF_CONTRACTS — valid contract indices are 1..1023
+const IPO_COMPUTORS = 676n; // NUMBER_OF_COMPUTORS — a completed IPO funds the reserve to finalPrice * 676
+const DEFAULT_FEE_RESERVE = 1000000000n; // seed reserve a metered deploy gets (a faked successful IPO); override via Sim opts / ipo()
 
 const INVALID_PROPOSAL_INDEX = 0xffff; // qpi.h:1847 — setShareholderProposal's error sentinel
 
@@ -88,6 +94,11 @@ export interface ProcedureOpts {
   reward?: bigint; // invocationReward (Qu sent with the tx)
 }
 
+// Execution-fee accounting mode. "off" keeps the original behaviour (every contract always runs, queryFeeReserve
+// is a positive constant) so the IDE and existing digests are unchanged. "metered" turns on the fee model:
+// per-contract reserves, the cost meter, and the gating from doc/execution_fees.md.
+export type FeeMode = "off" | "metered";
+
 export class Sim {
   tickN = 0;
   epochN = 0;
@@ -102,16 +113,23 @@ export class Sim {
   private txById = new Map<string, TxRecord>();
   private callDepth = 0; // inter-contract nesting depth
   private recorder = new TraceRecorder(); // debug-trace capture (opt-in via setDebug)
+  private feeMode: FeeMode; // "off" (default; IDE behaviour) or "metered" (execution-fee model on)
+  private feeReserve = new Map<number, bigint>(); // per-contract executionFeeReserve (Contract-0 contractFeeReserves)
+  private feeFailed = new Set<number>(); // contracts whose IPO failed (finalPrice 0) — reserve can't be refilled
+  private defaultReserve: bigint; // reserve a metered deploy is seeded with when not explicitly IPO'd / set
 
-  constructor() {
+  constructor(opts: { fees?: FeeMode; defaultReserve?: bigint } = {}) {
+    this.feeMode = opts.fees ?? "off";
+    this.defaultReserve = opts.defaultReserve ?? DEFAULT_FEE_RESERVE;
     this.host = {
       tick: () => this.tickN,
       epoch: () => this.epochN,
       markDirty: (slot) => this.dirty.add(slot),
       log: (_slot, level, msg) => this.recorder.log(level, msg),
       transfer: (slot, dest, amount, type) => this.doTransfer(slot, dest, amount, type),
-      burn: (slot, amount) => this.doBurn(slot, amount),
+      burn: (slot, amount, burnedFor) => this.doBurn(slot, amount, burnedFor),
       getEntity: (id) => this.entityOf(id),
+      queryFeeReserve: (callerSlot, ci) => this.doQueryFeeReserve(callerSlot, ci),
       issueAsset: (slot, name, issuer, decimals, shares, unit, invocator) => this.doIssueAsset(slot, name, issuer, decimals, shares, unit, invocator),
       isAssetIssued: (issuer, name) => (this.findAsset(issuer, name) ? 1 : 0),
       numberOfShares: (asset, ownSel, posSel) => this.doNumberOfShares(asset, ownSel, posSel),
@@ -125,6 +143,75 @@ export class Sim {
       setShareholderProposal: (callerSlot, calleeIdx, proposal, reward, originator) => this.doSetShareholderProposal(callerSlot, calleeIdx, proposal, reward, originator),
       setShareholderVotes: (callerSlot, calleeIdx, vote, reward, originator) => this.doSetShareholderVotes(callerSlot, calleeIdx, vote, reward, originator),
     };
+  }
+
+  // ---- execution fees (core-lite doc/execution_fees.md; the whole block is inert when feeMode === "off") ----
+  // The current reserve of a contract (Contract-0's contractFeeReserves[index]); 0 if never funded.
+  feeReserveOf(slot: number): bigint {
+    return this.feeReserve.get(slot) ?? 0n;
+  }
+
+  // Set a contract's reserve directly (tests / IDE faucet). A positive value clears any prior IPO-failed mark.
+  setFeeReserve(slot: number, amount: bigint): void {
+    this.feeReserve.set(slot, amount);
+    if (amount > 0n) {
+      this.feeFailed.delete(slot);
+    }
+  }
+
+  // Model the IPO outcome that seeds the reserve: finalPrice > 0 funds it to finalPrice * 676; finalPrice 0 is a
+  // failed IPO — the contract is marked failed, its reserve stays 0, and burning can no longer refill it.
+  ipo(slot: number, finalPrice: bigint): void {
+    if (finalPrice > 0n) {
+      this.feeReserve.set(slot, finalPrice * IPO_COMPUTORS);
+      this.feeFailed.delete(slot);
+    } else {
+      this.feeReserve.set(slot, 0n);
+      this.feeFailed.add(slot);
+    }
+  }
+
+  // The gate the spec checks before fee-bearing entry points: a metered contract must hold a positive reserve.
+  // Always true when fees are off.
+  private reserveOk(slot: number): boolean {
+    return this.feeMode === "off" || (this.feeReserve.get(slot) ?? 0n) > 0n;
+  }
+
+  private addFeeReserve(slot: number, amount: bigint): void {
+    if (amount <= 0n) {
+      return;
+    }
+    this.feeReserve.set(slot, (this.feeReserve.get(slot) ?? 0n) + amount);
+  }
+
+  // Debit a completed call's metered cost. The reserve is a sint64 and may go non-positive — that leaves the
+  // contract dormant until refilled (the next reserveOk check fails), matching the spec.
+  private subFeeReserve(slot: number, cost: bigint): void {
+    if (cost <= 0n) {
+      return;
+    }
+    this.feeReserve.set(slot, (this.feeReserve.get(slot) ?? 0n) - cost);
+  }
+
+  // Run a contract entry and, when metered, debit its measured cost from its own reserve. Every Sim-driven
+  // procedure / sysproc / callback goes through here; read-only function queries deliberately do not (they are
+  // never charged). Re-entrant frames each report their own lastCost, so nested calls are charged correctly.
+  private fire(c: Contract, kind: number, it: number, input: Uint8Array, ctx: { invocator?: Uint8Array; originator?: Uint8Array; invocationReward?: bigint; entryPoint?: number }): Uint8Array {
+    const out = c.invoke(kind, it, input, ctx);
+    if (this.feeMode === "metered") {
+      this.subFeeReserve(c.slot, c.lastCost);
+    }
+    return out;
+  }
+
+  // qpi.queryFeeReserve(contractIndex): off => the legacy positive constant; metered => the live reserve, with
+  // an out-of-range index resolving to the caller's own contract (qpi_spectrum_impl.h queryFeeReserve).
+  private doQueryFeeReserve(callerSlot: number, ci: number): bigint {
+    if (this.feeMode === "off") {
+      return 1000000n;
+    }
+    const idx = ci < 1 || ci >= CONTRACT_COUNT ? callerSlot : ci;
+    return this.feeReserve.get(idx) ?? 0n;
   }
 
   // ---- spectrum (Entity records; balance = incomingAmount - outgoingAmount) ----
@@ -233,14 +320,21 @@ export class Sim {
     return remaining;
   }
 
-  private doBurn(slot: number, amount: bigint): bigint {
+  // qpi.burn(amount, burnedFor): burn the caller's QU and credit it to a contract's execution-fee reserve. The
+  // target is `burnedFor` when it's a valid index, else the caller itself (qpi.h burn). A failed-IPO target
+  // can't be refilled. When fees are off the burn still debits balance (existing behaviour) but tracks no reserve.
+  private doBurn(slot: number, amount: bigint, burnedFor: number): bigint {
     if (amount < 0n || amount > MAX_AMOUNT) return -(MAX_AMOUNT + 1n);
+
+    const target = burnedFor < 1 || burnedFor >= CONTRACT_COUNT ? slot : burnedFor;
+    if (this.feeMode === "metered" && this.feeFailed.has(target)) return -amount;
 
     const cur = this.contractId(slot);
     const remaining = this.balance(cur) - amount;
     if (remaining < 0n) return remaining;
 
     this.debit(cur, amount);
+    if (this.feeMode === "metered") this.addFeeReserve(target, amount);
 
     return remaining;
   }
@@ -384,9 +478,11 @@ export class Sim {
     new DataView(input.buffer).setBigInt64(32, amount, true);
     input[40] = type & 0xff;
 
+    // POST_INCOMING_TRANSFER is a system-initiated callback: exempt from the fee gate (it runs even on a
+    // dormant contract so it can receive transfers) but still metered, since a state change costs the digest.
     this.pitDepth++;
     try {
-      c.invoke(KIND.SYSPROC, SP.POST_INCOMING_TRANSFER, input, { entryPoint: SP.POST_INCOMING_TRANSFER });
+      this.fire(c, KIND.SYSPROC, SP.POST_INCOMING_TRANSFER, input, { entryPoint: SP.POST_INCOMING_TRANSFER });
     } finally {
       this.pitDepth--;
     }
@@ -400,9 +496,17 @@ export class Sim {
   deploy(slot: number, wasm: Uint8Array): Contract {
     const c = Contract.load(wasm, slot, this.host);
     c.trace = this.recorder;
+    c.metering = this.feeMode === "metered";
     this.contracts.set(slot, c);
     c.zeroState();
-    if (c.hasSysproc(SP.INITIALIZE)) c.invoke(KIND.SYSPROC, SP.INITIALIZE, new Uint8Array(0), { entryPoint: SP.INITIALIZE });
+
+    // A metered contract is born funded (a successful IPO) unless its reserve was pre-set — so it can run out
+    // of the box; tests override with setFeeReserve/ipo. Construction (INITIALIZE) is exempt from the gate.
+    if (this.feeMode === "metered" && !this.feeReserve.has(slot)) {
+      this.feeReserve.set(slot, this.defaultReserve);
+    }
+
+    if (c.hasSysproc(SP.INITIALIZE)) this.fire(c, KIND.SYSPROC, SP.INITIALIZE, new Uint8Array(0), { entryPoint: SP.INITIALIZE });
     return c;
   }
 
@@ -415,26 +519,30 @@ export class Sim {
     return this.recorder.trace();
   }
 
+  // Epoch-boundary sysprocs are exempt from the fee gate (execution_fees.md): they run even on a depleted
+  // reserve to keep contract state valid.
   beginEpoch(): void {
     for (const s of this.slots(true)) {
       const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.BEGIN_EPOCH)) c.invoke(KIND.SYSPROC, SP.BEGIN_EPOCH, new Uint8Array(0), { entryPoint: SP.BEGIN_EPOCH });
+      if (c.hasSysproc(SP.BEGIN_EPOCH)) this.fire(c, KIND.SYSPROC, SP.BEGIN_EPOCH, new Uint8Array(0), { entryPoint: SP.BEGIN_EPOCH });
     }
   }
 
   endEpoch(): void {
     for (const s of this.slots(false)) {
       const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.END_EPOCH)) c.invoke(KIND.SYSPROC, SP.END_EPOCH, new Uint8Array(0), { entryPoint: SP.END_EPOCH });
+      if (c.hasSysproc(SP.END_EPOCH)) this.fire(c, KIND.SYSPROC, SP.END_EPOCH, new Uint8Array(0), { entryPoint: SP.END_EPOCH });
     }
   }
 
+  // BEGIN_TICK / END_TICK are gated: a metered contract with a non-positive reserve is skipped (dormant) until
+  // it is refilled.
   beginTick(): void {
     this.tickN++;
     for (const s of this.slots(true)) {
       // BEGIN_TICK: ascending 1->N
       const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.BEGIN_TICK)) c.invoke(KIND.SYSPROC, SP.BEGIN_TICK, new Uint8Array(0), { entryPoint: SP.BEGIN_TICK });
+      if (c.hasSysproc(SP.BEGIN_TICK) && this.reserveOk(s)) this.fire(c, KIND.SYSPROC, SP.BEGIN_TICK, new Uint8Array(0), { entryPoint: SP.BEGIN_TICK });
     }
   }
 
@@ -442,7 +550,7 @@ export class Sim {
     for (const s of this.slots(false)) {
       // END_TICK: descending N->1
       const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.END_TICK)) c.invoke(KIND.SYSPROC, SP.END_TICK, new Uint8Array(0), { entryPoint: SP.END_TICK });
+      if (c.hasSysproc(SP.END_TICK) && this.reserveOk(s)) this.fire(c, KIND.SYSPROC, SP.END_TICK, new Uint8Array(0), { entryPoint: SP.END_TICK });
     }
   }
 
@@ -472,7 +580,7 @@ export class Sim {
     const c = this.contracts.get(slot)!;
     if (reward > 0n) this.notifyPIT(this.contractId(slot), invocator, reward, transferType);
 
-    return c.invoke(KIND.PROCEDURE, it, input, { invocator, originator, invocationReward: reward, entryPoint: EP_USER_PROCEDURE });
+    return this.fire(c, KIND.PROCEDURE, it, input, { invocator, originator, invocationReward: reward, entryPoint: EP_USER_PROCEDURE });
   }
 
   // Inter-contract function call (liteCallFunction) — route to whatever Contract is at calleeIdx (a user
@@ -482,6 +590,7 @@ export class Sim {
     const callee = this.contracts.get(calleeIdx);
     if (!callee) return { error: CALL_ERR_INACTIVE, output: EMPTY };
     if (calleeIdx >= callerSlot) return { error: CALL_ERR_INACTIVE, output: EMPTY }; // lower-index rule
+    if (!this.reserveOk(calleeIdx)) return { error: CALL_ERR_INSUFFICIENT_FEES, output: EMPTY }; // callee must have reserve
     if (this.callDepth >= MAX_CALL_DEPTH) return { error: CALL_ERR_ALLOC, output: EMPTY };
 
     this.callDepth++;
@@ -500,6 +609,7 @@ export class Sim {
     const callee = this.contracts.get(calleeIdx);
     if (!callee) return { error: CALL_ERR_INACTIVE, output: EMPTY };
     if (calleeIdx >= callerSlot) return { error: CALL_ERR_INACTIVE, output: EMPTY };
+    if (!this.reserveOk(calleeIdx)) return { error: CALL_ERR_INSUFFICIENT_FEES, output: EMPTY }; // callee must have reserve (reward not moved)
     if (this.callDepth >= MAX_CALL_DEPTH) return { error: CALL_ERR_ALLOC, output: EMPTY };
 
     let r = reward;
@@ -539,12 +649,13 @@ export class Sim {
 
     const callee = this.contracts.get(calleeIdx)!;
     if (!callee.hasSysproc(SP.SET_SHAREHOLDER_PROPOSAL)) return INVALID_PROPOSAL_INDEX;
+    if (!this.reserveOk(calleeIdx)) return INVALID_PROPOSAL_INDEX; // dormant callee can't be invoked
 
     if (reward > 0n) this.transferReward(callerSlot, calleeIdx, reward);
 
     this.callDepth++;
     try {
-      const out = callee.invoke(KIND.SYSPROC, SP.SET_SHAREHOLDER_PROPOSAL, proposal, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_PROPOSAL });
+      const out = this.fire(callee, KIND.SYSPROC, SP.SET_SHAREHOLDER_PROPOSAL, proposal, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_PROPOSAL });
       return out.length >= 2 ? new DataView(out.buffer, out.byteOffset, out.byteLength).getUint16(0, true) : 0;
     } finally {
       this.callDepth--;
@@ -558,12 +669,13 @@ export class Sim {
 
     const callee = this.contracts.get(calleeIdx)!;
     if (!callee.hasSysproc(SP.SET_SHAREHOLDER_VOTES)) return 0;
+    if (!this.reserveOk(calleeIdx)) return 0; // dormant callee can't be invoked
 
     if (reward > 0n) this.transferReward(callerSlot, calleeIdx, reward);
 
     this.callDepth++;
     try {
-      const out = callee.invoke(KIND.SYSPROC, SP.SET_SHAREHOLDER_VOTES, vote, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_VOTES });
+      const out = this.fire(callee, KIND.SYSPROC, SP.SET_SHAREHOLDER_VOTES, vote, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_VOTES });
       return out.length >= 1 ? out[0] : 0;
     } finally {
       this.callDepth--;
@@ -576,6 +688,11 @@ export class Sim {
     const reward = opts.reward ?? 0n;
     const invocator = opts.invocator ?? ZERO32;
     const originator = opts.originator ?? invocator;
+
+    // A dormant metered contract can't run a user procedure; nothing is credited so there is nothing to refund.
+    if (!this.reserveOk(slot)) {
+      return EMPTY;
+    }
 
     if (reward > 0n) this.credit(this.contractId(slot), reward);
 
@@ -601,7 +718,15 @@ export class Sim {
       const c = this.contracts.get(slot)!;
       const isProcedure = c.entries.some((e) => e.kind === KIND.PROCEDURE && e.it === inputType);
 
-      if (isProcedure) {
+      if (isProcedure && !this.reserveOk(slot)) {
+        // Dormant contract (no execution-fee reserve): the procedure can't run and any attached amount is
+        // refunded to the sender (execution_fees.md — "amounts are refunded if a contract cannot execute").
+        if (moneyFlew) {
+          this.debit(dest, amount, tick);
+          this.credit(source, amount, tick);
+          moneyFlew = false;
+        }
+      } else if (isProcedure) {
         this.runProcedure(slot, inputType, payload, source, source, reward);
       } else if (reward > 0n) {
         this.notifyPIT(dest, source, reward, TT_STANDARD); // plain incoming transfer to a contract
