@@ -10,7 +10,7 @@ import { LITE_TX, CHUNK_DATA_MAX } from "@qinit/proto";
 import { Sim, type AssetSnapshot } from "./sim";
 import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
-import { k12Bytes, toHex } from "./k12";
+import { k12Bytes, toHex, verifySync } from "./k12";
 
 interface SlotMeta { name: string; codeHash: string; version: number; }
 interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
@@ -24,10 +24,13 @@ export class InProcessEngine implements NodeTransport {
   private sources = new Map<number, string>(); // deployed .h source per slot (for callee auto-resolution)
   private rawTxs = new Map<string, Uint8Array>(); // hex(K12(tx body)) -> raw tx bytes (peer REQUEST_TRANSACTION_INFO)
 
-  constructor(opts: { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean } = {}) {
+  private verifySigs: boolean;
+
+  constructor(opts: { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean } = {}) {
     this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool });
     this.slotBase = opts.slotBase ?? 28;
     this.slotCount = opts.slotCount ?? 4;
+    this.verifySigs = opts.verifySigs ?? false;
   }
 
   // Direct deploy (IDE / tests): bypass the chunk protocol — load wasm into the slot + construct (INITIALIZE).
@@ -112,6 +115,16 @@ export class InProcessEngine implements NodeTransport {
       }
 
       const body = txBytes.length > 64 ? txBytes.slice(0, txBytes.length - 64) : txBytes;
+
+      // A real node rejects a tx whose FourQ signature does not match its source (opt-in). The signature
+      // covers K12(tx − signature); the source public key is the first 32 bytes.
+      if (this.verifySigs) {
+        const sig = txBytes.subarray(txBytes.length - 64);
+        if (txBytes.length <= 64 || !verifySync(source, k12Bytes(body), sig)) {
+          return { ok: false, message: "invalid signature" };
+        }
+      }
+
       const txId = await this.txId(txBytes);
       // Index the raw tx by every digest the peer protocol might query by: K12(body, no sig) = qinit's txId,
       // K12(full tx incl. sig) = the protocol tx hash, and the txId string (REQUEST_TICK_TRANSACTIONS).

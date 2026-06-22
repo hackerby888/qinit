@@ -35,7 +35,7 @@ async function runCli(port: number, args: string[]): Promise<string> {
 // Start a PeerServer on an ephemeral port over a configured engine; returns the port + a stop fn.
 async function serve(setup?: (e: InProcessEngine) => void | Promise<void>): Promise<{ port: number; stop: () => void }> {
   await initK12();
-  const engine = new InProcessEngine({ mempool: true });
+  const engine = new InProcessEngine({ mempool: true, verifySigs: true });
   if (setup) {
     await setup(engine);
   }
