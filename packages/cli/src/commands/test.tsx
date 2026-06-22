@@ -7,7 +7,7 @@ import { deployContract, type Ev } from "../deploy-ops";
 import { launchNode, waitTicking, killNode, ensureNode, scratchDir } from "../node-ops";
 import { LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
 import { testRuntimeSource, sampleTest, generateClient, extractIdl } from "@qinit/build";
-import { EngineServer } from "@qinit/engine";
+import { EngineServer } from "@qinit/engine/server";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 
 function parse(args: string[]): Record<string, string> {
