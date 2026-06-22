@@ -76,3 +76,19 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
   expect(await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64")).toBe(1n);
   expect(eng.sim.digest(29)).toBe(ORACLE);
 });
+
+test("signature verification (opt-in): valid signed tx accepted, tampered one rejected", async () => {
+  await initK12();
+  const eng = new InProcessEngine({ verifySigs: true });
+  eng.deploy(28, await wasm("Counter"), "Counter");
+
+  const tx = await buildSignedTx(SEED, { destination: contractAddress(28), amount: 0, tick: 10, inputType: 1, payload: await encodeInput("") });
+  expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
+  expect(await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64")).toBe(1n); // applied
+
+  const bad = tx.bytes.slice();
+  bad[bad.length - 1] ^= 0xff; // flip a signature byte
+  const r = await eng.broadcastTx(bad);
+  expect(r.ok).toBe(false);
+  expect(r.message).toContain("invalid signature");
+});

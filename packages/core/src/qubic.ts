@@ -3,10 +3,16 @@
 // dist layout (node_modules/@qubic-lib/qubic-ts-library/dist) and adjust the path.
 // Surfacing exactly this is part of the M0 standalone-binary smoke test.
 import { QubicHelper } from "@qubic-lib/qubic-ts-library/dist/qubicHelper";
+import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper";
 
 export interface IdentityResult {
   identity: string;       // 60 uppercase letters
   publicKeyHex: string;
+}
+
+export interface KeyPair {
+  privateKey: Uint8Array; // 32 bytes
+  publicKey: Uint8Array;  // 32 bytes (FourQ)
 }
 
 export interface CryptoSmokeResult {
@@ -40,13 +46,18 @@ export async function k12Hex(bytes: Uint8Array): Promise<string> {
 // `lh_k12` + state digest), where awaiting per call isn't possible. Resolve the crypto module once via
 // initK12(), then hash synchronously against the SAME instance k12Hex uses.
 let _k12Sync: ((input: Uint8Array, out: Uint8Array, outLen: number) => void) | null = null;
+// The resolved FourQ/SchnorrQ object from the SAME crypto module — captured once so signing/verification run
+// synchronously after initK12() (mirrors k12Sync). Used by the engine's tick-consensus (computor vote signing).
+let _schnorrq: { generatePublicKey(privateKey: Uint8Array): Uint8Array; sign(privateKey: Uint8Array, publicKey: Uint8Array, message: Uint8Array): Uint8Array; verify(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): number } | null = null;
+const _keyHelper = new KeyHelper();
 
 export async function initK12(): Promise<void> {
   if (_k12Sync) return;
   // @ts-ignore - require is provided by bun (see k12Hex above for the resolution rationale)
   const cryptoMod: any = require("@qubic-lib/qubic-ts-library/dist/crypto");
-  const { K12 } = await (cryptoMod.default ?? cryptoMod);
+  const { K12, schnorrq } = await (cryptoMod.default ?? cryptoMod);
   _k12Sync = K12;
+  _schnorrq = schnorrq;
 }
 
 export function k12Sync(bytes: Uint8Array): Uint8Array {
@@ -54,6 +65,35 @@ export function k12Sync(bytes: Uint8Array): Uint8Array {
   const out = new Uint8Array(32);
   _k12Sync(bytes, out, 32);
   return out;
+}
+
+// Synchronous FourQ key derivation + signing for callers that run inside a tight, non-async path (the engine's
+// per-tick computor-vote signing). All three require initK12() to have resolved the crypto module first.
+// Key derivation matches the library: privateKey = K12(seed-as-a-z-bytes); publicKey = FourQ(privateKey).
+export function deriveKeysSync(seed: string): KeyPair {
+  if (!_k12Sync || !_schnorrq) {
+    throw new Error("crypto not initialized — await initK12() first");
+  }
+
+  const privateKey = _keyHelper.privateKey(seed, 0, _k12Sync);
+  const publicKey = _schnorrq.generatePublicKey(privateKey);
+  return { privateKey, publicKey };
+}
+
+export function signSync(privateKey: Uint8Array, publicKey: Uint8Array, digest: Uint8Array): Uint8Array {
+  if (!_schnorrq) {
+    throw new Error("crypto not initialized — await initK12() first");
+  }
+
+  return _schnorrq.sign(privateKey, publicKey, digest);
+}
+
+export function verifySync(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean {
+  if (!_schnorrq) {
+    throw new Error("crypto not initialized — await initK12() first");
+  }
+
+  return _schnorrq.verify(publicKey, message, signature) === 1;
 }
 
 // Deriving an identity exercises K12 (subseed) + FourQ (public key) in the

@@ -2,7 +2,7 @@
 // (core-lite: src/extensions/lite_wasm_contracts.h + lite_wasm_imports.h), driving the browser/Bun
 // `WebAssembly` API instead of WAMR. One Contract == one WebAssembly.Instance of a built contract .wasm.
 // The contract bytes run unchanged; this supplies the "lhost" import table, the per-call marshalling, and
-// the resident-state digest. See plan: /home/kali/.claude/plans/resilient-exploring-stonebraker.md
+// the resident-state digest.
 import { k12Bytes, toHex } from "./k12";
 import type { TraceRecorder } from "./trace";
 
@@ -21,6 +21,53 @@ export const SP = {
 // MUST match LITE_WASM_*_SZ in core-lite src/extensions/lite_wasm_contracts.h.
 const IN_SZ = 64 * 1024, OUT_SZ = 64 * 1024, LOCALS_SZ = 32 * 1024;
 
+// Deterministic execution-cost meter. The chain-sim (Layer 2) reads Contract.lastCost to debit the contract's
+// execution-fee reserve (core-lite doc/execution_fees.md). Real qubic prices a procedure by its wall-clock
+// microseconds — non-deterministic, and would break the sim's K12 digest reproducibility — so this instead
+// counts weighted host-ABI calls plus a digest-recompute term proportional to StateData size (the dominant
+// cost for large state, per the doc). Units are relative; Layer 2 may scale them by a fee multiplier. The
+// meter is inert unless Contract.metering is set, so a non-metered sim pays nothing for it.
+const BASE_CALL_COST = 10n;  // fixed cost charged on every metered contract entry
+const DIGEST_BYTE_COST = 1n; // per StateData byte, charged once when a call mutates state (digest recompute)
+const HOST_WEIGHT: Record<string, bigint> = {
+  k12: 5n,
+  getEntity: 1n, nextId: 2n, prevId: 2n,
+  logBytes: 1n,
+  transfer: 10n, transferTyped: 10n, burn: 10n,
+  isAssetIssued: 2n, issueAsset: 50n,
+  numberOfShares: 5n, numberOfPossessedShares: 3n,
+  transferShareOwnershipAndPossession: 20n, distributeDividends: 20n,
+  liteCallFunction: 20n, liteInvokeProcedure: 20n,
+  liteSetShareholderProposal: 20n, liteSetShareholderVotes: 20n,
+};
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Decompose a unix-ms timestamp into the qpi date/time fields (UTC). `year` is the qubic 2-digit form
+// (year - 2000), matching the node's year() accessor + the Tick struct's uint8 year.
+export function dateFields(ms: number): { year: number; month: number; day: number; hour: number; minute: number; second: number; milli: number } {
+  const d = new Date(ms);
+  return {
+    year: (d.getUTCFullYear() - 2000) & 0xff,
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    hour: d.getUTCHours(),
+    minute: d.getUTCMinutes(),
+    second: d.getUTCSeconds(),
+    milli: d.getUTCMilliseconds(),
+  };
+}
+
 // Spectrum entity record — mirrors QPI::Entity (qpi.h:1615): publicKey + incoming/outgoing amounts, transfer
 // counts, latest transfer ticks. balance = incomingAmount - outgoingAmount.
 export interface Entity {
@@ -36,11 +83,13 @@ export interface Entity {
 export interface HostServices {
   tick(): number;
   epoch(): number;
+  nowMs(): number;
   markDirty(slot: number): void;
   log(slot: number, level: number, msg: Uint8Array): void;
   transfer(slot: number, dest: Uint8Array, amount: bigint, transferType: number): bigint;
   burn(slot: number, amount: bigint, burnedFor: number): bigint;
   getEntity(id: Uint8Array): Entity | null;
+  queryFeeReserve(callerSlot: number, contractIndex: number): bigint;
   issueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint;
   isAssetIssued(issuer: Uint8Array, name: bigint): number;
   numberOfShares(asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array): bigint;
@@ -82,6 +131,9 @@ export class Contract {
   ioBase = 0; stateAddr = 0; stateSize = 0; ctxAddr = 0;
   arenaBase = 0; arenaBump = 0; arenaEnd = 0;
   sysMask = 0;
+  metering = false;  // Layer 2 sets this when fee accounting is on; gates the cost meter (off => zero overhead)
+  cost = 0n;         // host-weight accumulator for the in-flight dispatch frame (reset/restored per invoke)
+  lastCost = 0n;     // total cost of the most recently completed invoke frame — Layer 2 debits this
   private outSizes = new Map<string, number>();   // user entries: "kind:it" -> outSize
   private sysOutSizes = new Map<number, number>(); // sysproc id -> outSize
   entries: { it: number; kind: number; inSize: number; outSize: number }[] = []; // registered fns/procs
@@ -177,27 +229,55 @@ export class Contract {
     this.writeCtx(ctx);
     this.arenaBump = this.arenaBase;
 
+    // Cost meter (opt-in): isolate this frame's host-weight accumulator so a nested re-entrant call on the
+    // same Contract (e.g. a self-transfer firing POST_INCOMING_TRANSFER) doesn't clobber the parent's tally.
+    const metering = this.metering;
+    const savedCost = this.cost;
+    this.cost = 0n;
+
     // Debug trace (opt-in): snapshot state, open an entry, time the dispatch, capture a trap. Nesting
-    // (inter-contract calls / sysprocs) is handled by the recorder's stack — each invoke is one entry.
+    // (inter-contract calls / sysprocs) is handled by the recorder's stack — each invoke is one entry. State
+    // is snapshotted once and shared with the meter (it needs before/after to price the digest recompute).
     const rec = this.trace?.enabled ? this.trace : null;
-    const stateBefore = rec ? this.state() : EMPTY;
+    const wantState = metering || rec != null;
+    const stateBefore = wantState ? this.state() : EMPTY;
     const e = rec ? rec.begin({ tick: this.host.tick(), index: this.slot, entry: it, kind, invocator: ctx.invocator, invocationReward: ctx.invocationReward ?? 0n, input, stateBefore }) : null;
     const t0 = rec ? performance.now() : 0;
 
     try {
       this.ex.dispatch(kind >>> 0, it >>> 0, inOff >>> 0, outOff >>> 0, localsOff >>> 0);
     } catch (err) {
+      const stateAfter = wantState ? this.state() : EMPTY;
+      this.finishMeter(metering, savedCost, stateBefore, stateAfter);
       if (rec) {
-        rec.end(e, { output: EMPTY, ok: false, trap: trapMessage(err), stateBefore, stateAfter: this.state(), execNs: (performance.now() - t0) * 1e6 });
+        rec.end(e, { output: EMPTY, ok: false, trap: trapMessage(err), stateBefore, stateAfter, execNs: (performance.now() - t0) * 1e6 });
       }
       throw err;
     }
 
+    const stateAfter = wantState ? this.state() : EMPTY;
     const output = this.u8().slice(outOff, outOff + outSize); // fresh view after dispatch
+    this.finishMeter(metering, savedCost, stateBefore, stateAfter);
     if (rec) {
-      rec.end(e, { output, ok: true, stateBefore, stateAfter: this.state(), execNs: (performance.now() - t0) * 1e6 });
+      rec.end(e, { output, ok: true, stateBefore, stateAfter, execNs: (performance.now() - t0) * 1e6 });
     }
     return output;
+  }
+
+  // Close out the frame's cost meter: total = base + accumulated host weight + (state changed ? digest
+  // recompute over the whole StateData : 0). Records it in lastCost for Layer 2 to debit, then restores the
+  // parent frame's accumulator. A no-op (lastCost = 0) when this contract isn't metered.
+  private finishMeter(metering: boolean, savedCost: bigint, before: Uint8Array, after: Uint8Array): void {
+    if (metering) {
+      let c = BASE_CALL_COST + this.cost;
+      if (!bytesEqual(before, after)) {
+        c += DIGEST_BYTE_COST * BigInt(this.stateSize);
+      }
+      this.lastCost = c;
+    } else {
+      this.lastCost = 0n;
+    }
+    this.cost = savedCost;
   }
 
   state(): Uint8Array {
@@ -214,6 +294,26 @@ export class Contract {
     const rec = this.trace;
     if (rec?.enabled) {
       rec.hostCall(name, detail());
+    }
+  }
+
+  // Wrap the priced lhost imports so each call adds its weight to the in-flight frame's cost (only the entries
+  // in HOST_WEIGHT — free ops keep their original closure, so an unmetered run is untouched). The wrapper
+  // forwards args positionally; wasm matches imports by declared signature, so the rest-spread is transparent
+  // and i64 (bigint) returns pass straight through.
+  private meterLhost(lhost: Record<string, Function>): void {
+    for (const name of Object.keys(lhost)) {
+      const w = HOST_WEIGHT[name];
+      if (w === undefined) {
+        continue;
+      }
+      const fn = lhost[name] as (...a: unknown[]) => unknown;
+      lhost[name] = (...args: unknown[]) => {
+        if (this.metering) {
+          this.cost += w;
+        }
+        return fn(...args);
+      };
     }
   }
 
@@ -248,8 +348,16 @@ export class Contract {
       epoch: () => this.host.epoch() & 0xffff,
       tick: () => this.host.tick() >>> 0,
       numberOfTickTransactions: () => 0,
-      day: () => 0, year: () => 0, hour: () => 0, minute: () => 0, month: () => 0, second: () => 0,
-      millisecond: () => 0,
+      // qpi date/time: derived from the chain clock (year is the qubic 2-digit form, year - 2000, like
+      // QpiContextFunctionCall::year). now() (the packed 8-byte DateAndTime) is left zero — contracts read the
+      // individual accessors.
+      day: () => dateFields(this.host.nowMs()).day,
+      year: () => dateFields(this.host.nowMs()).year,
+      hour: () => dateFields(this.host.nowMs()).hour,
+      minute: () => dateFields(this.host.nowMs()).minute,
+      month: () => dateFields(this.host.nowMs()).month,
+      second: () => dateFields(this.host.nowMs()).second,
+      millisecond: () => dateFields(this.host.nowMs()).milli,
       now: (out: number) => u8().fill(0, out, out + 8),
       // etalon-tick digests (zeroed in the sim)
       prevSpectrumDigest: (out: number) => u8().fill(0, out, out + 32),
@@ -269,7 +377,7 @@ export class Contract {
         dv.setUint32(entityOff + 60, e ? e.latestOutgoingTransferTick : 0, true);
         return e ? 1 : 0;
       },
-      queryFeeReserve: (_ci: number) => 1000000n,          // positive so any BEGIN/END_TICK gating passes
+      queryFeeReserve: (ci: number) => this.host.queryFeeReserve(this.slot, ci >>> 0),
       nextId: (idOff: number, outOff: number) => {
         u8().set(this.host.nextId(u8().slice(idOff, idOff + 32)), outOff);
       },
@@ -349,6 +457,7 @@ export class Contract {
         return this.host.setShareholderVotes(this.slot, calleeIdx >>> 0, vote, reward, originator);
       },
     };
+    this.meterLhost(lhost);
     // WASI: contracts link a few wasi-libc stdio stubs (fd_write/fd_seek/fd_close) via malloc/abort paths;
     // a correct run never calls them. Any unlisted import returns 0 (ESUCCESS); proc_exit throws.
     const wasi = new Proxy(

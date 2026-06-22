@@ -7,24 +7,45 @@ import type {
 } from "@qinit/core";
 import { bytesToIdentity, identityToBytes, deriveIdentity } from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX } from "@qinit/proto";
-import { Sim, type AssetSnapshot } from "./sim";
+import { Sim, type AssetSnapshot, type FeeMode } from "./sim";
+import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
-import { k12Bytes, toHex } from "./k12";
+import { k12Bytes, toHex, verifySync } from "./k12";
 
 interface SlotMeta { name: string; codeHash: string; version: number; }
 interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
 
 export class InProcessEngine implements NodeTransport {
-  readonly sim = new Sim();
+  readonly sim: Sim;
   readonly slotBase: number;
   readonly slotCount: number;
   private meta = new Map<number, SlotMeta>();
   private upload: UploadSession | null = null;
   private sources = new Map<number, string>(); // deployed .h source per slot (for callee auto-resolution)
+  private rawTxs = new Map<string, Uint8Array>(); // hex(K12(tx body)) -> raw tx bytes (peer REQUEST_TRANSACTION_INFO)
 
-  constructor(opts: { slotBase?: number; slotCount?: number } = {}) {
+  private verifySigs: boolean;
+
+  // `fees`/`mempool`/`verifySigs` are all off by default — the engine behaves exactly as before (no fee gating,
+  // immediate apply, no signature check) so the IDE and its digests are unchanged. The peer entry opts in.
+  constructor(opts: { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint } = {}) {
+    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool, fees: opts.fees, defaultReserve: opts.defaultReserve });
     this.slotBase = opts.slotBase ?? 28;
     this.slotCount = opts.slotCount ?? 4;
+    this.verifySigs = opts.verifySigs ?? false;
+  }
+
+  // Execution-fee reserve controls (no-ops on behaviour when fees are "off"; see Sim).
+  feeReserve(slot: number): bigint {
+    return this.sim.feeReserveOf(slot);
+  }
+
+  setFeeReserve(slot: number, amount: bigint): void {
+    this.sim.setFeeReserve(slot, amount);
+  }
+
+  ipo(slot: number, finalPrice: bigint): void {
+    this.sim.ipo(slot, finalPrice);
   }
 
   // Direct deploy (IDE / tests): bypass the chunk protocol — load wasm into the slot + construct (INITIALIZE).
@@ -98,6 +119,7 @@ export class InProcessEngine implements NodeTransport {
       const destBytes = txBytes.slice(32, 64);
       const destLo = v.getBigUint64(32, true);
       const amount = v.getBigInt64(64, true);
+      const txTick = v.getUint32(72, true);
       const inputType = v.getUint16(76, true);
       const inputSize = v.getUint16(78, true);
       const payload = txBytes.slice(80, 80 + inputSize);
@@ -107,8 +129,24 @@ export class InProcessEngine implements NodeTransport {
         return { ok: true };
       }
 
+      const body = txBytes.length > 64 ? txBytes.slice(0, txBytes.length - 64) : txBytes;
+
+      // A real node rejects a tx whose FourQ signature does not match its source (opt-in). The signature
+      // covers K12(tx − signature); the source public key is the first 32 bytes.
+      if (this.verifySigs) {
+        const sig = txBytes.subarray(txBytes.length - 64);
+        if (txBytes.length <= 64 || !verifySync(source, k12Bytes(body), sig)) {
+          return { ok: false, message: "invalid signature" };
+        }
+      }
+
       const txId = await this.txId(txBytes);
-      this.sim.applyTx(source, destBytes, amount, inputType, payload, txId);
+      // Index the raw tx by every digest the peer protocol might query by: K12(body, no sig) = qinit's txId,
+      // K12(full tx incl. sig) = the protocol tx hash, and the txId string (REQUEST_TICK_TRANSACTIONS).
+      this.rawTxs.set(toHex(k12Bytes(body)), txBytes);
+      this.rawTxs.set(toHex(k12Bytes(txBytes)), txBytes);
+      this.rawTxs.set(txId, txBytes);
+      this.sim.enqueueTx(txTick, source, destBytes, amount, inputType, payload, txId);
       return { ok: true, transactionId: txId };
     } catch (e: any) {
       return { ok: false, message: String(e?.message ?? e) };
@@ -215,6 +253,12 @@ export class InProcessEngine implements NodeTransport {
   // Credit an identity directly (tests / IDE faucet).
   fund(id: Uint8Array, amount: bigint): void {
     this.sim.fund(id, amount);
+  }
+
+  // The raw bytes of a broadcast tx, keyed by hex(K12(tx body)) — the digest the peer REQUEST_TRANSACTION_INFO
+  // queries by. Undefined if never seen.
+  rawTx(digestHex: string): Uint8Array | undefined {
+    return this.rawTxs.get(digestHex);
   }
 
   private idToBytes(id: string): Uint8Array {

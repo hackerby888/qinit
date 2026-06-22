@@ -58,7 +58,12 @@ Grounded in `qubic/core-lite`: ticks/epochs with the real system-procedure order
 BEGIN_TICK low→high → user procedures → END_TICK high→low → END_EPOCH), the spectrum money model
 (`balance = incoming − outgoing`, transfer/burn, invocation reward credited *before* a procedure body), the
 asset/shares universe, inter-contract calls (lower-index-only, depth ≤ 10), and `digest = K12(StateData)`.
-Execution-fee/energy modelling is **opt-in** and off by default (see the engine's `fees` option).
+
+Tick finalisation runs a **real N-computor quorum** (configurable committee, default 8; `QUORUM = ⌊N·2/3⌋+1`):
+each tick every computor FourQ-signs a 352-byte `Tick` vote over the chain's state digests (spectrum / universe
+/ computer) and the tick finalises once aligned votes ≥ QUORUM. The committee list is arbitrator-signed (default
+arbitrator seed `"a"×55`). Configure via `new Sim({ consensus: { numberOfComputors?, computorSeeds?,
+arbitratorSeed? } })`; consensus is additive, so contract `StateData` digests are unchanged.
 
 ## The wasm contract ABI
 
@@ -79,6 +84,14 @@ The host import table (`HostServices`) supplies the qpi callbacks: time (tick/ep
   `initK12`, `k12Bytes`, `toHex`). Browser + Node safe.
 - `@qinit/engine/server` — an HTTP adapter (`EngineServer`) that serves an `InProcessEngine` on the
   qubic-core-lite RPC routes. **Bun-only** (uses `Bun.serve`); kept out of the default entry.
+- `@qinit/engine/peer` — a TCP adapter (`PeerServer`) that speaks the Qubic peer protocol so the official
+  `qubic-cli` drives the engine. Run `bun packages/engine/src/peer-main.ts 21841`, then
+  `qubic-cli -nodeip 127.0.0.1 -nodeport 21841 -getcurrenttick` (wallet `-getbalance`/`-sendtoaddress`,
+  `-getsysteminfo`, `-getcomputorlist`, `-getquorumtick`, `-checktxontick`, …). **Bun-only** (uses
+  `Bun.listen`). Broadcast txs are deferred to their scheduled tick via an opt-in mempool
+  (`new InProcessEngine({ mempool: true })`, which `peer-main.ts` enables) so tick-scoped queries resolve; the
+  rest of the engine keeps immediate-apply by default. Note: the client's hard-coded `ARBITRATOR` differs from
+  the sim's, and one process plays all computors.
 
 ## Build & publishing
 

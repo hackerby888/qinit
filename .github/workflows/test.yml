@@ -43,6 +43,31 @@ jobs:
       - name: Unit tests
         run: bun test
 
+  # Build the external Qubic CLI from source and drive the in-process engine's peer-protocol server with it.
+  # The engine's cli-e2e tests are gated on QUBIC_CLI (lint-test's `bun test` skips them); this job provides the
+  # binary. Linux-only — the CLI is a CMake C++ build. A breaking upstream protocol change turns this red.
+  cli-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout qubic-cli
+        uses: actions/checkout@v4
+        with:
+          repository: qubic/qubic-cli
+          path: qubic-cli
+      - name: Build qubic-cli
+        run: |
+          cmake -S qubic-cli -B qubic-cli/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build qubic-cli/build -j"$(nproc)"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install
+      - name: CLI e2e against the in-process engine
+        env:
+          QUBIC_CLI: ${{ github.workspace }}/qubic-cli/build/qubic-cli
+        run: bun test packages/engine/tests/cli-e2e.test.ts
+
   # contractverify every fixtures/*.h against the qpi.h protocol rules (the AST checker, not just a wasm
   # compile). The script self-fetches the cached verify tool; a fixture that drifts out of compliance reds it.
   verify-fixtures:

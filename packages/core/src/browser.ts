@@ -22,14 +22,25 @@ export { broadcastTx, broadcastTxs, fetchT, readBody } from "./net";
 export type { BroadcastResult } from "./net";
 
 export type { NodeTransport, TxStatus, StateRead, EntityInfo, TxInfo } from "./transport";
+export type { KeyPair } from "./qubic";
 
 // K12 (KangarooTwelve): ESM import of @qubic-lib's emscripten crypto (the same module ./qubic uses), so it
-// runs in the page. `default` resolves (once the wasm runtime is ready) to { K12 } where K12(input, out,
-// outLen) writes into `out`. k12Sync mirrors @qinit/core's signature — `(bytes) => Uint8Array(32)`.
+// runs in the page. `default` resolves (once the wasm runtime is ready) to { K12, schnorrq } where K12(input,
+// out, outLen) writes into `out`. k12Sync mirrors @qinit/core's signature — `(bytes) => Uint8Array(32)`; the
+// schnorrq object backs the sync FourQ key/sign/verify the engine's tick-consensus needs.
 import cryptoModule from "@qubic-lib/qubic-ts-library/dist/crypto";
+import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper";
+import type { KeyPair } from "./qubic";
 
 type RawK12 = (input: Uint8Array, out: Uint8Array, outLen: number) => void;
+interface SchnorrQ {
+  generatePublicKey(privateKey: Uint8Array): Uint8Array;
+  sign(privateKey: Uint8Array, publicKey: Uint8Array, message: Uint8Array): Uint8Array;
+  verify(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): number;
+}
 let _k12raw: RawK12 | null = null;
+let _schnorrq: SchnorrQ | null = null;
+const _keyHelper = new KeyHelper();
 
 export async function initK12(): Promise<void> {
   if (_k12raw) {
@@ -38,6 +49,7 @@ export async function initK12(): Promise<void> {
 
   const resolved = await ((cryptoModule as { default?: unknown }).default ?? cryptoModule);
   _k12raw = (resolved as { K12: RawK12 }).K12;
+  _schnorrq = (resolved as { schnorrq: SchnorrQ }).schnorrq;
 }
 
 export function k12Sync(bytes: Uint8Array): Uint8Array {
@@ -48,4 +60,32 @@ export function k12Sync(bytes: Uint8Array): Uint8Array {
   const out = new Uint8Array(32);
   _k12raw(bytes, out, 32);
   return out;
+}
+
+// Sync FourQ key derivation + signing, mirroring ./qubic's deriveKeysSync/signSync/verifySync but bound to
+// this entry's own resolved crypto instance (the page/bundler one, not the bun `require` one).
+export function deriveKeysSync(seed: string): KeyPair {
+  if (!_k12raw || !_schnorrq) {
+    throw new Error("crypto not initialised — await initK12() first");
+  }
+
+  const privateKey = _keyHelper.privateKey(seed, 0, _k12raw);
+  const publicKey = _schnorrq.generatePublicKey(privateKey);
+  return { privateKey, publicKey };
+}
+
+export function signSync(privateKey: Uint8Array, publicKey: Uint8Array, digest: Uint8Array): Uint8Array {
+  if (!_schnorrq) {
+    throw new Error("crypto not initialised — await initK12() first");
+  }
+
+  return _schnorrq.sign(privateKey, publicKey, digest);
+}
+
+export function verifySync(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean {
+  if (!_schnorrq) {
+    throw new Error("crypto not initialised — await initK12() first");
+  }
+
+  return _schnorrq.verify(publicKey, message, signature) === 1;
 }
