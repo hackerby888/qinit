@@ -112,3 +112,61 @@ test("Dividend: distributeDividends debits balance + guards on insufficient fund
   expect(u64(sim.procedure(28, 2, distIn(100n)))).toBe(0n); // 800 > 20 -> false, no debit
   expect(sim.balanceOf(28)).toBe(20n);
 });
+
+const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
+
+// Sum a holder's possessed shares grouped by the possession-managing contract.
+function sharesByMgmt(sim: Sim, mgmt: number): bigint {
+  let sum = 0n;
+  for (const a of sim.assetUniverse()) {
+    for (const h of a.holdings) {
+      if (h.posMgmt === mgmt) {
+        sum += BigInt(h.shares);
+      }
+    }
+  }
+  return sum;
+}
+
+test("transferShareManagementRights moves the managing contract; the possessor is unchanged", async () => {
+  await initK12();
+
+  const sim = new Sim();
+  sim.deploy(28, await wasm("Token")); // issues TOKEN owned + possessed by id(28), managed by contract 28
+  const SELF = cid(28);
+  sim.procedure(28, 1, issueIn(TOKEN, 1000n));
+
+  // hand management of 400 shares to contract 30 (the QX-style custody split)
+  expect(sim.transferShareManagementRights(TOKEN, SELF, SELF, SELF, 28, 30, 400n)).toBe(true);
+
+  expect(sharesByMgmt(sim, 28)).toBe(600n); // 600 still managed by the issuer
+  expect(sharesByMgmt(sim, 30)).toBe(400n); // 400 now managed by contract 30
+  expect(i64(sim.query(28, 3, possIn(TOKEN, SELF)))).toBe(600n); // Token's own (contract-28-managed) possession dropped to 600
+
+  // a partial move with insufficient shares under the source manager fails
+  expect(sim.transferShareManagementRights(TOKEN, SELF, SELF, SELF, 28, 30, 1000n)).toBe(false);
+});
+
+test("acquireShares is denied when the source manager has no PRE_RELEASE_SHARES callback", async () => {
+  await initK12();
+
+  const sim = new Sim();
+  sim.deploy(28, await wasm("Token")); // Token implements no management-rights callbacks -> the node denies
+  const SELF = cid(28);
+  sim.procedure(28, 1, issueIn(TOKEN, 1000n));
+
+  expect(sim.acquireShares(30, TOKEN, SELF, SELF, SELF, 100n, 28, 28, 0n)).toBe(INVALID_AMOUNT);
+  expect(sharesByMgmt(sim, 28)).toBe(1000n); // unchanged — nothing acquired
+});
+
+test("acquireShares rejects owner != possessor (qpi keeps them equal)", async () => {
+  await initK12();
+
+  const sim = new Sim();
+  sim.deploy(28, await wasm("Token"));
+  const SELF = cid(28);
+  const OTHER = new Uint8Array(32).fill(0xcd);
+  sim.procedure(28, 1, issueIn(TOKEN, 1000n));
+
+  expect(sim.acquireShares(30, TOKEN, SELF, SELF, OTHER, 100n, 28, 28, 0n)).toBe(INVALID_AMOUNT);
+});

@@ -130,9 +130,10 @@ export class PeerServer {
         return this.respondQuorumTick(payload, dejavu);
       case MSG.REQUEST_OWNED_ASSETS:
         return this.respondOwnedAssets(payload, dejavu);
-      case MSG.REQUEST_ISSUED_ASSETS:
       case MSG.REQUEST_POSSESSED_ASSETS:
-        return codec.endResponse(dejavu); // issued/possessed streaming — empty for now (owned assets cover the asset query)
+        return this.respondPossessedAssets(payload, dejavu);
+      case MSG.REQUEST_ISSUED_ASSETS:
+        return codec.endResponse(dejavu); // issued-assets streaming — empty (no client command requests it)
       case MSG.PROCESS_SPECIAL_COMMAND:
         return codec.frame(MSG.PROCESS_SPECIAL_COMMAND, payload, dejavu); // ack: echo the command struct
       default:
@@ -249,6 +250,36 @@ export class PeerServer {
           managingContractIndex: h.ownMgmt,
         });
         frames.push(codec.frame(MSG.RESPOND_OWNED_ASSETS, enc, dejavu));
+      }
+    }
+
+    frames.push(codec.endResponse(dejavu));
+    return concatAll(frames);
+  }
+
+  // REQUEST_POSSESSED_ASSETS — stream a RespondPossessedAssets per holding the queried account possesses (with
+  // the possession's managing contract, the ownership record, and the issuance record), then END_RESPONSE.
+  private respondPossessedAssets(payload: Uint8Array, dejavu: number): Uint8Array {
+    const possessor = payload.subarray(0, 32);
+    const possessorHex = toHex(possessor);
+    const frames: Uint8Array[] = [];
+
+    for (const a of this.engine.sim.assetUniverse()) {
+      for (const h of a.holdings) {
+        if (h.possessor !== possessorHex) {
+          continue;
+        }
+        const enc = codec.encodeRespondPossessedAssets({
+          possessor,
+          owner: hexToBytes32(h.owner),
+          issuer: hexToBytes32(a.issuer),
+          name: a.name,
+          decimals: a.decimals,
+          shares: BigInt(h.shares),
+          possessionManagingContract: h.posMgmt,
+          ownershipManagingContract: h.ownMgmt,
+        });
+        frames.push(codec.frame(MSG.RESPOND_POSSESSED_ASSETS, enc, dejavu));
       }
     }
 

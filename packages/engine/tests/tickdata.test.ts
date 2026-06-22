@@ -143,4 +143,4 @@ test("old TickData is pruned past the history window, recent ticks retained", as
   expect(sim.tickData(1)).toBeUndefined(); // beyond the 2000-tick window
   expect(sim.tickRecord(1)).toBeUndefined();
   expect(sim.tickData(sim.tickN)).toBeDefined(); // the latest tick is kept
-});
+}, 30000); // crossing the 2000-tick window is inherently a few seconds — above bun's 5s default

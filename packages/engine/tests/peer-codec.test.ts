@@ -97,6 +97,30 @@ test("encodeRespondOwnedAssets lays out the ownership + issuance records", () =>
   expect(enc[88]).toBe(2); // numberOfDecimalPlaces @48+40
 });
 
+test("encodeRespondPossessedAssets lays out possession + ownership + issuance records", () => {
+  const possessor = new Uint8Array(32).fill(0x22);
+  const owner = new Uint8Array(32).fill(0x33);
+  const issuer = new Uint8Array(32).fill(0x44);
+  const enc = codec.encodeRespondPossessedAssets({ possessor, owner, issuer, name: "QTOKEN", decimals: 2, shares: 700n, possessionManagingContract: 30, ownershipManagingContract: 28 });
+  const d = dv(enc);
+
+  expect(enc.length).toBe(48 + 48 + 48 + 4 + 4);
+  // possession record @0
+  expect(enc.subarray(0, 32)).toEqual(possessor);
+  expect(enc[32]).toBe(3); // type = possession
+  expect(d.getUint16(34, true)).toBe(30); // possession managing contract
+  expect(d.getBigInt64(40, true)).toBe(700n);
+  // ownership record @48
+  expect(enc.subarray(48, 80)).toEqual(owner);
+  expect(enc[80]).toBe(2); // type = ownership
+  expect(d.getUint16(48 + 34, true)).toBe(28); // ownership managing contract
+  // issuance record @96
+  expect(enc.subarray(96, 128)).toEqual(issuer);
+  expect(enc[128]).toBe(1); // type = issuance
+  expect(String.fromCharCode(...enc.subarray(96 + 33, 96 + 39))).toBe("QTOKEN");
+  expect(enc[96 + 40]).toBe(2); // numberOfDecimalPlaces
+});
+
 test("encodeTxStatus sets the moneyFlew bitmask + packs the digests", () => {
   const a = new Uint8Array(32).fill(0xaa);
   const b = new Uint8Array(32).fill(0xbb);

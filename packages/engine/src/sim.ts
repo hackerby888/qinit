@@ -472,6 +472,145 @@ export class Sim {
     return h.shares; // remaining shares of the source possessor
   }
 
+  // ---- share management rights / custody (qpi_asset_impl.h acquireShares / releaseShares) ----
+  // The low-level state move: shares of (owner,possessor) managed by srcMgmt become managed by dstMgmt. Owner and
+  // possessor (always equal at the qpi level) are unchanged; only the managing contract changes. Callback-free —
+  // the acquire/release wrappers below run the management-rights-transfer approval callbacks.
+  transferShareManagementRights(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, srcMgmt: number, dstMgmt: number, shares: bigint): boolean {
+    if (shares <= 0n) {
+      return false;
+    }
+
+    const asset = this.findAsset(issuer, name);
+    if (!asset) {
+      return false;
+    }
+
+    const sk = this.holdingKey(owner, possessor, srcMgmt, srcMgmt);
+    const src = asset.holdings.get(sk);
+    if (!src || src.shares < shares) {
+      return false;
+    }
+
+    src.shares -= shares;
+    if (src.shares === 0n) {
+      asset.holdings.delete(sk);
+    }
+
+    const dk = this.holdingKey(owner, possessor, dstMgmt, dstMgmt);
+    const dst = asset.holdings.get(dk);
+    if (dst) {
+      dst.shares += shares;
+    } else {
+      asset.holdings.set(dk, { owner: owner.slice(0, 32), possessor: possessor.slice(0, 32), ownMgmt: dstMgmt, posMgmt: dstMgmt, shares });
+    }
+
+    return true;
+  }
+
+  // Run a management-rights-transfer approval callback (PRE/POST_RELEASE/ACQUIRE_SHARES) on the other managing
+  // contract. An absent callback denies the transfer (the node zeroes the output, so allowTransfer is false).
+  private runManagementCallback(targetSlot: number, spId: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, fee: bigint, otherSlot: number): { allow: boolean; fee: bigint } {
+    const c = this.contracts.get(targetSlot);
+    if (!c || !c.hasSysproc(spId)) {
+      return { allow: false, fee: 0n };
+    }
+
+    const input = new Uint8Array(128); // PreManagementRightsTransfer_input { Asset(40) owner(32) possessor(32) shares(8) offeredFee(8) otherContractIndex(2) }
+    const dv = new DataView(input.buffer);
+    dv.setBigUint64(0, name, true);
+    input.set(issuer.subarray(0, 32), 8);
+    input.set(owner.subarray(0, 32), 40);
+    input.set(possessor.subarray(0, 32), 72);
+    dv.setBigInt64(104, shares, true);
+    dv.setBigInt64(112, fee, true);
+    dv.setUint16(120, otherSlot & 0xffff, true);
+
+    const out = this.fire(c, KIND.SYSPROC, spId, input, { entryPoint: spId });
+    const odv = new DataView(out.buffer, out.byteOffset, out.byteLength);
+    const allow = out.length >= 1 && out[0] !== 0; // PreManagementRightsTransfer_output { bool allowTransfer; sint64 requestedFee }
+    const reqFee = out.length >= 16 ? odv.getBigInt64(8, true) : 0n;
+    return { allow, fee: reqFee };
+  }
+
+  // qpi.acquireShares — the calling contract takes management rights of (owner,possessor)'s shares currently
+  // managed by srcMgmt. The source managing contract approves via PRE_RELEASE_SHARES (and may charge a fee);
+  // on success the shares become managed by callerSlot. Returns the paid fee (>= 0), -requestedFee if the
+  // offered fee / balance is insufficient, INVALID_AMOUNT on any other error.
+  acquireShares(callerSlot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, srcOwnMgmt: number, srcPosMgmt: number, offeredFee: bigint): bigint {
+    if (!this.idEq(owner, possessor) || srcOwnMgmt !== srcPosMgmt) {
+      return INVALID_AMOUNT;
+    }
+    if (srcPosMgmt === callerSlot || srcPosMgmt < 1 || srcPosMgmt >= CONTRACT_COUNT || shares <= 0n || offeredFee < 0n) {
+      return INVALID_AMOUNT;
+    }
+    if (this.doNumberOfPossessedShares(name, issuer, owner, possessor, srcPosMgmt, srcPosMgmt) < shares) {
+      return INVALID_AMOUNT;
+    }
+
+    const cb = this.runManagementCallback(srcOwnMgmt, SP.PRE_RELEASE_SHARES, name, issuer, owner, possessor, shares, offeredFee, callerSlot);
+    if (!cb.allow || cb.fee < 0n || cb.fee > MAX_AMOUNT) {
+      return INVALID_AMOUNT;
+    }
+    if (cb.fee > offeredFee) {
+      return -cb.fee;
+    }
+
+    if (cb.fee > 0n) {
+      const caller = this.contractId(callerSlot);
+      if (this.balance(caller) < cb.fee) {
+        return -cb.fee;
+      }
+      this.debit(caller, cb.fee);
+      this.credit(this.contractId(srcOwnMgmt), cb.fee);
+    }
+
+    if (!this.transferShareManagementRights(name, issuer, owner, possessor, srcPosMgmt, callerSlot, shares)) {
+      return INVALID_AMOUNT;
+    }
+
+    this.runManagementCallback(srcOwnMgmt, SP.POST_RELEASE_SHARES, name, issuer, owner, possessor, shares, cb.fee, callerSlot);
+    return cb.fee;
+  }
+
+  // qpi.releaseShares — the calling contract (the current manager) releases management rights of the shares to
+  // dstMgmt, which approves via PRE_ACQUIRE_SHARES. Mirror of acquireShares.
+  releaseShares(callerSlot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, dstOwnMgmt: number, dstPosMgmt: number, offeredFee: bigint): bigint {
+    if (!this.idEq(owner, possessor) || dstOwnMgmt !== dstPosMgmt) {
+      return INVALID_AMOUNT;
+    }
+    if (dstPosMgmt === callerSlot || dstPosMgmt < 1 || dstPosMgmt >= CONTRACT_COUNT || shares <= 0n || offeredFee < 0n) {
+      return INVALID_AMOUNT;
+    }
+    if (this.doNumberOfPossessedShares(name, issuer, owner, possessor, callerSlot, callerSlot) < shares) {
+      return INVALID_AMOUNT;
+    }
+
+    const cb = this.runManagementCallback(dstOwnMgmt, SP.PRE_ACQUIRE_SHARES, name, issuer, owner, possessor, shares, offeredFee, callerSlot);
+    if (!cb.allow || cb.fee < 0n || cb.fee > MAX_AMOUNT) {
+      return INVALID_AMOUNT;
+    }
+    if (cb.fee > offeredFee) {
+      return -cb.fee;
+    }
+
+    if (cb.fee > 0n) {
+      const caller = this.contractId(callerSlot);
+      if (this.balance(caller) < cb.fee) {
+        return -cb.fee;
+      }
+      this.debit(caller, cb.fee);
+      this.credit(this.contractId(dstOwnMgmt), cb.fee);
+    }
+
+    if (!this.transferShareManagementRights(name, issuer, owner, possessor, callerSlot, dstPosMgmt, shares)) {
+      return INVALID_AMOUNT;
+    }
+
+    this.runManagementCallback(dstOwnMgmt, SP.POST_ACQUIRE_SHARES, name, issuer, owner, possessor, shares, cb.fee, callerSlot);
+    return cb.fee;
+  }
+
   // Simplified: the in-PIT guard + range + balance (amountPerShare * NUMBER_OF_COMPUTORS) debit. The
   // per-shareholder computor-share payout is consensus-specific and not modeled in the dev sim.
   private doDistributeDividends(slot: number, amountPerShare: bigint): number {

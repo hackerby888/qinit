@@ -272,3 +272,33 @@ test("a malformed request does not kill the connection", async () => {
     stop();
   }
 });
+
+test("possessed-assets request streams the possession records the account holds", async () => {
+  await initK12();
+  const engine = new InProcessEngine();
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0);
+
+  try {
+    engine.deploy(28, await wasm("Token"));
+    const issueIn = new Uint8Array(16); // { uint64 name; sint64 shares }
+    new DataView(issueIn.buffer).setBigUint64(0, 0x4e454b4f54n, true); // "TOKEN"
+    new DataView(issueIn.buffer).setBigInt64(8, 1000n, true);
+    engine.sim.procedure(28, 1, issueIn); // id(28) possesses 1000, managed by contract 28
+
+    const id28 = new Uint8Array(32);
+    new DataView(id28.buffer).setBigUint64(0, 28n, true);
+
+    const frames = await exchange(port, codec.frame(MSG.REQUEST_POSSESSED_ASSETS, id28, 13));
+    const recs = frames.filter((x) => x.type === MSG.RESPOND_POSSESSED_ASSETS);
+    expect(recs.length).toBe(1);
+    expect(frames.some((x) => x.type === MSG.END_RESPONSE)).toBe(true);
+
+    const d = dv(recs[0].payload);
+    expect(recs[0].payload[32]).toBe(3); // possession record type
+    expect(d.getUint16(34, true)).toBe(28); // managed by the issuing contract
+    expect(d.getBigInt64(40, true)).toBe(1000n); // shares
+  } finally {
+    stop();
+  }
+});

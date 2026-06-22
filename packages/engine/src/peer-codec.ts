@@ -237,4 +237,46 @@ export function encodeRespondOwnedAssets(v: OwnedAssetView): Uint8Array {
   return buf;
 }
 
+export interface PossessedAssetView {
+  possessor: Uint8Array; // 32 — the queried account
+  owner: Uint8Array; // 32
+  issuer: Uint8Array; // 32
+  name: string; // up to 7 ASCII
+  decimals: number;
+  shares: bigint;
+  possessionManagingContract: number;
+  ownershipManagingContract: number;
+}
+
+// RespondPossessedAssets (structs.h) — the possession AssetRecord + the ownership AssetRecord + the issuance
+// AssetRecord + tick + universeIndex (siblings[ASSETS_DEPTH] zero-padded by a client). AssetRecord type:
+// 1=issuance, 2=ownership, 3=possession. The possession variant's @36 field is the ownershipIndex (left zero).
+export function encodeRespondPossessedAssets(v: PossessedAssetView): Uint8Array {
+  const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4);
+  const dv = new DataView(buf.buffer);
+
+  // [0..48] possession record
+  buf.set(v.possessor.subarray(0, 32), 0);
+  buf[32] = 3; // ASSET_TYPE_POSSESSION
+  dv.setUint16(34, v.possessionManagingContract & 0xffff, true);
+  dv.setBigInt64(40, v.shares, true);
+
+  // [48..96] ownership record
+  buf.set(v.owner.subarray(0, 32), 48);
+  buf[48 + 32] = 2; // ASSET_TYPE_OWNERSHIP
+  dv.setUint16(48 + 34, v.ownershipManagingContract & 0xffff, true);
+  dv.setBigInt64(48 + 40, v.shares, true);
+
+  // [96..144] issuance record
+  buf.set(v.issuer.subarray(0, 32), 96);
+  buf[96 + 32] = 1; // ASSET_TYPE_ISSUANCE
+  for (let i = 0; i < 7 && i < v.name.length; i++) {
+    buf[96 + 33 + i] = v.name.charCodeAt(i) & 0xff;
+  }
+  buf[96 + 40] = v.decimals & 0xff;
+
+  // [144] tick, [148] universeIndex — left zero
+  return buf;
+}
+
 const ASSET_RECORD_SIZE = 48;

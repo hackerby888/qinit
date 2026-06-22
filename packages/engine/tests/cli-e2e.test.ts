@@ -105,6 +105,10 @@ it("-getasset shows an issued asset's holding", async () => {
     const out = await runCli(port, ["-getasset", id]);
     expect(out).toContain("TOKEN");
     expect(out).toContain("Number Of Shares: 1000");
+    // -getasset queries ownership AND possession; the bridge now serves both
+    expect(out).toContain("======== OWNERSHIP ========");
+    expect(out).toContain("======== POSSESSION ========");
+    expect(out).toContain("Owner ID:"); // printed only in the possession section
   } finally {
     stop();
   }
