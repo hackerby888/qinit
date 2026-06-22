@@ -3,8 +3,9 @@
 // the tick finalizes once aligned votes >= QUORUM (always, for an honest committee). Grounded in core-lite
 // src/network_messages/{tick.h, computors.h, common_def.h} + the qubic.cpp tick processor. All crypto is the
 // sync FourQ/K12 from @qinit/core (deriveKeysSync / signSync), so Sim.advance() stays synchronous.
-import { k12Bytes, deriveKeysSync, signSync, type KeyPair } from "./k12";
+import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "./k12";
 import { dateFields } from "./runtime";
+import { rootFromSiblings } from "./merkle";
 
 export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55); // arbitrator identity = derive("aaa…a")
 export const DEFAULT_NUMBER_OF_COMPUTORS = 8; // core-lite LITE testnet committee (common_def.h)
@@ -288,4 +289,34 @@ function bytesEq(a: Uint8Array, b: Uint8Array): boolean {
     }
   }
   return true;
+}
+
+// A light-client check: is `record` (an EntityRecord) provably part of the state that >= QUORUM computors
+// signed? Recompute the spectrum root from the merkle proof, then count the tick votes that (a) carry a valid
+// signature from their computor and (b) commit that exact spectrum root. True iff the count reaches quorum —
+// i.e. the balance is in a state a supermajority of the committee agreed on, verified by math, not trust.
+export function verifyEntityProof(record: Uint8Array, index: number, siblings: Uint8Array[], votes: Uint8Array[], committee: Committee): boolean {
+  if (index < 0) {
+    return false;
+  }
+
+  const proofRoot = rootFromSiblings(record, index, siblings);
+
+  let valid = 0;
+  for (const vote of votes) {
+    const computorIndex = vote[0] | (vote[1] << 8);
+    const c = committee.computors[computorIndex];
+    if (!c) {
+      continue;
+    }
+    if (!verifySync(c.publicKey, tickVoteMessage(vote), tickVoteSignature(vote))) {
+      continue;
+    }
+    if (!bytesEq(vote.subarray(32, 64), proofRoot)) {
+      continue;
+    }
+    valid++;
+  }
+
+  return valid >= committee.quorum;
 }
