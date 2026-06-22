@@ -40,6 +40,7 @@ const HOST_WEIGHT: Record<string, bigint> = {
   acquireShares: 30n, releaseShares: 30n,
   dayOfWeek: 1n, signatureValidity: 5n, bidInIPO: 10n, ipoBidId: 2n, ipoBidPrice: 2n,
   computeMiningFunction: 5n, initMiningSeed: 2n, getOracleQueryStatus: 1n, unsubscribeOracle: 5n,
+  queryOracle: 20n, subscribeOracle: 20n, getOracleQuery: 3n, getOracleReply: 3n,
   liteCallFunction: 20n, liteInvokeProcedure: 20n,
   liteSetShareholderProposal: 20n, liteSetShareholderVotes: 20n,
 };
@@ -115,6 +116,10 @@ export interface HostServices {
   initMiningSeed(miningSeed: Uint8Array): void;
   getOracleQueryStatus(queryId: bigint): number;
   unsubscribeOracle(oracleSubscriptionId: number): number;
+  queryOracle(slot: number, interfaceIndex: number, query: Uint8Array, notificationProcId: number, timeoutMillisec: number, fee: bigint): bigint;
+  subscribeOracle(slot: number, interfaceIndex: number, query: Uint8Array, notificationProcId: number, periodMillisec: number, notifyPrev: boolean, fee: bigint): number;
+  getOracleQuery(queryId: bigint): Uint8Array | null;
+  getOracleReply(queryId: bigint): Uint8Array | null;
   distributeDividends(slot: number, amountPerShare: bigint): number;
   callFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Uint8Array): { error: number; output: Uint8Array };
   invokeProcedure(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, reward: bigint, originator: Uint8Array): { error: number; output: Uint8Array };
@@ -469,6 +474,27 @@ export class Contract {
       initMiningSeed: (sOff: number) => this.host.initMiningSeed(u8().slice(sOff, sOff + 32)),
       getOracleQueryStatus: (queryId: bigint) => this.host.getOracleQueryStatus(queryId),
       unsubscribeOracle: (sub: number) => this.host.unsubscribeOracle(sub | 0),
+      // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
+      queryOracle: (ifaceIdx: number, queryOff: number, querySize: number, procId: number, timeout: number, fee: bigint) =>
+        this.host.queryOracle(this.slot, ifaceIdx >>> 0, u8().slice(queryOff, queryOff + querySize), procId >>> 0, timeout >>> 0, fee),
+      subscribeOracle: (ifaceIdx: number, queryOff: number, querySize: number, procId: number, period: number, notifyPrev: number, fee: bigint) =>
+        this.host.subscribeOracle(this.slot, ifaceIdx >>> 0, u8().slice(queryOff, queryOff + querySize), procId >>> 0, period >>> 0, notifyPrev !== 0, fee),
+      getOracleQuery: (queryId: bigint, outOff: number, size: number) => {
+        const q = this.host.getOracleQuery(queryId);
+        if (!q) {
+          return 0;
+        }
+        u8().set(q.subarray(0, size), outOff);
+        return 1;
+      },
+      getOracleReply: (queryId: bigint, outOff: number, size: number) => {
+        const r = this.host.getOracleReply(queryId);
+        if (!r) {
+          return 0;
+        }
+        u8().set(r.subarray(0, size), outOff);
+        return 1;
+      },
       distributeDividends: (amountPerShare: bigint) => {
         const r = this.host.distributeDividends(this.slot, amountPerShare);
         this.recHost("distributeDividends", () => `${amountPerShare}/share`);

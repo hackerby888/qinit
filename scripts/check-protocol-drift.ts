@@ -16,6 +16,13 @@ const def = (file: string, name: string): number | null => {
     return m ? Number(m[1]) : null;
   } catch { return null; }
 };
+// read `constexpr <type> NAME = <int>;` from a core header (oracle status codes etc. are constexpr, not #define)
+const cexpr = (file: string, name: string): number | null => {
+  try {
+    const m = readFileSync(join(core, file), "utf8").match(new RegExp(`constexpr\\s+\\w+\\s+${name}\\s*=\\s*(\\d+)`));
+    return m ? Number(m[1]) : null;
+  } catch { return null; }
+};
 const eq = (label: string, got: number | null, want: number) => { if (got !== want) fails.push(`${label}: core=${got} qinit=${want}`); };
 
 const DYN = "src/extensions/lite_dynamic_contracts.h";
@@ -37,5 +44,10 @@ for (const [code, sym, name] of [[4, "CONTRACT_ERROR_MESSAGE", "ERROR"], [5, "CO
 eq("MAX_INPUT_SIZE", def(NET, "MAX_INPUT_SIZE"), MAX_INPUT_SIZE);
 if (CHUNK_DATA_MAX > MAX_INPUT_SIZE - 14) fails.push(`CHUNK_DATA_MAX ${CHUNK_DATA_MAX} exceeds MAX_INPUT_SIZE-header ${MAX_INPUT_SIZE - 14}`);
 
+// oracle query status codes — the engine's ORACLE_STATUS (sim.ts) is hand-mirrored from these constexprs.
+for (const [name, val] of [["ORACLE_QUERY_STATUS_UNKNOWN", 0], ["ORACLE_QUERY_STATUS_PENDING", 1], ["ORACLE_QUERY_STATUS_COMMITTED", 2], ["ORACLE_QUERY_STATUS_SUCCESS", 3], ["ORACLE_QUERY_STATUS_TIMEOUT", 4], ["ORACLE_QUERY_STATUS_UNRESOLVABLE", 5]] as const) {
+  eq(name, cexpr(NET, name), val);
+}
+
 if (fails.length) { console.error("PROTOCOL DRIFT vs core-lite:\n  " + fails.join("\n  ")); process.exit(1); }
-console.log("protocol-drift OK — LITE_TX, log severity, MAX_INPUT_SIZE match core");
+console.log("protocol-drift OK — LITE_TX, log severity, MAX_INPUT_SIZE, ORACLE_QUERY_STATUS match core");
