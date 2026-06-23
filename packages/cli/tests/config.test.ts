@@ -4,7 +4,7 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, seedStorePath, savedSeed, setSavedSeed, clearSavedSeed, savedTheme, setSavedTheme, resolveSeed, resolveCore } from "../src/config";
+import { loadConfig, seedStorePath, savedSeed, setSavedSeed, clearSavedSeed, savedTheme, setSavedTheme, savedMode, setSavedMode, modeStorePath, resolveSeed, resolveCore } from "../src/config";
 
 const saved = { xdg: process.env.XDG_CONFIG_HOME, cache: process.env.QINIT_CACHE, core: process.env.QINIT_CORE };
 const dirs: string[] = [];
@@ -50,6 +50,17 @@ test("theme store: round-trip", () => {
   expect(savedTheme()).toBeUndefined();
   setSavedTheme("dracula");
   expect(savedTheme()).toBe("dracula");
+});
+
+test("mode store: default undefined, round-trip, ignore unknown value", () => {
+  isolate();
+  expect(savedMode()).toBeUndefined();                // unset -> caller falls back to realnode
+  setSavedMode("virtualnode");
+  expect(savedMode()).toBe("virtualnode");
+  setSavedMode("realnode");
+  expect(savedMode()).toBe("realnode");
+  writeFileSync(modeStorePath(), "bogus");            // unknown value -> savedMode rejects it
+  expect(savedMode()).toBeUndefined();
 });
 
 test("resolveSeed precedence: explicit > saved > funded > default", async () => {

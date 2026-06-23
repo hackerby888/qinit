@@ -48,6 +48,31 @@ export function setSavedTheme(name: string): void {
   const p = themeStorePath(); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, name + "\n");
 }
 
+// Globally-chosen node mode (set by `qinit mode`): the backend `qinit test` runs against — a real ephemeral
+// qubic node ("realnode") or the in-process TS engine ("virtualnode"). Saved in qinit's config dir; defaults
+// to realnode when unset, so behavior matches the pre-mode CLI.
+export type NodeMode = "realnode" | "virtualnode";
+export const NODE_MODES: NodeMode[] = ["realnode", "virtualnode"];
+
+export function modeStorePath(): string {
+  return join(configDir(), "mode");
+}
+
+export function savedMode(): NodeMode | undefined {
+  try {
+    const m = readFileSync(modeStorePath(), "utf8").trim();
+    return m === "realnode" || m === "virtualnode" ? m : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function setSavedMode(mode: NodeMode): void {
+  const p = modeStorePath();
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, mode + "\n");
+}
+
 // Seed precedence: explicit (--seed) > saved pick (`qinit seed`) > node funded seed > dev default.
 export async function resolveSeed(rpc: { fundedSeed(): Promise<string | undefined> }, explicit?: string): Promise<string> {
   if (explicit) { assertSeed(explicit); return explicit; }

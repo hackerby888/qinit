@@ -85,8 +85,9 @@ export const META: Record<string, CommandMeta> = {
   ls: { group: "deploy & interact", json: true, summary: "list contracts deployed on the node (slot / name / state / hash)", flags: [["--rpc <url>", "node RPC base"]] },
   state: { group: "deploy & interact", json: true, summary: "decode + print a deployed contract's current state", usage: "[<target>]", flags: [["--all", "include zero/empty fields"], ["--rpc <url>", "node RPC base"]] },
   debug: { group: "deploy & interact", summary: "live contract-call inspector — input/output, state diff, host-calls, traps", usage: "<Contract>", flags: [["--rpc <url>", "node RPC base"]] },
-  test: { group: "deploy & interact", summary: "deploy to an ephemeral node + run bun tests against it", usage: "[<file.h>]", flags: [["--filter <pat>", "test name filter"], ["--keep", "keep the ephemeral node after"], ["--bin <path>", "node binary"], ["--rpc <url>", "node RPC base"]] },
+  test: { group: "deploy & interact", summary: "deploy + run bun tests against the node (real or virtual per `qinit mode`)", usage: "[<file.h>]", flags: [["--in-process", "force the in-process virtual engine (overrides `qinit mode`)"], ["--real", "force a real ephemeral node (overrides `qinit mode`)"], ["--filter <pat>", "test name filter"], ["--keep", "keep the ephemeral node after"], ["--bin <path>", "node binary"], ["--rpc <url>", "node RPC base"]] },
 
+  mode: { group: "misc", summary: "pick the node backend for every node command: realnode (qubic node binary) or virtualnode (in-process engine)", usage: "[realnode|virtualnode]", flags: [["--show", "print the current mode"]] },
   theme: { group: "misc", summary: "pick a UI color variant (default|emerald|ocean|rose|amber|mono); applies everywhere", usage: "[<name>]", flags: [["--show", "print the current theme"]] },
   "cheat-sheet": { group: "misc", summary: "one-screen guide: setup -> contract -> deploy -> call (+ input/output formats)" },
   smoke: { group: "misc", summary: "run the standalone-binary crypto smoke test" },

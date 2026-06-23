@@ -107,6 +107,31 @@ export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: 
   return { pid, scratch, log };
 }
 
+// Launch the in-process TS engine as a detached background node (`qinit mode virtualnode`). Re-invokes this
+// same qinit — the compiled binary, or `bun index.tsx` in dev — as the hidden `__serve` process bound to the
+// RPC port, so every node command then talks to the engine over HTTP just like a real node. Tracked by the
+// same pidfile as launchNode, so killNode / nodeAlive / `qinit node stop` work unchanged.
+export function launchVirtualNode(o: { dir?: string; rpcBase?: string; keep?: boolean }): { pid: number; scratch: string; log: string } {
+  const scratch = resolve(o.dir || scratchDir());
+  if (!o.keep) rmSync(scratch, { recursive: true, force: true });
+  mkdirSync(scratch, { recursive: true });
+  const log = join(scratch, "node.log");
+  const fd = openSync(log, "a");
+
+  // Self-exec: a compiled bin runs `<bin> __serve …`; in dev, execPath is bun so re-pass the entry script.
+  const self = process.execPath;
+  const compiled = !/bun(\.exe)?$/i.test(self);
+  const rpcBase = o.rpcBase || "http://127.0.0.1:41841";
+  const argv = compiled ? ["__serve", "--rpc", rpcBase] : [Bun.main, "__serve", "--rpc", rpcBase];
+
+  const child = spawn(self, argv, { cwd: scratch, stdio: ["ignore", fd, fd], detached: true, windowsHide: true });
+  child.unref();
+  closeSync(fd);
+  const pid = child.pid ?? 0;
+  writeFileSync(pidFile(scratch), String(pid));
+  return { pid, scratch, log };
+}
+
 // Poll RPC until the tick advances (ticking) or the process exits / times out.
 export async function waitTicking(rpcBase: string, seconds: number): Promise<{ ticking: boolean; tick: number; exited: boolean }> {
   const rpc = new LiteRpc(rpcBase);

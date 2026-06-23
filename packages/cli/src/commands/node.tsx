@@ -3,7 +3,8 @@ import { Box, useApp } from "ink";
 import { resolve } from "node:path";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { readCurrent, LiteRpc } from "@qinit/core";
-import { killNode, nodeAlive, fetchNodeBin, ensureNode, launchNode, waitTicking, nodeStatus } from "../node-ops";
+import { killNode, nodeAlive, fetchNodeBin, ensureNode, launchNode, launchVirtualNode, waitTicking, nodeStatus } from "../node-ops";
+import { savedMode } from "../config";
 
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
@@ -28,6 +29,22 @@ export function Node({ args }: { args: string[] }) {
       const L: Line[] = [];
       const add = (t: string, ok?: boolean) => L.push({ t, ok });
       try {
+        if (sub === "run" && savedMode() === "virtualnode") {
+          // virtualnode backend: run the in-process engine as a detached node instead of a qubic binary.
+          const waitS = Number(o.wait || 60);
+          setS({ phase: "run", spin: "stopping any running node" });
+          await killNode();
+          add("old node stopped", true);
+          const { pid, scratch, log } = launchVirtualNode({ dir: o.dir, rpcBase, keep: o.keep !== undefined });
+          add(`launched virtual engine pid ${pid}`, true);
+          setS({ phase: "run", spin: `waiting for ticking (≤${waitS}s)` });
+          const w = await waitTicking(rpcBase, waitS);
+          add(w.ticking ? `ticking at ${w.tick}` : w.exited ? "engine exited early — see log" : "not ticking yet — see log", w.ticking);
+          setS({ phase: "done", title: w.ticking ? "node up ✓ (virtual)" : "node not ticking", color: w.ticking ? theme.ok : theme.warn,
+            lines: L, rows: [["backend", "virtualnode (in-process engine)"], ["scratch", scratch], ["rpc", rpcBase], ["log", log]] });
+          return;
+        }
+
         if (sub === "run") {
           // Prefer the latest release; --bin only overrides for a local build; cached node is the
           // offline fallback (don't run a stale pinned version when a newer release exists).

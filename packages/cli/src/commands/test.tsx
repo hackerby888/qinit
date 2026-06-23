@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
-import { loadConfig, resolveCore } from "../config";
+import { loadConfig, resolveCore, savedMode } from "../config";
 import { deployContract, type Ev } from "../deploy-ops";
 import { launchNode, waitTicking, killNode, ensureNode, scratchDir } from "../node-ops";
 import { LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
@@ -59,8 +59,11 @@ export function Test({ args }: { args: string[] }) {
         const core = resolveCore(o.core, cfg.core);
         if (!existsSync(contractPath)) { add("contract", false, contractPath + " not found"); setS({ phase: "done", lines: L, ok: false, output: "", rows: [] }); return; }
 
-        // 1) node — in-process engine (--in-process), reuse a ticking one, else launch ephemeral.
-        if ("in-process" in o || "engine" in o) {
+        // 1) node — virtual (in-process TS engine) or real (ephemeral qubic node), chosen by `qinit mode`.
+        // An explicit flag wins over the saved selection; with neither, the saved mode decides (default real).
+        const wantVirtual = "in-process" in o || "engine" in o
+          || (savedMode() === "virtualnode" && !("real" in o) && !("realnode" in o));
+        if (wantVirtual) {
           spin("starting in-process engine");
           engineSrv = new EngineServer();
           activeRpc = (await engineSrv.start()).rpcBase;

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent, fetchWasiSdk, haveWasiSdkCache } from "@qinit/core";
-import { fetchNodeBin, cachedNode, nodeStatus, nodeContracts, killNode, launchNode, waitTicking } from "../node-ops";
+import { fetchNodeBin, cachedNode, nodeStatus, nodeContracts, killNode, launchNode, launchVirtualNode, waitTicking } from "../node-ops";
+import { savedMode } from "../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 import { parseArgs, output } from "../args";
 
@@ -26,6 +27,7 @@ export function Up({ args }: { args: string[] }) {
   const o = parse(args);
   const rpcBase = o.rpc || "http://127.0.0.1:41841";
   const ref = o.ref || "latest";
+  const virtual = savedMode() === "virtualnode";   // `qinit mode` chooses the node backend
   const [steps, setSteps] = useState<Phase[]>([
     { key: "headers", label: "core headers", state: "pending" },
     { key: "node", label: "node binary", state: "pending" },
@@ -46,8 +48,16 @@ export function Up({ args }: { args: string[] }) {
           if (!cur?.coreHeaders || !existsSync(cur.coreHeaders)) throw new Error("offline: no synced headers — run `qinit up` online first");
           version = cur.headersVersion ?? "cached";
         } else {
-          const m = await loadManifest(ref);
-          version = m.version; headersAsset = m.headers; nodeAsset = m.node;
+          try {
+            const m = await loadManifest(ref);
+            version = m.version; headersAsset = m.headers; nodeAsset = m.node;
+          } catch (e) {
+            // The virtual backend needs no node release; if the manifest is unreachable, run on cached headers.
+            if (!virtual) throw e;
+            const cur = readCurrent();
+            if (!cur?.coreHeaders || !existsSync(cur.coreHeaders)) throw new Error("no cached headers — run `qinit up` online once to sync headers + wasi-sdk");
+            version = cur.headersVersion ?? "cached";
+          }
         }
 
         // Headers: reuse if already synced for this version, else fetch+extract.
@@ -63,10 +73,13 @@ export function Up({ args }: { args: string[] }) {
           set("headers", "ok", `fetched ${version}`);
         }
 
-        // Node binary: reuse cached, else fetch (fetchNodeBin skips download if already cached).
+        // Node binary: not needed for the virtual backend (the in-process engine replaces it); otherwise
+        // reuse cached, else fetch (fetchNodeBin skips download if already cached).
         set("node", "active");
-        let bin: string;
-        if (o.offline) {
+        let bin = "";
+        if (virtual) {
+          set("node", "ok", "virtual engine — no binary");
+        } else if (o.offline) {
           const c = cachedNode();
           if (!c) throw new Error("offline: no cached node — run `qinit up` online first");
           bin = c; set("node", "ok", "reuse cached");
@@ -89,9 +102,11 @@ export function Up({ args }: { args: string[] }) {
           set("run", "ok", `reused, ticking at ${tick}`);
         } else {
           const why = !st.up ? "no node" : st.ticking ? "--restart" : "node idle";
-          set("run", "active", `${why} → launching`);
+          set("run", "active", `${why} → launching${virtual ? " virtual engine" : ""}`);
           await killNode(o.dir);
-          const l = launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers });
+          const l = virtual
+            ? launchVirtualNode({ dir: o.dir, rpcBase })
+            : launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers });
           scratch = l.scratch;
           const w = await waitTicking(rpcBase, Number(o.wait || 90));
           ok = w.ticking; tick = w.tick;
@@ -102,6 +117,7 @@ export function Up({ args }: { args: string[] }) {
         // Trust the run verdict above; just read contracts once (no extra tick sampling).
         const contracts = await nodeContracts(rpcBase);
         const rows: [string, string][] = [
+          ["backend", virtual ? "virtualnode (in-process engine)" : "realnode"],
           ["version", version], ["rpc", rpcBase], ["tick", String(tick)],
           ["contracts", contracts.length ? contracts.join(", ") : "(none)"],
         ];

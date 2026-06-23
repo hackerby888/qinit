@@ -15,6 +15,15 @@ process.on("uncaughtException", (e) => die("fatal error", e));
 applyTheme(savedTheme());   // apply the saved color variant before anything renders
 
 const [, , command = "help", ...args] = process.argv;
+
+// Hidden background entry: the virtualnode backend (a detached in-process engine). Runs headless — no Ink,
+// no exit — so it stays up serving RPC like a real node. Must short-circuit before render().
+if (command === "__serve") {
+  const { serveEngine } = await import("./serve");
+  const rpc = args[args.indexOf("--rpc") + 1] || "http://127.0.0.1:41841";
+  await serveEngine(rpc);
+}
+
 initOutput(args);   // detect --json / --plain (and auto-plain when piped / NO_COLOR) before rendering
 const { waitUntilExit } = render(<App command={command} args={args} />);
 await waitUntilExit();
