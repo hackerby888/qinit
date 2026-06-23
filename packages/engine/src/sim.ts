@@ -6,26 +6,22 @@
 import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
 import { toHex, k12Bytes, verifySync } from "./k12";
 import { TraceRecorder } from "./trace";
-import {
-  Committee, type CommitteeOpts, type TickStateDigests,
-  buildTickVote, buildTickData, voteIsAligned, merkleRoot,
-  DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS,
-} from "./consensus";
+import { Committee, type CommitteeOpts, merkleRoot, MAX_NUMBER_OF_CONTRACTS } from "./consensus";
 import { FeeManager, type FeeMode } from "./fees";
 import { SpectrumLedger } from "./spectrum";
 import { OracleManager } from "./oracle";
 import { AssetLedger, type AssetSnapshot } from "./assets";
-
-export type { AssetSnapshot };
+import { TickConsensus, type TickRecord } from "./ticking";
 import type { DebugTrace } from "@qinit/core";
 
+export type { AssetSnapshot };
 export type { FeeMode } from "./fees";
+export type { TickRecord } from "./ticking";
 
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
 const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
 const EP_USER_PROCEDURE = 11; // contract_def.h USER_PROCEDURE_CALL (contractSystemProcedureCount=10, +1)
 const ZERO32 = new Uint8Array(32);
-const TICK_HISTORY = 2000; // ticks of TickData + quorum records retained (memory bound; each TickData ~41 KB)
 const IPO_SHARE_COUNT = 676; // NUMBER_OF_COMPUTORS — a contract's IPO shares: one per computor (0..675)
 const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
 
@@ -68,16 +64,6 @@ export interface ProcedureOpts {
   reward?: bigint; // invocationReward (Qu sent with the tx)
 }
 
-// A finalized tick's consensus record: the N computor votes, the aligned-vote count, and the etalon digests
-// they committed to. Stored per tick for the quorum-tick / current-tick-info queries.
-export interface TickRecord {
-  votes: Uint8Array[];
-  aligned: number;
-  total: number;
-  digests: TickStateDigests;
-  tickData: Uint8Array; // the leader's signed TickData; the votes commit transaction = K12(tickData)
-}
-
 // A broadcast tx awaiting its scheduled tick (mempool mode). Holds the decoded applyTx arguments.
 interface QueuedTx {
   source: Uint8Array;
@@ -98,7 +84,6 @@ export class Sim {
   dirty = new Set<number>();
   host: HostServices;
   private spectrum = new SpectrumLedger(); // entity balance records + the spectrum merkle (spectrumDigest)
-  private lastDigests: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } = { spectrum: ZERO32, universe: ZERO32, computer: ZERO32 }; // previous tick's committed roots (qpi prev*Digest)
   private oracle: OracleManager; // oracle queries + subscriptions (the query/reply are opaque bytes)
   private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
   private assets = new AssetLedger({ contractId: (slot) => this.contractId(slot) }); // the asset universe + merkle
@@ -106,9 +91,7 @@ export class Sim {
   private txById = new Map<string, TxRecord>();
   private callDepth = 0; // inter-contract nesting depth
   private recorder = new TraceRecorder(); // debug-trace capture (opt-in via setDebug)
-  private consensusOpts: CommitteeOpts; // computor-committee config (always-on quorum consensus)
-  private committee: Committee | null = null; // derived lazily on first advance (needs initK12 resolved)
-  private ticks = new Map<number, TickRecord>(); // per-tick quorum record: votes + aligned count + digests
+  private ticking: TickConsensus; // committee + per-tick quorum votes/TickData + the prev*Digest roots
   tickDuration = 50; // ms/tick surfaced to clients; set by the server to match its auto-tick interval
   timeBaseMs = Date.UTC(2024, 0, 1); // chain clock origin (tick 0); the chain clock = timeBaseMs + tick*tickDuration
   private mempoolMode: boolean; // when true, broadcast txs are deferred to their scheduled tick (opt-in)
@@ -116,9 +99,20 @@ export class Sim {
   private fees: FeeManager; // per-contract execution-fee reserves + the fee-mode policy
 
   constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean; fees?: FeeMode; defaultReserve?: bigint } = {}) {
-    this.consensusOpts = opts.consensus ?? {};
     this.mempoolMode = opts.mempool ?? false;
     this.fees = new FeeManager(opts.fees ?? "off", opts.defaultReserve);
+    this.ticking = new TickConsensus(
+      {
+        spectrumDigest: () => this.spectrumDigest(),
+        universeDigest: () => this.universeDigest(),
+        computerDigest: () => this.computerDigest(),
+        tickTransactionDigests: (tick) => this.tickTransactions(tick).map((r) => r.digest),
+        nowMs: () => this.nowMs(),
+        tick: () => this.tickN,
+        epoch: () => this.epochN,
+      },
+      opts.consensus ?? {},
+    );
     this.oracle = new OracleManager({
       contractBalance: (slot) => this.balance(this.contractId(slot)),
       debitContract: (slot, amount) => this.debit(this.contractId(slot), amount),
@@ -148,7 +142,7 @@ export class Sim {
       dayOfWeek: (year, month, day) => (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7, // qubic dayOfWeek: 0 = Wednesday
       signatureValidity: (entity, digest, signature) => (verifySync(entity, digest, signature) ? 1 : 0),
       bidInIPO: () => -1n, // the default IPO is already finalized (the 676 shares are held by the computors)
-      ipoBidId: (_ci, i) => (i >= 0 && i < IPO_SHARE_COUNT ? this.getCommittee().computors[i % this.committeeSize()].publicKey : ZERO32),
+      ipoBidId: (_ci, i) => (i >= 0 && i < IPO_SHARE_COUNT ? this.ticking.getCommittee().computors[i % this.ticking.committeeSize()].publicKey : ZERO32),
       ipoBidPrice: (_ci, i) => (i >= 0 && i < IPO_SHARE_COUNT ? IPO_SHARE_PRICE : -3n), // -3 = invalid bid index (qpi.h)
       computeMiningFunction: () => ZERO32, // mining is not modeled in the dev engine
       initMiningSeed: () => {},
@@ -159,11 +153,11 @@ export class Sim {
       getOracleQuery: (queryId) => this.oracle.getQuery(queryId),
       getOracleReply: (queryId) => this.oracle.getReply(queryId),
       isContractId: (id) => (this.contractSlotOf(id) >= 0 ? 1 : 0),
-      arbitrator: () => this.getCommittee().arbitrator.publicKey,
-      computor: (i) => this.getCommittee().computors[i % this.committeeSize()]?.publicKey ?? ZERO32,
-      prevSpectrumDigest: () => this.lastDigests.spectrum,
-      prevUniverseDigest: () => this.lastDigests.universe,
-      prevComputerDigest: () => this.lastDigests.computer,
+      arbitrator: () => this.ticking.getCommittee().arbitrator.publicKey,
+      computor: (i) => this.ticking.getCommittee().computors[i % this.ticking.committeeSize()]?.publicKey ?? ZERO32,
+      prevSpectrumDigest: () => this.ticking.prevSpectrumDigest(),
+      prevUniverseDigest: () => this.ticking.prevUniverseDigest(),
+      prevComputerDigest: () => this.ticking.prevComputerDigest(),
       distributeDividends: (slot, amountPerShare) => this.doDistributeDividends(slot, amountPerShare),
       callFunction: (callerSlot, calleeIdx, inputType, input, originator) => this.doCallFunction(callerSlot, calleeIdx, inputType, input, originator),
       invokeProcedure: (callerSlot, calleeIdx, inputType, input, reward, originator) => this.doInvokeProcedure(callerSlot, calleeIdx, inputType, input, reward, originator),
@@ -546,7 +540,7 @@ export class Sim {
     this.drainMempool();
     this.oracle.pump();
     this.endTick();
-    this.finalizeTick();
+    this.ticking.finalizeTick();
   }
 
   query(slot: number, it: number, input?: Uint8Array): Uint8Array {
@@ -787,23 +781,13 @@ export class Sim {
     return this.contracts.get(slot)!.digest();
   }
 
-  // ---- tick consensus (N computors, quorum votes; core-lite tick.h / computors.h / common_def.h) ----
-  // The configured committee size, available without deriving keys (used for dividend payout + quorum sizing).
-  private committeeSize(): number {
-    return this.consensusOpts.computorSeeds?.length ?? this.consensusOpts.numberOfComputors ?? DEFAULT_NUMBER_OF_COMPUTORS;
-  }
-
-  // The committee, derived (sync FourQ) on first use — requires initK12() to have resolved the crypto module.
+  // ---- tick consensus (TickConsensus owns the committee + votes; these stay on the façade for the public API) ----
   getCommittee(): Committee {
-    if (!this.committee) {
-      this.committee = new Committee(this.consensusOpts);
-    }
-
-    return this.committee;
+    return this.ticking.getCommittee();
   }
 
   quorum(): number {
-    return this.getCommittee().quorum;
+    return this.ticking.quorum();
   }
 
   // The chain clock (unix ms) at the current tick — deterministic: timeBaseMs + tick * tickDuration. Backs the
@@ -857,76 +841,22 @@ export class Sim {
     return this.spectrum.spectrumProof(id);
   }
 
-  // Produce + store this tick's quorum record. The leader (computor[tick % N]) packs the tick's per-tx digests
-  // into a signed TickData; every computor then signs a Tick vote whose transactionDigest commits K12(TickData),
-  // and the aligned count must reach QUORUM (always, for an honest committee) for the tick to be valid.
-  private finalizeTick(): void {
-    const committee = this.getCommittee();
-    const spectrum = this.spectrumDigest();
-    const universe = this.universeDigest();
-    const computer = this.computerDigest();
-    this.lastDigests = { spectrum, universe, computer }; // the next tick's contracts read these as prev*Digest
-
-    const txDigests = this.tickTransactions(this.tickN).map((r) => r.digest);
-    const tickData = buildTickData(committee, this.epochN, this.tickN, txDigests, { spectrum, universe, computer }, this.nowMs());
-
-    const digests: TickStateDigests = {
-      spectrum,
-      universe,
-      computer,
-      transaction: k12Bytes(tickData),
-      expectedNextTransaction: new Uint8Array(32),
-    };
-
-    const votes: Uint8Array[] = [];
-    let aligned = 0;
-    for (const c of committee.computors) {
-      const vote = buildTickVote(c, this.epochN, this.tickN, digests, this.nowMs());
-      votes.push(vote);
-      if (voteIsAligned(vote, digests)) {
-        aligned++;
-      }
-    }
-
-    if (aligned < committee.quorum) {
-      throw new Error(`tick ${this.tickN}: aligned votes ${aligned} < quorum ${committee.quorum}`);
-    }
-
-    this.ticks.set(this.tickN, { votes, aligned, total: votes.length, digests, tickData });
-    this.pruneTicks();
-  }
-
-  // Bound memory: keep the TickData + votes for the most recent TICK_HISTORY ticks only (each TickData ~41 KB).
-  private pruneTicks(): void {
-    if (this.ticks.size <= TICK_HISTORY) {
-      return;
-    }
-
-    const cutoff = this.tickN - TICK_HISTORY;
-    for (const t of this.ticks.keys()) {
-      if (t < cutoff) {
-        this.ticks.delete(t);
-      }
-    }
-  }
-
+  // The finalized tick's quorum record / signed TickData / aligned-vote count (TickConsensus owns them).
   tickRecord(tick: number): TickRecord | undefined {
-    return this.ticks.get(tick);
+    return this.ticking.tickRecord(tick);
   }
 
-  // The stored signed TickData for a finalized tick; undefined if never finalized or already pruned.
   tickData(tick: number): Uint8Array | undefined {
-    return this.ticks.get(tick)?.tickData;
+    return this.ticking.tickData(tick);
   }
 
-  // Aligned votes for a tick (0 if not yet finalized) — CurrentTickInfo.numberOfAlignedVotes.
   alignedVotes(tick = this.tickN): number {
-    return this.ticks.get(tick)?.aligned ?? 0;
+    return this.ticking.alignedVotes(tick);
   }
 
   // The arbitrator-signed Computors wire list for the current epoch. slotCount pads for the peer-protocol bridge.
   signedComputorList(slotCount?: number): Uint8Array {
-    return this.getCommittee().signedComputorList(this.epochN, slotCount);
+    return this.ticking.signedComputorList(slotCount);
   }
 }
 
