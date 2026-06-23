@@ -4,7 +4,11 @@
 // a typed payload, where `size` counts the header too. Response struct sizes follow the Qubic protocol
 // (SPECTRUM_DEPTH 24, NUMBER_OF_TRANSACTIONS_PER_TICK 4096, NUMBER_OF_COMPUTORS 676) — a client zero-pads short
 // payloads to its struct size but matches strictly on `type`, so we emit the meaningful field prefix.
-import { M256i, RequestResponseHeader, EntityRecord, AssetRecord, ASSET_TYPE, SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK, ASSET_RECORD_SIZE } from "./wire";
+import {
+  M256i, RequestResponseHeader, ASSET_TYPE, SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK,
+  RequestTickData, RequestContractFunction, RespondCurrentTickInfo, RespondSystemInfo, RespondEntity,
+  RespondOwnedAssets, RespondPossessedAssets, RespondTxStatusHeader,
+} from "./wire";
 
 export { SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK };
 export const HEADER_SIZE = RequestResponseHeader.SIZE; // 8 — network_messages/header.h
@@ -88,18 +92,16 @@ export interface ContractFunctionRequest {
   input: Uint8Array;
 }
 
-// RequestContractFunction (contract.h): contractIndex(4) + inputType(2) + inputSize(2) + input[inputSize].
+// RequestContractFunction (contract.h): the 8-byte header then input[inputSize].
 export function decodeContractFunction(p: Uint8Array): ContractFunctionRequest {
-  const dv = new DataView(p.buffer, p.byteOffset, p.byteLength);
-  const contractIndex = dv.getUint32(0, true);
-  const inputType = dv.getUint16(4, true);
-  const inputSize = dv.getUint16(6, true);
-  return { contractIndex, inputType, inputSize, input: p.subarray(8, 8 + inputSize) };
+  const r = RequestContractFunction.wrap(p);
+  const input = p.subarray(RequestContractFunction.SIZE, RequestContractFunction.SIZE + r.inputSize);
+  return { contractIndex: r.contractIndex, inputType: r.inputType, inputSize: r.inputSize, input };
 }
 
 // A 4-byte little-endian tick (RequestedTickData / RequestTxStatus / RequestedQuorumTick prefix).
 export function decodeTick(p: Uint8Array): number {
-  return new DataView(p.buffer, p.byteOffset, p.byteLength).getUint32(0, true);
+  return RequestTickData.wrap(p).tick;
 }
 
 // ---- response encoders ----
@@ -116,8 +118,9 @@ export interface EntityFields {
 // siblings are the merkle proof — a client recomputes the spectrum root from (EntityRecord, spectrumIndex,
 // siblings) and checks it against the quorum-committed spectrumDigest.
 export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: number, spectrumIndex: number, siblings: Uint8Array[] = []): Uint8Array {
-  const buf = new Uint8Array(EntityRecord.SIZE + 4 + 4 + SPECTRUM_DEPTH * 32);
-  const rec = EntityRecord.wrap(buf, 0);
+  const r = RespondEntity.alloc();
+
+  const rec = r.entity;
   rec.publicKey = M256i.from(id);
   rec.incomingAmount = e.incomingAmount;
   rec.outgoingAmount = e.outgoingAmount;
@@ -126,15 +129,12 @@ export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: numbe
   rec.latestIncomingTransferTick = e.latestIncomingTransferTick;
   rec.latestOutgoingTransferTick = e.latestOutgoingTransferTick;
 
-  const dv = new DataView(buf.buffer);
-  dv.setUint32(64, tick >>> 0, true);
-  dv.setInt32(68, spectrumIndex, true);
-
-  const sibOff = 72;
+  r.tick = tick;
+  r.spectrumIndex = spectrumIndex;
   for (let i = 0; i < siblings.length && i < SPECTRUM_DEPTH; i++) {
-    buf.set(siblings[i].subarray(0, 32), sibOff + i * 32);
+    r.siblings.set(i, siblings[i]);
   }
-  return buf;
+  return r.bytes;
 }
 
 export interface TickInfoFields {
@@ -148,15 +148,14 @@ export interface TickInfoFields {
 
 // RespondCurrentTickInfo (tick.h): tickDuration(2) epoch(2) tick(4) aligned(2) misaligned(2) initialTick(4).
 export function encodeCurrentTickInfo(t: TickInfoFields): Uint8Array {
-  const buf = new Uint8Array(16);
-  const dv = new DataView(buf.buffer);
-  dv.setUint16(0, t.tickDuration & 0xffff, true);
-  dv.setUint16(2, t.epoch & 0xffff, true);
-  dv.setUint32(4, t.tick >>> 0, true);
-  dv.setUint16(8, t.numberOfAlignedVotes & 0xffff, true);
-  dv.setUint16(10, t.numberOfMisalignedVotes & 0xffff, true);
-  dv.setUint32(12, t.initialTick >>> 0, true);
-  return buf;
+  const r = RespondCurrentTickInfo.alloc();
+  r.tickDuration = t.tickDuration;
+  r.epoch = t.epoch;
+  r.tick = t.tick;
+  r.numberOfAlignedVotes = t.numberOfAlignedVotes;
+  r.numberOfMisalignedVotes = t.numberOfMisalignedVotes;
+  r.initialTick = t.initialTick;
+  return r.bytes;
 }
 
 export interface SystemInfoFields {
@@ -171,29 +170,28 @@ export interface SystemInfoFields {
 
 // RespondSystemInfo (system_info.h) — only the fields the engine can back; the rest stay zero (a client zero-pads).
 export function encodeSystemInfo(s: SystemInfoFields): Uint8Array {
-  const buf = new Uint8Array(128);
-  const dv = new DataView(buf.buffer);
-  dv.setInt16(0, s.version, true);
-  dv.setUint16(2, s.epoch & 0xffff, true);
-  dv.setUint32(4, s.tick >>> 0, true);
-  dv.setUint32(8, s.initialTick >>> 0, true);
-  dv.setUint32(12, s.latestCreatedTick >>> 0, true);
-  dv.setUint32(24, s.numberOfEntities >>> 0, true);
-  dv.setUint32(28, s.numberOfTransactions >>> 0, true);
-  return buf;
+  const r = RespondSystemInfo.alloc();
+  r.version = s.version;
+  r.epoch = s.epoch;
+  r.tick = s.tick;
+  r.initialTick = s.initialTick;
+  r.latestCreatedTick = s.latestCreatedTick;
+  r.numberOfEntities = s.numberOfEntities;
+  r.numberOfTransactions = s.numberOfTransactions;
+  return r.bytes;
 }
 
 // RespondTxStatus (the addon): currentTick(4) tick(4) txCount(4) moneyFlew[(TXS_PER_TICK+7)/8] +
 // txDigests[txCount*32]. moneyFlew is a per-index bitmask of which txs moved money.
 export function encodeTxStatus(currentTick: number, tick: number, txDigests: Uint8Array[], moneyFlew: boolean[]): Uint8Array {
   const flagBytes = (TXS_PER_TICK + 7) >> 3;
-  const buf = new Uint8Array(4 + 4 + 4 + flagBytes + txDigests.length * 32);
-  const dv = new DataView(buf.buffer);
-  dv.setUint32(0, currentTick >>> 0, true);
-  dv.setUint32(4, tick >>> 0, true);
-  dv.setUint32(8, txDigests.length >>> 0, true);
+  const buf = new Uint8Array(RespondTxStatusHeader.SIZE + flagBytes + txDigests.length * 32);
+  const h = RespondTxStatusHeader.wrap(buf);
+  h.currentTick = currentTick;
+  h.tick = tick;
+  h.txCount = txDigests.length;
 
-  const flagsOff = 12;
+  const flagsOff = RespondTxStatusHeader.SIZE;
   for (let i = 0; i < moneyFlew.length; i++) {
     if (moneyFlew[i]) {
       buf[flagsOff + (i >> 3)] |= 1 << (i & 7);
@@ -222,27 +220,26 @@ export interface OwnedAssetView {
 // ownership = publicKey(32) type(1) pad(1) managingContractIndex(2) issuanceIndex(4) numberOfShares(8);
 // issuance  = publicKey(32) type(1) name(7) numberOfDecimalPlaces(1) unitOfMeasurement(7). type: 1=issuance, 2=ownership.
 export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, siblings: Uint8Array[] = []): Uint8Array {
-  const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4 + ASSETS_DEPTH * 32);
+  const r = RespondOwnedAssets.alloc();
 
-  const own = AssetRecord.wrap(buf, 0);
+  const own = r.asset;
   own.publicKey = v.owner;
   own.type = ASSET_TYPE.OWNERSHIP;
   own.managingContractIndex = v.managingContractIndex;
   own.numberOfShares = v.shares;
 
-  const iss = AssetRecord.wrap(buf, ASSET_RECORD_SIZE);
+  const iss = r.issuanceAsset;
   iss.publicKey = v.issuer;
   iss.type = ASSET_TYPE.ISSUANCE;
   iss.nameString = v.name;
   iss.numberOfDecimalPlaces = v.decimals;
 
-  // [96] tick (zero), [100] universeIndex, [104] siblings — the ownership-record merkle proof
-  const dv = new DataView(buf.buffer);
-  dv.setUint32(100, universeIndex >>> 0, true);
+  // tick stays zero; universeIndex + siblings are the ownership-record merkle proof
+  r.universeIndex = universeIndex;
   for (let i = 0; i < siblings.length && i < ASSETS_DEPTH; i++) {
-    buf.set(siblings[i].subarray(0, 32), 104 + i * 32);
+    r.siblings.set(i, siblings[i]);
   }
-  return buf;
+  return r.bytes;
 }
 
 export interface PossessedAssetView {
@@ -260,31 +257,30 @@ export interface PossessedAssetView {
 // AssetRecord + tick + universeIndex (siblings[ASSETS_DEPTH] zero-padded by a client). AssetRecord type:
 // 1=issuance, 2=ownership, 3=possession. The possession variant's @36 field is the ownershipIndex (left zero).
 export function encodeRespondPossessedAssets(v: PossessedAssetView, universeIndex = 0, siblings: Uint8Array[] = []): Uint8Array {
-  const buf = new Uint8Array(ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + ASSET_RECORD_SIZE + 4 + 4 + ASSETS_DEPTH * 32);
+  const r = RespondPossessedAssets.alloc();
 
-  const pos = AssetRecord.wrap(buf, 0);
+  const pos = r.asset;
   pos.publicKey = v.possessor;
   pos.type = ASSET_TYPE.POSSESSION;
   pos.managingContractIndex = v.possessionManagingContract;
   pos.numberOfShares = v.shares;
 
-  const own = AssetRecord.wrap(buf, ASSET_RECORD_SIZE);
+  const own = r.ownershipAsset;
   own.publicKey = v.owner;
   own.type = ASSET_TYPE.OWNERSHIP;
   own.managingContractIndex = v.ownershipManagingContract;
   own.numberOfShares = v.shares;
 
-  const iss = AssetRecord.wrap(buf, 2 * ASSET_RECORD_SIZE);
+  const iss = r.issuanceAsset;
   iss.publicKey = v.issuer;
   iss.type = ASSET_TYPE.ISSUANCE;
   iss.nameString = v.name;
   iss.numberOfDecimalPlaces = v.decimals;
 
-  // [144] tick (zero), [148] universeIndex, [152] siblings — the possession-record merkle proof
-  const dv = new DataView(buf.buffer);
-  dv.setUint32(148, universeIndex >>> 0, true);
+  // tick stays zero; universeIndex + siblings are the possession-record merkle proof
+  r.universeIndex = universeIndex;
   for (let i = 0; i < siblings.length && i < ASSETS_DEPTH; i++) {
-    buf.set(siblings[i].subarray(0, 32), 152 + i * 32);
+    r.siblings.set(i, siblings[i]);
   }
-  return buf;
+  return r.bytes;
 }

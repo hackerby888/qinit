@@ -148,6 +148,39 @@ const i64: Codec<bigint> = {
   },
 };
 
+const i16: Codec<number> = {
+  size: 2,
+  align: 2,
+  read(v, o) {
+    return v.dv.getInt16(o, true);
+  },
+  write(v, o, x) {
+    v.dv.setInt16(o, x, true);
+  },
+};
+
+const i32: Codec<number> = {
+  size: 4,
+  align: 4,
+  read(v, o) {
+    return v.dv.getInt32(o, true);
+  },
+  write(v, o, x) {
+    v.dv.setInt32(o, x, true);
+  },
+};
+
+const u64: Codec<bigint> = {
+  size: 8,
+  align: 8,
+  read(v, o) {
+    return v.dv.getBigUint64(o, true);
+  },
+  write(v, o, x) {
+    v.dv.setBigUint64(o, x, true);
+  },
+};
+
 const m256: Codec<M256i> = {
   size: DIGEST_SIZE,
   align: 8,
@@ -216,6 +249,23 @@ const array = <T>(elem: Codec<T>, n: number): Codec<ArrayView<T>> => ({
   },
   write() {
     throw new Error("assign array elements via .set(i, value)");
+  },
+});
+
+// an embedded struct field (e.g. RespondEntity's EntityRecord): the getter returns a zero-copy view of the
+// embedded struct over the parent buffer, so callers mutate it in place. align defaults to 8 (the Qubic structs
+// embedded here are 8-aligned).
+const sub = <T extends { bytes: Uint8Array }>(
+  klass: { SIZE: number; wrap(buf: Uint8Array, off?: number): T },
+  align = 8,
+): Codec<T> => ({
+  size: klass.SIZE,
+  align,
+  read(v, o) {
+    return klass.wrap(v.bytes, o);
+  },
+  write(v, o, val) {
+    v.bytes.set(val.bytes.subarray(0, klass.SIZE), o);
   },
 });
 
@@ -574,3 +624,107 @@ function layout(fields: [string, number, number][]): { off: Record<string, numbe
 
   return { off, size: roundUp(cursor, structAlign) };
 }
+
+// ---- peer-protocol request/response structs (the bridge layer), mirrored from the same network_messages
+// headers. The Respond* structs embed the record views above and carry a merkle-proof sibling tail. ----
+
+// The 4-byte tick prefix shared by the tick-keyed requests (RequestedTickData / RequestTxStatus /
+// RequestedQuorumTick all begin with `unsigned int tick`).
+export const RequestTickData = defineStruct("RequestTickData", {
+  tick: u32,
+});
+export type RequestTickData = InstanceType<typeof RequestTickData>;
+
+// RequestContractFunction (contract.h): the fixed header before the variable input[inputSize].
+export const RequestContractFunction = defineStruct("RequestContractFunction", {
+  contractIndex: u32,
+  inputType: u16,
+  inputSize: u16,
+});
+export type RequestContractFunction = InstanceType<typeof RequestContractFunction>;
+
+// RespondCurrentTickInfo (tick.h).
+export const RespondCurrentTickInfo = defineStruct("RespondCurrentTickInfo", {
+  tickDuration: u16,
+  epoch: u16,
+  tick: u32,
+  numberOfAlignedVotes: u16,
+  numberOfMisalignedVotes: u16,
+  initialTick: u32,
+});
+export type RespondCurrentTickInfo = InstanceType<typeof RespondCurrentTickInfo>;
+
+// RespondSystemInfo (system_info.h) — #pragma pack(1): no alignment padding (e.g. totalSpectrumAmount sits at
+// the unaligned @68), so it is built packed. The engine fills the fields it can back; the rest stay zero.
+export const RespondSystemInfo = defineStruct(
+  "RespondSystemInfo",
+  {
+    version: i16,
+    epoch: u16,
+    tick: u32,
+    initialTick: u32,
+    latestCreatedTick: u32,
+    initialMillisecond: u16,
+    initialSecond: u8,
+    initialMinute: u8,
+    initialHour: u8,
+    initialDay: u8,
+    initialMonth: u8,
+    initialYear: u8,
+    numberOfEntities: u32,
+    numberOfTransactions: u32,
+    randomMiningSeed: m256,
+    solutionThreshold: i32,
+    totalSpectrumAmount: u64,
+    currentEntityBalanceDustThreshold: u64,
+    targetTickVoteSignature: u32,
+    computorPacketSignature: u64,
+    solutionAdditionalThreshold: u64,
+    _reserve2: u64,
+    _reserve3: u64,
+    _reserve4: u64,
+  },
+  { packed: true },
+);
+export type RespondSystemInfo = InstanceType<typeof RespondSystemInfo>;
+
+// RespondEntity (entity.h): EntityRecord + tick + spectrumIndex + the spectrum merkle-proof siblings.
+export const RespondEntity = defineStruct("RespondEntity", {
+  entity: sub(EntityRecord),
+  tick: u32,
+  spectrumIndex: i32,
+  siblings: array(m256, SPECTRUM_DEPTH),
+});
+export type RespondEntity = InstanceType<typeof RespondEntity>;
+
+// RespondOwnedAssets (assets.h): the ownership AssetRecord + the issuance AssetRecord + tick + universeIndex +
+// the universe merkle-proof siblings.
+export const RespondOwnedAssets = defineStruct("RespondOwnedAssets", {
+  asset: sub(AssetRecord),
+  issuanceAsset: sub(AssetRecord),
+  tick: u32,
+  universeIndex: u32,
+  siblings: array(m256, ASSETS_DEPTH),
+});
+export type RespondOwnedAssets = InstanceType<typeof RespondOwnedAssets>;
+
+// RespondPossessedAssets (assets.h): the possession + ownership + issuance AssetRecords + tick + universeIndex +
+// the universe merkle-proof siblings.
+export const RespondPossessedAssets = defineStruct("RespondPossessedAssets", {
+  asset: sub(AssetRecord),
+  ownershipAsset: sub(AssetRecord),
+  issuanceAsset: sub(AssetRecord),
+  tick: u32,
+  universeIndex: u32,
+  siblings: array(m256, ASSETS_DEPTH),
+});
+export type RespondPossessedAssets = InstanceType<typeof RespondPossessedAssets>;
+
+// RespondTxStatus (qinit peer-protocol addon, RESPOND_TX_STATUS): the fixed header before the per-tick
+// moneyFlew bitmask[(TXS_PER_TICK+7)/8] and the variable transactionDigests[txCount].
+export const RespondTxStatusHeader = defineStruct("RespondTxStatusHeader", {
+  currentTick: u32,
+  tick: u32,
+  txCount: u32,
+});
+export type RespondTxStatusHeader = InstanceType<typeof RespondTxStatusHeader>;

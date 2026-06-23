@@ -8,6 +8,8 @@ import {
   M256i, RequestResponseHeader, EntityRecord, AssetRecord, Tick, TickData, Transaction,
   ASSET_TYPE, TICKDATA_SIZE, ASSET_RECORD_SIZE, SPECTRUM_DEPTH, ASSETS_DEPTH, SIG_SIZE, DIGEST_SIZE,
   TXS_PER_TICK, CONTRACT_FEES_COUNT,
+  RequestTickData, RequestContractFunction, RespondCurrentTickInfo, RespondSystemInfo,
+  RespondEntity, RespondOwnedAssets, RespondPossessedAssets, RespondTxStatusHeader,
 } from "../src/wire";
 
 // A DataView over a view's own window — used to read fields at their raw offset, independent of the getters.
@@ -276,6 +278,56 @@ test("Transaction: empty input puts the signature right after the header", () =>
   expect(tx.input.length).toBe(0);
   expect(buf[Transaction.HEADER_SIZE]).toBe(0xee); // signature starts at byte 80
   expect(tx.signature[0]).toBe(0xee);
+});
+
+test("bridge request/response structs: SIZE == C++ sizeof", () => {
+  expect(RequestTickData.SIZE).toBe(4);
+  expect(RequestContractFunction.SIZE).toBe(8); // contract.h
+  expect(RespondCurrentTickInfo.SIZE).toBe(16); // tick.h
+  expect(RespondSystemInfo.SIZE).toBe(128); // system_info.h (#pragma pack(1))
+  expect(RespondEntity.SIZE).toBe(EntityRecord.SIZE + 4 + 4 + SPECTRUM_DEPTH * 32); // 840
+  expect(RespondOwnedAssets.SIZE).toBe(2 * ASSET_RECORD_SIZE + 4 + 4 + ASSETS_DEPTH * 32); // 872
+  expect(RespondPossessedAssets.SIZE).toBe(3 * ASSET_RECORD_SIZE + 4 + 4 + ASSETS_DEPTH * 32); // 920
+  expect(RespondTxStatusHeader.SIZE).toBe(12);
+});
+
+test("RespondSystemInfo is packed: no alignment padding (u64 at the unaligned @68)", () => {
+  // Under natural alignment the i32 solutionThreshold @64 would force 4 bytes of pad before the u64; #pragma
+  // pack(1) places it at @68 instead. The derived offsets must reproduce that.
+  expect(RespondSystemInfo.OFFSETS).toMatchObject({
+    version: 0, epoch: 2, tick: 4, initialTick: 8, latestCreatedTick: 12,
+    numberOfEntities: 24, numberOfTransactions: 28, randomMiningSeed: 32,
+    solutionThreshold: 64, totalSpectrumAmount: 68, targetTickVoteSignature: 84,
+    computorPacketSignature: 88, _reserve4: 120,
+  });
+
+  const s = RespondSystemInfo.alloc();
+  s.version = -1;
+  s.tick = 0x01020304;
+  s.totalSpectrumAmount = 123456789n;
+  const dv = new DataView(s.bytes.buffer, s.bytes.byteOffset, s.bytes.byteLength);
+  expect(dv.getInt16(0, true)).toBe(-1);
+  expect(dv.getUint32(4, true)).toBe(0x01020304);
+  expect(dv.getBigUint64(68, true)).toBe(123456789n); // unaligned u64 — packed
+});
+
+test("RespondEntity embeds a live EntityRecord view + sibling array", () => {
+  const r = RespondEntity.alloc();
+  r.entity.publicKey = M256i.from(new Uint8Array(32).fill(0xab)); // mutate the embedded record
+  r.entity.incomingAmount = 4242n;
+  r.tick = 7;
+  r.spectrumIndex = -3; // signed
+  r.siblings.set(0, new Uint8Array(32).fill(0x11));
+  r.siblings.set(SPECTRUM_DEPTH - 1, new Uint8Array(32).fill(0x22));
+
+  // the embed wrote into the parent buffer at the EntityRecord's offsets (publicKey @0, incomingAmount @32)
+  const dv = new DataView(r.bytes.buffer, r.bytes.byteOffset, r.bytes.byteLength);
+  expect(r.bytes[0]).toBe(0xab);
+  expect(dv.getBigInt64(32, true)).toBe(4242n);
+  expect(dv.getUint32(64, true)).toBe(7); // tick after the 64-byte record
+  expect(dv.getInt32(68, true)).toBe(-3); // spectrumIndex
+  expect(r.siblings.at(0).hex).toBe("11".repeat(32));
+  expect(r.siblings.at(SPECTRUM_DEPTH - 1).hex).toBe("22".repeat(32));
 });
 
 test("exported constants match the C++ definitions", () => {
