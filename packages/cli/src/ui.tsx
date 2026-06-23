@@ -9,12 +9,14 @@ export type Theme = { gradFrom: string; gradTo: string; brand: string; accent: s
 
 // Color variants. ok/err/warn stay semantic (green/red/amber); brand/accent/info/gradient carry the "look".
 // Pick with `qinit theme`; the choice persists and every command's UI follows it.
+// Each variant is an analogous ramp: brand is the primary, accent a lighter in-family sibling, info a tint
+// toward the gradient end — so the whole UI reads as one hue family. ok/err/warn stay semantic (status only).
 export const THEMES: Record<string, Theme> = {
-  default: { gradFrom: "#7c5cff", gradTo: "#22d3ee", brand: "#7c5cff", accent: "#f472b6", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#22d3ee", mute: "gray" },
-  emerald: { gradFrom: "#10b981", gradTo: "#a7f3d0", brand: "#10b981", accent: "#f59e0b", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#2dd4bf", mute: "gray" },
-  ocean:   { gradFrom: "#3b82f6", gradTo: "#22d3ee", brand: "#3b82f6", accent: "#38bdf8", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#38bdf8", mute: "gray" },
-  rose:    { gradFrom: "#f43f5e", gradTo: "#fb7185", brand: "#f43f5e", accent: "#a78bfa", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#fb7185", mute: "gray" },
-  amber:   { gradFrom: "#f59e0b", gradTo: "#fde047", brand: "#f59e0b", accent: "#fb7185", ok: "#22c55e", err: "#ef4444", warn: "#f97316", info: "#fbbf24", mute: "gray" },
+  default: { gradFrom: "#7c5cff", gradTo: "#22d3ee", brand: "#7c5cff", accent: "#a78bfa", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#38bdf8", mute: "gray" },
+  emerald: { gradFrom: "#10b981", gradTo: "#6ee7b7", brand: "#10b981", accent: "#34d399", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#2dd4bf", mute: "gray" },
+  ocean:   { gradFrom: "#3b82f6", gradTo: "#22d3ee", brand: "#3b82f6", accent: "#60a5fa", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#38bdf8", mute: "gray" },
+  rose:    { gradFrom: "#f43f5e", gradTo: "#fb7185", brand: "#f43f5e", accent: "#fb7185", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#fda4af", mute: "gray" },
+  amber:   { gradFrom: "#f59e0b", gradTo: "#fde047", brand: "#f59e0b", accent: "#fbbf24", ok: "#22c55e", err: "#ef4444", warn: "#ea580c", info: "#fcd34d", mute: "gray" },
   mono:    { gradFrom: "#64748b", gradTo: "#cbd5e1", brand: "#94a3b8", accent: "#cbd5e1", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#94a3b8", mute: "gray" },
 };
 export const THEME_NAMES = Object.keys(THEMES);
@@ -109,7 +111,7 @@ export function Banner({ version, tagline }: { version: string; tagline: string 
           <Text color={theme.accent}>◆ </Text>
           <Grad text="qinit" />
           <Text dimColor>{"   "}</Text>
-          <Badge text={`v${version}`} color={theme.info} />
+          <Badge text={`v${version}`} color={theme.brand} />
           <Text dimColor>{`   ${tagline}`}</Text>
         </Text>
       </Box>
