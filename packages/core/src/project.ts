@@ -11,6 +11,7 @@ export interface QinitConfig {
   slot?: number;
   core?: string;
   rpc?: string;
+  system?: string[]; // built-in system contracts to seed onto the virtual node (`qinit system`)
 }
 
 // Per-project config (qinit.json). Precedence at the call site: CLI flag > qinit.json > default.

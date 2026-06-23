@@ -59,6 +59,12 @@ export class ContractRegistry {
     return c;
   }
 
+  // Remove a deployed contract (dev convenience — `qinit system rm`). Single-authority engine, so no consensus
+  // implication; the slot simply goes empty.
+  undeploy(slot: number): boolean {
+    return this.contracts.delete(slot);
+  }
+
   // Run a contract entry and, when metered, debit its measured cost from its own reserve. Every Sim-driven
   // procedure / sysproc / callback goes through here; read-only function queries deliberately do not (they are
   // never charged). Re-entrant frames each report their own lastCost, so nested calls are charged correctly.

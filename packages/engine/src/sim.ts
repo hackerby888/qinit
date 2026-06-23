@@ -446,6 +446,10 @@ export class Sim {
     return this.registry.deploy(slot, wasm, this.host);
   }
 
+  undeploy(slot: number): boolean {
+    return this.registry.undeploy(slot);
+  }
+
   // Debug tracing — wired to the node's /dev/debug + /debug-trace RPC by the transport.
   setDebug(on: boolean): void {
     this.recorder.setEnabled(on);

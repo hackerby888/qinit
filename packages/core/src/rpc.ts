@@ -162,6 +162,30 @@ export class LiteRpc implements NodeTransport {
     } catch { return false; }
   }
 
+  /** Single-authority direct deploy (POST /live/v1/dev/deploy) — no chunk-upload. Returns null when the route is
+   *  absent (a real node 404s), so callers can fall back to the chunked path. */
+  async directDeploy(slot: number, wasm: Uint8Array, name: string): Promise<{ ok: boolean; slot: number; digest: string } | null> {
+    let r: Response;
+    try {
+      r = await fetchT(this.base + "/live/v1/dev/deploy", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slot, name, wasm: Buffer.from(wasm).toString("base64") }),
+      }, 30000);
+    } catch (e: any) { throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`); }
+    if (r.status === 404) return null;
+    const j: any = await r.json().catch(() => ({}));
+    if (!j.ok) throw new Error(`direct-deploy failed: ${j.message ?? r.status}`);
+    return j;
+  }
+
+  /** Remove a deployed contract (POST /live/v1/dev/undeploy?slot=N) — virtualnode-only (real node 404s). */
+  async undeploy(slot: number): Promise<boolean> {
+    const r = await fetchT(this.base + `/live/v1/dev/undeploy?slot=${slot}`, { method: "POST" }, 15000);
+    if (r.status === 404) throw new Error("undeploy is virtualnode-only");
+    const j: any = await r.json().catch(() => ({}));
+    return !!j.ok;
+  }
+
   /** Spectrum balance / entity (GET /live/v1/balances/{id}). */
   async balance(id: string): Promise<EntityInfo> {
     const j = await this.get<{ balance?: Record<string, unknown> }>(`/live/v1/balances/${id}`);

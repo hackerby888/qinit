@@ -101,6 +101,17 @@ export class EngineServer {
             await eng.putContractSource(Number(q.get("slot")), await req.text());
             return json({ ok: true });
           }
+          // Single-authority direct deploy: drop wasm straight into a slot (no chunk-upload / consensus). Used by
+          // `qinit system add` (seed a system contract) and the virtual fast path in deploy-ops.
+          if (path === "/live/v1/dev/deploy" && req.method === "POST") {
+            const body = (await req.json()) as { slot: number; wasm?: string; name?: string };
+            const wasm = Uint8Array.from(Buffer.from(body.wasm ?? "", "base64"));
+            eng.deploy(Number(body.slot), wasm, body.name || "Contract");
+            return json({ ok: true, slot: Number(body.slot), digest: eng.sim.digest(Number(body.slot)) });
+          }
+          if (path === "/live/v1/dev/undeploy" && req.method === "POST") {
+            return json({ ok: eng.undeploy(Number(q.get("slot"))) });
+          }
           return json({ code: 404, message: "no engine route: " + path }, 404);
         } catch (e: any) {
           return json({ code: 500, message: String(e?.message ?? e) }, 500);

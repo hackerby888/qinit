@@ -1,9 +1,12 @@
 // qinit build: contract .h -> wasm module (run by the node's WAMR engine) + K12 hash + IDL.
 import { statSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { compileWasmContract, type BuildOpts } from "./recipe";
 import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
+import { systemContracts } from "./system-contracts";
 import { k12Hex } from "@qinit/core";
 
 export type { BuildOpts } from "./recipe";
@@ -66,4 +69,26 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   let idl: ContractIdl | undefined, idlError: string | undefined;
   try { idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name); } catch (e: any) { idlError = String(e?.message ?? e); }
   return { ok: true, so: w.wasm, size, hash, idl, idlError, verify, debugWasm: w.debugWasm, linesJson: w.linesJson };
+}
+
+// Compile a named built-in system contract (QX, QEARN, …) from the core snapshot catalog. Shared by the CLI
+// (`qinit system`) and the backend's compile-system route. skipVerify because system code uses sysproc macros
+// the protocol verifier can't parse; these are trusted core sources. Returns the build result + the contract's
+// canonical slot index.
+export async function buildSystemContract(
+  name: string, corePath: string, opts: { outDir?: string; wasmClang?: string; wasmSysroot?: string } = {},
+): Promise<BuildResult & { index?: number }> {
+  const catalog = systemContracts(corePath);
+  const c = catalog.find((x) => x.name.toLowerCase() === name.toLowerCase());
+  if (!c) {
+    return { ok: false, stderr: `unknown system contract '${name}' — have: ${catalog.map((x) => x.name).join(", ")}` };
+  }
+
+  const r = await buildContract({
+    contractPath: join(corePath, "src", "contracts", c.file),
+    name: c.name, slot: c.index, corePath,
+    outDir: opts.outDir ?? join(tmpdir(), "qinit-system"),
+    skipVerify: true, wasmClang: opts.wasmClang, wasmSysroot: opts.wasmSysroot,
+  });
+  return { ...r, index: c.index };
 }

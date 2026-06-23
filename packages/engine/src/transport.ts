@@ -116,6 +116,11 @@ export class InProcessEngine implements NodeTransport {
 
   async dynRegistry(): Promise<DynRegistry> {
     const contracts: DynContract[] = [];
+    const armed = (s: number, c: Contract, m: SlotMeta): DynContract => {
+      const pick = (kind: number): DynEntry[] =>
+        c.entries.filter((e) => e.kind === kind).map((e) => ({ inputType: e.it, inputSize: e.inSize, outputSize: e.outSize }));
+      return { index: s, armed: true, constructed: true, version: m.version, name: m.name, codeHash: m.codeHash, functions: pick(KIND.FUNCTION), procedures: pick(KIND.PROCEDURE), source: this.sources.get(s) };
+    };
     for (let s = this.slotBase; s < this.slotBase + this.slotCount; s++) {
       const c = this.sim.contracts.get(s);
       const m = this.meta.get(s);
@@ -123,11 +128,24 @@ export class InProcessEngine implements NodeTransport {
         contracts.push({ index: s, armed: false, constructed: false, version: 0, name: "", codeHash: "", functions: [], procedures: [] });
         continue;
       }
-      const pick = (kind: number): DynEntry[] =>
-        c.entries.filter((e) => e.kind === kind).map((e) => ({ inputType: e.it, inputSize: e.inSize, outputSize: e.outSize }));
-      contracts.push({ index: s, armed: true, constructed: true, version: m.version, name: m.name, codeHash: m.codeHash, functions: pick(KIND.FUNCTION), procedures: pick(KIND.PROCEDURE), source: this.sources.get(s) });
+      contracts.push(armed(s, c, m));
     }
+    // Contracts deployed outside the user window — seeded system contracts (direct-deploy) — so ls / system ls
+    // reflect the node.
+    for (const [s, c] of this.sim.contracts) {
+      if (s >= this.slotBase && s < this.slotBase + this.slotCount) continue;
+      const m = this.meta.get(s);
+      if (m) contracts.push(armed(s, c, m));
+    }
+    contracts.sort((a, b) => a.index - b.index);
     return { contracts, slotBase: this.slotBase, slotCount: this.slotCount };
+  }
+
+  // Remove a deployed contract (dev `qinit system rm`).
+  undeploy(slot: number): boolean {
+    this.meta.delete(slot);
+    this.sources.delete(slot);
+    return this.sim.undeploy(slot);
   }
 
   async dynUpload(): Promise<DynUpload> {
