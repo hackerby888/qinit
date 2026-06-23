@@ -27,7 +27,7 @@ async function runChecks(): Promise<Check[]> {
     ? { name: "wasi-sdk (wasm compiler)", ok: true, detail: sdk.clang }
     : envClang
       ? { name: "wasi-sdk (wasm compiler)", ok: true, detail: `WASM_CLANG=${envClang}` }
-      : { name: "wasi-sdk (wasm compiler)", ok: false, detail: "not cached", fix: "qinit up   (auto-fetches the host wasi-sdk)" });
+      : { name: "wasi-sdk (wasm compiler)", ok: false, detail: "not cached", fix: "qinit node run   (auto-fetches the host wasi-sdk)" });
   checks.push(await cmdVersion("node", ["--version"], "not found — needed by qinit", "install Node 20+ from nodejs.org or your package manager", "node.js (js runtime)"));
 
   // Cache-aware: prefer the synced header cache, fall back to QINIT_CORE / --core.
@@ -38,7 +38,7 @@ async function runChecks(): Promise<Check[]> {
     name: "qubic-core-lite headers",
     ok: hasQpi,
     detail: hasQpi ? qpi : (coreErr || "headers not found"),
-    fix: hasQpi ? undefined : "qinit up              (fetch published snapshot)  or  set QINIT_CORE=<core-checkout>",
+    fix: hasQpi ? undefined : "qinit node run              (fetch published snapshot)  or  set QINIT_CORE=<core-checkout>",
   });
 
   try {
@@ -53,7 +53,7 @@ async function runChecks(): Promise<Check[]> {
   checks.push({
     name: "contract-verify tool", optional: true, ok: vtool ? true : null,
     detail: vtool ?? "not fetched — qinit build will skip the qpi.h rule check",
-    fix: vtool ? undefined : "qinit up   ·   or set QINIT_VERIFY=/path/to/contractverify",
+    fix: vtool ? undefined : "qinit node run   ·   or set QINIT_VERIFY=/path/to/contractverify",
   });
   return checks;
 }

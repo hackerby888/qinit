@@ -42,7 +42,7 @@ export function lintCorpus(core: string): { file: string; findings: QpiFinding[]
 if (import.meta.main) {
   let core: string;
   try { core = resolveCore(process.env.QINIT_CORE); } catch (e: any) {
-    console.error("no core headers:", String(e?.message ?? e), "— set QINIT_CORE or run `qinit up`");
+    console.error("no core headers:", String(e?.message ?? e), "— set QINIT_CORE or run `qinit node run`");
     process.exit(2);
   }
   const results = lintCorpus(core);

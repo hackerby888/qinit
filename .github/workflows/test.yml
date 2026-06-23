@@ -211,7 +211,7 @@ jobs:
   # toolchain or a real editor: the clangd enablement gate, and the providers in a headless VS Code.
   vscode-clangd-check:
     # The clangd enablement gate on Linux (gating) + macOS (advisory until proven green). The asset
-    # names match @qinit/core fetch.ts so we exercise the exact per-OS toolchain `qinit up` would sync.
+    # names match @qinit/core fetch.ts so we exercise the exact per-OS toolchain `qinit node run` would sync.
     strategy:
       fail-fast: false
       matrix:

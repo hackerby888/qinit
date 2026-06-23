@@ -19,9 +19,9 @@ function parse(args: string[]): { name?: string; show?: boolean } {
 }
 
 // What each mode means, shown next to the choice in the picker. The mode is the backend every node command
-// (up / node / deploy / call / state / dev / test) runs against.
+// (node run / deploy / call / state / dev / test) runs against.
 const DESC: Record<NodeMode, string> = {
-  realnode: "qubic node binary (fetched + run by `qinit up` / `node`)",
+  realnode: "qubic node binary (fetched + run by `qinit node run`)",
   virtualnode: "in-process TS engine (no binary; instant, in-memory)",
 };
 

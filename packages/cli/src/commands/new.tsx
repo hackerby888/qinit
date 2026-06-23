@@ -56,7 +56,7 @@ export function New({ args }: { args: string[] }) {
       writeFileSync(join(dir, ".gitignore"), ["dist/", "*.wasm", "*.log", "qinit.idl.json", "contracts_dyn/", ".DS_Store"].join("\n") + "\n");
       writeFileSync(join(dir, "README.md"),
         `# ${name}\n\nQubic dynamic contract (\`qinit new --template ${kind}\`).\n\n` +
-        "```bash\nqinit up        # sync headers + run a dev node\n" +
+        "```bash\nqinit node run        # sync headers + run a dev node\n" +
         "qinit dev       # watch contracts/" + name + ".h -> auto build+deploy on save\n" +
         "qinit call      # interactive: pick contract -> fn/proc\n```\n\n" +
         "Config in `qinit.json` (name, contract, core, rpc). Slot is auto-allocated by name.\n");
@@ -66,7 +66,7 @@ export function New({ args }: { args: string[] }) {
       add(`  qinit.json · .gitignore · README.md`);
       if (TEMPLATE_NOTE[kind]) add(`  note: ${TEMPLATE_NOTE[kind]}`);
       add("");
-      add(`next:  cd ${dir} && qinit up && qinit dev`);
+      add(`next:  cd ${dir} && qinit node run && qinit dev`);
       setDone(true);
     } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setDone(true); }
   }, []);

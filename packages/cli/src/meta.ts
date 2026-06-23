@@ -12,14 +12,6 @@ export interface CommandMeta {
 export const GROUP_ORDER = ["setup & node", "develop", "deploy & interact", "misc"];
 
 export const META: Record<string, CommandMeta> = {
-  up: {
-    group: "setup & node", json: true,
-    summary: "one command: sync headers + get node + run (reuses a ticking node)",
-    usage: "[--ref <tag>] [--restart] [--offline]",
-    flags: [["--ref <tag>", "node/headers release to use (default: latest)"], ["--restart", "force a fresh node even if one is ticking"],
-      ["--offline", "use only cached node/headers (no network)"], ["--rpc <url>", "node RPC base (default: http://127.0.0.1:41841)"],
-      ["--wait <s>", "seconds to wait for the node to tick (default: 90)"]],
-  },
   doctor: { group: "setup & node", summary: "check toolchain (wasi-sdk, node.js, core headers, qubic lib)" },
   ext: {
     group: "setup & node", json: true,
@@ -29,10 +21,11 @@ export const META: Record<string, CommandMeta> = {
   },
   node: {
     group: "setup & node", json: true,
-    summary: "run / status / stop / get the dev node",
-    usage: "<run|status|stop|get> [--bin <path>]",
-    flags: [["--bin <path>", "node binary to run"], ["--ref <tag>", "release to fetch when getting the node"],
-      ["--rpc <url>", "node RPC base"], ["--wait <s>", "seconds to wait for ticking"], ["--keep", "keep the node's scratch dir"]],
+    summary: "bring up + manage the dev node: run (sync headers+wasm, get node, launch), status, stop, get",
+    usage: "<run|status|stop|get> [--ref <tag>] [--restart] [--offline] [--bin <path>]",
+    flags: [["--ref <tag>", "node/headers release to use (default: latest)"], ["--restart", "force a fresh node even if one is ticking"],
+      ["--offline", "use only cached node/headers (no network)"], ["--bin <path>", "run a local node binary (skip fetch)"],
+      ["--keep", "keep the node's scratch dir"], ["--rpc <url>", "node RPC base"], ["--wait <s>", "seconds to wait for ticking"]],
   },
   tick: {
     group: "setup & node", json: true,

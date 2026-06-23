@@ -6,7 +6,7 @@ Remove the two manual setup deps for a contract dev, **keeping native clang** (#
 2. **#2** — no local node build. A prebuilt testnet+dynamic `Qubic` is fetched + run by `qinit`,
    with every operational footgun baked in.
 
-End state: `qinit up` = fetch headers + fetch node + run node ticking. Then `qinit deploy` / `qinit call`.
+End state: `qinit node run` = fetch headers + fetch node + run node ticking. Then `qinit deploy` / `qinit call`.
 Dev installs: the `qinit` binary + system `clang-18`. Nothing else.
 
 ## Grounded facts (measured 2026-06-03)
@@ -48,13 +48,13 @@ extract), `loadManifest(ref) -> Manifest`, `cacheDir(ver)`. `--offline` = cache-
   Both already take `corePath` → just change how it's resolved (one helper `resolveCore()` in the CLI).
 - `doctor` verifies snapshot present + sha matches manifest.
 
-## #2 — `qinit node {get,run,status,stop}` + `qinit up`
+## #2 — `qinit node {get,run,status,stop}`
 - `get [--ref]` → download prebuilt `Qubic` → cache, chmod +x, verify sha.
-- `run [--dir <scratch>]` → **bakes in the footguns**: `pkill -f Qubic` + confirm dead; fresh scratch
-  dir (default `~/.cache/qinit/run`, never in-tree); launch
-  `Qubic --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000`; poll RPC until ticking; report tick + RPC up.
+- `run` = the one-command bring-up: `sync headers` + fetch the wasm compiler + `node get` + launch.
+  **Bakes in the footguns**: `pkill -f Qubic` + confirm dead; fresh scratch dir (default
+  `~/.cache/qinit/run`, never in-tree); launch `Qubic --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000`;
+  poll RPC until ticking; report tick + RPC up. Reuses an already-ticking node unless `--restart`.
 - `status` → RPC `tickInfo` + dyn-registry (armed slots). `stop` → pkill + confirm.
-- `qinit up` = `sync` + `node get` + `node run` (one-command bring-up).
 
 ### Core-side work #2 needs (new)
 1. **CI job to publish the prebuilt node** (extend `release.yml`): cmake with
@@ -97,7 +97,7 @@ extract), `loadManifest(ref) -> Manifest`, `cacheDir(ver)`. `--offline` = cache-
 3. **[DONE]** `qinit node run/status/stop/get`. `run --bin` optional → prefers CI-synced node, auto-fetches.
    status is RPC-driven (`/tick-info` ×2 + `/dyn-registry`). Footguns baked (pkill, scratch, ticking-delay,
    wait-for-tick).
-4. **`qinit up`** — sync + node get + run, one command.
+4. **`qinit node run`** — sync + node get + launch, one command.
 5. **`qinit dev` watch loop** — edit `.h` → auto build+deploy.
 
 ## Out of scope

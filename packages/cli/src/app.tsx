@@ -4,7 +4,7 @@ import { Box, Text, useApp } from "ink";
 import { Doctor } from "./commands/doctor";
 import { Smoke } from "./commands/smoke";
 import { Node } from "./commands/node";
-import { Up } from "./commands/up";
+import { NodeRun } from "./commands/node-run";
 import { Ext } from "./commands/ext";
 import { Dev } from "./commands/dev";
 import { Build } from "./commands/build";
@@ -58,9 +58,7 @@ function route(command: string, args: string[]): ReactNode {
     case "doctor":
       return <Doctor />;
     case "node":
-      return <Node args={args} />;
-    case "up":
-      return <Up args={args} />;
+      return args[0] === "run" ? <NodeRun args={args} /> : <Node args={args} />;
     case "ext":
       return <Ext args={args} />;
     case "dev":

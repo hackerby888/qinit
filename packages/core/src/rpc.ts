@@ -47,7 +47,7 @@ export class LiteRpc implements NodeTransport {
       try { r = await fetchT(this.base + path, undefined, 10000); }
       catch (e: any) {
         if (a < tries - 1) { await sleep(200 * (a + 1)); continue; }
-        throw new Error(`node unreachable at ${this.base} — is it running? (qinit up)  [${e?.message ?? e}]`);
+        throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
       }
       if (!r.ok) throw new Error(`RPC GET ${path} → HTTP ${r.status}`);
       try { return (await r.json()) as T; }
@@ -141,7 +141,7 @@ export class LiteRpc implements NodeTransport {
           requestData: Buffer.from(input).toString("base64"),
         }),
       }, 15000);
-    } catch (e: any) { throw new Error(`node unreachable at ${this.base} — is it running? (qinit up)  [${e?.message ?? e}]`); }
+    } catch (e: any) { throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`); }
     const j: any = await r.json().catch(() => ({}));
     if (typeof j.responseData !== "string") throw new Error(`querySmartContract: code=${j.code} ${j.message ?? r.status}`);
     return new Uint8Array(Buffer.from(j.responseData, "base64"));

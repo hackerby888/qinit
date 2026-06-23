@@ -143,7 +143,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
         setIdl(loadIdl());
         const { user, system } = await loadContracts(new LiteRpc(rpcBase));   // deployed first, then system (catalog)
         const combined = [...user, ...system.map(systemAsDyn)];
-        if (!combined.length) { add("no contracts — deploy one, or run `qinit up` to load system contracts"); setStage("done"); return; }
+        if (!combined.length) { add("no contracts — deploy one, or run `qinit node run` to load system contracts"); setStage("done"); return; }
         setContracts(combined); setUserCount(user.length);
         setStage("contract");
       } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setStage("done"); }

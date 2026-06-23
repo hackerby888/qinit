@@ -54,7 +54,7 @@ export function Ext({ args }: { args: string[] }) {
         ok,
         title: ok ? "extension installed" : "install failed",
         rows: [["editor", editorCmd], ["source", o.vsix ? target : `marketplace (${EXTENSION_ID})`]],
-        note: ok ? "next: run `qinit up` to sync the core headers + wasm compiler the extension needs." : log.split("\n").slice(0, 6).join("\n"),
+        note: ok ? "next: run `qinit node run` to sync the core headers + wasm compiler the extension needs." : log.split("\n").slice(0, 6).join("\n"),
       });
     })();
   }, []);

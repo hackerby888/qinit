@@ -39,13 +39,13 @@ async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChan
     core = resolveCore(settingCore, cfg.core);
   } catch (e: any) {
     out.appendLine("resolveCore: " + String(e?.message ?? e));
-    warnOncePerMinute("Qubic QPI: core headers not found — run `qinit up`, or set the `qpi.core` setting / QINIT_CORE.");
+    warnOncePerMinute("Qubic QPI: core headers not found — run `qinit node run`, or set the `qpi.core` setting / QINIT_CORE.");
     return;
   }
 
   const wasi = wasiSdkPaths();
   if (!wasi) {
-    warnOncePerMinute("Qubic QPI: the wasm compiler (wasi-sdk) isn't synced — run `qinit up`.");
+    warnOncePerMinute("Qubic QPI: the wasm compiler (wasi-sdk) isn't synced — run `qinit node run`.");
     return;
   }
 
@@ -66,7 +66,7 @@ async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChan
     calleeDiags.set(doc.uri, unresolvedCalleeRefs(doc.getText(), known).map((r) => {
       const d = new vscode.Diagnostic(
         new vscode.Range(doc.positionAt(r.offset), doc.positionAt(r.offset + r.length)),
-        `Callee \`${r.name}\` isn't a known contract — deploy it (\`qinit deploy\`) or run \`qinit up\`, otherwise its CALL_OTHER_CONTRACT_* references can't resolve.`,
+        `Callee \`${r.name}\` isn't a known contract — deploy it (\`qinit deploy\`) or run \`qinit node run\`, otherwise its CALL_OTHER_CONTRACT_* references can't resolve.`,
         vscode.DiagnosticSeverity.Warning,
       );
       d.source = "qpi";

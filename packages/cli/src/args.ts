@@ -20,7 +20,7 @@ export interface Parsed {
   has(name: string): boolean;
   get(name: string, def?: string): string | undefined;
 }
-// `booleans` never consume a following token (so `qinit up --restart` works as the FIRST arg too).
+// `booleans` never consume a following token (so `qinit node run --restart` works as the FIRST arg too).
 // `multi` collects repeats. Everything else is `--k v` (or `--k` -> "").
 export function parseArgs(args: string[], opts?: { booleans?: string[]; multi?: string[] }): Parsed {
   const booleans = new Set([...(opts?.booleans ?? []), "json", "plain"]);

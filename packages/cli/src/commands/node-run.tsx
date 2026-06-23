@@ -1,28 +1,28 @@
 import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent, fetchWasiSdk, haveWasiSdkCache } from "@qinit/core";
 import { fetchNodeBin, cachedNode, nodeStatus, nodeContracts, killNode, launchNode, launchVirtualNode, waitTicking } from "../node-ops";
 import { savedMode } from "../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 import { parseArgs, output } from "../args";
 
-// qinit up [--ref <tag>] [--restart] [--offline] [--rpc] [--wait]
-// One command: sync headers + get node + run. Reuses a node that's already ticking (preserves
-// deployed contracts); restarts only a stale/idle node or on --restart. Skips re-fetch when cached.
-// Shared parser — fixes the prior off-by-one (the loop started at index 1, so the FIRST flag was dropped:
-// `qinit up --offline` ran online, `qinit up --ref X` ignored the ref). Booleans normalized to "1" so the
-// existing truthy checks (o.restart / o.offline) keep working unchanged.
+// qinit node run [--ref <tag>] [--restart] [--offline] [--bin <path>] [--keep] [--rpc] [--wait]
+// One command bring-up: sync headers + fetch the wasm compiler + get the node + run it. Reuses a node that's
+// already ticking (preserves deployed contracts); restarts only a stale/idle node or on --restart. Skips
+// re-fetch when cached. With `qinit mode virtualnode` the in-process engine replaces the node binary.
+// Shared parser — `restart`/`offline`/`keep` are booleans (never consume the next token); everything else `--k v`.
 function parse(args: string[]): Record<string, string> {
-  const a = parseArgs(args, { booleans: ["restart", "offline"] });
+  const a = parseArgs(args, { booleans: ["restart", "offline", "keep"] });
   const o: Record<string, string> = { ...a.flags };
-  for (const b of ["restart", "offline"]) if (a.has(b)) o[b] = "1";
+  for (const b of ["restart", "offline", "keep"]) if (a.has(b)) o[b] = "1";
   return o;
 }
 
 type Phase = { key: string; label: string; state: StepState; detail?: string };
 
-export function Up({ args }: { args: string[] }) {
+export function NodeRun({ args }: { args: string[] }) {
   const { exit } = useApp();
   const o = parse(args);
   const rpcBase = o.rpc || "http://127.0.0.1:41841";
@@ -45,7 +45,7 @@ export function Up({ args }: { args: string[] }) {
         let version: string, headersAsset: any, nodeAsset: any;
         if (o.offline) {
           const cur = readCurrent();
-          if (!cur?.coreHeaders || !existsSync(cur.coreHeaders)) throw new Error("offline: no synced headers — run `qinit up` online first");
+          if (!cur?.coreHeaders || !existsSync(cur.coreHeaders)) throw new Error("offline: no synced headers — run `qinit node run` online first");
           version = cur.headersVersion ?? "cached";
         } else {
           try {
@@ -55,7 +55,7 @@ export function Up({ args }: { args: string[] }) {
             // The virtual backend needs no node release; if the manifest is unreachable, run on cached headers.
             if (!virtual) throw e;
             const cur = readCurrent();
-            if (!cur?.coreHeaders || !existsSync(cur.coreHeaders)) throw new Error("no cached headers — run `qinit up` online once to sync headers + wasi-sdk");
+            if (!cur?.coreHeaders || !existsSync(cur.coreHeaders)) throw new Error("no cached headers — run `qinit node run` online once to sync headers + wasi-sdk");
             version = cur.headersVersion ?? "cached";
           }
         }
@@ -79,9 +79,13 @@ export function Up({ args }: { args: string[] }) {
         let bin = "";
         if (virtual) {
           set("node", "ok", "virtual engine — no binary");
+        } else if (o.bin) {
+          bin = resolve(o.bin);
+          if (!existsSync(bin)) throw new Error(`--bin not found: ${bin}`);
+          set("node", "ok", `local ${bin}`);
         } else if (o.offline) {
           const c = cachedNode();
-          if (!c) throw new Error("offline: no cached node — run `qinit up` online first");
+          if (!c) throw new Error("offline: no cached node — run `qinit node run` online first");
           bin = c; set("node", "ok", "reuse cached");
         } else { bin = (await fetchNodeBin(ref)).bin; set("node", "ok", `ready ${version}`); }
 
@@ -105,8 +109,8 @@ export function Up({ args }: { args: string[] }) {
           set("run", "active", `${why} → launching${virtual ? " virtual engine" : ""}`);
           await killNode(o.dir);
           const l = virtual
-            ? launchVirtualNode({ dir: o.dir, rpcBase })
-            : launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers });
+            ? launchVirtualNode({ dir: o.dir, rpcBase, keep: o.keep !== undefined })
+            : launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers, keep: o.keep !== undefined });
           scratch = l.scratch;
           const w = await waitTicking(rpcBase, Number(o.wait || 90));
           ok = w.ticking; tick = w.tick;
@@ -122,10 +126,10 @@ export function Up({ args }: { args: string[] }) {
           ["contracts", contracts.length ? contracts.join(", ") : "(none)"],
         ];
         if (scratch) rows.push(["scratch", scratch]);
-        setDone({ title: ok ? "up ✓" : "up — node not ticking", color: ok ? theme.ok : theme.warn, rows });
+        setDone({ title: ok ? "node up ✓" : "node not ticking", color: ok ? theme.ok : theme.warn, rows });
       } catch (e: any) {
         setSteps((ps) => ps.map((p) => (p.state === "active" ? { ...p, state: "fail" } : p)));
-        setDone({ title: "up failed", color: theme.err, rows: [["error", String(e?.message ?? e)]] });
+        setDone({ title: "node run failed", color: theme.err, rows: [["error", String(e?.message ?? e)]] });
       }
     })();
   }, []);
@@ -137,7 +141,7 @@ export function Up({ args }: { args: string[] }) {
   if (output.json) return null;
   return (
     <Box flexDirection="column">
-      <Header cmd="up" />
+      <Header cmd="node run" />
       {steps.map((p) => <Step key={p.key} state={p.state} label={p.label} detail={p.detail} />)}
       {done && <Box marginTop={1}><Panel title={done.title} color={done.color}><KV rows={done.rows} /></Panel></Box>}
     </Box>

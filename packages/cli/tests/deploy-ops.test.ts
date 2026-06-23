@@ -11,7 +11,7 @@ test("tickFailureMessage: unreachable is distinct from not-ticking", () => {
   const m = tickFailureMessage(false, "http://127.0.0.1:41841");
   expect(m).toContain("unreachable");
   expect(m).toContain("http://127.0.0.1:41841");
-  expect(m).toContain("qinit up");
+  expect(m).toContain("qinit node run");
 });
 
 test("classifyConfirm: registry-unreadable vs slot-empty vs wrong-code", () => {

@@ -159,7 +159,7 @@ export async function compileWasmContract(
   const wrapper = join(o.outDir, `${o.name}.wasm.wrapper.cpp`);
   await writeFile(wrapper, genWrapperWasm(o));
   const wasm = join(o.outDir, `${o.name}.wasm`);
-  const sdk = wasiSdkPaths();   // auto-fetched by `qinit up`; cached under ~/.cache/qinit/wasi-sdk
+  const sdk = wasiSdkPaths();   // auto-fetched by `qinit node run`; cached under ~/.cache/qinit/wasi-sdk
   const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
   const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
   const shim = join(src, "extensions", "lite_wasm_intrinsics.h"); // wasm32 shims for the x86 platform intrinsics

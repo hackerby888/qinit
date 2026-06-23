@@ -1,4 +1,4 @@
-// Shared node lifecycle ops (no UI) used by `qinit node` and `qinit up`.
+// Shared node lifecycle ops (no UI) used by `qinit node` and `qinit node run`.
 import { openSync, closeSync, mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -83,7 +83,7 @@ export async function ensureNode(ref = "latest", onProgress?: (recv: number, tot
   } catch {
     const bin = cachedNode();
     if (bin) return { bin, version: readCurrent()?.nodeVersion ?? "cached", stale: true };
-    throw new Error("no node: latest release unreachable and nothing cached (run `qinit up` online first)");
+    throw new Error("no node: latest release unreachable and nothing cached (run `qinit node run` online first)");
   }
 }
 
@@ -95,7 +95,7 @@ export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: 
   mkdirSync(scratch, { recursive: true });
   const log = join(scratch, "node.log");
   const fd = openSync(log, "a");
-  // detached + unref so the node OUTLIVES qinit (notably `qinit up`/`test --keep`). A non-detached child
+  // detached + unref so the node OUTLIVES qinit (notably `qinit node run`/`test --keep`). A non-detached child
   // is killed when the parent process exits on Windows; detached:true gives it its own process group on
   // every OS. windowsHide stops a console window popping up.
   const child = spawn(o.bin, ["--peers", o.peers || "127.0.0.1", "--node-mode", o.mode || "3", "--ticking-delay", "1000"],

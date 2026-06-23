@@ -1,10 +1,8 @@
 import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
-import { resolve } from "node:path";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { readCurrent, LiteRpc } from "@qinit/core";
-import { killNode, nodeAlive, fetchNodeBin, ensureNode, launchNode, launchVirtualNode, waitTicking, nodeStatus } from "../node-ops";
-import { savedMode } from "../config";
+import { killNode, nodeAlive, fetchNodeBin, nodeStatus } from "../node-ops";
 
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
@@ -29,41 +27,6 @@ export function Node({ args }: { args: string[] }) {
       const L: Line[] = [];
       const add = (t: string, ok?: boolean) => L.push({ t, ok });
       try {
-        if (sub === "run" && savedMode() === "virtualnode") {
-          // virtualnode backend: run the in-process engine as a detached node instead of a qubic binary.
-          const waitS = Number(o.wait || 60);
-          setS({ phase: "run", spin: "stopping any running node" });
-          await killNode();
-          add("old node stopped", true);
-          const { pid, scratch, log } = launchVirtualNode({ dir: o.dir, rpcBase, keep: o.keep !== undefined });
-          add(`launched virtual engine pid ${pid}`, true);
-          setS({ phase: "run", spin: `waiting for ticking (≤${waitS}s)` });
-          const w = await waitTicking(rpcBase, waitS);
-          add(w.ticking ? `ticking at ${w.tick}` : w.exited ? "engine exited early — see log" : "not ticking yet — see log", w.ticking);
-          setS({ phase: "done", title: w.ticking ? "node up ✓ (virtual)" : "node not ticking", color: w.ticking ? theme.ok : theme.warn,
-            lines: L, rows: [["backend", "virtualnode (in-process engine)"], ["scratch", scratch], ["rpc", rpcBase], ["log", log]] });
-          return;
-        }
-
-        if (sub === "run") {
-          // Prefer the latest release; --bin only overrides for a local build; cached node is the
-          // offline fallback (don't run a stale pinned version when a newer release exists).
-          let bin = o.bin ? resolve(o.bin) : "";
-          if (!bin) { const r = await ensureNode(o.ref || "latest", (rc, tt) => setS({ phase: "run", spin: dlLabel(rc, tt) })); bin = r.bin; if (r.stale) add(`offline — cached ${r.version}`, true); }
-          const waitS = Number(o.wait || 60);
-          setS({ phase: "run", spin: "stopping any running node" });
-          await killNode();
-          add("old node stopped", true);
-          const { pid, scratch, log } = launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers, keep: o.keep !== undefined });
-          add(`launched pid ${pid}`, true);
-          setS({ phase: "run", spin: `waiting for ticking (≤${waitS}s)` });
-          const w = await waitTicking(rpcBase, waitS);
-          add(w.ticking ? `ticking at ${w.tick}` : w.exited ? "node exited early — see log" : "not ticking yet — see log", w.ticking);
-          setS({ phase: "done", title: w.ticking ? "node up ✓" : "node not ticking", color: w.ticking ? theme.ok : theme.warn,
-            lines: L, rows: [["bin", bin], ["scratch", scratch], ["rpc", rpcBase], ["log", log]] });
-          return;
-        }
-
         if (sub === "status") {
           const st = await nodeStatus(rpcBase);
           if (!st.up) { add("rpc: down (node not reachable)", false); setS({ phase: "done", title: "node down", color: theme.err, lines: L }); return; }
@@ -73,7 +36,7 @@ export function Node({ args }: { args: string[] }) {
           if (st.contracts.length) rows.push(["contracts", st.contracts.join(", ")]);
           const cur = readCurrent();
           if (cur?.headersVersion || cur?.nodeVersion) rows.push(["synced", `headers ${cur?.headersVersion ?? "—"} · node ${cur?.nodeVersion ?? "—"}`]);
-          if (cur?.headersVersion && cur?.nodeVersion && cur.headersVersion !== cur.nodeVersion) add("⚠ headers/node version drift — run `qinit up`", false);
+          if (cur?.headersVersion && cur?.nodeVersion && cur.headersVersion !== cur.nodeVersion) add("⚠ headers/node version drift — run `qinit node run`", false);
           setS({ phase: "done", title: st.ticking ? "node up ✓" : "node up (idle)", color: st.ticking ? theme.ok : theme.warn, lines: L, rows });
           return;
         }

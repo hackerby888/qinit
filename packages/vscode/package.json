@@ -22,7 +22,7 @@
         "qpi.core": {
           "type": "string",
           "default": "",
-          "description": "Path to a core-lite checkout. Overrides QINIT_CORE and the snapshot synced by `qinit up`."
+          "description": "Path to a core-lite checkout. Overrides QINIT_CORE and the snapshot synced by `qinit node run`."
         },
         "qpi.qinitPath": {
           "type": "string",

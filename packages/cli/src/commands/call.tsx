@@ -61,7 +61,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
         // contract: resolve a name or index across user-deployed (first) then built-in system contracts.
         const sets = await loadContracts(rpc);
         const rc = resolveContract(String(o.idx), sets);
-        if (!rc) throw new Error(`no contract '${o.idx}' (deployed or system — run \`qinit up\` to load system contracts)`);
+        if (!rc) throw new Error(`no contract '${o.idx}' (deployed or system — run \`qinit node run\` to load system contracts)`);
         const idx = rc.index;
         // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
         // contract source (node dyn-registry source for user contracts, snapshot source for system contracts).

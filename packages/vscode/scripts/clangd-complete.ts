@@ -15,7 +15,7 @@ const core = resolveCore(process.env.QINIT_CORE);
 const sdk = wasiSdkPaths();
 const wasiClang = process.env.WASM_CLANG ?? sdk?.clang;
 const wasiSysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
-if (!wasiClang) { console.error("no wasi-sdk — run `qinit up` (or set WASM_CLANG/WASI_SYSROOT)"); process.exit(2); }
+if (!wasiClang) { console.error("no wasi-sdk — run `qinit node run` (or set WASM_CLANG/WASI_SYSROOT)"); process.exit(2); }
 
 const ws = mkdtempSync(join(tmpdir(), "qpi-complete-"));
 const PROBE = `#include "contracts/qpi.h"

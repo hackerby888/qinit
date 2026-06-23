@@ -25,7 +25,7 @@ export const STEPS: { key: StepKey; label: string }[] = [
 // Truthful tick-wait failure: a node that never answered is UNREACHABLE, not "not ticking" — say which,
 // with the actionable hint (mirrors LiteRpc's wording). Pure so it's unit-tested without a node.
 export function tickFailureMessage(reached: boolean, rpcBase: string): string {
-  return reached ? "node not ticking" : `node unreachable at ${rpcBase} — is it running? (qinit up)`;
+  return reached ? "node not ticking" : `node unreachable at ${rpcBase} — is it running? (qinit node run)`;
 }
 
 // Classify a deploy that never armed by the ACTUAL cause: a dyn-registry that never read back (node too
@@ -62,7 +62,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   const pin = readCurrent();
   if (pin?.headersVersion && pin?.nodeVersion && pin.headersVersion !== pin.nodeVersion)
-    emit({ note: `⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit up'` });
+    emit({ note: `⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit node run'` });
 
   // Daily-cached, best-effort verify-tool auto-update (offline = skip).
   const vu = await autoUpdateVerifyTool();

@@ -90,7 +90,7 @@ export function Build({ args }: { args: string[] }) {
       )}
       <Box marginTop={1}>
         {v?.available === false
-          ? <Status ok={null} label="protocol rules" detail="skipped — verify tool not fetched (run qinit up)" pad={16} />
+          ? <Status ok={null} label="protocol rules" detail="skipped — verify tool not fetched (run qinit node run)" pad={16} />
           : <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />}
       </Box>
       {r.idl && (

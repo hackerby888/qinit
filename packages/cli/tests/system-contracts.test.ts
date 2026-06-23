@@ -43,7 +43,7 @@ test("resolveContract: user before system; by name or index", () => {
   expect(resolveContract("nope", sets)).toBeNull();
 });
 
-// --- snapshot sweep (skipped if no `qinit up` snapshot) ---
+// --- snapshot sweep (skipped if no `qinit node run` snapshot) ---
 test("systemContracts: snapshot catalog has QX/QEARN with fns", () => {
   const snap = join(homedir(), ".cache", "qinit", "qinit-v0.0.31", "core-headers");   // $HOME is unset on Windows
   if (!existsSync(snap)) return;

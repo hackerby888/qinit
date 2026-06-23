@@ -53,11 +53,11 @@ export function State({ args }: { args: string[] }) {
         const all = [...user, ...system.map(systemAsDyn)];
         if (o.target) {
           const c = all.find((x) => String(x.index) === o.target || (x.name || "").toLowerCase() === o.target.toLowerCase());
-          if (!c) throw new Error(`no contract '${o.target}' (deployed or system — run \`qinit up\` for system)`);
+          if (!c) throw new Error(`no contract '${o.target}' (deployed or system — run \`qinit node run\` for system)`);
           await load(c);
           return;
         }
-        if (!all.length) throw new Error("no contracts — deploy one, or run `qinit up` to load system contracts");
+        if (!all.length) throw new Error("no contracts — deploy one, or run `qinit node run` to load system contracts");
         if (!process.stdin.isTTY) throw new Error(`specify a contract: qinit state <name|slot> (${all.map((c) => c.name || c.index).join(", ")})`);
         setContracts(all); setUserCount(user.length); setPhase("pick");
       } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); setPhase("done"); }

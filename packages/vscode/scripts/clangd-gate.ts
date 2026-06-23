@@ -5,7 +5,7 @@
 //
 //   QINIT_CORE=/path/to/core-lite bun run packages/vscode/scripts/clangd-gate.ts [Name ...]
 // Needs `clangd` on PATH (or $CLANGD) — ideally the same major version as the wasi-sdk clang. wasi from
-// the synced cache (local `qinit up`) or WASM_CLANG/WASI_SYSROOT env (CI).
+// the synced cache (local `qinit node run`) or WASM_CLANG/WASI_SYSROOT env (CI).
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -22,7 +22,7 @@ const core = resolveCore(process.env.QINIT_CORE);
 const sdk = wasiSdkPaths();
 const wasiClang = process.env.WASM_CLANG ?? sdk?.clang;
 const wasiSysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
-if (!wasiClang) { console.error("no wasi-sdk — run `qinit up` (or set WASM_CLANG/WASI_SYSROOT)"); process.exit(2); }
+if (!wasiClang) { console.error("no wasi-sdk — run `qinit node run` (or set WASM_CLANG/WASI_SYSROOT)"); process.exit(2); }
 
 // Real deployed contracts (core-lite/src/contracts) → varied QPI features.
 const REAL: Record<string, string> = { QX: "Qx.h", QEARN: "Qearn.h", QUTIL: "QUtil.h", RANDOM: "Random.h" };

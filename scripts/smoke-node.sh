@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end smoke: cached node up -> deploy Counter -> verify ARMED (codeHash) -> call Get.
-# Requires a synced node (`qinit node get` / `qinit up`). Exercises deploy arm-verification (#1).
+# Requires a synced node (`qinit node get` / `qinit node run`). Exercises deploy arm-verification (#1).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 Q=./dist/qinit

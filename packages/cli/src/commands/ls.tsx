@@ -64,9 +64,9 @@ export function Ls({ args }: { args: string[] }) {
         </Panel>
       )}
       {user.length === 0 && (s.nodeDown
-        ? <Text dimColor>node unreachable — deployed contracts hidden. <Text bold color={theme.accent}>qinit up</Text> to start it.</Text>
+        ? <Text dimColor>node unreachable — deployed contracts hidden. <Text bold color={theme.accent}>qinit node run</Text> to start it.</Text>
         : system.length === 0
-          ? <Text dimColor>no contracts — <Text bold color={theme.accent}>qinit deploy</Text>, or <Text bold color={theme.accent}>qinit up</Text> for system contracts</Text>
+          ? <Text dimColor>no contracts — <Text bold color={theme.accent}>qinit deploy</Text>, or <Text bold color={theme.accent}>qinit node run</Text> for system contracts</Text>
           : null)}
     </Box>
   );

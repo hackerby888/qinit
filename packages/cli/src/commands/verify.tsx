@@ -76,7 +76,7 @@ export function Verify({ args }: { args: string[] }) {
     <Box flexDirection="column">
       <Header cmd="verify" />
       {!v.available
-        ? <Status ok={null} label="protocol rules" detail="skipped — verify tool not fetched (run qinit up)" pad={16} />
+        ? <Status ok={null} label="protocol rules" detail="skipped — verify tool not fetched (run qinit node run)" pad={16} />
         : v.ok
           ? <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />
           : <Panel title="protocol violations" color={theme.err}>

@@ -6,7 +6,7 @@ import { Header, Status, Spinner, KV, theme } from "../ui";
 
 // qinit clean [--dry-run]
 // Remove ALL qinit cache (~/.cache/qinit or $QINIT_CACHE): the fetched node, core-headers, wasi-sdk/clang,
-// verify tools, and the scratch run dir. Everything here is re-fetched on the next `qinit up` — safe to wipe.
+// verify tools, and the scratch run dir. Everything here is re-fetched on the next `qinit node run` — safe to wipe.
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
   for (const a of args) if (a.startsWith("--")) o[a.slice(2)] = "";
@@ -49,7 +49,7 @@ export function Clean({ args }: { args: string[] }) {
           <Status ok={dry ? null : true} label={dry ? `would free ${human(s.total!)}` : `freed ${human(s.total!)}`} />
           {s.items!.length ? <Box marginLeft={2}><KV rows={s.items!.map((i) => [i.name, human(i.sz)])} /></Box> : null}
           {s.killed ? <Text dimColor>(stopped a running node first)</Text> : null}
-          <Box marginTop={1}><Text dimColor>re-fetched on next </Text><Text bold color={theme.accent}>qinit up</Text></Box>
+          <Box marginTop={1}><Text dimColor>re-fetched on next </Text><Text bold color={theme.accent}>qinit node run</Text></Box>
         </Box>
       )}
     </Box>

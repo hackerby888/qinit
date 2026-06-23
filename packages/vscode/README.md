@@ -15,7 +15,7 @@ It's deliberately UI-light: no build/deploy/call buttons or palette actions — 
 ## Requirements
 
 - The [`qinit`](https://github.com/hackerby888/qinit) CLI on your `PATH`.
-- Run `qinit up` once to sync the core headers + the wasm compiler the extension needs.
+- Run `qinit node run` once to sync the core headers + the wasm compiler the extension needs.
 - The clangd extension (installed automatically as a dependency).
 
 In a qinit project the extension disables the Microsoft C/C++ extension's IntelliSense (it doesn't understand `qpi.h`, so it would show false errors) — clangd becomes the sole C++ provider.

@@ -55,7 +55,7 @@ export async function broadcastTx(txBytes: Uint8Array, rpcBase = "http://127.0.0
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ encodedTransaction: b64 }),
     }, 15000);
-  } catch (e: any) { throw new Error(`node unreachable at ${rpcBase} — is it running? (qinit up)  [${e?.message ?? e}]`); }
+  } catch (e: any) { throw new Error(`node unreachable at ${rpcBase} — is it running? (qinit node run)  [${e?.message ?? e}]`); }
   const j: any = await r.json().catch(() => ({}));
   return {
     ok: r.ok && j.peersBroadcasted >= 1 && j.code == null,

@@ -76,7 +76,7 @@ export function Cheat() {
 
       <Panel title="1 · setup" color={theme.brand}>
         <Text><C>curl -fsSL .../install.sh | sh</C>  <D>install qinit</D></Text>
-        <Text><C>qinit up</C>  <D>fetch node + headers, run a local testnet node</D></Text>
+        <Text><C>qinit node run</C>  <D>fetch node + headers, run a local testnet node</D></Text>
         <Text><C>qinit new mytoken && cd mytoken</C>  <D>scaffold (contracts/Mytoken.h, qinit.json)</D></Text>
       </Panel>
 
