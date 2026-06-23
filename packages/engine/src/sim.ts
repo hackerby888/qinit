@@ -5,17 +5,18 @@
 // processTickTransaction. Mirrors core-lite qpi_spectrum_impl.h / qpi_asset_impl.h.
 import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
 import { toHex, k12Bytes, verifySync } from "./k12";
-import { SparseMerkle } from "./merkle";
 import { TraceRecorder } from "./trace";
 import {
   Committee, type CommitteeOpts, type TickStateDigests,
   buildTickVote, buildTickData, voteIsAligned, merkleRoot,
   DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS,
 } from "./consensus";
-import { AssetRecord, ASSET_RECORD_SIZE } from "./wire";
 import { FeeManager, type FeeMode } from "./fees";
 import { SpectrumLedger } from "./spectrum";
 import { OracleManager } from "./oracle";
+import { AssetLedger, type AssetSnapshot } from "./assets";
+
+export type { AssetSnapshot };
 import type { DebugTrace } from "@qinit/core";
 
 export type { FeeMode } from "./fees";
@@ -49,47 +50,6 @@ const CALL_ERR_INACTIVE = 4;
 const CONTRACT_COUNT = 1024; // MAX_NUMBER_OF_CONTRACTS — valid contract indices are 1..1023
 
 const INVALID_PROPOSAL_INDEX = 0xffff; // qpi.h:1847 — setShareholderProposal's error sentinel
-
-interface Holding {
-  owner: Uint8Array;
-  possessor: Uint8Array;
-  ownMgmt: number;
-  posMgmt: number;
-  shares: bigint;
-}
-
-interface AssetRec {
-  issuer: Uint8Array;
-  name: bigint;
-  decimals: number;
-  unit: bigint;
-  holdings: Map<string, Holding>;
-}
-
-// A JSON-able view of one asset + its holdings, for inspection tools (the IDE assets panel).
-export interface AssetSnapshot {
-  issuer: string; // hex 32-byte id (a contract or user)
-  name: string; // decoded ASCII name (e.g. "QX")
-  decimals: number;
-  unit: string;
-  totalShares: string;
-  holdings: { owner: string; possessor: string; ownMgmt: number; posMgmt: number; shares: string }[];
-}
-
-// A qpi asset name is a uint64 of packed little-endian ASCII (A-Z then 0-9/A-Z, up to 7 bytes, zero-padded).
-function assetNameToString(name: bigint): string {
-  let s = "";
-  let n = name;
-  for (let i = 0; i < 8; i++) {
-    const c = Number(n & 0xffn);
-    n >>= 8n;
-    if (c === 0) {
-      break;
-    }
-    s += String.fromCharCode(c);
-  }
-  return s;
-}
 
 export interface TxRecord {
   txId: string;
@@ -138,13 +98,10 @@ export class Sim {
   dirty = new Set<number>();
   host: HostServices;
   private spectrum = new SpectrumLedger(); // entity balance records + the spectrum merkle (spectrumDigest)
-  private universeTree: SparseMerkle | null = null; // incremental 2^24 merkle; root = universeDigest
-  private universeIdx = new Map<string, number>(); // assetKey\0holdingKey -> stable leaf index
-  private universeDirty = new Set<string>(); // holdings whose leaf changed since the last digest
   private lastDigests: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } = { spectrum: ZERO32, universe: ZERO32, computer: ZERO32 }; // previous tick's committed roots (qpi prev*Digest)
   private oracle: OracleManager; // oracle queries + subscriptions (the query/reply are opaque bytes)
   private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
-  private assets = new Map<string, AssetRec>(); // universe: assetKey -> issuance + holdings
+  private assets = new AssetLedger({ contractId: (slot) => this.contractId(slot) }); // the asset universe + merkle
   private txByTick = new Map<number, TxRecord[]>();
   private txById = new Map<string, TxRecord>();
   private callDepth = 0; // inter-contract nesting depth
@@ -181,11 +138,11 @@ export class Sim {
       burn: (slot, amount, burnedFor) => this.doBurn(slot, amount, burnedFor),
       getEntity: (id) => this.entityOf(id),
       queryFeeReserve: (callerSlot, ci) => this.fees.queryFeeReserve(callerSlot, ci),
-      issueAsset: (slot, name, issuer, decimals, shares, unit, invocator) => this.doIssueAsset(slot, name, issuer, decimals, shares, unit, invocator),
-      isAssetIssued: (issuer, name) => (this.findAsset(issuer, name) ? 1 : 0),
-      numberOfShares: (asset, ownSel, posSel) => this.doNumberOfShares(asset, ownSel, posSel),
-      numberOfPossessedShares: (name, issuer, owner, possessor, ownMgmt, posMgmt) => this.doNumberOfPossessedShares(name, issuer, owner, possessor, ownMgmt, posMgmt),
-      transferShares: (slot, name, issuer, owner, possessor, shares, newOwner) => this.doTransferShares(slot, name, issuer, owner, possessor, shares, newOwner),
+      issueAsset: (slot, name, issuer, decimals, shares, unit, invocator) => this.assets.issueAsset(slot, name, issuer, decimals, shares, unit, invocator),
+      isAssetIssued: (issuer, name) => (this.assets.isAssetIssued(issuer, name) ? 1 : 0),
+      numberOfShares: (asset, ownSel, posSel) => this.assets.numberOfShares(asset, ownSel, posSel),
+      numberOfPossessedShares: (name, issuer, owner, possessor, ownMgmt, posMgmt) => this.assets.numberOfPossessedShares(name, issuer, owner, possessor, ownMgmt, posMgmt),
+      transferShares: (slot, name, issuer, owner, possessor, shares, newOwner) => this.assets.transferShareOwnershipAndPossession(slot, name, issuer, owner, possessor, shares, newOwner),
       acquireShares: (slot, name, issuer, owner, possessor, shares, srcOwnMgmt, srcPosMgmt, fee) => this.acquireShares(slot, name, issuer, owner, possessor, shares, srcOwnMgmt, srcPosMgmt, fee),
       releaseShares: (slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee) => this.releaseShares(slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee),
       dayOfWeek: (year, month, day) => (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7, // qubic dayOfWeek: 0 = Wednesday
@@ -334,145 +291,16 @@ export class Sim {
     return remaining;
   }
 
-  // ---- assets / shares (mirror qpi_asset_impl.h; assets live in the universe, not the contract digest) ----
+  // ---- share management rights / custody (qpi_asset_impl.h acquireShares / releaseShares). The asset ledger
+  // lives in AssetLedger; acquire/release stay here because they weave the spectrum + a contract callback. ----
   private idEq(a: Uint8Array, b: Uint8Array): boolean {
     for (let i = 0; i < 32; i++) if (a[i] !== b[i]) return false;
     return true;
   }
 
-  private isZeroId(a: Uint8Array): boolean {
-    for (let i = 0; i < 32; i++) if (a[i] !== 0) return false;
-    return true;
-  }
-
-  private assetKey(issuer: Uint8Array, name: bigint): string {
-    return toHex(issuer.subarray(0, 32)) + ":" + name.toString();
-  }
-
-  private holdingKey(owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): string {
-    return toHex(owner.subarray(0, 32)) + ":" + toHex(possessor.subarray(0, 32)) + ":" + ownMgmt + ":" + posMgmt;
-  }
-
-  private findAsset(issuer: Uint8Array, name: bigint): AssetRec | undefined {
-    return this.assets.get(this.assetKey(issuer, name));
-  }
-
-  // issueAsset: validate name (first byte A-Z, <=7 bytes), issuer (== this contract or invocator), shares range.
-  // Mint all shares to the issuer (owner + possessor), managed by the issuing contract. Returns shares (0 on fail).
-  private doIssueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint {
-    const first = Number(name & 0xffn);
-    if (first < 0x41 || first > 0x5a || name > 0xffffffffffffffn) return 0n;
-    if (this.isZeroId(issuer) || (!this.idEq(issuer, this.contractId(slot)) && !this.idEq(issuer, invocator))) return 0n;
-    if (shares <= 0n || shares > MAX_AMOUNT) return 0n;
-    if (unit > 0xffffffffffffffn) return 0n;
-
-    const k = this.assetKey(issuer, name);
-    if (this.assets.has(k)) return 0n; // already issued
-
-    const holdings = new Map<string, Holding>();
-    holdings.set(this.holdingKey(issuer, issuer, slot, slot), { owner: issuer.slice(0, 32), possessor: issuer.slice(0, 32), ownMgmt: slot, posMgmt: slot, shares });
-    this.assets.set(k, { issuer: issuer.slice(0, 32), name, decimals, unit, holdings });
-    this.markHoldingDirty(k, this.holdingKey(issuer, issuer, slot, slot));
-
-    return shares;
-  }
-
-  // numberOfShares(Asset, AssetOwnershipSelect, AssetPossessionSelect) — sum holdings matching the selectors.
-  private doNumberOfShares(assetB: Uint8Array, ownSelB: Uint8Array, posSelB: Uint8Array): bigint {
-    const adv = new DataView(assetB.buffer, assetB.byteOffset, assetB.byteLength);
-    const asset = this.findAsset(assetB.subarray(0, 32), adv.getBigUint64(32, true));
-    if (!asset) return 0n;
-
-    const odv = new DataView(ownSelB.buffer, ownSelB.byteOffset, ownSelB.byteLength);
-    const pdv = new DataView(posSelB.buffer, posSelB.byteOffset, posSelB.byteLength);
-    const ownId = ownSelB.subarray(0, 32), ownMgmt = odv.getUint16(32, true), anyOwner = ownSelB[34] !== 0, anyOwnMgmt = ownSelB[35] !== 0;
-    const posId = posSelB.subarray(0, 32), posMgmt = pdv.getUint16(32, true), anyPos = posSelB[34] !== 0, anyPosMgmt = posSelB[35] !== 0;
-
-    let sum = 0n;
-    for (const h of asset.holdings.values()) {
-      if (!anyOwner && !this.idEq(h.owner, ownId)) continue;
-      if (!anyOwnMgmt && h.ownMgmt !== ownMgmt) continue;
-      if (!anyPos && !this.idEq(h.possessor, posId)) continue;
-      if (!anyPosMgmt && h.posMgmt !== posMgmt) continue;
-      sum += h.shares;
-    }
-    return sum;
-  }
-
-  private doNumberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint {
-    const asset = this.findAsset(issuer, name);
-    if (!asset) return 0n;
-
-    const h = asset.holdings.get(this.holdingKey(owner, possessor, ownMgmt, posMgmt));
-    return h ? h.shares : 0n;
-  }
-
-  // transferShareOwnershipAndPossession: move shares from (owner,possessor) managed by THIS contract to
-  // (newOwner,newOwner). Returns the source's remaining shares; negative on insufficient; -shares if not found.
-  private doTransferShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint {
-    if (shares <= 0n || shares > MAX_AMOUNT) return -(MAX_AMOUNT + 1n);
-
-    const asset = this.findAsset(issuer, name);
-    if (!asset) return -shares;
-
-    const hk = this.holdingKey(owner, possessor, slot, slot); // must be managed by the current contract
-    const h = asset.holdings.get(hk);
-    if (!h) return -shares;
-    if (h.shares < shares) return h.shares - shares; // insufficient -> no move
-
-    h.shares -= shares;
-    if (h.shares === 0n) asset.holdings.delete(hk);
-
-    const dk = this.holdingKey(newOwner, newOwner, slot, slot);
-    const d = asset.holdings.get(dk);
-    if (d) d.shares += shares;
-    else asset.holdings.set(dk, { owner: newOwner.slice(0, 32), possessor: newOwner.slice(0, 32), ownMgmt: slot, posMgmt: slot, shares });
-
-    const ak = this.assetKey(issuer, name);
-    this.markHoldingDirty(ak, hk);
-    this.markHoldingDirty(ak, dk);
-
-    return h.shares; // remaining shares of the source possessor
-  }
-
-  // ---- share management rights / custody (qpi_asset_impl.h acquireShares / releaseShares) ----
-  // The low-level state move: shares of (owner,possessor) managed by srcMgmt become managed by dstMgmt. Owner and
-  // possessor (always equal at the qpi level) are unchanged; only the managing contract changes. Callback-free —
-  // the acquire/release wrappers below run the management-rights-transfer approval callbacks.
+  // The low-level management-rights move (AssetLedger owns it); kept on the façade for the public API.
   transferShareManagementRights(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, srcMgmt: number, dstMgmt: number, shares: bigint): boolean {
-    if (shares <= 0n) {
-      return false;
-    }
-
-    const asset = this.findAsset(issuer, name);
-    if (!asset) {
-      return false;
-    }
-
-    const sk = this.holdingKey(owner, possessor, srcMgmt, srcMgmt);
-    const src = asset.holdings.get(sk);
-    if (!src || src.shares < shares) {
-      return false;
-    }
-
-    src.shares -= shares;
-    if (src.shares === 0n) {
-      asset.holdings.delete(sk);
-    }
-
-    const dk = this.holdingKey(owner, possessor, dstMgmt, dstMgmt);
-    const dst = asset.holdings.get(dk);
-    if (dst) {
-      dst.shares += shares;
-    } else {
-      asset.holdings.set(dk, { owner: owner.slice(0, 32), possessor: possessor.slice(0, 32), ownMgmt: dstMgmt, posMgmt: dstMgmt, shares });
-    }
-
-    const ak = this.assetKey(issuer, name);
-    this.markHoldingDirty(ak, sk);
-    this.markHoldingDirty(ak, dk);
-
-    return true;
+    return this.assets.transferShareManagementRights(name, issuer, owner, possessor, srcMgmt, dstMgmt, shares);
   }
 
   // Run a management-rights-transfer approval callback (PRE/POST_RELEASE/ACQUIRE_SHARES) on the other managing
@@ -511,7 +339,7 @@ export class Sim {
     if (srcPosMgmt === callerSlot || srcPosMgmt < 1 || srcPosMgmt >= CONTRACT_COUNT || shares <= 0n || offeredFee < 0n) {
       return INVALID_AMOUNT;
     }
-    if (this.doNumberOfPossessedShares(name, issuer, owner, possessor, srcPosMgmt, srcPosMgmt) < shares) {
+    if (this.assets.numberOfPossessedShares(name, issuer, owner, possessor, srcPosMgmt, srcPosMgmt) < shares) {
       return INVALID_AMOUNT;
     }
 
@@ -549,7 +377,7 @@ export class Sim {
     if (dstPosMgmt === callerSlot || dstPosMgmt < 1 || dstPosMgmt >= CONTRACT_COUNT || shares <= 0n || offeredFee < 0n) {
       return INVALID_AMOUNT;
     }
-    if (this.doNumberOfPossessedShares(name, issuer, owner, possessor, callerSlot, callerSlot) < shares) {
+    if (this.assets.numberOfPossessedShares(name, issuer, owner, possessor, callerSlot, callerSlot) < shares) {
       return INVALID_AMOUNT;
     }
 
@@ -610,19 +438,9 @@ export class Sim {
     return 1;
   }
 
-  // Read-only snapshot of the asset universe (every issued asset + its share holdings) for inspection tools.
-  // Plain JSON-able values: ids as hex, shares/unit as decimal strings, name decoded to its ASCII form.
+  // Read-only snapshot of the asset universe for inspection tools (AssetLedger owns it).
   assetUniverse(): AssetSnapshot[] {
-    const out: AssetSnapshot[] = [];
-    for (const a of this.assets.values()) {
-      let total = 0n;
-      const holdings = [...a.holdings.values()].map((h) => {
-        total += h.shares;
-        return { owner: toHex(h.owner.subarray(0, 32)), possessor: toHex(h.possessor.subarray(0, 32)), ownMgmt: h.ownMgmt, posMgmt: h.posMgmt, shares: h.shares.toString() };
-      });
-      out.push({ issuer: toHex(a.issuer.subarray(0, 32)), name: assetNameToString(a.name), decimals: a.decimals, unit: a.unit.toString(), totalShares: total.toString(), holdings });
-    }
-    return out;
+    return this.assets.assetUniverse();
   }
 
   // Fire the dest contract's POST_INCOMING_TRANSFER callback (nested, synchronous), if registered.
@@ -1014,90 +832,23 @@ export class Sim {
     return merkleRoot(leaves, MAX_NUMBER_OF_CONTRACTS);
   }
 
-  // The 48-byte AssetRecord ownership / possession variants — the universe leaves, byte-identical to what a
-  // client hashes: publicKey(32) type(1) padding(1) managingContractIndex(2) crossRefIndex(4) numberOfShares(8).
-  private ownershipRecord(owner: Uint8Array, ownMgmt: number, shares: bigint): Uint8Array {
-    return assetRecord(owner, 2, ownMgmt, shares);
-  }
-
-  private possessionRecord(possessor: Uint8Array, posMgmt: number, shares: bigint): Uint8Array {
-    return assetRecord(possessor, 3, posMgmt, shares);
-  }
-
-  // Assign (and remember) a stable leaf index for a tree key.
-  private leafIndex(map: Map<string, number>, key: string): number {
-    const existing = map.get(key);
-    if (existing !== undefined) {
-      return existing;
-    }
-
-    const idx = map.size;
-    map.set(key, idx);
-    return idx;
-  }
-
-  private markHoldingDirty(assetKey: string, holdingKey: string): void {
-    this.universeDirty.add(assetKey + " " + holdingKey);
-  }
-
   // spectrumDigest — the root of the incremental 2^24 merkle over entity records (SpectrumLedger owns the tree).
   spectrumDigest(): Uint8Array {
     return this.spectrum.getSpectrumDigest();
   }
 
-  // universeDigest — the root of the incremental 2^24 merkle over asset holdings. A deleted holding's leaf goes
-  // back to the empty-leaf hash. leaf = K12(holdingRecord).
+  // universeDigest — the root of the incremental 2^24 merkle over asset holdings (AssetLedger owns the tree).
   universeDigest(): Uint8Array {
-    if (!this.universeTree) {
-      this.universeTree = new SparseMerkle(k12Bytes(new Uint8Array(ASSET_RECORD_SIZE)));
-    }
-
-    for (const gk of this.universeDirty) {
-      const sep = gk.indexOf(" ");
-      const asset = this.assets.get(gk.slice(0, sep));
-      const h = asset?.holdings.get(gk.slice(sep + 1));
-      const own = asset && h ? k12Bytes(this.ownershipRecord(h.owner, h.ownMgmt, h.shares)) : k12Bytes(new Uint8Array(ASSET_RECORD_SIZE));
-      const pos = asset && h ? k12Bytes(this.possessionRecord(h.possessor, h.posMgmt, h.shares)) : k12Bytes(new Uint8Array(ASSET_RECORD_SIZE));
-      this.universeTree.setLeaf(this.leafIndex(this.universeIdx, "o " + gk), own);
-      this.universeTree.setLeaf(this.leafIndex(this.universeIdx, "p " + gk), pos);
-    }
-    this.universeDirty.clear();
-    return this.universeTree.root();
+    return this.assets.getUniverseDigest();
   }
 
-  // Ownership proof for each asset ownerId owns: the ownership AssetRecord + its universe index + siblings, plus
-  // the issuance fields for the attached record. A client recomputes the universe root from the record.
-  universeProofOwned(ownerId: Uint8Array): { record: Uint8Array; issuer: Uint8Array; name: bigint; decimals: number; managingContractIndex: number; shares: bigint; index: number; siblings: Uint8Array[] }[] {
-    this.universeDigest();
-    const ownerHex = this.key(ownerId);
-    const out = [];
-    for (const [assetKey, asset] of this.assets) {
-      for (const [hk, h] of asset.holdings) {
-        if (this.key(h.owner) !== ownerHex) {
-          continue;
-        }
-        const index = this.universeIdx.get("o " + assetKey + " " + hk)!;
-        out.push({ record: this.ownershipRecord(h.owner, h.ownMgmt, h.shares), issuer: asset.issuer, name: asset.name, decimals: asset.decimals, managingContractIndex: h.ownMgmt, shares: h.shares, index, siblings: this.universeTree!.siblings(index) });
-      }
-    }
-    return out;
+  // Ownership / possession merkle proofs over the asset universe (AssetLedger owns the tree).
+  universeProofOwned(ownerId: Uint8Array) {
+    return this.assets.universeProofOwned(ownerId);
   }
 
-  // Possession proof for each asset possessorId possesses (mirrors universeProofOwned).
-  universeProofPossessed(possessorId: Uint8Array): { record: Uint8Array; owner: Uint8Array; issuer: Uint8Array; name: bigint; decimals: number; managingContractIndex: number; shares: bigint; index: number; siblings: Uint8Array[] }[] {
-    this.universeDigest();
-    const posHex = this.key(possessorId);
-    const out = [];
-    for (const [assetKey, asset] of this.assets) {
-      for (const [hk, h] of asset.holdings) {
-        if (this.key(h.possessor) !== posHex) {
-          continue;
-        }
-        const index = this.universeIdx.get("p " + assetKey + " " + hk)!;
-        out.push({ record: this.possessionRecord(h.possessor, h.posMgmt, h.shares), owner: h.owner, issuer: asset.issuer, name: asset.name, decimals: asset.decimals, managingContractIndex: h.posMgmt, shares: h.shares, index, siblings: this.universeTree!.siblings(index) });
-      }
-    }
-    return out;
+  universeProofPossessed(possessorId: Uint8Array) {
+    return this.assets.universeProofPossessed(possessorId);
   }
 
   // The merkle proof for an entity: its leaf index + the 24 sibling hashes from the leaf to the spectrum root.
@@ -1179,13 +930,3 @@ export class Sim {
   }
 }
 
-// A 48-byte AssetRecord (ownership type=2 / possession type=3 variant): publicKey(32) type(1) padding(1)
-// managingContractIndex(2) crossRefIndex(4, left 0) numberOfShares(8). The universe merkle leaf.
-function assetRecord(pubkey: Uint8Array, type: number, mgmt: number, shares: bigint): Uint8Array {
-  const rec = AssetRecord.alloc();
-  rec.publicKey = pubkey;
-  rec.type = type;
-  rec.managingContractIndex = mgmt;
-  rec.numberOfShares = shares;
-  return rec.bytes;
-}
