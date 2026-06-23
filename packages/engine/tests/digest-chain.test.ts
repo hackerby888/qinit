@@ -10,6 +10,7 @@ import { Sim } from "../src/sim";
 import { rootFromSiblings } from "../src/merkle";
 import { tickVoteMessage, tickVoteSignature } from "../src/consensus";
 import { Tick, M256i } from "../src/wire";
+import { contractId } from "./helpers";
 
 const SEEDS4 = ["b".repeat(55), "c".repeat(55), "d".repeat(55), "e".repeat(55)];
 const A = new Uint8Array(32).fill(0x33);
@@ -21,12 +22,6 @@ beforeAll(async () => {
 
 async function wasm(name: string): Promise<Uint8Array> {
   return new Uint8Array(await Bun.file(`${import.meta.dir}/fixtures/${name}.wasm`).arrayBuffer());
-}
-
-function contractId(slot: number): Uint8Array {
-  const a = new Uint8Array(32);
-  new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
-  return a;
 }
 
 // Count the votes that (a) carry a valid signature from their computor and (b) commit `expected` at the named

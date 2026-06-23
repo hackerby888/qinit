@@ -3,16 +3,11 @@
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex } from "../src/k12";
 import { AssetLedger } from "../src/assets";
+import { contractId } from "./helpers";
 
 beforeAll(async () => {
   await initK12(); // the universe digest/proof hash through K12
 });
-
-function contractId(slot: number): Uint8Array {
-  const a = new Uint8Array(32);
-  new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
-  return a;
-}
 
 function userId(firstByte: number): Uint8Array {
   const a = new Uint8Array(32);

@@ -6,6 +6,7 @@
 import { test, expect } from "bun:test";
 import { initK12 } from "../src/k12";
 import { Sim } from "../src/sim";
+import { contractId } from "./helpers";
 
 const FIX = import.meta.dir + "/fixtures";
 const GET = 1; // Counter/Hooks Get function
@@ -26,13 +27,6 @@ function hookCounters(sim: Sim): [bigint, bigint, bigint, bigint] {
   const s = sim.query(28, GET);
   const f = (i: number) => new DataView(s.buffer, s.byteOffset, s.byteLength).getBigUint64(i * 8, true);
   return [f(0), f(1), f(2), f(3)];
-}
-
-// The id of a deployed contract — id(slot, 0, 0, 0), i.e. the slot as a uint64 LE in a 32-byte id.
-function contractId(slot: number): Uint8Array {
-  const a = new Uint8Array(32);
-  new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
-  return a;
 }
 
 test("fees off: contracts run with no reserve (default behaviour preserved)", async () => {

@@ -9,6 +9,7 @@ import { initK12, toHex, k12Bytes } from "../src/k12";
 import { SparseMerkle, MERKLE_DEPTH } from "../src/merkle";
 import { SpectrumLedger } from "../src/spectrum";
 import { AssetLedger } from "../src/assets";
+import { contractId } from "./helpers";
 
 const LEAF_SPACE = 1 << MERKLE_DEPTH; // 2^24 — the full leaf index range
 
@@ -31,12 +32,6 @@ function entityId(n: number): Uint8Array {
   const a = new Uint8Array(32);
   new DataView(a.buffer).setUint32(0, n, true);
   a[31] = n & 0xff;
-  return a;
-}
-
-function contractId(slot: number): Uint8Array {
-  const a = new Uint8Array(32);
-  new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
   return a;
 }
 

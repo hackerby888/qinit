@@ -4,6 +4,7 @@
 // The contract bytes run unchanged; this supplies the "lhost" import table, the per-call marshalling, and
 // the resident-state digest.
 import { k12Bytes, toHex } from "./k12";
+import { bytesEqual } from "./bytes";
 import type { TraceRecorder } from "./trace";
 
 const EMPTY = new Uint8Array(0);
@@ -45,17 +46,6 @@ const HOST_WEIGHT: Record<string, bigint> = {
   liteSetShareholderProposal: 20n, liteSetShareholderVotes: 20n,
 };
 
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-  return true;
-}
 
 // Decompose a unix-ms timestamp into the qpi date/time fields (UTC). `year` is the qubic 2-digit form
 // (year - 2000), matching the node's year() accessor + the Tick struct's uint8 year.

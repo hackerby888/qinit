@@ -3,6 +3,7 @@
 import { test, expect } from "bun:test";
 import { initK12 } from "../src/k12";
 import { Sim } from "../src/sim";
+import { contractId } from "./helpers";
 
 const FIX = import.meta.dir + "/fixtures";
 const INC = 1; // Counter Inc procedure
@@ -15,12 +16,6 @@ async function wasm(name: string): Promise<Uint8Array> {
 
 function u64(b: Uint8Array): bigint {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
-}
-
-function contractId(slot: number): Uint8Array {
-  const a = new Uint8Array(32);
-  new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
-  return a;
 }
 
 test("mempool mode: a tx applies + is recorded at its scheduled tick, not before", async () => {

@@ -6,6 +6,7 @@ import { test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { initK12 } from "../src/k12";
 import { InProcessEngine } from "../src/transport";
+import { contractId } from "./helpers";
 import { PeerServer } from "../src/peer-server";
 import { deriveIdentity, bytesToIdentity } from "@qinit/core";
 
@@ -16,12 +17,6 @@ const FIX = import.meta.dir + "/fixtures";
 
 async function wasm(name: string): Promise<Uint8Array> {
   return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
-
-function contractId(slot: number): Uint8Array {
-  const a = new Uint8Array(32);
-  new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
-  return a;
 }
 
 // Run the CLI against `port` and return its stdout.

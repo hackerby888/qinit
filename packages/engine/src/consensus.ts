@@ -6,6 +6,7 @@
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "./k12";
 import { dateFields } from "./runtime";
 import { rootFromSiblings } from "./merkle";
+import { bytesEqual } from "./bytes";
 import { M256i, Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "./wire";
 
 export { TXS_PER_TICK, TICKDATA_SIZE };
@@ -253,18 +254,6 @@ export function voteIsAligned(vote: Uint8Array, d: TickStateDigests): boolean {
     && t.transactionDigest.equals(d.transaction);
 }
 
-function bytesEq(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-  return true;
-}
-
 // A light-client check: is `record` (an EntityRecord) provably part of the state that >= QUORUM computors
 // signed? Recompute the spectrum root from the merkle proof, then count the tick votes that (a) carry a valid
 // signature from their computor and (b) commit that exact spectrum root. True iff the count reaches quorum —
@@ -286,7 +275,7 @@ export function verifyEntityProof(record: Uint8Array, index: number, siblings: U
     if (!verifySync(c.publicKey, tickVoteMessage(vote), tickVoteSignature(vote))) {
       continue;
     }
-    if (!bytesEq(vote.subarray(32, 64), proofRoot)) {
+    if (!bytesEqual(vote.subarray(32, 64), proofRoot)) {
       continue;
     }
     valid++;

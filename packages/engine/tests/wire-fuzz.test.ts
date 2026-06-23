@@ -10,6 +10,7 @@ import {
   RespondEntity, RespondOwnedAssets, RespondPossessedAssets, RespondTxStatusHeader,
   DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, CONTRACT_FEES_COUNT, SPECTRUM_DEPTH, ASSETS_DEPTH,
 } from "../src/wire";
+import { bytesEqual } from "../src/bytes";
 
 const TRIALS = 64;
 
@@ -44,18 +45,6 @@ function randBytes(r: () => number, n: number): Uint8Array {
     b[i] = Math.floor(r() * 256);
   }
   return b;
-}
-
-function bytesEq(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-  return true;
 }
 
 // ---- the field-kind model: each defineStruct field is described independently of wire.ts (so the test is not
@@ -141,12 +130,12 @@ function fuzzField(view: Record<string, unknown>, name: string, k: Kind, r: () =
   if (k === "m256") {
     const b = randBytes(r, DIGEST_SIZE);
     view[name] = M256i.from(b);
-    return (v2) => expect(bytesEq((v2[name] as M256i).bytes, b)).toBe(true);
+    return (v2) => expect(bytesEqual((v2[name] as M256i).bytes, b)).toBe(true);
   }
   if ("blob" in k) {
     const b = randBytes(r, k.blob);
     view[name] = b;
-    return (v2) => expect(bytesEq(v2[name] as Uint8Array, b)).toBe(true);
+    return (v2) => expect(bytesEqual(v2[name] as Uint8Array, b)).toBe(true);
   }
   if ("arr" in k) {
     const arr = view[name] as { set(i: number, v: unknown): void };
@@ -167,7 +156,7 @@ function fuzzField(view: Record<string, unknown>, name: string, k: Kind, r: () =
       const got = v2[name] as { at(i: number): unknown };
       for (const [i, val] of vals) {
         if (val instanceof Uint8Array) {
-          expect(bytesEq((got.at(i) as M256i).bytes, val)).toBe(true);
+          expect(bytesEqual((got.at(i) as M256i).bytes, val)).toBe(true);
         } else {
           expect(got.at(i)).toBe(val);
         }
@@ -179,7 +168,7 @@ function fuzzField(view: Record<string, unknown>, name: string, k: Kind, r: () =
   const inst = k.sub.alloc();
   inst.bytes.set(b);
   view[name] = inst;
-  return (v2) => expect(bytesEq((v2[name] as { bytes: Uint8Array }).bytes, b)).toBe(true);
+  return (v2) => expect(bytesEqual((v2[name] as { bytes: Uint8Array }).bytes, b)).toBe(true);
 }
 
 // Fill a field with a max non-zero value — used by the padding test so every covered byte is non-zero and any
@@ -408,8 +397,8 @@ test("M256i: from(bytes)/from(hex) round-trip, u64 lanes, equals/isZero over ran
   for (let trial = 0; trial < TRIALS * 2; trial++) {
     const b = randBytes(r, DIGEST_SIZE);
     const m = M256i.from(b);
-    expect(bytesEq(m.bytes, b)).toBe(true);
-    expect(bytesEq(M256i.from(m.hex).bytes, b)).toBe(true);
+    expect(bytesEqual(m.bytes, b)).toBe(true);
+    expect(bytesEqual(M256i.from(m.hex).bytes, b)).toBe(true);
     expect(m.equals(b)).toBe(true);
 
     const dv = new DataView(b.buffer, b.byteOffset, DIGEST_SIZE);
@@ -445,7 +434,7 @@ test("AssetRecord issuance variant: publicKey/type/name/decimals round-trip", ()
     a.numberOfDecimalPlaces = dec;
 
     const a2 = AssetRecord.wrap(a.bytes.slice());
-    expect(bytesEq(a2.publicKey.bytes, pk)).toBe(true);
+    expect(bytesEqual(a2.publicKey.bytes, pk)).toBe(true);
     expect(a2.type).toBe(1);
     expect(a2.nameString).toBe(name);
     expect(a2.numberOfDecimalPlaces).toBe(dec);
@@ -467,7 +456,7 @@ test("AssetRecord ownership/possession variant: managingContractIndex/index/shar
     a.numberOfShares = shares;
 
     const a2 = AssetRecord.wrap(a.bytes.slice());
-    expect(bytesEq(a2.publicKey.bytes, pk)).toBe(true);
+    expect(bytesEqual(a2.publicKey.bytes, pk)).toBe(true);
     expect(a2.managingContractIndex).toBe(mci);
     expect(a2.ownershipIndex).toBe(idx);
     expect(a2.issuanceIndex).toBe(idx); // ownership.index and possession.index alias the same u32
@@ -500,13 +489,13 @@ test("Transaction: header fields + input/signature slicing round-trip for random
     tx.signature.set(sig);
 
     const tx2 = Transaction.wrap(buf.slice());
-    expect(bytesEq(tx2.sourcePublicKey.bytes, src)).toBe(true);
-    expect(bytesEq(tx2.destinationPublicKey.bytes, dst)).toBe(true);
+    expect(bytesEqual(tx2.sourcePublicKey.bytes, src)).toBe(true);
+    expect(bytesEqual(tx2.destinationPublicKey.bytes, dst)).toBe(true);
     expect(tx2.amount).toBe(amount);
     expect(tx2.tick).toBe(tick);
     expect(tx2.inputType).toBe(inputType);
     expect(tx2.inputSize).toBe(inputSize);
-    expect(bytesEq(tx2.input, input)).toBe(true);
-    expect(bytesEq(tx2.signature, sig)).toBe(true);
+    expect(bytesEqual(tx2.input, input)).toBe(true);
+    expect(bytesEqual(tx2.signature, sig)).toBe(true);
   }
 });
