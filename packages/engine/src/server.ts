@@ -14,24 +14,39 @@ export class EngineServer {
   readonly engine: InProcessEngine;
   private server: ReturnType<typeof Bun.serve> | null = null;
   private ticker: ReturnType<typeof setInterval> | null = null;
+  private tickMs = 50;
 
   constructor(engine: InProcessEngine = new InProcessEngine()) {
     this.engine = engine;
+  }
+
+  // (Re)start the auto-ticker at `ms` between ticks — also the chain clock step (sim.tickDuration). Clamped to
+  // >= 0 (0 = as fast as the event loop allows).
+  private applyTickMs(ms: number): number {
+    this.tickMs = Math.max(0, Number.isFinite(ms) ? ms : this.tickMs);
+    this.engine.sim.tickDuration = this.tickMs;
+    if (this.ticker) {
+      clearInterval(this.ticker);
+    }
+    this.ticker = setInterval(() => this.engine.advanceTick(1), this.tickMs);
+    return this.tickMs;
+  }
+
+  // Change the tick interval on a RUNNING node — no respawn (the /live/v1/dev/tick-ms route backs `qinit tick rate`).
+  setTickMs(ms: number): number {
+    return this.applyTickMs(ms);
   }
 
   // Serve on an ephemeral port (0) by default; auto-advances ticks so deploy's "is it ticking?" polls pass.
   async start(port = 0, tickMs = 50): Promise<EngineServerHandle> {
     await initK12(); // the engine's digest / codeHash / lh_k12 need the crypto module resolved
     const eng = this.engine;
-    eng.sim.tickDuration = tickMs;
     const json = (data: unknown, status = 200): Response =>
       new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
     await eng.seedFaucet(); // pre-fund the funded-seed account so regular txs have balance
 
-    this.ticker = setInterval(() => {
-      eng.advanceTick(1);
-    }, tickMs);
+    this.applyTickMs(tickMs); // start the auto-ticker (live-adjustable via setTickMs)
 
     const server = Bun.serve({
       port,
@@ -50,6 +65,7 @@ export class EngineServer {
           if (path === "/live/v1/dev/advance-tick") return json(eng.advanceTickN(Number(q.get("n") ?? 1)));
           if (path === "/live/v1/dev/advance-to-last") return json(eng.advanceToLast(Number(q.get("gap") ?? 3)));
           if (path === "/live/v1/dev/advance-epoch") return json(eng.advanceEpoch());
+          if (path === "/live/v1/dev/tick-ms") return json({ tickMs: this.setTickMs(Number(q.get("ms"))) });
           if (path === "/live/v1/dev/debug") return json(await eng.setDebug(q.get("on") === "1"));
           if (path === "/live/v1/debug-trace") return json(await eng.debugTrace());
           if (path === "/live/v1/dev/state-read") {

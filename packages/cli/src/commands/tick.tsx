@@ -7,6 +7,7 @@ import { Header, Spinner, Bar, KV, theme } from "../ui";
 // qinit tick                     -> show the current-epoch tick window
 // qinit tick advance <n>         -> advance the chain by n ticks (capped at the epoch's last tick)
 // qinit tick advance-to-last [g] -> advance to (lastTick - g), default g=3 (the pre-transition resting point)
+// qinit tick rate <ms>           -> virtualnode: set ms-per-tick on the running node (no respawn; 0 = fastest)
 // Big jumps run in bounded server batches with a progress bar (each tick is a real tick — a few per second).
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = { sub: "", arg: "" };
@@ -42,6 +43,15 @@ export function Tick({ args }: { args: string[] }) {
     (async () => {
       const rpc = new LiteRpc(rpcBase);
       try {
+        if (o.sub === "rate") {
+          // virtualnode only: change the engine's ms-per-tick on the fly (no respawn). 0 = fastest.
+          const ms = Math.floor(Number(o.arg));
+          if (!Number.isFinite(ms) || ms < 0) throw new Error(`rate <ms>: '${o.arg}' is not a non-negative integer`);
+          const r = await rpc.setTickMs(ms);
+          setRows([["tick rate", `${r.tickMs} ms/tick${r.tickMs === 0 ? "  (fastest)" : ""}`]]);
+          setProg(null); setBusy("");
+          return;
+        }
         const e = await rpc.epochInfo();
         if (o.sub === "advance") {
           const n = Math.floor(Number(o.arg || "1"));
@@ -58,7 +68,7 @@ export function Tick({ args }: { args: string[] }) {
           const { cur } = await advanceTo(rpc, target, e.tick, (c) => setProg((p) => p && { ...p, cur: c }));
           setRows([["tick", `${e.tick} → ${cur}`], ["epoch last tick", String(e.epochLastTick)], ["epoch", String(e.epoch)]]);
         } else if (o.sub) {
-          throw new Error(`unknown subcommand '${o.sub}' (use: advance <n> | advance-to-last [gap])`);
+          throw new Error(`unknown subcommand '${o.sub}' (use: advance <n> | advance-to-last [gap] | rate <ms>)`);
         } else {
           setRows([["epoch", String(e.epoch)], ["tick", String(e.tick)], ["epoch last tick", String(e.epochLastTick)],
             ["ticks left", String(e.ticksLeft)], ["epoch length", `${e.duration} ticks`]]);

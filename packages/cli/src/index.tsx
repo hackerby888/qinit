@@ -21,7 +21,8 @@ const [, , command = "help", ...args] = process.argv;
 if (command === "__serve") {
   const { serveEngine } = await import("./serve");
   const rpc = args[args.indexOf("--rpc") + 1] || "http://127.0.0.1:41841";
-  await serveEngine(rpc);
+  const tm = args.indexOf("--tick-ms");
+  await serveEngine(rpc, tm >= 0 ? Number(args[tm + 1]) : undefined);
 }
 
 initOutput(args);   // detect --json / --plain (and auto-plain when piped / NO_COLOR) before rendering

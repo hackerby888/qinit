@@ -25,12 +25,13 @@ export const META: Record<string, CommandMeta> = {
     usage: "<run|status|stop|get> [--ref <tag>] [--restart] [--offline] [--bin <path>]",
     flags: [["--ref <tag>", "node/headers release to use (default: latest)"], ["--restart", "force a fresh node even if one is ticking"],
       ["--offline", "use only cached node/headers (no network)"], ["--bin <path>", "run a local node binary (skip fetch)"],
+      ["--tick-ms <n>", "virtualnode: ms between ticks (default 1000; 0 = fastest)"],
       ["--keep", "keep the node's scratch dir"], ["--rpc <url>", "node RPC base"], ["--wait <s>", "seconds to wait for ticking"]],
   },
   tick: {
     group: "setup & node", json: true,
-    summary: "show epoch tick window; advance ticks (testnet)",
-    usage: "[show | advance <n> | advance-to-last [gap]]", flags: [["--rpc <url>", "node RPC base"]],
+    summary: "show epoch tick window; advance ticks (testnet); set the virtual node's tick rate",
+    usage: "[show | advance <n> | advance-to-last [gap] | rate <ms>]", flags: [["--rpc <url>", "node RPC base"]],
   },
   epoch: {
     group: "setup & node", json: true,

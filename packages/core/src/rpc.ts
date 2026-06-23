@@ -123,6 +123,10 @@ export class LiteRpc implements NodeTransport {
   advanceEpoch() {
     return this.get<{ fromEpoch: number; toEpoch: number; fromTick: number; tick: number; initialTick: number; switched: boolean }>("/live/v1/dev/advance-epoch");
   }
+  /** Set the tick interval on a running virtual node, no respawn (GET /live/v1/dev/tick-ms?ms=N). */
+  setTickMs(ms: number) {
+    return this.get<{ tickMs: number }>(`/live/v1/dev/tick-ms?ms=${ms}`);
+  }
 
   /** Broadcast a signed tx (POST /live/v1/broadcast-transaction) — folded into NodeTransport. */
   broadcastTx(txBytes: Uint8Array) {

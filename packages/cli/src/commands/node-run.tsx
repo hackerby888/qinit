@@ -8,7 +8,7 @@ import { savedMode } from "../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 import { parseArgs, output } from "../args";
 
-// qinit node run [--ref <tag>] [--restart] [--offline] [--bin <path>] [--keep] [--rpc] [--wait]
+// qinit node run [--ref <tag>] [--restart] [--offline] [--bin <path>] [--tick-ms <n>] [--keep] [--rpc] [--wait]
 // One command bring-up: sync headers + fetch the wasm compiler + get the node + run it. Reuses a node that's
 // already ticking (preserves deployed contracts); restarts only a stale/idle node or on --restart. Skips
 // re-fetch when cached. With `qinit mode virtualnode` the in-process engine replaces the node binary.
@@ -109,7 +109,7 @@ export function NodeRun({ args }: { args: string[] }) {
           set("run", "active", `${why} → launching${virtual ? " virtual engine" : ""}`);
           await killNode(o.dir);
           const l = virtual
-            ? launchVirtualNode({ dir: o.dir, rpcBase, keep: o.keep !== undefined })
+            ? launchVirtualNode({ dir: o.dir, rpcBase, keep: o.keep !== undefined, tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined })
             : launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers, keep: o.keep !== undefined });
           scratch = l.scratch;
           const w = await waitTicking(rpcBase, Number(o.wait || 90));

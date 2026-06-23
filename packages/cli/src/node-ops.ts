@@ -111,7 +111,7 @@ export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: 
 // same qinit — the compiled binary, or `bun index.tsx` in dev — as the hidden `__serve` process bound to the
 // RPC port, so every node command then talks to the engine over HTTP just like a real node. Tracked by the
 // same pidfile as launchNode, so killNode / nodeAlive / `qinit node stop` work unchanged.
-export function launchVirtualNode(o: { dir?: string; rpcBase?: string; keep?: boolean }): { pid: number; scratch: string; log: string } {
+export function launchVirtualNode(o: { dir?: string; rpcBase?: string; keep?: boolean; tickMs?: number }): { pid: number; scratch: string; log: string } {
   const scratch = resolve(o.dir || scratchDir());
   if (!o.keep) rmSync(scratch, { recursive: true, force: true });
   mkdirSync(scratch, { recursive: true });
@@ -122,7 +122,8 @@ export function launchVirtualNode(o: { dir?: string; rpcBase?: string; keep?: bo
   const self = process.execPath;
   const compiled = !/bun(\.exe)?$/i.test(self);
   const rpcBase = o.rpcBase || "http://127.0.0.1:41841";
-  const argv = compiled ? ["__serve", "--rpc", rpcBase] : [Bun.main, "__serve", "--rpc", rpcBase];
+  const flags = ["--rpc", rpcBase, ...(o.tickMs !== undefined ? ["--tick-ms", String(o.tickMs)] : [])];
+  const argv = compiled ? ["__serve", ...flags] : [Bun.main, "__serve", ...flags];
 
   const child = spawn(self, argv, { cwd: scratch, stdio: ["ignore", fd, fd], detached: true, windowsHide: true });
   child.unref();

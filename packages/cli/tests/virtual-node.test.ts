@@ -140,3 +140,15 @@ test("advance-epoch crosses into the next epoch (qinit epoch advance)", async ()
     stop();
   }
 });
+
+test("tick rate is adjustable on a running node, no respawn (qinit tick rate)", async () => {
+  const { rpc, engine, stop } = await bootCounter();
+  try {
+    expect((await rpc.setTickMs(0)).tickMs).toBe(0); // 0 = fastest
+    expect(engine.sim.tickDuration).toBe(0);
+    expect((await rpc.setTickMs(250)).tickMs).toBe(250);
+    expect(engine.sim.tickDuration).toBe(250); // live chain-clock step updated too
+  } finally {
+    stop();
+  }
+});
