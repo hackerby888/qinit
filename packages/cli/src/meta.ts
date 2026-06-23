@@ -82,6 +82,13 @@ export const META: Record<string, CommandMeta> = {
   test: { group: "deploy & interact", summary: "deploy + run bun tests against the node (real or virtual per `qinit mode`)", usage: "[<file.h>]", flags: [["--in-process", "force the in-process virtual engine (overrides `qinit mode`)"], ["--real", "force a real ephemeral node (overrides `qinit mode`)"], ["--filter <pat>", "test name filter"], ["--keep", "keep the ephemeral node after"], ["--bin <path>", "node binary"], ["--rpc <url>", "node RPC base"]] },
 
   mode: { group: "misc", summary: "pick the node backend for every node command: realnode (qubic node binary) or virtualnode (in-process engine)", usage: "[realnode|virtualnode]", flags: [["--show", "print the current mode"]] },
+  system: {
+    group: "deploy & interact",
+    summary: "virtualnode: deploy chosen built-in system contracts (QX, QEARN, …) onto the in-process node",
+    usage: "[ls | add <name…> | rm <name…>]",
+    flags: [["--rpc <url>", "node RPC base"]],
+    examples: ["qinit system add QX QEARN", "qinit system ls"],
+  },
   theme: { group: "misc", summary: "pick a UI color variant (default|emerald|ocean|rose|amber|mono); applies everywhere", usage: "[<name>]", flags: [["--show", "print the current theme"]] },
   "cheat-sheet": { group: "misc", summary: "one-screen guide: setup -> contract -> deploy -> call (+ input/output formats)" },
   smoke: { group: "misc", summary: "run the standalone-binary crypto smoke test" },

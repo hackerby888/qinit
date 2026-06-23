@@ -134,6 +134,18 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   emit({ step: "build", state: "ok", detail: `${so.length}B · k12 ${hash.slice(0, 12)}…` });
   if (b.idlError) emit({ note: "⚠ IDL parse failed — no typed client/state names: " + b.idlError });
 
+  // Single-authority virtual node: no peer network or quorum to satisfy, so skip the chunk-upload + multi-tick
+  // confirm and drop the wasm straight into the slot. The route 404s on a real node (returns null) -> the
+  // chunked path below runs unchanged.
+  const direct = await rpc.directDeploy(slot, new Uint8Array(so), o.name).catch(() => null);
+  if (direct) {
+    emit({ step: "upload", state: "ok", detail: "direct (virtualnode)" });
+    emit({ step: "deploy", state: "ok", detail: `slot ${slot}` });
+    try { await rpc.putContractSource(slot, readFileSync(o.contractPath, "utf8")); } catch { /* best-effort */ }
+    emit({ step: "confirm", state: "ok", detail: `ready · ${hash.slice(0, 12)}…` });
+    return { ok: true, slot, reused, hash, armed: true, constructed: true, idl: b.idl };
+  }
+
   try { const ti: any = await rpc.tickInfo(); cur = ti.tick ?? cur; } catch {}
   const curTick = async () => { try { const ti: any = await rpc.tickInfo(); return (ti.tick ?? ti.currentTick ?? cur) as number; } catch { return cur; } };
   // tries is a per-second poll budget; early-exits on reach, so a high cap only matters for slow nodes

@@ -141,6 +141,28 @@ test("advance-epoch crosses into the next epoch (qinit epoch advance)", async ()
   }
 });
 
+test("directDeploy arms an arbitrary (system-index) slot, runs, surfaces in registry, undeploys", async () => {
+  const wasm = new Uint8Array(await Bun.file(`${FIX}/Counter.wasm`).arrayBuffer());
+  const srv = new EngineServer();
+  const h = await srv.start(0);
+  const rpc = new LiteRpc(h.rpcBase);
+  try {
+    const r = await rpc.directDeploy(1, wasm, "SYSISH"); // low index, like a system contract (outside [28,32))
+    expect(r?.ok).toBe(true);
+    expect(r?.slot).toBe(1);
+
+    expect(BigInt(await callFunction(rpc, 1, GET, "", "uint64"))).toBe(0n); // runs at slot 1
+
+    const reg = await rpc.dynRegistry();
+    expect((reg.contracts ?? []).some((c) => c.index === 1 && c.armed)).toBe(true); // surfaced out-of-window
+
+    expect(await rpc.undeploy(1)).toBe(true);
+    expect(((await rpc.dynRegistry()).contracts ?? []).some((c) => c.index === 1)).toBe(false);
+  } finally {
+    h.stop();
+  }
+});
+
 test("tick rate is adjustable on a running node, no respawn (qinit tick rate)", async () => {
   const { rpc, engine, stop } = await bootCounter();
   try {

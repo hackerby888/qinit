@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent, fetchWasiSdk, haveWasiSdkCache } from "@qinit/core";
 import { fetchNodeBin, cachedNode, nodeStatus, nodeContracts, killNode, launchNode, launchVirtualNode, waitTicking } from "../node-ops";
-import { savedMode } from "../config";
+import { savedMode, loadConfig } from "../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 import { parseArgs, output } from "../args";
 
@@ -109,7 +109,7 @@ export function NodeRun({ args }: { args: string[] }) {
           set("run", "active", `${why} → launching${virtual ? " virtual engine" : ""}`);
           await killNode(o.dir);
           const l = virtual
-            ? launchVirtualNode({ dir: o.dir, rpcBase, keep: o.keep !== undefined, tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined })
+            ? launchVirtualNode({ dir: o.dir, rpcBase, keep: o.keep !== undefined, tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined, system: loadConfig().system })
             : launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers, keep: o.keep !== undefined });
           scratch = l.scratch;
           const w = await waitTicking(rpcBase, Number(o.wait || 90));
