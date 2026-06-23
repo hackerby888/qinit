@@ -43,8 +43,6 @@ export function ThemeCmd({ args }: { args: string[] }) {
       setSavedTheme(o.name); applyTheme(o.name); add(`✓ theme set: ${o.name}`);
     }
   }, []);
-  // live preview: applying the highlighted variant recolors the header as you move
-  useEffect(() => { if (phase === "pick") applyTheme(THEME_NAMES[i]); }, [i, phase]);
   useEffect(() => { if (phase === "done") { const t = setTimeout(() => exit(), 30); return () => clearTimeout(t); } }, [phase]);
 
   useInput((input, key) => {
@@ -54,6 +52,12 @@ export function ThemeCmd({ args }: { args: string[] }) {
     else if (key.downArrow) move(1);
     else if (key.return) { const name = THEME_NAMES[sel.current]; setSavedTheme(name); applyTheme(name); add(`✓ theme saved: ${name}`); setPhase("done"); }
   }, { isActive: Boolean(process.stdin.isTTY) });
+
+  // Live preview applied synchronously during render (not in a post-render effect) so the header + preview
+  // gradient + highlighted row reflect the hovered variant in the SAME frame; an effect lagged one move behind.
+  if (phase === "pick") {
+    applyTheme(THEME_NAMES[i]);
+  }
 
   return (
     <Box flexDirection="column">
