@@ -8,7 +8,7 @@ export { InProcessEngine } from "./transport";
 export { initK12, k12Bytes, toHex, deriveKeysSync, signSync, verifySync } from "./k12";
 export type { KeyPair } from "./k12";
 export {
-  Committee, quorumOf, randomSeed, merkleRoot, canonicalDigest,
+  Committee, quorumOf, randomSeed, merkleRoot,
   buildTickVote, voteIsAligned, tickVoteMessage, tickVoteSignature,
   DEFAULT_ARBITRATOR_SEED, DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS, TICK_SIZE,
 } from "./consensus";

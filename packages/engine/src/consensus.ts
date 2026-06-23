@@ -118,25 +118,6 @@ export function merkleRoot(leaves: Map<number, Uint8Array>, capacity: number): U
   return level[0];
 }
 
-// K12 over a caller-sorted concatenation. Unused legacy helper: this was the pre-merkle spectrum/universe digest;
-// the live digests are now the incremental 2^24 SparseMerkle roots (getSpectrumDigest / getUniverseDigest). Kept
-// as a public hashing utility.
-export function canonicalDigest(parts: Uint8Array[]): Uint8Array {
-  let total = 0;
-  for (const p of parts) {
-    total += p.length;
-  }
-
-  const buf = new Uint8Array(total);
-  let off = 0;
-  for (const p of parts) {
-    buf.set(p, off);
-    off += p.length;
-  }
-
-  return k12Bytes(buf);
-}
-
 // salted digest = K12(publicKey(32) ‖ prevDigest(32)) — the per-computor salt (qubic.cpp:5707).
 function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
   const buf = new Uint8Array(2 * DIGEST_SIZE);
