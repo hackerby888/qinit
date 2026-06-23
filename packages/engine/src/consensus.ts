@@ -83,8 +83,11 @@ export class Committee {
   }
 }
 
-// The chain-state digests a tick vote commits to. spectrum/universe are testnet-canonical (K12 over the sorted
-// occupied entries); computer is the faithful 1024-leaf merkle; transaction is the digest of the tick's tx set.
+// The chain-state digests a tick vote commits to. spectrum/universe are the roots of the incremental 2^24
+// SparseMerkle trees (SpectrumLedger.getSpectrumDigest / AssetLedger.getUniverseDigest); computer is the
+// 1024-leaf contract-state merkle; transaction is K12 of the leader's signed TickData. A light client recomputes
+// spectrum/universe/computer from a merkle proof and checks it against these committed roots (verifyEntityProof
+// + the digest-chain test pin that the proof root equals the digest a quorum of votes signed).
 export interface TickStateDigests {
   spectrum: Uint8Array;
   universe: Uint8Array;
@@ -115,8 +118,9 @@ export function merkleRoot(leaves: Map<number, Uint8Array>, capacity: number): U
   return level[0];
 }
 
-// K12 over a caller-sorted concatenation — the testnet-canonical spectrum/universe digest (NOT the mainnet
-// 2^24-leaf merkle, which is infeasible and needless for a self-contained chain).
+// K12 over a caller-sorted concatenation. Unused legacy helper: this was the pre-merkle spectrum/universe digest;
+// the live digests are now the incremental 2^24 SparseMerkle roots (getSpectrumDigest / getUniverseDigest). Kept
+// as a public hashing utility.
 export function canonicalDigest(parts: Uint8Array[]): Uint8Array {
   let total = 0;
   for (const p of parts) {
