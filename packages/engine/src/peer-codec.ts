@@ -4,7 +4,7 @@
 // a typed payload, where `size` counts the header too. Response struct sizes follow the Qubic protocol
 // (SPECTRUM_DEPTH 24, NUMBER_OF_TRANSACTIONS_PER_TICK 4096, NUMBER_OF_COMPUTORS 676) — a client zero-pads short
 // payloads to its struct size but matches strictly on `type`, so we emit the meaningful field prefix.
-import { RequestResponseHeader, EntityRecord, AssetRecord, ASSET_TYPE, SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK, ASSET_RECORD_SIZE } from "./wire";
+import { M256i, RequestResponseHeader, EntityRecord, AssetRecord, ASSET_TYPE, SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK, ASSET_RECORD_SIZE } from "./wire";
 
 export { SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK };
 export const HEADER_SIZE = RequestResponseHeader.SIZE; // 8 — network_messages/header.h
@@ -118,7 +118,7 @@ export interface EntityFields {
 export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: number, spectrumIndex: number, siblings: Uint8Array[] = []): Uint8Array {
   const buf = new Uint8Array(EntityRecord.SIZE + 4 + 4 + SPECTRUM_DEPTH * 32);
   const rec = EntityRecord.wrap(buf, 0);
-  rec.publicKey = id;
+  rec.publicKey = M256i.from(id);
   rec.incomingAmount = e.incomingAmount;
   rec.outgoingAmount = e.outgoingAmount;
   rec.numberOfIncomingTransfers = e.numberOfIncomingTransfers;

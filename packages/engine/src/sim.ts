@@ -12,7 +12,7 @@ import {
   buildTickVote, buildTickData, voteIsAligned, merkleRoot,
   DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS,
 } from "./consensus";
-import { EntityRecord, AssetRecord, ASSET_RECORD_SIZE } from "./wire";
+import { M256i, EntityRecord, AssetRecord, ASSET_RECORD_SIZE } from "./wire";
 import type { DebugTrace } from "@qinit/core";
 
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
@@ -1227,7 +1227,7 @@ export class Sim {
   // The 64-byte EntityRecord whose K12 is the spectrum leaf (the layout a client reads back from getEntity).
   private entityRecord(k: string): Uint8Array {
     const rec = EntityRecord.alloc();
-    rec.publicKey = hexToBytes32(k);
+    rec.publicKey = M256i.from(hexToBytes32(k));
     const e = this.spectrum.get(k);
     if (e) {
       rec.incomingAmount = e.incomingAmount;

@@ -6,7 +6,7 @@
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "./k12";
 import { dateFields } from "./runtime";
 import { rootFromSiblings } from "./merkle";
-import { Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "./wire";
+import { M256i, Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "./wire";
 
 export { TXS_PER_TICK, TICKDATA_SIZE };
 export const DEFAULT_ARBITRATOR_SEED = "a".repeat(55); // arbitrator identity = derive("aaa…a")
@@ -161,14 +161,14 @@ export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickS
   v.month = t.month;
   v.year = t.year;
 
-  v.prevSpectrumDigest = d.spectrum;
-  v.prevUniverseDigest = d.universe;
-  v.prevComputerDigest = d.computer;
-  v.saltedSpectrumDigest = saltedDigest(c.publicKey, d.spectrum);
-  v.saltedUniverseDigest = saltedDigest(c.publicKey, d.universe);
-  v.saltedComputerDigest = saltedDigest(c.publicKey, d.computer);
-  v.transactionDigest = d.transaction;
-  v.expectedNextTickTransactionDigest = d.expectedNextTransaction;
+  v.prevSpectrumDigest = M256i.from(d.spectrum);
+  v.prevUniverseDigest = M256i.from(d.universe);
+  v.prevComputerDigest = M256i.from(d.computer);
+  v.saltedSpectrumDigest = M256i.from(saltedDigest(c.publicKey, d.spectrum));
+  v.saltedUniverseDigest = M256i.from(saltedDigest(c.publicKey, d.universe));
+  v.saltedComputerDigest = M256i.from(saltedDigest(c.publicKey, d.computer));
+  v.transactionDigest = M256i.from(d.transaction);
+  v.expectedNextTickTransactionDigest = M256i.from(d.expectedNextTransaction);
 
   // Domain-separate the signed message by XORing computorIndex with the Tick message type (qubic.cpp does the
   // same XOR before verifying). The transmitted struct keeps the plain index.
@@ -229,11 +229,11 @@ export function buildTickData(committee: Committee, epoch: number, tick: number,
   td.month = t.month;
   td.year = t.year;
 
-  td.timelock = tickDataTimelock(roots.spectrum, roots.universe, roots.computer);
+  td.timelock = M256i.from(tickDataTimelock(roots.spectrum, roots.universe, roots.computer));
 
   const count = Math.min(txDigests.length, TXS_PER_TICK);
   for (let i = 0; i < count; i++) {
-    td.setTxDigest(i, txDigests[i]);
+    td.txDigests.set(i, txDigests[i]);
   }
 
   // Domain-separate the signed message (XOR the index by the message type); the transmitted struct keeps the
