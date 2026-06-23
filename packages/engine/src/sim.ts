@@ -12,8 +12,9 @@ import {
   buildTickVote, buildTickData, voteIsAligned, merkleRoot,
   DEFAULT_NUMBER_OF_COMPUTORS, MAX_NUMBER_OF_CONTRACTS,
 } from "./consensus";
-import { M256i, EntityRecord, AssetRecord, ASSET_RECORD_SIZE } from "./wire";
+import { AssetRecord, ASSET_RECORD_SIZE } from "./wire";
 import { FeeManager, type FeeMode } from "./fees";
+import { SpectrumLedger } from "./spectrum";
 import type { DebugTrace } from "@qinit/core";
 
 export type { FeeMode } from "./fees";
@@ -163,10 +164,7 @@ export class Sim {
   contracts = new Map<number, Contract>();
   dirty = new Set<number>();
   host: HostServices;
-  private spectrum = new Map<string, Entity>(); // hex(id) -> Entity (balance = incoming - outgoing)
-  private spectrumTree: SparseMerkle | null = null; // incremental 2^24 merkle; root = spectrumDigest
-  private spectrumIdx = new Map<string, number>(); // entity id -> stable leaf index
-  private spectrumDirty = new Set<string>(); // entity ids whose leaf changed since the last digest
+  private spectrum = new SpectrumLedger(); // entity balance records + the spectrum merkle (spectrumDigest)
   private universeTree: SparseMerkle | null = null; // incremental 2^24 merkle; root = universeDigest
   private universeIdx = new Map<string, number>(); // assetKey\0holdingKey -> stable leaf index
   private universeDirty = new Set<string>(); // holdings whose leaf changed since the last digest
@@ -272,7 +270,7 @@ export class Sim {
     return out;
   }
 
-  // ---- spectrum (Entity records; balance = incomingAmount - outgoingAmount) ----
+  // ---- spectrum (the ledger lives in SpectrumLedger; these stay on the façade for the public API) ----
   private contractId(slot: number): Uint8Array {
     const a = new Uint8Array(32);
     new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
@@ -283,17 +281,12 @@ export class Sim {
     return toHex(id.subarray(0, 32));
   }
 
-  private emptyEntity(): Entity {
-    return { incomingAmount: 0n, outgoingAmount: 0n, numberOfIncomingTransfers: 0, numberOfOutgoingTransfers: 0, latestIncomingTransferTick: 0, latestOutgoingTransferTick: 0 };
-  }
-
   entityOf(id: Uint8Array): Entity | null {
-    return this.spectrum.get(this.key(id)) ?? null;
+    return this.spectrum.entityOf(id);
   }
 
   balance(id: Uint8Array): bigint {
-    const e = this.spectrum.get(this.key(id));
-    return e ? e.incomingAmount - e.outgoingAmount : 0n;
+    return this.spectrum.energy(id);
   }
 
   balanceOf(slot: number): bigint {
@@ -301,58 +294,25 @@ export class Sim {
   }
 
   credit(id: Uint8Array, amount: bigint, tick = this.tickN): void {
-    const k = this.key(id);
-    let e = this.spectrum.get(k);
-    if (!e) {
-      e = this.emptyEntity();
-      this.spectrum.set(k, e);
-    }
-
-    e.incomingAmount += amount;
-    e.numberOfIncomingTransfers++;
-    e.latestIncomingTransferTick = tick;
-    this.spectrumDirty.add(k);
+    this.spectrum.increaseEnergy(id, amount, tick);
   }
 
   debit(id: Uint8Array, amount: bigint, tick = this.tickN): void {
-    const k = this.key(id);
-    let e = this.spectrum.get(k);
-    if (!e) {
-      e = this.emptyEntity();
-      this.spectrum.set(k, e);
-    }
-
-    e.outgoingAmount += amount;
-    e.numberOfOutgoingTransfers++;
-    e.latestOutgoingTransferTick = tick;
-    this.spectrumDirty.add(k);
+    this.spectrum.decreaseEnergy(id, amount, tick);
   }
 
   // Faucet: seed an identity with balance (the in-process testnet pre-funds test/seed accounts).
   fund(id: Uint8Array, amount: bigint): void {
-    this.credit(id, amount, this.tickN);
+    this.spectrum.increaseEnergy(id, amount, this.tickN);
   }
 
-  // Spectrum iteration (qpi.nextId/prevId) — the next/previous occupied entity id; zero if none. The node
-  // walks the spectrum hash array; the dev engine uses a deterministic id order over the occupied entities.
+  // Spectrum iteration (qpi.nextId/prevId) — the next/previous occupied entity id; zero if none.
   nextId(id: Uint8Array): Uint8Array {
-    const target = this.key(id);
-    let best: string | null = null;
-    for (const k of this.spectrum.keys()) {
-      if (k > target && (best === null || k < best)) best = k;
-    }
-
-    return best === null ? new Uint8Array(32) : hexToBytes32(best);
+    return this.spectrum.nextId(id);
   }
 
   prevId(id: Uint8Array): Uint8Array {
-    const target = this.key(id);
-    let best: string | null = null;
-    for (const k of this.spectrum.keys()) {
-      if (k < target && (best === null || k > best)) best = k;
-    }
-
-    return best === null ? new Uint8Array(32) : hexToBytes32(best);
+    return this.spectrum.prevId(id);
   }
 
   // The slot index if `id` is a deployed contract's id (id(slot,0,0,0)), else -1.
@@ -1160,6 +1120,7 @@ export class Sim {
     return this.spectrum.size;
   }
 
+
   txCount(): number {
     return this.txById.size;
   }
@@ -1173,22 +1134,6 @@ export class Sim {
     }
 
     return merkleRoot(leaves, MAX_NUMBER_OF_CONTRACTS);
-  }
-
-  // The 64-byte EntityRecord whose K12 is the spectrum leaf (the layout a client reads back from getEntity).
-  private entityRecord(k: string): Uint8Array {
-    const rec = EntityRecord.alloc();
-    rec.publicKey = M256i.from(hexToBytes32(k));
-    const e = this.spectrum.get(k);
-    if (e) {
-      rec.incomingAmount = e.incomingAmount;
-      rec.outgoingAmount = e.outgoingAmount;
-      rec.numberOfIncomingTransfers = e.numberOfIncomingTransfers;
-      rec.numberOfOutgoingTransfers = e.numberOfOutgoingTransfers;
-      rec.latestIncomingTransferTick = e.latestIncomingTransferTick;
-      rec.latestOutgoingTransferTick = e.latestOutgoingTransferTick;
-    }
-    return rec.bytes;
   }
 
   // The 48-byte AssetRecord ownership / possession variants — the universe leaves, byte-identical to what a
@@ -1217,18 +1162,9 @@ export class Sim {
     this.universeDirty.add(assetKey + " " + holdingKey);
   }
 
-  // spectrumDigest — the root of the incremental 2^24 merkle. Only entities whose balance changed since the last
-  // call are rehashed (24 nodes each); empty subtrees collapse to a precomputed hash. leaf = K12(EntityRecord).
+  // spectrumDigest — the root of the incremental 2^24 merkle over entity records (SpectrumLedger owns the tree).
   spectrumDigest(): Uint8Array {
-    if (!this.spectrumTree) {
-      this.spectrumTree = new SparseMerkle(k12Bytes(new Uint8Array(64)));
-    }
-
-    for (const k of this.spectrumDirty) {
-      this.spectrumTree.setLeaf(this.leafIndex(this.spectrumIdx, k), k12Bytes(this.entityRecord(k)));
-    }
-    this.spectrumDirty.clear();
-    return this.spectrumTree.root();
+    return this.spectrum.getSpectrumDigest();
   }
 
   // universeDigest — the root of the incremental 2^24 merkle over asset holdings. A deleted holding's leaf goes
@@ -1289,15 +1225,7 @@ export class Sim {
   // The merkle proof for an entity: its leaf index + the 24 sibling hashes from the leaf to the spectrum root.
   // A client recomputes the root from (EntityRecord, index, siblings) and checks it against spectrumDigest.
   spectrumProof(id: Uint8Array): { record: Uint8Array; index: number; siblings: Uint8Array[] } {
-    this.spectrumDigest(); // flush pending leaf updates so the tree reflects the current state
-    const k = this.key(id);
-    const record = this.entityRecord(k);
-    const index = this.spectrumIdx.get(k);
-    if (index === undefined || !this.spectrumTree) {
-      return { record, index: -1, siblings: [] };
-    }
-
-    return { record, index, siblings: this.spectrumTree.siblings(index) };
+    return this.spectrum.spectrumProof(id);
   }
 
   // Produce + store this tick's quorum record. The leader (computor[tick % N]) packs the tick's per-tx digests
@@ -1371,12 +1299,6 @@ export class Sim {
   signedComputorList(slotCount?: number): Uint8Array {
     return this.getCommittee().signedComputorList(this.epochN, slotCount);
   }
-}
-
-function hexToBytes32(hex: string): Uint8Array {
-  const out = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
 }
 
 // A 48-byte AssetRecord (ownership type=2 / possession type=3 variant): publicKey(32) type(1) padding(1)
