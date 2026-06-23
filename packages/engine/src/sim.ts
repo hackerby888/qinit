@@ -12,11 +12,13 @@ import { SpectrumLedger } from "./spectrum";
 import { OracleManager } from "./oracle";
 import { AssetLedger, type AssetSnapshot } from "./assets";
 import { TickConsensus, type TickRecord } from "./ticking";
+import { TxPool, type TxRecord } from "./txs";
 import type { DebugTrace } from "@qinit/core";
 
 export type { AssetSnapshot };
 export type { FeeMode } from "./fees";
 export type { TickRecord } from "./ticking";
+export type { TxRecord } from "./txs";
 
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
 const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
@@ -47,33 +49,12 @@ const CONTRACT_COUNT = 1024; // MAX_NUMBER_OF_CONTRACTS — valid contract indic
 
 const INVALID_PROPOSAL_INDEX = 0xffff; // qpi.h:1847 — setShareholderProposal's error sentinel
 
-export interface TxRecord {
-  txId: string;
-  tick: number;
-  source: string; // hex id
-  dest: string; // hex id
-  amount: bigint;
-  inputType: number;
-  moneyFlew: boolean;
-  digest: Uint8Array; // K12(full signed tx) — the tick's TickData transactionDigests entry
-}
-
 export interface ProcedureOpts {
   invocator?: Uint8Array; // 32-byte id of the caller (tx source)
   originator?: Uint8Array; // 32-byte id of the root initiator
   reward?: bigint; // invocationReward (Qu sent with the tx)
 }
 
-// A broadcast tx awaiting its scheduled tick (mempool mode). Holds the decoded applyTx arguments.
-interface QueuedTx {
-  source: Uint8Array;
-  dest: Uint8Array;
-  amount: bigint;
-  inputType: number;
-  payload: Uint8Array;
-  txId: string;
-  digest: Uint8Array; // K12(full signed tx)
-}
 
 
 export class Sim {
@@ -87,15 +68,13 @@ export class Sim {
   private oracle: OracleManager; // oracle queries + subscriptions (the query/reply are opaque bytes)
   private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
   private assets = new AssetLedger({ contractId: (slot) => this.contractId(slot) }); // the asset universe + merkle
-  private txByTick = new Map<number, TxRecord[]>();
-  private txById = new Map<string, TxRecord>();
+  private txpool = new TxPool(); // per-tick tx history + tx-by-id index + the mempool
   private callDepth = 0; // inter-contract nesting depth
   private recorder = new TraceRecorder(); // debug-trace capture (opt-in via setDebug)
   private ticking: TickConsensus; // committee + per-tick quorum votes/TickData + the prev*Digest roots
   tickDuration = 50; // ms/tick surfaced to clients; set by the server to match its auto-tick interval
   timeBaseMs = Date.UTC(2024, 0, 1); // chain clock origin (tick 0); the chain clock = timeBaseMs + tick*tickDuration
   private mempoolMode: boolean; // when true, broadcast txs are deferred to their scheduled tick (opt-in)
-  private mempool = new Map<number, QueuedTx[]>(); // scheduled tick -> txs awaiting that tick
   private fees: FeeManager; // per-contract execution-fee reserves + the fee-mode policy
 
   constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean; fees?: FeeMode; defaultReserve?: bigint } = {}) {
@@ -721,7 +700,7 @@ export class Sim {
     }
     // dest is a plain user identity: the debit/credit above is the whole transfer.
 
-    this.recordTx({ txId, tick, source: this.key(source), dest: this.key(dest), amount, inputType, moneyFlew, digest });
+    this.txpool.record({ txId, tick, source: this.key(source), dest: this.key(dest), amount, inputType, moneyFlew, digest });
     return { moneyFlew };
   }
 
@@ -734,47 +713,24 @@ export class Sim {
       return { moneyFlew: r.moneyFlew, queued: false };
     }
 
-    let q = this.mempool.get(scheduledTick);
-    if (!q) {
-      q = [];
-      this.mempool.set(scheduledTick, q);
-    }
-
-    q.push({ source, dest, amount, inputType, payload, txId, digest });
+    this.txpool.queue(scheduledTick, { source, dest, amount, inputType, payload, txId, digest });
     return { moneyFlew: false, queued: true };
   }
 
   // Apply the txs scheduled for the current tick (mempool mode), recording them under it.
   private drainMempool(): void {
-    const q = this.mempool.get(this.tickN);
-    if (!q) {
-      return;
-    }
-
-    this.mempool.delete(this.tickN);
-    for (const t of q) {
+    for (const t of this.txpool.takeDue(this.tickN)) {
       this.applyTx(t.source, t.dest, t.amount, t.inputType, t.payload, t.txId, t.digest);
     }
   }
 
-  // ---- tickdata (lite: per-tick tx history + tx-by-id) ----
-  private recordTx(r: TxRecord): void {
-    let list = this.txByTick.get(r.tick);
-    if (!list) {
-      list = [];
-      this.txByTick.set(r.tick, list);
-    }
-
-    list.push(r);
-    this.txById.set(r.txId, r);
-  }
-
+  // ---- tickdata (the per-tick history + tx-by-id live in TxPool; these stay on the façade) ----
   tickTransactions(tick: number): TxRecord[] {
-    return this.txByTick.get(tick) ?? [];
+    return this.txpool.tickTransactions(tick);
   }
 
   txByHash(txId: string): TxRecord | undefined {
-    return this.txById.get(txId);
+    return this.txpool.txByHash(txId);
   }
 
   digest(slot: number): string {
@@ -802,7 +758,7 @@ export class Sim {
 
 
   txCount(): number {
-    return this.txById.size;
+    return this.txpool.size;
   }
 
   // computerDigest — the faithful K12 merkle over MAX_NUMBER_OF_CONTRACTS contract-state leaves (leaf =
