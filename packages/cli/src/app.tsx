@@ -47,6 +47,9 @@ export function App({ command, args }: { command: string; args: string[] }) {
   return <ErrorBoundary>{route(command, args)}</ErrorBoundary>;
 }
 
+// Commands that were removed/renamed — point the old name at its replacement instead of a fuzzy "did you mean".
+const REMOVED: Record<string, string> = { up: "node run" };
+
 function route(command: string, args: string[]): ReactNode {
   // Per-command help: `qinit <cmd> --help` / `-h` shows that command's usage + flags.
   const canon = command === "cheat" || command === "--cheat-sheet" ? "cheat-sheet"
@@ -112,6 +115,6 @@ function route(command: string, args: string[]): ReactNode {
     case "-h":
       return <Help />;
     default:
-      return <Help unknown={!command.startsWith("-")} command={command} suggestion={nearest(command, COMMANDS)} />;
+      return <Help unknown={!command.startsWith("-")} command={command} suggestion={REMOVED[command] ?? nearest(command, COMMANDS)} />;
   }
 }
