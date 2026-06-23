@@ -88,6 +88,7 @@ export interface HostServices {
   tick(): number;
   epoch(): number;
   nowMs(): number;
+  numberOfTickTransactions(): number;
   markDirty(slot: number): void;
   log(slot: number, level: number, msg: Uint8Array): void;
   transfer(slot: number, dest: Uint8Array, amount: bigint, transferType: number): bigint;
@@ -372,7 +373,7 @@ export class Contract {
       // time / tick (read-only)
       epoch: () => this.host.epoch() & 0xffff,
       tick: () => this.host.tick() >>> 0,
-      numberOfTickTransactions: () => 0,
+      numberOfTickTransactions: () => this.host.numberOfTickTransactions(),
       // qpi date/time: derived from the chain clock (year is the qubic 2-digit form, year - 2000, like
       // QpiContextFunctionCall::year). now() (the packed 8-byte DateAndTime) is left zero — contracts read the
       // individual accessors.

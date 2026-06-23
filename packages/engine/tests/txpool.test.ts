@@ -37,3 +37,18 @@ test("mempool: queue holds txs per scheduled tick; takeDue removes + returns the
   expect(p.takeDue(10)).toEqual([]); // drained — taking again yields nothing
   expect(p.takeDue(11).map((t) => t.txId)).toEqual(["c"]);
 });
+
+test("dueCount peeks a tick's pending tx-set size without draining it (qpi numberOfTickTransactions)", () => {
+  const p = new TxPool();
+  p.queue(10, qtx("a"));
+  p.queue(10, qtx("b"));
+  p.queue(11, qtx("c"));
+
+  expect(p.dueCount(9)).toBe(0); // nothing scheduled
+  expect(p.dueCount(10)).toBe(2);
+  expect(p.dueCount(11)).toBe(1);
+  expect(p.dueCount(10)).toBe(2); // non-destructive — a peek, not a drain
+
+  p.takeDue(10);
+  expect(p.dueCount(10)).toBe(0); // drained
+});

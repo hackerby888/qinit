@@ -45,6 +45,26 @@ test("mempool mode: a tx applies + is recorded at its scheduled tick, not before
   expect(recs[0].txId).toBe("tx-sched"); // recorded under the scheduled tick (what checktxontick queries)
 });
 
+test("mempool mode: numberOfTickTransactions reports the scheduled tick's tx-set size", async () => {
+  await initK12();
+  const sim = new Sim({ mempool: true });
+  sim.deploy(28, await wasm("Counter"));
+
+  const scheduled = sim.tickN + 2;
+  sim.enqueueTx(scheduled, new Uint8Array(32).fill(0x11), contractId(28), 0n, INC, EMPTY, "a");
+  sim.enqueueTx(scheduled, new Uint8Array(32).fill(0x22), contractId(28), 0n, INC, EMPTY, "b");
+
+  while (sim.tickN < scheduled) {
+    sim.advance();
+  }
+
+  // beginTick of the scheduled tick fixed the count to its 2-tx batch (qpi numberOfTickTransactions)
+  expect(sim.host.numberOfTickTransactions()).toBe(2);
+
+  sim.advance(); // a following tick with no scheduled txs reports zero
+  expect(sim.host.numberOfTickTransactions()).toBe(0);
+});
+
 test("mempool mode: a tx scheduled for a past/current tick applies immediately", async () => {
   await initK12();
   const sim = new Sim({ mempool: true });

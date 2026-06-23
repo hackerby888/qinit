@@ -65,6 +65,12 @@ export class TxPool {
     q.push(tx);
   }
 
+  // The number of txs scheduled for `tick` still in the mempool — peeked without draining. The tick's pending
+  // tx-set size, read at the start of the tick as qpi numberOfTickTransactions.
+  dueCount(tick: number): number {
+    return this.mempool.get(tick)?.length ?? 0;
+  }
+
   // Remove + return the txs scheduled for `tick` (drained by the orchestrator each advance).
   takeDue(tick: number): QueuedTx[] {
     const q = this.mempool.get(tick);

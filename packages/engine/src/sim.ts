@@ -69,6 +69,7 @@ export class Sim {
   private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
   private assets = new AssetLedger({ contractId: (slot) => this.contractId(slot) }); // the asset universe + merkle
   private txpool = new TxPool(); // per-tick tx history + tx-by-id index + the mempool
+  private tickTxCount = 0; // txs in the current tick (qpi numberOfTickTransactions); set at beginTick from the mempool batch
   private callDepth = 0; // inter-contract nesting depth
   private recorder = new TraceRecorder(); // debug-trace capture (opt-in via setDebug)
   private ticking: TickConsensus; // committee + per-tick quorum votes/TickData + the prev*Digest roots
@@ -106,6 +107,7 @@ export class Sim {
       tick: () => this.tickN,
       epoch: () => this.epochN,
       nowMs: () => this.nowMs(),
+      numberOfTickTransactions: () => this.tickTxCount,
       markDirty: (slot) => this.dirty.add(slot),
       log: (_slot, level, msg) => this.recorder.log(level, msg),
       transfer: (slot, dest, amount, type) => this.doTransfer(slot, dest, amount, type),
@@ -473,6 +475,8 @@ export class Sim {
   // it is refilled.
   beginTick(): void {
     this.tickN++;
+    this.tickTxCount = this.txpool.dueCount(this.tickN); // the tick's tx-set size, fixed before BEGIN_TICK (core-lite numberTickTransactions)
+
     for (const s of this.registry.slots(true)) {
       // BEGIN_TICK: ascending 1->N
       const c = this.contracts.get(s)!;
