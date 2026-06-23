@@ -15,6 +15,7 @@ import {
 import { AssetRecord, ASSET_RECORD_SIZE } from "./wire";
 import { FeeManager, type FeeMode } from "./fees";
 import { SpectrumLedger } from "./spectrum";
+import { OracleManager } from "./oracle";
 import type { DebugTrace } from "@qinit/core";
 
 export type { FeeMode } from "./fees";
@@ -32,34 +33,6 @@ const TT_STANDARD = 0;
 const TT_PROCEDURE = 1;
 const TT_QPI = 2;
 const TT_PROCEDURE_BY_OTHER_CONTRACT = 6;
-
-// network_messages/common_def.h ORACLE_QUERY_STATUS_* — the contract-observable lifecycle of an oracle query.
-const ORACLE_STATUS = { UNKNOWN: 0, PENDING: 1, COMMITTED: 2, SUCCESS: 3, TIMEOUT: 4, UNRESOLVABLE: 5 };
-const ORACLE_NOTIFY_HEADER = 16; // OracleNotificationInput: queryId(8) subscriptionId(4) status(1) pad(3), then reply
-
-interface OracleQueryRec {
-  id: bigint;
-  slot: number;
-  interfaceIndex: number;
-  query: Uint8Array;
-  status: number;
-  reply: Uint8Array | null;
-  notificationProcId: number;
-  subscriptionId: number; // -1 for a one-time query
-}
-
-interface OracleSubRec {
-  id: number;
-  slot: number;
-  interfaceIndex: number;
-  query: Uint8Array;
-  periodMs: number;
-  notificationProcId: number;
-  notifyPrev: boolean;
-  lastReply: Uint8Array | null;
-  fee: bigint;
-  nextDueMs: number;
-}
 
 const EP_USER_FUNCTION = 12; // contract_def.h USER_FUNCTION_CALL (contractSystemProcedureCount=10, +2)
 const MAX_CALL_DEPTH = 10; // NUMBER_OF_CONTRACT_EXECUTION_BUFFERS (recursion-depth guard)
@@ -169,11 +142,7 @@ export class Sim {
   private universeIdx = new Map<string, number>(); // assetKey\0holdingKey -> stable leaf index
   private universeDirty = new Set<string>(); // holdings whose leaf changed since the last digest
   private lastDigests: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } = { spectrum: ZERO32, universe: ZERO32, computer: ZERO32 }; // previous tick's committed roots (qpi prev*Digest)
-  private oracleQueries = new Map<bigint, OracleQueryRec>(); // queryId -> query state (opaque query/reply bytes)
-  private oracleSubs = new Map<number, OracleSubRec>(); // subscriptionId -> recurring subscription
-  private oracleNextQueryId = 1n;
-  private oracleNextSubId = 0;
-  private oracleProvider: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null = null;
+  private oracle: OracleManager; // oracle queries + subscriptions (the query/reply are opaque bytes)
   private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
   private assets = new Map<string, AssetRec>(); // universe: assetKey -> issuance + holdings
   private txByTick = new Map<number, TxRecord[]>();
@@ -193,6 +162,15 @@ export class Sim {
     this.consensusOpts = opts.consensus ?? {};
     this.mempoolMode = opts.mempool ?? false;
     this.fees = new FeeManager(opts.fees ?? "off", opts.defaultReserve);
+    this.oracle = new OracleManager({
+      contractBalance: (slot) => this.balance(this.contractId(slot)),
+      debitContract: (slot, amount) => this.debit(this.contractId(slot), amount),
+      notify: (slot, procId, input) => {
+        const self = this.contractId(slot);
+        this.runProcedure(slot, procId, input, self, self, 0n);
+      },
+      nowMs: () => this.nowMs(),
+    });
     this.host = {
       tick: () => this.tickN,
       epoch: () => this.epochN,
@@ -217,15 +195,12 @@ export class Sim {
       ipoBidPrice: (_ci, i) => (i >= 0 && i < IPO_SHARE_COUNT ? IPO_SHARE_PRICE : -3n), // -3 = invalid bid index (qpi.h)
       computeMiningFunction: () => ZERO32, // mining is not modeled in the dev engine
       initMiningSeed: () => {},
-      getOracleQueryStatus: (queryId) => this.oracleQueries.get(queryId)?.status ?? ORACLE_STATUS.UNKNOWN,
-      unsubscribeOracle: (sub) => this.doUnsubscribeOracle(sub),
-      queryOracle: (slot, ifaceIdx, query, procId, timeout, fee) => this.doQueryOracle(slot, ifaceIdx, query, procId, timeout, fee, -1),
-      subscribeOracle: (slot, ifaceIdx, query, procId, period, notifyPrev, fee) => this.doSubscribeOracle(slot, ifaceIdx, query, procId, period, notifyPrev, fee),
-      getOracleQuery: (queryId) => this.oracleQueries.get(queryId)?.query ?? null,
-      getOracleReply: (queryId) => {
-        const q = this.oracleQueries.get(queryId);
-        return q && q.status === ORACLE_STATUS.SUCCESS ? q.reply : null;
-      },
+      getOracleQueryStatus: (queryId) => this.oracle.queryStatus(queryId),
+      unsubscribeOracle: (sub) => this.oracle.unsubscribe(sub),
+      queryOracle: (slot, ifaceIdx, query, procId, timeout, fee) => this.oracle.query(slot, ifaceIdx, query, procId, timeout, fee, -1),
+      subscribeOracle: (slot, ifaceIdx, query, procId, period, notifyPrev, fee) => this.oracle.subscribe(slot, ifaceIdx, query, procId, period, notifyPrev, fee),
+      getOracleQuery: (queryId) => this.oracle.getQuery(queryId),
+      getOracleReply: (queryId) => this.oracle.getReply(queryId),
       isContractId: (id) => (this.contractSlotOf(id) >= 0 ? 1 : 0),
       arbitrator: () => this.getCommittee().arbitrator.publicKey,
       computor: (i) => this.getCommittee().computors[i % this.committeeSize()]?.publicKey ?? ZERO32,
@@ -751,7 +726,7 @@ export class Sim {
     }
     this.beginTick();
     this.drainMempool();
-    this.pumpOracle();
+    this.oracle.pump();
     this.endTick();
     this.finalizeTick();
   }
@@ -769,115 +744,18 @@ export class Sim {
     return this.fire(c, KIND.PROCEDURE, it, input, { invocator, originator, invocationReward: reward, entryPoint: EP_USER_PROCEDURE });
   }
 
-  // ---- oracle (interface-agnostic: the query/reply are opaque bytes, the contract owns the typing) ----
-
-  // Start a one-time query (__qpiQueryOracle): burn the fee, record it PENDING, return the queryId. A provider
-  // (if set) resolves it on the next advance(); otherwise resolveOracle() supplies the reply.
-  private doQueryOracle(slot: number, interfaceIndex: number, query: Uint8Array, notificationProcId: number, _timeoutMillisec: number, fee: bigint, subscriptionId: number): bigint {
-    if (!this.chargeOracleFee(slot, fee)) {
-      return -1n;
-    }
-
-    const id = this.oracleNextQueryId++;
-    this.oracleQueries.set(id, { id, slot, interfaceIndex, query: query.slice(), status: ORACLE_STATUS.PENDING, reply: null, notificationProcId, subscriptionId });
-    return id;
-  }
-
-  // Start a recurring subscription (__qpiSubscribeOracle): emit the first query now, then re-emit each periodMs.
-  private doSubscribeOracle(slot: number, interfaceIndex: number, query: Uint8Array, notificationProcId: number, periodMillisec: number, notifyPrev: boolean, fee: bigint): number {
-    const id = this.oracleNextSubId++;
-    const sub: OracleSubRec = { id, slot, interfaceIndex, query: query.slice(), periodMs: periodMillisec, notificationProcId, notifyPrev, lastReply: null, fee, nextDueMs: this.nowMs() + periodMillisec };
-    this.oracleSubs.set(id, sub);
-    this.emitSubscriptionQuery(sub);
-    return id;
-  }
-
-  private doUnsubscribeOracle(subscriptionId: number): number {
-    return this.oracleSubs.delete(subscriptionId) ? 1 : 0;
-  }
-
-  // The query fee is destroyed (decreaseEnergy, not added to any reserve), like the node. False if unaffordable.
-  private chargeOracleFee(slot: number, fee: bigint): boolean {
-    if (fee < 0n) {
-      return false;
-    }
-
-    const cur = this.contractId(slot);
-    if (this.balance(cur) < fee) {
-      return false;
-    }
-    if (fee > 0n) {
-      this.debit(cur, fee);
-    }
-    return true;
-  }
-
-  private emitSubscriptionQuery(sub: OracleSubRec): bigint {
-    const id = this.doQueryOracle(sub.slot, sub.interfaceIndex, sub.query, sub.notificationProcId, 0, sub.fee, sub.id);
-    if (id >= 0n && sub.notifyPrev && sub.lastReply) {
-      this.fireOracleNotification(this.oracleQueries.get(id)!, sub.lastReply, ORACLE_STATUS.SUCCESS);
-    }
-    return id;
-  }
+  // ---- oracle (OracleManager owns the queries/subscriptions; these stay on the façade for the public API) ----
 
   // Public resolve seam: the dev/test (or a node-mode oracle-machine adapter) supplies a query's reply, which
   // sets it SUCCESS and fires the contract's notification procedure. False for an unknown queryId.
-  resolveOracle(queryId: bigint, reply: Uint8Array, status: number = ORACLE_STATUS.SUCCESS): boolean {
-    const q = this.oracleQueries.get(queryId);
-    if (!q) {
-      return false;
-    }
-
-    q.status = status;
-    q.reply = reply.slice();
-    const sub = q.subscriptionId >= 0 ? this.oracleSubs.get(q.subscriptionId) : undefined;
-    if (sub) {
-      sub.lastReply = q.reply;
-    }
-
-    this.fireOracleNotification(q, q.reply, status);
-    return true;
+  resolveOracle(queryId: bigint, reply: Uint8Array, status?: number): boolean {
+    return status === undefined ? this.oracle.resolve(queryId, reply) : this.oracle.resolve(queryId, reply, status);
   }
 
   // Register a reply provider (interfaceIndex, query) -> reply | null. Pending queries auto-resolve through it on
   // advance(). This is the mock/browser path; a real oracle-machine fetch plugs in behind this same seam.
   setOracleProvider(fn: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null): void {
-    this.oracleProvider = fn;
-  }
-
-  // Build OracleNotificationInput { queryId(8) subscriptionId(4) status(1) pad(3) reply } and run the contract's
-  // notification procedure (fired by its registered notification id; no reward, no PIT).
-  private fireOracleNotification(q: OracleQueryRec, reply: Uint8Array, status: number): void {
-    const buf = new Uint8Array(ORACLE_NOTIFY_HEADER + reply.length);
-    const dv = new DataView(buf.buffer);
-    dv.setBigInt64(0, q.id, true);
-    dv.setInt32(8, q.subscriptionId, true);
-    buf[12] = status & 0xff;
-    buf.set(reply, ORACLE_NOTIFY_HEADER);
-
-    const self = this.contractId(q.slot);
-    this.runProcedure(q.slot, q.notificationProcId, buf, self, self, 0n);
-  }
-
-  // Auto-resolve PENDING queries via the provider, then re-emit any due subscriptions. Called each advance().
-  private pumpOracle(): void {
-    if (this.oracleProvider) {
-      const pending = [...this.oracleQueries.values()].filter((q) => q.status === ORACLE_STATUS.PENDING);
-      for (const q of pending) {
-        const reply = this.oracleProvider(q.interfaceIndex, q.query);
-        if (reply) {
-          this.resolveOracle(q.id, reply);
-        }
-      }
-    }
-
-    const now = this.nowMs();
-    for (const sub of [...this.oracleSubs.values()]) {
-      if (this.oracleSubs.has(sub.id) && now >= sub.nextDueMs) {
-        this.emitSubscriptionQuery(sub);
-        sub.nextDueMs += sub.periodMs;
-      }
-    }
+    this.oracle.setProvider(fn);
   }
 
   // Inter-contract function call (liteCallFunction) — route to whatever Contract is at calleeIdx (a user
