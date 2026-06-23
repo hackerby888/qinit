@@ -62,6 +62,20 @@ export function dateFields(ms: number): { year: number; month: number; day: numb
   };
 }
 
+// Pack the chain clock into the qubic 8-byte DateAndTime (qpi.h DateAndTime::set): the full year at bit 46, then
+// month/day/hour/minute/second/millisecond; the microsecond field (bits 0-9) is not modeled. now() writes this as
+// a little-endian uint64. The year is the full form (etalonTick.year + 2000), matching DateAndTime::now().
+export function packDateAndTime(ms: number): bigint {
+  const t = dateFields(ms);
+  return (BigInt(t.year + 2000) << 46n)
+    | (BigInt(t.month) << 42n)
+    | (BigInt(t.day) << 37n)
+    | (BigInt(t.hour) << 32n)
+    | (BigInt(t.minute) << 26n)
+    | (BigInt(t.second) << 20n)
+    | (BigInt(t.milli) << 10n);
+}
+
 // Spectrum entity record — mirrors QPI::Entity (qpi.h:1615): publicKey + incoming/outgoing amounts, transfer
 // counts, latest transfer ticks. balance = incomingAmount - outgoingAmount.
 export interface Entity {
@@ -364,9 +378,9 @@ export class Contract {
       epoch: () => this.host.epoch() & 0xffff,
       tick: () => this.host.tick() >>> 0,
       numberOfTickTransactions: () => this.host.numberOfTickTransactions(),
-      // qpi date/time: derived from the chain clock (year is the qubic 2-digit form, year - 2000, like
-      // QpiContextFunctionCall::year). now() (the packed 8-byte DateAndTime) is left zero — contracts read the
-      // individual accessors.
+      // qpi date/time: derived from the chain clock. The individual accessors return the qubic 2-digit year
+      // (year - 2000, like QpiContextFunctionCall::year); now() packs the 8-byte DateAndTime with the full year
+      // (DateAndTime::now() = etalonTick.year + 2000).
       day: () => dateFields(this.host.nowMs()).day,
       year: () => dateFields(this.host.nowMs()).year,
       hour: () => dateFields(this.host.nowMs()).hour,
@@ -374,7 +388,9 @@ export class Contract {
       month: () => dateFields(this.host.nowMs()).month,
       second: () => dateFields(this.host.nowMs()).second,
       millisecond: () => dateFields(this.host.nowMs()).milli,
-      now: (out: number) => u8().fill(0, out, out + 8),
+      now: (out: number) => {
+        new DataView(this.mem.buffer).setBigUint64(out, packDateAndTime(this.host.nowMs()), true);
+      },
       // etalon-tick digests — the previous tick's committed state roots
       prevSpectrumDigest: (out: number) => u8().set(this.host.prevSpectrumDigest().subarray(0, 32), out),
       prevUniverseDigest: (out: number) => u8().set(this.host.prevUniverseDigest().subarray(0, 32), out),
