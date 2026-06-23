@@ -45,6 +45,11 @@ export class EngineServer {
           if (path === "/live/v1/dyn-registry") return json(await eng.dynRegistry());
           if (path === "/live/v1/dyn-upload") return json(await eng.dynUpload());
           if (path === "/live/v1/dev/funded-seed") return json({ seed: await eng.fundedSeed() });
+          if (path === "/live/v1/dev/funded-seeds") return json(await eng.fundedSeeds(Number(q.get("limit") ?? 32)));
+          if (path === "/live/v1/dev/epoch-info") return json(eng.epochInfo());
+          if (path === "/live/v1/dev/advance-tick") return json(eng.advanceTickN(Number(q.get("n") ?? 1)));
+          if (path === "/live/v1/dev/advance-to-last") return json(eng.advanceToLast(Number(q.get("gap") ?? 3)));
+          if (path === "/live/v1/dev/advance-epoch") return json(eng.advanceEpoch());
           if (path === "/live/v1/dev/debug") return json(await eng.setDebug(q.get("on") === "1"));
           if (path === "/live/v1/debug-trace") return json(await eng.debugTrace());
           if (path === "/live/v1/dev/state-read") {
@@ -76,7 +81,10 @@ export class EngineServer {
             const out = await eng.querySmartContract(Number(body.contractIndex), Number(body.inputType), input);
             return json({ responseData: Buffer.from(out).toString("base64") });
           }
-          if (path === "/live/v1/dev/contract-source" && req.method === "POST") return json({ ok: true });
+          if (path === "/live/v1/dev/contract-source" && req.method === "POST") {
+            await eng.putContractSource(Number(q.get("slot")), await req.text());
+            return json({ ok: true });
+          }
           return json({ code: 404, message: "no engine route: " + path }, 404);
         } catch (e: any) {
           return json({ code: 500, message: String(e?.message ?? e) }, 500);

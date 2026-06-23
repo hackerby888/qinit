@@ -5,12 +5,12 @@
 import type {
   NodeTransport, TxStatus, StateRead, TickInfo, DynRegistry, DynContract, DynEntry, DynUpload, DebugTrace, BroadcastResult, EntityInfo, TxInfo,
 } from "@qinit/core";
-import { bytesToIdentity, identityToBytes, deriveIdentity } from "@qinit/core";
+import { bytesToIdentity, identityToBytes } from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX } from "@qinit/proto";
 import { Sim, type AssetSnapshot, type FeeMode } from "./sim";
 import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
-import { k12Bytes, toHex, verifySync } from "./k12";
+import { k12Bytes, toHex, verifySync, deriveKeysSync } from "./k12";
 import { Transaction } from "./wire";
 
 interface SlotMeta { name: string; codeHash: string; version: number; }
@@ -24,6 +24,8 @@ export class InProcessEngine implements NodeTransport {
   private upload: UploadSession | null = null;
   private sources = new Map<number, string>(); // deployed .h source per slot (for callee auto-resolution)
   private rawTxs = new Map<string, Uint8Array>(); // hex(K12(tx body)) -> raw tx bytes (peer REQUEST_TRANSACTION_INFO)
+  private _pool: string[] | null = null; // memoized funded-seed pool (see fundedPool)
+  private static readonly POOL_SIZE = 16; // funded dev seeds the virtual node exposes via /dev/funded-seeds
 
   private verifySigs: boolean;
 
@@ -63,6 +65,49 @@ export class InProcessEngine implements NodeTransport {
       this.sim.advance();
     }
     return this.sim.tickN;
+  }
+
+  // Current-epoch tick window (the node's /live/v1/dev/epoch-info). Sim switches epoch when (tickN+1) crosses a
+  // multiple of epochLength, so epoch k spans ticks [k·L, (k+1)·L − 1].
+  epochInfo(): { epoch: number; tick: number; initialTick: number; epochLastTick: number; ticksLeft: number; duration: number } {
+    const L = this.sim.epochLength;
+    const tick = this.sim.tickN;
+    const epoch = this.sim.epochN;
+    const initialTick = L > 0 ? epoch * L : 0;
+    const epochLastTick = L > 0 ? (epoch + 1) * L - 1 : tick;
+    return { epoch, tick, initialTick, epochLastTick, ticksLeft: Math.max(0, epochLastTick - tick), duration: L };
+  }
+
+  // Advance up to n ticks, capped at the epoch's last tick (tick-advance never crosses an epoch; use advanceEpoch).
+  advanceTickN(n: number): { from: number; requested: number; target: number; reached: number; epochLastTick: number; cappedAtEpochEnd: boolean } {
+    const from = this.sim.tickN;
+    const epochLastTick = this.epochInfo().epochLastTick;
+    const target = Math.min(from + Math.max(0, n), epochLastTick);
+    this.advanceTick(Math.max(0, target - from));
+    return { from, requested: n, target, reached: this.sim.tickN, epochLastTick, cappedAtEpochEnd: from + n > epochLastTick };
+  }
+
+  // Advance to (epochLastTick − gap) — the pre-transition resting point.
+  advanceToLast(gap = 3): { from: number; target: number; reached: number; epochLastTick: number; epoch: number } {
+    const from = this.sim.tickN;
+    const epochLastTick = this.epochInfo().epochLastTick;
+    const target = Math.max(from, epochLastTick - Math.max(0, gap));
+    this.advanceTick(Math.max(0, target - from));
+    return { from, target, reached: this.sim.tickN, epochLastTick, epoch: this.sim.epochN };
+  }
+
+  // Cross into the next epoch: advance to the boundary tick, which triggers endEpoch/epochN++/beginEpoch.
+  advanceEpoch(): { fromEpoch: number; toEpoch: number; fromTick: number; tick: number; initialTick: number; switched: boolean } {
+    const fromEpoch = this.sim.epochN;
+    const fromTick = this.sim.tickN;
+    const L = this.sim.epochLength;
+    if (L > 0) {
+      // advance to the next tick that is a multiple of L (where Sim.advance switches the epoch) — derived from
+      // tickN, not epochN, so it stays correct even if epochLength was changed mid-run.
+      this.advanceTick((Math.floor(fromTick / L) + 1) * L - fromTick);
+    }
+    const toEpoch = this.sim.epochN;
+    return { fromEpoch, toEpoch, fromTick, tick: this.sim.tickN, initialTick: L > 0 ? toEpoch * L : 0, switched: toEpoch > fromEpoch };
   }
 
   async tickInfo(): Promise<TickInfo> {
@@ -207,8 +252,34 @@ export class InProcessEngine implements NodeTransport {
     return { off, len, stateSize: st.length, hex: toHex(st.slice(off, off + len)) };
   }
 
+  // Deterministic, reproducible pool of funded dev seeds — mirrors the real node, whose /dev/funded-seeds
+  // returns its (funded) computor seeds. pool[0] is the universal default "a"*55 that every command falls back
+  // to; the rest are derived from K12 so the identities are stable across restarts. Built lazily (needs initK12).
+  fundedPool(): string[] {
+    if (this._pool) {
+      return this._pool;
+    }
+    const enc = new TextEncoder();
+    const seeds = ["a".repeat(55)];
+    for (let i = 1; i < InProcessEngine.POOL_SIZE; i++) {
+      const bytes = [...k12Bytes(enc.encode("qinit/funded-seed/" + i)), ...k12Bytes(enc.encode("qinit/funded-seed/" + i + "#"))];
+      let s = "";
+      for (let j = 0; j < 55; j++) {
+        s += String.fromCharCode(97 + (bytes[j] % 26)); // map each byte into a-z -> a valid 55-letter seed
+      }
+      seeds.push(s);
+    }
+    this._pool = seeds;
+    return seeds;
+  }
+
   async fundedSeed(): Promise<string | undefined> {
-    return "a".repeat(55);
+    return this.fundedPool()[0];
+  }
+
+  async fundedSeeds(limit = 32): Promise<{ seeds: string[]; count: number }> {
+    const pool = this.fundedPool();
+    return { seeds: pool.slice(0, Math.max(0, limit)), count: pool.length };
   }
 
   async putContractSource(slot: number, source: string): Promise<boolean> {
@@ -245,10 +316,11 @@ export class InProcessEngine implements NodeTransport {
     }));
   }
 
-  // Pre-fund the funded-seed identity so regular txs from seed accounts have balance (faucet).
+  // Pre-fund every funded-pool identity so regular txs from any picked seed have balance (faucet).
   async seedFaucet(amount = 1000000000000n): Promise<void> {
-    const { publicKeyHex } = await deriveIdentity("a".repeat(55));
-    this.sim.fund(hexToBytes(publicKeyHex), amount);
+    for (const seed of this.fundedPool()) {
+      this.sim.fund(deriveKeysSync(seed).publicKey, amount);
+    }
   }
 
   // Credit an identity directly (tests / IDE faucet).

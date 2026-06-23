@@ -5,7 +5,7 @@
 // engine/tests/server.test.ts but exercises the CLI glue (LiteRpc + @qinit/proto) instead of raw fetch.
 import { test, expect, beforeAll } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
-import { initK12, LiteRpc } from "@qinit/core";
+import { initK12, LiteRpc, deriveIdentity } from "@qinit/core";
 import { callFunction, invokeProcedure, TX_TICK_OFFSET } from "@qinit/proto";
 import { portFromRpc } from "../src/serve";
 
@@ -23,12 +23,12 @@ beforeAll(async () => {
 
 // Boot the same backend launchVirtualNode spawns (EngineServer over the in-process engine) with Counter armed,
 // on an ephemeral port; hand back the CLI's LiteRpc client + a stop fn.
-async function bootCounter(): Promise<{ rpc: LiteRpc; rpcBase: string; stop: () => void }> {
+async function bootCounter() {
   const wasm = new Uint8Array(await Bun.file(`${FIX}/Counter.wasm`).arrayBuffer());
   const srv = new EngineServer();
   srv.engine.deploy(SLOT, wasm);
   const h = await srv.start(0);
-  return { rpc: new LiteRpc(h.rpcBase), rpcBase: h.rpcBase, stop: h.stop };
+  return { rpc: new LiteRpc(h.rpcBase), rpcBase: h.rpcBase, stop: h.stop, engine: srv.engine };
 }
 
 test("portFromRpc: parses the port, defaults to 41841", () => {
@@ -80,6 +80,62 @@ test("invokeProcedure signs + broadcasts Inc; it processes and state advances", 
       }
     }
     expect(count).toBe(1n);
+  } finally {
+    stop();
+  }
+});
+
+test("funded-seeds returns a pool of spendable seeds (qinit seed)", async () => {
+  const { rpc, stop } = await bootCounter();
+  try {
+    const r = await rpc.fundedSeeds(32);
+    expect(r.count).toBe(16);
+    expect(r.seeds[0]).toBe(SEED); // pool[0] = the universal default "a"*55
+    // every returned seed must be a real, funded account — not just listed
+    for (const seed of r.seeds) {
+      const { identity } = await deriveIdentity(seed);
+      const info = await rpc.balance(identity);
+      expect(BigInt(info.balance)).toBeGreaterThan(0n);
+    }
+  } finally {
+    stop();
+  }
+});
+
+test("epoch-info reports a coherent tick window (qinit tick / epoch)", async () => {
+  const { rpc, engine, stop } = await bootCounter();
+  try {
+    const e = await rpc.epochInfo();
+    expect(e.duration).toBe(engine.sim.epochLength);
+    expect(e.tick).toBeGreaterThanOrEqual(e.initialTick);
+    expect(e.tick).toBeLessThanOrEqual(e.epochLastTick);
+    expect(e.ticksLeft).toBe(e.epochLastTick - e.tick);
+  } finally {
+    stop();
+  }
+});
+
+test("advance-tick caps at the epoch's last tick (qinit tick advance)", async () => {
+  const { rpc, engine, stop } = await bootCounter();
+  try {
+    engine.sim.epochLength = 50; // keep the boundary near so the cap is reached without ticking 3000×
+    const e = await rpc.epochInfo();
+    const r = await rpc.advanceTick(10_000_000);
+    expect(r.cappedAtEpochEnd).toBe(true);
+    expect(r.reached).toBeLessThanOrEqual(e.epochLastTick);
+    expect(r.epochLastTick).toBe(e.epochLastTick);
+  } finally {
+    stop();
+  }
+});
+
+test("advance-epoch crosses into the next epoch (qinit epoch advance)", async () => {
+  const { rpc, engine, stop } = await bootCounter();
+  try {
+    engine.sim.epochLength = 10; // small window so the boundary is near
+    const r = await rpc.advanceEpoch();
+    expect(r.switched).toBe(true);
+    expect(r.toEpoch).toBe(r.fromEpoch + 1);
   } finally {
     stop();
   }
