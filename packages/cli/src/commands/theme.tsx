@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedTheme, setSavedTheme } from "../config";
 import { Header, Grad, GradLine, THEMES, THEME_NAMES, applyTheme, theme } from "../ui";
@@ -24,6 +24,14 @@ export function ThemeCmd({ args }: { args: string[] }) {
   const { exit } = useApp();
   const cur = savedTheme() && THEMES[savedTheme()!] ? savedTheme()! : "default";
   const [i, setI] = useState(Math.max(0, THEME_NAMES.indexOf(cur)));
+  // Selected index in a ref too: ink only re-subscribes useInput after React commits, so a fast arrow→↵ can
+  // hit the pre-move handler and save the previously-highlighted theme. The ref is updated synchronously in
+  // the same key event, so ↵ always reads where the cursor actually is.
+  const sel = useRef(i);
+  const move = (d: number): void => {
+    sel.current = (sel.current + d + THEME_NAMES.length) % THEME_NAMES.length;
+    setI(sel.current);
+  };
   const [msg, setMsg] = useState<string[]>([]);
   const [phase, setPhase] = useState<"pick" | "done">(o.name || o.show ? "done" : "pick");
   const add = (s: string) => setMsg((m) => [...m, s]);
@@ -42,9 +50,9 @@ export function ThemeCmd({ args }: { args: string[] }) {
   useInput((input, key) => {
     if (phase !== "pick") return;
     if (input === "q" || key.escape) { applyTheme(cur); exit(); }            // cancel -> restore saved
-    else if (key.upArrow) setI((p) => (p - 1 + THEME_NAMES.length) % THEME_NAMES.length);
-    else if (key.downArrow) setI((p) => (p + 1) % THEME_NAMES.length);
-    else if (key.return) { const name = THEME_NAMES[i]; setSavedTheme(name); applyTheme(name); add(`✓ theme saved: ${name}`); setPhase("done"); }
+    else if (key.upArrow) move(-1);
+    else if (key.downArrow) move(1);
+    else if (key.return) { const name = THEME_NAMES[sel.current]; setSavedTheme(name); applyTheme(name); add(`✓ theme saved: ${name}`); setPhase("done"); }
   }, { isActive: Boolean(process.stdin.isTTY) });
 
   return (

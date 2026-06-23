@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedMode, setSavedMode, NODE_MODES, type NodeMode } from "../config";
 import { Header, GradLine, theme } from "../ui";
@@ -30,6 +30,14 @@ export function ModeCmd({ args }: { args: string[] }) {
   const { exit } = useApp();
   const cur: NodeMode = savedMode() ?? "realnode";
   const [i, setI] = useState(Math.max(0, NODE_MODES.indexOf(cur)));
+  // Selected index in a ref too: ink only re-subscribes useInput after React commits, so a fast arrow→↵ can
+  // hit the pre-move handler and save the previously-highlighted mode. The ref is updated synchronously in the
+  // same key event, so ↵ always reads where the cursor actually is.
+  const sel = useRef(i);
+  const move = (d: number): void => {
+    sel.current = (sel.current + d + NODE_MODES.length) % NODE_MODES.length;
+    setI(sel.current);
+  };
   const [msg, setMsg] = useState<string[]>([]);
   const [phase, setPhase] = useState<"pick" | "done">(o.name || o.show ? "done" : "pick");
   const add = (s: string) => setMsg((m) => [...m, s]);
@@ -63,11 +71,11 @@ export function ModeCmd({ args }: { args: string[] }) {
     if (input === "q" || key.escape) {
       exit();
     } else if (key.upArrow) {
-      setI((p) => (p - 1 + NODE_MODES.length) % NODE_MODES.length);
+      move(-1);
     } else if (key.downArrow) {
-      setI((p) => (p + 1) % NODE_MODES.length);
+      move(1);
     } else if (key.return) {
-      const name = NODE_MODES[i];
+      const name = NODE_MODES[sel.current];
       setSavedMode(name);
       add(`✓ mode saved: ${name}`);
       setPhase("done");
