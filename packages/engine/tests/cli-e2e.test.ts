@@ -2,7 +2,7 @@
 // CI and machines without it skip. Each test stands up an in-process PeerServer on an ephemeral port, spawns
 // the CLI against it, and asserts its stdout.
 //   QUBIC_CLI=/path/to/qubic-cli bun test tests/cli-e2e.test.ts
-import { test, expect } from "bun:test";
+import { test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { initK12 } from "../src/k12";
 import { InProcessEngine } from "../src/transport";
@@ -42,6 +42,30 @@ async function serve(setup?: (e: InProcessEngine) => void | Promise<void>): Prom
   const server = new PeerServer(engine);
   return server.start(0);
 }
+
+// Does the external binary trust the engine's dev arbitrator? The CLI hardcodes its ARBITRATOR identity at
+// compile time (defines.h); the engine signs the computor list with its own dev arbitrator (DEFAULT_ARBITRATOR_
+// SEED). When they differ, the CLI prints "Computor list is NOT verified" and cannot verify a tick's leader
+// signature — so the signature-verify assertions are gated on a binary built with the matching arbitrator.
+let arbitratorTrusted = false;
+
+beforeAll(async () => {
+  if (!have) {
+    return;
+  }
+
+  const { port, stop } = await serve();
+  try {
+    const out = await runCli(port, ["-getcomputorlist", "/tmp/qinit-cli-probe.bin"]);
+    arbitratorTrusted = out.includes("Computor list is VERIFIED");
+  } finally {
+    stop();
+  }
+
+  if (!arbitratorTrusted) {
+    console.warn("[cli-e2e] binary ARBITRATOR != engine dev arbitrator — tick signature-verify assertions skipped (build qubic-cli with the dev arbitrator to exercise them)");
+  }
+});
 
 it("-getcurrenttick reports the tick + the quorum's aligned votes", async () => {
   const { port, stop } = await serve();
@@ -127,9 +151,11 @@ it("-gettickdata + -readtickdata verify the leader's signed TickData", async () 
     expect(got).toContain("written to");
 
     const read = await runCli(port, ["-readtickdata", tdFile, compFile]);
-    expect(read).toContain("Tick is VERIFIED"); // leader signature checks against computors[tick % N]
-    expect(read).toContain("Epoch: 1");
+    expect(read).toContain("Epoch: 1"); // the TickData parsed regardless of arbitrator trust
     expect(read).toMatch(/Tick: 3\b/);
+    if (arbitratorTrusted) {
+      expect(read).toContain("Tick is VERIFIED"); // leader signature checks against computors[tick % N]
+    }
   } finally {
     stop();
   }
@@ -161,8 +187,10 @@ it("a scheduled tx lands in its tick's TickData (-gettickdata finds it, -readtic
     expect(got).toContain(`Found 1 transactions in tick ${txTick}`);
 
     const read = await runCli(port, ["-readtickdata", tdFile, compFile]);
-    expect(read).toContain("Tick is VERIFIED");
-    expect(read).toContain("Total number of transaction digests: 1");
+    expect(read).toContain("Total number of transaction digests: 1"); // the tx landed in the tick regardless
+    if (arbitratorTrusted) {
+      expect(read).toContain("Tick is VERIFIED");
+    }
   } finally {
     stop();
   }
