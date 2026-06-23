@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, deriveIdentity } from "@qinit/core";
 import { savedSeed, setSavedSeed, clearSavedSeed, seedStorePath, loadConfig } from "../config";
@@ -19,6 +19,16 @@ export function Seed({ args }: { args: string[] }) {
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [i, setI] = useState(0);
+  // Selected index in a ref too: ink only re-subscribes useInput after React commits, so a fast arrow→↵ can hit
+  // the pre-move handler and save the previously-highlighted seed. The ref updates synchronously per key event.
+  const sel = useRef(0);
+  const move = (d: number): void => {
+    if (!items.length) {
+      return;
+    }
+    sel.current = (sel.current + d + items.length) % items.length;
+    setI(sel.current);
+  };
   const [msg, setMsg] = useState<string[]>([]);
   const [phase, setPhase] = useState<"load" | "pick" | "done" | "err">("load");
   const add = (s: string) => setMsg((m) => [...m, s]);
@@ -44,9 +54,9 @@ export function Seed({ args }: { args: string[] }) {
   useInput((input, key) => {
     if (phase !== "pick") return;
     if (input === "q" || key.escape) exit();
-    else if (key.upArrow) setI((p) => (p - 1 + items.length) % items.length);
-    else if (key.downArrow) setI((p) => (p + 1) % items.length);
-    else if (key.return) { const s = items[i]; try { setSavedSeed(s.seed); add("✓ saved → " + seedStorePath()); add("identity: " + s.id); } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); } setPhase("done"); }
+    else if (key.upArrow) move(-1);
+    else if (key.downArrow) move(1);
+    else if (key.return) { const s = items[sel.current]; try { setSavedSeed(s.seed); add("✓ saved → " + seedStorePath()); add("identity: " + s.id); } catch (e: any) { add("ERROR: " + String(e?.message ?? e)); } setPhase("done"); }
   }, { isActive: Boolean(process.stdin.isTTY) });
 
   const cur = savedSeed();
