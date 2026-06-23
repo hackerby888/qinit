@@ -4,15 +4,16 @@
 // just a tx to the contract address with inputType=procId + payload, exactly like qubic.cpp
 // processTickTransaction. Mirrors core-lite qpi_spectrum_impl.h / qpi_asset_impl.h.
 import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
-import { toHex, k12Bytes, verifySync } from "./k12";
+import { toHex, verifySync } from "./k12";
 import { TraceRecorder } from "./trace";
-import { Committee, type CommitteeOpts, merkleRoot, MAX_NUMBER_OF_CONTRACTS } from "./consensus";
+import { Committee, type CommitteeOpts } from "./consensus";
 import { FeeManager, type FeeMode } from "./fees";
 import { SpectrumLedger } from "./spectrum";
 import { OracleManager } from "./oracle";
 import { AssetLedger, type AssetSnapshot } from "./assets";
 import { TickConsensus, type TickRecord } from "./ticking";
 import { TxPool, type TxRecord } from "./txs";
+import { ContractRegistry } from "./registry";
 import type { DebugTrace } from "@qinit/core";
 
 export type { AssetSnapshot };
@@ -61,9 +62,8 @@ export class Sim {
   tickN = 0;
   epochN = 0;
   epochLength = 3000; // TESTNET_EPOCH_DURATION (core public_settings.h) — epoch switches when the tick crosses a multiple
-  contracts = new Map<number, Contract>();
-  dirty = new Set<number>();
   host: HostServices;
+  private registry: ContractRegistry; // deployed contracts (instances + state) + deploy/fire + the computer digest
   private spectrum = new SpectrumLedger(); // entity balance records + the spectrum merkle (spectrumDigest)
   private oracle: OracleManager; // oracle queries + subscriptions (the query/reply are opaque bytes)
   private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
@@ -80,6 +80,7 @@ export class Sim {
   constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean; fees?: FeeMode; defaultReserve?: bigint } = {}) {
     this.mempoolMode = opts.mempool ?? false;
     this.fees = new FeeManager(opts.fees ?? "off", opts.defaultReserve);
+    this.registry = new ContractRegistry(this.fees, this.recorder);
     this.ticking = new TickConsensus(
       {
         spectrumDigest: () => this.spectrumDigest(),
@@ -164,15 +165,14 @@ export class Sim {
     this.fees.ipo(slot, finalPrice);
   }
 
-  // Run a contract entry and, when metered, debit its measured cost from its own reserve. Every Sim-driven
-  // procedure / sysproc / callback goes through here; read-only function queries deliberately do not (they are
-  // never charged). Re-entrant frames each report their own lastCost, so nested calls are charged correctly.
-  private fire(c: Contract, kind: number, it: number, input: Uint8Array, ctx: { invocator?: Uint8Array; originator?: Uint8Array; invocationReward?: bigint; entryPoint?: number }): Uint8Array {
-    const out = c.invoke(kind, it, input, ctx);
-    if (this.fees.metered) {
-      this.fees.sub(c.slot, c.lastCost);
-    }
-    return out;
+  // The deployed contracts + the per-tick dirty set live in ContractRegistry; exposed for the transport/peer
+  // layers that read the slot map (e.g. registry size, per-slot lookups).
+  get contracts(): Map<number, Contract> {
+    return this.registry.contracts;
+  }
+
+  get dirty(): Set<number> {
+    return this.registry.dirty;
   }
 
   // ---- spectrum (the ledger lives in SpectrumLedger; these stay on the façade for the public API) ----
@@ -294,7 +294,7 @@ export class Sim {
     dv.setBigInt64(112, fee, true);
     dv.setUint16(120, otherSlot & 0xffff, true);
 
-    const out = this.fire(c, KIND.SYSPROC, spId, input, { entryPoint: spId });
+    const out = this.registry.fire(c, KIND.SYSPROC, spId, input, { entryPoint: spId });
     const odv = new DataView(out.buffer, out.byteOffset, out.byteLength);
     const allow = out.length >= 1 && out[0] !== 0; // PreManagementRightsTransfer_output { bool allowTransfer; sint64 requestedFee }
     const reqFee = out.length >= 16 ? odv.getBigInt64(8, true) : 0n;
@@ -433,30 +433,15 @@ export class Sim {
     // dormant contract so it can receive transfers) but still metered, since a state change costs the digest.
     this.pitDepth++;
     try {
-      this.fire(c, KIND.SYSPROC, SP.POST_INCOMING_TRANSFER, input, { entryPoint: SP.POST_INCOMING_TRANSFER });
+      this.registry.fire(c, KIND.SYSPROC, SP.POST_INCOMING_TRANSFER, input, { entryPoint: SP.POST_INCOMING_TRANSFER });
     } finally {
       this.pitDepth--;
     }
   }
 
-  private slots(asc: boolean): number[] {
-    return [...this.contracts.keys()].sort((a, b) => (asc ? a - b : b - a));
-  }
-
-  // Deploy + construct: node zeroes state then runs INITIALIZE (qubic.cpp contractProcessor INITIALIZE).
+  // Deploy + construct (ContractRegistry owns the instances); stays on the façade for the public API.
   deploy(slot: number, wasm: Uint8Array): Contract {
-    const c = Contract.load(wasm, slot, this.host);
-    c.trace = this.recorder;
-    c.metering = this.fees.metered;
-    this.contracts.set(slot, c);
-    c.zeroState();
-
-    // A metered contract is born funded (a successful IPO) unless its reserve was pre-set — so it can run out
-    // of the box; tests override with setFeeReserve/ipo. Construction (INITIALIZE) is exempt from the gate.
-    this.fees.seedOnDeploy(slot);
-
-    if (c.hasSysproc(SP.INITIALIZE)) this.fire(c, KIND.SYSPROC, SP.INITIALIZE, new Uint8Array(0), { entryPoint: SP.INITIALIZE });
-    return c;
+    return this.registry.deploy(slot, wasm, this.host);
   }
 
   // Debug tracing — wired to the node's /dev/debug + /debug-trace RPC by the transport.
@@ -471,16 +456,16 @@ export class Sim {
   // Epoch-boundary sysprocs are exempt from the fee gate (execution_fees.md): they run even on a depleted
   // reserve to keep contract state valid.
   beginEpoch(): void {
-    for (const s of this.slots(true)) {
+    for (const s of this.registry.slots(true)) {
       const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.BEGIN_EPOCH)) this.fire(c, KIND.SYSPROC, SP.BEGIN_EPOCH, new Uint8Array(0), { entryPoint: SP.BEGIN_EPOCH });
+      if (c.hasSysproc(SP.BEGIN_EPOCH)) this.registry.fire(c, KIND.SYSPROC, SP.BEGIN_EPOCH, new Uint8Array(0), { entryPoint: SP.BEGIN_EPOCH });
     }
   }
 
   endEpoch(): void {
-    for (const s of this.slots(false)) {
+    for (const s of this.registry.slots(false)) {
       const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.END_EPOCH)) this.fire(c, KIND.SYSPROC, SP.END_EPOCH, new Uint8Array(0), { entryPoint: SP.END_EPOCH });
+      if (c.hasSysproc(SP.END_EPOCH)) this.registry.fire(c, KIND.SYSPROC, SP.END_EPOCH, new Uint8Array(0), { entryPoint: SP.END_EPOCH });
     }
   }
 
@@ -488,18 +473,18 @@ export class Sim {
   // it is refilled.
   beginTick(): void {
     this.tickN++;
-    for (const s of this.slots(true)) {
+    for (const s of this.registry.slots(true)) {
       // BEGIN_TICK: ascending 1->N
       const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.BEGIN_TICK) && this.fees.reserveOk(s)) this.fire(c, KIND.SYSPROC, SP.BEGIN_TICK, new Uint8Array(0), { entryPoint: SP.BEGIN_TICK });
+      if (c.hasSysproc(SP.BEGIN_TICK) && this.fees.reserveOk(s)) this.registry.fire(c, KIND.SYSPROC, SP.BEGIN_TICK, new Uint8Array(0), { entryPoint: SP.BEGIN_TICK });
     }
   }
 
   endTick(): void {
-    for (const s of this.slots(false)) {
+    for (const s of this.registry.slots(false)) {
       // END_TICK: descending N->1
       const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.END_TICK) && this.fees.reserveOk(s)) this.fire(c, KIND.SYSPROC, SP.END_TICK, new Uint8Array(0), { entryPoint: SP.END_TICK });
+      if (c.hasSysproc(SP.END_TICK) && this.fees.reserveOk(s)) this.registry.fire(c, KIND.SYSPROC, SP.END_TICK, new Uint8Array(0), { entryPoint: SP.END_TICK });
     }
   }
 
@@ -532,7 +517,7 @@ export class Sim {
     const c = this.contracts.get(slot)!;
     if (reward > 0n) this.notifyPIT(this.contractId(slot), invocator, reward, transferType);
 
-    return this.fire(c, KIND.PROCEDURE, it, input, { invocator, originator, invocationReward: reward, entryPoint: EP_USER_PROCEDURE });
+    return this.registry.fire(c, KIND.PROCEDURE, it, input, { invocator, originator, invocationReward: reward, entryPoint: EP_USER_PROCEDURE });
   }
 
   // ---- oracle (OracleManager owns the queries/subscriptions; these stay on the façade for the public API) ----
@@ -621,7 +606,7 @@ export class Sim {
 
     this.callDepth++;
     try {
-      const out = this.fire(callee, KIND.SYSPROC, SP.SET_SHAREHOLDER_PROPOSAL, proposal, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_PROPOSAL });
+      const out = this.registry.fire(callee, KIND.SYSPROC, SP.SET_SHAREHOLDER_PROPOSAL, proposal, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_PROPOSAL });
       return out.length >= 2 ? new DataView(out.buffer, out.byteOffset, out.byteLength).getUint16(0, true) : 0;
     } finally {
       this.callDepth--;
@@ -641,7 +626,7 @@ export class Sim {
 
     this.callDepth++;
     try {
-      const out = this.fire(callee, KIND.SYSPROC, SP.SET_SHAREHOLDER_VOTES, vote, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_VOTES });
+      const out = this.registry.fire(callee, KIND.SYSPROC, SP.SET_SHAREHOLDER_VOTES, vote, { invocator: this.contractId(callerSlot), originator, entryPoint: SP.SET_SHAREHOLDER_VOTES });
       return out.length >= 1 ? out[0] : 0;
     } finally {
       this.callDepth--;
@@ -734,7 +719,7 @@ export class Sim {
   }
 
   digest(slot: number): string {
-    return this.contracts.get(slot)!.digest();
+    return this.registry.digest(slot);
   }
 
   // ---- tick consensus (TickConsensus owns the committee + votes; these stay on the façade for the public API) ----
@@ -761,15 +746,9 @@ export class Sim {
     return this.txpool.size;
   }
 
-  // computerDigest — the faithful K12 merkle over MAX_NUMBER_OF_CONTRACTS contract-state leaves (leaf =
-  // K12(StateData); an empty slot is zero). The one system digest the sim reproduces exactly vs core-lite.
+  // computerDigest — the K12 merkle over the contract-state leaves (ContractRegistry owns the contracts).
   computerDigest(): Uint8Array {
-    const leaves = new Map<number, Uint8Array>();
-    for (const [slot, c] of this.contracts) {
-      leaves.set(slot, k12Bytes(c.state()));
-    }
-
-    return merkleRoot(leaves, MAX_NUMBER_OF_CONTRACTS);
+    return this.registry.computerDigest();
   }
 
   // spectrumDigest — the root of the incremental 2^24 merkle over entity records (SpectrumLedger owns the tree).
