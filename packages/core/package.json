@@ -3,11 +3,27 @@
   "version": "0.0.0",
   "type": "module",
   "module": "src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./src/index.ts",
+      "import": {
+        "types": "./dist/browser.d.ts",
+        "default": "./dist/browser.js"
+      }
+    },
     "./browser": "./src/browser.ts",
     "./project": "./src/project.ts",
     "./rpc": "./src/rpc.ts"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun bundle.mjs && tsc -p tsconfig.build.json"
   },
   "dependencies": {
     "@qubic-lib/qubic-ts-library": "latest"

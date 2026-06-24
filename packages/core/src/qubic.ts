@@ -2,8 +2,8 @@
 // NOTE: if this import fails after `bun install`, check the installed package's
 // dist layout (node_modules/@qubic-lib/qubic-ts-library/dist) and adjust the path.
 // Surfacing exactly this is part of the M0 standalone-binary smoke test.
-import { QubicHelper } from "@qubic-lib/qubic-ts-library/dist/qubicHelper";
-import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper";
+import { QubicHelper } from "@qubic-lib/qubic-ts-library/dist/qubicHelper.js";
+import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper.js";
 
 export interface IdentityResult {
   identity: string;       // 60 uppercase letters

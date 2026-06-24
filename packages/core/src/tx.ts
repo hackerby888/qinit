@@ -1,9 +1,9 @@
 // Build + sign a Qubic transaction via @qubic-lib/qubic-ts-library.
 // All crypto goes through the lib's high-level QubicTransaction (works in the
 // --compile binary, unlike a direct crypto import).
-import { QubicTransaction } from "@qubic-lib/qubic-ts-library/dist/qubic-types/QubicTransaction";
-import { DynamicPayload } from "@qubic-lib/qubic-ts-library/dist/qubic-types/DynamicPayload";
-import { PublicKey } from "@qubic-lib/qubic-ts-library/dist/qubic-types/PublicKey";
+import { QubicTransaction } from "@qubic-lib/qubic-ts-library/dist/qubic-types/QubicTransaction.js";
+import { DynamicPayload } from "@qubic-lib/qubic-ts-library/dist/qubic-types/DynamicPayload.js";
+import { PublicKey } from "@qubic-lib/qubic-ts-library/dist/qubic-types/PublicKey.js";
 import { deriveIdentity } from "./qubic";
 
 // Dedicated lite dynamic-contract deploy address = id(99999,0,0,0) — NOT the core zero

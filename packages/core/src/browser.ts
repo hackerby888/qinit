@@ -28,8 +28,8 @@ export type { KeyPair } from "./qubic";
 // runs in the page. `default` resolves (once the wasm runtime is ready) to { K12, schnorrq } where K12(input,
 // out, outLen) writes into `out`. k12Sync mirrors @qinit/core's signature — `(bytes) => Uint8Array(32)`; the
 // schnorrq object backs the sync FourQ key/sign/verify the engine's tick-consensus needs.
-import cryptoModule from "@qubic-lib/qubic-ts-library/dist/crypto";
-import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper";
+import cryptoModule from "@qubic-lib/qubic-ts-library/dist/crypto/index.js";
+import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper.js";
 import type { KeyPair } from "./qubic";
 
 type RawK12 = (input: Uint8Array, out: Uint8Array, outLen: number) => void;
