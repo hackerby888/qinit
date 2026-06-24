@@ -43,6 +43,37 @@ jobs:
       - name: Unit tests
         run: bun test
 
+  # Build the library packages' Node dist (the `import` export condition) and import each under plain Node, so
+  # a Bun-only regression — an extensionless @qubic-lib import, a stray Bun.* in the bundle, a build break —
+  # turns CI red. The libraries are meant to run on Node; the toolchain (cli/build) stays Bun-only by design.
+  node-dist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: bun install
+      - name: Build Node dist (engine, proto, core)
+        run: |
+          (cd packages/engine && bun run build)
+          (cd packages/proto && bun run build)
+          (cd packages/core && bun run build)
+      - name: Import each dist under plain Node
+        run: |
+          node --input-type=module -e '
+            import { layoutOf } from "./packages/proto/dist/index.js";
+            import { buildSignedTx, deriveIdentity } from "./packages/core/dist/browser.js";
+            import { Sim } from "./packages/engine/dist/index.js";
+            if (layoutOf("uint64").size !== 8) throw new Error("proto codec broken");
+            if (typeof buildSignedTx !== "function" || typeof deriveIdentity !== "function") throw new Error("core surface broken");
+            if (typeof Sim !== "function") throw new Error("engine surface broken");
+            console.log("node-dist OK: proto + core + engine import under plain node");
+          '
+
   # Build the external Qubic CLI from source and drive the in-process engine's peer-protocol server with it.
   # The engine's cli-e2e tests are gated on QUBIC_CLI (lint-test's `bun test` skips them); this job provides the
   # binary. Linux-only — the CLI is a CMake C++ build. A breaking upstream protocol change turns this red.
