@@ -22,6 +22,8 @@ export interface ContractIdl {
   state?: Field[];        // StateData fields (name + codec type) for field-level state-diff naming
   logStructs?: LogStruct[]; // log-message struct catalog (for contract-log decode in the debugger)
   enums?: EnumDef[];      // enums (e.g. log message kinds) -> name the `_type` discriminator
+  migrate?: boolean;      // contract declares MIGRATE() -> a redeploy with matching OldStateData runs __migrate
+  oldState?: Field[];     // OldStateData fields (the prior StateData layout the migration reads from)
 }
 
 const SCALARS = new Set([
@@ -255,6 +257,10 @@ export function extractIdl(source: string, name: string): ContractIdl {
   for (const m of source.matchAll(/REGISTER_USER_PROCEDURE\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
     idl.procedures[m[2]] = { name: m[1], in: fmtOf(structs, m[1] + "_input"), inFields: fieldsForStruct(structs, m[1] + "_input") };
   if (structs.has("StateData")) idl.state = fieldsForStruct(structs, "StateData");   // for field-level state diff
+  if (/\bMIGRATE(?:_WITH_LOCALS)?\s*\(\s*\)/.test(source)) {   // contract opts into state migration on redeploy
+    idl.migrate = true;
+    if (structs.has("OldStateData")) idl.oldState = fieldsForStruct(structs, "OldStateData");
+  }
   // log-struct catalog: any flat (leaf) struct with a `sint8 _terminator` marker; keep only the fields before it.
   const logStructs: LogStruct[] = [];
   for (const [sname, body] of structs) {

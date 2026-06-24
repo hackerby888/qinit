@@ -9,7 +9,7 @@ import type { TraceRecorder } from "./trace";
 
 const EMPTY = new Uint8Array(0);
 
-export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2 } as const;
+export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2, MIGRATE: 3 } as const;
 
 // System-procedure ids — LiteSysProcId order (core-lite: src/extensions/lite_dyn_abi.h).
 export const SP = {
@@ -168,6 +168,10 @@ export class Contract {
   private sysOutSizes = new Map<number, number>(); // sysproc id -> outSize
   entries: { it: number; kind: number; inSize: number; outSize: number }[] = []; // registered fns/procs
   trace?: TraceRecorder; // set by the Sim when debug tracing is on
+  hasMigrate = false;          // contract exports __migrate (a redeploy with matching old-state size runs it)
+  migrateOldStateSize = 0;
+  migrateLocalsSize = 0;
+  everInitialized = false;     // INITIALIZE has run once -> redeploy preserves/migrates state, never re-inits
 
   private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module) {
     this.inst = new WebAssembly.Instance(mod, this.imports());
@@ -215,6 +219,12 @@ export class Contract {
     for (let sp = 0; sp < 12; sp++) {
       if ((this.sysMask >>> sp) & 1) this.sysOutSizes.set(sp, this.ex.sysproc_out_size(sp >>> 0) >>> 0);
     }
+    // migrate metadata — optional exports (contracts built before migration support lack them).
+    if (typeof this.ex.has_migrate === "function") {
+      this.hasMigrate = (this.ex.has_migrate() >>> 0) === 1;
+      this.migrateOldStateSize = (this.ex.migrate_old_state_size?.() ?? 0) >>> 0;
+      this.migrateLocalsSize = (this.ex.migrate_locals_size?.() ?? 0) >>> 0;
+    }
   }
 
   hasSysproc(sp: number): boolean {
@@ -228,6 +238,13 @@ export class Contract {
 
   zeroState() {
     this.u8().fill(0, this.stateAddr, this.stateAddr + this.stateSize);
+  }
+
+  // Copy bytes into the resident state region (truncated to stateSize). Preserves overlapping state across a
+  // non-migrating redeploy — parity with core's raw-restore (lite_wasm_contracts.h).
+  writeState(bytes: Uint8Array): void {
+    const n = Math.min(bytes.length, this.stateSize);
+    if (n) this.u8().set(bytes.subarray(0, n), this.stateAddr);
   }
 
   // Build the 256-byte QpiContext header the contract reads (currentContract*, originator, invocator,
@@ -292,6 +309,22 @@ export class Contract {
       rec.end(e, { output, ok: true, stateBefore, stateAfter, execNs: (performance.now() - t0) * 1e6 });
     }
     return output;
+  }
+
+  // Run the contract's __migrate(newState, oldState, locals) to convert the old state into the new layout.
+  // Mirrors the core host path (lite_wasm_contracts.h kind=3): copy old bytes into the arena, zero the new
+  // state, shift the scratch base past the blob, dispatch. Used on redeploy when the new module declares MIGRATE().
+  migrate(oldState: Uint8Array): void {
+    const localsOff = this.ioBase + IN_SZ + OUT_SZ;
+    const oldOff = this.arenaBase;
+    const u8 = this.u8();
+    u8.fill(0, this.stateAddr, this.stateAddr + this.stateSize);   // zero new state (match native)
+    u8.fill(0, localsOff, localsOff + LOCALS_SZ);
+    u8.set(oldState, oldOff);
+    this.writeCtx({});                                            // NULL_ID / zero ctx (QpiContextMigrateProcedureCall)
+    this.arenaBump = this.arenaBase + ((oldState.length + 15) & ~15);   // scratch past the old blob
+    this.ex.dispatch(KIND.MIGRATE >>> 0, 0, oldOff >>> 0, 0, localsOff >>> 0);
+    this.host.markDirty(this.slot);
   }
 
   // Close out the frame's cost meter: total = base + accumulated host weight + (state changed ? digest

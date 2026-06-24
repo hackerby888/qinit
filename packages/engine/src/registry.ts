@@ -45,16 +45,27 @@ export class ContractRegistry {
   // A metered contract is born funded (a successful IPO) unless its reserve was pre-set; INITIALIZE is exempt
   // from the reserve gate.
   deploy(slot: number, wasm: Uint8Array, host: HostServices): Contract {
+    const prev = this.contracts.get(slot);          // existing instance => this is a redeploy
+    const prevState = prev ? prev.state() : null;   // snapshot old state before the new instance replaces it
     const c = Contract.load(wasm, slot, host);
     c.trace = this.recorder;
     c.metering = this.fees.metered;
     this.contracts.set(slot, c);
-    c.zeroState();
-
     this.fees.seedOnDeploy(slot);
 
-    if (c.hasSysproc(SP.INITIALIZE)) {
-      this.fire(c, KIND.SYSPROC, SP.INITIALIZE, new Uint8Array(0), { entryPoint: SP.INITIALIZE });
+    if (!prevState) {                               // first deploy: zero state + run INITIALIZE
+      c.zeroState();
+      if (c.hasSysproc(SP.INITIALIZE)) {
+        this.fire(c, KIND.SYSPROC, SP.INITIALIZE, new Uint8Array(0), { entryPoint: SP.INITIALIZE });
+      }
+      c.everInitialized = true;
+    } else if (c.hasMigrate && c.migrateOldStateSize === prevState.length) {
+      c.migrate(prevState);                         // upgrade: __migrate transforms old -> new layout (parity w/ core)
+      c.everInitialized = true;
+    } else {                                        // upgrade without migrate: preserve the overlap, never re-INITIALIZE
+      c.zeroState();
+      c.writeState(prevState);
+      c.everInitialized = true;
     }
     return c;
   }
