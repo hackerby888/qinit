@@ -10,17 +10,20 @@ import { LITE_TX, CHUNK_DATA_MAX } from "@qinit/proto";
 import { Sim, type AssetSnapshot, type FeeMode } from "./sim";
 import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
-import { k12Bytes, toHex, verifySync, deriveKeysSync } from "./k12";
+import { k12Bytes, toHex, verifySync, deriveKeysSync, initK12 } from "./k12";
 import { Transaction } from "./wire";
 
 interface SlotMeta { name: string; codeHash: string; version: number; }
 interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
+
+export interface EngineOpts { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint }
 
 export class InProcessEngine implements NodeTransport {
   readonly sim: Sim;
   readonly slotBase: number;
   readonly slotCount: number;
   private meta = new Map<number, SlotMeta>();
+  private byName = new Map<string, number>(); // contract name -> slot, for auto-assign + redeploy-by-name
   private upload: UploadSession | null = null;
   private sources = new Map<number, string>(); // deployed .h source per slot (for callee auto-resolution)
   private rawTxs = new Map<string, Uint8Array>(); // hex(K12(tx body)) -> raw tx bytes (peer REQUEST_TRANSACTION_INFO)
@@ -29,9 +32,18 @@ export class InProcessEngine implements NodeTransport {
 
   private verifySigs: boolean;
 
+  // Self-initializing constructor: awaits the crypto module (initK12) ONCE, then returns a ready engine —
+  // callers never touch initK12. After this resolves, every k12/sign op stays synchronous (the wasm crypto
+  // is loaded process-wide). Use this instead of `await initK12(); new InProcessEngine()`.
+  static async create(opts: EngineOpts = {}): Promise<InProcessEngine> {
+    await initK12();
+    return new InProcessEngine(opts);
+  }
+
   // `fees`/`mempool`/`verifySigs` are all off by default — the engine behaves exactly as before (no fee gating,
   // immediate apply, no signature check) so the IDE and its digests are unchanged. The peer entry opts in.
-  constructor(opts: { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint } = {}) {
+  // Direct `new` still works for callers that have already awaited initK12() (the legacy setup).
+  constructor(opts: EngineOpts = {}) {
     this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool, fees: opts.fees, defaultReserve: opts.defaultReserve });
     this.slotBase = opts.slotBase ?? 28;
     this.slotCount = opts.slotCount ?? 4;
@@ -52,10 +64,59 @@ export class InProcessEngine implements NodeTransport {
   }
 
   // Direct deploy (IDE / tests): bypass the chunk protocol — load wasm into the slot + construct (INITIALIZE).
-  deploy(slot: number, wasm: Uint8Array, name = "Contract"): Contract {
-    const c = this.sim.deploy(slot, wasm);
-    this.meta.set(slot, { name, codeHash: toHex(k12Bytes(wasm)), version: (this.meta.get(slot)?.version ?? 0) + 1 });
-    return c;
+  // Two forms:
+  //   deploy(wasm, { name })       — slot auto-assigned by name; redeploying the same name reuses its slot (→ migrate)
+  //   deploy(wasm, { name, slot })  — pin a slot (system contracts, inter-contract ordering)
+  //   deploy(slot, wasm, name)      — legacy positional form, retained verbatim
+  deploy(wasm: Uint8Array, opts?: { name?: string; slot?: number }): Contract;
+  deploy(slot: number, wasm: Uint8Array, name?: string): Contract;
+  deploy(a: number | Uint8Array, b?: Uint8Array | { name?: string; slot?: number }, c?: string): Contract {
+    let wasm: Uint8Array;
+    let name: string | undefined;
+    let explicitSlot: number | undefined;
+    if (typeof a === "number") {
+      explicitSlot = a;
+      wasm = b as Uint8Array;
+      name = c;
+    } else {
+      wasm = a;
+      const o = (b as { name?: string; slot?: number }) ?? {};
+      name = o.name;
+      explicitSlot = o.slot;
+    }
+
+    const slot = this.resolveSlot(explicitSlot, name);
+    const contract = this.sim.deploy(slot, wasm);
+    if (name !== undefined) {
+      this.byName.set(name, slot);
+    }
+    this.meta.set(slot, { name: name ?? "Contract", codeHash: toHex(k12Bytes(wasm)), version: (this.meta.get(slot)?.version ?? 0) + 1 });
+    return contract;
+  }
+
+  // Slot policy: an explicit slot always wins (pin). Else a known name reuses its slot — that routes into the
+  // registry's redeploy/migrate path. Else allocate the lowest free slot at or above slotBase. Unnamed deploys
+  // are never reused (no name to key on), so each gets a fresh slot rather than silently redeploying.
+  private resolveSlot(explicit: number | undefined, name: string | undefined): number {
+    if (explicit !== undefined) {
+      return explicit;
+    }
+    if (name !== undefined && this.byName.has(name)) {
+      return this.byName.get(name)!;
+    }
+
+    const taken = new Set(this.byName.values());
+    let s = this.slotBase;
+    while (this.sim.contracts.has(s) || taken.has(s)) {
+      s++;
+    }
+    return s;
+  }
+
+  // The slot a named contract was auto-assigned (its address = id(slot,0,0,0)), or undefined if that name was
+  // never deployed. Lets a caller query/redeploy by name without holding the Contract from deploy().
+  slotOf(name: string): number | undefined {
+    return this.byName.get(name);
   }
 
   // Advance the chain n ticks (each: epoch switch on a boundary, then BEGIN_TICK asc -> END_TICK desc). The
@@ -143,6 +204,10 @@ export class InProcessEngine implements NodeTransport {
 
   // Remove a deployed contract (dev `qinit system rm`).
   undeploy(slot: number): boolean {
+    const name = this.meta.get(slot)?.name;
+    if (name !== undefined && this.byName.get(name) === slot) {
+      this.byName.delete(name);
+    }
     this.meta.delete(slot);
     this.sources.delete(slot);
     return this.sim.undeploy(slot);
