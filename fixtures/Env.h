@@ -13,7 +13,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     };
 
     struct Now_input {};
-    struct Now_output { uint16 epoch; uint32 tick; sint32 txCount; };
+    struct Now_output
+    {
+        uint16 epoch;
+        uint32 tick;
+        sint32 txCount;
+    };
 
     PUBLIC_FUNCTION(Now)
     {
@@ -25,10 +30,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_FUNCTION(Now, 1);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().dummy = 0;
     }
 };

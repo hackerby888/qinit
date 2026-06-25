@@ -16,10 +16,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
     struct ReadCounter_input {};
     struct ReadCounter_output { uint64 value; };
-    struct ReadCounter_locals { Counter::Get_input gi; Counter::Get_output go; };
+    struct ReadCounter_locals
+    {
+        Counter::Get_input gi;
+        Counter::Get_output go;
+    };
     struct BumpCounter_input {};
     struct BumpCounter_output {};
-    struct BumpCounter_locals { Counter::Inc_input ii; Counter::Inc_output io; };
+    struct BumpCounter_locals
+    {
+        Counter::Inc_input ii;
+        Counter::Inc_output io;
+    };
 
     PUBLIC_FUNCTION_WITH_LOCALS(ReadCounter)
     {
@@ -36,10 +44,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         REGISTER_USER_FUNCTION(ReadCounter, 1);
         REGISTER_USER_PROCEDURE(BumpCounter, 1);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().dummy = 0;
     }
 };

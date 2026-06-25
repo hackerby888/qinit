@@ -26,9 +26,4 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         REGISTER_USER_FUNCTION(Balance, 1);
     }
-
-    INITIALIZE()
-    {
-        state.mut().dummy = 0;
-    }
 };

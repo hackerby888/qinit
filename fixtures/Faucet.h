@@ -13,7 +13,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         uint64 sent;
     };
 
-    struct Send_input { id dest; uint64 amount; };
+    struct Send_input
+    {
+        id dest;
+        uint64 amount;
+    };
     struct Send_output {};
     struct Sent_input {};
     struct Sent_output { uint64 sent; };
@@ -33,10 +37,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         REGISTER_USER_PROCEDURE(Send, 1);
         REGISTER_USER_FUNCTION(Sent, 1);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().sent = 0;
     }
 };

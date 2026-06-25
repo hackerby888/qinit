@@ -15,7 +15,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         sint64 fee;
     };
 
-    struct Issue_input { uint64 name; sint64 shares; };
+    struct Issue_input
+    {
+        uint64 name;
+        sint64 shares;
+    };
     struct Issue_output { sint64 result; };
     struct SetFee_input { sint64 fee; };
     struct SetFee_output {};
@@ -46,11 +50,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         REGISTER_USER_PROCEDURE(Issue, 1);
         REGISTER_USER_PROCEDURE(SetFee, 2);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().lastResult = 0;
-        state.mut().fee = 0;
     }
 };

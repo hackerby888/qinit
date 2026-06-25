@@ -33,9 +33,4 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         REGISTER_USER_PROCEDURE(Fund, 1);
         REGISTER_USER_PROCEDURE(Distribute, 2);
     }
-
-    INITIALIZE()
-    {
-        state.mut().dummy = 0;
-    }
 };

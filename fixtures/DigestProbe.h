@@ -45,7 +45,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
     INITIALIZE()
     {
-        state.mut().counter = 0;
         state.mut().a8  = 0xA5;
         state.mut().b16 = 0x1234;
         state.mut().c32 = 0xDEADBEEF;

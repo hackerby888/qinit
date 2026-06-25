@@ -15,13 +15,21 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         uint64 total;
     };
 
-    struct Set_input { id who; uint64 amount; };
+    struct Set_input
+    {
+        id who;
+        uint64 amount;
+    };
     struct Set_output {};
     struct BalanceOf_input { id who; };
     struct BalanceOf_output { uint64 amount; };
     struct BalanceOf_locals { uint64 v; };
     struct Stats_input {};
-    struct Stats_output { uint64 total; uint64 population; };
+    struct Stats_output
+    {
+        uint64 total;
+        uint64 population;
+    };
 
     PUBLIC_PROCEDURE(Set)
     {
@@ -52,7 +60,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
     INITIALIZE()
     {
-        state.mut().total = 0;
         state.mut().balances.reset();
     }
 };

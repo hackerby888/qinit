@@ -20,7 +20,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     struct Bump_input { uint64 amount; };
     struct Bump_output {};
     struct Info_input {};
-    struct Info_output { id owner; uint64 count; };
+    struct Info_output
+    {
+        id owner;
+        uint64 count;
+    };
     struct SlotsGet_input {};
     struct SlotsGet_output { Array<uint64, 4> slots; };
 
@@ -52,10 +56,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         REGISTER_USER_PROCEDURE(Bump, 2);
         REGISTER_USER_FUNCTION(Info, 1);
         REGISTER_USER_FUNCTION(SlotsGet, 2);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().count = 0;
     }
 };

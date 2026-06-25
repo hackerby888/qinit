@@ -13,14 +13,40 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         sint64 acc;
     };
 
-    struct Probe_input { uint8 year; uint8 month; uint8 day; sint64 queryId; uint32 ipoIdx; uint32 bidIdx; };
+    struct Probe_input
+    {
+        uint8 year;
+        uint8 month;
+        uint8 day;
+        sint64 queryId;
+        uint32 ipoIdx;
+        uint32 bidIdx;
+    };
     struct Probe_output { sint64 result; };
-    struct Probe_locals { id bidId; m256i mseed; m256i pk; m256i nonce; m256i mf; };
+    struct Probe_locals
+    {
+        id bidId;
+        m256i mseed;
+        m256i pk;
+        m256i nonce;
+        m256i mf;
+    };
 
-    struct Act_input { uint32 ipoIdx; sint64 price; uint32 qty; sint32 subId; };
+    struct Act_input
+    {
+        uint32 ipoIdx;
+        sint64 price;
+        uint32 qty;
+        sint32 subId;
+    };
     struct Act_output { sint64 result; };
 
-    struct Verify_input { id entity; id digest; Array<sint8, 64> sig; };
+    struct Verify_input
+    {
+        id entity;
+        id digest;
+        Array<sint8, 64> sig;
+    };
     struct Verify_output { sint64 valid; };
 
     PUBLIC_FUNCTION_WITH_LOCALS(Probe)
@@ -50,10 +76,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         REGISTER_USER_FUNCTION(Probe, 1);
         REGISTER_USER_FUNCTION(Verify, 2);
         REGISTER_USER_PROCEDURE(Act, 1);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().acc = 0;
     }
 };

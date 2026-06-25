@@ -13,11 +13,19 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         sint64 lastReply;
     };
 
-    struct Query_input { uint64 value; uint32 timeoutMillisec; };
+    struct Query_input
+    {
+        uint64 value;
+        uint32 timeoutMillisec;
+    };
     struct Query_output { sint64 queryId; };
     struct Query_locals { OI::Mock::OracleQuery q; };
 
-    struct Subscribe_input { uint64 value; uint32 periodMillisec; };
+    struct Subscribe_input
+    {
+        uint64 value;
+        uint32 periodMillisec;
+    };
     struct Subscribe_output { sint64 subscriptionId; };
     struct Subscribe_locals { OI::Mock::OracleQuery q; };
 
@@ -77,10 +85,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         REGISTER_USER_PROCEDURE(Unsubscribe, 4);
         REGISTER_USER_FUNCTION(Last, 1);
         REGISTER_USER_FUNCTION(Status, 2);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().lastReply = 0;
     }
 };

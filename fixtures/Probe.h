@@ -13,10 +13,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     };
 
     struct Bal_input { id who; };
-    struct Bal_output { sint64 incoming; sint64 outgoing; };
+    struct Bal_output
+    {
+        sint64 incoming;
+        sint64 outgoing;
+    };
     struct Bal_locals { Entity e; };
     struct Info_input {};
-    struct Info_output { id arbitrator; sint64 reserve; };
+    struct Info_output
+    {
+        id arbitrator;
+        sint64 reserve;
+    };
 
     PUBLIC_FUNCTION_WITH_LOCALS(Bal)
     {
@@ -35,10 +43,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         REGISTER_USER_FUNCTION(Bal, 1);
         REGISTER_USER_FUNCTION(Info, 2);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().dummy = 0;
     }
 };

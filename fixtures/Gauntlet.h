@@ -23,29 +23,78 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     };
 
     // ---- pure arithmetic functions (deterministic; edge asserts) ----
-    struct DivMod_input { uint64 a; uint64 b; };
-    struct DivMod_output { uint64 q; uint64 r; };
-    struct Arith_input { uint64 a; uint64 b; };
-    struct Arith_output { uint64 sum; uint64 prod; uint64 xorv; uint64 shl; };
-    struct SignedOp_input { sint64 a; sint64 b; };
-    struct SignedOp_output { sint64 q; sint64 r; sint64 sum; };
+    struct DivMod_input
+    {
+        uint64 a;
+        uint64 b;
+    };
+    struct DivMod_output
+    {
+        uint64 q;
+        uint64 r;
+    };
+    struct Arith_input
+    {
+        uint64 a;
+        uint64 b;
+    };
+    struct Arith_output
+    {
+        uint64 sum;
+        uint64 prod;
+        uint64 xorv;
+        uint64 shl;
+    };
+    struct SignedOp_input
+    {
+        sint64 a;
+        sint64 b;
+    };
+    struct SignedOp_output
+    {
+        sint64 q;
+        sint64 r;
+        sint64 sum;
+    };
     struct Hash_input { uint64 x; };
     struct Hash_output { id h; };
 
     // ---- state read functions ----
-    struct Total_input {}; struct Total_output { uint64 total; };
-    struct PutCount_input {}; struct PutCount_output { uint64 count; };
-    struct Bal_input { id who; }; struct Bal_output { uint64 amount; };
+    struct Total_input {};
+    struct Total_output { uint64 total; };
+    struct PutCount_input {};
+    struct PutCount_output { uint64 count; };
+    struct Bal_input { id who; };
+    struct Bal_output { uint64 amount; };
     struct Bal_locals { uint64 v; };
-    struct Pop_input {}; struct Pop_output { uint64 population; };
-    struct Slot_input { uint64 i; }; struct Slot_output { uint64 value; };
-    struct LastCaller_input {}; struct LastCaller_output { id who; sint64 reward; };
+    struct Pop_input {};
+    struct Pop_output { uint64 population; };
+    struct Slot_input { uint64 i; };
+    struct Slot_output { uint64 value; };
+    struct LastCaller_input {};
+    struct LastCaller_output
+    {
+        id who;
+        sint64 reward;
+    };
 
     // ---- procedures (mutate state) ----
-    struct Add_input { uint64 x; }; struct Add_output {};
-    struct Put_input { id k; uint64 v; }; struct Put_output {};
-    struct SetSlot_input { uint64 i; uint64 v; }; struct SetSlot_output {};
-    struct Remember_input {}; struct Remember_output {};
+    struct Add_input { uint64 x; };
+    struct Add_output {};
+    struct Put_input
+    {
+        id k;
+        uint64 v;
+    };
+    struct Put_output {};
+    struct SetSlot_input
+    {
+        uint64 i;
+        uint64 v;
+    };
+    struct SetSlot_output {};
+    struct Remember_input {};
+    struct Remember_output {};
 
     PUBLIC_FUNCTION(DivMod)
     {
@@ -73,8 +122,15 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         output.h = qpi.K12(input.x);   // KangarooTwelve of the 8 input bytes
     }
 
-    PUBLIC_FUNCTION(Total) { output.total = state.get().total; }
-    PUBLIC_FUNCTION(PutCount) { output.count = state.get().putCount; }
+    PUBLIC_FUNCTION(Total)
+    {
+        output.total = state.get().total;
+    }
+
+    PUBLIC_FUNCTION(PutCount)
+    {
+        output.count = state.get().putCount;
+    }
 
     PUBLIC_FUNCTION_WITH_LOCALS(Bal)
     {
@@ -83,8 +139,15 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         output.amount = locals.v;
     }
 
-    PUBLIC_FUNCTION(Pop) { output.population = state.get().bal.population(); }
-    PUBLIC_FUNCTION(Slot) { output.value = state.get().slots.get(input.i); }   // index & 7
+    PUBLIC_FUNCTION(Pop)
+    {
+        output.population = state.get().bal.population();
+    }
+
+    PUBLIC_FUNCTION(Slot)
+    {
+        output.value = state.get().slots.get(input.i);   // index & 7
+    }
 
     PUBLIC_FUNCTION(LastCaller)
     {
@@ -92,7 +155,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         output.reward = state.get().lastReward;
     }
 
-    PUBLIC_PROCEDURE(Add) { state.mut().total += input.x; }
+    PUBLIC_PROCEDURE(Add)
+    {
+        state.mut().total += input.x;
+    }
 
     PUBLIC_PROCEDURE(Put)
     {
@@ -100,7 +166,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         state.mut().putCount += 1;
     }
 
-    PUBLIC_PROCEDURE(SetSlot) { state.mut().slots.set(input.i, input.v); }
+    PUBLIC_PROCEDURE(SetSlot)
+    {
+        state.mut().slots.set(input.i, input.v);
+    }
 
     PUBLIC_PROCEDURE(Remember)
     {
@@ -129,10 +198,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
     INITIALIZE()
     {
-        state.mut().total = 0;
-        state.mut().putCount = 0;
-        state.mut().lastReward = 0;
-        state.mut().lastCaller = NULL_ID;
         state.mut().bal.reset();
         state.mut().slots.setAll(0);
     }

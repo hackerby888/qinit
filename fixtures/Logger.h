@@ -16,11 +16,21 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     };
 
     // Contract log message: first 4 bytes = contractIndex (host-set), last byte = _terminator.
-    struct LogMsg { uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator; };
+    struct LogMsg
+    {
+        uint32 _contractIndex;
+        uint32 _type;
+        uint64 value;
+        sint8 _terminator;
+    };
 
     struct Emit_input { uint64 value; };
     struct Emit_output {};
-    struct Emit_locals { LogMsg m; uint64 i; };
+    struct Emit_locals
+    {
+        LogMsg m;
+        uint64 i;
+    };
     struct Count_input {};
     struct Count_output { uint64 count; };
 
@@ -29,7 +39,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         locals.m._contractIndex = 0;
         locals.m._type = LogValue;
         locals.m._terminator = 0;
-        for (locals.i = 0; locals.i < input.value; locals.i++) { locals.m.value = locals.i; LOG_INFO(locals.m); }
+        for (locals.i = 0; locals.i < input.value; locals.i++)
+        {
+            locals.m.value = locals.i;
+            LOG_INFO(locals.m);
+        }
         state.mut().count += 1;
     }
 
@@ -42,10 +56,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         REGISTER_USER_PROCEDURE(Emit, 1);
         REGISTER_USER_FUNCTION(Count, 1);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().count = 0;
     }
 };

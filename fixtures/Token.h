@@ -14,15 +14,28 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         sint64 lastResult;
     };
 
-    struct Issue_input { uint64 name; sint64 shares; };
+    struct Issue_input
+    {
+        uint64 name;
+        sint64 shares;
+    };
     struct Issue_output { sint64 result; };
     struct Total_input { uint64 name; };
     struct Total_output { sint64 shares; };
     struct Issued_input { uint64 name; };
     struct Issued_output { sint64 issued; };
-    struct Move_input { uint64 name; id to; sint64 shares; };
+    struct Move_input
+    {
+        uint64 name;
+        id to;
+        sint64 shares;
+    };
     struct Move_output { sint64 result; };
-    struct Possessed_input { uint64 name; id who; };
+    struct Possessed_input
+    {
+        uint64 name;
+        id who;
+    };
     struct Possessed_output { sint64 shares; };
     struct NextId_input { id cur; };
     struct NextId_output { id next; };
@@ -79,10 +92,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         REGISTER_USER_FUNCTION(Possessed, 3);
         REGISTER_USER_FUNCTION(NextId, 4);
         REGISTER_USER_FUNCTION(Last, 5);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().lastResult = 0;
     }
 };

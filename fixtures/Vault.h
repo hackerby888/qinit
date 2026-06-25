@@ -21,10 +21,20 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
     struct Deposit_input {};
     struct Deposit_output {};
-    struct Send_input { id dest; sint64 amount; };
+    struct Send_input
+    {
+        id dest;
+        sint64 amount;
+    };
     struct Send_output { sint64 remaining; };
     struct Get_input {};
-    struct Get_output { uint64 totalReceived; uint64 incomingCount; sint64 lastIncoming; uint64 tickCount; };
+    struct Get_output
+    {
+        uint64 totalReceived;
+        uint64 incomingCount;
+        sint64 lastIncoming;
+        uint64 tickCount;
+    };
 
     PUBLIC_PROCEDURE(Deposit)
     {
@@ -62,13 +72,5 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         REGISTER_USER_PROCEDURE(Deposit, 1);
         REGISTER_USER_PROCEDURE(Send, 2);
         REGISTER_USER_FUNCTION(Get, 1);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().totalReceived = 0;
-        state.mut().incomingCount = 0;
-        state.mut().lastIncoming = 0;
-        state.mut().tickCount = 0;
     }
 };

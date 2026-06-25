@@ -23,7 +23,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     struct Inc_input {};
     struct Inc_output {};
     struct Get_input {};
-    struct Get_output { uint64 value; uint64 lastMigratedTick; };
+    struct Get_output
+    {
+        uint64 value;
+        uint64 lastMigratedTick;
+    };
 
     PUBLIC_PROCEDURE(Inc)
     {
@@ -40,12 +44,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         REGISTER_USER_PROCEDURE(Inc, 1);
         REGISTER_USER_FUNCTION(Get, 1);
-    }
-
-    INITIALIZE()
-    {
-        state.mut().counter = 0;
-        state.mut().lastMigratedTick = 0;
     }
 
     MIGRATE()
