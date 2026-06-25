@@ -6,6 +6,8 @@
 import { k12Bytes, toHex } from "./k12";
 import { bytesEqual } from "./bytes";
 import type { TraceRecorder } from "./trace";
+import { QpiContext } from "./abi";
+import { EntityRecord, M256i } from "./wire";
 
 const EMPTY = new Uint8Array(0);
 
@@ -250,17 +252,15 @@ export class Contract {
   // Build the 256-byte QpiContext header the contract reads (currentContract*, originator, invocator,
   // invocationReward, entryPoint) — qpi.h QpiContext field layout (offsets 0/4/8/40/72/104/112).
   private writeCtx(ctx: CallCtx) {
-    const u8 = this.u8();
-    const base = this.ctxAddr;
-    u8.fill(0, base, base + 256);
-    const dv = new DataView(this.mem.buffer);
-    dv.setUint32(base + 0, this.slot >>> 0, true); // _currentContractIndex
-    dv.setInt32(base + 4, -1, true); // _stackIndex
-    dv.setBigUint64(base + 8, BigInt(this.slot), true); // _currentContractId = id(slot,0,0,0)
-    if (ctx.originator && ctx.originator.length >= 32) u8.set(ctx.originator.subarray(0, 32), base + 40);
-    if (ctx.invocator && ctx.invocator.length >= 32) u8.set(ctx.invocator.subarray(0, 32), base + 72);
-    dv.setBigInt64(base + 104, ctx.invocationReward ?? 0n, true); // _invocationReward
-    dv.setUint8(base + 112, (ctx.entryPoint ?? 0) & 0xff); // _entryPoint
+    const view = QpiContext.wrap(this.u8(), this.ctxAddr);
+    view.bytes.fill(0);
+    view.currentContractIndex = this.slot;
+    view.stackIndex = -1;
+    view.currentContractId = BigInt(this.slot); // id(slot,0,0,0)
+    if (ctx.originator && ctx.originator.length >= 32) view.originator = ctx.originator;
+    if (ctx.invocator && ctx.invocator.length >= 32) view.invocator = ctx.invocator;
+    view.invocationReward = ctx.invocationReward ?? 0n;
+    view.entryPoint = ctx.entryPoint ?? 0;
   }
 
   // Marshal one call through the instance (mirrors liteWasmDispatch): write ctx header + input, zero output,
@@ -385,6 +385,7 @@ export class Contract {
   // ops throw loudly (not silently wrong) until Layer 2 models them.
   private imports(): WebAssembly.Imports {
     const u8 = () => this.u8();
+    const ctxView = () => QpiContext.wrap(u8(), this.ctxAddr); // the live QpiContext header (originator / invocator)
     const lhost: Record<string, Function> = {
       // infra / logging
       beginFn: (_id: number) => {},
@@ -432,14 +433,14 @@ export class Contract {
       getEntity: (idOff: number, entityOff: number) => {
         const id = u8().slice(idOff, idOff + 32);
         const e = this.host.getEntity(id);
-        const dv = new DataView(this.mem.buffer);
-        u8().set(id, entityOff); // QPI::Entity.publicKey
-        dv.setBigInt64(entityOff + 32, e ? e.incomingAmount : 0n, true);
-        dv.setBigInt64(entityOff + 40, e ? e.outgoingAmount : 0n, true);
-        dv.setUint32(entityOff + 48, e ? e.numberOfIncomingTransfers : 0, true);
-        dv.setUint32(entityOff + 52, e ? e.numberOfOutgoingTransfers : 0, true);
-        dv.setUint32(entityOff + 56, e ? e.latestIncomingTransferTick : 0, true);
-        dv.setUint32(entityOff + 60, e ? e.latestOutgoingTransferTick : 0, true);
+        const rec = EntityRecord.wrap(u8(), entityOff);
+        rec.publicKey = M256i.wrap(id); // QPI::Entity.publicKey
+        rec.incomingAmount = e ? e.incomingAmount : 0n;
+        rec.outgoingAmount = e ? e.outgoingAmount : 0n;
+        rec.numberOfIncomingTransfers = e ? e.numberOfIncomingTransfers : 0;
+        rec.numberOfOutgoingTransfers = e ? e.numberOfOutgoingTransfers : 0;
+        rec.latestIncomingTransferTick = e ? e.latestIncomingTransferTick : 0;
+        rec.latestOutgoingTransferTick = e ? e.latestOutgoingTransferTick : 0;
         return e ? 1 : 0;
       },
       queryFeeReserve: (ci: number) => this.host.queryFeeReserve(this.slot, ci >>> 0),
@@ -473,7 +474,7 @@ export class Contract {
       // assets / shares
       isAssetIssued: (issOff: number, name: bigint) => this.host.isAssetIssued(u8().slice(issOff, issOff + 32), name),
       issueAsset: (name: bigint, issOff: number, dec: number, shares: bigint, unit: bigint) => {
-        const r = this.host.issueAsset(this.slot, name, u8().slice(issOff, issOff + 32), (dec << 24) >> 24, shares, unit, u8().slice(this.ctxAddr + 72, this.ctxAddr + 104));
+        const r = this.host.issueAsset(this.slot, name, u8().slice(issOff, issOff + 32), (dec << 24) >> 24, shares, unit, ctxView().invocator);
         this.recHost("issueAsset", () => `${assetName(name)} shares=${shares}`);
         return r;
       },
@@ -542,10 +543,10 @@ export class Contract {
       },
       // inter-contract: in/out are offsets in the CALLER's memory; route to the callee Contract, write the
       // result back, return the InterContractCallError code. The callee's originator propagates from the
-      // caller's ctx header (offset 40).
+      // caller's QpiContext header.
       liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number) => {
         const input = u8().slice(inOff, inOff + inSize);
-        const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
+        const originator = ctxView().originator;
         const r = this.host.callFunction(this.slot, calleeIdx >>> 0, inputType & 0xffff, input, originator);
         this.recHost("callFunction", () => `→ @${calleeIdx >>> 0} fn #${inputType & 0xffff}${r.error ? ` ✗ err ${r.error}` : ""}`);
         if (r.error === 0 && r.output.length) u8().set(r.output.subarray(0, Math.min(outSize, r.output.length)), outOff);
@@ -553,7 +554,7 @@ export class Contract {
       },
       liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint) => {
         const input = u8().slice(inOff, inOff + inSize);
-        const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
+        const originator = ctxView().originator;
         const r = this.host.invokeProcedure(this.slot, calleeIdx >>> 0, inputType & 0xffff, input, reward, originator);
         this.recHost("invokeProcedure", () => `→ @${calleeIdx >>> 0} proc #${inputType & 0xffff} reward=${reward}${r.error ? ` ✗ err ${r.error}` : ""}`);
         if (r.error === 0 && r.output.length) u8().set(r.output.subarray(0, Math.min(outSize, r.output.length)), outOff);
@@ -561,12 +562,12 @@ export class Contract {
       },
       liteSetShareholderProposal: (calleeIdx: number, propOff: number, reward: bigint) => {
         const proposal = u8().slice(propOff, propOff + 1024);
-        const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
+        const originator = ctxView().originator;
         return this.host.setShareholderProposal(this.slot, calleeIdx >>> 0, proposal, reward, originator);
       },
       liteSetShareholderVotes: (calleeIdx: number, voteOff: number, voteSize: number, reward: bigint) => {
         const vote = u8().slice(voteOff, voteOff + voteSize);
-        const originator = u8().slice(this.ctxAddr + 40, this.ctxAddr + 72);
+        const originator = ctxView().originator;
         return this.host.setShareholderVotes(this.slot, calleeIdx >>> 0, vote, reward, originator);
       },
     };

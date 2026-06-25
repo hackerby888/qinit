@@ -12,9 +12,30 @@ import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
 import { k12Bytes, toHex, verifySync, deriveKeysSync, initK12 } from "./k12";
 import { Transaction } from "./wire";
+import { defineStruct, u16, u32, u64, blob, pad } from "./struct";
 
 interface SlotMeta { name: string; codeHash: string; version: number; }
 interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
+
+// The UPLOAD_BEGIN / UPLOAD_CHUNK / DEPLOY message layouts (core-lite lite_dynamic_contracts.h + the proto
+// encoders in packages/proto/src/deploy.ts). The chunk header is packed so the chunk payload follows at SIZE.
+const UploadBegin = defineStruct("UploadBegin", {
+  sessionId: u64, // @0
+  totalSize: u32, // @8
+  chunkCount: u32, // @12
+  finalHash: blob(32), // @16
+});
+const UploadChunkHeader = defineStruct("UploadChunkHeader", {
+  sessionId: u64, // @0
+  seq: u32, // @8
+  len: u16, // @12  (the chunk payload follows immediately at @14)
+}, { packed: true });
+const DeployHeader = defineStruct("DeployHeader", {
+  sessionId: u64, // @0
+  targetSlot: u32, // @8
+  _reserved: pad(40), // @12
+  name: blob(32), // @52  null-padded contract name
+});
 
 export interface EngineOpts { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint }
 
@@ -293,24 +314,23 @@ export class VirtualNode implements NodeTransport {
   // UPLOAD_BEGIN / UPLOAD_CHUNK / DEPLOY — mirrors core-lite lite_dynamic_contracts.h LE decode + the proto
   // encoders (packages/proto/src/deploy.ts).
   private handleDeployTx(inputType: number, p: Uint8Array): void {
-    const v = new DataView(p.buffer, p.byteOffset, p.byteLength);
     if (inputType === LITE_TX.UPLOAD_BEGIN) {
-      const totalSize = v.getUint32(8, true);
-      this.upload = { sessionId: v.getBigUint64(0, true), totalSize, chunkCount: v.getUint32(12, true), buf: new Uint8Array(totalSize), received: new Set(), finalHash: toHex(p.slice(16, 48)) };
+      const m = UploadBegin.wrap(p);
+      const totalSize = m.totalSize;
+      this.upload = { sessionId: m.sessionId, totalSize, chunkCount: m.chunkCount, buf: new Uint8Array(totalSize), received: new Set(), finalHash: toHex(m.finalHash) };
     } else if (inputType === LITE_TX.UPLOAD_CHUNK) {
       const u = this.upload;
       if (!u) throw new Error("upload chunk without an active session");
-      const seq = v.getUint32(8, true);
-      const len = v.getUint16(12, true);
-      u.buf.set(p.slice(14, 14 + len), seq * CHUNK_DATA_MAX);
-      u.received.add(seq);
+      const m = UploadChunkHeader.wrap(p);
+      u.buf.set(p.subarray(UploadChunkHeader.SIZE, UploadChunkHeader.SIZE + m.len), m.seq * CHUNK_DATA_MAX);
+      u.received.add(m.seq);
     } else if (inputType === LITE_TX.DEPLOY) {
       const u = this.upload;
       if (!u) throw new Error("deploy without an active session");
-      const targetSlot = v.getUint32(8, true);
-      const raw = p.length >= 84 ? new TextDecoder().decode(p.slice(52, 84)) : "";
+      const m = DeployHeader.wrap(p);
+      const raw = p.length >= 84 ? new TextDecoder().decode(m.name) : "";
       const name = raw.replace(/[^\x20-\x7e].*$/, "") || "Contract"; // strip the null pad
-      this.deploy(targetSlot, u.buf, name);
+      this.deploy(m.targetSlot, u.buf, name);
       this.upload = null;
     } else {
       throw new Error("unknown deploy-range inputType " + inputType);

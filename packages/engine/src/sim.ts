@@ -13,6 +13,7 @@ import { OracleManager } from "./oracle";
 import { AssetLedger, type AssetSnapshot } from "./assets";
 import { TickConsensus, type TickRecord } from "./ticking";
 import type { TickData } from "./wire";
+import { PreManagementRightsTransferInput, PreManagementRightsTransferOutput, PostIncomingTransferInput, ContractId } from "./abi";
 import { TxPool, type TxRecord } from "./txs";
 import { ContractRegistry } from "./registry";
 import type { DebugTrace } from "@qinit/core";
@@ -180,9 +181,9 @@ export class Sim {
 
   // ---- spectrum (the ledger lives in SpectrumLedger; these stay on the façade for the public API) ----
   private contractId(slot: number): Uint8Array {
-    const a = new Uint8Array(32);
-    new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
-    return a;
+    const id = ContractId.alloc();
+    id.lane0 = BigInt(slot); // id(slot,0,0,0)
+    return id.bytes;
   }
 
   private key(id: Uint8Array): string {
@@ -225,10 +226,10 @@ export class Sim {
 
   // The slot index if `id` is a deployed contract's id (id(slot,0,0,0)), else -1.
   private contractSlotOf(id: Uint8Array): number {
-    const dv = new DataView(id.buffer, id.byteOffset, id.byteLength);
-    if (dv.getBigUint64(8, true) !== 0n || dv.getBigUint64(16, true) !== 0n || dv.getBigUint64(24, true) !== 0n) return -1;
+    const c = ContractId.wrap(id);
+    if (c.lane1 !== 0n || c.lane2 !== 0n || c.lane3 !== 0n) return -1; // upper lanes set ⇒ a regular entity, not a contract
 
-    const slot = Number(dv.getBigUint64(0, true));
+    const slot = Number(c.lane0);
     return this.contracts.has(slot) ? slot : -1;
   }
 
@@ -287,20 +288,19 @@ export class Sim {
       return { allow: false, fee: 0n };
     }
 
-    const input = new Uint8Array(128); // PreManagementRightsTransfer_input { Asset(40) owner(32) possessor(32) shares(8) offeredFee(8) otherContractIndex(2) }
-    const dv = new DataView(input.buffer);
-    input.set(issuer.subarray(0, 32), 0); // Asset.issuer
-    dv.setBigUint64(32, name, true); // Asset.assetName
-    input.set(owner.subarray(0, 32), 40);
-    input.set(possessor.subarray(0, 32), 72);
-    dv.setBigInt64(104, shares, true);
-    dv.setBigInt64(112, fee, true);
-    dv.setUint16(120, otherSlot & 0xffff, true);
+    const req = PreManagementRightsTransferInput.alloc();
+    req.asset.issuer = issuer;
+    req.asset.assetName = name;
+    req.owner = owner;
+    req.possessor = possessor;
+    req.shares = shares;
+    req.offeredFee = fee;
+    req.otherContractIndex = otherSlot;
 
-    const out = this.registry.fire(c, KIND.SYSPROC, spId, input, { entryPoint: spId });
-    const odv = new DataView(out.buffer, out.byteOffset, out.byteLength);
-    const allow = out.length >= 1 && out[0] !== 0; // PreManagementRightsTransfer_output { bool allowTransfer; sint64 requestedFee }
-    const reqFee = out.length >= 16 ? odv.getBigInt64(8, true) : 0n;
+    const out = this.registry.fire(c, KIND.SYSPROC, spId, req.bytes, { entryPoint: spId });
+    const reply = PreManagementRightsTransferOutput.wrap(out);
+    const allow = out.length >= 1 && reply.allowTransfer !== 0;
+    const reqFee = out.length >= 16 ? reply.requestedFee : 0n;
     return { allow, fee: reqFee };
   }
 
@@ -427,10 +427,11 @@ export class Sim {
     const c = this.contracts.get(slot)!;
     if (!c.hasSysproc(SP.POST_INCOMING_TRANSFER)) return;
 
-    const input = new Uint8Array(48); // PostIncomingTransfer_input { id(32), sint64(8), uint8(1) }
-    input.set(source.subarray(0, 32), 0);
-    new DataView(input.buffer).setBigInt64(32, amount, true);
-    input[40] = type & 0xff;
+    const notice = PostIncomingTransferInput.alloc();
+    notice.source = source;
+    notice.amount = amount;
+    notice.type = type;
+    const input = notice.bytes;
 
     // POST_INCOMING_TRANSFER is a system-initiated callback: exempt from the fee gate (it runs even on a
     // dormant contract so it can receive transfers) but still metered, since a state change costs the digest.
