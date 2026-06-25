@@ -6,7 +6,7 @@
 // the naturally-aligned layout the emulator produces is byte-identical to the node's. Views are zero-copy and
 // little-endian: each wraps a backing Uint8Array and reads/writes its fields in place.
 import { toHex } from "./k12";
-import { type Codec, u8, u16, u24, u32, i16, i32, i64, u64, blob, array, sub, roundUp, View, defineStruct } from "./struct";
+import { type Codec, u8, u16, u24, u32, i16, i32, i64, u64, blob, array, sub, roundUp, View, defineStruct } from "@qinit/core";
 
 export const DIGEST_SIZE = 32; // m256i
 export const SIG_SIZE = 64; // signature

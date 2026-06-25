@@ -6,6 +6,7 @@
 //
 // Consumed two ways: bundlers that need a node-free @qinit/core alias to this file (e.g. @qinit/engine's
 // build), and apps that want it directly via `@qinit/core/browser`.
+export * from "./struct"; // zero-copy struct-view kit — node-free, safe in the browser bundle
 export { deriveIdentity, bytesToIdentity, identityToBytes, cryptoSmoke } from "./qubic";
 export type { IdentityResult, CryptoSmokeResult } from "./qubic";
 

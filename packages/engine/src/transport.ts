@@ -6,36 +6,15 @@ import type {
   NodeTransport, TxStatus, StateRead, TickInfo, DynRegistry, DynContract, DynEntry, DynUpload, DebugTrace, BroadcastResult, EntityInfo, TxInfo,
 } from "@qinit/core";
 import { bytesToIdentity, identityToBytes } from "@qinit/core";
-import { LITE_TX, CHUNK_DATA_MAX } from "@qinit/proto";
+import { LITE_TX, CHUNK_DATA_MAX, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
 import { Sim, type AssetSnapshot, type FeeMode } from "./sim";
 import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
 import { k12Bytes, toHex, verifySync, deriveKeysSync, initK12 } from "./k12";
 import { Transaction } from "./wire";
-import { defineStruct, u16, u32, u64, blob, pad } from "./struct";
 
 interface SlotMeta { name: string; codeHash: string; version: number; }
 interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
-
-// The UPLOAD_BEGIN / UPLOAD_CHUNK / DEPLOY message layouts (core-lite lite_dynamic_contracts.h + the proto
-// encoders in packages/proto/src/deploy.ts). The chunk header is packed so the chunk payload follows at SIZE.
-const UploadBegin = defineStruct("UploadBegin", {
-  sessionId: u64, // @0
-  totalSize: u32, // @8
-  chunkCount: u32, // @12
-  finalHash: blob(32), // @16
-});
-const UploadChunkHeader = defineStruct("UploadChunkHeader", {
-  sessionId: u64, // @0
-  seq: u32, // @8
-  len: u16, // @12  (the chunk payload follows immediately at @14)
-}, { packed: true });
-const DeployHeader = defineStruct("DeployHeader", {
-  sessionId: u64, // @0
-  targetSlot: u32, // @8
-  _reserved: pad(40), // @12
-  name: blob(32), // @52  null-padded contract name
-});
 
 export interface EngineOpts { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint }
 
@@ -327,8 +306,8 @@ export class VirtualNode implements NodeTransport {
     } else if (inputType === LITE_TX.DEPLOY) {
       const u = this.upload;
       if (!u) throw new Error("deploy without an active session");
-      const m = DeployHeader.wrap(p);
-      const raw = p.length >= 84 ? new TextDecoder().decode(m.name) : "";
+      const m = DeployMessage.wrap(p);
+      const raw = p.length >= DeployMessage.SIZE ? new TextDecoder().decode(m.name) : "";
       const name = raw.replace(/[^\x20-\x7e].*$/, "") || "Contract"; // strip the null pad
       this.deploy(m.targetSlot, u.buf, name);
       this.upload = null;

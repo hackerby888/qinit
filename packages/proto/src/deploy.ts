@@ -4,7 +4,31 @@
 
 // Lite transaction inputTypes + chunk sizing live in ./protocol (mirrored against core by the drift guard).
 import { LITE_TX, CHUNK_DATA_MAX } from "./protocol";
+import { defineStruct, u16, u32, u64, blob } from "@qinit/core";
 export { LITE_TX, CHUNK_DATA_MAX };
+
+// The on-wire message layouts, as zero-copy struct views. ONE definition: proto encodes them here and the
+// engine's VirtualNode decodes the SAME views (packages/engine/src/transport.ts), so encoder and decoder can't
+// drift. Little-endian, packed (the chunk + deploy messages carry no trailing pad on the wire).
+export const UploadBegin = defineStruct("UploadBegin", {
+  sessionId: u64, // @0
+  totalSize: u32, // @8
+  chunkCount: u32, // @12
+  finalHash: blob(32), // @16  (48 bytes total)
+});
+export const UploadChunkHeader = defineStruct("UploadChunkHeader", {
+  sessionId: u64, // @0
+  seq: u32, // @8
+  len: u16, // @12  (14-byte header; the chunk payload follows at SIZE)
+}, { packed: true });
+export const DeployMessage = defineStruct("DeployMessage", {
+  sessionId: u64, // @0
+  targetSlot: u32, // @8
+  finalHash: blob(32), // @12
+  abiVersion: u32, // @44
+  stateLayoutVersion: u32, // @48
+  name: blob(32), // @52  null-padded contract name (84 bytes total)
+}, { packed: true });
 
 function hexToBytes(hex: string, len: number): Uint8Array {
   if (hex.length !== len * 2) throw new Error(`expected ${len}-byte hex, got ${hex.length / 2}`);
@@ -20,15 +44,13 @@ export interface UploadBeginParams {
   finalHashHex: string; // 32-byte K12, hex
 }
 
-// sessionId(8) totalSize(4) chunkCount(4) finalHash(32) = 48
 export function encodeUploadBegin(p: UploadBeginParams): Uint8Array {
-  const b = new Uint8Array(48);
-  const v = new DataView(b.buffer);
-  v.setBigUint64(0, p.sessionId, true);
-  v.setUint32(8, p.totalSize, true);
-  v.setUint32(12, p.chunkCount, true);
-  b.set(hexToBytes(p.finalHashHex, 32), 16);
-  return b;
+  const m = UploadBegin.alloc();
+  m.sessionId = p.sessionId;
+  m.totalSize = p.totalSize;
+  m.chunkCount = p.chunkCount;
+  m.finalHash = hexToBytes(p.finalHashHex, 32);
+  return m.bytes;
 }
 
 export interface UploadChunkParams {
@@ -37,15 +59,14 @@ export interface UploadChunkParams {
   bytes: Uint8Array; // <= CHUNK_DATA_MAX
 }
 
-// sessionId(8) seq(4) len(2) bytes(len) ; header = 14
 export function encodeUploadChunk(p: UploadChunkParams): Uint8Array {
   if (p.bytes.length > CHUNK_DATA_MAX) throw new Error("chunk too large");
-  const b = new Uint8Array(14 + p.bytes.length);
-  const v = new DataView(b.buffer);
-  v.setBigUint64(0, p.sessionId, true);
-  v.setUint32(8, p.seq, true);
-  v.setUint16(12, p.bytes.length, true);
-  b.set(p.bytes, 14);
+  const b = new Uint8Array(UploadChunkHeader.SIZE + p.bytes.length);
+  const m = UploadChunkHeader.wrap(b);
+  m.sessionId = p.sessionId;
+  m.seq = p.seq;
+  m.len = p.bytes.length;
+  b.set(p.bytes, UploadChunkHeader.SIZE);
   return b;
 }
 
@@ -58,18 +79,18 @@ export interface DeployParams {
   name?: string; // stored on-chain per slot -> tooling resolves name -> slot
 }
 
-// sessionId(8) targetSlot(4) finalHash(32) abiVersion(4) stateLayoutVersion(4) name(32) = 84
 export function encodeDeploy(p: DeployParams): Uint8Array {
-  const b = new Uint8Array(84);
-  const v = new DataView(b.buffer);
-  v.setBigUint64(0, p.sessionId, true);
-  v.setUint32(8, p.targetSlot, true);
-  b.set(hexToBytes(p.finalHashHex, 32), 12);
-  v.setUint32(44, p.abiVersion ?? 1, true);
-  v.setUint32(48, p.stateLayoutVersion ?? 0, true);
+  const m = DeployMessage.alloc();
+  m.sessionId = p.sessionId;
+  m.targetSlot = p.targetSlot;
+  m.finalHash = hexToBytes(p.finalHashHex, 32);
+  m.abiVersion = p.abiVersion ?? 1;
+  m.stateLayoutVersion = p.stateLayoutVersion ?? 0;
   const nm = (p.name ?? "").slice(0, 31);
-  for (let i = 0; i < nm.length; i++) b[52 + i] = nm.charCodeAt(i) & 0x7f;
-  return b;
+  const name = new Uint8Array(32);
+  for (let i = 0; i < nm.length; i++) name[i] = nm.charCodeAt(i) & 0x7f;
+  m.name = name;
+  return m.bytes;
 }
 
 export function chunkSo(bytes: Uint8Array, size = CHUNK_DATA_MAX): Uint8Array[] {

@@ -3,14 +3,13 @@
 // place so all three stay consistent. RPC dep is the narrow StateReader (real LiteRpc / a fake in tests).
 import { decodeOutput, layoutOf, decodeHashMap, decodeHashSet, decodeCollection, decodeLog, type DecodedLog } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
-import { bytesToIdentity, type DebugEntry } from "@qinit/core";
+import { bytesToIdentity, roundUp, type DebugEntry } from "@qinit/core";
 
 export type Container = { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number };
 export type StateField = { name: string; off: number; size: number; type: string; container?: Container; bad?: boolean };
 export type ColView = { name: string; entries: string[] };
 export type StateReader = { stateRead(slot: number, off: number, len: number): Promise<{ hex: string }> };
 
-const roundUp = (o: number, a: number) => (a <= 1 ? o : Math.ceil(o / a) * a);
 export const hexToBytes = (h: string) => { const s = h.startsWith("0x") ? h.slice(2) : h; const a = new Uint8Array(s.length >> 1); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 16); return a; };
 export const jstr = (v: any) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
 
