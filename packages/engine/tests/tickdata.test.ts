@@ -23,7 +23,7 @@ test("leader rotates as computor[tick % N] and signs the tick's TickData", async
   for (let i = 0; i < 6; i++) {
     sim.advance();
     const tick = sim.tickN;
-    const td = sim.tickData(tick)!;
+    const td = sim.tickData(tick)!.bytes;
 
     expect(td.length).toBe(TICKDATA_SIZE); // 41072 — the cli TickData layout
     expect(dv(td).getUint16(0, true)).toBe(tick % 4); // computorIndex = leader = tick % N
@@ -42,7 +42,7 @@ test("the quorum votes commit transaction = K12(TickData)", async () => {
   sim.advance();
 
   const rec = sim.tickRecord(sim.tickN)!;
-  expect(toHex(rec.digests.transaction)).toBe(toHex(k12Bytes(rec.tickData)));
+  expect(toHex(rec.digests.transaction)).toBe(toHex(k12Bytes(rec.tickData.bytes)));
   expect(rec.aligned).toBe(4); // honest committee -> all align on K12(TickData)
 });
 
@@ -67,7 +67,7 @@ test("a tx targeting the next tick lands in that tick's TickData and is processe
   expect(sim.tickTransactions(target).some((r) => r.txId === "tx-1")).toBe(true);
 
   // its digest is the first transactionDigests entry of `target`'s TickData
-  const td = sim.tickData(target)!;
+  const td = sim.tickData(target)!.bytes;
   expect(toHex(td.subarray(DIGESTS_OFFSET, DIGESTS_OFFSET + 32))).toBe(toHex(digest));
 });
 
@@ -76,7 +76,7 @@ test("an empty tick still produces a signed TickData with zero tx digests", asyn
   const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
   sim.advance();
 
-  const td = sim.tickData(sim.tickN)!;
+  const td = sim.tickData(sim.tickN)!.bytes;
   expect(td.length).toBe(TICKDATA_SIZE);
   expect(toHex(td.subarray(DIGESTS_OFFSET, DIGESTS_OFFSET + 32))).toBe(toHex(new Uint8Array(32)));
 
@@ -93,7 +93,7 @@ test("tampering a transaction digest or the signature breaks leader verification
   sim.advance();
 
   const leader = sim.getCommittee().computors[target % 4];
-  const good = sim.tickData(target)!;
+  const good = sim.tickData(target)!.bytes;
   expect(verifySync(leader.publicKey, tickDataMessage(good), tickDataSignature(good))).toBe(true);
 
   // flip a byte inside the committed transactionDigests -> the signed message no longer matches
@@ -116,7 +116,7 @@ test("TickData layout: timelock = K12(state roots), contractFees + padding diges
   sim.enqueueTx(target, new Uint8Array(32).fill(0x11), new Uint8Array(32).fill(0x22), 1n, 0, new Uint8Array(0), "tx-1", digest);
   sim.advance();
 
-  const td = sim.tickData(target)!;
+  const td = sim.tickData(target)!.bytes;
 
   // timelock @16..48 = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) (no state change after finalize)
   const roots = new Uint8Array(96);

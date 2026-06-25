@@ -6,7 +6,6 @@
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "./k12";
 import { dateFields } from "./runtime";
 import { rootFromSiblings } from "./merkle";
-import { bytesEqual } from "./bytes";
 import { M256i, Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "./wire";
 
 export { TXS_PER_TICK, TICKDATA_SIZE };
@@ -131,7 +130,7 @@ function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
 // committed as prev*Digest and as salted*Digest = K12(pubKey ‖ prevDigest). Time fields and the u32
 // resource/tx-body digests are zeroed (deterministic; not modeled in the dev sim). The signature is FourQ over
 // K12(Tick − signature), with the mainnet TARGET_TICK_VOTE_SIGNATURE proof-of-work intentionally skipped.
-export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests, timeMs: number): Uint8Array {
+export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests, timeMs: number): Tick {
   const v = Tick.alloc();
   v.computorIndex = c.index;
   v.epoch = epoch;
@@ -162,7 +161,7 @@ export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickS
   const digest = k12Bytes(v.bytes.subarray(0, TICK_SIZE - SIG_SIZE));
   v.computorIndex = c.index;
   v.signature = signSync(c.privateKey, c.publicKey, digest);
-  return v.bytes;
+  return v;
 }
 
 // The K12 message a tick vote's signature covers: the Tick − signature, with computorIndex XORed by the Tick
@@ -197,7 +196,7 @@ function tickDataTimelock(spectrum: Uint8Array, universe: Uint8Array, computer: 
 
 // Build + sign the tick's TickData. The leader (computor[tick % N]) commits the tick's per-tx digests (each =
 // K12(full signed tx), in order, zero-padded to the capacity) and the state roots; contractFees stay zero.
-export function buildTickData(committee: Committee, epoch: number, tick: number, txDigests: Uint8Array[], roots: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array }, timeMs: number): Uint8Array {
+export function buildTickData(committee: Committee, epoch: number, tick: number, txDigests: Uint8Array[], roots: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array }, timeMs: number): TickData {
   const leaderIndex = tick % committee.size;
   const leader = committee.computors[leaderIndex];
 
@@ -229,7 +228,7 @@ export function buildTickData(committee: Committee, epoch: number, tick: number,
   td.computorIndex = leaderIndex;
   td.signature = signSync(leader.privateKey, leader.publicKey, digest);
 
-  return td.bytes;
+  return td;
 }
 
 export function tickDataSignature(td: Uint8Array): Uint8Array {
@@ -246,19 +245,18 @@ export function tickDataMessage(td: Uint8Array): Uint8Array {
 }
 
 // Does a vote commit to the etalon (canonical) state digests? The aligned-vote count for quorum.
-export function voteIsAligned(vote: Uint8Array, d: TickStateDigests): boolean {
-  const t = Tick.wrap(vote);
-  return t.prevSpectrumDigest.equals(d.spectrum)
-    && t.prevUniverseDigest.equals(d.universe)
-    && t.prevComputerDigest.equals(d.computer)
-    && t.transactionDigest.equals(d.transaction);
+export function voteIsAligned(vote: Tick, d: TickStateDigests): boolean {
+  return vote.prevSpectrumDigest.equals(d.spectrum)
+    && vote.prevUniverseDigest.equals(d.universe)
+    && vote.prevComputerDigest.equals(d.computer)
+    && vote.transactionDigest.equals(d.transaction);
 }
 
 // A light-client check: is `record` (an EntityRecord) provably part of the state that >= QUORUM computors
 // signed? Recompute the spectrum root from the merkle proof, then count the tick votes that (a) carry a valid
 // signature from their computor and (b) commit that exact spectrum root. True iff the count reaches quorum —
 // i.e. the balance is in a state a supermajority of the committee agreed on, verified by math, not trust.
-export function verifyEntityProof(record: Uint8Array, index: number, siblings: Uint8Array[], votes: Uint8Array[], committee: Committee): boolean {
+export function verifyEntityProof(record: Uint8Array, index: number, siblings: Uint8Array[], votes: Tick[], committee: Committee): boolean {
   if (index < 0) {
     return false;
   }
@@ -267,15 +265,14 @@ export function verifyEntityProof(record: Uint8Array, index: number, siblings: U
 
   let valid = 0;
   for (const vote of votes) {
-    const computorIndex = vote[0] | (vote[1] << 8);
-    const c = committee.computors[computorIndex];
+    const c = committee.computors[vote.computorIndex];
     if (!c) {
       continue;
     }
-    if (!verifySync(c.publicKey, tickVoteMessage(vote), tickVoteSignature(vote))) {
+    if (!verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))) {
       continue;
     }
-    if (!bytesEqual(vote.subarray(32, 64), proofRoot)) {
+    if (!vote.prevSpectrumDigest.equals(proofRoot)) {
       continue;
     }
     valid++;

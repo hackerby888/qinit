@@ -285,12 +285,16 @@ abstract class View implements Backing {
 type FieldType<C> = C extends Codec<infer T> ? T : never;
 type StructFields<S> = { [K in keyof S]: FieldType<S[K]> };
 
+// A live struct view: every wire field as a read/write property (writes go straight through to `.bytes`), plus
+// `.clone()` for a detached copy you can mutate without touching the original buffer.
+type StructInstance<S extends Record<string, Codec<any>>> = View & StructFields<S> & { clone(): StructInstance<S> };
+
 interface StructClass<S extends Record<string, Codec<any>>> {
-  new (buf: Uint8Array, off?: number): View & StructFields<S>;
+  new (buf: Uint8Array, off?: number): StructInstance<S>;
   readonly SIZE: number;
   readonly OFFSETS: { [K in keyof S]: number };
-  wrap(buf: Uint8Array, off?: number): View & StructFields<S>;
-  alloc(): View & StructFields<S>;
+  wrap(buf: Uint8Array, off?: number): StructInstance<S>;
+  alloc(): StructInstance<S>;
 }
 
 // Build a struct view class from a field list, emulating the C compiler's natural-alignment layout: each field
@@ -322,6 +326,12 @@ function defineStruct<S extends Record<string, Codec<any>>>(
   class Struct extends View {
     constructor(buf: Uint8Array, off = 0) {
       super(buf, off, size);
+    }
+
+    // Detached copy: a fresh size-byte buffer with the same contents. Mutating the clone never touches the
+    // original (its signature/digest stay valid); re-sign the clone if you need it valid after edits.
+    clone(): Struct {
+      return new Struct(this.bytes.slice());
     }
   }
 

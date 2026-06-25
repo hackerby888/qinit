@@ -12,6 +12,7 @@ import { SpectrumLedger } from "./spectrum";
 import { OracleManager } from "./oracle";
 import { AssetLedger, type AssetSnapshot } from "./assets";
 import { TickConsensus, type TickRecord } from "./ticking";
+import type { TickData } from "./wire";
 import { TxPool, type TxRecord } from "./txs";
 import { ContractRegistry } from "./registry";
 import type { DebugTrace } from "@qinit/core";
@@ -789,7 +790,7 @@ export class Sim {
     return this.ticking.tickRecord(tick);
   }
 
-  tickData(tick: number): Uint8Array | undefined {
+  tickData(tick: number): TickData | undefined {
     return this.ticking.tickData(tick);
   }
 

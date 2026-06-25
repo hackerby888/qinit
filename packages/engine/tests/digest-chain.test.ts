@@ -26,18 +26,17 @@ async function wasm(name: string): Promise<Uint8Array> {
 
 // Count the votes that (a) carry a valid signature from their computor and (b) commit `expected` at the named
 // prev*Digest field — the generalized form of verifyEntityProof's spectrum check, for any of the three roots.
-function signedVotesCommitting(votes: Uint8Array[], committee: ReturnType<Sim["getCommittee"]>, field: "prevSpectrumDigest" | "prevUniverseDigest" | "prevComputerDigest", expected: Uint8Array): number {
+function signedVotesCommitting(votes: Tick[], committee: ReturnType<Sim["getCommittee"]>, field: "prevSpectrumDigest" | "prevUniverseDigest" | "prevComputerDigest", expected: Uint8Array): number {
   let n = 0;
   for (const vote of votes) {
-    const t = Tick.wrap(vote);
-    const c = committee.computors[t.computorIndex];
+    const c = committee.computors[vote.computorIndex];
     if (!c) {
       continue;
     }
-    if (!verifySync(c.publicKey, tickVoteMessage(vote), tickVoteSignature(vote))) {
+    if (!verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))) {
       continue;
     }
-    if ((t[field] as M256i).equals(expected)) {
+    if ((vote[field] as M256i).equals(expected)) {
       n++;
     }
   }

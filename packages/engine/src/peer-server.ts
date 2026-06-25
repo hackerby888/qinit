@@ -210,7 +210,7 @@ export class PeerServer {
   // to). An unfinalized / pruned tick has none, so an empty payload is sent (a client reads it as "no data").
   private respondTickData(payload: Uint8Array, dejavu: number): Uint8Array {
     const tick = codec.decodeTick(payload);
-    const td = this.engine.sim.tickData(tick) ?? new Uint8Array(0);
+    const td = this.engine.sim.tickData(tick)?.bytes ?? new Uint8Array(0);
     return codec.frame(MSG.BROADCAST_FUTURE_TICK_DATA, td, dejavu);
   }
 
@@ -298,7 +298,7 @@ export class PeerServer {
     }
 
     // Stream each computor's signed Tick vote (352 B, the protocol's Tick layout) then END_RESPONSE.
-    const frames = rec.votes.map((v) => codec.frame(MSG.BROADCAST_TICK, v, dejavu));
+    const frames = rec.votes.map((v) => codec.frame(MSG.BROADCAST_TICK, v.bytes, dejavu));
     frames.push(codec.endResponse(dejavu));
     return concatAll(frames);
   }

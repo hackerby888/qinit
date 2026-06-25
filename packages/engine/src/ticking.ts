@@ -5,6 +5,7 @@
 // the chain clock from there, and exposes the previous tick's committed roots (the qpi prev*Digest).
 import { Committee, type CommitteeOpts, type TickStateDigests, buildTickVote, buildTickData, voteIsAligned, DEFAULT_NUMBER_OF_COMPUTORS } from "./consensus";
 import { k12Bytes } from "./k12";
+import type { Tick, TickData } from "./wire";
 
 const TICK_HISTORY = 2000; // ticks of TickData + quorum records retained (memory bound; each TickData ~41 KB)
 const ZERO32 = new Uint8Array(32);
@@ -12,11 +13,11 @@ const ZERO32 = new Uint8Array(32);
 // A finalized tick's consensus record: the N computor votes, the aligned-vote count, and the etalon digests they
 // committed to. Stored per tick for the quorum-tick / current-tick-info queries.
 export interface TickRecord {
-  votes: Uint8Array[];
+  votes: Tick[]; // signed tick votes — read fields directly (vote.computorIndex, vote.signature); vote.bytes is the canonical buffer
   aligned: number;
   total: number;
   digests: TickStateDigests;
-  tickData: Uint8Array; // the leader's signed TickData; the votes commit transaction = K12(tickData)
+  tickData: TickData; // the leader's signed TickData; the votes commit transaction = K12(tickData.bytes)
 }
 
 // The seams TickConsensus needs from the rest of the engine: the three merkle roots (computed by the ledgers +
@@ -93,11 +94,11 @@ export class TickConsensus {
       spectrum,
       universe,
       computer,
-      transaction: k12Bytes(tickData),
+      transaction: k12Bytes(tickData.bytes),
       expectedNextTransaction: new Uint8Array(32),
     };
 
-    const votes: Uint8Array[] = [];
+    const votes: Tick[] = [];
     let aligned = 0;
     for (const c of committee.computors) {
       const vote = buildTickVote(c, epoch, tick, digests, this.host.nowMs());
@@ -134,7 +135,7 @@ export class TickConsensus {
   }
 
   // The stored signed TickData for a finalized tick; undefined if never finalized or already pruned.
-  tickData(tick: number): Uint8Array | undefined {
+  tickData(tick: number): TickData | undefined {
     return this.ticks.get(tick)?.tickData;
   }
 

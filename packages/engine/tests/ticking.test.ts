@@ -68,7 +68,7 @@ test("finalizeTick records the quorum votes + signed TickData for the tick", () 
   expect(rec.aligned).toBeGreaterThanOrEqual(3); // an honest committee always reaches quorum
   expect(rec.aligned).toBe(tc.alignedVotes(7));
   expect(tc.tickData(7)).toBe(rec.tickData);
-  expect(rec.tickData.length).toBe(139376); // TickData
+  expect(rec.tickData.bytes.length).toBe(139376); // TickData
   expect(toHex(rec.digests.spectrum)).toBe("11".repeat(32));
 });
 

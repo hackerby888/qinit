@@ -75,7 +75,7 @@ test("every advanced tick reaches quorum with N FourQ-verifiable votes", async (
   // each vote's signature verifies against its computor's public key
   for (const c of committee.computors) {
     const vote = rec.votes[c.index];
-    expect(verifySync(c.publicKey, tickVoteMessage(vote), tickVoteSignature(vote))).toBe(true);
+    expect(verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))).toBe(true);
   }
 });
 
@@ -137,9 +137,9 @@ test("chain clock advances with ticks and stamps the tick-vote timestamp", async
   // the latest vote carries the decomposed timestamp (year = UTC year - 2000, like the node's year())
   const vote = sim.tickRecord(sim.tickN)!.votes[0];
   const d = new Date(sim.nowMs());
-  expect(vote[15]).toBe((d.getUTCFullYear() - 2000) & 0xff); // year @15
-  expect(vote[14]).toBe(d.getUTCMonth() + 1); // month @14
-  expect(vote[13]).toBe(d.getUTCDate()); // day @13
+  expect(vote.year).toBe((d.getUTCFullYear() - 2000) & 0xff); // year = UTC year - 2000 (node's year())
+  expect(vote.month).toBe(d.getUTCMonth() + 1);
+  expect(vote.day).toBe(d.getUTCDate());
 });
 
 test("spectrum digest changes when balances move, universe digest when assets change", async () => {
@@ -164,14 +164,14 @@ test("a tampered Tick vote fails signature verification and misaligns", async ()
   };
 
   const vote = buildTickVote(c, 1, 7, digests, Date.UTC(2024, 0, 1));
-  expect(verifySync(c.publicKey, tickVoteMessage(vote), tickVoteSignature(vote))).toBe(true);
+  expect(verifySync(c.publicKey, tickVoteMessage(vote.bytes), tickVoteSignature(vote.bytes))).toBe(true);
   expect(voteIsAligned(vote, digests)).toBe(true);
 
   // the same vote must NOT align to a different transaction digest (the etalon moved)
   expect(voteIsAligned(vote, { ...digests, transaction: k12Bytes(new Uint8Array([99])) })).toBe(false);
 
-  // flipping a committed digest byte invalidates the signature
-  const bad = vote.slice();
-  bad[32] ^= 0xff; // first byte of the spectrum-digest field
-  expect(verifySync(c.publicKey, tickVoteMessage(bad), tickVoteSignature(bad))).toBe(false);
+  // a detached clone we can tamper without touching the original; flipping a committed digest byte breaks the sig
+  const bad = vote.clone();
+  bad.bytes[32] ^= 0xff; // first byte of the spectrum-digest field
+  expect(verifySync(c.publicKey, tickVoteMessage(bad.bytes), tickVoteSignature(bad.bytes))).toBe(false);
 });
