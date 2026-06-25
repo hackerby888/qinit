@@ -6,7 +6,7 @@ import { buildSignedTx, deriveIdentity } from "@qinit/core";
 import { contractAddress, encodeInput } from "@qinit/proto";
 import { initK12 } from "../src/k12";
 import { Sim } from "../src/sim";
-import { InProcessEngine } from "../src/transport";
+import { VirtualNode } from "../src/transport";
 
 const FIX = import.meta.dir + "/fixtures";
 const SEED = "a".repeat(55);
@@ -69,7 +69,7 @@ test("insufficient source: moneyFlew false, no balance change (tx still recorded
 test("contract procedure tx (real signed): source debited, procedure runs with invocationReward", async () => {
   await initK12();
 
-  const eng = new InProcessEngine();
+  const eng = new VirtualNode({ mempool: false }); // assert tx EFFECT immediately (not mempool scheduling)
   await eng.seedFaucet();
   eng.deploy(28, await wasm("Vault"), "Vault");
   const seed = await seedPubkey();
@@ -88,7 +88,7 @@ test("contract procedure tx (real signed): source debited, procedure runs with i
 test("plain transfer to a contract (inputType 0): POST_INCOMING_TRANSFER fires, no procedure", async () => {
   await initK12();
 
-  const eng = new InProcessEngine();
+  const eng = new VirtualNode({ mempool: false }); // assert tx EFFECT immediately (not mempool scheduling)
   await eng.seedFaucet();
   eng.deploy(28, await wasm("Vault"), "Vault");
 
@@ -105,7 +105,7 @@ test("plain transfer to a contract (inputType 0): POST_INCOMING_TRANSFER fires, 
 test("getEntity: a contract reads an account's balance from the spectrum", async () => {
   await initK12();
 
-  const eng = new InProcessEngine();
+  const eng = new VirtualNode();
   eng.deploy(28, await wasm("Watcher"), "Watcher");
   const X = new Uint8Array(32).fill(0x33);
   eng.fund(X, 777n);

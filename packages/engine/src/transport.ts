@@ -1,6 +1,6 @@
-// Layer 3 — NodeTransport adapter. Implements the qinit RPC surface (@qinit/core NodeTransport) on top of the
-// in-process engine (Sim + Contract), so qinit's deploy/test/call flows can target the TS engine instead of
-// an HTTP node. Deploy works two ways: deploy() (direct, for the IDE) and the on-chain
+// Layer 3 — NodeTransport adapter. The VirtualNode implements the qinit RPC surface (@qinit/core NodeTransport)
+// on top of the in-process chain (Sim + Contract), so qinit's deploy/test/call flows can target the TS engine
+// instead of an HTTP node. Deploy works two ways: deploy() (direct, for the IDE) and the on-chain
 // UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol via broadcastTx (drop-in for qinit's deploy-ops).
 import type {
   NodeTransport, TxStatus, StateRead, TickInfo, DynRegistry, DynContract, DynEntry, DynUpload, DebugTrace, BroadcastResult, EntityInfo, TxInfo,
@@ -18,7 +18,7 @@ interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: numb
 
 export interface EngineOpts { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint }
 
-export class InProcessEngine implements NodeTransport {
+export class VirtualNode implements NodeTransport {
   readonly sim: Sim;
   readonly slotBase: number;
   readonly slotCount: number;
@@ -34,20 +34,22 @@ export class InProcessEngine implements NodeTransport {
 
   // Self-initializing constructor: awaits the crypto module (initK12) ONCE, then returns a ready engine —
   // callers never touch initK12. After this resolves, every k12/sign op stays synchronous (the wasm crypto
-  // is loaded process-wide). Use this instead of `await initK12(); new InProcessEngine()`.
-  static async create(opts: EngineOpts = {}): Promise<InProcessEngine> {
+  // is loaded process-wide). Use this instead of `await initK12(); new VirtualNode()`.
+  static async create(opts: EngineOpts = {}): Promise<VirtualNode> {
     await initK12();
-    return new InProcessEngine(opts);
+    return new VirtualNode(opts);
   }
 
-  // `fees`/`mempool`/`verifySigs` are all off by default — the engine behaves exactly as before (no fee gating,
-  // immediate apply, no signature check) so the IDE and its digests are unchanged. The peer entry opts in.
-  // Direct `new` still works for callers that have already awaited initK12() (the legacy setup).
+  // Realistic node behaviour by default: mempool (txs land on their target tick), signature verification, and
+  // metered execution fees are all ON — so a bare engine mirrors a real node. Opt out per flag for the sim
+  // conveniences (immediate apply / no sig check / no fee gating), e.g. the IDE passes them off. `Sim` itself
+  // keeps these off at its lower layer; the realistic defaults live here. Direct `new` still works for callers
+  // that have already awaited initK12() (the legacy setup).
   constructor(opts: EngineOpts = {}) {
-    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool, fees: opts.fees, defaultReserve: opts.defaultReserve });
+    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool ?? true, fees: opts.fees ?? "metered", defaultReserve: opts.defaultReserve });
     this.slotBase = opts.slotBase ?? 28;
     this.slotCount = opts.slotCount ?? 4;
-    this.verifySigs = opts.verifySigs ?? false;
+    this.verifySigs = opts.verifySigs ?? true;
   }
 
   // Execution-fee reserve controls (no-ops on behaviour when fees are "off"; see Sim).
@@ -344,7 +346,7 @@ export class InProcessEngine implements NodeTransport {
     }
     const enc = new TextEncoder();
     const seeds = ["a".repeat(55)];
-    for (let i = 1; i < InProcessEngine.POOL_SIZE; i++) {
+    for (let i = 1; i < VirtualNode.POOL_SIZE; i++) {
       const bytes = [...k12Bytes(enc.encode("qinit/funded-seed/" + i)), ...k12Bytes(enc.encode("qinit/funded-seed/" + i + "#"))];
       let s = "";
       for (let j = 0; j < 55; j++) {

@@ -1,10 +1,10 @@
-// EngineServer (server.ts) — the HTTP adapter. Spins it up on an ephemeral port over an InProcessEngine and
+// EngineServer (server.ts) — the HTTP adapter. Spins it up on an ephemeral port over an VirtualNode and
 // drives the qubic-core-lite RPC routes: tick info, the funded-seed faucet balance, a contract query over HTTP,
 // the per-contract digest, and the 404 path. The TCP peer bridge is covered by peer-server.test; this closes the
 // HTTP surface that qinit's deploy-ops + the spawned test runtime talk to.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12 } from "../src/k12";
-import { InProcessEngine } from "../src/transport";
+import { VirtualNode } from "../src/transport";
 import { EngineServer } from "../src/server";
 import { deriveIdentity } from "@qinit/core";
 
@@ -19,8 +19,8 @@ async function wasm(name: string): Promise<Uint8Array> {
 }
 
 // Start an EngineServer on an ephemeral port over a freshly-configured engine; returns its base URL + a stop fn.
-async function serve(setup?: (e: InProcessEngine) => void | Promise<void>): Promise<{ base: string; stop: () => void; engine: InProcessEngine }> {
-  const engine = new InProcessEngine();
+async function serve(setup?: (e: VirtualNode) => void | Promise<void>): Promise<{ base: string; stop: () => void; engine: VirtualNode }> {
+  const engine = new VirtualNode();
   if (setup) {
     await setup(engine);
   }

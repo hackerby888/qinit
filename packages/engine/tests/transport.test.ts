@@ -7,7 +7,7 @@ import {
   encodeInput, decodeOutput, contractAddress,
   encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX,
 } from "@qinit/proto";
-import { InProcessEngine } from "../src/transport";
+import { VirtualNode } from "../src/transport";
 
 const FIX = import.meta.dir + "/fixtures";
 const SEED = "a".repeat(55);
@@ -29,7 +29,7 @@ function wrapTx(inputType: number, payload: Uint8Array, destU64: bigint): Uint8A
 }
 
 test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)", async () => {
-  const eng = await InProcessEngine.create();
+  const eng = await VirtualNode.create({ mempool: false }); // assert apply immediately (not mempool scheduling)
   eng.deploy(28, await wasm("Counter"), "Counter");
 
   // dynRegistry exposes the contract + its fn/proc inputTypes (what resolveSlot / the client read)
@@ -51,7 +51,7 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
 });
 
 test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe -> oracle)", async () => {
-  const eng = await InProcessEngine.create();
+  const eng = await VirtualNode.create({ mempool: false }); // assert apply immediately (not mempool scheduling)
   const so = await wasm("DigestProbe");
   const finalHashHex = await k12Hex(so);
   const sessionId = newSessionId();
@@ -75,7 +75,7 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
 });
 
 test("signature verification (opt-in): valid signed tx accepted, tampered one rejected", async () => {
-  const eng = await InProcessEngine.create({ verifySigs: true });
+  const eng = await VirtualNode.create({ verifySigs: true, mempool: false }); // assert apply immediately
   eng.deploy(28, await wasm("Counter"), "Counter");
 
   const tx = await buildSignedTx(SEED, { destination: contractAddress(28), amount: 0, tick: 10, inputType: 1, payload: await encodeInput("") });

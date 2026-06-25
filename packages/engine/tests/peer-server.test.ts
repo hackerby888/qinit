@@ -4,7 +4,7 @@
 // arbitrator-signed computor list.
 import { test, expect } from "bun:test";
 import { initK12, k12Bytes, toHex, verifySync } from "../src/k12";
-import { InProcessEngine } from "../src/transport";
+import { VirtualNode } from "../src/transport";
 import { PeerServer } from "../src/peer-server";
 import * as codec from "../src/peer-codec";
 import { MSG } from "../src/peer-codec";
@@ -72,7 +72,7 @@ function dv(b: Uint8Array): DataView {
 
 test("handshake + current-tick-info returns the live tick with aligned votes", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
 
@@ -94,7 +94,7 @@ test("handshake + current-tick-info returns the live tick with aligned votes", a
 
 test("entity request returns the funded balance", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const id = new Uint8Array(32).fill(0x22);
   engine.fund(id, 5000n);
 
@@ -115,7 +115,7 @@ test("entity request returns the funded balance", async () => {
 
 test("entity request serves a merkle proof that recomputes the spectrum root", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const A = new Uint8Array(32).fill(0x33);
   engine.fund(A, 7000n);
   engine.fund(new Uint8Array(32).fill(0x44), 100n); // a second entity, so A's path has real siblings
@@ -145,7 +145,7 @@ test("entity request serves a merkle proof that recomputes the spectrum root", a
 
 test("owned-assets request serves a merkle proof that recomputes the universe root", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
 
@@ -179,7 +179,7 @@ test("owned-assets request serves a merkle proof that recomputes the universe ro
 
 test("contract-function request runs a Counter query through the engine", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
 
@@ -203,7 +203,7 @@ test("contract-function request runs a Counter query through the engine", async 
 
 test("computor-list request returns the arbitrator-signed 676-slot list", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
 
@@ -220,7 +220,7 @@ test("computor-list request returns the arbitrator-signed 676-slot list", async 
 
 test("tick-data request returns the signed TickData and its leader signature verifies", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
 
@@ -246,7 +246,7 @@ test("tick-data request returns the signed TickData and its leader signature ver
 
 test("quorum-tick request streams the committee's verifiable Tick votes", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
 
@@ -273,7 +273,7 @@ test("quorum-tick request streams the committee's verifiable Tick votes", async 
 
 test("system-info request reports epoch/tick and entity count", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   engine.fund(new Uint8Array(32).fill(0x44), 10n);
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
@@ -294,7 +294,7 @@ test("system-info request reports epoch/tick and entity count", async () => {
 
 test("transaction-info request returns the stored raw tx by its digest", async () => {
   await initK12();
-  const engine = new InProcessEngine(); // verifySigs off -> a well-formed tx is accepted without a real signature
+  const engine = new VirtualNode({ verifySigs: false }); // verifySigs off -> a well-formed (unsigned) tx is accepted
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
 
@@ -317,7 +317,7 @@ test("transaction-info request returns the stored raw tx by its digest", async (
 
 test("a malformed request does not kill the connection", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
 
@@ -340,7 +340,7 @@ test("a malformed request does not kill the connection", async () => {
 
 test("possessed-assets request streams the possession records the account holds", async () => {
   await initK12();
-  const engine = new InProcessEngine();
+  const engine = new VirtualNode();
   const server = new PeerServer(engine);
   const { port, stop } = await server.start(0);
 

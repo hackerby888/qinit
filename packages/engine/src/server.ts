@@ -1,8 +1,8 @@
-// HTTP adapter — serves an InProcessEngine on the qubic-core-lite node's RPC routes (Bun.serve). This is how
+// HTTP adapter — serves an VirtualNode on the qubic-core-lite node's RPC routes (Bun.serve). This is how
 // the TS engine becomes a drop-in node: qinit's deploy-ops AND the spawned `bun test` runtime both talk HTTP,
 // so pointing QINIT_RPC at this server runs the whole flow against the engine with no node binary. Bun-only
 // (start() touches Bun.serve); importing the class is browser-safe since nothing runs until start().
-import { InProcessEngine } from "./transport";
+import { VirtualNode } from "./transport";
 import { initK12 } from "@qinit/core";
 
 export interface EngineServerHandle {
@@ -11,12 +11,12 @@ export interface EngineServerHandle {
 }
 
 export class EngineServer {
-  readonly engine: InProcessEngine;
+  readonly engine: VirtualNode;
   private server: ReturnType<typeof Bun.serve> | null = null;
   private ticker: ReturnType<typeof setInterval> | null = null;
   private tickMs = 50;
 
-  constructor(engine: InProcessEngine = new InProcessEngine()) {
+  constructor(engine: VirtualNode = new VirtualNode()) {
     this.engine = engine;
   }
 

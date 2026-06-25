@@ -1,9 +1,9 @@
 // Qubic peer-protocol TCP server — a Bun.listen server that speaks the Qubic peer protocol and drives an
-// InProcessEngine, so an external Qubic client can run against the in-process sim over TCP. On connect it sends
+// VirtualNode, so an external Qubic client can run against the in-process sim over TCP. On connect it sends
 // the ExchangePublicPeers handshake, then for each framed request it dispatches by message type to the engine +
 // consensus and writes the matching response. Bun-only (Bun.listen); kept out of the browser barrel (separate
 // "@qinit/engine/peer" entry).
-import { InProcessEngine } from "./transport";
+import { VirtualNode } from "./transport";
 import { initK12, toHex } from "./k12";
 import { identityToBytes } from "@qinit/core";
 import * as codec from "./peer-codec";
@@ -20,11 +20,11 @@ export interface PeerServerHandle {
 }
 
 export class PeerServer {
-  readonly engine: InProcessEngine;
+  readonly engine: VirtualNode;
   private server: { stop(closeActiveConnections?: boolean): void; readonly port: number } | null = null;
   private ticker: ReturnType<typeof setInterval> | null = null;
 
-  constructor(engine: InProcessEngine = new InProcessEngine()) {
+  constructor(engine: VirtualNode = new VirtualNode()) {
     this.engine = engine;
   }
 

@@ -5,7 +5,7 @@
 import { test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { initK12 } from "../src/k12";
-import { InProcessEngine } from "../src/transport";
+import { VirtualNode } from "../src/transport";
 import { contractId } from "./helpers";
 import { PeerServer } from "../src/peer-server";
 import { deriveIdentity, bytesToIdentity } from "@qinit/core";
@@ -28,9 +28,9 @@ async function runCli(port: number, args: string[]): Promise<string> {
 }
 
 // Start a PeerServer on an ephemeral port over a configured engine; returns the port + a stop fn.
-async function serve(setup?: (e: InProcessEngine) => void | Promise<void>): Promise<{ port: number; stop: () => void }> {
+async function serve(setup?: (e: VirtualNode) => void | Promise<void>): Promise<{ port: number; stop: () => void }> {
   await initK12();
-  const engine = new InProcessEngine({ mempool: true, verifySigs: true });
+  const engine = new VirtualNode({ mempool: true, verifySigs: true });
   if (setup) {
     await setup(engine);
   }
