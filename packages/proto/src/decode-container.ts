@@ -6,8 +6,7 @@
 // (Collection's PoV + per-PoV BST layout is not decoded here.)
 import { decodeOutput, structFieldOffsets, layoutOf } from "./abi-fmt";
 import { flagWordCount, hashMapElemFmt, collectionElemFmt, COLLECTION_POV_FMT } from "./qpi-layout";
-
-const roundUp = (o: number, a: number) => (a <= 1 ? o : Math.ceil(o / a) * a);
+import { roundUp } from "@qinit/core";
 
 export interface MapEntry { slot: number; key: unknown; value: unknown; }
 export interface SetEntry { slot: number; key: unknown; }

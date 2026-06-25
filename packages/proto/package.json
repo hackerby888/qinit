@@ -24,9 +24,7 @@
     "build": "bun bundle.mjs && tsc -p tsconfig.build.json"
   },
   "dependencies": {
+    "@qinit/core": "workspace:*",
     "@qubic-lib/qubic-ts-library": "latest"
-  },
-  "devDependencies": {
-    "@qinit/core": "workspace:*"
   }
 }

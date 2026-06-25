@@ -56,10 +56,8 @@
       "name": "@qinit/proto",
       "version": "0.0.0",
       "dependencies": {
-        "@qubic-lib/qubic-ts-library": "latest",
-      },
-      "devDependencies": {
         "@qinit/core": "workspace:*",
+        "@qubic-lib/qubic-ts-library": "latest",
       },
     },
     "packages/vscode": {

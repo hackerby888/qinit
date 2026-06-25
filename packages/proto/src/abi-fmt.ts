@@ -7,7 +7,7 @@
 // Matches the C++ ABI: NATURAL ALIGNMENT (no packing). Each field is padded to its alignment
 // (uint16→2, uint32→4, uint64/id→8), structs to their max member alignment. id <-> 60-char
 // identity via @qinit/core (async, wasm). "" = empty.
-import { bytesToIdentity, identityToBytes } from "@qinit/core";
+import { bytesToIdentity, identityToBytes, roundUp } from "@qinit/core";
 
 const SCALAR_SIZE: Record<string, number> = {
   uint8: 1, sint8: 1, bit: 1,
@@ -22,8 +22,6 @@ export type TypeNode =
   | { kind: "bytes"; size: number } // m256i as raw hex (a digest, NOT an identity)
   | { kind: "array"; count: number; elem: TypeNode }
   | { kind: "struct"; fields: TypeNode[] };
-
-const roundUp = (off: number, align: number) => (align <= 1 ? off : Math.ceil(off / align) * align);
 
 function alignOf(n: TypeNode): number {
   switch (n.kind) {

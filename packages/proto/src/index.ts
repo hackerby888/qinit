@@ -6,6 +6,9 @@ export {
   encodeDeploy,
   chunkSo,
   newSessionId,
+  UploadBegin,
+  UploadChunkHeader,
+  DeployMessage,
 } from "./deploy";
 export type { UploadBeginParams, UploadChunkParams, DeployParams } from "./deploy";
 export { TX_TICK_OFFSET } from "./protocol";
