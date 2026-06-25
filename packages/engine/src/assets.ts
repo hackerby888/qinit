@@ -7,6 +7,7 @@
 import { toHex, k12Bytes } from "./k12";
 import { SparseMerkle } from "./merkle";
 import { AssetRecord, ASSET_RECORD_SIZE } from "./wire";
+import { Asset, AssetSelect } from "./abi";
 
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
 
@@ -147,14 +148,14 @@ export class AssetLedger {
 
   // numberOfShares(Asset, AssetOwnershipSelect, AssetPossessionSelect) — sum holdings matching the selectors.
   numberOfShares(assetB: Uint8Array, ownSelB: Uint8Array, posSelB: Uint8Array): bigint {
-    const adv = new DataView(assetB.buffer, assetB.byteOffset, assetB.byteLength);
-    const asset = this.findAsset(assetB.subarray(0, 32), adv.getBigUint64(32, true));
+    const a = Asset.wrap(assetB);
+    const asset = this.findAsset(a.issuer, a.assetName);
     if (!asset) return 0n;
 
-    const odv = new DataView(ownSelB.buffer, ownSelB.byteOffset, ownSelB.byteLength);
-    const pdv = new DataView(posSelB.buffer, posSelB.byteOffset, posSelB.byteLength);
-    const ownId = ownSelB.subarray(0, 32), ownMgmt = odv.getUint16(32, true), anyOwner = ownSelB[34] !== 0, anyOwnMgmt = ownSelB[35] !== 0;
-    const posId = posSelB.subarray(0, 32), posMgmt = pdv.getUint16(32, true), anyPos = posSelB[34] !== 0, anyPosMgmt = posSelB[35] !== 0;
+    const own = AssetSelect.wrap(ownSelB);
+    const pos = AssetSelect.wrap(posSelB);
+    const ownId = own.id, ownMgmt = own.mgmt, anyOwner = own.anyId !== 0, anyOwnMgmt = own.anyMgmt !== 0;
+    const posId = pos.id, posMgmt = pos.mgmt, anyPos = pos.anyId !== 0, anyPosMgmt = pos.anyMgmt !== 0;
 
     let sum = 0n;
     for (const h of asset.holdings.values()) {
