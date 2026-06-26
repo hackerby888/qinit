@@ -127,6 +127,7 @@ export interface HostServices {
   isAssetIssued(issuer: Uint8Array, name: bigint): number;
   numberOfShares(asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array): bigint;
   numberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint;
+  assetEnumerate(asset: Uint8Array, ownSel: Uint8Array, posSel: Uint8Array, kind: number): { owner: Uint8Array; possessor: Uint8Array; shares: bigint; ownMgmt: number; posMgmt: number }[];
   transferShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint;
   acquireShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, srcOwnMgmt: number, srcPosMgmt: number, offeredFee: bigint): bigint;
   releaseShares(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, dstOwnMgmt: number, dstPosMgmt: number, offeredFee: bigint): bigint;
@@ -498,6 +499,26 @@ export class Contract {
         this.host.numberOfShares(u8().slice(aOff, aOff + 40), u8().slice(oOff, oOff + 40), u8().slice(pOff, pOff + 40)),
       numberOfPossessedShares: (name: bigint, issOff: number, ownOff: number, posOff: number, ownMgmt: number, posMgmt: number) =>
         this.host.numberOfPossessedShares(name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), ownMgmt & 0xffff, posMgmt & 0xffff),
+      // Asset enumeration for the contract-side AssetOwnership/PossessionIterator (via the wasm shim): write each
+      // matching record (owner@0, possessor@32, shares@64, ownMgmt@72, posMgmt@74 — 80 bytes) to the contract's
+      // outBuf and return the count. issuance=40B (Asset), ownSel/posSel=36B (AssetOwnership/PossessionSelect).
+      assetEnumerate: (kind: number, issOff: number, ownOff: number, posOff: number, outOff: number, maxN: number) => {
+        const entries = this.host.assetEnumerate(u8().slice(issOff, issOff + 40), u8().slice(ownOff, ownOff + 36), u8().slice(posOff, posOff + 36), kind >>> 0);
+        const n = Math.min(entries.length, maxN >>> 0);
+        const mem = u8();
+        const dv = new DataView(this.mem.buffer);
+        let p = outOff >>> 0;
+        for (let i = 0; i < n; i++) {
+          const e = entries[i];
+          mem.set(e.owner.subarray(0, 32), p);
+          mem.set(e.possessor.subarray(0, 32), p + 32);
+          dv.setBigInt64(p + 64, e.shares, true);
+          dv.setUint16(p + 72, e.ownMgmt & 0xffff, true);
+          dv.setUint16(p + 74, e.posMgmt & 0xffff, true);
+          p += 80;
+        }
+        return n;
+      },
       transferShareOwnershipAndPossession: (name: bigint, issOff: number, ownOff: number, posOff: number, shares: bigint, newOwnerOff: number) => {
         const newOwner = u8().slice(newOwnerOff, newOwnerOff + 32);
         const r = this.host.transferShares(this.slot, name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), shares, newOwner);
