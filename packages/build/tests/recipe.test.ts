@@ -108,19 +108,29 @@ test("genWrapper: omitting the callee prelude leaves no gap before the defines",
   expect(w).toContain(`${buildPreamble("LITE_DYN_SO_BUILD")}\n#define CONTRACT_INDEX 7`);
 });
 
-test("genWrapperWasm: swaps the build define and the abi header, nothing else", () => {
-  const dyn = genWrapper(opts());
-  const wasm = genWrapperWasm(opts());
+test("genWrapperWasm: swaps the build define + abi header and injects the wasm QPI shim before the contract", () => {
+  const o = opts();
+  const dyn = genWrapper(o);
+  const wasm = genWrapperWasm(o);
 
   expect(wasm).not.toContain("LITE_DYN_SO_BUILD");
   expect(wasm).toContain("#define LITE_WASM_TU_BUILD");
   expect(wasm).not.toContain("lite_dyn_abi.h");
   expect(wasm).toContain('#include "extensions/lite_wasm_tu.h"');
 
-  const swapped = dyn
+  // the .so wrapper has no shim; the wasm wrapper compiles the pure QPI helpers in (so the artifact is
+  // self-contained — no env.* imports for them — and runs on both the node's WAMR and qinit's engine).
+  expect(dyn).not.toContain("qinit wasm QPI shim");
+  expect(wasm).toContain("qinit wasm QPI shim");
+  expect(wasm).toContain("__qpiAllocLocals");
+  // the shim is injected immediately BEFORE the contract include (template bodies must precede instantiation)
+  expect(wasm.indexOf("qinit wasm QPI shim")).toBeLessThan(wasm.indexOf(`#include "${o.contractPath}"`));
+
+  const built = dyn
     .replace("#define LITE_DYN_SO_BUILD", "#define LITE_WASM_TU_BUILD")
+    .replace(`#include "${o.contractPath}"`, wasm.slice(wasm.indexOf("// ---- qinit wasm QPI shim"), wasm.indexOf(`#include "${o.contractPath}"`)) + `#include "${o.contractPath}"`)
     .replace('#include "extensions/lite_dyn_abi.h"', '#include "extensions/lite_wasm_tu.h"');
-  expect(swapped).toBe(wasm);
+  expect(built).toBe(wasm);
 });
 
 test("genWrapperWasm: slot/name interpolation for a system contract", () => {
