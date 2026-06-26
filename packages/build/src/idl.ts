@@ -244,17 +244,32 @@ function memberBody(body: string): string {
 }
 const isTypeDef = (raw: string) => /^(?:struct|union|class|enum)\b/.test(raw);
 
-// Parse a struct body into ordered field type tokens (scope-resolved for nested same-name structs).
-function parseFields(body: string, structs: Map<string, string>, scope?: string): string[] {
-  const toks: string[] = [];
+// Parse a struct body into ordered fields (name + codec type + nested struct/array tree). The SINGLE source of
+// truth for both the flat format string (.map(f => f.type)) and the typed field tree, so they can never drift —
+// notably multi-variable declarations (`id dst0, dst1, ...;`) expand identically for both.
+function parseMembers(body: string, structs: Map<string, string>, scope: string, depth: number): Field[] {
+  const out: Field[] = [];
   for (let raw of memberBody(body).split(";")) {
     raw = raw.trim();
     if (!raw || raw.includes("(") || isTypeDef(raw)) continue;   // skip method sigs + nested type defs
+    // multi-var: "type a, b, c" (simple types only — template types like Collection<A,B> carry commas)
+    const mv = raw.match(/^([A-Za-z_][\w:\s*]*?)\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)+)$/);
+    if (mv && !mv[1].includes("<")) {
+      const ty = mv[1].trim();
+      const type = typeToken(ty, structs, scope), container = containerMeta(ty, structs, scope), detail = fieldDetail(ty, structs, scope, depth);
+      for (const nm of mv[2].split(",")) out.push({ name: nm.trim(), type, container, ...detail });
+      continue;
+    }
     const m = raw.match(/^([\s\S]+?)\s+(\w+)$/);
     if (!m) continue;
-    toks.push(typeToken(m[1], structs, scope));
+    out.push({ name: m[2], type: typeToken(m[1], structs, scope), container: containerMeta(m[1], structs, scope), ...fieldDetail(m[1], structs, scope, depth) });
   }
-  return toks;
+  return out;
+}
+
+// The flat codec format-string tokens of a struct body — derived from the same member parse as the typed tree.
+function parseFields(body: string, structs: Map<string, string>, scope = ""): string[] {
+  return parseMembers(body, structs, scope, 0).map((f) => f.type);
 }
 
 function fmtOf(structs: Map<string, string>, structName: string): string {
@@ -280,27 +295,10 @@ function fieldDetail(rawType: string, structs: Map<string, string>, scope: strin
   return {};
 }
 
-// Same as parseFields but keeps the field NAME + the resolved nested struct/array shape (for typed codegen).
+// Like parseFields but keyed by struct NAME, returning the full named field tree (for typed codegen).
 function fieldsForStruct(structs: Map<string, string>, structName: string, scope = structName, depth = 0): Field[] {
   const body = structs.get(structName);
-  if (body === undefined) return [];
-  const out: Field[] = [];
-  for (let raw of memberBody(body).split(";")) {
-    raw = raw.trim();
-    if (!raw || raw.includes("(") || isTypeDef(raw)) continue;   // skip method sigs + nested type defs
-    // multi-var: "type a, b, c" (simple types only — template types like Collection<A,B> carry commas)
-    const mv = raw.match(/^([A-Za-z_][\w:\s*]*?)\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)+)$/);
-    if (mv && !mv[1].includes("<")) {
-      const ty = mv[1].trim();
-      const detail = fieldDetail(ty, structs, scope, depth);
-      for (const nm of mv[2].split(",")) out.push({ name: nm.trim(), type: typeToken(ty, structs, scope), container: containerMeta(ty, structs, scope), ...detail });
-      continue;
-    }
-    const m = raw.match(/^([\s\S]+?)\s+(\w+)$/);
-    if (!m) continue;
-    out.push({ name: m[2], type: typeToken(m[1], structs, scope), container: containerMeta(m[1], structs, scope), ...fieldDetail(m[1], structs, scope, depth) });
-  }
-  return out;
+  return body === undefined ? [] : parseMembers(body, structs, scope, depth);
 }
 
 export function extractIdl(source: string, name: string): ContractIdl {

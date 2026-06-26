@@ -81,6 +81,33 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   expect(e.inFields[0].struct?.map((f) => f.name)).toEqual(["a", "b"]);
 });
 
+test.skipIf(!have("QUtil"))("QUtil: multi-variable declarations expand in the format string (not just the tree)", () => {
+  const idl = idlOf("QUtil");
+  const e = proc(idl, "SendToManyV1");
+  const toks = e.in.split(", ");
+  // 25 id (dst0..dst24) + 25 sint64 (amt0..amt24) — the format string must match the typed field tree
+  expect(toks.length).toBe(e.inFields.length);
+  expect(toks.length).toBe(50);
+  expect(new Set(toks)).toEqual(new Set(["id", "sint64"]));
+  expect(toks.filter((t) => t === "id").length).toBe(25);
+  // no field NAME leaked into the format string as a junk token
+  expect(e.in).not.toContain("dst");
+  expect(e.in).not.toContain(",,");
+});
+
+test("synthetic: line-wrapped multi-var declaration -> one token per name, format == tree", () => {
+  const SRC = `
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Many_input { id a, b,
+      c, d; sint64 x, y; }; struct Many_output {};
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Many, 1); }
+};`;
+  const e = Object.values(extractIdl(SRC, "S").procedures)[0];
+  expect(e.in).toBe("id, id, id, id, sint64, sint64");
+  expect(e.inFields.map((f) => f.name)).toEqual(["a", "b", "c", "d", "x", "y"]);
+  expect(e.in.split(", ")).toEqual(e.inFields.map((f) => f.type)); // format string and tree never drift
+});
+
 test("synthetic: deeply nested struct (struct in struct in array) resolves fully", () => {
   const SRC = `
 struct CONTRACT_STATE_TYPE : public ContractBase {
