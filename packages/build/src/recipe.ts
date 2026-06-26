@@ -78,12 +78,51 @@ export function genWrapper(o: BuildOpts): string {
 `;
 }
 
+// The pure QPI helpers a wasm contract needs but the wasm TU can't get from qpi_trivial_impl.h / contract_exec.h
+// (those pull four_q's x86 asm + redefine K12/arbitrator/computor that lite_wasm_tu.h already provides). Faithful
+// copies of the pure functions from qpi_trivial_impl.h plus a self-contained LIFO bump-allocator for the
+// function-locals stack (core's contractLocalsStack). Compiling them IN keeps the wasm self-contained — no `env.*`
+// imports — so the SAME artifact runs on the node's WAMR and qinit's engine. Injected after qpi.h (its types) and
+// before the contract (template bodies must be visible at instantiation); WASM-ONLY (the .so gets these from the
+// node). The locals buffer is generous; alloc/free are strictly LIFO (paired by the REGISTER macro) so it
+// self-balances per call.
+const WASM_QPI_SHIM = `// ---- qinit wasm QPI shim (pure trivial helpers + locals allocator; see recipe.ts) ----
+#include "platform/memory.h"
+namespace QPI {
+template <typename T1, typename T2> inline void copyMemory(T1& dst, const T2& src) {
+\tstatic_assert(sizeof(dst) == sizeof(src), "Size of source and destination must match to run copyMemory().");
+\tcopyMem(&dst, &src, sizeof(dst));
+}
+template <typename T1, typename T2> inline void copyFromBuffer(T1& dst, const T2& src) {
+\tstatic_assert(sizeof(dst) <= sizeof(src), "Destination object must be at most the size of the source buffer.");
+\tcopyMem(&dst, &src, sizeof(dst));
+}
+template <typename T> inline void setMemory(T& dst, uint8 value) { setMem(&dst, sizeof(dst), value); }
+template <typename T, unsigned int I> void setMemory(ContractState<T, I>&, uint8) = delete;
+template <typename T1, unsigned int I, typename T2> void copyMemory(ContractState<T1, I>&, const T2&) = delete;
+template <typename T1, unsigned int I, typename T2> void copyFromBuffer(ContractState<T1, I>&, const T2&) = delete;
+inline static sint64 smul(sint64 a, sint64 b) { return a * b; }
+inline static uint64 smul(uint64 a, uint64 b) { return a * b; }
+inline static sint32 smul(sint32 a, sint32 b) { return a * b; }
+inline static uint32 smul(uint32 a, uint32 b) { return a * b; }
+}
+namespace { unsigned char __qinitLocalsBuf[2u << 20]; unsigned long __qinitLocalsTop = 0; unsigned long __qinitLocalsMark[256]; int __qinitLocalsDepth = 0; }
+void* QPI::QpiContextFunctionCall::__qpiAllocLocals(unsigned int sizeOfLocals) const {
+\tunsigned long off = __qinitLocalsTop;
+\tif (__qinitLocalsDepth < 256) __qinitLocalsMark[__qinitLocalsDepth++] = off;
+\t__qinitLocalsTop = (off + sizeOfLocals + 7) & ~7ul;
+\treturn (void*)&__qinitLocalsBuf[off];
+}
+void QPI::QpiContextFunctionCall::__qpiFreeLocals() const { if (__qinitLocalsDepth > 0) __qinitLocalsTop = __qinitLocalsMark[--__qinitLocalsDepth]; }
+`;
+
 // --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
 // Same TU as the .so, but binds to lite_wasm_tu.h (qpi.h calls -> "lhost" wasm imports + dispatch/reg/state
 // exports) instead of lite_dyn_abi.h. See core src/extensions/WASM_CONTRACTS.md §13.11.
 export function genWrapperWasm(o: BuildOpts): string {
   return genWrapper(o)
     .replace("#define LITE_DYN_SO_BUILD", "#define LITE_WASM_TU_BUILD")
+    .replace(`#include "${o.contractPath}"`, `${WASM_QPI_SHIM}#include "${o.contractPath}"`)
     .replace('#include "extensions/lite_dyn_abi.h"', '#include "extensions/lite_wasm_tu.h"');
 }
 
