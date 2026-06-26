@@ -87,9 +87,9 @@ function normalizeExpr(e: string): string {
   let prev = "";
   while (prev !== e) {
     prev = e;
-    e = e.replace(/\bdiv\s*<[^>]*>\s*\(([^()]+?),([^()]+?)\)/g, "Math.trunc(($1)/($2))")
-         .replace(/\bmul\s*<[^>]*>\s*\(([^()]+?),([^()]+?)\)/g, "(($1)*($2))")
-         .replace(/\bmod\s*<[^>]*>\s*\(([^()]+?),([^()]+?)\)/g, "(($1)%($2))");
+    e = e.replace(/\bdiv(?:\s*<[^>]*>)?\s*\(([^()]+?),([^()]+?)\)/g, "Math.trunc(($1)/($2))")
+         .replace(/\bmul(?:\s*<[^>]*>)?\s*\(([^()]+?),([^()]+?)\)/g, "(($1)*($2))")
+         .replace(/\bmod(?:\s*<[^>]*>)?\s*\(([^()]+?),([^()]+?)\)/g, "(($1)%($2))");
   }
   return e;
 }
