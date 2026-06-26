@@ -11,7 +11,9 @@ import { writeLineMap } from "./linemap";
 
 export interface BuildOpts {
   contractPath: string; // absolute path to the contract .h
-  name: string;         // CONTRACT_STATE_TYPE (struct name)
+  name: string;         // contract name (artifact filenames + IDL); also the C++ struct type unless stateType is set
+  stateType?: string;   // the C++ contract struct type for the wrapper #defines — differs from `name` when the
+                        // on-chain ticker isn't the struct name (e.g. system contract QTRY -> struct QUOTTERY)
   slot: number;         // CONTRACT_INDEX
   corePath: string;     // qubic-core-lite root
   outDir: string;
@@ -50,11 +52,12 @@ export function buildPreamble(buildDefine: "LITE_DYN_SO_BUILD" | "LITE_WASM_TU_B
 }
 
 export function genWrapper(o: BuildOpts): string {
+  const T = o.stateType ?? o.name; // the C++ struct type the contract declares
   return `${buildPreamble("LITE_DYN_SO_BUILD")}${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
-#define ${o.name}_CONTRACT_INDEX ${o.slot}
-#define CONTRACT_STATE_TYPE ${o.name}
-#define CONTRACT_STATE2_TYPE ${o.name}2
+#define ${T}_CONTRACT_INDEX ${o.slot}
+#define CONTRACT_STATE_TYPE ${T}
+#define CONTRACT_STATE2_TYPE ${T}2
 // Late-bind CALL/INVOKE_OTHER_CONTRACT to the callee's deployed code via the host (needs the callee
 // __contract_index + <Type>_<fn>_inputType consts from the prelude + CONTRACT_INDEX above).
 #include "extensions/lite_contract_calls.h"

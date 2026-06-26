@@ -88,7 +88,7 @@ export async function buildSystemContract(
 
   const r = await buildContract({
     contractPath: join(corePath, "src", "contracts", c.file),
-    name: c.name, slot: c.index, corePath,
+    name: c.name, stateType: c.stateType, slot: c.index, corePath,
     outDir: opts.outDir ?? join(tmpdir(), "qinit-system"),
     skipVerify: true, wasmClang: opts.wasmClang, wasmSysroot: opts.wasmSysroot,
   });
