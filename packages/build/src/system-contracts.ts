@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { extractIdl, type ContractIdl } from "./idl";
 import { qpiPrelude } from "./prelude";
 
-export interface SystemContract { index: number; name: string; file: string; source: string; idl: ContractIdl }
+export interface SystemContract { index: number; name: string; stateType: string; file: string; source: string; idl: ContractIdl }
 
 const cache = new Map<string, SystemContract[]>();
 
@@ -19,6 +19,21 @@ function indexToFile(defSrc: string): Map<number, string> {
     if (d) { cur = Number(d[1]); continue; }
     const inc = line.match(/#include\s+"contracts\/(\w+\.h)"/);
     if (inc && cur >= 0) out.set(cur, inc[1]);   // last include in the block wins (e.g. Qswap.h over Qswap_old.h)
+  }
+  return out;
+}
+
+// index -> C++ struct type, from the `#define <X>_CONTRACT_INDEX n` ... `#define CONTRACT_STATE_TYPE <Type>`
+// blocks. The struct type can differ from the on-chain ticker (e.g. ticker QTRY -> struct QUOTTERY) and is what
+// the wrapper must #define so the contract's CONTRACT_STATE_TYPE references resolve.
+function indexToStateType(defSrc: string): Map<number, string> {
+  const out = new Map<number, string>();
+  let cur = -1;
+  for (const line of defSrc.split("\n")) {
+    const d = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
+    if (d) { cur = Number(d[1]); continue; }
+    const st = line.match(/#define\s+CONTRACT_STATE_TYPE\s+(\w+)/);
+    if (st && cur >= 0) out.set(cur, st[1]);
   }
   return out;
 }
@@ -41,7 +56,7 @@ export function systemContracts(coreRoot: string): SystemContract[] {
   const out: SystemContract[] = [];
   if (existsSync(def)) {
     const defSrc = readFileSync(def, "utf8");
-    const files = indexToFile(defSrc), names = indexToName(defSrc);
+    const files = indexToFile(defSrc), names = indexToName(defSrc), stateTypes = indexToStateType(defSrc);
     for (const [index, name] of [...names].sort((a, b) => a[0] - b[0])) {
       const file = files.get(index);
       if (!file) continue;
@@ -49,7 +64,7 @@ export function systemContracts(coreRoot: string): SystemContract[] {
       if (!existsSync(path)) continue;
       try {
         const source = readFileSync(path, "utf8").replace(/X_MULTIPLIER/g, "1");   // testnet scaling (sizes only)
-        out.push({ index, name, file, source, idl: extractIdl(source, name, { prelude: qpiPrelude(coreRoot) }) });
+        out.push({ index, name, stateType: stateTypes.get(index) ?? name, file, source, idl: extractIdl(source, name, { prelude: qpiPrelude(coreRoot) }) });
       } catch { /* skip a contract that fails to parse — never break the catalog */ }
     }
   }
