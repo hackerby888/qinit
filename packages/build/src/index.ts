@@ -8,7 +8,9 @@ import { buildCalleePrelude } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
 import { systemContracts } from "./system-contracts";
 import { k12Hex } from "@qinit/core";
+import { qpiPrelude } from "./prelude";
 
+export { qpiPrelude } from "./prelude";
 export type { BuildOpts } from "./recipe";
 export { genWrapper, genWrapperWasm } from "./recipe";
 export { buildCalleePrelude, parseRegisters, scanCallees, parseContractDef } from "./intercontract";
@@ -67,7 +69,7 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   let hash: string | undefined;
   try { hash = await k12Hex(new Uint8Array(readFileSync(w.wasm))); } catch { hash = undefined; }
   let idl: ContractIdl | undefined, idlError: string | undefined;
-  try { idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name); } catch (e: any) { idlError = String(e?.message ?? e); }
+  try { idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name, { prelude: o.corePath ? qpiPrelude(o.corePath) : undefined }); } catch (e: any) { idlError = String(e?.message ?? e); }
   return { ok: true, so: w.wasm, size, hash, idl, idlError, verify, debugWasm: w.debugWasm, linesJson: w.linesJson };
 }
 

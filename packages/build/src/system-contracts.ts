@@ -4,6 +4,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { extractIdl, type ContractIdl } from "./idl";
+import { qpiPrelude } from "./prelude";
 
 export interface SystemContract { index: number; name: string; file: string; source: string; idl: ContractIdl }
 
@@ -48,7 +49,7 @@ export function systemContracts(coreRoot: string): SystemContract[] {
       if (!existsSync(path)) continue;
       try {
         const source = readFileSync(path, "utf8").replace(/X_MULTIPLIER/g, "1");   // testnet scaling (sizes only)
-        out.push({ index, name, file, source, idl: extractIdl(source, name) });
+        out.push({ index, name, file, source, idl: extractIdl(source, name, { prelude: qpiPrelude(coreRoot) }) });
       } catch { /* skip a contract that fails to parse — never break the catalog */ }
     }
   }
