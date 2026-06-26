@@ -11,6 +11,22 @@ import { EntityRecord, M256i } from "./wire";
 
 const EMPTY = new Uint8Array(0);
 
+// `env.*` imports a contract declares via `--allow-undefined`. The known assert/diagnostic helper (qpi.h
+// ASSERT's addDebugMessageAssert) only fires on a failed assert, so it's a no-op. Any OTHER env import means the
+// contract needs a symbol the wasm build didn't compile in and the host doesn't provide (e.g. a QPI helper such
+// as copyMemory / smul / __qpiAllocLocals from an impl header that isn't part of the wasm TU). Silently returning
+// 0 there turns a real gap into a cryptic i64/ToBigInt trap deep in execution — so this fails loud WHEN CALLED,
+// naming the symbol. Instantiation still succeeds: an undefined-but-unused import is never invoked.
+const ENV_NOOP = new Set(["addDebugMessageAssert"]);
+export function envImportStub(name: string): Function {
+  if (typeof name !== "string" || ENV_NOOP.has(name)) {
+    return () => 0;
+  }
+  return () => {
+    throw new Error(`missing host import 'env.${name}' was called — the contract uses a symbol the wasm build did not compile in and the engine host does not provide`);
+  };
+}
+
 export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2, MIGRATE: 3 } as const;
 
 // System-procedure ids — LiteSysProcId order (core-lite: src/extensions/lite_dyn_abi.h).
@@ -578,9 +594,8 @@ export class Contract {
       { proc_exit: (c: number) => { throw new Error("wasm proc_exit(" + c + ")"); } } as Record<string, Function>,
       { get: (t, p: string) => (p in t ? t[p] : () => 0) },
     );
-    // `env.*` imports come from `--allow-undefined` (e.g. qpi.h ASSERT's addDebugMessageAssert). They are
-    // assert/diagnostic helpers that never fire on a correct run — no-op them.
-    const env = new Proxy({} as Record<string, Function>, { get: () => () => 0 });
+    // `env.*` imports come from `--allow-undefined`; stub each per envImportStub (see its doc).
+    const env = new Proxy({} as Record<string, Function>, { get: (_t, p: string) => envImportStub(p) });
     return { lhost, env, wasi_snapshot_preview1: wasi } as unknown as WebAssembly.Imports;
   }
 }
