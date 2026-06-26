@@ -183,7 +183,16 @@ function resolveStructName(name: string, structs: Map<string, string>, scope?: s
     }
   }
   if (structs.has(name)) return name;
-  if (name.includes("::") && structs.has(name.split("::").pop()!)) return name.split("::").pop()!;
+  // A qualified reference (e.g. namespace-scoped `OI::Price::OracleQuery`) — try each trailing suffix, longest
+  // first, so it lands on the scoped struct key `Price::OracleQuery` (the right interface) rather than the bare
+  // `OracleQuery`, which several oracle interfaces each define.
+  if (name.includes("::")) {
+    const segs = name.split("::");
+    for (let k = 1; k < segs.length; k++) {
+      const cand = segs.slice(k).join("::");
+      if (structs.has(cand)) return cand;
+    }
+  }
   return null;
 }
 

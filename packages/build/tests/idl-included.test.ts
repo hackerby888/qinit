@@ -70,6 +70,32 @@ test.skipIf(!haveCore)("SetProposal input expands ProposalDataYesNo to a concret
   expect(unresolved({ functions: {}, procedures: { 0: sp } } as any).filter((t) => t.startsWith("Proposal"))).toEqual([]);
 });
 
+test("namespace-qualified type resolves to the right interface (suffix match, not bare collision)", () => {
+  // two interfaces under namespace OI, each with its OWN nested OracleQuery — a bare-name match would collide
+  const prelude = `
+namespace OI {
+  struct Price { struct OracleQuery { id oracle; uint64 ts; }; };
+  struct Mock  { struct OracleQuery { uint64 value; }; };
+}`;
+  const SRC = `
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Ask_input { OI::Price::OracleQuery p; OI::Mock::OracleQuery m; }; struct Ask_output {};
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Ask, 1); }
+};`;
+  const e = Object.values(extractIdl(SRC, "S", { prelude }).procedures)[0];
+  expect(e.in).toBe("{ id, uint64 }, { uint64 }"); // p -> Price's, m -> Mock's (each its own interface)
+  expect(e.inFields[0].struct?.map((f) => f.name)).toEqual(["oracle", "ts"]);
+  expect(e.inFields[1].struct?.map((f) => f.name)).toEqual(["value"]);
+});
+
+test.skipIf(!have("QUtil"))("prelude include-expansion resolves OI::Price::OracleQuery from the per-interface header", () => {
+  const qu = idlOf("QUtil", true);
+  const byName = Object.values({ ...qu.functions, ...qu.procedures });
+  // OracleQuery = { id oracle; DateAndTime timestamp; id currency1; id currency2 } -> { id, uint64, id, id }
+  expect(byName.find((e) => e.name === "QueryPriceOracle")!.in).toBe("{ id, uint64, id, id }, uint32");
+  expect(unresolved(idlOf("QUtil", true))).toEqual([]); // QUtil now fully resolved
+});
+
 test.skipIf(!haveCore)("a missing prelude degrades gracefully (types stay unknown, no throw)", () => {
   // qpiPrelude over a path without the headers returns "" -> extractIdl still succeeds, types just stay unresolved
   const empty = qpiPrelude("/nonexistent-core-xyz");
