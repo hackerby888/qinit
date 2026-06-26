@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { extractIdl, generateClient } from "@qinit/build";
-import { loadConfig } from "../config";
+import { extractIdl, generateClient, qpiPrelude } from "@qinit/build";
+import { loadConfig, resolveCore } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
 
 // qinit gen [--contract <path>] [--name] [--slot] [--out <dir>]
@@ -27,7 +27,9 @@ export function Gen({ args }: { args: string[] }) {
       const contractPath = resolve(o.contract ?? cfg.contract ?? "fixtures/Counter.h");
       const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
       const slot = Number(o.slot ?? cfg.slot ?? 28);
-      const idl = extractIdl(readFileSync(contractPath, "utf8"), name);
+      let prelude: string | undefined;
+      try { prelude = qpiPrelude(resolveCore(o.core, cfg.core)); } catch { prelude = undefined; } // resolve qpi library types; degrade if core unavailable
+      const idl = extractIdl(readFileSync(contractPath, "utf8"), name, { prelude });
       const ts = generateClient(idl, slot);
       const outDir = resolve(o.out ?? "dist/clients");
       mkdirSync(outDir, { recursive: true });

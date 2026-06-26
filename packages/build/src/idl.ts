@@ -32,6 +32,15 @@ const SCALARS = new Set([
   "uint8", "uint16", "uint32", "uint64", "sint8", "sint16", "sint32", "sint64", "bit", "id",
 ]);
 
+// Blank out comments (length-preserving: keep newlines + offsets) so the struct/enum/typedef scanners never
+// match a keyword that appears inside a comment — e.g. `// gov struct` immediately before `struct QtryGOV {`
+// would otherwise make the regex capture `struct` as the struct name and swallow the real definition.
+function blankComments(src: string): string {
+  return src
+    .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "));
+}
+
 // Collect every `struct <name> ... { <body> }` (brace-matched) into name -> body. Nested structs are also
 // stored under every scoped-name suffix (e.g. Parent::Order) so scope-resolved field types resolve.
 function collectStructs(src: string): Map<string, string> {
@@ -301,21 +310,27 @@ function fieldsForStruct(structs: Map<string, string>, structName: string, scope
   return body === undefined ? [] : parseMembers(body, structs, scope, depth);
 }
 
-export function extractIdl(source: string, name: string): ContractIdl {
-  g_consts = collectConsts(source);   // resolve constexpr sizes before parsing struct/array layouts
-  g_enums = new Map(collectEnums(source).map((e) => [e.name, enumType(e.base)]));   // enum-typed fields size as their underlying type
-  g_typedefs = collectTypedefs(source);
-  const structs = collectStructs(source);
+// `opts.prelude` is extra source (e.g. the ambient qpi proposal-voting / oracle-interface library headers a
+// contract is compiled against but doesn't #include) whose struct/enum/typedef/const definitions are merged into
+// the symbol tables so contract field types that reference them resolve — its REGISTER_* entries are ignored, so
+// only the contract's own functions/procedures are emitted.
+export function extractIdl(source: string, name: string, opts?: { prelude?: string }): ContractIdl {
+  const src = blankComments(source);
+  const symbols = opts?.prelude ? blankComments(opts.prelude) + "\n" + src : src;
+  g_consts = collectConsts(symbols);   // resolve constexpr sizes before parsing struct/array layouts
+  g_enums = new Map(collectEnums(symbols).map((e) => [e.name, enumType(e.base)]));   // enum-typed fields size as their underlying type
+  g_typedefs = collectTypedefs(symbols);
+  const structs = collectStructs(symbols);
   const idl: ContractIdl = { name, functions: {}, procedures: {} };
-  for (const m of source.matchAll(/REGISTER_USER_FUNCTION\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
+  for (const m of src.matchAll(/REGISTER_USER_FUNCTION\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
     idl.functions[m[2]] = {
       name: m[1], in: fmtOf(structs, m[1] + "_input"), out: fmtOf(structs, m[1] + "_output"),
       inFields: fieldsForStruct(structs, m[1] + "_input"), outFields: fieldsForStruct(structs, m[1] + "_output"),
     };
-  for (const m of source.matchAll(/REGISTER_USER_PROCEDURE\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
+  for (const m of src.matchAll(/REGISTER_USER_PROCEDURE\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
     idl.procedures[m[2]] = { name: m[1], in: fmtOf(structs, m[1] + "_input"), inFields: fieldsForStruct(structs, m[1] + "_input") };
   if (structs.has("StateData")) idl.state = fieldsForStruct(structs, "StateData");   // for field-level state diff
-  if (/\bMIGRATE(?:_WITH_LOCALS)?\s*\(\s*\)/.test(source)) {   // contract opts into state migration on redeploy
+  if (/\bMIGRATE(?:_WITH_LOCALS)?\s*\(\s*\)/.test(src)) {   // contract opts into state migration on redeploy
     idl.migrate = true;
     if (structs.has("OldStateData")) idl.oldState = fieldsForStruct(structs, "OldStateData");
   }
@@ -331,7 +346,7 @@ export function extractIdl(source: string, name: string): ContractIdl {
     logStructs.push({ name: sname, fmt: real.map((f) => f.type).join(", "), fields: real.map((f) => f.name) });
   }
   if (logStructs.length) idl.logStructs = logStructs;
-  const enums = collectEnums(source);
+  const enums = collectEnums(src);
   if (enums.length) idl.enums = enums;
   return idl;
 }
