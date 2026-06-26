@@ -7,8 +7,10 @@
 // QPI container layouts come from @qinit/proto qpi-layout (single source of truth shared with the decoders).
 import { hashMapFmt, hashSetFmt, collectionFmt } from "@qinit/proto/qpi-layout";
 
-// type = codec token (uint64, id, bytes32, [N;T], { ... }); container = QPI HashMap/HashSet meta (for logical decode)
-export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number } }
+// type = codec token (uint64, id, bytes32, [N;T], { ... }); container = QPI HashMap/HashSet meta (for logical decode).
+// struct/array = the resolved nested shape for typed codegen: `struct` holds the member fields when this field is a
+// (possibly array-of) struct; `array` marks Array<...> elements. `type` (the flat codec token) is always present.
+export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number }; struct?: Field[]; array?: boolean }
 export interface IdlEntry { name: string; in: string; out?: string; inFields: Field[]; outFields?: Field[] }
 // A qpi LOG_* struct (ends with `sint8 _terminator`): fmt/fields cover only the members BEFORE the terminator
 // (what the node logs). The decoder size-matches a log's byte count against these. fmt = comma-joined types.
@@ -136,17 +138,17 @@ function enumType(base?: string): string {
 }
 
 // QPI container metadata (kind + element key/value fmts + capacity) for logical-entry decode, else undefined.
-function containerMeta(rawType: string, structs: Map<string, string>): Field["container"] {
+function containerMeta(rawType: string, structs: Map<string, string>, scope?: string): Field["container"] {
   const t = rawType.trim().replace(/^QPI::/, "");
   let m: RegExpMatchArray | null;
   if ((m = t.match(/^HashMap\s*<\s*([^,<>]+?)\s*,\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[3]); if (L != null) return { kind: "hashmap", keyFmt: typeToken(m[1], structs), valFmt: typeToken(m[2], structs), capacity: L };
+    const L = evalN(m[3]); if (L != null) return { kind: "hashmap", keyFmt: typeToken(m[1], structs, scope), valFmt: typeToken(m[2], structs, scope), capacity: L };
   }
   if ((m = t.match(/^HashSet\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[2]); if (L != null) return { kind: "hashset", keyFmt: typeToken(m[1], structs), capacity: L };
+    const L = evalN(m[2]); if (L != null) return { kind: "hashset", keyFmt: typeToken(m[1], structs, scope), capacity: L };
   }
   if ((m = t.match(/^Collection\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {   // pov key is always `id`
-    const L = evalN(m[2]); if (L != null) return { kind: "collection", keyFmt: "id", valFmt: typeToken(m[1], structs), capacity: L };
+    const L = evalN(m[2]); if (L != null) return { kind: "collection", keyFmt: "id", valFmt: typeToken(m[1], structs, scope), capacity: L };
   }
   return undefined;
 }
@@ -159,11 +161,47 @@ const NATIVE: Record<string, string> = {
   "long": "sint64", "long long": "sint64", "bool": "uint8",
 };
 
+// Resolve a (possibly bare) struct name to the key in `structs`, preferring a name SCOPED to the current struct
+// (Parent::Child) over the bare name — collectStructs registers every scoped suffix, so a nested `Order` resolves
+// to its OWN parent's definition instead of the first-declared same-name struct (fixes same-name collisions).
+function resolveStructName(name: string, structs: Map<string, string>, scope?: string): string | null {
+  name = name.trim();
+  if (scope) {
+    const segs = scope.split("::");
+    for (let k = segs.length; k >= 1; k--) {
+      const cand = [...segs.slice(0, k), name].join("::");
+      if (structs.has(cand)) return cand;
+    }
+  }
+  if (structs.has(name)) return name;
+  if (name.includes("::") && structs.has(name.split("::").pop()!)) return name.split("::").pop()!;
+  return null;
+}
+
+// Remove nested type DEFINITIONS (`struct/union/class/enum Name { ... };`) from a struct body, brace-matched, so
+// they are not mis-parsed as fields (a nested `struct Order {...};` would otherwise leak a junk `Order` field).
+// Run before stripMethods (which removes the remaining method bodies).
+function stripNestedDefs(body: string): string {
+  let out = body;
+  for (;;) {
+    const m = out.match(/\b(?:struct|union|class|enum)\b[^{};]*\{/);
+    if (!m) return out;
+    const open = m.index! + m[0].length - 1;
+    let depth = 1, i = open + 1;
+    for (; i < out.length && depth; i++) {
+      if (out[i] === "{") depth++;
+      else if (out[i] === "}") depth--;
+    }
+    while (i < out.length && out[i] !== ";") i++; // eat any trailing var-list up to the terminator
+    out = out.slice(0, m.index!) + " " + out.slice(i + 1);
+  }
+}
+
 // Map one member type to a codec token.
-function typeToken(type: string, structs: Map<string, string>): string {
+function typeToken(type: string, structs: Map<string, string>, scope?: string): string {
   type = type.trim().replace(/^QPI::/, "").replace(/\s+/g, " ");
   if (NATIVE[type]) return NATIVE[type];
-  const tt = (x: string) => typeToken(x, structs);
+  const tt = (x: string) => typeToken(x, structs, scope);
   // QPI containers -> equivalent struct layouts so field offsets/sizes match the C++ StateData (names the
   // field; contents stay raw bytes). Covers scalar/id K/V/T; nested-generic params fall through to raw.
   let m: RegExpMatchArray | null;
@@ -188,8 +226,8 @@ function typeToken(type: string, structs: Map<string, string>): string {
   if (g_enums.has(type)) return g_enums.get(type)!;   // enum -> its underlying type (default uint32)
   if (g_typedefs.has(type)) return typeToken(g_typedefs.get(type)!, structs);   // resolve typedef/using alias
   // resolve a struct by exact (incl. scoped Parent::Child) name, else the bare last segment of a scoped type
-  const sname = structs.has(type) ? type : type.includes("::") && structs.has(type.split("::").pop()!) ? type.split("::").pop()! : null;
-  if (sname) return `{ ${parseFields(structs.get(sname)!, structs).join(", ")} }`;
+  const sname = resolveStructName(type, structs, scope);
+  if (sname) return `{ ${parseFields(structs.get(sname)!, structs, sname).join(", ")} }`;
   return type; // unknown — best effort, surfaced verbatim
 }
 
@@ -200,16 +238,21 @@ function stripMethods(body: string): string {
   return body;
 }
 
-// Parse a struct body into ordered field type tokens.
-function parseFields(body: string, structs: Map<string, string>): string[] {
-  body = stripMethods(body.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, ""));
+// Strip comments, nested type definitions, then method bodies — leaving only the struct's data members.
+function memberBody(body: string): string {
+  return stripMethods(stripNestedDefs(body.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "")));
+}
+const isTypeDef = (raw: string) => /^(?:struct|union|class|enum)\b/.test(raw);
+
+// Parse a struct body into ordered field type tokens (scope-resolved for nested same-name structs).
+function parseFields(body: string, structs: Map<string, string>, scope?: string): string[] {
   const toks: string[] = [];
-  for (let raw of body.split(";")) {
+  for (let raw of memberBody(body).split(";")) {
     raw = raw.trim();
-    if (!raw || raw.includes("(")) continue;   // skip leftover method signatures
+    if (!raw || raw.includes("(") || isTypeDef(raw)) continue;   // skip method sigs + nested type defs
     const m = raw.match(/^([\s\S]+?)\s+(\w+)$/);
     if (!m) continue;
-    toks.push(typeToken(m[1], structs));
+    toks.push(typeToken(m[1], structs, scope));
   }
   return toks;
 }
@@ -217,28 +260,45 @@ function parseFields(body: string, structs: Map<string, string>): string[] {
 function fmtOf(structs: Map<string, string>, structName: string): string {
   const body = structs.get(structName);
   if (body === undefined) return "";
-  return parseFields(body, structs).join(", ");
+  return parseFields(body, structs, structName).join(", ");
 }
 
-// Same as parseFields but keeps the field NAME (for typed codegen).
-function fieldsForStruct(structs: Map<string, string>, structName: string): Field[] {
+// Resolve a member's nested shape for typed codegen: its struct member fields (recursively) + whether it is an
+// Array<...>. Returns {} for scalars/ids/containers — the flat `type` token already describes those.
+function fieldDetail(rawType: string, structs: Map<string, string>, scope: string, depth: number): { struct?: Field[]; array?: boolean } {
+  if (depth > 16) return {};
+  let t = rawType.trim().replace(/^QPI::/, "");
+  if (g_typedefs.has(t)) t = g_typedefs.get(t)!.trim();
+  const am = t.match(/^Array\s*<\s*([\s\S]+?)\s*,\s*([^<>]+?)\s*>$/);
+  if (am) {
+    const inner = fieldDetail(am[1].trim(), structs, scope, depth + 1);
+    return inner.struct ? { struct: inner.struct, array: true } : { array: true };
+  }
+  if (t === "Asset") return { struct: [{ name: "issuer", type: "id" }, { name: "assetName", type: "uint64" }] };
+  const sname = resolveStructName(t, structs, scope);
+  if (sname) return { struct: fieldsForStruct(structs, sname, sname, depth + 1) };
+  return {};
+}
+
+// Same as parseFields but keeps the field NAME + the resolved nested struct/array shape (for typed codegen).
+function fieldsForStruct(structs: Map<string, string>, structName: string, scope = structName, depth = 0): Field[] {
   const body = structs.get(structName);
   if (body === undefined) return [];
-  const clean = stripMethods(body.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, ""));
   const out: Field[] = [];
-  for (let raw of clean.split(";")) {
+  for (let raw of memberBody(body).split(";")) {
     raw = raw.trim();
-    if (!raw || raw.includes("(")) continue;   // skip leftover method signatures
+    if (!raw || raw.includes("(") || isTypeDef(raw)) continue;   // skip method sigs + nested type defs
     // multi-var: "type a, b, c" (simple types only — template types like Collection<A,B> carry commas)
     const mv = raw.match(/^([A-Za-z_][\w:\s*]*?)\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)+)$/);
     if (mv && !mv[1].includes("<")) {
       const ty = mv[1].trim();
-      for (const nm of mv[2].split(",")) out.push({ name: nm.trim(), type: typeToken(ty, structs), container: containerMeta(ty, structs) });
+      const detail = fieldDetail(ty, structs, scope, depth);
+      for (const nm of mv[2].split(",")) out.push({ name: nm.trim(), type: typeToken(ty, structs, scope), container: containerMeta(ty, structs, scope), ...detail });
       continue;
     }
     const m = raw.match(/^([\s\S]+?)\s+(\w+)$/);
     if (!m) continue;
-    out.push({ name: m[2], type: typeToken(m[1], structs), container: containerMeta(m[1], structs) });
+    out.push({ name: m[2], type: typeToken(m[1], structs, scope), container: containerMeta(m[1], structs, scope), ...fieldDetail(m[1], structs, scope, depth) });
   }
   return out;
 }

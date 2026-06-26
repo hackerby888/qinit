@@ -12,22 +12,53 @@ const TS: Record<string, string> = {
 };
 function tsType(tok: string): string {
   if (tok.startsWith("[")) return `${tsType(tok.slice(tok.indexOf(";") + 1, tok.lastIndexOf("]")).trim())}[]`;
-  if (tok.startsWith("{")) return "unknown"; // nested struct (v1: loose)
+  if (tok.startsWith("{")) return "unknown"; // unresolved nested struct (no field tree) — best effort
   return TS[tok] ?? "unknown";
 }
-const flat = (fs: Field[]) => fs.every((f) => !f.type.startsWith("[") && !f.type.startsWith("{"));
+// TS type of a field, using its resolved nested struct/array tree when present (inline object types).
+function tsTypeOf(f: Field): string {
+  if (f.struct) {
+    const obj = `{ ${f.struct.map((c) => `${c.name}: ${tsTypeOf(c)}`).join("; ")} }`;
+    return f.array ? `${obj}[]` : obj;
+  }
+  return tsType(f.type);
+}
+
+// A field is value-template encodable (typed `args`) if it's a scalar/id or a nested struct of such — but NOT an
+// array (a fixed-N Array can't be sized from a value template), which keeps the raw `inFmt` fallback.
+function flatField(f: Field): boolean {
+  if (f.array) return false;
+  if (f.struct) return f.struct.every(flatField);
+  return true;
+}
+const flat = (fs: Field[]) => fs.every(flatField);
 
 function iface(name: string, fields: Field[]): string {
   if (!fields.length) return `export interface ${name} {}`;
-  return `export interface ${name} {\n${fields.map((f) => `  ${f.name}: ${tsType(f.type)};`).join("\n")}\n}`;
+  return `export interface ${name} {\n${fields.map((f) => `  ${f.name}: ${tsTypeOf(f)};`).join("\n")}\n}`;
+}
+
+// Map the decoder's positional value (structs decode to ordered arrays) at `acc` into the named/nested shape.
+function mapExpr(f: Field, acc: string): string {
+  if (f.struct) {
+    const obj = (el: string) => `{ ${f.struct!.map((c, i) => `${c.name}: ${mapExpr(c, `${el}[${i}]`)}`).join(", ")} }`;
+    if (f.array) return `(${acc} as unknown[][]).map((e) => (${obj("e")}))`;
+    return `((s) => (${obj("s")}))(${acc} as unknown[])`;
+  }
+  return `${acc} as ${tsTypeOf(f)}`;
 }
 function outMap(fields: Field[]): string {
   if (!fields.length) return "return {};";
-  if (fields.length === 1) return `return { ${fields[0].name}: r as ${tsType(fields[0].type)} };`;
-  return `const a = r as unknown[]; return { ${fields.map((f, i) => `${f.name}: a[${i}] as ${tsType(f.type)}`).join(", ")} };`;
+  if (fields.length === 1) return `return { ${fields[0].name}: ${mapExpr(fields[0], "r")} };`;
+  return `const a = r as unknown[]; return { ${fields.map((f, i) => `${f.name}: ${mapExpr(f, `a[${i}]`)}`).join(", ")} };`;
 }
-// value-format template literal from a typed `args` object (flat fields only).
-const inTmpl = (fs: Field[]) => fs.length ? "`" + fs.map((f) => `\${args.${f.name}}${f.type}`).join(", ") + "`" : '""';
+
+// value-format template literal from a typed `args` object — recurses into nested structs as `{ ... }` groups
+// (the encoder gives a braced group its own alignment, matching the C++ struct layout). Flat-fields only.
+function inTmplFields(fs: Field[], prefix: string): string {
+  return fs.map((f) => (f.struct ? `{ ${inTmplFields(f.struct, `${prefix}.${f.name}`)} }` : `\${${prefix}.${f.name}}${f.type}`)).join(", ");
+}
+const inTmpl = (fs: Field[]) => (fs.length ? "`" + inTmplFields(fs, "args") + "`" : '""');
 
 // runtimeImport: when set (e.g. "./runtime"), pull LiteRpc/callFunction/invokeProcedure from one
 // self-contained module instead of @qinit/* — used by `qinit test`'s emitted SDK.
