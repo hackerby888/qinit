@@ -111,3 +111,34 @@ test("assetUniverse snapshots issued assets with the name decoded", () => {
   expect(snap[0].decimals).toBe(2);
   expect(snap[0].totalShares).toBe("1000");
 });
+
+test("enumerate: possession (kind 1) + ownership (kind 0) records, with a possessor filter", () => {
+  const a = ledger();
+  const iss = contractId(1);
+  a.issueAsset(1, NAME, iss, 0, 1000n, 0n, iss);
+  a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, 300n, userId(0xcc)); // iss 700, 0xcc 300
+
+  const assetSel = new Uint8Array(40);
+  assetSel.set(iss, 0);
+  new DataView(assetSel.buffer).setBigUint64(32, NAME, true);
+  const any = () => { const s = new Uint8Array(36); s[34] = 1; s[35] = 1; return s; }; // anyId + anyMgmt
+
+  // possession: every matching holding, keyed by possessor
+  const poss = new Map(a.enumerate(assetSel, any(), any(), 1).map((e) => [toHex(e.possessor.subarray(0, 32)), e.shares]));
+  expect(poss.size).toBe(2);
+  expect(poss.get(toHex(iss.subarray(0, 32)))).toBe(700n);
+  expect(poss.get(toHex(userId(0xcc).subarray(0, 32)))).toBe(300n);
+
+  // ownership: distinct owner + total owned shares
+  const own = new Map(a.enumerate(assetSel, any(), any(), 0).map((e) => [toHex(e.owner.subarray(0, 32)), e.shares]));
+  expect(own.size).toBe(2);
+  expect(own.get(toHex(iss.subarray(0, 32)))).toBe(700n);
+
+  // a specific possessor in the select narrows to that one record
+  const posSel = new Uint8Array(36);
+  posSel.set(userId(0xcc), 0);
+  posSel[35] = 1; // anyMgmt, specific possessor (anyId stays 0)
+  const filtered = a.enumerate(assetSel, any(), posSel, 1);
+  expect(filtered.length).toBe(1);
+  expect(filtered[0].shares).toBe(300n);
+});

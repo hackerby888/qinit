@@ -11,6 +11,9 @@ import { Asset, AssetSelect } from "./abi";
 
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
 
+// One enumerated asset record returned to the contract-side iterator (assetEnumerate).
+export interface AssetEntry { owner: Uint8Array; possessor: Uint8Array; shares: bigint; ownMgmt: number; posMgmt: number }
+
 interface Holding {
   owner: Uint8Array;
   possessor: Uint8Array;
@@ -166,6 +169,39 @@ export class AssetLedger {
       sum += h.shares;
     }
     return sum;
+  }
+
+  // Enumerate holdings matching the selects, for the contract-side AssetOwnership/PossessionIterator (reached via
+  // the assetEnumerate host import + the wasm shim). kind 0 = ownership records (distinct owner+ownMgmt, total
+  // owned shares); kind 1 = possession records (each matching holding). Iteration order is unspecified — contracts
+  // treat the iterator cursor as opaque (qpi.h: the universe index "should not be used by contracts").
+  enumerate(assetB: Uint8Array, ownSelB: Uint8Array, posSelB: Uint8Array, kind: number): AssetEntry[] {
+    const a = Asset.wrap(assetB);
+    const asset = this.findAsset(a.issuer, a.assetName);
+    if (!asset) return [];
+
+    const own = AssetSelect.wrap(ownSelB), pos = AssetSelect.wrap(posSelB);
+    const ownId = own.id, ownMgmt = own.mgmt, anyOwner = own.anyId !== 0, anyOwnMgmt = own.anyMgmt !== 0;
+    const posId = pos.id, posMgmt = pos.mgmt, anyPos = pos.anyId !== 0, anyPosMgmt = pos.anyMgmt !== 0;
+    const matchOwn = (h: Holding) => (anyOwner || this.idEq(h.owner, ownId)) && (anyOwnMgmt || h.ownMgmt === ownMgmt);
+    const matchPos = (h: Holding) => (anyPos || this.idEq(h.possessor, posId)) && (anyPosMgmt || h.posMgmt === posMgmt);
+
+    if (kind === 0) {
+      const byOwner = new Map<string, AssetEntry>();
+      for (const h of asset.holdings.values()) {
+        if (!matchOwn(h)) continue;
+        const k = this.key(h.owner) + ":" + h.ownMgmt;
+        const e = byOwner.get(k);
+        if (e) e.shares += h.shares;
+        else byOwner.set(k, { owner: h.owner, possessor: h.owner, shares: h.shares, ownMgmt: h.ownMgmt, posMgmt: 0 });
+      }
+      return [...byOwner.values()];
+    }
+    const out: AssetEntry[] = [];
+    for (const h of asset.holdings.values()) {
+      if (matchOwn(h) && matchPos(h)) out.push({ owner: h.owner, possessor: h.possessor, shares: h.shares, ownMgmt: h.ownMgmt, posMgmt: h.posMgmt });
+    }
+    return out;
   }
 
   numberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint {

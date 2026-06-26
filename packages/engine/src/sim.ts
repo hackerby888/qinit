@@ -120,6 +120,7 @@ export class Sim {
       isAssetIssued: (issuer, name) => (this.assets.isAssetIssued(issuer, name) ? 1 : 0),
       numberOfShares: (asset, ownSel, posSel) => this.assets.numberOfShares(asset, ownSel, posSel),
       numberOfPossessedShares: (name, issuer, owner, possessor, ownMgmt, posMgmt) => this.assets.numberOfPossessedShares(name, issuer, owner, possessor, ownMgmt, posMgmt),
+      assetEnumerate: (asset, ownSel, posSel, kind) => this.assets.enumerate(asset, ownSel, posSel, kind),
       transferShares: (slot, name, issuer, owner, possessor, shares, newOwner) => this.assets.transferShareOwnershipAndPossession(slot, name, issuer, owner, possessor, shares, newOwner),
       acquireShares: (slot, name, issuer, owner, possessor, shares, srcOwnMgmt, srcPosMgmt, fee) => this.acquireShares(slot, name, issuer, owner, possessor, shares, srcOwnMgmt, srcPosMgmt, fee),
       releaseShares: (slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee) => this.releaseShares(slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee),

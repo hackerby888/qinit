@@ -114,6 +114,32 @@ void* QPI::QpiContextFunctionCall::__qpiAllocLocals(unsigned int sizeOfLocals) c
 \treturn (void*)&__qinitLocalsBuf[off];
 }
 void QPI::QpiContextFunctionCall::__qpiFreeLocals() const { if (__qinitLocalsDepth > 0) __qinitLocalsTop = __qinitLocalsMark[--__qinitLocalsDepth]; }
+// ---- asset iterators: host-coupled, so they can't be compiled freestanding. The shim defines the methods over a
+// new lhost import (assetEnumerate) that returns the matching records into a static buffer; the cursor lives in
+// the iterator's (universe-index) members, which contracts treat as opaque. One active iterator at a time.
+__attribute__((import_module("lhost"), import_name("assetEnumerate"))) extern "C" unsigned int __qinit_lh_assetEnumerate(unsigned int kind, const void* issuance, const void* ownSel, const void* posSel, void* outBuf, unsigned int maxEntries);
+namespace { struct __qinitAssetEntry { unsigned char owner[32]; unsigned char possessor[32]; long long shares; unsigned short ownMgmt; unsigned short posMgmt; unsigned char pad[4]; }; __qinitAssetEntry __qinitIterBuf[1024]; }
+void QPI::AssetOwnershipIterator::begin(const QPI::Asset& issuance, const QPI::AssetOwnershipSelect& ownership) {
+\t_issuance = issuance; _ownership = ownership;
+\t_issuanceIdx = __qinit_lh_assetEnumerate(0, &_issuance, &_ownership, &_ownership, __qinitIterBuf, 1024);
+\t_ownershipIdx = 0;
+}
+bool QPI::AssetOwnershipIterator::reachedEnd() const { return _ownershipIdx >= _issuanceIdx; }
+bool QPI::AssetOwnershipIterator::next() { ++_ownershipIdx; return _ownershipIdx < _issuanceIdx; }
+QPI::id QPI::AssetOwnershipIterator::issuer() const { return _issuance.issuer; }
+QPI::uint64 QPI::AssetOwnershipIterator::assetName() const { return _issuance.assetName; }
+QPI::id QPI::AssetOwnershipIterator::owner() const { QPI::id r; copyMem(&r, __qinitIterBuf[_ownershipIdx].owner, 32); return r; }
+QPI::sint64 QPI::AssetOwnershipIterator::numberOfOwnedShares() const { return __qinitIterBuf[_ownershipIdx].shares; }
+QPI::uint16 QPI::AssetOwnershipIterator::ownershipManagingContract() const { return __qinitIterBuf[_ownershipIdx].ownMgmt; }
+void QPI::AssetPossessionIterator::begin(const QPI::Asset& issuance, const QPI::AssetOwnershipSelect& ownership, const QPI::AssetPossessionSelect& possession) {
+\t_issuance = issuance; _ownership = ownership; _possession = possession;
+\t_issuanceIdx = __qinit_lh_assetEnumerate(1, &_issuance, &_ownership, &_possession, __qinitIterBuf, 1024);
+\t_ownershipIdx = 0;
+}
+bool QPI::AssetPossessionIterator::reachedEnd() const { return _ownershipIdx >= _issuanceIdx; }
+bool QPI::AssetPossessionIterator::next() { ++_ownershipIdx; return _ownershipIdx < _issuanceIdx; }
+QPI::id QPI::AssetPossessionIterator::possessor() const { QPI::id r; copyMem(&r, __qinitIterBuf[_ownershipIdx].possessor, 32); return r; }
+QPI::sint64 QPI::AssetPossessionIterator::numberOfPossessedShares() const { return __qinitIterBuf[_ownershipIdx].shares; }
 `;
 
 // --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
