@@ -58,6 +58,7 @@ export function Deploy({ args }: { args: string[] }) {
           contractPath, name: nm, core: resolveCore(o.core, cfg.core),
           rpcBase: o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841", seed: o.seed, dynCallees,
           slotOverride: sv !== undefined && sv !== "" ? Number(sv) : undefined,
+          skipVerify: "skip-verify" in o, // parity with `qinit test --skip-verify` (deployContract already supports it)
         }, emit);
         if (r.ok && r.slot != null) { try { setAddr(await bytesToIdentity(contractAddress(r.slot))); } catch {} }
         setResult(r);
