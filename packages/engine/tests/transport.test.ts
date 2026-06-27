@@ -2,7 +2,7 @@
 // qinit's OWN codec (encodeInput/decodeOutput), a REAL @qubic-lib signed tx, and the real deploy wire
 // protocol — i.e. it is interchangeable with the HTTP LiteRpc backend.
 import { test, expect } from "bun:test";
-import { buildSignedTx, k12Hex } from "@qinit/core";
+import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes } from "@qinit/core";
 import {
   encodeInput, decodeOutput, contractAddress,
   encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX,
@@ -87,4 +87,19 @@ test("signature verification (opt-in): valid signed tx accepted, tampered one re
   const r = await eng.broadcastTx(bad);
   expect(r.ok).toBe(false);
   expect(r.message).toContain("invalid signature");
+});
+
+test("broadcastTx reports moneyFlew + queued for an applied transfer (the IDE reads r.moneyFlew)", async () => {
+  const eng = await VirtualNode.create({ mempool: false, fees: "off" }); // applied now, no fee gate
+  const dest = new Uint8Array(32).fill(0x55);
+
+  eng.sim.fund(identityToBytes((await deriveIdentity(SEED)).identity), 1000n); // fund the sender
+  const funded = await buildSignedTx(SEED, { destination: dest, amount: 100, tick: 10, inputType: 0, payload: new Uint8Array(0) });
+  const r = await eng.broadcastTx(funded.bytes);
+  expect(r.ok).toBe(true);
+  expect(r.queued).toBe(false);   // mempool:false -> the tx is applied at broadcast, not queued
+  expect(r.moneyFlew).toBe(true); // the 100 qu actually moved
+
+  const broke = await buildSignedTx("c".repeat(55), { destination: dest, amount: 100, tick: 10, inputType: 0, payload: new Uint8Array(0) });
+  expect((await eng.broadcastTx(broke.bytes)).moneyFlew).toBe(false); // unfunded sender -> no money moved
 });

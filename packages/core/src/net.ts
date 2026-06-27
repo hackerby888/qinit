@@ -44,6 +44,11 @@ export interface BroadcastResult {
   transactionId?: string;
   code?: number;
   message?: string;
+  // Set by the in-process engine: whether qu moved, and whether the tx was queued for a future tick rather than
+  // applied now. moneyFlew is only meaningful when queued is falsy (an applied tx); a queued tx's outcome is
+  // known later via tx-status. A real-node broadcast leaves both undefined.
+  moneyFlew?: boolean;
+  queued?: boolean;
 }
 
 export async function broadcastTx(txBytes: Uint8Array, rpcBase = "http://127.0.0.1:41841"): Promise<BroadcastResult> {

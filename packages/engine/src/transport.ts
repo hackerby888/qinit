@@ -282,8 +282,8 @@ export class VirtualNode implements NodeTransport {
       this.rawTxs.set(toHex(k12Bytes(body)), txBytes);
       this.rawTxs.set(toHex(fullDigest), txBytes);
       this.rawTxs.set(txId, txBytes);
-      this.sim.enqueueTx(txTick, source, destBytes, amount, inputType, payload, txId, fullDigest);
-      return { ok: true, transactionId: txId };
+      const { moneyFlew, queued } = this.sim.enqueueTx(txTick, source, destBytes, amount, inputType, payload, txId, fullDigest);
+      return { ok: true, transactionId: txId, moneyFlew, queued };
     } catch (e: any) {
       return { ok: false, message: String(e?.message ?? e) };
     }
