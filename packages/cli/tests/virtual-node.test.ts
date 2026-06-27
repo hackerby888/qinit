@@ -85,6 +85,22 @@ test("invokeProcedure signs + broadcasts Inc; it processes and state advances", 
   }
 });
 
+test("confirm waits for execution: a read right after confirm sees the mutation (no poll)", async () => {
+  // Regression: txStatus.processed used to be hard-true on broadcast, so confirm() returned before the tx's
+  // tick ran and a read right after saw stale state — which broke the default `await proc(); read()` sample.
+  const { rpc, rpcBase, stop } = await bootCounter();
+  try {
+    const ti = await rpc.tickInfo();
+    const tick = ((ti.tick ?? 0) as number) + TX_TICK_OFFSET;
+    const r = await invokeProcedure({ seed: SEED, rpcBase, contractIndex: SLOT, procId: INC, amount: 0, inFmt: "", tick, confirm: true, rpc });
+    expect(r.confirmed).toBe(true);
+    // no poll loop: confirm must not resolve until the tx's tick executed, so the Inc is already visible
+    expect(BigInt(await callFunction(rpc, SLOT, GET, "", "uint64"))).toBe(1n);
+  } finally {
+    stop();
+  }
+});
+
 test("funded-seeds returns a pool of spendable seeds (qinit seed)", async () => {
   const { rpc, stop } = await bootCounter();
   try {
