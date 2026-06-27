@@ -91,7 +91,7 @@ export function Dev({ args }: { args: string[] }) {
 
   const ok = result?.ok;
   const runNo = busy ? runs + 1 : runs;
-  const lastText = result ? (ok ? "armed ✓" : `failed: ${result.reason ?? "?"}`) : busy ? "deploying…" : "idle";
+  const lastText = result ? (ok ? "armed ✓" : `failed: ${result.reason ?? result.error ?? "?"}`) : busy ? "deploying…" : "idle";
   const lastColor = ok ? theme.ok : result ? theme.err : busy ? theme.info : theme.mute;
   const live = tick != null;
   const pipeColor = busy ? theme.info : ok ? theme.ok : result ? theme.err : theme.info;
