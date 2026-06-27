@@ -689,7 +689,23 @@ export class Sim {
           moneyFlew = false;
         }
       } else if (isProcedure) {
-        this.runProcedure(slot, inputType, payload, source, source, reward);
+        // Isolate a faulting procedure (a wasm trap like divide-by-zero, an abort, or a host error). Without this
+        // the throw unwinds out of drainMempool and crashes the whole node — one buggy contract tx kills the tick
+        // and every later tx in it. Snapshot the contract state and refund the attached amount on failure, so a
+        // faulting tx neither persists partial state nor pockets the reward, and the tick still finalizes.
+        // (Side effects on OTHER state — a transfer/asset op done before the trap — are not rolled back yet; full
+        // cross-state tx atomicity is a separate concern.)
+        const stateBefore = c.state().slice();
+        try {
+          this.runProcedure(slot, inputType, payload, source, source, reward);
+        } catch {
+          c.writeState(stateBefore);
+          if (moneyFlew) {
+            this.debit(dest, amount, tick);
+            this.credit(source, amount, tick);
+            moneyFlew = false;
+          }
+        }
       } else if (reward > 0n) {
         this.notifyPIT(dest, source, reward, TT_STANDARD); // plain incoming transfer to a contract
       }
@@ -716,7 +732,12 @@ export class Sim {
   // Apply the txs scheduled for the current tick (mempool mode), recording them under it.
   private drainMempool(): void {
     for (const t of this.txpool.takeDue(this.tickN)) {
-      this.applyTx(t.source, t.dest, t.amount, t.inputType, t.payload, t.txId, t.digest);
+      try {
+        this.applyTx(t.source, t.dest, t.amount, t.inputType, t.payload, t.txId, t.digest);
+      } catch {
+        // Backstop: applyTx already isolates procedure faults; this guards any other unexpected throw so one tx
+        // can never abort the tick's remaining txs or crash the node.
+      }
     }
   }
 
