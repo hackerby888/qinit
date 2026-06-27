@@ -46,6 +46,13 @@ export function scanQpi(src: string): QpiFinding[] {
     if (c === "/" && c2 === "/") { i += 2; while (i < n && src[i] !== "\n") i++; continue; }
     if (c === "/" && c2 === "*") { i += 2; while (i < n && !(src[i] === "*" && src[i + 1] === "/")) i++; i += 2; continue; }
 
+    // C++14 digit separator (1'000'000, 0xFFFF'FFFF): a `'` flanked by hex-word chars is part of a numeric
+    // literal, not a char literal — skip it so it isn't mis-flagged as qpi/no-char.
+    if (c === "'" && /[0-9a-fA-F]/.test(src[i - 1] ?? "") && /[0-9a-fA-F]/.test(src[i + 1] ?? "")) {
+      i++;
+      continue;
+    }
+
     // --- string / char literals: the literal itself is the violation; skip its body so inner
     //     characters (#, /, etc.) don't double-fire ---
     if (c === '"' || c === "'") {
