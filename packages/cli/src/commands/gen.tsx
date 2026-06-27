@@ -8,23 +8,27 @@ import { Header, Panel, KV, theme } from "../ui";
 
 // qinit gen [--contract <path>] [--name] [--slot] [--out <dir>]
 // Generate a typed TS client (interfaces + a class over callFunction/invokeProcedure) from the contract.
-function parse(args: string[]): Record<string, string> {
+function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
   const o: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) if (args[i].startsWith("--")) o[args[i].slice(2)] = args[++i] ?? "";
-  return o;
+  const pos: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith("--")) o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
+    else pos.push(args[i]);
+  }
+  return { o, pos };
 }
 
 type State = { ok: true; file: string; name: string; slot: number; fns: number; procs: number } | { ok: false; err: string } | null;
 
 export function Gen({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const o = parse(args);
+  const { o, pos } = parse(args);
   const [s, setS] = useState<State>(null);
 
   useEffect(() => {
     try {
       const cfg = loadConfig();
-      const contractPath = resolve(o.contract ?? cfg.contract ?? "fixtures/Counter.h");
+      const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
       const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
       const slot = Number(o.slot ?? cfg.slot ?? 28);
       let prelude: string | undefined;
