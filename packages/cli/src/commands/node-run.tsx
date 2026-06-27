@@ -14,9 +14,9 @@ import { parseArgs, output } from "../args";
 // re-fetch when cached. With `qinit mode virtualnode` the in-process engine replaces the node binary.
 // Shared parser — `restart`/`offline`/`keep` are booleans (never consume the next token); everything else `--k v`.
 function parse(args: string[]): Record<string, string> {
-  const a = parseArgs(args, { booleans: ["restart", "offline", "keep"] });
+  const a = parseArgs(args, { booleans: ["restart", "offline", "keep", "real", "realnode", "virtual"] });
   const o: Record<string, string> = { ...a.flags };
-  for (const b of ["restart", "offline", "keep"]) if (a.has(b)) o[b] = "1";
+  for (const b of ["restart", "offline", "keep", "real", "realnode", "virtual"]) if (a.has(b)) o[b] = "1";
   return o;
 }
 
@@ -27,7 +27,9 @@ export function NodeRun({ args }: { args: string[] }) {
   const o = parse(args);
   const rpcBase = o.rpc || "http://127.0.0.1:41841";
   const ref = o.ref || "latest";
-  const virtual = savedMode() === "virtualnode";   // `qinit mode` chooses the node backend
+  // `qinit mode` chooses the backend; an explicit --real/--realnode or --virtual flag overrides it for this run
+  // (parity with `qinit test`), so `qinit node run --real` isn't silently ignored.
+  const virtual = "virtual" in o ? true : ("real" in o || "realnode" in o) ? false : savedMode() === "virtualnode";
   const [steps, setSteps] = useState<Phase[]>([
     { key: "headers", label: "core headers", state: "pending" },
     { key: "node", label: "node binary", state: "pending" },
