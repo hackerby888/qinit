@@ -44,9 +44,29 @@ export type DynCallees = Record<string, { header: string; index: number }>;
 // Build the wrapper prelude (empty if the contract makes no inter-contract calls). Resolves the
 // transitive closure of callees, compiles their TYPES at their indices (ascending), emits inputType
 // constants, then includes the lite macro-redefine header.
+// Every contract's <NAME>_CONTRACT_INDEX from contract_def.h, each #ifndef-guarded. The full-core build gets
+// these from contract_def.h; a single-contract TU does not — so a contract that directly #includes a sibling
+// header (which uses its own <NAME>_CONTRACT_INDEX, with no CALL_OTHER_CONTRACT macro for scanCallees to catch)
+// would fail to compile. Guarded so contract_def.h's own #define wins when it is in scope.
+export function contractIndexDefines(corePath: string): string {
+  let src: string;
+  try {
+    src = readFileSync(join(corePath, "src/contract_core/contract_def.h"), "utf8");
+  } catch {
+    return "";
+  }
+
+  let s = "// ---- all contract indices (contract_def.h) so a directly-#included sibling resolves ----\n";
+  for (const m of src.matchAll(/#define\s+(\w+)_CONTRACT_INDEX\s+(\d+)/g)) {
+    s += `#ifndef ${m[1]}_CONTRACT_INDEX\n#define ${m[1]}_CONTRACT_INDEX ${m[2]}\n#endif\n`;
+  }
+  return s;
+}
+
 export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: DynCallees = {}): string {
+  const indexBlock = contractIndexDefines(corePath);
   const wanted = scanCallees(contractSrc);
-  if (wanted.size === 0) return "";
+  if (wanted.size === 0) return indexBlock;
   const defMap = parseContractDef(corePath);
 
   interface R { type: string; index: number; include: string; src: string }
@@ -86,5 +106,5 @@ export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: D
     for (const r of parseRegisters(c.src))
       s += `static constexpr unsigned short ${c.type}_${r.fn}_inputType = ${r.n};\n`;
   s += `#include "extensions/lite_contract_calls.h"\n`;
-  return s;
+  return indexBlock + s;
 }
