@@ -228,10 +228,15 @@ export class VirtualNode implements NodeTransport {
   }
 
   async txStatus(tick: number, txId: string): Promise<TxStatus> {
-    // Single-authority engine: every broadcast tx is included + processed. moneyFlew is best-effort (the
-    // engine's tickdata txId is K12(tx)->identity; qinit's tx.id may differ, so an unknown id defaults true).
+    // Single-authority engine: every broadcast tx is included. But a tx scheduled for tick T only mutates state
+    // when the ticker reaches T — so `processed` must wait for the chain to advance PAST T, else a confirm()
+    // returns before the procedure ran and the caller reads stale state (the natural `await proc(); read()`
+    // pattern, incl. the default counter sample). Tick-based, not txByHash-based: qinit's tx.id is
+    // K12(tx)->identity which may differ from the engine's tickdata id, so a hash lookup is unreliable for the
+    // processed gate (moneyFlew stays best-effort on it).
     const r = this.sim.txByHash(txId);
-    return { tick, currentTick: this.sim.tickN, txId, found: true, moneyFlew: r?.moneyFlew ?? true, processed: true };
+    const processed = this.sim.tickN > tick;
+    return { tick, currentTick: this.sim.tickN, txId, found: true, moneyFlew: r?.moneyFlew ?? true, processed };
   }
 
   async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
