@@ -118,3 +118,17 @@ test("VirtualNode re-exposes the direct engine ops (procedure/query/digests) mat
   expect(eng.spectrumDigest()).toEqual(eng.sim.spectrumDigest());
   expect(eng.universeDigest()).toEqual(eng.sim.universeDigest());
 });
+
+test("fund + balance accept either an id string or raw bytes (unified id type)", async () => {
+  const eng = await VirtualNode.create({ fees: "off" });
+  const idStr = (await deriveIdentity(SEED)).identity;
+  const idBytes = identityToBytes(idStr);
+
+  eng.fund(idBytes, 500n);                                 // fund by bytes
+  expect((await eng.balance(idStr)).balance).toBe("500");  // read by string
+
+  eng.fund(idStr, 250n);                                   // fund by string (adds)
+  const b = await eng.balance(idBytes);                    // read by bytes
+  expect(b.balance).toBe("750");
+  expect(b.id).toBe(idStr);                                // bytes input -> canonical identity in the response
+});
