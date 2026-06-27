@@ -539,6 +539,11 @@ export class Sim {
     return status === undefined ? this.oracle.resolve(queryId, reply) : this.oracle.resolve(queryId, reply, status);
   }
 
+  // PENDING oracle queries (dev/test discovery — the resolve seam's read side).
+  pendingOracleQueries(): { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[] {
+    return this.oracle.pending();
+  }
+
   // Register a reply provider (interfaceIndex, query) -> reply | null. Pending queries auto-resolve through it on
   // advance(). This is the mock/browser path; a real oracle-machine fetch plugs in behind this same seam.
   setOracleProvider(fn: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null): void {
