@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { extractIdl, generateClient, qpiPrelude } from "@qinit/build";
+import { extractIdl, generateClient, qpiPrelude, testRuntimeSource } from "@qinit/build";
 import { loadConfig, resolveCore } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
 
@@ -30,9 +30,12 @@ export function Gen({ args }: { args: string[] }) {
       let prelude: string | undefined;
       try { prelude = qpiPrelude(resolveCore(o.core, cfg.core)); } catch { prelude = undefined; } // resolve qpi library types; degrade if core unavailable
       const idl = extractIdl(readFileSync(contractPath, "utf8"), name, { prelude });
-      const ts = generateClient(idl, slot);
+      // Emit a SELF-CONTAINED client: the client pulls LiteRpc/codec from a sibling runtime.ts (only needs the
+      // public @qubic-lib), not from the unpublished @qinit/* monorepo packages — so the output works outside it.
+      const ts = generateClient(idl, slot, { runtimeImport: "./runtime" });
       const outDir = resolve(o.out ?? "dist/clients");
       mkdirSync(outDir, { recursive: true });
+      writeFileSync(join(outDir, "runtime.ts"), testRuntimeSource);
       const file = join(outDir, `${name}.ts`);
       writeFileSync(file, ts);
       setS({ ok: true, file, name, slot, fns: Object.keys(idl.functions).length, procs: Object.keys(idl.procedures).length });

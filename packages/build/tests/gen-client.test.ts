@@ -28,6 +28,15 @@ const has = (s: string) => expect(out.includes(s)).toBe(true);
 
 test("class + index default", () => { has("export class Demo {"); has("this.index = o.index ?? 28;"); });
 
+test("runtimeImport emits a self-contained client (./runtime, no unpublished @qinit/* imports)", () => {
+  // `qinit gen` / `qinit test` pass runtimeImport so the output works outside the monorepo (the @qinit/*
+  // packages are unpublished); without it the client imports @qinit/core + @qinit/proto.
+  const sc = generateClient(extractIdl(SRC, "Demo"), 28, { runtimeImport: "./runtime" });
+  expect(sc).toContain('import { LiteRpc, callFunction, invokeProcedure } from "./runtime";');
+  expect(sc).not.toContain("@qinit/");
+  expect(out).toContain("@qinit/"); // the default (no runtimeImport) does import @qinit/*
+});
+
 test("no-input function: no args param, single-output map", () => {
   has("async Get(): Promise<Get_output>");
   has(", 1, \"\", \"uint64\")");        // fnId 1, empty in fmt, uint64 out fmt
