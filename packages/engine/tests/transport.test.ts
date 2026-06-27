@@ -132,3 +132,27 @@ test("fund + balance accept either an id string or raw bytes (unified id type)",
   expect(b.balance).toBe("750");
   expect(b.id).toBe(idStr);                                // bytes input -> canonical identity in the response
 });
+
+test("engine emits a diagnostic log stream (deploy/tick/tx events via onLog)", async () => {
+  const eng = await VirtualNode.create({ mempool: false, fees: "off" });
+  const ev: { level: string; cat: string; msg: string }[] = [];
+  eng.onLog = (e) => ev.push(e);
+
+  eng.deploy(28, await wasm("Counter"), "Counter");
+  expect(ev.some((e) => e.cat === "deploy" && e.level === "info")).toBe(true);
+
+  eng.advanceTick(1);
+  expect(ev.some((e) => e.cat === "tick" && e.level === "debug" && /begin/.test(e.msg))).toBe(true);
+  expect(ev.some((e) => e.cat === "tick" && /end/.test(e.msg))).toBe(true);
+
+  ev.length = 0;
+  const tx = await buildSignedTx(SEED, { destination: contractAddress(28), amount: 0, tick: 10, inputType: 1, payload: await encodeInput("") });
+  await eng.broadcastTx(tx.bytes);
+  expect(ev.some((e) => e.cat === "tx" && e.level === "info")).toBe(true);
+
+  // Unset = no-op: a fresh node with no subscriber doesn't throw.
+  const quiet = await VirtualNode.create({ mempool: false, fees: "off" });
+  quiet.deploy(28, await wasm("Counter"), "Counter");
+  quiet.advanceTick(1);
+  expect(true).toBe(true);
+});

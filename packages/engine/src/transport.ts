@@ -8,6 +8,7 @@ import type {
 import { bytesToIdentity, identityToBytes } from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
 import { Sim, type AssetSnapshot, type FeeMode, type ProcedureOpts } from "./sim";
+import type { LogSink } from "./log";
 import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
 import { k12Bytes, toHex, verifySync, deriveKeysSync, initK12 } from "./k12";
@@ -31,6 +32,15 @@ export class VirtualNode implements NodeTransport {
   private static readonly POOL_SIZE = 16; // funded dev seeds the virtual node exposes via /dev/funded-seeds
 
   private verifySigs: boolean;
+
+  // Diagnostic engine-log stream — assign to subscribe (forwards to the underlying Sim); unset = no-op. See log.ts.
+  get onLog(): LogSink | undefined {
+    return this.sim.onLog;
+  }
+
+  set onLog(fn: LogSink | undefined) {
+    this.sim.onLog = fn;
+  }
 
   // Self-initializing constructor: awaits the crypto module (initK12) ONCE, then returns a ready engine —
   // callers never touch initK12. After this resolves, every k12/sign op stays synchronous (the wasm crypto

@@ -6,6 +6,7 @@ export { Sim } from "./sim";
 export type { TickRecord } from "./sim";
 export type { AssetSnapshot } from "./assets";
 export { VirtualNode } from "./transport";
+export type { EngineLogEvent, LogLevel, LogSink } from "./log";
 export { initK12, k12Bytes, toHex, deriveKeysSync, signSync, verifySync } from "./k12";
 export type { KeyPair } from "./k12";
 export {

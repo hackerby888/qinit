@@ -15,7 +15,8 @@ import { TickConsensus, type TickRecord } from "./ticking";
 import type { TickData } from "./wire";
 import { PreManagementRightsTransferInput, PreManagementRightsTransferOutput, PostIncomingTransferInput, ContractId } from "./abi";
 import { TxPool, type TxRecord } from "./txs";
-import { ContractRegistry } from "./registry";
+import { ContractRegistry, K12_MAX_LEAF_BYTES } from "./registry";
+import type { LogSink, LogLevel } from "./log";
 import type { DebugTrace } from "@qinit/core";
 
 export type { AssetSnapshot };
@@ -65,6 +66,7 @@ export class Sim {
   epochN = 0;
   epochLength = 3000; // TESTNET_EPOCH_DURATION (core public_settings.h) — epoch switches when the tick crosses a multiple
   host: HostServices;
+  onLog?: LogSink; // diagnostic log stream — a host (the IDE) subscribes; unset = no-op (see log.ts)
   private registry: ContractRegistry; // deployed contracts (instances + state) + deploy/fire + the computer digest
   private spectrum = new SpectrumLedger(); // entity balance records + the spectrum merkle (spectrumDigest)
   private oracle: OracleManager; // oracle queries + subscriptions (the query/reply are opaque bytes)
@@ -446,11 +448,20 @@ export class Sim {
 
   // Deploy + construct (ContractRegistry owns the instances); stays on the façade for the public API.
   deploy(slot: number, wasm: Uint8Array): Contract {
-    return this.registry.deploy(slot, wasm, this.host);
+    const c = this.registry.deploy(slot, wasm, this.host);
+    this.emit("info", "deploy", `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`);
+    if (c.stateSize > K12_MAX_LEAF_BYTES) {
+      // A mainnet-sized state (e.g. QX ~600 MB) can't be K12-hashed, so it gets a zero computer-digest leaf
+      // (see ContractRegistry.computerDigest). Surface it once here rather than silently every tick.
+      this.emit("warn", "digest", `slot ${slot} state ${(c.stateSize / 1048576) | 0}MB > ${K12_MAX_LEAF_BYTES / 1048576}MB — excluded from computer digest (zero leaf)`);
+    }
+    return c;
   }
 
   undeploy(slot: number): boolean {
-    return this.registry.undeploy(slot);
+    const ok = this.registry.undeploy(slot);
+    if (ok) this.emit("info", "deploy", `slot ${slot} undeployed`);
+    return ok;
   }
 
   // Debug tracing — wired to the node's /dev/debug + /debug-trace RPC by the transport.
@@ -460,6 +471,12 @@ export class Sim {
 
   getTrace(): DebugTrace {
     return this.recorder.trace();
+  }
+
+  // Emit a diagnostic log event to the subscribed sink (the IDE's engine-log popup). No-op when unset, so the
+  // per-tick debug events cost only the message build when nobody is listening.
+  private emit(level: LogLevel, cat: string, msg: string): void {
+    this.onLog?.({ level, tick: this.tickN, cat, msg });
   }
 
   // Epoch-boundary sysprocs are exempt from the fee gate (execution_fees.md): they run even on a depleted
@@ -483,6 +500,7 @@ export class Sim {
   beginTick(): void {
     this.tickN++;
     this.tickTxCount = this.txpool.dueCount(this.tickN); // the tick's tx-set size, fixed before BEGIN_TICK (core-lite numberTickTransactions)
+    this.emit("debug", "tick", `tick ${this.tickN} begin · ${this.tickTxCount} tx`);
 
     for (const s of this.registry.slots(true)) {
       // BEGIN_TICK: ascending 1->N
@@ -497,6 +515,7 @@ export class Sim {
       const c = this.contracts.get(s)!;
       if (c.hasSysproc(SP.END_TICK) && this.fees.reserveOk(s)) this.registry.fire(c, KIND.SYSPROC, SP.END_TICK, new Uint8Array(0), { entryPoint: SP.END_TICK });
     }
+    this.emit("debug", "tick", `tick ${this.tickN} end`);
   }
 
   // Advance one tick. When the new tick reaches an epoch boundary (a multiple of epochLength) the chain
@@ -510,6 +529,7 @@ export class Sim {
       this.endEpoch();
       this.epochN++;
       this.beginEpoch();
+      this.emit("info", "epoch", `epoch ${this.epochN - 1} → ${this.epochN}`);
     }
     this.beginTick();
     this.drainMempool();
@@ -693,6 +713,7 @@ export class Sim {
           this.credit(source, amount, tick);
           moneyFlew = false;
         }
+        this.emit("warn", "fee", `slot ${slot} dormant — procedure it=${inputType} skipped${amount > 0n ? `, refunded ${amount}` : ""}`);
       } else if (isProcedure) {
         // Isolate a faulting procedure (a wasm trap like divide-by-zero, an abort, or a host error). Without this
         // the throw unwinds out of drainMempool and crashes the whole node — one buggy contract tx kills the tick
@@ -703,13 +724,14 @@ export class Sim {
         const stateBefore = c.state().slice();
         try {
           this.runProcedure(slot, inputType, payload, source, source, reward);
-        } catch {
+        } catch (e) {
           c.writeState(stateBefore);
           if (moneyFlew) {
             this.debit(dest, amount, tick);
             this.credit(source, amount, tick);
             moneyFlew = false;
           }
+          this.emit("warn", "tx", `slot ${slot} procedure it=${inputType} trapped: ${String((e as Error)?.message ?? e)}${amount > 0n ? `, refunded ${amount}` : ""}`);
         }
       } else if (reward > 0n) {
         this.notifyPIT(dest, source, reward, TT_STANDARD); // plain incoming transfer to a contract
@@ -717,6 +739,7 @@ export class Sim {
     }
     // dest is a plain user identity: the debit/credit above is the whole transfer.
 
+    this.emit("info", "tx", `tx → ${slot >= 0 ? `slot ${slot}` : "user"} it=${inputType} amount=${amount} moneyFlew=${moneyFlew}`);
     this.txpool.record({ txId, tick, source: this.key(source), dest: this.key(dest), amount, inputType, moneyFlew, digest });
     return { moneyFlew };
   }
@@ -739,9 +762,10 @@ export class Sim {
     for (const t of this.txpool.takeDue(this.tickN)) {
       try {
         this.applyTx(t.source, t.dest, t.amount, t.inputType, t.payload, t.txId, t.digest);
-      } catch {
+      } catch (e) {
         // Backstop: applyTx already isolates procedure faults; this guards any other unexpected throw so one tx
         // can never abort the tick's remaining txs or crash the node.
+        this.emit("warn", "mempool", `tx ${t.txId} dropped: ${String((e as Error)?.message ?? e)}`);
       }
     }
   }
