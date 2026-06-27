@@ -91,7 +91,28 @@ export function Test({ args }: { args: string[] }) {
           } else { add("node", true, "reused running node"); }
         }
 
-        // 2) build + deploy (also runs the protocol-rule gate).
+        // 2) deploy inter-contract callees first, so the main contract's CALL_OTHER_CONTRACT names resolve from
+        //    the node registry (deploy submits each callee's .h; the main build then auto-derives type + slot).
+        for (const callee of cfg.callees ?? []) {
+          const cpath = resolve(callee.contract);
+          if (!existsSync(cpath)) {
+            add("callee", false, `${callee.name}: ${cpath} not found`);
+            if (ownNode && o.keep === undefined) await killNode();
+            engineSrv?.stop();
+            setS({ phase: "done", lines: L, ok: false, output: "", rows: [] }); return;
+          }
+          spin(`deploying callee ${callee.name}`);
+          const cd = await deployContract({ contractPath: cpath, name: callee.name, core, rpcBase: activeRpc, seed: o.seed, skipVerify: "skip-verify" in o }, () => {});
+          if (!cd.ok || cd.slot === undefined) {
+            add("callee", false, `${callee.name}: ${cd.error ?? "deploy failed"}`);
+            if (ownNode && o.keep === undefined) await killNode();
+            engineSrv?.stop();
+            setS({ phase: "done", lines: L, ok: false, output: "", rows: [] }); return;
+          }
+          add("callee", true, `${callee.name} @ slot ${cd.slot}`);
+        }
+
+        // 3) build + deploy the main contract (also runs the protocol-rule gate).
         spin("deploying contract");
         let depDetail = "";
         const dep = await deployContract({ contractPath, name, core, rpcBase: activeRpc, seed: o.seed, skipVerify: "skip-verify" in o }, (e: Ev) => {
