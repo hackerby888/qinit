@@ -5,6 +5,10 @@
 // metering is delegated to the injected FeeManager.
 import { Contract, type HostServices, KIND, SP } from "./runtime";
 import { k12Bytes } from "./k12";
+
+// The wasm K12 mallocs its whole input; ~8 MB is the safe ceiling before it overflows. Contract states above
+// this (the mainnet-sized order books of QX/QSWAP) get a zero computer-digest leaf instead — see computerDigest.
+const K12_MAX_LEAF_BYTES = 8 * 1024 * 1024;
 import { merkleRoot, MAX_NUMBER_OF_CONTRACTS } from "./consensus";
 import { TraceRecorder } from "./trace";
 import { FeeManager } from "./fees";
@@ -97,7 +101,11 @@ export class ContractRegistry {
   computerDigest(): Uint8Array {
     const leaves = new Map<number, Uint8Array>();
     for (const [slot, c] of this.contracts) {
-      leaves.set(slot, k12Bytes(c.state()));
+      // The one-shot wasm K12 caps near 8 MB of input; a contract with a larger state — e.g. QX's ~600 MB
+      // order books — can't be hashed here without overflowing it, and slicing that state out every tick is
+      // itself ruinous. The sim runs no real consensus, so for such an oversized state fall back to a zero
+      // leaf (checked via stateSize, no copy) instead of throwing out of finalizeTick and killing ticking.
+      leaves.set(slot, c.stateSize > K12_MAX_LEAF_BYTES ? new Uint8Array(32) : k12Bytes(c.state()));
     }
 
     return merkleRoot(leaves, MAX_NUMBER_OF_CONTRACTS);
