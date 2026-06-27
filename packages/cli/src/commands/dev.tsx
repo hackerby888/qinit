@@ -56,7 +56,7 @@ export function Dev({ args }: { args: string[] }) {
     if (busyRef.current) { pending.current = true; return; }
     busyRef.current = true; setBusy(true);
     setSteps({}); setNotes([]); setResult(null);
-    try { setResult(await deployContract({ contractPath, name, core, rpcBase, seed: o.seed, dynCallees }, emit)); }
+    try { setResult(await deployContract({ contractPath, name, core, rpcBase, seed: o.seed, dynCallees, skipVerify: "skip-verify" in o }, emit)); }
     catch (e: any) { setNotes((n) => [...n, "ERROR: " + String(e?.message ?? e)]); }
     try { setContracts(await nodeContracts(rpcBase)); } catch {}
     setRuns((n) => n + 1);
