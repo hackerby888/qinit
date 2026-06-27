@@ -28,6 +28,44 @@ export function tickFailureMessage(reached: boolean, rpcBase: string): string {
   return reached ? "node not ticking" : `node unreachable at ${rpcBase} — is it running? (qinit node run)`;
 }
 
+// Best-effort: resolve a contract's inter-contract callees from the live node registry — each deployed
+// contract submits its .h source at deploy, so the node knows name -> { deployed slot, source }. Used by both
+// deploy and build (most builds run with a node up). Skips callees already supplied (e.g. --callee) and any the
+// node doesn't know (system callees resolve from contract_def.h at compile; offline = no-op). Never throws: a
+// down/unreachable node just leaves the callee for --callee or contract_def.h.
+export async function resolveNodeCallees(
+  rpc: Pick<LiteRpc, "dynRegistry">,
+  contractSrc: string,
+  dynCallees: Record<string, { header: string; index: number }> = {},
+  onNote?: (msg: string) => void,
+  timeoutMs?: number, // cap the registry probe so a down node fails fast (build); omit when the node is already known up (deploy)
+): Promise<Record<string, { header: string; index: number }>> {
+  const out: Record<string, { header: string; index: number }> = { ...dynCallees };
+  try {
+    const names = [...new Set([...contractSrc.matchAll(/(?:CALL|INVOKE)_OTHER_CONTRACT_\w+\s*\(\s*(\w+)/g)].map((m) => m[1]))];
+    const pending = names.filter((n) => !out[n]);
+    if (pending.length) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const probe = rpc.dynRegistry();
+      const reg = timeoutMs
+        ? await Promise.race([probe.finally(() => clearTimeout(timer)), new Promise<never>((_, rej) => { timer = setTimeout(() => rej(new Error("node probe timeout")), timeoutMs); })])
+        : await probe;
+      for (const n of pending) {
+        const c = (reg.contracts ?? []).find((x) => x.name === n && x.armed && x.source);
+        if (c) {
+          const tmp = join(tmpdir(), `qinit-callee-${n}.h`);
+          writeFileSync(tmp, c.source!);
+          out[n] = { header: tmp, index: c.index };
+          onNote?.(`callee ${n} → slot ${c.index} (from node)`);
+        }
+      }
+    }
+  } catch {
+    // node down / unreachable — best-effort only
+  }
+  return out;
+}
+
 // Classify a deploy that never armed by the ACTUAL cause: a dyn-registry that never read back (node too
 // old / RPC down) is "unknown", NOT "slot empty" — the old message blamed a dropped deploy wrongly.
 export function classifyConfirm(s: { present: boolean; regOk: boolean; onNode: string; want: string }): { reason: string; detail: string; note: string } {
@@ -101,24 +139,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   // inter-contract callees: for each CALL/INVOKE_OTHER_CONTRACT(<Name>) not given via --callee, resolve it from
   // the node registry (name -> slot + .h source, submitted at the callee's own deploy) so no --callee is needed.
-  const dynCallees: Record<string, { header: string; index: number }> = { ...(o.dynCallees ?? {}) };
-  try {
-    const csrc = readFileSync(o.contractPath, "utf8");
-    const names = [...new Set([...csrc.matchAll(/(?:CALL|INVOKE)_OTHER_CONTRACT_\w+\s*\(\s*(\w+)/g)].map((m) => m[1]))];
-    const pending = names.filter((n) => !dynCallees[n]);
-    if (pending.length) {
-      const reg = await rpc.dynRegistry();
-      for (const n of pending) {
-        const c = (reg.contracts ?? []).find((x) => x.name === n && x.armed && x.source);
-        if (c) {
-          const tmp = join(tmpdir(), `qinit-callee-${n}.h`);
-          writeFileSync(tmp, c.source!);
-          dynCallees[n] = { header: tmp, index: c.index };
-          emit({ note: `callee ${n} → slot ${c.index} (from node)` });
-        }
-      }
-    }
-  } catch {}
+  const dynCallees = await resolveNodeCallees(rpc, readFileSync(o.contractPath, "utf8"), o.dynCallees ?? {}, (note) => emit({ note }));
 
   // build
   emit({ step: "build", state: "active", detail: "compiling…" });

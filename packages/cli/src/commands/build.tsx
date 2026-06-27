@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { resolve, join, basename } from "node:path";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { buildContract, type BuildResult } from "@qinit/build";
-import { autoUpdateVerifyTool, type VerifyUpdate } from "@qinit/core";
+import { autoUpdateVerifyTool, LiteRpc, type VerifyUpdate } from "@qinit/core";
+import { resolveNodeCallees } from "../deploy-ops";
 import { loadConfig, resolveCore } from "../config";
 import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
 
@@ -16,7 +17,7 @@ function parse(args: string[]): Record<string, string> {
   return o;
 }
 
-type State = { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate };
+type State = { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate; notes?: string[] };
 
 export function Build({ args }: { args: string[] }) {
   const { exit } = useApp();
@@ -39,11 +40,17 @@ export function Build({ args }: { args: string[] }) {
           const m = (args[i + 1] ?? "").match(/^(\w+)=(.+)@(\d+)$/);
           if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
         }
+        // Most builds run with a node up — best-effort resolve any not-yet-given callee from the live registry
+        // (its deployed slot + the .h source it submitted at deploy), so --callee isn't needed for a deployed
+        // callee. Node down/unreachable is fine: --callee + contract_def.h (system callees) still apply.
+        const notes: string[] = [];
+        const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";
+        const callees = await resolveNodeCallees(new LiteRpc(rpcBase), readFileSync(contractPath, "utf8"), dynCallees, (n) => notes.push(n), 2500);
         // Daily-cached, best-effort verify-tool auto-update (never blocks; offline = skip).
         const vu = await autoUpdateVerifyTool();
-        const r = await buildContract({ contractPath, name, slot: Number(o.slot ?? cfg.slot ?? 28), corePath: core, outDir, dynCallees, skipVerify: "skip-verify" in o });
+        const r = await buildContract({ contractPath, name, slot: Number(o.slot ?? cfg.slot ?? 28), corePath: core, outDir, dynCallees: callees, skipVerify: "skip-verify" in o });
         if (r.ok && r.idl) try { writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2)); } catch {}
-        setS({ phase: "done", r, vu });
+        setS({ phase: "done", r, vu, notes });
       } catch (e: any) {
         setS({ phase: "done", r: { ok: false, stderr: String(e?.message ?? e) } });
       }
@@ -85,6 +92,11 @@ export function Build({ args }: { args: string[] }) {
           ["k12 ", r.hash ?? "(pending)"],
         ]} />
       </Panel>
+      {s.notes && s.notes.length > 0 && (
+        <Box marginTop={1} flexDirection="column">
+          {s.notes.map((n, i) => <Text key={i} color={theme.info}>↳ {n}</Text>)}
+        </Box>
+      )}
       {s.vu && (s.vu.action === "updated" || s.vu.action === "installed") && (
         <Box marginTop={1}><Text color={theme.info}>↻ contractverify {s.vu.action} → {s.vu.version}</Text></Box>
       )}
