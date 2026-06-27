@@ -65,7 +65,8 @@ export const META: Record<string, CommandMeta> = {
     usage: "<file.h> [--name <n>] [--slot <n>]",
     flags: [["--name <n>", "contract name (default: file basename)"], ["--slot <n>", "deploy to a specific slot"],
       ["--core <path>", "core headers checkout"], ["--rpc <url>", "node RPC base"], ["--seed <seed>", "signer seed"],
-      ["--callee <n>=<hdr>@<i>", "wire a dynamic inter-contract callee (repeatable)"]],
+      ["--callee <n>=<hdr>@<i>", "wire a dynamic inter-contract callee (repeatable)"],
+      ["--skip-verify", "skip the protocol-rule check (dev/testing only)"]],
     examples: ["qinit deploy ./mytoken.h --name Mytoken"],
   },
   call: {
