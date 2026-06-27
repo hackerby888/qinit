@@ -172,4 +172,14 @@ export class OracleManager {
     const q = this.queries.get(queryId);
     return q && q.status === ORACLE_STATUS.SUCCESS ? q.reply : null;
   }
+
+  // PENDING queries awaiting a reply — the discovery side of the dev/test resolve seam (a tx-driven query's id
+  // isn't returned to the broadcaster, so a test finds it here, then resolves it).
+  pending(): { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[] {
+    const out: { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[] = [];
+    for (const q of this.queries.values()) {
+      if (q.status === ORACLE_STATUS.PENDING) out.push({ queryId: q.id, slot: q.slot, interfaceIndex: q.interfaceIndex, query: q.query });
+    }
+    return out;
+  }
 }

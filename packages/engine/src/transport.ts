@@ -335,6 +335,16 @@ export class VirtualNode implements NodeTransport {
     return { enabled: on };
   }
 
+  // Oracle dev/test seam (no real oracle machines on the virtual node): list PENDING queries, then inject a reply
+  // — which fires the contract's notification procedure, exactly as a committed real reply would.
+  async oraclePending(): Promise<{ queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[]> {
+    return this.sim.pendingOracleQueries();
+  }
+
+  async oracleResolve(queryId: bigint, reply: Uint8Array, status?: number): Promise<{ ok: boolean }> {
+    return { ok: this.sim.resolveOracle(queryId, reply, status) };
+  }
+
   async stateRead(slot: number, off: number, len: number): Promise<StateRead> {
     const c = this.sim.contracts.get(slot);
     const st = c ? c.state() : new Uint8Array(0);

@@ -68,6 +68,14 @@ export class EngineServer {
           if (path === "/live/v1/dev/tick-ms") return json({ tickMs: this.setTickMs(Number(q.get("ms"))) });
           if (path === "/live/v1/dev/debug") return json(await eng.setDebug(q.get("on") === "1"));
           if (path === "/live/v1/debug-trace") return json(await eng.debugTrace());
+          if (path === "/live/v1/dev/oracle-pending") {
+            const qs = await eng.oraclePending();
+            return json({ queries: qs.map((qq) => ({ queryId: qq.queryId.toString(), slot: qq.slot, interfaceIndex: qq.interfaceIndex, query: Buffer.from(qq.query).toString("base64") })) });
+          }
+          if (path === "/live/v1/dev/oracle-resolve" && req.method === "POST") {
+            const body = (await req.json()) as { queryId: string; reply?: string; status?: number };
+            return json(await eng.oracleResolve(BigInt(body.queryId), new Uint8Array(Buffer.from(body.reply ?? "", "base64")), body.status));
+          }
           if (path === "/live/v1/dev/state-read") {
             return json(await eng.stateRead(Number(q.get("slot")), Number(q.get("off") ?? 0), Number(q.get("len") ?? 0)));
           }

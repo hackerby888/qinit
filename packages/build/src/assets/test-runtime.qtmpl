@@ -297,3 +297,23 @@ export async function settle(ticks = 12, timeoutMs = 30000): Promise<number> {
     await sleep(300);
   }
 }
+
+// ---------------- oracle dev/test seam (virtual node only) ----------------
+// The virtual node has no real oracle machines, so a test discovers the PENDING query a contract raised, then
+// injects the reply — which fires the contract's notification procedure exactly as a committed real reply would.
+export async function oraclePending(rpcBase = RPC_BASE()): Promise<{ queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[]> {
+  const r = await fetch(rpcBase + "/live/v1/dev/oracle-pending");
+  if (!r.ok) throw new Error("oracle-pending -> " + r.status);
+  const j = await r.json();
+  return (j.queries ?? []).map((q: any) => ({ queryId: BigInt(q.queryId), slot: q.slot, interfaceIndex: q.interfaceIndex, query: new Uint8Array(Buffer.from(q.query, "base64")) }));
+}
+
+// Inject an oracle reply for a PENDING query id; false for an unknown id. status defaults to SUCCESS.
+export async function resolveOracle(queryId: bigint, reply: Uint8Array, opts: { status?: number; rpcBase?: string } = {}): Promise<boolean> {
+  const r = await fetch((opts.rpcBase ?? RPC_BASE()) + "/live/v1/dev/oracle-resolve", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ queryId: queryId.toString(), reply: Buffer.from(reply).toString("base64"), status: opts.status }),
+  });
+  if (!r.ok) throw new Error("oracle-resolve -> " + r.status);
+  return (await r.json()).ok === true;
+}
