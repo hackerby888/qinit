@@ -58,7 +58,7 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   // (callee type headers at their indices + per-fn inputType constants) from contract_def.h.
   let calleePrelude = o.calleePrelude;
   if (calleePrelude === undefined) {
-    try { calleePrelude = buildCalleePrelude(o.corePath, readFileSync(o.contractPath, "utf8"), o.dynCallees ?? {}); }
+    try { calleePrelude = buildCalleePrelude(o.corePath, readFileSync(o.contractPath, "utf8"), o.dynCallees ?? {}, o.stateType ?? o.name); }
     catch (e: any) { return { ok: false, stderr: "inter-contract resolve failed: " + String(e?.message ?? e) }; }
   }
   // Compile the contract to a wasm module (run by the node's WAMR engine). One platform-independent
