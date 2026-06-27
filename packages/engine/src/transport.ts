@@ -412,12 +412,12 @@ export class VirtualNode implements NodeTransport {
   }
 
   // ---- regular txs / spectrum / tickdata ----
-  async balance(id: string): Promise<EntityInfo> {
+  async balance(id: string | Uint8Array): Promise<EntityInfo> {
     const bytes = this.idToBytes(id);
     const e = this.sim.entityOf(bytes);
 
     return {
-      id,
+      id: typeof id === "string" ? id : await bytesToIdentity(bytes),
       balance: this.sim.balance(bytes).toString(),
       incomingAmount: (e?.incomingAmount ?? 0n).toString(),
       outgoingAmount: (e?.outgoingAmount ?? 0n).toString(),
@@ -448,8 +448,8 @@ export class VirtualNode implements NodeTransport {
   }
 
   // Credit an identity directly (tests / IDE faucet).
-  fund(id: Uint8Array, amount: bigint): void {
-    this.sim.fund(id, amount);
+  fund(id: string | Uint8Array, amount: bigint): void {
+    this.sim.fund(this.idToBytes(id), amount);
   }
 
   // The raw bytes of a broadcast tx, keyed by hex(K12(tx body)) — the digest the peer REQUEST_TRANSACTION_INFO
@@ -458,7 +458,8 @@ export class VirtualNode implements NodeTransport {
     return this.rawTxs.get(digestHex);
   }
 
-  private idToBytes(id: string): Uint8Array {
+  private idToBytes(id: string | Uint8Array): Uint8Array {
+    if (id instanceof Uint8Array) return id;
     if (/^[0-9a-fA-F]{64}$/.test(id)) return hexToBytes(id);
     return identityToBytes(id); // 60-char identity
   }
