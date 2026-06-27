@@ -11,12 +11,16 @@ export interface SystemContract { index: number; name: string; stateType: string
 const cache = new Map<string, SystemContract[]>();
 
 // index -> source file, from the `#define <NAME>_CONTRACT_INDEX n` ... `#include "contracts/<File>.h"` blocks.
+// The appended test contracts use a relative form `constexpr ... <NAME>_CONTRACT_INDEX = (CONTRACT_INDEX + 1)`
+// instead of a literal #define — track that too, else `cur` goes stale and a later #include overwrites the wrong
+// index (e.g. TestExampleD.h clobbering GGWP.h at the last numeric index).
 function indexToFile(defSrc: string): Map<number, string> {
   const out = new Map<number, string>();
   let cur = -1;
   for (const line of defSrc.split("\n")) {
     const d = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
     if (d) { cur = Number(d[1]); continue; }
+    if (/\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line)) { cur += 1; continue; }
     const inc = line.match(/#include\s+"contracts\/(\w+\.h)"/);
     if (inc && cur >= 0) out.set(cur, inc[1]);   // last include in the block wins (e.g. Qswap.h over Qswap_old.h)
   }
@@ -32,6 +36,7 @@ function indexToStateType(defSrc: string): Map<number, string> {
   for (const line of defSrc.split("\n")) {
     const d = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
     if (d) { cur = Number(d[1]); continue; }
+    if (/\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line)) { cur += 1; continue; }
     const st = line.match(/#define\s+CONTRACT_STATE_TYPE\s+(\w+)/);
     if (st && cur >= 0) out.set(cur, st[1]);
   }
@@ -60,6 +65,7 @@ export function systemContracts(coreRoot: string): SystemContract[] {
     for (const [index, name] of [...names].sort((a, b) => a[0] - b[0])) {
       const file = files.get(index);
       if (!file) continue;
+      if (/^TestExample/.test(file)) continue; // test/example fixtures (TESTEXA-D), not deployable system contracts
       const path = join(dir, file);
       if (!existsSync(path)) continue;
       try {
