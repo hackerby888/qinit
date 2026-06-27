@@ -63,11 +63,25 @@ export function contractIndexDefines(corePath: string): string {
   return s;
 }
 
-export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: DynCallees = {}): string {
+export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: DynCallees = {}, selfType?: string): string {
   const indexBlock = contractIndexDefines(corePath);
+  let defMap: Map<string, CalleeDef>;
+  try {
+    defMap = parseContractDef(corePath);
+  } catch {
+    defMap = new Map(); // no contract_def.h (e.g. a non-core path) — only CALL-macro callees apply
+  }
   const wanted = scanCallees(contractSrc);
+  // Also pull siblings referenced by type/static-method/constant (e.g. RL::makeDateStamp, RL_DEFAULT_INIT_TIME,
+  // QTF_RANDOM_LOTTERY_ASSET_NAME) — these have no CALL_OTHER_CONTRACT macro for scanCallees to catch, but the
+  // sibling's definition must be in scope. The full-core build gets it from contract_def.h order; the
+  // single-contract TU has to splice it in here. Skip the contract's own type (it's the main TU body).
+  for (const type of defMap.keys()) {
+    if (type !== selfType && new RegExp(`\\b${type}(?:::|_[A-Z])`).test(contractSrc)) {
+      wanted.add(type);
+    }
+  }
   if (wanted.size === 0) return indexBlock;
-  const defMap = parseContractDef(corePath);
 
   interface R { type: string; index: number; include: string; src: string }
   const resolved = new Map<string, R>();
