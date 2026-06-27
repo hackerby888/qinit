@@ -12,6 +12,8 @@ export interface QinitConfig {
   core?: string;
   rpc?: string;
   system?: string[]; // built-in system contracts to seed onto the virtual node (`qinit system`)
+  callees?: { name: string; contract: string }[]; // inter-contract callees to deploy before the main contract
+                                                   // (so its CALL_OTHER_CONTRACT names resolve from the registry)
 }
 
 // Per-project config (qinit.json). Precedence at the call site: CLI flag > qinit.json > default.
