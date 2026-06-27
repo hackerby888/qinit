@@ -7,7 +7,7 @@ import type {
 } from "@qinit/core";
 import { bytesToIdentity, identityToBytes } from "@qinit/core";
 import { LITE_TX, CHUNK_DATA_MAX, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
-import { Sim, type AssetSnapshot, type FeeMode } from "./sim";
+import { Sim, type AssetSnapshot, type FeeMode, type ProcedureOpts } from "./sim";
 import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
 import { k12Bytes, toHex, verifySync, deriveKeysSync, initK12 } from "./k12";
@@ -241,6 +241,31 @@ export class VirtualNode implements NodeTransport {
 
   async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
     return this.sim.query(contractIndex, inputType, input); // function call (kind=0)
+  }
+
+  // ---- direct engine ops (instant, byte-level — the in-process test fast path). No signing, no tick
+  // scheduling: procedure() runs the contract NOW and returns its output; for a realistic signed, tick-bound
+  // invocation use broadcastTx() instead. These re-expose the most-used Sim ops so callers needn't reach into
+  // `eng.sim` (which stays available as the low-level escape hatch).
+  procedure(slot: number, it: number, input?: Uint8Array, opts?: ProcedureOpts): Uint8Array {
+    return this.sim.procedure(slot, it, input, opts);
+  }
+
+  query(slot: number, it: number, input?: Uint8Array): Uint8Array {
+    return this.sim.query(slot, it, input);
+  }
+
+  // The three committed state roots a tick vote carries (also read back via the prev*Digest host imports).
+  computerDigest(): Uint8Array {
+    return this.sim.computerDigest();
+  }
+
+  spectrumDigest(): Uint8Array {
+    return this.sim.spectrumDigest();
+  }
+
+  universeDigest(): Uint8Array {
+    return this.sim.universeDigest();
   }
 
   // Decode a signed tx and dispatch it faithfully (qubic.cpp processTickTransaction). The signature is NOT

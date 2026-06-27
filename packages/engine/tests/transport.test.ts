@@ -103,3 +103,18 @@ test("broadcastTx reports moneyFlew + queued for an applied transfer (the IDE re
   const broke = await buildSignedTx("c".repeat(55), { destination: dest, amount: 100, tick: 10, inputType: 0, payload: new Uint8Array(0) });
   expect((await eng.broadcastTx(broke.bytes)).moneyFlew).toBe(false); // unfunded sender -> no money moved
 });
+
+test("VirtualNode re-exposes the direct engine ops (procedure/query/digests) matching sim", async () => {
+  const eng = await VirtualNode.create({ fees: "off" });
+  eng.deploy(28, await wasm("Counter"), "Counter");
+
+  expect(await decodeOutput(eng.query(28, 1), "uint64")).toBe(0n); // direct query (instant, no tx)
+  eng.procedure(28, 1);                                            // direct Inc (instant, no signing)
+  expect(await decodeOutput(eng.query(28, 1), "uint64")).toBe(1n);
+
+  // they delegate to the same engine -> byte-identical to reaching into eng.sim
+  expect(eng.query(28, 1)).toEqual(eng.sim.query(28, 1));
+  expect(eng.computerDigest()).toEqual(eng.sim.computerDigest());
+  expect(eng.spectrumDigest()).toEqual(eng.sim.spectrumDigest());
+  expect(eng.universeDigest()).toEqual(eng.sim.universeDigest());
+});
