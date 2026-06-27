@@ -8,20 +8,21 @@ import { resolveNodeCallees } from "../deploy-ops";
 import { loadConfig, resolveCore } from "../config";
 import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
 
-function parse(args: string[]): Record<string, string> {
+function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
   const o: Record<string, string> = {};
+  const pos: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a.startsWith("--")) o[a.slice(2)] = args[++i] ?? "";
+    if (args[i].startsWith("--")) o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
+    else pos.push(args[i]);
   }
-  return o;
+  return { o, pos };
 }
 
 type State = { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate; notes?: string[] };
 
 export function Build({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const o = parse(args);
+  const { o, pos } = parse(args);
   const [s, setS] = useState<State>({ phase: "run" });
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export function Build({ args }: { args: string[] }) {
       try {
         const cfg = loadConfig();
         const core = resolveCore(o.core, cfg.core);
-        const contractPath = resolve(o.contract ?? cfg.contract ?? "fixtures/Counter.h");
+        const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
         // Name derived from the contract filename (Counter.h -> Counter); --name / cfg.name override.
         const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
         const outDir = resolve(o.out ?? "dist/contracts");
