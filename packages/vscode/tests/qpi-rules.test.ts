@@ -8,6 +8,9 @@ const rulesOf = (s: string) => new Set(scanQpi(s).map((f) => f.rule));
 test("flags each forbidden construct (one crafted violation per rule)", () => {
   expect(rulesOf('auto s = "hi";')).toContain("qpi/no-string");
   expect(rulesOf("char c = 'a';")).toContain("qpi/no-char");
+  // C++14 digit separators are part of a numeric literal, not char literals — must NOT be flagged
+  expect(rulesOf("uint64 x = 1" + String.fromCharCode(39) + "000" + String.fromCharCode(39) + "000;")).not.toContain("qpi/no-char");
+  expect(rulesOf("uint64 m = 0xFFFF" + String.fromCharCode(39) + "FFFF;")).not.toContain("qpi/no-char");
   expect(rulesOf("#define FOO 1")).toContain("qpi/no-preprocessor");
   expect(rulesOf("uint64 q = a / b;")).toContain("qpi/no-division");
   expect(rulesOf("uint64 r = a % b;")).toContain("qpi/no-modulo");
@@ -49,7 +52,9 @@ test("real fixtures stay clean — zero false positives", () => {
   const dir = resolve("fixtures");
   if (!existsSync(dir)) return;
   for (const f of readdirSync(dir).filter((x) => x.endsWith(".h"))) {
-    const findings = scanQpi(readFileSync(join(dir, f), "utf8")).map((x) => x.rule);
+    const src = readFileSync(join(dir, f), "utf8");
+    if (/fault-injection|qpi-DIRTY/i.test(src)) continue; // deliberately-invalid fixtures (e.g. Trap.h raw `/`)
+    const findings = scanQpi(src).map((x) => x.rule);
     expect({ file: f, findings }).toEqual({ file: f, findings: [] });
   }
 });
