@@ -8,9 +8,9 @@
 import * as vscode from "vscode";
 import { join, resolve } from "node:path";
 import { resolveCore, wasiSdkPaths, loadConfig } from "@qinit/core/project";
-import { generateClangdConfig } from "./clangd-config";
+import { generateClangdConfig, generateTestClangdConfig } from "./clangd-config";
 import { dynCalleesFromNode, unresolvedCalleeRefs } from "./callees";
-import { findProjectRoot, isContractDoc, QINIT_JSON } from "./project-util";
+import { findProjectRoot, isContractDoc, isTestDoc, QINIT_JSON } from "./project-util";
 import { parseContractDef, type DynCallees } from "@qinit/build/intercontract";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
@@ -98,6 +98,52 @@ async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChan
   }
 }
 
+// (Re)generate the clangd compile DB for a gtest TEST file: a combined contract+test TU so clangd resolves
+// TEST / EXPECT_* / ContractTest and the contract's <Name>::Foo_input types. The test pairs with the
+// project's primary contract (qinit.json `contract`). Silent for non-tests / non-projects.
+function regenerateTestClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): void {
+  if (!isTestDoc(doc)) return;
+  const root = findProjectRoot(doc.fileName);
+  if (!root) return;
+
+  const cfg = loadConfig(join(root, QINIT_JSON));
+  if (!cfg.contract) {
+    out.appendLine("gtest clangd: qinit.json has no `contract` to pair the test against");
+    return;
+  }
+
+  const settingCore = vscode.workspace.getConfiguration("qpi").get<string>("core") || undefined;
+  let core: string;
+  try {
+    core = resolveCore(settingCore, cfg.core);
+  } catch (e: any) {
+    out.appendLine("resolveCore: " + String(e?.message ?? e));
+    return;
+  }
+
+  const wasi = wasiSdkPaths();
+  if (!wasi) {
+    warnOncePerMinute("Qubic QPI: the wasm compiler (wasi-sdk) isn't synced — run `qinit node run`.");
+    return;
+  }
+
+  try {
+    const r = generateTestClangdConfig({
+      contractPath: resolve(join(root, cfg.contract)),
+      testPath: doc.fileName,
+      corePath: core,
+      wasiClang: wasi.clang,
+      wasiSysroot: wasi.sysroot,
+      workspaceRoot: root,
+      name: cfg.name,
+      slot: cfg.slot,
+    });
+    out.appendLine(`gtest clangd config ready: ${doc.fileName} -> ${r.prefixPath}`);
+  } catch (e: any) {
+    out.appendLine("gtest generate failed: " + String(e?.message ?? e));
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   const out = vscode.window.createOutputChannel("Qubic QPI");
   const diags = new QpiDiagnostics();
@@ -109,9 +155,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // authoritative Tier-B contractverify pass (a CLI shell-out, save-frequency).
   const onDoc = (doc?: vscode.TextDocument) => {
     if (!doc) return;
-    void regenerateClangd(doc, out, calleeDiags); // async (node callee resolution); never rejects
-    diags.refresh(doc);
-    verify.run(doc);
+    void regenerateClangd(doc, out, calleeDiags); // async (node callee resolution); never rejects — contracts only
+    regenerateTestClangd(doc, out); // gtest .cpp -> its own combined-TU clangd entry; no-op for contracts
+    diags.refresh(doc); // Tier-A QPI lint — gates on isContractDoc, so it skips tests
+    verify.run(doc); // Tier-B contractverify — gates on isContractDoc, so it skips tests
   };
 
   context.subscriptions.push(
