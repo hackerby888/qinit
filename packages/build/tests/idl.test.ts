@@ -15,9 +15,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct LogMsg { uint32 _contractIndex; uint32 _type; uint64 amount; sint8 _terminator; };
   struct Get_input {}; struct Get_output { uint64 n; };
   struct Set_input { uint64 v; id who; }; struct Set_output {};
+  struct Grant_input { id to; }; struct Grant_output { uint64 total; };
   PUBLIC_FUNCTION(Get) {}
   PUBLIC_PROCEDURE(Set) {}
-  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); REGISTER_USER_PROCEDURE(Set, 2); }
+  PUBLIC_PROCEDURE(Grant) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); REGISTER_USER_PROCEDURE(Set, 2); REGISTER_USER_PROCEDURE(Grant, 3); }
   INITIALIZE() {}
 };`;
 
@@ -35,6 +37,13 @@ test("extractIdl: procedures with multi-field input -> in fmt + named inFields",
   expect(idl.procedures["2"].name).toBe("Set");
   expect(idl.procedures["2"].in).toBe("uint64, id");
   expect(idl.procedures["2"].inFields.map((f) => [f.name, f.type])).toEqual([["v", "uint64"], ["who", "id"]]);
+});
+
+test("extractIdl: procedure output type captured (_output), empty stays falsy", () => {
+  expect(idl.procedures["3"].name).toBe("Grant");
+  expect(idl.procedures["3"].out).toBe("uint64");                  // decoded in the IDE trace/debugger, not raw hex
+  expect(idl.procedures["3"].outFields!.map((f) => [f.name, f.type])).toEqual([["total", "uint64"]]);
+  expect(idl.procedures["2"].out).toBe("");                        // empty Set_output -> falsy -> no spurious decode
 });
 
 test("extractIdl: StateData fields + Array<T,expr> size eval", () => {
