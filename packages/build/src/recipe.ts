@@ -22,6 +22,7 @@ export interface BuildOpts {
   wasmClang?: string;   // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
   wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
   skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some lite macros)
+  arenaSz?: number;     // contract-side arena size (LITE_WASM_ARENA_SZ), default 1GB; shrink for browser IDE builds
 }
 
 // The stable preamble shared by every contract build — std headers, then the big QPI/core headers. It has no
@@ -239,6 +240,7 @@ export async function compileWasmContract(
   const compileFlags = [
     "--target=wasm32-wasi", "-std=c++20", "-O0", "-g", "-fno-rtti", "-fno-exceptions",
     "-DLITEDYN_CONTRACT_TU",
+    ...(o.arenaSz ? [`-DLITE_WASM_ARENA_SZ=${o.arenaSz}`] : []),
     ...(sysroot ? [`--sysroot=${sysroot}`] : []),
     `-I${o.corePath}`, `-I${src}`,
   ];
