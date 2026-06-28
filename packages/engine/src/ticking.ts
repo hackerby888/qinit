@@ -35,13 +35,15 @@ export interface ConsensusHost {
 export class TickConsensus {
   private readonly host: ConsensusHost;
   private readonly opts: CommitteeOpts;
+  private readonly lite: boolean; // skip the per-tick quorum (votes/TickData) for EMPTY ticks — see finalizeTick
   private committee: Committee | null = null; // derived lazily on first finalize (needs initK12 resolved)
   private ticks = new Map<number, TickRecord>(); // per-tick quorum record: votes + aligned count + digests
   private lastDigests: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } = { spectrum: ZERO32, universe: ZERO32, computer: ZERO32 }; // previous tick's committed roots
 
-  constructor(host: ConsensusHost, opts: CommitteeOpts) {
+  constructor(host: ConsensusHost, opts: CommitteeOpts, lite = false) {
     this.host = host;
     this.opts = opts;
+    this.lite = lite;
   }
 
   // The configured committee size, available without deriving keys (used for dividend payout + quorum sizing).
@@ -79,7 +81,6 @@ export class TickConsensus {
   // into a signed TickData; every computor then signs a Tick vote whose transactionDigest commits K12(TickData),
   // and the aligned count must reach QUORUM (always, for an honest committee) for the tick to be valid.
   finalizeTick(): void {
-    const committee = this.getCommittee();
     const tick = this.host.tick();
     const epoch = this.host.epoch();
     const spectrum = this.host.spectrumDigest();
@@ -88,6 +89,17 @@ export class TickConsensus {
     this.lastDigests = { spectrum, universe, computer }; // the next tick's contracts read these as prev*Digest
 
     const txDigests = this.host.tickTransactionDigests(tick);
+
+    // Lite ticking (the in-browser IDE): an empty tick commits no transactions, so its quorum record — 8 FourQ
+    // computor votes + the leader's TickData signature — is pure overhead. Jumping a whole epoch (~3000 ticks)
+    // would otherwise sign ~27k times on the main thread and freeze the page. The digest chain above still
+    // advances (all an empty tick affects); a tick WITH transactions still builds the full record below, so the
+    // tx explorer stays correct. Off by default — node/CLI/peer builds keep the full per-tick quorum.
+    if (this.lite && txDigests.length === 0) {
+      return;
+    }
+
+    const committee = this.getCommittee();
     const tickData = buildTickData(committee, epoch, tick, txDigests, { spectrum, universe, computer }, this.host.nowMs());
 
     const digests: TickStateDigests = {

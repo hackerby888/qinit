@@ -82,7 +82,7 @@ export class Sim {
   private mempoolMode: boolean; // when true, broadcast txs are deferred to their scheduled tick (opt-in)
   private fees: FeeManager; // per-contract execution-fee reserves + the fee-mode policy
 
-  constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean; fees?: FeeMode; defaultReserve?: bigint } = {}) {
+  constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean; fees?: FeeMode; defaultReserve?: bigint; liteTicking?: boolean } = {}) {
     this.mempoolMode = opts.mempool ?? false;
     this.fees = new FeeManager(opts.fees ?? "off", opts.defaultReserve);
     this.registry = new ContractRegistry(this.fees, this.recorder);
@@ -97,6 +97,7 @@ export class Sim {
         epoch: () => this.epochN,
       },
       opts.consensus ?? {},
+      opts.liteTicking ?? false,
     );
     this.oracle = new OracleManager({
       contractBalance: (slot) => this.balance(this.contractId(slot)),

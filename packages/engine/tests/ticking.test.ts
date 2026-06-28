@@ -72,6 +72,64 @@ test("finalizeTick records the quorum votes + signed TickData for the tick", () 
   expect(toHex(rec.digests.spectrum)).toBe("11".repeat(32));
 });
 
+// A host whose tx-digest list is settable, to exercise empty vs non-empty ticks under lite ticking.
+function fakeHostTx(): ConsensusHost & { t: number; e: number; txs: Uint8Array[] } {
+  const h = {
+    t: 0,
+    e: 0,
+    txs: [] as Uint8Array[],
+    spectrumDigest: () => fill(0x11),
+    universeDigest: () => fill(0x22),
+    computerDigest: () => fill(0x33),
+    tickTransactionDigests: (_tick: number) => h.txs,
+    nowMs: () => 1700000000000 + h.t * 50,
+    tick: () => h.t,
+    epoch: () => h.e,
+  };
+  return h;
+}
+
+test("lite ticking: an EMPTY tick skips the quorum record but still advances the digest chain", () => {
+  const h = fakeHostTx();
+  const tc = new TickConsensus(h, { computorSeeds: SEEDS }, true); // lite = true
+
+  h.t = 5;
+  h.txs = []; // empty tick
+  tc.finalizeTick();
+
+  expect(tc.tickRecord(5)).toBeUndefined();  // no quorum record built (the costly FourQ votes are skipped)
+  expect(tc.alignedVotes(5)).toBe(0);
+  expect(tc.tickData(5)).toBeUndefined();
+  expect(toHex(tc.prevSpectrumDigest())).toBe("11".repeat(32)); // digest chain still advanced
+  expect(toHex(tc.prevComputerDigest())).toBe("33".repeat(32));
+});
+
+test("lite ticking: a tick WITH transactions still builds the full quorum record", () => {
+  const h = fakeHostTx();
+  const tc = new TickConsensus(h, { computorSeeds: SEEDS }, true); // lite = true
+
+  h.t = 6;
+  h.txs = [fill(0xaa)]; // non-empty tick
+  tc.finalizeTick();
+
+  const rec = tc.tickRecord(6)!;
+  expect(rec).toBeDefined();
+  expect(rec.votes.length).toBe(4); // full committee vote set, even in lite mode
+  expect(rec.aligned).toBeGreaterThanOrEqual(3);
+});
+
+test("non-lite (default): an empty tick still builds the full quorum record", () => {
+  const h = fakeHostTx();
+  const tc = new TickConsensus(h, { computorSeeds: SEEDS }); // lite defaults off
+
+  h.t = 8;
+  h.txs = []; // empty tick — but node/CLI builds the record regardless
+  tc.finalizeTick();
+
+  expect(tc.tickRecord(8)).toBeDefined();
+  expect(tc.tickRecord(8)!.votes.length).toBe(4);
+});
+
 test("signedComputorList is produced for the current epoch", () => {
   const h = fakeHost();
   h.e = 2;

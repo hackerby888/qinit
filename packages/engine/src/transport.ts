@@ -17,7 +17,7 @@ import { Transaction } from "./wire";
 interface SlotMeta { name: string; codeHash: string; version: number; }
 interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
 
-export interface EngineOpts { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint }
+export interface EngineOpts { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint; liteTicking?: boolean }
 
 export class VirtualNode implements NodeTransport {
   readonly sim: Sim;
@@ -56,7 +56,7 @@ export class VirtualNode implements NodeTransport {
   // keeps these off at its lower layer; the realistic defaults live here. Direct `new` still works for callers
   // that have already awaited initK12() (the legacy setup).
   constructor(opts: EngineOpts = {}) {
-    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool ?? true, fees: opts.fees ?? "metered", defaultReserve: opts.defaultReserve });
+    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool ?? true, fees: opts.fees ?? "metered", defaultReserve: opts.defaultReserve, liteTicking: opts.liteTicking });
     this.slotBase = opts.slotBase ?? 28;
     this.slotCount = opts.slotCount ?? 4;
     this.verifySigs = opts.verifySigs ?? true;
