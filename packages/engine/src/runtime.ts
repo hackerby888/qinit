@@ -192,7 +192,12 @@ export class Contract {
   migrateLocalsSize = 0;
   everInitialized = false;     // INITIALIZE has run once -> redeploy preserves/migrates state, never re-inits
 
-  private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module) {
+  // Optional "thost" (test-host) import table — set only when the module is a gtest build (lite_test.h). Bound
+  // beside lhost so the in-module test runner can drive the contract through the engine. See gtest.ts.
+  private thost?: Record<string, Function>;
+
+  private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module, thost?: Record<string, Function>) {
+    this.thost = thost;
     this.inst = new WebAssembly.Instance(mod, this.imports());
     this.ex = this.inst.exports;
     this.mem = this.ex.memory;
@@ -208,8 +213,8 @@ export class Contract {
     this.readRegistry();
   }
 
-  static load(bytes: Uint8Array, slot: number, host: HostServices): Contract {
-    return new Contract(slot, host, new WebAssembly.Module(bytes as BufferSource));
+  static load(bytes: Uint8Array, slot: number, host: HostServices, thost?: Record<string, Function>): Contract {
+    return new Contract(slot, host, new WebAssembly.Module(bytes as BufferSource), thost);
   }
 
   // Fresh views each use — memory.grow detaches the underlying ArrayBuffer, so never hold a view
@@ -617,7 +622,8 @@ export class Contract {
     );
     // `env.*` imports come from `--allow-undefined`; stub each per envImportStub (see its doc).
     const env = new Proxy({} as Record<string, Function>, { get: (_t, p: string) => envImportStub(p) });
-    return { lhost, env, wasi_snapshot_preview1: wasi } as unknown as WebAssembly.Imports;
+    const testHost = this.thost ? { thost: this.thost } : {};
+    return { lhost, env, wasi_snapshot_preview1: wasi, ...testHost } as unknown as WebAssembly.Imports;
   }
 }
 

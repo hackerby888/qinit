@@ -219,6 +219,14 @@ export class Sim {
     this.spectrum.increaseEnergy(id, amount, this.tickN);
   }
 
+  // Wipe the ledger back to genesis (empty spectrum + empty universe) without touching deployed instances —
+  // gtest isolation: each test starts from a clean balance/asset state. The deployed contract's own StateData
+  // is reset separately (zeroState + INITIALIZE). Used only by the gtest runner (gtest.ts).
+  resetLedger(): void {
+    this.spectrum = new SpectrumLedger();
+    this.assets = new AssetLedger({ contractId: (slot) => this.contractId(slot) });
+  }
+
   // Spectrum iteration (qpi.nextId/prevId) — the next/previous occupied entity id; zero if none.
   nextId(id: Uint8Array): Uint8Array {
     return this.spectrum.nextId(id);
@@ -448,8 +456,9 @@ export class Sim {
   }
 
   // Deploy + construct (ContractRegistry owns the instances); stays on the façade for the public API.
-  deploy(slot: number, wasm: Uint8Array): Contract {
-    const c = this.registry.deploy(slot, wasm, this.host);
+  // `thost` is set only for a gtest module (lite_test.h) — the test-host import table bound beside lhost.
+  deploy(slot: number, wasm: Uint8Array, thost?: Record<string, Function>): Contract {
+    const c = this.registry.deploy(slot, wasm, this.host, thost);
     this.emit("info", "deploy", `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`);
     if (c.stateSize > K12_MAX_LEAF_BYTES) {
       // A mainnet-sized state (e.g. QX ~600 MB) can't be K12-hashed, so it gets a zero computer-digest leaf

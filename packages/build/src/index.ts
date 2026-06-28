@@ -20,6 +20,7 @@ export type { ContractIdl, IdlEntry, Field, LogStruct, EnumDef } from "./idl";
 export { systemContracts, systemNames, type SystemContract } from "./system-contracts";
 export { generateClient } from "./gen-client";
 export { testRuntimeSource, sampleTest } from "./gen-test";
+export { genGtest } from "./gen-gtest";
 export { buildSnapshot } from "./snapshot";
 export type { SnapshotResult } from "./snapshot";
 export { verifyContract, resolveVerifyTool } from "./verify";

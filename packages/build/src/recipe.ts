@@ -23,6 +23,9 @@ export interface BuildOpts {
   wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
   skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some lite macros)
   arenaSz?: number;     // contract-side arena size (LITE_WASM_ARENA_SZ), default 1GB; shrink for browser IDE builds
+  testSource?: string;  // gtest-style test source: compiled INTO the wasm after the contract (LITE_TEST_BUILD +
+                        // extensions/lite_test.h), producing a combined module the engine runs via runTests()
+  testPath?: string;    // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
 }
 
 // The stable preamble shared by every contract build — std headers, then the big QPI/core headers. It has no
@@ -106,6 +109,10 @@ inline static sint64 smul(sint64 a, sint64 b) { return a * b; }
 inline static uint64 smul(uint64 a, uint64 b) { return a * b; }
 inline static sint32 smul(sint32 a, sint32 b) { return a * b; }
 inline static uint32 smul(uint32 a, uint32 b) { return a * b; }
+inline static sint64 sadd(sint64 a, sint64 b) { return a + b; }
+inline static uint64 sadd(uint64 a, uint64 b) { return a + b; }
+inline static sint32 sadd(sint32 a, sint32 b) { return a + b; }
+inline static uint32 sadd(uint32 a, uint32 b) { return a + b; }
 }
 namespace { unsigned char __qinitLocalsBuf[2u << 20]; unsigned long __qinitLocalsTop = 0; unsigned long __qinitLocalsMark[256]; int __qinitLocalsDepth = 0; }
 void* QPI::QpiContextFunctionCall::__qpiAllocLocals(unsigned int sizeOfLocals) const {
@@ -147,10 +154,22 @@ QPI::sint64 QPI::AssetPossessionIterator::numberOfPossessedShares() const { retu
 // Same TU as the .so, but binds to lite_wasm_tu.h (qpi.h calls -> "lhost" wasm imports + dispatch/reg/state
 // exports) instead of lite_dyn_abi.h. See core src/extensions/WASM_CONTRACTS.md §13.11.
 export function genWrapperWasm(o: BuildOpts): string {
-  return genWrapper(o)
+  const wrapper = genWrapper(o)
     .replace("#define LITE_DYN_SO_BUILD", "#define LITE_WASM_TU_BUILD")
     .replace(`#include "${o.contractPath}"`, `${WASM_QPI_SHIM}#include "${o.contractPath}"`)
     .replace('#include "extensions/lite_dyn_abi.h"', '#include "extensions/lite_wasm_tu.h"');
+  if (!o.testSource) {
+    return wrapper;
+  }
+  // Combined test module: the gtest shim + the user's TEST cases compile in after the contract, so the
+  // engine can drive the contract in-process (lite_test.h's runner exports + thost imports). See lite_test.h.
+  // The #line directive maps EXPECT_* failure locations back to the test file instead of this wrapper.
+  const testPath = (o.testPath ?? `${o.name}.test.cpp`).replace(/\\/g, "/").replace(/"/g, "");
+  return `${wrapper}#define LITE_TEST_BUILD
+#include "extensions/lite_test.h"
+#line 1 "${testPath}"
+${o.testSource}
+`;
 }
 
 export interface WasmCompileResult {

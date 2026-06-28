@@ -12,6 +12,7 @@ import { Gen } from "./commands/gen";
 import { Deploy } from "./commands/deploy";
 import { Verify } from "./commands/verify";
 import { Test } from "./commands/test";
+import { Gtest } from "./commands/gtest";
 import { Call } from "./commands/call";
 import { Ls } from "./commands/ls";
 import { Debug } from "./commands/debug";
@@ -79,6 +80,8 @@ function route(command: string, args: string[]): ReactNode {
       return <Verify args={args} />;
     case "test":
       return <Test args={args} />;
+    case "gtest":
+      return <Gtest args={args} />;
     case "call":
       return <Call args={args} />;
     case "ls":

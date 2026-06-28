@@ -4,6 +4,8 @@ export { Contract, KIND, SP, ContractAbort } from "./runtime";
 export type { HostServices } from "./runtime";
 export { Sim } from "./sim";
 export type { TickRecord } from "./sim";
+export { runTests } from "./gtest";
+export type { TestResult } from "./gtest";
 export type { AssetSnapshot } from "./assets";
 export { VirtualNode } from "./transport";
 export type { EngineLogEvent, LogLevel, LogSink } from "./log";
