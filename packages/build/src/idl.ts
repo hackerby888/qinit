@@ -1,7 +1,7 @@
 // Extract an IDL from a qpi.h contract .h: REGISTER_USER_* names + _input/_output
 // struct layouts -> codec format strings. Output is keyed to match qinit.idl.json
 // (consumed by the interactive `/call` picker): { name, functions:{[inputType]:{name,in,out}},
-// procedures:{[inputType]:{name,in}} }. Light regex parse — handles flat structs, Array<T,N>,
+// procedures:{[inputType]:{name,in,out}} }. Light regex parse — handles flat structs, Array<T,N>,
 // nested structs (one+ levels), id; unknown types pass through verbatim.
 
 // QPI container layouts come from @qinit/proto qpi-layout (single source of truth shared with the decoders).
@@ -337,7 +337,10 @@ export function extractIdl(source: string, name: string, opts?: { prelude?: stri
       inFields: fieldsForStruct(structs, m[1] + "_input"), outFields: fieldsForStruct(structs, m[1] + "_output"),
     };
   for (const m of src.matchAll(/REGISTER_USER_PROCEDURE\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
-    idl.procedures[m[2]] = { name: m[1], in: fmtOf(structs, m[1] + "_input"), inFields: fieldsForStruct(structs, m[1] + "_input") };
+    idl.procedures[m[2]] = {
+      name: m[1], in: fmtOf(structs, m[1] + "_input"), out: fmtOf(structs, m[1] + "_output"),
+      inFields: fieldsForStruct(structs, m[1] + "_input"), outFields: fieldsForStruct(structs, m[1] + "_output"),
+    };
   if (structs.has("StateData")) idl.state = fieldsForStruct(structs, "StateData");   // for field-level state diff
   if (/\bMIGRATE(?:_WITH_LOCALS)?\s*\(\s*\)/.test(src)) {   // contract opts into state migration on redeploy
     idl.migrate = true;
