@@ -622,7 +622,7 @@ export class Contract {
 }
 
 // A compact label for a 32-byte id in a host-call detail line: a contract id (id(slot,0,0,0)) shows as
-// `@slot`, any other identity as a short hex prefix.
+// `@slot`, any other identity as a short Qubic-id prefix (NOT raw hex — hex is meaningless to a Qubic user).
 function shortId(id: Uint8Array): string {
   let high = false;
   for (let i = 8; i < 32; i++) {
@@ -634,7 +634,20 @@ function shortId(id: Uint8Array): string {
   if (!high) {
     return "@" + new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true).toString();
   }
-  return toHex(id.subarray(0, 6)) + "…";
+  return idPrefix(id, 12) + "…";
+}
+
+// The leading chars of the Qubic identity body: base-26 of the first 8-byte LE chunk (chars 0..13 of the
+// 60-char id). The checksum (last 4 chars) needs K12, so it's omitted — a prefix needs no crypto and stays
+// sync for the trace hot path. n must be <= 14 (one chunk yields 14 chars).
+function idPrefix(id: Uint8Array, n: number): string {
+  let val = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true);
+  let s = "";
+  for (let i = 0; i < n; i++) {
+    s += String.fromCharCode(65 + Number(val % 26n));
+    val /= 26n;
+  }
+  return s;
 }
 
 // qpi packs an asset name as up to 7 ASCII bytes little-endian in a uint64 — decode it back to text for the
