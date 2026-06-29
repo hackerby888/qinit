@@ -597,6 +597,21 @@ class Codegen {
     return null;
   }
 
+  // Resolve a type to its StructDecl (for inline member-method lookup), following typedefs/bindings.
+  structOf(t: TypeSpec, b: Bindings = NO_BIND): StructDecl | null {
+    if (t.kind === "const") return this.structOf(t.valueType, b);
+    if (t.kind === "reference") return this.structOf(t.refereed, b);
+    if (t.kind === "inline_struct") return t.struct;
+    if (t.kind === "name") {
+      const bound = b.types.get(t.name);
+      if (bound) return this.structOf(bound, b);
+      const td = this.typedefs.get(t.name);
+      if (td) return this.structOf(td, b);
+      return b.structs.get(t.name) ?? this.nested.get(t.name) ?? this.globalStructs.get(t.name) ?? null;
+    }
+    return null;
+  }
+
   // Look up a field within a struct-ish type, returning its offset/size/type.
   fieldOf(t: TypeSpec, member: string, b: Bindings = NO_BIND): FieldLayout | null {
     const layout = this.layoutOfType(t, b);
@@ -707,6 +722,20 @@ class Codegen {
     const L = Number(this.evalConstFromType(args[1], b));
     if (!L || elemSize <= 0) return null;
     return { kind: "Array", L, elemSize, elemType: args[0] };
+  }
+
+  // Backing-store geometry for Collection<T, L>.element(i) = _elements[i & (L-1)].value — all offsets
+  // read from the parsed layout (the Element record is _elements' array element type).
+  collectionInfo(args: TypeSpec[], b: Bindings = NO_BIND): { L: number; elementsOff: number; stride: number; valueOff: number; elemType: TypeSpec } | null {
+    if (args.length < 2) return null;
+    const L = Number(this.evalConstFromType(args[1], b));
+    if (!L) return null;
+    const elementsF = this.containerLayout("Collection", args, b).fields.get("_elements");
+    const bind = this.bindContainer("Collection", args, b);
+    const elemLayout = this.layoutOfType({ kind: "name", name: "Element" }, bind);
+    const valueF = elemLayout?.fields.get("value");
+    if (!elementsF || !elemLayout || !valueF) return null;
+    return { L, elementsOff: elementsF.offset, stride: elemLayout.size, valueOff: valueF.offset, elemType: args[0] };
   }
 
   warn(message: string, line: number): void {
@@ -1000,13 +1029,16 @@ interface FnCtx {
   tmpCount: number;
   loops: { brk: string; cont: string }[];   // innermost loop's break/continue labels are last
   loopCount: number;
-  params?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec }>;  // value-helper parameters
+  params?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }>;  // value-helper / method parameters (local overrides the wasm slot name when inlining)
   retIsValue?: boolean;                       // function returns a scalar value (return <expr>)
   thisLayout?: StructLayout;                  // when compiling a container method: layout of *this
   thisType?: TypeSpec;                        // the container template_instance (HashMap<id,uint64,1024>)
   thisBind?: Bindings;                        // template-param bindings (KeyT→id, L→1024, ...) for the body
   staticConsts?: Map<string, bigint>;         // the container's static constexpr members (_nEncodedFlags, ...)
   gotoLabels?: Map<string, string>;           // C++ label name → enclosing wasm block label (forward goto)
+  refLocals?: Map<string, TypeSpec>;          // reference/pointer locals: name → referent type (holds an address)
+  thisAddr?: string;                           // WAT for *this's address (default "(local.get $this)"); set when inlining a struct method
+  inlineMethod?: boolean;                       // emitting a struct method inline into the caller — `return` is suppressed (the value flows via thisAddr)
 }
 
 // A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
@@ -1092,9 +1124,9 @@ function collectLocals(stmt: Statement, ctx: FnCtx): void {
     case "declaration": {
       if (stmt.decl.kind === "variable") {
         const v = stmt.decl as VariableDecl;
-        const sz = ctx.cg.sizeOfType(v.type);
-        // integers/scalars → i64 value model; pointers/structs → i32 (address) but we only handle scalars
-        const wasmType: "i32" | "i64" = "i64";
+        // reference/pointer locals hold an address (i32); scalars use the i64 value model.
+        const isRef = v.type.kind === "reference" || v.type.kind === "pointer";
+        const wasmType: "i32" | "i64" = isRef ? "i32" : "i64";
         if (!ctx.localVars.has(v.name)) ctx.localVars.set(v.name, { wasmType });
       }
       break;
@@ -1199,6 +1231,21 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
     case "declaration": {
       if (stmt.decl.kind === "variable") {
         const v = stmt.decl as VariableDecl;
+        // reference/pointer local: bind to the ADDRESS of its lvalue initializer; member access on it
+        // resolves through that address. The referent type (Element, PoV, ...) drives field offsets.
+        if (v.type.kind === "reference" || v.type.kind === "pointer") {
+          if (v.init) {
+            const node = resolveAddr(ctx, v.init);
+            if (node) {
+              if (!ctx.refLocals) ctx.refLocals = new Map();
+              ctx.refLocals.set(v.name, node.type ?? (v.type.kind === "reference" ? v.type.refereed : v.type.pointee));
+              ctx.lines.push(`    (local.set $${v.name} ${node.addr})`);
+            } else {
+              ctx.cg.warn(`unsupported reference initializer for '${v.name}'`, stmt.span.line);
+            }
+          }
+          break;
+        }
         if (v.init) {
           const val = emitValue(ctx, v.init);
           ctx.lines.push(`    (local.set $${v.name} ${val})`);
@@ -1311,6 +1358,9 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
       break;
 
     case "return":
+      // an inlined struct method's `return *this` carries no value out (the object flows via thisAddr);
+      // emitting a wasm return here would wrongly exit the enclosing function.
+      if (ctx.inlineMethod) break;
       if (stmt.value && ctx.retIsValue) ctx.lines.push(`    (return ${emitValue(ctx, stmt.value)})`);
       else ctx.lines.push(`    (return)`);
       break;
@@ -1401,6 +1451,23 @@ function isStateAccessor(expr: Expression): boolean {
     (expr.callee.member === "mut" || expr.callee.member === "get");
 }
 
+// id/m256i expose their 32 bytes as `uint64 u64[4]` with named limbs `_0.._3` at 8-byte strides.
+const U64_FIELD: TypeSpec = { kind: "name", name: "uint64" };
+const U64X4_LAYOUT: StructLayout = {
+  size: 32, align: 8,
+  fields: new Map([
+    ["_0", { name: "_0", offset: 0, size: 8, type: U64_FIELD }],
+    ["_1", { name: "_1", offset: 8, size: 8, type: U64_FIELD }],
+    ["_2", { name: "_2", offset: 16, size: 8, type: U64_FIELD }],
+    ["_3", { name: "_3", offset: 24, size: 8, type: U64_FIELD }],
+  ]),
+};
+function isIdLike(cg: Codegen, t: TypeSpec | null): boolean {
+  if (!t) return false;
+  const d = cg.derefType(t);
+  return d.kind === "name" && (d.name === "id" || d.name === "m256i");
+}
+
 // Resolve the address of an lvalue expression (member-access chains rooted at input/output/locals/state).
 function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   // roots
@@ -1408,18 +1475,24 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     if (expr.name === "input") return { addr: "(local.get $in)", type: null, size: ctx.in.size, layout: ctx.in };
     if (expr.name === "output") return { addr: "(local.get $out)", type: null, size: ctx.out.size, layout: ctx.out };
     if (expr.name === "locals") return { addr: "(local.get $locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
+    // a reference/pointer local holds the address of its referent; chain member access through it.
+    if (ctx.refLocals?.has(expr.name)) {
+      const t = ctx.refLocals.get(expr.name)!;
+      return { addr: `(local.get $${expr.name})`, type: t, size: ctx.cg.sizeOfType(t, ctx.thisBind ?? NO_BIND), layout: ctx.cg.layoutOfType(t, ctx.thisBind ?? NO_BIND) };
+    }
     // an aggregate value-helper / container-method parameter holds the address of its argument; its
     // type may reference template params (KeyT, ValueT), so resolve sizes through the binding.
     const p = ctx.params?.get(expr.name);
     if (p && p.isAddr) {
       const b = ctx.thisBind ?? NO_BIND;
-      return { addr: `(local.get $${expr.name})`, type: p.type, size: ctx.cg.sizeOfType(p.type, b), layout: ctx.cg.layoutOfType(p.type, b) };
+      return { addr: `(local.get $${p.local ?? expr.name})`, type: p.type, size: ctx.cg.sizeOfType(p.type, b), layout: ctx.cg.layoutOfType(p.type, b) };
     }
-    // inside a compiled container method: `this`, or a bare member of *this
+    // inside a compiled container method (or an inlined struct method): `this`, or a bare member of *this
     if (ctx.thisLayout) {
-      if (expr.name === "this") return { addr: "(local.get $this)", type: ctx.thisType ?? null, size: ctx.thisLayout.size, layout: ctx.thisLayout };
+      const thisAddr = ctx.thisAddr ?? "(local.get $this)";
+      if (expr.name === "this") return { addr: thisAddr, type: ctx.thisType ?? null, size: ctx.thisLayout.size, layout: ctx.thisLayout };
       const f = ctx.thisLayout.fields.get(expr.name);
-      if (f) return { addr: addrOf("(local.get $this)", f.offset), type: f.type, size: f.size, layout: ctx.cg.layoutOfType(f.type, ctx.thisBind) };
+      if (f) return { addr: addrOf(thisAddr, f.offset), type: f.type, size: f.size, layout: ctx.cg.layoutOfType(f.type, ctx.thisBind) };
     }
     return null;
   }
@@ -1440,12 +1513,23 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
 
   // inside a compiled container method: `this` (the object) and `*this` both address the instance.
   if (expr.kind === "this" && ctx.thisLayout) {
-    return { addr: "(local.get $this)", type: ctx.thisType ?? null, size: ctx.thisLayout.size, layout: ctx.thisLayout };
+    return { addr: ctx.thisAddr ?? "(local.get $this)", type: ctx.thisType ?? null, size: ctx.thisLayout.size, layout: ctx.thisLayout };
   }
   // &lvalue (address-of) and *this (deref) are identity at the addressing level — the node already
   // carries the operand's address.
   if (expr.kind === "unary_op" && expr.op === "&") return resolveAddr(ctx, expr.arg);
-  if (expr.kind === "unary_op" && expr.op === "*" && expr.arg.kind === "this") return resolveAddr(ctx, expr.arg);
+  if (expr.kind === "unary_op" && expr.op === "*") {
+    if (expr.arg.kind === "this") return resolveAddr(ctx, expr.arg);
+    // *ptr: a pointer param/local holds the pointed-to address, so dereferencing yields that address.
+    const pn = resolveAddr(ctx, expr.arg);
+    const pt = pn?.type ? ctx.cg.derefType(pn.type) : null;
+    if (pn && pt?.kind === "pointer") {
+      const pointee = pt.pointee;
+      const sz = ctx.cg.sizeOfType(pointee, ctx.thisBind ?? NO_BIND) || 8;
+      return { addr: pn.addr, type: pointee, size: sz, layout: ctx.cg.layoutOfType(pointee, ctx.thisBind ?? NO_BIND) };
+    }
+    return null;
+  }
 
   if (isStateAccessor(expr)) {
     return { addr: "(local.get $state)", type: null, size: ctx.state.size, layout: ctx.state };
@@ -1453,13 +1537,22 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
 
   // a container element getter (arr.get(i), map.value(i)/key(i)) is an lvalue we can keep chaining from
   if (expr.kind === "call") {
-    return resolveContainerElem(ctx, expr);
+    const ce = resolveContainerElem(ctx, expr);
+    if (ce) return ce;
+    // obj.method(args) where method is an inline member of obj's struct returning a reference (the fluent
+    // `Element& init(...) { ...; return *this; }` pattern) — emit it inline, resolve to the object address.
+    return tryInlineStructMethod(ctx, expr);
   }
 
   // member access: resolve the object, then index its field
   if (expr.kind === "member_access") {
     const parent = resolveAddr(ctx, expr.object);
-    if (!parent || !parent.layout) return null;
+    if (!parent) return null;
+    // id/m256i `.u64` view → a uint64[4] at the value's base (limbs _0.._3 at 8-byte strides).
+    if (expr.member === "u64" && isIdLike(ctx.cg, parent.type)) {
+      return { addr: parent.addr, type: null, size: 32, layout: U64X4_LAYOUT };
+    }
+    if (!parent.layout) return null;
     const f = parent.layout.fields.get(expr.member);
     if (!f) return null;
     return {
@@ -1488,7 +1581,7 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   // an aggregate value-helper parameter is passed by address
   if (expr.kind === "identifier") {
     const p = ctx.params?.get(expr.name);
-    if (p && p.isAddr) return `(local.get $${expr.name})`;
+    if (p && p.isAddr) return `(local.get $${p.local ?? expr.name})`;
   }
   if (expr.kind === "paren") return emitAddr(ctx, expr.expr);
   if (expr.kind === "c_cast" || expr.kind === "static_cast") return emitAddr(ctx, expr.expr);
@@ -1519,6 +1612,62 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   return n ? n.addr : null;
 }
 
+// A call `obj.method(args)` where method is an inline member of obj's struct that returns a reference
+// (the fluent `Element& init(...) { this->x = ...; return *this; }` pattern). Emit the method body inline
+// with `this` bound to the object's address, then resolve to that address (the returned *this).
+function tryInlineStructMethod(ctx: FnCtx, expr: Expression & { kind: "call" }): AddrNode | null {
+  if (expr.callee.kind !== "member_access") return null;
+  const method = expr.callee.member;
+  const objNode = resolveAddr(ctx, expr.callee.object);
+  if (!objNode || !objNode.layout || !objNode.type) return null;
+  const struct = ctx.cg.structOf(objNode.type, ctx.thisBind ?? NO_BIND);
+  if (!struct) return null;
+  const fn = struct.members.find(
+    (m) => m.kind === "function" && (m as FunctionDecl).name === method && (m as FunctionDecl).body,
+  ) as FunctionDecl | undefined;
+  if (!fn) return null;
+  const addr = emitInlineStructMethod(ctx, objNode, fn, expr.args);
+  return { addr, type: objNode.type, size: objNode.size, layout: objNode.layout };
+}
+
+// Emit a struct member method inline into the current function: stash the object address in a temp (used
+// as `this` and returned), materialize each argument into its own slot, then lower the body with `this`
+// rebound and `return` suppressed. The this-context is swapped on the shared ctx and restored after.
+function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: FunctionDecl, args: Expression[]): string {
+  const self = newTmp(ctx);
+  ctx.lines.push(`    (local.set $${self} ${objNode.addr})`);
+  const bind = ctx.thisBind ?? NO_BIND;
+
+  const params = new Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }>();
+  for (let i = 0; i < fn.params.length; i++) {
+    const p = fn.params[i];
+    const cls = classifyMethodParam(ctx.cg, p, bind);
+    const slot = `marg${ctx.tmpCount++}`;
+    ctx.localVars.set(slot, { wasmType: cls.wasmType });
+    const arg = args[i];
+    if (arg) {
+      const v = cls.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(p.type), bind)) : emitValue(ctx, arg);
+      ctx.lines.push(`    (local.set $${slot} ${v})`);
+    }
+    params.set(p.name, { wasmType: cls.wasmType, isAddr: cls.isAddr, type: ctx.cg.derefType(p.type), local: slot });
+  }
+
+  const save = {
+    thisLayout: ctx.thisLayout, thisType: ctx.thisType, thisAddr: ctx.thisAddr,
+    params: ctx.params, inlineMethod: ctx.inlineMethod, retIsValue: ctx.retIsValue,
+  };
+  ctx.thisLayout = objNode.layout ?? undefined;
+  ctx.thisType = objNode.type ?? undefined;
+  ctx.thisAddr = `(local.get $${self})`;
+  ctx.params = params;
+  ctx.inlineMethod = true;
+  ctx.retIsValue = false;
+  if (fn.body) emitStmt(ctx, fn.body);
+  Object.assign(ctx, save);
+
+  return `(local.get $${self})`;
+}
+
 // Resolve a container element getter to an addressable node: Array.get(i) → T, HashMap value(i) → V /
 // key(i) → K, HashSet key(i) → K. The element address is an lvalue into the backing store, and the
 // element TYPE lets resolveAddr keep chaining (e.g. arr.get(i).field). Element type + offsets are
@@ -1545,6 +1694,15 @@ function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "call" }): 
     const elem = `(call $hm_elem ${node.addr} (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)})`;
     if (m === "key") return mk(elem, node.type.args[0]);
     if (m === "value" && node.type.name === "HashMap") return mk(`(i32.add ${elem} ${C(info.valOff!)})`, node.type.args[1]);
+  }
+  // Collection.element(i) → &_elements[i & (L-1)].value: an lvalue of element type T, so element(i).field
+  // chains. (A scalar T also flows as a value through emitContainerCall's compiled getter.)
+  if (node.type.name === "Collection" && m === "element") {
+    const info = ctx.cg.collectionInfo(node.type.args);
+    if (!info) return null;
+    const idx = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)})`;
+    const addr = `(i32.add ${node.addr} (i32.add ${C(info.elementsOff + info.valueOff)} (i32.mul ${idx} ${C(info.stride)})))`;
+    return mk(addr, info.elemType);
   }
   return null;
 }
@@ -1690,10 +1848,13 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
     case "paren":
       return emitValue(ctx, expr.expr);
     case "identifier": {
-      if (ctx.localVars.has(expr.name)) return `(local.get $${expr.name})`;
+      // a reference local is an address, not a scalar value — its scalar use is always via a member
+      // (handled by resolveAddr below); a bare aggregate read is unsupported.
+      if (ctx.localVars.has(expr.name) && !ctx.refLocals?.has(expr.name)) return `(local.get $${expr.name})`;
       const p = ctx.params?.get(expr.name);
-      if (p && !p.isAddr) return `(local.get $${expr.name})`;
+      if (p && !p.isAddr) return `(local.get $${p.local ?? expr.name})`;
       if (expr.name === "SELF_INDEX") return `(i64.extend_i32_u (call $qpi_contractIndex))`;
+      if (expr.name === "NULL") return `(i64.const 0)`;
       // inside a compiled container method: a template non-type param (L), a static constexpr member
       // (_nEncodedFlags), or a bare scalar member of *this (_population).
       if (ctx.thisBind?.values.has(expr.name)) return `(i64.const ${ctx.thisBind.values.get(expr.name)})`;
@@ -2170,6 +2331,27 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
     }
   }
 
+  // Collection (priority queues over a per-PoV BST): every method is compiled from the real qpi.h body.
+  // element(i)/pov(i) return the element value / its pov id — for a scalar element it flows as an i64
+  // value here; an aggregate element (a struct) is an lvalue resolved by resolveContainerElem so
+  // element(i).field chains (return null to fall through to that path).
+  if (node.type.name === "Collection") {
+    // cleanup compacts the backing arrays after many removals (a scratchpad BST rebuild using
+    // reinterpret_cast/_tzcnt) — a no-op here, as with HashMap: lookups/iteration stay correct on the
+    // uncompacted store, just slower.
+    if ((member === "cleanup" || member === "cleanupIfNeeded") && !valueWanted) return "";
+    if (member === "needsCleanup" && valueWanted) return "(i64.const 0)";
+    if ((member === "element" || member === "pov") && valueWanted) {
+      const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
+      return c && c.cm.retKind === "i64" ? c.call : null;
+    }
+    const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
+    if (!c) return null;
+    if (valueWanted) return c.cm.retKind === "void" ? null : c.call;
+    ctx.lines.push(c.cm.retKind === "void" ? `    ${c.call}` : `    (drop ${c.call})`);
+    return "";
+  }
+
   return null;
 }
 
@@ -2217,6 +2399,13 @@ function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWa
 function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
   if (!ctx.thisType || ctx.thisType.kind !== "template_instance" || expr.callee.kind !== "identifier") return null;
   const name = expr.callee.name;
+
+  // Structural-maintenance internals of Collection's BST, safe to skip — the store stays a correct (just
+  // unbalanced/uncompacted) BST: _rebuild returns the subtree root unchanged; cleanup variants do nothing.
+  // This avoids the scratchpad + SIMD (sint64_4 / reinterpret_cast / _tzcnt) rebuild path.
+  if (name === "_rebuild") return expr.args[0] ? emitValue(ctx, expr.args[0]) : "(i64.const -1)";
+  if ((name === "cleanup" || name === "cleanupIfNeeded") && !valueWanted) return "";
+  if (name === "needsCleanup" && valueWanted) return "(i64.const 0)";
 
   // memory builtins used by container bodies: reset → setMem(this, ...); removeByIndex → setMem(&elem, ...).
   // Kept out of the contract surface (qpi.h hides them from contracts); valid only as statements here.

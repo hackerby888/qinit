@@ -261,6 +261,7 @@ export function loadQpiHeader(corePath?: string): string {
       // bulk doesn't interfere with capturing the out-of-class definitions, then instantiated per type.
       const implFiles = [
         "contract_core/qpi_hash_map_impl.h",
+        "contract_core/qpi_collection_impl.h",
       ];
       let content = QPI_PRELUDE + "\n";
       for (const f of files) {

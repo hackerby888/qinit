@@ -654,13 +654,51 @@ export class Parser {
       return { kind: "empty" };
     }
 
-    // Function: name(...)
+    // `name(...)` is either a function declaration or a variable with constructor-style direct-init
+    // (Type name(expr, ...);). In this subset a function parameter list never begins with an expression
+    // token, so when the first token after `(` clearly starts an expression it is a direct-init variable
+    // (e.g. qpi.h's `__ScopedScratchpad scratchpad(sizeof(*this), false)`).
     if (this.peek().kind === "l_paren") {
+      if (this.looksLikeDirectInit()) {
+        return this.parseDirectInitVar(name, type, isConstexpr, isStatic);
+      }
       return this.parseFunctionRest(name, type, isConstexpr, isStatic, isInline, isVirtual, isExtern);
     }
 
     // Variable: name; or name = init;
     return this.parseVariableRest(name, type, isConstexpr, isStatic);
+  }
+
+  // After a `name`, peek past `(` to decide function-declaration vs constructor-style direct-init: a
+  // function parameter list opens with a type, `void`, or `)`; a direct-init opens with an expression.
+  private looksLikeDirectInit(): boolean {
+    const after = this.peek(1).kind;
+    return (
+      after === "kw_sizeof" || after === "int_literal" || after === "float_literal" ||
+      after === "string_literal" || after === "char_literal" || after === "kw_true" ||
+      after === "kw_false" || after === "kw_nullptr" || after === "minus" ||
+      after === "bang" || after === "tilde"
+    );
+  }
+
+  private parseDirectInitVar(name: string, type: TypeSpec, isConstexpr: boolean, isStatic: boolean): VariableDecl {
+    const start = this.peek().span;
+    this.expect("l_paren", "ctor args");
+    const args: Expression[] = [];
+    if (this.peek().kind !== "r_paren") {
+      args.push(this.parseExpression());
+      while (this.tryConsume("comma")) {
+        args.push(this.parseExpression());
+      }
+    }
+    this.expect("r_paren", "ctor args close");
+    this.expect("semicolon", "direct-init declaration");
+    return {
+      kind: "variable", name, type,
+      init: { kind: "construct", type, args, span: start },
+      isConstexpr, isStatic, isExtern: false, isMember: false, access: "public",
+      span: this.makeSpan(start),
+    };
   }
 
   private parseFunctionAfterReturnType(retType: TypeSpec, isExternC: boolean): FunctionDecl {
@@ -1418,9 +1456,12 @@ export class Parser {
     const t0 = this.peek().kind;
     if (t0 === "kw_const" || t0 === "kw_auto") return true;
     if (t0 !== "identifier") return false;
-    const t1 = this.peek(1).kind;
+    // Skip a qualified type name: identifier (:: identifier)* — e.g. QPI::uint64 name.
+    let i = 1;
+    while (this.peek(i).kind === "d_colon" && this.peek(i + 1).kind === "identifier") i += 2;
+    const t1 = this.peek(i).kind;
     if (t1 === "identifier") return true;
-    if ((t1 === "star" || t1 === "amp") && this.peek(2).kind === "identifier") return true;
+    if ((t1 === "star" || t1 === "amp") && this.peek(i + 1).kind === "identifier") return true;
     return false;
   }
 
