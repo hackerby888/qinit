@@ -372,15 +372,27 @@ export class Parser {
   }
 
   private parseFunctionTemplate(params: TemplateParam[]): FunctionTemplateDecl {
+    // Storage-class / qualifier specifiers before the return type (static constexpr inline ...).
+    let isConstexpr = false;
+    while (true) {
+      if (this.tryConsumeKw("static")) { continue; }
+      if (this.tryConsumeKw("inline")) { continue; }
+      if (this.tryConsumeKw("constexpr")) { isConstexpr = true; continue; }
+      if (this.tryConsumeKw("friend")) { continue; }
+      break;
+    }
+
     const retType = this.parseTypeSpec();
-    const nameTok = this.expect("identifier", "function template name");
+    const nameTok = this.parseMaybeQualifiedName();
     if (!nameTok) {
-      return { kind: "function_template", name: "", params, returnType: retType, isConstexpr: false, span: this.peek().span };
+      return { kind: "function_template", name: "", params, returnType: retType, isConstexpr, span: this.peek().span };
     }
 
     this.expect("l_paren", "function params");
-    const funcParams = this.parseFunctionParams();
+    this.parseFunctionParams();
     this.expect("r_paren", "function params close");
+    this.tryConsumeKw("const");
+    this.tryConsumeKw("noexcept");
 
     let body: Statement | undefined;
     if (this.tryConsume("l_brace")) {
@@ -391,12 +403,12 @@ export class Parser {
 
     return {
       kind: "function_template",
-      name: nameTok.text,
+      name: nameTok,
       params,
       returnType: retType,
       body,
-      isConstexpr: false,
-      span: this.makeSpan(nameTok.span),
+      isConstexpr,
+      span: this.makeSpan(retType.span ?? this.peek().span),
     };
   }
 
@@ -866,16 +878,16 @@ export class Parser {
       const args: TypeSpec[] = [];
 
       while (!this.eof() && this.peek().kind !== "r_angle") {
-        // Template args can be types OR non-type values (integers, identifiers)
-        if (this.peek().kind === "int_literal") {
-          const lit = this.next();
-          args.push({ kind: "name", name: lit.text, span: lit.span });
-        } else if (this.peek().kind === "d_colon" || this.peek().kind === "identifier") {
-          args.push(this.parseTypeSpec());
-        } else if (isTypeKeyword(this.peek().kind) || this.peek().kind === "kw_const") {
+        const k = this.peek().kind;
+        // Non-type arg that is a value expression (literal, paren, sizeof, `-N`, `~N`) — parse at
+        // shift precedence so arithmetic like `64*1024*1024` is captured but `>` stays the closer.
+        if (k === "int_literal" || k === "l_paren" || k === "kw_sizeof" || k === "char_literal" ||
+          k === "minus" || k === "tilde" || k === "kw_true" || k === "kw_false") {
+          args.push({ kind: "expr_value", expr: this.parseShift(), span: this.peek().span });
+        } else if (k === "d_colon" || k === "identifier" || isTypeKeyword(k) || k === "kw_const" ||
+          k === "kw_struct" || k === "kw_unsigned" || k === "kw_signed") {
           args.push(this.parseTypeSpec());
         } else {
-          // Non-type arg: identifier or literal
           const name = this.parseMaybeQualifiedName() || this.next().text;
           args.push({ kind: "name", name, span: this.peek().span });
         }
@@ -1030,8 +1042,10 @@ export class Parser {
 
     while (!this.eof()) {
       const tok = this.peek();
+      // `<` / `>` lex as l_angle / r_angle (shared with template brackets). At this precedence level
+      // they are comparison operators (parsePostfix already declined any template-call interpretation).
       const ops: Record<string, BinaryOp> = {
-        "lt": "<", "gt": ">", "lt_eq": "<=", "gt_eq": ">=",
+        "l_angle": "<", "r_angle": ">", "lt_eq": "<=", "gt_eq": ">=",
       };
       const op = ops[tok.kind];
       if (op) {
@@ -1171,9 +1185,9 @@ export class Parser {
         continue;
       }
 
-      // Template call: expr<T>(args)
-      if (tok.kind === "l_angle") {
-        // Template angle brackets on a function call
+      // Template call: expr<T>(args) — only when the lookahead genuinely matches `< types > (`.
+      // Otherwise `<` is a comparison operator (handled higher up), so break out.
+      if (tok.kind === "l_angle" && this.looksLikeTemplateArgs()) {
         this.next();
         const templateArgs: TypeSpec[] = [];
         while (!this.eof() && this.peek().kind !== "r_angle") {
@@ -1202,6 +1216,34 @@ export class Parser {
     }
 
     return expr;
+  }
+
+  // Disambiguate `<` as template-args vs comparison: scan from the `<` for a matching `>` that is
+  // immediately followed by `(`, allowing only type-ish tokens inside. Anything else → comparison.
+  private looksLikeTemplateArgs(): boolean {
+    const save = (this.lex as any).index;
+    this.next(); // consume `<`
+    let depth = 1;
+    let ok = true;
+    let guard = 0;
+    while (!this.eof() && depth > 0 && guard++ < 200) {
+      const k = this.peek().kind;
+      if (k === "l_angle") { depth++; this.next(); continue; }
+      if (k === "r_angle") { depth--; this.next(); continue; }
+      if (k === "r_shift") { depth -= 2; this.next(); continue; }
+      // Tokens that can't appear inside a template-argument list → it's a comparison.
+      if (k === "semicolon" || k === "l_brace" || k === "r_brace" || k === "eq" ||
+        k === "plus" || k === "minus" || k === "slash" || k === "percent" || k === "question" ||
+        k === "amp_amp" || k === "pipe_pipe" || k === "eq_eq" || k === "not_eq" ||
+        k === "l_paren" || k === "r_paren") {
+        ok = false;
+        break;
+      }
+      this.next();
+    }
+    const followedByParen = ok && depth <= 0 && this.peek().kind === "l_paren";
+    (this.lex as any).index = save;
+    return followedByParen;
   }
 
   private parsePrimaryExpression(): Expression {
@@ -1290,7 +1332,21 @@ export class Parser {
 
     while (!this.eof()) {
       const tok = this.peek();
-      if (tok.kind === "identifier" || tok.kind === "kw_operator") {
+      if (tok.kind === "kw_operator") {
+        // operator overload name: consume `operator` + the operator symbol token(s).
+        this.next();
+        const opTok = this.peek();
+        if (opTok.kind === "l_paren" && this.peek(1).kind === "r_paren") {
+          this.next(); this.next(); parts.push("operator()");
+        } else if (opTok.kind === "l_bracket" && this.peek(1).kind === "r_bracket") {
+          this.next(); this.next(); parts.push("operator[]");
+        } else if (opTok.kind === "identifier" || isTypeKeyword(opTok.kind) || opTok.kind === "kw_bool") {
+          // conversion operator: operator bool() / operator T()
+          parts.push("operator " + this.next().text);
+        } else {
+          parts.push("operator" + this.next().text);
+        }
+      } else if (tok.kind === "identifier") {
         parts.push(this.next().text);
       } else if (tok.kind === "tilde" && this.peek(1).kind === "identifier") {
         // ~ClassName (destructor name)

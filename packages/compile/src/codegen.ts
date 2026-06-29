@@ -26,6 +26,7 @@ interface FieldLayout {
 
 interface StructLayout {
   size: number;
+  align: number;
   fields: Map<string, FieldLayout>;
 }
 
@@ -90,7 +91,23 @@ class Codegen {
 
   // ---- struct sizing (binding-aware: template params resolve through `b`) ----
 
+  private sizeDepth = 0;
+
   sizeOfType(t: TypeSpec, b: Bindings = NO_BIND): number {
+    // Guard against recursive/self-referential types (a struct reachable from its own field).
+    if (this.sizeDepth > 80) {
+      this.warn("type nesting too deep / recursive — sized as 0", 0);
+      return 0;
+    }
+    this.sizeDepth++;
+    try {
+      return this.sizeOfTypeInner(t, b);
+    } finally {
+      this.sizeDepth--;
+    }
+  }
+
+  private sizeOfTypeInner(t: TypeSpec, b: Bindings): number {
     if (t.kind === "const") return this.sizeOfType(t.valueType, b);
     if (t.kind === "reference" || t.kind === "pointer") return 4;
     if (t.kind === "void") return 0;
@@ -184,7 +201,7 @@ class Codegen {
       this.warn(`template '${name}<...>' not captured — size approximate`, 0);
       size = 8;
     }
-    return { size, fields };
+    return { size, align: 1, fields };
   }
 
   private resolveType(t: TypeSpec, b: Bindings): TypeSpec {
@@ -197,6 +214,7 @@ class Codegen {
 
   private evalConstFromType(t: TypeSpec, b: Bindings): bigint {
     // A non-type template arg arrives as a TypeSpec; recover its integer value.
+    if (t.kind === "expr_value") return this.evalConstBig(t.expr, b);
     if (t.kind === "name") {
       const v = b.values.get(t.name);
       if (v !== undefined) return v;
@@ -216,59 +234,79 @@ class Codegen {
     return this.layoutOfMembers(struct.members, b, struct.name, struct.isUnion);
   }
 
+  private inProgress = new Set<string>();
+
+  private bindingSig(b: Bindings): string {
+    if (b.types.size + b.values.size === 0) return "";
+    const ts = [...b.types].map(([k, v]) => `${k}=${this.typeKey(v)}`).join(",");
+    const vs = [...b.values].map(([k, v]) => `${k}=${v}`).join(",");
+    return `|${ts}|${vs}`;
+  }
+
   private layoutOfMembers(members: Declaration[], bIn: Bindings, cacheKey: string, isUnion = false): StructLayout {
-    const key = cacheKey && (bIn.types.size + bIn.values.size === 0) ? cacheKey : "";
+    // Cache by a binding-aware key so each concrete instantiation is computed once (avoids the
+    // exponential blowup of deeply nested templates like Array<HashMap<...>, N>).
+    const key = cacheKey ? cacheKey + this.bindingSig(bIn) : "";
     if (key) {
       const cached = this.layoutCache.get(key);
       if (cached) return cached;
+      // Cycle breaker: a type reachable from its own field returns an empty back-edge layout.
+      if (this.inProgress.has(key)) return { size: 0, align: 1, fields: new Map() };
+      this.inProgress.add(key);
     }
 
-    // Make sibling nested structs (e.g. HashMap::Element) visible while sizing this scope's fields.
-    const b = this.withLocalStructs(members, bIn);
+    try {
+      const b = this.withLocalStructs(members, bIn);
+      const fields = new Map<string, FieldLayout>();
+      let offset = 0;
+      let maxAlign = 1;
 
-    const fields = new Map<string, FieldLayout>();
-    let offset = 0;
-    let maxAlign = 1;
-
-    if (isUnion) {
-      let max = 0;
-      for (const m of members) {
-        if (m.kind === "variable") {
-          const v = m as VariableDecl;
-          if (v.isStatic || v.isConstexpr) continue;
-          const sz = this.sizeOfType(v.type, b);
-          fields.set(v.name, { name: v.name, offset: 0, size: sz, type: v.type });
-          if (sz > max) max = sz;
+      if (isUnion) {
+        let max = 0;
+        for (const m of members) {
+          if (m.kind === "variable") {
+            const v = m as VariableDecl;
+            if (v.isStatic || v.isConstexpr) continue;
+            const sz = this.sizeOfType(v.type, b);
+            const al = this.alignOfTypeB(v.type, b);
+            fields.set(v.name, { name: v.name, offset: 0, size: sz, type: v.type });
+            if (sz > max) max = sz;
+            if (al > maxAlign) maxAlign = al;
+          }
         }
+        const layout = { size: max, align: maxAlign, fields };
+        if (key) this.layoutCache.set(key, layout);
+        return layout;
       }
-      const layout = { size: max, fields };
+
+      for (const m of members) {
+        if (m.kind !== "variable") continue;
+        const v = m as VariableDecl;
+        if (v.isStatic || v.isConstexpr) continue;
+        const sz = this.sizeOfType(v.type, b);
+        const align = Math.min(this.alignOfTypeB(v.type, b), 8);
+        offset = this.alignUp(offset, align);
+        fields.set(v.name, { name: v.name, offset, size: sz, type: v.type });
+        offset += sz;
+        if (align > maxAlign) maxAlign = align;
+      }
+
+      const size = this.alignUp(offset, maxAlign);
+      const layout = { size, align: maxAlign, fields };
       if (key) this.layoutCache.set(key, layout);
       return layout;
+    } finally {
+      if (key) this.inProgress.delete(key);
     }
-
-    for (const m of members) {
-      if (m.kind !== "variable") continue;
-      const v = m as VariableDecl;
-      if (v.isStatic || v.isConstexpr) continue;
-      const sz = this.sizeOfType(v.type, b);
-      const align = Math.min(this.alignOfTypeB(v.type, b), 8);
-      offset = this.alignUp(offset, align);
-      fields.set(v.name, { name: v.name, offset, size: sz, type: v.type });
-      offset += sz;
-      if (align > maxAlign) maxAlign = align;
-    }
-
-    const size = this.alignUp(offset, maxAlign);
-    const layout = { size, fields };
-    if (key) this.layoutCache.set(key, layout);
-    return layout;
   }
 
   private alignOfTypeB(t: TypeSpec, b: Bindings): number {
     if (t.kind === "const") return this.alignOfTypeB(t.valueType, b);
     if (t.kind === "reference" || t.kind === "pointer") return 4;
     if (t.kind === "array") return this.alignOfTypeB(t.elem, b);
-    if (t.kind === "inline_struct") return this.structAlign(t.struct.members, b);
+    // For aggregates, reuse the (cached) layout's computed alignment — avoids a second, uncached
+    // recursive walk that blows up on deeply nested templates.
+    if (t.kind === "inline_struct") return this.layoutOfStruct(t.struct, b).align;
     if (t.kind === "name") {
       const bound = b.types.get(t.name);
       if (bound) return this.alignOfTypeB(bound, b);
@@ -276,13 +314,12 @@ class Codegen {
       if (s !== undefined) return Math.min(s, 8);
       const td = this.typedefs.get(t.name);
       if (td) return this.alignOfTypeB(td, b);
-      const struct = this.nested.get(t.name) ?? this.globalStructs.get(t.name);
-      if (struct) return this.structAlign(struct.members, b);
+      const struct = b.structs.get(t.name) ?? this.nested.get(t.name) ?? this.globalStructs.get(t.name);
+      if (struct) return this.layoutOfStruct(struct, b).align;
       return 4;
     }
     if (t.kind === "template_instance") {
-      const tmpl = this.templates.get(t.name);
-      if (tmpl) return this.structAlign(tmpl.members, b);
+      if (this.templates.get(t.name)) return this.layoutOfTemplate(t.name, t.args, b).align;
       if (t.name === "Array") return Math.min(this.alignOfTypeB(t.args[0], b), 8);
       return 8;
     }
@@ -295,17 +332,26 @@ class Codegen {
     if (t.kind === "const") return "c" + this.typeKey(t.valueType);
     if (t.kind === "array") return `${this.typeKey(t.elem)}[]`;
     if (t.kind === "pointer") return "*";
+    if (t.kind === "expr_value") return `#${this.evalConst(t.expr)}`;
     return "?";
   }
 
+  private alignDepth = 0;
+
   private structAlign(members: Declaration[], b: Bindings): number {
-    let a = 1;
-    for (const m of members) {
-      if (m.kind === "variable" && !(m as VariableDecl).isStatic && !(m as VariableDecl).isConstexpr) {
-        a = Math.max(a, this.alignOfTypeB((m as VariableDecl).type, b));
+    if (this.alignDepth > 80) return 8;
+    this.alignDepth++;
+    try {
+      let a = 1;
+      for (const m of members) {
+        if (m.kind === "variable" && !(m as VariableDecl).isStatic && !(m as VariableDecl).isConstexpr) {
+          a = Math.max(a, this.alignOfTypeB((m as VariableDecl).type, b));
+        }
       }
+      return Math.min(a, 8);
+    } finally {
+      this.alignDepth--;
     }
-    return Math.min(a, 8);
   }
 
   // Evaluate a constant expression, resolving template non-type params (e.g. L) through `b.values`.
@@ -426,7 +472,7 @@ export function generateWasmModule(
 
   // state size from StateData
   const stateData = cg["nested"].get("StateData");
-  const stateLayout = stateData ? cg.layoutOf(stateData) : { size: 0, fields: new Map() };
+  const stateLayout = stateData ? cg.layoutOf(stateData) : { size: 0, align: 1, fields: new Map() };
   const stateSize = stateLayout.size;
 
   // registrations → entries
@@ -440,9 +486,9 @@ export function generateWasmModule(
     const inStruct = cg["nested"].get(`${reg.fnName}_input`);
     const outStruct = cg["nested"].get(`${reg.fnName}_output`);
     const localsStruct = cg["nested"].get(`${reg.fnName}_locals`);
-    const inLayout = inStruct ? cg.layoutOf(inStruct) : { size: 0, fields: new Map() };
-    const outLayout = outStruct ? cg.layoutOf(outStruct) : { size: 0, fields: new Map() };
-    const localsLayout = localsStruct ? cg.layoutOf(localsStruct) : { size: 0, fields: new Map() };
+    const inLayout = inStruct ? cg.layoutOf(inStruct) : { size: 0, align: 1, fields: new Map() };
+    const outLayout = outStruct ? cg.layoutOf(outStruct) : { size: 0, align: 1, fields: new Map() };
+    const localsLayout = localsStruct ? cg.layoutOf(localsStruct) : { size: 0, align: 1, fields: new Map() };
 
     const label = `$user_${i}`;
     userFns.push(emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout));
@@ -466,7 +512,7 @@ export function generateWasmModule(
       const spId = SYSPROC_IMPL[fn.name];
       if (spId !== undefined) {
         const label = `$sys_${sysIdx++}`;
-        userFns.push(emitFunction(cg, label, fn, stateLayout, { size: 0, fields: new Map() }, { size: 0, fields: new Map() }, { size: 0, fields: new Map() }));
+        userFns.push(emitFunction(cg, label, fn, stateLayout, { size: 0, align: 1, fields: new Map() }, { size: 0, align: 1, fields: new Map() }, { size: 0, align: 1, fields: new Map() }));
         sysprocs.push({ id: spId, localsSize: 0, inSize: 0, outSize: 0, label });
       }
     }

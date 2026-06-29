@@ -30,11 +30,38 @@ export const SCAFFOLD_MACROS = `
 #undef LOG_WARNING
 #undef LOG_DEBUG
 
-#define INITIALIZE() static void __impl_initialize(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, NoData& locals)
-#define BEGIN_EPOCH() static void __impl_beginEpoch(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, NoData& locals)
-#define END_EPOCH() static void __impl_endEpoch(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, NoData& locals)
-#define BEGIN_TICK() static void __impl_beginTick(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, NoData& locals)
-#define END_TICK() static void __impl_endTick(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, NoData& locals)
+#undef INITIALIZE_WITH_LOCALS
+#undef BEGIN_EPOCH_WITH_LOCALS
+#undef END_EPOCH_WITH_LOCALS
+#undef BEGIN_TICK_WITH_LOCALS
+#undef END_TICK_WITH_LOCALS
+#undef PRE_ACQUIRE_SHARES_WITH_LOCALS
+#undef POST_ACQUIRE_SHARES_WITH_LOCALS
+#undef PRE_RELEASE_SHARES_WITH_LOCALS
+#undef POST_RELEASE_SHARES_WITH_LOCALS
+#undef POST_INCOMING_TRANSFER_WITH_LOCALS
+#undef EXPAND
+
+#define INITIALIZE() static void __impl_initialize(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define BEGIN_EPOCH() static void __impl_beginEpoch(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define END_EPOCH() static void __impl_endEpoch(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define BEGIN_TICK() static void __impl_beginTick(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define END_TICK() static void __impl_endTick(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define INITIALIZE_WITH_LOCALS() static void __impl_initialize(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define BEGIN_EPOCH_WITH_LOCALS() static void __impl_beginEpoch(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define END_EPOCH_WITH_LOCALS() static void __impl_endEpoch(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define BEGIN_TICK_WITH_LOCALS() static void __impl_beginTick(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define END_TICK_WITH_LOCALS() static void __impl_endTick(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
+#define PRE_ACQUIRE_SHARES() static void __impl_preAcquireShares(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
+#define POST_ACQUIRE_SHARES() static void __impl_postAcquireShares(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
+#define PRE_RELEASE_SHARES() static void __impl_preReleaseShares(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
+#define POST_RELEASE_SHARES() static void __impl_postReleaseShares(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
+#define POST_INCOMING_TRANSFER() static void __impl_postIncomingTransfer(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
+#define PRE_ACQUIRE_SHARES_WITH_LOCALS() static void __impl_preAcquireShares(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
+#define POST_ACQUIRE_SHARES_WITH_LOCALS() static void __impl_postAcquireShares(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
+#define PRE_RELEASE_SHARES_WITH_LOCALS() static void __impl_preReleaseShares(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
+#define POST_RELEASE_SHARES_WITH_LOCALS() static void __impl_postReleaseShares(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
+#define POST_INCOMING_TRANSFER_WITH_LOCALS() static void __impl_postIncomingTransfer(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
 
 #define PUBLIC_FUNCTION(f) static void f(const QpiContextFunctionCall& qpi, void* state, f##_input& input, f##_output& output, f##_locals& locals)
 #define PUBLIC_PROCEDURE(p) static void p(const QpiContextProcedureCall& qpi, void* state, p##_input& input, p##_output& output, p##_locals& locals)

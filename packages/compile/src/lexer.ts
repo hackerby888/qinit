@@ -321,16 +321,18 @@ export class Lexer {
       const next = this.peekChar().toLowerCase();
       if (next === "x") {
         text += this.advance();
-        while (!this.eof() && this.isHexDigit(this.peekChar())) {
+        while (!this.eof() && (this.isHexDigit(this.peekChar()) || this.peekChar() === "'")) {
           text += this.advance();
         }
+        text += this.peekSuffix();
         return { kind: "int_literal", text, span: this.makeSpan(start, startLine, startCol) };
       }
       if (next === "b") {
         text += this.advance();
-        while (!this.eof() && (this.peekChar() === "0" || this.peekChar() === "1")) {
+        while (!this.eof() && (this.peekChar() === "0" || this.peekChar() === "1" || this.peekChar() === "'")) {
           text += this.advance();
         }
+        text += this.peekSuffix();
         return { kind: "int_literal", text, span: this.makeSpan(start, startLine, startCol) };
       }
     }

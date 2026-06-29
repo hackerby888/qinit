@@ -21,6 +21,7 @@ export type TypeSpec =
   | { kind: "reference"; refereed: TypeSpec; span?: Span }                 // T& (function params)
   | { kind: "array"; elem: TypeSpec; size: Expression; span?: Span }       // T name[N] — C array member
   | { kind: "inline_struct"; struct: StructDecl; span?: Span }             // struct {...} name; — anonymous/tag struct as a field type
+  | { kind: "expr_value"; expr: Expression; span?: Span }                  // non-type template arg, e.g. HashMap<id,uint64, 64*1024>
   | { kind: "void"; span?: Span };
 
 // Named types known to the compiler
