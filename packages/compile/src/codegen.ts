@@ -508,6 +508,14 @@ class Codegen {
     return this.alignOfTypeB(t, b);
   }
 
+  // Strip const/reference wrappers to the underlying type (a by-ref aggregate param holds an address
+  // to this type, and its fields are laid out by this type).
+  derefType(t: TypeSpec): TypeSpec {
+    if (t.kind === "const") return this.derefType(t.valueType);
+    if (t.kind === "reference") return this.derefType(t.refereed);
+    return t;
+  }
+
   // True if a type is an aggregate (id/m256i/struct/array/container) — passed/returned by address
   // rather than as an i64 value. References and const are unwrapped first.
   isAggregateType(t: TypeSpec): boolean {
@@ -579,7 +587,7 @@ class Codegen {
 
 interface HelperInfo {
   label: string;                                              // WAT function name ($h_<name>)
-  params: { name: string; wasmType: "i32" | "i64"; isAddr: boolean }[];
+  params: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec }[];
   retIsValue: boolean;                                        // returns a scalar i64 (vs void)
 }
 
@@ -683,7 +691,7 @@ export function generateWasmModule(
     } else {
       const params = fn.params.map((p) => {
         const isAddr = cg.isAggregateType(p.type);
-        return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr };
+        return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
       });
       const retIsValue = fn.returnType.kind !== "void" && !cg.isAggregateType(fn.returnType);
       cg.helpers.set(fn.name, { label: `$h_${fn.name}`, params, retIsValue });
@@ -846,7 +854,7 @@ interface FnCtx {
   tmpCount: number;
   loops: { brk: string; cont: string }[];   // innermost loop's break/continue labels are last
   loopCount: number;
-  params?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean }>;  // value-helper parameters
+  params?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec }>;  // value-helper parameters
   retIsValue?: boolean;                       // function returns a scalar value (return <expr>)
 }
 
@@ -892,7 +900,7 @@ function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: FunctionDecl, sta
     localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
     params: new Map(), retIsValue: info.retIsValue,
   };
-  for (const p of info.params) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr });
+  for (const p of info.params) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: p.type });
 
   if (fn.body) collectLocals(fn.body, ctx);
 
@@ -1111,6 +1119,9 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     if (expr.name === "input") return { addr: "(local.get $in)", type: null, size: ctx.in.size, layout: ctx.in };
     if (expr.name === "output") return { addr: "(local.get $out)", type: null, size: ctx.out.size, layout: ctx.out };
     if (expr.name === "locals") return { addr: "(local.get $locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
+    // an aggregate value-helper parameter holds the address of its argument
+    const p = ctx.params?.get(expr.name);
+    if (p && p.isAddr) return { addr: `(local.get $${expr.name})`, type: p.type, size: ctx.cg.sizeOfType(p.type), layout: ctx.cg.layoutOfType(p.type) };
     return null;
   }
 

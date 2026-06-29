@@ -14,7 +14,9 @@ const HELPERS = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData { uint64 total; };
+  struct Pair { uint64 lo; uint64 hi; };
   struct Apply_input { uint64 x; }; struct Apply_output { uint64 y; };
+  struct Combine_input { Pair p; }; struct Combine_output { uint64 s; };
   struct Bump_input { uint64 by; }; struct Bump_output { uint64 newTotal; };
   struct AddAndBump_input { uint64 a; uint64 b; }; struct AddAndBump_output { uint64 sum; uint64 total; };
   struct AddAndBump_locals { Bump_input bi; Bump_output bo; };
@@ -22,6 +24,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   static uint64 triple(uint64 v) { return v * 3; }
   static uint64 addThem(uint64 a, uint64 b) { return a + b; }
+  static uint64 sumPair(const Pair& p) { return p.lo + p.hi; }
 
   PRIVATE_PROCEDURE(Bump)
   {
@@ -30,6 +33,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 
   PUBLIC_FUNCTION(Apply) { output.y = triple(input.x); }
+
+  PUBLIC_FUNCTION(Combine) { output.s = sumPair(input.p); }
 
   PUBLIC_PROCEDURE_WITH_LOCALS(AddAndBump)
   {
@@ -45,6 +50,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     REGISTER_USER_FUNCTION(Apply, 1);
     REGISTER_USER_PROCEDURE(AddAndBump, 1);
     REGISTER_USER_FUNCTION(Total, 2);
+    REGISTER_USER_FUNCTION(Combine, 3);
   }
 };
 `;
@@ -53,6 +59,11 @@ const HELPERS_GTEST = `TEST(Helpers, ValueHelperReturn) {
   ContractTest t;
   Helpers::Apply_input a{}; a.x = 5ull;
   EXPECT_EQ(t.call<Helpers::Apply_output>(1, a).y, 15ull);
+}
+TEST(Helpers, AggregateParamFieldRead) {
+  ContractTest t;
+  Helpers::Combine_input c{}; c.p.lo = 11ull; c.p.hi = 31ull;
+  EXPECT_EQ(t.call<Helpers::Combine_output>(3, c).s, 42ull);
 }
 TEST(Helpers, PrivateCallMutatesStateViaCallerLvalues) {
   ContractTest t;
