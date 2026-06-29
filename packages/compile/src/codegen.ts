@@ -568,6 +568,24 @@ class Codegen {
       case "c_cast":
       case "static_cast":
         return this.evalConstBig(expr.expr, b);
+      case "call": {
+        // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4)).
+        // Without these a div/mod/min/max folded to 0, silently corrupting derived constants (and any loop
+        // bound or guard built on them).
+        const callee = expr.callee;
+        const fn = callee.kind === "identifier" ? callee.name : callee.kind === "qualified_name" ? callee.name : null;
+        if (fn) {
+          const a = expr.args.map((x) => this.evalConstBig(x, b));
+          switch (fn) {
+            case "div": return a[1] === 0n ? 0n : a[0] / a[1];
+            case "mod": return a[1] === 0n ? 0n : a[0] % a[1];
+            case "min": return a[0] <= a[1] ? a[0] : a[1];
+            case "max": return a[0] >= a[1] ? a[0] : a[1];
+            case "abs": return a[0] < 0n ? -a[0] : a[0];
+          }
+        }
+        return 0n;
+      }
       default:
         return 0n;
     }

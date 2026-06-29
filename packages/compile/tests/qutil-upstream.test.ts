@@ -143,7 +143,7 @@ describe("upstream gtest — contract_qutil.cpp against my QUTIL+QX wasm", () =>
     }
     // The bridge itself is the artifact; this floor proves it drives my compiled contracts end-to-end and
     // locks the current yield against regressions. Raise it as compiler correctness gaps close.
-    expect(passed).toBeGreaterThanOrEqual(12);
+    expect(passed).toBeGreaterThanOrEqual(19);
   }, 300000);
 });
 
