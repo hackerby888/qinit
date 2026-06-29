@@ -424,9 +424,79 @@ class Codegen {
     }
   }
 
+  // ---- type → layout / field resolution (used by body codegen for address computation) ----
+
+  alignOfType(t: TypeSpec, b: Bindings = NO_BIND): number {
+    return this.alignOfTypeB(t, b);
+  }
+
+  // Resolve a struct-ish type to its (cached) field layout, or null for scalars/containers.
+  layoutOfType(t: TypeSpec, b: Bindings = NO_BIND): StructLayout | null {
+    if (t.kind === "const") return this.layoutOfType(t.valueType, b);
+    if (t.kind === "inline_struct") return this.layoutOfStruct(t.struct, b);
+    if (t.kind === "name") {
+      const bound = b.types.get(t.name);
+      if (bound) return this.layoutOfType(bound, b);
+      if (SCALAR_SIZE[t.name] !== undefined) return null;
+      const td = this.typedefs.get(t.name);
+      if (td) return this.layoutOfType(td, b);
+      const s = b.structs.get(t.name) ?? this.nested.get(t.name) ?? this.globalStructs.get(t.name);
+      if (s) return this.layoutOfStruct(s, b);
+    }
+    return null;
+  }
+
+  // Look up a field within a struct-ish type, returning its offset/size/type.
+  fieldOf(t: TypeSpec, member: string, b: Bindings = NO_BIND): FieldLayout | null {
+    const layout = this.layoutOfType(t, b);
+    return layout ? layout.fields.get(member) ?? null : null;
+  }
+
+  // Concrete offsets/sizes for HashMap<K,V,L> matching the real qpi.h layout:
+  //   Element _elements[L] @0 (key@0, value@valOff), _occupationFlags @occBase, _population @popOff.
+  hashmapInfo(args: TypeSpec[], b: Bindings = NO_BIND): ContainerInfo | null {
+    if (args.length < 3) return null;
+    const keySize = this.sizeOfType(args[0], b);
+    const valSize = this.sizeOfType(args[1], b);
+    const L = Number(this.evalConstFromType(args[2], b));
+    if (!L || keySize <= 0 || valSize <= 0) return null;
+    const elemAlign = Math.max(this.alignOfType(args[0], b), this.alignOfType(args[1], b));
+    const valOff = this.alignUp(keySize, this.alignOfType(args[1], b));
+    const elemSize = this.alignUp(valOff + valSize, elemAlign);
+    const elementsBytes = elemSize * L;
+    const occBytes = Math.floor((L * 2 + 63) / 64) * 8;
+    const occBase = elementsBytes;
+    const popOff = elementsBytes + occBytes;
+    const totalSize = popOff + 16; // _population + _markRemovalCounter
+    const hashMode = keySize === 32 ? 0 : 1;
+    return { kind: "HashMap", L, elemSize, keySize, valOff, valSize, occBase, popOff, totalSize, hashMode };
+  }
+
+  arrayInfo(args: TypeSpec[], b: Bindings = NO_BIND): ContainerInfo | null {
+    if (args.length < 2) return null;
+    const elemSize = this.sizeOfType(args[0], b);
+    const L = Number(this.evalConstFromType(args[1], b));
+    if (!L || elemSize <= 0) return null;
+    return { kind: "Array", L, elemSize, elemType: args[0] };
+  }
+
   warn(message: string, line: number): void {
     this.warnings.push({ message, line });
   }
+}
+
+interface ContainerInfo {
+  kind: "HashMap" | "Array";
+  L: number;
+  elemSize: number;
+  keySize?: number;
+  valOff?: number;
+  valSize?: number;
+  occBase?: number;
+  popOff?: number;
+  totalSize?: number;
+  hashMode?: number;
+  elemType?: TypeSpec;
 }
 
 // ---- entry point ----
@@ -618,6 +688,14 @@ interface FnCtx {
   locals: StructLayout;
   localVars: Map<string, { wasmType: "i32" | "i64" }>;
   lines: string[];
+  tmpCount: number;
+}
+
+// A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
+function newTmp(ctx: FnCtx): string {
+  const n = `tmp${ctx.tmpCount++}`;
+  ctx.localVars.set(n, { wasmType: "i32" });
+  return n;
 }
 
 function emitFunction(
@@ -629,17 +707,19 @@ function emitFunction(
   outL: StructLayout,
   localsL: StructLayout,
 ): string {
-  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [] };
+  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0 };
 
   // Pre-scan for local variable declarations (must be declared at function top in WAT)
   if (fn?.body) collectLocals(fn.body, ctx);
 
   const header = `  (func ${label} (param $ctx i32) (param $state i32) (param $in i32) (param $out i32) (param $locals i32)`;
-  const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
 
   if (fn?.body) {
     emitStmt(ctx, fn.body);
   }
+
+  // Build local decls AFTER emit so scratch temps created during lowering are included.
+  const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
 
   return [header, ...localDecls, ...ctx.lines, "  )"].join("\n");
 }
@@ -752,39 +832,15 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
   }
 }
 
-// Emit an expression used as a statement (side effects only). Returns WAT or "".
+// Emit an expression used as a statement (side effects only). Calls/assignments push their own
+// lines to ctx; only inc/dec returns a WAT string for the caller to push.
 function emitExprDrop(ctx: FnCtx, expr: Expression): string {
-  if (expr.kind === "assign") {
-    return emitAssign(ctx, expr);
-  }
+  if (expr.kind === "assign") return emitAssign(ctx, expr);
   if (expr.kind === "call") {
-    // a bare call — emit it, drop any result
-    const callWat = emitCall(ctx, expr);
-    const sig = callWat.startsWith("(call $qpi_") || callWat.startsWith("(call $lite");
-    // If the called forwarder returns a value, drop it. Heuristic: wrap in drop if it's a value-returning qpi.
-    return wrapDropIfValue(callWat);
+    emitCall(ctx, expr);
+    return "";
   }
-  if (expr.kind === "postfix_op" || expr.kind === "prefix_op") {
-    // e.g., i++ on a local
-    return emitIncDec(ctx, expr);
-  }
-  return "";
-}
-
-function wrapDropIfValue(callWat: string): string {
-  // Empty / comment-only / void-returning forwarders leave nothing on the stack — never drop those.
-  const trimmed = callWat.trim();
-  if (!trimmed || trimmed.startsWith(";;")) return "";
-
-  const voidCalls = ["$qpi_now", "$qpi_invocator", "$qpi_originator", "$qpi_nextId", "$qpi_prevId",
-    "$qpi_arbitrator", "$qpi_computor", "$qpi_k12", "$qpi_abort", "$qpi_markDirty", "$qpi_logBytes",
-    "$qpi_initMiningSeed", "$qpi_computeMiningFunction", "$qpi_ipoBidId", "$qpi_transferTyped",
-    "$qpi_prevSpectrumDigest", "$qpi_prevUniverseDigest", "$qpi_prevComputerDigest"];
-  for (const vc of voidCalls) {
-    if (callWat.startsWith(`(call ${vc} `) || callWat.startsWith(`(call ${vc})`)) return callWat;
-  }
-  // Only emit a drop when there is genuinely a value-producing call expression.
-  if (trimmed.startsWith("(call ")) return `(drop ${callWat})`;
+  if (expr.kind === "postfix_op" || expr.kind === "prefix_op") return emitIncDec(ctx, expr);
   return "";
 }
 
@@ -811,38 +867,110 @@ interface Lvalue {
   size: number;   // field size in bytes
 }
 
-function tryLvalueAddr(ctx: FnCtx, expr: Expression): Lvalue | null {
-  if (expr.kind !== "member_access") return null;
-  const ma = expr;
-  const obj = ma.object;
+// A resolved memory location: its address, the pointee type (null at a struct root), the byte size,
+// and the field layout for further member access (null for scalars/containers).
+interface AddrNode {
+  addr: string;
+  type: TypeSpec | null;
+  size: number;
+  layout: StructLayout | null;
+}
 
-  // output.field / input.field / locals.field
-  if (obj.kind === "identifier") {
-    const layouts: Record<string, { ptr: string; layout: StructLayout }> = {
-      output: { ptr: "(local.get $out)", layout: ctx.out },
-      input: { ptr: "(local.get $in)", layout: ctx.in },
-      locals: { ptr: "(local.get $locals)", layout: ctx.locals },
-    };
-    const sel = layouts[obj.name];
-    if (sel) {
-      const f = sel.layout.fields.get(ma.member);
-      if (f) return { addr: addrOf(sel.ptr, f.offset), size: f.size };
-      return null;
-    }
+// True if `state.get()` / `state.mut()`.
+function isStateAccessor(expr: Expression): boolean {
+  return expr.kind === "call" && expr.callee.kind === "member_access" &&
+    expr.callee.object.kind === "identifier" && expr.callee.object.name === "state" &&
+    (expr.callee.member === "mut" || expr.callee.member === "get");
+}
+
+// Resolve the address of an lvalue expression (member-access chains rooted at input/output/locals/state).
+function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
+  // roots
+  if (expr.kind === "identifier") {
+    if (expr.name === "input") return { addr: "(local.get $in)", type: null, size: ctx.in.size, layout: ctx.in };
+    if (expr.name === "output") return { addr: "(local.get $out)", type: null, size: ctx.out.size, layout: ctx.out };
+    if (expr.name === "locals") return { addr: "(local.get $locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
+    return null;
   }
 
-  // state.mut().field / state.get().field
-  if (obj.kind === "call" && obj.callee.kind === "member_access") {
-    const inner = obj.callee;
-    if (inner.object.kind === "identifier" && inner.object.name === "state" &&
-      (inner.member === "mut" || inner.member === "get")) {
-      const f = ctx.state.fields.get(ma.member);
-      if (f) return { addr: addrOf("(local.get $state)", f.offset), size: f.size };
-      return null;
-    }
+  if (isStateAccessor(expr)) {
+    return { addr: "(local.get $state)", type: null, size: ctx.state.size, layout: ctx.state };
+  }
+
+  // member access: resolve the object, then index its field
+  if (expr.kind === "member_access") {
+    const parent = resolveAddr(ctx, expr.object);
+    if (!parent || !parent.layout) return null;
+    const f = parent.layout.fields.get(expr.member);
+    if (!f) return null;
+    return {
+      addr: addrOf(parent.addr, f.offset),
+      type: f.type,
+      size: f.size,
+      layout: ctx.cg.layoutOfType(f.type),
+    };
   }
 
   return null;
+}
+
+// Scalar lvalue (size <= 8) address+size, for load/store of a scalar field.
+function tryLvalueAddr(ctx: FnCtx, expr: Expression): Lvalue | null {
+  const n = resolveAddr(ctx, expr);
+  if (!n) return null;
+  return { addr: n.addr, size: n.size };
+}
+
+// Address of an lvalue or a materializable aggregate. Returns null if not addressable.
+// SELF expands (in the preprocessor) to id(CONTRACT_INDEX,0,0,0), so id/m256i constructors and
+// id::zero() are materialized here into a 32-byte scratch slot.
+function emitAddr(ctx: FnCtx, expr: Expression): string | null {
+  if (expr.kind === "identifier" && expr.name === "SELF") return "(call $self_id)";
+  if (expr.kind === "paren") return emitAddr(ctx, expr.expr);
+  if (expr.kind === "c_cast" || expr.kind === "static_cast") return emitAddr(ctx, expr.expr);
+
+  // id(a,b,c,d) / m256i(a,b,c,d) constructor → materialize the four 64-bit limbs (missing ones = 0).
+  if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "id" || expr.callee.name === "m256i")) {
+    return materializeId(ctx, expr.args);
+  }
+  // id::zero() / m256i::zero() → 32 zero bytes (X::y parses as one qualified identifier "X::y")
+  if (expr.kind === "call" && expr.callee.kind === "identifier" &&
+    (expr.callee.name === "id::zero" || expr.callee.name === "m256i::zero")) {
+    return materializeId(ctx, []);
+  }
+
+  const n = resolveAddr(ctx, expr);
+  return n ? n.addr : null;
+}
+
+// Materialize a 256-bit id/m256i from up to four 64-bit limb expressions into scratch; returns its addr.
+function materializeId(ctx: FnCtx, limbs: Expression[]): string {
+  const t = newTmp(ctx);
+  ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 32)))`);
+  for (let i = 0; i < 4; i++) {
+    const v = limbs[i] ? emitValue(ctx, limbs[i]) : "(i64.const 0)";
+    ctx.lines.push(`    (i64.store ${addrOf(`(local.get $${t})`, i * 8)} ${v})`);
+  }
+  return `(local.get $${t})`;
+}
+
+// True if a type is an aggregate (id/m256i/struct/array) that lives in memory rather than an i64.
+function isAggregate(ctx: FnCtx, type: TypeSpec | null, size: number): boolean {
+  if (!type) return size > 8;
+  if (type.kind === "name" && (type.name === "id" || type.name === "m256i")) return true;
+  if (type.kind === "array" || type.kind === "inline_struct" || type.kind === "template_instance") return true;
+  if (type.kind === "name" && ctx.cg.layoutOfType(type)) return true;
+  return size > 8;
+}
+
+// Address of an argument: an lvalue/SELF directly, else materialize the scalar value into scratch.
+function argAddr(ctx: FnCtx, expr: Expression, size: number): string {
+  const a = emitAddr(ctx, expr);
+  if (a) return a;
+  const t = newTmp(ctx);
+  ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const ${size})))`);
+  ctx.lines.push(`    ${storeAt(`(local.get $${t})`, size, emitValue(ctx, expr))}`);
+  return `(local.get $${t})`;
 }
 
 function addrOf(ptr: string, offset: number): string {
@@ -872,25 +1000,47 @@ function storeAt(addr: string, size: number, value: string): string {
 
 // ---- assignment ----
 
+// Lowers an assignment by pushing WAT lines to ctx; returns "" (the statement is fully emitted).
 function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
-  const lv = tryLvalueAddr(ctx, expr.left);
-  const rhs = emitValue(ctx, expr.right);
+  const lhs = resolveAddr(ctx, expr.left);
 
-  if (lv) {
-    if (expr.op === "=") {
-      return storeAt(lv.addr, lv.size, rhs);
+  // aggregate target (id/m256i/struct/array): copy by value, or let a qpi producer write into it
+  if (lhs && expr.op === "=" && isAggregate(ctx, lhs.type, lhs.size)) {
+    if (expr.right.kind === "call") {
+      const out = emitQpiCall(ctx, expr.right, lhs.addr);
+      if (out && out.ret === "out") {
+        ctx.lines.push(`    ${out.wat}`);
+        return "";
+      }
     }
-    const load = loadAt(lv.addr, lv.size);
-    const op = compoundOp(expr.op);
-    return storeAt(lv.addr, lv.size, `(${op} ${load} ${rhs})`);
+    const src = emitAddr(ctx, expr.right);
+    if (src) {
+      ctx.lines.push(`    (call $copyMem ${lhs.addr} ${src} (i32.const ${lhs.size}))`);
+      return "";
+    }
+    ctx.cg.warn(`unsupported aggregate assignment`, expr.span.line);
+    return "";
   }
 
-  // local variable assignment
+  // scalar field target
+  if (lhs) {
+    const rhs = emitValue(ctx, expr.right);
+    if (expr.op === "=") {
+      ctx.lines.push(`    ${storeAt(lhs.addr, lhs.size, rhs)}`);
+      return "";
+    }
+    const op = compoundOp(expr.op);
+    ctx.lines.push(`    ${storeAt(lhs.addr, lhs.size, `(${op} ${loadAt(lhs.addr, lhs.size)} ${rhs})`)}`);
+    return "";
+  }
+
+  // local variable target
   if (expr.left.kind === "identifier" && ctx.localVars.has(expr.left.name)) {
     const n = expr.left.name;
-    if (expr.op === "=") return `(local.set $${n} ${rhs})`;
-    const op = compoundOp(expr.op);
-    return `(local.set $${n} (${op} (local.get $${n}) ${rhs}))`;
+    const rhs = emitValue(ctx, expr.right);
+    if (expr.op === "=") ctx.lines.push(`    (local.set $${n} ${rhs})`);
+    else ctx.lines.push(`    (local.set $${n} (${compoundOp(expr.op)} (local.get $${n}) ${rhs}))`);
+    return "";
   }
 
   ctx.cg.warn(`unsupported assignment target`, expr.span.line);
@@ -929,6 +1079,7 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       return emitValue(ctx, expr.expr);
     case "identifier": {
       if (ctx.localVars.has(expr.name)) return `(local.get $${expr.name})`;
+      if (expr.name === "SELF_INDEX") return `(i64.extend_i32_u (call $qpi_contractIndex))`;
       // a constexpr / enum value
       const e = ctx.cg["sema"].evaluateConstexpr(expr);
       if (e !== null) return `(i64.const ${e})`;
@@ -936,8 +1087,12 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       return `(i64.const 0)`;
     }
     case "member_access": {
-      const lv = tryLvalueAddr(ctx, expr);
-      if (lv) return loadAt(lv.addr, lv.size);
+      const n = resolveAddr(ctx, expr);
+      if (n && n.size <= 8) return loadAt(n.addr, n.size);
+      if (n) {
+        ctx.cg.warn(`aggregate value read unsupported`, expr.span.line);
+        return `(i64.const 0)`;
+      }
       // qpi.invocationReward() etc. handled in call; bare member returns 0
       ctx.cg.warn(`unsupported member read`, expr.span.line);
       return `(i64.const 0)`;
@@ -995,8 +1150,8 @@ function emitBinary(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): strin
   }
 }
 
-// qpi.* method name → forwarder + whether it returns i64/i32/void
-const QPI_METHODS: Record<string, { fwd: string; ret: "i64" | "i32" | "void" }> = {
+// qpi.* zero-arg getters → forwarder + scalar return width.
+const QPI_GETTERS: Record<string, { fwd: string; ret: "i64" | "i32" }> = {
   invocationReward: { fwd: "$qpi_invocationReward", ret: "i64" },
   epoch: { fwd: "$qpi_epoch", ret: "i32" },
   tick: { fwd: "$qpi_tick", ret: "i32" },
@@ -1011,32 +1166,183 @@ const QPI_METHODS: Record<string, { fwd: string; ret: "i64" | "i32" | "void" }> 
   contractIndex: { fwd: "$qpi_contractIndex", ret: "i32" },
 };
 
-function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string {
-  // qpi.method(args) returning a value
-  if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
-    const m = QPI_METHODS[expr.callee.member];
-    if (m) {
-      if (m.ret === "i64") return `(call ${m.fwd})`;
-      if (m.ret === "i32") return `(i64.extend_i32_u (call ${m.fwd}))`;
+// qpi.* host calls taking args / returning values. Arg kinds map to forwarder param types:
+//   i64 = scalar value, i32 = scalar truncated, addr = address of an id/struct lvalue (or SELF),
+//   cidx = the contract's own index (SELF_INDEX, injected, not taken from the call's args).
+// ret "out" = void forwarder whose LAST param is an output address the produced id/struct is written
+// into — used as an assignment RHS (e.g. output.next = qpi.nextId(input.cur)).
+type ArgKind = "i64" | "i32" | "addr" | "cidx";
+interface QpiCallDesc {
+  fwd: string;
+  args: ArgKind[];
+  ret: "i64" | "i32" | "void" | "out";
+}
+
+const QPI_CALLS: Record<string, QpiCallDesc> = {
+  transfer: { fwd: "$qpi_transfer", args: ["addr", "i64"], ret: "i64" },
+  burn: { fwd: "$qpi_burn", args: ["i64", "cidx"], ret: "i64" },
+  issueAsset: { fwd: "$qpi_issueAsset", args: ["i64", "addr", "i32", "i64", "i64"], ret: "i64" },
+  isAssetIssued: { fwd: "$qpi_isAssetIssued", args: ["addr", "i64"], ret: "i32" },
+  transferShareOwnershipAndPossession: { fwd: "$qpi_transferShares", args: ["i64", "addr", "addr", "addr", "i64", "addr"], ret: "i64" },
+  numberOfPossessedShares: { fwd: "$qpi_numberOfPossessedShares", args: ["i64", "addr", "addr", "addr", "i32", "i32"], ret: "i64" },
+  distributeDividends: { fwd: "$qpi_distributeDividends", args: ["i64"], ret: "i32" },
+  getEntity: { fwd: "$qpi_getEntity", args: ["addr", "addr"], ret: "i32" },
+  isContractId: { fwd: "$qpi_isContractId", args: ["addr"], ret: "i32" },
+  nextId: { fwd: "$qpi_nextId", args: ["addr"], ret: "out" },
+  prevId: { fwd: "$qpi_prevId", args: ["addr"], ret: "out" },
+  arbitrator: { fwd: "$qpi_arbitrator", args: [], ret: "out" },
+  computor: { fwd: "$qpi_computor", args: ["i32"], ret: "out" },
+};
+
+// Map a single qpi argument to a forwarder operand by its declared kind.
+function qpiOperand(ctx: FnCtx, expr: Expression, kind: ArgKind): string {
+  if (kind === "i64") return emitValue(ctx, expr);
+  if (kind === "i32") return `(i32.wrap_i64 ${emitValue(ctx, expr)})`;
+  const a = emitAddr(ctx, expr);
+  if (a) return a;
+  ctx.cg.warn(`qpi argument is not an addressable id/struct`, (expr as any).span?.line ?? 0);
+  return "(i32.const 0)";
+}
+
+// Build the forwarder operand list. "cidx" is injected; every other kind consumes one call arg.
+function emitQpiOperands(ctx: FnCtx, args: Expression[], kinds: ArgKind[]): string[] {
+  const ops: string[] = [];
+  let ai = 0;
+  for (const k of kinds) {
+    if (k === "cidx") {
+      ops.push("(call $qpi_contractIndex)");
+      continue;
+    }
+    const e = args[ai++];
+    if (!e) {
+      ops.push(k === "addr" ? "(i32.const 0)" : "(i64.const 0)");
+      continue;
+    }
+    ops.push(qpiOperand(ctx, e, k));
+  }
+  return ops;
+}
+
+interface QpiResult {
+  wat: string;
+  ret: "i64" | "i32" | "void" | "out";
+}
+
+// Lower a qpi.host(...) call. For "out" producers, outAddr receives the result (a scratch slot is
+// allocated when none is supplied). Returns null if the call isn't a known qpi host call.
+function emitQpiCall(ctx: FnCtx, expr: Expression & { kind: "call" }, outAddr?: string): QpiResult | null {
+  if (!(expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi")) {
+    return null;
+  }
+  const desc = QPI_CALLS[expr.callee.member];
+  if (!desc) return null;
+
+  const ops = emitQpiOperands(ctx, expr.args, desc.args);
+  if (desc.ret === "out") {
+    let out = outAddr;
+    if (!out) {
+      const t = newTmp(ctx);
+      ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 32)))`);
+      out = `(local.get $${t})`;
+    }
+    ops.push(out);
+  }
+  return { wat: `(call ${desc.fwd} ${ops.join(" ")})`, ret: desc.ret };
+}
+
+// Lower a container method call on a HashMap/Array state/locals field. When valueWanted, returns the
+// value WAT; otherwise pushes statement lines and returns "". Returns null if not a container call.
+function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
+  if (expr.callee.kind !== "member_access") return null;
+  const node = resolveAddr(ctx, expr.callee.object);
+  if (!node || !node.type || node.type.kind !== "template_instance") return null;
+
+  const map = node.addr;
+  const member = expr.callee.member;
+  const C = (n: number) => `(i32.const ${n})`;
+
+  if (node.type.name === "HashMap" || node.type.name === "HashSet") {
+    const info = ctx.cg.hashmapInfo(node.type.args);
+    if (!info) return null;
+    const dims = `${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.valOff!)} ${C(info.valSize!)} ${C(info.occBase!)}`;
+
+    if (member === "population" && valueWanted) return `(call $hm_population ${map} ${C(info.popOff!)})`;
+    if (member === "set" && !valueWanted) {
+      const k = argAddr(ctx, expr.args[0], info.keySize!);
+      const v = argAddr(ctx, expr.args[1], info.valSize!);
+      ctx.lines.push(`    (drop (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`);
+      return "";
+    }
+    if (member === "get" && !valueWanted) {
+      const k = argAddr(ctx, expr.args[0], info.keySize!);
+      const out = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
+      ctx.lines.push(`    (drop (call $hm_get ${map} ${k} ${out} ${dims} ${C(info.hashMode!)}))`);
+      return "";
+    }
+    if (member === "reset" && !valueWanted) {
+      ctx.lines.push(`    (call $hm_reset ${map} ${C(info.totalSize!)})`);
+      return "";
+    }
+    if (member === "contains" && valueWanted) {
+      const k = argAddr(ctx, expr.args[0], info.keySize!);
+      return `(i64.extend_i32_u (i32.ne (call $hm_index ${map} ${k} ${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.occBase!)} ${C(info.hashMode!)}) (i32.const -1)))`;
     }
   }
+
+  if (node.type.name === "Array") {
+    const info = ctx.cg.arrayInfo(node.type.args);
+    if (!info) return null;
+    const mask = info.L - 1;
+    const elemAddr = (idx: Expression) =>
+      `(i32.add ${map} (i32.mul (i32.and (i32.wrap_i64 ${emitValue(ctx, idx)}) ${C(mask)}) ${C(info.elemSize)}))`;
+
+    if (member === "get" && valueWanted) return loadAt(elemAddr(expr.args[0]), info.elemSize);
+    if (member === "set" && !valueWanted) {
+      const ea = elemAddr(expr.args[0]);
+      if (isAggregate(ctx, info.elemType ?? null, info.elemSize)) {
+        const src = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
+        ctx.lines.push(`    (call $copyMem ${ea} ${src} ${C(info.elemSize)})`);
+      } else {
+        ctx.lines.push(`    ${storeAt(ea, info.elemSize, emitValue(ctx, expr.args[1]))}`);
+      }
+      return "";
+    }
+  }
+
+  return null;
+}
+
+// rvalue call: qpi getter, qpi valued host call, or a value-returning container method.
+function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string {
+  if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
+    const g = QPI_GETTERS[expr.callee.member];
+    if (g) return g.ret === "i64" ? `(call ${g.fwd})` : `(i64.extend_i32_u (call ${g.fwd}))`;
+  }
+
+  const q = emitQpiCall(ctx, expr);
+  if (q) {
+    if (q.ret === "i64") return q.wat;
+    if (q.ret === "i32") return `(i64.extend_i32_u ${q.wat})`;
+  }
+
+  const c = emitContainerCall(ctx, expr, true);
+  if (c !== null) return c;
+
   ctx.cg.warn(`unsupported call as value`, expr.span.line);
   return `(i64.const 0)`;
 }
 
-function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): string {
-  // qpi.method(args) as a statement (side-effecting)
-  if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
-    const method = expr.callee.member;
-    // transfer/burn etc. — emit forwarder with arg addresses/values (best-effort)
-    if (method === "burn") {
-      const amt = expr.args[0] ? emitValue(ctx, expr.args[0]) : "(i64.const 0)";
-      return `(call $qpi_burn ${amt} (i32.const 0))`;
-    }
-    // markDirty implicitly handled; other void qpi calls: emit nothing meaningful
-    ctx.cg.warn(`qpi.${method}() not fully supported in local compiler`, expr.span.line);
-    return `(call $qpi_markDirty (call $qpi_contractIndex))`;
+// statement call: a container mutation or a side-effecting qpi host call.
+function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
+  const c = emitContainerCall(ctx, expr, false);
+  if (c !== null) return;
+
+  const q = emitQpiCall(ctx, expr);
+  if (q) {
+    if (q.ret === "void" || q.ret === "out") ctx.lines.push(`    ${q.wat}`);
+    else ctx.lines.push(`    (drop ${q.wat})`);
+    return;
   }
+
   ctx.cg.warn(`unsupported call statement`, expr.span.line);
-  return "";
 }

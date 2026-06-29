@@ -159,6 +159,10 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     };
   }
 
+  // Surface codegen diagnostics (e.g. unsupported constructs lowered to stubs) as warnings so they
+  // are visible to callers; only errors abort the build.
+  diagnostics.push(...sema.getDiagnostics());
+
   // 6. WAT → WASM (via wabt)
   let wasm: Uint8Array;
   try {

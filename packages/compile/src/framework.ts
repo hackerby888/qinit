@@ -93,6 +93,7 @@ export function emitModule(spec: ModuleSpec): string {
     emitMemOps(),
     emitAllocators(L),
     emitForwarders(),
+    emitIntrinsics(),
     emitMetadata(L, spec, sysprocMask),
     spec.userFunctionsWat,
     emitDispatch(spec),
@@ -224,7 +225,20 @@ function emitMemOps(): string {
         (i32.store8 (i32.add (local.get $dst) (local.get $i))
           (i32.load8_u (i32.add (local.get $src) (local.get $i))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br_if $cp (i32.lt_u (local.get $i) (local.get $size))))))`;
+        (br_if $cp (i32.lt_u (local.get $i) (local.get $size))))))
+
+  (func $memeq (param $a i32) (param $b i32) (param $size i32) (result i32)
+    (local $i i32)
+    (block $done
+      (loop $cmp
+        (br_if $done (i32.ge_u (local.get $i) (local.get $size)))
+        (if (i32.ne
+            (i32.load8_u (i32.add (local.get $a) (local.get $i)))
+            (i32.load8_u (i32.add (local.get $b) (local.get $i))))
+          (then (return (i32.const 0))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $cmp)))
+    (i32.const 1))`;
 }
 
 function emitAllocators(L: Layout): string {
@@ -305,6 +319,106 @@ function emitForwarders(): string {
   (func $qpi_invocator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const 72)) (i32.const 32)))
   (func $qpi_originator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const 40)) (i32.const 32)))
   (func $qpi_invocationReward (result i64) (i64.load (i32.add (global.get $ctxBase) (i32.const 104))))`;
+}
+
+function emitIntrinsics(): string {
+  // Container + helper intrinsics the codegen targets. HashMap helpers reproduce the real qpi.h
+  // layout (Element _elements[L] @0, _occupationFlags @occBase, _population @popOff) and probing
+  // (linear, one occupation flag at a time — observably identical to the batched qpi.h version).
+  // hashMode: 0 = id/m256i key (hash = first 8 bytes), 1 = other key (hash = K12(key)[0..8]).
+  return `  ;; ---- intrinsics ----
+  ;; SELF as a materialized id: { contractIndex:u64, 0, 0, 0 } in scratch, returns its address.
+  (func $self_id (result i32) (local $p i32)
+    (local.set $p (call $qpiAllocLocals (i32.const 32)))
+    (call $setMem (local.get $p) (i32.const 32) (i32.const 0))
+    (i64.store (local.get $p) (i64.extend_i32_u (call $qpi_contractIndex)))
+    (local.get $p))
+
+  ;; hash(key) & (L-1) → initial probe index
+  (func $hm_hash (param $keyAddr i32) (param $keySize i32) (param $L i32) (param $hashMode i32) (result i32)
+    (local $h i64) (local $t i32)
+    (if (i32.eqz (local.get $hashMode))
+      (then (local.set $h (i64.load (local.get $keyAddr))))
+      (else
+        (local.set $t (call $qpiAllocLocals (i32.const 8)))
+        (call $qpi_k12 (local.get $keyAddr) (local.get $keySize) (local.get $t))
+        (local.set $h (i64.load (local.get $t)))))
+    (i32.and (i32.wrap_i64 (local.get $h)) (i32.sub (local.get $L) (i32.const 1))))
+
+  ;; read 2-bit occupation flag for slot index
+  (func $hm_flag (param $occ i32) (param $index i32) (result i32)
+    (i32.and
+      (i32.wrap_i64 (i64.shr_u
+        (i64.load (i32.add (local.get $occ) (i32.mul (i32.shr_u (local.get $index) (i32.const 5)) (i32.const 8))))
+        (i64.extend_i32_u (i32.shl (i32.and (local.get $index) (i32.const 31)) (i32.const 1)))))
+      (i32.const 3)))
+
+  ;; element address for slot index
+  (func $hm_elem (param $map i32) (param $index i32) (param $elemSize i32) (result i32)
+    (i32.add (local.get $map) (i32.mul (local.get $index) (local.get $elemSize))))
+
+  ;; getElementIndex(key) → slot index, or -1 if not present
+  (func $hm_index (param $map i32) (param $keyAddr i32) (param $L i32) (param $elemSize i32) (param $keySize i32) (param $occBase i32) (param $hashMode i32) (result i32)
+    (local $index i32) (local $i i32) (local $occ i32) (local $flag i32)
+    (local.set $occ (i32.add (local.get $map) (local.get $occBase)))
+    (local.set $index (call $hm_hash (local.get $keyAddr) (local.get $keySize) (local.get $L) (local.get $hashMode)))
+    (block $done
+      (loop $probe
+        (br_if $done (i32.ge_u (local.get $i) (local.get $L)))
+        (local.set $flag (call $hm_flag (local.get $occ) (local.get $index)))
+        (if (i32.eqz (local.get $flag)) (then (return (i32.const -1))))
+        (if (i32.eq (local.get $flag) (i32.const 1)) (then
+          (if (call $memeq (call $hm_elem (local.get $map) (local.get $index) (local.get $elemSize)) (local.get $keyAddr) (local.get $keySize))
+            (then (return (local.get $index))))))
+        (local.set $index (i32.and (i32.add (local.get $index) (i32.const 1)) (i32.sub (local.get $L) (i32.const 1))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $probe)))
+    (i32.const -1))
+
+  ;; get(key, &value) → 1 if found (value copied to valOut), else 0
+  (func $hm_get (param $map i32) (param $keyAddr i32) (param $valOut i32) (param $L i32) (param $elemSize i32) (param $keySize i32) (param $valOff i32) (param $valSize i32) (param $occBase i32) (param $hashMode i32) (result i32)
+    (local $idx i32)
+    (local.set $idx (call $hm_index (local.get $map) (local.get $keyAddr) (local.get $L) (local.get $elemSize) (local.get $keySize) (local.get $occBase) (local.get $hashMode)))
+    (if (i32.lt_s (local.get $idx) (i32.const 0)) (then (return (i32.const 0))))
+    (call $copyMem (local.get $valOut) (i32.add (call $hm_elem (local.get $map) (local.get $idx) (local.get $elemSize)) (local.get $valOff)) (local.get $valSize))
+    (i32.const 1))
+
+  ;; set(key, value) — insert or replace; returns slot index or -1 if full
+  (func $hm_set (param $map i32) (param $keyAddr i32) (param $valAddr i32) (param $L i32) (param $elemSize i32) (param $keySize i32) (param $valOff i32) (param $valSize i32) (param $occBase i32) (param $popOff i32) (param $hashMode i32) (result i32)
+    (local $index i32) (local $i i32) (local $occ i32) (local $flag i32) (local $e i32) (local $word i32)
+    (local.set $occ (i32.add (local.get $map) (local.get $occBase)))
+    (local.set $index (call $hm_hash (local.get $keyAddr) (local.get $keySize) (local.get $L) (local.get $hashMode)))
+    (block $done
+      (loop $probe
+        (br_if $done (i32.ge_u (local.get $i) (local.get $L)))
+        (local.set $flag (call $hm_flag (local.get $occ) (local.get $index)))
+        (local.set $e (call $hm_elem (local.get $map) (local.get $index) (local.get $elemSize)))
+        (if (i32.eqz (local.get $flag)) (then
+          ;; empty slot → occupy: set flag bit, write key+value, bump population
+          (local.set $word (i32.add (local.get $occ) (i32.mul (i32.shr_u (local.get $index) (i32.const 5)) (i32.const 8))))
+          (i64.store (local.get $word) (i64.or (i64.load (local.get $word))
+            (i64.shl (i64.const 1) (i64.extend_i32_u (i32.shl (i32.and (local.get $index) (i32.const 31)) (i32.const 1))))))
+          (call $copyMem (local.get $e) (local.get $keyAddr) (local.get $keySize))
+          (call $copyMem (i32.add (local.get $e) (local.get $valOff)) (local.get $valAddr) (local.get $valSize))
+          (i64.store (i32.add (local.get $map) (local.get $popOff)) (i64.add (i64.load (i32.add (local.get $map) (local.get $popOff))) (i64.const 1)))
+          (return (local.get $index))))
+        (if (i32.eq (local.get $flag) (i32.const 1)) (then
+          (if (call $memeq (local.get $e) (local.get $keyAddr) (local.get $keySize)) (then
+            ;; existing key → replace value
+            (call $copyMem (i32.add (local.get $e) (local.get $valOff)) (local.get $valAddr) (local.get $valSize))
+            (return (local.get $index))))))
+        (local.set $index (i32.and (i32.add (local.get $index) (i32.const 1)) (i32.sub (local.get $L) (i32.const 1))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $probe)))
+    (i32.const -1))
+
+  ;; population() → element count
+  (func $hm_population (param $map i32) (param $popOff i32) (result i64)
+    (i64.load (i32.add (local.get $map) (local.get $popOff))))
+
+  ;; reset() — zero the whole map
+  (func $hm_reset (param $map i32) (param $totalSize i32)
+    (call $setMem (local.get $map) (local.get $totalSize) (i32.const 0)))`;
 }
 
 function emitMetadata(L: Layout, spec: ModuleSpec, sysprocMask: number): string {
