@@ -287,6 +287,17 @@ class Codegen {
       }
     }
 
+    // The template's own static constexpr members (BitArray::_elements = (L+63)/64) — evaluated in
+    // declaration order so a member array dimension that references one (uint64 _values[_elements];)
+    // sizes correctly.
+    for (const m of tmpl.members) {
+      if (m.kind !== "variable") continue;
+      const v = m as VariableDecl;
+      if ((v.isStatic || v.isConstexpr) && v.init && !b.values.has(v.name)) {
+        b.values.set(v.name, this.evalConstBig(v.init, b));
+      }
+    }
+
     return this.layoutOfMembers(tmpl.members, b, `${name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`);
   }
 
@@ -2251,7 +2262,12 @@ function callCompiled(
 function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
   if (expr.callee.kind !== "member_access") return null;
   const node = resolveAddr(ctx, expr.callee.object);
-  if (!node || !node.type || node.type.kind !== "template_instance") return null;
+  if (!node || !node.type) return null;
+  // follow typedefs to the concrete container instance (e.g. bit_4096 → BitArray<4096>).
+  let ct: TypeSpec | null = node.type;
+  for (let i = 0; i < 6 && ct?.kind === "name"; i++) ct = ctx.cg.typedefs.get(ct.name) ?? null;
+  if (!ct || ct.kind !== "template_instance") return null;
+  node.type = ct;
 
   const map = node.addr;
   const member = expr.callee.member;
@@ -2408,6 +2424,15 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
       const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
       return c && c.cm.retKind === "i64" ? c.call : null;
     }
+    const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
+    if (!c) return null;
+    if (valueWanted) return c.cm.retKind === "void" ? null : c.call;
+    ctx.lines.push(c.cm.retKind === "void" ? `    ${c.call}` : `    (drop ${c.call})`);
+    return "";
+  }
+
+  // BitArray<L> (bit_4096 etc.): get/set/setAll/capacity are inline methods compiled from the qpi.h body.
+  if (node.type.name === "BitArray") {
     const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
     if (!c) return null;
     if (valueWanted) return c.cm.retKind === "void" ? null : c.call;
