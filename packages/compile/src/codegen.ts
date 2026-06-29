@@ -1242,10 +1242,11 @@ function emitCompound(ctx: FnCtx, body: Statement[]): void {
     for (const l of labels) if (!labelChild.has(l)) labelChild.set(l, i);
   }
 
-  // forward gotos only: a label rooted in a later sibling than the goto. Each gets a block wrapping
-  // siblings [gotoChild .. labelChild-1], closed right before the label-bearing sibling.
+  // forward gotos only: a label rooted in a later sibling than the goto. Each gets a block that ends right
+  // before the label-bearing sibling; a `goto L` becomes `br $goto_L`. The block must enclose every goto to
+  // L (so it opens at or before the earliest such goto) and close at the label.
   const wasmLabel = new Map<string, string>();
-  const opensAt = new Map<number, { wl: string; closeAt: number }[]>();
+  const blocks: { wl: string; firstGoto: number; closeAt: number }[] = [];
   for (let i = 0; i < body.length; i++) {
     const gotos = new Set<string>();
     collectGotosIn(body[i], gotos);
@@ -1254,8 +1255,7 @@ function emitCompound(ctx: FnCtx, body: Statement[]): void {
       if (lc === undefined || lc <= i || wasmLabel.has(g)) continue;
       const wl = `$goto_${g}_${ctx.loopCount++}`;
       wasmLabel.set(g, wl);
-      if (!opensAt.has(i)) opensAt.set(i, []);
-      opensAt.get(i)!.push({ wl, closeAt: lc });
+      blocks.push({ wl, firstGoto: i, closeAt: lc });
     }
   }
 
@@ -1267,18 +1267,24 @@ function emitCompound(ctx: FnCtx, body: Statement[]): void {
   if (!ctx.gotoLabels) ctx.gotoLabels = new Map();
   for (const [g, wl] of wasmLabel) ctx.gotoLabels.set(g, wl);
 
+  // WASM blocks must nest (LIFO). With multiple labels whose [firstGoto..closeAt] ranges OVERLAP without
+  // containment (e.g. TransferSharesToManyV1's interleaved `goto insufficientShares` / `goto transferFailed`),
+  // opening each at its own firstGoto produces an outer block that closes before an inner one — illegal, and
+  // the earlier-closing block silently never closes at its label. Open ALL of them together at the earliest
+  // firstGoto, ordered by closeAt descending (latest close = outermost). Wrapping a few extra leading siblings
+  // is harmless (they fall through), and the nesting is always valid.
+  const openChild = Math.min(...blocks.map((b) => b.firstGoto));
+  blocks.sort((a, b) => b.closeAt - a.closeAt);
   const closeStack: number[] = [];
   for (let i = 0; i < body.length; i++) {
     while (closeStack.length && closeStack[closeStack.length - 1] === i) {
       ctx.lines.push(`    )`);
       closeStack.pop();
     }
-    const opens = opensAt.get(i);
-    if (opens) {
-      opens.sort((a, b) => b.closeAt - a.closeAt);   // outermost (latest close) opens first → proper nesting
-      for (const o of opens) {
-        ctx.lines.push(`    (block ${o.wl}`);
-        closeStack.push(o.closeAt);
+    if (i === openChild) {
+      for (const b of blocks) {
+        ctx.lines.push(`    (block ${b.wl}`);
+        closeStack.push(b.closeAt);
       }
     }
     emitStmt(ctx, body[i]);

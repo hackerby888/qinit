@@ -7,7 +7,13 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { Sim, KIND, SP, type Contract } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../src/index";
+import { compileContract, loadQpiHeader, type CompileResult } from "../src/index";
+
+function calleeIdlFrom(name: string, index: number, r: CompileResult) {
+  const fns = Object.fromEntries(r.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }]));
+  const procs = Object.fromEntries(r.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }]));
+  return { name, index, functions: fns, procedures: procs };
+}
 import { buildContract } from "@qinit/build";
 
 const CORE = "/home/kali/Projects/core-lite";
@@ -107,8 +113,11 @@ describe("upstream gtest — contract_qutil.cpp against my QUTIL+QX wasm", () =>
     // 1. Compile MY QUTIL + QX with @qinit/compile — these are the contracts under test, deployed in the Sim.
     const qutilSrc = readFileSync(`${CORE}/src/contracts/QUtil.h`, "utf8");
     const qxSrc = readFileSync(`${CORE}/src/contracts/Qx.h`, "utf8");
-    const mineQutil = await compileContract({ source: qutilSrc, name: "QUTIL", slot: QUTIL_IDX, qpiHeader: HEADERS, arenaSz: 8 * 1024 * 1024 });
     const mineQx = await compileContract({ source: qxSrc, name: "QX", slot: QX_IDX, qpiHeader: HEADERS, arenaSz: 8 * 1024 * 1024 });
+    // QUtil calls QX (Fees, transfer-management) via CALL_OTHER_CONTRACT_FUNCTION — feed it QX's callee IDL
+    // (index + per-entry inputType) so those calls resolve instead of being dropped.
+    const callees = [calleeIdlFrom("QX", QX_IDX, mineQx)];
+    const mineQutil = await compileContract({ source: qutilSrc, name: "QUTIL", slot: QUTIL_IDX, qpiHeader: HEADERS, arenaSz: 8 * 1024 * 1024, callees });
     expect(mineQutil.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(mineQx.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
