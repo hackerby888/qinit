@@ -2010,13 +2010,13 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
     const indexOf = (k: string) => `(call $hm_index ${map} ${k} ${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.occBase!)} ${C(info.hashMode!)})`;
     const elemAt = (idx: Expression) => `(call $hm_elem ${map} (i32.and (i32.wrap_i64 ${emitValue(ctx, idx)}) ${C(info.L! - 1)}) ${C(info.elemSize)})`;
 
-    // For HashMap, prefer the method compiled from the real qpi.h body; the hand-written intrinsics are
-    // the fallback. Each argument is classified from the method's own parameter list — reference and
-    // aggregate params are materialized to an address (argAddr), scalars passed by value. HashSet keeps
-    // the intrinsic path (its backing field differs; it is not yet wired to compiled bodies).
-    const bind = isSet ? null : ctx.cg.bindContainer(node.type.name, node.type.args);
+    // Prefer the method compiled from the real qpi.h body (HashMap and HashSet share the same impl
+    // shape); the hand-written intrinsics are the fallback. Each argument is classified from the
+    // method's own parameter list — reference and aggregate params are materialized to an address
+    // (argAddr), scalars passed by value.
+    const bind = ctx.cg.bindContainer(node.type.name, node.type.args);
     const compiledHM = (m: string): { call: string; cm: CompiledMethod } | null => {
-      if (isSet || !bind) return null;
+      if (!bind) return null;
       const cm = compileContainerMethod(ctx.cg, node.type, m);
       if (!cm) return null;
       const ops = cm.fnParams.map((fp, i) => {
@@ -2079,7 +2079,7 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
 
     // set (HashMap) / add (HashSet) both insert; add has no value.
     if (member === "set" || member === "add") {
-      if (wireCompiled("set")) return valueWanted ? lastWired : "";
+      if (wireCompiled(member)) return valueWanted ? lastWired : "";
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const v = isSet ? k : argAddr(ctx, expr.args[1], info.valSize!);
       const call = `(i64.extend_i32_s (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`;
