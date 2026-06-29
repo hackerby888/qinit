@@ -557,7 +557,10 @@ class Codegen {
       } else if (m.kind === "enum") {
         this.collectEnum(m as any);
       } else if (m.kind === "typedef_decl") {
-        // typedef X Y — alias; resolve later via sizeOfType fallback
+        // contract-member typedef (typedef Order _Order;) — register the alias so _Order-typed locals
+        // resolve their layout/fields.
+        const td = m as any;
+        if (!this.typedefs.has(td.name)) this.typedefs.set(td.name, td.type);
       }
     }
   }
@@ -1464,21 +1467,26 @@ function isStateAccessor(expr: Expression): boolean {
     (expr.callee.member === "mut" || expr.callee.member === "get");
 }
 
-// id/m256i expose their 32 bytes as `uint64 u64[4]` with named limbs `_0.._3` at 8-byte strides.
-const U64_FIELD: TypeSpec = { kind: "name", name: "uint64" };
-const U64X4_LAYOUT: StructLayout = {
-  size: 32, align: 8,
-  fields: new Map([
-    ["_0", { name: "_0", offset: 0, size: 8, type: U64_FIELD }],
-    ["_1", { name: "_1", offset: 8, size: 8, type: U64_FIELD }],
-    ["_2", { name: "_2", offset: 16, size: 8, type: U64_FIELD }],
-    ["_3", { name: "_3", offset: 24, size: 8, type: U64_FIELD }],
-  ]),
+// id/m256i expose their 32 bytes as fixed-width limb views (`.u64`/`.u32`/`.u16`/`.u8`) with named limbs
+// `_0.._N` at element-sized strides. Each view is a synthetic struct layout.
+function limbLayout(elemSize: number, count: number): StructLayout {
+  const t: TypeSpec = { kind: "name", name: elemSize === 8 ? "uint64" : elemSize === 4 ? "uint32" : elemSize === 2 ? "uint16" : "uint8" };
+  const fields = new Map<string, FieldLayout>();
+  for (let i = 0; i < count; i++) fields.set(`_${i}`, { name: `_${i}`, offset: i * elemSize, size: elemSize, type: t });
+  return { size: elemSize * count, align: elemSize, fields };
+}
+const ID_VIEWS: Record<string, StructLayout> = {
+  u64: limbLayout(8, 4), u32: limbLayout(4, 8), u16: limbLayout(2, 16), u8: limbLayout(1, 32),
 };
 function isIdLike(cg: Codegen, t: TypeSpec | null): boolean {
   if (!t) return false;
   const d = cg.derefType(t);
   return d.kind === "name" && (d.name === "id" || d.name === "m256i");
+}
+function isUint128(cg: Codegen, t: TypeSpec | null): boolean {
+  if (!t) return false;
+  const d = cg.derefType(t);
+  return d.kind === "name" && (d.name === "uint128" || d.name === "uint128_t");
 }
 
 // Resolve the address of an lvalue expression (member-access chains rooted at input/output/locals/state).
@@ -1561,9 +1569,13 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   if (expr.kind === "member_access") {
     const parent = resolveAddr(ctx, expr.object);
     if (!parent) return null;
-    // id/m256i `.u64` view → a uint64[4] at the value's base (limbs _0.._3 at 8-byte strides).
-    if (expr.member === "u64" && isIdLike(ctx.cg, parent.type)) {
-      return { addr: parent.addr, type: null, size: 32, layout: U64X4_LAYOUT };
+    // id/m256i limb views (`.u64`/`.u32`/`.u16`/`.u8`) → a fixed-width array at the value's base.
+    if (isIdLike(ctx.cg, parent.type) && ID_VIEWS[expr.member]) {
+      return { addr: parent.addr, type: null, size: 32, layout: ID_VIEWS[expr.member] };
+    }
+    // uint128 `.low` / `.high` → the low / high 64-bit half (low at offset 0).
+    if (isUint128(ctx.cg, parent.type) && (expr.member === "low" || expr.member === "high")) {
+      return { addr: addrOf(parent.addr, expr.member === "low" ? 0 : 8), type: { kind: "name", name: "uint64" }, size: 8, layout: null };
     }
     if (!parent.layout) return null;
     const f = parent.layout.fields.get(expr.member);
