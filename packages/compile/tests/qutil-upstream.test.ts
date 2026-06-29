@@ -154,7 +154,7 @@ describe("upstream gtest — contract_qutil.cpp against my QUTIL+QX wasm", () =>
     // locks the current yield against regressions. Raise as gaps close. Remaining failures: vote-family
     // (QUtil's 384 MB Array<Voter, 8.4M> — huge-array handling) + share/asset paths; one hang (28) on the
     // asset-ownership iterator.
-    expect(passed).toBeGreaterThanOrEqual(19);
+    expect(passed).toBeGreaterThanOrEqual(42);
   }, 300000);
 });
 
@@ -189,6 +189,9 @@ async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uin
     q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
       const input = read(inPtr, inLen);
       const origin = id32(originPtr);
+      // The native harness debits the invocator the reward (decreaseEnergy) before invoking; sim.procedure
+      // only credits the contract, so mirror the debit here for faithful fee accounting.
+      if (amount > 0n) sim.debit(origin, BigInt(amount));
       const out = sim.procedure(idx >>> 0, it >>> 0, input, { reward: BigInt(amount), invocator: origin, originator: origin });
       const n = Math.min(out.length, outCap >>> 0);
       if (n) write(outPtr, out.subarray(0, n));
@@ -212,16 +215,8 @@ async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uin
       for (const a of sim.assetUniverse()) if (a.issuer === issuerHex) for (const h of a.holdings) sum += BigInt(h.shares);
       return sum;
     },
-    q_possessed: (name: bigint, issuerPtr: number, ownerPtr: number, possessorPtr: number, _om: number, pm: number): bigint => {
-      const issuerHex = hex(id32(issuerPtr)), ownerHex = hex(id32(ownerPtr)), possessorHex = hex(id32(possessorPtr));
-      const nm = decodeName(BigInt(name));
-      let sum = 0n;
-      for (const a of sim.assetUniverse()) {
-        if (a.issuer !== issuerHex || a.name !== nm) continue;
-        for (const h of a.holdings) if (h.owner === ownerHex && h.possessor === possessorHex && h.posMgmt === (pm >>> 0)) sum += BigInt(h.shares);
-      }
-      return sum;
-    },
+    q_possessed: (name: bigint, issuerPtr: number, ownerPtr: number, possessorPtr: number, om: number, pm: number): bigint =>
+      (sim as any).assets.numberOfPossessedShares(BigInt(name), id32(issuerPtr), id32(ownerPtr), id32(possessorPtr), om >>> 0, pm >>> 0),
     // lite_test.h reports each EXPECT_* outcome through thost.t_report.
     t_report: (namePtr: number, nameLen: number, passed: number, msgPtr: number, msgLen: number) => {
       results.push({ name: dec.decode(read(namePtr, nameLen)), passed: (passed >>> 0) !== 0, message: dec.decode(read(msgPtr, msgLen)) });
