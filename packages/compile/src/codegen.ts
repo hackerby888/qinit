@@ -1339,18 +1339,27 @@ function emitExprDrop(ctx: FnCtx, expr: Expression): string {
   return "";
 }
 
+// A name held in a wasm local slot: a body-declared local OR a scalar (by-value) parameter. Both are
+// read via local.get and written via local.set (wasm parameters are mutable locals).
+function isScalarLocal(ctx: FnCtx, name: string): boolean {
+  if (ctx.localVars.has(name)) return true;
+  const p = ctx.params?.get(name);
+  return !!p && !p.isAddr;
+}
+
 function emitIncDec(ctx: FnCtx, expr: Expression): string {
   const arg = expr.kind === "postfix_op" || expr.kind === "prefix_op" ? expr.arg : expr;
   const op = (expr as any).op === "++" ? "i64.add" : "i64.sub";
-  // Only handle local var or member lvalue
+  // A scalar local/value-param increments in place via local.set.
+  if (arg.kind === "identifier" && isScalarLocal(ctx, arg.name)) {
+    return `(local.set $${arg.name} (${op} (local.get $${arg.name}) (i64.const 1)))`;
+  }
+  // Otherwise a member/element lvalue: load, adjust, store back.
   const addr = tryLvalueAddr(ctx, arg);
   if (addr) {
     const load = loadAt(addr.addr, addr.size);
     const stored = `(${op} ${load} (i64.const 1))`;
     return storeAt(addr.addr, addr.size, stored);
-  }
-  if (arg.kind === "identifier" && ctx.localVars.has(arg.name)) {
-    return `(local.set $${arg.name} (${op} (local.get $${arg.name}) (i64.const 1)))`;
   }
   return "";
 }
@@ -1414,6 +1423,15 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   }
 
   if (expr.kind === "paren") return resolveAddr(ctx, expr.expr);
+
+  // inside a compiled container method: `this` (the object) and `*this` both address the instance.
+  if (expr.kind === "this" && ctx.thisLayout) {
+    return { addr: "(local.get $this)", type: ctx.thisType ?? null, size: ctx.thisLayout.size, layout: ctx.thisLayout };
+  }
+  // &lvalue (address-of) and *this (deref) are identity at the addressing level — the node already
+  // carries the operand's address.
+  if (expr.kind === "unary_op" && expr.op === "&") return resolveAddr(ctx, expr.arg);
+  if (expr.kind === "unary_op" && expr.op === "*" && expr.arg.kind === "this") return resolveAddr(ctx, expr.arg);
 
   if (isStateAccessor(expr)) {
     return { addr: "(local.get $state)", type: null, size: ctx.state.size, layout: ctx.state };
@@ -1614,8 +1632,8 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
     return "";
   }
 
-  // local variable target
-  if (expr.left.kind === "identifier" && ctx.localVars.has(expr.left.name)) {
+  // local variable / scalar value-parameter target (both are mutable wasm locals)
+  if (expr.left.kind === "identifier" && isScalarLocal(ctx, expr.left.name)) {
     const n = expr.left.name;
     const rhs = emitValue(ctx, expr.right);
     if (expr.op === "=") ctx.lines.push(`    (local.set $${n} ${rhs})`);
@@ -1721,13 +1739,41 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
         default: return a;
       }
     }
+    case "prefix_op": {
+      // ++x / --x as a value: apply in place (as a side-effect line), then yield the new value.
+      const w = emitIncDec(ctx, expr);
+      if (w) ctx.lines.push(`    ${w}`);
+      return emitValue(ctx, expr.arg);
+    }
+    case "postfix_op": {
+      // x++ / x-- as a value: capture the old value, then apply — the expression evaluates to the old.
+      const t = `tmp${ctx.tmpCount++}`;
+      ctx.localVars.set(t, { wasmType: "i64" });
+      ctx.lines.push(`    (local.set $${t} ${emitValue(ctx, expr.arg)})`);
+      const w = emitIncDec(ctx, expr);
+      if (w) ctx.lines.push(`    ${w}`);
+      return `(local.get $${t})`;
+    }
     case "ternary":
       return `(select ${emitValue(ctx, expr.then)} ${emitValue(ctx, expr.else_)} (i32.wrap_i64 ${emitValue(ctx, expr.cond)}))`;
     case "c_cast":
     case "static_cast":
       return emitValue(ctx, expr.expr);
     case "sizeof_type":
-      return `(i64.const ${ctx.cg.sizeOfType(expr.type)})`;
+      return `(i64.const ${ctx.cg.sizeOfType(expr.type, ctx.thisBind ?? NO_BIND)})`;
+    case "sizeof_expr": {
+      // sizeof someLvalue — e.g. sizeof(*this) (the container).
+      const n = resolveAddr(ctx, expr.expr);
+      if (n) return `(i64.const ${n.size})`;
+      // sizeof(TypeName) parses here when the operand is a bare type (e.g. sizeof(Element)) rather than
+      // a value — size it as a type, resolving template params (Element) through the binding.
+      if (expr.expr.kind === "identifier") {
+        const sz = ctx.cg.sizeOfType({ kind: "name", name: expr.expr.name }, ctx.thisBind ?? NO_BIND);
+        if (sz > 0) return `(i64.const ${sz})`;
+      }
+      ctx.cg.warn(`unsupported sizeof expr`, expr.span.line);
+      return `(i64.const 0)`;
+    }
     default:
       ctx.cg.warn(`unsupported expression '${expr.kind}' as value`, (expr as any).span?.line ?? 0);
       return `(i64.const 0)`;
@@ -1964,29 +2010,61 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
     const indexOf = (k: string) => `(call $hm_index ${map} ${k} ${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.occBase!)} ${C(info.hashMode!)})`;
     const elemAt = (idx: Expression) => `(call $hm_elem ${map} (i32.and (i32.wrap_i64 ${emitValue(ctx, idx)}) ${C(info.L! - 1)}) ${C(info.elemSize)})`;
 
+    // For HashMap, prefer the method compiled from the real qpi.h body; the hand-written intrinsics are
+    // the fallback. Each argument is classified from the method's own parameter list — reference and
+    // aggregate params are materialized to an address (argAddr), scalars passed by value. HashSet keeps
+    // the intrinsic path (its backing field differs; it is not yet wired to compiled bodies).
+    const bind = isSet ? null : ctx.cg.bindContainer(node.type.name, node.type.args);
+    const compiledHM = (m: string): { call: string; cm: CompiledMethod } | null => {
+      if (isSet || !bind) return null;
+      const cm = compileContainerMethod(ctx.cg, node.type, m);
+      if (!cm) return null;
+      const ops = cm.fnParams.map((fp, i) => {
+        const arg = expr.args[i];
+        if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+        return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
+      });
+      return { call: `(call ${cm.label} ${map}${ops.length ? " " + ops.join(" ") : ""})`, cm };
+    };
+    // Wire a compiled HashMap method that returns a value (or void): in value context return the call;
+    // as a statement, drop a value result or push a void call directly. Returns true once handled.
+    const wireCompiled = (m: string): boolean => {
+      const c = compiledHM(m);
+      if (!c) return false;
+      if (valueWanted) { lastWired = c.call; return true; }
+      ctx.lines.push(c.cm.retKind === "void" ? `    ${c.call}` : `    (drop ${c.call})`);
+      lastWired = "";
+      return true;
+    };
+    let lastWired = "";
+
     // queries (value context)
-    if (member === "population" && valueWanted) return `(call $hm_population ${map} ${C(info.popOff!)})`;
+    if (member === "population" && valueWanted) return wireCompiled("population") ? lastWired : `(call $hm_population ${map} ${C(info.popOff!)})`;
     if (member === "capacity" && valueWanted) return `(i64.const ${info.L})`;
     if (member === "contains" && valueWanted) {
+      if (wireCompiled("contains")) return lastWired;
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       return `(i64.extend_i32_u (i32.ne ${indexOf(k)} (i32.const -1)))`;
     }
     if (member === "getElementIndex" && valueWanted) {
+      if (wireCompiled("getElementIndex")) return lastWired;
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       return `(i64.extend_i32_s ${indexOf(k)})`;
     }
     if (member === "nextElementIndex" && valueWanted) {
+      if (wireCompiled("nextElementIndex")) return lastWired;
       return `(i64.extend_i32_s (call $hm_next ${map} (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L!)} ${C(info.occBase!)}))`;
     }
     if (member === "isEmptySlot" && valueWanted) {
+      if (wireCompiled("isEmptySlot")) return lastWired;
       const idx = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L! - 1)})`;
       return `(i64.extend_i32_u (i32.ne (call $hm_flag (i32.add ${map} ${C(info.occBase!)}) ${idx}) (i32.const 1)))`;
     }
     if (member === "value" && valueWanted) return loadAt(`(i32.add ${elemAt(expr.args[0])} ${C(info.valOff!)})`, info.valSize!);
     if (member === "key" && valueWanted && info.keySize! <= 8) return loadAt(elemAt(expr.args[0]), info.keySize!);
 
-    // get(key, &value) — bool found, value copied out. Prefer the method compiled from the real
-    // qpi.h body; fall back to the hand-written intrinsic if it can't be lowered.
+    // get(key, &value) — bool found, value copied out. The out parameter is a real lvalue (emitAddr),
+    // not a materialized copy, so get keeps its explicit wiring rather than going through compiledHM.
     if (member === "get") {
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const out = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
@@ -1999,26 +2077,26 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
       return "";
     }
 
-    // set (HashMap) and add (HashSet) both insert; add has no value. HashMap.set is compiled from the
-    // real qpi.h body (returns the element index); the intrinsic remains a fallback. Valid in both
-    // value (returns index) and statement context.
+    // set (HashMap) / add (HashSet) both insert; add has no value.
     if (member === "set" || member === "add") {
+      if (wireCompiled("set")) return valueWanted ? lastWired : "";
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const v = isSet ? k : argAddr(ctx, expr.args[1], info.valSize!);
-      const cm = !isSet ? compileContainerMethod(ctx.cg, node.type, "set") : null;
-      const call = cm
-        ? `(call ${cm.label} ${map} ${k} ${v})`
-        : `(i64.extend_i32_s (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`;
+      const call = `(i64.extend_i32_s (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`;
       if (valueWanted) return call;
       ctx.lines.push(`    (drop ${call})`);
       return "";
     }
-    if ((member === "removeByKey" || member === "remove") && !valueWanted) {
+    if (member === "removeByKey" || member === "remove") {
+      if (wireCompiled(member)) return valueWanted ? lastWired : "";
+      if (valueWanted) return null;
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       ctx.lines.push(`    (call $hm_remove ${map} ${k} ${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.occBase!)} ${C(info.popOff!)} ${C(info.hashMode!)})`);
       return "";
     }
-    if (member === "replace" && !valueWanted) {
+    if (member === "replace") {
+      if (wireCompiled("replace")) return valueWanted ? lastWired : "";
+      if (valueWanted) return null;
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const v = argAddr(ctx, expr.args[1], info.valSize!);
       const t = newTmp(ctx);
@@ -2027,6 +2105,7 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
       return "";
     }
     if (member === "reset" && !valueWanted) {
+      if (wireCompiled("reset")) return "";
       ctx.lines.push(`    (call $hm_reset ${map} ${C(info.totalSize!)})`);
       return "";
     }
@@ -2079,7 +2158,9 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
 function emitMathCall(ctx: FnCtx, name: string, args: Expression[]): string | null {
   const a = () => (args[0] ? emitValue(ctx, args[0]) : "(i64.const 0)");
   const b = () => (args[1] ? emitValue(ctx, args[1]) : "(i64.const 0)");
-  switch (name) {
+  // accept a namespace-qualified spelling (math_lib::max, QPI::div, RL::min) — strip the qualifier.
+  const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
+  switch (base) {
     case "div": case "sdiv": return `(call $m_div_s ${a()} ${b()})`;
     case "mod": return `(call $m_mod_s ${a()} ${b()})`;
     case "min": return `(call $m_min_s ${a()} ${b()})`;
@@ -2117,6 +2198,19 @@ function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWant
   if (!ctx.thisType || ctx.thisType.kind !== "template_instance" || expr.callee.kind !== "identifier") return null;
   const name = expr.callee.name;
 
+  // memory builtins used by container bodies: reset → setMem(this, ...); removeByIndex → setMem(&elem, ...).
+  // Kept out of the contract surface (qpi.h hides them from contracts); valid only as statements here.
+  if ((name === "setMem" || name === "copyMem") && !valueWanted) {
+    const dst = emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)";
+    if (name === "copyMem") {
+      const src = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
+      ctx.lines.push(`    (call $copyMem ${dst} ${src} (i32.wrap_i64 ${emitValue(ctx, expr.args[2])}))`);
+    } else {
+      ctx.lines.push(`    (call $setMem ${dst} (i32.wrap_i64 ${emitValue(ctx, expr.args[1])}) (i32.wrap_i64 ${emitValue(ctx, expr.args[2])}))`);
+    }
+    return "";
+  }
+
   // HashFunc::hash(key) — for an id/m256i key the hash is its first 8 bytes; otherwise K12(key).
   if (name.endsWith("::hash")) {
     const keyAddr = emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)";
@@ -2152,8 +2246,9 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
   const h = emitHelperCall(ctx, expr, true);
   if (h !== null) return h;
 
-  if (expr.callee.kind === "identifier") {
-    const m = emitMathCall(ctx, expr.callee.name, expr.args);
+  if (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name") {
+    const nm = expr.callee.kind === "identifier" ? expr.callee.name : `${expr.callee.namespace}::${expr.callee.name}`;
+    const m = emitMathCall(ctx, nm, expr.args);
     if (m !== null) return m;
   }
   if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {

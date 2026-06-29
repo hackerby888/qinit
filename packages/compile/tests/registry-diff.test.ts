@@ -91,6 +91,19 @@ TEST(Registry, HashMapIterateAndRemove) {
   t.invoke<Registry::RemoveBal_output>(4, rb, 0, u1);
   EXPECT_EQ(t.call<Registry::SumAll_output>(3, s).sum, 50ull);
 }
+TEST(Registry, HashMapReuseRemovedSlot) {
+  ContractTest t;
+  QPI::id u1 = t.idFromSeed("fffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+  t.fund(u1, 1000000000ll);
+  Registry::Deposit_input d{}; d.amt = 100ull;
+  t.invoke<Registry::Deposit_output>(3, d, 0, u1);
+  Registry::RemoveBal_input rb{}; rb.who = u1;
+  t.invoke<Registry::RemoveBal_output>(4, rb, 0, u1);
+  d.amt = 200ull;
+  t.invoke<Registry::Deposit_output>(3, d, 0, u1);   // re-insert the same key → set hits the slot it
+  Registry::SumAll_input s{};                          // marked for removal and takes goto reuse_slot
+  EXPECT_EQ(t.call<Registry::SumAll_output>(3, s).sum, 200ull);
+}
 `;
 
 function wasiAvailable(): boolean {
