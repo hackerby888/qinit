@@ -1938,7 +1938,7 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
     return "";
   }
 
-  ctx.cg.warn(`unsupported assignment target`, expr.span.line);
+  ctx.cg.warn(`unsupported assignment target [${describeShape(expr.left)}]`, expr.span.line);
   return "";
 }
 
@@ -2004,7 +2004,7 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
         return `(i64.const 0)`;
       }
       // qpi.invocationReward() etc. handled in call; bare member returns 0
-      ctx.cg.warn(`unsupported member read`, expr.span.line);
+      ctx.cg.warn(`unsupported member read [${describeShape(expr)}]`, expr.span.line);
       return `(i64.const 0)`;
     }
     case "subscript": {
@@ -2682,6 +2682,15 @@ function emitInterContract(ctx: FnCtx, expr: Expression & { kind: "call" }, isIn
   return `(call $liteCallFunction ${dims})`;
 }
 
+function describeShape(e: Expression): string {
+  if (!e) return "?";
+  if (e.kind === "identifier") return e.name;
+  if (e.kind === "member_access") return `${describeShape(e.object)}.${e.member}`;
+  if (e.kind === "call") return `${describeShape(e.callee)}(${e.args.length})`;
+  if (e.kind === "index" || (e as any).kind === "subscript") return `${describeShape((e as any).object)}[]`;
+  return e.kind;
+}
+
 function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // LOG_* macros expand to __logContract{Info,Debug,...}Message — a side channel that does not affect
   // state or the digest, so dropping it is behaviorally faithful.
@@ -2697,6 +2706,21 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
       const outAddr = expr.args[2] ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)") : "(i32.const 0)";
       const locals = `(call $qpiAllocLocals (i32.const ${info.localsSize}))`;
       ctx.lines.push(`    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${locals})`);
+      return;
+    }
+  }
+
+  // Direct PRIVATE_ function call: `priv(qpi, state, in, out, locals)` — QUtil calls its helpers this way
+  // (get_voter_balance/get_qubic_balance) instead of via the CALL macro. The callee is a registered private;
+  // pass the caller's explicit in/out/locals lvalues (the locals sub-struct the caller reserved), not a fresh
+  // frame. Without this the call was dropped ("unsupported call statement"), so out params stayed zero.
+  if (expr.callee.kind === "identifier" && expr.args[0]?.kind === "identifier" && expr.args[0].name === "qpi") {
+    const info = ctx.cg.privates.get(expr.callee.name);
+    if (info) {
+      const inAddr = expr.args[2] ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)") : "(i32.const 0)";
+      const outAddr = expr.args[3] ? (emitAddr(ctx, expr.args[3]) ?? "(i32.const 0)") : "(i32.const 0)";
+      const localsAddr = expr.args[4] ? (emitAddr(ctx, expr.args[4]) ?? `(call $qpiAllocLocals (i32.const ${info.localsSize}))`) : `(call $qpiAllocLocals (i32.const ${info.localsSize}))`;
+      ctx.lines.push(`    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${localsAddr})`);
       return;
     }
   }

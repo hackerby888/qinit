@@ -142,8 +142,11 @@ describe("upstream gtest — contract_qutil.cpp against my QUTIL+QX wasm", () =>
       console.log(`  FAIL  ${r.name || ""} — ${r.message.replace(/\n/g, " ").slice(0, 110)}`);
     }
     // The bridge itself is the artifact; this floor proves it drives my compiled contracts end-to-end and
-    // locks the current yield against regressions. Raise it as compiler correctness gaps close.
-    expect(passed).toBeGreaterThanOrEqual(19);
+    // locks the current yield against regressions. (It dipped from 19 when direct private-fn calls started
+    // executing for real instead of being dropped — two tests had been passing off the no-op's zeroed output.
+    // Vote-family tests now fail honestly: QUtil's state is 384 MB — an Array<Voter, 8.4M> — and the vote
+    // path's huge-array handling is the next gap, not a simple codegen miss.) Raise as gaps close.
+    expect(passed).toBeGreaterThanOrEqual(17);
   }, 300000);
 });
 
