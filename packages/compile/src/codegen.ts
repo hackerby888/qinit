@@ -36,6 +36,11 @@ const SYSPROC_IMPL: Record<string, number> = {
   __impl_endEpoch: 2,
   __impl_beginTick: 3,
   __impl_endTick: 4,
+  __impl_preReleaseShares: 5,
+  __impl_preAcquireShares: 6,
+  __impl_postReleaseShares: 7,
+  __impl_postAcquireShares: 8,
+  __impl_postIncomingTransfer: 9,
 };
 
 // The scaffold renames a lifecycle procedure to its __impl_* name, but its locals struct keeps the macro
@@ -46,6 +51,22 @@ const SYSPROC_LOCALS_PREFIX: Record<string, string> = {
   __impl_endEpoch: "END_EPOCH",
   __impl_beginTick: "BEGIN_TICK",
   __impl_endTick: "END_TICK",
+  __impl_preReleaseShares: "PRE_RELEASE_SHARES",
+  __impl_preAcquireShares: "PRE_ACQUIRE_SHARES",
+  __impl_postReleaseShares: "POST_RELEASE_SHARES",
+  __impl_postAcquireShares: "POST_ACQUIRE_SHARES",
+  __impl_postIncomingTransfer: "POST_INCOMING_TRANSFER",
+};
+
+// Share-transfer / incoming-transfer hooks carry real input (and, for the pre-* pair, output) structs —
+// unlike the lifecycle procedures which are NoData both ways. The structs are qpi.h globals, so size them
+// via layoutOfType (globalStructs), not the nested-only layoutFor.
+const SYSPROC_IO: Record<string, { in?: string; out?: string }> = {
+  __impl_preReleaseShares: { in: "PreManagementRightsTransfer_input", out: "PreManagementRightsTransfer_output" },
+  __impl_preAcquireShares: { in: "PreManagementRightsTransfer_input", out: "PreManagementRightsTransfer_output" },
+  __impl_postReleaseShares: { in: "PostManagementRightsTransfer_input" },
+  __impl_postAcquireShares: { in: "PostManagementRightsTransfer_input" },
+  __impl_postIncomingTransfer: { in: "PostIncomingTransfer_input" },
 };
 
 // Builtin scalar sizes
@@ -921,10 +942,16 @@ export function generateWasmModule(
     const s = cg["nested"].get(name);
     return s ? cg.layoutOf(s) : empty;
   };
+  const layoutOfNamed = (name?: string) => {
+    if (!name) return empty;
+    return cg.layoutOfType({ kind: "name", name }) ?? empty;
+  };
 
   // system procedures. Lifecycle procedures take no input/output but CAN declare locals (the
   // *_WITH_LOCALS forms, e.g. END_EPOCH where contracts run reward distribution) — give them their
-  // <name>_locals frame so locals.* resolves, the same as user functions.
+  // <name>_locals frame so locals.* resolves, the same as user functions. Share-transfer / incoming-
+  // transfer hooks additionally carry a qpi.h input struct (and the pre-* pair an output struct) so the
+  // body's input.* / output.* field accesses resolve.
   const sysprocs: SysProcInfo[] = [];
   let sysIdx = 0;
   for (const m of contract.members) {
@@ -934,8 +961,11 @@ export function generateWasmModule(
       if (spId !== undefined) {
         const label = `$sys_${sysIdx++}`;
         const localsLayout = layoutFor(`${SYSPROC_LOCALS_PREFIX[fn.name] ?? fn.name}_locals`);
-        userFns.push(emitFunction(cg, label, fn, stateLayout, empty, empty, localsLayout));
-        sysprocs.push({ id: spId, localsSize: localsLayout.size, inSize: 0, outSize: 0, label });
+        const io = SYSPROC_IO[fn.name];
+        const inLayout = layoutOfNamed(io?.in);
+        const outLayout = layoutOfNamed(io?.out);
+        userFns.push(emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout));
+        sysprocs.push({ id: spId, localsSize: localsLayout.size, inSize: inLayout.size, outSize: outLayout.size, label });
       }
     }
   }
