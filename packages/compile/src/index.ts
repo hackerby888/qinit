@@ -43,6 +43,9 @@ export interface CompileOpts {
   slot: number;
   arenaSz?: number;
   callees?: CalleeIdl[];
+  // Callee contracts' SOURCE, so the compiler can register their nested struct layouts (`QX::Fees_output`)
+  // for a caller that reads a callee output type. Keyed like callees, by contract name.
+  calleeSources?: Array<{ name: string; source: string }>;
   testSource?: string;
   testPath?: string;
   qpiHeader?: string;
@@ -160,10 +163,28 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
 
   const sema = new Sema();
 
+  // Parse each callee's source and register its contract struct's nested structs under their qualified name
+  // (`QX::Fees_output`), so a caller reading the callee's output type resolves its fields.
+  const calleeStructs = new Map<string, any>();
+  for (const cs of opts.calleeSources ?? []) {
+    const cpp = new Preprocessor();
+    const ctext = cpp.preprocess({ source: `${SCAFFOLD_MACROS}\n${cs.source}`, qpiHeader: "", contractName: cs.name, contractIndex: 0, seedMacros: qpi.macros });
+    const ctu = new Parser(new Lexer(ctext).tokenize()).parseTranslationUnit();
+    for (const d of ctu.declarations) {
+      if (d.kind !== "struct") continue;
+      const s = d as any;
+      const isContract = s.bases?.some((b: any) => b.kind === "name" && b.name === "ContractBase") || s.name === "CONTRACT_STATE_TYPE";
+      if (!isContract) continue;
+      for (const m of s.members ?? []) {
+        if (m.kind === "struct" && m.name) calleeStructs.set(`${cs.name}::${m.name}`, m);
+      }
+    }
+  }
+
   // Codegen → WAT (seeded with the qpi.h library type table)
   let wat: string;
   try {
-    wat = generateWasmModule(tu, sema, opts.name, opts.slot, opts.arenaSz ?? 1024 * 1024 * 1024, qpi.lib, opts.callees);
+    wat = generateWasmModule(tu, sema, opts.name, opts.slot, opts.arenaSz ?? 1024 * 1024 * 1024, qpi.lib, opts.callees, calleeStructs);
   } catch (e: any) {
     diagnostics.push({
       severity: "error",

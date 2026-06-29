@@ -884,9 +884,13 @@ export function generateWasmModule(
   arenaSz: number = 1024 * 1024 * 1024,
   lib?: LibTypes,
   callees?: CalleeIdl[],
+  calleeStructs?: Map<string, StructDecl>,
 ): string {
   const cg = new Codegen(sema);
   for (const c of callees ?? []) cg.callees.set(c.name, c);
+  // Callee struct layouts, keyed by their qualified name (`QX::Fees_output`), so a caller reading a callee's
+  // output type — `locals.qxFeesOutput.transferFee` — resolves its fields instead of folding to 0.
+  if (calleeStructs) for (const [k, v] of calleeStructs) cg.globalStructs.set(k, v);
 
   // Seed the qpi.h library type table (templates / structs / typedefs) parsed once, then add
   // the user contract's own declarations on top.

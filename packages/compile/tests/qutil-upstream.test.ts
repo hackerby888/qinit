@@ -117,7 +117,8 @@ describe("upstream gtest — contract_qutil.cpp against my QUTIL+QX wasm", () =>
     // QUtil calls QX (Fees, transfer-management) via CALL_OTHER_CONTRACT_FUNCTION — feed it QX's callee IDL
     // (index + per-entry inputType) so those calls resolve instead of being dropped.
     const callees = [calleeIdlFrom("QX", QX_IDX, mineQx)];
-    const mineQutil = await compileContract({ source: qutilSrc, name: "QUTIL", slot: QUTIL_IDX, qpiHeader: HEADERS, arenaSz: 8 * 1024 * 1024, callees });
+    const calleeSources = [{ name: "QX", source: qxSrc }];
+    const mineQutil = await compileContract({ source: qutilSrc, name: "QUTIL", slot: QUTIL_IDX, qpiHeader: HEADERS, arenaSz: 8 * 1024 * 1024, callees, calleeSources });
     expect(mineQutil.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(mineQx.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
