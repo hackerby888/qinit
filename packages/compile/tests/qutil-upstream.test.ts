@@ -142,11 +142,10 @@ describe("upstream gtest — contract_qutil.cpp against my QUTIL+QX wasm", () =>
       console.log(`  FAIL  ${r.name || ""} — ${r.message.replace(/\n/g, " ").slice(0, 110)}`);
     }
     // The bridge itself is the artifact; this floor proves it drives my compiled contracts end-to-end and
-    // locks the current yield against regressions. (It dipped from 19 when direct private-fn calls started
-    // executing for real instead of being dropped — two tests had been passing off the no-op's zeroed output.
-    // Vote-family tests now fail honestly: QUtil's state is 384 MB — an Array<Voter, 8.4M> — and the vote
-    // path's huge-array handling is the next gap, not a simple codegen miss.) Raise as gaps close.
-    expect(passed).toBeGreaterThanOrEqual(17);
+    // locks the current yield against regressions. Raise as gaps close. Remaining failures: vote-family
+    // (QUtil's 384 MB Array<Voter, 8.4M> — huge-array handling) + share/asset paths; one hang (28) on the
+    // asset-ownership iterator.
+    expect(passed).toBeGreaterThanOrEqual(19);
   }, 300000);
 });
 
@@ -245,12 +244,12 @@ async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uin
   runner = await WebAssembly.instantiate(mod, imports as any);
   (runner.exports._initialize as Function)?.();
 
-  // These tests cross an epoch boundary (END_EPOCH), which runs FinalizeShareholderStateVarProposals:
-  //   while (qpi(state.proposals).nextProposalIndex(...) >= 0) { ... }
-  // My compiler stubs the ProposalVoting `qpi(...)` wrapper, and the stub returns 0, so the loop never
-  // terminates. A synchronous wasm loop can't be interrupted from JS, so skip them here (they're tracked as
-  // a known compiler gap, not a bridge defect). Drop from this set as ProposalVoting support lands.
-  const HANG = new Set([2, 3, 4, 27, 28]);
+  // Index 28 (DistributeQuToShareholders) loops on an AssetOwnershipIterator —
+  //   for (iter.begin(asset); !iter.reachedEnd(); iter.next())
+  // whose stub never reports end, so it spins. A synchronous wasm loop can't be interrupted from JS, so skip
+  // it (tracked as the asset-iterator gap, not a bridge defect). The ProposalVoting END_EPOCH hangs that used
+  // to be here (2,3,4,27) are fixed (terminating wrapper stub + signed sub-64-bit loads).
+  const HANG = new Set([28]);
   const count = (runner.exports.test_count as Function)() >>> 0;
   for (let i = 0; i < count; i++) {
     if (HANG.has(i)) { results.push({ name: `#${i}`, passed: false, message: "SKIPPED (ProposalVoting END_EPOCH loop unsupported)" }); continue; }

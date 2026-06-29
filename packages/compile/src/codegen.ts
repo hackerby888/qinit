@@ -1496,7 +1496,7 @@ function emitIncDec(ctx: FnCtx, expr: Expression): string {
   // Otherwise a member/element lvalue: load, adjust, store back.
   const addr = tryLvalueAddr(ctx, arg);
   if (addr) {
-    const load = loadAt(addr.addr, addr.size);
+    const load = loadAt(addr.addr, addr.size, isSignedScalarType(addr.type));
     const stored = `(${op} ${load} (i64.const 1))`;
     return storeAt(addr.addr, addr.size, stored);
   }
@@ -1869,14 +1869,28 @@ function addrOf(ptr: string, offset: number): string {
   return `(i32.add ${ptr} (i32.const ${offset}))`;
 }
 
-function loadAt(addr: string, size: number): string {
+// Load a scalar into the i64 value model. Signed sub-64-bit fields MUST sign-extend — else a sint32 holding
+// -1 reads back as 4294967295, and `>= 0` guards (e.g. the proposal-index iteration `while ((i = next()) >=
+// 0)`) never go false → infinite loop. Default unsigned (the common case + back-compat).
+function loadAt(addr: string, size: number, signed = false): string {
   switch (size) {
     case 8: return `(i64.load ${addr})`;
-    case 4: return `(i64.extend_i32_u (i32.load ${addr}))`;
-    case 2: return `(i64.extend_i32_u (i32.load16_u ${addr}))`;
-    case 1: return `(i64.extend_i32_u (i32.load8_u ${addr}))`;
+    case 4: return signed ? `(i64.extend_i32_s (i32.load ${addr}))` : `(i64.extend_i32_u (i32.load ${addr}))`;
+    case 2: return signed ? `(i64.extend_i32_s (i32.load16_s ${addr}))` : `(i64.extend_i32_u (i32.load16_u ${addr}))`;
+    case 1: return signed ? `(i64.extend_i32_s (i32.load8_s ${addr}))` : `(i64.extend_i32_u (i32.load8_u ${addr}))`;
     default: return `(i64.load ${addr})`;
   }
+}
+
+const SIGNED_SCALARS = new Set([
+  "sint8", "sint16", "sint32", "sint64",
+  "signed char", "signed short", "signed int", "signed long long", "long long", "int", "short", "char",
+]);
+function isSignedScalarType(t: TypeSpec | null | undefined): boolean {
+  if (!t) return false;
+  if (t.kind === "const") return isSignedScalarType(t.valueType);
+  if (t.kind === "name") return SIGNED_SCALARS.has(t.name);
+  return false;
 }
 
 function storeAt(addr: string, size: number, value: string): string {
@@ -1925,7 +1939,7 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
       return "";
     }
     const op = compoundOp(expr.op);
-    ctx.lines.push(`    ${storeAt(lhs.addr, lhs.size, `(${op} ${loadAt(lhs.addr, lhs.size)} ${rhs})`)}`);
+    ctx.lines.push(`    ${storeAt(lhs.addr, lhs.size, `(${op} ${loadAt(lhs.addr, lhs.size, isSignedScalarType(lhs.type))} ${rhs})`)}`);
     return "";
   }
 
@@ -1986,7 +2000,7 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       if (ctx.staticConsts?.has(expr.name)) return `(i64.const ${ctx.staticConsts.get(expr.name)})`;
       if (ctx.thisLayout) {
         const tn = resolveAddr(ctx, expr);
-        if (tn && tn.size <= 8) return loadAt(tn.addr, tn.size);
+        if (tn && tn.size <= 8) return loadAt(tn.addr, tn.size, isSignedScalarType(tn.type));
       }
       // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
       const c = ctx.cg.resolveConst(expr.name);
@@ -1998,7 +2012,7 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
     }
     case "member_access": {
       const n = resolveAddr(ctx, expr);
-      if (n && n.size <= 8) return loadAt(n.addr, n.size);
+      if (n && n.size <= 8) return loadAt(n.addr, n.size, isSignedScalarType(n.type));
       if (n) {
         ctx.cg.warn(`aggregate value read unsupported`, expr.span.line);
         return `(i64.const 0)`;
@@ -2009,7 +2023,7 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
     }
     case "subscript": {
       const n = resolveAddr(ctx, expr);
-      if (n && n.size <= 8) return loadAt(n.addr, n.size);
+      if (n && n.size <= 8) return loadAt(n.addr, n.size, isSignedScalarType(n.type));
       ctx.cg.warn(`unsupported subscript value`, (expr as any).span?.line ?? 0);
       return `(i64.const 0)`;
     }
@@ -2073,6 +2087,13 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       }
       ctx.cg.warn(`unsupported sizeof expr`, expr.span.line);
       return `(i64.const 0)`;
+    }
+    case "assign": {
+      // assignment used as a value — `while ((i = next()) >= 0)`, `a = b = 0`. Perform the store (emitAssign
+      // pushes it), then yield the stored value by re-reading the target. The RHS is evaluated once (inside
+      // emitAssign); the re-read has no side effects.
+      emitAssign(ctx, expr);
+      return emitValue(ctx, expr.left);
     }
     default:
       ctx.cg.warn(`unsupported expression '${expr.kind}' as value`, (expr as any).span?.line ?? 0);
@@ -2606,6 +2627,20 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
     }
   }
 
+  // ProposalVoting wrapper `qpi(state.proposals).method(...)` — the shareholder-proposal library. Not
+  // implemented; emit a terminating stub so contracts that iterate proposals don't spin forever. The
+  // iterators return -1 (no-more), which makes `while ((i = ...nextProposalIndex(...)) >= 0)` exit at once;
+  // getters return 0/false (caller treats as "absent" and skips); setProposal returns the invalid-index
+  // sentinel (treated as failure → fee refunded). See qpi.h IMPLEMENT_*ShareholderProposal* macros.
+  {
+    const m = qpiWrapperMethod(expr);
+    if (m) {
+      if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex") return `(i64.const -1)`;
+      if (m === "setProposal") return `(i64.const ${ctx.cg.resolveConst("INVALID_PROPOSAL_INDEX") ?? 65535n})`;
+      return `(i64.const 0)`;
+    }
+  }
+
   // Inter-contract call in value context — the _E forms capture the InterContractCallError into a variable
   // (`InterContractCallError err = __qpi_..._other(...)`). Same lowering as the statement form, but the i32
   // error result flows out instead of being dropped.
@@ -2682,6 +2717,16 @@ function emitInterContract(ctx: FnCtx, expr: Expression & { kind: "call" }, isIn
   return `(call $liteCallFunction ${dims})`;
 }
 
+// The ProposalVoting wrapper call shape: `qpi(<aggregate>).<method>(...)` — a member call whose object is a
+// `qpi(...)` call. Returns the method name, or null if this isn't that shape.
+function qpiWrapperMethod(expr: Expression & { kind: "call" }): string | null {
+  const c = expr.callee;
+  if (c.kind !== "member_access") return null;
+  const o = c.object;
+  if (o.kind === "call" && o.callee.kind === "identifier" && o.callee.name === "qpi") return c.member;
+  return null;
+}
+
 function describeShape(e: Expression): string {
   if (!e) return "?";
   if (e.kind === "identifier") return e.name;
@@ -2695,6 +2740,11 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // LOG_* macros expand to __logContract{Info,Debug,...}Message — a side channel that does not affect
   // state or the digest, so dropping it is behaviorally faithful.
   if (expr.callee.kind === "identifier" && expr.callee.name.startsWith("__logContract")) return;
+
+  // ProposalVoting wrapper `qpi(state.proposals).method(...)` as a statement (getProposal/getVotes/
+  // getVotingSummary write through an out-param) — unimplemented, drop it (leaves the out untouched, which
+  // the caller treats as "no data"). The value-context forms are handled in emitCallValue.
+  if (qpiWrapperMethod(expr)) return;
 
   // CALL(fn, in, out) → __qpi_call_self(fn, in, out): invoke a PRIVATE_ function of this contract,
   // passing the caller's in/out lvalues and a freshly bumped locals frame.
