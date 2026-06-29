@@ -56,7 +56,7 @@ export function Build({ args }: { args: string[] }) {
           const size = result.wasm.byteLength;
           setS({
             phase: "done",
-            r: { ok: true, so: wasmPath, size, hash: "", verify: { ok: true, errors: [] }, idl: result.idl as any },
+            r: { ok: true, so: wasmPath, size, hash: "", idl: result.idl as any },
           });
           return;
         }

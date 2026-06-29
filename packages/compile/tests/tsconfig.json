@@ -6,7 +6,9 @@
     "paths": {
       "@qinit/engine": ["../../engine/src/index.ts"],
       "@qinit/engine/k12": ["../../engine/src/k12.ts"],
-      "@qinit/core": ["../../core/src/index.ts"]
+      "@qinit/core": ["../../core/src/index.ts"],
+      "@qinit/core/project": ["../../core/src/project.ts"],
+      "@qinit/build": ["../../build/src/index.ts"]
     }
   },
   "include": ["./**/*.ts"]

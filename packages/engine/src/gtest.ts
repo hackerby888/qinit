@@ -16,6 +16,8 @@ export interface TestResult {
 
 // The isolated node deploys the test module at a fixed slot; nothing else lives on this throwaway chain.
 const TEST_SLOT = 1;
+// For differential runs, the test runner module lives at its own slot and drives the contract at TEST_SLOT.
+const RUNNER_SLOT = 2;
 
 export async function runTests(testWasm: Uint8Array): Promise<TestResult[]> {
   await initK12();
@@ -99,35 +101,99 @@ export async function runTests(testWasm: Uint8Array): Promise<TestResult[]> {
   if (typeof c.ex.test_count !== "function" || typeof c.ex.run_test !== "function") {
     throw new Error("not a gtest wasm: missing test_count/run_test exports (build with a testSource)");
   }
+  return driveTests(c, sim, reinit, results, read, view);
+}
 
-  // Read a test's name into the io region (scratch, free between tests) — decoded to a JS string before reinit
-  // reuses that region, so a trap mid-test still attributes the failure to the right name.
-  const nameOf = (i: number): string => {
-    const cap = 256;
-    const n = (c.ex.test_name(i >>> 0, c.ioBase >>> 0, cap) as number) >>> 0;
-    return dec.decode(read(c.ioBase, Math.min(n, cap))) || `#${i}`;
+// Differential run: deploy a SEPARATE contract wasm at TEST_SLOT (the one under test) and drive it with the
+// test logic compiled into `testWasm`. Lets a contract built by an independent toolchain (e.g. @qinit/compile)
+// be validated against the very tests that pin the native-clang build's behaviour.
+export async function runTestsAgainst(testWasm: Uint8Array, contractWasm: Uint8Array): Promise<TestResult[]> {
+  await initK12();
+  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const results: TestResult[] = [];
+  const dec = new TextDecoder();
+
+  // The contract under test at TEST_SLOT; the test runner (with thost) at RUNNER_SLOT.
+  const contract = sim.deploy(TEST_SLOT, contractWasm);
+
+  let runner: Contract;
+  const view = () => new Uint8Array(runner.mem.buffer);
+  const read = (off: number, len: number) => view().slice(off >>> 0, (off >>> 0) + (len >>> 0));
+  const write = (off: number, bytes: Uint8Array) => view().set(bytes, off >>> 0);
+
+  // Reset the contract under test (its StateData lives in ITS module's memory, not the runner's).
+  const reinit = (): void => {
+    contract.zeroState();
+    if (contract.hasSysproc(SP.INITIALIZE)) {
+      contract.invoke(KIND.SYSPROC, SP.INITIALIZE, new Uint8Array(0), { entryPoint: SP.INITIALIZE });
+    }
   };
 
-  const count = (c.ex.test_count() as number) >>> 0;
+  const thost: Record<string, Function> = {
+    t_reset: () => { sim.resetLedger(); reinit(); },
+    t_invoke: (it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
+      const input = read(inPtr, inLen);
+      const origin = read(originPtr, 32);
+      const out = sim.procedure(TEST_SLOT, it >>> 0, input, { originator: origin, invocator: origin, reward: BigInt(amount) });
+      const n = Math.min(out.length, outCap >>> 0);
+      if (n) write(outPtr, out.subarray(0, n));
+      return n >>> 0;
+    },
+    t_query: (it: number, inPtr: number, inLen: number, outPtr: number, outCap: number): number => {
+      const input = read(inPtr, inLen);
+      const out = sim.query(TEST_SLOT, it >>> 0, input);
+      const n = Math.min(out.length, outCap >>> 0);
+      if (n) write(outPtr, out.subarray(0, n));
+      return n >>> 0;
+    },
+    t_fund: (idPtr: number, amount: bigint): void => { sim.fund(read(idPtr, 32), BigInt(amount)); },
+    t_balance: (idPtr: number): bigint => sim.balance(read(idPtr, 32)),
+    t_derive: (seedPtr: number, seedLen: number, outPtr: number): void => {
+      const seed = dec.decode(read(seedPtr, seedLen));
+      write(outPtr, deriveKeysSync(seed).publicKey);
+    },
+    t_tick: (n: number): void => { for (let i = 0; i < (n >>> 0); i++) sim.advance(); },
+    t_report: (namePtr: number, nameLen: number, passed: number, msgPtr: number, msgLen: number): void => {
+      results.push({
+        name: dec.decode(read(namePtr, nameLen)),
+        passed: (passed >>> 0) !== 0,
+        message: dec.decode(read(msgPtr, msgLen)),
+      });
+    },
+  };
+
+  runner = sim.deploy(RUNNER_SLOT, testWasm, thost);
+  if (typeof runner.ex.test_count !== "function" || typeof runner.ex.run_test !== "function") {
+    throw new Error("not a gtest wasm: missing test_count/run_test exports (build with a testSource)");
+  }
+  return driveTests(runner, sim, reinit, results, read, view);
+}
+
+// Shared driver: iterate the runner's tests, reset between each, attribute traps to the right name.
+function driveTests(
+  runner: Contract,
+  sim: Sim,
+  reinit: () => void,
+  results: TestResult[],
+  read: (off: number, len: number) => Uint8Array,
+  view: () => Uint8Array,
+): TestResult[] {
+  const dec = new TextDecoder();
+  const nameOf = (i: number): string => {
+    const cap = 256;
+    const n = (runner.ex.test_name(i >>> 0, runner.ioBase >>> 0, cap) as number) >>> 0;
+    return dec.decode(read(runner.ioBase, Math.min(n, cap))) || `#${i}`;
+  };
+
+  const count = (runner.ex.test_count() as number) >>> 0;
   for (let i = 0; i < count; i++) {
     const name = nameOf(i);
+    try { sim.resetLedger(); reinit(); } catch { /* a trapping INITIALIZE shouldn't abort the run */ }
 
-    // Backstop a clean baseline before each test, so a test that forgets to construct a fixture still starts
-    // isolated (matching core's per-test freshness without relying on the test author).
-    try {
-      sim.resetLedger();
-      reinit();
-    } catch {
-      // a trapping INITIALIZE shouldn't abort the whole run — the test's own ContractTest ctor retries.
-    }
-
-    // A contract trap inside the test propagates out of run_test as a thrown wasm trap; catch it so one bad
-    // test fails in isolation instead of aborting every later test. t_report fires last in run_test, so if no
-    // result was pushed, the test trapped before reporting.
     const before = results.length;
     let trap: string | null = null;
     try {
-      c.ex.run_test(i >>> 0);
+      runner.ex.run_test(i >>> 0);
     } catch (e) {
       trap = e instanceof Error ? e.message : String(e);
     }
@@ -137,3 +203,4 @@ export async function runTests(testWasm: Uint8Array): Promise<TestResult[]> {
   }
   return results;
 }
+
