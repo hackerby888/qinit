@@ -236,6 +236,8 @@ export function loadQpiHeader(corePath?: string): string {
       const files = [
         "contract_core/pre_qpi_def.h",
         "contracts/qpi.h",
+        // template method bodies (parsed once, instantiated per contract type) — must follow qpi.h
+        "contract_core/qpi_hash_map_impl.h",
         "contract_core/qpi_proposal_voting.h",
         "oracle_core/oracle_interfaces_def.h",
       ];

@@ -180,6 +180,7 @@ export class Parser {
       case "kw_long":
       case "kw_double":
       case "kw_float":
+      case "kw_auto":
         // Type keyword at top level → likely a variable declaration (or free function)
         return this.parseFunctionOrVariablePeekType();
       case "identifier":
@@ -843,6 +844,12 @@ export class Parser {
       return { kind: "const", valueType: inner, span: tok.span };
     }
 
+    // auto — type inferred from the initializer (in qpi.h bodies these are integer counters / pointers)
+    if (tok.kind === "kw_auto") {
+      this.next();
+      return { kind: "name", name: "auto", span: tok.span };
+    }
+
     // Built-in type keywords
     if (isTypeKeyword(tok.kind)) {
       return this.parseBuiltinType();
@@ -1348,6 +1355,16 @@ export class Parser {
         }
       } else if (tok.kind === "identifier") {
         parts.push(this.next().text);
+        // ClassTemplate<args>::method — out-of-class definition. Drop the qualifier's template args
+        // (the binding is recovered from the template<> header), keep the qualified name.
+        if (this.peek().kind === "l_angle") {
+          const save = (this.lex as any).index;
+          if (this.skipAngleArgs() && this.peek().kind === "d_colon") {
+            // committed — fall through to the d_colon handler below
+          } else {
+            (this.lex as any).index = save;
+          }
+        }
       } else if (tok.kind === "tilde" && this.peek(1).kind === "identifier") {
         // ~ClassName (destructor name)
         this.next();
@@ -1371,6 +1388,50 @@ export class Parser {
 
   private parseMaybeQualifiedName(): string {
     return this.parseQualifiedName();
+  }
+
+  // Parse a comma-operator sequence (`i++, flags >>= 2`) into one expression. Used where a comma joins
+  // side-effecting expressions (for-update). A single expression returns as-is.
+  private parseCommaSequence(): Expression {
+    const first = this.parseExpression();
+    if (this.peek().kind !== "comma") return first;
+    const exprs = [first];
+    while (this.peek().kind === "comma") {
+      this.next();
+      exprs.push(this.parseExpression());
+    }
+    return { kind: "sequence", exprs, span: first.span };
+  }
+
+  // A local variable declaration at statement start (a typedef'd type name, not a keyword): `Type var`,
+  // `Type* var`, `Type& var`, or a `const`/`auto` lead. `identifier identifier` is never a valid
+  // expression statement in C++, so this is unambiguous. (Contract bodies have no stack locals, but
+  // qpi.h's template method bodies — which we compile — do.)
+  private looksLikeLocalDecl(): boolean {
+    const t0 = this.peek().kind;
+    if (t0 === "kw_const" || t0 === "kw_auto") return true;
+    if (t0 !== "identifier") return false;
+    const t1 = this.peek(1).kind;
+    if (t1 === "identifier") return true;
+    if ((t1 === "star" || t1 === "amp") && this.peek(2).kind === "identifier") return true;
+    return false;
+  }
+
+  // Consume a balanced <...> template-argument group (handling nested <> and >>). Returns true if it
+  // closed cleanly. Caller saves/restores the position for speculative use.
+  private skipAngleArgs(): boolean {
+    if (this.peek().kind !== "l_angle") return false;
+    this.next(); // <
+    let depth = 1, guard = 0;
+    while (!this.eof() && depth > 0 && guard++ < 500) {
+      const k = this.peek().kind;
+      if (k === "l_angle") { depth++; this.next(); continue; }
+      if (k === "r_angle") { depth--; this.next(); continue; }
+      if (k === "r_shift") { depth -= 2; this.next(); continue; }
+      if (k === "semicolon" || k === "l_brace") return false;
+      this.next();
+    }
+    return depth <= 0;
   }
 
   // Decide whether `( ... )` begins a C-style cast vs a parenthesized expression. Only a *pure type*
@@ -1510,7 +1571,7 @@ export class Parser {
       tok.kind === "kw_enum" || tok.kind === "kw_struct" || tok.kind === "kw_class" ||
       tok.kind === "kw_union" || tok.kind === "kw_namespace" || tok.kind === "kw_template" ||
       tok.kind === "kw_extern" || tok.kind === "kw_unsigned" || tok.kind === "kw_signed" ||
-      tok.kind === "kw_long") {
+      tok.kind === "kw_long" || this.looksLikeLocalDecl()) {
       const decl = this.parseDeclaration();
       if (decl) {
         return { kind: "declaration", decl, span: this.peek().span };
@@ -1577,8 +1638,8 @@ export class Parser {
 
     // for (;;)
     if (this.peek().kind !== "semicolon") {
-      // Could be declaration or expression
-      if (isTypeKeyword(this.peek().kind)) {
+      // Could be a declaration (`for (sint64 i = 0; ...)`) or an expression init.
+      if (isTypeKeyword(this.peek().kind) || this.looksLikeLocalDecl()) {
         const decl = this.parseDeclaration();
         if (decl) {
           init = { kind: "declaration", decl, span: decl.span ?? this.peek().span };
@@ -1588,7 +1649,8 @@ export class Parser {
         init = { kind: "expression", expr, span: expr.span };
       }
     }
-    this.expect("semicolon", "for init");
+    // parseDeclaration may or may not consume the trailing ';'; consume it here if still present.
+    if (this.peek().kind === "semicolon") this.next();
 
     if (this.peek().kind !== "semicolon") {
       cond = this.parseExpression();
@@ -1596,7 +1658,7 @@ export class Parser {
     this.expect("semicolon", "for cond");
 
     if (this.peek().kind !== "r_paren") {
-      update = this.parseExpression();
+      update = this.parseCommaSequence();
     }
     this.expect("r_paren", "for close");
 

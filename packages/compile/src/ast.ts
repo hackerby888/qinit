@@ -76,6 +76,7 @@ export type Expression =
   // Member access
   | { kind: "member_access"; object: Expression; member: string; arrow: boolean; span: Span }  // obj.member / ptr->member
   | { kind: "subscript"; object: Expression; index: Expression; span: Span }                    // obj[index] (internal)
+  | { kind: "sequence"; exprs: Expression[]; span: Span }                                        // a, b (comma operator)
   // Function call
   | { kind: "call"; callee: Expression; args: Expression[]; span: Span }
   | { kind: "template_call"; callee: Expression; templateArgs: TypeSpec[]; args: Expression[]; span: Span }  // fn<T>(args)

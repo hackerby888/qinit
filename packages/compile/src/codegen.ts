@@ -47,6 +47,7 @@ const SCALAR_SIZE: Record<string, number> = {
   sint64: 8, uint64: 8, "signed long long": 8, "unsigned long long": 8, "long long": 8,
   uint128: 16,
   id: 32, m256i: 32,
+  auto: 8,   // `auto` locals in qpi.h bodies are integer counters (pointer cases carry a trailing *)
 };
 
 interface Bindings {
