@@ -278,8 +278,13 @@ class Codegen {
       if (v !== undefined) return v;
       const n = parseInt(t.name);
       if (!isNaN(n)) return BigInt(n);
-      const e = this.sema.evaluateConstexpr({ kind: "identifier", name: t.name, span: { start: 0, end: 0, line: 0, col: 0 } });
-      if (e !== null) return e;
+      // a named constant template arg (e.g. Array<RoundInfo, QEARN_MAX_EPOCHS>)
+      const c = this.resolveConst(t.name);
+      if (c !== null) return c;
+      if (this.sema && typeof this.sema.evaluateConstexpr === "function") {
+        const e = this.sema.evaluateConstexpr({ kind: "identifier", name: t.name, span: { start: 0, end: 0, line: 0, col: 0 } });
+        if (e !== null) return e;
+      }
     }
     return 0n;
   }
@@ -1145,6 +1150,11 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     return { addr: "(local.get $state)", type: null, size: ctx.state.size, layout: ctx.state };
   }
 
+  // a container element getter (arr.get(i), map.value(i)/key(i)) is an lvalue we can keep chaining from
+  if (expr.kind === "call") {
+    return resolveContainerElem(ctx, expr);
+  }
+
   // member access: resolve the object, then index its field
   if (expr.kind === "member_access") {
     const parent = resolveAddr(ctx, expr.object);
@@ -1204,36 +1214,36 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     }
   }
 
-  // container element accessors return a reference into the backing array: key(i)/value(i)/get(i)
-  if (expr.kind === "call" && expr.callee.kind === "member_access") {
-    const ce = containerElemAddr(ctx, expr);
-    if (ce) return ce;
-  }
-
   const n = resolveAddr(ctx, expr);
   return n ? n.addr : null;
 }
 
-// Address of a container element field: HashMap/HashSet key(i)/value(i), Array get(i). The returned
-// address is an lvalue into the backing store (used for aggregate reads/compares/copies).
-function containerElemAddr(ctx: FnCtx, expr: Expression & { kind: "call" }): string | null {
+// Resolve a container element getter to an addressable node: Array.get(i) → T, HashMap value(i) → V /
+// key(i) → K, HashSet key(i) → K. The element address is an lvalue into the backing store, and the
+// element TYPE lets resolveAddr keep chaining (e.g. arr.get(i).field). Element type + offsets are
+// derived from the template args, never hardcoded.
+function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "call" }): AddrNode | null {
   if (expr.callee.kind !== "member_access") return null;
   const node = resolveAddr(ctx, expr.callee.object);
-  if (!node || node.type?.kind !== "template_instance") return null;
+  if (!node || node.type?.kind !== "template_instance" || !expr.args[0]) return null;
   const m = expr.callee.member;
   const C = (n: number) => `(i32.const ${n})`;
+  const mk = (addr: string, elemType: TypeSpec): AddrNode => ({
+    addr, type: elemType, size: ctx.cg.sizeOfType(elemType), layout: ctx.cg.layoutOfType(elemType),
+  });
 
-  if (node.type.name === "HashMap" || node.type.name === "HashSet") {
-    const info = node.type.name === "HashSet" ? ctx.cg.hashsetInfo(node.type.args) : ctx.cg.hashmapInfo(node.type.args);
-    if (!info || !expr.args[0]) return null;
-    const elem = `(call $hm_elem ${node.addr} (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)})`;
-    if (m === "key") return elem;
-    if (m === "value") return `(i32.add ${elem} ${C(info.valOff!)})`;
-  }
   if (node.type.name === "Array" && m === "get") {
     const info = ctx.cg.arrayInfo(node.type.args);
-    if (!info || !expr.args[0]) return null;
-    return `(i32.add ${node.addr} (i32.mul (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)}))`;
+    if (!info) return null;
+    const addr = `(i32.add ${node.addr} (i32.mul (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)}))`;
+    return mk(addr, node.type.args[0]);
+  }
+  if (node.type.name === "HashMap" || node.type.name === "HashSet") {
+    const info = node.type.name === "HashSet" ? ctx.cg.hashsetInfo(node.type.args) : ctx.cg.hashmapInfo(node.type.args);
+    if (!info) return null;
+    const elem = `(call $hm_elem ${node.addr} (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)})`;
+    if (m === "key") return mk(elem, node.type.args[0]);
+    if (m === "value" && node.type.name === "HashMap") return mk(`(i32.add ${elem} ${C(info.valOff!)})`, node.type.args[1]);
   }
   return null;
 }
