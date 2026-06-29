@@ -1063,9 +1063,27 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     return materializeId(ctx, []);
   }
 
+  // qpi.invocator() / qpi.originator() return an id by value → materialize via the ctx forwarder.
+  if (expr.kind === "call" && expr.callee.kind === "member_access" &&
+    expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
+    const fwd = QPI_ID_PRODUCERS[expr.callee.member];
+    if (fwd) {
+      const t = newTmp(ctx);
+      ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 32)))`);
+      ctx.lines.push(`    (call ${fwd} (local.get $${t}))`);
+      return `(local.get $${t})`;
+    }
+  }
+
   const n = resolveAddr(ctx, expr);
   return n ? n.addr : null;
 }
+
+// qpi.* zero-arg accessors that return a 32-byte id by value, written to an out address.
+const QPI_ID_PRODUCERS: Record<string, string> = {
+  invocator: "$qpi_invocator",
+  originator: "$qpi_originator",
+};
 
 // Materialize a 256-bit id/m256i from up to four 64-bit limb expressions into scratch; returns its addr.
 function materializeId(ctx: FnCtx, limbs: Expression[]): string {
@@ -1262,7 +1280,26 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
   }
 }
 
+// Address+size of an operand that is an aggregate (id/m256i/struct): a struct-field lvalue, or a
+// materialized id producer (SELF / id(...) / qpi.invocator()). Null for scalars.
+function aggOperand(ctx: FnCtx, expr: Expression): { addr: string; size: number } | null {
+  const n = resolveAddr(ctx, expr);
+  if (n) return n.size > 8 ? { addr: n.addr, size: n.size } : null;
+  const a = emitAddr(ctx, expr);
+  return a ? { addr: a, size: 32 } : null;
+}
+
 function emitBinary(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): string {
+  // id/struct equality compares bytes, not an i64 value.
+  if (expr.op === "==" || expr.op === "!=") {
+    const la = aggOperand(ctx, expr.left);
+    const ra = aggOperand(ctx, expr.right);
+    if (la && ra) {
+      const eq = `(call $memeq ${la.addr} ${ra.addr} (i32.const ${Math.min(la.size, ra.size)}))`;
+      return expr.op === "==" ? `(i64.extend_i32_u ${eq})` : `(i64.extend_i32_u (i32.eqz ${eq}))`;
+    }
+  }
+
   const l = emitValue(ctx, expr.left);
   const r = emitValue(ctx, expr.right);
   const cmp = (op: string) => `(i64.extend_i32_u (${op} ${l} ${r}))`;
@@ -1495,6 +1532,10 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
 
 // statement call: a container mutation or a side-effecting qpi host call.
 function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
+  // LOG_* macros expand to __logContract{Info,Debug,...}Message — a side channel that does not affect
+  // state or the digest, so dropping it is behaviorally faithful.
+  if (expr.callee.kind === "identifier" && expr.callee.name.startsWith("__logContract")) return;
+
   const c = emitContainerCall(ctx, expr, false);
   if (c !== null) return;
 
