@@ -557,8 +557,21 @@ class Codegen {
     return layout ? layout.fields.get(member) ?? null : null;
   }
 
-  // Concrete offsets/sizes for HashMap<K,V,L> matching the real qpi.h layout:
-  //   Element _elements[L] @0 (key@0, value@valOff), _occupationFlags @occBase, _population @popOff.
+  // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they
+  // track the real field order / occupation-flag sizing rather than a baked-in formula). Returns null
+  // if the template body wasn't captured, in which case callers fall back to the structural formula.
+  private hashContainerOffsets(name: string, args: TypeSpec[], b: Bindings, L: number): { elemSize: number; occBase: number; popOff: number; totalSize: number } | null {
+    if (!this.templates.has(name) || !L) return null;
+    const lt = this.layoutOfTemplate(name, args, b);
+    const el = lt.fields.get("_elements") ?? lt.fields.get("_keys");   // HashMap: _elements; HashSet: _keys
+    const occ = lt.fields.get("_occupationFlags");
+    const pop = lt.fields.get("_population");
+    if (!el || !occ || !pop) return null;
+    return { elemSize: Math.floor(el.size / L), occBase: occ.offset, popOff: pop.offset, totalSize: lt.size };
+  }
+
+  // Concrete offsets/sizes for HashMap<K,V,L>. Key/value sizing follows standard C struct layout of
+  // Element{K key; V value}; the occupation/population offsets come from the parsed qpi.h layout.
   hashmapInfo(args: TypeSpec[], b: Bindings = NO_BIND): ContainerInfo | null {
     if (args.length < 3) return null;
     const keySize = this.sizeOfType(args[0], b);
@@ -567,12 +580,12 @@ class Codegen {
     if (!L || keySize <= 0 || valSize <= 0) return null;
     const elemAlign = Math.max(this.alignOfType(args[0], b), this.alignOfType(args[1], b));
     const valOff = this.alignUp(keySize, this.alignOfType(args[1], b));
-    const elemSize = this.alignUp(valOff + valSize, elemAlign);
-    const elementsBytes = elemSize * L;
-    const occBytes = Math.floor((L * 2 + 63) / 64) * 8;
-    const occBase = elementsBytes;
-    const popOff = elementsBytes + occBytes;
-    const totalSize = popOff + 16; // _population + _markRemovalCounter
+
+    const parsed = this.hashContainerOffsets("HashMap", args, b, L);
+    const elemSize = parsed?.elemSize ?? this.alignUp(valOff + valSize, elemAlign);
+    const occBase = parsed?.occBase ?? elemSize * L;
+    const popOff = parsed?.popOff ?? occBase + Math.floor((L * 2 + 63) / 64) * 8;
+    const totalSize = parsed?.totalSize ?? popOff + 16;
     const hashMode = keySize === 32 ? 0 : 1;
     return { kind: "HashMap", L, elemSize, keySize, valOff, valSize, occBase, popOff, totalSize, hashMode };
   }
@@ -583,12 +596,12 @@ class Codegen {
     const keySize = this.sizeOfType(args[0], b);
     const L = Number(this.evalConstFromType(args[1], b));
     if (!L || keySize <= 0) return null;
-    const elemSize = this.alignUp(keySize, this.alignOfType(args[0], b));
-    const elementsBytes = elemSize * L;
-    const occBytes = Math.floor((L * 2 + 63) / 64) * 8;
-    const occBase = elementsBytes;
-    const popOff = elementsBytes + occBytes;
-    const totalSize = popOff + 16;
+
+    const parsed = this.hashContainerOffsets("HashSet", args, b, L);
+    const elemSize = parsed?.elemSize ?? this.alignUp(keySize, this.alignOfType(args[0], b));
+    const occBase = parsed?.occBase ?? elemSize * L;
+    const popOff = parsed?.popOff ?? occBase + Math.floor((L * 2 + 63) / 64) * 8;
+    const totalSize = parsed?.totalSize ?? popOff + 16;
     const hashMode = keySize === 32 ? 0 : 1;
     return { kind: "HashMap", L, elemSize, keySize, valOff: 0, valSize: 0, occBase, popOff, totalSize, hashMode };
   }
