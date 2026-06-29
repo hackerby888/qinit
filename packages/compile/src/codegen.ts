@@ -38,6 +38,16 @@ const SYSPROC_IMPL: Record<string, number> = {
   __impl_endTick: 4,
 };
 
+// The scaffold renames a lifecycle procedure to its __impl_* name, but its locals struct keeps the macro
+// spelling (END_EPOCH_locals, ...). Map the impl name back so the right locals frame is found.
+const SYSPROC_LOCALS_PREFIX: Record<string, string> = {
+  __impl_initialize: "INITIALIZE",
+  __impl_beginEpoch: "BEGIN_EPOCH",
+  __impl_endEpoch: "END_EPOCH",
+  __impl_beginTick: "BEGIN_TICK",
+  __impl_endTick: "END_TICK",
+};
+
 // Builtin scalar sizes
 const SCALAR_SIZE: Record<string, number> = {
   bool: 1, bit: 1,
@@ -850,7 +860,15 @@ export function generateWasmModule(
     });
   }
 
-  // system procedures
+  const empty = { size: 0, align: 1, fields: new Map() };
+  const layoutFor = (name: string) => {
+    const s = cg["nested"].get(name);
+    return s ? cg.layoutOf(s) : empty;
+  };
+
+  // system procedures. Lifecycle procedures take no input/output but CAN declare locals (the
+  // *_WITH_LOCALS forms, e.g. END_EPOCH where contracts run reward distribution) — give them their
+  // <name>_locals frame so locals.* resolves, the same as user functions.
   const sysprocs: SysProcInfo[] = [];
   let sysIdx = 0;
   for (const m of contract.members) {
@@ -859,18 +877,14 @@ export function generateWasmModule(
       const spId = SYSPROC_IMPL[fn.name];
       if (spId !== undefined) {
         const label = `$sys_${sysIdx++}`;
-        userFns.push(emitFunction(cg, label, fn, stateLayout, { size: 0, align: 1, fields: new Map() }, { size: 0, align: 1, fields: new Map() }, { size: 0, align: 1, fields: new Map() }));
-        sysprocs.push({ id: spId, localsSize: 0, inSize: 0, outSize: 0, label });
+        const localsLayout = layoutFor(`${SYSPROC_LOCALS_PREFIX[fn.name] ?? fn.name}_locals`);
+        userFns.push(emitFunction(cg, label, fn, stateLayout, empty, empty, localsLayout));
+        sysprocs.push({ id: spId, localsSize: localsLayout.size, inSize: 0, outSize: 0, label });
       }
     }
   }
 
   // PRIVATE_ functions share the entry (ctx,state,in,out,locals) shape — emit them with emitFunction.
-  const empty = { size: 0, align: 1, fields: new Map() };
-  const layoutFor = (name: string) => {
-    const s = cg["nested"].get(name);
-    return s ? cg.layoutOf(s) : empty;
-  };
   for (const fn of privateFns) {
     const info = cg.privates.get(fn.name)!;
     userFns.push(emitFunction(cg, info.label, fn, stateLayout, layoutFor(`${fn.name}_input`), layoutFor(`${fn.name}_output`), layoutFor(`${fn.name}_locals`)));
