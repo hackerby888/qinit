@@ -68,6 +68,14 @@ interface Bindings {
 
 const NO_BIND: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
 
+// Callee contract IDL for inter-contract calls — name → contract index + per-entry input type / IO sizes.
+export interface CalleeIdl {
+  name: string;
+  index: number;
+  functions: Record<string, { inputType: number; inSize: number; outSize: number }>;
+  procedures: Record<string, { inputType: number; inSize: number; outSize: number }>;
+}
+
 class Codegen {
   private sema: Sema;
   private nested: Map<string, StructDecl> = new Map();          // contract-local nested structs
@@ -83,6 +91,7 @@ class Codegen {
   private constInProgress = new Set<string>();
   helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
   privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()
+  callees: Map<string, CalleeIdl> = new Map();      // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
   private layoutCache: Map<string, StructLayout> = new Map();
   warnings: CodegenWarning[] = [];
 
@@ -806,8 +815,10 @@ export function generateWasmModule(
   slot: number,
   arenaSz: number = 1024 * 1024 * 1024,
   lib?: LibTypes,
+  callees?: CalleeIdl[],
 ): string {
   const cg = new Codegen(sema);
+  for (const c of callees ?? []) cg.callees.set(c.name, c);
 
   // Seed the qpi.h library type table (templates / structs / typedefs) parsed once, then add
   // the user contract's own declarations on top.
@@ -2485,6 +2496,34 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
 }
 
 // statement call: a container mutation or a side-effecting qpi host call.
+// Lower an inter-contract call to the host forwarder ($liteCallFunction / $liteInvokeProcedure). The
+// callee contract index comes from the provided callee IDL (or a <NAME>_CONTRACT_INDEX constant); the
+// entry's input-type number selects the function/procedure at that contract. IO sizes come from the
+// in/out lvalues (falling back to the IDL). Returns null when the callee can't be resolved.
+function emitInterContract(ctx: FnCtx, expr: Expression & { kind: "call" }, isInvoke: boolean): string | null {
+  const cArg = expr.args[0], fArg = expr.args[1];
+  if (cArg?.kind !== "identifier" || fArg?.kind !== "identifier") return null;
+  const callee = ctx.cg.callees.get(cArg.name);
+  let idx: number | null = callee?.index ?? null;
+  if (idx === null) {
+    const c = ctx.cg.resolveConst(`${cArg.name}_CONTRACT_INDEX`);
+    if (c !== null) idx = Number(c);
+  }
+  const entry = isInvoke ? callee?.procedures[fArg.name] : callee?.functions[fArg.name];
+  if (idx === null || !entry) return null;
+
+  const inAddr = expr.args[2] ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)") : "(i32.const 0)";
+  const outAddr = expr.args[3] ? (emitAddr(ctx, expr.args[3]) ?? "(i32.const 0)") : "(i32.const 0)";
+  const inSize = (expr.args[2] ? resolveAddr(ctx, expr.args[2])?.size : undefined) ?? entry.inSize;
+  const outSize = (expr.args[3] ? resolveAddr(ctx, expr.args[3])?.size : undefined) ?? entry.outSize;
+  const dims = `(i32.const ${idx}) (i32.const ${entry.inputType}) ${inAddr} (i32.const ${inSize}) ${outAddr} (i32.const ${outSize})`;
+  if (isInvoke) {
+    const reward = expr.args[4] ? emitValue(ctx, expr.args[4]) : "(i64.const 0)";
+    return `    (drop (call $liteInvokeProcedure ${dims} ${reward}))`;
+  }
+  return `    (drop (call $liteCallFunction ${dims}))`;
+}
+
 function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // LOG_* macros expand to __logContract{Info,Debug,...}Message — a side channel that does not affect
   // state or the digest, so dropping it is behaviorally faithful.
@@ -2502,6 +2541,15 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
       ctx.lines.push(`    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${locals})`);
       return;
     }
+  }
+
+  // CALL_OTHER_CONTRACT_FUNCTION(C,f,in,out) / INVOKE_OTHER_CONTRACT_PROCEDURE(C,p,in,out,reward) → a
+  // host-mediated call into the contract at C's index. Needs C's callee IDL (index + entry input type).
+  if (expr.callee.kind === "identifier" && (expr.callee.name === "__qpi_call_other" || expr.callee.name === "__qpi_invoke_other")) {
+    const wat = emitInterContract(ctx, expr, expr.callee.name === "__qpi_invoke_other");
+    if (wat) ctx.lines.push(wat);
+    else ctx.cg.warn(`unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`, expr.span.line);
+    return;
   }
 
   const tc = emitThisCall(ctx, expr, false);

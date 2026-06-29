@@ -163,7 +163,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   // Codegen → WAT (seeded with the qpi.h library type table)
   let wat: string;
   try {
-    wat = generateWasmModule(tu, sema, opts.name, opts.slot, opts.arenaSz ?? 1024 * 1024 * 1024, qpi.lib);
+    wat = generateWasmModule(tu, sema, opts.name, opts.slot, opts.arenaSz ?? 1024 * 1024 * 1024, qpi.lib, opts.callees);
   } catch (e: any) {
     diagnostics.push({
       severity: "error",

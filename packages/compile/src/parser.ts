@@ -1939,10 +1939,13 @@ export class Parser {
     if (call.callee?.kind === "member_access" &&
       (call.callee.member === "__registerUserFunction" || call.callee.member === "__registerUserProcedure")) {
       const kind = call.callee.member === "__registerUserFunction" ? 0 : 1;
+      // sizeof(Foo_input) parses as sizeof_type when Foo_input is a known type keyword, but as sizeof_expr
+      // when it is a bare struct name (the common case) — accept either.
+      const isSizeof = (a: any) => a?.kind === "sizeof_type" || a?.kind === "sizeof_expr";
       if (call.args.length >= 5 &&
         call.args[1]?.kind === "int_literal" &&
-        call.args[2]?.kind === "sizeof_type" &&
-        call.args[3]?.kind === "sizeof_type") {
+        isSizeof(call.args[2]) &&
+        isSizeof(call.args[3])) {
         const inputType = parseInt(call.args[1].value);
         const fnName = call.args[0]?.kind === "identifier" ? call.args[0].name :
           call.args[0]?.kind === "c_cast" ? call.args[0].expr?.name : "";
