@@ -866,7 +866,9 @@ export function generateWasmModule(
       const localsStruct = cg["nested"].get(`${fn.name}_locals`);
       cg.privates.set(fn.name, { label: `$priv_${fn.name}`, localsSize: localsStruct ? cg.layoutOf(localsStruct).size : 0 });
       privateFns.push(fn);
-    } else {
+    } else if (!cg.helpers.has(fn.name)) {
+      // overloaded helpers (min(uint64,...) and min(sint64,...)) share one $h_<name> — first wins, so
+      // the function is emitted once (a second emission would redefine the wasm function).
       const params = fn.params.map((p) => {
         const isAddr = cg.isAggregateType(p.type);
         return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
