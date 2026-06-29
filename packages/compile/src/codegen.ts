@@ -266,7 +266,7 @@ class Codegen {
       const td = this.typedefs.get(t.name);
       if (td) return this.sizeOfType(td, b);
 
-      const struct = b.structs.get(t.name) ?? this.nested.get(t.name) ?? this.globalStructs.get(t.name);
+      const struct = this.structByName(t.name, b);
       if (struct) return this.layoutOfStruct(struct, b).size;
 
       // an enum value type → 4 bytes; or numeric literal as a type arg
@@ -464,7 +464,7 @@ class Codegen {
       if (s !== undefined) return Math.min(s, 8);
       const td = this.typedefs.get(t.name);
       if (td) return this.alignOfTypeB(td, b);
-      const struct = b.structs.get(t.name) ?? this.nested.get(t.name) ?? this.globalStructs.get(t.name);
+      const struct = this.structByName(t.name, b);
       if (struct) return this.layoutOfStruct(struct, b).align;
       return 4;
     }
@@ -621,6 +621,21 @@ class Codegen {
     return this.alignOfTypeB(t, b);
   }
 
+  // Resolve a struct by name across the binding / nested / global tables. Falls back to the unqualified
+  // suffix so a namespace-qualified type (`QPI::Entity` under `using namespace QPI`) finds its layout —
+  // without it, `entity.incomingAmount` became an unsupported member read folded to 0 (get_qubic_balance
+  // then computed 0 - 0 and every voter balance read as 0).
+  structByName(name: string, b: Bindings): StructDecl | undefined {
+    const hit = b.structs.get(name) ?? this.nested.get(name) ?? this.globalStructs.get(name);
+    if (hit) return hit;
+    const i = name.lastIndexOf("::");
+    if (i >= 0) {
+      const u = name.slice(i + 2);
+      return b.structs.get(u) ?? this.nested.get(u) ?? this.globalStructs.get(u);
+    }
+    return undefined;
+  }
+
   // Strip const/reference wrappers to the underlying type (a by-ref aggregate param holds an address
   // to this type, and its fields are laid out by this type).
   derefType(t: TypeSpec): TypeSpec {
@@ -653,7 +668,7 @@ class Codegen {
       if (SCALAR_SIZE[t.name] !== undefined) return null;
       const td = this.typedefs.get(t.name);
       if (td) return this.layoutOfType(td, b);
-      const s = b.structs.get(t.name) ?? this.nested.get(t.name) ?? this.globalStructs.get(t.name);
+      const s = this.structByName(t.name, b);
       if (s) return this.layoutOfStruct(s, b);
     }
     return null;
@@ -669,7 +684,7 @@ class Codegen {
       if (bound) return this.structOf(bound, b);
       const td = this.typedefs.get(t.name);
       if (td) return this.structOf(td, b);
-      return b.structs.get(t.name) ?? this.nested.get(t.name) ?? this.globalStructs.get(t.name) ?? null;
+      return this.structByName(t.name, b) ?? null;
     }
     return null;
   }
