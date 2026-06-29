@@ -1738,6 +1738,12 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     return base;
   }
 
+  // AssetOwnership/PossessionIterator.possessor()/owner() → address of the id in the current buffer record.
+  if (expr.kind === "call" && expr.callee.kind === "member_access") {
+    const ai = emitAssetIter(ctx, expr, "addr");
+    if (ai !== null) return ai;
+  }
+
   // qpi.invocator() / qpi.originator() return an id by value → materialize via the ctx forwarder.
   if (expr.kind === "call" && expr.callee.kind === "member_access" &&
     expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
@@ -2623,6 +2629,48 @@ function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWa
 
 // Inside a compiled container method: a call to a sibling method of *this (getElementIndex(key)) or the
 // hash functor (HashFunc::hash(key)). Returns null when not applicable.
+// AssetOwnership/PossessionIterator — the contract only touches it through its methods, so we control its
+// representation: iter[0]=record count, iter[4]=cursor. begin() runs the assetEnumerate host import (kind 0
+// ownership / 1 possession) into the framework's $assetIterBase buffer (80-byte records: owner@0,
+// possessor@32, shares@64); the cursor walks it. Returns the WAT for value/addr modes, pushes lines for stmt.
+function emitAssetIter(ctx: FnCtx, expr: Expression & { kind: "call" }, mode: "stmt" | "value" | "addr"): string | null {
+  if (expr.callee.kind !== "member_access") return null;
+  const node = resolveAddr(ctx, expr.callee.object);
+  const tn = node?.type?.kind === "name" ? (node.type as any).name : null;
+  if (!node || (tn !== "AssetOwnershipIterator" && tn !== "AssetPossessionIterator")) return null;
+  const method = expr.callee.member;
+  const it = newTmp(ctx);
+  ctx.lines.push(`    (local.set $${it} ${node.addr})`);
+  const iter = `(local.get $${it})`;
+  const count = `(i32.load ${iter})`;
+  const cursor = `(i32.load (i32.add ${iter} (i32.const 4)))`;
+  const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const 80)))`;
+
+  if (method === "begin") {
+    const sel = newTmp(ctx);
+    ctx.lines.push(`    (local.set $${sel} (call $qpiAllocLocals (i32.const 40)))`);
+    const s = `(local.get $${sel})`;
+    ctx.lines.push(`    (call $setMem ${s} (i32.const 40) (i32.const 0))`);   // any-select: anyId + anyMgmt
+    ctx.lines.push(`    (i32.store8 (i32.add ${s} (i32.const 34)) (i32.const 1))`);
+    ctx.lines.push(`    (i32.store8 (i32.add ${s} (i32.const 35)) (i32.const 1))`);
+    const asset = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
+    const kind = tn === "AssetPossessionIterator" ? 1 : 0;
+    ctx.lines.push(`    (i32.store ${iter} (call $lh_assetEnumerate (i32.const ${kind}) ${asset} ${s} ${s} (global.get $assetIterBase) (i32.const 1024)))`);
+    ctx.lines.push(`    (i32.store (i32.add ${iter} (i32.const 4)) (i32.const 0))`);
+    return "";
+  }
+  if (method === "next") {
+    ctx.lines.push(`    (i32.store (i32.add ${iter} (i32.const 4)) (i32.add ${cursor} (i32.const 1)))`);
+    return "";
+  }
+  if (method === "reachedEnd") return `(i64.extend_i32_u (i32.ge_u ${cursor} ${count}))`;
+  if (method === "numberOfPossessedShares" || method === "numberOfOwnedShares") return `(i64.load (i32.add ${rec} (i32.const 64)))`;
+  if (method === "possessor") return mode === "addr" ? `(i32.add ${rec} (i32.const 32))` : `(i64.load (i32.add ${rec} (i32.const 32)))`;
+  if (method === "owner") return mode === "addr" ? rec : `(i64.load ${rec})`;
+  if (method === "ownershipManagingContract") return `(i64.extend_i32_u (i32.load16_u (i32.add ${rec} (i32.const 72))))`;
+  return null;
+}
+
 function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
   if (!ctx.thisType || ctx.thisType.kind !== "template_instance" || expr.callee.kind !== "identifier") return null;
   const name = expr.callee.name;
@@ -2716,6 +2764,9 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
     ctx.cg.warn(`unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`, expr.span.line);
     return `(i64.const 0)`;
   }
+
+  const ai = emitAssetIter(ctx, expr, "value");
+  if (ai !== null) return ai;
 
   const tc = emitThisCall(ctx, expr, true);
   if (tc !== null) return tc;
@@ -2811,6 +2862,9 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // getVotingSummary write through an out-param) — unimplemented, drop it (leaves the out untouched, which
   // the caller treats as "no data"). The value-context forms are handled in emitCallValue.
   if (qpiWrapperMethod(expr)) return;
+
+  // AssetOwnership/PossessionIterator.begin()/next() — statement forms.
+  if (emitAssetIter(ctx, expr, "stmt") !== null) return;
 
   // CALL(fn, in, out) → __qpi_call_self(fn, in, out): invoke a PRIVATE_ function of this contract,
   // passing the caller's in/out lvalues and a freshly bumped locals frame.

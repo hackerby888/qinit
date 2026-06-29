@@ -60,6 +60,7 @@ interface Layout {
   arenaEnd: number;
   ioSize: number;
   pages: number;
+  iterBufBase: number;
 }
 
 function computeLayout(stateSize: number, arenaSize: number): Layout {
@@ -73,8 +74,12 @@ function computeLayout(stateSize: number, arenaSize: number): Layout {
   const arenaBase = localsBase + LOCALS_SZ;
   const arenaEnd = arenaBase + arenaSize;
   const ioSize = IN_SZ + OUT_SZ + LOCALS_SZ + arenaSize;
-  const pages = Math.ceil(arenaEnd / 65536) + 1;
-  return { stateBase, stateSize, ctxBase, ioBase, inBase, outBase, localsBase, arenaBase, arenaEnd, ioSize, pages };
+  // Asset-iterator result buffer (AssetOwnership/PossessionIterator): 1024 records × 80 bytes, written by
+  // the assetEnumerate host import at begin() and indexed by the iterator's cursor.
+  const iterBufBase = align(arenaEnd, 16);
+  const iterBufSize = 80 * 1024;
+  const pages = Math.ceil((iterBufBase + iterBufSize) / 65536) + 1;
+  return { stateBase, stateSize, ctxBase, ioBase, inBase, outBase, localsBase, arenaBase, arenaEnd, ioSize, pages, iterBufBase };
 }
 
 // ---- The complete module assembler ----
@@ -183,7 +188,8 @@ function emitGlobals(L: Layout): string {
   (global $ctxBase i32 (i32.const ${L.ctxBase}))
   (global $ioBase i32 (i32.const ${L.ioBase}))
   (global $arenaBase i32 (i32.const ${L.arenaBase}))
-  (global $arenaTop (mut i32) (i32.const ${L.arenaBase}))`;
+  (global $arenaTop (mut i32) (i32.const ${L.arenaBase}))
+  (global $assetIterBase i32 (i32.const ${L.iterBufBase}))`;
 }
 
 function emitExportList(): string {
