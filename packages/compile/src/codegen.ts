@@ -67,6 +67,8 @@ class Codegen {
   enumConst: Map<string, bigint> = new Map();                   // enum constant (NAME and Type::NAME) → value
   private constCache: Map<string, bigint> = new Map();
   private constInProgress = new Set<string>();
+  helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
+  privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()
   private layoutCache: Map<string, StructLayout> = new Map();
   warnings: CodegenWarning[] = [];
 
@@ -506,6 +508,20 @@ class Codegen {
     return this.alignOfTypeB(t, b);
   }
 
+  // True if a type is an aggregate (id/m256i/struct/array/container) — passed/returned by address
+  // rather than as an i64 value. References and const are unwrapped first.
+  isAggregateType(t: TypeSpec): boolean {
+    if (t.kind === "const") return this.isAggregateType(t.valueType);
+    if (t.kind === "reference") return this.isAggregateType(t.refereed);
+    if (t.kind === "array" || t.kind === "inline_struct" || t.kind === "template_instance") return true;
+    if (t.kind === "name") {
+      if (t.name === "id" || t.name === "m256i") return true;
+      if (SCALAR_SIZE[t.name] !== undefined) return false;
+      return this.layoutOfType(t) !== null;
+    }
+    return false;
+  }
+
   // Resolve a struct-ish type to its (cached) field layout, or null for scalars/containers.
   layoutOfType(t: TypeSpec, b: Bindings = NO_BIND): StructLayout | null {
     if (t.kind === "const") return this.layoutOfType(t.valueType, b);
@@ -559,6 +575,17 @@ class Codegen {
   warn(message: string, line: number): void {
     this.warnings.push({ message, line });
   }
+}
+
+interface HelperInfo {
+  label: string;                                              // WAT function name ($h_<name>)
+  params: { name: string; wasmType: "i32" | "i64"; isAddr: boolean }[];
+  retIsValue: boolean;                                        // returns a scalar i64 (vs void)
+}
+
+interface PrivateInfo {
+  label: string;                                             // WAT function name ($priv_<name>)
+  localsSize: number;                                        // sizeof(<name>_locals)
 }
 
 interface ContainerInfo {
@@ -636,6 +663,34 @@ export function generateWasmModule(
   const entries: UserEntry[] = [];
   const userFns: string[] = [];
 
+  // Collect helper + private functions BEFORE emitting entries, so entry bodies can call them.
+  // A member function is: an entry (registered), a system procedure, the register hook, a PRIVATE_
+  // function (first param `qpi`, called via CALL), or a plain value helper (e.g. toReturnCode).
+  const entryNames = new Set(regs.map((r) => r.fnName));
+  const helperFns: FunctionDecl[] = [];
+  const privateFns: FunctionDecl[] = [];
+  for (const m of contract.members) {
+    if (m.kind !== "function") continue;
+    const fn = m as FunctionDecl;
+    if (!fn.body) continue;
+    if (entryNames.has(fn.name) || SYSPROC_IMPL[fn.name] !== undefined) continue;
+    if (fn.name === "__registerUserFunctionsAndProcedures" || fn.name.includes("operator") || fn.name === contract.name) continue;
+
+    if (fn.params[0]?.name === "qpi") {
+      const localsStruct = cg["nested"].get(`${fn.name}_locals`);
+      cg.privates.set(fn.name, { label: `$priv_${fn.name}`, localsSize: localsStruct ? cg.layoutOf(localsStruct).size : 0 });
+      privateFns.push(fn);
+    } else {
+      const params = fn.params.map((p) => {
+        const isAddr = cg.isAggregateType(p.type);
+        return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr };
+      });
+      const retIsValue = fn.returnType.kind !== "void" && !cg.isAggregateType(fn.returnType);
+      cg.helpers.set(fn.name, { label: `$h_${fn.name}`, params, retIsValue });
+      helperFns.push(fn);
+    }
+  }
+
   for (let i = 0; i < regs.length; i++) {
     const reg = regs[i];
     const fn = findMemberFn(contract, reg.fnName);
@@ -672,6 +727,20 @@ export function generateWasmModule(
         sysprocs.push({ id: spId, localsSize: 0, inSize: 0, outSize: 0, label });
       }
     }
+  }
+
+  // PRIVATE_ functions share the entry (ctx,state,in,out,locals) shape — emit them with emitFunction.
+  const empty = { size: 0, align: 1, fields: new Map() };
+  const layoutFor = (name: string) => {
+    const s = cg["nested"].get(name);
+    return s ? cg.layoutOf(s) : empty;
+  };
+  for (const fn of privateFns) {
+    const info = cg.privates.get(fn.name)!;
+    userFns.push(emitFunction(cg, info.label, fn, stateLayout, layoutFor(`${fn.name}_input`), layoutFor(`${fn.name}_output`), layoutFor(`${fn.name}_locals`)));
+  }
+  for (const fn of helperFns) {
+    userFns.push(emitHelperFunction(cg, cg.helpers.get(fn.name)!, fn, stateLayout));
   }
 
   const spec: ModuleSpec = {
@@ -777,6 +846,8 @@ interface FnCtx {
   tmpCount: number;
   loops: { brk: string; cont: string }[];   // innermost loop's break/continue labels are last
   loopCount: number;
+  params?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean }>;  // value-helper parameters
+  retIsValue?: boolean;                       // function returns a scalar value (return <expr>)
 }
 
 // A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
@@ -810,6 +881,31 @@ function emitFunction(
   const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
 
   return [header, ...localDecls, ...ctx.lines, "  )"].join("\n");
+}
+
+// Emit a value-helper (e.g. toReturnCode) as a wasm function with its own scalar/address parameters
+// and an optional i64 result. Helpers are static and pure — they take no ctx/state/in/out/locals.
+function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: FunctionDecl, stateLayout: StructLayout): string {
+  const empty = { size: 0, align: 1, fields: new Map() };
+  const ctx: FnCtx = {
+    cg, state: stateLayout, in: empty, out: empty, locals: empty,
+    localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
+    params: new Map(), retIsValue: info.retIsValue,
+  };
+  for (const p of info.params) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr });
+
+  if (fn.body) collectLocals(fn.body, ctx);
+
+  const paramDecls = info.params.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
+  const result = info.retIsValue ? " (result i64)" : "";
+  const header = `  (func ${info.label} ${paramDecls}${result}`.replace(/\s+\)/, ")");
+
+  if (fn.body) emitStmt(ctx, fn.body);
+
+  const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
+  // A value helper needs a fallthrough result for control paths that do not hit a return.
+  const tail = info.retIsValue ? ["    (i64.const 0)"] : [];
+  return [header, ...localDecls, ...ctx.lines, ...tail, "  )"].join("\n");
 }
 
 function collectLocals(stmt: Statement, ctx: FnCtx): void {
@@ -942,7 +1038,8 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
       break;
 
     case "return":
-      ctx.lines.push(`    (return)`);
+      if (stmt.value && ctx.retIsValue) ctx.lines.push(`    (return ${emitValue(ctx, stmt.value)})`);
+      else ctx.lines.push(`    (return)`);
       break;
 
     case "static_assert":
@@ -1050,6 +1147,11 @@ function tryLvalueAddr(ctx: FnCtx, expr: Expression): Lvalue | null {
 // id::zero() are materialized here into a 32-byte scratch slot.
 function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   if (expr.kind === "identifier" && expr.name === "SELF") return "(call $self_id)";
+  // an aggregate value-helper parameter is passed by address
+  if (expr.kind === "identifier") {
+    const p = ctx.params?.get(expr.name);
+    if (p && p.isAddr) return `(local.get $${expr.name})`;
+  }
   if (expr.kind === "paren") return emitAddr(ctx, expr.expr);
   if (expr.kind === "c_cast" || expr.kind === "static_cast") return emitAddr(ctx, expr.expr);
 
@@ -1221,6 +1323,8 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       return emitValue(ctx, expr.expr);
     case "identifier": {
       if (ctx.localVars.has(expr.name)) return `(local.get $${expr.name})`;
+      const p = ctx.params?.get(expr.name);
+      if (p && !p.isAddr) return `(local.get $${expr.name})`;
       if (expr.name === "SELF_INDEX") return `(i64.extend_i32_u (call $qpi_contractIndex))`;
       // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
       const c = ctx.cg.resolveConst(expr.name);
@@ -1509,8 +1613,31 @@ function emitMathCall(ctx: FnCtx, name: string, args: Expression[]): string | nu
   }
 }
 
-// rvalue call: qpi getter, qpi valued host call, a value-returning container method, or a math helper.
+// Call to a contract value helper (toReturnCode(...)): scalar args by value, aggregate args by
+// address. valueWanted → returns the i64 result; otherwise pushes the call as a statement.
+function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
+  if (expr.callee.kind !== "identifier") return null;
+  const info = ctx.cg.helpers.get(expr.callee.name);
+  if (!info) return null;
+
+  const ops = info.params.map((p, i) => {
+    const arg = expr.args[i];
+    if (!arg) return p.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    return p.isAddr ? (emitAddr(ctx, arg) ?? "(i32.const 0)") : emitValue(ctx, arg);
+  });
+  const call = `(call ${info.label} ${ops.join(" ")})`;
+
+  if (valueWanted) return info.retIsValue ? call : "(i64.const 0)";
+  ctx.lines.push(info.retIsValue ? `    (drop ${call})` : `    ${call}`);
+  return "";
+}
+
+// rvalue call: a value helper, qpi getter, qpi valued host call, a value-returning container method,
+// or a math helper.
 function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string {
+  const h = emitHelperCall(ctx, expr, true);
+  if (h !== null) return h;
+
   if (expr.callee.kind === "identifier") {
     const m = emitMathCall(ctx, expr.callee.name, expr.args);
     if (m !== null) return m;
@@ -1538,6 +1665,23 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // LOG_* macros expand to __logContract{Info,Debug,...}Message — a side channel that does not affect
   // state or the digest, so dropping it is behaviorally faithful.
   if (expr.callee.kind === "identifier" && expr.callee.name.startsWith("__logContract")) return;
+
+  // CALL(fn, in, out) → __qpi_call_self(fn, in, out): invoke a PRIVATE_ function of this contract,
+  // passing the caller's in/out lvalues and a freshly bumped locals frame.
+  if (expr.callee.kind === "identifier" && expr.callee.name === "__qpi_call_self") {
+    const fnArg = expr.args[0];
+    const info = fnArg?.kind === "identifier" ? ctx.cg.privates.get(fnArg.name) : undefined;
+    if (info) {
+      const inAddr = expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)";
+      const outAddr = expr.args[2] ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)") : "(i32.const 0)";
+      const locals = `(call $qpiAllocLocals (i32.const ${info.localsSize}))`;
+      ctx.lines.push(`    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${locals})`);
+      return;
+    }
+  }
+
+  const h = emitHelperCall(ctx, expr, false);
+  if (h !== null) return;
 
   const c = emitContainerCall(ctx, expr, false);
   if (c !== null) return;

@@ -84,7 +84,7 @@ export const SCAFFOLD_MACROS = `
 #undef CALL
 #undef CALL_OTHER_CONTRACT_FUNCTION
 #undef INVOKE_OTHER_CONTRACT_PROCEDURE
-#define CALL(f, in, out) __qpi_call_self(in, out)
-#define CALL_OTHER_CONTRACT_FUNCTION(c, f, in, out) __qpi_call_other(in, out)
-#define INVOKE_OTHER_CONTRACT_PROCEDURE(c, p, in, out, reward) __qpi_invoke_other(in, out, reward)
+#define CALL(f, in, out) __qpi_call_self(f, in, out)
+#define CALL_OTHER_CONTRACT_FUNCTION(c, f, in, out) __qpi_call_other(c, f, in, out)
+#define INVOKE_OTHER_CONTRACT_PROCEDURE(c, p, in, out, reward) __qpi_invoke_other(c, p, in, out, reward)
 `;
