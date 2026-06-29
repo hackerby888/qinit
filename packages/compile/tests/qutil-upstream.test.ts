@@ -155,7 +155,7 @@ describe("upstream gtest — contract_qutil.cpp against my QUTIL+QX wasm", () =>
     // locks the current yield against regressions. Raise as gaps close. Remaining failures: vote-family
     // (QUtil's 384 MB Array<Voter, 8.4M> — huge-array handling) + share/asset paths; one hang (28) on the
     // asset-ownership iterator.
-    expect(passed).toBeGreaterThanOrEqual(45);
+    expect(passed).toBeGreaterThanOrEqual(49);
   }, 300000);
 });
 
