@@ -1715,6 +1715,29 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     return materializeId(ctx, []);
   }
 
+  // AssetOwnershipSelect / AssetPossessionSelect constructors → materialize the 40-byte selector the engine
+  // reads (id @0, managingContract u16 @32, anyId u8 @34, anyManagingContract u8 @35). byOwner/byPossessor
+  // set the id + anyMgmt; any() sets both any flags; byManagingContract sets the index + anyId.
+  if (expr.kind === "call" && expr.callee.kind === "identifier" && /^(AssetOwnershipSelect|AssetPossessionSelect)::/.test(expr.callee.name)) {
+    const method = expr.callee.name.split("::")[1];
+    const t = newTmp(ctx);
+    ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 40)))`);
+    const base = `(local.get $${t})`;
+    ctx.lines.push(`    (call $setMem ${base} (i32.const 40) (i32.const 0))`);
+    if (method === "byOwner" || method === "byPossessor") {
+      const src = expr.args[0] ? emitAddr(ctx, expr.args[0]) : null;
+      if (src) ctx.lines.push(`    (call $copyMem ${base} ${src} (i32.const 32))`);
+      ctx.lines.push(`    (i32.store8 (i32.add ${base} (i32.const 35)) (i32.const 1))`);
+    } else if (method === "any") {
+      ctx.lines.push(`    (i32.store8 (i32.add ${base} (i32.const 34)) (i32.const 1))`);
+      ctx.lines.push(`    (i32.store8 (i32.add ${base} (i32.const 35)) (i32.const 1))`);
+    } else if (method === "byManagingContract") {
+      ctx.lines.push(`    (i32.store16 (i32.add ${base} (i32.const 32)) (i32.and (i32.wrap_i64 ${expr.args[0] ? emitValue(ctx, expr.args[0]) : "(i64.const 0)"}) (i32.const 0xffff)))`);
+      ctx.lines.push(`    (i32.store8 (i32.add ${base} (i32.const 34)) (i32.const 1))`);
+    }
+    return base;
+  }
+
   // qpi.invocator() / qpi.originator() return an id by value → materialize via the ctx forwarder.
   if (expr.kind === "call" && expr.callee.kind === "member_access" &&
     expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
@@ -2208,6 +2231,7 @@ const QPI_CALLS: Record<string, QpiCallDesc> = {
   issueAsset: { fwd: "$qpi_issueAsset", args: ["i64", "addr", "i32", "i64", "i64"], ret: "i64" },
   isAssetIssued: { fwd: "$qpi_isAssetIssued", args: ["addr", "i64"], ret: "i32" },
   transferShareOwnershipAndPossession: { fwd: "$qpi_transferShares", args: ["i64", "addr", "addr", "addr", "i64", "addr"], ret: "i64" },
+  numberOfShares: { fwd: "$qpi_numberOfShares", args: ["addr", "addr", "addr"], ret: "i64" },
   numberOfPossessedShares: { fwd: "$qpi_numberOfPossessedShares", args: ["i64", "addr", "addr", "addr", "i32", "i32"], ret: "i64" },
   releaseShares: { fwd: "$qpi_releaseShares", args: ["asset", "addr", "addr", "i64", "i32", "i32", "i64"], ret: "i64" },
   acquireShares: { fwd: "$qpi_acquireShares", args: ["asset", "addr", "addr", "i64", "i32", "i32", "i64"], ret: "i64" },
