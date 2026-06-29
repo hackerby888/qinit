@@ -606,6 +606,40 @@ export class Preprocessor {
     return body.replace(new RegExp(`(?<![#\\w])${escaped}(?!\\w)`, "g"), value);
   }
 
+  // Read a function-like macro's argument list from a STRING (not the main input stream) starting at the
+  // open paren. Mirrors the depth/comma splitting in tryExpandMacro. Returns null on an unbalanced list.
+  private readArgsFromString(text: string, openIdx: number): { args: string[]; end: number } | null {
+    if (text[openIdx] !== "(") return null;
+
+    const args: string[] = [];
+    let arg = "";
+    let depth = 0;
+
+    for (let i = openIdx; i < text.length; i++) {
+      const ch = text[i];
+
+      if (ch === "(") {
+        depth++;
+        if (depth === 1) continue;
+        arg += ch;
+      } else if (ch === ")") {
+        depth--;
+        if (depth === 0) {
+          args.push(arg.trim());
+          return { args, end: i + 1 };
+        }
+        arg += ch;
+      } else if (ch === "," && depth === 1) {
+        args.push(arg.trim());
+        arg = "";
+      } else {
+        arg += ch;
+      }
+    }
+
+    return null;
+  }
+
   private expandRecursive(text: string): string {
     // Re-process the expanded text to expand any macros within it
     // This is a simplified version — full recursive expansion would need a real tokenizer.
@@ -627,12 +661,29 @@ export class Preprocessor {
           const ident = this.readIdentAt(result, i);
           const def = this.defines.get(ident);
           if (def && def.params === null && !this.expanding.has(ident)) {
-            // Expand object-like macros only (function-like would need parenthesization context)
+            // Object-like macro
             this.expanding.add(ident);
             expanded += this.expandBody(def, []);
             this.expanding.delete(ident);
             i += ident.length - 1;
             changed = true;
+          } else if (def && def.params !== null && !this.expanding.has(ident)) {
+            // Function-like macro — expand only if actually invoked (an open paren follows). A macro body
+            // can contain further function-like calls (qpi.h's IMPLEMENT_* wrappers expand to nested
+            // IMPLEMENT_*/PUBLIC_* calls), so the rescan must reach them, not just object-like names.
+            let j = i + ident.length;
+            while (j < result.length && (result[j] === " " || result[j] === "\t" || result[j] === "\n")) j++;
+            const parsed = result[j] === "(" ? this.readArgsFromString(result, j) : null;
+            if (parsed) {
+              this.expanding.add(ident);
+              expanded += this.expandBody(def, parsed.args);
+              this.expanding.delete(ident);
+              i = parsed.end - 1;
+              changed = true;
+            } else {
+              expanded += ident;
+              i += ident.length - 1;
+            }
           } else {
             expanded += ident;
             i += ident.length - 1;
