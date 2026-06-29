@@ -1449,10 +1449,13 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
       ctx.lines.push(`    (drop (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`);
       return "";
     }
-    if (member === "get" && !valueWanted) {
+    if (member === "get") {
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const out = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
-      ctx.lines.push(`    (drop (call $hm_get ${map} ${k} ${out} ${dims} ${C(info.hashMode!)}))`);
+      const call = `(call $hm_get ${map} ${k} ${out} ${dims} ${C(info.hashMode!)})`;
+      // get returns a bool (found?); as a statement we drop it, as a value (if (map.get(k,v))) we keep it.
+      if (valueWanted) return `(i64.extend_i32_u ${call})`;
+      ctx.lines.push(`    (drop ${call})`);
       return "";
     }
     if (member === "reset" && !valueWanted) {
