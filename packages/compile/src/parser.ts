@@ -390,7 +390,7 @@ export class Parser {
     }
 
     this.expect("l_paren", "function params");
-    this.parseFunctionParams();
+    const fnParams = this.parseFunctionParams();
     this.expect("r_paren", "function params close");
     this.tryConsumeKw("const");
     this.tryConsumeKw("noexcept");
@@ -406,6 +406,7 @@ export class Parser {
       kind: "function_template",
       name: nameTok,
       params,
+      fnParams,
       returnType: retType,
       body,
       isConstexpr,

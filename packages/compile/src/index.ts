@@ -77,6 +77,9 @@ interface QpiContext {
   lib: LibTypes;
 }
 
+// Marker separating the main qpi.h headers from the template-method-body impl chunks.
+const IMPL_BOUNDARY = "//__QINIT_IMPL_BOUNDARY__";
+
 const _qpiCache = new Map<string, QpiContext>();
 
 // Build (or fetch from cache) the qpi.h symbol table + macro table from the given headers.
@@ -87,12 +90,27 @@ function getQpiContext(headers: string): QpiContext {
   const cached = _qpiCache.get(key);
   if (cached) return cached;
 
+  // Split off the impl chunks (template method bodies) — parsed separately so qpi.h's bulk doesn't
+  // derail capturing the out-of-class definitions.
+  const [mainHeaders, ...implChunks] = headers.split(IMPL_BOUNDARY);
+
   const pp = new Preprocessor();
-  const libText = pp.preprocess({ source: "", qpiHeader: headers, contractName: "__lib__", contractIndex: 0 });
+  const libText = pp.preprocess({ source: "", qpiHeader: mainHeaders, contractName: "__lib__", contractIndex: 0 });
   const macros = pp.getDefines();
 
   const libTu = new Parser(new Lexer(libText).tokenize()).parseTranslationUnit();
   const lib = buildLibTypes(libTu.declarations);
+
+  // Parse each impl chunk on its own and merge the captured template methods into the library.
+  for (const chunk of implChunks) {
+    const implText = new Preprocessor().preprocess({ source: chunk, qpiHeader: "", contractName: "__impl__", contractIndex: 0, seedMacros: macros });
+    const implTu = new Parser(new Lexer(implText).tokenize()).parseTranslationUnit();
+    const implLib = buildLibTypes(implTu.declarations);
+    for (const [cls, methods] of implLib.templateMethods) {
+      if (!lib.templateMethods.has(cls)) lib.templateMethods.set(cls, new Map());
+      for (const [m, def] of methods) if (!lib.templateMethods.get(cls)!.has(m)) lib.templateMethods.get(cls)!.set(m, def);
+    }
+  }
 
   const ctx: QpiContext = { macros, lib };
   _qpiCache.set(key, ctx);
@@ -236,15 +254,22 @@ export function loadQpiHeader(corePath?: string): string {
       const files = [
         "contract_core/pre_qpi_def.h",
         "contracts/qpi.h",
-        // template method bodies (parsed once, instantiated per contract type) — must follow qpi.h
-        "contract_core/qpi_hash_map_impl.h",
         "contract_core/qpi_proposal_voting.h",
         "oracle_core/oracle_interfaces_def.h",
+      ];
+      // Template method-body implementations — parsed SEPARATELY (after the IMPL boundary) so qpi.h's
+      // bulk doesn't interfere with capturing the out-of-class definitions, then instantiated per type.
+      const implFiles = [
+        "contract_core/qpi_hash_map_impl.h",
       ];
       let content = QPI_PRELUDE + "\n";
       for (const f of files) {
         const fp = `${base}/${f}`;
         if (existsSync(fp)) content += readFileSync(fp, "utf8") + "\n";
+      }
+      for (const f of implFiles) {
+        const fp = `${base}/${f}`;
+        if (existsSync(fp)) content += `\n${IMPL_BOUNDARY}\n` + readFileSync(fp, "utf8") + "\n";
       }
       return content;
     } catch {

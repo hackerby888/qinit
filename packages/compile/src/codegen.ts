@@ -3,7 +3,7 @@
 // Array<T,L>, BitArray<L>). Container types (HashMap/HashSet/Collection/LinkedList) are
 // sized best-effort and flagged — their exact layout needs the real qpi.h template bodies.
 
-import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, VariableDecl, TemplateParam } from "./ast";
+import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "./ast";
 import type { Sema } from "./sema";
 import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec } from "./framework";
 
@@ -66,6 +66,9 @@ class Codegen {
   typedefs: Map<string, TypeSpec> = new Map();                  // typedef aliases
   constexprInit: Map<string, Expression> = new Map();           // named constexpr → its init expression
   enumConst: Map<string, bigint> = new Map();                   // enum constant (NAME and Type::NAME) → value
+  templateMethods: Map<string, Map<string, FunctionTemplateDecl>> = new Map();  // Class → method → out-of-class def
+  compiledMethods: Map<string, CompiledMethod> = new Map();     // instantiation cache key → compiled method
+  emittedMethodOrder: string[] = [];                            // emitted WAT, in emission order (appended to module)
   private constCache: Map<string, bigint> = new Map();
   private constInProgress = new Set<string>();
   helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
@@ -91,6 +94,17 @@ class Codegen {
       } else if (d.kind === "class_template") {
         const ct = d as any;
         this.templates.set(ct.name, { params: ct.params, members: ct.members });
+      } else if (d.kind === "function_template" || d.kind === "function") {
+        // out-of-class template method definition: HashMap::set, Collection::add, ...
+        const fn = d as FunctionTemplateDecl;
+        const sep = fn.name.indexOf("::");
+        if (sep > 0 && fn.body) {
+          const cls = fn.name.slice(0, sep);
+          const method = fn.name.slice(sep + 2);
+          if (!this.templateMethods.has(cls)) this.templateMethods.set(cls, new Map());
+          // first definition wins (skip explicit specializations like HashFunction<m256i>)
+          if (!this.templateMethods.get(cls)!.has(method)) this.templateMethods.get(cls)!.set(method, fn);
+        }
       } else if (d.kind === "typedef_decl") {
         const td = d as any;
         this.typedefs.set(td.name, td.type);
@@ -558,6 +572,55 @@ class Codegen {
     return layout ? layout.fields.get(member) ?? null : null;
   }
 
+  // ---- public helpers for compiling instantiated container methods ----
+
+  typeKeyOf(t: TypeSpec): string {
+    return this.typeKey(t);
+  }
+
+  // The full layout of a container instantiation (HashMap<id,uint64,1024> → _elements/_occupationFlags/...).
+  containerLayout(name: string, args: TypeSpec[], b: Bindings = NO_BIND): StructLayout {
+    return this.layoutOfTemplate(name, args, b);
+  }
+
+  // template params → concrete args (KeyT→id, L→1024). A defaulted trailing param (HashFunc) is omitted.
+  // The container's nested structs (HashMap::Element) are added to the scope so method bodies resolve them.
+  bindContainer(name: string, args: TypeSpec[], b: Bindings = NO_BIND): Bindings {
+    const tmpl = this.templates.get(name);
+    const out: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
+    if (!tmpl) return out;
+    const resolved = args.map((a) => this.resolveType(a, b));
+    for (let i = 0; i < tmpl.params.length; i++) {
+      const p = tmpl.params[i];
+      const arg = resolved[i];
+      if (!arg) continue;
+      if (p.kind === "type") out.types.set(p.name, arg);
+      else out.values.set(p.name, this.evalConstFromType(arg, b));
+    }
+    for (const m of tmpl.members) {
+      if (m.kind === "struct" && (m as StructDecl).name) out.structs.set((m as StructDecl).name, m as StructDecl);
+    }
+    return out;
+  }
+
+  // Evaluate the container's static constexpr members (e.g. _nEncodedFlags = L>32?32:L) under bindings.
+  staticConstsOf(name: string, b: Bindings): Map<string, bigint> {
+    const out = new Map<string, bigint>();
+    const tmpl = this.templates.get(name);
+    if (!tmpl) return out;
+    for (const m of tmpl.members) {
+      if (m.kind === "variable") {
+        const v = m as VariableDecl;
+        if ((v.isStatic || v.isConstexpr) && v.init) out.set(v.name, this.evalConstBig(v.init, b));
+      }
+    }
+    return out;
+  }
+
+  evalConstNum(expr: Expression, b: Bindings): number {
+    return Number(this.evalConstBig(expr, b));
+  }
+
   // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they
   // track the real field order / occupation-flag sizing rather than a baked-in formula). Returns null
   // if the template body wasn't captured, in which case callers fall back to the structural formula.
@@ -631,6 +694,12 @@ interface PrivateInfo {
   localsSize: number;                                        // sizeof(<name>_locals)
 }
 
+interface CompiledMethod {
+  label: string;                                             // WAT function name ($T<n>_<Class>_<method>)
+  fnParams: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec }[];
+  retKind: "i64" | "void";
+}
+
 interface ContainerInfo {
   kind: "HashMap" | "Array";
   L: number;
@@ -653,9 +722,10 @@ export interface LibTypes {
   typedefs: Map<string, TypeSpec>;
   constexprInit: Map<string, Expression>;
   enumConst: Map<string, bigint>;
+  templateMethods: Map<string, Map<string, FunctionTemplateDecl>>;
 }
 
-// Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants) from its AST.
+// Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants/methods).
 export function buildLibTypes(decls: Declaration[]): LibTypes {
   const cg = new Codegen({} as Sema);
   cg.collectTU(decls);
@@ -665,6 +735,7 @@ export function buildLibTypes(decls: Declaration[]): LibTypes {
     typedefs: cg.typedefs,
     constexprInit: cg.constexprInit,
     enumConst: cg.enumConst,
+    templateMethods: cg.templateMethods,
   };
 }
 
@@ -686,6 +757,7 @@ export function generateWasmModule(
     for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
     for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
     for (const [k, v] of lib.enumConst) cg.enumConst.set(k, v);
+    if (lib.templateMethods) for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
   }
   cg.collectTU(tu.declarations);
 
@@ -785,6 +857,10 @@ export function generateWasmModule(
   for (const fn of helperFns) {
     userFns.push(emitHelperFunction(cg, cg.helpers.get(fn.name)!, fn, stateLayout));
   }
+
+  // Instantiated container methods compiled from the real qpi.h bodies (accumulated while lowering the
+  // function bodies above). Appended last; each is emitted once and shared.
+  userFns.push(...cg.emittedMethodOrder);
 
   const spec: ModuleSpec = {
     stateSize,
@@ -891,6 +967,10 @@ interface FnCtx {
   loopCount: number;
   params?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec }>;  // value-helper parameters
   retIsValue?: boolean;                       // function returns a scalar value (return <expr>)
+  thisLayout?: StructLayout;                  // when compiling a container method: layout of *this
+  thisType?: TypeSpec;                        // the container template_instance (HashMap<id,uint64,1024>)
+  thisBind?: Bindings;                        // template-param bindings (KeyT→id, L→1024, ...) for the body
+  staticConsts?: Map<string, bigint>;         // the container's static constexpr members (_nEncodedFlags, ...)
 }
 
 // A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
@@ -1070,6 +1150,38 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
       break;
     }
 
+    case "switch": {
+      const n = ctx.loopCount++;
+      const brk = `$swbrk${n}`, sw = `sw${n}`;
+      ctx.localVars.set(sw, { wasmType: "i64" });
+      ctx.lines.push(`    (local.set $${sw} ${emitValue(ctx, stmt.cond)})`);
+      ctx.lines.push(`    (block ${brk}`);
+      // break targets the switch; continue still targets the enclosing loop (if any).
+      const cont = ctx.loops.length ? ctx.loops[ctx.loops.length - 1].cont : brk;
+      ctx.loops.push({ brk, cont });
+      const body = stmt.body.kind === "compound" ? stmt.body.body : [stmt.body];
+      // group statements by case/default markers; each non-default case is a guarded block that
+      // breaks out at its end (the qpi.h container switches never fall through).
+      const groups: { test: string | null; stmts: Statement[] }[] = [];
+      for (const s of body) {
+        if (s.kind === "case") groups.push({ test: `(i64.eq (local.get $${sw}) ${emitValue(ctx, s.value)})`, stmts: [] });
+        else if (s.kind === "default") groups.push({ test: null, stmts: [] });
+        else if (groups.length) groups[groups.length - 1].stmts.push(s);
+      }
+      for (const g of groups) {
+        if (g.test) {
+          ctx.lines.push(`      (if ${g.test} (then`);
+          for (const s of g.stmts) emitStmt(ctx, s);
+          ctx.lines.push(`        (br ${brk})))`);
+        } else {
+          for (const s of g.stmts) emitStmt(ctx, s);
+        }
+      }
+      ctx.loops.pop();
+      ctx.lines.push(`    )`);
+      break;
+    }
+
     case "break":
       if (ctx.loops.length) ctx.lines.push(`    (br ${ctx.loops[ctx.loops.length - 1].brk})`);
       else ctx.cg.warn(`break outside loop`, stmt.span.line);
@@ -1105,6 +1217,14 @@ function emitExprDrop(ctx: FnCtx, expr: Expression): string {
     return "";
   }
   if (expr.kind === "postfix_op" || expr.kind === "prefix_op") return emitIncDec(ctx, expr);
+  // comma sequence (for-update `i++, flags >>= 2`): emit each side effect in order.
+  if (expr.kind === "sequence") {
+    for (const e of expr.exprs) {
+      const w = emitExprDrop(ctx, e);
+      if (w) ctx.lines.push(`    ${w}`);
+    }
+    return "";
+  }
   return "";
 }
 
@@ -1154,11 +1274,35 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     if (expr.name === "input") return { addr: "(local.get $in)", type: null, size: ctx.in.size, layout: ctx.in };
     if (expr.name === "output") return { addr: "(local.get $out)", type: null, size: ctx.out.size, layout: ctx.out };
     if (expr.name === "locals") return { addr: "(local.get $locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
-    // an aggregate value-helper parameter holds the address of its argument
+    // an aggregate value-helper / container-method parameter holds the address of its argument; its
+    // type may reference template params (KeyT, ValueT), so resolve sizes through the binding.
     const p = ctx.params?.get(expr.name);
-    if (p && p.isAddr) return { addr: `(local.get $${expr.name})`, type: p.type, size: ctx.cg.sizeOfType(p.type), layout: ctx.cg.layoutOfType(p.type) };
+    if (p && p.isAddr) {
+      const b = ctx.thisBind ?? NO_BIND;
+      return { addr: `(local.get $${expr.name})`, type: p.type, size: ctx.cg.sizeOfType(p.type, b), layout: ctx.cg.layoutOfType(p.type, b) };
+    }
+    // inside a compiled container method: `this`, or a bare member of *this
+    if (ctx.thisLayout) {
+      if (expr.name === "this") return { addr: "(local.get $this)", type: ctx.thisType ?? null, size: ctx.thisLayout.size, layout: ctx.thisLayout };
+      const f = ctx.thisLayout.fields.get(expr.name);
+      if (f) return { addr: addrOf("(local.get $this)", f.offset), type: f.type, size: f.size, layout: ctx.cg.layoutOfType(f.type, ctx.thisBind) };
+    }
     return null;
   }
+
+  // arr[i] / ptr[i]: element address from an array member (this+off) or a pointer-valued operand.
+  if (expr.kind === "subscript") {
+    const base = resolveAddr(ctx, expr.object);
+    let baseAddr: string | null = null, elemType: TypeSpec | null = null;
+    if (base?.type?.kind === "array") { baseAddr = base.addr; elemType = base.type.elem; }
+    else if (base?.type?.kind === "pointer") { baseAddr = base.addr; elemType = base.type.pointee; }
+    if (!baseAddr || !elemType) return null;
+    const elemSize = ctx.cg.sizeOfType(elemType, ctx.thisBind);
+    const idx = `(i32.mul (i32.wrap_i64 ${emitValue(ctx, expr.index)}) (i32.const ${elemSize}))`;
+    return { addr: `(i32.add ${baseAddr} ${idx})`, type: elemType, size: elemSize, layout: ctx.cg.layoutOfType(elemType, ctx.thisBind) };
+  }
+
+  if (expr.kind === "paren") return resolveAddr(ctx, expr.expr);
 
   if (isStateAccessor(expr)) {
     return { addr: "(local.get $state)", type: null, size: ctx.state.size, layout: ctx.state };
@@ -1407,6 +1551,14 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       const p = ctx.params?.get(expr.name);
       if (p && !p.isAddr) return `(local.get $${expr.name})`;
       if (expr.name === "SELF_INDEX") return `(i64.extend_i32_u (call $qpi_contractIndex))`;
+      // inside a compiled container method: a template non-type param (L), a static constexpr member
+      // (_nEncodedFlags), or a bare scalar member of *this (_population).
+      if (ctx.thisBind?.values.has(expr.name)) return `(i64.const ${ctx.thisBind.values.get(expr.name)})`;
+      if (ctx.staticConsts?.has(expr.name)) return `(i64.const ${ctx.staticConsts.get(expr.name)})`;
+      if (ctx.thisLayout) {
+        const tn = resolveAddr(ctx, expr);
+        if (tn && tn.size <= 8) return loadAt(tn.addr, tn.size);
+      }
       // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
       const c = ctx.cg.resolveConst(expr.name);
       if (c !== null) return `(i64.const ${c})`;
@@ -1424,6 +1576,12 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       }
       // qpi.invocationReward() etc. handled in call; bare member returns 0
       ctx.cg.warn(`unsupported member read`, expr.span.line);
+      return `(i64.const 0)`;
+    }
+    case "subscript": {
+      const n = resolveAddr(ctx, expr);
+      if (n && n.size <= 8) return loadAt(n.addr, n.size);
+      ctx.cg.warn(`unsupported subscript value`, (expr as any).span?.line ?? 0);
       return `(i64.const 0)`;
     }
     case "call":
@@ -1611,6 +1769,71 @@ function emitQpiCall(ctx: FnCtx, expr: Expression & { kind: "call" }, outAddr?: 
   return { wat: `(call ${desc.fwd} ${ops.join(" ")})`, ret: desc.ret };
 }
 
+// ---- compiling instantiated container methods from the real qpi.h bodies ----
+
+// A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32),
+// scalars pass by value (i64).
+function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec } {
+  const t = p.type;
+  const isPtrOrRef = t.kind === "reference" || t.kind === "pointer";
+  const deref = cg.derefType(t);
+  const concrete = deref.kind === "name" && bind.types.has(deref.name) ? bind.types.get(deref.name)! : deref;
+  const isAddr = isPtrOrRef || cg.isAggregateType(concrete);
+  return { name: p.name, wasmType: isAddr ? "i32" : "i64", isAddr, type: t };
+}
+
+// Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm
+// function. Returns null if the body isn't captured or can't be lowered, so callers fall back.
+function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "template_instance" }, methodName: string): CompiledMethod | null {
+  const def = cg.templateMethods.get(type.name)?.get(methodName);
+  if (!def || !def.body) return null;
+
+  const cacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}`;
+  const cached = cg.compiledMethods.get(cacheKey);
+  if (cached) return cached;
+
+  const bind = cg.bindContainer(type.name, type.args);
+  const fnParams = (def.fnParams ?? []).map((p) => classifyMethodParam(cg, p, bind));
+  const retDeref = cg.derefType(def.returnType);
+  const retKind: "i64" | "void" = retDeref.kind === "void" ? "void" : (cg.isAggregateType(retDeref) ? "void" : "i64");
+
+  const cm: CompiledMethod = { label: `$T${cg.compiledMethods.size}_${type.name}_${methodName}`, fnParams, retKind };
+  cg.compiledMethods.set(cacheKey, cm);   // register before emitting so recursive/sibling calls resolve
+
+  try {
+    cg.emittedMethodOrder.push(emitTemplateMethod(cg, cm, def, type, bind));
+  } catch (e: any) {
+    cg.warn(`failed to compile ${cacheKey}: ${e.message}`, def.span?.line ?? 0);
+    cg.compiledMethods.delete(cacheKey);
+    return null;
+  }
+  return cm;
+}
+
+// Emit the wasm function for an instantiated container method: param $this + the method's own params,
+// body lowered with a `this` context (bare members resolve to *this, types substituted via bindings).
+function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: FunctionTemplateDecl, type: TypeSpec & { kind: "template_instance" }, bind: Bindings): string {
+  const thisLayout = cg.containerLayout(type.name, type.args);
+  const empty = { size: 0, align: 1, fields: new Map<string, FieldLayout>() };
+  const ctx: FnCtx = {
+    cg, state: empty, in: empty, out: empty, locals: empty,
+    localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
+    params: new Map(), retIsValue: cm.retKind === "i64",
+    thisLayout, thisType: type, thisBind: bind, staticConsts: cg.staticConstsOf(type.name, bind),
+  };
+  for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.derefType(p.type) });
+
+  if (def.body) collectLocals(def.body, ctx);
+  if (def.body) emitStmt(ctx, def.body);
+
+  const paramDecls = cm.fnParams.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
+  const result = cm.retKind === "i64" ? " (result i64)" : "";
+  const header = `  (func ${cm.label} (param $this i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
+  const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
+  const tail = cm.retKind === "i64" ? ["    (i64.const 0)"] : [];
+  return [header, ...localDecls, ...ctx.lines, ...tail, "  )"].join("\n");
+}
+
 // Lower a container method call on a HashMap/Array state/locals field. When valueWanted, returns the
 // value WAT; otherwise pushes statement lines and returns "". Returns null if not a container call.
 function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
@@ -1651,12 +1874,16 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
     if (member === "value" && valueWanted) return loadAt(`(i32.add ${elemAt(expr.args[0])} ${C(info.valOff!)})`, info.valSize!);
     if (member === "key" && valueWanted && info.keySize! <= 8) return loadAt(elemAt(expr.args[0]), info.keySize!);
 
-    // get(key, &value) — bool found, value copied out
+    // get(key, &value) — bool found, value copied out. Prefer the method compiled from the real
+    // qpi.h body; fall back to the hand-written intrinsic if it can't be lowered.
     if (member === "get") {
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const out = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
-      const call = `(call $hm_get ${map} ${k} ${out} ${dims} ${C(info.hashMode!)})`;
-      if (valueWanted) return `(i64.extend_i32_u ${call})`;
+      const cm = compileContainerMethod(ctx.cg, node.type, "get");
+      const call = cm
+        ? `(call ${cm.label} ${map} ${k} ${out})`
+        : `(i64.extend_i32_u (call $hm_get ${map} ${k} ${out} ${dims} ${C(info.hashMode!)}))`;
+      if (valueWanted) return call;
       ctx.lines.push(`    (drop ${call})`);
       return "";
     }
@@ -1766,9 +1993,44 @@ function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWa
   return "";
 }
 
+// Inside a compiled container method: a call to a sibling method of *this (getElementIndex(key)) or the
+// hash functor (HashFunc::hash(key)). Returns null when not applicable.
+function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
+  if (!ctx.thisType || ctx.thisType.kind !== "template_instance" || expr.callee.kind !== "identifier") return null;
+  const name = expr.callee.name;
+
+  // HashFunc::hash(key) — for an id/m256i key the hash is its first 8 bytes; otherwise K12(key).
+  if (name.endsWith("::hash")) {
+    const keyAddr = emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)";
+    const keyT = ctx.thisBind?.types.get("KeyT") ?? ctx.thisBind?.types.get("T");
+    const keySize = keyT ? ctx.cg.sizeOfType(keyT, ctx.thisBind) : 32;
+    if (keySize === 32) return `(i64.load ${keyAddr})`;
+    const t = newTmp(ctx);
+    ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 8)))`);
+    ctx.lines.push(`    (call $qpi_k12 ${keyAddr} (i32.const ${keySize}) (local.get $${t}))`);
+    return `(i64.load (local.get $${t}))`;
+  }
+
+  // a sibling method of this container instance — compile it and call with $this + args
+  const cm = compileContainerMethod(ctx.cg, ctx.thisType, name);
+  if (!cm) return null;
+  const ops = cm.fnParams.map((fp, i) => {
+    const arg = expr.args[i];
+    if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    return fp.isAddr ? (emitAddr(ctx, arg) ?? "(i32.const 0)") : emitValue(ctx, arg);
+  });
+  const call = `(call ${cm.label} (local.get $this) ${ops.join(" ")})`;
+  if (valueWanted) return cm.retKind === "i64" ? call : "(i64.const 0)";
+  ctx.lines.push(cm.retKind === "i64" ? `    (drop ${call})` : `    ${call}`);
+  return "";
+}
+
 // rvalue call: a value helper, qpi getter, qpi valued host call, a value-returning container method,
 // or a math helper.
 function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string {
+  const tc = emitThisCall(ctx, expr, true);
+  if (tc !== null) return tc;
+
   const h = emitHelperCall(ctx, expr, true);
   if (h !== null) return h;
 
@@ -1813,6 +2075,9 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
       return;
     }
   }
+
+  const tc = emitThisCall(ctx, expr, false);
+  if (tc !== null) return;
 
   const h = emitHelperCall(ctx, expr, false);
   if (h !== null) return;

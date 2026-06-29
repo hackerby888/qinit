@@ -176,7 +176,8 @@ export interface ClassTemplateDecl {
 export interface FunctionTemplateDecl {
   kind: "function_template";
   name: string;
-  params: TemplateParam[];
+  params: TemplateParam[];      // template parameters (KeyT, ValueT, L, ...)
+  fnParams?: ParamDecl[];       // the function's own parameters (key, value, ...)
   returnType: TypeSpec;
   body?: Statement;
   isConstexpr: boolean;
