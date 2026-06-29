@@ -2537,6 +2537,23 @@ function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWant
 // rvalue call: a value helper, qpi getter, qpi valued host call, a value-returning container method,
 // or a math helper.
 function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string {
+  // isZero(id) / id.isZero() — true iff all 32 bytes are zero (OR the four 64-bit limbs, test for zero).
+  {
+    const idObj = expr.callee.kind === "identifier" && expr.callee.name === "isZero" ? expr.args[0]
+      : (expr.callee.kind === "member_access" && expr.callee.member === "isZero") ? expr.callee.object
+      : null;
+    if (idObj) {
+      const addr = emitAddr(ctx, idObj);
+      if (addr) {
+        const t = newTmp(ctx);
+        ctx.lines.push(`    (local.set $${t} ${addr})`);
+        const a = `(local.get $${t})`;
+        const ors = `(i64.or (i64.or (i64.load ${a}) (i64.load ${addrOf(a, 8)})) (i64.or (i64.load ${addrOf(a, 16)}) (i64.load ${addrOf(a, 24)})))`;
+        return `(i64.extend_i32_u (i64.eqz ${ors}))`;
+      }
+    }
+  }
+
   const tc = emitThisCall(ctx, expr, true);
   if (tc !== null) return tc;
 
