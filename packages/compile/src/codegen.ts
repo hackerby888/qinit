@@ -1738,6 +1738,10 @@ function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: FunctionDecl,
   ctx.params = params;
   ctx.inlineMethod = true;
   ctx.retIsValue = false;
+  // Hoist the inlined body's own local declarations into the host function's local set — the top-level
+  // collectLocals never saw them (the method body is a separate AST pulled in at call time), so without
+  // this their `local.set` would reference an undeclared `$name`.
+  if (fn.body) collectLocals(fn.body, ctx);
   if (fn.body) emitStmt(ctx, fn.body);
   Object.assign(ctx, save);
 
@@ -2584,6 +2588,16 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
     }
   }
 
+  // Inter-contract call in value context — the _E forms capture the InterContractCallError into a variable
+  // (`InterContractCallError err = __qpi_..._other(...)`). Same lowering as the statement form, but the i32
+  // error result flows out instead of being dropped.
+  if (expr.callee.kind === "identifier" && (expr.callee.name === "__qpi_call_other" || expr.callee.name === "__qpi_invoke_other")) {
+    const wat = emitInterContract(ctx, expr, expr.callee.name === "__qpi_invoke_other");
+    if (wat) return `(i64.extend_i32_s ${wat})`;
+    ctx.cg.warn(`unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`, expr.span.line);
+    return `(i64.const 0)`;
+  }
+
   const tc = emitThisCall(ctx, expr, true);
   if (tc !== null) return tc;
 
@@ -2641,11 +2655,13 @@ function emitInterContract(ctx: FnCtx, expr: Expression & { kind: "call" }, isIn
   const inSize = (expr.args[2] ? resolveAddr(ctx, expr.args[2])?.size : undefined) ?? entry.inSize;
   const outSize = (expr.args[3] ? resolveAddr(ctx, expr.args[3])?.size : undefined) ?? entry.outSize;
   const dims = `(i32.const ${idx}) (i32.const ${entry.inputType}) ${inAddr} (i32.const ${inSize}) ${outAddr} (i32.const ${outSize})`;
+  // Returns the bare i32 call expression (the InterContractCallError). The statement caller drops it; the
+  // _E forms capture it into their errorVar (value context).
   if (isInvoke) {
     const reward = expr.args[4] ? emitValue(ctx, expr.args[4]) : "(i64.const 0)";
-    return `    (drop (call $liteInvokeProcedure ${dims} ${reward}))`;
+    return `(call $liteInvokeProcedure ${dims} ${reward})`;
   }
-  return `    (drop (call $liteCallFunction ${dims}))`;
+  return `(call $liteCallFunction ${dims})`;
 }
 
 function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
@@ -2671,7 +2687,7 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // host-mediated call into the contract at C's index. Needs C's callee IDL (index + entry input type).
   if (expr.callee.kind === "identifier" && (expr.callee.name === "__qpi_call_other" || expr.callee.name === "__qpi_invoke_other")) {
     const wat = emitInterContract(ctx, expr, expr.callee.name === "__qpi_invoke_other");
-    if (wat) ctx.lines.push(wat);
+    if (wat) ctx.lines.push(`    (drop ${wat})`);
     else ctx.cg.warn(`unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`, expr.span.line);
     return;
   }
