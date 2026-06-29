@@ -643,6 +643,12 @@ export class Parser {
     const name = this.parseMaybeQualifiedName();
 
     if (!name) {
+      // Constructor / destructor: `ClassName(...) {...}` or `~ClassName() {...}` — no return type. Parse
+      // as a void function named after the type so its brace body is consumed cleanly (we never compile
+      // it: state is zero-initialized in wasm mode).
+      if (this.peek().kind === "l_paren" && type.kind === "name") {
+        return this.parseFunctionRest(type.name, { kind: "void" }, isConstexpr, isStatic, isInline, isVirtual, isExtern);
+      }
       // Just a type with no name — semicolon
       this.expect("semicolon", "declaration");
       return { kind: "empty" };
@@ -1810,8 +1816,10 @@ export class Parser {
       const k = this.peek().kind;
       if (k === "l_brace") { depth++; this.next(); continue; }
       if (k === "r_brace") {
-        if (depth === 0) return; // let the caller close the body
-        depth--; this.next(); continue;
+        if (depth === 0) return; // class body's own close — let the caller handle it
+        depth--; this.next();
+        if (depth === 0) return; // finished a member's brace body (e.g. a constructor) — member boundary
+        continue;
       }
       if (k === "semicolon" && depth === 0) { this.next(); return; }
       this.next();

@@ -94,6 +94,27 @@ class Codegen {
       } else if (d.kind === "class_template") {
         const ct = d as any;
         this.templates.set(ct.name, { params: ct.params, members: ct.members });
+        // Inline member methods defined with a body in the class itself (e.g. capacity()) are captured
+        // as template methods, so they compile through the same per-type instantiation path as the
+        // out-of-class (impl) definitions. Body-less declarations are skipped — their bodies live in
+        // the impl chunk and are merged separately.
+        for (const m of ct.members) {
+          if (m.kind !== "function" || !(m as FunctionDecl).body) continue;
+          const fn = m as FunctionDecl;
+          if (!this.templateMethods.has(ct.name)) this.templateMethods.set(ct.name, new Map());
+          const into = this.templateMethods.get(ct.name)!;
+          if (into.has(fn.name)) continue;
+          into.set(fn.name, {
+            kind: "function_template",
+            name: fn.name,
+            params: ct.params,
+            fnParams: fn.params,
+            returnType: fn.returnType,
+            body: fn.body,
+            isConstexpr: fn.isConstexpr,
+            span: fn.span,
+          });
+        }
       } else if (d.kind === "function_template" || d.kind === "function") {
         // out-of-class template method definition: HashMap::set, Collection::add, ...
         const fn = d as FunctionTemplateDecl;
@@ -971,6 +992,7 @@ interface FnCtx {
   thisType?: TypeSpec;                        // the container template_instance (HashMap<id,uint64,1024>)
   thisBind?: Bindings;                        // template-param bindings (KeyT→id, L→1024, ...) for the body
   staticConsts?: Map<string, bigint>;         // the container's static constexpr members (_nEncodedFlags, ...)
+  gotoLabels?: Map<string, string>;           // C++ label name → enclosing wasm block label (forward goto)
 }
 
 // A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
@@ -1066,10 +1088,92 @@ function collectLocals(stmt: Statement, ctx: FnCtx): void {
   }
 }
 
+// Collect goto-target label names appearing anywhere in a statement subtree.
+function collectGotosIn(stmt: Statement, out: Set<string>): void {
+  switch (stmt.kind) {
+    case "goto": out.add(stmt.label); break;
+    case "compound": for (const s of stmt.body) collectGotosIn(s, out); break;
+    case "if": collectGotosIn(stmt.then, out); if (stmt.else_) collectGotosIn(stmt.else_, out); break;
+    case "for": case "while": case "do_while": case "switch": collectGotosIn(stmt.body, out); break;
+  }
+}
+
+// Collect label names defined anywhere in a statement subtree.
+function collectLabelsIn(stmt: Statement, out: Set<string>): void {
+  switch (stmt.kind) {
+    case "label": out.add(stmt.name); break;
+    case "compound": for (const s of stmt.body) collectLabelsIn(s, out); break;
+    case "if": collectLabelsIn(stmt.then, out); if (stmt.else_) collectLabelsIn(stmt.else_, out); break;
+    case "for": case "while": case "do_while": case "switch": collectLabelsIn(stmt.body, out); break;
+  }
+}
+
+// Emit a brace block, lowering forward gotos (relooper-lite). A `goto L` that jumps forward to a label
+// L rooted in a later sibling becomes a `br` out of a synthesized block wrapping the siblings between
+// the goto and L; control lands right before L's sibling, reproducing the jump via natural fall-through.
+// (qpi.h's HashMap::set is the canonical case: `goto reuse_slot` exits both probing loops.)
+function emitCompound(ctx: FnCtx, body: Statement[]): void {
+  // child index where each goto-targeted label is rooted
+  const labelChild = new Map<string, number>();
+  for (let i = 0; i < body.length; i++) {
+    const labels = new Set<string>();
+    collectLabelsIn(body[i], labels);
+    for (const l of labels) if (!labelChild.has(l)) labelChild.set(l, i);
+  }
+
+  // forward gotos only: a label rooted in a later sibling than the goto. Each gets a block wrapping
+  // siblings [gotoChild .. labelChild-1], closed right before the label-bearing sibling.
+  const wasmLabel = new Map<string, string>();
+  const opensAt = new Map<number, { wl: string; closeAt: number }[]>();
+  for (let i = 0; i < body.length; i++) {
+    const gotos = new Set<string>();
+    collectGotosIn(body[i], gotos);
+    for (const g of gotos) {
+      const lc = labelChild.get(g);
+      if (lc === undefined || lc <= i || wasmLabel.has(g)) continue;
+      const wl = `$goto_${g}_${ctx.loopCount++}`;
+      wasmLabel.set(g, wl);
+      if (!opensAt.has(i)) opensAt.set(i, []);
+      opensAt.get(i)!.push({ wl, closeAt: lc });
+    }
+  }
+
+  if (wasmLabel.size === 0) {
+    for (const s of body) emitStmt(ctx, s);
+    return;
+  }
+
+  if (!ctx.gotoLabels) ctx.gotoLabels = new Map();
+  for (const [g, wl] of wasmLabel) ctx.gotoLabels.set(g, wl);
+
+  const closeStack: number[] = [];
+  for (let i = 0; i < body.length; i++) {
+    while (closeStack.length && closeStack[closeStack.length - 1] === i) {
+      ctx.lines.push(`    )`);
+      closeStack.pop();
+    }
+    const opens = opensAt.get(i);
+    if (opens) {
+      opens.sort((a, b) => b.closeAt - a.closeAt);   // outermost (latest close) opens first → proper nesting
+      for (const o of opens) {
+        ctx.lines.push(`    (block ${o.wl}`);
+        closeStack.push(o.closeAt);
+      }
+    }
+    emitStmt(ctx, body[i]);
+  }
+  while (closeStack.length) {
+    ctx.lines.push(`    )`);
+    closeStack.pop();
+  }
+
+  for (const g of wasmLabel.keys()) ctx.gotoLabels!.delete(g);
+}
+
 function emitStmt(ctx: FnCtx, stmt: Statement): void {
   switch (stmt.kind) {
     case "compound":
-      for (const s of stmt.body) emitStmt(ctx, s);
+      emitCompound(ctx, stmt.body);
       break;
 
     case "expression": {
@@ -1201,6 +1305,13 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
     case "empty":
     case "label":
       break;
+
+    case "goto": {
+      const wl = ctx.gotoLabels?.get(stmt.label);
+      if (wl) ctx.lines.push(`    (br ${wl})`);
+      else ctx.cg.warn(`unsupported goto '${stmt.label}'`, stmt.span.line);
+      break;
+    }
 
     default:
       ctx.cg.warn(`unsupported statement '${stmt.kind}'`, stmt.span.line);
@@ -1888,11 +1999,18 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
       return "";
     }
 
-    // mutations (statement context). set (HashMap) and add (HashSet) both insert; add has no value.
-    if ((member === "set" || member === "add") && !valueWanted) {
+    // set (HashMap) and add (HashSet) both insert; add has no value. HashMap.set is compiled from the
+    // real qpi.h body (returns the element index); the intrinsic remains a fallback. Valid in both
+    // value (returns index) and statement context.
+    if (member === "set" || member === "add") {
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const v = isSet ? k : argAddr(ctx, expr.args[1], info.valSize!);
-      ctx.lines.push(`    (drop (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`);
+      const cm = !isSet ? compileContainerMethod(ctx.cg, node.type, "set") : null;
+      const call = cm
+        ? `(call ${cm.label} ${map} ${k} ${v})`
+        : `(i64.extend_i32_s (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`;
+      if (valueWanted) return call;
+      ctx.lines.push(`    (drop ${call})`);
       return "";
     }
     if ((member === "removeByKey" || member === "remove") && !valueWanted) {
