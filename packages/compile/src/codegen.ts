@@ -63,6 +63,10 @@ class Codegen {
   templates: Map<string, ClassTemplate> = new Map();            // qpi.h templates (HashMap, Array, ...)
   globalStructs: Map<string, StructDecl> = new Map();           // qpi.h global/namespace structs
   typedefs: Map<string, TypeSpec> = new Map();                  // typedef aliases
+  constexprInit: Map<string, Expression> = new Map();           // named constexpr → its init expression
+  enumConst: Map<string, bigint> = new Map();                   // enum constant (NAME and Type::NAME) → value
+  private constCache: Map<string, bigint> = new Map();
+  private constInProgress = new Set<string>();
   private layoutCache: Map<string, StructLayout> = new Map();
   warnings: CodegenWarning[] = [];
 
@@ -79,13 +83,65 @@ class Codegen {
       } else if (d.kind === "struct") {
         const s = d as StructDecl;
         if (s.name) this.globalStructs.set(s.name, s);
+        // file-scope structs can still nest constants/enums (e.g. a contract's static constexpr)
+        this.collectConstants(s.members);
       } else if (d.kind === "class_template") {
         const ct = d as any;
         this.templates.set(ct.name, { params: ct.params, members: ct.members });
       } else if (d.kind === "typedef_decl") {
         const td = d as any;
         this.typedefs.set(td.name, td.type);
+      } else if (d.kind === "variable") {
+        this.collectConstant(d as VariableDecl);
+      } else if (d.kind === "enum") {
+        this.collectEnum(d as any);
       }
+    }
+  }
+
+  // Collect named constexpr/const-with-initializer values and enum constants from a member list.
+  private collectConstants(members: Declaration[]): void {
+    for (const m of members) {
+      if (m.kind === "variable") this.collectConstant(m as VariableDecl);
+      else if (m.kind === "enum") this.collectEnum(m as any);
+    }
+  }
+
+  private collectConstant(v: VariableDecl): void {
+    if (v.init && (v.isConstexpr || v.type.kind === "const")) {
+      if (!this.constexprInit.has(v.name)) this.constexprInit.set(v.name, v.init);
+    }
+  }
+
+  private collectEnum(e: { name?: string; members: { name: string; value?: Expression }[] }): void {
+    let next = 0n;
+    for (const m of e.members) {
+      const v = m.value ? this.evalConstBig(m.value, NO_BIND) : next;
+      next = v + 1n;
+      if (!this.enumConst.has(m.name)) this.enumConst.set(m.name, v);
+      if (e.name) this.enumConst.set(`${e.name}::${m.name}`, v);
+    }
+  }
+
+  // Resolve a named constant (enum constant or constexpr) to its integer value, or null if unknown.
+  resolveConst(name: string): bigint | null {
+    const cached = this.constCache.get(name);
+    if (cached !== undefined) return cached;
+    const en = this.enumConst.get(name);
+    if (en !== undefined) {
+      this.constCache.set(name, en);
+      return en;
+    }
+    const init = this.constexprInit.get(name);
+    if (init === undefined) return null;
+    if (this.constInProgress.has(name)) return null;   // cyclic constexpr — give up
+    this.constInProgress.add(name);
+    try {
+      const v = this.evalConstBig(init, NO_BIND);
+      this.constCache.set(name, v);
+      return v;
+    } finally {
+      this.constInProgress.delete(name);
     }
   }
 
@@ -359,20 +415,36 @@ class Codegen {
     return Number(this.evalConstBig(expr, b));
   }
 
+  // Parse an integer literal token (hex/bin/octal/dec, with optional u/l/ull suffixes) to a bigint.
+  private parseIntLiteral(value: string): bigint {
+    const text = value.replace(/ull?$/i, "").replace(/llu?$/i, "").replace(/[ul]$/i, "");
+    try {
+      if (text.startsWith("0x") || text.startsWith("0X")) return BigInt(text);
+      if (text.startsWith("0b") || text.startsWith("0B")) return BigInt("0x" + BigInt(text.slice(2)).toString(16));
+      if (text.startsWith("0") && text.length > 1) return BigInt("0x" + BigInt(text).toString(16));
+      return BigInt(text);
+    } catch {
+      return 0n;
+    }
+  }
+
   private evalConstBig(expr: Expression, b: Bindings): bigint {
     switch (expr.kind) {
-      case "int_literal": {
-        const e = this.sema.evaluateConstexpr(expr);
-        return e ?? 0n;
-      }
+      case "int_literal":
+        return this.parseIntLiteral(expr.value);
       case "bool_literal": return expr.value ? 1n : 0n;
       case "char_literal": return BigInt(expr.value);
       case "paren": return this.evalConstBig(expr.expr, b);
       case "identifier": {
         const v = b.values.get(expr.name);
         if (v !== undefined) return v;
-        const e = this.sema.evaluateConstexpr(expr);
-        return e ?? 0n;
+        const c = this.resolveConst(expr.name);
+        if (c !== null) return c;
+        if (this.sema && typeof this.sema.evaluateConstexpr === "function") {
+          const e = this.sema.evaluateConstexpr(expr);
+          if (e !== null) return e;
+        }
+        return 0n;
       }
       case "unary_op": {
         const a = this.evalConstBig(expr.arg, b);
@@ -418,6 +490,10 @@ class Codegen {
       if (m.kind === "struct") {
         const s = m as StructDecl;
         this.nested.set(s.name, s);
+      } else if (m.kind === "variable") {
+        this.collectConstant(m as VariableDecl);
+      } else if (m.kind === "enum") {
+        this.collectEnum(m as any);
       } else if (m.kind === "typedef_decl") {
         // typedef X Y — alias; resolve later via sizeOfType fallback
       }
@@ -505,13 +581,21 @@ export interface LibTypes {
   templates: Map<string, ClassTemplate>;
   globalStructs: Map<string, StructDecl>;
   typedefs: Map<string, TypeSpec>;
+  constexprInit: Map<string, Expression>;
+  enumConst: Map<string, bigint>;
 }
 
-// Parse-once: collect the qpi.h library type table (templates/structs/typedefs) from its AST.
+// Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants) from its AST.
 export function buildLibTypes(decls: Declaration[]): LibTypes {
   const cg = new Codegen({} as Sema);
   cg.collectTU(decls);
-  return { templates: cg.templates, globalStructs: cg.globalStructs, typedefs: cg.typedefs };
+  return {
+    templates: cg.templates,
+    globalStructs: cg.globalStructs,
+    typedefs: cg.typedefs,
+    constexprInit: cg.constexprInit,
+    enumConst: cg.enumConst,
+  };
 }
 
 export function generateWasmModule(
@@ -530,6 +614,8 @@ export function generateWasmModule(
     for (const [k, v] of lib.templates) cg.templates.set(k, v);
     for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
     for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
+    for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
+    for (const [k, v] of lib.enumConst) cg.enumConst.set(k, v);
   }
   cg.collectTU(tu.declarations);
 
@@ -689,6 +775,8 @@ interface FnCtx {
   localVars: Map<string, { wasmType: "i32" | "i64" }>;
   lines: string[];
   tmpCount: number;
+  loops: { brk: string; cont: string }[];   // innermost loop's break/continue labels are last
+  loopCount: number;
 }
 
 // A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
@@ -707,7 +795,7 @@ function emitFunction(
   outL: StructLayout,
   localsL: StructLayout,
 ): string {
-  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0 };
+  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0 };
 
   // Pre-scan for local variable declarations (must be declared at function top in WAT)
   if (fn?.body) collectLocals(fn.body, ctx);
@@ -796,26 +884,62 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
 
     case "for": {
       if (stmt.init) emitStmt(ctx, stmt.init);
-      ctx.lines.push(`    (block $brk (loop $cont`);
+      const n = ctx.loopCount++;
+      const brk = `$brk${n}`, loop = `$loop${n}`, cont = `$cont${n}`;
+      ctx.lines.push(`    (block ${brk} (loop ${loop}`);
       if (stmt.cond) {
-        ctx.lines.push(`      (br_if $brk (i32.eqz (i32.wrap_i64 ${emitValue(ctx, stmt.cond)})))`);
+        ctx.lines.push(`      (br_if ${brk} (i32.eqz (i32.wrap_i64 ${emitValue(ctx, stmt.cond)})))`);
       }
+      // continue jumps out of the $cont block to run the update, then loops — matching C semantics.
+      ctx.lines.push(`      (block ${cont}`);
+      ctx.loops.push({ brk, cont });
       emitStmt(ctx, stmt.body);
+      ctx.loops.pop();
+      ctx.lines.push(`      )`);
       if (stmt.update) {
         const u = emitExprDrop(ctx, stmt.update);
         if (u) ctx.lines.push(`      ${u}`);
       }
-      ctx.lines.push(`      (br $cont)))`);
+      ctx.lines.push(`      (br ${loop})))`);
       break;
     }
 
     case "while": {
-      ctx.lines.push(`    (block $brk (loop $cont`);
-      ctx.lines.push(`      (br_if $brk (i32.eqz (i32.wrap_i64 ${emitValue(ctx, stmt.cond)})))`);
+      const n = ctx.loopCount++;
+      const brk = `$brk${n}`, loop = `$loop${n}`, cont = `$cont${n}`;
+      ctx.lines.push(`    (block ${brk} (loop ${loop}`);
+      ctx.lines.push(`      (br_if ${brk} (i32.eqz (i32.wrap_i64 ${emitValue(ctx, stmt.cond)})))`);
+      ctx.lines.push(`      (block ${cont}`);
+      ctx.loops.push({ brk, cont });
       emitStmt(ctx, stmt.body);
-      ctx.lines.push(`      (br $cont)))`);
+      ctx.loops.pop();
+      ctx.lines.push(`      )`);
+      ctx.lines.push(`      (br ${loop})))`);
       break;
     }
+
+    case "do_while": {
+      const n = ctx.loopCount++;
+      const brk = `$brk${n}`, loop = `$loop${n}`, cont = `$cont${n}`;
+      ctx.lines.push(`    (block ${brk} (loop ${loop}`);
+      ctx.lines.push(`      (block ${cont}`);
+      ctx.loops.push({ brk, cont });
+      emitStmt(ctx, stmt.body);
+      ctx.loops.pop();
+      ctx.lines.push(`      )`);
+      ctx.lines.push(`      (br_if ${loop} (i32.ne (i32.const 0) (i32.wrap_i64 ${emitValue(ctx, stmt.cond)})))))`);
+      break;
+    }
+
+    case "break":
+      if (ctx.loops.length) ctx.lines.push(`    (br ${ctx.loops[ctx.loops.length - 1].brk})`);
+      else ctx.cg.warn(`break outside loop`, stmt.span.line);
+      break;
+
+    case "continue":
+      if (ctx.loops.length) ctx.lines.push(`    (br ${ctx.loops[ctx.loops.length - 1].cont})`);
+      else ctx.cg.warn(`continue outside loop`, stmt.span.line);
+      break;
 
     case "return":
       ctx.lines.push(`    (return)`);
@@ -1080,7 +1204,9 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
     case "identifier": {
       if (ctx.localVars.has(expr.name)) return `(local.get $${expr.name})`;
       if (expr.name === "SELF_INDEX") return `(i64.extend_i32_u (call $qpi_contractIndex))`;
-      // a constexpr / enum value
+      // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
+      const c = ctx.cg.resolveConst(expr.name);
+      if (c !== null) return `(i64.const ${c})`;
       const e = ctx.cg["sema"].evaluateConstexpr(expr);
       if (e !== null) return `(i64.const ${e})`;
       ctx.cg.warn(`unknown identifier '${expr.name}'`, expr.span.line);
@@ -1099,6 +1225,19 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
     }
     case "call":
       return emitCallValue(ctx, expr);
+    case "template_call": {
+      if (expr.callee.kind === "identifier") {
+        const name = expr.callee.name;
+        // C++ cast spelled as a template call: identity in the scalar i64 model.
+        if ((name === "static_cast" || name === "reinterpret_cast" || name === "const_cast") && expr.args[0]) {
+          return emitValue(ctx, expr.args[0]);
+        }
+        const m = emitMathCall(ctx, name, expr.args);
+        if (m !== null) return m;
+      }
+      ctx.cg.warn(`unsupported template_call '${expr.callee.kind === "identifier" ? expr.callee.name : "?"}' as value`, expr.span.line);
+      return `(i64.const 0)`;
+    }
     case "binary_op":
       return emitBinary(ctx, expr);
     case "unary_op": {
@@ -1312,8 +1451,30 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
   return null;
 }
 
-// rvalue call: qpi getter, qpi valued host call, or a value-returning container method.
+// QPI safe-math + helper free functions, lowered to scalar i64. smul/sadd/ssub are emitted as plain
+// arithmetic (the saturating clamp only differs at the type's overflow boundary).
+function emitMathCall(ctx: FnCtx, name: string, args: Expression[]): string | null {
+  const a = () => (args[0] ? emitValue(ctx, args[0]) : "(i64.const 0)");
+  const b = () => (args[1] ? emitValue(ctx, args[1]) : "(i64.const 0)");
+  switch (name) {
+    case "div": case "sdiv": return `(call $m_div_s ${a()} ${b()})`;
+    case "mod": return `(call $m_mod_s ${a()} ${b()})`;
+    case "min": return `(call $m_min_s ${a()} ${b()})`;
+    case "max": return `(call $m_max_s ${a()} ${b()})`;
+    case "abs": return `(call $m_abs ${a()})`;
+    case "sadd": return `(i64.add ${a()} ${b()})`;
+    case "ssub": return `(i64.sub ${a()} ${b()})`;
+    case "smul": return `(i64.mul ${a()} ${b()})`;
+    default: return null;
+  }
+}
+
+// rvalue call: qpi getter, qpi valued host call, a value-returning container method, or a math helper.
 function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string {
+  if (expr.callee.kind === "identifier") {
+    const m = emitMathCall(ctx, expr.callee.name, expr.args);
+    if (m !== null) return m;
+  }
   if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
     const g = QPI_GETTERS[expr.callee.member];
     if (g) return g.ret === "i64" ? `(call ${g.fwd})` : `(i64.extend_i32_u (call ${g.fwd}))`;

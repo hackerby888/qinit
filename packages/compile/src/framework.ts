@@ -418,7 +418,19 @@ function emitIntrinsics(): string {
 
   ;; reset() — zero the whole map
   (func $hm_reset (param $map i32) (param $totalSize i32)
-    (call $setMem (local.get $map) (local.get $totalSize) (i32.const 0)))`;
+    (call $setMem (local.get $map) (local.get $totalSize) (i32.const 0)))
+
+  ;; QPI safe math: div/mod return 0 on a zero divisor; min/max/abs evaluate each arg once.
+  (func $m_div_s (param $a i64) (param $b i64) (result i64)
+    (if (result i64) (i64.eqz (local.get $b)) (then (i64.const 0)) (else (i64.div_s (local.get $a) (local.get $b)))))
+  (func $m_mod_s (param $a i64) (param $b i64) (result i64)
+    (if (result i64) (i64.eqz (local.get $b)) (then (i64.const 0)) (else (i64.rem_s (local.get $a) (local.get $b)))))
+  (func $m_min_s (param $a i64) (param $b i64) (result i64)
+    (select (local.get $a) (local.get $b) (i64.lt_s (local.get $a) (local.get $b))))
+  (func $m_max_s (param $a i64) (param $b i64) (result i64)
+    (select (local.get $a) (local.get $b) (i64.gt_s (local.get $a) (local.get $b))))
+  (func $m_abs (param $a i64) (result i64)
+    (select (local.get $a) (i64.sub (i64.const 0) (local.get $a)) (i64.ge_s (local.get $a) (i64.const 0))))`;
 }
 
 function emitMetadata(L: Layout, spec: ModuleSpec, sysprocMask: number): string {
