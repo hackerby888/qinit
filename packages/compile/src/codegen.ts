@@ -1611,6 +1611,16 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   if (expr.kind === "paren") return emitAddr(ctx, expr.expr);
   if (expr.kind === "c_cast" || expr.kind === "static_cast") return emitAddr(ctx, expr.expr);
 
+  // aggregate construction Type{...} as an rvalue/argument — materialize into a scratch slot.
+  if (expr.kind === "construct") {
+    const sz = ctx.cg.sizeOfType(expr.type, ctx.thisBind ?? NO_BIND);
+    if (sz > 0) {
+      const t = newTmp(ctx);
+      ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const ${sz})))`);
+      if (emitConstruct(ctx, `(local.get $${t})`, expr.type, expr.args)) return `(local.get $${t})`;
+    }
+  }
+
   // id(a,b,c,d) / m256i(a,b,c,d) constructor → materialize the four 64-bit limbs (missing ones = 0).
   if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "id" || expr.callee.name === "m256i")) {
     return materializeId(ctx, expr.args);
@@ -1738,6 +1748,29 @@ const QPI_ID_PRODUCERS: Record<string, string> = {
   originator: "$qpi_originator",
 };
 
+// Aggregate construction `Type{ a, b, c }` written into dstAddr: zero the target, then store each arg into
+// the corresponding field (declaration order). Scalars store by value, aggregate fields copy by address.
+// Returns false if the type has no resolvable layout.
+function emitConstruct(ctx: FnCtx, dstAddr: string, type: TypeSpec, args: Expression[]): boolean {
+  const layout = ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND);
+  if (!layout) return false;
+  const fields = [...layout.fields.values()];
+  const t = newTmp(ctx);
+  ctx.lines.push(`    (local.set $${t} ${dstAddr})`);
+  ctx.lines.push(`    (call $setMem (local.get $${t}) (i32.const ${layout.size}) (i32.const 0))`);
+  for (let i = 0; i < args.length && i < fields.length; i++) {
+    const f = fields[i];
+    const fAddr = addrOf(`(local.get $${t})`, f.offset);
+    if (isAggregate(ctx, f.type, f.size)) {
+      const src = emitAddr(ctx, args[i]);
+      if (src) ctx.lines.push(`    (call $copyMem ${fAddr} ${src} (i32.const ${f.size}))`);
+    } else {
+      ctx.lines.push(`    ${storeAt(fAddr, f.size, emitValue(ctx, args[i]))}`);
+    }
+  }
+  return true;
+}
+
 // Materialize a 256-bit id/m256i from up to four 64-bit limb expressions into scratch; returns its addr.
 function materializeId(ctx: FnCtx, limbs: Expression[]): string {
   const t = newTmp(ctx);
@@ -1807,6 +1840,10 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
         ctx.lines.push(`    ${out.wat}`);
         return "";
       }
+    }
+    // aggregate construction `target = Type{ ... }` (e.g. a Logger) — materialize the fields in place.
+    if (expr.right.kind === "construct" && lhs.type && emitConstruct(ctx, lhs.addr, lhs.type, expr.right.args)) {
+      return "";
     }
     const src = emitAddr(ctx, expr.right);
     if (src) {
@@ -2062,6 +2099,7 @@ const QPI_CALLS: Record<string, QpiCallDesc> = {
   transferShareOwnershipAndPossession: { fwd: "$qpi_transferShares", args: ["i64", "addr", "addr", "addr", "i64", "addr"], ret: "i64" },
   numberOfPossessedShares: { fwd: "$qpi_numberOfPossessedShares", args: ["i64", "addr", "addr", "addr", "i32", "i32"], ret: "i64" },
   distributeDividends: { fwd: "$qpi_distributeDividends", args: ["i64"], ret: "i32" },
+  dayOfWeek: { fwd: "$qpi_dayOfWeek", args: ["i32", "i32", "i32"], ret: "i32" },
   getEntity: { fwd: "$qpi_getEntity", args: ["addr", "addr"], ret: "i32" },
   isContractId: { fwd: "$qpi_isContractId", args: ["addr"], ret: "i32" },
   nextId: { fwd: "$qpi_nextId", args: ["addr"], ret: "out" },
