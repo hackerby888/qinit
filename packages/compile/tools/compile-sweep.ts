@@ -19,6 +19,10 @@ const targets: [string, string][] = [
   ["Nostromo", `${SYS}/Nostromo.h`], ["QThirtyFour", `${SYS}/QThirtyFour.h`], ["Qx", `${SYS}/Qx.h`],
   ["SupplyWatcher", `${SYS}/SupplyWatcher.h`], ["GeneralQuorumProposal", `${SYS}/GeneralQuorumProposal.h`],
   ["ComputorControlledFund", `${SYS}/ComputorControlledFund.h`],
+  // unblocked by the Tier-1 parser robustness work
+  ["Qbay", `${SYS}/Qbay.h`], ["QRaffle", `${SYS}/QRaffle.h`], ["VottunBridge", `${SYS}/VottunBridge.h`],
+  ["QVAULT", `${SYS}/QVAULT.h`], ["Qswap", `${SYS}/Qswap.h`], ["Qusino", `${SYS}/Qusino.h`],
+  ["Quottery", `${SYS}/Quottery.h`],
 ];
 
 const pad = (s: string, n: number) => s.padEnd(n);
