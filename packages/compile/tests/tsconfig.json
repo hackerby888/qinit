@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["bun-types"],
+    "paths": {
+      "@qinit/engine": ["../../engine/src/index.ts"],
+      "@qinit/engine/k12": ["../../engine/src/k12.ts"],
+      "@qinit/core": ["../../core/src/index.ts"]
+    }
+  },
+  "include": ["./**/*.ts"]
+}

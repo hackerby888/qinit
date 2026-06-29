@@ -23,6 +23,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@qinit/build": "workspace:*",
+        "@qinit/compile": "workspace:*",
         "@qinit/core": "workspace:*",
         "@qinit/engine": "workspace:*",
         "@qinit/proto": "workspace:*",
@@ -32,6 +33,16 @@
       },
       "devDependencies": {
         "@types/react": "^18.3.12",
+      },
+    },
+    "packages/compile": {
+      "name": "@qinit/compile",
+      "version": "0.1.0",
+      "dependencies": {
+        "wabt": "1.0.39",
+      },
+      "devDependencies": {
+        "@qinit/core": "workspace:*",
       },
     },
     "packages/core": {
@@ -186,6 +197,8 @@
     "@qinit/build": ["@qinit/build@workspace:packages/build"],
 
     "@qinit/cli": ["@qinit/cli@workspace:packages/cli"],
+
+    "@qinit/compile": ["@qinit/compile@workspace:packages/compile"],
 
     "@qinit/core": ["@qinit/core@workspace:packages/core"],
 
@@ -902,6 +915,8 @@
     "validate-npm-package-license": ["validate-npm-package-license@3.0.4", "", { "dependencies": { "spdx-correct": "^3.0.0", "spdx-expression-parse": "^3.0.0" } }, "sha512-DpKm2Ui/xN7/HQKCtpZxoRWBhZ9Z0kqtygG8XCgNQ8ZlDnxuQmWhj566j8fN4Cu3/JmbhsDo7fcAJq4s9h27Ew=="],
 
     "version-range": ["version-range@4.15.0", "", {}, "sha512-Ck0EJbAGxHwprkzFO966t4/5QkRuzh+/I1RxhLgUKKwEn+Cd8NwM60mE3AqBZg5gYODoXW0EFsQvbZjRlvdqbg=="],
+
+    "wabt": ["wabt@1.0.39", "", { "bin": { "wasm2c": "bin/wasm2c", "wasm2wat": "bin/wasm2wat", "wat2wasm": "bin/wat2wasm", "wasm-stats": "bin/wasm-stats", "wasm-strip": "bin/wasm-strip", "wasm-interp": "bin/wasm-interp", "wasm-objdump": "bin/wasm-objdump", "wasm-validate": "bin/wasm-validate", "wasm-decompile": "bin/wasm-decompile" } }, "sha512-ba+dRL/75VQQY7RkU/CgriGbkoWAfS8TDyUlJfJhJ8KhtXgMl5dhNvoPNUcQ9IWRhW8u41glMSuZeTvsYq2rRg=="],
 
     "whatwg-encoding": ["whatwg-encoding@3.1.1", "", { "dependencies": { "iconv-lite": "0.6.3" } }, "sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ=="],
 
