@@ -572,6 +572,22 @@ class Codegen {
     return { kind: "HashMap", L, elemSize, keySize, valOff, valSize, occBase, popOff, totalSize, hashMode };
   }
 
+  // HashSet<K,L>: keys-only — same probing/occupancy as HashMap with a zero-width value.
+  hashsetInfo(args: TypeSpec[], b: Bindings = NO_BIND): ContainerInfo | null {
+    if (args.length < 2) return null;
+    const keySize = this.sizeOfType(args[0], b);
+    const L = Number(this.evalConstFromType(args[1], b));
+    if (!L || keySize <= 0) return null;
+    const elemSize = this.alignUp(keySize, this.alignOfType(args[0], b));
+    const elementsBytes = elemSize * L;
+    const occBytes = Math.floor((L * 2 + 63) / 64) * 8;
+    const occBase = elementsBytes;
+    const popOff = elementsBytes + occBytes;
+    const totalSize = popOff + 16;
+    const hashMode = keySize === 32 ? 0 : 1;
+    return { kind: "HashMap", L, elemSize, keySize, valOff: 0, valSize: 0, occBase, popOff, totalSize, hashMode };
+  }
+
   arrayInfo(args: TypeSpec[], b: Bindings = NO_BIND): ContainerInfo | null {
     if (args.length < 2) return null;
     const elemSize = this.sizeOfType(args[0], b);
@@ -1188,8 +1204,38 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     }
   }
 
+  // container element accessors return a reference into the backing array: key(i)/value(i)/get(i)
+  if (expr.kind === "call" && expr.callee.kind === "member_access") {
+    const ce = containerElemAddr(ctx, expr);
+    if (ce) return ce;
+  }
+
   const n = resolveAddr(ctx, expr);
   return n ? n.addr : null;
+}
+
+// Address of a container element field: HashMap/HashSet key(i)/value(i), Array get(i). The returned
+// address is an lvalue into the backing store (used for aggregate reads/compares/copies).
+function containerElemAddr(ctx: FnCtx, expr: Expression & { kind: "call" }): string | null {
+  if (expr.callee.kind !== "member_access") return null;
+  const node = resolveAddr(ctx, expr.callee.object);
+  if (!node || node.type?.kind !== "template_instance") return null;
+  const m = expr.callee.member;
+  const C = (n: number) => `(i32.const ${n})`;
+
+  if (node.type.name === "HashMap" || node.type.name === "HashSet") {
+    const info = node.type.name === "HashSet" ? ctx.cg.hashsetInfo(node.type.args) : ctx.cg.hashmapInfo(node.type.args);
+    if (!info || !expr.args[0]) return null;
+    const elem = `(call $hm_elem ${node.addr} (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)})`;
+    if (m === "key") return elem;
+    if (m === "value") return `(i32.add ${elem} ${C(info.valOff!)})`;
+  }
+  if (node.type.name === "Array" && m === "get") {
+    const info = ctx.cg.arrayInfo(node.type.args);
+    if (!info || !expr.args[0]) return null;
+    return `(i32.add ${node.addr} (i32.mul (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)}))`;
+  }
+  return null;
 }
 
 // qpi.* zero-arg accessors that return a 32-byte id by value, written to an out address.
@@ -1553,52 +1599,105 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
   const C = (n: number) => `(i32.const ${n})`;
 
   if (node.type.name === "HashMap" || node.type.name === "HashSet") {
-    const info = ctx.cg.hashmapInfo(node.type.args);
+    const isSet = node.type.name === "HashSet";
+    const info = isSet ? ctx.cg.hashsetInfo(node.type.args) : ctx.cg.hashmapInfo(node.type.args);
     if (!info) return null;
     const dims = `${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.valOff!)} ${C(info.valSize!)} ${C(info.occBase!)}`;
+    const indexOf = (k: string) => `(call $hm_index ${map} ${k} ${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.occBase!)} ${C(info.hashMode!)})`;
+    const elemAt = (idx: Expression) => `(call $hm_elem ${map} (i32.and (i32.wrap_i64 ${emitValue(ctx, idx)}) ${C(info.L! - 1)}) ${C(info.elemSize)})`;
 
+    // queries (value context)
     if (member === "population" && valueWanted) return `(call $hm_population ${map} ${C(info.popOff!)})`;
-    if (member === "set" && !valueWanted) {
+    if (member === "capacity" && valueWanted) return `(i64.const ${info.L})`;
+    if (member === "contains" && valueWanted) {
       const k = argAddr(ctx, expr.args[0], info.keySize!);
-      const v = argAddr(ctx, expr.args[1], info.valSize!);
-      ctx.lines.push(`    (drop (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`);
-      return "";
+      return `(i64.extend_i32_u (i32.ne ${indexOf(k)} (i32.const -1)))`;
     }
+    if (member === "getElementIndex" && valueWanted) {
+      const k = argAddr(ctx, expr.args[0], info.keySize!);
+      return `(i64.extend_i32_s ${indexOf(k)})`;
+    }
+    if (member === "nextElementIndex" && valueWanted) {
+      return `(i64.extend_i32_s (call $hm_next ${map} (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L!)} ${C(info.occBase!)}))`;
+    }
+    if (member === "isEmptySlot" && valueWanted) {
+      const idx = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L! - 1)})`;
+      return `(i64.extend_i32_u (i32.ne (call $hm_flag (i32.add ${map} ${C(info.occBase!)}) ${idx}) (i32.const 1)))`;
+    }
+    if (member === "value" && valueWanted) return loadAt(`(i32.add ${elemAt(expr.args[0])} ${C(info.valOff!)})`, info.valSize!);
+    if (member === "key" && valueWanted && info.keySize! <= 8) return loadAt(elemAt(expr.args[0]), info.keySize!);
+
+    // get(key, &value) — bool found, value copied out
     if (member === "get") {
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const out = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
       const call = `(call $hm_get ${map} ${k} ${out} ${dims} ${C(info.hashMode!)})`;
-      // get returns a bool (found?); as a statement we drop it, as a value (if (map.get(k,v))) we keep it.
       if (valueWanted) return `(i64.extend_i32_u ${call})`;
       ctx.lines.push(`    (drop ${call})`);
+      return "";
+    }
+
+    // mutations (statement context). set (HashMap) and add (HashSet) both insert; add has no value.
+    if ((member === "set" || member === "add") && !valueWanted) {
+      const k = argAddr(ctx, expr.args[0], info.keySize!);
+      const v = isSet ? k : argAddr(ctx, expr.args[1], info.valSize!);
+      ctx.lines.push(`    (drop (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`);
+      return "";
+    }
+    if ((member === "removeByKey" || member === "remove") && !valueWanted) {
+      const k = argAddr(ctx, expr.args[0], info.keySize!);
+      ctx.lines.push(`    (call $hm_remove ${map} ${k} ${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.occBase!)} ${C(info.popOff!)} ${C(info.hashMode!)})`);
+      return "";
+    }
+    if (member === "replace" && !valueWanted) {
+      const k = argAddr(ctx, expr.args[0], info.keySize!);
+      const v = argAddr(ctx, expr.args[1], info.valSize!);
+      const t = newTmp(ctx);
+      ctx.lines.push(`    (local.set $${t} ${indexOf(k)})`);
+      ctx.lines.push(`    (if (i32.ge_s (local.get $${t}) (i32.const 0)) (then (call $copyMem (i32.add (call $hm_elem ${map} (local.get $${t}) ${C(info.elemSize)}) ${C(info.valOff!)}) ${v} ${C(info.valSize!)})))`);
       return "";
     }
     if (member === "reset" && !valueWanted) {
       ctx.lines.push(`    (call $hm_reset ${map} ${C(info.totalSize!)})`);
       return "";
     }
-    if (member === "contains" && valueWanted) {
-      const k = argAddr(ctx, expr.args[0], info.keySize!);
-      return `(i64.extend_i32_u (i32.ne (call $hm_index ${map} ${k} ${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.occBase!)} ${C(info.hashMode!)}) (i32.const -1)))`;
-    }
+    // cleanup family is a no-op here (our probing never reclaims removed slots; lookups stay correct)
+    if ((member === "cleanup" || member === "cleanupIfNeeded") && !valueWanted) return "";
+    if (member === "needsCleanup" && valueWanted) return "(i64.const 0)";
   }
 
   if (node.type.name === "Array") {
     const info = ctx.cg.arrayInfo(node.type.args);
     if (!info) return null;
     const mask = info.L - 1;
+    const aggr = isAggregate(ctx, info.elemType ?? null, info.elemSize);
     const elemAddr = (idx: Expression) =>
       `(i32.add ${map} (i32.mul (i32.and (i32.wrap_i64 ${emitValue(ctx, idx)}) ${C(mask)}) ${C(info.elemSize)}))`;
 
-    if (member === "get" && valueWanted) return loadAt(elemAddr(expr.args[0]), info.elemSize);
+    if (member === "get" && valueWanted && !aggr) return loadAt(elemAddr(expr.args[0]), info.elemSize);
+    if (member === "capacity" && valueWanted) return `(i64.const ${info.L})`;
     if (member === "set" && !valueWanted) {
       const ea = elemAddr(expr.args[0]);
-      if (isAggregate(ctx, info.elemType ?? null, info.elemSize)) {
+      if (aggr) {
         const src = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
         ctx.lines.push(`    (call $copyMem ${ea} ${src} ${C(info.elemSize)})`);
       } else {
         ctx.lines.push(`    ${storeAt(ea, info.elemSize, emitValue(ctx, expr.args[1]))}`);
       }
+      return "";
+    }
+    if (member === "setAll" && !valueWanted && !aggr) {
+      // setAll(v): write v to every element. value scalar only (aggregate setAll is rare).
+      const v = emitValue(ctx, expr.args[0]);
+      const i = newTmp(ctx), val = newTmp(ctx);
+      ctx.localVars.set(val, { wasmType: "i64" });
+      ctx.lines.push(`    (local.set $${val} ${v})`);
+      ctx.lines.push(`    (local.set $${i} (i32.const 0))`);
+      ctx.lines.push(`    (block $sa_done (loop $sa`);
+      ctx.lines.push(`      (br_if $sa_done (i32.ge_u (local.get $${i}) ${C(info.L)}))`);
+      ctx.lines.push(`      ${storeAt(`(i32.add ${map} (i32.mul (local.get $${i}) ${C(info.elemSize)}))`, info.elemSize, `(local.get $${val})`)}`);
+      ctx.lines.push(`      (local.set $${i} (i32.add (local.get $${i}) (i32.const 1)))`);
+      ctx.lines.push(`      (br $sa)))`);
       return "";
     }
   }

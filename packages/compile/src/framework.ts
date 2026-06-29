@@ -420,6 +420,32 @@ function emitIntrinsics(): string {
   (func $hm_reset (param $map i32) (param $totalSize i32)
     (call $setMem (local.get $map) (local.get $totalSize) (i32.const 0)))
 
+  ;; nextElementIndex(prev) — first occupied slot index > prev (pass -1 to start), or -1 when none left
+  (func $hm_next (param $map i32) (param $prev i32) (param $L i32) (param $occBase i32) (result i32)
+    (local $i i32) (local $occ i32)
+    (local.set $occ (i32.add (local.get $map) (local.get $occBase)))
+    (local.set $i (if (result i32) (i32.lt_s (local.get $prev) (i32.const 0)) (then (i32.const 0)) (else (i32.add (local.get $prev) (i32.const 1)))))
+    (block $done
+      (loop $scan
+        (br_if $done (i32.ge_u (local.get $i) (local.get $L)))
+        (if (i32.eq (call $hm_flag (local.get $occ) (local.get $i)) (i32.const 1)) (then (return (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $scan)))
+    (i32.const -1))
+
+  ;; removeByKey(key) — mark the slot for removal (occupied 0b01 -> 0b10), decrement population, clear element
+  (func $hm_remove (param $map i32) (param $keyAddr i32) (param $L i32) (param $elemSize i32) (param $keySize i32) (param $occBase i32) (param $popOff i32) (param $hashMode i32)
+    (local $idx i32) (local $word i32)
+    (local.set $idx (call $hm_index (local.get $map) (local.get $keyAddr) (local.get $L) (local.get $elemSize) (local.get $keySize) (local.get $occBase) (local.get $hashMode)))
+    (if (i32.lt_s (local.get $idx) (i32.const 0)) (then (return)))
+    (local.set $word (i32.add (i32.add (local.get $map) (local.get $occBase)) (i32.mul (i32.shr_u (local.get $idx) (i32.const 5)) (i32.const 8))))
+    (i64.store (local.get $word) (i64.xor (i64.load (local.get $word))
+      (i64.shl (i64.const 3) (i64.extend_i32_u (i32.shl (i32.and (local.get $idx) (i32.const 31)) (i32.const 1))))))
+    (i64.store (i32.add (local.get $map) (local.get $popOff)) (i64.sub (i64.load (i32.add (local.get $map) (local.get $popOff))) (i64.const 1)))
+    ;; _markRemovalCounter (popOff + 8) ++
+    (i64.store (i32.add (local.get $map) (i32.add (local.get $popOff) (i32.const 8))) (i64.add (i64.load (i32.add (local.get $map) (i32.add (local.get $popOff) (i32.const 8)))) (i64.const 1)))
+    (call $setMem (call $hm_elem (local.get $map) (local.get $idx) (local.get $elemSize)) (local.get $elemSize) (i32.const 0)))
+
   ;; QPI safe math: div/mod return 0 on a zero divisor; min/max/abs evaluate each arg once.
   (func $m_div_s (param $a i64) (param $b i64) (result i64)
     (if (result i64) (i64.eqz (local.get $b)) (then (i64.const 0)) (else (i64.div_s (local.get $a) (local.get $b)))))
