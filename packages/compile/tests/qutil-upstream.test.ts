@@ -44,6 +44,8 @@ TQ(q_fund)    void         bq_fund(const void* id32, long long amount);
 TQ(q_balance) long long    bq_balance(const void* id32);
 TQ(q_shares)  long long    bq_shares(const void* issuer32, unsigned long long assetName);
 TQ(q_possessed) long long  bq_possessed(unsigned long long name, const void* issuer32, const void* owner32, const void* possessor32, unsigned int om, unsigned int pm);
+TQ(q_spectrum)  int         bq_spectrum(const void* id32);
+TQ(q_decrease)  void        bq_decrease(int idx, long long amount);
 }
 #undef TQ
 
@@ -76,8 +78,8 @@ public:
 // Free helpers the upstream test calls at file scope.
 static inline void increaseEnergy(const QPI::id& who, QPI::sint64 amount) { bq_fund(&who, (long long)amount); }
 static inline long long getBalance(const QPI::id& who) { return bq_balance(&who); }
-static inline int spectrumIndex(const QPI::id& who) { return bq_balance(&who) > 0 ? 1 : -1; }
-static inline bool decreaseEnergy(int, QPI::sint64) { return true; }
+static inline int spectrumIndex(const QPI::id& who) { return bq_spectrum(&who); }
+static inline bool decreaseEnergy(int idx, QPI::sint64 amount) { bq_decrease(idx, (long long)amount); return true; }
 static inline QPI::sint64 numberOfShares(const QPI::Asset& a) { return bq_shares(&a.issuer, a.assetName); }
 static inline unsigned long long assetNameFromString(const char* s) { unsigned long long n = 0; for (int i = 0; i < 8 && s[i]; ++i) n |= (unsigned long long)(unsigned char)s[i] << (8 * i); return n; }
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) { return bq_possessed(name, &issuer, &owner, &possessor, om, pm); }
@@ -155,7 +157,7 @@ describe("upstream gtest — contract_qutil.cpp against my QUTIL+QX wasm", () =>
     // locks the current yield against regressions. Raise as gaps close. Remaining failures: vote-family
     // (QUtil's 384 MB Array<Voter, 8.4M> — huge-array handling) + share/asset paths; one hang (28) on the
     // asset-ownership iterator.
-    expect(passed).toBeGreaterThanOrEqual(49);
+    expect(passed).toBeGreaterThanOrEqual(51);
   }, 300000);
 });
 
@@ -165,6 +167,8 @@ async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uin
   const results: TR[] = [];
   let sim: Sim;
   let handles: Record<number, Contract> = {};
+  let spectrumIds: string[] = [];
+  let spectrumBytes: Uint8Array[] = [];
   let runner: WebAssembly.Instance;
   const mem = () => new Uint8Array((runner.exports.memory as WebAssembly.Memory).buffer);
   const read = (off: number, len: number) => mem().slice(off >>> 0, (off >>> 0) + (len >>> 0));
@@ -180,6 +184,8 @@ async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uin
   const deployAll = () => {
     sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     handles = {};
+    spectrumIds = [];
+    spectrumBytes = [];
     for (const [idx, wasm] of Object.entries(contracts)) handles[Number(idx)] = sim.deploy(Number(idx), wasm);
   };
   deployAll();
@@ -210,6 +216,16 @@ async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uin
     },
     q_fund: (idPtr: number, amount: bigint) => { sim.fund(id32(idPtr), BigInt(amount)); },
     q_balance: (idPtr: number): bigint => sim.balance(id32(idPtr)),
+    // spectrumIndex/decreaseEnergy: the native harness reduces an entity's energy by spectrum index. Map each
+    // queried id to a stable index, then decreaseEnergy(idx, amt) debits it (so the voter-eligibility tests
+    // that drop a voter below min_amount actually invalidate the voter).
+    q_spectrum: (idPtr: number): number => {
+      const h = hex(id32(idPtr));
+      let i = spectrumIds.indexOf(h);
+      if (i < 0) { i = spectrumIds.length; spectrumIds.push(h); spectrumBytes.push(id32(idPtr)); }
+      return i;
+    },
+    q_decrease: (idx: number, amount: bigint) => { const b = spectrumBytes[idx >>> 0]; if (b) sim.debit(b, BigInt(amount)); },
     q_shares: (issuerPtr: number, _assetName: bigint): bigint => {
       const issuerHex = hex(id32(issuerPtr));
       let sum = 0n;
@@ -249,15 +265,10 @@ async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uin
   runner = await WebAssembly.instantiate(mod, imports as any);
   (runner.exports._initialize as Function)?.();
 
-  // Index 28 (DistributeQuToShareholders) loops on an AssetOwnershipIterator —
-  //   for (iter.begin(asset); !iter.reachedEnd(); iter.next())
-  // whose stub never reports end, so it spins. A synchronous wasm loop can't be interrupted from JS, so skip
-  // it (tracked as the asset-iterator gap, not a bridge defect). The ProposalVoting END_EPOCH hangs that used
-  // to be here (2,3,4,27) are fixed (terminating wrapper stub + signed sub-64-bit loads).
-  const HANG = new Set([28]);
+  // No tests hang any more (the END_EPOCH ProposalVoting loops and the asset-ownership-iterator loop are both
+  // lowered now), so every case runs in-process.
   const count = (runner.exports.test_count as Function)() >>> 0;
   for (let i = 0; i < count; i++) {
-    if (HANG.has(i)) { results.push({ name: `#${i}`, passed: false, message: "SKIPPED (ProposalVoting END_EPOCH loop unsupported)" }); continue; }
     (runner.exports.run_test as Function)(i);
   }
   return results;
