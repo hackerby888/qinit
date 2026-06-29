@@ -2285,6 +2285,12 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
   const c = emitContainerCall(ctx, expr, true);
   if (c !== null) return c;
 
+  // Functional-style scalar cast: uint64(x) / sint64(x) / bit(x) ... — identity in the i64 value model
+  // (matching the c_cast/static_cast lowering), narrowing handled by the consuming store.
+  if (expr.callee.kind === "identifier" && SCALAR_SIZE[expr.callee.name] !== undefined && expr.args.length === 1) {
+    return emitValue(ctx, expr.args[0]);
+  }
+
   ctx.cg.warn(`unsupported call as value`, expr.span.line);
   return `(i64.const 0)`;
 }
