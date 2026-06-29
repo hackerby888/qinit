@@ -1991,8 +1991,25 @@ function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: FunctionTempla
   return [header, ...localDecls, ...ctx.lines, ...tail, "  )"].join("\n");
 }
 
-// Lower a container method call on a HashMap/Array state/locals field. When valueWanted, returns the
-// value WAT; otherwise pushes statement lines and returns "". Returns null if not a container call.
+// Build a call to a container method compiled from its real qpi.h body. Arguments are classified from
+// the method's own parameter list (reference/aggregate → address via argAddr, scalar → value). Returns
+// the call WAT + compiled method, or null if the method isn't captured / can't be lowered.
+function callCompiled(
+  ctx: FnCtx, type: TypeSpec & { kind: "template_instance" }, method: string, self: string, args: Expression[],
+): { call: string; cm: CompiledMethod } | null {
+  const cm = compileContainerMethod(ctx.cg, type, method);
+  if (!cm) return null;
+  const bind = ctx.cg.bindContainer(type.name, type.args);
+  const ops = cm.fnParams.map((fp, i) => {
+    const arg = args[i];
+    if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
+  });
+  return { call: `(call ${cm.label} ${self}${ops.length ? " " + ops.join(" ") : ""})`, cm };
+}
+
+// Lower a container method call on a HashMap/HashSet/Array state/locals field. When valueWanted, returns
+// the value WAT; otherwise pushes statement lines and returns "". Null if not a container call.
 function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
   if (expr.callee.kind !== "member_access") return null;
   const node = resolveAddr(ctx, expr.callee.object);
@@ -2014,18 +2031,7 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
     // shape); the hand-written intrinsics are the fallback. Each argument is classified from the
     // method's own parameter list — reference and aggregate params are materialized to an address
     // (argAddr), scalars passed by value.
-    const bind = ctx.cg.bindContainer(node.type.name, node.type.args);
-    const compiledHM = (m: string): { call: string; cm: CompiledMethod } | null => {
-      if (!bind) return null;
-      const cm = compileContainerMethod(ctx.cg, node.type, m);
-      if (!cm) return null;
-      const ops = cm.fnParams.map((fp, i) => {
-        const arg = expr.args[i];
-        if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-        return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
-      });
-      return { call: `(call ${cm.label} ${map}${ops.length ? " " + ops.join(" ") : ""})`, cm };
-    };
+    const compiledHM = (m: string) => callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, m, map, expr.args);
     // Wire a compiled HashMap method that returns a value (or void): in value context return the call;
     // as a statement, drop a value result or push a void call directly. Returns true once handled.
     const wireCompiled = (m: string): boolean => {
