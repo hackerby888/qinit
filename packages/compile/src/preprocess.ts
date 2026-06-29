@@ -102,7 +102,9 @@ export class Preprocessor {
   }
 
   private process(src: string): string {
-    this.input = src;
+    // Normalize CRLF/CR → LF so backslash line-continuations (`\` + CRLF) in multi-line macro definitions
+    // join correctly — core-lite headers ship with CRLF endings.
+    this.input = src.replace(/\r\n?/g, "\n");
     this.pos = 0;
     this.line = 1;
     this.result = "";

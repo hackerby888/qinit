@@ -934,7 +934,7 @@ export class Parser {
         // Non-type arg that is a value expression (literal, paren, sizeof, `-N`, `~N`) — parse at
         // shift precedence so arithmetic like `64*1024*1024` is captured but `>` stays the closer.
         if (k === "int_literal" || k === "l_paren" || k === "kw_sizeof" || k === "char_literal" ||
-          k === "minus" || k === "tilde" || k === "kw_true" || k === "kw_false") {
+          k === "minus" || k === "tilde" || k === "kw_true" || k === "kw_false" || this.templateArgIsExpr()) {
           args.push({ kind: "expr_value", expr: this.parseShift(), span: this.peek().span });
         } else if (k === "d_colon" || k === "identifier" || isTypeKeyword(k) || k === "kw_const" ||
           k === "kw_struct" || k === "kw_unsigned" || k === "kw_signed") {
@@ -953,6 +953,19 @@ export class Parser {
     }
 
     return { kind: "name", name, span: tok.span };
+  }
+
+  // A template argument that begins with a (qualified) identifier followed by an arithmetic operator and
+  // another operand is a NON-TYPE value expression (e.g. Collection<T, QSWAP_MAX_POOL * QSWAP_MAX_USERS>),
+  // not a pointer type — so it is parsed as an expression rather than `Type *`.
+  private templateArgIsExpr(): boolean {
+    if (this.peek().kind !== "identifier") return false;
+    let i = 1;
+    while (this.peek(i).kind === "d_colon" && this.peek(i + 1).kind === "identifier") i += 2;
+    const op = this.peek(i).kind;
+    if (op !== "star" && op !== "plus" && op !== "slash" && op !== "percent" && op !== "l_shift" && op !== "r_shift") return false;
+    const after = this.peek(i + 1).kind;
+    return after === "identifier" || after === "int_literal" || after === "l_paren";
   }
 
   private parseBuiltinType(): TypeSpec {
@@ -1208,6 +1221,22 @@ export class Parser {
     while (!this.eof()) {
       const tok = this.peek();
 
+      // Brace-init / aggregate construction: TypeName{ a, b, c } (e.g. Logger{ idx, code, 0 }). Only an
+      // identifier/qualified-name operand can be a type here; a compound block after a condition is parsed
+      // in parseStatement, so `{` in expression position is always construction.
+      if (tok.kind === "l_brace" && (expr.kind === "identifier" || expr.kind === "qualified_name")) {
+        const name = expr.kind === "identifier" ? expr.name : `${expr.namespace}::${expr.name}`;
+        this.next(); // {
+        const args: Expression[] = [];
+        while (!this.eof() && this.peek().kind !== "r_brace") {
+          args.push(this.parseBraceArg());
+          if (!this.tryConsume("comma")) break;
+        }
+        this.expect("r_brace", "brace init");
+        expr = { kind: "construct", type: { kind: "name", name }, args, span: expr.span };
+        continue;
+      }
+
       // .member or ->member
       if (tok.kind === "dot" || tok.kind === "arrow") {
         const arrow = tok.kind === "arrow";
@@ -1298,6 +1327,21 @@ export class Parser {
     return followedByParen;
   }
 
+  // A single brace-init element: a nested `{ ... }` becomes an initializer_list, otherwise an expression.
+  private parseBraceArg(): Expression {
+    if (this.peek().kind === "l_brace") {
+      const start = this.next().span; // {
+      const exprs: Expression[] = [];
+      while (!this.eof() && this.peek().kind !== "r_brace") {
+        exprs.push(this.parseBraceArg());
+        if (!this.tryConsume("comma")) break;
+      }
+      this.expect("r_brace", "initializer list");
+      return { kind: "initializer_list", exprs, span: start };
+    }
+    return this.parseExpression();
+  }
+
   private parsePrimaryExpression(): Expression {
     const tok = this.peek();
 
@@ -1314,7 +1358,12 @@ export class Parser {
 
     if (tok.kind === "string_literal") {
       this.next();
-      return { kind: "string_literal", value: tok.text.replace(/"/g, ""), span: tok.span };
+      // Adjacent string literals concatenate (C++ rule): static_assert(c, #fn "_locals too large").
+      let value = tok.text.replace(/"/g, "");
+      while (this.peek().kind === "string_literal") {
+        value += this.next().text.replace(/"/g, "");
+      }
+      return { kind: "string_literal", value, span: tok.span };
     }
 
     if (tok.kind === "char_literal") {
@@ -1693,7 +1742,8 @@ export class Parser {
           init = { kind: "declaration", decl, span: decl.span ?? this.peek().span };
         }
       } else {
-        const expr = this.parseExpression();
+        // the init clause may be a comma sequence of assignments: for (a = x, b = 0; ...).
+        const expr = this.parseCommaSequence();
         init = { kind: "expression", expr, span: expr.span };
       }
     }
