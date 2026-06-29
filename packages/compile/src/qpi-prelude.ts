@@ -18,6 +18,21 @@ namespace std {
 }
 typedef unsigned long size_t;
 typedef signed long ptrdiff_t;
+
+// Protocol amount constants (network_messages/common_def.h) + standard integer limits, referenced by
+// contracts but defined in headers the compiler does not load.
+#define ISSUANCE_RATE 1000000000000LL
+#define MAX_AMOUNT (ISSUANCE_RATE * 1000LL)
+#define MAX_SUPPLY (ISSUANCE_RATE * 200ULL)
+#define INT64_MAX 9223372036854775807LL
+#define INT64_MIN (-9223372036854775807LL - 1)
+#define UINT64_MAX 18446744073709551615ULL
+#define INT32_MAX 2147483647
+#define UINT32_MAX 4294967295U
+#define INT16_MAX 32767
+#define UINT16_MAX 65535
+#define INT8_MAX 127
+#define UINT8_MAX 255
 `;
 
 // Defines fed to the preprocessor when parsing the real qpi.h (the lite wasm build profile).
