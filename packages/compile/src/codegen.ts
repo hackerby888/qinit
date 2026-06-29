@@ -2189,7 +2189,9 @@ const QPI_GETTERS: Record<string, { fwd: string; ret: "i64" | "i32" }> = {
 //   cidx = the contract's own index (SELF_INDEX, injected, not taken from the call's args).
 // ret "out" = void forwarder whose LAST param is an output address the produced id/struct is written
 // into — used as an assignment RHS (e.g. output.next = qpi.nextId(input.cur)).
-type ArgKind = "i64" | "i32" | "addr" | "cidx";
+// "asset" consumes ONE Asset argument (id issuer; uint64 assetName) but emits TWO operands — the assetName
+// (i64, loaded from offset 32) then the issuer address — matching the lhost share calls' (name, issuer, …).
+type ArgKind = "i64" | "i32" | "addr" | "cidx" | "asset";
 interface QpiCallDesc {
   fwd: string;
   args: ArgKind[];
@@ -2203,6 +2205,8 @@ const QPI_CALLS: Record<string, QpiCallDesc> = {
   isAssetIssued: { fwd: "$qpi_isAssetIssued", args: ["addr", "i64"], ret: "i32" },
   transferShareOwnershipAndPossession: { fwd: "$qpi_transferShares", args: ["i64", "addr", "addr", "addr", "i64", "addr"], ret: "i64" },
   numberOfPossessedShares: { fwd: "$qpi_numberOfPossessedShares", args: ["i64", "addr", "addr", "addr", "i32", "i32"], ret: "i64" },
+  releaseShares: { fwd: "$qpi_releaseShares", args: ["asset", "addr", "addr", "i64", "i32", "i32", "i64"], ret: "i64" },
+  acquireShares: { fwd: "$qpi_acquireShares", args: ["asset", "addr", "addr", "i64", "i32", "i32", "i64"], ret: "i64" },
   distributeDividends: { fwd: "$qpi_distributeDividends", args: ["i64"], ret: "i32" },
   dayOfWeek: { fwd: "$qpi_dayOfWeek", args: ["i32", "i32", "i32"], ret: "i32" },
   getEntity: { fwd: "$qpi_getEntity", args: ["addr", "addr"], ret: "i32" },
@@ -2235,6 +2239,19 @@ function emitQpiOperands(ctx: FnCtx, args: Expression[], kinds: ArgKind[]): stri
     const e = args[ai++];
     if (!e) {
       ops.push(k === "addr" ? "(i32.const 0)" : "(i64.const 0)");
+      continue;
+    }
+    if (k === "asset") {
+      const a = emitAddr(ctx, e);
+      if (a) {
+        const t = newTmp(ctx);
+        ctx.lines.push(`    (local.set $${t} ${a})`);
+        ops.push(`(i64.load (i32.add (local.get $${t}) (i32.const 32)))`);   // assetName
+        ops.push(`(local.get $${t})`);                                        // issuer addr
+      } else {
+        ctx.cg.warn(`qpi argument is not an addressable id/struct`, (e as any).span?.line ?? 0);
+        ops.push("(i64.const 0)", "(i32.const 0)");
+      }
       continue;
     }
     ops.push(qpiOperand(ctx, e, k));
