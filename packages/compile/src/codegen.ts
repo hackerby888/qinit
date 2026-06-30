@@ -443,6 +443,51 @@ class Codegen {
     return null;
   }
 
+  // Evaluate a `TypeName::member` static constexpr. Resolves TypeName through the current bindings and
+  // typedefs to a concrete struct or template instantiation, then evaluates that type's static constexpr
+  // member in the type's own parameter scope (so e.g. ProposalAndVotingByComputors<N>::maxProposals == N).
+  private evalQualifiedConst(typeName: string, member: string, b: Bindings): bigint | null {
+    let t: TypeSpec = { kind: "name", name: typeName };
+    for (let i = 0; i < 8 && t.kind === "name"; i++) {
+      const bound = b.types.get(t.name);
+      if (bound) { t = bound; continue; }
+      const td = this.typedefs.get(t.name);
+      if (td) { t = td; continue; }
+      break;
+    }
+
+    let members: Declaration[] | null = null;
+    let tb: Bindings = b;
+    if (t.kind === "template_instance") {
+      const tmpl = this.templates.get(t.name);
+      if (!tmpl) return null;
+      members = tmpl.members;
+      tb = { types: new Map(), values: new Map(), structs: new Map() };
+      const resolved = t.args.map((a) => this.resolveType(a, b));
+      for (let i = 0; i < tmpl.params.length; i++) {
+        const p = tmpl.params[i];
+        const arg = resolved[i];
+        if (!arg) continue;
+        if (p.kind === "type") tb.types.set(p.name, arg);
+        else tb.values.set(p.name, this.evalConstFromType(arg, b));
+      }
+    } else if (t.kind === "name") {
+      const s = this.structByName(t.name, b);
+      if (!s) return null;
+      members = s.members;
+    }
+    if (!members) return null;
+
+    for (const m of members) {
+      if (m.kind !== "variable") continue;
+      const v = m as VariableDecl;
+      if (v.name === member && v.init) {
+        try { return this.evalConstBig(v.init, tb); } catch { return null; }
+      }
+    }
+    return null;
+  }
+
   private layoutOfStruct(struct: StructDecl, b: Bindings): StructLayout {
     return this.layoutOfMembers(struct.members, b, struct.name, struct.isUnion, struct.bases);
   }
@@ -511,7 +556,19 @@ class Codegen {
           for (const [k, v] of bc.consts) if (!memberVals.has(k)) memberVals.set(k, v);
         }
       }
-      const bMem = memberVals === b.values ? b : { types: b.types, values: memberVals, structs: b.structs };
+
+      // Nested typedefs (a template may alias its own params or define a dependent storage type, e.g.
+      // ProposalVoting's `typedef ProposalWithAllVoteData<ProposalDataT, maxVotes> ProposalAndVotesDataType;`).
+      // Register them so a member typed by the alias resolves; the alias target still references params and
+      // member constexprs, which resolve lazily through the bindings.
+      let memberTypes = b.types;
+      for (const m of members) {
+        if (m.kind !== "typedef_decl") continue;
+        const td = m as any;
+        if (memberTypes === b.types) memberTypes = new Map(b.types);
+        if (!memberTypes.has(td.name)) memberTypes.set(td.name, td.type);
+      }
+      const bMem = (memberVals === b.values && memberTypes === b.types) ? b : { types: memberTypes, values: memberVals, structs: b.structs };
 
       for (const m of members) {
         if (m.kind !== "variable") continue;
@@ -616,6 +673,14 @@ class Codegen {
       case "identifier": {
         const v = b.values.get(expr.name);
         if (v !== undefined) return v;
+        // Qualified static constexpr `T::member` (e.g. ProposalVoting's maxProposals =
+        // ProposerAndVoterHandlingT::maxProposals): resolve T through the bindings/typedefs to a concrete
+        // type and evaluate its static constexpr member in that type's own param scope.
+        const sep = expr.name.lastIndexOf("::");
+        if (sep > 0) {
+          const q = this.evalQualifiedConst(expr.name.slice(0, sep), expr.name.slice(sep + 2), b);
+          if (q !== null) return q;
+        }
         const c = this.resolveConst(expr.name);
         if (c !== null) return c;
         if (this.sema && typeof this.sema.evaluateConstexpr === "function") {
