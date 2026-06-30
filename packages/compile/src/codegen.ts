@@ -320,7 +320,7 @@ class Codegen {
       }
     }
 
-    return this.layoutOfMembers(tmpl.members, b, `${name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`);
+    return this.layoutOfMembers(tmpl.members, b, `${name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`, false, tmpl.bases);
   }
 
   // Add the struct declarations among `members` to a child binding scope so field types that
@@ -381,8 +381,70 @@ class Codegen {
     return this.layoutOfStruct(struct, NO_BIND);
   }
 
+  // A base class contributes its fields (laid out at the start of the derived object) and its static
+  // constexpr constants. A derived member's array dimension may reference a base constant — e.g.
+  // ProposalVoting : public P declares `proposals[P::maxProposals]` — so those constants must be lifted
+  // into the derived scope. The base may itself be a template parameter (ProposalWithAllVoteData<D,n> :
+  // public D), resolved here through the bindings.
+  private baseContribution(baseType: TypeSpec, parentB: Bindings): { layout: StructLayout; consts: Map<string, bigint> } | null {
+    let t: TypeSpec = baseType;
+    if (t.kind === "name") {
+      const bound = parentB.types.get(t.name);
+      if (bound) t = bound;
+      else {
+        const td = this.typedefs.get(t.name);
+        if (td) t = td;
+      }
+    }
+
+    if (t.kind === "template_instance") {
+      const tmpl = this.templates.get(t.name);
+      if (!tmpl) return { layout: this.layoutOfTemplate(t.name, t.args, parentB), consts: new Map() };
+      const b: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
+      const resolved = t.args.map((a) => this.resolveType(a, parentB));
+      for (let i = 0; i < tmpl.params.length; i++) {
+        const p = tmpl.params[i];
+        const arg = resolved[i];
+        if (!arg) continue;
+        if (p.kind === "type") b.types.set(p.name, arg);
+        else b.values.set(p.name, this.evalConstFromType(arg, parentB));
+      }
+      const consts = new Map<string, bigint>();
+      for (const m of tmpl.members) {
+        if (m.kind !== "variable") continue;
+        const v = m as VariableDecl;
+        if ((v.isStatic || v.isConstexpr) && v.init && !b.values.has(v.name)) {
+          try {
+            const val = this.evalConstBig(v.init, b);
+            b.values.set(v.name, val);
+            consts.set(v.name, val);
+          } catch { /* a non-integer static constexpr (e.g. a bool selector) — not a dimension */ }
+        }
+      }
+      const layout = this.layoutOfMembers(tmpl.members, b, `${t.name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`, false, tmpl.bases);
+      return { layout, consts };
+    }
+
+    if (t.kind === "name") {
+      const struct = this.structByName(t.name, parentB);
+      if (struct) {
+        const consts = new Map<string, bigint>();
+        for (const m of struct.members) {
+          if (m.kind !== "variable") continue;
+          const v = m as VariableDecl;
+          if ((v.isStatic || v.isConstexpr) && v.init) {
+            try { consts.set(v.name, this.evalConstBig(v.init, parentB)); } catch { /* not a dimension */ }
+          }
+        }
+        const layout = this.layoutOfMembers(struct.members, parentB, struct.name, struct.isUnion, struct.bases);
+        return { layout, consts };
+      }
+    }
+    return null;
+  }
+
   private layoutOfStruct(struct: StructDecl, b: Bindings): StructLayout {
-    return this.layoutOfMembers(struct.members, b, struct.name, struct.isUnion);
+    return this.layoutOfMembers(struct.members, b, struct.name, struct.isUnion, struct.bases);
   }
 
   private inProgress = new Set<string>();
@@ -394,7 +456,7 @@ class Codegen {
     return `|${ts}|${vs}`;
   }
 
-  private layoutOfMembers(members: Declaration[], bIn: Bindings, cacheKey: string, isUnion = false): StructLayout {
+  private layoutOfMembers(members: Declaration[], bIn: Bindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {
     // Cache by a binding-aware key so each concrete instantiation is computed once (avoids the
     // exponential blowup of deeply nested templates like Array<HashMap<...>, N>).
     const key = cacheKey ? cacheKey + this.bindingSig(bIn) : "";
@@ -430,12 +492,33 @@ class Codegen {
         return layout;
       }
 
+      // Base classes occupy the start of the object: each base's fields are placed at the current offset
+      // and its static constexpr constants lifted into the bindings, so a following member's array
+      // dimension that references one (e.g. `proposals[maxProposals]` over an inherited maxProposals)
+      // resolves.
+      let memberVals = b.values;
+      for (const baseType of bases) {
+        const bc = this.baseContribution(baseType, b);
+        if (!bc) continue;
+        offset = this.alignUp(offset, bc.layout.align);
+        for (const bf of bc.layout.fields.values()) {
+          fields.set(bf.name, { name: bf.name, offset: offset + bf.offset, size: bf.size, type: bf.type });
+        }
+        offset += bc.layout.size;
+        if (bc.layout.align > maxAlign) maxAlign = bc.layout.align;
+        if (bc.consts.size) {
+          if (memberVals === b.values) memberVals = new Map(b.values);
+          for (const [k, v] of bc.consts) if (!memberVals.has(k)) memberVals.set(k, v);
+        }
+      }
+      const bMem = memberVals === b.values ? b : { types: b.types, values: memberVals, structs: b.structs };
+
       for (const m of members) {
         if (m.kind !== "variable") continue;
         const v = m as VariableDecl;
         if (v.isStatic || v.isConstexpr) continue;
-        const sz = this.sizeOfType(v.type, b);
-        const align = Math.min(this.alignOfTypeB(v.type, b), 8);
+        const sz = this.sizeOfType(v.type, bMem);
+        const align = Math.min(this.alignOfTypeB(v.type, bMem), 8);
         offset = this.alignUp(offset, align);
         fields.set(v.name, { name: v.name, offset, size: sz, type: v.type });
         offset += sz;
