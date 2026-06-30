@@ -233,6 +233,16 @@ export class Parser {
       case "kw_double":
       case "kw_float":
       case "kw_auto":
+      // collapsed multi-word builtin types (the lexer merges `unsigned int` → kw_unsigned_int etc.)
+      case "kw_signed_char":
+      case "kw_unsigned_char":
+      case "kw_signed_short":
+      case "kw_unsigned_short":
+      case "kw_signed_int":
+      case "kw_unsigned_int":
+      case "kw_signed_long_long":
+      case "kw_unsigned_long_long":
+      case "kw_long_long":
         // Type keyword at top level → likely a variable declaration (or free function)
         return this.parseFunctionOrVariablePeekType();
       case "identifier":

@@ -231,7 +231,12 @@ class Codegen {
       return en;
     }
     const init = this.constexprInit.get(name);
-    if (init === undefined) return null;
+    if (init === undefined) {
+      // namespace-qualified constant (ProposalTypes::Class::GeneralOptions): constants are collected by their
+      // unqualified name, so fall back to the tail after the last `::`.
+      const i = name.lastIndexOf("::");
+      return i >= 0 ? this.resolveConst(name.slice(i + 2)) : null;
+    }
     if (this.constInProgress.has(name)) return null;   // cyclic constexpr — give up
     this.constInProgress.add(name);
     try {
@@ -444,6 +449,47 @@ class Codegen {
     const td = this.typedefs.get(t.name);
     if (td && !(td.kind === "name" && td.name === t.name)) {
       return this.resolveType(td, b, depth + 1);
+    }
+    return t;
+  }
+
+  // Resolve a member/element type that is written in terms of a parent template instance's own parameters
+  // and nested typedefs into a concrete type. Example: ProposalVoting<P,D>'s `proposals` element type is the
+  // nested typedef `ProposalAndVotesDataType` = ProposalWithAllVoteData<ProposalDataT, maxVotes>, where
+  // ProposalDataT is a parameter (→ D) and maxVotes a member constexpr (→ 676). emitContainerCall only
+  // follows global typedefs, so without this a member that is itself a container/instance can't be dispatched.
+  concreteMemberType(t: TypeSpec, parent: TypeSpec & { kind: "template_instance" }, depth = 0): TypeSpec {
+    const inst = this.instantiateTemplate(parent.name, parent.args, NO_BIND);
+    if (!inst) return t;
+    const nested = new Map<string, TypeSpec>();
+    for (const m of inst.tmpl.members) {
+      if (m.kind === "typedef_decl") nested.set((m as any).name, (m as any).type);
+    }
+    return this.resolveInScope(t, inst.b, nested, depth);
+  }
+
+  private resolveInScope(t: TypeSpec, scope: Bindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
+    if (depth > 24) return t;
+    if (t.kind === "const") return { kind: "const", valueType: this.resolveInScope(t.valueType, scope, nested, depth + 1) };
+    if (t.kind === "array") return { kind: "array", elem: this.resolveInScope(t.elem, scope, nested, depth + 1), size: t.size };
+    if (t.kind === "name") {
+      const bound = scope.types.get(t.name);
+      if (bound && !(bound.kind === "name" && bound.name === t.name)) return this.resolveInScope(bound, scope, nested, depth + 1);
+      const nt = nested.get(t.name);
+      if (nt && !(nt.kind === "name" && nt.name === t.name)) return this.resolveInScope(nt, scope, nested, depth + 1);
+      const td = this.typedefs.get(t.name);
+      if (td && !(td.kind === "name" && td.name === t.name)) return this.resolveInScope(td, scope, nested, depth + 1);
+      return t;
+    }
+    if (t.kind === "template_instance") {
+      const args = t.args.map((a) => {
+        // a non-type arg given as a name that resolves to a member constexpr / param value → its literal
+        if (a.kind === "name" && scope.values.has(a.name)) {
+          return { kind: "expr_value", expr: { kind: "int_literal", value: scope.values.get(a.name)!.toString(), span: { start: 0, end: 0, line: 0, col: 0 } } } as TypeSpec;
+        }
+        return this.resolveInScope(a, scope, nested, depth + 1);
+      });
+      return { kind: "template_instance", name: t.name, args };
     }
     return t;
   }
@@ -906,6 +952,9 @@ class Codegen {
   layoutOfType(t: TypeSpec, b: Bindings = NO_BIND): StructLayout | null {
     if (t.kind === "const") return this.layoutOfType(t.valueType, b);
     if (t.kind === "inline_struct") return this.layoutOfStruct(t.struct, b);
+    if (t.kind === "template_instance") {
+      return this.templates.get(t.name) ? this.layoutOfTemplate(t.name, t.args, b) : null;
+    }
     if (t.kind === "name") {
       const bound = b.types.get(t.name);
       if (bound) return this.layoutOfType(bound, b);
@@ -1394,6 +1443,7 @@ interface FnCtx {
   refLocals?: Map<string, TypeSpec>;          // reference/pointer locals: name → referent type (holds an address)
   thisAddr?: string;                           // WAT for *this's address (default "(local.get $this)"); set when inlining a struct method
   inlineMethod?: boolean;                       // emitting a struct method inline into the caller — `return` is suppressed (the value flows via thisAddr)
+  proxyClass?: string;                          // emitting a ProposalVoting proxy method (qpi(pv).m()): the proxy class for sibling resolution
 }
 
 // A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
@@ -1481,6 +1531,9 @@ function collectLocals(stmt: Statement, ctx: FnCtx): void {
         const v = stmt.decl as VariableDecl;
         // reference/pointer locals hold an address (i32); scalars use the i64 value model.
         const isRef = v.type.kind === "reference" || v.type.kind === "pointer";
+        // In a ProposalVoting proxy method the `pv`/`qpi` aliases (`ProposalVotingType& pv = this->pv`) are
+        // bound as the function's own parameters, not locals — skip them here.
+        if (ctx.proxyClass && isRef && (v.name === "pv" || v.name === "qpi")) break;
         const wasmType: "i32" | "i64" = isRef ? "i32" : "i64";
         if (!ctx.localVars.has(v.name)) ctx.localVars.set(v.name, { wasmType });
       }
@@ -1595,6 +1648,8 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
         // reference/pointer local: bind to the ADDRESS of its lvalue initializer; member access on it
         // resolves through that address. The referent type (Element, PoV, ...) drives field offsets.
         if (v.type.kind === "reference" || v.type.kind === "pointer") {
+          // proxy `pv`/`qpi` aliases are already bound as parameters — drop the alias declaration.
+          if (ctx.proxyClass && (v.name === "pv" || v.name === "qpi")) break;
           if (v.init) {
             const node = resolveAddr(ctx, v.init);
             if (node) {
@@ -1835,6 +1890,23 @@ function isUint128(cg: Codegen, t: TypeSpec | null): boolean {
 }
 
 // Resolve the address of an lvalue expression (member-access chains rooted at input/output/locals/state).
+// Normalize a cast expression to its target type + operand. C++ casts parse either as a dedicated node
+// (c_cast / static_cast / reinterpret_cast) or as a `template_call` to the cast name (static_cast<T>(e)).
+function castInfo(e: Expression): { type: TypeSpec; operand: Expression } | null {
+  if (e.kind === "static_cast" || e.kind === "c_cast" || e.kind === "reinterpret_cast") return { type: e.type, operand: e.expr };
+  if (e.kind === "template_call" && e.callee.kind === "identifier" && /^(static|reinterpret|const)_cast$/.test(e.callee.name) && e.templateArgs?.[0] && e.args?.[0]) {
+    return { type: e.templateArgs[0], operand: e.args[0] };
+  }
+  return null;
+}
+
+function stripPtrRefConst(t: TypeSpec): TypeSpec {
+  while (t.kind === "pointer" || t.kind === "reference" || t.kind === "const") {
+    t = t.kind === "pointer" ? t.pointee : t.kind === "reference" ? t.refereed : t.valueType;
+  }
+  return t;
+}
+
 function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   // roots
   if (expr.kind === "identifier") {
@@ -1881,11 +1953,36 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   if (expr.kind === "this" && ctx.thisLayout) {
     return { addr: ctx.thisAddr ?? "(local.get $this)", type: ctx.thisType ?? null, size: ctx.thisLayout.size, layout: ctx.thisLayout };
   }
+  // A pointer/reference cast reinterprets the same address as the target type (the base subobject of a
+  // single-inheritance derived object is at offset 0): `static_cast<const ProposalDataType*>(&derived)`,
+  // `(ProposalDataType*)this`, `reinterpret_cast<T&>(x)`. Casts parse either as a dedicated node or as a
+  // `template_call` to static_cast/reinterpret_cast/const_cast; castInfo normalizes both.
+  {
+    const ci = castInfo(expr);
+    if (ci) {
+      const inner = resolveAddr(ctx, ci.operand);
+      if (!inner) return null;
+      const b = ctx.thisBind ?? NO_BIND;
+      const t = stripPtrRefConst(ci.type);
+      return { addr: inner.addr, type: t, size: ctx.cg.sizeOfType(t, b), layout: ctx.cg.layoutOfType(t, b) };
+    }
+  }
+
   // &lvalue (address-of) and *this (deref) are identity at the addressing level — the node already
   // carries the operand's address.
   if (expr.kind === "unary_op" && expr.op === "&") return resolveAddr(ctx, expr.arg);
   if (expr.kind === "unary_op" && expr.op === "*") {
     if (expr.arg.kind === "this") return resolveAddr(ctx, expr.arg);
+    // *cast<T*>(&X): the deref of a pointer cast is the cast operand's address, retyped to the pointee.
+    const ci = castInfo(expr.arg);
+    if (ci && ci.type.kind === "pointer") {
+      const inner = resolveAddr(ctx, ci.operand);
+      if (inner) {
+        const b = ctx.thisBind ?? NO_BIND;
+        const t = stripPtrRefConst(ci.type);
+        return { addr: inner.addr, type: t, size: ctx.cg.sizeOfType(t, b), layout: ctx.cg.layoutOfType(t, b) };
+      }
+    }
     // *ptr: a pointer param/local holds the pointed-to address, so dereferencing yields that address.
     const pn = resolveAddr(ctx, expr.arg);
     const pt = pn?.type ? ctx.cg.derefType(pn.type) : null;
@@ -1925,11 +2022,15 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     if (!parent.layout) return null;
     const f = parent.layout.fields.get(expr.member);
     if (!f) return null;
+    // A member type written in terms of the parent instance's own params / nested typedefs (e.g.
+    // ProposalVoting's `proposals` element ProposalAndVotesDataType) is resolved to a concrete type so the
+    // member can itself be dispatched as a container / instance.
+    const ftype = parent.type?.kind === "template_instance" ? ctx.cg.concreteMemberType(f.type, parent.type) : f.type;
     return {
       addr: addrOf(parent.addr, f.offset),
-      type: f.type,
+      type: ftype,
       size: f.size,
-      layout: ctx.cg.layoutOfType(f.type),
+      layout: ctx.cg.layoutOfType(ftype),
     };
   }
 
@@ -2332,6 +2433,15 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
         ctx.cg.warn(`aggregate value read unsupported`, expr.span.line);
         return `(i64.const 0)`;
       }
+      // a static constexpr member of the object's type (pv.maxProposals / pv.maxVotes on ProposalVoting<P,D>):
+      // not a runtime field, so resolveAddr can't find it — evaluate it as a constant in the object's scope.
+      const obj = resolveAddr(ctx, expr.object);
+      let ot: TypeSpec | null = obj?.type ?? null;
+      for (let i = 0; i < 8 && ot?.kind === "name"; i++) ot = ctx.cg.typedefs.get(ot.name) ?? null;
+      if (ot?.kind === "template_instance") {
+        const sc = ctx.cg.staticConstsOf(ot.name, ctx.cg.bindContainer(ot.name, ot.args));
+        if (sc.has(expr.member)) return `(i64.const ${sc.get(expr.member)})`;
+      }
       // qpi.invocationReward() etc. handled in call; bare member returns 0
       ctx.cg.warn(`unsupported member read [${describeShape(expr)}]`, expr.span.line);
       return `(i64.const 0)`;
@@ -2434,6 +2544,32 @@ function emitBinary(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): strin
       const eq = `(call $memeq ${la.addr} ${ra.addr} (i32.const ${Math.min(la.size, ra.size)}))`;
       return expr.op === "==" ? `(i64.extend_i32_u ${eq})` : `(i64.extend_i32_u (i32.eqz ${eq}))`;
     }
+  }
+
+  // Short-circuit `&&` / `||`: the right operand must not be evaluated when the left already decides the
+  // result — C++ guards like `idx >= max || array[idx]` rely on this to stay in bounds. The right side is
+  // emitted into an isolated line buffer; if it produced statements, those run only on the not-decided path.
+  if (expr.op === "&&" || expr.op === "||") {
+    const lb = `(i64.ne (i64.const 0) ${emitValue(ctx, expr.left)})`;
+    const saved = ctx.lines;
+    ctx.lines = [];
+    const rExpr = emitValue(ctx, expr.right);
+    const rLines = ctx.lines;
+    ctx.lines = saved;
+    const rb = `(i64.ne (i64.const 0) ${rExpr})`;
+    if (rLines.length === 0) {
+      return expr.op === "||"
+        ? `(i64.extend_i32_u (if (result i32) ${lb} (then (i32.const 1)) (else ${rb})))`
+        : `(i64.extend_i32_u (if (result i32) ${lb} (then ${rb}) (else (i32.const 0))))`;
+    }
+    const tmp = newTmp(ctx);
+    const rBranch = [...rLines, `      (local.set $${tmp} ${rb})`].join("\n");
+    if (expr.op === "||") {
+      ctx.lines.push(`    (if ${lb} (then (local.set $${tmp} (i32.const 1))) (else\n${rBranch}\n    ))`);
+    } else {
+      ctx.lines.push(`    (if ${lb} (then\n${rBranch}\n    ) (else (local.set $${tmp} (i32.const 0))))`);
+    }
+    return `(i64.extend_i32_u (local.get $${tmp}))`;
   }
 
   const l = emitValue(ctx, expr.left);
@@ -2669,9 +2805,11 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
   if (expr.callee.kind !== "member_access") return null;
   const node = resolveAddr(ctx, expr.callee.object);
   if (!node || !node.type) return null;
-  // follow typedefs to the concrete container instance (e.g. bit_4096 → BitArray<4096>).
+  // follow typedefs to the concrete container instance (e.g. bit_4096 → BitArray<4096>). Resolve through the
+  // active template bindings first so a method parameter typed by a template param (ProposalDataType → D) or a
+  // proxy-bound alias dispatches against the concrete instance.
   let ct: TypeSpec | null = node.type;
-  for (let i = 0; i < 6 && ct?.kind === "name"; i++) ct = ctx.cg.typedefs.get(ct.name) ?? null;
+  for (let i = 0; i < 8 && ct?.kind === "name"; i++) ct = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name) ?? null;
   if (!ct || ct.kind !== "template_instance") return null;
   node.type = ct;
 
@@ -3002,14 +3140,18 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
     }
   }
 
-  // ProposalVoting wrapper `qpi(state.proposals).method(...)` — the shareholder-proposal library. Not
-  // implemented; emit a terminating stub so contracts that iterate proposals don't spin forever. The
-  // iterators return -1 (no-more), which makes `while ((i = ...nextProposalIndex(...)) >= 0)` exit at once;
-  // getters return 0/false (caller treats as "absent" and skips); setProposal returns the invalid-index
-  // sentinel (treated as failure → fee refunded). See qpi.h IMPLEMENT_*ShareholderProposal* macros.
+  // ProposalVoting proxy `qpi(state.proposals).method(...)` — compile the real qpi.h proxy method against
+  // the wrapped ProposalVoting instance. A sibling proxy call inside a proxy body (clearProposal) resolves
+  // here too. Falls back to the terminating stub if the instance/method can't be compiled.
+  if (ctx.proxyClass) {
+    const sib = emitProxySiblingCall(ctx, expr, true);
+    if (sib !== null) return sib;
+  }
   {
     const m = qpiWrapperMethod(expr);
     if (m) {
+      const real = emitProposalProxyCall(ctx, expr, true);
+      if (real !== null) return real;
       if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex") return `(i64.const -1)`;
       if (m === "setProposal") return `(i64.const ${ctx.cg.resolveConst("INVALID_PROPOSAL_INDEX") ?? 65535n})`;
       return `(i64.const 0)`;
@@ -3105,6 +3247,118 @@ function qpiWrapperMethod(expr: Expression & { kind: "call" }): string | null {
   return null;
 }
 
+const PROXY_PROCEDURE_METHODS = new Set(["setProposal", "clearProposal", "vote"]);
+
+// Resolve `qpi(X)`'s wrapped object X to a concrete ProposalVoting<P,D> instance + its address.
+function resolveProxyTarget(ctx: FnCtx, xExpr: Expression): { addr: string; pvType: TypeSpec & { kind: "template_instance" } } | null {
+  const node = resolveAddr(ctx, xExpr);
+  if (!node || !node.type) return null;
+  let pvt: TypeSpec | null = node.type;
+  for (let i = 0; i < 8 && pvt?.kind === "name"; i++) pvt = ctx.cg.typedefs.get(pvt.name) ?? null;
+  if (!pvt || pvt.kind !== "template_instance" || pvt.name !== "ProposalVoting") return null;
+  // resolve the ProposalVoting args (ProposersAndVotersT/ProposalDataT contract typedefs) to concrete types
+  const args = pvt.args.map((a) => ctx.cg.resolveType(a, NO_BIND));
+  return { addr: node.addr, pvType: { kind: "template_instance", name: "ProposalVoting", args, span: pvt.span } };
+}
+
+// Lower `qpi(X).method(args)` to a call of the real qpi.h proxy method compiled against ProposalVoting<P,D>.
+function emitProposalProxyCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
+  const method = qpiWrapperMethod(expr);
+  if (!method) return null;
+  const xExpr = ((expr.callee as any).object as Expression & { kind: "call" }).args[0];
+  if (!xExpr) return null;
+  const target = resolveProxyTarget(ctx, xExpr);
+  if (!target) return null;
+
+  const proxyClass = PROXY_PROCEDURE_METHODS.has(method) ? "QpiContextProposalProcedureCall" : "QpiContextProposalFunctionCall";
+  const cm = compileProxyMethod(ctx.cg, target.pvType, proxyClass, method);
+  if (!cm) return null;
+  return callProxy(ctx, cm, target.addr, target.pvType, expr.args, valueWanted);
+}
+
+// A bare sibling call inside a proxy body (e.g. clearProposal(idx) from setProposal) — compile it against
+// the same ProposalVoting instance, passing the current `$pv`/`$qpi`.
+function emitProxySiblingCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
+  if (!ctx.proxyClass || expr.callee.kind !== "identifier") return null;
+  const method = expr.callee.name;
+  const known = ctx.cg.templateMethods.get(ctx.proxyClass)?.has(method) || ctx.cg.templateMethods.get("QpiContextProposalFunctionCall")?.has(method);
+  if (!known) return null;
+  const pvType = ctx.refLocals?.get("pv");
+  if (!pvType || pvType.kind !== "template_instance") return null;
+  const cm = compileProxyMethod(ctx.cg, pvType, ctx.proxyClass, method);
+  if (!cm) return null;
+  return callProxy(ctx, cm, "(local.get $pv)", pvType, expr.args, valueWanted);
+}
+
+// Emit the actual `(call $PV…)`: self = the ProposalVoting address, then the dummy qpi context, then the
+// method's data args (classified addr/value from the method's own parameter list).
+function callProxy(ctx: FnCtx, cm: CompiledMethod, self: string, pvType: TypeSpec & { kind: "template_instance" }, args: Expression[], valueWanted: boolean): string {
+  const bind = ctx.cg.bindContainer(pvType.name, pvType.args);
+  const ops = cm.fnParams.map((fp, i) => {
+    const arg = args[i];
+    if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
+  });
+  const call = `(call ${cm.label} ${self} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`;
+  if (valueWanted) return cm.retKind === "i64" ? call : "(i64.const 0)";
+  ctx.lines.push(cm.retKind === "i64" ? `    (drop ${call})` : `    ${call}`);
+  return "";
+}
+
+// Instantiate (or fetch) a ProposalVoting proxy method from its real qpi.h body, emitting a wasm function
+// `(func $PV… (param $pv i32) (param $qpi i32) <data params…>)`. `pv` (the wrapped ProposalVoting) is a
+// reference parameter; `qpi` is a dummy — qpi.method() calls route to the ambient host context regardless.
+function compileProxyMethod(cg: Codegen, pvType: TypeSpec & { kind: "template_instance" }, proxyClass: string, method: string): CompiledMethod | null {
+  let def = cg.templateMethods.get(proxyClass)?.get(method);
+  if (!def) def = cg.templateMethods.get("QpiContextProposalFunctionCall")?.get(method);   // FunctionCall base
+  if (!def || !def.body) return null;
+
+  const P = pvType.args[0], D = pvType.args[1];
+  const cacheKey = `proxy:${proxyClass}<${cg.typeKeyOf(P)},${cg.typeKeyOf(D)}>::${method}`;
+  const cached = cg.compiledMethods.get(cacheKey);
+  if (cached) return cached;
+
+  const bind: Bindings = { types: new Map([["ProposerAndVoterHandlingType", P], ["ProposalDataType", D]]), values: new Map(), structs: new Map() };
+  const fnParams = (def.fnParams ?? []).map((p) => classifyMethodParam(cg, p, bind));
+  const retDeref = cg.derefType(def.returnType);
+  const retKind: "i64" | "void" = retDeref.kind === "void" ? "void" : (cg.isAggregateType(retDeref) ? "void" : "i64");
+
+  const cm: CompiledMethod = { label: `$PV${cg.compiledMethods.size}_${proxyClass}_${method}`, fnParams, retKind };
+  cg.compiledMethods.set(cacheKey, cm);   // register before emitting so recursive/sibling calls resolve
+  try {
+    cg.emittedMethodOrder.push(emitProxyMethodFn(cg, cm, def, pvType, bind, proxyClass));
+  } catch (e: any) {
+    cg.warn(`failed to compile proxy ${cacheKey}: ${e.message}`, def.span?.line ?? 0);
+    cg.compiledMethods.delete(cacheKey);
+    return null;
+  }
+  return cm;
+}
+
+function emitProxyMethodFn(cg: Codegen, cm: CompiledMethod, def: FunctionTemplateDecl, pvType: TypeSpec & { kind: "template_instance" }, bind: Bindings, proxyClass: string): string {
+  const empty = { size: 0, align: 1, fields: new Map<string, FieldLayout>() };
+  const ctx: FnCtx = {
+    cg, state: empty, in: empty, out: empty, locals: empty,
+    localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
+    params: new Map(), retIsValue: cm.retKind === "i64",
+    thisBind: bind, proxyClass,
+    refLocals: new Map([["pv", pvType as TypeSpec]]),   // `pv` (member) → the wrapped ProposalVoting at $pv
+  };
+  // `qpi` (member) is a dummy address param; qpi.method() routes to the ambient host context.
+  ctx.params!.set("qpi", { wasmType: "i32", isAddr: true, type: { kind: "name", name: "QpiContextFunctionCall" } });
+  for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.derefType(p.type) });
+
+  if (def.body) collectLocals(def.body, ctx);
+  if (def.body) emitStmt(ctx, def.body);
+
+  const paramDecls = cm.fnParams.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
+  const result = cm.retKind === "i64" ? " (result i64)" : "";
+  const header = `  (func ${cm.label} (param $pv i32) (param $qpi i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
+  const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
+  const tail = cm.retKind === "i64" ? ["    (i64.const 0)"] : [];
+  return [header, ...localDecls, ...ctx.lines, ...tail, "  )"].join("\n");
+}
+
 function describeShape(e: Expression): string {
   if (!e) return "?";
   if (e.kind === "identifier") return e.name;
@@ -3119,10 +3373,13 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // state or the digest, so dropping it is behaviorally faithful.
   if (expr.callee.kind === "identifier" && expr.callee.name.startsWith("__logContract")) return;
 
-  // ProposalVoting wrapper `qpi(state.proposals).method(...)` as a statement (getProposal/getVotes/
-  // getVotingSummary write through an out-param) — unimplemented, drop it (leaves the out untouched, which
-  // the caller treats as "no data"). The value-context forms are handled in emitCallValue.
-  if (qpiWrapperMethod(expr)) return;
+  // ProposalVoting proxy `qpi(state.proposals).method(...)` as a statement (e.g. getProposal/vote write
+  // through an out-param). Compile the real proxy method; fall back to a drop if it can't be compiled.
+  if (ctx.proxyClass && emitProxySiblingCall(ctx, expr, false) !== null) return;
+  if (qpiWrapperMethod(expr)) {
+    emitProposalProxyCall(ctx, expr, false);
+    return;
+  }
 
   // AssetOwnership/PossessionIterator.begin()/next() — statement forms.
   if (emitAssetIter(ctx, expr, "stmt") !== null) return;
