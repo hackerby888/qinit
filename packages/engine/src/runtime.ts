@@ -368,6 +368,12 @@ export class Contract {
   state(): Uint8Array {
     return this.u8().slice(this.stateAddr, this.stateAddr + this.stateSize);
   }
+  // A view (no copy) over the live state region, for callers that immediately copy it elsewhere. Valid only
+  // until the next dispatch can grow/detach the memory — read it now, don't retain it.
+  stateView(len: number = this.stateSize): Uint8Array {
+    const n = Math.min(len >>> 0, this.stateSize);
+    return this.u8().subarray(this.stateAddr, this.stateAddr + n);
+  }
   digest(): string {
     return toHex(k12Bytes(this.state()));
   }

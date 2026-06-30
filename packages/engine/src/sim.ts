@@ -81,6 +81,7 @@ export class Sim {
   timeBaseMs = Date.UTC(2024, 0, 1); // chain clock origin (tick 0); the chain clock = timeBaseMs + tick*tickDuration
   private mempoolMode: boolean; // when true, broadcast txs are deferred to their scheduled tick (opt-in)
   private fees: FeeManager; // per-contract execution-fee reserves + the fee-mode policy
+  private computorOverride = new Map<number, Uint8Array>(); // test seam: qpi.computor(i) overrides (gtest harness)
 
   constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean; fees?: FeeMode; defaultReserve?: bigint; liteTicking?: boolean } = {}) {
     this.mempoolMode = opts.mempool ?? false;
@@ -142,7 +143,7 @@ export class Sim {
       getOracleReply: (queryId) => this.oracle.getReply(queryId),
       isContractId: (id) => (this.contractSlotOf(id) >= 0 ? 1 : 0),
       arbitrator: () => this.ticking.getCommittee().arbitrator.publicKey,
-      computor: (i) => this.ticking.getCommittee().computors[i % this.ticking.committeeSize()]?.publicKey ?? ZERO32,
+      computor: (i) => this.computorOverride.get(i >>> 0) ?? this.ticking.getCommittee().computors[i % this.ticking.committeeSize()]?.publicKey ?? ZERO32,
       prevSpectrumDigest: () => this.ticking.prevSpectrumDigest(),
       prevUniverseDigest: () => this.ticking.prevUniverseDigest(),
       prevComputerDigest: () => this.ticking.prevComputerDigest(),
@@ -217,6 +218,18 @@ export class Sim {
   // Faucet: seed an identity with balance (the in-process testnet pre-funds test/seed accounts).
   fund(id: Uint8Array, amount: bigint): void {
     this.spectrum.increaseEnergy(id, amount, this.tickN);
+  }
+
+  // gtest seam: override qpi.computor(i) so a corpus that seeds its own committee (the proposal-voting
+  // contracts write broadcastedComputors.computors.publicKeys[i]) gets the same identities back from the
+  // engine — otherwise the contract's proposer-is-a-computor check never matches. A zero key clears the
+  // override (falls back to the real committee).
+  setComputorKey(index: number, key: Uint8Array): void {
+    if (key.every((b) => b === 0)) {
+      this.computorOverride.delete(index >>> 0);
+    } else {
+      this.computorOverride.set(index >>> 0, key.slice(0, 32));
+    }
   }
 
   // Wipe the ledger back to genesis (empty spectrum + empty universe) without touching deployed instances —

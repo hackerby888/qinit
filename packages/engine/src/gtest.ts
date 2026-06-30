@@ -187,7 +187,17 @@ export async function runContractTesting(
   let spectrumIds: string[] = [];
   let spectrumBytes: Uint8Array[] = [];
   let runner: WebAssembly.Instance;
+  // State-sync between the runner's getState() shadow buffers and the engine's contract instances. The full
+  // state can be hundreds of MB (e.g. QEARN ~214MB), so a per-dispatch full copy is fatal to dispatch-heavy
+  // tests. Sync lazily instead:
+  //   materialized: the runner shadow buffers (dst+len) the test has pulled at least once.
+  //   engineDirty:  contracts whose engine state advanced past the shadow (set after a mutating dispatch);
+  //                 the next getState() pull copies fresh, every other access skips the copy.
+  //   touched:      shadows the test accessed since the last flush (it may have written them); only these are
+  //                 pushed back, and only while still in sync with the engine (never over a newer engine write).
   const materialized = new Map<number, { dst: number; len: number }>();
+  const engineDirty = new Set<number>();
+  const touched = new Set<number>();
 
   const mem = () => new Uint8Array((runner.exports.memory as WebAssembly.Memory).buffer);
   const read = (off: number, len: number) => mem().slice(off >>> 0, (off >>> 0) + (len >>> 0));
@@ -195,26 +205,74 @@ export async function runContractTesting(
   const id32 = (p: number) => read(p, 32);
   const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 
+  // Opt-in instrumentation. QINIT_GTEST_TRACE logs entry/exit of every engine dispatch (a dispatch entered
+  // but never exited is a contract procedure looping in the engine). QINIT_GTEST_PROF (implied by TRACE)
+  // accumulates a cost breakdown — engine-dispatch time vs state-pull time/bytes — printed once at the end,
+  // so a slow corpus run can be attributed to dispatch overhead, full-state copies, or test-side wasm.
+  const env_ = (globalThis as any).process?.env ?? {};
+  const dispTrace = !!env_.QINIT_GTEST_TRACE;
+  const prof = dispTrace || !!env_.QINIT_GTEST_PROF;
+  const now = () => (globalThis as any).performance?.now?.() ?? 0;
+  const stat = { dispN: 0, dispMs: 0, pulls: 0, pullBytes: 0, pullMs: 0 };
+  const traceDisp = <T>(label: string, fn: () => T): T => {
+    if (!prof) return fn();
+    const n = ++stat.dispN;
+    if (dispTrace) (globalThis as any).process.stderr.write(`[disp #${n}] > ${label}\n`);
+    const t0 = now();
+    const r = fn();
+    stat.dispMs += now() - t0;
+    if (dispTrace) (globalThis as any).process.stderr.write(`[disp #${n}] < ${label}\n`);
+    if (prof && n % 5000 === 0) {
+      (globalThis as any).process.stderr.write(
+        `[gtest-prof] @${n} dispatchMs=${Math.round(stat.dispMs)} pulls=${stat.pulls} pulledMB=${Math.round(stat.pullBytes / (1 << 20))} pullMs=${Math.round(stat.pullMs)}\n`,
+      );
+    }
+    return r;
+  };
+
   const deployAll = () => {
     sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     handles = {};
     spectrumIds = [];
     spectrumBytes = [];
     materialized.clear();
+    engineDirty.clear();
+    touched.clear();
     for (const [idx, wasm] of Object.entries(contracts)) {
       handles[Number(idx)] = sim.deploy(Number(idx), wasm);
     }
   };
   deployAll();
 
+  // Push back only shadows the test touched since the last flush, and only while the shadow is still in sync
+  // with the engine (not behind a mutating dispatch) — pushing a stale shadow would clobber newer engine
+  // state. A touched shadow that has gone engineDirty is dropped from the push; the test re-pulls it fresh
+  // on its next access.
   const flushState = () => {
-    for (const [i, m] of materialized) handles[i]?.writeState(read(m.dst, m.len));
+    if (touched.size === 0) return;
+    for (const i of touched) {
+      const m = materialized.get(i);
+      // subarray (not slice) — writeState copies straight from the runner-memory view into the engine.
+      if (m && !engineDirty.has(i)) handles[i]?.writeState(mem().subarray(m.dst, m.dst + m.len));
+    }
+    touched.clear();
   };
 
-  const reReadState = () => {
+  // After a mutating dispatch the engine state has advanced past every materialized shadow. core-lite's
+  // contractStates[i] is a live pointer, so a corpus may cache `auto s = getState()` and read s-> after a
+  // dispatch without re-fetching. To preserve that, refresh a shadow in place now when it is small enough
+  // to copy cheaply. For a very large shadow (hundreds of MB — QUTIL, QEARN) a per-dispatch copy is fatal,
+  // so defer its refresh to the next getState() access via engineDirty; those corpora read through fresh
+  // getState() calls rather than a cached pointer.
+  const EAGER_SYNC_MAX = 4 << 20; // 4 MiB
+  const markEngineMoved = () => {
     for (const [i, m] of materialized) {
       const c = handles[i];
-      if (c) write(m.dst, c.state().subarray(0, m.len));
+      if (c && m.len <= EAGER_SYNC_MAX) {
+        write(m.dst, c.stateView(m.len));
+      } else {
+        engineDirty.add(i);
+      }
     }
   };
 
@@ -227,16 +285,16 @@ export async function runContractTesting(
       const input = read(inPtr, inLen);
       const origin = id32(originPtr);
       if (amount > 0n) sim.debit(origin, BigInt(amount));
-      const out = sim.procedure(idx >>> 0, it >>> 0, input, { reward: BigInt(amount), invocator: origin, originator: origin });
+      const out = traceDisp(`invoke[${idx >>> 0}:${it >>> 0}]`, () => sim.procedure(idx >>> 0, it >>> 0, input, { reward: BigInt(amount), invocator: origin, originator: origin }));
       const n = Math.min(out.length, outCap >>> 0);
       if (n) write(outPtr, out.subarray(0, n));
-      reReadState();
+      markEngineMoved();
       return n >>> 0;
     },
 
     q_query: (idx: number, it: number, inPtr: number, inLen: number, outPtr: number, outCap: number): number => {
       flushState();
-      const out = sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen));
+      const out = traceDisp(`query[${idx >>> 0}:${it >>> 0}]`, () => sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen)));
       const n = Math.min(out.length, outCap >>> 0);
       if (n) write(outPtr, out.subarray(0, n));
       return n >>> 0;
@@ -245,8 +303,8 @@ export async function runContractTesting(
     q_sysproc: (idx: number, sp: number) => {
       flushState();
       const c = handles[idx >>> 0];
-      if (c && c.hasSysproc(sp >>> 0)) c.invoke(KIND.SYSPROC, sp >>> 0, new Uint8Array(0), { entryPoint: sp >>> 0 });
-      reReadState();
+      if (c && c.hasSysproc(sp >>> 0)) traceDisp(`sysproc[${idx >>> 0}:${sp >>> 0}]`, () => c.invoke(KIND.SYSPROC, sp >>> 0, new Uint8Array(0), { entryPoint: sp >>> 0 }));
+      markEngineMoved();
     },
 
     q_fund: (idPtr: number, amount: bigint) => { sim.fund(id32(idPtr), BigInt(amount)); },
@@ -287,12 +345,26 @@ export async function runContractTesting(
     q_state_in: (i: number, dst: number, len: number) => {
       const c = handles[i];
       if (!c) return;
-      write(dst, c.state().subarray(0, len >>> 0));
+      // Copy engine->shadow only on the first pull, after the engine advanced, or if the runner handed a new
+      // buffer; otherwise the shadow at dst is already current and the (large) copy is skipped. Mark touched
+      // so a later dispatch flushes any test-side write back to the engine.
+      const prev = materialized.get(i);
+      if (!prev || prev.dst !== dst || engineDirty.has(i)) {
+        const t0 = prof ? now() : 0;
+        write(dst, c.stateView(len >>> 0));
+        if (prof) { stat.pulls++; stat.pullBytes += len >>> 0; stat.pullMs += now() - t0; }
+        engineDirty.delete(i);
+      }
       materialized.set(i, { dst, len: len >>> 0 });
+      touched.add(i);
     },
 
     q_set_epoch: (e: number) => { sim.epochN = e >>> 0; },
     q_get_epoch: (): number => sim.epochN >>> 0,
+
+    // The proposal-voting corpora seed their committee by writing broadcastedComputors.computors.publicKeys[i];
+    // the harness header routes each write here so qpi.computor(i) in the engine returns the same identity.
+    q_set_computor: (i: number, idPtr: number) => { sim.setComputorKey(i >>> 0, id32(idPtr)); },
 
     t_report: (namePtr: number, nameLen: number, passed: number, msgPtr: number, msgLen: number) => {
       results.push({
@@ -314,7 +386,24 @@ export async function runContractTesting(
 
   const noopModule = new Proxy({}, { get: () => () => 0 });
   const envProxy = new Proxy(env, { get: (t, k: string) => (k in t ? (t as any)[k] : () => 0), has: () => true });
-  const imports = new Proxy({ thost, env: envProxy } as Record<string, unknown>, {
+
+  // WASI: a corpus that pulls real <iostream> (e.g. VottunBridge) streams debug prints through fd_write.
+  // A stub returning 0 reads as "0 bytes written", and libc++'s ostream retries the flush forever — a hang.
+  // Report every requested byte as written (and discard it) so the flush completes; other wasi calls noop.
+  const wasi = new Proxy(
+    {
+      fd_write: (_fd: number, iovs: number, iovsLen: number, nwritten: number): number => {
+        const dv = new DataView(mem().buffer);
+        let total = 0;
+        for (let k = 0; k < (iovsLen >>> 0); k++) total += dv.getUint32((iovs >>> 0) + k * 8 + 4, true);
+        dv.setUint32(nwritten >>> 0, total >>> 0, true);
+        return 0;
+      },
+    } as Record<string, unknown>,
+    { get: (t, k: string) => (k in t ? (t as any)[k] : () => 0), has: () => true },
+  );
+
+  const imports = new Proxy({ thost, env: envProxy, wasi_snapshot_preview1: wasi } as Record<string, unknown>, {
     get: (t, m: string) => (m in t ? (t as any)[m] : noopModule),
     has: () => true,
   });
@@ -324,8 +413,33 @@ export async function runContractTesting(
   (runner.exports._initialize as Function)?.();
 
   const count = (runner.exports.test_count as Function)() >>> 0;
+
+  // Opt-in trace (QINIT_GTEST_TRACE): name each test on stderr before it runs. A corpus test can loop
+  // forever inside the wasm (a tick/time/epoch precondition the harness doesn't satisfy), which blocks
+  // this synchronous loop; the last name printed identifies the offending test for a killed subprocess.
+  const trace = !!(globalThis as any).process?.env?.QINIT_GTEST_TRACE;
+  const ioBase = trace ? (((runner.exports.io_base as Function)?.() ?? 0) >>> 0) : 0;
+  const traceName = (i: number): string => {
+    const cap = 256;
+    const n = (runner.exports.test_name as Function)(i, ioBase, cap) >>> 0;
+    return dec.decode(read(ioBase, Math.min(n, cap)));
+  };
+
+  const t0run = now();
   for (let i = 0; i < count; i++) {
+    if (trace) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)}\n`);
+    const tt = prof ? now() : 0;
     (runner.exports.run_test as Function)(i);
+    if (prof) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)} wall=${Math.round(now() - tt)}ms\n`);
+  }
+  if (prof) {
+    const wall = Math.round(now() - t0run);
+    const pullMB = Math.round(stat.pullBytes / (1 << 20));
+    (globalThis as any).process.stderr.write(
+      `[gtest-prof] wall=${wall}ms dispatches=${stat.dispN} dispatchMs=${Math.round(stat.dispMs)} ` +
+        `pulls=${stat.pulls} pulledMB=${pullMB} pullMs=${Math.round(stat.pullMs)} ` +
+        `other=${Math.round(wall - stat.dispMs - stat.pullMs)}ms\n`,
+    );
   }
   return results;
 }
