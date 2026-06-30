@@ -22,6 +22,7 @@ export type TypeSpec =
   | { kind: "array"; elem: TypeSpec; size: Expression; span?: Span }       // T name[N] — C array member
   | { kind: "inline_struct"; struct: StructDecl; span?: Span }             // struct {...} name; — anonymous/tag struct as a field type
   | { kind: "expr_value"; expr: Expression; span?: Span }                  // non-type template arg, e.g. HashMap<id,uint64, 64*1024>
+  | { kind: "dependent_member"; base: TypeSpec; member: string; span?: Span } // typename Sel<v>::type — nested type of a template instance
   | { kind: "void"; span?: Span };
 
 // Named types known to the compiler

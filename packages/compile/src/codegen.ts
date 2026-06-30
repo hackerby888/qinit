@@ -10,6 +10,7 @@ import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec } from ".
 interface ClassTemplate {
   params: TemplateParam[];
   members: Declaration[];
+  bases?: TypeSpec[];
 }
 
 export interface CodegenWarning {
@@ -101,6 +102,7 @@ class Codegen {
   private sema: Sema;
   private nested: Map<string, StructDecl> = new Map();          // contract-local nested structs
   templates: Map<string, ClassTemplate> = new Map();            // qpi.h templates (HashMap, Array, ...)
+  specializations: Map<string, { args: (bigint | null)[]; tmpl: ClassTemplate }[]> = new Map(); // full specializations keyed by template name
   globalStructs: Map<string, StructDecl> = new Map();           // qpi.h global/namespace structs
   typedefs: Map<string, TypeSpec> = new Map();                  // typedef aliases
   constexprInit: Map<string, Expression> = new Map();           // named constexpr → its init expression
@@ -134,7 +136,15 @@ class Codegen {
         this.collectConstants(s.members);
       } else if (d.kind === "class_template") {
         const ct = d as any;
-        this.templates.set(ct.name, { params: ct.params, members: ct.members });
+        // A template may appear several times: a forward declaration (empty body), the primary
+        // definition, and partial specializations (`Foo<SpecificType, n>`, also parsed under the bare
+        // name). Keep the richest definition by member count so an empty forward decl / specialization
+        // doesn't clobber the real layout — and carry its base classes (dropped previously, so a template
+        // deriving from another type contributed nothing).
+        const existing = this.templates.get(ct.name);
+        if (!existing || (ct.members?.length ?? 0) >= existing.members.length) {
+          this.templates.set(ct.name, { params: ct.params, members: ct.members, bases: ct.bases });
+        }
         // Inline member methods defined with a body in the class itself (e.g. capacity()) are captured
         // as template methods, so they compile through the same per-type instantiation path as the
         // out-of-class (impl) definitions. Body-less declarations are skipped — their bodies live in
@@ -280,7 +290,68 @@ class Codegen {
       return this.layoutOfTemplate(t.name, t.args, b).size;
     }
 
+    if (t.kind === "dependent_member") {
+      const r = this.resolveDependentMember(t, b);
+      if (r) return this.sizeOfType(r.type, r.bindings);
+      return 0;
+    }
+
     return 0;
+  }
+
+  // Resolve a dependent member type `Selector<args>::member` (e.g. ProposalVoting's
+  // `typename __VoteStorageTypeSelector<supportScalarVotes>::type`): instantiate the selector template,
+  // bind its parameters from the args, and return its nested `member` typedef's target type together with
+  // those bindings. A captured full specialization whose non-type args match the evaluated args wins over
+  // the primary template (so `<true>` -> sint64), otherwise the primary template is used.
+  private resolveDependentMember(t: Extract<TypeSpec, { kind: "dependent_member" }>, b: Bindings): { type: TypeSpec; bindings: Bindings } | null {
+    const base = t.base;
+    if (base.kind !== "template_instance") return null;
+    const tmpl = this.selectTemplate(base.name, base.args, b);
+    if (!tmpl) return null;
+
+    const b2: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
+    const resolved = base.args.map((a) => this.resolveType(a, b));
+    for (let i = 0; i < tmpl.params.length; i++) {
+      const p = tmpl.params[i];
+      const arg = resolved[i];
+      if (!arg) continue;
+      if (p.kind === "type") {
+        b2.types.set(p.name, arg);
+      } else {
+        b2.values.set(p.name, this.evalConstFromType(arg, b));
+      }
+    }
+
+    for (const m of tmpl.members) {
+      if (m.kind === "typedef_decl" && (m as any).name === t.member) {
+        return { type: (m as any).type, bindings: b2 };
+      }
+    }
+    return null;
+  }
+
+  // Pick the template definition for `name<args>`: a captured full specialization whose non-type argument
+  // values match wins; otherwise the primary template. (Specializations are keyed by name with their own
+  // arg list in `specializations`.)
+  private selectTemplate(name: string, args: TypeSpec[], b: Bindings): ClassTemplate | undefined {
+    const specs = this.specializations.get(name);
+    if (specs) {
+      for (const spec of specs) {
+        if (spec.args.length !== args.length) continue;
+        let match = true;
+        for (let i = 0; i < spec.args.length; i++) {
+          const want = spec.args[i];
+          if (want === null) continue; // type arg — not matched on
+          if (this.evalConstFromType(args[i], b) !== want) {
+            match = false;
+            break;
+          }
+        }
+        if (match) return spec.tmpl;
+      }
+    }
+    return this.templates.get(name);
   }
 
   // Instantiate a template (HashMap<id,uint64,1024>, Array<T,L>, ...) and compute its exact layout
@@ -350,10 +421,20 @@ class Codegen {
     return { size, align: 1, fields };
   }
 
-  private resolveType(t: TypeSpec, b: Bindings): TypeSpec {
-    if (t.kind === "name") {
-      const bound = b.types.get(t.name);
-      if (bound) return bound;
+  // Resolve a type name to its concrete type, chasing both template-parameter bindings and contract/qpi
+  // typedefs (e.g. ProposalVotingT -> ProposalVoting<...>, ProposalDataT -> ProposalDataV1<false>). Used
+  // when binding template arguments, so an alias passed as an argument reaches the underlying type rather
+  // than staying an unresolved name (which would leave a derived base or member sized as 0). Self-cycles
+  // (a parameter bound to its own name) and a depth cap stop runaway chains.
+  private resolveType(t: TypeSpec, b: Bindings, depth = 0): TypeSpec {
+    if (depth > 24 || t.kind !== "name") return t;
+    const bound = b.types.get(t.name);
+    if (bound && !(bound.kind === "name" && bound.name === t.name)) {
+      return this.resolveType(bound, b, depth + 1);
+    }
+    const td = this.typedefs.get(t.name);
+    if (td && !(td.kind === "name" && td.name === t.name)) {
+      return this.resolveType(td, b, depth + 1);
     }
     return t;
   }
@@ -613,6 +694,11 @@ class Codegen {
       if (this.templates.get(t.name)) return this.layoutOfTemplate(t.name, t.args, b).align;
       if (t.name === "Array") return Math.min(this.alignOfTypeB(t.args[0], b), 8);
       return 8;
+    }
+    if (t.kind === "dependent_member") {
+      const r = this.resolveDependentMember(t, b);
+      if (r) return this.alignOfTypeB(r.type, r.bindings);
+      return 1;
     }
     return 8;
   }

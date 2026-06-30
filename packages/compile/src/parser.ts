@@ -334,14 +334,14 @@ export class Parser {
     }
 
     const members: Declaration[] = [];
+    let hadBody = false;
     if (this.tryConsume("l_brace")) {
+      hadBody = true;
       members.push(...this.parseClassMembers());
       this.expect("r_brace", "union close");
     }
 
-    this.tryConsume("semicolon");
-
-    return {
+    const union: StructDecl = {
       kind: "struct",
       name,
       bases: [],
@@ -349,6 +349,23 @@ export class Parser {
       isUnion: true,
       span: this.makeSpan(start),
     };
+
+    // Combined form: `union Data {...} data;` — the declarator after the body is a member variable of this
+    // union type (e.g. ProposalDataV1's payload). Without it the union member is dropped and the enclosing
+    // struct is sized short by the union's width.
+    if (hadBody && this.declaratorFollows()) {
+      const declType: TypeSpec = name
+        ? { kind: "name", name, span: start }
+        : { kind: "inline_struct", struct: union, span: start };
+      while (this.peek().kind === "star" || this.peek().kind === "amp") this.next();
+      const first = this.expect("identifier", "union declarator")?.text ?? "";
+      const vars = this.parseDeclaratorList(declType, first, false, false);
+      for (const v of vars) this.pending.push(v);
+    } else {
+      this.tryConsume("semicolon");
+    }
+
+    return union;
   }
 
   private parseClassOrTemplate(): StructDecl | ClassTemplateDecl {
@@ -951,6 +968,13 @@ export class Parser {
       return { kind: "name", name: "auto", span: tok.span };
     }
 
+    // `typename` is a parse-time disambiguator (typename Sel<v>::type) — drop it and parse the type that
+    // follows; any trailing `::member` is captured below as a dependent-member type.
+    if (tok.kind === "kw_typename") {
+      this.next();
+      return this.parseBaseType();
+    }
+
     // Built-in type keywords
     if (isTypeKeyword(tok.kind)) {
       return this.parseBuiltinType();
@@ -968,8 +992,9 @@ export class Parser {
       return this.parseBuiltinType();
     }
 
-    // Name or qualified name
-    const name = this.parseQualifiedName();
+    // Name or qualified name. In a type position, `Sel<args>::member` is a dependent type — stop the
+    // qualified name at the `<` so the template instance and its `::member` are captured below.
+    const name = this.parseQualifiedName(true);
     if (!name) {
       this.diagnostics.push({
         severity: "error",
@@ -1005,7 +1030,14 @@ export class Parser {
       }
 
       this.consumeAngleClose();
-      return { kind: "template_instance", name, args, span: tok.span };
+      const inst: TypeSpec = { kind: "template_instance", name, args, span: tok.span };
+      // Dependent member type: `Selector<args>::type` — the nested type of a template instance.
+      if (this.peek().kind === "d_colon" && this.peek(1).kind === "identifier") {
+        this.next(); // ::
+        const member = this.next().text;
+        return { kind: "dependent_member", base: inst, member, span: tok.span };
+      }
+      return inst;
     }
 
     return { kind: "name", name, span: tok.span };
@@ -1497,11 +1529,17 @@ export class Parser {
     return { kind: "int_literal", value: "0", span: tok.span };
   }
 
-  private parseQualifiedName(): string {
+  private parseQualifiedName(stopAtAngle = false): string {
     const parts: string[] = [];
 
     while (!this.eof()) {
       const tok = this.peek();
+      if (stopAtAngle && tok.kind === "identifier" && this.peek(1).kind === "l_angle") {
+        // Type position: `Sel<args>::type` is a dependent type — stop here and let the caller capture the
+        // template instance and its `::member`, instead of dropping the args like an out-of-class method name.
+        parts.push(this.next().text);
+        break;
+      }
       if (tok.kind === "kw_operator") {
         // operator overload name: consume `operator` + the operator symbol token(s).
         this.next();
