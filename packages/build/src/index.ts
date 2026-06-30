@@ -114,6 +114,15 @@ export async function buildCorpusRunner(o: {
     extraCompileFlags.push("-DQINIT_HAVE_IOSTREAM");
   }
 
+  // Derive the inter-contract callee prelude from the contract AND the corpus: a corpus often references a
+  // sibling contract's types directly (e.g. `QX::IssueAsset_input` to seed an asset) even when the contract
+  // under test never calls it, so the contract-only scan misses it and the runner fails to compile.
+  let calleePrelude: string | undefined;
+  try {
+    const contractSrc = readFileSync(o.contractPath, "utf8");
+    calleePrelude = buildCalleePrelude(o.corePath, `${contractSrc}\n${testSource}`, {}, o.stateType);
+  } catch { /* fall back to buildContract's contract-only derivation */ }
+
   return buildContract({
     contractPath: o.contractPath,
     name: o.name,
@@ -126,6 +135,7 @@ export async function buildCorpusRunner(o: {
     testSource,
     testPath: basename(o.corpusPath),
     extraCompileFlags,
+    calleePrelude,
   });
 }
 
