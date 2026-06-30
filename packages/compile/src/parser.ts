@@ -220,6 +220,10 @@ export class Parser {
       case "kw_inline":
       case "kw_virtual":
         return this.parseFunctionOrVariable(); // with modifiers
+      case "kw_const":
+        // `const Type& name = ...` — a const qualifier belongs to the type, so peek the whole type
+        // (parseTypeSpec consumes the const) rather than treating const as a storage modifier.
+        return this.parseFunctionOrVariablePeekType();
       case "hash":
         return this.parsePreprocessorLine();
       case "kw_signed":
@@ -1654,6 +1658,21 @@ export class Parser {
     // Skip a qualified type name: identifier (:: identifier)* — e.g. QPI::uint64 name.
     let i = 1;
     while (this.peek(i).kind === "d_colon" && this.peek(i + 1).kind === "identifier") i += 2;
+    // Skip template arguments `<...>` so `ProposalWithAllVoteData<D, N>& p` is recognized as a decl, not
+    // read as a `<` comparison. Bail (not a declaration) if the angles don't close before the statement ends.
+    if (this.peek(i).kind === "l_angle") {
+      let depth = 0;
+      let j = i;
+      for (; !this.eof(); j++) {
+        const k = this.peek(j).kind;
+        if (k === "l_angle") depth++;
+        else if (k === "r_angle") { if (--depth === 0) { j++; break; } }
+        else if (k === "r_shift") { depth -= 2; if (depth <= 0) { j++; break; } }
+        else if (k === "semicolon" || k === "l_brace" || k === "r_brace" || k === "r_paren") return false;
+      }
+      if (depth > 0) return false;
+      i = j;
+    }
     const t1 = this.peek(i).kind;
     if (t1 === "identifier") return true;
     if ((t1 === "star" || t1 === "amp") && this.peek(i + 1).kind === "identifier") return true;

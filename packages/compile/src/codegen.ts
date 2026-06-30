@@ -743,6 +743,18 @@ class Codegen {
       const bMem = (memberVals === b.values && memberTypes === b.types) ? b : { types: memberTypes, values: memberVals, structs: b.structs };
 
       for (const m of members) {
+        // An anonymous struct/union (no name, no declarator) promotes its members into this struct at the
+        // current offset (`union { Array<uint32,8> optionVoteCount; ... };` → optionVoteCount is a direct
+        // field). Named nested structs are type definitions and are skipped; a `union X {...} x;` is a
+        // regular variable member handled below.
+        if (m.kind === "struct" && !(m as StructDecl).name) {
+          const sub = this.layoutOfStruct(m as StructDecl, bMem);
+          offset = this.alignUp(offset, sub.align);
+          for (const f of sub.fields.values()) fields.set(f.name, { name: f.name, offset: offset + f.offset, size: f.size, type: f.type });
+          offset += sub.size;
+          if (sub.align > maxAlign) maxAlign = sub.align;
+          continue;
+        }
         if (m.kind !== "variable") continue;
         const v = m as VariableDecl;
         if (v.isStatic || v.isConstexpr) continue;
@@ -3627,6 +3639,27 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
     const wat = emitInterContract(ctx, expr, expr.callee.name === "__qpi_invoke_other");
     if (wat) ctx.lines.push(`    (drop ${wat})`);
     else ctx.cg.warn(`unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`, expr.span.line);
+    return;
+  }
+
+  // QPI memory wrappers: setMemory(dst,val) / copyMemory(dst,src) / copyFromBuffer(dst,src) /
+  // copyToBuffer(dst,src,tailZero). Lowered at the call site so the byte count is sizeof(dst|src) under the
+  // CALLER's bindings (where a dependent member array like VoteStorageType[numOfVotes] is concrete), rather
+  // than via a generic lib-fn instantiation that loses those bindings and sizes to 0.
+  if (expr.callee.kind === "identifier" && (expr.callee.name === "setMemory" || expr.callee.name === "copyMemory" || expr.callee.name === "copyFromBuffer" || expr.callee.name === "copyToBuffer")) {
+    const name = expr.callee.name;
+    const dstNode = expr.args[0] ? resolveAddr(ctx, expr.args[0]) : null;
+    const dst = dstNode?.addr ?? (expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)");
+    if (name === "setMemory") {
+      const val = expr.args[1] ? emitValue(ctx, expr.args[1]) : "(i64.const 0)";
+      ctx.lines.push(`    (call $setMem ${dst} (i32.wrap_i64 ${val}) (i32.const ${dstNode?.size ?? 0}))`);
+      return;
+    }
+    const srcNode = expr.args[1] ? resolveAddr(ctx, expr.args[1]) : null;
+    const src = srcNode?.addr ?? (expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)");
+    // copyToBuffer copies sizeof(src) (the smaller object into a larger buffer); the others copy sizeof(dst).
+    const size = name === "copyToBuffer" ? (srcNode?.size ?? 0) : (dstNode?.size ?? 0);
+    ctx.lines.push(`    (call $copyMem ${dst} ${src} (i32.const ${size}))`);
     return;
   }
 
