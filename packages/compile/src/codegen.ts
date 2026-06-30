@@ -1812,7 +1812,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
 
     case "if": {
       const cond = emitValue(ctx, stmt.cond);
-      ctx.lines.push(`    (if (i32.ne (i32.const 0) (i32.wrap_i64 ${cond})) (then`);
+      ctx.lines.push(`    (if (i64.ne (i64.const 0) ${cond}) (then`);
       emitStmt(ctx, stmt.then);
       if (stmt.else_) {
         ctx.lines.push(`    ) (else`);
@@ -1828,7 +1828,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
       const brk = `$brk${n}`, loop = `$loop${n}`, cont = `$cont${n}`;
       ctx.lines.push(`    (block ${brk} (loop ${loop}`);
       if (stmt.cond) {
-        ctx.lines.push(`      (br_if ${brk} (i32.eqz (i32.wrap_i64 ${emitValue(ctx, stmt.cond)})))`);
+        ctx.lines.push(`      (br_if ${brk} (i64.eqz ${emitValue(ctx, stmt.cond)}))`);
       }
       // continue jumps out of the $cont block to run the update, then loops — matching C semantics.
       ctx.lines.push(`      (block ${cont}`);
@@ -1848,7 +1848,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
       const n = ctx.loopCount++;
       const brk = `$brk${n}`, loop = `$loop${n}`, cont = `$cont${n}`;
       ctx.lines.push(`    (block ${brk} (loop ${loop}`);
-      ctx.lines.push(`      (br_if ${brk} (i32.eqz (i32.wrap_i64 ${emitValue(ctx, stmt.cond)})))`);
+      ctx.lines.push(`      (br_if ${brk} (i64.eqz ${emitValue(ctx, stmt.cond)}))`);
       ctx.lines.push(`      (block ${cont}`);
       ctx.loops.push({ brk, cont });
       emitStmt(ctx, stmt.body);
@@ -1867,7 +1867,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
       emitStmt(ctx, stmt.body);
       ctx.loops.pop();
       ctx.lines.push(`      )`);
-      ctx.lines.push(`      (br_if ${loop} (i32.ne (i32.const 0) (i32.wrap_i64 ${emitValue(ctx, stmt.cond)})))))`);
+      ctx.lines.push(`      (br_if ${loop} (i64.ne (i64.const 0) ${emitValue(ctx, stmt.cond)}))))`);
       break;
     }
 
@@ -2567,7 +2567,7 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
   // A uint128-valued expression used in a scalar/boolean context (a `while(z)` / `if(z)` truthiness test):
   // materialize it and collapse to (low | high), which is non-zero iff the 128-bit value is non-zero. Scalar
   // reads of a uint128 go through its `.low` / `.high` members, not here.
-  if ((expr.kind === "call" || expr.kind === "binary_op" || expr.kind === "identifier") && isU128Expr(ctx, expr)) {
+  if ((expr.kind === "call" || expr.kind === "binary_op" || expr.kind === "identifier" || expr.kind === "member_access") && isU128Expr(ctx, expr)) {
     const a = emitU128(ctx, expr);
     return `(i64.or (i64.load ${a}) (i64.load offset=8 ${a}))`;
   }
@@ -2683,7 +2683,7 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       return `(local.get $${t})`;
     }
     case "ternary":
-      return `(select ${emitValue(ctx, expr.then)} ${emitValue(ctx, expr.else_)} (i32.wrap_i64 ${emitValue(ctx, expr.cond)}))`;
+      return `(select ${emitValue(ctx, expr.then)} ${emitValue(ctx, expr.else_)} (i64.ne (i64.const 0) ${emitValue(ctx, expr.cond)}))`;
     case "c_cast":
     case "static_cast":
       return emitValue(ctx, expr.expr);
