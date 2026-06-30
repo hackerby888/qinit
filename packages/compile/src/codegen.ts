@@ -113,6 +113,7 @@ class Codegen {
   private constCache: Map<string, bigint> = new Map();
   private constInProgress = new Set<string>();
   helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
+  libFns: Map<string, FunctionDecl> = new Map();   // qpi.h namespace free functions (ProposalTypes::cls), keyed by qualified name; compiled lazily
   privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()
   registered: Map<string, PrivateInfo> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
   callees: Map<string, CalleeIdl> = new Map();      // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
@@ -125,10 +126,10 @@ class Codegen {
 
   // ---- collect declarations from the whole TU (descends into namespaces) ----
 
-  collectTU(decls: Declaration[]): void {
+  collectTU(decls: Declaration[], nsPrefix = ""): void {
     for (const d of decls) {
       if (d.kind === "namespace") {
-        this.collectTU((d as any).body);
+        this.collectTU((d as any).body, `${nsPrefix}${(d as any).name}::`);
       } else if (d.kind === "struct") {
         const s = d as StructDecl;
         if (s.name) this.globalStructs.set(s.name, s);
@@ -185,6 +186,11 @@ class Codegen {
           if (!this.templateMethods.has(cls)) this.templateMethods.set(cls, new Map());
           // first definition wins (skip explicit specializations like HashFunction<m256i>)
           if (!this.templateMethods.get(cls)!.has(method)) this.templateMethods.get(cls)!.set(method, fn);
+        } else if (sep < 0 && nsPrefix && d.kind === "function" && (d as FunctionDecl).body) {
+          // a namespace free function (ProposalTypes::cls, ProposalTypes::optionCount): keyed by its
+          // qualified name so a `ProposalTypes::cls(type)` call resolves; compiled lazily on first use.
+          const key = `${nsPrefix}${fn.name}`;
+          if (!this.libFns.has(key)) this.libFns.set(key, d as FunctionDecl);
         }
       } else if (d.kind === "typedef_decl") {
         const td = d as any;
@@ -1149,6 +1155,7 @@ interface ContainerInfo {
 export interface LibTypes {
   templates: Map<string, ClassTemplate>;
   specializations: Map<string, { specArgs: TypeSpec[]; tmpl: ClassTemplate }[]>;
+  libFns: Map<string, FunctionDecl>;
   globalStructs: Map<string, StructDecl>;
   typedefs: Map<string, TypeSpec>;
   constexprInit: Map<string, Expression>;
@@ -1163,6 +1170,7 @@ export function buildLibTypes(decls: Declaration[]): LibTypes {
   return {
     templates: cg.templates,
     specializations: cg.specializations,
+    libFns: cg.libFns,
     globalStructs: cg.globalStructs,
     typedefs: cg.typedefs,
     constexprInit: cg.constexprInit,
@@ -1192,6 +1200,7 @@ export function generateWasmModule(
   if (lib) {
     for (const [k, v] of lib.templates) cg.templates.set(k, v);
     if (lib.specializations) for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
+    if (lib.libFns) for (const [k, v] of lib.libFns) cg.libFns.set(k, v);
     for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
     for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
     for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
@@ -2976,7 +2985,9 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
   }
 
   // BitArray<L> (bit_4096 etc.): get/set/setAll/capacity are inline methods compiled from the qpi.h body.
-  if (node.type.name === "BitArray") {
+  // Any other captured template instance (ProposalDataV1, ProposalAndVotingByComputors,
+  // ProposalWithAllVoteData, ...): dispatch the method through its real qpi.h body.
+  if (node.type.name === "BitArray" || ctx.cg.templateMethods.get(node.type.name)?.has(member)) {
     const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
     if (!c) return null;
     if (valueWanted) return c.cm.retKind === "void" ? null : c.call;
@@ -3009,9 +3020,34 @@ function emitMathCall(ctx: FnCtx, name: string, args: Expression[]): string | nu
 
 // Call to a contract value helper (toReturnCode(...)): scalar args by value, aggregate args by
 // address. valueWanted → returns the i64 result; otherwise pushes the call as a statement.
+// Compile a qpi.h namespace free function (ProposalTypes::cls / optionCount) on first use: register it as a
+// pure value helper and emit its wasm function. Returns its HelperInfo, or null if it can't be compiled.
+function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
+  const cached = cg.helpers.get(name);
+  if (cached) return cached;
+  // `using namespace QPI` lets a call drop the QPI:: qualifier; libFns are keyed by full namespace path.
+  const fn = cg.libFns.get(name) ?? cg.libFns.get(`QPI::${name}`);
+  if (!fn || !fn.body) return null;
+  const params = fn.params.map((p) => {
+    const isAddr = cg.isAggregateType(p.type);
+    return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
+  });
+  const retIsValue = fn.returnType.kind !== "void" && !cg.isAggregateType(fn.returnType);
+  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${name.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue };
+  cg.helpers.set(name, info);   // register before emit so recursion/sibling calls resolve
+  try {
+    cg.emittedMethodOrder.push(emitHelperFunction(cg, info, fn, { size: 0, align: 1, fields: new Map() }));
+  } catch (e: any) {
+    cg.warn(`failed to compile lib fn ${name}: ${e.message}`, fn.span?.line ?? 0);
+    cg.helpers.delete(name);
+    return null;
+  }
+  return info;
+}
+
 function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
   if (expr.callee.kind !== "identifier") return null;
-  const info = ctx.cg.helpers.get(expr.callee.name);
+  const info = ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name);
   if (!info) return null;
 
   const ops = info.params.map((p, i) => {
