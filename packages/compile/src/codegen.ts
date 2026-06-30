@@ -1378,8 +1378,9 @@ export function generateWasmModule(
         const isAddr = cg.isAggregateType(p.type);
         return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
       });
-      const retAgg = fn.returnType.kind !== "void" && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
-      const retIsValue = fn.returnType.kind !== "void" && !retAgg;
+      const isVoid = cg.isVoidType(fn.returnType);   // `void` may parse as {kind:"void"} OR {kind:"name","void"}
+      const retAgg = !isVoid && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
+      const retIsValue = !isVoid && !retAgg;
       cg.helpers.set(fn.name, { label: `$h_${fn.name}`, params, retIsValue, retAgg });
       helperFns.push(fn);
     }
