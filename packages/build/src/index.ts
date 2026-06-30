@@ -99,6 +99,8 @@ export async function buildCorpusRunner(o: {
 
   const assetSrc = join(import.meta.dir, "assets", "wasm_contract_testing.h");
   await copyFile(assetSrc, join(o.outDir, "wasm_contract_testing.h"));
+  // Some corpora also `#include "test_util.h"` (asset-name helpers etc.); provide the wasm-mode stub.
+  await copyFile(join(import.meta.dir, "assets", "test_util.h"), join(o.outDir, "test_util.h"));
 
   // The corpus runner is a test tool, not a deployed contract, so it has no need for the recipe's
   // -O0 -g debuggability. Build it -O2 (the trailing -O wins over the recipe's -O0): corpus checkers
