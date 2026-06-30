@@ -418,8 +418,11 @@ export async function runContractTesting(
   // forever inside the wasm (a tick/time/epoch precondition the harness doesn't satisfy), which blocks
   // this synchronous loop; the last name printed identifies the offending test for a killed subprocess.
   const trace = !!(globalThis as any).process?.env?.QINIT_GTEST_TRACE;
-  const ioBase = trace ? (((runner.exports.io_base as Function)?.() ?? 0) >>> 0) : 0;
+  // Name lookups write into the runner's io scratch; resolve a real io_base whenever we'll print names
+  // (trace or prof). Writing to a bogus base (0) would corrupt the runner's memory between tests.
+  const ioBase = (trace || prof) ? (((runner.exports.io_base as Function)?.() ?? 0) >>> 0) : 0;
   const traceName = (i: number): string => {
+    if (!ioBase) return `#${i}`;
     const cap = 256;
     const n = (runner.exports.test_name as Function)(i, ioBase, cap) >>> 0;
     return dec.decode(read(ioBase, Math.min(n, cap)));
