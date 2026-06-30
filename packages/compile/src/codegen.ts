@@ -1017,7 +1017,7 @@ class Codegen {
     if (t.kind === "reference") return this.isAggregateType(t.refereed);
     if (t.kind === "array" || t.kind === "inline_struct" || t.kind === "template_instance") return true;
     if (t.kind === "name") {
-      if (t.name === "id" || t.name === "m256i") return true;
+      if (t.name === "id" || t.name === "m256i" || t.name === "uint128" || t.name === "uint128_t") return true;
       if (SCALAR_SIZE[t.name] !== undefined) return false;
       return this.layoutOfType(t) !== null;
     }
@@ -2197,6 +2197,11 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   if (expr.kind === "paren") return emitAddr(ctx, expr.expr);
   if (expr.kind === "c_cast" || expr.kind === "static_cast") return emitAddr(ctx, expr.expr);
 
+  // a uint128-valued expression (constructor / arithmetic / div) materializes into a 16-byte slot
+  if ((expr.kind === "call" || expr.kind === "binary_op") && isU128Expr(ctx, expr)) {
+    return emitU128(ctx, expr);
+  }
+
   // aggregate construction Type{...} as an rvalue/argument — materialize into a scratch slot.
   if (expr.kind === "construct") {
     const sz = ctx.cg.sizeOfType(expr.type, ctx.thisBind ?? NO_BIND);
@@ -2506,6 +2511,15 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
     return "";
   }
 
+  // uint128 compound assignment (z >>= n, prod -= y + z): lhs = lhs <op> rhs via the $u128_* helpers, then
+  // copy the 16-byte result back over lhs.
+  if (lhs && expr.op !== "=" && isUint128(ctx.cg, lhs.type)) {
+    const binOp = expr.op.slice(0, -1);
+    const src = emitU128(ctx, { kind: "binary_op", op: binOp, left: expr.left, right: expr.right, span: expr.span } as Expression & { kind: "binary_op" });
+    ctx.lines.push(`    (call $copyMem ${lhs.addr} ${src} (i32.const 16))`);
+    return "";
+  }
+
   // scalar field target
   if (lhs) {
     const rhs = emitValue(ctx, expr.right);
@@ -2550,6 +2564,22 @@ function compoundOp(op: string): string {
 // ---- value (rvalue) codegen — produces an i64 ----
 
 function emitValue(ctx: FnCtx, expr: Expression): string {
+  // A uint128-valued expression used in a scalar/boolean context (a `while(z)` / `if(z)` truthiness test):
+  // materialize it and collapse to (low | high), which is non-zero iff the 128-bit value is non-zero. Scalar
+  // reads of a uint128 go through its `.low` / `.high` members, not here.
+  if ((expr.kind === "call" || expr.kind === "binary_op" || expr.kind === "identifier") && isU128Expr(ctx, expr)) {
+    const a = emitU128(ctx, expr);
+    return `(i64.or (i64.load ${a}) (i64.load offset=8 ${a}))`;
+  }
+
+  // `.low` / `.high` of a uint128-valued expression that is not itself an lvalue (e.g. `div(a, b).low`):
+  // materialize the value into a slot, then read the 64-bit half. (A uint128 lvalue's .low/.high resolve
+  // through resolveAddr's member path.)
+  if (expr.kind === "member_access" && (expr.member === "low" || expr.member === "high") && isU128Expr(ctx, expr.object)) {
+    const a = emitU128(ctx, expr.object);
+    return `(i64.load offset=${expr.member === "high" ? 8 : 0} ${a})`;
+  }
+
   switch (expr.kind) {
     case "int_literal": {
       const v = ctx.cg["sema"].evaluateConstexpr(expr) ?? 0n;
@@ -2694,7 +2724,96 @@ function aggOperand(ctx: FnCtx, expr: Expression): { addr: string; size: number 
   return a ? { addr: a, size: 32 } : null;
 }
 
+// Whether an expression is uint128-typed (so it flows as a 16-byte value through the $u128_* helpers rather
+// than as an i64). A uint128(...) constructor, a div() of uint128 operands, an arithmetic node with a uint128
+// operand, or any lvalue of uint128 type.
+function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
+  if (expr.kind === "paren") return isU128Expr(ctx, expr.expr);
+  if (expr.kind === "c_cast" || expr.kind === "static_cast") return isU128Expr(ctx, expr.expr);
+  if (expr.kind === "call" && expr.callee.kind === "identifier") {
+    const nm = expr.callee.name;
+    if (nm === "uint128" || nm === "uint128_t") return true;
+    if ((nm === "div" || nm === "QPI::div" || nm === "mod") && expr.args.length === 2) {
+      return isU128Expr(ctx, expr.args[0]) || isU128Expr(ctx, expr.args[1]);
+    }
+  }
+  if (expr.kind === "binary_op") {
+    if (expr.op === "<<" || expr.op === ">>") return isU128Expr(ctx, expr.left);
+    if (expr.op === "*" || expr.op === "+" || expr.op === "-") return isU128Expr(ctx, expr.left) || isU128Expr(ctx, expr.right);
+    return false;
+  }
+  const n = resolveAddr(ctx, expr);
+  return !!(n && isUint128(ctx.cg, n.type));
+}
+
+// Materialize a uint128 expression into a fresh 16-byte slot (low@0, high@8) and return its address; an
+// existing uint128 lvalue is returned in place. Arithmetic lowers to the $u128_* framework helpers.
+function emitU128(ctx: FnCtx, expr: Expression): string {
+  if (expr.kind === "paren") return emitU128(ctx, expr.expr);
+  if (expr.kind === "c_cast" || expr.kind === "static_cast") return emitU128(ctx, expr.expr);
+
+  const n = resolveAddr(ctx, expr);
+  if (n && isUint128(ctx.cg, n.type)) return n.addr;
+
+  const slot = (): string => {
+    const t = newTmp(ctx);
+    ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 16)))`);
+    return `(local.get $${t})`;
+  };
+
+  if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "uint128" || expr.callee.name === "uint128_t")) {
+    const s = slot();
+    if (expr.args.length === 2) {
+      ctx.lines.push(`    (call $u128_set ${s} ${emitValue(ctx, expr.args[1])} ${emitValue(ctx, expr.args[0])})`);
+    } else {
+      ctx.lines.push(`    (call $u128_set ${s} ${expr.args[0] ? emitValue(ctx, expr.args[0]) : "(i64.const 0)"} (i64.const 0))`);
+    }
+    return s;
+  }
+
+  if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "div" || expr.callee.name === "QPI::div") && expr.args.length === 2) {
+    const s = slot();
+    ctx.lines.push(`    (call $u128_divmod ${s} ${emitU128(ctx, expr.args[0])} ${emitU128(ctx, expr.args[1])})`);
+    return s;
+  }
+
+  if (expr.kind === "binary_op") {
+    const s = slot();
+    if (expr.op === "<<" || expr.op === ">>") {
+      ctx.lines.push(`    (call ${expr.op === "<<" ? "$u128_shl" : "$u128_shr"} ${s} ${emitU128(ctx, expr.left)} ${emitValue(ctx, expr.right)})`);
+      return s;
+    }
+    const fn = expr.op === "*" ? "$u128_mul" : expr.op === "+" ? "$u128_add" : expr.op === "-" ? "$u128_sub" : null;
+    if (fn) {
+      ctx.lines.push(`    (call ${fn} ${s} ${emitU128(ctx, expr.left)} ${emitU128(ctx, expr.right)})`);
+      return s;
+    }
+  }
+
+  // An i64-valued sub-expression used where a uint128 is expected (a bare integer, a scalar local): zero-extend
+  // it into the low limb.
+  const s = slot();
+  ctx.lines.push(`    (call $u128_set ${s} ${emitValue(ctx, expr)} (i64.const 0))`);
+  return s;
+}
+
 function emitBinary(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): string {
+  // uint128 compares: 128-bit, via the $u128_* helpers (operands materialized to 16-byte slots).
+  if ((expr.op === "==" || expr.op === "!=" || expr.op === "<" || expr.op === ">" || expr.op === "<=" || expr.op === ">=")
+    && (isU128Expr(ctx, expr.left) || isU128Expr(ctx, expr.right))) {
+    const la = emitU128(ctx, expr.left), ra = emitU128(ctx, expr.right);
+    const lt = (x: string, y: string) => `(call $u128_lt ${x} ${y})`;
+    const wrap = (e: string) => `(i64.extend_i32_u ${e})`;
+    switch (expr.op) {
+      case "==": return wrap(`(call $u128_eq ${la} ${ra})`);
+      case "!=": return wrap(`(i32.eqz (call $u128_eq ${la} ${ra}))`);
+      case "<": return wrap(lt(la, ra));
+      case ">": return wrap(lt(ra, la));
+      case "<=": return wrap(`(i32.eqz ${lt(ra, la)})`);
+      default: return wrap(`(i32.eqz ${lt(la, ra)})`); // >=
+    }
+  }
+
   // id/struct equality compares bytes, not an i64 value.
   if (expr.op === "==" || expr.op === "!=") {
     const la = aggOperand(ctx, expr.left);

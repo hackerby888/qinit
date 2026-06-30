@@ -476,7 +476,148 @@ function emitIntrinsics(): string {
   (func $m_max_s (param $a i64) (param $b i64) (result i64)
     (select (local.get $a) (local.get $b) (i64.gt_s (local.get $a) (local.get $b))))
   (func $m_abs (param $a i64) (result i64)
-    (select (local.get $a) (i64.sub (i64.const 0) (local.get $a)) (i64.ge_s (local.get $a) (i64.const 0))))`;
+    (select (local.get $a) (i64.sub (i64.const 0) (local.get $a)) (i64.ge_s (local.get $a) (i64.const 0))))
+
+  ;; ---- uint128 (two-limb little-endian: low@0, high@8) ----
+  ;; High 64 bits of the unsigned 64x64 product, via 32-bit splitting (wasm has no widening multiply).
+  (func $u128_mulhi (param $x i64) (param $y i64) (result i64)
+    (local $x0 i64) (local $x1 i64) (local $y0 i64) (local $y1 i64) (local $cross i64)
+    (local.set $x0 (i64.and (local.get $x) (i64.const 0xffffffff)))
+    (local.set $x1 (i64.shr_u (local.get $x) (i64.const 32)))
+    (local.set $y0 (i64.and (local.get $y) (i64.const 0xffffffff)))
+    (local.set $y1 (i64.shr_u (local.get $y) (i64.const 32)))
+    (local.set $cross (i64.add (i64.add
+      (i64.shr_u (i64.mul (local.get $x0) (local.get $y0)) (i64.const 32))
+      (i64.and (i64.mul (local.get $x1) (local.get $y0)) (i64.const 0xffffffff)))
+      (i64.and (i64.mul (local.get $x0) (local.get $y1)) (i64.const 0xffffffff))))
+    (i64.add (i64.add (i64.add
+      (i64.mul (local.get $x1) (local.get $y1))
+      (i64.shr_u (i64.mul (local.get $x1) (local.get $y0)) (i64.const 32)))
+      (i64.shr_u (i64.mul (local.get $x0) (local.get $y1)) (i64.const 32)))
+      (i64.shr_u (local.get $cross) (i64.const 32))))
+
+  (func $u128_set (param $dst i32) (param $lo i64) (param $hi i64)
+    (i64.store (local.get $dst) (local.get $lo))
+    (i64.store offset=8 (local.get $dst) (local.get $hi)))
+
+  (func $u128_add (param $dst i32) (param $a i32) (param $b i32)
+    (local $lo i64)
+    (local.set $lo (i64.add (i64.load (local.get $a)) (i64.load (local.get $b))))
+    (i64.store offset=8 (local.get $dst) (i64.add (i64.add
+      (i64.load offset=8 (local.get $a)) (i64.load offset=8 (local.get $b)))
+      (i64.extend_i32_u (i64.lt_u (local.get $lo) (i64.load (local.get $a)))))) ;; carry
+    (i64.store (local.get $dst) (local.get $lo)))
+
+  (func $u128_sub (param $dst i32) (param $a i32) (param $b i32)
+    (local $al i64) (local $bl i64)
+    (local.set $al (i64.load (local.get $a)))
+    (local.set $bl (i64.load (local.get $b)))
+    (i64.store offset=8 (local.get $dst) (i64.sub (i64.sub
+      (i64.load offset=8 (local.get $a)) (i64.load offset=8 (local.get $b)))
+      (i64.extend_i32_u (i64.lt_u (local.get $al) (local.get $bl))))) ;; borrow
+    (i64.store (local.get $dst) (i64.sub (local.get $al) (local.get $bl))))
+
+  (func $u128_mul (param $dst i32) (param $a i32) (param $b i32)
+    (local $al i64) (local $ah i64) (local $bl i64) (local $bh i64)
+    (local.set $al (i64.load (local.get $a)))
+    (local.set $ah (i64.load offset=8 (local.get $a)))
+    (local.set $bl (i64.load (local.get $b)))
+    (local.set $bh (i64.load offset=8 (local.get $b)))
+    (i64.store offset=8 (local.get $dst) (i64.add (i64.add
+      (call $u128_mulhi (local.get $al) (local.get $bl))
+      (i64.mul (local.get $al) (local.get $bh)))
+      (i64.mul (local.get $ah) (local.get $bl))))
+    (i64.store (local.get $dst) (i64.mul (local.get $al) (local.get $bl))))
+
+  ;; unsigned a < b (128-bit)
+  (func $u128_lt (param $a i32) (param $b i32) (result i32)
+    (local $ah i64) (local $bh i64)
+    (local.set $ah (i64.load offset=8 (local.get $a)))
+    (local.set $bh (i64.load offset=8 (local.get $b)))
+    (if (result i32) (i64.eq (local.get $ah) (local.get $bh))
+      (then (i64.lt_u (i64.load (local.get $a)) (i64.load (local.get $b))))
+      (else (i64.lt_u (local.get $ah) (local.get $bh)))))
+
+  (func $u128_eq (param $a i32) (param $b i32) (result i32)
+    (i32.and
+      (i64.eq (i64.load (local.get $a)) (i64.load (local.get $b)))
+      (i64.eq (i64.load offset=8 (local.get $a)) (i64.load offset=8 (local.get $b)))))
+
+  ;; dst = a << n (0 <= n < 128)
+  (func $u128_shl (param $dst i32) (param $a i32) (param $n i64)
+    (local $lo i64) (local $hi i64)
+    (local.set $lo (i64.load (local.get $a)))
+    (local.set $hi (i64.load offset=8 (local.get $a)))
+    (if (i64.eqz (local.get $n))
+      (then)
+      (else (if (i64.ge_u (local.get $n) (i64.const 64))
+        (then
+          (local.set $hi (i64.shl (local.get $lo) (i64.sub (local.get $n) (i64.const 64))))
+          (local.set $lo (i64.const 0)))
+        (else
+          (local.set $hi (i64.or (i64.shl (local.get $hi) (local.get $n))
+            (i64.shr_u (local.get $lo) (i64.sub (i64.const 64) (local.get $n)))))
+          (local.set $lo (i64.shl (local.get $lo) (local.get $n)))))))
+    (i64.store (local.get $dst) (local.get $lo))
+    (i64.store offset=8 (local.get $dst) (local.get $hi)))
+
+  ;; dst = a >> n (logical, 0 <= n < 128)
+  (func $u128_shr (param $dst i32) (param $a i32) (param $n i64)
+    (local $lo i64) (local $hi i64)
+    (local.set $lo (i64.load (local.get $a)))
+    (local.set $hi (i64.load offset=8 (local.get $a)))
+    (if (i64.eqz (local.get $n))
+      (then)
+      (else (if (i64.ge_u (local.get $n) (i64.const 64))
+        (then
+          (local.set $lo (i64.shr_u (local.get $hi) (i64.sub (local.get $n) (i64.const 64))))
+          (local.set $hi (i64.const 0)))
+        (else
+          (local.set $lo (i64.or (i64.shr_u (local.get $lo) (local.get $n))
+            (i64.shl (local.get $hi) (i64.sub (i64.const 64) (local.get $n)))))
+          (local.set $hi (i64.shr_u (local.get $hi) (local.get $n)))))))
+    (i64.store (local.get $dst) (local.get $lo))
+    (i64.store offset=8 (local.get $dst) (local.get $hi)))
+
+  ;; q = a / b (unsigned 128-bit binary long division; b==0 yields 0). mod is left in the rem locals,
+  ;; not stored (callers needing it can add a rem out-param later).
+  (func $u128_divmod (param $q i32) (param $a i32) (param $b i32)
+    (local $al i64) (local $ah i64) (local $bl i64) (local $bh i64)
+    (local $rl i64) (local $rh i64) (local $ql i64) (local $qh i64)
+    (local $i i32) (local $bit i64) (local $borrow i64) (local $ge i32)
+    (local.set $al (i64.load (local.get $a)))
+    (local.set $ah (i64.load offset=8 (local.get $a)))
+    (local.set $bl (i64.load (local.get $b)))
+    (local.set $bh (i64.load offset=8 (local.get $b)))
+    (if (i32.and (i64.eqz (local.get $bl)) (i64.eqz (local.get $bh)))
+      (then (i64.store (local.get $q) (i64.const 0)) (i64.store offset=8 (local.get $q) (i64.const 0)) (return)))
+    (local.set $i (i32.const 127))
+    (block $done (loop $lp
+      (br_if $done (i32.lt_s (local.get $i) (i32.const 0)))
+      ;; rem <<= 1
+      (local.set $rh (i64.or (i64.shl (local.get $rh) (i64.const 1)) (i64.shr_u (local.get $rl) (i64.const 63))))
+      (local.set $rl (i64.shl (local.get $rl) (i64.const 1)))
+      ;; rem |= bit i of a
+      (if (i32.ge_s (local.get $i) (i32.const 64))
+        (then (local.set $bit (i64.and (i64.shr_u (local.get $ah) (i64.extend_i32_u (i32.sub (local.get $i) (i32.const 64)))) (i64.const 1))))
+        (else (local.set $bit (i64.and (i64.shr_u (local.get $al) (i64.extend_i32_u (local.get $i))) (i64.const 1)))))
+      (local.set $rl (i64.or (local.get $rl) (local.get $bit)))
+      ;; ge = rem >= b
+      (local.set $ge (if (result i32) (i64.eq (local.get $rh) (local.get $bh))
+        (then (i64.ge_u (local.get $rl) (local.get $bl))) (else (i64.gt_u (local.get $rh) (local.get $bh)))))
+      (if (local.get $ge) (then
+        ;; rem -= b
+        (local.set $borrow (i64.extend_i32_u (i64.lt_u (local.get $rl) (local.get $bl))))
+        (local.set $rh (i64.sub (i64.sub (local.get $rh) (local.get $bh)) (local.get $borrow)))
+        (local.set $rl (i64.sub (local.get $rl) (local.get $bl)))
+        ;; set bit i of q
+        (if (i32.ge_s (local.get $i) (i32.const 64))
+          (then (local.set $qh (i64.or (local.get $qh) (i64.shl (i64.const 1) (i64.extend_i32_u (i32.sub (local.get $i) (i32.const 64)))))))
+          (else (local.set $ql (i64.or (local.get $ql) (i64.shl (i64.const 1) (i64.extend_i32_u (local.get $i)))))))))
+      (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+      (br $lp)))
+    (i64.store (local.get $q) (local.get $ql))
+    (i64.store offset=8 (local.get $q) (local.get $qh)))`;
 }
 
 function emitMetadata(L: Layout, spec: ModuleSpec, sysprocMask: number): string {
