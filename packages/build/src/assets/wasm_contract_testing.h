@@ -298,6 +298,37 @@ static inline std::string assetNameFromInt64(unsigned long long assetName) {
 static inline void checkContractExecCleanup() {
 }
 
+// Identity (56 A-Z chars + 4-char checksum) -> 32-byte public key: base26 decode, 14 chars per 64-bit limb,
+// little-endian; the trailing checksum chars are not needed to recover the key. Mirrors core-lite four_q.h
+// getPublicKeyFromIdentity. Corpora seed fixed identities this way (QSWAP's invest-rewards address).
+static inline bool getPublicKeyFromIdentity(const unsigned char* identity, unsigned char* publicKey) {
+    for (int i = 0; i < 4; i++) {
+        unsigned long long limb = 0;
+        for (int j = 14; j-- > 0; ) {
+            unsigned char c = identity[i * 14 + j];
+            if (c < 'A' || c > 'Z') {
+                return false;
+            }
+            limb = limb * 26 + (unsigned long long)(c - 'A');
+        }
+        for (int b = 0; b < 8; b++) {
+            publicKey[(i << 3) + b] = (unsigned char)(limb >> (8 * b));
+        }
+    }
+    return true;
+}
+
+// State save/load to disk — core-lite platform/file_io.h, which has no wasm equivalent. A corpus may define a
+// loadState()/saveState() helper over these (QSWAP) without any test invoking it, so never-called stubs that
+// report failure are enough to compile. CHAR16 is already in scope from the included platform headers.
+static inline long long load(const CHAR16*, unsigned long long, void*, const CHAR16* = nullptr) {
+    return -1;
+}
+
+static inline long long save(const CHAR16*, unsigned long long, const void*, const CHAR16* = nullptr) {
+    return -1;
+}
+
 // ---- INIT_CONTRACT macro ----
 
 #define INIT_CONTRACT(name) bq_init(name##_CONTRACT_INDEX)
