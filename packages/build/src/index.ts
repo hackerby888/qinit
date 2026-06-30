@@ -89,7 +89,7 @@ export async function buildCorpusRunner(o: {
   outDir: string;
   arenaSz?: number;
 }): Promise<BuildResult> {
-  const raw = await readFile(o.corpusPath, "utf8");
+  const raw = (await readFile(o.corpusPath, "utf8")).replace(/^﻿/, "");
 
   const testSource = raw
     .replace(/^#include\s+"contract_testing\.h"\s*$/m, '#include "wasm_contract_testing.h"')
