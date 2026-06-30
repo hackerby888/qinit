@@ -33,6 +33,7 @@ QBCT_IMPORT(q_set_epoch)  void         bq_set_epoch(unsigned int e);
 QBCT_IMPORT(q_get_epoch)  unsigned int bq_get_epoch();
 QBCT_IMPORT(q_set_tick)   void         bq_set_tick(unsigned int t);
 QBCT_IMPORT(q_get_tick)   unsigned int bq_get_tick();
+QBCT_IMPORT(q_set_datetime) void       bq_set_datetime(unsigned int y, unsigned int mo, unsigned int d, unsigned int h, unsigned int mi, unsigned int s);
 QBCT_IMPORT(q_set_computor) void       bq_set_computor(unsigned int i, const void* id32);
 }
 
@@ -188,6 +189,19 @@ struct QbSystemStruct {
     QbEpochProxy epoch;
     QbTickProxy tick;
 };
+
+// ---- utcTime / updateTime / updateQpiTime: corpus time control ----
+// utcTime is the EFI_TIME (lib/platform_efi/uefi.h, already in scope) a corpus sets, then pushes to the chain
+// clock via updateQpiTime() so the contract's qpi.year()/month()/day()/... reflect it. updateTime() (native:
+// read the wall clock) is a no-op here — the corpus always overwrites the fields it cares about, then pushes.
+static EFI_TIME utcTime = { 2024, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+static inline void updateTime() {
+}
+
+static inline void updateQpiTime() {
+    bq_set_datetime(utcTime.Year, utcTime.Month, utcTime.Day, utcTime.Hour, utcTime.Minute, utcTime.Second);
+}
 
 static QbSystemStruct qubicSystemStruct;
 

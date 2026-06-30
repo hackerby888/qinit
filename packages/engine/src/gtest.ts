@@ -363,6 +363,12 @@ export async function runContractTesting(
     q_get_epoch: (): number => sim.epochN >>> 0,
     q_set_tick: (t: number) => { sim.tickN = t >>> 0; },
     q_get_tick: (): number => sim.tickN >>> 0,
+    // updateQpiTime() in the corpus harness pushes its utcTime fields here; set the chain clock so the qpi
+    // date accessors (year/month/day/...) return them. timeBaseMs is chosen so nowMs() == the requested UTC.
+    q_set_datetime: (y: number, mo: number, d: number, h: number, mi: number, s: number) => {
+      const ms = Date.UTC(y >>> 0, (mo >>> 0) - 1, d >>> 0, h >>> 0, mi >>> 0, s >>> 0);
+      sim.timeBaseMs = ms - sim.tickN * sim.tickDuration;
+    },
 
     // The proposal-voting corpora seed their committee by writing broadcastedComputors.computors.publicKeys[i];
     // the harness header routes each write here so qpi.computor(i) in the engine returns the same identity.
