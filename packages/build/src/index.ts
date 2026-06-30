@@ -1,6 +1,7 @@
 // qinit build: contract .h -> wasm module (run by the node's WAMR engine) + K12 hash + IDL.
 import { statSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFile, mkdir, copyFile } from "node:fs/promises";
+import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { compileWasmContract, type BuildOpts } from "./recipe";
 import { extractIdl, type ContractIdl } from "./idl";
@@ -72,6 +73,45 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   let idl: ContractIdl | undefined, idlError: string | undefined;
   try { idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name, { prelude: o.corePath ? qpiPrelude(o.corePath) : undefined }); } catch (e: any) { idlError = String(e?.message ?? e); }
   return { ok: true, so: w.wasm, size, hash, idl, idlError, verify, debugWasm: w.debugWasm, linesJson: w.linesJson };
+}
+
+// Compile a corpus file (core-lite/test/contract_X.cpp) into a runner wasm by redirecting its
+// `#include "contract_testing.h"` to the qinit-shipped `wasm_contract_testing.h` header.
+// The corpus body is inlined as testSource; the header asset is written into outDir so the
+// quote-include resolves relative to the wrapper TU's physical location.
+export async function buildCorpusRunner(o: {
+  corpusPath: string;
+  contractPath: string;
+  name: string;
+  stateType: string;
+  slot: number;
+  corePath: string;
+  outDir: string;
+  arenaSz?: number;
+}): Promise<BuildResult> {
+  const raw = await readFile(o.corpusPath, "utf8");
+
+  const testSource = raw
+    .replace(/^#include\s+"contract_testing\.h"\s*$/m, '#include "wasm_contract_testing.h"')
+    .replace(/^#include\s+"oracle_testing\.h".*$/m, "");
+
+  await mkdir(o.outDir, { recursive: true });
+
+  const assetSrc = join(import.meta.dir, "assets", "wasm_contract_testing.h");
+  await copyFile(assetSrc, join(o.outDir, "wasm_contract_testing.h"));
+
+  return buildContract({
+    contractPath: o.contractPath,
+    name: o.name,
+    stateType: o.stateType,
+    slot: o.slot,
+    corePath: o.corePath,
+    outDir: o.outDir,
+    arenaSz: o.arenaSz ?? 8 * 1024 * 1024,
+    skipVerify: true,
+    testSource,
+    testPath: basename(o.corpusPath),
+  });
 }
 
 // Compile a named built-in system contract (QX, QEARN, …) from the core snapshot catalog. Shared by the CLI

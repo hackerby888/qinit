@@ -1,5 +1,10 @@
 #pragma once
 
+#include <algorithm>
+#include <map>
+#include <set>
+#include <vector>
+
 // Wasm-mode replacement for core-lite contract_testing.h.
 // Routes ContractTesting / free-helper calls to "thost" imports bound by
 // @qinit/engine runContractTesting(). Included after extensions/lite_test.h
