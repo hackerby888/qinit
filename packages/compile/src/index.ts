@@ -113,6 +113,10 @@ function getQpiContext(headers: string): QpiContext {
       if (!lib.templateMethods.has(cls)) lib.templateMethods.set(cls, new Map());
       for (const [m, def] of methods) if (!lib.templateMethods.get(cls)!.has(m)) lib.templateMethods.get(cls)!.set(m, def);
     }
+    // Free functions whose bodies live in the impl chunk (isArraySortedWithoutDuplicates) — merge so a
+    // contract call resolves them; first definition wins (the qpi.h declaration is bodyless and skipped).
+    for (const [k, v] of implLib.libFns) if (!lib.libFns.has(k)) lib.libFns.set(k, v);
+    for (const [k, v] of implLib.libFnTemplates) if (!lib.libFnTemplates.has(k)) lib.libFnTemplates.set(k, v);
   }
 
   const ctx: QpiContext = { macros, lib };
@@ -289,6 +293,7 @@ export function loadQpiHeader(corePath?: string): string {
       const implFiles = [
         "contract_core/qpi_hash_map_impl.h",
         "contract_core/qpi_collection_impl.h",
+        "contract_core/qpi_trivial_impl.h",
       ];
       let content = QPI_PRELUDE + "\n";
       for (const f of files) {
@@ -297,7 +302,9 @@ export function loadQpiHeader(corePath?: string): string {
       }
       for (const f of implFiles) {
         const fp = `${base}/${f}`;
-        if (existsSync(fp)) content += `\n${IMPL_BOUNDARY}\n` + readFileSync(fp, "utf8") + "\n";
+        // Strip #include lines — impl chunks are parsed standalone for their method/free-fn bodies; the
+        // headers they pull in (four_q.h / kangaroo_twelve.h) aren't needed to parse and blow up the lexer.
+        if (existsSync(fp)) content += `\n${IMPL_BOUNDARY}\n` + readFileSync(fp, "utf8").replace(/^[ \t]*#include[ \t].*$/gm, "") + "\n";
       }
       return content;
     } catch {

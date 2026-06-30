@@ -244,7 +244,21 @@ function emitMemOps(): string {
           (then (return (i32.const 0))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $cmp)))
-    (i32.const 1))`;
+    (i32.const 1))
+  ;; id/m256i operator< : lexicographic over the 4 u64 limbs (index 0 first, unsigned). Returns 1 if a<b.
+  (func $m256_lt (param $a i32) (param $b i32) (result i32)
+    (local $i i32)
+    (local $av i64) (local $bv i64)
+    (block $done
+      (loop $cmp
+        (br_if $done (i32.ge_u (local.get $i) (i32.const 4)))
+        (local.set $av (i64.load (i32.add (local.get $a) (i32.mul (local.get $i) (i32.const 8)))))
+        (local.set $bv (i64.load (i32.add (local.get $b) (i32.mul (local.get $i) (i32.const 8)))))
+        (if (i64.lt_u (local.get $av) (local.get $bv)) (then (return (i32.const 1))))
+        (if (i64.gt_u (local.get $av) (local.get $bv)) (then (return (i32.const 0))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $cmp)))
+    (i32.const 0))`;
 }
 
 function emitAllocators(L: Layout): string {

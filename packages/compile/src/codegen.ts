@@ -114,6 +114,7 @@ class Codegen {
   private constInProgress = new Set<string>();
   helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
   libFns: Map<string, FunctionDecl> = new Map();   // qpi.h namespace free functions (ProposalTypes::cls), keyed by qualified name; compiled lazily
+  libFnTemplates: Map<string, FunctionTemplateDecl> = new Map();   // qpi.h namespace free function TEMPLATES (isArraySortedWithoutDuplicates<T,L>), instantiated per call-site arg types
   privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()
   registered: Map<string, PrivateInfo> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
   callees: Map<string, CalleeIdl> = new Map();      // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
@@ -191,6 +192,11 @@ class Codegen {
           // qualified name so a `ProposalTypes::cls(type)` call resolves; compiled lazily on first use.
           const key = `${nsPrefix}${fn.name}`;
           if (!this.libFns.has(key)) this.libFns.set(key, d as FunctionDecl);
+        } else if (sep < 0 && d.kind === "function_template" && fn.body) {
+          // a namespace free function TEMPLATE (isArraySortedWithoutDuplicates<T,L>): keyed by qualified
+          // name, instantiated per call-site arg types (the call passes a concrete Array<sint64,4>).
+          const key = `${nsPrefix}${fn.name}`;
+          if (!this.libFnTemplates.has(key)) this.libFnTemplates.set(key, fn);
         }
       } else if (d.kind === "typedef_decl") {
         const td = d as any;
@@ -427,6 +433,19 @@ class Codegen {
     return structs === b.structs ? b : { types: b.types, values: b.values, structs };
   }
 
+  // If a field's type names a sibling nested struct/union (registered in the local-struct scope), return it
+  // as an inline_struct so the field's layout is self-describing. Without this, a member chain into a nested
+  // type (proposal.data.transfer.amounts) fails: data's type `Data` is nested, so layoutOfType(name "Data")
+  // can't find it globally and the chain dead-ends. inline_struct carries the decl, so each level resolves.
+  private inlineNestedStruct(t: TypeSpec, b: Bindings): TypeSpec {
+    const bare = t.kind === "const" ? t.valueType : t;
+    if (bare.kind === "name") {
+      const s = b.structs.get(bare.name);
+      if (s) return { kind: "inline_struct", struct: s };
+    }
+    return t;
+  }
+
   private fallbackTemplateLayout(name: string, args: TypeSpec[], b: Bindings): StructLayout {
     const fields = new Map<string, FieldLayout>();
     let size = 0;
@@ -498,6 +517,17 @@ class Codegen {
       return { kind: "template_instance", name: t.name, args };
     }
     return t;
+  }
+
+  // Public: substitute a type through bindings (T→sint64, L→4) — turns a template free fn's param type
+  // `Array<T,L>` into the concrete `Array<sint64,4>` so its body's container calls resolve.
+  substInBindings(t: TypeSpec, bind: Bindings): TypeSpec {
+    return this.resolveInScope(t, bind, new Map(), 0);
+  }
+
+  // Public: recover the integer value of a (possibly value-) template arg, e.g. the `4` of Array<sint64,4>.
+  valueOfTypeArg(t: TypeSpec, b: Bindings = NO_BIND): bigint {
+    return this.evalConstFromType(t, b);
   }
 
   private evalConstFromType(t: TypeSpec, b: Bindings): bigint {
@@ -669,7 +699,7 @@ class Codegen {
             if (v.isStatic || v.isConstexpr) continue;
             const sz = this.sizeOfType(v.type, b);
             const al = this.alignOfTypeB(v.type, b);
-            fields.set(v.name, { name: v.name, offset: 0, size: sz, type: v.type });
+            fields.set(v.name, { name: v.name, offset: 0, size: sz, type: this.inlineNestedStruct(v.type, b) });
             if (sz > max) max = sz;
             if (al > maxAlign) maxAlign = al;
           }
@@ -719,7 +749,7 @@ class Codegen {
         const sz = this.sizeOfType(v.type, bMem);
         const align = Math.min(this.alignOfTypeB(v.type, bMem), 8);
         offset = this.alignUp(offset, align);
-        fields.set(v.name, { name: v.name, offset, size: sz, type: v.type });
+        fields.set(v.name, { name: v.name, offset, size: sz, type: this.inlineNestedStruct(v.type, bMem) });
         offset += sz;
         if (align > maxAlign) maxAlign = align;
       }
@@ -940,6 +970,14 @@ class Codegen {
     return t;
   }
 
+  // True for a void return type. The parser spells void two ways — a dedicated {kind:"void"} node and, on
+  // some method paths, {kind:"name", name:"void"} — so a method like `void setupNewProposal(...)` must match
+  // both, else it gets typed as returning i64 and its bare `return;` underflows the result stack.
+  isVoidType(t: TypeSpec): boolean {
+    const d = this.derefType(t);
+    return d.kind === "void" || (d.kind === "name" && d.name === "void");
+  }
+
   // True if a type is an aggregate (id/m256i/struct/array/container) — passed/returned by address
   // rather than as an i64 value. References and const are unwrapped first.
   isAggregateType(t: TypeSpec): boolean {
@@ -1156,6 +1194,7 @@ export interface LibTypes {
   templates: Map<string, ClassTemplate>;
   specializations: Map<string, { specArgs: TypeSpec[]; tmpl: ClassTemplate }[]>;
   libFns: Map<string, FunctionDecl>;
+  libFnTemplates: Map<string, FunctionTemplateDecl>;
   globalStructs: Map<string, StructDecl>;
   typedefs: Map<string, TypeSpec>;
   constexprInit: Map<string, Expression>;
@@ -1171,6 +1210,7 @@ export function buildLibTypes(decls: Declaration[]): LibTypes {
     templates: cg.templates,
     specializations: cg.specializations,
     libFns: cg.libFns,
+    libFnTemplates: cg.libFnTemplates,
     globalStructs: cg.globalStructs,
     typedefs: cg.typedefs,
     constexprInit: cg.constexprInit,
@@ -1201,6 +1241,7 @@ export function generateWasmModule(
     for (const [k, v] of lib.templates) cg.templates.set(k, v);
     if (lib.specializations) for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
     if (lib.libFns) for (const [k, v] of lib.libFns) cg.libFns.set(k, v);
+    if (lib.libFnTemplates) for (const [k, v] of lib.libFnTemplates) cg.libFnTemplates.set(k, v);
     for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
     for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
     for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
@@ -1490,12 +1531,14 @@ function emitFunction(
 
 // Emit a value-helper (e.g. toReturnCode) as a wasm function with its own scalar/address parameters
 // and an optional i64 result. Helpers are static and pure — they take no ctx/state/in/out/locals.
-function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: FunctionDecl, stateLayout: StructLayout): string {
+function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: Statement }, stateLayout: StructLayout, bind?: Bindings): string {
   const empty = { size: 0, align: 1, fields: new Map() };
   const ctx: FnCtx = {
     cg, state: stateLayout, in: empty, out: empty, locals: empty,
     localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
     params: new Map(), retIsValue: info.retIsValue,
+    // For an instantiated template free fn the body resolves T/L through these bindings (e.g. `L`→4).
+    thisBind: bind,
   };
   for (const p of info.params) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: p.type });
 
@@ -2555,6 +2598,20 @@ function emitBinary(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): strin
     }
   }
 
+  // id/m256i ordering (operator< / > / <= / >=): a 256-bit lexicographic compare of the 4 u64 limbs, not an
+  // i64 value compare. Mirror m256.h's free operator<; derive the others from it (a>b = b<a, a<=b = !(b<a)).
+  if (expr.op === "<" || expr.op === ">" || expr.op === "<=" || expr.op === ">=") {
+    const la = aggOperand(ctx, expr.left);
+    const ra = aggOperand(ctx, expr.right);
+    if (la && ra && la.size === 32 && ra.size === 32) {
+      const lt = (x: { addr: string }, y: { addr: string }) => `(call $m256_lt ${x.addr} ${y.addr})`;
+      if (expr.op === "<") return `(i64.extend_i32_u ${lt(la, ra)})`;
+      if (expr.op === ">") return `(i64.extend_i32_u ${lt(ra, la)})`;
+      if (expr.op === "<=") return `(i64.extend_i32_u (i32.eqz ${lt(ra, la)}))`;
+      return `(i64.extend_i32_u (i32.eqz ${lt(la, ra)}))`;
+    }
+  }
+
   // Short-circuit `&&` / `||`: the right operand must not be evaluated when the left already decides the
   // result — C++ guards like `idx >= max || array[idx]` rely on this to stay in bounds. The right side is
   // emitted into an isolated line buffer; if it produced statements, those run only on the not-decided path.
@@ -2751,8 +2808,7 @@ function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "template_
 
   const bind = cg.bindContainer(type.name, type.args);
   const fnParams = (def.fnParams ?? []).map((p) => classifyMethodParam(cg, p, bind));
-  const retDeref = cg.derefType(def.returnType);
-  const retKind: "i64" | "void" = retDeref.kind === "void" ? "void" : (cg.isAggregateType(retDeref) ? "void" : "i64");
+  const retKind: "i64" | "void" = cg.isVoidType(def.returnType) ? "void" : (cg.isAggregateType(cg.derefType(def.returnType)) ? "void" : "i64");
 
   const cm: CompiledMethod = { label: `$T${cg.compiledMethods.size}_${type.name}_${methodName}`, fnParams, retKind };
   cg.compiledMethods.set(cacheKey, cm);   // register before emitting so recursive/sibling calls resolve
@@ -3032,7 +3088,7 @@ function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
     const isAddr = cg.isAggregateType(p.type);
     return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
   });
-  const retIsValue = fn.returnType.kind !== "void" && !cg.isAggregateType(fn.returnType);
+  const retIsValue = !cg.isVoidType(fn.returnType) && !cg.isAggregateType(fn.returnType);
   const info: HelperInfo = { label: `$lib${cg.helpers.size}_${name.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue };
   cg.helpers.set(name, info);   // register before emit so recursion/sibling calls resolve
   try {
@@ -3045,9 +3101,94 @@ function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
   return info;
 }
 
+// Deduce template bindings (T→sint64, L→4) for a free function template from the concrete types of its
+// call-site arguments: a param `const Array<T,L>&` matched against arg `Array<sint64,4>` binds T and L.
+function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args: Expression[]): Bindings {
+  const types = new Map<string, TypeSpec>();
+  const values = new Map<string, bigint>();
+  const typeParams = new Set(def.params.filter((p) => p.kind === "type").map((p) => p.name));
+  const valueParams = new Set(def.params.filter((p) => p.kind !== "type").map((p) => p.name));
+  const fps = def.fnParams ?? [];
+
+  const argType = (a: Expression): TypeSpec | null => {
+    let t = resolveAddr(ctx, a)?.type ?? null;
+    if (!t) return null;
+    t = ctx.cg.derefType(t);
+    for (let i = 0; i < 8 && t.kind === "name"; i++) {
+      const td = ctx.cg.typedefs.get(t.name);
+      if (!td) break;
+      t = ctx.cg.derefType(td);
+    }
+    return t;
+  };
+
+  for (let i = 0; i < fps.length; i++) {
+    const arg = args[i];
+    if (!arg) continue;
+    const pt = ctx.cg.derefType(fps[i].type);
+    if (pt.kind === "template_instance") {
+      const at = argType(arg);
+      if (at?.kind !== "template_instance" || at.name !== pt.name) continue;
+      for (let j = 0; j < pt.args.length && j < at.args.length; j++) {
+        const pa = pt.args[j];
+        if (pa.kind !== "name") continue;
+        if (typeParams.has(pa.name) && !types.has(pa.name)) types.set(pa.name, at.args[j]);
+        else if (valueParams.has(pa.name) && !values.has(pa.name)) values.set(pa.name, ctx.cg.valueOfTypeArg(at.args[j]));
+      }
+    } else if (pt.kind === "name" && typeParams.has(pt.name) && !types.has(pt.name)) {
+      const at = argType(arg);
+      if (at) types.set(pt.name, at);
+    }
+  }
+  return { types, values, structs: new Map() };
+}
+
+// Instantiate a free function template for the concrete types at a call site, emitting its wasm function.
+// Param types are substituted through the deduced bindings (Array<T,L> → Array<sint64,4>) so the body's
+// container calls resolve, and bare value params (`L`) read from thisBind.values. Cached by instantiation.
+function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args: Expression[]): HelperInfo | null {
+  const cg = ctx.cg;
+  const bind = deduceLibFnBindings(ctx, def, args);
+  const keyArgs = def.params
+    .map((p) => (p.kind === "type" ? cg.typeKeyOf(bind.types.get(p.name) ?? { kind: "name", name: p.name }) : (bind.values.get(p.name)?.toString() ?? p.name)))
+    .join(",");
+  const key = `${def.name}<${keyArgs}>`;
+  const cached = cg.helpers.get(key);
+  if (cached) return cached;
+
+  const params = (def.fnParams ?? []).map((p) => {
+    const isPtrRef = p.type.kind === "reference" || p.type.kind === "pointer";
+    const concrete = cg.substInBindings(cg.derefType(p.type), bind);
+    const isAddr = isPtrRef || cg.isAggregateType(concrete);
+    return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: concrete };
+  });
+  const retIsValue = !cg.isVoidType(def.returnType) && !cg.isAggregateType(cg.derefType(def.returnType));
+  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${key.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue };
+  cg.helpers.set(key, info);   // register before emit so recursive/sibling calls resolve
+  try {
+    cg.emittedMethodOrder.push(emitHelperFunction(cg, info, def, { size: 0, align: 1, fields: new Map() }, bind));
+  } catch (e: any) {
+    cg.warn(`failed to instantiate lib fn ${key}: ${e.message}`, def.span?.line ?? 0);
+    cg.helpers.delete(key);
+    return null;
+  }
+  return info;
+}
+
+// QPI safe-math free functions (div/mod/min/max/...) have a dedicated, divide-by-zero-safe lowering in
+// emitMathCall. Their qpi.h template bodies (`return b ? (a/b) : 0`) rely on ternary short-circuit we don't
+// guarantee, so they must NOT be instantiated as generic lib fns — let emitMathCall own them.
+const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);
+
 function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
   if (expr.callee.kind !== "identifier") return null;
-  const info = ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name);
+  if (MATH_INTRINSIC_NAMES.has(expr.callee.name)) return null;
+  let info = ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name);
+  if (!info) {
+    // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call.
+    const tdef = ctx.cg.libFnTemplates.get(expr.callee.name) ?? ctx.cg.libFnTemplates.get(`QPI::${expr.callee.name}`);
+    if (tdef) info = compileLibFnInstance(ctx, tdef, expr.args);
+  }
   if (!info) return null;
 
   const ops = info.params.map((p, i) => {
@@ -3356,8 +3497,7 @@ function compileProxyMethod(cg: Codegen, pvType: TypeSpec & { kind: "template_in
 
   const bind: Bindings = { types: new Map([["ProposerAndVoterHandlingType", P], ["ProposalDataType", D]]), values: new Map(), structs: new Map() };
   const fnParams = (def.fnParams ?? []).map((p) => classifyMethodParam(cg, p, bind));
-  const retDeref = cg.derefType(def.returnType);
-  const retKind: "i64" | "void" = retDeref.kind === "void" ? "void" : (cg.isAggregateType(retDeref) ? "void" : "i64");
+  const retKind: "i64" | "void" = cg.isVoidType(def.returnType) ? "void" : (cg.isAggregateType(cg.derefType(def.returnType)) ? "void" : "i64");
 
   const cm: CompiledMethod = { label: `$PV${cg.compiledMethods.size}_${proxyClass}_${method}`, fnParams, retKind };
   cg.compiledMethods.set(cacheKey, cm);   // register before emitting so recursive/sibling calls resolve
