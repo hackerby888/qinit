@@ -361,6 +361,8 @@ export async function runContractTesting(
 
     q_set_epoch: (e: number) => { sim.epochN = e >>> 0; },
     q_get_epoch: (): number => sim.epochN >>> 0,
+    q_set_tick: (t: number) => { sim.tickN = t >>> 0; },
+    q_get_tick: (): number => sim.tickN >>> 0,
 
     // The proposal-voting corpora seed their committee by writing broadcastedComputors.computors.publicKeys[i];
     // the harness header routes each write here so qpi.computor(i) in the engine returns the same identity.

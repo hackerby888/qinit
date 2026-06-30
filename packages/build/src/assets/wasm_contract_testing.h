@@ -31,6 +31,8 @@ QBCT_IMPORT(q_state_size) unsigned int bq_state_size(unsigned int i);
 QBCT_IMPORT(q_state_in)   void         bq_state_in(unsigned int i, void* dst, unsigned int len);
 QBCT_IMPORT(q_set_epoch)  void         bq_set_epoch(unsigned int e);
 QBCT_IMPORT(q_get_epoch)  unsigned int bq_get_epoch();
+QBCT_IMPORT(q_set_tick)   void         bq_set_tick(unsigned int t);
+QBCT_IMPORT(q_get_tick)   unsigned int bq_get_tick();
 QBCT_IMPORT(q_set_computor) void       bq_set_computor(unsigned int i, const void* id32);
 }
 
@@ -138,7 +140,7 @@ public:
     }
 };
 
-// ---- system.epoch control: proxies epoch through q_get_epoch / q_set_epoch ----
+// ---- system.epoch / system.tick control: proxy through q_get/set_epoch and q_get/set_tick ----
 
 struct QbEpochProxy {
     operator unsigned short() const {
@@ -149,14 +151,42 @@ struct QbEpochProxy {
         bq_set_epoch(e);
     }
 
-    QbEpochProxy& operator++() {
+    QbEpochProxy& operator++() {  // ++epoch
         bq_set_epoch(bq_get_epoch() + 1u);
         return *this;
+    }
+
+    unsigned int operator++(int) {  // epoch++ (corpora advance the epoch this way)
+        unsigned int v = bq_get_epoch();
+        bq_set_epoch(v + 1u);
+        return v;
+    }
+};
+
+struct QbTickProxy {
+    operator unsigned int() const {
+        return bq_get_tick();
+    }
+
+    void operator=(unsigned int t) {
+        bq_set_tick(t);
+    }
+
+    QbTickProxy& operator++() {
+        bq_set_tick(bq_get_tick() + 1u);
+        return *this;
+    }
+
+    unsigned int operator++(int) {
+        unsigned int v = bq_get_tick();
+        bq_set_tick(v + 1u);
+        return v;
     }
 };
 
 struct QbSystemStruct {
     QbEpochProxy epoch;
+    QbTickProxy tick;
 };
 
 static QbSystemStruct qubicSystemStruct;
