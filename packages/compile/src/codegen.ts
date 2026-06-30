@@ -1059,6 +1059,22 @@ class Codegen {
     }
     for (const m of tmpl.members) {
       if (m.kind === "struct" && (m as StructDecl).name) out.structs.set((m as StructDecl).name, m as StructDecl);
+      else if (m.kind === "typedef_decl" && !out.types.has((m as any).name)) out.types.set((m as any).name, (m as any).type);
+    }
+    // Static constexpr members (supportScalarVotes, maxVotes, ...). Without these a method body that sizes a
+    // dependent member type — `VoteStorageType = __VoteStorageTypeSelector<supportScalarVotes>::type` — can't
+    // evaluate the selector argument and defaults to the wrong width (4 vs 1), unlike the struct layout which
+    // already carries them. Mirrors layoutOfMembers' member-scope so body and layout agree.
+    for (const m of tmpl.members) {
+      if (m.kind !== "variable") continue;
+      const v = m as VariableDecl;
+      if ((v.isStatic || v.isConstexpr) && v.init && !out.values.has(v.name)) {
+        try {
+          out.values.set(v.name, this.evalConstBig(v.init, out));
+        } catch {
+          /* a const that can't be evaluated under these bindings is simply omitted */
+        }
+      }
     }
     return out;
   }
