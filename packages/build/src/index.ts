@@ -100,6 +100,17 @@ export async function buildCorpusRunner(o: {
   const assetSrc = join(import.meta.dir, "assets", "wasm_contract_testing.h");
   await copyFile(assetSrc, join(o.outDir, "wasm_contract_testing.h"));
 
+  // lite_test.h's EXPECT_*/ASSERT_* expand to a bare `return;` (under `if (fatal)`); in a non-void
+  // corpus helper that is a C++ default-error. Native uses real gtest (no return); relax it here so
+  // the test corpus compiles. Scoped to the corpus path — production deploys keep the strict default.
+  const extraCompileFlags = ["-Wno-error=return-mismatch"];
+
+  // When the corpus pulls real <iostream>/<ostream> itself, suppress the harness's std::cout stubs so
+  // they don't collide with the real stream objects (an ambiguous-reference error otherwise).
+  if (/^#include\s*<(iostream|ostream)>/m.test(raw)) {
+    extraCompileFlags.push("-DQINIT_HAVE_IOSTREAM");
+  }
+
   return buildContract({
     contractPath: o.contractPath,
     name: o.name,
@@ -111,6 +122,7 @@ export async function buildCorpusRunner(o: {
     skipVerify: true,
     testSource,
     testPath: basename(o.corpusPath),
+    extraCompileFlags,
   });
 }
 

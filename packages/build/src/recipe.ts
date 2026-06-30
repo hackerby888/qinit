@@ -26,6 +26,8 @@ export interface BuildOpts {
   testSource?: string;  // gtest-style test source: compiled INTO the wasm after the contract (LITE_TEST_BUILD +
                         // extensions/lite_test.h), producing a combined module the engine runs via runTests()
   testPath?: string;    // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
+  extraCompileFlags?: string[]; // appended to the consuming compile only (not the PCH); used by the gtest
+                        // corpus path to relax test-harness-only diagnostics (e.g. -Wno-error=return-mismatch)
 }
 
 // The stable preamble shared by every contract build — std headers, then the big QPI/core headers. It has no
@@ -271,7 +273,7 @@ export async function compileWasmContract(
   const pch = await ensureWasmPch(clang, [...compileFlags, ...shimFlag]);
 
   const runClang = async (front: string[], withShim: boolean) => {
-    const args = [...front, ...compileFlags, ...(withShim ? shimFlag : []), ...linkFlags, wrapper, "-o", wasm];
+    const args = [...front, ...compileFlags, ...(withShim ? shimFlag : []), ...(o.extraCompileFlags ?? []), ...linkFlags, wrapper, "-o", wasm];
     const cp = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
     const out = await new Response(cp.stderr).text();
     await cp.exited;

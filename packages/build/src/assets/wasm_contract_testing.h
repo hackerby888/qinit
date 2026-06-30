@@ -35,6 +35,40 @@ QBCT_IMPORT(q_get_epoch)  unsigned int bq_get_epoch();
 
 #undef QBCT_IMPORT
 
+// ---- std::cout / std::cerr / std::endl: no-op sinks ----
+// The wasm TU has no <iostream>; corpora stream PRINT_TEST_INFO debug output through std::cout.
+// A null stream swallows every `<<` (values and the std::endl manipulator) so the prints type-check
+// and compile away. std::vector/map/set/min/max resolve from the container/<algorithm> includes above.
+//
+// Skipped when the corpus pulls real <iostream> itself: buildCorpusRunner defines QINIT_HAVE_IOSTREAM
+// in that case, so the real std::cout is used and these stubs don't collide with it.
+
+#ifndef QINIT_HAVE_IOSTREAM
+
+namespace std {
+
+struct QbNullStream {
+    template <typename T>
+    const QbNullStream& operator<<(const T&) const {
+        return *this;
+    }
+
+    const QbNullStream& operator<<(const QbNullStream& (*)(const QbNullStream&)) const {
+        return *this;
+    }
+};
+
+inline const QbNullStream& endl(const QbNullStream& s) {
+    return s;
+}
+
+static const QbNullStream cout;
+static const QbNullStream cerr;
+
+}
+
+#endif
+
 // ---- system procedure identifiers (matches core-lite SystemProcedureID values) ----
 
 enum SystemProcedureID {
@@ -167,6 +201,22 @@ static const QbContractDescription contractDescriptions[] = {
 
 static const unsigned int contractCount =
     sizeof(contractDescriptions) / sizeof(contractDescriptions[0]);
+
+// ---- broadcastedComputors: layout-compatible stub of core-lite's global ----
+// GQMPROP/CCF corpora seed computor identities via `broadcastedComputors.computors.publicKeys[i]`.
+// Native pulls this from special_entities.h; the wasm TU does not, so a matching struct is declared
+// here. m256i and NUMBER_OF_COMPUTORS are in scope from qpi.h. Writes stay runner-local — the engine
+// seeds its own computor set — but the test setup type-checks and the corpus compiles.
+
+struct QbBroadcastComputors {
+    struct {
+        unsigned short epoch;
+        m256i publicKeys[NUMBER_OF_COMPUTORS];
+        unsigned char signature[64];
+    } computors;
+};
+
+static QbBroadcastComputors broadcastedComputors;
 
 // ---- free helpers ----
 
