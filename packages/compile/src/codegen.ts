@@ -102,7 +102,7 @@ class Codegen {
   private sema: Sema;
   private nested: Map<string, StructDecl> = new Map();          // contract-local nested structs
   templates: Map<string, ClassTemplate> = new Map();            // qpi.h templates (HashMap, Array, ...)
-  specializations: Map<string, { args: (bigint | null)[]; tmpl: ClassTemplate }[]> = new Map(); // full specializations keyed by template name
+  specializations: Map<string, { specArgs: TypeSpec[]; tmpl: ClassTemplate }[]> = new Map(); // partial/explicit specializations keyed by template name
   globalStructs: Map<string, StructDecl> = new Map();           // qpi.h global/namespace structs
   typedefs: Map<string, TypeSpec> = new Map();                  // typedef aliases
   constexprInit: Map<string, Expression> = new Map();           // named constexpr → its init expression
@@ -136,20 +136,29 @@ class Codegen {
         this.collectConstants(s.members);
       } else if (d.kind === "class_template") {
         const ct = d as any;
-        // A template may appear several times: a forward declaration (empty body), the primary
-        // definition, and partial specializations (`Foo<SpecificType, n>`, also parsed under the bare
-        // name). Keep the richest definition by member count so an empty forward decl / specialization
-        // doesn't clobber the real layout — and carry its base classes (dropped previously, so a template
-        // deriving from another type contributed nothing).
-        const existing = this.templates.get(ct.name);
-        if (!existing || (ct.members?.length ?? 0) >= existing.members.length) {
-          this.templates.set(ct.name, { params: ct.params, members: ct.members, bases: ct.bases });
+        // A template may appear several times: a forward declaration (empty body), the primary definition,
+        // and partial specializations. Specializations carry their own argument list and are selected by
+        // matching the instantiation; the primary keeps the richest definition by member count so an empty
+        // forward decl doesn't clobber the real layout. Base classes are carried so a template deriving
+        // from another type contributes its fields.
+        if (ct.specializationArgs) {
+          if (!this.specializations.has(ct.name)) this.specializations.set(ct.name, []);
+          this.specializations.get(ct.name)!.push({
+            specArgs: ct.specializationArgs,
+            tmpl: { params: ct.params, members: ct.members, bases: ct.bases },
+          });
+        } else {
+          const existing = this.templates.get(ct.name);
+          if (!existing || (ct.members?.length ?? 0) >= existing.members.length) {
+            this.templates.set(ct.name, { params: ct.params, members: ct.members, bases: ct.bases });
+          }
         }
         // Inline member methods defined with a body in the class itself (e.g. capacity()) are captured
         // as template methods, so they compile through the same per-type instantiation path as the
         // out-of-class (impl) definitions. Body-less declarations are skipped — their bodies live in
-        // the impl chunk and are merged separately.
-        for (const m of ct.members) {
+        // the impl chunk and are merged separately. A specialization's methods are not registered under
+        // the shared name (they would collide with the primary's).
+        for (const m of ct.specializationArgs ? [] : ct.members) {
           if (m.kind !== "function" || !(m as FunctionDecl).body) continue;
           const fn = m as FunctionDecl;
           if (!this.templateMethods.has(ct.name)) this.templateMethods.set(ct.name, new Map());
@@ -307,91 +316,91 @@ class Codegen {
   private resolveDependentMember(t: Extract<TypeSpec, { kind: "dependent_member" }>, b: Bindings): { type: TypeSpec; bindings: Bindings } | null {
     const base = t.base;
     if (base.kind !== "template_instance") return null;
-    const tmpl = this.selectTemplate(base.name, base.args, b);
-    if (!tmpl) return null;
+    const inst = this.instantiateTemplate(base.name, base.args, b);
+    if (!inst) return null;
 
-    const b2: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
-    const resolved = base.args.map((a) => this.resolveType(a, b));
-    for (let i = 0; i < tmpl.params.length; i++) {
-      const p = tmpl.params[i];
-      const arg = resolved[i];
-      if (!arg) continue;
-      if (p.kind === "type") {
-        b2.types.set(p.name, arg);
-      } else {
-        b2.values.set(p.name, this.evalConstFromType(arg, b));
-      }
-    }
-
-    for (const m of tmpl.members) {
+    for (const m of inst.tmpl.members) {
       if (m.kind === "typedef_decl" && (m as any).name === t.member) {
-        return { type: (m as any).type, bindings: b2 };
+        return { type: (m as any).type, bindings: inst.b };
       }
     }
     return null;
   }
 
-  // Pick the template definition for `name<args>`: a captured full specialization whose non-type argument
-  // values match wins; otherwise the primary template. (Specializations are keyed by name with their own
-  // arg list in `specializations`.)
-  private selectTemplate(name: string, args: TypeSpec[], b: Bindings): ClassTemplate | undefined {
+  // Select the template definition for `name<args>` and build its parameter bindings. A partial/explicit
+  // specialization whose argument pattern matches wins over the primary template (e.g.
+  // `ProposalWithAllVoteData<ProposalDataYesNo, numOfVotes>`); its parameters bind by their position in the
+  // specialization's own argument list, not by index in the primary's parameter list. Returns the chosen
+  // definition together with its bindings, or null when no definition is captured.
+  private instantiateTemplate(name: string, args: TypeSpec[], parent: Bindings): { tmpl: ClassTemplate; b: Bindings } | null {
+    const resolved = args.map((a) => this.resolveType(a, parent));
+
     const specs = this.specializations.get(name);
     if (specs) {
       for (const spec of specs) {
-        if (spec.args.length !== args.length) continue;
+        if (spec.specArgs.length !== resolved.length) continue;
+        const paramByName = new Map(spec.tmpl.params.map((p) => [p.name, p] as const));
+        const b: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
         let match = true;
-        for (let i = 0; i < spec.args.length; i++) {
-          const want = spec.args[i];
-          if (want === null) continue; // type arg — not matched on
-          if (this.evalConstFromType(args[i], b) !== want) {
-            match = false;
-            break;
+        for (let i = 0; i < spec.specArgs.length; i++) {
+          const sa = spec.specArgs[i];
+          const param = sa.kind === "name" ? paramByName.get(sa.name) : undefined;
+          if (param) {
+            // pattern variable — bind this specialization parameter to the instantiation argument
+            if (param.kind === "type") b.types.set(param.name, resolved[i]);
+            else b.values.set(param.name, this.evalConstFromType(resolved[i], parent));
+          } else if (sa.kind === "name") {
+            // concrete type to match: the argument must resolve to the same named type
+            const ia = resolved[i];
+            const iaName = ia.kind === "name" ? ia.name : ia.kind === "template_instance" ? ia.name : "";
+            if (iaName !== sa.name) { match = false; break; }
+          } else {
+            if (this.evalConstFromType(resolved[i], parent) !== this.evalConstFromType(sa, parent)) { match = false; break; }
           }
         }
-        if (match) return spec.tmpl;
+        if (match) return { tmpl: spec.tmpl, b: this.withStaticConsts(spec.tmpl, b) };
       }
     }
-    return this.templates.get(name);
-  }
 
-  // Instantiate a template (HashMap<id,uint64,1024>, Array<T,L>, ...) and compute its exact layout
-  // by substituting type args + non-type args into the captured member declarations.
-  private layoutOfTemplate(name: string, args: TypeSpec[], parent: Bindings): StructLayout {
     const tmpl = this.templates.get(name);
-
-    // Resolve args through the parent bindings (an arg may be a parent template param).
-    const resolved = args.map((a) => this.resolveType(a, parent));
-
-    if (!tmpl) {
-      // Templates whose body we didn't capture: fall back to known formulas.
-      return this.fallbackTemplateLayout(name, resolved, parent);
-    }
-
+    if (!tmpl) return null;
     const b: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
     for (let i = 0; i < tmpl.params.length; i++) {
       const p = tmpl.params[i];
       const arg = resolved[i];
       if (!arg) continue;
-      if (p.kind === "type") {
-        b.types.set(p.name, arg);
-      } else {
-        // non-type param (e.g. uint64 L) — evaluate the arg to an integer
-        b.values.set(p.name, this.evalConstFromType(arg, parent));
-      }
+      if (p.kind === "type") b.types.set(p.name, arg);
+      else b.values.set(p.name, this.evalConstFromType(arg, parent));
     }
+    return { tmpl, b: this.withStaticConsts(tmpl, b) };
+  }
 
-    // The template's own static constexpr members (BitArray::_elements = (L+63)/64) — evaluated in
-    // declaration order so a member array dimension that references one (uint64 _values[_elements];)
-    // sizes correctly.
+  // Evaluate a template's own static constexpr members into the bindings (BitArray::_elements = (L+63)/64,
+  // ProposalWithAllVoteData::supportScalarVotes), so a member array dimension that references one sizes
+  // correctly. Done in declaration order; a non-integer constexpr is skipped.
+  private withStaticConsts(tmpl: ClassTemplate, b: Bindings): Bindings {
     for (const m of tmpl.members) {
       if (m.kind !== "variable") continue;
       const v = m as VariableDecl;
       if ((v.isStatic || v.isConstexpr) && v.init && !b.values.has(v.name)) {
-        b.values.set(v.name, this.evalConstBig(v.init, b));
+        try {
+          b.values.set(v.name, this.evalConstBig(v.init, b));
+        } catch { /* non-integer constexpr (e.g. a typedef selector flag) — not a dimension */ }
       }
     }
+    return b;
+  }
 
-    return this.layoutOfMembers(tmpl.members, b, `${name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`, false, tmpl.bases);
+  // Instantiate a template (HashMap<id,uint64,1024>, Array<T,L>, ...) and compute its exact layout
+  // by substituting type args + non-type args into the captured member declarations.
+  private layoutOfTemplate(name: string, args: TypeSpec[], parent: Bindings): StructLayout {
+    const inst = this.instantiateTemplate(name, args, parent);
+    const resolved = args.map((a) => this.resolveType(a, parent));
+    if (!inst) {
+      // Templates whose body we didn't capture: fall back to known formulas.
+      return this.fallbackTemplateLayout(name, resolved, parent);
+    }
+    return this.layoutOfMembers(inst.tmpl.members, inst.b, `${name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`, false, inst.tmpl.bases);
   }
 
   // Add the struct declarations among `members` to a child binding scope so field types that
@@ -1090,6 +1099,7 @@ interface ContainerInfo {
 
 export interface LibTypes {
   templates: Map<string, ClassTemplate>;
+  specializations: Map<string, { specArgs: TypeSpec[]; tmpl: ClassTemplate }[]>;
   globalStructs: Map<string, StructDecl>;
   typedefs: Map<string, TypeSpec>;
   constexprInit: Map<string, Expression>;
@@ -1103,6 +1113,7 @@ export function buildLibTypes(decls: Declaration[]): LibTypes {
   cg.collectTU(decls);
   return {
     templates: cg.templates,
+    specializations: cg.specializations,
     globalStructs: cg.globalStructs,
     typedefs: cg.typedefs,
     constexprInit: cg.constexprInit,
@@ -1131,6 +1142,7 @@ export function generateWasmModule(
   // the user contract's own declarations on top.
   if (lib) {
     for (const [k, v] of lib.templates) cg.templates.set(k, v);
+    if (lib.specializations) for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
     for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
     for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
     for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);

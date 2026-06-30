@@ -275,6 +275,13 @@ export class Parser {
     const nameTok = this.expect("identifier", "struct name");
     const name = nameTok?.text ?? "";
 
+    // Partial / explicit specialization: `struct Foo<ProposalDataYesNo, numOfVotes> : ... { ... }`.
+    // Capture the specialization arguments so the codegen can select this definition over the primary.
+    let specializationArgs: TypeSpec[] | undefined;
+    if (this.peek().kind === "l_angle") {
+      specializationArgs = this.parseSpecializationArgs();
+    }
+
     const bases: TypeSpec[] = [];
 
     // Check for inheritance: struct Foo : public Base
@@ -298,6 +305,7 @@ export class Parser {
       name,
       bases,
       members,
+      specializationArgs,
       span: this.makeSpan(start),
     };
 
@@ -322,6 +330,26 @@ export class Parser {
   private declaratorFollows(): boolean {
     const k = this.peek().kind;
     return k === "identifier" || k === "star" || k === "amp" || k === "l_bracket";
+  }
+
+  // Parse the `<...>` of a (partial) class specialization head — `struct Foo<ProposalDataYesNo, numOfVotes>`.
+  // Each argument is either a non-type value expression or a type (a concrete type to match, or a template
+  // parameter name acting as a wildcard).
+  private parseSpecializationArgs(): TypeSpec[] {
+    this.next(); // <
+    const args: TypeSpec[] = [];
+    while (!this.eof() && this.peek().kind !== "r_angle") {
+      const k = this.peek().kind;
+      if (k === "int_literal" || k === "l_paren" || k === "kw_sizeof" || k === "char_literal" ||
+        k === "minus" || k === "tilde" || k === "kw_true" || k === "kw_false") {
+        args.push({ kind: "expr_value", expr: this.parseShift(), span: this.peek().span });
+      } else {
+        args.push(this.parseTypeSpec());
+      }
+      if (!this.tryConsume("comma")) break;
+    }
+    this.consumeAngleClose();
+    return args;
   }
 
   private parseUnion(): StructDecl {
@@ -389,6 +417,7 @@ export class Parser {
         params,
         members: struct.members,
         bases: struct.bases,
+        specializationArgs: struct.specializationArgs,
         span: struct.span,
       } as ClassTemplateDecl;
     }
