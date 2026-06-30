@@ -133,7 +133,27 @@ class Codegen {
         this.collectTU((d as any).body, `${nsPrefix}${(d as any).name}::`);
       } else if (d.kind === "struct") {
         const s = d as StructDecl;
-        if (s.name) this.globalStructs.set(s.name, s);
+        if (s.name) {
+          this.globalStructs.set(s.name, s);
+          // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
+          // — are captured under the struct name so an instance-method call dispatches through the same
+          // per-type compilation path as template methods. (A template ProposalDataType like ProposalDataV1
+          // already gets this via the class_template branch; a plain ProposalDataType did not, so its
+          // checkValidity folded to 0 and every setProposal returned INVALID.)
+          for (const m of s.members) {
+            if (m.kind !== "function" || !(m as FunctionDecl).body) continue;
+            const fn = m as FunctionDecl;
+            if (fn.name === s.name || fn.name.startsWith("operator") || fn.name.startsWith("~")) continue;
+            if (!this.templateMethods.has(s.name)) this.templateMethods.set(s.name, new Map());
+            const into = this.templateMethods.get(s.name)!;
+            if (!into.has(fn.name)) {
+              into.set(fn.name, {
+                kind: "function_template", name: fn.name, params: [], fnParams: fn.params,
+                returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+              });
+            }
+          }
+        }
         // file-scope structs can still nest constants/enums (e.g. a contract's static constexpr)
         this.collectConstants(s.members);
       } else if (d.kind === "class_template") {
@@ -1052,6 +1072,11 @@ class Codegen {
 
   // The full layout of a container instantiation (HashMap<id,uint64,1024> → _elements/_occupationFlags/...).
   containerLayout(name: string, args: TypeSpec[], b: Bindings = NO_BIND): StructLayout {
+    // A plain (non-template) struct dispatched as a zero-arg instance (ProposalDataYesNo) has no template
+    // entry — its `this` layout is the ordinary struct layout.
+    if (!this.templates.has(name) && !this.specializations.has(name) && this.globalStructs.has(name)) {
+      return this.layoutOfStruct(this.globalStructs.get(name)!, b);
+    }
     return this.layoutOfTemplate(name, args, b);
   }
 
@@ -1107,6 +1132,39 @@ class Codegen {
 
   evalConstNum(expr: Expression, b: Bindings): number {
     return Number(this.evalConstBig(expr, b));
+  }
+
+  // Public: resolve a container/struct method to its body + the binding for the matched template instance,
+  // HONORING PARTIAL SPECIALIZATIONS. ProposalWithAllVoteData<ProposalDataYesNo, N> is a specialization that
+  // stores 2 bits per vote (votes[(2N+7)/8]) with its own set/setVoteValue/getVoteValue; the primary stores
+  // one byte per vote. The layout already selects the specialization (instantiateTemplate matches it), so the
+  // method body must come from the SAME instantiation — otherwise the primary's 1-byte access runs over the
+  // specialization's bit-packed store and every unvoted slot reads as option 0. Falls back to the primary's
+  // method table for methods defined OUT of the class body (HashMap::set), which the inline scan won't find.
+  methodTemplate(name: string, args: TypeSpec[], methodName: string): { def: FunctionTemplateDecl; bind: Bindings } | null {
+    // bindContainer carries the full method-scope binding (params + nested typedefs like VoteStorageType +
+    // static constexprs); instantiateTemplate's binding omits the nested typedefs, so the body's dependent
+    // types would size to 0. The non-type param values (numOfVotes) match either way, so this binding is
+    // correct for both the primary and a specialization that reuses the primary's parameter names.
+    const bind = this.bindContainer(name, args);
+    const inst = this.instantiateTemplate(name, args, NO_BIND);
+    if (inst) {
+      const m = inst.tmpl.members.find(
+        (mm) => mm.kind === "function" && (mm as FunctionDecl).name === methodName && (mm as FunctionDecl).body,
+      );
+      if (m) {
+        const fn = m as FunctionDecl;
+        return {
+          def: {
+            kind: "function_template", name: fn.name, params: inst.tmpl.params, fnParams: fn.params,
+            returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+          },
+          bind,
+        };
+      }
+    }
+    const def = this.templateMethods.get(name)?.get(methodName);
+    return def && def.body ? { def, bind } : null;
   }
 
   // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they
@@ -2848,14 +2906,16 @@ function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name:
 // Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm
 // function. Returns null if the body isn't captured or can't be lowered, so callers fall back.
 function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "template_instance" }, methodName: string): CompiledMethod | null {
-  const def = cg.templateMethods.get(type.name)?.get(methodName);
-  if (!def || !def.body) return null;
-
   const cacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}`;
   const cached = cg.compiledMethods.get(cacheKey);
   if (cached) return cached;
 
-  const bind = cg.bindContainer(type.name, type.args);
+  // Specialization-aware: the body + its binding come from the matched template instance (primary OR partial
+  // specialization), so a specialization's storage layout and its access methods stay in agreement.
+  const mt = cg.methodTemplate(type.name, type.args, methodName);
+  if (!mt || !mt.def.body) return null;
+  const def = mt.def;
+  const bind = mt.bind;
   const fnParams = (def.fnParams ?? []).map((p) => classifyMethodParam(cg, p, bind));
   const retKind: "i64" | "void" = cg.isVoidType(def.returnType) ? "void" : (cg.isAggregateType(cg.derefType(def.returnType)) ? "void" : "i64");
 
@@ -2923,7 +2983,17 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
   // active template bindings first so a method parameter typed by a template param (ProposalDataType → D) or a
   // proxy-bound alias dispatches against the concrete instance.
   let ct: TypeSpec | null = node.type;
-  for (let i = 0; i < 8 && ct?.kind === "name"; i++) ct = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name) ?? null;
+  for (let i = 0; i < 8 && ct?.kind === "name"; i++) {
+    const next = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name);
+    if (!next) break;
+    ct = next;
+  }
+  // A plain (non-template) struct with an inline method (ProposalDataYesNo::checkValidity) is dispatched as
+  // a zero-arg instance — normalize its name type to a template_instance so the shared method-compilation
+  // path (callCompiled → compileContainerMethod) applies, the same as a template ProposalDataType.
+  if (ct?.kind === "name" && ctx.cg.templateMethods.get(ct.name)?.has(expr.callee.member)) {
+    ct = { kind: "template_instance", name: ct.name, args: [] } as TypeSpec;
+  }
   if (!ct || ct.kind !== "template_instance") return null;
   node.type = ct;
 
