@@ -2282,30 +2282,38 @@ function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: FunctionDecl,
 function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "call" }): AddrNode | null {
   if (expr.callee.kind !== "member_access") return null;
   const node = resolveAddr(ctx, expr.callee.object);
-  if (!node || node.type?.kind !== "template_instance" || !expr.args[0]) return null;
+  if (!node || !node.type || !expr.args[0]) return null;
+  // Follow typedefs / template-param bindings to the concrete container instance (e.g. RevenueDonationT →
+  // Array<RevenueDonationEntry, 128>), mirroring emitContainerCall. Without this an element getter on a
+  // typedef'd container stays unresolved, so `entry = table.get(i)` can't address the element and the
+  // aggregate copy is silently dropped.
+  let ct: TypeSpec | null = node.type;
+  for (let i = 0; i < 8 && ct?.kind === "name"; i++) ct = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name) ?? null;
+  if (!ct || ct.kind !== "template_instance") return null;
+  const ctype = ct;
   const m = expr.callee.member;
   const C = (n: number) => `(i32.const ${n})`;
   const mk = (addr: string, elemType: TypeSpec): AddrNode => ({
     addr, type: elemType, size: ctx.cg.sizeOfType(elemType), layout: ctx.cg.layoutOfType(elemType),
   });
 
-  if (node.type.name === "Array" && m === "get") {
-    const info = ctx.cg.arrayInfo(node.type.args);
+  if (ctype.name === "Array" && m === "get") {
+    const info = ctx.cg.arrayInfo(ctype.args);
     if (!info) return null;
     const addr = `(i32.add ${node.addr} (i32.mul (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)}))`;
-    return mk(addr, node.type.args[0]);
+    return mk(addr, ctype.args[0]);
   }
-  if (node.type.name === "HashMap" || node.type.name === "HashSet") {
-    const info = node.type.name === "HashSet" ? ctx.cg.hashsetInfo(node.type.args) : ctx.cg.hashmapInfo(node.type.args);
+  if (ctype.name === "HashMap" || ctype.name === "HashSet") {
+    const info = ctype.name === "HashSet" ? ctx.cg.hashsetInfo(ctype.args) : ctx.cg.hashmapInfo(ctype.args);
     if (!info) return null;
     const elem = `(call $hm_elem ${node.addr} (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)})`;
-    if (m === "key") return mk(elem, node.type.args[0]);
-    if (m === "value" && node.type.name === "HashMap") return mk(`(i32.add ${elem} ${C(info.valOff!)})`, node.type.args[1]);
+    if (m === "key") return mk(elem, ctype.args[0]);
+    if (m === "value" && ctype.name === "HashMap") return mk(`(i32.add ${elem} ${C(info.valOff!)})`, ctype.args[1]);
   }
   // Collection.element(i) → &_elements[i & (L-1)].value: an lvalue of element type T, so element(i).field
   // chains. (A scalar T also flows as a value through emitContainerCall's compiled getter.)
-  if (node.type.name === "Collection" && m === "element") {
-    const info = ctx.cg.collectionInfo(node.type.args);
+  if (ctype.name === "Collection" && m === "element") {
+    const info = ctx.cg.collectionInfo(ctype.args);
     if (!info) return null;
     const idx = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)})`;
     const addr = `(i32.add ${node.addr} (i32.add ${C(info.elementsOff + info.valueOff)} (i32.mul ${idx} ${C(info.stride)})))`;
