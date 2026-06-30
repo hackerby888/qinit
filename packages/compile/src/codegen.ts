@@ -1247,6 +1247,7 @@ interface HelperInfo {
   label: string;                                              // WAT function name ($h_<name>)
   params: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec }[];
   retIsValue: boolean;                                        // returns a scalar i64 (vs void)
+  retAgg?: number;                                            // returns an aggregate (id/struct) by value — its size; ABI prepends a $ret dest-address param
 }
 
 interface PrivateInfo {
@@ -1377,8 +1378,9 @@ export function generateWasmModule(
         const isAddr = cg.isAggregateType(p.type);
         return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
       });
-      const retIsValue = fn.returnType.kind !== "void" && !cg.isAggregateType(fn.returnType);
-      cg.helpers.set(fn.name, { label: `$h_${fn.name}`, params, retIsValue });
+      const retAgg = fn.returnType.kind !== "void" && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
+      const retIsValue = fn.returnType.kind !== "void" && !retAgg;
+      cg.helpers.set(fn.name, { label: `$h_${fn.name}`, params, retIsValue, retAgg });
       helperFns.push(fn);
     }
   }
@@ -1573,6 +1575,8 @@ interface FnCtx {
   loopCount: number;
   params?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }>;  // value-helper / method parameters (local overrides the wasm slot name when inlining)
   retIsValue?: boolean;                       // function returns a scalar value (return <expr>)
+  retAddr?: string;                           // helper returns an aggregate (id/struct) by value: `return e` copies e here
+  retAggSize?: number;                        // size of that aggregate return
   thisLayout?: StructLayout;                  // when compiling a container method: layout of *this
   thisType?: TypeSpec;                        // the container template_instance (HashMap<id,uint64,1024>)
   thisBind?: Bindings;                        // template-param bindings (KeyT→id, L→1024, ...) for the body
@@ -1628,13 +1632,20 @@ function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: Statemen
     // For an instantiated template free fn the body resolves T/L through these bindings (e.g. `L`→4).
     thisBind: bind,
   };
+  // An aggregate-returning helper (`id liquidityPov(...)`) gets a leading $ret destination-address param;
+  // `return e` copies the 32/N-byte value there. The caller allocates the slot and passes its address.
+  if (info.retAgg) {
+    ctx.retAddr = "(local.get $ret)";
+    ctx.retAggSize = info.retAgg;
+  }
   for (const p of info.params) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: p.type });
 
   if (fn.body) collectLocals(fn.body, ctx);
 
+  const retParam = info.retAgg ? "(param $ret i32) " : "";
   const paramDecls = info.params.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
   const result = info.retIsValue ? " (result i64)" : "";
-  const header = `  (func ${info.label} ${paramDecls}${result}`.replace(/\s+\)/, ")");
+  const header = `  (func ${info.label} ${retParam}${paramDecls}${result}`.replace(/\s+\)/, ")");
 
   if (fn.body) emitStmt(ctx, fn.body);
 
@@ -1917,8 +1928,16 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
       // an inlined struct method's `return *this` carries no value out (the object flows via thisAddr);
       // emitting a wasm return here would wrongly exit the enclosing function.
       if (ctx.inlineMethod) break;
-      if (stmt.value && ctx.retIsValue) ctx.lines.push(`    (return ${emitValue(ctx, stmt.value)})`);
-      else ctx.lines.push(`    (return)`);
+      if (stmt.value && ctx.retAddr) {
+        // aggregate-returning helper: copy the returned value into the caller-supplied dest, then return
+        const src = emitAddr(ctx, stmt.value);
+        if (src) ctx.lines.push(`    (call $copyMem ${ctx.retAddr} ${src} (i32.const ${ctx.retAggSize}))`);
+        ctx.lines.push(`    (return)`);
+      } else if (stmt.value && ctx.retIsValue) {
+        ctx.lines.push(`    (return ${emitValue(ctx, stmt.value)})`);
+      } else {
+        ctx.lines.push(`    (return)`);
+      }
       break;
 
     case "static_assert":
@@ -2202,6 +2221,12 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     return emitU128(ctx, expr);
   }
 
+  // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot
+  if (expr.kind === "call" && expr.callee.kind === "identifier") {
+    const hinfo = lookupHelper(ctx, expr);
+    if (hinfo?.retAgg) return emitAggHelperCall(ctx, expr, hinfo);
+  }
+
   // aggregate construction Type{...} as an rvalue/argument — materialize into a scratch slot.
   if (expr.kind === "construct") {
     const sz = ctx.cg.sizeOfType(expr.type, ctx.thisBind ?? NO_BIND);
@@ -2215,6 +2240,17 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   // id(a,b,c,d) / m256i(a,b,c,d) constructor → materialize the four 64-bit limbs (missing ones = 0).
   if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "id" || expr.callee.name === "m256i")) {
     return materializeId(ctx, expr.args);
+  }
+
+  // _mm256_set_epi64x(e3, e2, e1, e0): build a 32-byte m256i. The intrinsic takes the qwords high→low (e0 is
+  // the lowest), so store reversed — byte offset i*8 holds args[3-i]. (qpi.h's ID(...) returns one of these.)
+  if (expr.kind === "call" && expr.callee.kind === "identifier" && expr.callee.name === "_mm256_set_epi64x" && expr.args.length === 4) {
+    const t = newTmp(ctx);
+    ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 32)))`);
+    for (let i = 0; i < 4; i++) {
+      ctx.lines.push(`    (i64.store offset=${i * 8} (local.get $${t}) ${emitValue(ctx, expr.args[3 - i])})`);
+    }
+    return `(local.get $${t})`;
   }
   // id::zero() / m256i::zero() → 32 zero bytes (X::y parses as one qualified identifier "X::y")
   if (expr.kind === "call" && expr.callee.kind === "identifier" &&
@@ -3326,8 +3362,9 @@ function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
     const isAddr = cg.isAggregateType(p.type);
     return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
   });
-  const retIsValue = !cg.isVoidType(fn.returnType) && !cg.isAggregateType(fn.returnType);
-  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${name.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue };
+  const retAgg = !cg.isVoidType(fn.returnType) && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
+  const retIsValue = !cg.isVoidType(fn.returnType) && !retAgg;
+  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${name.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue, retAgg };
   cg.helpers.set(name, info);   // register before emit so recursion/sibling calls resolve
   try {
     cg.emittedMethodOrder.push(emitHelperFunction(cg, info, fn, { size: 0, align: 1, fields: new Map() }));
@@ -3403,8 +3440,10 @@ function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args: Expre
     const isAddr = isPtrRef || cg.isAggregateType(concrete);
     return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: concrete };
   });
-  const retIsValue = !cg.isVoidType(def.returnType) && !cg.isAggregateType(cg.derefType(def.returnType));
-  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${key.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue };
+  const retT = cg.substInBindings(cg.derefType(def.returnType), bind);
+  const retAgg = !cg.isVoidType(def.returnType) && cg.isAggregateType(retT) ? cg.sizeOfType(retT, bind) : undefined;
+  const retIsValue = !cg.isVoidType(def.returnType) && !retAgg;
+  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${key.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue, retAgg };
   cg.helpers.set(key, info);   // register before emit so recursive/sibling calls resolve
   try {
     cg.emittedMethodOrder.push(emitHelperFunction(cg, info, def, { size: 0, align: 1, fields: new Map() }, bind));
@@ -3421,7 +3460,28 @@ function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args: Expre
 // guarantee, so they must NOT be instantiated as generic lib fns — let emitMathCall own them.
 const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);
 
-function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
+// Build the args for a helper call (scalar args by value, reference/aggregate args by address).
+function helperCallOps(ctx: FnCtx, info: HelperInfo, args: Expression[]): string {
+  return info.params.map((p, i) => {
+    const arg = args[i];
+    if (!arg) return p.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    return p.isAddr ? (emitAddr(ctx, arg) ?? "(i32.const 0)") : emitValue(ctx, arg);
+  }).join(" ");
+}
+
+// Call to an aggregate-returning helper (id liquidityPov(...)): allocate the destination slot, pass it as the
+// leading $ret arg, emit the call as a statement, and return the slot's address (so the result chains like any
+// aggregate lvalue).
+function emitAggHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, info: HelperInfo): string {
+  const t = newTmp(ctx);
+  ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const ${info.retAgg})))`);
+  const ops = helperCallOps(ctx, info, expr.args);
+  ctx.lines.push(`    (call ${info.label} (local.get $${t})${ops ? " " + ops : ""})`);
+  return `(local.get $${t})`;
+}
+
+// Resolve a helper / lib-fn name to its (possibly just-compiled) info, or null.
+function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): HelperInfo | null {
   if (expr.callee.kind !== "identifier") return null;
   if (MATH_INTRINSIC_NAMES.has(expr.callee.name)) return null;
   let info = ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name);
@@ -3430,14 +3490,22 @@ function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWa
     const tdef = ctx.cg.libFnTemplates.get(expr.callee.name) ?? ctx.cg.libFnTemplates.get(`QPI::${expr.callee.name}`);
     if (tdef) info = compileLibFnInstance(ctx, tdef, expr.args);
   }
+  return info ?? null;
+}
+
+function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
+  const info = lookupHelper(ctx, expr);
   if (!info) return null;
 
-  const ops = info.params.map((p, i) => {
-    const arg = expr.args[i];
-    if (!arg) return p.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    return p.isAddr ? (emitAddr(ctx, arg) ?? "(i32.const 0)") : emitValue(ctx, arg);
-  });
-  const call = `(call ${info.label} ${ops.join(" ")})`;
+  // An aggregate-returning helper flows as an address — materialize into a slot. In value context return 0
+  // (the aggregate value is reached through emitAddr); as a statement just run it for its side effects.
+  if (info.retAgg) {
+    const addr = emitAggHelperCall(ctx, expr, info);
+    return valueWanted ? "(i64.const 0)" : (void addr, "");
+  }
+
+  const ops = helperCallOps(ctx, info, expr.args);
+  const call = `(call ${info.label}${ops ? " " + ops : ""})`;
 
   if (valueWanted) return info.retIsValue ? call : "(i64.const 0)";
   ctx.lines.push(info.retIsValue ? `    (drop ${call})` : `    ${call}`);
