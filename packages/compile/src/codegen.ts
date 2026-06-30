@@ -3501,6 +3501,15 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
     return emitValue(ctx, expr.args[0]);
   }
 
+  // uint128(i_high, i_low) two-arg constructor as a scalar value: the i64-collapsed model carries the low
+  // 64 bits, so the value is the LOW arg (arg[1]). The high arg is dropped — fine for the values this is used
+  // on (shift counts and small magnitudes that fit 64 bits, e.g. QSWAP's `uint128(0, 126)` = 126). Without
+  // this it fell through to the unsupported-call fallback and became 0 — so `z >>= uint128(0, 2)` shifted by
+  // 0 and the integer-sqrt loop never terminated.
+  if (expr.callee.kind === "identifier" && (expr.callee.name === "uint128" || expr.callee.name === "uint128_t") && expr.args.length === 2) {
+    return emitValue(ctx, expr.args[1]);
+  }
+
   ctx.cg.warn(`unsupported call as value`, expr.span.line);
   return `(i64.const 0)`;
 }
