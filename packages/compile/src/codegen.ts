@@ -3652,7 +3652,8 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
     const dst = dstNode?.addr ?? (expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)");
     if (name === "setMemory") {
       const val = expr.args[1] ? emitValue(ctx, expr.args[1]) : "(i64.const 0)";
-      ctx.lines.push(`    (call $setMem ${dst} (i32.wrap_i64 ${val}) (i32.const ${dstNode?.size ?? 0}))`);
+      // $setMem is (dst, size, val).
+      ctx.lines.push(`    (call $setMem ${dst} (i32.const ${dstNode?.size ?? 0}) (i32.wrap_i64 ${val}))`);
       return;
     }
     const srcNode = expr.args[1] ? resolveAddr(ctx, expr.args[1]) : null;
