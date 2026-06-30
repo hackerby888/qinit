@@ -3424,11 +3424,16 @@ function emitMathCall(ctx: FnCtx, name: string, args: Expression[]): string | nu
   const b = () => (args[1] ? emitValue(ctx, args[1]) : "(i64.const 0)");
   // accept a namespace-qualified spelling (math_lib::max, QPI::div, RL::min) — strip the qualifier.
   const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
+  // div/mod/min/max take the unsigned variant when either operand is unsigned (C++ usual-conversion rule).
+  // Without this, `min(div(reward,price), slots)` on a huge uint64 reward picked the wrong branch via a signed
+  // compare, so RL's BuyTicket computed a giant `toBuy` and looped ~forever. `sdiv` stays explicitly signed.
+  const u = (args[0] ? isUnsignedExpr(ctx, args[0]) : false) || (args[1] ? isUnsignedExpr(ctx, args[1]) : false);
   switch (base) {
-    case "div": case "sdiv": return `(call $m_div_s ${a()} ${b()})`;
-    case "mod": return `(call $m_mod_s ${a()} ${b()})`;
-    case "min": return `(call $m_min_s ${a()} ${b()})`;
-    case "max": return `(call $m_max_s ${a()} ${b()})`;
+    case "sdiv": return `(call $m_div_s ${a()} ${b()})`;
+    case "div": return `(call $m_div_${u ? "u" : "s"} ${a()} ${b()})`;
+    case "mod": return `(call $m_mod_${u ? "u" : "s"} ${a()} ${b()})`;
+    case "min": return `(call $m_min_${u ? "u" : "s"} ${a()} ${b()})`;
+    case "max": return `(call $m_max_${u ? "u" : "s"} ${a()} ${b()})`;
     case "abs": return `(call $m_abs ${a()})`;
     case "sadd": return `(i64.add ${a()} ${b()})`;
     case "ssub": return `(i64.sub ${a()} ${b()})`;
