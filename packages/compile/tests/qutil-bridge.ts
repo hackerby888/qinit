@@ -134,9 +134,29 @@ export async function buildContractsOurs(core: string): Promise<Record<number, U
   return { [QUTIL_IDX]: mineQutil.wasm, [QX_IDX]: mineQx.wasm };
 }
 
-// Phase 1 (native): added in Task 2. Stub keeps the production test's import resolvable.
-export async function buildContractsNative(_core: string): Promise<Record<number, Uint8Array>> {
-  throw new Error("native backend not implemented yet (Task 2)");
+// Phase 1 (native): QUTIL+QX built by clang (LITE_WASM_TU_BUILD) as plain deployable contract wasm —
+// no testSource, so recipe.ts emits a contract module the Sim deploys identically to the ours wasm.
+// buildContract auto-derives QX's callee prelude from corePath + QUtil.h's CALL_OTHER_CONTRACT scan.
+export async function buildContractsNative(core: string): Promise<Record<number, Uint8Array>> {
+  const dir = mkdtempSync(join(tmpdir(), "qutil-native-"));
+
+  const qx = await buildContract({
+    contractPath: `${core}/src/contracts/Qx.h`, name: "QX", stateType: "QX", slot: QX_IDX,
+    corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
+  });
+  if (!qx.ok) {
+    throw new Error("native QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"));
+  }
+
+  const qutil = await buildContract({
+    contractPath: `${core}/src/contracts/QUtil.h`, name: "QUTIL", stateType: "QUTIL", slot: QUTIL_IDX,
+    corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
+  });
+  if (!qutil.ok) {
+    throw new Error("native QUTIL build failed:\n" + (qutil.stderr ?? "").split("\n").slice(-15).join("\n"));
+  }
+
+  return { [QUTIL_IDX]: new Uint8Array(readFileSync(qutil.so!)), [QX_IDX]: new Uint8Array(readFileSync(qx.so!)) };
 }
 
 // Instantiate the runner wasm, bind the thost table to a fresh Sim with the contracts deployed, drive each test.
