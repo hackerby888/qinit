@@ -3127,6 +3127,9 @@ function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args: Expres
     let t = resolveAddr(ctx, a)?.type ?? null;
     if (!t) return null;
     t = ctx.cg.derefType(t);
+    // Resolve through the caller's template bindings so the deduced type is concrete (ProposalDataType →
+    // ProposalDataV1<false>), not a symbolic param name the instantiated lib fn can't size.
+    if (ctx.thisBind) t = ctx.cg.derefType(ctx.cg.substInBindings(t, ctx.thisBind));
     for (let i = 0; i < 8 && t.kind === "name"; i++) {
       const td = ctx.cg.typedefs.get(t.name);
       if (!td) break;
@@ -3608,6 +3611,20 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
     const wat = emitInterContract(ctx, expr, expr.callee.name === "__qpi_invoke_other");
     if (wat) ctx.lines.push(`    (drop ${wat})`);
     else ctx.cg.warn(`unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`, expr.span.line);
+    return;
+  }
+
+  // Low-level memory intrinsics copyMem(dst,src,n) / setMem(dst,val,n). Handled here (not only in
+  // emitThisCall, which requires a `this` context) so they also lower inside lib-fn instances such as
+  // copyMemory<T1,T2>'s body `copyMem(&dst, &src, sizeof(dst))` — otherwise that body emits nothing.
+  if (expr.callee.kind === "identifier" && (expr.callee.name === "copyMem" || expr.callee.name === "setMem")) {
+    const dst = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
+    if (expr.callee.name === "copyMem") {
+      const src = expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)";
+      ctx.lines.push(`    (call $copyMem ${dst} ${src} (i32.wrap_i64 ${expr.args[2] ? emitValue(ctx, expr.args[2]) : "(i64.const 0)"}))`);
+    } else {
+      ctx.lines.push(`    (call $setMem ${dst} (i32.wrap_i64 ${expr.args[1] ? emitValue(ctx, expr.args[1]) : "(i64.const 0)"}) (i32.wrap_i64 ${expr.args[2] ? emitValue(ctx, expr.args[2]) : "(i64.const 0)"}))`);
+    }
     return;
   }
 

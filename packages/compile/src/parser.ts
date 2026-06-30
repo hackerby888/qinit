@@ -1713,7 +1713,7 @@ export class Parser {
       after.kind === "l_paren" || after.kind === "bang" || after.kind === "tilde" ||
       after.kind === "minus" || after.kind === "plus" || after.kind === "amp" || after.kind === "star" ||
       after.kind === "kw_true" || after.kind === "kw_false" || after.kind === "char_literal" ||
-      after.kind === "string_literal";
+      after.kind === "string_literal" || after.kind === "kw_this" || after.kind === "kw_sizeof";
 
     (this.lex as any).index = save;
 
