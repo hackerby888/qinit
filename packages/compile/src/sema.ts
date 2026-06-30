@@ -457,27 +457,56 @@ export class Sema {
     let offset = 0;
     let maxAlign = 1;
 
+    // Size members in a scope that resolves this instantiation's constants: each non-type template
+    // parameter (e.g. proposalSlotCount) bound to its argument value, and each `static constexpr` member
+    // (e.g. maxProposals = proposalSlotCount). A C-array member dimension like `[maxProposals]` is then a
+    // resolvable constexpr instead of an unknown identifier (which collapsed the array to 0 bytes).
+    const saved = this.currentScope;
+    const scope = new Scope(saved);
+    for (const p of tmpl.params ?? []) {
+      if (p.kind === "non_type" || p.kind === "non_type_default") {
+        const init = this.bindingToExpr(bindings.get(p.name));
+        if (init) scope.vars.set(p.name, { name: p.name, type: p.type, isConstexpr: true, init });
+      }
+    }
     for (const member of tmpl.members) {
       if (member.kind === "variable") {
         const v = member as VariableDecl;
+        if (v.isStatic && v.isConstexpr && v.init) {
+          scope.vars.set(v.name, { name: v.name, type: v.type, isConstexpr: true, init: v.init });
+        }
+      }
+    }
+    this.currentScope = scope;
+    try {
+      for (const member of tmpl.members) {
+        if (member.kind !== "variable") continue;
+        const v = member as VariableDecl;
+        if (v.isStatic) continue; // static members have no per-instance storage
         const concreteType = this.substituteType(v.type, bindings);
         const size = this.sizeofType(concreteType);
         const align = Math.min(size, 8);
 
         offset = this.alignTo(offset, align);
-        fields.push({
-          name: v.name,
-          type: concreteType,
-          offset,
-          size,
-          access: v.access,
-        });
+        fields.push({ name: v.name, type: concreteType, offset, size, access: v.access });
         offset += size;
         if (align > maxAlign) maxAlign = align;
       }
+    } finally {
+      this.currentScope = saved;
     }
 
     return fields;
+  }
+
+  // Convert a template-argument TypeSpec (for a non-type parameter) into the constexpr initializer
+  // expression that yields its value: an explicit expr_value carries it directly; a bare name is an
+  // identifier reference (another constant) the constexpr evaluator can chase.
+  private bindingToExpr(b: TypeSpec | undefined): Expression | undefined {
+    if (!b) return undefined;
+    if (b.kind === "expr_value") return b.expr;
+    if (b.kind === "name") return { kind: "identifier", name: b.name, span: b.span ?? { start: 0, end: 0, line: 0, col: 0 } };
+    return undefined;
   }
 
   // ---- Type substitution ----
