@@ -229,6 +229,13 @@ static inline void updateQpiTime() {
 
 static QbSystemStruct qubicSystemStruct;
 
+// QPI::mod is `template<T> mod(T, T)`, so `mod(system.tick, (uint32)X)` (RL) can't deduce T from the proxy +
+// a uint32. This non-template overload is an exact match for that call (and wins over the failed-deduction
+// template); other mod(T,T) calls are unaffected (the proxy type never matches them).
+static inline unsigned int mod(const QbTickProxy& a, unsigned int b) {
+    return b ? ((unsigned int)a % b) : 0u;
+}
+
 // Matches core-lite's `#define system qubicSystemStruct`
 #define system qubicSystemStruct
 
