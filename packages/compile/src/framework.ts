@@ -9,10 +9,19 @@
 //
 // QpiContext field offsets (engine abi.ts): contractIndex@0, originator@40, invocator@72, reward@104.
 
-const IN_SZ = 64 * 1024;
-const OUT_SZ = 64 * 1024;
-const LOCALS_SZ = 32 * 1024;
+// IO carve sizes — MUST match the engine (runtime.ts IN_SZ/OUT_SZ/LOCALS_SZ) and core-lite's
+// lite_wasm_contracts.h. tests/abi-drift.test.ts pins these against the engine so a core change can't
+// desync silently.
+export const IN_SZ = 64 * 1024;
+export const OUT_SZ = 64 * 1024;
+export const LOCALS_SZ = 32 * 1024;
 const CTX_SZ = 256;
+
+// QpiContext field byte-offsets the forwarders read — the single place this WAT depends on the context
+// header layout. MUST equal the engine's abi.ts QpiContext.OFFSETS (which derives them from the C struct);
+// tests/abi-drift.test.ts asserts that, so a layout change in core surfaces as a failing test, not silent
+// wrong-identity reads.
+export const CTX = { contractIndex: 0, originator: 40, invocator: 72, invocationReward: 104 } as const;
 
 export interface UserEntry {
   inputType: number;       // user-assigned [1..65535]
@@ -334,11 +343,11 @@ function emitForwarders(): string {
   (func $qpi_logBytes (param $ci i32) (param $lv i32) (param $m i32) (param $sz i32) (call $lh_logBytes (local.get $ci) (local.get $lv) (local.get $m) (local.get $sz)))
   (func $liteCallFunction (param $c i32) (param $it i32) (param $i i32) (param $is i32) (param $o i32) (param $os i32) (result i32) (call $lh_liteCallFunction (local.get $c) (local.get $it) (local.get $i) (local.get $is) (local.get $o) (local.get $os)))
   (func $liteInvokeProcedure (param $c i32) (param $it i32) (param $i i32) (param $is i32) (param $o i32) (param $os i32) (param $r i64) (result i32) (call $lh_liteInvokeProcedure (local.get $c) (local.get $it) (local.get $i) (local.get $is) (local.get $o) (local.get $os) (local.get $r)))
-  ;; context header accessors
-  (func $qpi_contractIndex (result i32) (i32.load (global.get $ctxBase)))
-  (func $qpi_invocator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const 72)) (i32.const 32)))
-  (func $qpi_originator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const 40)) (i32.const 32)))
-  (func $qpi_invocationReward (result i64) (i64.load (i32.add (global.get $ctxBase) (i32.const 104))))`;
+  ;; context header accessors (offsets from CTX — pinned to the engine's abi.ts by tests/abi-drift.test.ts)
+  (func $qpi_contractIndex (result i32) (i32.load (i32.add (global.get $ctxBase) (i32.const ${CTX.contractIndex}))))
+  (func $qpi_invocator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const ${CTX.invocator})) (i32.const 32)))
+  (func $qpi_originator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const ${CTX.originator})) (i32.const 32)))
+  (func $qpi_invocationReward (result i64) (i64.load (i32.add (global.get $ctxBase) (i32.const ${CTX.invocationReward}))))`;
 }
 
 function emitIntrinsics(): string {
