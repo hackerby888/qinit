@@ -793,7 +793,9 @@ export class Parser {
       after === "kw_sizeof" || after === "int_literal" || after === "float_literal" ||
       after === "string_literal" || after === "char_literal" || after === "kw_true" ||
       after === "kw_false" || after === "kw_nullptr" || after === "minus" ||
-      after === "bang" || after === "tilde"
+      // A `{` after `(` is a braced-init constructor argument (`AssetPossessionIterator iter({NULL_ID, name})`)
+      // — a parameter list can't open with `{`, so this is unambiguously a direct-init variable, not a function.
+      after === "bang" || after === "tilde" || after === "l_brace"
     );
   }
 

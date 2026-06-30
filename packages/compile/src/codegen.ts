@@ -1584,6 +1584,7 @@ interface FnCtx {
   staticConsts?: Map<string, bigint>;         // the container's static constexpr members (_nEncodedFlags, ...)
   gotoLabels?: Map<string, string>;           // C++ label name → enclosing wasm block label (forward goto)
   refLocals?: Map<string, TypeSpec>;          // reference/pointer locals: name → referent type (holds an address)
+  scratchpadLocals?: Set<string>;             // __ScopedScratchpad locals: an i32 holding the scratch buffer base; `.ptr` reads it
   thisAddr?: string;                           // WAT for *this's address (default "(local.get $this)"); set when inlining a struct method
   inlineMethod?: boolean;                       // emitting a struct method inline into the caller — `return` is suppressed (the value flows via thisAddr)
   proxyClass?: string;                          // emitting a ProposalVoting proxy method (qpi(pv).m()): the proxy class for sibling resolution
@@ -1679,10 +1680,20 @@ function collectLocals(stmt: Statement, ctx: FnCtx): void {
       collectLocals(stmt.body, ctx);
       break;
     case "declaration": {
+      // A struct declared inside a function body (QUTIL setupNewProposal's `struct Shareholder {...}`) isn't in
+      // globalStructs, so sizeof(Shareholder) and member offsets wouldn't resolve. Register it so the body's
+      // pointer/subscript/member accesses see its layout. (Global registration is fine — names are unique here.)
+      if (stmt.decl.kind === "struct") {
+        const s = stmt.decl as StructDecl;
+        if (s.name && !ctx.cg.globalStructs.has(s.name)) ctx.cg.globalStructs.set(s.name, s);
+        break;
+      }
       if (stmt.decl.kind === "variable") {
         const v = stmt.decl as VariableDecl;
-        // reference/pointer locals hold an address (i32); scalars use the i64 value model.
-        const isRef = v.type.kind === "reference" || v.type.kind === "pointer";
+        // reference/pointer locals hold an address (i32); scalars use the i64 value model. A __ScopedScratchpad
+        // or an Asset*Iterator local also holds an address (its scratch / iterator buffer base).
+        const holdsAddr = v.type.kind === "name" && /(ScopedScratchpad|Iterator)$/.test(v.type.name);
+        const isRef = v.type.kind === "reference" || v.type.kind === "pointer" || holdsAddr;
         // In a ProposalVoting proxy method the `pv`/`qpi` aliases (`ProposalVotingType& pv = this->pv`) are
         // bound as the function's own parameters, not locals — skip them here.
         if (ctx.proxyClass && isRef && (v.name === "pv" || v.name === "qpi")) break;
@@ -1797,17 +1808,48 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
     case "declaration": {
       if (stmt.decl.kind === "variable") {
         const v = stmt.decl as VariableDecl;
+        // __ScopedScratchpad scratchpad(size, initZero): bump a scratch buffer off the arena; the local holds
+        // its base address, read back by `.ptr`. (release is a no-op — the arena resets per dispatch.)
+        if (v.type.kind === "name" && /ScopedScratchpad$/.test(v.type.name)) {
+          const args = v.init && (v.init.kind === "construct" || v.init.kind === "call") ? v.init.args : [];
+          const size = args[0] ? emitValue(ctx, args[0]) : "(i64.const 0)";
+          const initZero = args[1] ? `(i64.ne (i64.const 0) ${emitValue(ctx, args[1])})` : "(i32.const 0)";
+          ctx.lines.push(`    (local.set $${v.name} (call $acquireScratchpad ${size} ${initZero}))`);
+          (ctx.scratchpadLocals ??= new Set()).add(v.name);
+          break;
+        }
+        // AssetOwnership/PossessionIterator iter(asset): an 8-byte iterator buffer (count@0, cursor@4); the
+        // constructor runs the enumerate. Track its type so iter.possessor()/reachedEnd()/next() dispatch.
+        if (v.type.kind === "name" && /Asset(Ownership|Possession)Iterator$/.test(v.type.name)) {
+          ctx.lines.push(`    (local.set $${v.name} (call $qpiAllocLocals (i32.const 8)))`);
+          (ctx.refLocals ??= new Map()).set(v.name, v.type);
+          const arg = v.init && (v.init.kind === "construct" || v.init.kind === "call") ? v.init.args[0] : undefined;
+          if (arg) {
+            emitAssetIter(ctx, {
+              kind: "call", span: stmt.span, args: [arg],
+              callee: { kind: "member_access", span: stmt.span, object: { kind: "identifier", name: v.name, span: stmt.span }, member: "begin" },
+            } as Expression & { kind: "call" }, "stmt");
+          }
+          break;
+        }
         // reference/pointer local: bind to the ADDRESS of its lvalue initializer; member access on it
-        // resolves through that address. The referent type (Element, PoV, ...) drives field offsets.
+        // resolves through that address. The referent type (Element, PoV, ...) drives field offsets. A pointer
+        // keeps its pointer type (not the pointee) so `p[i]` subscripts.
         if (v.type.kind === "reference" || v.type.kind === "pointer") {
           // proxy `pv`/`qpi` aliases are already bound as parameters — drop the alias declaration.
           if (ctx.proxyClass && (v.name === "pv" || v.name === "qpi")) break;
           if (v.init) {
             const node = resolveAddr(ctx, v.init);
-            if (node) {
+            // Fall back to emitAddr for initializers that aren't plain lvalues but still yield an address —
+            // an asset-iterator getter (`const id& possessor = iter.possessor()`), an id producer, etc.
+            const addr = node?.addr ?? emitAddr(ctx, v.init);
+            if (addr) {
               if (!ctx.refLocals) ctx.refLocals = new Map();
-              ctx.refLocals.set(v.name, node.type ?? (v.type.kind === "reference" ? v.type.refereed : v.type.pointee));
-              ctx.lines.push(`    (local.set $${v.name} ${node.addr})`);
+              // A pointer local keeps its pointer type so resolveAddr's subscript path fires (`shareholders[i]`);
+              // a reference binds to its referent type for direct member access.
+              const refType = v.type.kind === "pointer" ? v.type : (node?.type ?? v.type.refereed);
+              ctx.refLocals.set(v.name, refType);
+              ctx.lines.push(`    (local.set $${v.name} ${addr})`);
             } else {
               ctx.cg.warn(`unsupported reference initializer for '${v.name}'`, stmt.span.line);
             }
@@ -2068,6 +2110,13 @@ function stripPtrRefConst(t: TypeSpec): TypeSpec {
 }
 
 function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
+  // __ScopedScratchpad.ptr → the held scratch buffer base (the local's value). `reinterpret_cast<T*>(sp.ptr)`
+  // then retypes this address; `sp.ptr` used as a value reads the same local.
+  if (expr.kind === "member_access" && expr.member === "ptr" &&
+    expr.object.kind === "identifier" && ctx.scratchpadLocals?.has(expr.object.name)) {
+    return { addr: `(local.get $${expr.object.name})`, type: { kind: "pointer", pointee: { kind: "name", name: "uint8" } }, size: 4, layout: null };
+  }
+
   // roots
   if (expr.kind === "identifier") {
     if (expr.name === "input") return { addr: "(local.get $in)", type: null, size: ctx.in.size, layout: ctx.in };
