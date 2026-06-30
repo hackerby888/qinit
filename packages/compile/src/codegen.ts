@@ -112,6 +112,7 @@ class Codegen {
   private constInProgress = new Set<string>();
   helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
   privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()
+  registered: Map<string, PrivateInfo> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
   callees: Map<string, CalleeIdl> = new Map();      // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
   private layoutCache: Map<string, StructLayout> = new Map();
   warnings: CodegenWarning[] = [];
@@ -949,6 +950,15 @@ export function generateWasmModule(
       cg.helpers.set(fn.name, { label: `$h_${fn.name}`, params, retIsValue });
       helperFns.push(fn);
     }
+  }
+
+  // Pre-pass: register every REGISTER_USER_* name -> {label, localsSize} before any body is emitted, so a
+  // CALL() to a registered function/procedure resolves regardless of declaration order (a procedure may
+  // CALL a function registered after it). The label `$user_${i}` is fixed by registration index.
+  for (let i = 0; i < regs.length; i++) {
+    const localsStruct = cg["nested"].get(`${regs[i].fnName}_locals`);
+    const localsSize = localsStruct ? cg.layoutOf(localsStruct).size : 0;
+    cg.registered.set(regs[i].fnName, { label: `$user_${i}`, localsSize });
   }
 
   for (let i = 0; i < regs.length; i++) {
@@ -2870,7 +2880,7 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // passing the caller's in/out lvalues and a freshly bumped locals frame.
   if (expr.callee.kind === "identifier" && expr.callee.name === "__qpi_call_self") {
     const fnArg = expr.args[0];
-    const info = fnArg?.kind === "identifier" ? ctx.cg.privates.get(fnArg.name) : undefined;
+    const info = fnArg?.kind === "identifier" ? (ctx.cg.privates.get(fnArg.name) ?? ctx.cg.registered.get(fnArg.name)) : undefined;
     if (info) {
       const inAddr = expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)";
       const outAddr = expr.args[2] ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)") : "(i32.const 0)";
