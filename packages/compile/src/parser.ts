@@ -23,6 +23,14 @@ export interface Diagnostic {
 export class Parser {
   private lex: Lexer;
   private diagnostics: Diagnostic[] = [];
+  // Diagnostics raised while parsing a function body in isolation. They stay visible (getDiagnostics
+  // merges them) but are deliberately kept out of the structural `diagnostics` list so they never make
+  // the panic-recovery in a class/namespace member loop skip a sibling declaration.
+  private bodyDiagnostics: Diagnostic[] = [];
+  // While > 0 (inside a template parameter/argument list), a top-level `>` / `>>` closes the list
+  // rather than acting as a comparison/shift operator — C++'s GreaterThanIsOperator=false. Reset to 0
+  // inside nested parens/braces so a parenthesized guard like `(a > b)` still parses.
+  private gtDisabled = 0;
   // Extra declarations produced by a single parse step (e.g. `struct {...} a, b[4];` yields the
   // struct plus per-declarator variables). Drained by the member/decl-list loops.
   private pending: Declaration[] = [];
@@ -59,7 +67,51 @@ export class Parser {
   }
 
   getDiagnostics(): Diagnostic[] {
-    return this.diagnostics;
+    return [...this.diagnostics, ...this.bodyDiagnostics];
+  }
+
+  // Parse a `{ ... }` function body in isolation. qpi.h's method bodies routinely exceed our expression
+  // subset (comma operator, braced-init arguments, local types); parsing them inline lets a failure run
+  // the cursor past the body's closing brace and collapse the enclosing struct/namespace. Instead, slice
+  // the body at balanced-brace depth, parse the slice in a sub-parser (which physically cannot read past
+  // the body), then resume the outer cursor right after the matching `}`. The cursor is positioned at the
+  // opening `{` on entry. Body diagnostics are recorded as informational so they don't trip recovery.
+  private parseFunctionBody(): Statement {
+    const toks = (this.lex as any).tokens as Token[];
+    const openIdx = (this.lex as any).index;
+
+    let depth = 0;
+    let closeIdx = -1;
+    for (let i = openIdx; i < toks.length; i++) {
+      const k = toks[i].kind;
+      if (k === "l_brace") {
+        depth++;
+      } else if (k === "r_brace") {
+        depth--;
+        if (depth === 0) {
+          closeIdx = i;
+          break;
+        }
+      } else if (k === "eof") {
+        break;
+      }
+    }
+
+    if (closeIdx < 0) {
+      this.next(); // unbalanced — best-effort inline parse
+      return this.parseCompoundStatement();
+    }
+
+    const slice = toks.slice(openIdx, closeIdx + 1);
+    slice.push({ kind: "eof", text: "", span: toks[closeIdx].span });
+    const sub = new Parser(slice);
+    sub.next(); // consume `{`
+    const body = sub.parseCompoundStatement();
+    for (const d of sub.diagnostics) this.bodyDiagnostics.push(d);
+    for (const d of sub.bodyDiagnostics) this.bodyDiagnostics.push(d);
+
+    (this.lex as any).index = closeIdx + 1; // resume after the matched `}`
+    return body;
   }
 
   // ---- Token helpers ----
@@ -355,7 +407,11 @@ export class Parser {
         const name = nameTok.text;
 
         if (this.tryConsume("eq")) {
+          // The default value runs up to the closing `>` of the template list — don't let a top-level
+          // `>` (e.g. `proposalSlotCount = 676>`) be misread as a comparison operator.
+          this.gtDisabled++;
           const defVal = this.parseExpression();
+          this.gtDisabled--;
           params.push({ kind: "non_type_default", name, type, default: defVal });
         } else {
           params.push({ kind: "non_type", name, type });
@@ -396,8 +452,8 @@ export class Parser {
     this.tryConsumeKw("noexcept");
 
     let body: Statement | undefined;
-    if (this.tryConsume("l_brace")) {
-      body = this.parseCompoundStatement();
+    if (this.peek().kind === "l_brace") {
+      body = this.parseFunctionBody();
     } else {
       this.expect("semicolon", "function declaration");
     }
@@ -738,8 +794,8 @@ export class Parser {
         isDefault = true;
       }
       this.expect("semicolon", "function = delete/default");
-    } else if (this.tryConsume("l_brace")) {
-      body = this.parseCompoundStatement();
+    } else if (this.peek().kind === "l_brace") {
+      body = this.parseFunctionBody();
     } else {
       this.expect("semicolon", "function declaration");
     }
@@ -1112,6 +1168,10 @@ export class Parser {
       const ops: Record<string, BinaryOp> = {
         "l_angle": "<", "r_angle": ">", "lt_eq": "<=", "gt_eq": ">=",
       };
+      // Inside a template arg/param list a top-level `>` / `>=` closes the list, not a comparison.
+      if (this.gtDisabled > 0 && (tok.kind === "r_angle" || tok.kind === "gt_eq")) {
+        break;
+      }
       const op = ops[tok.kind];
       if (op) {
         this.next();
@@ -1132,6 +1192,9 @@ export class Parser {
     let left = this.parseAdditive();
 
     while (!this.eof()) {
+      if (this.gtDisabled > 0 && this.peek().kind === "r_shift") {
+        break; // `>>` closes two nested template lists here, not a shift operator
+      }
       if (this.tryConsume("l_shift")) {
         left = { kind: "binary_op", op: "<<", left, right: this.parseAdditive(), span: left.span };
       } else if (this.tryConsume("r_shift")) {
@@ -1395,7 +1458,10 @@ export class Parser {
     // Parenthesized expression
     if (tok.kind === "l_paren") {
       this.next();
+      const savedGt = this.gtDisabled;
+      this.gtDisabled = 0; // a `>` inside parens is a comparison again, even within a template list
       const expr = this.parseExpression();
+      this.gtDisabled = savedGt;
       this.expect("r_paren", "paren expr");
       return { kind: "paren", expr, span: tok.span };
     }
@@ -1403,11 +1469,14 @@ export class Parser {
     // Brace initializer: {a, b, c}
     if (tok.kind === "l_brace") {
       this.next();
+      const savedGt = this.gtDisabled;
+      this.gtDisabled = 0;
       const exprs: Expression[] = [];
       while (!this.eof() && this.peek().kind !== "r_brace") {
         exprs.push(this.parseExpression());
         if (!this.tryConsume("comma")) break;
       }
+      this.gtDisabled = savedGt;
       this.expect("r_brace", "initializer list");
       return { kind: "initializer_list", exprs, span: tok.span };
     }
@@ -1897,6 +1966,14 @@ export class Parser {
     const noProgress = idx === beforeIndex;
     const newError = this.diagnostics.length > errsBefore;
     if (!noProgress && !newError) return;
+
+    // A declaration that consumed its full balanced body ends on `}` or `;`. Its inner errors are already
+    // contained within that body, so the cursor is at a clean sibling boundary — skipping forward here
+    // would wrongly discard the following declaration (e.g. a sibling `namespace QPI { ... }` whose
+    // definitions we need). Only the no-progress / stranded-cursor cases need panic-skipping.
+    if (!noProgress && (this._last?.kind === "r_brace" || this._last?.kind === "semicolon")) {
+      return;
+    }
 
     if (noProgress) {
       this.next(); // force progress
