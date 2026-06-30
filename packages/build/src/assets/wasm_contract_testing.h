@@ -162,6 +162,18 @@ struct QbEpochProxy {
         bq_set_epoch(v + 1u);
         return v;
     }
+
+    unsigned int operator+=(unsigned int n) {  // system.epoch += N
+        unsigned int v = bq_get_epoch() + n;
+        bq_set_epoch(v);
+        return v;
+    }
+
+    unsigned int operator-=(unsigned int n) {
+        unsigned int v = bq_get_epoch() - n;
+        bq_set_epoch(v);
+        return v;
+    }
 };
 
 struct QbTickProxy {
@@ -181,6 +193,18 @@ struct QbTickProxy {
     unsigned int operator++(int) {
         unsigned int v = bq_get_tick();
         bq_set_tick(v + 1u);
+        return v;
+    }
+
+    unsigned int operator+=(unsigned int n) {  // system.tick += N
+        unsigned int v = bq_get_tick() + n;
+        bq_set_tick(v);
+        return v;
+    }
+
+    unsigned int operator-=(unsigned int n) {
+        unsigned int v = bq_get_tick() - n;
+        bq_set_tick(v);
         return v;
     }
 };
