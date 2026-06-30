@@ -316,8 +316,14 @@ static inline bool decreaseEnergy(int idx, QPI::sint64 amount) {
     return true;
 }
 
-static inline QPI::sint64 numberOfShares(const QPI::Asset& a) {
-    return bq_shares(&a.issuer, a.assetName);
+static inline QPI::sint64 numberOfShares(const QPI::Asset& a,
+    const QPI::AssetOwnershipSelect& own = QPI::AssetOwnershipSelect::any(),
+    const QPI::AssetPossessionSelect& pos = QPI::AssetPossessionSelect::any()) {
+    // No owner/possessor filter → total issued shares. Otherwise route to the filtered possession query
+    // (the host applies the owner/possessor + managing-contract selects).
+    if (own.anyOwner && own.anyManagingContract && pos.anyPossessor && pos.anyManagingContract)
+        return bq_shares(&a.issuer, a.assetName);
+    return bq_possessed(a.assetName, &a.issuer, &own.owner, &pos.possessor, own.managingContract, pos.managingContract);
 }
 
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) {
