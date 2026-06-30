@@ -100,10 +100,13 @@ export async function buildCorpusRunner(o: {
   const assetSrc = join(import.meta.dir, "assets", "wasm_contract_testing.h");
   await copyFile(assetSrc, join(o.outDir, "wasm_contract_testing.h"));
 
-  // lite_test.h's EXPECT_*/ASSERT_* expand to a bare `return;` (under `if (fatal)`); in a non-void
-  // corpus helper that is a C++ default-error. Native uses real gtest (no return); relax it here so
-  // the test corpus compiles. Scoped to the corpus path — production deploys keep the strict default.
-  const extraCompileFlags = ["-Wno-error=return-mismatch"];
+  // The corpus runner is a test tool, not a deployed contract, so it has no need for the recipe's
+  // -O0 -g debuggability. Build it -O2 (the trailing -O wins over the recipe's -O0): corpus checkers
+  // sweep whole fixed-capacity state arrays (e.g. QEARN's 4,194,304-entry locker) every assertion, and
+  // -O0 makes those loops the dominant cost. lite_test.h's EXPECT_*/ASSERT_* expand to a bare `return;`
+  // (under `if (fatal)`), a C++ default-error in non-void corpus helpers; native uses real gtest (no
+  // return), so relax it here — scoped to the corpus path, production deploys keep the strict default.
+  const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch"];
 
   // When the corpus pulls real <iostream>/<ostream> itself, suppress the harness's std::cout stubs so
   // they don't collide with the real stream objects (an ambiguous-reference error otherwise).

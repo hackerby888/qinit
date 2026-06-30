@@ -115,6 +115,16 @@ inline static sint64 sadd(sint64 a, sint64 b) { return a + b; }
 inline static uint64 sadd(uint64 a, uint64 b) { return a + b; }
 inline static sint32 sadd(sint32 a, sint32 b) { return a + b; }
 inline static uint32 sadd(uint32 a, uint32 b) { return a + b; }
+template <typename T, uint64 L> bool isArraySorted(const Array<T, L>& Array, uint64 beginIdx, uint64 endIdx) {
+\tif (endIdx > L || beginIdx > endIdx) return false;
+\tfor (uint64 i = beginIdx + 1; i < endIdx; ++i) { if (Array.get(i - 1) > Array.get(i)) return false; }
+\treturn true;
+}
+template <typename T, uint64 L> bool isArraySortedWithoutDuplicates(const Array<T, L>& Array, uint64 beginIdx, uint64 endIdx) {
+\tif (endIdx > L || beginIdx > endIdx) return false;
+\tfor (uint64 i = beginIdx + 1; i < endIdx; ++i) { if (Array.get(i - 1) >= Array.get(i)) return false; }
+\treturn true;
+}
 }
 namespace { unsigned char __qinitLocalsBuf[2u << 20]; unsigned long __qinitLocalsTop = 0; unsigned long __qinitLocalsMark[256]; int __qinitLocalsDepth = 0; }
 void* QPI::QpiContextFunctionCall::__qpiAllocLocals(unsigned int sizeOfLocals) const {

@@ -31,6 +31,7 @@ QBCT_IMPORT(q_state_size) unsigned int bq_state_size(unsigned int i);
 QBCT_IMPORT(q_state_in)   void         bq_state_in(unsigned int i, void* dst, unsigned int len);
 QBCT_IMPORT(q_set_epoch)  void         bq_set_epoch(unsigned int e);
 QBCT_IMPORT(q_get_epoch)  unsigned int bq_get_epoch();
+QBCT_IMPORT(q_set_computor) void       bq_set_computor(unsigned int i, const void* id32);
 }
 
 #undef QBCT_IMPORT
@@ -203,15 +204,43 @@ static const unsigned int contractCount =
     sizeof(contractDescriptions) / sizeof(contractDescriptions[0]);
 
 // ---- broadcastedComputors: layout-compatible stub of core-lite's global ----
-// GQMPROP/CCF corpora seed computor identities via `broadcastedComputors.computors.publicKeys[i]`.
-// Native pulls this from special_entities.h; the wasm TU does not, so a matching struct is declared
-// here. m256i and NUMBER_OF_COMPUTORS are in scope from qpi.h. Writes stay runner-local — the engine
-// seeds its own computor set — but the test setup type-checks and the corpus compiles.
+// GQMPROP/CCF corpora seed committee identities via `broadcastedComputors.computors.publicKeys[i] = id`.
+// Native pulls this from special_entities.h; the wasm TU does not, so a matching struct is declared here
+// (m256i and NUMBER_OF_COMPUTORS come from qpi.h). publicKeys is a write-through proxy: each assignment
+// both stores locally (for read-back) and routes to bq_set_computor, so the engine's qpi.computor(i)
+// returns the same identity the test seeded and the contract's proposer-is-a-computor check matches.
+
+struct QbComputorKeys {
+    m256i _keys[NUMBER_OF_COMPUTORS];
+
+    struct Slot {
+        m256i* keys;
+        unsigned int idx;
+
+        Slot& operator=(const m256i& v) {
+            keys[idx] = v;
+            bq_set_computor(idx, &v);
+            return *this;
+        }
+
+        operator const m256i&() const {
+            return keys[idx];
+        }
+    };
+
+    Slot operator[](unsigned long long i) {
+        return Slot{_keys, (unsigned int)i};
+    }
+
+    const m256i& operator[](unsigned long long i) const {
+        return _keys[i % NUMBER_OF_COMPUTORS];
+    }
+};
 
 struct QbBroadcastComputors {
     struct {
         unsigned short epoch;
-        m256i publicKeys[NUMBER_OF_COMPUTORS];
+        QbComputorKeys publicKeys;
         unsigned char signature[64];
     } computors;
 };
