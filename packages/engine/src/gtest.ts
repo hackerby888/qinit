@@ -311,6 +311,11 @@ export async function runContractTesting(
     q_balance: (idPtr: number): bigint => sim.balance(id32(idPtr)),
     // notifyContractOfIncomingTransfer(source, dest, amount, type): credit dest + fire its POST_INCOMING_TRANSFER.
     q_notify_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number) => { sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0); },
+    // issueAsset(issuer, name, decimals, unit, shares, mgmt): mint an asset (issuer == invocator path). Returns shares.
+    q_issue_asset: (issuerPtr: number, name: bigint, decimals: number, shares: bigint, unit: bigint, slot: number): bigint => {
+      const issuer = id32(issuerPtr);
+      return (sim as any).assets.issueAsset(slot >>> 0, BigInt.asUintN(64, name), issuer, decimals, BigInt.asUintN(64, shares), BigInt.asUintN(64, unit), issuer) as bigint;
+    },
 
     q_spectrum: (idPtr: number): number => {
       const h = hex(id32(idPtr));

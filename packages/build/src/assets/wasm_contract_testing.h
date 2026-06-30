@@ -24,6 +24,7 @@ QBCT_IMPORT(q_sysproc)   void          bq_sysproc(unsigned int idx, unsigned int
 QBCT_IMPORT(q_fund)      void          bq_fund(const void* id32, long long amount);
 QBCT_IMPORT(q_balance)   long long     bq_balance(const void* id32);
 QBCT_IMPORT(q_notify_pit) void         bq_notify_pit(const void* src32, const void* dst32, long long amount, unsigned int type);
+QBCT_IMPORT(q_issue_asset) long long   bq_issue_asset(const void* issuer32, unsigned long long name, int decimals, long long shares, unsigned long long unit, unsigned int slot);
 QBCT_IMPORT(q_shares)    long long     bq_shares(const void* issuer32, unsigned long long assetName);
 QBCT_IMPORT(q_possessed) long long     bq_possessed(unsigned long long name, const void* issuer32, const void* owner32, const void* possessor32, unsigned int om, unsigned int pm);
 QBCT_IMPORT(q_spectrum)  int           bq_spectrum(const void* id32);
@@ -342,6 +343,20 @@ static inline long long getBalance(const QPI::id& who) {
 // Simulate an inbound transfer to a contract: credit `dest` and fire its POST_INCOMING_TRANSFER handler.
 static inline void notifyContractOfIncomingTransfer(const QPI::id& source, const QPI::id& dest, long long amount, unsigned char type) {
     bq_notify_pit(&source, &dest, amount, (unsigned int)type);
+}
+
+static inline unsigned long long assetNameFromString(const char* s);  // defined below; used by issueAsset
+
+// Mint an asset for a test (issuer == invocator path); name/unit are short ASCII strings. The issuance/
+// ownership/possession out-indices aren't modelled here (the engine keys assets by issuer+name), so they're
+// zeroed. Returns the number of shares minted (0 on failure).
+static inline long long issueAsset(const QPI::id& issuer, const char* name, signed char decimals, const char* unit,
+                                   long long numberOfShares, unsigned short managingContract,
+                                   int* issuanceIndex, int* ownershipIndex, int* possessionIndex) {
+    if (issuanceIndex) *issuanceIndex = 0;
+    if (ownershipIndex) *ownershipIndex = 0;
+    if (possessionIndex) *possessionIndex = 0;
+    return bq_issue_asset(&issuer, assetNameFromString(name), (int)decimals, numberOfShares, assetNameFromString(unit), (unsigned int)managingContract);
 }
 
 static inline int spectrumIndex(const QPI::id& who) {
