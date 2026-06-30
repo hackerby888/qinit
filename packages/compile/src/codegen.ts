@@ -1297,24 +1297,33 @@ export function generateWasmModule(
     }
   }
 
+  // Resolve a named I/O / locals struct to its layout, following typedefs and nested structs: a contract may
+  // alias its entry types (`typedef Success_output Vote_output;`), so a direct nested-struct lookup misses and
+  // output.* fields would resolve to nothing. layoutOfType chases the typedef to the real struct; a typedef to
+  // an id/scalar (no field layout) falls back to a size-only layout so the body still passes it by address.
+  const emptyL = () => ({ size: 0, align: 1, fields: new Map() });
+  const resolveIO = (name: string) => {
+    const s = cg["nested"].get(name);
+    if (s) return cg.layoutOf(s);
+    const lt = cg.layoutOfType({ kind: "name", name });
+    if (lt) return lt;
+    const sz = cg.sizeOfType({ kind: "name", name });
+    return sz > 0 ? { size: sz, align: Math.min(sz, 8), fields: new Map() } : emptyL();
+  };
+
   // Pre-pass: register every REGISTER_USER_* name -> {label, localsSize} before any body is emitted, so a
   // CALL() to a registered function/procedure resolves regardless of declaration order (a procedure may
   // CALL a function registered after it). The label `$user_${i}` is fixed by registration index.
   for (let i = 0; i < regs.length; i++) {
-    const localsStruct = cg["nested"].get(`${regs[i].fnName}_locals`);
-    const localsSize = localsStruct ? cg.layoutOf(localsStruct).size : 0;
-    cg.registered.set(regs[i].fnName, { label: `$user_${i}`, localsSize });
+    cg.registered.set(regs[i].fnName, { label: `$user_${i}`, localsSize: resolveIO(`${regs[i].fnName}_locals`).size });
   }
 
   for (let i = 0; i < regs.length; i++) {
     const reg = regs[i];
     const fn = findMemberFn(contract, reg.fnName);
-    const inStruct = cg["nested"].get(`${reg.fnName}_input`);
-    const outStruct = cg["nested"].get(`${reg.fnName}_output`);
-    const localsStruct = cg["nested"].get(`${reg.fnName}_locals`);
-    const inLayout = inStruct ? cg.layoutOf(inStruct) : { size: 0, align: 1, fields: new Map() };
-    const outLayout = outStruct ? cg.layoutOf(outStruct) : { size: 0, align: 1, fields: new Map() };
-    const localsLayout = localsStruct ? cg.layoutOf(localsStruct) : { size: 0, align: 1, fields: new Map() };
+    const inLayout = resolveIO(`${reg.fnName}_input`);
+    const outLayout = resolveIO(`${reg.fnName}_output`);
+    const localsLayout = resolveIO(`${reg.fnName}_locals`);
 
     const label = `$user_${i}`;
     userFns.push(emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout));
@@ -1330,15 +1339,8 @@ export function generateWasmModule(
   }
 
   const empty = { size: 0, align: 1, fields: new Map() };
-  const layoutFor = (name: string) => {
-    const s = cg["nested"].get(name);
-    if (s) return cg.layoutOf(s);
-    // The input/output may be a typedef to an aggregate-sized scalar (e.g. `typedef id X_input;`) rather
-    // than a struct. It has no field layout, but its size must be right so the body passes/compares it by
-    // address (memeq) instead of collapsing it to a scalar 0.
-    const sz = cg.sizeOfType({ kind: "name", name });
-    return sz > 0 ? { size: sz, align: Math.min(sz, 8), fields: new Map() } : empty;
-  };
+  // Follows typedefs to the real struct (fields included), then to a size-only layout for id/scalar aliases.
+  const layoutFor = (name: string) => resolveIO(name);
   const layoutOfNamed = (name?: string) => {
     if (!name) return empty;
     return cg.layoutOfType({ kind: "name", name }) ?? empty;
@@ -2158,9 +2160,20 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     if (ai !== null) return ai;
   }
 
-  // qpi.invocator() / qpi.originator() return an id by value → materialize via the ctx forwarder.
+  // qpi.X(...) that returns an id/aggregate by value (computor(i), arbitrator(), nextId(x), prevId(x)):
+  // allocate a 32-byte slot, let emitQpiCall emit the host fill (with its args) into it, return the slot.
+  // Without this an id-valued qpi getter used as an operand (qpi.computor(i) == voterId) never materializes.
   if (expr.kind === "call" && expr.callee.kind === "member_access" &&
     expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
+    const desc = QPI_CALLS[expr.callee.member];
+    if (desc && desc.ret === "out") {
+      const t = newTmp(ctx);
+      ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 32)))`);
+      const q = emitQpiCall(ctx, expr, `(local.get $${t})`);
+      if (q) ctx.lines.push(`    ${q.wat}`);
+      return `(local.get $${t})`;
+    }
+    // qpi.invocator() / qpi.originator(): arg-less id producers not in QPI_CALLS.
     const fwd = QPI_ID_PRODUCERS[expr.callee.member];
     if (fwd) {
       const t = newTmp(ctx);
