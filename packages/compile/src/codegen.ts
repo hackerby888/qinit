@@ -2883,6 +2883,42 @@ function emitU128(ctx: FnCtx, expr: Expression): string {
   return s;
 }
 
+// True if a scalar type is unsigned (uint*/unsigned/size_t-like). Drives signed-vs-unsigned op selection.
+function unsignedScalar(t: TypeSpec | null | undefined): boolean {
+  if (!t) return false;
+  if (t.kind === "const") return unsignedScalar(t.valueType);
+  if (t.kind === "reference") return unsignedScalar(t.refereed);
+  if (t.kind === "pointer") return false;
+  if (t.kind !== "name") return false;
+  return /^(uint|unsigned\b|size_t$|bool$|bit$)/.test(t.name) || t.name === "uint128" || t.name === "uint128_t";
+}
+
+// Best-effort signedness of an integer expression: unsigned if it's an unsigned-typed lvalue/param, an unsigned
+// cast, an unsigned-suffixed literal, or arithmetic with an unsigned operand (C++ usual-conversion rule). Used
+// to pick i64.lt_u/div_u over the signed forms — without this, `uint64 price < (uint64)MAX_AMOUNT` compiled to
+// a signed compare and a wrapped-negative qu value read as < MAX_AMOUNT, slipping past range checks.
+function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
+  switch (expr.kind) {
+    case "c_cast": case "static_cast": return unsignedScalar(expr.type);
+    case "paren": return isUnsignedExpr(ctx, expr.expr);
+    case "int_literal": return /[uU]/.test(expr.suffix ?? "");
+    case "identifier": {
+      const p = ctx.params?.get(expr.name);
+      if (p) return unsignedScalar(p.type);
+      const rl = ctx.refLocals?.get(expr.name);
+      if (rl) return unsignedScalar(rl);
+      return unsignedScalar(resolveAddr(ctx, expr)?.type ?? null);
+    }
+    case "member_access": case "subscript":
+      return unsignedScalar(resolveAddr(ctx, expr)?.type ?? null);
+    case "binary_op":
+      if (["+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>"].includes(expr.op))
+        return isUnsignedExpr(ctx, expr.left) || isUnsignedExpr(ctx, expr.right);
+      return false;
+    default: return false;
+  }
+}
+
 function emitBinary(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): string {
   // uint128 compares: 128-bit, via the $u128_* helpers (operands materialized to 16-byte slots).
   if ((expr.op === "==" || expr.op === "!=" || expr.op === "<" || expr.op === ">" || expr.op === "<=" || expr.op === ">=")
@@ -2953,6 +2989,7 @@ function emitBinary(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): strin
   const l = emitValue(ctx, expr.left);
   const r = emitValue(ctx, expr.right);
   const cmp = (op: string) => `(i64.extend_i32_u (${op} ${l} ${r}))`;
+  const u = isUnsignedExpr(ctx, expr.left) || isUnsignedExpr(ctx, expr.right);
   switch (expr.op) {
     case "+": return `(i64.add ${l} ${r})`;
     case "-": return `(i64.sub ${l} ${r})`;
@@ -2966,10 +3003,12 @@ function emitBinary(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): strin
     case "^": return `(i64.xor ${l} ${r})`;
     case "==": return cmp("i64.eq");
     case "!=": return cmp("i64.ne");
-    case "<": return cmp("i64.lt_s");
-    case ">": return cmp("i64.gt_s");
-    case "<=": return cmp("i64.le_s");
-    case ">=": return cmp("i64.ge_s");
+    // C++ relational signedness: unsigned if either operand is unsigned. Default signed (back-compat: small
+    // positive values compare identically, only large/wrapped magnitudes differ).
+    case "<": return cmp(u ? "i64.lt_u" : "i64.lt_s");
+    case ">": return cmp(u ? "i64.gt_u" : "i64.gt_s");
+    case "<=": return cmp(u ? "i64.le_u" : "i64.le_s");
+    case ">=": return cmp(u ? "i64.ge_u" : "i64.ge_s");
     case "&&": return `(i64.extend_i32_u (i32.and (i64.ne (i64.const 0) ${l}) (i64.ne (i64.const 0) ${r})))`;
     case "||": return `(i64.extend_i32_u (i32.or (i64.ne (i64.const 0) ${l}) (i64.ne (i64.const 0) ${r})))`;
     default: return `(i64.const 0)`;
