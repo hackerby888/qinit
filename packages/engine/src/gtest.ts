@@ -309,6 +309,8 @@ export async function runContractTesting(
 
     q_fund: (idPtr: number, amount: bigint) => { sim.fund(id32(idPtr), BigInt(amount)); },
     q_balance: (idPtr: number): bigint => sim.balance(id32(idPtr)),
+    // notifyContractOfIncomingTransfer(source, dest, amount, type): credit dest + fire its POST_INCOMING_TRANSFER.
+    q_notify_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number) => { sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0); },
 
     q_spectrum: (idPtr: number): number => {
       const h = hex(id32(idPtr));

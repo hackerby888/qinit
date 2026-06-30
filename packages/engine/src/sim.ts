@@ -220,6 +220,13 @@ export class Sim {
     this.spectrum.increaseEnergy(id, amount, this.tickN);
   }
 
+  // Test helper (core's notifyContractOfIncomingTransfer): credit `dest` with `amount` and fire its
+  // POST_INCOMING_TRANSFER callback, simulating an inbound transfer the corpus wants the contract to react to.
+  notifyIncomingTransfer(source: Uint8Array, dest: Uint8Array, amount: bigint, type: number): void {
+    this.fund(dest, amount);
+    this.notifyPIT(dest, source, amount, type);
+  }
+
   // gtest seam: override qpi.computor(i) so a corpus that seeds its own committee (the proposal-voting
   // contracts write broadcastedComputors.computors.publicKeys[i]) gets the same identities back from the
   // engine — otherwise the contract's proposer-is-a-computor check never matches. A zero key clears the
