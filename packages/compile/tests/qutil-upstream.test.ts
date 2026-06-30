@@ -17,6 +17,9 @@ describe("upstream gtest — contract_qutil.cpp against deployed QUTIL+QX wasm",
     }
 
     const mode = (process.env.GTEST_MODE ?? "ours") as "ours" | "native";
+    if (mode !== "ours" && mode !== "native") {
+      throw new Error(`GTEST_MODE must be "ours" or "native", got "${mode}"`);
+    }
     const runner = await buildRunner(CORE);
     const contracts = mode === "native" ? await buildContractsNative(CORE) : await buildContractsOurs(CORE);
     const results = await runUpstream(runner, contracts);

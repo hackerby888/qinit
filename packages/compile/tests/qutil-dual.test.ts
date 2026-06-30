@@ -11,10 +11,13 @@ function classify(ours: TR | undefined, native: TR | undefined): string {
   if (o && n) {
     return "ok";
   }
-  if (!n) {
+  if (!o && n) {
+    return "COMPILER";
+  }
+  if (!o && !n) {
     return "BRIDGE";
   }
-  return "COMPILER";
+  return "SUSPECT";
 }
 
 describe("dual-backend differential — ours vs native", () => {
@@ -41,17 +44,20 @@ describe("dual-backend differential — ours vs native", () => {
     const nn = byName(rNative);
     const names = [...new Set([...on.keys(), ...nn.keys()])];
 
-    const buckets: Record<string, string[]> = { ok: [], COMPILER: [], BRIDGE: [] };
+    const buckets: Record<string, string[]> = { ok: [], COMPILER: [], BRIDGE: [], SUSPECT: [] };
     for (const name of names) {
       buckets[classify(on.get(name), nn.get(name))].push(name);
     }
 
-    console.log(`\n  dual: ${buckets.ok.length} ok · ${buckets.COMPILER.length} COMPILER-BUG · ${buckets.BRIDGE.length} BRIDGE-BUG (of ${names.length})`);
+    console.log(`\n  dual: ${buckets.ok.length} ok · ${buckets.COMPILER.length} COMPILER-BUG · ${buckets.BRIDGE.length} BRIDGE-BUG · ${buckets.SUSPECT.length} SUSPECT (of ${names.length})`);
     for (const name of buckets.COMPILER) {
       console.log(`  COMPILER  ${name} — ours fails, native passes (fix codegen)`);
     }
     for (const name of buckets.BRIDGE) {
       console.log(`  BRIDGE    ${name} — native fails (fix SHIM/thost/Sim)`);
+    }
+    for (const name of buckets.SUSPECT) {
+      console.log(`  SUSPECT   ${name} — ours passes, native fails (oracle says fail — investigate)`);
     }
 
     const oursVec = names.map((n) => `${n}:${on.get(n)?.passed ? 1 : 0}`);

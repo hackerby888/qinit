@@ -1,6 +1,6 @@
 // Shared bridge for driving the upstream contract_qutil.cpp gtest corpus against deployable QUTIL+QX
 // wasm. The runner (clang) is mode-independent; only the deployed contract wasm swaps between backends.
-import { existsSync, readFileSync, mkdtempSync } from "node:fs";
+import { existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Sim, KIND, type Contract } from "@qinit/engine";
@@ -102,16 +102,20 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
   const strippedTest = rawTest.replace(/^\s*#include\s+"contract_testing\.h".*$/m, "");
   const testSource = `${SHIM}\n${strippedTest}`;
 
-  const built = await buildContract({
-    contractPath: `${core}/src/contracts/QUtil.h`, name: "QUTIL", stateType: "QUTIL", slot: QUTIL_IDX,
-    corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
-    testSource, testPath: "contract_qutil.cpp",
-  });
-  if (!built.ok) {
-    const lines = (built.stderr ?? "").split("\n").filter((l) => / error:| undefined | cannot |fatal|ld\.lld|wasm-ld/i.test(l));
-    throw new Error("runner build failed:\n" + lines.slice(0, 30).join("\n"));
+  try {
+    const built = await buildContract({
+      contractPath: `${core}/src/contracts/QUtil.h`, name: "QUTIL", stateType: "QUTIL", slot: QUTIL_IDX,
+      corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
+      testSource, testPath: "contract_qutil.cpp",
+    });
+    if (!built.ok) {
+      const lines = (built.stderr ?? "").split("\n").filter((l) => / error:| undefined | cannot |fatal|ld\.lld|wasm-ld/i.test(l));
+      throw new Error("runner build failed:\n" + lines.slice(0, 30).join("\n"));
+    }
+    return new Uint8Array(readFileSync(built.so!));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-  return new Uint8Array(readFileSync(built.so!));
 }
 
 // Phase 1 (ours): QUTIL+QX compiled by our TS compiler. QUTIL gets QX's IDL + source so its
@@ -129,7 +133,8 @@ export async function buildContractsOurs(core: string): Promise<Record<number, U
   const qxErrs = mineQx.diagnostics.filter((d) => d.severity === "error");
   const qutilErrs = mineQutil.diagnostics.filter((d) => d.severity === "error");
   if (qxErrs.length || qutilErrs.length) {
-    throw new Error("ours compile errors: QX=" + qxErrs.length + " QUTIL=" + qutilErrs.length);
+    const fmt = (label: string, ds: typeof qxErrs) => ds.map((d) => `  ${label} L${d.span.line}: ${d.message}`).join("\n");
+    throw new Error("ours compile errors:\n" + fmt("QX", qxErrs) + (qxErrs.length && qutilErrs.length ? "\n" : "") + fmt("QUTIL", qutilErrs));
   }
   return { [QUTIL_IDX]: mineQutil.wasm, [QX_IDX]: mineQx.wasm };
 }
@@ -140,23 +145,29 @@ export async function buildContractsOurs(core: string): Promise<Record<number, U
 export async function buildContractsNative(core: string): Promise<Record<number, Uint8Array>> {
   const dir = mkdtempSync(join(tmpdir(), "qutil-native-"));
 
-  const qx = await buildContract({
-    contractPath: `${core}/src/contracts/Qx.h`, name: "QX", stateType: "QX", slot: QX_IDX,
-    corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
-  });
-  if (!qx.ok) {
-    throw new Error("native QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"));
-  }
+  try {
+    const qx = await buildContract({
+      contractPath: `${core}/src/contracts/Qx.h`, name: "QX", stateType: "QX", slot: QX_IDX,
+      corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
+    });
+    if (!qx.ok) {
+      throw new Error("native QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"));
+    }
 
-  const qutil = await buildContract({
-    contractPath: `${core}/src/contracts/QUtil.h`, name: "QUTIL", stateType: "QUTIL", slot: QUTIL_IDX,
-    corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
-  });
-  if (!qutil.ok) {
-    throw new Error("native QUTIL build failed:\n" + (qutil.stderr ?? "").split("\n").slice(-15).join("\n"));
-  }
+    const qutil = await buildContract({
+      contractPath: `${core}/src/contracts/QUtil.h`, name: "QUTIL", stateType: "QUTIL", slot: QUTIL_IDX,
+      corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
+    });
+    if (!qutil.ok) {
+      throw new Error("native QUTIL build failed:\n" + (qutil.stderr ?? "").split("\n").slice(-15).join("\n"));
+    }
 
-  return { [QUTIL_IDX]: new Uint8Array(readFileSync(qutil.so!)), [QX_IDX]: new Uint8Array(readFileSync(qx.so!)) };
+    const qxBytes = new Uint8Array(readFileSync(qx.so!));
+    const qutilBytes = new Uint8Array(readFileSync(qutil.so!));
+    return { [QUTIL_IDX]: qutilBytes, [QX_IDX]: qxBytes };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // Instantiate the runner wasm, bind the thost table to a fresh Sim with the contracts deployed, drive each test.
@@ -173,12 +184,6 @@ export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<numb
   const write = (off: number, b: Uint8Array) => mem().set(b, off >>> 0);
   const id32 = (p: number) => read(p, 32);
   const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
-  const decodeName = (n: bigint): string => {
-    let s = "";
-    for (let i = 0; i < 8; i++) { const c = Number((n >> BigInt(8 * i)) & 0xffn); if (c) s += String.fromCharCode(c); }
-    return s;
-  };
-
   const deployAll = () => {
     sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     handles = {};
@@ -232,7 +237,7 @@ export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<numb
     },
     q_possessed: (name: bigint, issuerPtr: number, ownerPtr: number, possessorPtr: number, om: number, pm: number): bigint =>
       (sim as any).assets.numberOfPossessedShares(BigInt(name), id32(issuerPtr), id32(ownerPtr), id32(possessorPtr), om >>> 0, pm >>> 0),
-    // lite_test.h reports each EXPECT_* outcome through thost.t_report.
+    // lite_test.h reports each TEST's outcome (accumulated EXPECT_* failures) through thost.t_report.
     t_report: (namePtr: number, nameLen: number, passed: number, msgPtr: number, msgLen: number) => {
       results.push({ name: dec.decode(read(namePtr, nameLen)), passed: (passed >>> 0) !== 0, message: dec.decode(read(msgPtr, msgLen)) });
     },
