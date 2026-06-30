@@ -204,6 +204,25 @@ export class Sema {
       return { kind: "builtin", name: "void", size: 0, alignment: 1, fields: [], enumerators: new Map(), isTemplate: false };
     }
 
+    if (type.kind === "array") {
+      // C-array member `T name[N]` (and N-D `T name[A][B]` via a nested array elem). Size is the element
+      // size times the (constexpr) extent; alignment follows the element. Without this a C-array member
+      // resolved to null and contributed 0 bytes, collapsing structs like ProposalVoting's vote storage.
+      const elem = this.resolveType(type.elem);
+      if (!elem) return null;
+      const count = this.evaluateConstexpr(type.size);
+      const n = count === null ? 0 : Number(count);
+      return {
+        kind: "builtin",
+        name: `${elem.name}[${n}]`,
+        size: elem.size * n,
+        alignment: elem.alignment,
+        fields: [],
+        enumerators: new Map(),
+        isTemplate: false,
+      };
+    }
+
     return null;
   }
 
@@ -489,6 +508,13 @@ export class Sema {
 
     if (type.kind === "reference") {
       return { kind: "reference", refereed: this.substituteType(type.refereed, bindings), span: type.span };
+    }
+
+    if (type.kind === "array") {
+      // Substitute into the element type so a C-array member of a template-parameter type (or whose
+      // element is itself a substituted type) is sized correctly after instantiation. The extent
+      // expression is left as-is; it is evaluated as a constexpr when the array's size is computed.
+      return { kind: "array", elem: this.substituteType(type.elem, bindings), size: type.size, span: type.span };
     }
 
     return type;
