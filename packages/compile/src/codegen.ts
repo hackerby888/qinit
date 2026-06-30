@@ -987,7 +987,12 @@ export function generateWasmModule(
   const empty = { size: 0, align: 1, fields: new Map() };
   const layoutFor = (name: string) => {
     const s = cg["nested"].get(name);
-    return s ? cg.layoutOf(s) : empty;
+    if (s) return cg.layoutOf(s);
+    // The input/output may be a typedef to an aggregate-sized scalar (e.g. `typedef id X_input;`) rather
+    // than a struct. It has no field layout, but its size must be right so the body passes/compares it by
+    // address (memeq) instead of collapsing it to a scalar 0.
+    const sz = cg.sizeOfType({ kind: "name", name });
+    return sz > 0 ? { size: sz, align: Math.min(sz, 8), fields: new Map() } : empty;
   };
   const layoutOfNamed = (name?: string) => {
     if (!name) return empty;

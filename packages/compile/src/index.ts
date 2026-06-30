@@ -202,6 +202,12 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   // are visible to callers; only errors abort the build.
   diagnostics.push(...sema.getDiagnostics());
 
+  // Opt-in WAT dump for codegen debugging.
+  if ((globalThis as any).process?.env?.QINIT_DUMP_WAT) {
+    const fs = await import("node:fs");
+    fs.writeFileSync((globalThis as any).process.env.QINIT_DUMP_WAT, wat);
+  }
+
   // 6. WAT → WASM (via wabt)
   let wasm: Uint8Array;
   try {
