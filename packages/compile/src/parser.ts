@@ -1709,10 +1709,15 @@ export class Parser {
     let sawTypeToken = false;
     let depth = 0;
     let saw = false;
+    let sawNestedParen = false;
 
     while (!this.eof()) {
       const t = this.peek();
-      if (t.kind === "l_paren") { depth++; this.next(); continue; }
+      // A C-style cast type-id in this subset never contains parentheses (no function-pointer / decltype
+      // types), so a nested `(` means this is a parenthesized EXPRESSION, not a cast. Without this,
+      // `((uint64)_55) * 26` reads as a cast — the inner `(uint64)` looks type-ish and the trailing `*`
+      // satisfies operandFollows — which then swallows the surrounding call-argument commas.
+      if (t.kind === "l_paren") { depth++; sawNestedParen = true; this.next(); continue; }
       if (t.kind === "r_paren") {
         if (depth === 0) { this.next(); break; }
         depth--; this.next(); continue;
@@ -1740,7 +1745,7 @@ export class Parser {
 
     // A bare identifier in parens (`(L * 2 ...)` has operators → not pure) is a cast only when it's a
     // pure type AND an operand follows. Reject if a stray int literal appears outside template angles.
-    return saw && pureType && sawTypeToken && operandFollows;
+    return saw && pureType && sawTypeToken && operandFollows && !sawNestedParen;
   }
 
   private parseCast(): Expression {
