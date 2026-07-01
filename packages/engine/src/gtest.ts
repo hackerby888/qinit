@@ -316,6 +316,17 @@ export async function runContractTesting(
       const issuer = id32(issuerPtr);
       return (sim as any).assets.issueAsset(slot >>> 0, BigInt.asUintN(64, name), issuer, decimals, BigInt.asUintN(64, shares), BigInt.asUintN(64, unit), issuer) as bigint;
     },
+    // issueContractShares(googletest): mint a contract's NULL_ID-issuer shares (qxSlot = QX), then move each
+    // owner's slice from the NULL_ID holder to the owner. transferShareOwnershipAndPossession returns <0 on
+    // failure (insufficient / not found); the shim asserts on that.
+    q_mint_contract_shares: (name: bigint, shares: bigint, qxSlot: number): void => {
+      (sim as any).assets.mintContractShares(qxSlot >>> 0, BigInt.asUintN(64, name), BigInt.asUintN(64, shares));
+    },
+    q_transfer_shares: (name: bigint, srcPtr: number, dstPtr: number, shares: bigint, qxSlot: number): bigint => {
+      const src = id32(srcPtr);
+      const zero = new Uint8Array(32);
+      return (sim as any).assets.transferShareOwnershipAndPossession(qxSlot >>> 0, BigInt.asUintN(64, name), zero, src, src, BigInt.asUintN(64, shares), id32(dstPtr)) as bigint;
+    },
 
     q_spectrum: (idPtr: number): number => {
       const h = hex(id32(idPtr));

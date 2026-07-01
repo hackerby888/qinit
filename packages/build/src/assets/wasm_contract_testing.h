@@ -27,6 +27,8 @@ QBCT_IMPORT(q_notify_pit) void         bq_notify_pit(const void* src32, const vo
 QBCT_IMPORT(q_issue_asset) long long   bq_issue_asset(const void* issuer32, unsigned long long name, int decimals, long long shares, unsigned long long unit, unsigned int slot);
 QBCT_IMPORT(q_shares)    long long     bq_shares(const void* issuer32, unsigned long long assetName);
 QBCT_IMPORT(q_possessed) long long     bq_possessed(unsigned long long name, const void* issuer32, const void* owner32, const void* possessor32, unsigned int om, unsigned int pm);
+QBCT_IMPORT(q_mint_contract_shares) void bq_mint_contract_shares(unsigned long long name, long long shares, unsigned int qxSlot);
+QBCT_IMPORT(q_transfer_shares) long long bq_transfer_shares(unsigned long long name, const void* src32, const void* dst32, long long shares, unsigned int qxSlot);
 QBCT_IMPORT(q_spectrum)  int           bq_spectrum(const void* id32);
 QBCT_IMPORT(q_decrease)  void          bq_decrease(int idx, long long amount);
 QBCT_IMPORT(q_state_size) unsigned int bq_state_size(unsigned int i);
@@ -376,6 +378,28 @@ static inline QPI::sint64 numberOfShares(const QPI::Asset& a,
     if (own.anyOwner && own.anyManagingContract && pos.anyPossessor && pos.anyManagingContract)
         return bq_shares(&a.issuer, a.assetName);
     return bq_possessed(a.assetName, &a.issuer, &own.owner, &pos.possessor, own.managingContract, pos.managingContract);
+}
+
+// Issue a contract's shares (NULL_ID issuer convention, managed by QX) and transfer them to the initial owners.
+// The native harness uses the index-based issueAsset + transferShareOwnershipAndPossession; the engine models
+// assets by holding (issuer+name / owner / possessor), so mint the contract shares then holding-transfer each
+// owner's slice from the NULL_ID holder. Same end state: `numberOfShares({NULL_ID, name}) == NUMBER_OF_COMPUTORS`
+// with each owner possessing its count.
+static inline void issueContractShares(unsigned int contractIndex, std::vector<std::pair<m256i, unsigned int>>& initialOwnerShares, bool warnOnTooFewShares = true) {
+    (void)warnOnTooFewShares;
+    const unsigned long long assetName = assetNameFromString(contractDescriptions[contractIndex].assetName);
+    bq_mint_contract_shares(assetName, NUMBER_OF_COMPUTORS, QX_CONTRACT_INDEX);
+
+    long long totalShareCount = 0;
+    for (const auto& ownerShareCountPair : initialOwnerShares)
+        totalShareCount += ownerShareCountPair.second;
+    if (totalShareCount < NUMBER_OF_COMPUTORS)
+        initialOwnerShares[0].second += (unsigned int)(NUMBER_OF_COMPUTORS - totalShareCount);
+
+    const m256i nullId = m256i::zero();
+    for (const auto& ownerShareCountPair : initialOwnerShares)
+        EXPECT_GE(bq_transfer_shares(assetName, &nullId, &ownerShareCountPair.first, (long long)ownerShareCountPair.second, QX_CONTRACT_INDEX), 0LL);
+    EXPECT_EQ(numberOfShares(QPI::Asset{ nullId, assetName }), (QPI::sint64)NUMBER_OF_COMPUTORS);
 }
 
 // ---- streamable EXPECT_* (gtest `EXPECT_EQ(a,b) << "note"`) ----

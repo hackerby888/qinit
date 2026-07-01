@@ -149,6 +149,20 @@ export class AssetLedger {
     return shares;
   }
 
+  // Test-harness contract-share issuance (googletest issueContractShares). A contract's shares use the NULL_ID
+  // issuer convention (QX's special issuance), which the contract-facing issueAsset above rejects — so model it
+  // directly: mint `shares` of asset (NULL_ID, name), held by NULL_ID and managed by qxSlot. The corpus then
+  // transfers them to the real owners via transferShareOwnershipAndPossession.
+  mintContractShares(qxSlot: number, name: bigint, shares: bigint): void {
+    const zero = new Uint8Array(32);
+    const k = this.assetKey(zero, name);
+    if (this.assets.has(k)) return;
+    const holdings = new Map<string, Holding>();
+    holdings.set(this.holdingKey(zero, zero, qxSlot, qxSlot), { owner: zero.slice(0, 32), possessor: zero.slice(0, 32), ownMgmt: qxSlot, posMgmt: qxSlot, shares });
+    this.assets.set(k, { issuer: zero.slice(0, 32), name, decimals: 0, unit: 0n, holdings });
+    this.markHoldingDirty(k, this.holdingKey(zero, zero, qxSlot, qxSlot));
+  }
+
   // numberOfShares(Asset, AssetOwnershipSelect, AssetPossessionSelect) — sum holdings matching the selectors.
   numberOfShares(assetB: Uint8Array, ownSelB: Uint8Array, posSelB: Uint8Array): bigint {
     const a = Asset.wrap(assetB);
