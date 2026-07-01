@@ -6,6 +6,7 @@
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "./ast";
 import type { Sema } from "./sema";
 import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec } from "./framework";
+import { parseIntLiteral as lexParseIntLiteral } from "./lexer";
 
 interface ClassTemplate {
   params: TemplateParam[];
@@ -869,12 +870,8 @@ class Codegen {
 
   // Parse an integer literal token (hex/bin/octal/dec, with optional u/l/ull suffixes) to a bigint.
   private parseIntLiteral(value: string): bigint {
-    const text = value.replace(/ull?$/i, "").replace(/llu?$/i, "").replace(/[ul]$/i, "");
     try {
-      if (text.startsWith("0x") || text.startsWith("0X")) return BigInt(text);
-      if (text.startsWith("0b") || text.startsWith("0B")) return BigInt("0x" + BigInt(text.slice(2)).toString(16));
-      if (text.startsWith("0") && text.length > 1) return BigInt("0x" + BigInt(text).toString(16));
-      return BigInt(text);
+      return lexParseIntLiteral(value);
     } catch {
       return 0n;
     }

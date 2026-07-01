@@ -7,6 +7,7 @@ import type {
   EnumDecl, ParamDecl, TemplateParam, TranslationUnit,
   NamespaceDecl, AccessSpec,
 } from "./ast";
+import { parseIntLiteral } from "./lexer";
 
 export interface SemaDiagnostic {
   severity: "error" | "warning";
@@ -271,13 +272,8 @@ export class Sema {
 
   private evalExpr(expr: Expression): bigint {
     switch (expr.kind) {
-      case "int_literal": {
-        const text = expr.value.replace(/ull?$/i, "").replace(/llu?$/i, "").replace(/[ul]$/i, "");
-        if (text.startsWith("0x") || text.startsWith("0X")) return BigInt(text);
-        if (text.startsWith("0b") || text.startsWith("0B")) return BigInt("0x" + BigInt(text.slice(2)).toString(16));
-        if (text.startsWith("0") && text.length > 1) return BigInt("0x" + BigInt(text).toString(16));
-        return BigInt(text);
-      }
+      case "int_literal":
+        return parseIntLiteral(expr.value);
       case "bool_literal":
         return BigInt(expr.value ? 1 : 0);
       case "char_literal":

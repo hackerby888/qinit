@@ -623,8 +623,8 @@ export function parseIntLiteral(text: string): bigint {
   let s = text.toLowerCase();
   let base: number;
 
-  // Strip suffix
-  s = s.replace(/(ull?|ll?u?|u|l)$/, "");
+  // Strip suffix and C++14 digit separators
+  s = s.replace(/(ull?|ll?u?|u|l)$/, "").replace(/'/g, "");
 
   if (s.startsWith("0x")) {
     base = 16;
@@ -639,18 +639,9 @@ export function parseIntLiteral(text: string): bigint {
     base = 10;
   }
 
-  try {
-    return BigInt(`0${s}`.replace(/^0+/, "0") || "0"); // fallback
-  } catch {
-    // Use manual conversion for large values
-    let val = 0n;
-    for (const ch of s) {
-      const digit = ch >= "a" ? (ch.charCodeAt(0) - 87) : (ch.charCodeAt(0) - 48);
-      if (digit >= base) {
-        break;
-      }
-      val = val * BigInt(base) + BigInt(digit);
-    }
-    return val;
-  }
+  // Convert with the detected base. Earlier this reparsed `s` as decimal regardless of base, so
+  // binary/octal literals (e.g. 0b11111) silently yielded their decimal digit-string value (11111
+  // instead of 31); hex only worked by throwing on the invalid decimal and falling through.
+  const prefix = base === 16 ? "0x" : base === 2 ? "0b" : base === 8 ? "0o" : "";
+  return BigInt(prefix + (s || "0"));
 }
