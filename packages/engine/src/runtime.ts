@@ -294,6 +294,12 @@ export class Contract {
     const outSize = this.outSizeFor(kind, it);
     const pre = this.u8();
     pre.fill(0, outOff, outOff + OUT_SZ);
+    // Zero the locals scratch too. QPI hands the contract a zeroed locals frame every dispatch (native
+    // contract_exec.h clears it; qpi.h documents it as a "zeroed instance"), and HashMap::get / iterators
+    // leave their out-param UNTOUCHED on a miss — so without this a contract reads stale bytes left in the
+    // locals region by the previous dispatch (e.g. QUSINO transferSTAROrQSC crediting a fresh receiver from a
+    // prior call's leftover volume). migrate() below already does this.
+    pre.fill(0, localsOff, localsOff + LOCALS_SZ);
     if (input.length) pre.set(input, inOff);
     this.writeCtx(ctx);
     this.arenaBump = this.arenaBase;
