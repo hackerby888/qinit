@@ -3094,6 +3094,49 @@ function qpiOperand(ctx: FnCtx, expr: Expression, kind: ArgKind): string {
 }
 
 // Build the forwarder operand list. "cidx" is injected; every other kind consumes one call arg.
+// Materialize a 40-byte AssetOwnershipSelect / AssetPossessionSelect and return its address (i32). These have
+// no inferred type at the call site (brace-init or a static-factory result), so emitAddr can't lower them.
+// Layout: id owner/possessor @0 (32), managingContract u16 @32, anyOwner/anyPossessor bool @34,
+// anyManagingContract bool @35. Forms handled: a missing argument (the C++ default `::any()`), the static
+// factories any()/byOwner()/byPossessor()/byManagingContract(), a `{id, mgmt}` brace-init, and an addressable
+// select lvalue. any() = { zero, 0, true, true }; byOwner/byPossessor = { id, 0, false, true };
+// byManagingContract = { zero, mgmt, true, false } (see qpi.h AssetOwnershipSelect).
+function materializeSelect(ctx: FnCtx, e: Expression | undefined): string {
+  const t = newTmp(ctx);
+  ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 40)))`);
+  ctx.lines.push(`    (call $setMem (local.get $${t}) (i32.const 40) (i32.const 0))`);
+  const flag = (off: number, v: number) => ctx.lines.push(`    (i32.store8 (i32.add (local.get $${t}) (i32.const ${off})) (i32.const ${v}))`);
+  const staticName = e && e.kind === "call"
+    ? (e.callee.kind === "qualified_name" ? e.callee.name : e.callee.kind === "member_access" ? e.callee.member : null)
+    : null;
+  if (!e || staticName === "any") {
+    flag(34, 1);
+    flag(35, 1);
+  } else if (staticName === "byOwner" || staticName === "byPossessor") {
+    const idSrc = e.kind === "call" && e.args[0] ? emitAddr(ctx, e.args[0]) : null;
+    if (idSrc) ctx.lines.push(`    (call $copyMem (local.get $${t}) ${idSrc} (i32.const 32))`);
+    flag(35, 1);
+  } else if (staticName === "byManagingContract") {
+    if (e.kind === "call" && e.args[0]) ctx.lines.push(`    (i32.store16 (i32.add (local.get $${t}) (i32.const 32)) (i32.and (i32.wrap_i64 ${emitValue(ctx, e.args[0])}) (i32.const 0xffff)))`);
+    flag(34, 1);
+  } else if (e.kind === "initializer_list") {
+    const idSrc = e.exprs[0] ? emitAddr(ctx, e.exprs[0]) : null;
+    if (idSrc) ctx.lines.push(`    (call $copyMem (local.get $${t}) ${idSrc} (i32.const 32))`);
+    if (e.exprs[1]) ctx.lines.push(`    (i32.store16 (i32.add (local.get $${t}) (i32.const 32)) (i32.and (i32.wrap_i64 ${emitValue(ctx, e.exprs[1])}) (i32.const 0xffff)))`);
+    if (e.exprs[2]) ctx.lines.push(`    (i32.store8 (i32.add (local.get $${t}) (i32.const 34)) (i32.and (i32.wrap_i64 ${emitValue(ctx, e.exprs[2])}) (i32.const 1)))`);
+    if (e.exprs[3]) ctx.lines.push(`    (i32.store8 (i32.add (local.get $${t}) (i32.const 35)) (i32.and (i32.wrap_i64 ${emitValue(ctx, e.exprs[3])}) (i32.const 1)))`);
+  } else {
+    const a = emitAddr(ctx, e);
+    if (a) {
+      ctx.lines.push(`    (call $copyMem (local.get $${t}) ${a} (i32.const 40))`);
+    } else {
+      flag(34, 1);
+      flag(35, 1);
+    }
+  }
+  return `(local.get $${t})`;
+}
+
 function emitQpiOperands(ctx: FnCtx, args: Expression[], kinds: ArgKind[]): string[] {
   const ops: string[] = [];
   let ai = 0;
@@ -3103,6 +3146,12 @@ function emitQpiOperands(ctx: FnCtx, args: Expression[], kinds: ArgKind[]): stri
       continue;
     }
     const e = args[ai++];
+    if (k === "ownsel" || k === "possel") {
+      // Selector is passed by address (i32). A missing arg is the C++ default `::any()`, so this must run
+      // before the generic missing-arg fallback below (which would push an i64 0 and break wasm validation).
+      ops.push(materializeSelect(ctx, e));
+      continue;
+    }
     if (!e) {
       ops.push(k === "addr" ? "(i32.const 0)" : "(i64.const 0)");
       continue;
@@ -3117,23 +3166,6 @@ function emitQpiOperands(ctx: FnCtx, args: Expression[], kinds: ArgKind[]): stri
       } else {
         ctx.cg.warn(`qpi argument is not an addressable id/struct`, (e as any).span?.line ?? 0);
         ops.push("(i64.const 0)", "(i32.const 0)");
-      }
-      continue;
-    }
-    if (k === "ownsel" || k === "possel") {
-      // AssetOwnershipSelect / AssetPossessionSelect: a brace-init `{id, mgmt}` (no inferred type, so emitAddr
-      // would drop it to a null pointer) or a static-method select (any()/byOwner()). Materialize the 40-byte
-      // selector: id @0, managingContract u16 @32, any-flags @34/@35 (0 = a concrete, non-wildcard select).
-      if (e.kind === "initializer_list") {
-        const t = newTmp(ctx);
-        ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 40)))`);
-        ctx.lines.push(`    (call $setMem (local.get $${t}) (i32.const 40) (i32.const 0))`);
-        const idSrc = e.exprs[0] ? emitAddr(ctx, e.exprs[0]) : null;
-        if (idSrc) ctx.lines.push(`    (call $copyMem (local.get $${t}) ${idSrc} (i32.const 32))`);
-        if (e.exprs[1]) ctx.lines.push(`    (i32.store16 (i32.add (local.get $${t}) (i32.const 32)) (i32.and (i32.wrap_i64 ${emitValue(ctx, e.exprs[1])}) (i32.const 0xffff)))`);
-        ops.push(`(local.get $${t})`);
-      } else {
-        ops.push(emitAddr(ctx, e) ?? "(i32.const 0)");
       }
       continue;
     }
