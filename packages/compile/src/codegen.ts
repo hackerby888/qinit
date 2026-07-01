@@ -931,10 +931,12 @@ class Codegen {
       case "c_cast":
       case "static_cast":
         return this.evalConstBig(expr.expr, b);
-      case "call": {
-        // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4)).
-        // Without these a div/mod/min/max folded to 0, silently corrupting derived constants (and any loop
-        // bound or guard built on them).
+      case "call":
+      case "template_call": {
+        // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4),
+        // QRAFFLE_LOGOUT_FEE = div<uint32>(REGISTER_AMOUNT, 20)). The explicit-type form parses as a
+        // template_call; both spellings must fold, else a div/mod/min/max silently becomes 0 and corrupts
+        // the derived constant (and any fee, loop bound, or guard built on it).
         const callee = expr.callee;
         const fn = callee.kind === "identifier" ? callee.name : callee.kind === "qualified_name" ? callee.name : null;
         if (fn) {

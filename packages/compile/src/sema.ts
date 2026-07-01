@@ -335,6 +335,24 @@ export class Sema {
         // Cast: evaluate inner, truncate to type size
         return this.evalExpr(expr.expr);
       }
+      case "call":
+      case "template_call": {
+        // QPI safe-math helpers used in constexpr contexts, e.g. div<uint32>(REGISTER_AMOUNT, 20).
+        // The explicit-type form parses as template_call; both must fold (else derived constants -> 0).
+        const c = expr.callee;
+        const fn = c.kind === "identifier" ? c.name : c.kind === "qualified_name" ? (c as { name: string }).name : null;
+        if (fn) {
+          const a = expr.args.map((x) => this.evalExpr(x));
+          switch (fn) {
+            case "div": return a[1] === 0n ? 0n : a[0] / a[1];
+            case "mod": return a[1] === 0n ? 0n : a[0] % a[1];
+            case "min": return a[0] <= a[1] ? a[0] : a[1];
+            case "max": return a[0] >= a[1] ? a[0] : a[1];
+            case "abs": return a[0] < 0n ? -a[0] : a[0];
+          }
+        }
+        throw new Error(`constexpr eval not supported for call to ${fn ?? "?"}`);
+      }
       default:
         throw new Error(`constexpr eval not supported for ${expr.kind}`);
     }
