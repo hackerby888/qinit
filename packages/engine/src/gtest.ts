@@ -335,6 +335,13 @@ export async function runContractTesting(
       const zero = new Uint8Array(32);
       return (sim as any).assets.transferShareOwnershipAndPossession(qxSlot >>> 0, BigInt.asUintN(64, name), zero, src, src, BigInt.asUintN(64, shares), id32(dstPtr)) as bigint;
     },
+    // transferShareOwnershipAndPossession free helper (index-based): move `shares` of asset (issuer, name) from the
+    // owner/possessor holding to newOwner, managed by mgmt. Returns the source's remaining shares (<0 on failure).
+    q_transfer_holding: (name: bigint, issuerPtr: number, ownerPtr: number, newOwnerPtr: number, shares: bigint, mgmt: number): bigint => {
+      const issuer = id32(issuerPtr);
+      const owner = id32(ownerPtr);
+      return (sim as any).assets.transferShareOwnershipAndPossession(mgmt >>> 0, BigInt.asUintN(64, name), issuer, owner, owner, BigInt.asUintN(64, shares), id32(newOwnerPtr)) as bigint;
+    },
 
     q_spectrum: (idPtr: number): number => {
       const h = hex(id32(idPtr));

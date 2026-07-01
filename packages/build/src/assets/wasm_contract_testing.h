@@ -29,6 +29,7 @@ QBCT_IMPORT(q_shares)    long long     bq_shares(const void* issuer32, unsigned 
 QBCT_IMPORT(q_possessed) long long     bq_possessed(unsigned long long name, const void* issuer32, const void* owner32, const void* possessor32, unsigned int om, unsigned int pm);
 QBCT_IMPORT(q_mint_contract_shares) void bq_mint_contract_shares(unsigned long long name, long long shares, unsigned int qxSlot);
 QBCT_IMPORT(q_transfer_shares) long long bq_transfer_shares(unsigned long long name, const void* src32, const void* dst32, long long shares, unsigned int qxSlot);
+QBCT_IMPORT(q_transfer_holding) long long bq_transfer_holding(unsigned long long name, const void* issuer32, const void* owner32, const void* newOwner32, long long shares, unsigned int mgmt);
 QBCT_IMPORT(q_spectrum)  int           bq_spectrum(const void* id32);
 QBCT_IMPORT(q_decrease)  void          bq_decrease(int idx, long long amount);
 QBCT_IMPORT(q_state_size) unsigned int bq_state_size(unsigned int i);
@@ -85,6 +86,23 @@ enum SystemProcedureID {
     END_EPOCH   = 2,
     BEGIN_TICK  = 3,
     END_TICK    = 4,
+};
+
+// ---- user-function call context (a read-only function call that also carries an invocator) ----
+// core-lite's contract_core/contract_def.h defines USER_FUNCTION_CALL as an OtherEntryPointIDs value
+// (contractSystemProcedureCount + 2 == 14), and contract_core/contract_exec.h a QpiContextUserFunctionCall
+// a corpus constructs to run a contract's user FUNCTION directly in-process (QDUEL: computeWinner /
+// calculateRevenue / getUserProfileFor invoke GetWinnerPlayer(qpi, state, ...) etc. through such a context).
+// Neither header is compiled in wasm mode, so provide both here. The entry-point id is only stored on the
+// context (QpiContext::_entryPoint); no wasm-TU code dispatches on it, so it is inert beyond naming the call
+// kind — we keep core's numeric value for faithfulness. A corpus may also derive its own invocator-carrying
+// variant straight from QPI::QpiContextFunctionCall's protected 4-arg ctor
+// (contractIndex, originator, invocationReward, entryPoint) with USER_FUNCTION_CALL as the entry point.
+enum : unsigned char { USER_FUNCTION_CALL = 14 };
+
+struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall {
+    QpiContextUserFunctionCall(unsigned int contractIndex)
+        : QPI::QpiContextFunctionCall(contractIndex, QPI::id::zero(), 0, USER_FUNCTION_CALL) {}
 };
 
 // ---- contractStates: lazy shadow-buffer proxy synced from engine on each access ----
@@ -218,17 +236,100 @@ struct QbSystemStruct {
     QbTickProxy tick;
 };
 
-// ---- utcTime / updateTime / updateQpiTime: corpus time control ----
-// utcTime is the EFI_TIME (lib/platform_efi/uefi.h, already in scope) a corpus sets, then pushes to the chain
-// clock via updateQpiTime() so the contract's qpi.year()/month()/day()/... reflect it. updateTime() (native:
-// read the wall clock) is a no-op here — the corpus always overwrites the fields it cares about, then pushes.
+// ---- utcTime / etalonTick / updateTime / updateQpiTime: corpus time control ----
+// The native harness exposes a mutable `etalonTick` (a Tick global) whose date fields ARE the simulated chain
+// clock: qpi.year()/month()/day()/hour()/minute()/second() read them live. Corpora set the date either by
+// assigning etalonTick fields directly (e.g. `etalonTick.year = 25; etalonTick.month = 11; ...`, where year is
+// the 2-digit form = calendar year - 2000) or via updateQpiTime(), which copies utcTime -> etalonTick.
+//
+// The engine clock is driven by q_set_datetime (module "thost"), which expects a FULL calendar year. The
+// live-read semantics are reproduced with a proxy: every etalonTick field mutation re-pushes the whole date to
+// the engine (adding 2000 back to the 2-digit year), so the next contract call observes it. Intermediate
+// pushes from partially-written dates are harmless — the contract reads time only after the corpus finishes
+// writing every field for a given instant.
+//
+// utcTime is the EFI_TIME (lib/platform_efi/uefi.h, already in scope) some corpora set before updateQpiTime().
 static EFI_TIME utcTime = { 2024, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
+
+static void qbEtalonSync();  // defined just below etalonTick
+
+// One date component of etalonTick. Supports the mutation/read forms the corpora use (=, +=, -=, ++, and the
+// implicit read via operator unsigned int()); every mutation re-pushes the full date to the engine clock.
+struct QbEtalonField {
+    unsigned int* slot;
+
+    operator unsigned int() const {
+        return *slot;
+    }
+
+    QbEtalonField& operator=(unsigned int v) {
+        *slot = v;
+        qbEtalonSync();
+        return *this;
+    }
+
+    QbEtalonField& operator+=(int v) {
+        *slot = (unsigned int)((int)*slot + v);
+        qbEtalonSync();
+        return *this;
+    }
+
+    QbEtalonField& operator-=(int v) {
+        *slot = (unsigned int)((int)*slot - v);
+        qbEtalonSync();
+        return *this;
+    }
+
+    QbEtalonField& operator++() {
+        *slot += 1u;
+        qbEtalonSync();
+        return *this;
+    }
+
+    unsigned int operator++(int) {
+        unsigned int v = *slot;
+        *slot += 1u;
+        qbEtalonSync();
+        return v;
+    }
+};
+
+// Date-only stand-in for core-lite's Tick global. backing[] holds year (2-digit) / month / day / hour /
+// minute / second / millisecond; the proxy fields alias those slots so writes route through qbEtalonSync().
+struct QbEtalonTick {
+    unsigned int backing[7];
+    QbEtalonField year, month, day, hour, minute, second, millisecond;
+    // Prev-tick spectrum digest: some contracts XOR it into digest-derived RNG (QDUEL's GetWinnerPlayer). A corpus
+    // resets it to fix that seed; the in-TU qpi.getPrevSpectrumDigest() actually reads the engine (0 on this
+    // throwaway chain), so this field only has to exist and be assignable. m256i comes from qpi.h.
+    m256i prevSpectrumDigest;
+
+    QbEtalonTick()
+        : backing{ 24, 1, 1, 0, 0, 0, 0 },
+          year{ &backing[0] }, month{ &backing[1] }, day{ &backing[2] }, hour{ &backing[3] },
+          minute{ &backing[4] }, second{ &backing[5] }, millisecond{ &backing[6] },
+          prevSpectrumDigest(m256i::zero()) {
+    }
+};
+
+static QbEtalonTick etalonTick;
+
+static void qbEtalonSync() {
+    bq_set_datetime(etalonTick.backing[0] + 2000, etalonTick.backing[1], etalonTick.backing[2],
+                    etalonTick.backing[3], etalonTick.backing[4], etalonTick.backing[5]);
+}
 
 static inline void updateTime() {
 }
 
 static inline void updateQpiTime() {
-    bq_set_datetime(utcTime.Year, utcTime.Month, utcTime.Day, utcTime.Hour, utcTime.Minute, utcTime.Second);
+    etalonTick.year = (unsigned int)(utcTime.Year - 2000);
+    etalonTick.month = utcTime.Month;
+    etalonTick.day = utcTime.Day;
+    etalonTick.hour = utcTime.Hour;
+    etalonTick.minute = utcTime.Minute;
+    etalonTick.second = utcTime.Second;
+    etalonTick.millisecond = utcTime.Nanosecond / 1000000;
 }
 
 static QbSystemStruct qubicSystemStruct;
@@ -349,16 +450,64 @@ static inline void notifyContractOfIncomingTransfer(const QPI::id& source, const
 
 static inline unsigned long long assetNameFromString(const char* s);  // defined below; used by issueAsset
 
-// Mint an asset for a test (issuer == invocator path); name/unit are short ASCII strings. The issuance/
-// ownership/possession out-indices aren't modelled here (the engine keys assets by issuer+name), so they're
-// zeroed. Returns the number of shares minted (0 on failure).
+// The native harness returns opaque asset-universe indices from issueAsset and threads them into the index-based
+// transferShareOwnershipAndPossession. The engine keys assets by holding (issuer+name / owner / possessor), so
+// each returned index is mapped to the holding it denotes and transfers are replayed on the holding side. Index 0
+// is the "unknown holding" sentinel.
+namespace qbctidx {
+    struct Holding {
+        unsigned long long name;
+        QPI::id issuer;
+        QPI::id owner;
+        unsigned int mgmt;
+    };
+
+    static inline std::vector<Holding>& table() {
+        static std::vector<Holding> t(1);
+        return t;
+    }
+
+    static inline int record(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, unsigned int mgmt) {
+        Holding h;
+        h.name = name;
+        h.issuer = issuer;
+        h.owner = owner;
+        h.mgmt = mgmt;
+        table().push_back(h);
+        return (int)table().size() - 1;
+    }
+
+    static inline bool isZeroId(const QPI::id& a) {
+        const unsigned char* p = (const unsigned char*)&a;
+        for (int i = 0; i < 32; ++i)
+            if (p[i]) return false;
+        return true;
+    }
+}
+
+// Mint an asset for a test; name/unit are short ASCII strings. A NULL_ID issuer is the QX contract-share
+// convention, which the engine's contract-facing issueAsset rejects, so route it through the holding-based
+// contract-share mint. The out-indices denote the newly minted holding (issuer owns and possesses every share).
+// Returns the number of shares minted (0 on failure).
 static inline long long issueAsset(const QPI::id& issuer, const char* name, signed char decimals, const char* unit,
                                    long long numberOfShares, unsigned short managingContract,
                                    int* issuanceIndex, int* ownershipIndex, int* possessionIndex) {
-    if (issuanceIndex) *issuanceIndex = 0;
-    if (ownershipIndex) *ownershipIndex = 0;
-    if (possessionIndex) *possessionIndex = 0;
-    return bq_issue_asset(&issuer, assetNameFromString(name), (int)decimals, numberOfShares, assetNameFromString(unit), (unsigned int)managingContract);
+    const unsigned long long assetName = assetNameFromString(name);
+
+    long long issued;
+    if (qbctidx::isZeroId(issuer)) {
+        bq_mint_contract_shares(assetName, numberOfShares, (unsigned int)managingContract);
+        issued = numberOfShares;
+    } else {
+        issued = bq_issue_asset(&issuer, assetName, (int)decimals, numberOfShares, assetNameFromString(unit), (unsigned int)managingContract);
+    }
+
+    const int idx = qbctidx::record(assetName, issuer, issuer, (unsigned int)managingContract);
+    if (issuanceIndex) *issuanceIndex = idx;
+    if (ownershipIndex) *ownershipIndex = idx;
+    if (possessionIndex) *possessionIndex = idx;
+
+    return issued;
 }
 
 static inline int spectrumIndex(const QPI::id& who) {
@@ -400,6 +549,37 @@ static inline void issueContractShares(unsigned int contractIndex, std::vector<s
     for (const auto& ownerShareCountPair : initialOwnerShares)
         EXPECT_GE(bq_transfer_shares(assetName, &nullId, &ownerShareCountPair.first, (long long)ownerShareCountPair.second, QX_CONTRACT_INDEX), 0LL);
     EXPECT_EQ(numberOfShares(QPI::Asset{ nullId, assetName }), (QPI::sint64)NUMBER_OF_COMPUTORS);
+}
+
+// Index-based share transfer (googletest free helper): move `numberOfShares` from the holding denoted by
+// sourceOwnershipIndex (a prior issueAsset / transfer result) to newOwner. The engine transfers ownership and
+// possession together, so one holding-transfer covers both the source ownership and possession indices. Returns
+// true on success (native returns bool) and records the destination holding so chained transfers resolve.
+static inline bool transferShareOwnershipAndPossession(int sourceOwnershipIndex, int sourcePossessionIndex,
+                                                       const QPI::id& newOwner, long long numberOfShares,
+                                                       int* destinationOwnershipIndex, int* destinationPossessionIndex,
+                                                       bool lock) {
+    (void)sourcePossessionIndex;
+    (void)lock;
+
+    std::vector<qbctidx::Holding>& t = qbctidx::table();
+    if (sourceOwnershipIndex <= 0 || (size_t)sourceOwnershipIndex >= t.size()) {
+        if (destinationOwnershipIndex) *destinationOwnershipIndex = 0;
+        if (destinationPossessionIndex) *destinationPossessionIndex = 0;
+        return false;
+    }
+
+    const qbctidx::Holding src = t[sourceOwnershipIndex];
+    const long long remaining = bq_transfer_holding(src.name, &src.issuer, &src.owner, &newOwner, numberOfShares, src.mgmt);
+    const bool ok = remaining >= 0;
+
+    int dst = 0;
+    if (ok)
+        dst = qbctidx::record(src.name, src.issuer, newOwner, src.mgmt);
+    if (destinationOwnershipIndex) *destinationOwnershipIndex = dst;
+    if (destinationPossessionIndex) *destinationPossessionIndex = dst;
+
+    return ok;
 }
 
 // ---- streamable EXPECT_* (gtest `EXPECT_EQ(a,b) << "note"`) ----
