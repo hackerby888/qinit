@@ -264,6 +264,14 @@ class Codegen {
     }
     const init = this.constexprInit.get(name);
     if (init === undefined) {
+      // A callee's index constant (`QX_CONTRACT_INDEX`) isn't declared in this contract's source, so resolve
+      // it from the provided callee IDL. A plain-value use — `qpi.releaseShares(..., QX_CONTRACT_INDEX, ...)`
+      // (MSVAULT) — otherwise folds to 0 and the managing-contract arg is wrong.
+      const ci = name.match(/^(\w+)_CONTRACT_INDEX$/);
+      if (ci) {
+        const c = this.callees.get(ci[1]);
+        if (c !== undefined) { this.constCache.set(name, BigInt(c.index)); return BigInt(c.index); }
+      }
       // namespace-qualified constant (ProposalTypes::Class::GeneralOptions): constants are collected by their
       // unqualified name, so fall back to the tail after the last `::`.
       const i = name.lastIndexOf("::");
