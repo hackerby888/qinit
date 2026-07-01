@@ -1375,7 +1375,11 @@ export function generateWasmModule(
       // overloaded helpers (min(uint64,...) and min(sint64,...)) share one $h_<name> — first wins, so
       // the function is emitted once (a second emission would redefine the wasm function).
       const params = fn.params.map((p) => {
-        const isAddr = cg.isAggregateType(p.type);
+        // A reference/pointer param is passed by address (so a scalar out-param like `uint64& revenue` writes
+        // back to the caller), as is any aggregate. Without the ref/ptr check, `uint64& r` became an i64 value
+        // param and `r = x` was lost (RL getSCRevenue -> getBalance always 0).
+        const isPtrRef = p.type.kind === "reference" || p.type.kind === "pointer";
+        const isAddr = isPtrRef || cg.isAggregateType(p.type);
         return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
       });
       const isVoid = cg.isVoidType(fn.returnType);   // `void` may parse as {kind:"void"} OR {kind:"name","void"}
