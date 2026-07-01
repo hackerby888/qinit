@@ -220,10 +220,13 @@ export class Sim {
     this.spectrum.increaseEnergy(id, amount, this.tickN);
   }
 
-  // Test helper (core's notifyContractOfIncomingTransfer): credit `dest` with `amount` and fire its
-  // POST_INCOMING_TRANSFER callback, simulating an inbound transfer the corpus wants the contract to react to.
+  // Test helper (core's notifyContractOfIncomingTransfer): MOVE `amount` from source to dest, then fire dest's
+  // POST_INCOMING_TRANSFER callback — a full inbound transfer the corpus wants the contract to react to. The
+  // move must debit the source: if the handler refunds (as RL does), crediting dest without debiting source
+  // would leave the sender doubled.
   notifyIncomingTransfer(source: Uint8Array, dest: Uint8Array, amount: bigint, type: number): void {
-    this.fund(dest, amount);
+    this.spectrum.decreaseEnergy(source, amount, this.tickN);
+    this.spectrum.increaseEnergy(dest, amount, this.tickN);
     this.notifyPIT(dest, source, amount, type);
   }
 
