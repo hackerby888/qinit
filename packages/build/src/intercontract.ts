@@ -14,7 +14,9 @@ export function parseContractDef(corePath: string): Map<string, CalleeDef> {
   const idx = new Map<string, number>();
   for (const m of src.matchAll(/#define\s+(\w+)_CONTRACT_INDEX\s+(\d+)/g)) idx.set(m[1], Number(m[2]));
   const out = new Map<string, CalleeDef>();
-  const re = /#define\s+CONTRACT_INDEX\s+(\w+)_CONTRACT_INDEX\s*\n\s*#define\s+CONTRACT_STATE_TYPE\s+(\w+)\s*\n\s*#define\s+CONTRACT_STATE2_TYPE\s+\w+\s*\n\s*#include\s+"([^"]+)"/g;
+  // Some contracts guard the include behind `#ifdef OLD_X / #include "..._old.h" / #else / #include "...h" /
+  // #endif` (QBAY, QSWAP). Allow that optional prefix and capture the live (#else) include, not the _old one.
+  const re = /#define\s+CONTRACT_INDEX\s+(\w+)_CONTRACT_INDEX\s*\n\s*#define\s+CONTRACT_STATE_TYPE\s+(\w+)\s*\n\s*#define\s+CONTRACT_STATE2_TYPE\s+\w+\s*\n(?:\s*#ifdef\s+\w+\s*\n\s*#include\s+"[^"]+"\s*\n\s*#else\s*\n)?\s*#include\s+"([^"]+)"/g;
   for (const m of src.matchAll(re)) {
     const i = idx.get(m[1]);
     if (i !== undefined) out.set(m[2], { type: m[2], index: i, include: m[3] });
