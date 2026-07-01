@@ -637,7 +637,7 @@ class Codegen {
             try { consts.set(v.name, this.evalConstBig(v.init, parentB)); } catch { /* not a dimension */ }
           }
         }
-        const layout = this.layoutOfMembers(struct.members, parentB, struct.name, struct.isUnion, struct.bases);
+        const layout = this.layoutOfMembers(struct.members, parentB, this.structCacheKey(struct), struct.isUnion, struct.bases);
         return { layout, consts };
       }
     }
@@ -689,8 +689,22 @@ class Codegen {
     return null;
   }
 
+  // A layout cache key unique to each struct DECLARATION, not its (possibly shared) name. Two distinct structs
+  // can share a name — QBOND's state `Order` (…feeDebt) and `GetOrders_output::Order` (…price) — and caching by
+  // bare name let the first computed layout satisfy lookups for the second (silently dropping the price field).
+  private structKeys = new WeakMap<StructDecl, string>();
+  private structKeyCounter = 0;
+  private structCacheKey(struct: StructDecl): string {
+    let k = this.structKeys.get(struct);
+    if (k === undefined) {
+      k = `${struct.name}#${this.structKeyCounter++}`;
+      this.structKeys.set(struct, k);
+    }
+    return k;
+  }
+
   private layoutOfStruct(struct: StructDecl, b: Bindings): StructLayout {
-    return this.layoutOfMembers(struct.members, b, struct.name, struct.isUnion, struct.bases);
+    return this.layoutOfMembers(struct.members, b, this.structCacheKey(struct), struct.isUnion, struct.bases);
   }
 
   private inProgress = new Set<string>();
@@ -967,6 +981,12 @@ class Codegen {
       if (m.kind === "struct") {
         const s = m as StructDecl;
         this.nested.set(s.name, s);
+        // Also register structs nested INSIDE this one under their qualified name (`Outer::Inner`), recursively.
+        // The parser spells such a member type fully-qualified (`GetOrders_output::Order tempOrder;`), so without
+        // this structByName's lossy unqualified-suffix fallback binds it to a same-named top-level struct with
+        // different fields (QBOND's state `Order` has `feeDebt` where `GetOrders_output::Order` has `price`) —
+        // silently dropping the field's stores, or (no match) sizing the type to 4 bytes.
+        this.collectNestedStructs(s, s.name);
       } else if (m.kind === "variable") {
         this.collectConstant(m as VariableDecl);
       } else if (m.kind === "enum") {
@@ -976,6 +996,20 @@ class Codegen {
         // resolve their layout/fields.
         const td = m as any;
         if (!this.typedefs.has(td.name)) this.typedefs.set(td.name, td.type);
+      }
+    }
+  }
+
+  // Register the struct members declared INSIDE `parent` under their qualified name `${prefix}::${name}`
+  // (recursively), without clobbering same-named top-level structs. Lets `structByName("Outer::Inner")` hit
+  // the correct inner declaration before the unqualified-suffix fallback.
+  private collectNestedStructs(parent: StructDecl, prefix: string): void {
+    for (const m of parent.members) {
+      if (m.kind === "struct") {
+        const s = m as StructDecl;
+        const key = `${prefix}::${s.name}`;
+        if (!this.nested.has(key)) this.nested.set(key, s);
+        this.collectNestedStructs(s, key);
       }
     }
   }
