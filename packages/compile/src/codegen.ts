@@ -3038,7 +3038,7 @@ const QPI_GETTERS: Record<string, { fwd: string; ret: "i64" | "i32" }> = {
 // into — used as an assignment RHS (e.g. output.next = qpi.nextId(input.cur)).
 // "asset" consumes ONE Asset argument (id issuer; uint64 assetName) but emits TWO operands — the assetName
 // (i64, loaded from offset 32) then the issuer address — matching the lhost share calls' (name, issuer, …).
-type ArgKind = "i64" | "i32" | "addr" | "cidx" | "asset";
+type ArgKind = "i64" | "i32" | "addr" | "cidx" | "asset" | "ownsel" | "possel";
 interface QpiCallDesc {
   fwd: string;
   args: ArgKind[];
@@ -3051,7 +3051,7 @@ const QPI_CALLS: Record<string, QpiCallDesc> = {
   issueAsset: { fwd: "$qpi_issueAsset", args: ["i64", "addr", "i32", "i64", "i64"], ret: "i64" },
   isAssetIssued: { fwd: "$qpi_isAssetIssued", args: ["addr", "i64"], ret: "i32" },
   transferShareOwnershipAndPossession: { fwd: "$qpi_transferShares", args: ["i64", "addr", "addr", "addr", "i64", "addr"], ret: "i64" },
-  numberOfShares: { fwd: "$qpi_numberOfShares", args: ["addr", "addr", "addr"], ret: "i64" },
+  numberOfShares: { fwd: "$qpi_numberOfShares", args: ["addr", "ownsel", "possel"], ret: "i64" },
   numberOfPossessedShares: { fwd: "$qpi_numberOfPossessedShares", args: ["i64", "addr", "addr", "addr", "i32", "i32"], ret: "i64" },
   releaseShares: { fwd: "$qpi_releaseShares", args: ["asset", "addr", "addr", "i64", "i32", "i32", "i64"], ret: "i64" },
   acquireShares: { fwd: "$qpi_acquireShares", args: ["asset", "addr", "addr", "i64", "i32", "i32", "i64"], ret: "i64" },
@@ -3099,6 +3099,23 @@ function emitQpiOperands(ctx: FnCtx, args: Expression[], kinds: ArgKind[]): stri
       } else {
         ctx.cg.warn(`qpi argument is not an addressable id/struct`, (e as any).span?.line ?? 0);
         ops.push("(i64.const 0)", "(i32.const 0)");
+      }
+      continue;
+    }
+    if (k === "ownsel" || k === "possel") {
+      // AssetOwnershipSelect / AssetPossessionSelect: a brace-init `{id, mgmt}` (no inferred type, so emitAddr
+      // would drop it to a null pointer) or a static-method select (any()/byOwner()). Materialize the 40-byte
+      // selector: id @0, managingContract u16 @32, any-flags @34/@35 (0 = a concrete, non-wildcard select).
+      if (e.kind === "initializer_list") {
+        const t = newTmp(ctx);
+        ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 40)))`);
+        ctx.lines.push(`    (call $setMem (local.get $${t}) (i32.const 40) (i32.const 0))`);
+        const idSrc = e.exprs[0] ? emitAddr(ctx, e.exprs[0]) : null;
+        if (idSrc) ctx.lines.push(`    (call $copyMem (local.get $${t}) ${idSrc} (i32.const 32))`);
+        if (e.exprs[1]) ctx.lines.push(`    (i32.store16 (i32.add (local.get $${t}) (i32.const 32)) (i32.and (i32.wrap_i64 ${emitValue(ctx, e.exprs[1])}) (i32.const 0xffff)))`);
+        ops.push(`(local.get $${t})`);
+      } else {
+        ops.push(emitAddr(ctx, e) ?? "(i32.const 0)");
       }
       continue;
     }
