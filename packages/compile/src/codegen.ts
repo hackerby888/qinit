@@ -1009,6 +1009,11 @@ class Codegen {
         const s = m as StructDecl;
         const key = `${prefix}::${s.name}`;
         if (!this.nested.has(key)) this.nested.set(key, s);
+        // Also register the unqualified name so a bare reference written inside the declaring struct
+        // (e.g. `Array<TableEntry, 512> info;` where TableEntry is a sibling nested struct) resolves.
+        // First-wins and never shadowing a global keeps a same-named top-level/contract struct authoritative
+        // (QBOND's state `Order` stays bound to itself, not GetOrders_output::Order).
+        if (!this.nested.has(s.name) && !this.globalStructs.has(s.name)) this.nested.set(s.name, s);
         this.collectNestedStructs(s, key);
       }
     }
