@@ -1375,10 +1375,13 @@ export function generateWasmModule(
       // overloaded helpers (min(uint64,...) and min(sint64,...)) share one $h_<name> — first wins, so
       // the function is emitted once (a second emission would redefine the wasm function).
       const params = fn.params.map((p) => {
-        // A reference/pointer param is passed by address (so a scalar out-param like `uint64& revenue` writes
-        // back to the caller), as is any aggregate. Without the ref/ptr check, `uint64& r` became an i64 value
-        // param and `r = x` was lost (RL getSCRevenue -> getBalance always 0).
-        const isPtrRef = p.type.kind === "reference" || p.type.kind === "pointer";
+        // A NON-const scalar reference (an out-param like `uint64& revenue`) must be passed by address so the
+        // write reaches the caller — without this it was an i64 value param and `r = x` was lost (RL
+        // getSCRevenue -> getBalance always 0). A const scalar reference (`const uint64&`) is read-only and can
+        // bind to an rvalue at the call site, so it stays a value param (the $h_ call side passes it by value;
+        // making it addr would need null-pointer/rvalue handling it doesn't have). Aggregates are addr either way.
+        const isConstRef = p.type.kind === "reference" && p.type.refereed?.kind === "const";
+        const isPtrRef = (p.type.kind === "reference" && !isConstRef) || p.type.kind === "pointer";
         const isAddr = isPtrRef || cg.isAggregateType(p.type);
         return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
       });
@@ -2687,6 +2690,10 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       if (ctx.localVars.has(expr.name) && !ctx.refLocals?.has(expr.name)) return `(local.get $${expr.name})`;
       const p = ctx.params?.get(expr.name);
       if (p && !p.isAddr) return `(local.get $${p.local ?? expr.name})`;
+      // A scalar reference/pointer param is an address (i32) — reading its value loads through it. (Aggregate
+      // addr params are read via member access / resolveAddr, not as a bare scalar.)
+      if (p && p.isAddr && !ctx.cg.isAggregateType(p.type))
+        return loadAt(`(local.get $${p.local ?? expr.name})`, ctx.cg.sizeOfType(p.type), !unsignedScalar(p.type));
       if (expr.name === "SELF_INDEX") return `(i64.extend_i32_u (call $qpi_contractIndex))`;
       if (expr.name === "NULL") return `(i64.const 0)`;
       // inside a compiled container method: a template non-type param (L), a static constexpr member
