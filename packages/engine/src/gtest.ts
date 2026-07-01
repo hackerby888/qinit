@@ -231,7 +231,15 @@ export async function runContractTesting(
   };
 
   const deployAll = () => {
+    // The corpus `system` proxy (epoch / tick / chain clock) mirrors real Qubic's persistent global `system`:
+    // constructing a ContractTesting fixture resets spectrum/universe/contract states but never system.epoch/tick.
+    // A corpus may set system.epoch BEFORE building the fixture (QBOND: `system.epoch = 192; ContractTestingQBond
+    // qbond;`), so carry the clock across the rebuild instead of zeroing it on the fresh Sim.
+    const prevEpoch = sim?.epochN, prevTick = sim?.tickN, prevTimeBase = sim?.timeBaseMs;
     sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    if (prevEpoch !== undefined) sim.epochN = prevEpoch;
+    if (prevTick !== undefined) sim.tickN = prevTick;
+    if (prevTimeBase !== undefined) sim.timeBaseMs = prevTimeBase;
     handles = {};
     spectrumIds = [];
     spectrumBytes = [];
