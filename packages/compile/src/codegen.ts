@@ -1024,6 +1024,30 @@ class Codegen {
   // Register the struct members declared INSIDE `parent` under their qualified name `${prefix}::${name}`
   // (recursively), without clobbering same-named top-level structs. Lets `structByName("Outer::Inner")` hit
   // the correct inner declaration before the unqualified-suffix fallback.
+  // Seed a callee contract's cross-contract surface (the pieces a single-TU native build gets for free
+  // because all contracts share one translation unit): file-scope constants/enums (RL_DEFAULT_INIT_TIME)
+  // and the contract struct's static methods, callable qualified (`RL::makeDateStamp`) through libFns.
+  // Runs after the user's own declarations are collected — first-wins keeps the user authoritative.
+  seedCallee(name: string, decls: Declaration[]): void {
+    for (const d of decls) {
+      if (d.kind === "variable") {
+        this.collectConstant(d as VariableDecl);
+      } else if (d.kind === "enum") {
+        this.collectEnum(d as any);
+      } else if (d.kind === "struct") {
+        const s = d as StructDecl;
+        if (!s.bases?.some((b) => b.kind === "name" && b.name === "ContractBase")) continue;
+        for (const m of s.members) {
+          if (m.kind !== "function") continue;
+          const fn = m as FunctionDecl;
+          if (!fn.body || !fn.isStatic) continue;
+          const key = `${name}::${fn.name}`;
+          if (!this.libFns.has(key)) this.libFns.set(key, fn);
+        }
+      }
+    }
+  }
+
   // Inline methods of a nested struct (WinnerData::isValid, EscrowAsset::setFrom) dispatch through
   // templateMethods like any plain-struct method — capture them under each of the given names,
   // additionally keyed by arity so overloads select correctly.
@@ -1417,6 +1441,7 @@ export function generateWasmModule(
   lib?: LibTypes,
   callees?: CalleeIdl[],
   calleeStructs?: Map<string, StructDecl>,
+  calleeTus?: Array<{ name: string; decls: Declaration[] }>,
 ): string {
   const cg = new Codegen(sema);
   for (const c of callees ?? []) cg.callees.set(c.name, c);
@@ -1439,6 +1464,7 @@ export function generateWasmModule(
     if (lib.templateMethods) for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
   }
   cg.collectTU(tu.declarations);
+  for (const ct of calleeTus ?? []) cg.seedCallee(ct.name, ct.decls);
 
   const contract = findContractStruct(tu);
   if (!contract) {
@@ -3733,7 +3759,11 @@ function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
   const fn = cg.libFns.get(name) ?? cg.libFns.get(`QPI::${name}`);
   if (!fn || !fn.body) return null;
   const params = fn.params.map((p) => {
-    const isAddr = cg.isAggregateType(p.type);
+    // A NON-const scalar reference (RL::makeDateStamp's `uint32& res`) is an out-param and must travel by
+    // address for the write to reach the caller; a const scalar ref stays a value (same policy as helpers).
+    const isConstRef = p.type.kind === "reference" && p.type.refereed?.kind === "const";
+    const isPtrRef = (p.type.kind === "reference" && !isConstRef) || p.type.kind === "pointer";
+    const isAddr = isPtrRef || cg.isAggregateType(p.type);
     return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
   });
   const retAgg = !cg.isVoidType(fn.returnType) && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
