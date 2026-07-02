@@ -198,7 +198,7 @@ export class Contract {
 
   private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module, thost?: Record<string, Function>) {
     this.thost = thost;
-    this.inst = new WebAssembly.Instance(mod, this.imports());
+    this.inst = new WebAssembly.Instance(mod, this.imports(mod));
     this.ex = this.inst.exports;
     this.mem = this.ex.memory;
     // Exported layout getters return addresses of statics — safe to read before _initialize.
@@ -417,7 +417,7 @@ export class Contract {
   // The "lhost" import table (core-lite src/extensions/lite_wasm_imports.h LHOST_TABLE) + WASI stubs.
   // The contract wires only the subset it declares; extras are ignored. Effectful ledger/asset/inter-contract
   // ops throw loudly (not silently wrong) until Layer 2 models them.
-  private imports(): WebAssembly.Imports {
+  private imports(mod?: WebAssembly.Module): WebAssembly.Imports {
     const u8 = () => this.u8();
     const ctxView = () => QpiContext.wrap(u8(), this.ctxAddr); // the live QpiContext header (originator / invocator)
     const lhost: Record<string, Function> = {
@@ -626,14 +626,27 @@ export class Contract {
       },
     };
     this.meterLhost(lhost);
-    // WASI: contracts link a few wasi-libc stdio stubs (fd_write/fd_seek/fd_close) via malloc/abort paths;
-    // a correct run never calls them. Any unlisted import returns 0 (ESUCCESS); proc_exit throws.
-    const wasi = new Proxy(
-      { proc_exit: (c: number) => { throw new Error("wasm proc_exit(" + c + ")"); } } as Record<string, Function>,
-      { get: (t, p: string) => (p in t ? t[p] : () => 0) },
-    );
-    // `env.*` imports come from `--allow-undefined`; stub each per envImportStub (see its doc).
-    const env = new Proxy({} as Record<string, Function>, { get: (_t, p: string) => envImportStub(p) });
+    // WASI + env: build plain objects with explicit stubs for every import the module declares,
+    // since Bun 1.3.14 has a Proxy + wasm i64-marshalling bug that crashes on i64-param imports
+    // ("Invalid argument type in ToBigInt") when the import object uses Proxy fallbacks.
+    const safeNoop = (..._args: unknown[]): number | bigint => 0n;
+    const wasiBase: Record<string, Function> = {
+      proc_exit: (c: number) => { throw new Error("wasm proc_exit(" + c + ")"); },
+    };
+    const envBase: Record<string, Function> = {};
+    if (mod) {
+      for (const imp of WebAssembly.Module.imports(mod)) {
+        const results: string[] = ((imp as any).type?.results ?? []) as string[];
+        const noopFn = results.includes("i64") ? ((..._a: unknown[]) => 0n) : ((..._a: unknown[]) => 0);
+        if (imp.module === "wasi_snapshot_preview1" && !(imp.name in wasiBase)) {
+          wasiBase[imp.name] = noopFn;
+        } else if (imp.module === "env" && !(imp.name in envBase)) {
+          envBase[imp.name] = envImportStub(imp.name);
+        }
+      }
+    }
+    const wasi = wasiBase;
+    const env = envBase;
     const testHost = this.thost ? { thost: this.thost } : {};
     return { lhost, env, wasi_snapshot_preview1: wasi, ...testHost } as unknown as WebAssembly.Imports;
   }

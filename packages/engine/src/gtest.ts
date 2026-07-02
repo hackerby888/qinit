@@ -323,7 +323,7 @@ export async function runContractTesting(
     },
 
     q_fund: (idPtr: number, amount: bigint) => { sim.fund(id32(idPtr), BigInt(amount)); },
-    q_balance: (idPtr: number): bigint => sim.balance(id32(idPtr)),
+    q_balance: (idPtr: number): bigint => { const b = sim.balance(id32(idPtr)); return typeof b === "bigint" ? b : 0n; },
     // notifyContractOfIncomingTransfer(source, dest, amount, type): credit dest + fire its POST_INCOMING_TRANSFER.
     q_notify_pit: (srcPtr: number, dstPtr: number, amount: bigint, type: number) => { sim.notifyIncomingTransfer(id32(srcPtr), id32(dstPtr), BigInt(amount), type >>> 0); },
     // issueAsset(issuer, name, decimals, unit, shares, mgmt): mint an asset (issuer == invocator path). Returns shares.
@@ -433,14 +433,17 @@ export async function runContractTesting(
     },
   };
 
-  const noopModule = new Proxy({}, { get: () => () => 0 });
-  const envProxy = new Proxy(env, { get: (t, k: string) => (k in t ? (t as any)[k] : () => 0), has: () => true });
+  // Bun 1.3.14 has a Proxy + wasm i64-marshalling bug ("Invalid argument type in ToBigInt") when a Proxy
+  // serves as the import object for a module with i64-param imports (WASI clock_time_get, lhost helpers).
+  // Build the import objects WITHOUT proxies: compile first, then populate explicit stubs for every import
+  // the module declares — no Proxy fallback needed.
+  const mod = await WebAssembly.compile(runnerWasm);
+  const noopVal = (..._args: unknown[]): number => 0;
+  const noopBig = (..._args: unknown[]): bigint => 0n;
 
-  // The runner executes corpus code OUTSIDE any engine dispatch, but its in-runner qpi context (helpers like
-  // QDUEL's computeWinner run the contract function inside the runner module) imports "lhost" like any
-  // contract. Wire the read-only environment surface to the live Sim so in-runner qpi reads agree with what
-  // the deployed contracts see; state-mutating host calls stay noops (only meaningful inside a dispatch).
-  const lhostReadOnly = {
+  // lhost: read-only surface backed by the live Sim (for in-runner qpi contexts like QDUEL's computeWinner),
+  // with explicit safeNoop stubs for state-mutating imports the runner never legitimately calls.
+  const lhost: Record<string, Function> = {
     k12: (inOff: number, len: number, outOff: number) => mem().set(k12Bytes(read(inOff, len)), outOff >>> 0),
     epoch: () => sim.epochN & 0xffff,
     tick: () => sim.tickN >>> 0,
@@ -454,30 +457,40 @@ export async function runContractTesting(
     now: (out: number) => new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
     prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
   };
-  const lhost = new Proxy(lhostReadOnly, { get: (t, k: string) => (k in t ? (t as any)[k] : () => 0), has: () => true });
 
-  // WASI: a corpus that pulls real <iostream> (e.g. VottunBridge) streams debug prints through fd_write.
-  // A stub returning 0 reads as "0 bytes written", and libc++'s ostream retries the flush forever — a hang.
-  // Report every requested byte as written (and discard it) so the flush completes; other wasi calls noop.
-  const wasi = new Proxy(
-    {
-      fd_write: (_fd: number, iovs: number, iovsLen: number, nwritten: number): number => {
-        const dv = new DataView(mem().buffer);
-        let total = 0;
-        for (let k = 0; k < (iovsLen >>> 0); k++) total += dv.getUint32((iovs >>> 0) + k * 8 + 4, true);
-        dv.setUint32(nwritten >>> 0, total >>> 0, true);
-        return 0;
-      },
-    } as Record<string, unknown>,
-    { get: (t, k: string) => (k in t ? (t as any)[k] : () => 0), has: () => true },
-  );
+  // env: PRNG (global in the runner) + contract-specific symbols.
+  const envObj: Record<string, Function> = { ...env };
 
-  const imports = new Proxy({ thost, lhost, env: envProxy, wasi_snapshot_preview1: wasi } as Record<string, unknown>, {
-    get: (t, m: string) => (m in t ? (t as any)[m] : noopModule),
-    has: () => true,
-  });
+  // wasi: fd_write with correct byte-count reporting (avoids ostream hang), clock_time_get for QTRY/Nostromo.
+  const wasiObj: Record<string, Function> = {
+    fd_write: (_fd: number, iovs: number, iovsLen: number, nwritten: number): number => {
+      const dv = new DataView(mem().buffer);
+      let total = 0;
+      for (let k = 0; k < (iovsLen >>> 0); k++) total += dv.getUint32((iovs >>> 0) + k * 8 + 4, true);
+      dv.setUint32(nwritten >>> 0, total >>> 0, true);
+      return 0;
+    },
+    clock_time_get: (_id: number, _precision: bigint, _time: number): number => 0,
+  };
 
-  const mod = await WebAssembly.compile(runnerWasm);
+  // Fill in explicit safeNoop stubs for every import the module declares that we haven't wired yet, so no
+  // Proxy is needed in the import object that Bun sees.
+  for (const imp of WebAssembly.Module.imports(mod)) {
+    const entry = imp.module === "lhost" ? lhost
+      : imp.module === "env" ? envObj
+      : imp.module === "wasi_snapshot_preview1" ? wasiObj
+      : null;
+    if (entry && !(imp.name in entry)) {
+      const results: string[] = ((imp as any).type?.results ?? []) as string[];
+      (entry as any)[imp.name] = results.includes("i64") ? noopBig : noopVal;
+    }
+  }
+
+  const imports: Record<string, Record<string, Function>> = { thost };
+  if (Object.keys(lhost).length) imports.lhost = lhost;
+  if (Object.keys(envObj).length) imports.env = envObj;
+  imports.wasi_snapshot_preview1 = wasiObj;
+
   runner = await WebAssembly.instantiate(mod, imports as any);
   (runner.exports._initialize as Function)?.();
 
