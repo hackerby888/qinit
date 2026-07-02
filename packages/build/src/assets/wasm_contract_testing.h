@@ -34,6 +34,8 @@ QBCT_IMPORT(q_spectrum)  int           bq_spectrum(const void* id32);
 QBCT_IMPORT(q_decrease)  void          bq_decrease(int idx, long long amount);
 QBCT_IMPORT(q_state_size) unsigned int bq_state_size(unsigned int i);
 QBCT_IMPORT(q_state_in)   void         bq_state_in(unsigned int i, void* dst, unsigned int len);
+QBCT_IMPORT(q_state_sync) void         bq_state_sync();
+QBCT_IMPORT(q_state_addr) unsigned int bq_state_addr(unsigned int i);
 QBCT_IMPORT(q_set_epoch)  void         bq_set_epoch(unsigned int e);
 QBCT_IMPORT(q_get_epoch)  unsigned int bq_get_epoch();
 QBCT_IMPORT(q_set_tick)   void         bq_set_tick(unsigned int t);
@@ -135,6 +137,26 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
     }
 
     void freeBuffer() {}
+
+    // In-runner qpi asset mutations (QTRY seeds its QUSD supply this way). The runner's lhost surface is
+    // read-only — its ABI carries no contract index, so a mutation resolved there would be a silent no-op.
+    // Shadow the QPI members and route through the slot-carrying thost asset operations; the managing
+    // contract is this context's own index, matching the native harness semantics.
+    long long issueAsset(unsigned long long name, const QPI::id& issuer, signed char numberOfDecimalPlaces,
+                         long long numberOfShares, unsigned long long unitOfMeasurement) const {
+        return bq_issue_asset(&issuer, name, (int)numberOfDecimalPlaces, numberOfShares, unitOfMeasurement,
+                              _currentContractIndex);
+    }
+
+    // The engine transfers ownership and possession together (owner doubles as possessor on the holding
+    // side), which matches every corpus use (owner == possessor).
+    long long transferShareOwnershipAndPossession(unsigned long long assetName, const QPI::id& issuer,
+                                                  const QPI::id& owner, const QPI::id& possessor,
+                                                  long long numberOfShares, const QPI::id& newOwnerAndPossessor) const {
+        (void)possessor;
+        return bq_transfer_holding(assetName, &issuer, &owner, &newOwnerAndPossessor, numberOfShares,
+                                   _currentContractIndex);
+    }
 };
 
 // ---- contractStates: lazy shadow-buffer proxy synced from engine on each access ----
@@ -142,6 +164,13 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
 static void* qb_state_bufs[64];
 
 static inline void* qb_state_ptr(unsigned int i) {
+    // Shared-memory contract (deployed inside this module's memory): the engine hands back the live state
+    // address — identical semantics to the native harness's contractStates[i] pointer, no copies, no sync.
+    unsigned int live = bq_state_addr(i);
+    if (live) {
+        return (void*)(unsigned long)live;
+    }
+
     if (!qb_state_bufs[i]) {
         qb_state_bufs[i] = malloc(bq_state_size(i));
     }
@@ -651,10 +680,19 @@ namespace litetest {
 QBCT_REC_CMP(Eq, ==) QBCT_REC_CMP(Ne, !=) QBCT_REC_CMP(Lt, <) QBCT_REC_CMP(Le, <=) QBCT_REC_CMP(Gt, >) QBCT_REC_CMP(Ge, >=)
 namespace litetest {
     static inline bool recBool(const char* f, int l, const char* w, bool cond) { if (!cond) failAt(f, l, w); return true; }
+
+    // Refresh engine-dirty state shadows before an assertion evaluates its operands: a corpus commonly caches
+    // `auto state = getState()` and asserts through that pointer after dispatches. For a very large state
+    // (hundreds of MB) the engine defers the post-dispatch shadow refresh to this point rather than paying a
+    // full copy per dispatch; the `&&` in the assertion macros sequences this strictly before the operand reads.
+    static inline bool qbSyncThen() {
+        bq_state_sync();
+        return true;
+    }
 }
 #define QBCT_EXPECT(suffix, a, b, label)                                                                     \
     switch (0) case 0: default:                                                                              \
-        if (::litetest::recCmp##suffix(__FILE__, __LINE__, label, (a), (b))) ; else ::litetest::Sink()
+        if (::litetest::qbSyncThen() && ::litetest::recCmp##suffix(__FILE__, __LINE__, label, (a), (b))) ; else ::litetest::Sink()
 #undef EXPECT_EQ
 #undef EXPECT_NE
 #undef EXPECT_LT
@@ -669,8 +707,8 @@ namespace litetest {
 #define EXPECT_LE(a, b) QBCT_EXPECT(Le, a, b, "EXPECT_LE(" #a ", " #b ")")
 #define EXPECT_GT(a, b) QBCT_EXPECT(Gt, a, b, "EXPECT_GT(" #a ", " #b ")")
 #define EXPECT_GE(a, b) QBCT_EXPECT(Ge, a, b, "EXPECT_GE(" #a ", " #b ")")
-#define EXPECT_TRUE(x)  switch (0) case 0: default: if (::litetest::recBool(__FILE__, __LINE__, "EXPECT_TRUE(" #x ")", (bool)(x))) ; else ::litetest::Sink()
-#define EXPECT_FALSE(x) switch (0) case 0: default: if (::litetest::recBool(__FILE__, __LINE__, "EXPECT_FALSE(" #x ")", !(bool)(x))) ; else ::litetest::Sink()
+#define EXPECT_TRUE(x)  switch (0) case 0: default: if (::litetest::qbSyncThen() && ::litetest::recBool(__FILE__, __LINE__, "EXPECT_TRUE(" #x ")", (bool)(x))) ; else ::litetest::Sink()
+#define EXPECT_FALSE(x) switch (0) case 0: default: if (::litetest::qbSyncThen() && ::litetest::recBool(__FILE__, __LINE__, "EXPECT_FALSE(" #x ")", !(bool)(x))) ; else ::litetest::Sink()
 // ASSERT_* likewise — streamable so `ASSERT_*(...) << "msg"` (RANDOM) compiles. These record the failure but do
 // NOT early-return (an expression can't), so a failed ASSERT continues; the test still ends up failed (recorded,
 // and any follow-on trap is caught per-test by the harness). Passing tests never hit a failed ASSERT, so this
@@ -689,8 +727,8 @@ namespace litetest {
 #define ASSERT_LE(a, b) QBCT_EXPECT(Le, a, b, "ASSERT_LE(" #a ", " #b ")")
 #define ASSERT_GT(a, b) QBCT_EXPECT(Gt, a, b, "ASSERT_GT(" #a ", " #b ")")
 #define ASSERT_GE(a, b) QBCT_EXPECT(Ge, a, b, "ASSERT_GE(" #a ", " #b ")")
-#define ASSERT_TRUE(x)  switch (0) case 0: default: if (::litetest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else ::litetest::Sink()
-#define ASSERT_FALSE(x) switch (0) case 0: default: if (::litetest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else ::litetest::Sink()
+#define ASSERT_TRUE(x)  switch (0) case 0: default: if (::litetest::qbSyncThen() && ::litetest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else ::litetest::Sink()
+#define ASSERT_FALSE(x) switch (0) case 0: default: if (::litetest::qbSyncThen() && ::litetest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else ::litetest::Sink()
 
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) {
     return bq_possessed(name, &issuer, &owner, &possessor, om, pm);

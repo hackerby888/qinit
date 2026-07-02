@@ -28,6 +28,10 @@ export interface BuildOpts {
   testPath?: string;    // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
   extraCompileFlags?: string[]; // appended to the consuming compile only (not the PCH); used by the gtest
                         // corpus path to relax test-harness-only diagnostics (e.g. -Wno-error=return-mismatch)
+  sharedMemBase?: number; // shared-memory gtest mode: link with --import-memory + --global-base=<this>, so the
+                        // module lives inside the corpus runner's memory at the given byte offset. The engine
+                        // instantiates it with the runner's Memory and the runner's contractStates[i] pointer
+                        // becomes the live state (native-harness semantics, zero copies).
 }
 
 // The stable preamble shared by every contract build — std headers, then the big QPI/core headers. It has no
@@ -277,6 +281,12 @@ export async function compileWasmContract(
   ];
   const shimFlag = ["-include", shim];
   const linkFlags = ["-Wl,--no-entry", "-Wl,--allow-undefined", "-mexec-model=reactor"];
+  if (o.sharedMemBase !== undefined) {
+    // Shared-memory gtest mode: relocate the module's whole static footprint (data, stack, state buffer,
+    // arena) above the given base and import the memory instead of owning one. The shadow stack rides just
+    // above the data (default lld layout), so everything stays inside [base, __heap_base).
+    linkFlags.push("-Wl,--import-memory", `-Wl,--global-base=${o.sharedMemBase >>> 0}`, "-Wl,-z,stack-size=8388608");
+  }
 
   // Reuse the precompiled preamble when available. The PCH already carries -include shim (whose static-inline
   // defs aren't include-guarded), so the PCH-consuming compile must NOT repeat it; the no-PCH path keeps it.

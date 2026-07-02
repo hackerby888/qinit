@@ -108,7 +108,10 @@ export async function buildCorpusRunner(o: {
   // -O0 makes those loops the dominant cost. lite_test.h's EXPECT_*/ASSERT_* expand to a bare `return;`
   // (under `if (fatal)`), a C++ default-error in non-void corpus helpers; native uses real gtest (no
   // return), so relax it here — scoped to the corpus path, production deploys keep the strict default.
-  const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch"];
+  // QINIT_CORPUS_RUNNER shrinks the runner's dead in-module state buffer to one page (lite_wasm_tu.h): the
+  // contract under test runs in engine-deployed instances, and a full-size buffer would push the runner's
+  // data end into the shared-memory region where those instances live.
+  const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch", "-DQINIT_CORPUS_RUNNER"];
 
   // When the corpus pulls real <iostream>/<ostream> itself, suppress the harness's std::cout stubs so
   // they don't collide with the real stream objects (an ambiguous-reference error otherwise).

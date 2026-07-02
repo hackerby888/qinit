@@ -481,8 +481,8 @@ export class Sim {
 
   // Deploy + construct (ContractRegistry owns the instances); stays on the façade for the public API.
   // `thost` is set only for a gtest module (lite_test.h) — the test-host import table bound beside lhost.
-  deploy(slot: number, wasm: Uint8Array, thost?: Record<string, Function>): Contract {
-    const c = this.registry.deploy(slot, wasm, this.host, thost);
+  deploy(slot: number, wasm: Uint8Array, thost?: Record<string, Function>, extMem?: WebAssembly.Memory): Contract {
+    const c = this.registry.deploy(slot, wasm, this.host, thost, extMem);
     this.emit("info", "deploy", `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`);
     if (c.stateSize > K12_MAX_LEAF_BYTES) {
       // A mainnet-sized state (e.g. QX ~600 MB) can't be K12-hashed, so it gets a zero computer-digest leaf

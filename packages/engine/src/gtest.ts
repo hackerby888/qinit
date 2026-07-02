@@ -230,6 +230,17 @@ export async function runContractTesting(
     return r;
   };
 
+  // Shared-memory contracts (linked with --import-memory, see recipe.ts sharedMemBase): the module lives
+  // inside the runner's memory, so the runner's contractStates[i] pointer IS the live state — the shadow
+  // sync machinery below never engages for them. Detected once from the module's import list.
+  const sharedSlots = new Set<number>();
+  for (const [idx, wasm] of Object.entries(contracts)) {
+    const m = new WebAssembly.Module(wasm as BufferSource);
+    if (WebAssembly.Module.imports(m).some((im) => im.module === "env" && im.kind === "memory")) sharedSlots.add(Number(idx));
+  }
+  const runnerMemory = (): WebAssembly.Memory | undefined =>
+    (runner?.exports?.memory as WebAssembly.Memory | undefined);
+
   const deployAll = () => {
     // The corpus `system` proxy (epoch / tick / chain clock) mirrors real Qubic's persistent global `system`:
     // constructing a ContractTesting fixture resets spectrum/universe/contract states but never system.epoch/tick.
@@ -254,10 +265,11 @@ export async function runContractTesting(
     engineDirty.clear();
     touched.clear();
     for (const [idx, wasm] of Object.entries(contracts)) {
-      handles[Number(idx)] = sim.deploy(Number(idx), wasm);
+      const shared = sharedSlots.has(Number(idx));
+      if (shared && !runnerMemory()) throw new Error(`gtest: contract slot ${idx} is a shared-memory build but the runner is not instantiated yet`);
+      handles[Number(idx)] = sim.deploy(Number(idx), wasm, undefined, shared ? runnerMemory() : undefined);
     }
   };
-  deployAll();
 
   // Push back only shadows the test touched since the last flush, and only while the shadow is still in sync
   // with the engine (not behind a mutating dispatch) — pushing a stale shadow would clobber newer engine
@@ -267,8 +279,8 @@ export async function runContractTesting(
     if (touched.size === 0) return;
     for (const i of touched) {
       const m = materialized.get(i);
-      // subarray (not slice) — writeState copies straight from the runner-memory view into the engine.
-      if (m && !engineDirty.has(i)) handles[i]?.writeState(mem().subarray(m.dst, m.dst + m.len));
+      const c = handles[i];
+      if (m && c && !engineDirty.has(i)) syncChunked(mem().subarray(m.dst, m.dst + m.len), c.stateView(m.len));
     }
     touched.clear();
   };
@@ -279,16 +291,52 @@ export async function runContractTesting(
   // to copy cheaply. For a very large shadow (hundreds of MB — QUTIL, QEARN) a per-dispatch copy is fatal,
   // so defer its refresh to the next getState() access via engineDirty; those corpora read through fresh
   // getState() calls rather than a cached pointer.
+  // A corpus reads through cached getState() pointers in plain statements (loops, locals), not only inside
+  // EXPECT/ASSERT operands, so a deferred refresh is not enough: every mutating dispatch refreshes each
+  // materialized shadow in place. Small shadows take the straight copy; large ones (hundreds of MB) take the
+  // chunked diff so the per-dispatch cost is the memcmp scan, not the copy. Tests that never call getState()
+  // (dispatch-heavy stress loops) have nothing materialized and pay nothing. The refreshed shadow re-enters
+  // `touched`: the test may write through its cached pointer before the next dispatch, and that write must
+  // flush (the flush diff-scan of an unwritten shadow only costs the scan).
   const EAGER_SYNC_MAX = 4 << 20; // 4 MiB
   const markEngineMoved = () => {
     for (const [i, m] of materialized) {
       const c = handles[i];
-      if (c && m.len <= EAGER_SYNC_MAX) {
+      if (!c) continue;
+      if (m.len <= EAGER_SYNC_MAX) {
         write(m.dst, c.stateView(m.len));
       } else {
-        engineDirty.add(i);
+        refreshShadow(m, c);
+      }
+      touched.add(i);
+    }
+    engineDirty.clear();
+  };
+
+  // Diff-copy between the runner shadow and the engine state (either direction): scan in chunks (native
+  // memcmp via Buffer.compare when available) and copy only the chunks that actually changed. A dispatch or
+  // a test-side write typically touches a few KB of a hundreds-of-MB state, so this collapses the copy to
+  // the scan cost. Without Buffer (browser), fall back to the full copy. Both sides are live wasm-memory
+  // views, so writing into dst lands directly in the target module.
+  const SYNC_CHUNK = 1 << 20;
+  const Buf = (globalThis as any).Buffer;
+  const syncChunked = (src: Uint8Array, dst: Uint8Array) => {
+    const len = Math.min(src.length, dst.length);
+    const t0 = prof ? now() : 0;
+    if (!Buf?.compare) {
+      dst.set(src.subarray(0, len));
+    } else {
+      for (let off = 0; off < len; off += SYNC_CHUNK) {
+        const n = Math.min(SYNC_CHUNK, len - off);
+        const a = Buf.from(src.buffer, src.byteOffset + off, n);
+        const b = Buf.from(dst.buffer, dst.byteOffset + off, n);
+        if (Buf.compare(a, b) !== 0) dst.set(src.subarray(off, off + n), off);
       }
     }
+    if (prof) { stat.pulls++; stat.pullBytes += len; stat.pullMs += now() - t0; }
+  };
+  const refreshShadow = (m: { dst: number; len: number }, c: Contract) => {
+    syncChunked(c.stateView(m.len), mem().subarray(m.dst, m.dst + m.len));
   };
 
   const thost = {
@@ -320,6 +368,9 @@ export async function runContractTesting(
       const c = handles[idx >>> 0];
       if (c && c.hasSysproc(sp >>> 0)) traceDisp(`sysproc[${idx >>> 0}:${sp >>> 0}]`, () => c.invoke(KIND.SYSPROC, sp >>> 0, new Uint8Array(0), { entryPoint: sp >>> 0 }));
       markEngineMoved();
+      if (env_.QINIT_GTEST_DUMP_ASSETS) {
+        (globalThis as any).process.stderr.write(`[assets after sysproc ${sp >>> 0}] ${JSON.stringify(sim.assetUniverse())}\n`);
+      }
     },
 
     q_fund: (idPtr: number, amount: bigint) => { sim.fund(id32(idPtr), BigInt(amount)); },
@@ -377,10 +428,22 @@ export async function runContractTesting(
       return sum;
     },
 
-    q_possessed: (name: bigint, issuerPtr: number, ownerPtr: number, possessorPtr: number, om: number, pm: number): bigint =>
-      (sim as any).assets.numberOfPossessedShares(BigInt(name), id32(issuerPtr), id32(ownerPtr), id32(possessorPtr), om >>> 0, pm >>> 0),
+    q_possessed: (name: bigint, issuerPtr: number, ownerPtr: number, possessorPtr: number, om: number, pm: number): bigint => {
+      const r = (sim as any).assets.numberOfPossessedShares(BigInt(name), id32(issuerPtr), id32(ownerPtr), id32(possessorPtr), om >>> 0, pm >>> 0) as bigint;
+      if (env_.QINIT_GTEST_DUMP_ASSETS) {
+        (globalThis as any).process.stderr.write(`[q_possessed] name=${name} issuerPtr=${issuerPtr >>> 0} issuer=${hex(id32(issuerPtr))} ownerPtr=${ownerPtr >>> 0} owner=${hex(id32(ownerPtr))} om=${om >>> 0} pm=${pm >>> 0} -> ${r}\n`);
+      }
+      return r;
+    },
 
     q_state_size: (i: number): number => (handles[i]?.stateSize ?? 0) >>> 0,
+
+    // Shared-memory mode: the contract's state lives in the runner's own memory — hand back its absolute
+    // address so contractStates[i] is the live state (no shadow, no sync). 0 => shadow-buffer fallback.
+    q_state_addr: (i: number): number => {
+      const c = handles[i];
+      return c && c.sharedMem ? c.stateAddr >>> 0 : 0;
+    },
 
     q_state_in: (i: number, dst: number, len: number) => {
       const c = handles[i];
@@ -389,14 +452,34 @@ export async function runContractTesting(
       // buffer; otherwise the shadow at dst is already current and the (large) copy is skipped. Mark touched
       // so a later dispatch flushes any test-side write back to the engine.
       const prev = materialized.get(i);
-      if (!prev || prev.dst !== dst || engineDirty.has(i)) {
+      if (!prev || prev.dst !== dst) {
         const t0 = prof ? now() : 0;
         write(dst, c.stateView(len >>> 0));
         if (prof) { stat.pulls++; stat.pullBytes += len >>> 0; stat.pullMs += now() - t0; }
         engineDirty.delete(i);
+      } else if (engineDirty.has(i)) {
+        refreshShadow({ dst, len: len >>> 0 }, c);
+        engineDirty.delete(i);
       }
       materialized.set(i, { dst, len: len >>> 0 });
       touched.add(i);
+    },
+
+    // Assertion-time refresh (see the shim's qbSyncThen): re-sync every engine-dirty shadow so a cached
+    // getState() pointer reads live values, paying the diff scan only when a dispatch actually intervened.
+    // A refreshed shadow re-enters `touched`: the test may write through its cached pointer right after the
+    // assertion, and those writes must flush before the next dispatch (the flush is a diff-scan, so an
+    // unwritten shadow costs only the scan).
+    q_state_sync: () => {
+      for (const i of engineDirty) {
+        const m = materialized.get(i);
+        const c = handles[i];
+        if (m && c) {
+          refreshShadow(m, c);
+          touched.add(i);
+        }
+      }
+      engineDirty.clear();
     },
 
     q_set_epoch: (e: number) => { sim.epochN = e >>> 0; },
@@ -441,6 +524,23 @@ export async function runContractTesting(
   const noopVal = (..._args: unknown[]): number => 0;
   const noopBig = (..._args: unknown[]): bigint => 0n;
 
+  // Runner-side scratchpad (shared-memory mode): the corpus may run qpi container maintenance directly on the
+  // live shared state (e.g. QTRY's discountedFeeForUsers.cleanup()), whose __ScopedScratchpad acquires through
+  // lhost. Serve it from a bump region above everything already placed in the runner's memory (runner data,
+  // deployed shared contracts), growing on demand; releases nest LIFO (RAII), so release pops the bump.
+  // In non-shared mode this stays inert (the acquire returns the noop stub's 0 as before).
+  let scratchBase = 0, scratchBump = 0;
+  const scratchAcquire = (size: bigint, initZero: number): number => {
+    const m = runnerMemory()!;
+    if (!scratchBase) scratchBase = scratchBump = m.buffer.byteLength;
+    const n = Number((BigInt(size) + 7n) & ~7n);
+    if (scratchBump + n > m.buffer.byteLength) m.grow(Math.ceil((scratchBump + n - m.buffer.byteLength) / 65536));
+    const off = scratchBump;
+    scratchBump += n;
+    if (initZero) mem().fill(0, off, off + n);
+    return off >>> 0;
+  };
+
   // lhost: read-only surface backed by the live Sim (for in-runner qpi contexts like QDUEL's computeWinner),
   // with explicit safeNoop stubs for state-mutating imports the runner never legitimately calls.
   const lhost: Record<string, Function> = {
@@ -457,6 +557,13 @@ export async function runContractTesting(
     now: (out: number) => new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
     prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
   };
+  if (sharedSlots.size) {
+    lhost.acquireScratch = scratchAcquire;
+    lhost.releaseScratch = (off: number) => {
+      const p = off >>> 0;
+      if (p >= scratchBase && p <= scratchBump) scratchBump = p;
+    };
+  }
 
   // env: PRNG (global in the runner) + contract-specific symbols.
   const envObj: Record<string, Function> = { ...env };
@@ -470,7 +577,12 @@ export async function runContractTesting(
       dv.setUint32(nwritten >>> 0, total >>> 0, true);
       return 0;
     },
-    clock_time_get: (_id: number, _precision: bigint, _time: number): number => 0,
+    // Real wall-clock: the native harness seeds etalonTick from std::chrono::system_clock::now() (QTRY's
+    // updateEtalonTime); a zero stub would put the corpus clock at 1970 while the oracle runs at today.
+    clock_time_get: (_id: number, _precision: bigint, timePtr: number): number => {
+      new DataView(mem().buffer).setBigUint64(timePtr >>> 0, BigInt(Date.now()) * 1_000_000n, true);
+      return 0;
+    },
   };
 
   // Fill in explicit safeNoop stubs for every import the module declares that we haven't wired yet, so no
@@ -492,6 +604,10 @@ export async function runContractTesting(
   imports.wasi_snapshot_preview1 = wasiObj;
 
   runner = await WebAssembly.instantiate(mod, imports as any);
+  // Deploy between instantiation and _initialize: shared-memory contracts need the runner's Memory (live from
+  // instantiate), while _initialize may already drive thost (a corpus registering a gtest Environment whose
+  // SetUp builds a fixture) and so needs the contracts deployed.
+  deployAll();
   (runner.exports._initialize as Function)?.();
 
   const count = (runner.exports.test_count as Function)() >>> 0;
@@ -500,9 +616,13 @@ export async function runContractTesting(
   // forever inside the wasm (a tick/time/epoch precondition the harness doesn't satisfy), which blocks
   // this synchronous loop; the last name printed identifies the offending test for a killed subprocess.
   const trace = !!(globalThis as any).process?.env?.QINIT_GTEST_TRACE;
+  // QINIT_GTEST_FILTER: comma-separated substrings — run only tests whose name contains one (skip the rest).
+  // Iterating on a known-failing subset avoids paying for the already-green bulk of a heavy corpus.
+  const filterRaw = ((globalThis as any).process?.env?.QINIT_GTEST_FILTER ?? "") as string;
+  const filters = filterRaw.split(",").map((s) => s.trim()).filter(Boolean);
   // Name lookups write into the runner's io scratch; resolve a real io_base whenever we'll print names
-  // (trace or prof). Writing to a bogus base (0) would corrupt the runner's memory between tests.
-  const ioBase = (trace || prof) ? (((runner.exports.io_base as Function)?.() ?? 0) >>> 0) : 0;
+  // (trace or prof) or match the filter. Writing to a bogus base (0) would corrupt the runner's memory.
+  const ioBase = (trace || prof || filters.length) ? (((runner.exports.io_base as Function)?.() ?? 0) >>> 0) : 0;
   const traceName = (i: number): string => {
     if (!ioBase) return `#${i}`;
     const cap = 256;
@@ -512,6 +632,10 @@ export async function runContractTesting(
 
   const t0run = now();
   for (let i = 0; i < count; i++) {
+    if (filters.length) {
+      const nm = traceName(i);
+      if (!filters.some((f) => nm.includes(f))) continue;
+    }
     if (trace) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)}\n`);
     const tt = prof ? now() : 0;
     (runner.exports.run_test as Function)(i);

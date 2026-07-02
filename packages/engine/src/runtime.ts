@@ -196,11 +196,31 @@ export class Contract {
   // beside lhost so the in-module test runner can drive the contract through the engine. See gtest.ts.
   private thost?: Record<string, Function>;
 
-  private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module, thost?: Record<string, Function>) {
+  // Shared-memory mode (gtest): the module was linked with --import-memory and lives inside the provided
+  // memory (the corpus runner's), so the runner's contractStates[i] pointer IS the live state — no copies.
+  private extMem?: WebAssembly.Memory;
+
+  get sharedMem(): boolean {
+    return !!this.extMem;
+  }
+
+  private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module, thost?: Record<string, Function>, extMem?: WebAssembly.Memory) {
     this.thost = thost;
+    this.extMem = extMem;
+    if (extMem) {
+      // The import's declared minimum covers the module's relocated data end (--global-base + footprint);
+      // grow the provider up to it before instantiating.
+      for (const imp of WebAssembly.Module.imports(mod)) {
+        if (imp.module === "env" && imp.kind === "memory") {
+          const min = (((imp as any).type?.minimum ?? 0) as number) >>> 0;
+          const cur = Math.ceil(extMem.buffer.byteLength / 65536);
+          if (cur < min) extMem.grow(min - cur);
+        }
+      }
+    }
     this.inst = new WebAssembly.Instance(mod, this.imports(mod));
     this.ex = this.inst.exports;
-    this.mem = this.ex.memory;
+    this.mem = (this.ex.memory as WebAssembly.Memory) ?? extMem;
     // Exported layout getters return addresses of statics — safe to read before _initialize.
     this.ioBase = this.ex.io_base() >>> 0;
     this.stateAddr = this.ex.state_addr() >>> 0;
@@ -213,8 +233,8 @@ export class Contract {
     this.readRegistry();
   }
 
-  static load(bytes: Uint8Array, slot: number, host: HostServices, thost?: Record<string, Function>): Contract {
-    return new Contract(slot, host, new WebAssembly.Module(bytes as BufferSource), thost);
+  static load(bytes: Uint8Array, slot: number, host: HostServices, thost?: Record<string, Function>, extMem?: WebAssembly.Memory): Contract {
+    return new Contract(slot, host, new WebAssembly.Module(bytes as BufferSource), thost, extMem);
   }
 
   // Fresh views each use — memory.grow detaches the underlying ArrayBuffer, so never hold a view
@@ -434,7 +454,13 @@ export class Contract {
         if (initZero) u8().fill(0, off, off + n);
         return off >>> 0;                                  // offset == ptr in wasm32
       },
-      releaseScratch: (_off: number) => {},
+      // Scoped release (pre_qpi_def.h __ScopedScratchpad is RAII, so releases nest strictly LIFO): pop the
+      // bump back to the released block. Without this a dispatch that reorganizes several containers
+      // (Collection/HashMap cleanup acquires a scratch the size of the whole container) exhausts any arena.
+      releaseScratch: (off: number) => {
+        const p = off >>> 0;
+        if (p >= this.arenaBase && p <= this.arenaBump) this.arenaBump = p;
+      },
       logBytes: (_ci: number, level: number, msgOff: number, size: number) =>
         this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size)),
       k12: (inOff: number, len: number, outOff: number) =>
@@ -626,6 +652,13 @@ export class Contract {
       },
     };
     this.meterLhost(lhost);
+    // wasm i32 params surface as SIGNED JS numbers; a shared-memory module (gtest) lives above 2GB, so its
+    // pointers arrive negative and would corrupt every slice/set below. Coerce every i32 arg to unsigned at
+    // the boundary — the handlers that need a narrower or signed view already re-mask locally (& 0xffff,
+    // | 0, << 24 >> 24), so the coercion is bit-transparent for them.
+    const toU32Args = (fn: Function) =>
+      (...args: unknown[]) => fn(...args.map((a) => (typeof a === "number" ? a >>> 0 : a)));
+    for (const k of Object.keys(lhost)) lhost[k] = toU32Args(lhost[k]);
     // WASI + env: build plain objects with explicit stubs for every import the module declares,
     // since Bun 1.3.14 has a Proxy + wasm i64-marshalling bug that crashes on i64-param imports
     // ("Invalid argument type in ToBigInt") when the import object uses Proxy fallbacks.
@@ -636,6 +669,7 @@ export class Contract {
     const envBase: Record<string, Function> = {};
     if (mod) {
       for (const imp of WebAssembly.Module.imports(mod)) {
+        if (imp.kind !== "function") continue; // memory/global/table imports are bound explicitly, not stubbed
         const results: string[] = ((imp as any).type?.results ?? []) as string[];
         const noopFn = results.includes("i64") ? ((..._a: unknown[]) => 0n) : ((..._a: unknown[]) => 0);
         if (imp.module === "wasi_snapshot_preview1" && !(imp.name in wasiBase)) {
@@ -646,7 +680,8 @@ export class Contract {
       }
     }
     const wasi = wasiBase;
-    const env = envBase;
+    const env: Record<string, unknown> = envBase;
+    if (this.extMem) env.memory = this.extMem;
     const testHost = this.thost ? { thost: this.thost } : {};
     return { lhost, env, wasi_snapshot_preview1: wasi, ...testHost } as unknown as WebAssembly.Imports;
   }
