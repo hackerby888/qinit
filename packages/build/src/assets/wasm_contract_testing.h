@@ -99,11 +99,42 @@ enum SystemProcedureID {
 // kind — we keep core's numeric value for faithfulness. A corpus may also derive its own invocator-carrying
 // variant straight from QPI::QpiContextFunctionCall's protected 4-arg ctor
 // (contractIndex, originator, invocationReward, entryPoint) with USER_FUNCTION_CALL as the entry point.
-enum : unsigned char { USER_FUNCTION_CALL = 14 };
+enum : unsigned char { USER_PROCEDURE_CALL = 13, USER_FUNCTION_CALL = 14 };
+
+// contractError[slot]: contract execution status array from contract_exec.h (native harness asserts it).
+// In wasm mode a contract dispatch runs in the engine, so errors are engine-side; treat as always-clean
+// for the shim (bq_query/bq_invoke signal errors in the returned status, not this array).
+static unsigned int contractError[64];
 
 struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall {
     QpiContextUserFunctionCall(unsigned int contractIndex)
         : QPI::QpiContextFunctionCall(contractIndex, QPI::id::zero(), 0, USER_FUNCTION_CALL) {}
+
+    // Call a user FUNCTION: route through the engine's query path (read-only, no state mutation).
+    unsigned int call(unsigned short inputType, const void* input, unsigned short inputSize) {
+        unsigned char output[4096];
+        bq_query(_currentContractIndex, inputType, input, (unsigned int)inputSize, output, (unsigned int)sizeof(output));
+        return 0;
+    }
+
+    // In the native harness call() allocates a stack buffer; the caller is expected to free it.
+    // The shim uses a fixed-size local output array — no-op.
+    void freeBuffer() {}
+};
+
+// Mirror of contract_exec.h's QpiContextUserProcedureCall: a corpus constructs one to call a user
+// PROCEDURE (mutable dispatch) in-process, seeded with the invocator and reward.
+struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
+    QpiContextUserProcedureCall(unsigned int contractIndex, const m256i& originator, long long invocationReward)
+        : QPI::QpiContextProcedureCall(contractIndex, originator, invocationReward, USER_PROCEDURE_CALL) {}
+
+    void call(unsigned short inputType, const void* input, unsigned short inputSize) {
+        unsigned char output[4096];
+        bq_invoke(_currentContractIndex, inputType, input, (unsigned int)inputSize, _invocationReward,
+                  &_originator.u64._0, output, (unsigned int)sizeof(output));
+    }
+
+    void freeBuffer() {}
 };
 
 // ---- contractStates: lazy shadow-buffer proxy synced from engine on each access ----
@@ -314,12 +345,14 @@ struct QbEtalonTick {
     unsigned int backing[7];
     QbEtalonField year, month, day, hour, minute, second, millisecond;
     QbDigestProxy prevSpectrumDigest;
+    unsigned int tick;   // QTRY/Nostromo corpus: etalonTick.tick += offset; system.tick = etalonTick.tick
 
     QbEtalonTick()
         : backing{ 24, 1, 1, 0, 0, 0, 0 },
           year{ &backing[0] }, month{ &backing[1] }, day{ &backing[2] }, hour{ &backing[3] },
           minute{ &backing[4] }, second{ &backing[5] }, millisecond{ &backing[6] },
-          prevSpectrumDigest{ m256i::zero() } {
+          prevSpectrumDigest{ m256i::zero() },
+          tick{ 0 } {
     }
 };
 
@@ -354,6 +387,10 @@ static inline unsigned int mod(const QbTickProxy& a, unsigned int b) {
 
 // Matches core-lite's `#define system qubicSystemStruct`
 #define system qubicSystemStruct
+
+// ---- static constants from contract_def.h / assets.h needed by corpora (QTRY/Nostromo) ----
+
+static constexpr char CONTRACT_ASSET_UNIT_OF_MEASUREMENT[7] = { 0, 0, 0, 0, 0, 0, 0 };
 
 // ---- contractDescriptions: constructionEpoch values from contract_def.h; stateSize 0 in wasm mode ----
 // Indices mirror the native contract_def.h array. Only constructionEpoch is accessed by EASY-tier corpora.
