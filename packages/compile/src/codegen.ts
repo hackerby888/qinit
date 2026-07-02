@@ -108,6 +108,7 @@ class Codegen {
   typedefs: Map<string, TypeSpec> = new Map();                  // typedef aliases
   constexprInit: Map<string, Expression> = new Map();           // named constexpr → its init expression
   enumConst: Map<string, bigint> = new Map();                   // enum constant (NAME and Type::NAME) → value
+  enumSize: Map<string, number> = new Map();                    // enum type name → storage size from its underlying type (enum class X : uint8 → 1)
   templateMethods: Map<string, Map<string, FunctionTemplateDecl>> = new Map();  // Class → method → out-of-class def
   compiledMethods: Map<string, CompiledMethod> = new Map();     // instantiation cache key → compiled method
   emittedMethodOrder: string[] = [];                            // emitted WAT, in emission order (appended to module)
@@ -147,12 +148,15 @@ class Codegen {
             if (fn.name === s.name || fn.name.startsWith("operator") || fn.name.startsWith("~")) continue;
             if (!this.templateMethods.has(s.name)) this.templateMethods.set(s.name, new Map());
             const into = this.templateMethods.get(s.name)!;
-            if (!into.has(fn.name)) {
-              into.set(fn.name, {
-                kind: "function_template", name: fn.name, params: [], fnParams: fn.params,
-                returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
-              });
-            }
+            const def: FunctionTemplateDecl = {
+              kind: "function_template", name: fn.name, params: [], fnParams: fn.params,
+              returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+            };
+            // overloads (isValid() vs static isValid(y,m,d,...)) are additionally keyed by arity so an
+            // arity-aware lookup picks the right one; the bare name keeps the first definition.
+            const akey = `${fn.name}/${(fn.params ?? []).length}`;
+            if (!into.has(akey)) into.set(akey, def);
+            if (!into.has(fn.name)) into.set(fn.name, def);
           }
         }
         // file-scope structs can still nest constants/enums (e.g. a contract's static constexpr)
@@ -186,8 +190,7 @@ class Codegen {
           const fn = m as FunctionDecl;
           if (!this.templateMethods.has(ct.name)) this.templateMethods.set(ct.name, new Map());
           const into = this.templateMethods.get(ct.name)!;
-          if (into.has(fn.name)) continue;
-          into.set(fn.name, {
+          const def: FunctionTemplateDecl = {
             kind: "function_template",
             name: fn.name,
             params: ct.params,
@@ -196,7 +199,10 @@ class Codegen {
             body: fn.body,
             isConstexpr: fn.isConstexpr,
             span: fn.span,
-          });
+          };
+          const akey = `${fn.name}/${(fn.params ?? []).length}`;
+          if (!into.has(akey)) into.set(akey, def);
+          if (!into.has(fn.name)) into.set(fn.name, def);
         }
       } else if (d.kind === "function_template" || d.kind === "function") {
         // out-of-class template method definition: HashMap::set, Collection::add, ...
@@ -207,7 +213,10 @@ class Codegen {
           const method = fn.name.slice(sep + 2);
           if (!this.templateMethods.has(cls)) this.templateMethods.set(cls, new Map());
           // first definition wins (skip explicit specializations like HashFunction<m256i>)
-          if (!this.templateMethods.get(cls)!.has(method)) this.templateMethods.get(cls)!.set(method, fn);
+          const minto = this.templateMethods.get(cls)!;
+          const makey = `${method}/${(fn.fnParams ?? (fn as any).params ?? []).length}`;
+          if (!minto.has(makey)) minto.set(makey, fn);
+          if (!minto.has(method)) minto.set(method, fn);
         } else if (sep < 0 && nsPrefix && d.kind === "function" && (d as FunctionDecl).body) {
           // a namespace free function (ProposalTypes::cls, ProposalTypes::optionCount): keyed by its
           // qualified name so a `ProposalTypes::cls(type)` call resolves; compiled lazily on first use.
@@ -244,7 +253,11 @@ class Codegen {
     }
   }
 
-  private collectEnum(e: { name?: string; members: { name: string; value?: Expression }[] }): void {
+  private collectEnum(e: { name?: string; underlyingType?: TypeSpec; members: { name: string; value?: Expression }[] }): void {
+    if (e.name && e.underlyingType?.kind === "name") {
+      const sz = SCALAR_SIZE[e.underlyingType.name];
+      if (sz !== undefined && !this.enumSize.has(e.name)) this.enumSize.set(e.name, sz);
+    }
     let next = 0n;
     for (const m of e.members) {
       const v = m.value ? this.evalConstBig(m.value, NO_BIND) : next;
@@ -335,7 +348,9 @@ class Codegen {
       const struct = this.structByName(t.name, b);
       if (struct) return this.layoutOfStruct(struct, b).size;
 
-      // an enum value type → 4 bytes; or numeric literal as a type arg
+      // an enum type: sized by its declared underlying type (enum class X : uint8 → 1), default int
+      const es = this.enumSize.get(t.name) ?? this.enumSize.get(t.name.split("::").pop()!);
+      if (es !== undefined) return es;
       const num = parseInt(t.name);
       if (!isNaN(num)) return num; // shouldn't happen for a type, defensive
       return 4; // assume enum-sized
@@ -834,6 +849,8 @@ class Codegen {
       if (td) return this.alignOfTypeB(td, b);
       const struct = this.structByName(t.name, b);
       if (struct) return this.layoutOfStruct(struct, b).align;
+      const es = this.enumSize.get(t.name) ?? this.enumSize.get(t.name.split("::").pop()!);
+      if (es !== undefined) return es;
       return 4;
     }
     if (t.kind === "template_instance") {
@@ -1187,7 +1204,7 @@ class Codegen {
   // method body must come from the SAME instantiation — otherwise the primary's 1-byte access runs over the
   // specialization's bit-packed store and every unvoted slot reads as option 0. Falls back to the primary's
   // method table for methods defined OUT of the class body (HashMap::set), which the inline scan won't find.
-  methodTemplate(name: string, args: TypeSpec[], methodName: string): { def: FunctionTemplateDecl; bind: Bindings } | null {
+  methodTemplate(name: string, args: TypeSpec[], methodName: string, argCount?: number): { def: FunctionTemplateDecl; bind: Bindings } | null {
     // bindContainer carries the full method-scope binding (params + nested typedefs like VoteStorageType +
     // static constexprs); instantiateTemplate's binding omits the nested typedefs, so the body's dependent
     // types would size to 0. The non-type param values (numOfVotes) match either way, so this binding is
@@ -1195,9 +1212,17 @@ class Codegen {
     const bind = this.bindContainer(name, args);
     const inst = this.instantiateTemplate(name, args, NO_BIND);
     if (inst) {
-      const m = inst.tmpl.members.find(
+      // Overload selection by arity (DateAndTime::isValid() vs the static isValid(y,m,d,...)): prefer an
+      // exact parameter-count match, then one whose extra trailing params all have defaults, then first.
+      const cands = inst.tmpl.members.filter(
         (mm) => mm.kind === "function" && (mm as FunctionDecl).name === methodName && (mm as FunctionDecl).body,
-      );
+      ) as FunctionDecl[];
+      let m: FunctionDecl | undefined = cands[0];
+      if (argCount !== undefined && cands.length > 1) {
+        m = cands.find((f) => (f.params ?? []).length === argCount)
+          ?? cands.find((f) => (f.params ?? []).length > argCount && (f.params ?? []).slice(argCount).every((p) => p.defaultValue !== undefined))
+          ?? cands[0];
+      }
       if (m) {
         const fn = m as FunctionDecl;
         return {
@@ -1209,7 +1234,8 @@ class Codegen {
         };
       }
     }
-    const def = this.templateMethods.get(name)?.get(methodName);
+    const byName = this.templateMethods.get(name);
+    const def = (argCount !== undefined ? byName?.get(`${methodName}/${argCount}`) : undefined) ?? byName?.get(methodName);
     return def && def.body ? { def, bind } : null;
   }
 
@@ -1332,6 +1358,7 @@ export interface LibTypes {
   typedefs: Map<string, TypeSpec>;
   constexprInit: Map<string, Expression>;
   enumConst: Map<string, bigint>;
+  enumSize: Map<string, number>;
   templateMethods: Map<string, Map<string, FunctionTemplateDecl>>;
 }
 
@@ -1348,6 +1375,7 @@ export function buildLibTypes(decls: Declaration[]): LibTypes {
     typedefs: cg.typedefs,
     constexprInit: cg.constexprInit,
     enumConst: cg.enumConst,
+    enumSize: cg.enumSize,
     templateMethods: cg.templateMethods,
   };
 }
@@ -1379,6 +1407,7 @@ export function generateWasmModule(
     for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
     for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
     for (const [k, v] of lib.enumConst) cg.enumConst.set(k, v);
+    if (lib.enumSize) for (const [k, v] of lib.enumSize) cg.enumSize.set(k, v);
     if (lib.templateMethods) for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
   }
   cg.collectTU(tu.declarations);
@@ -2172,21 +2201,23 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
 
   // roots
   if (expr.kind === "identifier") {
-    if (expr.name === "input") return { addr: "(local.get $in)", type: null, size: ctx.in.size, layout: ctx.in };
-    if (expr.name === "output") return { addr: "(local.get $out)", type: null, size: ctx.out.size, layout: ctx.out };
-    if (expr.name === "locals") return { addr: "(local.get $locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
     // a reference/pointer local holds the address of its referent; chain member access through it.
     if (ctx.refLocals?.has(expr.name)) {
       const t = ctx.refLocals.get(expr.name)!;
       return { addr: `(local.get $${expr.name})`, type: t, size: ctx.cg.sizeOfType(t, ctx.thisBind ?? NO_BIND), layout: ctx.cg.layoutOfType(t, ctx.thisBind ?? NO_BIND) };
     }
     // an aggregate value-helper / container-method parameter holds the address of its argument; its
-    // type may reference template params (KeyT, ValueT), so resolve sizes through the binding.
+    // type may reference template params (KeyT, ValueT), so resolve sizes through the binding. Params
+    // shadow the entry-fn input/output/locals names (a helper may name its own params `input`/`output`).
     const p = ctx.params?.get(expr.name);
     if (p && p.isAddr) {
       const b = ctx.thisBind ?? NO_BIND;
       return { addr: `(local.get $${p.local ?? expr.name})`, type: p.type, size: ctx.cg.sizeOfType(p.type, b), layout: ctx.cg.layoutOfType(p.type, b) };
     }
+    if (p) return null;   // a scalar param has no address; don't let it fall through to the entry-fn names
+    if (expr.name === "input") return { addr: "(local.get $in)", type: null, size: ctx.in.size, layout: ctx.in };
+    if (expr.name === "output") return { addr: "(local.get $out)", type: null, size: ctx.out.size, layout: ctx.out };
+    if (expr.name === "locals") return { addr: "(local.get $locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
     // inside a compiled container method (or an inlined struct method): `this`, or a bare member of *this
     if (ctx.thisLayout) {
       const thisAddr = ctx.thisAddr ?? "(local.get $this)";
@@ -3095,7 +3126,7 @@ const QPI_GETTERS: Record<string, { fwd: string; ret: "i64" | "i32" }> = {
 // into — used as an assignment RHS (e.g. output.next = qpi.nextId(input.cur)).
 // "asset" consumes ONE Asset argument (id issuer; uint64 assetName) but emits TWO operands — the assetName
 // (i64, loaded from offset 32) then the issuer address — matching the lhost share calls' (name, issuer, …).
-type ArgKind = "i64" | "i32" | "addr" | "cidx" | "asset" | "ownsel" | "possel";
+type ArgKind = "i64" | "i32" | "addr" | "cidx" | "asset" | "ownsel" | "possel" | "sized";
 interface QpiCallDesc {
   fwd: string;
   args: ArgKind[];
@@ -3104,6 +3135,8 @@ interface QpiCallDesc {
 
 const QPI_CALLS: Record<string, QpiCallDesc> = {
   transfer: { fwd: "$qpi_transfer", args: ["addr", "i64"], ret: "i64" },
+  K12: { fwd: "$qpi_k12", args: ["sized"], ret: "out" },
+  now: { fwd: "$qpi_now", args: [], ret: "out" },
   burn: { fwd: "$qpi_burn", args: ["i64", "cidx"], ret: "i64" },
   issueAsset: { fwd: "$qpi_issueAsset", args: ["i64", "addr", "i32", "i64", "i64"], ret: "i64" },
   isAssetIssued: { fwd: "$qpi_isAssetIssued", args: ["addr", "i64"], ret: "i32" },
@@ -3191,6 +3224,25 @@ function emitQpiOperands(ctx: FnCtx, args: Expression[], kinds: ArgKind[]): stri
       ops.push(materializeSelect(ctx, e));
       continue;
     }
+    if (k === "sized") {
+      // data passed as (addr, sizeof(data)) — the host hashes/copies raw bytes (qpi.K12(const T&)).
+      if (!e) {
+        ops.push("(i32.const 0)", "(i32.const 0)");
+        continue;
+      }
+      const node = resolveAddr(ctx, e);
+      const addr = node?.addr ?? emitAddr(ctx, e);
+      if (!addr) {
+        ctx.cg.warn(`qpi argument is not an addressable value`, (e as any).span?.line ?? 0);
+        ops.push("(i32.const 0)", "(i32.const 0)");
+        continue;
+      }
+      const sz = e.kind === "construct"
+        ? ctx.cg.sizeOfType(e.type, ctx.thisBind ?? NO_BIND)
+        : node?.type ? ctx.cg.sizeOfType(node.type, ctx.thisBind ?? NO_BIND) : 32;
+      ops.push(addr, `(i32.const ${sz || 32})`);
+      continue;
+    }
     if (!e) {
       ops.push(k === "addr" ? "(i32.const 0)" : "(i64.const 0)");
       continue;
@@ -3255,14 +3307,14 @@ function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name:
 
 // Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm
 // function. Returns null if the body isn't captured or can't be lowered, so callers fall back.
-function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "template_instance" }, methodName: string): CompiledMethod | null {
-  const cacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}`;
+function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "template_instance" }, methodName: string, argCount?: number): CompiledMethod | null {
+  const cacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}/${argCount ?? "?"}`;
   const cached = cg.compiledMethods.get(cacheKey);
   if (cached) return cached;
 
   // Specialization-aware: the body + its binding come from the matched template instance (primary OR partial
   // specialization), so a specialization's storage layout and its access methods stay in agreement.
-  const mt = cg.methodTemplate(type.name, type.args, methodName);
+  const mt = cg.methodTemplate(type.name, type.args, methodName, argCount);
   if (!mt || !mt.def.body) return null;
   const def = mt.def;
   const bind = mt.bind;
@@ -3312,7 +3364,7 @@ function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: FunctionTempla
 function callCompiled(
   ctx: FnCtx, type: TypeSpec & { kind: "template_instance" }, method: string, self: string, args: Expression[],
 ): { call: string; cm: CompiledMethod } | null {
-  const cm = compileContainerMethod(ctx.cg, type, method);
+  const cm = compileContainerMethod(ctx.cg, type, method, args.length);
   if (!cm) return null;
   const bind = ctx.cg.bindContainer(type.name, type.args);
   const ops = cm.fnParams.map((fp, i) => {
@@ -3406,7 +3458,7 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
     if (member === "get") {
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const out = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
-      const cm = compileContainerMethod(ctx.cg, node.type, "get");
+      const cm = compileContainerMethod(ctx.cg, node.type, "get", 2);
       const call = cm
         ? `(call ${cm.label} ${map} ${k} ${out})`
         : `(i64.extend_i32_u (call $hm_get ${map} ${k} ${out} ${dims} ${C(info.hashMode!)}))`;
@@ -3793,7 +3845,7 @@ function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWant
   }
 
   // a sibling method of this container instance — compile it and call with $this + args
-  const cm = compileContainerMethod(ctx.cg, ctx.thisType, name);
+  const cm = compileContainerMethod(ctx.cg, ctx.thisType, name, expr.args.length);
   if (!cm) return null;
   const ops = cm.fnParams.map((fp, i) => {
     const arg = expr.args[i];
