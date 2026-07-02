@@ -1369,7 +1369,7 @@ class Codegen {
 
 interface HelperInfo {
   label: string;                                              // WAT function name ($h_<name>)
-  params: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec }[];
+  params: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; byValAgg?: boolean }[];
   retIsValue: boolean;                                        // returns a scalar i64 (vs void)
   retAgg?: number;                                            // returns an aggregate (id/struct) by value — its size; ABI prepends a $ret dest-address param
 }
@@ -1513,7 +1513,10 @@ export function generateWasmModule(
         const isConstRef = p.type.kind === "reference" && p.type.refereed?.kind === "const";
         const isPtrRef = (p.type.kind === "reference" && !isConstRef) || p.type.kind === "pointer";
         const isAddr = isPtrRef || cg.isAggregateType(p.type);
-        return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
+        // A BY-VALUE aggregate param rides the by-address ABI but owns a private copy: the callee may mutate
+        // it (MakePosKey's `id r` writes r.u64._3) and that write must NOT reach the caller's bytes.
+        const byValAgg = isAddr && p.type.kind !== "reference" && p.type.kind !== "pointer";
+        return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type), byValAgg };
       });
       const isVoid = cg.isVoidType(fn.returnType);   // `void` may parse as {kind:"void"} OR {kind:"name","void"}
       // size the referent for a `const T&` return — sizeOfType on the reference itself is pointer-width
@@ -1783,6 +1786,19 @@ function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: Statemen
   for (const p of info.params) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: p.type });
 
   if (fn.body) collectLocals(fn.body, ctx);
+
+  // By-value aggregate params: bind the name to a private copy, so callee writes stay local (C++ value
+  // semantics). The `local` override is honored at every param-address read.
+  for (const p of info.params) {
+    if (!p.byValAgg) continue;
+    const size = cg.sizeOfType(p.type, bind ?? NO_BIND);
+    if (!(size > 0)) continue;
+    const cp = `bv_${p.name}`;
+    ctx.localVars.set(cp, { wasmType: "i32" });
+    ctx.lines.push(`    (local.set $${cp} (call $qpiAllocLocals (i32.const ${size})))`);
+    ctx.lines.push(`    (call $copyMem (local.get $${cp}) (local.get $${p.name}) (i32.const ${size}))`);
+    ctx.params!.get(p.name)!.local = cp;
+  }
 
   const retParam = info.retAgg ? "(param $ret i32) " : "";
   const paramDecls = info.params.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
@@ -3849,7 +3865,8 @@ function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
     const isConstRef = p.type.kind === "reference" && p.type.refereed?.kind === "const";
     const isPtrRef = (p.type.kind === "reference" && !isConstRef) || p.type.kind === "pointer";
     const isAddr = isPtrRef || cg.isAggregateType(p.type);
-    return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
+    const byValAgg = isAddr && p.type.kind !== "reference" && p.type.kind !== "pointer";
+    return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type), byValAgg };
   });
   const retAgg = !cg.isVoidType(fn.returnType) && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
   const retIsValue = !cg.isVoidType(fn.returnType) && !retAgg;
@@ -3927,7 +3944,8 @@ function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args: Expre
     const isPtrRef = p.type.kind === "reference" || p.type.kind === "pointer";
     const concrete = cg.substInBindings(cg.derefType(p.type), bind);
     const isAddr = isPtrRef || cg.isAggregateType(concrete);
-    return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: concrete };
+    const byValAgg = isAddr && !isPtrRef;
+    return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: concrete, byValAgg };
   });
   const retT = cg.substInBindings(cg.derefType(def.returnType), bind);
   const retAgg = !cg.isVoidType(def.returnType) && cg.isAggregateType(retT) ? cg.sizeOfType(retT, bind) : undefined;
