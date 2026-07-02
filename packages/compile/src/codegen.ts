@@ -121,6 +121,7 @@ class Codegen {
   registered: Map<string, PrivateInfo> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
   callees: Map<string, CalleeIdl> = new Map();      // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
   private layoutCache: Map<string, StructLayout> = new Map();
+  contractStateLayout: StructLayout = { size: 0, align: 1, fields: new Map() };  // the contract's StateData (a ContractState& param in any function resolves through it)
   warnings: CodegenWarning[] = [];
 
   constructor(sema: Sema) {
@@ -1478,6 +1479,7 @@ export function generateWasmModule(
   const stateData = cg["nested"].get("StateData");
   const stateLayout = stateData ? cg.layoutOf(stateData) : { size: 0, align: 1, fields: new Map() };
   const stateSize = stateLayout.size;
+  cg.contractStateLayout = stateLayout;
 
   // registrations → entries
   const regs = extractRegistrations(contract);
@@ -1707,6 +1709,7 @@ function findMemberFn(contract: StructDecl, name: string): FunctionDecl | null {
 
 interface FnCtx {
   cg: Codegen;
+  hasStateParam?: boolean;                    // this wasm function declares (param $state i32) — entry/private fns
   state: StructLayout;
   in: StructLayout;
   out: StructLayout;
@@ -1749,7 +1752,7 @@ function emitFunction(
   outL: StructLayout,
   localsL: StructLayout,
 ): string {
-  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0 };
+  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0, hasStateParam: true };
 
   // Pre-scan for local variable declarations (must be declared at function top in WAT)
   if (fn?.body) collectLocals(fn.body, ctx);
@@ -2359,6 +2362,11 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     if (expr.name === "input") return { addr: "(local.get $in)", type: null, size: ctx.in.size, layout: ctx.in };
     if (expr.name === "output") return { addr: "(local.get $out)", type: null, size: ctx.out.size, layout: ctx.out };
     if (expr.name === "locals") return { addr: "(local.get $locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
+    // bare `state` (a static helper taking ContractState& — QTF's enableBuyTicket(state, flag)): the
+    // resident state region. Only meaningful where the function carries a $state param (entry/private fns).
+    if (expr.name === "state" && ctx.hasStateParam && !ctx.localVars.has("state")) {
+      return { addr: "(local.get $state)", type: null, size: ctx.state.size, layout: ctx.state };
+    }
     // inside a compiled container method (or an inlined struct method): `this`, or a bare member of *this
     if (ctx.thisLayout) {
       const thisAddr = ctx.thisAddr ?? "(local.get $this)";
@@ -2429,7 +2437,11 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   }
 
   if (isStateAccessor(expr)) {
-    return { addr: "(local.get $state)", type: null, size: ctx.state.size, layout: ctx.state };
+    // Inside a compiled struct/template method `state` is a ContractState& PARAM (NextEpochData::apply); the
+    // wasm local of the same name is the passed address, and the layout comes from the contract's StateData
+    // (the ctx there carries an empty state layout).
+    const layout = ctx.state.size > 0 ? ctx.state : ctx.cg.contractStateLayout;
+    return { addr: "(local.get $state)", type: null, size: layout.size, layout };
   }
 
   // a container element getter (arr.get(i), map.value(i)/key(i)) is an lvalue we can keep chaining from
@@ -2443,7 +2455,15 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
 
   // member access: resolve the object, then index its field
   if (expr.kind === "member_access") {
-    const parent = resolveAddr(ctx, expr.object);
+    let parent = resolveAddr(ctx, expr.object);
+    // Member of an id-producing qpi call (`qpi.K12(x).u64._0`): resolveAddr has no lvalue for the call, but
+    // emitAddr materializes an id out-producer into a 32-byte slot — chain the limb views off that.
+    if (!parent && expr.object.kind === "call" && expr.object.callee.kind === "member_access"
+      && expr.object.callee.object.kind === "identifier" && expr.object.callee.object.name === "qpi"
+      && (QPI_CALLS[expr.object.callee.member]?.ret === "out" || QPI_ID_PRODUCERS[expr.object.callee.member])) {
+      const addr = emitAddr(ctx, expr.object);
+      if (addr) parent = { addr, type: { kind: "name", name: "id" }, size: 32, layout: null };
+    }
     if (!parent) return null;
     // id/m256i limb views (`.u64`/`.u32`/`.u16`/`.u8`) → a fixed-width array at the value's base.
     if (isIdLike(ctx.cg, parent.type) && ID_VIEWS[expr.member]) {

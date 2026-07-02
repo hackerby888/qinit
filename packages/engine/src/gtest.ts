@@ -7,6 +7,7 @@
 import { Sim } from "./sim";
 import { Contract, KIND, SP, dateFields, packDateAndTime } from "./runtime";
 import { initK12, deriveKeysSync, k12Bytes } from "./k12";
+import { EntityRecord, M256i } from "./wire";
 
 export interface TestResult {
   name: string;     // "Suite.Name"
@@ -178,7 +179,13 @@ export async function runTestsAgainst(testWasm: Uint8Array, contractWasm: Uint8A
 export async function runContractTesting(
   runnerWasm: Uint8Array,
   contracts: Record<number, Uint8Array>,
+  opts: { mainSlot?: number } = {},
 ): Promise<TestResult[]> {
+  // In-runner qpi mutations (a corpus drives contract procedures through its own QpiContext objects) act on
+  // behalf of the contract under test; the lhost transfer ABI carries no index, so it must be told.
+  // Default: the highest slot — callees always have a LOWER index than their caller (qpi.h CALL_OTHER
+  // static_assert), so the contract under test is the max.
+  const mainSlot = opts.mainSlot ?? Math.max(...Object.keys(contracts).map(Number));
   const dec = new TextDecoder();
   const results: TestResult[] = [];
 
@@ -420,7 +427,10 @@ export async function runContractTesting(
       return (sim as any).assets.transferShareOwnershipAndPossession(mgmt >>> 0, BigInt.asUintN(64, name), issuer, owner, owner, BigInt.asUintN(64, shares), id32(newOwnerPtr)) as bigint;
     },
 
+    // Native spectrumIndex: -1 when the identity has NO spectrum record (never funded) — corpora gate
+    // invocations on that (an unknown user can't invoke even with amount 0).
     q_spectrum: (idPtr: number): number => {
+      if (!sim.entityOf(id32(idPtr))) return -1;
       const h = hex(id32(idPtr));
       let i = spectrumIds.indexOf(h);
       if (i < 0) {
@@ -576,6 +586,57 @@ export async function runContractTesting(
     millisecond: () => dateFields(sim.nowMs()).milli,
     now: (out: number) => new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
     prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
+    // Live spectrum entity record (a corpus runs contract functions in-runner: QTF's CheckContractBalance
+    // reads qpi.getEntity(SELF).incoming - outgoing; a noop stub made every such balance check fail).
+    // In-runner qpi.transfer/burn (a corpus running a procedure through its own QpiContextUserProcedureCall):
+    // moves QU from the contract under test, mirroring runtime.ts semantics. Returns remaining balance, or
+    // -(missing amount) on insufficient funds without moving anything.
+    transfer: (destOff: number, amount: bigint): bigint => {
+      const self = sim.contractId(mainSlot);
+      const bal = sim.balance(self);
+      if (amount < 0n) return -1n;
+      if (bal < amount) return bal - amount;
+      sim.debit(self, amount);
+      sim.credit(id32(destOff), amount);
+      return bal - amount;
+    },
+    burn: (amount: bigint, ciBurnedFor: number): bigint => {
+      const self = sim.contractId(ciBurnedFor >>> 0 || mainSlot);
+      const bal = sim.balance(self);
+      if (amount < 0n || bal < amount) return -1n;
+      sim.debit(self, amount);
+      return bal - amount;
+    },
+    // In-runner inter-contract calls (QTF's ProcessTierPayout invokes QRP's top-up procedure through the
+    // corpus qpi context). Caller is the contract under test; reward moves caller -> callee like runtime.ts.
+    liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number): number => {
+      const out = sim.query(calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize));
+      if (out.length) write(outOff, out.subarray(0, Math.min(outSize >>> 0, out.length)));
+      return 0;
+    },
+    liteInvokeProcedure: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number, reward: bigint): number => {
+      const self = sim.contractId(mainSlot);
+      if (reward > 0n) {
+        if (sim.balance(self) < reward) return 4; // InsufficientFunds
+        sim.debit(self, reward);
+      }
+      const out = sim.procedure(calleeIdx >>> 0, inputType & 0xffff, read(inOff, inSize), { reward, invocator: self, originator: self });
+      if (out.length) write(outOff, out.subarray(0, Math.min(outSize >>> 0, out.length)));
+      return 0;
+    },
+    getEntity: (idOff: number, entityOff: number): number => {
+      const id = id32(idOff);
+      const e = sim.entityOf(id);
+      const rec = EntityRecord.wrap(mem(), entityOff >>> 0);
+      rec.publicKey = M256i.wrap(id);
+      rec.incomingAmount = e ? e.incomingAmount : 0n;
+      rec.outgoingAmount = e ? e.outgoingAmount : 0n;
+      rec.numberOfIncomingTransfers = e ? e.numberOfIncomingTransfers : 0;
+      rec.numberOfOutgoingTransfers = e ? e.numberOfOutgoingTransfers : 0;
+      rec.latestIncomingTransferTick = e ? e.latestIncomingTransferTick : 0;
+      rec.latestOutgoingTransferTick = e ? e.latestOutgoingTransferTick : 0;
+      return e ? 1 : 0;
+    },
   };
   if (sharedSlots.size) {
     lhost.acquireScratch = scratchAcquire;

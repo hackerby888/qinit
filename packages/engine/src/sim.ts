@@ -186,7 +186,7 @@ export class Sim {
   }
 
   // ---- spectrum (the ledger lives in SpectrumLedger; these stay on the façade for the public API) ----
-  private contractId(slot: number): Uint8Array {
+  contractId(slot: number): Uint8Array {
     const id = ContractId.alloc();
     id.lane0 = BigInt(slot); // id(slot,0,0,0)
     return id.bytes;

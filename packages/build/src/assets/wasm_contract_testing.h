@@ -210,9 +210,12 @@ public:
     bool invokeUserProcedure(unsigned int contractIndex, unsigned short procInputType, const InputType& input, OutputType& output, const QPI::id& user, QPI::sint64 amount, bool checkInputSize = true, bool expectSuccess = true) {
         setMem(&output, sizeof(output), 0);
         // Mirror core-lite contract_testing.h: the invocation fails (no procedure run, nothing transferred)
-        // when the user can't fund the attached amount (fee / invocation reward). Corpora assert this return
-        // for unfunded/insufficient callers (e.g. QEARN's lock-before-INITIAL_EPOCH cases).
-        if (amount > 0 && bq_balance(&user) < amount) {
+        // when the user has NO spectrum record at all (spectrumIndex < 0 — even with amount 0), or can't
+        // fund the attached amount. Corpora assert this return (QEARN ErrorChecking's unknown-user lock).
+        if (bq_spectrum(&user) < 0) {
+            return false;
+        }
+        if (amount < 0 || bq_balance(&user) < amount) {
             return false;
         }
         bq_invoke(contractIndex, procInputType, &input, sizeof(input), (long long)amount, &user, &output, sizeof(output));
