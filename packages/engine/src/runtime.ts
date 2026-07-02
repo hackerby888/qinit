@@ -181,6 +181,7 @@ export class Contract {
   arenaBase = 0; arenaBump = 0; arenaEnd = 0;
   sysMask = 0;
   metering = false;  // Layer 2 sets this when fee accounting is on; gates the cost meter (off => zero overhead)
+  private dispatchDepth = 0; // >0 while a dispatch is on the stack — a nested invoke must not reuse io regions
   cost = 0n;         // host-weight accumulator for the in-flight dispatch frame (reset/restored per invoke)
   lastCost = 0n;     // total cost of the most recently completed invoke frame — Layer 2 debits this
   private outSizes = new Map<string, number>();   // user entries: "kind:it" -> outSize
@@ -308,11 +309,31 @@ export class Contract {
   // Marshal one call through the instance (mirrors liteWasmDispatch): write ctx header + input, zero output,
   // call dispatch(kind,it,inOff,outOff,localsOff), copy the output back out.
   invoke(kind: number, it: number, input: Uint8Array = new Uint8Array(0), ctx: CallCtx = {}): Uint8Array {
-    const inOff = this.ioBase;
-    const outOff = this.ioBase + IN_SZ;
-    const localsOff = this.ioBase + IN_SZ + OUT_SZ;
-    const outSize = this.outSizeFor(kind, it);
+    // Reentrant dispatch (e.g. POST_INCOMING_TRANSFER fired by a cross-contract call mid-procedure) must not
+    // reuse the fixed io regions or reset the locals arena — both hold the outer call's live frames. When the
+    // module exports its arena pointer, carve the nested in/out/locals from the arena and restore it (plus the
+    // ctx header the nested writeCtx clobbers) on exit. Modules without the export keep the legacy behavior.
+    const arenaTopG: WebAssembly.Global | undefined = this.ex.arena_top;
+    const nested = this.dispatchDepth > 0 && arenaTopG !== undefined;
+    let inOff: number, outOff: number, localsOff: number;
+    let savedTop = 0;
+    let savedCtx: Uint8Array | null = null;
     const pre = this.u8();
+    if (nested) {
+      savedTop = (arenaTopG!.value as number) >>> 0;
+      inOff = (savedTop + 7) & ~7;
+      outOff = inOff + IN_SZ;
+      localsOff = outOff + OUT_SZ;
+      arenaTopG!.value = localsOff + LOCALS_SZ;
+      savedCtx = pre.slice(this.ctxAddr, this.ctxAddr + 256);
+    } else {
+      inOff = this.ioBase;
+      outOff = this.ioBase + IN_SZ;
+      localsOff = this.ioBase + IN_SZ + OUT_SZ;
+      if (arenaTopG) arenaTopG.value = this.arenaBase;
+      this.arenaBump = this.arenaBase;
+    }
+    const outSize = this.outSizeFor(kind, it);
     pre.fill(0, outOff, outOff + OUT_SZ);
     // Zero the locals scratch too. QPI hands the contract a zeroed locals frame every dispatch (native
     // contract_exec.h clears it; qpi.h documents it as a "zeroed instance"), and HashMap::get / iterators
@@ -322,7 +343,6 @@ export class Contract {
     pre.fill(0, localsOff, localsOff + LOCALS_SZ);
     if (input.length) pre.set(input, inOff);
     this.writeCtx(ctx);
-    this.arenaBump = this.arenaBase;
 
     // Cost meter (opt-in): isolate this frame's host-weight accumulator so a nested re-entrant call on the
     // same Contract (e.g. a self-transfer firing POST_INCOMING_TRANSFER) doesn't clobber the parent's tally.
@@ -339,6 +359,7 @@ export class Contract {
     const e = rec ? rec.begin({ tick: this.host.tick(), index: this.slot, entry: it, kind, invocator: ctx.invocator, invocationReward: ctx.invocationReward ?? 0n, input, stateBefore }) : null;
     const t0 = rec ? performance.now() : 0;
 
+    this.dispatchDepth++;
     try {
       this.ex.dispatch(kind >>> 0, it >>> 0, inOff >>> 0, outOff >>> 0, localsOff >>> 0);
     } catch (err) {
@@ -348,6 +369,13 @@ export class Contract {
         rec.end(e, { output: EMPTY, ok: false, trap: trapMessage(err), stateBefore, stateAfter, execNs: (performance.now() - t0) * 1e6 });
       }
       throw err;
+    } finally {
+      this.dispatchDepth--;
+      if (nested) {
+        const m = this.u8(); // fresh view — memory may have grown during dispatch
+        if (savedCtx) m.set(savedCtx, this.ctxAddr);
+        arenaTopG!.value = savedTop;
+      }
     }
 
     const stateAfter = wantState ? this.state() : EMPTY;

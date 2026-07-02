@@ -203,7 +203,7 @@ function emitGlobals(L: Layout): string {
   (global $ctxBase i32 (i32.const ${L.ctxBase}))
   (global $ioBase i32 (i32.const ${L.ioBase}))
   (global $arenaBase i32 (i32.const ${L.arenaBase}))
-  (global $arenaTop (mut i32) (i32.const ${L.arenaBase}))
+  (global $arenaTop (export "arena_top") (mut i32) (i32.const ${L.arenaBase}))
   (global $assetIterBase i32 (i32.const ${L.iterBufBase}))`;
 }
 
@@ -710,8 +710,9 @@ function emitSysSwitch(sysprocs: SysProcInfo[], val: (sp: SysProcInfo) => number
 function emitDispatch(spec: ModuleSpec): string {
   const lines: string[] = [];
   lines.push("  ;; ---- dispatch ----");
+  // No arena reset here: a reentrant dispatch (POST_INCOMING_TRANSFER fired mid-call) must allocate above
+  // the live outer frames. The host resets arena_top at depth 0 and carves nested io regions from the arena.
   lines.push("  (func $dispatch (param $kind i32) (param $it i32) (param $inOff i32) (param $outOff i32) (param $localsOff i32)");
-  lines.push("    (global.set $arenaTop (global.get $arenaBase))");
 
   // kind == 2: system procedure
   if (spec.sysprocs.length > 0) {
