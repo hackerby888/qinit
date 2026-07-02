@@ -2842,6 +2842,24 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
 
   // aggregate target (id/m256i/struct/array): copy by value, or let a qpi producer write into it
   if (lhs && expr.op === "=" && isAggregate(ctx, lhs.type, lhs.size)) {
+    // Assignment-form iterator construction (`locals.aoi = AssetOwnershipIterator(asset)`): the RHS
+    // `Type(...)` parses as a plain call, so it has no address — lower it like the declaration form, as a
+    // begin() on the target (which resets count/cursor and runs the enumerate when an asset is given).
+    if (lhs.type?.kind === "name" && /Asset(Ownership|Possession)Iterator$/.test(lhs.type.name)
+      && (expr.right.kind === "call" || expr.right.kind === "construct")
+      && ((expr.right.kind === "call" && expr.right.callee.kind === "identifier" && /Asset(Ownership|Possession)Iterator$/.test(expr.right.callee.name))
+        || expr.right.kind === "construct")) {
+      const arg = expr.right.args[0];
+      if (arg) {
+        emitAssetIter(ctx, {
+          kind: "call", span: expr.span, args: [arg],
+          callee: { kind: "member_access", span: expr.span, object: expr.left, member: "begin" },
+        } as Expression & { kind: "call" }, "stmt");
+      } else {
+        ctx.lines.push(`    (i64.store ${lhs.addr} (i64.const 0))`); // zero count+cursor
+      }
+      return "";
+    }
     if (expr.right.kind === "call") {
       const out = emitQpiCall(ctx, expr.right, lhs.addr);
       if (out && out.ret === "out") {
@@ -3766,7 +3784,19 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
     if (member === "set" && !valueWanted) {
       const ea = elemAddr(expr.args[0]);
       if (aggr) {
-        const src = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
+        // A brace-init value (`arr.set(i, { owner, amount })`) has no address — materialize it into a slot
+        // via emitConstruct. Never fall back to copying from address 0.
+        let src = emitAddr(ctx, expr.args[1]);
+        if (!src && (expr.args[1].kind === "initializer_list" || expr.args[1].kind === "construct") && info.elemType) {
+          const vals = expr.args[1].kind === "initializer_list" ? expr.args[1].exprs : expr.args[1].args;
+          const t = newTmp(ctx);
+          ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const ${info.elemSize})))`);
+          if (emitConstruct(ctx, `(local.get $${t})`, info.elemType, vals)) src = `(local.get $${t})`;
+        }
+        if (!src) {
+          ctx.cg.warn(`unsupported Array.set aggregate value`, expr.span.line);
+          return "";
+        }
         ctx.lines.push(`    (call $copyMem ${ea} ${src} ${C(info.elemSize)})`);
       } else {
         ctx.lines.push(`    ${storeAt(ea, info.elemSize, emitValue(ctx, expr.args[1]))}`);
