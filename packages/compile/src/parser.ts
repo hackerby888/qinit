@@ -1843,6 +1843,17 @@ export class Parser {
       tok.kind === "kw_long" || this.looksLikeLocalDecl()) {
       const decl = this.parseDeclaration();
       if (decl) {
+        // Multi-declarator statement (`sint64 a = 0, b = 0;`): parseVariableRest queues the extra
+        // declarators on `pending`, which only the member/decl-list loops drain — inside a function
+        // body drain them here into a compound so no declarator is lost.
+        if (this.pending.length) {
+          const stmts: Statement[] = [{ kind: "declaration", decl, span: this.peek().span }];
+          while (this.pending.length) {
+            const d = this.pending.shift()!;
+            stmts.push({ kind: "declaration", decl: d, span: (d as any).span ?? this.peek().span });
+          }
+          return { kind: "compound", body: stmts, span: this.peek().span };
+        }
         return { kind: "declaration", decl, span: this.peek().span };
       }
     }

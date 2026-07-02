@@ -998,6 +998,7 @@ class Codegen {
       if (m.kind === "struct") {
         const s = m as StructDecl;
         this.nested.set(s.name, s);
+        this.captureStructMethods(s, [s.name]);
         // Also register structs nested INSIDE this one under their qualified name (`Outer::Inner`), recursively.
         // The parser spells such a member type fully-qualified (`GetOrders_output::Order tempOrder;`), so without
         // this structByName's lossy unqualified-suffix fallback binds it to a same-named top-level struct with
@@ -1020,6 +1021,28 @@ class Codegen {
   // Register the struct members declared INSIDE `parent` under their qualified name `${prefix}::${name}`
   // (recursively), without clobbering same-named top-level structs. Lets `structByName("Outer::Inner")` hit
   // the correct inner declaration before the unqualified-suffix fallback.
+  // Inline methods of a nested struct (WinnerData::isValid, EscrowAsset::setFrom) dispatch through
+  // templateMethods like any plain-struct method — capture them under each of the given names,
+  // additionally keyed by arity so overloads select correctly.
+  private captureStructMethods(s: StructDecl, names: string[]): void {
+    for (const mm of s.members) {
+      if (mm.kind !== "function" || !(mm as FunctionDecl).body) continue;
+      const fn = mm as FunctionDecl;
+      if (fn.name === s.name || fn.name.startsWith("operator") || fn.name.startsWith("~")) continue;
+      const def: FunctionTemplateDecl = {
+        kind: "function_template", name: fn.name, params: [], fnParams: fn.params,
+        returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+      };
+      for (const cls of names) {
+        if (!this.templateMethods.has(cls)) this.templateMethods.set(cls, new Map());
+        const into = this.templateMethods.get(cls)!;
+        const akey = `${fn.name}/${(fn.params ?? []).length}`;
+        if (!into.has(akey)) into.set(akey, def);
+        if (!into.has(fn.name)) into.set(fn.name, def);
+      }
+    }
+  }
+
   private collectNestedStructs(parent: StructDecl, prefix: string): void {
     for (const m of parent.members) {
       if (m.kind === "struct") {
@@ -1031,6 +1054,7 @@ class Codegen {
         // First-wins and never shadowing a global keeps a same-named top-level/contract struct authoritative
         // (QBOND's state `Order` stays bound to itself, not GetOrders_output::Order).
         if (!this.nested.has(s.name) && !this.globalStructs.has(s.name)) this.nested.set(s.name, s);
+        this.captureStructMethods(s, [s.name, key]);
         this.collectNestedStructs(s, key);
       }
     }
@@ -1135,10 +1159,11 @@ class Codegen {
 
   // The full layout of a container instantiation (HashMap<id,uint64,1024> → _elements/_occupationFlags/...).
   containerLayout(name: string, args: TypeSpec[], b: Bindings = NO_BIND): StructLayout {
-    // A plain (non-template) struct dispatched as a zero-arg instance (ProposalDataYesNo) has no template
-    // entry — its `this` layout is the ordinary struct layout.
-    if (!this.templates.has(name) && !this.specializations.has(name) && this.globalStructs.has(name)) {
-      return this.layoutOfStruct(this.globalStructs.get(name)!, b);
+    // A plain (non-template) struct dispatched as a zero-arg instance (ProposalDataYesNo, or a contract-
+    // nested WinnerData) has no template entry — its `this` layout is the ordinary struct layout.
+    if (!this.templates.has(name) && !this.specializations.has(name)) {
+      const s = this.globalStructs.get(name) ?? this.nested.get(name);
+      if (s) return this.layoutOfStruct(s, b);
     }
     return this.layoutOfTemplate(name, args, b);
   }
@@ -1461,7 +1486,8 @@ export function generateWasmModule(
         return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type) };
       });
       const isVoid = cg.isVoidType(fn.returnType);   // `void` may parse as {kind:"void"} OR {kind:"name","void"}
-      const retAgg = !isVoid && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
+      // size the referent for a `const T&` return — sizeOfType on the reference itself is pointer-width
+      const retAgg = !isVoid && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(cg.derefType(fn.returnType)) : undefined;
       const retIsValue = !isVoid && !retAgg;
       cg.helpers.set(fn.name, { label: `$h_${fn.name}`, params, retIsValue, retAgg });
       helperFns.push(fn);
@@ -1775,7 +1801,12 @@ function collectLocals(stmt: Statement, ctx: FnCtx): void {
         // reference/pointer locals hold an address (i32); scalars use the i64 value model. A __ScopedScratchpad
         // or an Asset*Iterator local also holds an address (its scratch / iterator buffer base).
         const holdsAddr = v.type.kind === "name" && /(ScopedScratchpad|Iterator)$/.test(v.type.name);
-        const isRef = v.type.kind === "reference" || v.type.kind === "pointer" || holdsAddr;
+        // A struct-typed local (DateAndTime begin = *this) lives in an allocated slot; its wasm local
+        // holds the slot address so member reads and method dispatch resolve through it.
+        const b = ctx.thisBind ?? NO_BIND;
+        const concrete = v.type.kind === "name" && b.types.has(v.type.name) ? b.types.get(v.type.name)! : v.type;
+        const isAgg = !holdsAddr && v.type.kind !== "reference" && v.type.kind !== "pointer" && ctx.cg.isAggregateType(concrete);
+        const isRef = v.type.kind === "reference" || v.type.kind === "pointer" || holdsAddr || isAgg;
         // In a ProposalVoting proxy method the `pv`/`qpi` aliases (`ProposalVotingType& pv = this->pv`) are
         // bound as the function's own parameters, not locals — skip them here.
         if (ctx.proxyClass && isRef && (v.name === "pv" || v.name === "qpi")) break;
@@ -1937,6 +1968,35 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
             }
           }
           break;
+        }
+        // struct-typed local (DateAndTime begin = *this): allocate a slot the wasm local points at, so
+        // member reads and method dispatch on it resolve through an address. Copy-init from an lvalue /
+        // materialized rvalue; a constructor-style init runs emitConstruct; otherwise zero-init (every
+        // qpi.h default constructor zeroes its storage).
+        {
+          const db = ctx.thisBind ?? NO_BIND;
+          const concrete = v.type.kind === "name" && db.types.has(v.type.name) ? db.types.get(v.type.name)! : v.type;
+          if (v.type.kind !== "reference" && v.type.kind !== "pointer" && ctx.cg.isAggregateType(concrete)) {
+            // matches collectLocals' aggregate predicate: the wasm local is i32 (slot address), so this
+            // branch must consume the declaration even when the size is unknown.
+            const sz = Math.max(ctx.cg.sizeOfType(concrete, db), 8);
+            ctx.lines.push(`    (local.set $${v.name} (call $qpiAllocLocals (i32.const ${sz})))`);
+            (ctx.refLocals ??= new Map()).set(v.name, concrete);
+            const ctorArgs = v.init && (v.init.kind === "construct" || (v.init.kind === "call" && v.init.callee.kind === "identifier" && (v.init.callee as any).name === (v.type.kind === "name" ? v.type.name : ""))) ? (v.init as any).args : null;
+            if (ctorArgs && emitConstruct(ctx, `(local.get $${v.name})`, concrete, ctorArgs)) {
+              break;
+            }
+            if (v.init) {
+              const src = resolveAddr(ctx, v.init)?.addr ?? emitAddr(ctx, v.init);
+              if (src) {
+                ctx.lines.push(`    (call $copyMem (local.get $${v.name}) ${src} (i32.const ${sz}))`);
+                break;
+              }
+              ctx.cg.warn(`unsupported struct-local initializer for '${v.name}'`, stmt.span.line);
+            }
+            ctx.lines.push(`    (call $setMem (local.get $${v.name}) (i32.const ${sz}) (i32.const 0))`);
+            break;
+          }
         }
         if (v.init) {
           const val = emitValue(ctx, v.init);
@@ -2356,6 +2416,38 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   }
 
   // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot
+  // aggregate ternary (`cond ? roomA : roomB`) selects between the two branch addresses; both branches
+  // materialize eagerly (same policy as the value-context ternary), fine for the lvalue selects it serves.
+  if (expr.kind === "ternary") {
+    const ta = resolveAddr(ctx, expr.then)?.addr ?? emitAddr(ctx, expr.then);
+    const ea = ta ? (resolveAddr(ctx, expr.else_)?.addr ?? emitAddr(ctx, expr.else_)) : null;
+    if (ta && ea) {
+      const t = newTmp(ctx);
+      ctx.lines.push(`    (local.set $${t} (select ${ta} ${ea} (i64.ne (i64.const 0) ${emitValue(ctx, expr.cond)})))`);
+      return `(local.get $${t})`;
+    }
+  }
+
+  // min/max over id/m256i operands select an address by the 256-bit lexicographic compare (mirroring the
+  // contract-defined `const T&`-returning template helpers); scalar min/max stays in emitMathCall.
+  if (expr.kind === "call" && expr.args.length === 2 &&
+    (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")) {
+    const cname = expr.callee.kind === "identifier" ? expr.callee.name : expr.callee.name;
+    const base = cname.includes("::") ? cname.slice(cname.lastIndexOf("::") + 2) : cname;
+    if (base === "min" || base === "max") {
+      const la = aggOperand(ctx, expr.args[0]);
+      const ra = la ? aggOperand(ctx, expr.args[1]) : null;
+      if (la && ra && la.size === 32 && ra.size === 32) {
+        const t = newTmp(ctx);
+        const pick = base === "min"
+          ? `(select ${la.addr} ${ra.addr} (call $m256_lt ${la.addr} ${ra.addr}))`
+          : `(select ${ra.addr} ${la.addr} (call $m256_lt ${la.addr} ${ra.addr}))`;
+        ctx.lines.push(`    (local.set $${t} ${pick})`);
+        return `(local.get $${t})`;
+      }
+    }
+  }
+
   if (expr.kind === "call" && expr.callee.kind === "identifier") {
     const hinfo = lookupHelper(ctx, expr);
     if (hinfo?.retAgg) return emitAggHelperCall(ctx, expr, hinfo);
@@ -2559,6 +2651,7 @@ function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "call" }): 
 const QPI_ID_PRODUCERS: Record<string, string> = {
   invocator: "$qpi_invocator",
   originator: "$qpi_originator",
+  getPrevSpectrumDigest: "$qpi_prevSpectrumDigest",
 };
 
 // Aggregate construction `Type{ a, b, c }` written into dstAddr: zero the target, then store each arg into
@@ -3392,7 +3485,11 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
   }
   // A plain (non-template) struct with an inline method (ProposalDataYesNo::checkValidity) is dispatched as
   // a zero-arg instance — normalize its name type to a template_instance so the shared method-compilation
-  // path (callCompiled → compileContainerMethod) applies, the same as a template ProposalDataType.
+  // path (callCompiled → compileContainerMethod) applies, the same as a template ProposalDataType. A field
+  // of nested-struct type carries an inline_struct node (the layout inlines it) — dispatch by its name too.
+  if (ct?.kind === "inline_struct" && ct.struct.name && ctx.cg.templateMethods.get(ct.struct.name)?.has(expr.callee.member)) {
+    ct = { kind: "template_instance", name: ct.struct.name, args: [] } as TypeSpec;
+  }
   if (ct?.kind === "name" && ctx.cg.templateMethods.get(ct.name)?.has(expr.callee.member)) {
     ct = { kind: "template_instance", name: ct.name, args: [] } as TypeSpec;
   }
@@ -3847,14 +3944,40 @@ function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWant
   // a sibling method of this container instance — compile it and call with $this + args
   const cm = compileContainerMethod(ctx.cg, ctx.thisType, name, expr.args.length);
   if (!cm) return null;
+  // A reference-scalar argument that is a plain wasm local (addAndComputeCarry(newMicrosec, carry, ...))
+  // has no address: spill it to a slot, pass the slot, and write the slot back after the call so
+  // out-parameter writes reach the local.
+  const writeBacks: string[] = [];
   const ops = cm.fnParams.map((fp, i) => {
     const arg = expr.args[i];
     if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    return fp.isAddr ? (emitAddr(ctx, arg) ?? "(i32.const 0)") : emitValue(ctx, arg);
+    if (!fp.isAddr) return emitValue(ctx, arg);
+    const a = emitAddr(ctx, arg);
+    if (a) return a;
+    const t = newTmp(ctx);
+    ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 8)))`);
+    ctx.lines.push(`    (i64.store (local.get $${t}) ${emitValue(ctx, arg)})`);
+    if (arg.kind === "identifier" && ctx.localVars.get(arg.name)?.wasmType === "i64") {
+      writeBacks.push(`    (local.set $${arg.name} (i64.load (local.get $${t})))`);
+    }
+    return `(local.get $${t})`;
   });
   const call = `(call ${cm.label} (local.get $this) ${ops.join(" ")})`;
-  if (valueWanted) return cm.retKind === "i64" ? call : "(i64.const 0)";
+  if (valueWanted) {
+    if (cm.retKind !== "i64") {
+      ctx.lines.push(`    ${call}`);
+      ctx.lines.push(...writeBacks);
+      return "(i64.const 0)";
+    }
+    if (!writeBacks.length) return call;
+    const r = `tmp${ctx.tmpCount++}`;
+    ctx.localVars.set(r, { wasmType: "i64" });
+    ctx.lines.push(`    (local.set $${r} ${call})`);
+    ctx.lines.push(...writeBacks);
+    return `(local.get $${r})`;
+  }
   ctx.lines.push(cm.retKind === "i64" ? `    (drop ${call})` : `    ${call}`);
+  ctx.lines.push(...writeBacks);
   return "";
 }
 
