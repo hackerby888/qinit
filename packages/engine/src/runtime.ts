@@ -230,6 +230,9 @@ export class Contract {
     this.arenaBase = this.ioBase + IN_SZ + OUT_SZ + LOCALS_SZ;
     this.arenaBump = this.arenaBase;
     this.arenaEnd = this.ioBase + (this.ex.io_size() >>> 0);
+    // Shared-memory module: the state lives in bss, which emits no data segments — re-instantiating over an
+    // imported memory leaves the previous deployment's state bytes in place. Zero it to match a fresh deploy.
+    if (extMem && this.stateSize > 0) new Uint8Array(this.mem.buffer).fill(0, this.stateAddr, this.stateAddr + this.stateSize);
     if (typeof this.ex._initialize === "function") this.ex._initialize(); // reactor: run C++ ctors
     this.readRegistry();
   }

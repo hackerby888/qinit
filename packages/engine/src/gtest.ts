@@ -446,11 +446,18 @@ export async function runContractTesting(
       if (b) sim.debit(b, BigInt(amount));
     },
 
-    q_shares: (issuerPtr: number, _assetName: bigint): bigint => {
+    q_shares: (issuerPtr: number, assetName: bigint): bigint => {
       const issuerHex = hex(id32(issuerPtr));
+      let nameStr = "";
+      for (let n = BigInt(assetName), i = 0; i < 8; i++) {
+        const c = Number(n & 0xffn);
+        n >>= 8n;
+        if (c === 0) break;
+        nameStr += String.fromCharCode(c);
+      }
       let sum = 0n;
       for (const a of sim.assetUniverse()) {
-        if (a.issuer === issuerHex) {
+        if (a.issuer === issuerHex && a.name === nameStr) {
           for (const h of a.holdings) sum += BigInt(h.shares);
         }
       }
