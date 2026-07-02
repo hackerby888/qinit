@@ -1018,6 +1018,26 @@ class Codegen {
         // resolve their layout/fields.
         const td = m as any;
         if (!this.typedefs.has(td.name)) this.typedefs.set(td.name, td.type);
+      } else if (m.kind === "class_template") {
+        // contract-nested template struct (PULSE's HashMapConverter<Key,T,L>): register like a file-scope
+        // template — the layout table AND its inline methods — so instantiations lay out and methods
+        // dispatch through the compiled-container machinery.
+        const ct = m as any;
+        const prev = this.templates.get(ct.name);
+        if (!prev || (prev.members?.length ?? 0) < (ct.members?.length ?? 0)) this.templates.set(ct.name, ct);
+        for (const mm of ct.specializationArgs ? [] : ct.members) {
+          if (mm.kind !== "function" || !(mm as FunctionDecl).body) continue;
+          const fn = mm as FunctionDecl;
+          if (!this.templateMethods.has(ct.name)) this.templateMethods.set(ct.name, new Map());
+          const into = this.templateMethods.get(ct.name)!;
+          const def: FunctionTemplateDecl = {
+            kind: "function_template", name: fn.name, params: ct.params, fnParams: fn.params,
+            returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+          };
+          const akey = `${fn.name}/${(fn.params ?? []).length}`;
+          if (!into.has(akey)) into.set(akey, def);
+          if (!into.has(fn.name)) into.set(fn.name, def);
+        }
       }
     }
   }
