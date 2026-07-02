@@ -5,8 +5,8 @@
 // body drives it through thost (which re-enters the instance via Sim — a single-instance, non-reentrancy-prone
 // path because run_test is not mid-dispatch when it calls thost). Runs in Bun and the browser; no native build.
 import { Sim } from "./sim";
-import { Contract, KIND, SP } from "./runtime";
-import { initK12, deriveKeysSync } from "./k12";
+import { Contract, KIND, SP, dateFields, packDateAndTime } from "./runtime";
+import { initK12, deriveKeysSync, k12Bytes } from "./k12";
 
 export interface TestResult {
   name: string;     // "Suite.Name"
@@ -236,7 +236,14 @@ export async function runContractTesting(
     // A corpus may set system.epoch BEFORE building the fixture (QBOND: `system.epoch = 192; ContractTestingQBond
     // qbond;`), so carry the clock across the rebuild instead of zeroing it on the fresh Sim.
     const prevEpoch = sim?.epochN, prevTick = sim?.tickN, prevTimeBase = sim?.timeBaseMs;
+    const prevDigest = sim?.prevSpectrumDigestOverride;
     sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    // Native-harness clock semantics: etalonTick's date fields ARE the chain time and never move on their
+    // own — a corpus advances time only by writing them (q_set_datetime). Freeze the per-tick advance.
+    sim.tickDuration = 0;
+    // Native etalonTick.prevSpectrumDigest is a zero-initialized global the corpus may pin; contracts read
+    // exactly that value, not a live digest of the throwaway chain.
+    sim.prevSpectrumDigestOverride = prevDigest ?? new Uint8Array(32);
     if (prevEpoch !== undefined) sim.epochN = prevEpoch;
     if (prevTick !== undefined) sim.tickN = prevTick;
     if (prevTimeBase !== undefined) sim.timeBaseMs = prevTimeBase;
@@ -396,6 +403,7 @@ export async function runContractTesting(
     q_get_epoch: (): number => sim.epochN >>> 0,
     q_set_tick: (t: number) => { sim.tickN = t >>> 0; },
     q_get_tick: (): number => sim.tickN >>> 0,
+    q_set_prev_spectrum_digest: (ptr: number) => { sim.prevSpectrumDigestOverride = read(ptr, 32); },
     // updateQpiTime() in the corpus harness pushes its utcTime fields here; set the chain clock so the qpi
     // date accessors (year/month/day/...) return them. timeBaseMs is chosen so nowMs() == the requested UTC.
     q_set_datetime: (y: number, mo: number, d: number, h: number, mi: number, s: number) => {
@@ -428,6 +436,26 @@ export async function runContractTesting(
   const noopModule = new Proxy({}, { get: () => () => 0 });
   const envProxy = new Proxy(env, { get: (t, k: string) => (k in t ? (t as any)[k] : () => 0), has: () => true });
 
+  // The runner executes corpus code OUTSIDE any engine dispatch, but its in-runner qpi context (helpers like
+  // QDUEL's computeWinner run the contract function inside the runner module) imports "lhost" like any
+  // contract. Wire the read-only environment surface to the live Sim so in-runner qpi reads agree with what
+  // the deployed contracts see; state-mutating host calls stay noops (only meaningful inside a dispatch).
+  const lhostReadOnly = {
+    k12: (inOff: number, len: number, outOff: number) => mem().set(k12Bytes(read(inOff, len)), outOff >>> 0),
+    epoch: () => sim.epochN & 0xffff,
+    tick: () => sim.tickN >>> 0,
+    day: () => dateFields(sim.nowMs()).day,
+    year: () => dateFields(sim.nowMs()).year,
+    hour: () => dateFields(sim.nowMs()).hour,
+    minute: () => dateFields(sim.nowMs()).minute,
+    month: () => dateFields(sim.nowMs()).month,
+    second: () => dateFields(sim.nowMs()).second,
+    millisecond: () => dateFields(sim.nowMs()).milli,
+    now: (out: number) => new DataView(mem().buffer).setBigUint64(out >>> 0, packDateAndTime(sim.nowMs()), true),
+    prevSpectrumDigest: (out: number) => mem().set((sim.prevSpectrumDigestOverride ?? new Uint8Array(32)).subarray(0, 32), out >>> 0),
+  };
+  const lhost = new Proxy(lhostReadOnly, { get: (t, k: string) => (k in t ? (t as any)[k] : () => 0), has: () => true });
+
   // WASI: a corpus that pulls real <iostream> (e.g. VottunBridge) streams debug prints through fd_write.
   // A stub returning 0 reads as "0 bytes written", and libc++'s ostream retries the flush forever — a hang.
   // Report every requested byte as written (and discard it) so the flush completes; other wasi calls noop.
@@ -444,7 +472,7 @@ export async function runContractTesting(
     { get: (t, k: string) => (k in t ? (t as any)[k] : () => 0), has: () => true },
   );
 
-  const imports = new Proxy({ thost, env: envProxy, wasi_snapshot_preview1: wasi } as Record<string, unknown>, {
+  const imports = new Proxy({ thost, lhost, env: envProxy, wasi_snapshot_preview1: wasi } as Record<string, unknown>, {
     get: (t, m: string) => (m in t ? (t as any)[m] : noopModule),
     has: () => true,
   });

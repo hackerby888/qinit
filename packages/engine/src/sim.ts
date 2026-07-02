@@ -82,6 +82,7 @@ export class Sim {
   private mempoolMode: boolean; // when true, broadcast txs are deferred to their scheduled tick (opt-in)
   private fees: FeeManager; // per-contract execution-fee reserves + the fee-mode policy
   private computorOverride = new Map<number, Uint8Array>(); // test seam: qpi.computor(i) overrides (gtest harness)
+  prevSpectrumDigestOverride?: Uint8Array; // test seam: corpus-pinned digest (native harness's etalonTick.prevSpectrumDigest)
 
   constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean; fees?: FeeMode; defaultReserve?: bigint; liteTicking?: boolean } = {}) {
     this.mempoolMode = opts.mempool ?? false;
@@ -144,7 +145,7 @@ export class Sim {
       isContractId: (id) => (this.contractSlotOf(id) >= 0 ? 1 : 0),
       arbitrator: () => this.ticking.getCommittee().arbitrator.publicKey,
       computor: (i) => this.computorOverride.get(i >>> 0) ?? this.ticking.getCommittee().computors[i % this.ticking.committeeSize()]?.publicKey ?? ZERO32,
-      prevSpectrumDigest: () => this.ticking.prevSpectrumDigest(),
+      prevSpectrumDigest: () => this.prevSpectrumDigestOverride ?? this.ticking.prevSpectrumDigest(),
       prevUniverseDigest: () => this.ticking.prevUniverseDigest(),
       prevComputerDigest: () => this.ticking.prevComputerDigest(),
       distributeDividends: (slot, amountPerShare) => this.doDistributeDividends(slot, amountPerShare),

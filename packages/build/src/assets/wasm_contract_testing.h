@@ -40,6 +40,7 @@ QBCT_IMPORT(q_set_tick)   void         bq_set_tick(unsigned int t);
 QBCT_IMPORT(q_get_tick)   unsigned int bq_get_tick();
 QBCT_IMPORT(q_set_datetime) void       bq_set_datetime(unsigned int y, unsigned int mo, unsigned int d, unsigned int h, unsigned int mi, unsigned int s);
 QBCT_IMPORT(q_set_computor) void       bq_set_computor(unsigned int i, const void* id32);
+QBCT_IMPORT(q_set_prev_spectrum_digest) void bq_set_prev_spectrum_digest(const void* digest32);
 }
 
 #undef QBCT_IMPORT
@@ -296,19 +297,29 @@ struct QbEtalonField {
 
 // Date-only stand-in for core-lite's Tick global. backing[] holds year (2-digit) / month / day / hour /
 // minute / second / millisecond; the proxy fields alias those slots so writes route through qbEtalonSync().
+// Prev-tick spectrum digest: contracts XOR it into digest-derived RNG (QDUEL's GetWinnerPlayer). In the native
+// harness it's the zero-initialized etalonTick global the corpus may pin; assignments push the value to the
+// engine so qpi.getPrevSpectrumDigest() (contract-side AND in-runner) reads exactly what the corpus set.
+struct QbDigestProxy {
+    m256i v;
+    QbDigestProxy& operator=(const m256i& d) {
+        v = d;
+        bq_set_prev_spectrum_digest(&v);
+        return *this;
+    }
+    operator const m256i&() const { return v; }
+};
+
 struct QbEtalonTick {
     unsigned int backing[7];
     QbEtalonField year, month, day, hour, minute, second, millisecond;
-    // Prev-tick spectrum digest: some contracts XOR it into digest-derived RNG (QDUEL's GetWinnerPlayer). A corpus
-    // resets it to fix that seed; the in-TU qpi.getPrevSpectrumDigest() actually reads the engine (0 on this
-    // throwaway chain), so this field only has to exist and be assignable. m256i comes from qpi.h.
-    m256i prevSpectrumDigest;
+    QbDigestProxy prevSpectrumDigest;
 
     QbEtalonTick()
         : backing{ 24, 1, 1, 0, 0, 0, 0 },
           year{ &backing[0] }, month{ &backing[1] }, day{ &backing[2] }, hour{ &backing[3] },
           minute{ &backing[4] }, second{ &backing[5] }, millisecond{ &backing[6] },
-          prevSpectrumDigest(m256i::zero()) {
+          prevSpectrumDigest{ m256i::zero() } {
     }
 };
 
