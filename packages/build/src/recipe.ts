@@ -135,6 +135,9 @@ void* QPI::QpiContextFunctionCall::__qpiAllocLocals(unsigned int sizeOfLocals) c
 \tunsigned long off = __qinitLocalsTop;
 \tif (__qinitLocalsDepth < 256) __qinitLocalsMark[__qinitLocalsDepth++] = off;
 \t__qinitLocalsTop = (off + sizeOfLocals + 7) & ~7ul;
+\t// native contract_exec.h zeroes every locals frame (setMem after allocate); a nested CALL()'s locals
+\t// (e.g. a HashSet used as a dedup scratch) must start empty or membership tests read stale garbage.
+\t__builtin_memset(&__qinitLocalsBuf[off], 0, sizeOfLocals);
 \treturn (void*)&__qinitLocalsBuf[off];
 }
 void QPI::QpiContextFunctionCall::__qpiFreeLocals() const { if (__qinitLocalsDepth > 0) __qinitLocalsTop = __qinitLocalsMark[--__qinitLocalsDepth]; }

@@ -343,12 +343,21 @@ export async function runContractTesting(
     q_reset: () => { deployAll(); },
     q_init: (_idx: number) => { /* contracts pre-deployed in deployAll */ },
 
+    // A contract trap (OOB, unreachable) inside a dispatch fails the CURRENT TEST, not the whole corpus run
+    // — the native harness likewise contains a contract fault per test. The trap is surfaced on stderr once;
+    // the test's assertions then fail against the unmodified state.
     q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
       flushState();
       const input = read(inPtr, inLen);
       const origin = id32(originPtr);
       if (amount > 0n) sim.debit(origin, BigInt(amount));
-      const out = traceDisp(`invoke[${idx >>> 0}:${it >>> 0}]`, () => sim.procedure(idx >>> 0, it >>> 0, input, { reward: BigInt(amount), invocator: origin, originator: origin }));
+      let out: Uint8Array;
+      try {
+        out = traceDisp(`invoke[${idx >>> 0}:${it >>> 0}]`, () => sim.procedure(idx >>> 0, it >>> 0, input, { reward: BigInt(amount), invocator: origin, originator: origin }));
+      } catch (e: any) {
+        (globalThis as any).process?.stderr?.write?.(`[gtest] invoke[${idx >>> 0}:${it >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`);
+        out = new Uint8Array(0);
+      }
       const n = Math.min(out.length, outCap >>> 0);
       if (n) write(outPtr, out.subarray(0, n));
       markEngineMoved();
@@ -357,7 +366,13 @@ export async function runContractTesting(
 
     q_query: (idx: number, it: number, inPtr: number, inLen: number, outPtr: number, outCap: number): number => {
       flushState();
-      const out = traceDisp(`query[${idx >>> 0}:${it >>> 0}]`, () => sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen)));
+      let out: Uint8Array;
+      try {
+        out = traceDisp(`query[${idx >>> 0}:${it >>> 0}]`, () => sim.query(idx >>> 0, it >>> 0, read(inPtr, inLen)));
+      } catch (e: any) {
+        (globalThis as any).process?.stderr?.write?.(`[gtest] query[${idx >>> 0}:${it >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`);
+        out = new Uint8Array(0);
+      }
       const n = Math.min(out.length, outCap >>> 0);
       if (n) write(outPtr, out.subarray(0, n));
       return n >>> 0;
@@ -366,7 +381,11 @@ export async function runContractTesting(
     q_sysproc: (idx: number, sp: number) => {
       flushState();
       const c = handles[idx >>> 0];
-      if (c && c.hasSysproc(sp >>> 0)) traceDisp(`sysproc[${idx >>> 0}:${sp >>> 0}]`, () => c.invoke(KIND.SYSPROC, sp >>> 0, new Uint8Array(0), { entryPoint: sp >>> 0 }));
+      try {
+        if (c && c.hasSysproc(sp >>> 0)) traceDisp(`sysproc[${idx >>> 0}:${sp >>> 0}]`, () => c.invoke(KIND.SYSPROC, sp >>> 0, new Uint8Array(0), { entryPoint: sp >>> 0 }));
+      } catch (e: any) {
+        (globalThis as any).process?.stderr?.write?.(`[gtest] sysproc[${idx >>> 0}:${sp >>> 0}] trapped: ${String(e?.message ?? e).slice(0, 120)}\n`);
+      }
       markEngineMoved();
       if (env_.QINIT_GTEST_DUMP_ASSETS) {
         (globalThis as any).process.stderr.write(`[assets after sysproc ${sp >>> 0}] ${JSON.stringify(sim.assetUniverse())}\n`);
@@ -431,7 +450,8 @@ export async function runContractTesting(
     q_possessed: (name: bigint, issuerPtr: number, ownerPtr: number, possessorPtr: number, om: number, pm: number): bigint => {
       const r = (sim as any).assets.numberOfPossessedShares(BigInt(name), id32(issuerPtr), id32(ownerPtr), id32(possessorPtr), om >>> 0, pm >>> 0) as bigint;
       if (env_.QINIT_GTEST_DUMP_ASSETS) {
-        (globalThis as any).process.stderr.write(`[q_possessed] name=${name} issuerPtr=${issuerPtr >>> 0} issuer=${hex(id32(issuerPtr))} ownerPtr=${ownerPtr >>> 0} owner=${hex(id32(ownerPtr))} om=${om >>> 0} pm=${pm >>> 0} -> ${r}\n`);
+        const uni = sim.assetUniverse().filter((a: any) => a.name === "QUSD").map((a: any) => a.holdings.map((h: any) => `${h.owner.slice(0, 8)}/${h.possessor.slice(0, 8)}:${h.shares}@${h.ownMgmt}/${h.posMgmt}`).join(" "));
+        (globalThis as any).process.stderr.write(`[q_possessed] owner=${hex(id32(ownerPtr)).slice(0, 8)} om=${om >>> 0} pm=${pm >>> 0} -> ${r} | uni: ${uni.join(" | ")}\n`);
       }
       return r;
     },

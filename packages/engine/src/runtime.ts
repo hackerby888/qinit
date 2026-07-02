@@ -566,6 +566,9 @@ export class Contract {
         const newOwner = u8().slice(newOwnerOff, newOwnerOff + 32);
         const r = this.host.transferShares(this.slot, name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), shares, newOwner);
         this.recHost("transferShares", () => `${assetName(name)} ${shares} → ${shortId(newOwner)}`);
+        if ((globalThis as any).process?.env?.QINIT_GTEST_DUMP_ASSETS) {
+          (globalThis as any).process.stderr.write(`[lh transferShares] slot=${this.slot} name=${name} owner=${Array.from(u8().slice(ownOff, ownOff + 8)).join(",")} newOwner=${Array.from(newOwner.slice(0, 8)).join(",")} shares=${shares} -> ${r}\n`);
+        }
         return r;
       },
       // share management rights — qpi acquireShares / releaseShares (qpi_asset_impl.h). The lhost imports are

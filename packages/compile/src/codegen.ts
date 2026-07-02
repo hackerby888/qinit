@@ -1442,6 +1442,7 @@ export function generateWasmModule(
   callees?: CalleeIdl[],
   calleeStructs?: Map<string, StructDecl>,
   calleeTus?: Array<{ name: string; decls: Declaration[] }>,
+  memBase?: number,
 ): string {
   const cg = new Codegen(sema);
   for (const c of callees ?? []) cg.callees.set(c.name, c);
@@ -1468,7 +1469,7 @@ export function generateWasmModule(
 
   const contract = findContractStruct(tu);
   if (!contract) {
-    return emitModule({ stateSize: 0, arenaSize: arenaSz, entries: [], sysprocs: [], userFunctionsWat: ";; no contract struct found" });
+    return emitModule({ stateSize: 0, arenaSize: arenaSz, entries: [], sysprocs: [], userFunctionsWat: ";; no contract struct found", memBase });
   }
 
   cg.collectNested(contract);
@@ -1614,6 +1615,7 @@ export function generateWasmModule(
     entries,
     sysprocs,
     userFunctionsWat: userFns.join("\n"),
+    memBase,
   };
 
   // expose warnings via a side channel (sema diagnostics)
@@ -1722,6 +1724,7 @@ interface FnCtx {
   gotoLabels?: Map<string, string>;           // C++ label name → enclosing wasm block label (forward goto)
   refLocals?: Map<string, TypeSpec>;          // reference/pointer locals: name → referent type (holds an address)
   scratchpadLocals?: Set<string>;             // __ScopedScratchpad locals: an i32 holding the scratch buffer base; `.ptr` reads it
+  scratchpadScope?: string[];                 // scratchpads live in the current scope chain — released LIFO at compound exit
   thisAddr?: string;                           // WAT for *this's address (default "(local.get $this)"); set when inlining a struct method
   inlineMethod?: boolean;                       // emitting a struct method inline into the caller — `return` is suppressed (the value flows via thisAddr)
   proxyClass?: string;                          // emitting a ProposalVoting proxy method (qpi(pv).m()): the proxy class for sibling resolution
@@ -1872,6 +1875,7 @@ function collectLabelsIn(stmt: Statement, out: Set<string>): void {
 // the goto and L; control lands right before L's sibling, reproducing the jump via natural fall-through.
 // (qpi.h's HashMap::set is the canonical case: `goto reuse_slot` exits both probing loops.)
 function emitCompound(ctx: FnCtx, body: Statement[]): void {
+  const spBase = ctx.scratchpadScope?.length ?? 0;
   // child index where each goto-targeted label is rooted
   const labelChild = new Map<string, number>();
   for (let i = 0; i < body.length; i++) {
@@ -1932,6 +1936,17 @@ function emitCompound(ctx: FnCtx, body: Statement[]): void {
     closeStack.pop();
   }
 
+  // Scope exit: run __ScopedScratchpad destructors declared in this compound (RAII, LIFO). Without the
+  // release, sequential container cleanups within one dispatch sum their scratch instead of reusing it and
+  // overrun the arena. (An early `return` skips these lines — that leak is bounded by the per-dispatch
+  // arena reset.)
+  if (ctx.scratchpadScope && ctx.scratchpadScope.length > spBase) {
+    for (let i = ctx.scratchpadScope.length - 1; i >= spBase; i--) {
+      ctx.lines.push(`    (call $releaseScratchpad (local.get $${ctx.scratchpadScope[i]}))`);
+    }
+    ctx.scratchpadScope.length = spBase;
+  }
+
   for (const g of wasmLabel.keys()) ctx.gotoLabels!.delete(g);
 }
 
@@ -1958,6 +1973,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
           const initZero = args[1] ? `(i64.ne (i64.const 0) ${emitValue(ctx, args[1])})` : "(i32.const 0)";
           ctx.lines.push(`    (local.set $${v.name} (call $acquireScratchpad ${size} ${initZero}))`);
           (ctx.scratchpadLocals ??= new Set()).add(v.name);
+          (ctx.scratchpadScope ??= []).push(v.name);
           break;
         }
         // AssetOwnership/PossessionIterator iter(asset): an 8-byte iterator buffer (count@0, cursor@4); the
@@ -3178,8 +3194,15 @@ function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
       if (rl) return unsignedScalar(rl);
       return unsignedScalar(resolveAddr(ctx, expr)?.type ?? null);
     }
-    case "member_access": case "subscript":
-      return unsignedScalar(resolveAddr(ctx, expr)?.type ?? null);
+    case "member_access": case "subscript": {
+      const t = resolveAddr(ctx, expr)?.type ?? null;
+      if (t?.kind === "name" && t.name === "DateAndTime") return true; // compares via its packed uint64 value
+      return unsignedScalar(t);
+    }
+    case "call":
+      // qpi out-producers read as scalars are packed uint64 values (qpi.now() → DateAndTime.value)
+      return expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier"
+        && expr.callee.object.name === "qpi" && QPI_CALLS[expr.callee.member]?.ret === "out";
     case "binary_op":
       if (["+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>"].includes(expr.op))
         return isUnsignedExpr(ctx, expr.left) || isUnsignedExpr(ctx, expr.right);
@@ -4163,6 +4186,13 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
   if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
     const g = QPI_GETTERS[expr.callee.member];
     if (g) return g.ret === "i64" ? `(call ${g.fwd})` : `(i64.extend_i32_u (call ${g.fwd}))`;
+    // qpi out-producer used as a scalar value (`qpi.now() < endDate`): materialize the out struct and read
+    // its leading 8 bytes — the scalar-context out producers are 8-byte packed values (DateAndTime.value).
+    const desc = QPI_CALLS[expr.callee.member];
+    if (desc && desc.ret === "out") {
+      const a = emitAddr(ctx, expr);
+      if (a) return `(i64.load ${a})`;
+    }
   }
 
   const q = emitQpiCall(ctx, expr);

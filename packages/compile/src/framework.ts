@@ -47,6 +47,10 @@ export interface ModuleSpec {
   sysprocs: SysProcInfo[];
   userFunctionsWat: string;   // the $user_N / $sys_N function definitions
   hasMigrate?: boolean;
+  memBase?: number;           // shared-memory gtest mode: import env.memory and place the whole layout at
+                              // this byte offset inside the provider's (corpus runner's) memory. Every
+                              // address in the module is layout-global-relative, so shifting the bases in
+                              // computeLayout relocates everything — there are no data segments.
 }
 
 // Back-compat shape used by older callers / tests.
@@ -72,10 +76,10 @@ interface Layout {
   iterBufBase: number;
 }
 
-function computeLayout(stateSize: number, arenaSize: number): Layout {
+function computeLayout(stateSize: number, arenaSize: number, memBase = 0): Layout {
   const align = (n: number, a: number) => Math.ceil(n / a) * a;
-  const stateBase = 0;
-  const ctxBase = align(Math.max(stateSize, 8), 16);
+  const stateBase = memBase;
+  const ctxBase = align(stateBase + Math.max(stateSize, 8), 16);
   const ioBase = align(ctxBase + CTX_SZ, 16);
   const inBase = ioBase;
   const outBase = inBase + IN_SZ;
@@ -94,14 +98,16 @@ function computeLayout(stateSize: number, arenaSize: number): Layout {
 // ---- The complete module assembler ----
 
 export function emitModule(spec: ModuleSpec): string {
-  const L = computeLayout(spec.stateSize, spec.arenaSize);
+  const L = computeLayout(spec.stateSize, spec.arenaSize, spec.memBase ?? 0);
   const sysprocMask = spec.sysprocs.reduce((m, sp) => m | (1 << sp.id), 0);
 
   return [
     "(module",
     "  ;; ---- qinit-compile generated module ----",
     emitImports(),
-    `  (memory (export "memory") ${L.pages} ${L.pages})`,
+    spec.memBase !== undefined
+      ? `  (import "env" "memory" (memory ${L.pages}))`
+      : `  (memory (export "memory") ${L.pages} ${L.pages})`,
     emitGlobals(L),
     emitExportList(),
     emitMemOps(),
@@ -273,10 +279,14 @@ function emitMemOps(): string {
 function emitAllocators(L: Layout): string {
   // Arena bump allocator. Locals + scratchpad both bump the arena; dispatch resets it per call.
   return `  ;; ---- allocators (arena bump; reset each dispatch) ----
+  ;; Zeroed like native contract_exec.h's __qpiAllocLocals (setMem after allocate): a nested CALL()'s locals
+  ;; frame (e.g. a HashSet used as a dedup scratch) must start empty. Scalar temps share this allocator and
+  ;; are always fully written before read, so the extra zeroing is only a small constant cost for them.
   (func $qpiAllocLocals (param $size i32) (result i32)
     (local $off i32)
     (local.set $off (global.get $arenaTop))
     (global.set $arenaTop (i32.and (i32.add (i32.add (local.get $off) (local.get $size)) (i32.const 7)) (i32.const -8)))
+    (call $setMem (local.get $off) (local.get $size) (i32.const 0))
     (local.get $off))
 
   (func $qpiFreeLocals nop)
@@ -289,7 +299,12 @@ function emitAllocators(L: Layout): string {
     (if (local.get $initZero) (then (call $setMem (local.get $off) (local.get $sz) (i32.const 0))))
     (local.get $off))
 
-  (func $releaseScratchpad (param $ptr i32) nop)`;
+  ;; Scoped release (RAII in qpi.h, so releases nest strictly LIFO): pop the bump back to the released
+  ;; block. Enclosing locals frames were allocated below the scratch, so the pop never frees live memory;
+  ;; without it, sequential container cleanups within one dispatch sum their scratch instead of reusing it.
+  (func $releaseScratchpad (param $ptr i32)
+    (if (i32.and (i32.ge_u (local.get $ptr) (global.get $arenaBase)) (i32.le_u (local.get $ptr) (global.get $arenaTop)))
+      (then (global.set $arenaTop (local.get $ptr)))))`;
 }
 
 function emitForwarders(): string {

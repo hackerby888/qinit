@@ -49,6 +49,7 @@ export interface CompileOpts {
   testSource?: string;
   testPath?: string;
   qpiHeader?: string;
+  sharedMemBase?: number; // shared-memory gtest mode: import env.memory and place the layout at this offset
 }
 
 export interface ContractIdl {
@@ -190,7 +191,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   // Codegen → WAT (seeded with the qpi.h library type table)
   let wat: string;
   try {
-    wat = generateWasmModule(tu, sema, opts.name, opts.slot, opts.arenaSz ?? 1024 * 1024 * 1024, qpi.lib, opts.callees, calleeStructs, calleeTus);
+    wat = generateWasmModule(tu, sema, opts.name, opts.slot, opts.arenaSz ?? 1024 * 1024 * 1024, qpi.lib, opts.callees, calleeStructs, calleeTus, opts.sharedMemBase);
   } catch (e: any) {
     diagnostics.push({
       severity: "error",
