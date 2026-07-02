@@ -2007,13 +2007,33 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
           const concrete = v.type.kind === "name" && db.types.has(v.type.name) ? db.types.get(v.type.name)! : v.type;
           if (v.type.kind !== "reference" && v.type.kind !== "pointer" && ctx.cg.isAggregateType(concrete)) {
             // matches collectLocals' aggregate predicate: the wasm local is i32 (slot address), so this
-            // branch must consume the declaration even when the size is unknown.
-            const sz = Math.max(ctx.cg.sizeOfType(concrete, db), 8);
+            // branch must consume the declaration even when the size is unknown. An unsized array
+            // (`const int daysInMonth[] = {...}`) takes its length from the initializer.
+            let aggSz = ctx.cg.sizeOfType(concrete, db);
+            if (concrete.kind === "array" && aggSz <= 0 && v.init?.kind === "initializer_list") {
+              aggSz = ctx.cg.sizeOfType(concrete.elem, db) * (((v.init as any).exprs ?? []).length);
+            }
+            const sz = Math.max(aggSz, 8);
             ctx.lines.push(`    (local.set $${v.name} (call $qpiAllocLocals (i32.const ${sz})))`);
             (ctx.refLocals ??= new Map()).set(v.name, concrete);
             const ctorArgs = v.init && (v.init.kind === "construct" || (v.init.kind === "call" && v.init.callee.kind === "identifier" && (v.init.callee as any).name === (v.type.kind === "name" ? v.type.name : ""))) ? (v.init as any).args : null;
             if (ctorArgs && emitConstruct(ctx, `(local.get $${v.name})`, concrete, ctorArgs)) {
               break;
+            }
+            // brace-init: array locals (const int daysInMonth[] = {0, 31, ...}) store element-wise;
+            // struct locals go field-wise through emitConstruct.
+            if (v.init?.kind === "initializer_list") {
+              if (concrete.kind === "array") {
+                const esz = ctx.cg.sizeOfType(concrete.elem, db);
+                ctx.lines.push(`    (call $setMem (local.get $${v.name}) (i32.const ${sz}) (i32.const 0))`);
+                ((v.init as any).exprs ?? []).forEach((e: Expression, i: number) => {
+                  ctx.lines.push(`    ${storeAt(addrOf(`(local.get $${v.name})`, i * esz), esz, emitValue(ctx, e))}`);
+                });
+                break;
+              }
+              if (emitConstruct(ctx, `(local.get $${v.name})`, concrete, (v.init as any).exprs ?? [])) {
+                break;
+              }
             }
             if (v.init) {
               const src = resolveAddr(ctx, v.init)?.addr ?? emitAddr(ctx, v.init);
@@ -2781,6 +2801,13 @@ function storeAt(addr: string, size: number, value: string): string {
 function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
   const lhs = resolveAddr(ctx, expr.left);
 
+  // uint128 plain assignment: materialize the RHS through the $u128_* machinery (a computed RHS — ternary,
+  // (uint128)a * (uint128)b, div<uint128> — has no address, so the aggregate copy below can't handle it).
+  if (lhs && expr.op === "=" && isUint128(ctx.cg, lhs.type)) {
+    ctx.lines.push(`    (call $copyMem ${lhs.addr} ${emitU128(ctx, expr.right)} (i32.const 16))`);
+    return "";
+  }
+
   // aggregate target (id/m256i/struct/array): copy by value, or let a qpi producer write into it
   if (lhs && expr.op === "=" && isAggregate(ctx, lhs.type, lhs.size)) {
     if (expr.right.kind === "call") {
@@ -3025,7 +3052,20 @@ function aggOperand(ctx: FnCtx, expr: Expression): { addr: string; size: number 
 // operand, or any lvalue of uint128 type.
 function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
   if (expr.kind === "paren") return isU128Expr(ctx, expr.expr);
-  if (expr.kind === "c_cast" || expr.kind === "static_cast") return isU128Expr(ctx, expr.expr);
+  if (expr.kind === "c_cast" || expr.kind === "static_cast") {
+    const t = (expr as any).type;
+    if (t?.kind === "name" && (t.name === "uint128" || t.name === "uint128_t")) return true;
+    return isU128Expr(ctx, expr.expr);
+  }
+  if (expr.kind === "ternary") return isU128Expr(ctx, expr.then) || isU128Expr(ctx, expr.else_);
+  if (expr.kind === "template_call" && expr.callee.kind === "identifier") {
+    const nm = (expr.callee as any).name;
+    if ((nm === "div" || nm === "QPI::div" || nm === "mod" || nm === "QPI::mod") && expr.args.length === 2) {
+      const ta = expr.templateArgs?.[0];
+      if (ta?.kind === "name" && (ta.name === "uint128" || ta.name === "uint128_t")) return true;
+      return isU128Expr(ctx, expr.args[0]) || isU128Expr(ctx, expr.args[1]);
+    }
+  }
   if (expr.kind === "call" && expr.callee.kind === "identifier") {
     const nm = expr.callee.name;
     if (nm === "uint128" || nm === "uint128_t") return true;
@@ -3070,6 +3110,25 @@ function emitU128(ctx: FnCtx, expr: Expression): string {
   if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "div" || expr.callee.name === "QPI::div") && expr.args.length === 2) {
     const s = slot();
     ctx.lines.push(`    (call $u128_divmod ${s} ${emitU128(ctx, expr.args[0])} ${emitU128(ctx, expr.args[1])})`);
+    return s;
+  }
+
+  // div<uint128>(a, b) spelled with an explicit template argument
+  if (expr.kind === "template_call" && expr.callee.kind === "identifier" &&
+    /^(QPI::)?div$/.test((expr.callee as any).name) && expr.args.length === 2) {
+    const s = slot();
+    ctx.lines.push(`    (call $u128_divmod ${s} ${emitU128(ctx, expr.args[0])} ${emitU128(ctx, expr.args[1])})`);
+    return s;
+  }
+
+  // uint128 ternary: one 16-byte slot, each arm copies its materialized value in.
+  if (expr.kind === "ternary") {
+    const s = slot();
+    ctx.lines.push(`    (if (i64.ne (i64.const 0) ${emitValue(ctx, expr.cond)}) (then`);
+    ctx.lines.push(`    (call $copyMem ${s} ${emitU128(ctx, expr.then)} (i32.const 16))`);
+    ctx.lines.push(`    ) (else`);
+    ctx.lines.push(`    (call $copyMem ${s} ${emitU128(ctx, expr.else_)} (i32.const 16))`);
+    ctx.lines.push(`    ))`);
     return s;
   }
 
@@ -3489,7 +3548,10 @@ function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: FunctionTempla
     params: new Map(), retIsValue: cm.retKind === "i64",
     thisLayout, thisType: type, thisBind: bind, staticConsts: cg.staticConstsOf(type.name, bind),
   };
-  for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.derefType(p.type) });
+  // Register params with their CONCRETE types (ValueT → uint64): a scalar ref-param read sizes and signs
+  // its load from the registered type, and the raw template name would default to a 4-byte signed load —
+  // silently sign-truncating every HashMap<*, uint64>::set above 2^31.
+  for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.substInBindings(cg.derefType(p.type), bind) });
 
   if (def.body) collectLocals(def.body, ctx);
   if (def.body) emitStmt(ctx, def.body);
@@ -4270,7 +4332,7 @@ function emitProxyMethodFn(cg: Codegen, cm: CompiledMethod, def: FunctionTemplat
   };
   // `qpi` (member) is a dummy address param; qpi.method() routes to the ambient host context.
   ctx.params!.set("qpi", { wasmType: "i32", isAddr: true, type: { kind: "name", name: "QpiContextFunctionCall" } });
-  for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.derefType(p.type) });
+  for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.substInBindings(cg.derefType(p.type), bind) });
 
   if (def.body) collectLocals(def.body, ctx);
   if (def.body) emitStmt(ctx, def.body);
