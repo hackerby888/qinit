@@ -50,6 +50,9 @@ export interface CompileOpts {
   testPath?: string;
   qpiHeader?: string;
   sharedMemBase?: number; // shared-memory gtest mode: import env.memory and place the layout at this offset
+  // Fired at the start of each pipeline stage (preprocess/parse/analyze/codegen/assemble) so a caller can
+  // show live progress. When set, compileContract yields a macrotask after each so a UI can paint.
+  onPhase?: (phase: string) => void | Promise<void>;
 }
 
 export interface ContractIdl {
@@ -65,6 +68,7 @@ export interface CompileResult {
   wasm: Uint8Array;
   diagnostics: ParserDiagnostic[];
   idl: ContractIdl;
+  timings?: Record<string, number>; // per-phase wall time (ms), keyed by phase name; excludes UI yields
 }
 
 export interface Diagnostic {
@@ -133,12 +137,38 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   const diagnostics: ParserDiagnostic[] = [];
   const headers = opts.qpiHeader ?? QPI_STUB;
 
+  // Per-phase wall time (ms). Measured around each stage's real work, excluding the UI yield below, so the
+  // breakdown reflects the compiler's own cost. `phase(name)` closes the previous phase then opens this one;
+  // `closePhase()` records the last one.
+  const timings: Record<string, number> = {};
+  const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+  let lastName = "";
+  let lastStart = now();
+  const phase = async (name: string): Promise<void> => {
+    const t = now();
+    if (lastName) timings[lastName] = t - lastStart;
+    if (opts.onPhase) {
+      await opts.onPhase(name);
+      await new Promise((r) => setTimeout(r, 0)); // yield so a live UI can paint (not counted in timings)
+    }
+    lastName = name;
+    lastStart = now();
+  };
+  const closePhase = () => {
+    if (lastName) {
+      timings[lastName] = now() - lastStart;
+      lastName = "";
+    }
+  };
+
   // Phase 1 — parse qpi.h once into a type + macro table (cached across compiles).
+  await phase("loading qpi.h");
   const qpi = getQpiContext(headers);
 
   // Phase 2 — preprocess + parse the USER source alone, seeded with qpi.h's macros and our
   // simplified function-scaffolding overrides. A boundary marker lets us ignore any diagnostics
   // that belong to the seeded library, keeping only the user's own errors.
+  await phase("preprocessing");
   const userSource = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${opts.source}`;
   const pp = new Preprocessor();
   const preprocessed = pp.preprocess({
@@ -152,6 +182,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   const boundaryIdx = preprocessed.indexOf(USER_BOUNDARY);
   const boundaryLine = boundaryIdx >= 0 ? preprocessed.slice(0, boundaryIdx).split("\n").length : 0;
 
+  await phase("parsing");
   const parser = new Parser(new Lexer(preprocessed).tokenize());
   const tu = parser.parseTranslationUnit();
   // Only diagnostics at/after the user boundary are the user's; earlier ones are seeded-library noise.
@@ -166,6 +197,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     };
   }
 
+  await phase("analyzing");
   const sema = new Sema();
 
   // Parse each callee's source and register its contract struct's nested structs under their qualified name
@@ -189,6 +221,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   }
 
   // Codegen → WAT (seeded with the qpi.h library type table)
+  await phase("generating wasm");
   let wat: string;
   try {
     wat = generateWasmModule(tu, sema, opts.name, opts.slot, opts.arenaSz ?? 1024 * 1024 * 1024, qpi.lib, opts.callees, calleeStructs, calleeTus, opts.sharedMemBase);
@@ -216,6 +249,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   }
 
   // 6. WAT → WASM (via wabt)
+  await phase("assembling wasm");
   let wasm: Uint8Array;
   try {
     const wabt = await import("wabt");
@@ -237,10 +271,12 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     };
   }
 
+  closePhase();
+
   // 7. Extract IDL
   const idl = extractIdl(tu, opts);
 
-  return { wasm, diagnostics, idl };
+  return { wasm, diagnostics, idl, timings };
 }
 
 export function compileGtest(_opts: CompileOpts & { testSource: string }): CompileResult {
