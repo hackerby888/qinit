@@ -25,6 +25,7 @@ export { systemContracts, systemNames, type SystemContract } from "./system-cont
 export { generateClient } from "./gen-client";
 export { testRuntimeSource, sampleTest } from "./gen-test";
 export { genGtest } from "./gen-gtest";
+export { genStdGtest } from "./gen-std-gtest";
 export { buildSnapshot } from "./snapshot";
 export type { SnapshotResult } from "./snapshot";
 export { verifyContract, resolveVerifyTool } from "./verify";
