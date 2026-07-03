@@ -73,7 +73,7 @@ export const META: Record<string, CommandMeta> = {
   call: {
     group: "deploy & interact", json: true,
     summary: "call a fn (--fn) / proc (--proc) on a deployed contract",
-    usage: "<--fn|--proc> <Contract> <slot> [--in \"<fmt>\"] [--out <type>]",
+    usage: "<--fn|--proc> <contract> <fn|proc> [--in \"<fmt>\"] [--out <type>]",
     flags: [["--fn", "read-only query"], ["--proc", "signs a tx + waits for it to process"], ["--in \"<fmt>\"", "input, e.g. \"<ID>id, 100uint64\""],
       ["--out <type>", "decode the output as this type"], ["--trace", "post-call state-diff/host-call view"], ["--rpc <url>", "node RPC base"], ["--seed <seed>", "signer seed"]],
     examples: ["qinit call --proc Mytoken 1 --in \"<ID>id, 100uint64\"", "qinit call --fn   Mytoken 1 --in \"<ID>id\" --out uint64"],
