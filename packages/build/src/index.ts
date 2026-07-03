@@ -1,9 +1,12 @@
 // qinit build: contract .h -> wasm module (run by the node's WAMR engine) + K12 hash + IDL.
 import { statSync, readFileSync } from "node:fs";
-import { readFile, mkdir, copyFile } from "node:fs/promises";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { compileWasmContract, type BuildOpts } from "./recipe";
+// Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
+import WASM_CONTRACT_TESTING_H from "./assets/wasm_contract_testing.h" with { type: "text" };
+import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
 import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
@@ -97,10 +100,9 @@ export async function buildCorpusRunner(o: {
 
   await mkdir(o.outDir, { recursive: true });
 
-  const assetSrc = join(import.meta.dir, "assets", "wasm_contract_testing.h");
-  await copyFile(assetSrc, join(o.outDir, "wasm_contract_testing.h"));
+  await writeFile(join(o.outDir, "wasm_contract_testing.h"), WASM_CONTRACT_TESTING_H);
   // Some corpora also `#include "test_util.h"` (asset-name helpers etc.); provide the wasm-mode stub.
-  await copyFile(join(import.meta.dir, "assets", "test_util.h"), join(o.outDir, "test_util.h"));
+  await writeFile(join(o.outDir, "test_util.h"), TEST_UTIL_H);
 
   // The corpus runner is a test tool, not a deployed contract, so it has no need for the recipe's
   // -O0 -g debuggability. Build it -O2 (the trailing -O wins over the recipe's -O0): corpus checkers
