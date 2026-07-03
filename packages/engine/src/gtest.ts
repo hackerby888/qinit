@@ -20,7 +20,7 @@ const TEST_SLOT = 1;
 // For differential runs, the test runner module lives at its own slot and drives the contract at TEST_SLOT.
 const RUNNER_SLOT = 2;
 
-export async function runTests(testWasm: Uint8Array): Promise<TestResult[]> {
+export async function runTests(testWasm: Uint8Array, onResult?: (r: TestResult) => void | Promise<void>): Promise<TestResult[]> {
   await initK12();
 
   // A dedicated genesis node — empty spectrum + universe, no other contracts, fees off (tests assert logic,
@@ -102,13 +102,13 @@ export async function runTests(testWasm: Uint8Array): Promise<TestResult[]> {
   if (typeof c.ex.test_count !== "function" || typeof c.ex.run_test !== "function") {
     throw new Error("not a gtest wasm: missing test_count/run_test exports (build with a testSource)");
   }
-  return driveTests(c, sim, reinit, results, read, view);
+  return driveTests(c, sim, reinit, results, read, view, onResult);
 }
 
 // Differential run: deploy a SEPARATE contract wasm at TEST_SLOT (the one under test) and drive it with the
 // test logic compiled into `testWasm`. Lets a contract built by an independent toolchain (e.g. @qinit/compile)
 // be validated against the very tests that pin the native-clang build's behaviour.
-export async function runTestsAgainst(testWasm: Uint8Array, contractWasm: Uint8Array): Promise<TestResult[]> {
+export async function runTestsAgainst(testWasm: Uint8Array, contractWasm: Uint8Array, onResult?: (r: TestResult) => void | Promise<void>): Promise<TestResult[]> {
   await initK12();
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
   const results: TestResult[] = [];
@@ -167,7 +167,7 @@ export async function runTestsAgainst(testWasm: Uint8Array, contractWasm: Uint8A
   if (typeof runner.ex.test_count !== "function" || typeof runner.ex.run_test !== "function") {
     throw new Error("not a gtest wasm: missing test_count/run_test exports (build with a testSource)");
   }
-  return driveTests(runner, sim, reinit, results, read, view);
+  return driveTests(runner, sim, reinit, results, read, view, onResult);
 }
 
 // Generic multi-contract test host binding. The runner wasm is a separately-built upstream corpus (e.g.
@@ -179,7 +179,7 @@ export async function runTestsAgainst(testWasm: Uint8Array, contractWasm: Uint8A
 export async function runContractTesting(
   runnerWasm: Uint8Array,
   contracts: Record<number, Uint8Array>,
-  opts: { mainSlot?: number } = {},
+  opts: { mainSlot?: number; onResult?: (r: TestResult) => void | Promise<void> } = {},
 ): Promise<TestResult[]> {
   // In-runner qpi mutations (a corpus drives contract procedures through its own QpiContext objects) act on
   // behalf of the contract under test; the lhost transfer ABI carries no index, so it must be told.
@@ -725,9 +725,14 @@ export async function runContractTesting(
       if (!filters.some((f) => nm.includes(f))) continue;
     }
     if (trace) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)}\n`);
+    const before = results.length;
     const tt = prof ? now() : 0;
     (runner.exports.run_test as Function)(i);
     if (prof) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)} wall=${Math.round(now() - tt)}ms\n`);
+    if (opts.onResult) {
+      for (let k = before; k < results.length; k++) await opts.onResult(results[k]);
+      await new Promise((res) => setTimeout(res, 0));
+    }
   }
   if (prof) {
     const wall = Math.round(now() - t0run);
@@ -742,14 +747,18 @@ export async function runContractTesting(
 }
 
 // Shared driver: iterate the runner's tests, reset between each, attribute traps to the right name.
-function driveTests(
+// onResult (optional) fires once per finished test so a caller can stream results live; when set, the loop
+// yields a macrotask after each test so a terminal/UI can paint between them (skipped when absent — a
+// programmatic caller stays a tight synchronous-ish loop).
+async function driveTests(
   runner: Contract,
   sim: Sim,
   reinit: () => void,
   results: TestResult[],
   read: (off: number, len: number) => Uint8Array,
   view: () => Uint8Array,
-): TestResult[] {
+  onResult?: (r: TestResult) => void | Promise<void>,
+): Promise<TestResult[]> {
   const dec = new TextDecoder();
   const nameOf = (i: number): string => {
     const cap = 256;
@@ -771,6 +780,10 @@ function driveTests(
     }
     if (results.length === before) {
       results.push({ name, passed: false, message: trap ?? "trapped before reporting a result" });
+    }
+    if (onResult) {
+      for (let k = before; k < results.length; k++) await onResult(results[k]);
+      await new Promise((res) => setTimeout(res, 0));
     }
   }
   return results;
