@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Header, theme } from "../ui";
 import { loadSystem } from "../contracts";
+import { extractIdl, genGtest } from "@qinit/build";
 import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "../templates";
 
 function parse(args: string[]): { name?: string; slot?: string; core?: string; template?: string } {
@@ -48,7 +49,18 @@ export function New({ args }: { args: string[] }) {
       if (existsSync(dir)) { add(`✗ '${dir}' already exists`); setDone(true); return; }
 
       mkdirSync(join(dir, "contracts"), { recursive: true });
-      writeFileSync(join(dir, "contracts", `${name}.h`), templateSource(kind));
+      const source = templateSource(kind);
+      writeFileSync(join(dir, "contracts", `${name}.h`), source);
+
+      // Example gtest scaffolded from the contract IDL (fn/proc names + indices only — no core/prelude needed).
+      // `qinit gtest` picks it up; `--local` runs it through the TS compiler.
+      let testRel: string | undefined;
+      try {
+        mkdirSync(join(dir, "tests"), { recursive: true });
+        writeFileSync(join(dir, "tests", `${name}.test.cpp`), genGtest(extractIdl(source, name)));
+        testRel = `tests/${name}.test.cpp`;
+      } catch {}
+
       // No slot: the framework auto-allocates one at deploy by name (reuse-or-first-free).
       const cfg: Record<string, unknown> = { name, contract: `contracts/${name}.h`, rpc: "http://127.0.0.1:41841" };
       if (core) cfg.core = core; // omitted by default -> resolveCore uses the synced cache, project is machine-portable
@@ -64,11 +76,14 @@ export function New({ args }: { args: string[] }) {
         `# ${name}\n\nQubic dynamic contract (\`qinit new --template ${kind}\`).\n\n` +
         "```bash\nqinit node run        # sync headers + run a dev node\n" +
         "qinit dev       # watch contracts/" + name + ".h -> auto build+deploy on save\n" +
+        "qinit gtest --local   # run tests/" + name + ".test.cpp on an isolated node (TS compiler)\n" +
         "qinit call      # interactive: pick contract -> fn/proc\n```\n\n" +
-        "Config in `qinit.json` (name, contract, core, rpc). Slot is auto-allocated by name.\n");
+        "Config in `qinit.json` (name, contract, core, rpc). Slot is auto-allocated by name.\n" +
+        "`qinit gtest` needs a core-lite checkout (`extensions/lite_test.h`): pass `--core PATH` or set `QINIT_CORE`.\n");
 
       add(`✓ created ${dir}/  (template: ${kind})`);
       add(`  contracts/${name}.h`);
+      if (testRel) add(`  ${testRel}`);
       add(`  qinit.json · .gitignore · README.md`);
       if (TEMPLATE_NOTE[kind]) add(`  note: ${TEMPLATE_NOTE[kind]}`);
       add("");
