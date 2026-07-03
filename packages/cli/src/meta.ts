@@ -49,8 +49,8 @@ export const META: Record<string, CommandMeta> = {
     flags: [["--template <t>", "starter template (default: counter)"], ["--core <path>", "core headers checkout"]],
     examples: ["qinit new mytoken --template asset"],
   },
-  dev: { group: "develop", summary: "watch the contract -> auto build+deploy on save (q to quit)", usage: "[<file.h>]", flags: [["--rpc <url>", "node RPC base"], ["--seed <seed>", "signer seed"], ["--skip-verify", "skip the protocol-rule check (dev/testing only)"]] },
-  build: { group: "develop", summary: "compile a contract .h -> wasm (+ K12 hash, IDL)", usage: "<file.h>", flags: [["--name <n>", "contract name"], ["--out <dir>", "output dir"], ["--slot <n>", "contract slot"], ["--core <path>", "core headers checkout"], ["--skip-verify", "skip the protocol-rule check (dev/testing only)"]] },
+  dev: { group: "develop", summary: "watch the contract -> auto build+deploy on save (q to quit)", usage: "[<file.h>]", flags: [["--rpc <url>", "node RPC base"], ["--seed <seed>", "signer seed"], ["--native", "force clang (override `qinit compiler`)"], ["--local", "force the in-process TS compiler (override `qinit compiler`)"], ["--skip-verify", "skip the protocol-rule check (dev/testing only)"]] },
+  build: { group: "develop", summary: "compile a contract .h -> wasm (+ K12 hash, IDL)", usage: "<file.h>", flags: [["--name <n>", "contract name"], ["--out <dir>", "output dir"], ["--slot <n>", "contract slot"], ["--core <path>", "core headers checkout"], ["--native", "force clang (override `qinit compiler`)"], ["--local", "force the in-process TS compiler (override `qinit compiler`)"], ["--skip-verify", "skip the protocol-rule check (dev/testing only)"]] },
   gen: { group: "develop", summary: "generate a typed TS client from the contract IDL", usage: "<file.h>", flags: [["--name <n>", "contract name"], ["--out <dir>", "output dir"], ["--slot <n>", "contract slot"]] },
   verify: {
     group: "develop", json: true,
@@ -66,6 +66,7 @@ export const META: Record<string, CommandMeta> = {
     flags: [["--name <n>", "contract name (default: file basename)"], ["--slot <n>", "deploy to a specific slot"],
       ["--core <path>", "core headers checkout"], ["--rpc <url>", "node RPC base"], ["--seed <seed>", "signer seed"],
       ["--callee <n>=<hdr>@<i>", "wire a dynamic inter-contract callee (repeatable)"],
+      ["--native", "force clang (override `qinit compiler`)"], ["--local", "force the in-process TS compiler (override `qinit compiler`)"],
       ["--skip-verify", "skip the protocol-rule check (dev/testing only)"]],
     examples: ["qinit deploy ./mytoken.h --name Mytoken"],
   },
@@ -81,10 +82,11 @@ export const META: Record<string, CommandMeta> = {
   ls: { group: "deploy & interact", json: true, summary: "list contracts deployed on the node (slot / name / state / hash)", flags: [["--rpc <url>", "node RPC base"]] },
   state: { group: "deploy & interact", json: true, summary: "decode + print a deployed contract's current state", usage: "[<target>]", flags: [["--all", "include zero/empty fields"], ["--rpc <url>", "node RPC base"]] },
   debug: { group: "deploy & interact", summary: "live contract-call inspector — input/output, state diff, host-calls, traps", usage: "<Contract>", flags: [["--rpc <url>", "node RPC base"]] },
-  test: { group: "deploy & interact", summary: "deploy + run bun tests against the node (real or virtual per `qinit mode`)", usage: "[<file.h>]", flags: [["--in-process", "force the in-process virtual engine (overrides `qinit mode`)"], ["--real", "force a real ephemeral node (overrides `qinit mode`)"], ["--filter <pat>", "test name filter"], ["--keep", "keep the ephemeral node after"], ["--bin <path>", "node binary"], ["--rpc <url>", "node RPC base"]] },
+  test: { group: "deploy & interact", summary: "deploy + run bun tests against the node (real or virtual per `qinit mode`)", usage: "[<file.h>]", flags: [["--in-process", "force the in-process virtual engine (overrides `qinit mode`)"], ["--real", "force a real ephemeral node (overrides `qinit mode`)"], ["--native", "force clang (override `qinit compiler`)"], ["--local", "force the in-process TS compiler (override `qinit compiler`)"], ["--filter <pat>", "test name filter"], ["--keep", "keep the ephemeral node after"], ["--bin <path>", "node binary"], ["--rpc <url>", "node RPC base"]] },
   gtest: { group: "deploy & interact", summary: "run a contract's gtest (standard contract_testing.h format) on a fresh isolated virtual node", usage: "[<test.cpp>]", flags: [["--contract <file.h>", "contract under test (default: qinit.json)"], ["--name <Name>", "contract name override"], ["--state-type <T>", "C++ contract struct type, if it differs from the name"], ["--filter <pat>", "test name substring filter"], ["--new", "(re)scaffold tests/<Name>.test.cpp from the IDL"], ["--core <path>", "core-lite headers (with test/contract_testing.h)"], ["--local", "build the contract-under-test with the in-process TS compiler"], ["--lite", "use the portable lite_test.h shim harness instead of contract_testing.h"], ["--std", "force the standard contract_testing.h harness (default)"], ["--shared-mem", "run the contract in shared-memory mode (huge-state suites)"], ["--corpus <NAME>", "run a built-in system contract's gtest by name (core-lite contract_<x>.cpp)"]] },
 
   mode: { group: "misc", summary: "pick the node backend for every node command: realnode (qubic node binary) or virtualnode (in-process engine)", usage: "[realnode|virtualnode]", flags: [["--show", "print the current mode"]] },
+  compiler: { group: "misc", summary: "pick the contract compiler for build/deploy/dev/test: native (clang) or local (in-process TS, no toolchain)", usage: "[native|local]", flags: [["--show", "print the current compiler"]] },
   system: {
     group: "deploy & interact",
     summary: "virtualnode: deploy chosen built-in system contracts (QX, QEARN, …) onto the in-process node",

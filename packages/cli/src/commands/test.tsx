@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
-import { loadConfig, resolveCore, savedMode } from "../config";
+import { loadConfig, resolveCore, savedMode, resolveCompiler } from "../config";
 import { deployContract, type Ev } from "../deploy-ops";
 import { launchNode, waitTicking, killNode, ensureNode, scratchDir } from "../node-ops";
 import { LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
@@ -102,7 +102,7 @@ export function Test({ args }: { args: string[] }) {
             setS({ phase: "done", lines: L, ok: false, output: "", rows: [] }); return;
           }
           spin(`deploying callee ${callee.name}`);
-          const cd = await deployContract({ contractPath: cpath, name: callee.name, core, rpcBase: activeRpc, seed: o.seed, skipVerify: "skip-verify" in o }, () => {});
+          const cd = await deployContract({ contractPath: cpath, name: callee.name, core, rpcBase: activeRpc, seed: o.seed, skipVerify: "skip-verify" in o, compiler: resolveCompiler(o) }, () => {});
           if (!cd.ok || cd.slot === undefined) {
             add("callee", false, `${callee.name}: ${cd.error ?? "deploy failed"}`);
             if (ownNode && o.keep === undefined) await killNode();
@@ -115,7 +115,7 @@ export function Test({ args }: { args: string[] }) {
         // 3) build + deploy the main contract (also runs the protocol-rule gate).
         spin("deploying contract");
         let depDetail = "";
-        const dep = await deployContract({ contractPath, name, core, rpcBase: activeRpc, seed: o.seed, skipVerify: "skip-verify" in o }, (e: Ev) => {
+        const dep = await deployContract({ contractPath, name, core, rpcBase: activeRpc, seed: o.seed, skipVerify: "skip-verify" in o, compiler: resolveCompiler(o) }, (e: Ev) => {
           if ("note" in e) return;
           if (e.state === "active" && e.detail) spin(`deploy · ${STEP_LABEL[e.step] ?? e.step}: ${e.detail}`);
           if (e.step === "build" && e.state === "fail") depDetail = e.detail ?? "build failed";

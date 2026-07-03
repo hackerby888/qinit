@@ -73,6 +73,39 @@ export function setSavedMode(mode: NodeMode): void {
   writeFileSync(p, mode + "\n");
 }
 
+// Globally-chosen contract compiler (set by `qinit compiler`): the backend `qinit build/deploy/dev/test` use
+// to turn a .h into wasm — native clang ("native", the default, matches the pre-compiler CLI) or the in-process
+// TS compiler ("local", no toolchain). Saved in qinit's config dir.
+export type Compiler = "native" | "local";
+export const COMPILERS: Compiler[] = ["native", "local"];
+
+export function compilerStorePath(): string {
+  return join(configDir(), "compiler");
+}
+
+export function savedCompiler(): Compiler | undefined {
+  try {
+    const c = readFileSync(compilerStorePath(), "utf8").trim();
+    return c === "native" || c === "local" ? c : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function setSavedCompiler(c: Compiler): void {
+  const p = compilerStorePath();
+  mkdirSync(dirname(p), { recursive: true });
+  writeFileSync(p, c + "\n");
+}
+
+// Compiler precedence: an explicit per-run flag (--native / --local) wins over the saved `qinit compiler` pick,
+// which wins over the default (native). Mirrors how `--real`/`--virtual` override `qinit mode`.
+export function resolveCompiler(o: Record<string, unknown>): Compiler {
+  if ("native" in o) return "native";
+  if ("local" in o) return "local";
+  return savedCompiler() ?? "native";
+}
+
 // Seed precedence: explicit (--seed) > saved pick (`qinit seed`) > node funded seed > dev default.
 export async function resolveSeed(rpc: { fundedSeed(): Promise<string | undefined> }, explicit?: string): Promise<string> {
   if (explicit) { assertSeed(explicit); return explicit; }

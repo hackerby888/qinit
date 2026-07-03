@@ -3,7 +3,7 @@ import { resolve, basename } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { contractAddress } from "@qinit/proto";
 import { bytesToIdentity } from "@qinit/core";
-import { loadConfig, resolveCore } from "../config";
+import { loadConfig, resolveCore, resolveCompiler } from "../config";
 import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
 import { output } from "../args";
@@ -59,6 +59,7 @@ export function Deploy({ args }: { args: string[] }) {
           rpcBase: o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841", seed: o.seed, dynCallees,
           slotOverride: sv !== undefined && sv !== "" ? Number(sv) : undefined,
           skipVerify: "skip-verify" in o, // parity with `qinit test --skip-verify` (deployContract already supports it)
+          compiler: resolveCompiler(o),
         }, emit);
         if (r.ok && r.slot != null) { try { setAddr(await bytesToIdentity(contractAddress(r.slot))); } catch {} }
         setResult(r);

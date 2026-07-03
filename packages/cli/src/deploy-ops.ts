@@ -3,10 +3,11 @@
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { buildContract, systemNames, type ContractIdl } from "@qinit/build";
+import { buildContract, systemNames, type BuildResult, type ContractIdl } from "@qinit/build";
 import { buildSignedTx, broadcastTx, LiteRpc, k12Hex, readCurrent, autoUpdateVerifyTool } from "@qinit/core";
 import { encodeUploadBegin, encodeUploadChunk, encodeDeploy, chunkSo, newSessionId, LITE_TX, resolveSlot, TX_TICK_OFFSET } from "@qinit/proto";
-import { savedSeed, resolveCore } from "./config";
+import { savedSeed, savedCompiler, resolveCore, type Compiler } from "./config";
+import { compileLocal } from "./compile-local";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
 export type Ev =
@@ -78,6 +79,7 @@ export interface DeployOpts {
   contractPath: string; name: string; core: string; rpcBase: string;
   seed?: string; dynCallees?: Record<string, { header: string; index: number }>;
   slotOverride?: number; outDir?: string; skipVerify?: boolean;
+  compiler?: Compiler; // native clang | in-process TS; omitted -> saved `qinit compiler` pick (default native)
   rpc?: LiteRpc;   // injectable (tests pass a mock; prod builds one from rpcBase)
 }
 export interface DeployResult {
@@ -141,11 +143,19 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   // the node registry (name -> slot + .h source, submitted at the callee's own deploy) so no --callee is needed.
   const dynCallees = await resolveNodeCallees(rpc, readFileSync(o.contractPath, "utf8"), o.dynCallees ?? {}, (note) => emit({ note }));
 
-  // build
-  emit({ step: "build", state: "active", detail: "compiling…" });
-  const b = await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir: o.outDir ?? resolve("dist/contracts"), dynCallees, skipVerify: o.skipVerify });
+  // build — native clang or the in-process TS compiler, per `qinit compiler` (or an explicit override). The
+  // local path skips the protocol-rule gate (the TS compiler surfaces its own diagnostics) and produces the
+  // same rich idl (build's extractIdl) so downstream deploy/confirm is compiler-agnostic below this point.
+  const compiler: Compiler = o.compiler ?? savedCompiler() ?? "native";
+  const outDir = o.outDir ?? resolve("dist/contracts");
+  if (compiler === "local") emit({ note: "compiler: local TS (qinit compiler local)" });
+  emit({ step: "build", state: "active", detail: compiler === "local" ? "compiling (local TS)…" : "compiling…" });
+  const b = compiler === "local"
+    ? await compileLocal({ contractPath: o.contractPath, name: o.name, slot, core: o.core, outDir, dynCallees })
+    : await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir, dynCallees, skipVerify: o.skipVerify });
   if (!b.ok) {
-    const why = b.verify && !b.verify.ok && b.verify.errors.length ? `protocol: ${b.verify.errors[0]}` : "compile failed";
+    const vr = (b as BuildResult).verify; // only the native path runs the protocol gate; local reports via stderr
+    const why = vr && !vr.ok && vr.errors.length ? `protocol: ${vr.errors[0]}` : "compile failed";
     emit({ step: "build", state: "fail", detail: why });
     emit({ note: (b.stderr ?? "").split("\n").slice(0, 14).join("\n") });
     return { ok: false, slot, error: why };

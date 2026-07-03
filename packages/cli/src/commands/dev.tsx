@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { resolve, basename } from "node:path";
 import { statSync } from "node:fs";
-import { loadConfig, resolveCore } from "../config";
+import { loadConfig, resolveCore, resolveCompiler } from "../config";
 import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
 import { nodeContracts } from "../node-ops";
 import { LiteRpc } from "@qinit/core";
@@ -56,7 +56,7 @@ export function Dev({ args }: { args: string[] }) {
     if (busyRef.current) { pending.current = true; return; }
     busyRef.current = true; setBusy(true);
     setSteps({}); setNotes([]); setResult(null);
-    try { setResult(await deployContract({ contractPath, name, core, rpcBase, seed: o.seed, dynCallees, skipVerify: "skip-verify" in o }, emit)); }
+    try { setResult(await deployContract({ contractPath, name, core, rpcBase, seed: o.seed, dynCallees, skipVerify: "skip-verify" in o, compiler: resolveCompiler(o) }, emit)); }
     catch (e: any) { setNotes((n) => [...n, "ERROR: " + String(e?.message ?? e)]); }
     try { setContracts(await nodeContracts(rpcBase)); } catch {}
     setRuns((n) => n + 1);

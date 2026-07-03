@@ -24,6 +24,7 @@ import { Tick } from "./commands/tick";
 import { Epoch } from "./commands/epoch";
 import { ThemeCmd } from "./commands/theme";
 import { ModeCmd } from "./commands/mode";
+import { CompilerCmd } from "./commands/compiler";
 import { System } from "./commands/system";
 import { Update } from "./commands/update";
 import { Uninstall } from "./commands/uninstall";
@@ -102,6 +103,8 @@ function route(command: string, args: string[]): ReactNode {
       return <ThemeCmd args={args} />;
     case "mode":
       return <ModeCmd args={args} />;
+    case "compiler":
+      return <CompilerCmd args={args} />;
     case "system":
       return <System args={args} />;
     case "cheat-sheet":
