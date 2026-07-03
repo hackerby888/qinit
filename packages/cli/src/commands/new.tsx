@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Header, theme } from "../ui";
 import { loadSystem } from "../contracts";
-import { extractIdl, genGtest } from "@qinit/build";
+import { extractIdl, genStdGtest } from "@qinit/build";
 import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "../templates";
 
 function parse(args: string[]): { name?: string; slot?: string; core?: string; template?: string } {
@@ -52,12 +52,12 @@ export function New({ args }: { args: string[] }) {
       const source = templateSource(kind);
       writeFileSync(join(dir, "contracts", `${name}.h`), source);
 
-      // Example gtest scaffolded from the contract IDL (fn/proc names + indices only — no core/prelude needed).
-      // `qinit gtest` picks it up; `--local` runs it through the TS compiler.
+      // Example standard gtest (contract_testing.h) scaffolded from the contract IDL. `qinit gtest` runs it;
+      // `--local` runs the contract through the TS compiler.
       let testRel: string | undefined;
       try {
         mkdirSync(join(dir, "tests"), { recursive: true });
-        writeFileSync(join(dir, "tests", `${name}.test.cpp`), genGtest(extractIdl(source, name)));
+        writeFileSync(join(dir, "tests", `${name}.test.cpp`), genStdGtest(extractIdl(source, name), name));
         testRel = `tests/${name}.test.cpp`;
       } catch {}
 
@@ -79,7 +79,7 @@ export function New({ args }: { args: string[] }) {
         "qinit gtest --local   # run tests/" + name + ".test.cpp on an isolated node (TS compiler)\n" +
         "qinit call      # interactive: pick contract -> fn/proc\n```\n\n" +
         "Config in `qinit.json` (name, contract, core, rpc). Slot is auto-allocated by name.\n" +
-        "`qinit gtest` needs a core-lite checkout (`extensions/lite_test.h`): pass `--core PATH` or set `QINIT_CORE`.\n");
+        "`qinit gtest` needs a core-lite checkout (`test/contract_testing.h`): pass `--core PATH` or set `QINIT_CORE`.\n");
 
       add(`✓ created ${dir}/  (template: ${kind})`);
       add(`  contracts/${name}.h`);

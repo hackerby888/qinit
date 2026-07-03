@@ -1,12 +1,14 @@
-// Run a system contract's REAL gtest (core-lite test/contract_<x>.cpp, the `contract_testing.h` suite) on a
-// fresh isolated engine — the path `qinit gtest --corpus` uses. buildCorpusRunner swaps the corpus's
-// `#include "contract_testing.h"` for the engine-backed `wasm_contract_testing.h` and compiles it to a test
-// wasm (native clang); the contract under test is built either by native clang or by our TS compiler
-// (--local), deployed alongside its referenced sibling contracts, then driven by runContractTesting.
+// Run a STANDARD gtest (core-lite `contract_testing.h` suite) against a contract on a fresh isolated engine.
+// buildCorpusRunner swaps the test's `#include "contract_testing.h"` for the engine-backed
+// `wasm_contract_testing.h` and compiles it to a test wasm (native clang); the contract under test is built by
+// native clang or by our TS compiler (--local), deployed alongside its referenced sibling contracts, then
+// driven by runContractTesting. Works for any contract — a user's, or a built-in via runCorpus() below.
 //
-// Heavy suites (QEARN/QTF/… hundreds of MB of state) run in shared-memory mode: the contract wasms live
-// inside the runner's own memory above SHARED_START. Pass 1 builds normally to read state_size; pass 2
-// relinks/re-emits at the packed base. This mirrors packages/compile/tests/_probe_dual.ts.
+// Shared-memory mode (opt-in / system HEAVY set): the contract wasms are linked --import-memory and live inside
+// the runner's own memory above SHARED_START, so contractStates[i] is the LIVE state with no shadow copies.
+// A few system suites (QTRY/QEARN/…) need it because they read state through cached pointers at 100k+
+// dispatches; normal contracts don't (the shim's contractStates proxy syncs per access). Pass 1 builds to read
+// state_size, pass 2 relinks at the packed base.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildContract, buildCorpusRunner, systemContracts } from "@qinit/build";
@@ -14,6 +16,8 @@ import { runContractTesting, type TestResult } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "@qinit/compile";
 import { initK12 } from "@qinit/core";
 
+// System suites that must run in shared-memory mode. NOT size-based (QUTIL is 384MB and runs fine non-shared;
+// PULSE/QTF are tiny yet need it) — it tracks the corpus's cached-pointer state-read pattern. Empirical.
 const HEAVY = new Set(["PULSE", "QTF", "QTRY", "GGWP", "QEARN"]);
 const ARENA = 8 * 1024 * 1024;
 const SHARED_START = 0x20000000;
@@ -21,19 +25,32 @@ const MAIN_ARENA = 1024 * 1024 * 1024;
 const DEP_ARENA = 128 * 1024 * 1024;
 const SLACK = 128 * 1024 * 1024;
 
-export interface CorpusRun {
-  found: boolean;                 // the name matched a system contract
-  hasCorpus: boolean;             // a test/contract_<x>.cpp exists
+// A contract to build/deploy: the .h path + the identity the recipe needs.
+interface Spec {
+  contractPath: string;
+  name: string;
+  stateType: string;
+  slot: number;
+}
+
+export interface StdGtestRun {
   runnerOk: boolean;              // the test wasm built
   buildError?: string;
   results: TestResult[];
   name: string;
   slot: number;
-  heavy: boolean;
+  heavy: boolean;                // ran in shared-memory mode
   backend: "native" | "local";
-  available: string[];           // system-contract names (for a not-found hint)
   timings?: Record<string, number>; // main contract's per-phase compile time (local backend only)
 }
+
+export interface CorpusRun extends StdGtestRun {
+  found: boolean;                 // the name matched a system contract
+  hasCorpus: boolean;             // a test/contract_<x>.cpp exists
+  available: string[];            // system-contract names (for a not-found hint)
+}
+
+const align64k = (x: number) => (x + 0xffff) & ~0xffff;
 
 // Read a contract wasm's exported state_size without wiring real host imports (stub every import to 0).
 function stateSizeOf(wasm: Uint8Array): number {
@@ -48,46 +65,48 @@ function stateSizeOf(wasm: Uint8Array): number {
   return ex.state_size() >>> 0;
 }
 
-// Sibling contracts referenced by the corpus or the contract source (deployed + built alongside the target).
-function depNamesOf(catalog: any[], c: any, corpusSrc: string, contractSrc: string): any[] {
-  const deps: any[] = [];
+// Sibling SYSTEM contracts referenced by the test or the contract source — built + deployed alongside the main.
+function depSpecs(catalog: any[], mainName: string, testSrc: string, contractSrc: string, core: string): Spec[] {
+  const deps: Spec[] = [];
   for (const other of catalog) {
-    if (other.name === c.name) continue;
+    if (other.name === mainName) continue;
     const re = new RegExp(`\\b${other.name}(::|_[A-Z0-9])`);
-    if (re.test(corpusSrc) || re.test(contractSrc)) deps.push(other);
+    if (re.test(testSrc) || re.test(contractSrc)) {
+      deps.push({ contractPath: join(core, "src", "contracts", other.file), name: other.name, stateType: other.stateType, slot: other.index });
+    }
   }
   return deps;
 }
 
-// Native-clang wasm of the contract at its slot + every referenced dep at its slot.
-async function nativeWasms(core: string, scratch: string, c: any, deps: any[], shared: boolean): Promise<Record<number, Uint8Array>> {
+// Native-clang wasm of the main contract + every dep, each at its slot.
+async function nativeWasms(core: string, scratch: string, main: Spec, deps: Spec[], shared: boolean): Promise<Record<number, Uint8Array>> {
   const out: Record<number, Uint8Array> = {};
   let nextBase = SHARED_START;
-  const build = async (cc: any, arenaSz: number): Promise<Uint8Array | null> => {
-    const common = { contractPath: join(core, "src", "contracts", cc.file), name: cc.name, stateType: cc.stateType, slot: cc.index, corePath: core };
-    const p1 = await buildContract({ ...common, outDir: join(scratch, "n_" + cc.name), skipVerify: true, ...(shared ? { arenaSz } : {}) });
+  const build = async (s: Spec, arenaSz: number, isMain: boolean): Promise<Uint8Array | null> => {
+    const common = { contractPath: s.contractPath, name: s.name, stateType: s.stateType, slot: s.slot, corePath: core, skipVerify: true };
+    const p1 = await buildContract({ ...common, outDir: join(scratch, "n_" + s.name), ...(shared ? { arenaSz } : {}) });
     if (!p1.so) {
-      if (cc === c) throw new Error("native build: " + (p1.stderr ?? "").split("\n").filter((l: string) => /error:/.test(l))[0]);
+      if (isMain) throw new Error("native build: " + (p1.stderr ?? "").split("\n").filter((l: string) => /error:/.test(l))[0]);
       return null;
     }
     if (!shared) return new Uint8Array(readFileSync(p1.so));
     const base = nextBase;
-    nextBase = (base + stateSizeOf(new Uint8Array(readFileSync(p1.so))) + arenaSz + SLACK + 0xffff) & ~0xffff;
-    const p2 = await buildContract({ ...common, outDir: join(scratch, "ns_" + cc.name), skipVerify: true, arenaSz, sharedMemBase: base });
+    nextBase = align64k(base + stateSizeOf(new Uint8Array(readFileSync(p1.so))) + arenaSz + SLACK);
+    const p2 = await buildContract({ ...common, outDir: join(scratch, "ns_" + s.name), arenaSz, sharedMemBase: base });
     return p2.so ? new Uint8Array(readFileSync(p2.so)) : null;
   };
-  const main = await build(c, MAIN_ARENA);
-  if (main) out[c.index] = main;
+  const m = await build(main, MAIN_ARENA, true);
+  if (m) out[main.slot] = m;
   for (const d of deps) {
-    const w = await build(d, DEP_ARENA);
-    if (w) out[d.index] = w;
+    const w = await build(d, DEP_ARENA, false);
+    if (w) out[d.slot] = w;
   }
   return out;
 }
 
-// Our TS-compiler wasm of the contract at its slot + every referenced dep (with callee type resolution).
-// Returns the wasms plus the main contract's per-phase compile timings (for a summary breakdown).
-async function oursWasms(core: string, headers: string, c: any, deps: any[], shared: boolean, onPhase?: (label: string) => void): Promise<{ wasms: Record<number, Uint8Array>; timings?: Record<string, number> }> {
+// Our TS-compiler wasm of the main contract + every dep (with callee type resolution). Returns the wasms plus
+// the main contract's per-phase compile timings.
+async function oursWasms(core: string, headers: string, main: Spec, deps: Spec[], shared: boolean, onPhase?: (label: string) => void): Promise<{ wasms: Record<number, Uint8Array>; timings?: Record<string, number> }> {
   const out: Record<number, Uint8Array> = {};
   const callees: any[] = [];
   const calleeSources: any[] = [];
@@ -100,72 +119,96 @@ async function oursWasms(core: string, headers: string, c: any, deps: any[], sha
     }
     const p1 = (await compileContract({ ...o, arenaSz: ARENA })).wasm; // state_size probe (silent — arena-independent)
     const base = nextBase;
-    nextBase = (base + stateSizeOf(p1) + arenaSz + SLACK + 0xffff) & ~0xffff;
+    nextBase = align64k(base + stateSizeOf(p1) + arenaSz + SLACK);
     const r = await compileContract({ ...o, arenaSz, sharedMemBase: base, onPhase: oph });
     return { wasm: r.wasm, timings: r.timings };
   };
   for (const d of deps) {
-    const dsrc = readFileSync(join(core, "src", "contracts", d.file), "utf8");
-    const dr = await compileContract({ source: dsrc, name: d.name, slot: d.index, qpiHeader: headers, arenaSz: ARENA });
-    out[d.index] = shared ? (await emitAt({ source: dsrc, name: d.name, slot: d.index, qpiHeader: headers }, DEP_ARENA)).wasm : dr.wasm;
+    const dsrc = readFileSync(d.contractPath, "utf8");
+    const dr = await compileContract({ source: dsrc, name: d.name, slot: d.slot, qpiHeader: headers, arenaSz: ARENA });
+    out[d.slot] = shared ? (await emitAt({ source: dsrc, name: d.name, slot: d.slot, qpiHeader: headers }, DEP_ARENA)).wasm : dr.wasm;
     callees.push({
-      name: d.name, index: d.index,
+      name: d.name, index: d.slot,
       functions: Object.fromEntries(dr.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }])),
       procedures: Object.fromEntries(dr.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }])),
     });
     calleeSources.push({ name: d.name, source: dsrc });
   }
-  const csrc = readFileSync(join(core, "src", "contracts", c.file), "utf8");
-  const main = await emitAt({ source: csrc, name: c.name, slot: c.index, qpiHeader: headers, callees: callees.length ? callees : undefined, calleeSources: calleeSources.length ? calleeSources : undefined }, MAIN_ARENA);
-  out[c.index] = main.wasm;
-  return { wasms: out, timings: main.timings };
+  const csrc = readFileSync(main.contractPath, "utf8");
+  const m = await emitAt({ source: csrc, name: main.name, slot: main.slot, qpiHeader: headers, callees: callees.length ? callees : undefined, calleeSources: calleeSources.length ? calleeSources : undefined }, MAIN_ARENA);
+  out[main.slot] = m.wasm;
+  return { wasms: out, timings: m.timings };
 }
 
-export async function runCorpus(opts: { name: string; core: string; backend: "native" | "local"; scratch: string; onResult?: (r: TestResult) => void | Promise<void>; onPhase?: (label: string) => void }): Promise<CorpusRun> {
+// Build + run a standard contract_testing.h gtest for ANY contract (user or system).
+export async function runStdGtest(opts: {
+  contractPath: string;
+  testPath: string;
+  name: string;
+  stateType: string;
+  slot: number;
+  core: string;
+  backend: "native" | "local";
+  scratch: string;
+  shared?: boolean;
+  onResult?: (r: TestResult) => void | Promise<void>;
+  onPhase?: (label: string) => void;
+}): Promise<StdGtestRun> {
   await initK12();
-  const catalog = systemContracts(opts.core);
-  const available = catalog.map((c) => c.name);
-  const c = catalog.find((x) => x.name.toLowerCase() === opts.name.toLowerCase());
-  const base: Omit<CorpusRun, "found" | "hasCorpus" | "runnerOk" | "results"> = {
-    name: c?.name ?? opts.name, slot: c?.index ?? 0, heavy: c ? HEAVY.has(c.name) : false, backend: opts.backend, available,
-  };
-  if (!c) return { ...base, found: false, hasCorpus: false, runnerOk: false, results: [] };
+  const testSrc = readFileSync(opts.testPath, "utf8");
+  const contractSrc = readFileSync(opts.contractPath, "utf8");
+  const deps = depSpecs(systemContracts(opts.core), opts.name, testSrc, contractSrc, opts.core);
+  const main: Spec = { contractPath: opts.contractPath, name: opts.name, stateType: opts.stateType, slot: opts.slot };
+  const shared = !!opts.shared;
+  const ret = { name: opts.name, slot: opts.slot, heavy: shared, backend: opts.backend };
 
-  const corpusPath = [
-    join(opts.core, "test", `contract_${c.name.toLowerCase()}.cpp`),
-    join(opts.core, "test", `contract_${String(c.file).replace(/\.h$/, "").toLowerCase()}.cpp`),
-  ].find((p) => { try { readFileSync(p); return true; } catch { return false; } });
-  if (!corpusPath) return { ...base, found: true, hasCorpus: false, runnerOk: false, results: [] };
-
-  const corpusSrc = readFileSync(corpusPath, "utf8");
-  const contractSrc = readFileSync(join(opts.core, "src", "contracts", c.file), "utf8");
-  const deps = depNamesOf(catalog, c, corpusSrc, contractSrc);
-  const shared = HEAVY.has(c.name);
-
-  // The test harness is ALWAYS native clang (our compiler can't build lite_test.h/contract_testing.h), and
-  // clang is the slow step even in --local — surface it as such so the wait isn't mistaken for our compiler.
+  // The harness is ALWAYS native clang (our compiler can't build contract_testing.h), and clang is the slow
+  // step even in --local — label it so the wait isn't mistaken for our compiler.
   opts.onPhase?.("building test harness (native clang — the slow step)");
   const runner = await buildCorpusRunner({
-    corpusPath, contractPath: join(opts.core, "src", "contracts", c.file),
-    name: c.name, stateType: c.stateType, slot: c.index, corePath: opts.core,
-    outDir: join(opts.scratch, "run_" + c.name), arenaSz: ARENA,
+    corpusPath: opts.testPath, contractPath: opts.contractPath,
+    name: opts.name, stateType: opts.stateType, slot: opts.slot, corePath: opts.core,
+    outDir: join(opts.scratch, "run_" + opts.name), arenaSz: ARENA,
   });
   if (!runner.ok || !runner.so) {
     const err = (runner.stderr ?? "").split("\n").filter((l) => /error:/.test(l))[0] ?? runner.stderr ?? "test-wasm build failed";
-    return { ...base, found: true, hasCorpus: true, runnerOk: false, buildError: err, results: [] };
+    return { ...ret, runnerOk: false, buildError: err, results: [] };
   }
   const runnerBytes = new Uint8Array(readFileSync(runner.so));
 
   let contracts: Record<number, Uint8Array>;
   let timings: Record<string, number> | undefined;
   if (opts.backend === "local") {
-    const o = await oursWasms(opts.core, loadQpiHeader(opts.core), c, deps, shared, opts.onPhase);
+    const o = await oursWasms(opts.core, loadQpiHeader(opts.core), main, deps, shared, opts.onPhase);
     contracts = o.wasms;
     timings = o.timings;
   } else {
-    contracts = await nativeWasms(opts.core, opts.scratch, c, deps, shared);
+    contracts = await nativeWasms(opts.core, opts.scratch, main, deps, shared);
   }
 
   const results = await runContractTesting(runnerBytes, contracts, { onResult: opts.onResult });
-  return { ...base, found: true, hasCorpus: true, runnerOk: true, results, timings };
+  return { ...ret, runnerOk: true, results, timings };
+}
+
+// Built-in convenience: resolve a system contract by name from the core catalog, then runStdGtest its corpus.
+export async function runCorpus(opts: { name: string; core: string; backend: "native" | "local"; scratch: string; onResult?: (r: TestResult) => void | Promise<void>; onPhase?: (label: string) => void }): Promise<CorpusRun> {
+  const catalog = systemContracts(opts.core);
+  const available = catalog.map((c) => c.name);
+  const c = catalog.find((x) => x.name.toLowerCase() === opts.name.toLowerCase());
+  const miss = { name: c?.name ?? opts.name, slot: c?.index ?? 0, heavy: false, backend: opts.backend, runnerOk: false, results: [] as TestResult[], available };
+  if (!c) return { ...miss, found: false, hasCorpus: false };
+
+  const corpusPath = [
+    join(opts.core, "test", `contract_${c.name.toLowerCase()}.cpp`),
+    join(opts.core, "test", `contract_${String(c.file).replace(/\.h$/, "").toLowerCase()}.cpp`),
+  ].find((p) => { try { readFileSync(p); return true; } catch { return false; } });
+  if (!corpusPath) return { ...miss, found: true, hasCorpus: false };
+
+  const r = await runStdGtest({
+    contractPath: join(opts.core, "src", "contracts", c.file), testPath: corpusPath,
+    name: c.name, stateType: c.stateType, slot: c.index,
+    core: opts.core, backend: opts.backend, scratch: opts.scratch, shared: HEAVY.has(c.name),
+    onResult: opts.onResult, onPhase: opts.onPhase,
+  });
+  return { ...r, found: true, hasCorpus: true, available };
 }
