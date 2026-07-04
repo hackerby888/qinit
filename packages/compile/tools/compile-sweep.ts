@@ -35,6 +35,12 @@ const targets: [string, string][] = [
 
 const catalog = systemContracts(CORE);
 
+// Fixture-to-fixture callees (not in the system catalog): Proxy CALLs the Counter fixture.
+const FIXTURE_DEPS: Record<string, Array<{ name: string; path: string; slot: number }>> = {
+  Proxy: [{ name: "Counter", path: `${FIX}/Counter.h`, slot: 28 }],
+};
+const FIXTURE_MAIN_SLOT: Record<string, number> = { Proxy: 29 };
+
 // Sibling system contracts the source references — same detection as corpus-run's depSpecs.
 function depsOf(src: string, selfFile: string): SystemContract[] {
   return catalog.filter((c) => {
@@ -87,8 +93,19 @@ for (const [name, path] of targets) {
       callees.push(cr.entry);
       calleeSources.push({ name: cr.entry.name, source: cr.source });
     }
+    for (const fd of FIXTURE_DEPS[name] ?? []) {
+      const fsrc = readFileSync(fd.path, "utf8");
+      const fr = await compileContract({ source: fsrc, name: fd.name, slot: fd.slot, qpiHeader: HEADERS, arenaSz: 1024 * 1024, strict: false });
+      callees.push({
+        name: fd.name,
+        index: fd.slot,
+        functions: Object.fromEntries(fr.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }])),
+        procedures: Object.fromEntries(fr.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }])),
+      });
+      calleeSources.push({ name: fd.name, source: fsrc });
+    }
 
-    const slot = catalog.find((c) => c.file === basename(path))?.index ?? 28;
+    const slot = FIXTURE_MAIN_SLOT[name] ?? catalog.find((c) => c.file === basename(path))?.index ?? 28;
     const r = await compileContract({
       source: src, name, slot, qpiHeader: HEADERS, arenaSz: 1024 * 1024,
       callees: callees.length ? callees : undefined,

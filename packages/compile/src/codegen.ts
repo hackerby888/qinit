@@ -431,7 +431,9 @@ class Codegen {
       }
     }
 
-    const tmpl = this.templates.get(name);
+    // Templates register unqualified; a namespace-qualified spelling (QPI::ContractState<...>) must
+    // still hit them.
+    const tmpl = this.templates.get(name) ?? (name.includes("::") ? this.templates.get(name.slice(name.lastIndexOf("::") + 2)) : undefined);
     if (!tmpl) return null;
     const b: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
     for (let i = 0; i < tmpl.params.length; i++) {
@@ -881,6 +883,12 @@ class Codegen {
     if (t.kind === "array") return `${this.typeKey(t.elem)}[]`;
     if (t.kind === "pointer") return "*";
     if (t.kind === "expr_value") return `#${this.evalConst(t.expr)}`;
+    // inline-carried struct as a template arg (Array<Order,256> resolved through its declaring scope):
+    // key by tag + field names so same-named tags with different fields don't share a layout cache slot.
+    if (t.kind === "inline_struct") {
+      const fields = t.struct.members.filter((m) => m.kind === "variable").map((m) => (m as VariableDecl).name).join(",");
+      return `s:${t.struct.name || "anon"}{${fields}}`;
+    }
     return "?";
   }
 
@@ -2507,7 +2515,8 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     // A member type written in terms of the parent instance's own params / nested typedefs (e.g.
     // ProposalVoting's `proposals` element ProposalAndVotesDataType) is resolved to a concrete type so the
     // member can itself be dispatched as a container / instance.
-    const ftype = parent.type?.kind === "template_instance" ? ctx.cg.concreteMemberType(f.type, parent.type) : f.type;
+    let ftype = parent.type?.kind === "template_instance" ? ctx.cg.concreteMemberType(f.type, parent.type) : f.type;
+    ftype = resolveInParentStruct(ctx, ftype, parent);
     return {
       addr: addrOf(parent.addr, f.offset),
       type: ftype,
@@ -2517,6 +2526,41 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   }
 
   return null;
+}
+
+// Resolve a field type spelled in its declaring struct's own scope — Array<Order,256> where Order is a
+// sibling nested struct of the callee-typed parent (QX::AssetAskOrders_output). The parent's layout was
+// computed WITH that scope, so sizes already match; this carries the element declaration inline so a
+// downstream element getter (orders.get(i).price) can lay it out without the scope.
+function resolveInParentStruct(ctx: FnCtx, t: TypeSpec, parent: AddrNode): TypeSpec {
+  const decl = parent.type?.kind === "inline_struct"
+    ? parent.type.struct
+    : parent.type?.kind === "name" ? ctx.cg.structByName(parent.type.name, ctx.thisBind ?? NO_BIND) : undefined;
+  if (!decl) return t;
+
+  const nestedOf = (n: string): TypeSpec | null => {
+    const s = decl.members.find((m) => m.kind === "struct" && (m as StructDecl).name === n) as StructDecl | undefined;
+    return s ? { kind: "inline_struct", struct: s } : null;
+  };
+
+  if (t.kind === "name") {
+    return nestedOf(t.name) ?? t;
+  }
+  if (t.kind === "template_instance") {
+    let changed = false;
+    const args = t.args.map((a) => {
+      if (a.kind === "name") {
+        const r = nestedOf(a.name);
+        if (r) {
+          changed = true;
+          return r;
+        }
+      }
+      return a;
+    });
+    return changed ? { ...t, args } : t;
+  }
+  return t;
 }
 
 // Scalar lvalue (size <= 8) address+size, for load/store of a scalar field.
@@ -4713,7 +4757,8 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // pass the caller's explicit in/out/locals lvalues (the locals sub-struct the caller reserved), not a fresh
   // frame. Without this the call was dropped ("unsupported call statement"), so out params stayed zero.
   if (expr.callee.kind === "identifier" && expr.args[0]?.kind === "identifier" && expr.args[0].name === "qpi") {
-    const info = ctx.cg.privates.get(expr.callee.name);
+    // Registered PUBLIC entries are callable the same way (MsVault's isShareHolder(qpi, state, ...)).
+    const info = ctx.cg.privates.get(expr.callee.name) ?? ctx.cg.registered.get(expr.callee.name);
     if (info) {
       const inAddr = expr.args[2] ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)") : "(i32.const 0)";
       const outAddr = expr.args[3] ? (emitAddr(ctx, expr.args[3]) ?? "(i32.const 0)") : "(i32.const 0)";
