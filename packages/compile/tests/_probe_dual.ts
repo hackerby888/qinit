@@ -14,7 +14,7 @@ const ARENA = 8 * 1024 * 1024;
 const SCRATCH = "/tmp/claude-1000/-home-kali-Projects-core-lite/87fbc69c-6675-41cb-94cb-1c730c00fab8/scratchpad/dual";
 const headers = loadQpiHeader(CORE);
 const catalog = systemContracts(CORE);
-const HEAVY = new Set(["PULSE", "QTF", "QTRY", "GGWP", "QEARN"]);
+const HEAVY = new Set(["PULSE", "QTF", "QTRY", "GGWP", "QEARN", "NOST"]); // NOST: ~1GB state — shadow-sync pulls dominate outside shared mode
 const only = process.argv[2];
 
 // contracts referenced by the corpus or the contract source (deployed + compiled alongside the target).
@@ -156,7 +156,11 @@ for (const c of catalog) {
     for (const t of our) {
       const natPass = byName.get(t.name);
       if (t.passed && natPass) green++;
-      else if (natPass && !t.passed) { oursBug++; if (!firstBug) firstBug = `${t.name}: ${t.message.split("\n")[0].slice(0, 50)}`; }
+      else if (natPass && !t.passed) {
+        oursBug++;
+        if (!firstBug) firstBug = `${t.name}: ${t.message.split("\n")[0].slice(0, 50)}`;
+        console.log(`  OURS-FAIL ${t.name}\n${t.message}`);
+      }
       else harness++;
     }
     const tag = oursBug === 0 && harness === 0 ? "ok          " : oursBug > 0 ? "OURS-BUG    " : "harness-gap ";

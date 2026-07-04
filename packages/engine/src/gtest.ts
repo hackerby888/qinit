@@ -351,6 +351,9 @@ export async function runContractTesting(
     syncChunked(c.stateView(m.len), mem().subarray(m.dst, m.dst + m.len));
   };
 
+  let dispatchCount = 0; // QINIT_GTEST_PROGRESS: dispatch-rate telemetry for slow/hanging corpora
+  const t0Progress = performance.now();
+
   const thost = {
     q_reset: () => { deployAll(); },
     q_init: (_idx: number) => { /* contracts pre-deployed in deployAll */ },
@@ -359,6 +362,9 @@ export async function runContractTesting(
     // — the native harness likewise contains a contract fault per test. The trap is surfaced on stderr once;
     // the test's assertions then fail against the unmodified state.
     q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
+      if (env_.QINIT_GTEST_PROGRESS && ++dispatchCount % 500 === 0) {
+        (globalThis as any).process?.stderr?.write?.(`[gtest] ${dispatchCount} dispatches (${((performance.now() - t0Progress) / 1000).toFixed(1)}s)\n`);
+      }
       flushState();
       const input = read(inPtr, inLen);
       const origin = id32(originPtr);
@@ -373,6 +379,36 @@ export async function runContractTesting(
       const n = Math.min(out.length, outCap >>> 0);
       if (n) write(outPtr, out.subarray(0, n));
       markEngineMoved();
+      // QINIT_GTEST_WATCH_SLOT=<n>: one line per invoke with the watched contract's balance — diffing the
+      // native vs ours streams pinpoints a corpus's first divergent dispatch.
+      if (env_.QINIT_GTEST_WATCH_SLOT) {
+        const ws = Number(env_.QINIT_GTEST_WATCH_SLOT);
+        const bal = sim.balance((sim as any).contractId(ws));
+        // QINIT_GTEST_WATCH_OFF=<byteOff>: also print the u64 at that state offset (e.g. a counter field
+        // identified by a snapshot diff).
+        let fld = "";
+        if (env_.QINIT_GTEST_WATCH_OFF) {
+          const off = Number(env_.QINIT_GTEST_WATCH_OFF);
+          const c2 = handles[ws];
+          if (c2) {
+            const sv = c2.stateView(off + 8);
+            fld = ` fld=${new DataView(sv.buffer, sv.byteOffset + off, 8).getBigUint64(0, true)}`;
+          }
+        }
+        (globalThis as any).process?.stderr?.write?.(`[watch] #${++dispatchCount} it=${it >>> 0} amt=${amount} org=${hex(origin).slice(0, 12)} bal=${bal}${fld}\n`);
+        // QINIT_GTEST_SNAP="<dispatchN>:<filePrefix>": dump the watched contract's full state at that
+        // dispatch — byte-diffing a native vs ours pair localizes silent state divergence.
+        const snap = (env_.QINIT_GTEST_SNAP ?? "") as string;
+        if (snap) {
+          const [nStr, prefix] = snap.split(":");
+          if (dispatchCount === Number(nStr)) {
+            const c2 = handles[ws];
+            const fs = require("node:fs");
+            const f = `${prefix}.${dispatchCount}.bin`;
+            if (c2) fs.writeFileSync(fs.existsSync(f) ? f.replace(/\.bin$/, ".ours.bin") : f, c2.stateView(c2.stateSize));
+          }
+        }
+      }
       return n >>> 0;
     },
 

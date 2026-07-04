@@ -326,8 +326,11 @@ export class Contract {
     let savedCtx: Uint8Array | null = null;
     const pre = this.u8();
     if (nested) {
+      // No 32-bit bitwise alignment here: a shared-memory contract's arena can sit beyond 2^31 (large
+      // states pack high), where JS bitops go negative — a negative offset makes fill() wrap from the
+      // buffer END and silently corrupt other contracts' regions before set() throws.
       const base = arenaTopG ? ((arenaTopG.value as number) >>> 0) : this.arenaBump;
-      inOff = (base + 7) & ~7;
+      inOff = base + 7 - ((base + 7) % 8);
       outOff = inOff + IN_SZ;
       localsOff = outOff + OUT_SZ;
       if (arenaTopG) {
