@@ -13,6 +13,8 @@ export interface SemaDiagnostic {
   severity: "error" | "warning";
   message: string;
   span: Span;
+  // "fidelity": the construct was lowered to a placeholder instead of faithful code.
+  category?: "fidelity";
 }
 
 // ---- Symbol table ----
@@ -159,8 +161,8 @@ export class Sema {
     this.diagnostics.push({ severity: "error", message: msg, span });
   }
 
-  warn(msg: string, span: Span): void {
-    this.diagnostics.push({ severity: "warning", message: msg, span });
+  warn(msg: string, span: Span, category?: "fidelity"): void {
+    this.diagnostics.push({ severity: "warning", message: msg, span, category });
   }
 
   // ---- Type resolution ----

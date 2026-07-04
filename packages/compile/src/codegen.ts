@@ -1384,6 +1384,9 @@ class Codegen {
   }
 
   warn(message: string, line: number): void {
+    if ((globalThis as any).process?.env?.QINIT_WARN_TRACE && message.includes((globalThis as any).process.env.QINIT_WARN_TRACE) ) {
+      console.error(new Error(`TRACE: ${message}`).stack);
+    }
     this.warnings.push({ message, line });
   }
 }
@@ -1645,7 +1648,7 @@ export function generateWasmModule(
 
   // expose warnings via a side channel (sema diagnostics)
   for (const w of cg.warnings) {
-    sema.warn(w.message, { start: 0, end: 0, line: w.line, col: 0 });
+    sema.warn(w.message, { start: 0, end: 0, line: w.line, col: 0 }, "fidelity");
   }
 
   return emitModule(spec);
@@ -2750,6 +2753,11 @@ function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "call" }): 
     return mk(addr, ctype.args[0]);
   }
   if (ctype.name === "HashMap" || ctype.name === "HashSet") {
+    // Only the element getters are lvalues here. The member check must come BEFORE evaluating the
+    // argument: this resolver runs on speculative probes (isU128Expr → resolveAddr), and eagerly
+    // emitting a non-getter's argument (contains(qpi.invocator())) produced spurious fidelity
+    // warnings for code the real path lowers correctly.
+    if (m !== "key" && !(m === "value" && ctype.name === "HashMap")) return null;
     const info = ctype.name === "HashSet" ? ctx.cg.hashsetInfo(ctype.args) : ctx.cg.hashmapInfo(ctype.args);
     if (!info) return null;
     const elem = `(call $hm_elem ${node.addr} (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)})`;
@@ -2916,7 +2924,7 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
       ctx.lines.push(`    (call $copyMem ${lhs.addr} ${src} (i32.const ${lhs.size}))`);
       return "";
     }
-    ctx.cg.warn(`unsupported aggregate assignment`, expr.span.line);
+    ctx.cg.warn(`unsupported aggregate assignment [${describeShape(expr.left)} = ${describeShape(expr.right)}]`, expr.span.line);
     return "";
   }
 
@@ -3032,7 +3040,7 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       const n = resolveAddr(ctx, expr);
       if (n && n.size <= 8) return loadAt(n.addr, n.size, isSignedScalarType(n.type));
       if (n) {
-        ctx.cg.warn(`aggregate value read unsupported`, expr.span.line);
+        ctx.cg.warn(`aggregate value read unsupported [${describeShape(expr)}]`, expr.span.line);
         return `(i64.const 0)`;
       }
       // a static constexpr member of the object's type (pv.maxProposals / pv.maxVotes on ProposalVoting<P,D>):
@@ -4307,7 +4315,7 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
     return emitValue(ctx, expr.args[1]);
   }
 
-  ctx.cg.warn(`unsupported call as value`, expr.span.line);
+  ctx.cg.warn(`unsupported call as value [${describeShape(expr)}]`, expr.span.line);
   return `(i64.const 0)`;
 }
 
@@ -4477,6 +4485,10 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // state or the digest, so dropping it is behaviorally faithful.
   if (expr.callee.kind === "identifier" && expr.callee.name.startsWith("__logContract")) return;
 
+  // ASSERT is ((void)0) in release builds (platform/assert.h) — the argument is not even evaluated,
+  // so dropping the statement is behaviorally faithful.
+  if (expr.callee.kind === "identifier" && expr.callee.name === "ASSERT") return;
+
   // ProposalVoting proxy `qpi(state.proposals).method(...)` as a statement (e.g. getProposal/vote write
   // through an out-param). Compile the real proxy method; fall back to a drop if it can't be compiled.
   if (ctx.proxyClass && emitProxySiblingCall(ctx, expr, false) !== null) return;
@@ -4578,5 +4590,5 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
     return;
   }
 
-  ctx.cg.warn(`unsupported call statement`, expr.span.line);
+  ctx.cg.warn(`unsupported call statement [${describeShape(expr)}]`, expr.span.line);
 }

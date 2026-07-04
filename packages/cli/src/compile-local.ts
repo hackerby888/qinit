@@ -66,8 +66,14 @@ export async function compileLocal(o: {
     return { ok: false, stderr: errs.map((d) => `error: ${d.message}`).join("\n") };
   }
 
+  // Surface non-fatal warnings instead of dropping them; the build still succeeds.
+  const warns = r.diagnostics.filter((d) => d.severity === "warning");
+
   mkdirSync(o.outDir, { recursive: true });
   const so = join(o.outDir, `${o.name}.wasm`);
   writeFileSync(so, Buffer.from(r.wasm));
-  return { ok: true, so, size: statSync(so).size, idl: extractIdl(source, o.name) };
+  return {
+    ok: true, so, size: statSync(so).size, idl: extractIdl(source, o.name),
+    stderr: warns.length ? warns.map((d) => `warning: ${d.message}`).join("\n") : undefined,
+  };
 }

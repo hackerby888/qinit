@@ -25,6 +25,7 @@ export type { Token, TokenKind } from "./lexer";
 export { Preprocessor } from "./preprocess";
 export type { PreprocessOpts } from "./preprocess";
 export { Parser } from "./parser";
+export { formatAst } from "./ast-print";
 export { emitFramework, emitModule } from "./framework";
 export type { FrameworkOpts, UserEntry, SysProcInfo, ModuleSpec } from "./framework";
 
@@ -53,6 +54,11 @@ export interface CompileOpts {
   // Fired at the start of each pipeline stage (preprocess/parse/analyze/codegen/assemble) so a caller can
   // show live progress. When set, compileContract yields a macrotask after each so a UI can paint.
   onPhase?: (phase: string) => void | Promise<void>;
+  // Fidelity gate (default true): escalate "fidelity" diagnostics — constructs lowered to placeholders
+  // like (i64.const 0) instead of faithful code — to errors and abort with empty wasm. A module built
+  // from placeholders executes but silently diverges from native, so only pass false for exploratory
+  // builds where a best-effort module is acceptable.
+  strict?: boolean;
 }
 
 export interface ContractIdl {
@@ -76,6 +82,8 @@ export interface Diagnostic {
   message: string;
   file?: string;
   span: Span;
+  // "fidelity": the construct was dropped or lowered to a placeholder (see CompileOpts.strict).
+  category?: "fidelity";
 }
 
 // ---- qpi.h library context (parsed once, cached) ----
@@ -132,6 +140,42 @@ function getQpiContext(headers: string): QpiContext {
 const USER_BOUNDARY = "__QINIT_USER_BOUNDARY__";
 
 // ---- Main entry point ----
+
+export interface ParseAstResult {
+  ast: TranslationUnit;
+  diagnostics: ParserDiagnostic[];
+}
+
+// Parse-only entry: preprocess + lex + parse the user source (seeded with qpi.h's macros and the
+// function scaffolding) and return the raw AST plus the user's own diagnostics. Skips sema/codegen/wabt,
+// so it stays cheap for tooling that only needs the syntax tree. Declarations from the seeded library
+// are dropped by the same boundary filter compileContract uses for diagnostics.
+export function parseToAst(opts: { source: string; qpiHeader?: string; name?: string; slot?: number }): ParseAstResult {
+  const headers = opts.qpiHeader ?? QPI_STUB;
+  const qpi = getQpiContext(headers);
+
+  const userSource = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${opts.source}`;
+  const preprocessed = new Preprocessor().preprocess({
+    source: userSource,
+    qpiHeader: "",
+    contractName: opts.name ?? "Contract",
+    contractIndex: opts.slot ?? 0,
+    seedMacros: qpi.macros,
+  });
+
+  const boundaryIdx = preprocessed.indexOf(USER_BOUNDARY);
+  const boundaryLine = boundaryIdx >= 0 ? preprocessed.slice(0, boundaryIdx).split("\n").length : 0;
+
+  const parser = new Parser(new Lexer(preprocessed).tokenize());
+  const tu = parser.parseTranslationUnit();
+
+  const userDecls = tu.declarations.filter(
+    (d) => (d.span?.line ?? 0) >= boundaryLine && (d as { name?: string }).name !== USER_BOUNDARY,
+  );
+  const diagnostics = parser.getDiagnostics().filter((d) => d.span.line >= boundaryLine);
+
+  return { ast: { ...tu, declarations: userDecls }, diagnostics };
+}
 
 export async function compileContract(opts: CompileOpts): Promise<CompileResult> {
   const diagnostics: ParserDiagnostic[] = [];
@@ -248,6 +292,23 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     fs.writeFileSync((globalThis as any).process.env.QINIT_DUMP_WAT, wat);
   }
 
+  // Fidelity gate (strict, default on): any construct lowered to a placeholder makes the module a
+  // silent divergence from native execution — never ship it. Escalate to errors and abort.
+  if (opts.strict !== false) {
+    for (const d of diagnostics) {
+      if (d.category === "fidelity") d.severity = "error";
+    }
+  }
+  if (diagnostics.some((d) => d.severity === "error")) {
+    closePhase();
+    return {
+      wasm: new Uint8Array(0),
+      diagnostics,
+      idl: { name: opts.name, slot: opts.slot, functions: [], procedures: [], stateSize: 0, sysprocMask: 0 },
+      timings,
+    };
+  }
+
   // 6. WAT → WASM (via wabt)
   await phase("assembling wasm");
   let wasm: Uint8Array;
@@ -335,6 +396,19 @@ export function loadQpiHeader(corePath?: string): string {
         "contract_core/qpi_trivial_impl.h",
       ];
       let content = QPI_PRELUDE + "\n";
+
+      // Contract slot registry: contracts reference each other's indices (QX_CONTRACT_INDEX in
+      // Logger events, share-management filters, inter-contract transfers). Native gets these from
+      // contract_def.h; only its object-like index defines are extracted — the full header also
+      // #includes every contract, which is not parseable here and not needed.
+      const defPath = `${base}/contract_core/contract_def.h`;
+      if (existsSync(defPath)) {
+        const indexDefines = readFileSync(defPath, "utf8")
+          .split("\n")
+          .filter((l) => /^#define \w+_CONTRACT_INDEX \d+\s*$/.test(l));
+        content += indexDefines.join("\n") + "\n";
+      }
+
       for (const f of files) {
         const fp = `${base}/${f}`;
         if (existsSync(fp)) content += readFileSync(fp, "utf8") + "\n";

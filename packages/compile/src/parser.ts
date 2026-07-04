@@ -18,6 +18,9 @@ export interface Diagnostic {
   severity: "error" | "warning";
   message: string;
   span: Span;
+  // "fidelity": the construct was dropped or lowered to a placeholder, so the emitted module would
+  // not faithfully reproduce the source. Strict builds escalate these to errors.
+  category?: "fidelity";
 }
 
 export class Parser {
@@ -258,7 +261,15 @@ export class Parser {
       case "kw_union":
         return this.parseUnion();
       default:
-        // Skip unknown token silently — qpi.h has constructs our subset parser doesn't handle
+        // Skip unknown token — qpi.h has constructs our subset parser doesn't handle. Recorded as a
+        // fidelity diagnostic (in bodyDiagnostics so panic-recovery is not tripped); library-side skips
+        // are filtered out by the user-boundary line, so only skips in user source surface.
+        this.bodyDiagnostics.push({
+          severity: "warning",
+          category: "fidelity",
+          message: `skipped unparseable token '${tok.text}' (${tok.kind})`,
+          span: tok.span,
+        });
         this.next();
         return { kind: "empty", span: tok.span } as EmptyDecl;
     }

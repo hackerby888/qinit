@@ -1,9 +1,17 @@
 // Standalone compile sweep over all loadable contracts (no engine needed). Reports wasm size +
-// error/warning counts so body-codegen regressions (new errors) or stub-coverage gaps (warnings) show.
+// error/warning counts so body-codegen regressions (new errors) or stub-coverage gaps show.
+//
+// Callee-aware: sibling system contracts referenced by a source (the corpus-run depSpecs regex,
+// `\bNAME(::|_[A-Z0-9])`) are compiled first (strict off — only their IDL/source matter here) and
+// passed as callees/calleeSources, matching what a real build wires. Without this the sweep
+// overcounts: inter-contract calls and callee struct/constant references fail as fidelity errors
+// that a real build resolves.
 import { readFileSync } from "node:fs";
-import { compileContract, loadQpiHeader } from "../src/index";
+import { basename } from "node:path";
+import { compileContract, loadQpiHeader, type CompileResult, type CalleeIdl } from "../src/index";
+import { systemContracts, type SystemContract } from "../../build/src/system-contracts";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
 const HEADERS = loadQpiHeader(CORE);
 const FIX = "/home/kali/Projects/Qinit/fixtures";
 const SYS = `${CORE}/src/contracts`;
@@ -25,27 +33,80 @@ const targets: [string, string][] = [
   ["Quottery", `${SYS}/Quottery.h`],
 ];
 
+const catalog = systemContracts(CORE);
+
+// Sibling system contracts the source references — same detection as corpus-run's depSpecs.
+function depsOf(src: string, selfFile: string): SystemContract[] {
+  return catalog.filter((c) => {
+    if (c.file === selfFile) return false;
+    return new RegExp(`\\b(${c.name}|${c.stateType})(::|_[A-Z0-9])`).test(src);
+  });
+}
+
+const depCache = new Map<string, { entry: CalleeIdl; source: string } | null>();
+
+async function calleeFor(c: SystemContract): Promise<{ entry: CalleeIdl; source: string } | null> {
+  if (depCache.has(c.name)) return depCache.get(c.name)!;
+
+  let result: { entry: CalleeIdl; source: string } | null = null;
+  try {
+    const source = readFileSync(`${SYS}/${c.file}`, "utf8");
+    const r = await compileContract({ source, name: c.stateType, slot: c.index, qpiHeader: HEADERS, arenaSz: 1024 * 1024, strict: false });
+    result = {
+      source,
+      entry: {
+        name: c.stateType,
+        index: c.index,
+        functions: Object.fromEntries(r.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }])),
+        procedures: Object.fromEntries(r.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }])),
+      },
+    };
+  } catch {
+    result = null;
+  }
+
+  depCache.set(c.name, result);
+  return result;
+}
+
 const pad = (s: string, n: number) => s.padEnd(n);
-console.log(pad("CONTRACT", 24) + pad("WASM", 9) + pad("ERR", 5) + "WARN");
-console.log("-".repeat(48));
-let ok = 0, totalWarn = 0;
+console.log(pad("CONTRACT", 24) + pad("WASM", 9) + pad("ERR", 5) + pad("WARN", 6) + "CALLEES");
+console.log("-".repeat(64));
+let ok = 0, totalWarn = 0, totalErr = 0;
 const warnHist: Record<string, number> = {};
 for (const [name, path] of targets) {
   let src: string;
   try { src = readFileSync(path, "utf8"); } catch { console.log(pad(name, 24) + "no-file"); continue; }
   try {
-    const r = await compileContract({ source: src, name, slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const deps = depsOf(src, basename(path));
+    const callees: CalleeIdl[] = [];
+    const calleeSources: Array<{ name: string; source: string }> = [];
+    for (const d of deps) {
+      const cr = await calleeFor(d);
+      if (!cr) continue;
+      callees.push(cr.entry);
+      calleeSources.push({ name: cr.entry.name, source: cr.source });
+    }
+
+    const slot = catalog.find((c) => c.file === basename(path))?.index ?? 28;
+    const r = await compileContract({
+      source: src, name, slot, qpiHeader: HEADERS, arenaSz: 1024 * 1024,
+      callees: callees.length ? callees : undefined,
+      calleeSources: calleeSources.length ? calleeSources : undefined,
+    });
+
     const errs = r.diagnostics.filter((d) => d.severity === "error").length;
     const warns = r.diagnostics.filter((d) => d.severity === "warning");
-    for (const w of warns) warnHist[w.message] = (warnHist[w.message] ?? 0) + 1;
+    for (const d of r.diagnostics) warnHist[d.message] = (warnHist[d.message] ?? 0) + 1;
     if (errs === 0 && r.wasm.byteLength > 0) ok++;
     totalWarn += warns.length;
-    console.log(pad(name, 24) + pad(`${r.wasm.byteLength}`, 9) + pad(`${errs}`, 5) + `${warns.length}`);
+    totalErr += errs;
+    console.log(pad(name, 24) + pad(`${r.wasm.byteLength}`, 9) + pad(`${errs}`, 5) + pad(`${warns.length}`, 6) + deps.map((d) => d.name).join(","));
   } catch (e: any) {
     console.log(pad(name, 24) + "THREW: " + (e.message ?? "").slice(0, 30));
   }
 }
-console.log("-".repeat(48));
-console.log(`compiled clean: ${ok}/${targets.length}  ·  total warnings: ${totalWarn}`);
-console.log("\nwarning histogram:");
+console.log("-".repeat(64));
+console.log(`compiled clean: ${ok}/${targets.length}  ·  total errors: ${totalErr}  ·  total warnings: ${totalWarn}`);
+console.log("\ndiagnostic histogram:");
 for (const [m, c] of Object.entries(warnHist).sort((a, b) => b[1] - a[1])) console.log(`  ${c}×  ${m}`);
