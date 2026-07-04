@@ -2781,6 +2781,8 @@ const QPI_ID_PRODUCERS: Record<string, string> = {
   invocator: "$qpi_invocator",
   originator: "$qpi_originator",
   getPrevSpectrumDigest: "$qpi_prevSpectrumDigest",
+  getPrevUniverseDigest: "$qpi_prevUniverseDigest",
+  getPrevComputerDigest: "$qpi_prevComputerDigest",
 };
 
 // Aggregate construction `Type{ a, b, c }` written into dstAddr: zero the target, then store each arg into
@@ -2917,6 +2919,10 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
     }
     // aggregate construction `target = Type{ ... }` (e.g. a Logger) — materialize the fields in place.
     if (expr.right.kind === "construct" && lhs.type && emitConstruct(ctx, lhs.addr, lhs.type, expr.right.args)) {
+      return "";
+    }
+    // bare brace-init-list `target = { a, b, c };` — same field-wise materialization, typed by the target.
+    if (expr.right.kind === "initializer_list" && lhs.type && emitConstruct(ctx, lhs.addr, lhs.type, expr.right.exprs)) {
       return "";
     }
     const src = emitAddr(ctx, expr.right);
@@ -4335,6 +4341,15 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
   // (matching the c_cast/static_cast lowering), narrowing handled by the consuming store.
   if (expr.callee.kind === "identifier" && SCALAR_SIZE[expr.callee.name] !== undefined && expr.args.length === 1) {
     return emitValue(ctx, expr.args[0]);
+  }
+
+  // The same cast through a template parameter: T(x) inside a qpi.h template body where T binds to a
+  // scalar type. Aggregate bindings fall through to the construct/materialize paths.
+  if (expr.callee.kind === "identifier" && expr.args.length === 1) {
+    const bound = ctx.thisBind?.types.get(expr.callee.name);
+    if (bound?.kind === "name" && SCALAR_SIZE[bound.name] !== undefined) {
+      return emitValue(ctx, expr.args[0]);
+    }
   }
 
   // uint128(i_high, i_low) two-arg constructor as a scalar value: the i64-collapsed model carries the low
