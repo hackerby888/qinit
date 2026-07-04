@@ -10,7 +10,7 @@ import { Committee, type CommitteeOpts } from "./consensus";
 import { FeeManager, type FeeMode } from "./fees";
 import { SpectrumLedger } from "./spectrum";
 import { OracleManager } from "./oracle";
-import { AssetLedger, type AssetSnapshot } from "./assets";
+import { AssetLedger, packAssetName, type AssetSnapshot } from "./assets";
 import { TickConsensus, type TickRecord } from "./ticking";
 import type { TickData } from "./wire";
 import { PreManagementRightsTransferInput, PreManagementRightsTransferOutput, PostIncomingTransferInput, ContractId } from "./abi";
@@ -35,6 +35,7 @@ const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
 const TT_STANDARD = 0;
 const TT_PROCEDURE = 1;
 const TT_QPI = 2;
+const TT_DIVIDENDS = 3; // qpiDistributeDividends
 const TT_PROCEDURE_BY_OTHER_CONTRACT = 6;
 
 const EP_USER_FUNCTION = 12; // contract_def.h USER_FUNCTION_CALL (contractSystemProcedureCount=10, +2)
@@ -364,12 +365,10 @@ export class Sim {
     }
 
     if (cb.fee > 0n) {
-      const caller = this.contractId(callerSlot);
-      if (this.balance(caller) < cb.fee) {
+      // the fee is a real qpi transfer to the releasing contract — its POST_INCOMING_TRANSFER fires
+      if (this.doTransfer(callerSlot, this.contractId(srcOwnMgmt), cb.fee, TT_QPI) < 0n) {
         return -cb.fee;
       }
-      this.debit(caller, cb.fee);
-      this.credit(this.contractId(srcOwnMgmt), cb.fee);
     }
 
     if (!this.transferShareManagementRights(name, issuer, owner, possessor, srcPosMgmt, callerSlot, shares)) {
@@ -402,12 +401,10 @@ export class Sim {
     }
 
     if (cb.fee > 0n) {
-      const caller = this.contractId(callerSlot);
-      if (this.balance(caller) < cb.fee) {
+      // the fee is a real qpi transfer to the acquiring contract — its POST_INCOMING_TRANSFER fires
+      if (this.doTransfer(callerSlot, this.contractId(dstOwnMgmt), cb.fee, TT_QPI) < 0n) {
         return -cb.fee;
       }
-      this.debit(caller, cb.fee);
-      this.credit(this.contractId(dstOwnMgmt), cb.fee);
     }
 
     if (!this.transferShareManagementRights(name, issuer, owner, possessor, callerSlot, dstPosMgmt, shares)) {
@@ -418,9 +415,11 @@ export class Sim {
     return cb.fee;
   }
 
-  // distributeDividends — pay amountPerShare to each holder of the contract's IPO shares (the 676 computors,
-  // one share each by default). Total = amountPerShare * IPO_SHARE_COUNT, debited from the contract; each
-  // shareholder is credited its share of the total, firing its POST_INCOMING_TRANSFER if it is a contract.
+  // distributeDividends (qpi_asset_impl.h): deduct amountPerShare * 676 from the contract up front, then pay
+  // amountPerShare per share to every POSSESSOR of the contract's own share asset (issuer = zero id, name =
+  // the contract's ticker), firing each contract receiver's POST_INCOMING_TRANSFER (type qpiDistributeDividends,
+  // source = the contract id) nested mid-iteration. If fewer than 676 shares exist in the universe the
+  // difference stays deducted (the node's post-IPO invariant is exactly 676 shares — see registerContractAsset).
   // Forbidden inside a POST_INCOMING_TRANSFER callback.
   private doDistributeDividends(slot: number, amountPerShare: bigint): number {
     if (this.pitDepth > 0) return 0; // forbidden inside POST_INCOMING_TRANSFER
@@ -430,24 +429,43 @@ export class Sim {
     const cur = this.contractId(slot);
     if (this.balance(cur) < total) return 0;
 
+    this.debit(cur, total);
     if (amountPerShare === 0n) {
       return 1;
     }
 
-    const committee = this.getCommittee();
-    const base = Math.floor(IPO_SHARE_COUNT / committee.size);
-    const rem = IPO_SHARE_COUNT % committee.size;
-    this.debit(cur, total);
+    const name = this.contractAssetNames.get(slot);
+    if (name === undefined) return 1; // no share asset registered — nothing to pay (the deduction stands, like a shareless universe)
 
-    for (let j = 0; j < committee.size; j++) {
-      const sharesHeld = BigInt(base + (j < rem ? 1 : 0)); // 676 shares spread over the committee
-      const payout = amountPerShare * sharesHeld;
-      const holder = committee.computors[j].publicKey;
-      this.credit(holder, payout);
-      this.notifyPIT(holder, cur, payout, TT_STANDARD); // fires POST_INCOMING_TRANSFER only if the holder is a contract
+    for (const p of this.assets.possessionsOf(ZERO32, name)) {
+      if (p.shares === 0n) continue;
+      const dividend = amountPerShare * p.shares;
+      this.credit(p.possessor, dividend);
+      this.notifyPIT(p.possessor, cur, dividend, TT_DIVIDENDS);
     }
 
     return 1;
+  }
+
+  // The contract's share-asset name (its ticker, packed ASCII) — what distributeDividends iterates. System
+  // contracts get it from contract_def.h's contractDescriptions (the gtest harness passes the catalog);
+  // dynamic contracts get it at deploy.
+  private contractAssetNames = new Map<number, bigint>();
+
+  setContractAssetName(slot: number, name: bigint | string): void {
+    this.contractAssetNames.set(slot, typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn);
+  }
+
+  // Dev-deploy stand-in for the IPO: mint the contract's 676 shares (issuer = zero id) to `holder`, managed
+  // by QX — mirrors the node's post-IPO state with the deployer standing in for the IPO winners. No-op if
+  // the share asset already exists (redeploy).
+  mintDeployShares(slot: number, name: bigint | string, holder: Uint8Array): void {
+    const packed = typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn;
+    this.setContractAssetName(slot, packed);
+    if (this.assets.isAssetIssued(ZERO32, packed)) return;
+
+    this.assets.mintContractShares(1, packed, BigInt(IPO_SHARE_COUNT)); // minted to the zero-id holder, managed by QX
+    this.assets.transferShareOwnershipAndPossession(1, packed, ZERO32, ZERO32, ZERO32, BigInt(IPO_SHARE_COUNT), holder);
   }
 
   // Read-only snapshot of the asset universe for inspection tools (AssetLedger owns it).

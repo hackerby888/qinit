@@ -219,14 +219,19 @@ export interface OwnedAssetView {
 // universeIndex (siblings[ASSETS_DEPTH] are zero-padded by a client). AssetRecord is a 48-byte union:
 // ownership = publicKey(32) type(1) pad(1) managingContractIndex(2) issuanceIndex(4) numberOfShares(8);
 // issuance  = publicKey(32) type(1) name(7) numberOfDecimalPlaces(1) unitOfMeasurement(7). type: 1=issuance, 2=ownership.
-export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, siblings: Uint8Array[] = []): Uint8Array {
+export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, siblings: Uint8Array[] = [], record?: Uint8Array): Uint8Array {
   const r = RespondOwnedAssets.alloc();
 
   const own = r.asset;
-  own.publicKey = v.owner;
-  own.type = ASSET_TYPE.OWNERSHIP;
-  own.managingContractIndex = v.managingContractIndex;
-  own.numberOfShares = v.shares;
+  if (record) {
+    // the stored universe record verbatim — a rebuilt one would drop issuanceIndex and break the proof
+    own.bytes.set(record.subarray(0, 48));
+  } else {
+    own.publicKey = v.owner;
+    own.type = ASSET_TYPE.OWNERSHIP;
+    own.managingContractIndex = v.managingContractIndex;
+    own.numberOfShares = v.shares;
+  }
 
   const iss = r.issuanceAsset;
   iss.publicKey = v.issuer;
@@ -256,14 +261,19 @@ export interface PossessedAssetView {
 // RespondPossessedAssets (structs.h) — the possession AssetRecord + the ownership AssetRecord + the issuance
 // AssetRecord + tick + universeIndex (siblings[ASSETS_DEPTH] zero-padded by a client). AssetRecord type:
 // 1=issuance, 2=ownership, 3=possession. The possession variant's @36 field is the ownershipIndex (left zero).
-export function encodeRespondPossessedAssets(v: PossessedAssetView, universeIndex = 0, siblings: Uint8Array[] = []): Uint8Array {
+export function encodeRespondPossessedAssets(v: PossessedAssetView, universeIndex = 0, siblings: Uint8Array[] = [], record?: Uint8Array): Uint8Array {
   const r = RespondPossessedAssets.alloc();
 
   const pos = r.asset;
-  pos.publicKey = v.possessor;
-  pos.type = ASSET_TYPE.POSSESSION;
-  pos.managingContractIndex = v.possessionManagingContract;
-  pos.numberOfShares = v.shares;
+  if (record) {
+    // the stored universe record verbatim — a rebuilt one would drop ownershipIndex and break the proof
+    pos.bytes.set(record.subarray(0, 48));
+  } else {
+    pos.publicKey = v.possessor;
+    pos.type = ASSET_TYPE.POSSESSION;
+    pos.managingContractIndex = v.possessionManagingContract;
+    pos.numberOfShares = v.shares;
+  }
 
   const own = r.ownershipAsset;
   own.publicKey = v.owner;

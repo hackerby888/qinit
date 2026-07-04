@@ -179,7 +179,7 @@ export async function runTestsAgainst(testWasm: Uint8Array, contractWasm: Uint8A
 export async function runContractTesting(
   runnerWasm: Uint8Array,
   contracts: Record<number, Uint8Array>,
-  opts: { mainSlot?: number; onResult?: (r: TestResult) => void | Promise<void> } = {},
+  opts: { mainSlot?: number; onResult?: (r: TestResult) => void | Promise<void>; assetNames?: Record<number, string | bigint> } = {},
 ): Promise<TestResult[]> {
   // In-runner qpi mutations (a corpus drives contract procedures through its own QpiContext objects) act on
   // behalf of the contract under test; the lhost transfer ABI carries no index, so it must be told.
@@ -275,6 +275,11 @@ export async function runContractTesting(
       const shared = sharedSlots.has(Number(idx));
       if (shared && !runnerMemory()) throw new Error(`gtest: contract slot ${idx} is a shared-memory build but the runner is not instantiated yet`);
       handles[Number(idx)] = sim.deploy(Number(idx), wasm, undefined, shared ? runnerMemory() : undefined);
+    }
+    // slot -> share-asset ticker (contract_def.h contractDescriptions.assetName) — distributeDividends
+    // iterates the possessors of this asset.
+    for (const [slot, name] of Object.entries(opts.assetNames ?? {})) {
+      sim.setContractAssetName(Number(slot), name as string | bigint);
     }
   };
 

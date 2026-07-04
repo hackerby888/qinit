@@ -244,7 +244,7 @@ export class PeerServer {
         decimals: p.decimals,
         shares: p.shares,
         managingContractIndex: p.managingContractIndex,
-      }, p.index, p.siblings);
+      }, p.index, p.siblings, p.record);
       frames.push(codec.frame(MSG.RESPOND_OWNED_ASSETS, enc, dejavu));
     }
 
@@ -268,7 +268,7 @@ export class PeerServer {
         shares: p.shares,
         possessionManagingContract: p.managingContractIndex,
         ownershipManagingContract: p.managingContractIndex,
-      }, p.index, p.siblings);
+      }, p.index, p.siblings, p.record);
       frames.push(codec.frame(MSG.RESPOND_POSSESSED_ASSETS, enc, dejavu));
     }
 

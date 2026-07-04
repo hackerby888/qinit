@@ -80,21 +80,24 @@ export class VirtualNode implements NodeTransport {
   //   deploy(wasm, { name })       — slot auto-assigned by name; redeploying the same name reuses its slot (→ migrate)
   //   deploy(wasm, { name, slot })  — pin a slot (system contracts, inter-contract ordering)
   //   deploy(slot, wasm, name)      — legacy positional form, retained verbatim
-  deploy(wasm: Uint8Array, opts?: { name?: string; slot?: number }): Contract;
-  deploy(slot: number, wasm: Uint8Array, name?: string): Contract;
-  deploy(a: number | Uint8Array, b?: Uint8Array | { name?: string; slot?: number }, c?: string): Contract {
+  deploy(wasm: Uint8Array, opts?: { name?: string; slot?: number; deployer?: Uint8Array }): Contract;
+  deploy(slot: number, wasm: Uint8Array, name?: string, deployer?: Uint8Array): Contract;
+  deploy(a: number | Uint8Array, b?: Uint8Array | { name?: string; slot?: number; deployer?: Uint8Array }, c?: string, d?: Uint8Array): Contract {
     let wasm: Uint8Array;
     let name: string | undefined;
     let explicitSlot: number | undefined;
+    let deployer: Uint8Array | undefined;
     if (typeof a === "number") {
       explicitSlot = a;
       wasm = b as Uint8Array;
       name = c;
+      deployer = d;
     } else {
       wasm = a;
-      const o = (b as { name?: string; slot?: number }) ?? {};
+      const o = (b as { name?: string; slot?: number; deployer?: Uint8Array }) ?? {};
       name = o.name;
       explicitSlot = o.slot;
+      deployer = o.deployer;
     }
 
     const slot = this.resolveSlot(explicitSlot, name);
@@ -103,6 +106,14 @@ export class VirtualNode implements NodeTransport {
       this.byName.set(name, slot);
     }
     this.meta.set(slot, { name: name ?? "Contract", codeHash: toHex(k12Bytes(wasm)), version: (this.meta.get(slot)?.version ?? 0) + 1 });
+
+    // Post-IPO invariant: a contract's 676 shares always exist in the universe (distributeDividends pays
+    // their possessors). The dev engine has no IPO, so mint them at deploy — to the deploying identity when
+    // known (the wire path's tx source), else the arbitrator as a stand-in. The ticker is the deploy name's
+    // first 7 chars uppercased. A redeploy (asset already issued) is a no-op.
+    const ticker = (name ?? "Contract").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7) || "C";
+    this.sim.mintDeployShares(slot, ticker, deployer ?? this.sim.getCommittee().arbitrator.publicKey);
+
     return contract;
   }
 
@@ -295,7 +306,7 @@ export class VirtualNode implements NodeTransport {
       const payload = tx.input.slice();
 
       if (destLo === 99999n) {
-        this.handleDeployTx(inputType, payload);
+        this.handleDeployTx(inputType, payload, source);
         return { ok: true };
       }
 
@@ -332,7 +343,7 @@ export class VirtualNode implements NodeTransport {
 
   // UPLOAD_BEGIN / UPLOAD_CHUNK / DEPLOY — mirrors core-lite lite_dynamic_contracts.h LE decode + the proto
   // encoders (packages/proto/src/deploy.ts).
-  private handleDeployTx(inputType: number, p: Uint8Array): void {
+  private handleDeployTx(inputType: number, p: Uint8Array, source?: Uint8Array): void {
     if (inputType === LITE_TX.UPLOAD_BEGIN) {
       const m = UploadBegin.wrap(p);
       const totalSize = m.totalSize;
@@ -349,7 +360,7 @@ export class VirtualNode implements NodeTransport {
       const m = DeployMessage.wrap(p);
       const raw = p.length >= DeployMessage.SIZE ? new TextDecoder().decode(m.name) : "";
       const name = raw.replace(/[^\x20-\x7e].*$/, "") || "Contract"; // strip the null pad
-      this.deploy(m.targetSlot, u.buf, name);
+      this.deploy(m.targetSlot, u.buf, name, source);
       this.upload = null;
     } else {
       throw new Error("unknown deploy-range inputType " + inputType);

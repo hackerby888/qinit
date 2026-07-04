@@ -145,9 +145,12 @@ for (const c of catalog) {
     if (!runner.ok || !runner.so) { emit(`  HARNESS-BUILD  ${c.name.padEnd(11)} ${(runner.stderr ?? "").split("\n").filter((l) => /error:/.test(l))[0]?.replace(/.*\//, "").slice(0, 64) ?? "?"}`); continue; }
     const runnerBytes = new Uint8Array(readFileSync(runner.so));
     const shared = HEAVY.has(c.name);
-    const nat = await runContractTesting(runnerBytes, await nativeWasms(c, deps, shared));
+    // slot -> ticker (contractDescriptions assetName) so qpi.distributeDividends can find each contract's
+    // share asset in the universe.
+    const assetNames = Object.fromEntries([c, ...deps].map((cc: any) => [cc.index, cc.name]));
+    const nat = await runContractTesting(runnerBytes, await nativeWasms(c, deps, shared), { assetNames });
     console.log(`  [native done: ${nat.filter((t) => t.passed).length}/${nat.length}]`);
-    const our = await runContractTesting(runnerBytes, await oursWasms(c, deps, shared));
+    const our = await runContractTesting(runnerBytes, await oursWasms(c, deps, shared), { assetNames });
     const byName = new Map(nat.map((t) => [t.name, t.passed]));
     let green = 0, oursBug = 0, harness = 0; let firstBug = "";
     for (const t of our) {

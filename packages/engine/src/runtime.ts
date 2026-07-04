@@ -312,22 +312,31 @@ export class Contract {
   // Marshal one call through the instance (mirrors liteWasmDispatch): write ctx header + input, zero output,
   // call dispatch(kind,it,inOff,outOff,localsOff), copy the output back out.
   invoke(kind: number, it: number, input: Uint8Array = new Uint8Array(0), ctx: CallCtx = {}): Uint8Array {
-    // Reentrant dispatch (e.g. POST_INCOMING_TRANSFER fired by a cross-contract call mid-procedure) must not
-    // reuse the fixed io regions or reset the locals arena — both hold the outer call's live frames. When the
-    // module exports its arena pointer, carve the nested in/out/locals from the arena and restore it (plus the
-    // ctx header the nested writeCtx clobbers) on exit. Modules without the export keep the legacy behavior.
+    // Reentrant dispatch (e.g. POST_INCOMING_TRANSFER or a PRE/POST share callback fired by a cross-contract
+    // call mid-procedure) must not reuse the fixed io regions or reset the locals arena — both hold the outer
+    // call's live frames. Carve the nested in/out/locals from the arena instead: through the module's own
+    // arena pointer when it exports one (our compiler's wasm — its in-wasm allocator bumps that global), else
+    // through the host-side bump cursor (native lite wasm — its allocator is the acquireScratch import, so
+    // the host cursor is authoritative). The ctx header the nested writeCtx clobbers is restored on exit.
     const arenaTopG: WebAssembly.Global | undefined = this.ex.arena_top;
-    const nested = this.dispatchDepth > 0 && arenaTopG !== undefined;
+    const nested = this.dispatchDepth > 0;
     let inOff: number, outOff: number, localsOff: number;
     let savedTop = 0;
+    let savedBump = 0;
     let savedCtx: Uint8Array | null = null;
     const pre = this.u8();
     if (nested) {
-      savedTop = (arenaTopG!.value as number) >>> 0;
-      inOff = (savedTop + 7) & ~7;
+      const base = arenaTopG ? ((arenaTopG.value as number) >>> 0) : this.arenaBump;
+      inOff = (base + 7) & ~7;
       outOff = inOff + IN_SZ;
       localsOff = outOff + OUT_SZ;
-      arenaTopG!.value = localsOff + LOCALS_SZ;
+      if (arenaTopG) {
+        savedTop = (arenaTopG.value as number) >>> 0;
+        arenaTopG.value = localsOff + LOCALS_SZ;
+      } else {
+        savedBump = this.arenaBump;
+        this.arenaBump = localsOff + LOCALS_SZ;
+      }
       savedCtx = pre.slice(this.ctxAddr, this.ctxAddr + 256);
     } else {
       inOff = this.ioBase;
@@ -377,7 +386,8 @@ export class Contract {
       if (nested) {
         const m = this.u8(); // fresh view — memory may have grown during dispatch
         if (savedCtx) m.set(savedCtx, this.ctxAddr);
-        arenaTopG!.value = savedTop;
+        if (arenaTopG) arenaTopG.value = savedTop;
+        else this.arenaBump = savedBump;
       }
     }
 
