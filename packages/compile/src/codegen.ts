@@ -3176,6 +3176,34 @@ function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
     if (expr.op === "*" || expr.op === "+" || expr.op === "-") return isU128Expr(ctx, expr.left) || isU128Expr(ctx, expr.right);
     return false;
   }
+
+  // Method calls: answer from the DECLARED return type. Falling through to resolveAddr would
+  // speculatively inline the method body (tryInlineStructMethod) — emitted code and fidelity
+  // warnings as a side effect of a pure type query.
+  if (expr.kind === "call" && expr.callee.kind === "member_access") {
+    const obj = resolveAddr(ctx, expr.callee.object);
+    let ot: TypeSpec | null = obj?.type ?? null;
+    for (let i = 0; i < 8 && ot?.kind === "name"; i++) {
+      const next = ctx.thisBind?.types.get(ot.name) ?? ctx.cg.typedefs.get(ot.name);
+      if (!next) break;
+      ot = next;
+    }
+
+    if (ot?.kind === "template_instance") {
+      const mt = ctx.cg.methodTemplate(ot.name, ot.args, expr.callee.member, expr.args.length);
+      if (mt?.def.returnType) {
+        return isUint128(ctx.cg, ctx.cg.substInBindings(ctx.cg.derefType(mt.def.returnType), mt.bind));
+      }
+    }
+    const struct = ot ? ctx.cg.structOf(ot, ctx.thisBind ?? NO_BIND) : null;
+    const fn = struct?.members.find(
+      (m) => m.kind === "function" && (m as FunctionDecl).name === (expr.callee as Expression & { kind: "member_access" }).member,
+    ) as FunctionDecl | undefined;
+    if (fn?.returnType) {
+      return isUint128(ctx.cg, fn.returnType);
+    }
+  }
+
   const n = resolveAddr(ctx, expr);
   return !!(n && isUint128(ctx.cg, n.type));
 }
@@ -4177,8 +4205,11 @@ function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWant
     return `(i64.load (local.get $${t}))`;
   }
 
-  // a sibling method of this container instance — compile it and call with $this + args
-  const cm = compileContainerMethod(ctx.cg, ctx.thisType, name, expr.args.length);
+  // a sibling method of this container instance — compile it and call with $this + args. An
+  // own-class-qualified static (DateAndTime::isLeapYear(y) inside another DateAndTime method)
+  // is the same dispatch with the class prefix stripped; the static body never reads $this.
+  const mname = name.startsWith(`${ctx.thisType.name}::`) ? name.slice(ctx.thisType.name.length + 2) : name;
+  const cm = compileContainerMethod(ctx.cg, ctx.thisType, mname, expr.args.length);
   if (!cm) return null;
   // A reference-scalar argument that is a plain wasm local (addAndComputeCarry(newMicrosec, carry, ...))
   // has no address: spill it to a slot, pass the slot, and write the slot back after the call so
