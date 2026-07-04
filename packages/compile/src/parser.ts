@@ -335,11 +335,11 @@ export class Parser {
     };
 
     // Combined form: `struct Tag {...} field[N], field2;` — declarators after the body become
-    // member variables whose type is this struct. Queue them so the enclosing loop picks them up.
+    // member variables whose type is this struct. The type is carried inline (not by name) so a
+    // nested tag (ProposalDataV1's `union Data {...} data`) resolves without scope lookups; the
+    // named struct is still returned as a sibling declaration for by-name references.
     if (hadBody && this.declaratorFollows()) {
-      const declType: TypeSpec = name
-        ? { kind: "name", name, span: start }
-        : { kind: "inline_struct", struct, span: start };
+      const declType: TypeSpec = { kind: "inline_struct", struct, span: start };
       while (this.peek().kind === "star" || this.peek().kind === "amp") this.next();
       const first = this.expect("identifier", "struct declarator")?.text ?? "";
       const vars = this.parseDeclaratorList(declType, first, false, false);
@@ -405,11 +405,10 @@ export class Parser {
 
     // Combined form: `union Data {...} data;` — the declarator after the body is a member variable of this
     // union type (e.g. ProposalDataV1's payload). Without it the union member is dropped and the enclosing
-    // struct is sized short by the union's width.
+    // struct is sized short by the union's width. Carried inline like the struct form so nested member
+    // chains (p.data.variableScalar.x) resolve without scope lookups.
     if (hadBody && this.declaratorFollows()) {
-      const declType: TypeSpec = name
-        ? { kind: "name", name, span: start }
-        : { kind: "inline_struct", struct: union, span: start };
+      const declType: TypeSpec = { kind: "inline_struct", struct: union, span: start };
       while (this.peek().kind === "star" || this.peek().kind === "amp") this.next();
       const first = this.expect("identifier", "union declarator")?.text ?? "";
       const vars = this.parseDeclaratorList(declType, first, false, false);

@@ -912,7 +912,7 @@ class Codegen {
     }
   }
 
-  private evalConstBig(expr: Expression, b: Bindings): bigint {
+  evalConstBig(expr: Expression, b: Bindings): bigint {
     switch (expr.kind) {
       case "int_literal":
         return this.parseIntLiteral(expr.value);
@@ -3058,6 +3058,21 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
         const sc = ctx.cg.staticConstsOf(ot.name, ctx.cg.bindContainer(ot.name, ot.args));
         if (sc.has(expr.member)) return `(i64.const ${sc.get(expr.member)})`;
       }
+      // the same static constexpr read through an inline-typed object (data.variableScalar carries its
+      // union/struct decl inline): fold the member's initializer directly.
+      if (ot?.kind === "inline_struct") {
+        const sm = ot.struct.members.find(
+          (m) => m.kind === "variable" && (m as VariableDecl).name === expr.member
+            && ((m as VariableDecl).isStatic || (m as VariableDecl).isConstexpr) && (m as VariableDecl).init,
+        ) as VariableDecl | undefined;
+        if (sm?.init) {
+          try {
+            return `(i64.const ${ctx.cg.evalConstBig(sm.init, ctx.thisBind ?? NO_BIND)})`;
+          } catch {
+            /* not foldable under these bindings — fall through to the warning */
+          }
+        }
+      }
       // qpi.invocationReward() etc. handled in call; bare member returns 0
       ctx.cg.warn(`unsupported member read [${describeShape(expr)}]`, expr.span.line);
       return `(i64.const 0)`;
@@ -3473,6 +3488,10 @@ const QPI_CALLS: Record<string, QpiCallDesc> = {
   prevId: { fwd: "$qpi_prevId", args: ["addr"], ret: "out" },
   arbitrator: { fwd: "$qpi_arbitrator", args: [], ret: "out" },
   computor: { fwd: "$qpi_computor", args: ["i32"], ret: "out" },
+  queryFeeReserve: { fwd: "$qpi_queryFeeReserve", args: ["i32"], ret: "i64" },
+  bidInIPO: { fwd: "$qpi_bidInIPO", args: ["i32", "i64", "i32"], ret: "i64" },
+  ipoBidPrice: { fwd: "$qpi_ipoBidPrice", args: ["i32", "i32"], ret: "i64" },
+  ipoBidId: { fwd: "$qpi_ipoBidId", args: ["i32", "i32"], ret: "out" },
 };
 
 // Map a single qpi argument to a forwarder operand by its declared kind.
@@ -4102,7 +4121,11 @@ function emitAggHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, info
 // Resolve a helper / lib-fn name to its (possibly just-compiled) info, or null.
 function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): HelperInfo | null {
   if (expr.callee.kind !== "identifier") return null;
-  if (MATH_INTRINSIC_NAMES.has(expr.callee.name)) return null;
+  // Match the intrinsics by base name — a qualified QPI::div would otherwise slip past this guard,
+  // get instantiated from its qpi.h template body, and lose the divide-by-zero-safe lowering.
+  const name = expr.callee.name;
+  const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
+  if (MATH_INTRINSIC_NAMES.has(base)) return null;
   let info = ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name);
   if (!info) {
     // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call.
