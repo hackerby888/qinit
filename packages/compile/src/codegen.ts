@@ -116,7 +116,7 @@ class Codegen {
   private constInProgress = new Set<string>();
   helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
   libFns: Map<string, FunctionDecl> = new Map();   // qpi.h namespace free functions (ProposalTypes::cls), keyed by qualified name; compiled lazily
-  libFnTemplates: Map<string, FunctionTemplateDecl> = new Map();   // qpi.h namespace free function TEMPLATES (isArraySortedWithoutDuplicates<T,L>), instantiated per call-site arg types
+  libFnTemplates: Map<string, FunctionTemplateDecl[]> = new Map();   // qpi.h namespace free function TEMPLATES (isArraySortedWithoutDuplicates<T,L>), all overloads kept, instantiated per call-site arg types
   privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()
   registered: Map<string, PrivateInfo> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
   callees: Map<string, CalleeIdl> = new Map();      // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
@@ -226,8 +226,12 @@ class Codegen {
         } else if (sep < 0 && d.kind === "function_template" && fn.body) {
           // a namespace free function TEMPLATE (isArraySortedWithoutDuplicates<T,L>): keyed by qualified
           // name, instantiated per call-site arg types (the call passes a concrete Array<sint64,4>).
+          // ALL overloads are kept — __getVotingSummaryScalarVotes has a generic body plus a
+          // ProposalDataYesNo specialization, and the call site must pick by argument match.
           const key = `${nsPrefix}${fn.name}`;
-          if (!this.libFnTemplates.has(key)) this.libFnTemplates.set(key, fn);
+          const list = this.libFnTemplates.get(key);
+          if (list) list.push(fn as FunctionTemplateDecl);
+          else this.libFnTemplates.set(key, [fn as FunctionTemplateDecl]);
         }
       } else if (d.kind === "typedef_decl") {
         const td = d as any;
@@ -1407,6 +1411,7 @@ interface CompiledMethod {
   label: string;                                             // WAT function name ($T<n>_<Class>_<method>)
   fnParams: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec }[];
   retKind: "i64" | "void";
+  retAgg?: number;                                           // aggregate (id/struct) return size — ABI prepends a $ret dest-address param
 }
 
 interface ContainerInfo {
@@ -1429,7 +1434,7 @@ export interface LibTypes {
   templates: Map<string, ClassTemplate>;
   specializations: Map<string, { specArgs: TypeSpec[]; tmpl: ClassTemplate }[]>;
   libFns: Map<string, FunctionDecl>;
-  libFnTemplates: Map<string, FunctionTemplateDecl>;
+  libFnTemplates: Map<string, FunctionTemplateDecl[]>;
   globalStructs: Map<string, StructDecl>;
   typedefs: Map<string, TypeSpec>;
   constexprInit: Map<string, Expression>;
@@ -2635,6 +2640,13 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   if (expr.kind === "call" && expr.callee.kind === "member_access") {
     const ai = emitAssetIter(ctx, expr, "addr");
     if (ai !== null) return ai;
+  }
+
+  // qpi(X).method(...) returning an id/struct (proposerId): compile the real proxy method and
+  // materialize the result into its $ret slot — the slot address is the lvalue.
+  if (expr.kind === "call" && qpiWrapperMethod(expr)) {
+    const pa = emitProposalProxyAddr(ctx, expr);
+    if (pa !== null) return pa;
   }
 
   // qpi.X(...) that returns an id/aggregate by value (computor(i), arbitrator(), nextId(x), prevId(x)):
@@ -4058,6 +4070,69 @@ function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args: Expres
   return { types, values, structs: new Map() };
 }
 
+// Pick the overload whose parameter patterns best match the concrete argument types. A concrete name
+// in a pattern (ProposalWithAllVoteData<ProposalDataYesNo, maxVotes>) must EQUAL the argument's type
+// at that position — matching disqualifies the def otherwise — while a template-param name matches
+// anything. Mirrors C++ partial-ordering just far enough for qpi.h's overload sets: the YesNo
+// specialization wins for YesNo args and is rejected for V1 args.
+function pickLibFnOverload(ctx: FnCtx, defs: FunctionTemplateDecl[], args: Expression[]): FunctionTemplateDecl {
+  if (defs.length === 1) return defs[0];
+
+  const argTypeOf = (a: Expression): TypeSpec | null => {
+    let t = resolveAddr(ctx, a)?.type ?? null;
+    if (!t) return null;
+    t = ctx.cg.derefType(t);
+    if (ctx.thisBind) t = ctx.cg.derefType(ctx.cg.substInBindings(t, ctx.thisBind));
+    return t;
+  };
+  const argTypes = args.map(argTypeOf);
+
+  const score = (def: FunctionTemplateDecl): number => {
+    const fps = def.fnParams ?? [];
+    if (args.length > fps.length) return -1;
+    const tparams = new Set(def.params.map((p) => p.name));
+
+    let s = 0;
+    for (let i = 0; i < fps.length && i < args.length; i++) {
+      const pat = ctx.cg.derefType(fps[i].type);
+      const at = argTypes[i];
+      if (!at) continue;
+      if (pat.kind === "name") {
+        if (tparams.has(pat.name)) s += 1;
+        else if (at.kind === "name" && at.name === pat.name) s += 2;
+        continue;
+      }
+      if (pat.kind === "template_instance" && at.kind === "template_instance") {
+        if (pat.name !== at.name) return -1;
+        for (let j = 0; j < pat.args.length && j < at.args.length; j++) {
+          const pa = pat.args[j];
+          if (pa.kind !== "name") continue;
+          if (tparams.has(pa.name)) {
+            s += 1;
+          } else {
+            const aa = at.args[j];
+            if (aa.kind === "name" && aa.name === pa.name) s += 2;
+            else if (aa.kind === "template_instance" && aa.name === pa.name) s += 2;
+            else return -1;
+          }
+        }
+      }
+    }
+    return s;
+  };
+
+  let best = defs[0];
+  let bestScore = score(defs[0]);
+  for (let i = 1; i < defs.length; i++) {
+    const s = score(defs[i]);
+    if (s > bestScore) {
+      best = defs[i];
+      bestScore = s;
+    }
+  }
+  return best;
+}
+
 // Instantiate a free function template for the concrete types at a call site, emitting its wasm function.
 // Param types are substituted through the deduced bindings (Array<T,L> → Array<sint64,4>) so the body's
 // container calls resolve, and bare value params (`L`) read from thisBind.values. Cached by instantiation.
@@ -4067,7 +4142,8 @@ function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args: Expre
   const keyArgs = def.params
     .map((p) => (p.kind === "type" ? cg.typeKeyOf(bind.types.get(p.name) ?? { kind: "name", name: p.name }) : (bind.values.get(p.name)?.toString() ?? p.name)))
     .join(",");
-  const key = `${def.name}<${keyArgs}>`;
+  // The overload's source line disambiguates same-name defs whose deduced args coincide.
+  const key = `${def.name}@${def.span?.line ?? 0}<${keyArgs}>`;
   const cached = cg.helpers.get(key);
   if (cached) return cached;
 
@@ -4128,9 +4204,10 @@ function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): HelperIn
   if (MATH_INTRINSIC_NAMES.has(base)) return null;
   let info = ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name);
   if (!info) {
-    // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call.
-    const tdef = ctx.cg.libFnTemplates.get(expr.callee.name) ?? ctx.cg.libFnTemplates.get(`QPI::${expr.callee.name}`);
-    if (tdef) info = compileLibFnInstance(ctx, tdef, expr.args);
+    // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call,
+    // picking the overload whose parameter patterns match the argument types.
+    const tdefs = ctx.cg.libFnTemplates.get(expr.callee.name) ?? ctx.cg.libFnTemplates.get(`QPI::${expr.callee.name}`);
+    if (tdefs?.length) info = compileLibFnInstance(ctx, pickLibFnOverload(ctx, tdefs, expr.args), expr.args);
   }
   return info ?? null;
 }
@@ -4458,6 +4535,33 @@ function emitProposalProxyCall(ctx: FnCtx, expr: Expression & { kind: "call" }, 
   return callProxy(ctx, cm, target.addr, target.pvType, expr.args, valueWanted);
 }
 
+// `qpi(X).method(args)` whose method returns an aggregate: emit the call writing into a fresh slot and
+// return the slot address (the lvalue emitAddr chains through). Null when not a proxy call or the
+// method returns a scalar/void.
+function emitProposalProxyAddr(ctx: FnCtx, expr: Expression & { kind: "call" }): string | null {
+  const method = qpiWrapperMethod(expr);
+  if (!method) return null;
+  const xExpr = ((expr.callee as Expression & { kind: "member_access" }).object as Expression & { kind: "call" }).args[0];
+  if (!xExpr) return null;
+  const target = resolveProxyTarget(ctx, xExpr);
+  if (!target) return null;
+
+  const proxyClass = PROXY_PROCEDURE_METHODS.has(method) ? "QpiContextProposalProcedureCall" : "QpiContextProposalFunctionCall";
+  const cm = compileProxyMethod(ctx.cg, target.pvType, proxyClass, method);
+  if (!cm || !cm.retAgg) return null;
+
+  const bind = ctx.cg.bindContainer(target.pvType.name, target.pvType.args);
+  const ops = cm.fnParams.map((fp, i) => {
+    const arg = expr.args[i];
+    if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
+  });
+  const t = newTmp(ctx);
+  ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const ${cm.retAgg})))`);
+  ctx.lines.push(`    (call ${cm.label} (local.get $${t}) ${target.addr} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`);
+  return `(local.get $${t})`;
+}
+
 // A bare sibling call inside a proxy body (e.g. clearProposal(idx) from setProposal) — compile it against
 // the same ProposalVoting instance, passing the current `$pv`/`$qpi`.
 function emitProxySiblingCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
@@ -4481,6 +4585,19 @@ function callProxy(ctx: FnCtx, cm: CompiledMethod, self: string, pvType: TypeSpe
     if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
     return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
   });
+
+  // An aggregate-returning proxy method (proposerId → id) writes through a leading $ret slot. The
+  // address flows through emitProposalProxyAddr (assignment/comparison contexts); a scalar-value read
+  // of the aggregate would be silently wrong, so it stays a loud fidelity warning.
+  if (cm.retAgg) {
+    const t = newTmp(ctx);
+    ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const ${cm.retAgg})))`);
+    ctx.lines.push(`    (call ${cm.label} (local.get $${t}) ${self} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`);
+    if (!valueWanted) return "";
+    ctx.cg.warn(`aggregate proxy return used as scalar value`, 0);
+    return "(i64.const 0)";
+  }
+
   const call = `(call ${cm.label} ${self} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`;
   if (valueWanted) return cm.retKind === "i64" ? call : "(i64.const 0)";
   ctx.lines.push(cm.retKind === "i64" ? `    (drop ${call})` : `    ${call}`);
@@ -4502,9 +4619,12 @@ function compileProxyMethod(cg: Codegen, pvType: TypeSpec & { kind: "template_in
 
   const bind: Bindings = { types: new Map([["ProposerAndVoterHandlingType", P], ["ProposalDataType", D]]), values: new Map(), structs: new Map() };
   const fnParams = (def.fnParams ?? []).map((p) => classifyMethodParam(cg, p, bind));
-  const retKind: "i64" | "void" = cg.isVoidType(def.returnType) ? "void" : (cg.isAggregateType(cg.derefType(def.returnType)) ? "void" : "i64");
+  const retT = cg.substInBindings(cg.derefType(def.returnType), bind);
+  const isAggRet = !cg.isVoidType(def.returnType) && cg.isAggregateType(retT);
+  const retKind: "i64" | "void" = cg.isVoidType(def.returnType) || isAggRet ? "void" : "i64";
+  const retAgg = isAggRet ? cg.sizeOfType(retT, bind) : undefined;
 
-  const cm: CompiledMethod = { label: `$PV${cg.compiledMethods.size}_${proxyClass}_${method}`, fnParams, retKind };
+  const cm: CompiledMethod = { label: `$PV${cg.compiledMethods.size}_${proxyClass}_${method}`, fnParams, retKind, retAgg };
   cg.compiledMethods.set(cacheKey, cm);   // register before emitting so recursive/sibling calls resolve
   try {
     cg.emittedMethodOrder.push(emitProxyMethodFn(cg, cm, def, pvType, bind, proxyClass));
@@ -4525,6 +4645,10 @@ function emitProxyMethodFn(cg: Codegen, cm: CompiledMethod, def: FunctionTemplat
     thisBind: bind, proxyClass,
     refLocals: new Map([["pv", pvType as TypeSpec]]),   // `pv` (member) → the wrapped ProposalVoting at $pv
   };
+  if (cm.retAgg) {
+    ctx.retAddr = "(local.get $ret)";
+    ctx.retAggSize = cm.retAgg;
+  }
   // `qpi` (member) is a dummy address param; qpi.method() routes to the ambient host context.
   ctx.params!.set("qpi", { wasmType: "i32", isAddr: true, type: { kind: "name", name: "QpiContextFunctionCall" } });
   for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.substInBindings(cg.derefType(p.type), bind) });
@@ -4532,9 +4656,10 @@ function emitProxyMethodFn(cg: Codegen, cm: CompiledMethod, def: FunctionTemplat
   if (def.body) collectLocals(def.body, ctx);
   if (def.body) emitStmt(ctx, def.body);
 
+  const retParam = cm.retAgg ? "(param $ret i32) " : "";
   const paramDecls = cm.fnParams.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
   const result = cm.retKind === "i64" ? " (result i64)" : "";
-  const header = `  (func ${cm.label} (param $pv i32) (param $qpi i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
+  const header = `  (func ${cm.label} ${retParam}(param $pv i32) (param $qpi i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
   const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
   const tail = cm.retKind === "i64" ? ["    (i64.const 0)"] : [];
   return [header, ...localDecls, ...ctx.lines, ...tail, "  )"].join("\n");

@@ -129,7 +129,11 @@ function getQpiContext(headers: string): QpiContext {
     // Free functions whose bodies live in the impl chunk (isArraySortedWithoutDuplicates) — merge so a
     // contract call resolves them; first definition wins (the qpi.h declaration is bodyless and skipped).
     for (const [k, v] of implLib.libFns) if (!lib.libFns.has(k)) lib.libFns.set(k, v);
-    for (const [k, v] of implLib.libFnTemplates) if (!lib.libFnTemplates.has(k)) lib.libFnTemplates.set(k, v);
+    for (const [k, v] of implLib.libFnTemplates) {
+      const cur = lib.libFnTemplates.get(k);
+      if (cur) cur.push(...v);
+      else lib.libFnTemplates.set(k, v);
+    }
   }
 
   const ctx: QpiContext = { macros, lib };
