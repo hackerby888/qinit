@@ -33,6 +33,11 @@ typedef signed long ptrdiff_t;
 #define UINT16_MAX 65535
 #define INT8_MAX 127
 #define UINT8_MAX 255
+
+// Oracle query/reply size limits (network_messages/common_def.h: MAX_INPUT_SIZE(1024) - 16),
+// referenced by the oracle interface headers.
+#define MAX_ORACLE_QUERY_SIZE 1008
+#define MAX_ORACLE_REPLY_SIZE 1008
 `;
 
 // Defines fed to the preprocessor when parsing the real qpi.h (the lite wasm build profile).

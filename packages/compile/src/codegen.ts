@@ -122,6 +122,8 @@ class Codegen {
   callees: Map<string, CalleeIdl> = new Map();      // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
   private layoutCache: Map<string, StructLayout> = new Map();
   contractStateLayout: StructLayout = { size: 0, align: 1, fields: new Map() };  // the contract's StateData (a ContractState& param in any function resolves through it)
+  slot = 0;                                          // contract slot; oracle notification ids embed it ((slot << 22) | defLine)
+  memberFnLine: Map<string, number> = new Map();     // contract member function name → definition line (__id_<proc> resolution)
   warnings: CodegenWarning[] = [];
 
   constructor(sema: Sema) {
@@ -353,6 +355,9 @@ class Codegen {
       const struct = this.structByName(t.name, b);
       if (struct) return this.layoutOfStruct(struct, b).size;
 
+      const qn = this.qualifiedNestedType(t.name, b);
+      if (qn) return this.sizeOfType(qn, b);
+
       // asset iterators occupy their 8-byte runtime shape (count @0, cursor @4) wherever they live
       if (/Asset(Ownership|Possession)Iterator$/.test(t.name)) return 8;
 
@@ -496,6 +501,10 @@ class Codegen {
     if (bare.kind === "name") {
       const s = b.structs.get(bare.name);
       if (s) return { kind: "inline_struct", struct: s };
+      // A dependent spelling through a template parameter (`typename OracleInterface::OracleReply`)
+      // only resolves under these bindings — carry the resolved declaration inline for the same reason.
+      const qn = this.qualifiedNestedType(bare.name, b);
+      if (qn) return qn;
     }
     return t;
   }
@@ -529,6 +538,8 @@ class Codegen {
     if (td && !(td.kind === "name" && td.name === t.name)) {
       return this.resolveType(td, b, depth + 1);
     }
+    const qn = this.qualifiedNestedType(t.name, b);
+    if (qn) return qn;
     return t;
   }
 
@@ -558,6 +569,8 @@ class Codegen {
       if (nt && !(nt.kind === "name" && nt.name === t.name)) return this.resolveInScope(nt, scope, nested, depth + 1);
       const td = this.typedefs.get(t.name);
       if (td && !(td.kind === "name" && td.name === t.name)) return this.resolveInScope(td, scope, nested, depth + 1);
+      const qn = this.qualifiedNestedType(t.name, scope);
+      if (qn) return qn;
       return t;
     }
     if (t.kind === "template_instance") {
@@ -1141,6 +1154,35 @@ class Codegen {
     return undefined;
   }
 
+  // `Head::Nested[::Deeper]` where Head is a template-parameter binding or typedef naming a struct
+  // (`typename OracleInterface::OracleReply` with OracleInterface → OI::Price): resolve the head
+  // struct, then walk the remaining segments through its nested structs/typedefs to the member type.
+  qualifiedNestedType(name: string, b: Bindings): TypeSpec | null {
+    const sep = name.indexOf("::");
+    if (sep <= 0) return null;
+    const headT = b.types.get(name.slice(0, sep)) ?? this.typedefs.get(name.slice(0, sep));
+    if (!headT) return null;
+
+    let sd = this.structOf(headT, b);
+    const segs = name.slice(sep + 2).split("::");
+    for (let i = 0; i < segs.length; i++) {
+      if (!sd) return null;
+      const seg = segs[i];
+      const last = i === segs.length - 1;
+      const ms = sd.members.find((m): m is StructDecl => m.kind === "struct" && m.name === seg);
+      if (ms) {
+        if (last) return { kind: "inline_struct", struct: ms, span: ms.span };
+        sd = ms;
+        continue;
+      }
+      const mt = sd.members.find((m) => m.kind === "typedef_decl" && (m as any).name === seg) as any;
+      if (!mt) return null;
+      if (last) return mt.type;
+      sd = this.structOf(mt.type, b);
+    }
+    return null;
+  }
+
   // Strip const/reference wrappers to the underlying type (a by-ref aggregate param holds an address
   // to this type, and its fields are laid out by this type).
   derefType(t: TypeSpec): TypeSpec {
@@ -1186,6 +1228,8 @@ class Codegen {
       if (td) return this.layoutOfType(td, b);
       const s = this.structByName(t.name, b);
       if (s) return this.layoutOfStruct(s, b);
+      const qn = this.qualifiedNestedType(t.name, b);
+      if (qn) return this.layoutOfType(qn, b);
     }
     return null;
   }
@@ -1200,7 +1244,10 @@ class Codegen {
       if (bound) return this.structOf(bound, b);
       const td = this.typedefs.get(t.name);
       if (td) return this.structOf(td, b);
-      return this.structByName(t.name, b) ?? null;
+      const s = this.structByName(t.name, b);
+      if (s) return s;
+      const qn = this.qualifiedNestedType(t.name, b);
+      return qn ? this.structOf(qn, b) : null;
     }
     return null;
   }
@@ -1510,6 +1557,10 @@ export function generateWasmModule(
   }
 
   cg.collectNested(contract);
+  cg.slot = slot;
+  for (const m of contract.members) {
+    if (m.kind === "function") cg.memberFnLine.set((m as FunctionDecl).name, (m as FunctionDecl).span?.line ?? 0);
+  }
 
   // state size from StateData
   const stateData = cg["nested"].get("StateData");
@@ -1714,7 +1765,8 @@ function extractRegistrations(contract: StructDecl): RegEntry[] {
     const method = e.callee.member;
     const isFn = method === "__registerUserFunction";
     const isProc = method === "__registerUserProcedure";
-    if (!isFn && !isProc) continue;
+    const isNotif = method === "__registerUserProcedureNotification";
+    if (!isFn && !isProc && !isNotif) continue;
 
     // args: (void*)fnName, inputType, sizeof(...), ...
     const fnArg = e.args[0];
@@ -1725,6 +1777,15 @@ function extractRegistrations(contract: StructDecl): RegEntry[] {
     const itArg = e.args[1];
     let inputType = 0;
     if (itArg?.kind === "int_literal") inputType = parseInt(itArg.value);
+
+    // Notification procedure (oracle reply callback): its id arg is the synthetic __id_<proc>
+    // ((CONTRACT_INDEX << 22) | defLine, qpi.h REGISTER_USER_PROCEDURE_NOTIFICATION). Dispatch matches
+    // on the low 16 bits (lite_wasm_tu.h __registerUserProcedureNotification), which is just the
+    // definition line — the shifted slot contributes nothing below bit 22.
+    if (isNotif && fnName) {
+      const def = contract.members.find((m) => m.kind === "function" && (m as FunctionDecl).name === fnName) as FunctionDecl | undefined;
+      inputType = (def?.span?.line ?? 0) & 0xffff;
+    }
 
     if (fnName && inputType >= 1) {
       regs.push({ fnName, kind: isFn ? 0 : 1, inputType });
@@ -2514,8 +2575,11 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     if (!f) return null;
     // A member type written in terms of the parent instance's own params / nested typedefs (e.g.
     // ProposalVoting's `proposals` element ProposalAndVotesDataType) is resolved to a concrete type so the
-    // member can itself be dispatched as a container / instance.
-    let ftype = parent.type?.kind === "template_instance" ? ctx.cg.concreteMemberType(f.type, parent.type) : f.type;
+    // member can itself be dispatched as a container / instance. The parent may be spelled through a
+    // typedef (NotifyX_input = OracleNotificationInput<OI::Price>) — follow it to the instance first.
+    let ptype: TypeSpec | null = parent.type;
+    for (let i = 0; i < 8 && ptype?.kind === "name"; i++) ptype = ctx.cg.typedefs.get(ptype.name) ?? null;
+    let ftype = ptype?.kind === "template_instance" ? ctx.cg.concreteMemberType(f.type, ptype) : f.type;
     ftype = resolveInParentStruct(ctx, ftype, parent);
     return {
       addr: addrOf(parent.addr, f.offset),
@@ -2621,11 +2685,6 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     }
   }
 
-  if (expr.kind === "call" && expr.callee.kind === "identifier") {
-    const hinfo = lookupHelper(ctx, expr);
-    if (hinfo?.retAgg) return emitAggHelperCall(ctx, expr, hinfo);
-  }
-
   // aggregate construction Type{...} as an rvalue/argument — materialize into a scratch slot.
   if (expr.kind === "construct") {
     const sz = ctx.cg.sizeOfType(expr.type, ctx.thisBind ?? NO_BIND);
@@ -2678,6 +2737,15 @@ function emitAddr(ctx: FnCtx, expr: Expression): string | null {
       ctx.lines.push(`    (i32.store8 (i32.add ${base} (i32.const 34)) (i32.const 1))`);
     }
     return base;
+  }
+
+  // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot.
+  // Runs AFTER the dedicated factory lowerings above — a generic instantiation of e.g.
+  // AssetOwnershipSelect::byOwner (reachable since lookupHelper resolves qualified statics) must not
+  // shadow the hand-tuned selector shape the engine reads.
+  if (expr.kind === "call" && expr.callee.kind === "identifier") {
+    const hinfo = lookupHelper(ctx, expr);
+    if (hinfo?.retAgg) return emitAggHelperCall(ctx, expr, hinfo);
   }
 
   // AssetOwnership/PossessionIterator.possessor()/owner() → address of the id in the current buffer record.
@@ -3090,6 +3158,14 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
         const tn = resolveAddr(ctx, expr);
         if (tn && tn.size <= 8) return loadAt(tn.addr, tn.size, isSignedScalarType(tn.type));
       }
+      // entry-fn `input`/`output` typed by a scalar typedef (typedef uint16 SetShareholderProposal_output):
+      // the io name is a region address, so a bare read loads its scalar through it.
+      if ((expr.name === "input" || expr.name === "output") && !ctx.localVars.has(expr.name)) {
+        const io = resolveAddr(ctx, expr);
+        if (io && io.size > 0 && io.size <= 8 && (!io.layout || io.layout.fields.size === 0)) {
+          return loadAt(io.addr, io.size, isSignedScalarType(io.type));
+        }
+      }
       // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
       const c = ctx.cg.resolveConst(expr.name);
       if (c !== null) return `(i64.const ${c})`;
@@ -3150,6 +3226,11 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
         }
         const m = emitMathCall(ctx, name, expr.args);
         if (m !== null) return m;
+      }
+      if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi"
+        && (expr.callee.member === "__qpiQueryOracle" || expr.callee.member === "__qpiSubscribeOracle")) {
+        const o = emitOracleQueryCall(ctx, expr);
+        if (o !== null) return o;
       }
       ctx.cg.warn(`unsupported template_call '${expr.callee.kind === "identifier" ? expr.callee.name : "?"}' as value`, expr.span.line);
       return `(i64.const 0)`;
@@ -3548,6 +3629,8 @@ const QPI_CALLS: Record<string, QpiCallDesc> = {
   bidInIPO: { fwd: "$qpi_bidInIPO", args: ["i32", "i64", "i32"], ret: "i64" },
   ipoBidPrice: { fwd: "$qpi_ipoBidPrice", args: ["i32", "i32"], ret: "i64" },
   ipoBidId: { fwd: "$qpi_ipoBidId", args: ["i32", "i32"], ret: "out" },
+  unsubscribeOracle: { fwd: "$qpi_unsubscribeOracle", args: ["i32"], ret: "i32" },
+  getOracleQueryStatus: { fwd: "$qpi_getOracleQueryStatus", args: ["i64"], ret: "i32" },
 };
 
 // Map a single qpi argument to a forwarder operand by its declared kind.
@@ -3821,6 +3904,11 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
     ct = { kind: "template_instance", name: ct.name, args: [] } as TypeSpec;
   }
   if (!ct || ct.kind !== "template_instance") return null;
+  // A namespace-qualified spelling (QPI::HashMap<sint64,uint32,16> local) dispatches by its base name —
+  // the layout side already strips the qualifier (instantiateTemplate), the name checks here must too.
+  if (ct.name.includes("::") && !ctx.cg.templates.has(ct.name)) {
+    ct = { ...ct, name: ct.name.slice(ct.name.lastIndexOf("::") + 2) };
+  }
   node.type = ct;
 
   const map = node.addr;
@@ -4252,6 +4340,34 @@ function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): HelperIn
     // picking the overload whose parameter patterns match the argument types.
     const tdefs = ctx.cg.libFnTemplates.get(expr.callee.name) ?? ctx.cg.libFnTemplates.get(`QPI::${expr.callee.name}`);
     if (tdefs?.length) info = compileLibFnInstance(ctx, pickLibFnOverload(ctx, tdefs, expr.args), expr.args);
+  }
+  if (!info && name.includes("::")) {
+    // Qualified static member call (OI::Price::getQueryFee(q)) — resolve the struct (namespace members
+    // are flattened at parse; structByName strips qualifiers), wrap the static method as a template-less
+    // lib fn and instantiate it through the same helper cache.
+    const segs = name.split("::");
+    const method = segs[segs.length - 1];
+    const sd = ctx.cg.structByName(segs.slice(0, -1).join("::"), ctx.thisBind ?? NO_BIND);
+    const fn = sd?.members.find(
+      (m): m is Declaration & { kind: "function" } => m.kind === "function" && m.name === method && m.isStatic && !!m.body,
+    );
+    if (sd && fn) {
+      // Param/return types spelled in the owner's scope (const OracleReply&) name its nested structs —
+      // substitute them inline so the instance compiles without the owner's lookup scope.
+      const nestedOf = new Map(sd.members.filter((m): m is StructDecl => m.kind === "struct" && !!m.name).map((m) => [m.name, m]));
+      const qual = (tp: TypeSpec): TypeSpec => {
+        if (tp.kind === "const") return { ...tp, valueType: qual(tp.valueType) };
+        if (tp.kind === "reference") return { ...tp, refereed: qual(tp.refereed) };
+        if (tp.kind === "name" && nestedOf.has(tp.name)) return { kind: "inline_struct", struct: nestedOf.get(tp.name)!, span: tp.span };
+        return tp;
+      };
+      const def: FunctionTemplateDecl = {
+        kind: "function_template", name: `${sd.name}::${method}`, params: [],
+        fnParams: fn.params.map((p) => ({ ...p, type: qual(p.type) })),
+        returnType: qual(fn.returnType), body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+      };
+      info = compileLibFnInstance(ctx, def, expr.args);
+    }
   }
   return info ?? null;
 }
@@ -4718,6 +4834,44 @@ function describeShape(e: Expression): string {
   return e.kind;
 }
 
+// QUERY_ORACLE / SUBSCRIBE_ORACLE (qpi.h:3290/3327): qpi.__qpiQueryOracle<OI::Price>(query, proc, __id_proc,
+// timeout) lowers like native lite_wasm_tu.h — the host import takes (ifaceIdx, &query, sizeof(OracleQuery),
+// procId, timeout/period[, notifyPrev], fee), the fee computed in-wasm by the interface's static fee function.
+// The function-pointer arg only type-checks the callback natively and is dropped; procId is the synthetic
+// __id_<proc> = (CONTRACT_INDEX << 22) | defLine, whose low 16 bits also key the dispatch entry.
+function emitOracleQueryCall(ctx: FnCtx, expr: Expression & { kind: "template_call" }): string | null {
+  const subscribe = expr.callee.kind === "member_access" && expr.callee.member === "__qpiSubscribeOracle";
+  const t = expr.templateArgs[0];
+  if (!t || t.kind !== "name") return null;
+
+  const sd = ctx.cg.structOf(t, ctx.thisBind ?? NO_BIND);
+  const iface = ctx.cg.resolveConst(`${t.name}::oracleInterfaceIndex`);
+  const q = sd?.members.find((m): m is StructDecl => m.kind === "struct" && m.name === "OracleQuery");
+  const qSize = q ? ctx.cg.layoutOfType({ kind: "inline_struct", struct: q })?.size : undefined;
+  const qAddr = expr.args[0] ? emitAddr(ctx, expr.args[0]) : null;
+  const idArg = expr.args[2];
+  const procName = idArg?.kind === "identifier" && idArg.name.startsWith("__id_") ? idArg.name.slice(5) : null;
+  const defLine = procName ? ctx.cg.memberFnLine.get(procName) : undefined;
+  if (iface === null || !q || !qSize || !qAddr || defLine === undefined) return null;
+  const procId = (ctx.cg.slot << 22) | (defLine & 0x3fffff);
+
+  const feeCall = {
+    kind: "call",
+    callee: { kind: "identifier", name: `${t.name}::${subscribe ? "getSubscriptionFee" : "getQueryFee"}`, span: expr.span },
+    args: subscribe ? [expr.args[0], expr.args[3]] : [expr.args[0]],
+    span: expr.span,
+  } as Expression & { kind: "call" };
+  const fee = emitCallValue(ctx, feeCall);
+
+  if (subscribe) {
+    const period = `(i32.wrap_i64 ${emitValue(ctx, expr.args[3])})`;
+    const prev = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[4])}) (i32.const 1))`;
+    return `(i64.extend_i32_s (call $lh_subscribeOracle (i32.const ${iface}) ${qAddr} (i32.const ${qSize}) (i32.const ${procId}) ${period} ${prev} ${fee}))`;
+  }
+  const timeout = `(i32.wrap_i64 ${emitValue(ctx, expr.args[3])})`;
+  return `(call $lh_queryOracle (i32.const ${iface}) ${qAddr} (i32.const ${qSize}) (i32.const ${procId}) ${timeout} ${fee})`;
+}
+
 function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // LOG_* macros expand to __logContract{Info,Debug,...}Message — a side channel that does not affect
   // state or the digest, so dropping it is behaviorally faithful.
@@ -4726,6 +4880,11 @@ function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   // ASSERT is ((void)0) in release builds (platform/assert.h) — the argument is not even evaluated,
   // so dropping the statement is behaviorally faithful.
   if (expr.callee.kind === "identifier" && expr.callee.name === "ASSERT") return;
+
+  // LOG_PAUSE/LOG_RESUME expand to __pauseLogMessage()/__resumeLogMessage() — same log side channel
+  // as __logContract*, no effect on state or the digest.
+  if (expr.callee.kind === "identifier" &&
+      (expr.callee.name === "__pauseLogMessage" || expr.callee.name === "__resumeLogMessage")) return;
 
   // ProposalVoting proxy `qpi(state.proposals).method(...)` as a statement (e.g. getProposal/vote write
   // through an out-param). Compile the real proxy method; fall back to a drop if it can't be compiled.

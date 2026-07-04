@@ -260,6 +260,15 @@ export class Parser {
         return { kind: "empty", span: tok.span } as EmptyDecl;
       case "kw_union":
         return this.parseUnion();
+      case "kw_operator": {
+        // Conversion operator: `operator Type() const { ... }` — no leading return type. Parsed as a
+        // method named `operator Type` whose return type is the target type, matching the name shape
+        // parseQualifiedName produces for operator members.
+        this.next();
+        const targetType = this.parseTypeSpec();
+        const targetName = targetType.kind === "name" ? targetType.name : "?";
+        return this.parseFunctionRest(`operator ${targetName}`, targetType, false, false, false, false, false);
+      }
       default:
         // Skip unknown token — qpi.h has constructs our subset parser doesn't handle. Recorded as a
         // fidelity diagnostic (in bodyDiagnostics so panic-recovery is not tripped); library-side skips

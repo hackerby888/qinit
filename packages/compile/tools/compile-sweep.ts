@@ -31,6 +31,7 @@ const targets: [string, string][] = [
   ["Qbay", `${SYS}/Qbay.h`], ["QRaffle", `${SYS}/QRaffle.h`], ["VottunBridge", `${SYS}/VottunBridge.h`],
   ["QVAULT", `${SYS}/QVAULT.h`], ["Qswap", `${SYS}/Qswap.h`], ["Qusino", `${SYS}/Qusino.h`],
   ["Quottery", `${SYS}/Quottery.h`],
+  ["QUTIL", `${SYS}/QUtil.h`], ["QRWA", `${SYS}/qRWA.h`],
 ];
 
 const catalog = systemContracts(CORE);

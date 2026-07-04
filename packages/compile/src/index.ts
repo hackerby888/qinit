@@ -415,7 +415,17 @@ export function loadQpiHeader(corePath?: string): string {
 
       for (const f of files) {
         const fp = `${base}/${f}`;
-        if (existsSync(fp)) content += readFileSync(fp, "utf8") + "\n";
+        if (!existsSync(fp)) continue;
+        let text = readFileSync(fp, "utf8");
+        // The oracle def header pulls each interface (OI::Price, …) in via #include, which the
+        // preprocessor treats as a no-op — inline the interface headers so the OI structs exist.
+        if (f.endsWith("oracle_interfaces_def.h")) {
+          text = text.replace(/^[ \t]*#include[ \t]+"(oracle_interfaces\/\w+\.h)"[ \t]*$/gm, (line, rel) => {
+            const ip = `${base}/${rel}`;
+            return existsSync(ip) ? readFileSync(ip, "utf8") : line;
+          });
+        }
+        content += text + "\n";
       }
       for (const f of implFiles) {
         const fp = `${base}/${f}`;

@@ -83,6 +83,8 @@ export const SCAFFOLD_MACROS = `
 #define REGISTER_USER_FUNCTIONS_AND_PROCEDURES() static void __registerUserFunctionsAndProcedures(const QpiContextForInit& qpi)
 #define REGISTER_USER_FUNCTION(f, it) qpi.__registerUserFunction((void*)f, it, sizeof(f##_input), sizeof(f##_output), sizeof(f##_locals));
 #define REGISTER_USER_PROCEDURE(p, it) qpi.__registerUserProcedure((void*)p, it, sizeof(p##_input), sizeof(p##_output), sizeof(p##_locals));
+#undef REGISTER_USER_PROCEDURE_NOTIFICATION
+#define REGISTER_USER_PROCEDURE_NOTIFICATION(p) qpi.__registerUserProcedureNotification((void*)p, __id_##p, sizeof(p##_input), sizeof(p##_output), sizeof(p##_locals));
 
 #define LOG_INFO(m)
 #define LOG_ERROR(m)
