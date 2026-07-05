@@ -7,6 +7,7 @@ import type { TypeSpec, Expression, Statement, Declaration, StructDecl, Function
 import type { Sema } from "./sema";
 import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec } from "./framework";
 import { parseIntLiteral as lexParseIntLiteral } from "./lexer";
+import * as ir from "./ir";
 
 interface ClassTemplate {
   params: TemplateParam[];
@@ -2952,32 +2953,31 @@ function isAggregate(ctx: FnCtx, type: TypeSpec | null, size: number): boolean {
   return size > 8;
 }
 
+// Allocate a fresh scratch block, stash its address in a new temp, return `(local.get $tmp)`.
+function allocSlot(ctx: FnCtx, size: number): string {
+  const t = newTmp(ctx);
+  ctx.lines.push(`    ${ir.emit(ir.setL(t, ir.call("$qpiAllocLocals", ir.i32c(size))))}`);
+  return ir.emit(ir.getL(t, "i32"));
+}
+
 // Address of an argument: an lvalue/SELF directly, else materialize the scalar value into scratch.
 function argAddr(ctx: FnCtx, expr: Expression, size: number): string {
   const a = emitAddr(ctx, expr);
   if (a) return a;
-  const t = newTmp(ctx);
-  ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const ${size})))`);
-  ctx.lines.push(`    ${storeAt(`(local.get $${t})`, size, emitValue(ctx, expr))}`);
-  return `(local.get $${t})`;
+  const s = allocSlot(ctx, size);
+  ctx.lines.push(`    ${storeAt(s, size, emitValue(ctx, expr))}`);
+  return s;
 }
 
 function addrOf(ptr: string, offset: number): string {
-  if (offset === 0) return ptr;
-  return `(i32.add ${ptr} (i32.const ${offset}))`;
+  return ir.emit(ir.addr0(ir.raw(ptr, "i32"), offset));
 }
 
 // Load a scalar into the i64 value model. Signed sub-64-bit fields MUST sign-extend — else a sint32 holding
 // -1 reads back as 4294967295, and `>= 0` guards (e.g. the proposal-index iteration `while ((i = next()) >=
 // 0)`) never go false → infinite loop. Default unsigned (the common case + back-compat).
 function loadAt(addr: string, size: number, signed = false): string {
-  switch (size) {
-    case 8: return `(i64.load ${addr})`;
-    case 4: return signed ? `(i64.extend_i32_s (i32.load ${addr}))` : `(i64.extend_i32_u (i32.load ${addr}))`;
-    case 2: return signed ? `(i64.extend_i32_s (i32.load16_s ${addr}))` : `(i64.extend_i32_u (i32.load16_u ${addr}))`;
-    case 1: return signed ? `(i64.extend_i32_s (i32.load8_s ${addr}))` : `(i64.extend_i32_u (i32.load8_u ${addr}))`;
-    default: return `(i64.load ${addr})`;
-  }
+  return ir.emit(ir.loadScalar(ir.raw(addr, "i32"), size, signed));
 }
 
 const SIGNED_SCALARS = new Set([
@@ -2992,13 +2992,7 @@ function isSignedScalarType(t: TypeSpec | null | undefined): boolean {
 }
 
 function storeAt(addr: string, size: number, value: string): string {
-  switch (size) {
-    case 8: return `(i64.store ${addr} ${value})`;
-    case 4: return `(i32.store ${addr} (i32.wrap_i64 ${value}))`;
-    case 2: return `(i32.store16 ${addr} (i32.wrap_i64 ${value}))`;
-    case 1: return `(i32.store8 ${addr} (i32.wrap_i64 ${value}))`;
-    default: return `(i64.store ${addr} ${value})`;
-  }
+  return ir.emit(ir.storeScalar(ir.raw(addr, "i32"), size, ir.raw(value, "i64")));
 }
 
 // Narrow a 64-bit register value to a sub-64-bit scalar type, matching a C++ conversion: unsigned types mask
@@ -3010,13 +3004,17 @@ function narrowCast(inner: string, typeName: string | undefined): string {
   if (!typeName) return inner;
   const sz = SCALAR_SIZE[typeName];
   if (sz === undefined || sz >= 8) return inner;
-  if (typeName === "bit" || typeName === "bool") return `(i64.extend_i32_u (i64.ne (i64.const 0) ${inner}))`;
+
+  const v = ir.raw(inner, "i64");
+  if (typeName === "bit" || typeName === "bool") {
+    return ir.emit(ir.op("i64.extend_i32_u", ir.op("i64.ne", ir.i64c(0), v)));
+  }
   if (typeName.startsWith("sint") || typeName.startsWith("signed")) {
     const op = sz === 4 ? "i64.extend32_s" : sz === 2 ? "i64.extend16_s" : "i64.extend8_s";
-    return `(${op} ${inner})`;
+    return ir.emit(ir.op(op, v));
   }
   const mask = sz === 4 ? "0xffffffff" : sz === 2 ? "0xffff" : "0xff";
-  return `(i64.and ${inner} (i64.const ${mask}))`;
+  return ir.emit(ir.op("i64.and", v, ir.i64c(mask)));
 }
 
 // ---- assignment ----
@@ -3397,11 +3395,7 @@ function emitU128(ctx: FnCtx, expr: Expression): string {
   const n = resolveAddr(ctx, expr);
   if (n && isUint128(ctx.cg, n.type)) return n.addr;
 
-  const slot = (): string => {
-    const t = newTmp(ctx);
-    ctx.lines.push(`    (local.set $${t} (call $qpiAllocLocals (i32.const 16)))`);
-    return `(local.get $${t})`;
-  };
+  const slot = (): string => allocSlot(ctx, 16);
 
   if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "uint128" || expr.callee.name === "uint128_t")) {
     const s = slot();
@@ -4125,24 +4119,25 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
 // QPI safe-math + helper free functions, lowered to scalar i64. smul/sadd/ssub are emitted as plain
 // arithmetic (the saturating clamp only differs at the type's overflow boundary).
 function emitMathCall(ctx: FnCtx, name: string, args: Expression[]): string | null {
-  const a = () => (args[0] ? emitValue(ctx, args[0]) : "(i64.const 0)");
-  const b = () => (args[1] ? emitValue(ctx, args[1]) : "(i64.const 0)");
+  const a = () => ir.raw(args[0] ? emitValue(ctx, args[0]) : "(i64.const 0)", "i64");
+  const b = () => ir.raw(args[1] ? emitValue(ctx, args[1]) : "(i64.const 0)", "i64");
   // accept a namespace-qualified spelling (math_lib::max, QPI::div, RL::min) — strip the qualifier.
   const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
   // div/mod/min/max take the unsigned variant when either operand is unsigned (C++ usual-conversion rule).
   // Without this, `min(div(reward,price), slots)` on a huge uint64 reward picked the wrong branch via a signed
   // compare, so RL's BuyTicket computed a giant `toBuy` and looped ~forever. `sdiv` stays explicitly signed.
   const u = (args[0] ? isUnsignedExpr(ctx, args[0]) : false) || (args[1] ? isUnsignedExpr(ctx, args[1]) : false);
+  const s = u ? "u" : "s";
   switch (base) {
-    case "sdiv": return `(call $m_div_s ${a()} ${b()})`;
-    case "div": return `(call $m_div_${u ? "u" : "s"} ${a()} ${b()})`;
-    case "mod": return `(call $m_mod_${u ? "u" : "s"} ${a()} ${b()})`;
-    case "min": return `(call $m_min_${u ? "u" : "s"} ${a()} ${b()})`;
-    case "max": return `(call $m_max_${u ? "u" : "s"} ${a()} ${b()})`;
-    case "abs": return `(call $m_abs ${a()})`;
-    case "sadd": return `(i64.add ${a()} ${b()})`;
-    case "ssub": return `(i64.sub ${a()} ${b()})`;
-    case "smul": return `(i64.mul ${a()} ${b()})`;
+    case "sdiv": return ir.emit(ir.call("$m_div_s", a(), b()));
+    case "div": return ir.emit(ir.call(`$m_div_${s}`, a(), b()));
+    case "mod": return ir.emit(ir.call(`$m_mod_${s}`, a(), b()));
+    case "min": return ir.emit(ir.call(`$m_min_${s}`, a(), b()));
+    case "max": return ir.emit(ir.call(`$m_max_${s}`, a(), b()));
+    case "abs": return ir.emit(ir.call("$m_abs", a()));
+    case "sadd": return ir.emit(ir.op("i64.add", a(), b()));
+    case "ssub": return ir.emit(ir.op("i64.sub", a(), b()));
+    case "smul": return ir.emit(ir.op("i64.mul", a(), b()));
     default: return null;
   }
 }
