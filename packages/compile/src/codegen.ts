@@ -3001,6 +3001,24 @@ function storeAt(addr: string, size: number, value: string): string {
   }
 }
 
+// Narrow a 64-bit register value to a sub-64-bit scalar type, matching a C++ conversion: unsigned types mask
+// to width, signed types sign-extend from width, bit/bool collapse to 0/1. 64-bit and non-scalar targets are
+// identity. A store to a typed field already truncates on write (storeAt); this covers in-register uses of a
+// cast result — a compare or arithmetic on `static_cast<uint8>(x)` before any store — that must observe the
+// narrowed value, e.g. `static_cast<uint8>(300) == 44` is true natively.
+function narrowCast(inner: string, typeName: string | undefined): string {
+  if (!typeName) return inner;
+  const sz = SCALAR_SIZE[typeName];
+  if (sz === undefined || sz >= 8) return inner;
+  if (typeName === "bit" || typeName === "bool") return `(i64.extend_i32_u (i64.ne (i64.const 0) ${inner}))`;
+  if (typeName.startsWith("sint") || typeName.startsWith("signed")) {
+    const op = sz === 4 ? "i64.extend32_s" : sz === 2 ? "i64.extend16_s" : "i64.extend8_s";
+    return `(${op} ${inner})`;
+  }
+  const mask = sz === 4 ? "0xffffffff" : sz === 2 ? "0xffff" : "0xff";
+  return `(i64.and ${inner} (i64.const ${mask}))`;
+}
+
 // ---- assignment ----
 
 // Lowers an assignment by pushing WAT lines to ctx; returns "" (the statement is fully emitted).
@@ -3220,9 +3238,12 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
     case "template_call": {
       if (expr.callee.kind === "identifier") {
         const name = expr.callee.name;
-        // C++ cast spelled as a template call: identity in the scalar i64 model.
+        // C++ cast spelled as a template call. static_cast narrows to its target width; reinterpret_cast/
+        // const_cast keep the bits (identity in the scalar i64 model).
         if ((name === "static_cast" || name === "reinterpret_cast" || name === "const_cast") && expr.args[0]) {
-          return emitValue(ctx, expr.args[0]);
+          const inner = emitValue(ctx, expr.args[0]);
+          const tgt = expr.templateArgs?.[0];
+          return name === "static_cast" && tgt?.kind === "name" ? narrowCast(inner, tgt.name) : inner;
         }
         const m = emitMathCall(ctx, name, expr.args);
         if (m !== null) return m;
@@ -3265,7 +3286,7 @@ function emitValue(ctx: FnCtx, expr: Expression): string {
       return `(select ${emitValue(ctx, expr.then)} ${emitValue(ctx, expr.else_)} (i64.ne (i64.const 0) ${emitValue(ctx, expr.cond)}))`;
     case "c_cast":
     case "static_cast":
-      return emitValue(ctx, expr.expr);
+      return narrowCast(emitValue(ctx, expr.expr), expr.type?.kind === "name" ? expr.type.name : undefined);
     case "sizeof_type":
       return `(i64.const ${ctx.cg.sizeOfType(expr.type, ctx.thisBind ?? NO_BIND)})`;
     case "sizeof_expr": {
@@ -3331,7 +3352,8 @@ function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
   }
   if (expr.kind === "binary_op") {
     if (expr.op === "<<" || expr.op === ">>") return isU128Expr(ctx, expr.left);
-    if (expr.op === "*" || expr.op === "+" || expr.op === "-") return isU128Expr(ctx, expr.left) || isU128Expr(ctx, expr.right);
+    if (expr.op === "*" || expr.op === "+" || expr.op === "-" || expr.op === "&" || expr.op === "|" || expr.op === "^")
+      return isU128Expr(ctx, expr.left) || isU128Expr(ctx, expr.right);
     return false;
   }
 
@@ -3422,7 +3444,8 @@ function emitU128(ctx: FnCtx, expr: Expression): string {
       ctx.lines.push(`    (call ${expr.op === "<<" ? "$u128_shl" : "$u128_shr"} ${s} ${emitU128(ctx, expr.left)} ${emitValue(ctx, expr.right)})`);
       return s;
     }
-    const fn = expr.op === "*" ? "$u128_mul" : expr.op === "+" ? "$u128_add" : expr.op === "-" ? "$u128_sub" : null;
+    const fn = expr.op === "*" ? "$u128_mul" : expr.op === "+" ? "$u128_add" : expr.op === "-" ? "$u128_sub"
+      : expr.op === "&" ? "$u128_and" : expr.op === "|" ? "$u128_or" : expr.op === "^" ? "$u128_xor" : null;
     if (fn) {
       ctx.lines.push(`    (call ${fn} ${s} ${emitU128(ctx, expr.left)} ${emitU128(ctx, expr.right)})`);
       return s;
@@ -4597,10 +4620,10 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
   const c = emitContainerCall(ctx, expr, true);
   if (c !== null) return c;
 
-  // Functional-style scalar cast: uint64(x) / sint64(x) / bit(x) ... — identity in the i64 value model
-  // (matching the c_cast/static_cast lowering), narrowing handled by the consuming store.
+  // Functional-style scalar cast: uint64(x) / sint64(x) / uint8(x) / bit(x) ... — narrowed to the target
+  // width (matching the c_cast/static_cast lowering); a store to a typed field additionally truncates.
   if (expr.callee.kind === "identifier" && SCALAR_SIZE[expr.callee.name] !== undefined && expr.args.length === 1) {
-    return emitValue(ctx, expr.args[0]);
+    return narrowCast(emitValue(ctx, expr.args[0]), expr.callee.name);
   }
 
   // The same cast through a template parameter: T(x) inside a qpi.h template body where T binds to a
@@ -4608,7 +4631,7 @@ function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string 
   if (expr.callee.kind === "identifier" && expr.args.length === 1) {
     const bound = ctx.thisBind?.types.get(expr.callee.name);
     if (bound?.kind === "name" && SCALAR_SIZE[bound.name] !== undefined) {
-      return emitValue(ctx, expr.args[0]);
+      return narrowCast(emitValue(ctx, expr.args[0]), bound.name);
     }
   }
 

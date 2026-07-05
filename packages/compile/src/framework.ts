@@ -575,6 +575,18 @@ function emitIntrinsics(): string {
       (i64.eq (i64.load (local.get $a)) (i64.load (local.get $b)))
       (i64.eq (i64.load offset=8 (local.get $a)) (i64.load offset=8 (local.get $b)))))
 
+  (func $u128_and (param $dst i32) (param $a i32) (param $b i32)
+    (i64.store (local.get $dst) (i64.and (i64.load (local.get $a)) (i64.load (local.get $b))))
+    (i64.store offset=8 (local.get $dst) (i64.and (i64.load offset=8 (local.get $a)) (i64.load offset=8 (local.get $b)))))
+
+  (func $u128_or (param $dst i32) (param $a i32) (param $b i32)
+    (i64.store (local.get $dst) (i64.or (i64.load (local.get $a)) (i64.load (local.get $b))))
+    (i64.store offset=8 (local.get $dst) (i64.or (i64.load offset=8 (local.get $a)) (i64.load offset=8 (local.get $b)))))
+
+  (func $u128_xor (param $dst i32) (param $a i32) (param $b i32)
+    (i64.store (local.get $dst) (i64.xor (i64.load (local.get $a)) (i64.load (local.get $b))))
+    (i64.store offset=8 (local.get $dst) (i64.xor (i64.load offset=8 (local.get $a)) (i64.load offset=8 (local.get $b)))))
+
   ;; dst = a << n (0 <= n < 128)
   (func $u128_shl (param $dst i32) (param $a i32) (param $n i64)
     (local $lo i64) (local $hi i64)
