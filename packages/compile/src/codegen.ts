@@ -1443,6 +1443,20 @@ class Codegen {
     return { L, elementsOff: elementsF.offset, stride: elemLayout.size, valueOff: valueF.offset, elemType: args[0] };
   }
 
+  // Backing-store geometry for LinkedList<T, L>.element(i) = _nodes[i & (L-1)].value — offsets from
+  // the parsed layout (the Node record is _nodes' array element type).
+  linkedListInfo(args: TypeSpec[], b: Bindings = NO_BIND): { L: number; nodesOff: number; stride: number; valueOff: number; elemType: TypeSpec } | null {
+    if (args.length < 2) return null;
+    const L = Number(this.evalConstFromType(args[1], b));
+    if (!L) return null;
+    const nodesF = this.containerLayout("LinkedList", args, b).fields.get("_nodes");
+    const bind = this.bindContainer("LinkedList", args, b);
+    const nodeLayout = this.layoutOfType({ kind: "name", name: "Node" }, bind);
+    const valueF = nodeLayout?.fields.get("value");
+    if (!nodesF || !nodeLayout || !valueF) return null;
+    return { L, nodesOff: nodesF.offset, stride: nodeLayout.size, valueOff: valueF.offset, elemType: args[0] };
+  }
+
   warn(message: string, line: number): void {
     if ((globalThis as any).process?.env?.QINIT_WARN_TRACE && message.includes((globalThis as any).process.env.QINIT_WARN_TRACE) ) {
       console.error(new Error(`TRACE: ${message}`).stack);
@@ -2895,6 +2909,14 @@ function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "call" }): 
     const addr = `(i32.add ${node.addr} (i32.add ${C(info.elementsOff + info.valueOff)} (i32.mul ${idx} ${C(info.stride)})))`;
     return mk(addr, info.elemType);
   }
+  // LinkedList.element(i) → &_nodes[i & (L-1)].value — same lvalue chaining as Collection.
+  if (ctype.name === "LinkedList" && m === "element") {
+    const info = ctx.cg.linkedListInfo(ctype.args);
+    if (!info) return null;
+    const idx = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)})`;
+    const addr = `(i32.add ${node.addr} (i32.add ${C(info.nodesOff + info.valueOff)} (i32.mul ${idx} ${C(info.stride)})))`;
+    return mk(addr, info.elemType);
+  }
   return null;
 }
 
@@ -4110,11 +4132,12 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
     }
   }
 
-  // Collection (priority queues over a per-PoV BST): every method is compiled from the real qpi.h body.
-  // element(i)/pov(i) return the element value / its pov id — for a scalar element it flows as an i64
-  // value here; an aggregate element (a struct) is an lvalue resolved by resolveContainerElem so
-  // element(i).field chains (return null to fall through to that path).
-  if (node.type.name === "Collection") {
+  // Collection (priority queues over a per-PoV BST) and LinkedList (doubly-linked with a free list):
+  // every method is compiled from the real qpi.h body. element(i)/pov(i) return the element value /
+  // its pov id — for a scalar element it flows as an i64 value here; an aggregate element (a struct)
+  // is an lvalue resolved by resolveContainerElem so element(i).field chains (return null to fall
+  // through to that path).
+  if (node.type.name === "Collection" || node.type.name === "LinkedList") {
     // cleanup compacts the backing arrays after many removals (a scratchpad BST rebuild using
     // reinterpret_cast/_tzcnt) — a no-op here, as with HashMap: lookups/iteration stay correct on the
     // uncompacted store, just slower.

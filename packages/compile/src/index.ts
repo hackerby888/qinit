@@ -397,6 +397,7 @@ export function loadQpiHeader(corePath?: string): string {
       const implFiles = [
         "contract_core/qpi_hash_map_impl.h",
         "contract_core/qpi_collection_impl.h",
+        "contract_core/qpi_linked_list_impl.h",
         "contract_core/qpi_trivial_impl.h",
       ];
       let content = QPI_PRELUDE + "\n";
