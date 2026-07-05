@@ -529,7 +529,7 @@ class Codegen {
   // when binding template arguments, so an alias passed as an argument reaches the underlying type rather
   // than staying an unresolved name (which would leave a derived base or member sized as 0). Self-cycles
   // (a parameter bound to its own name) and a depth cap stop runaway chains.
-  private resolveType(t: TypeSpec, b: Bindings, depth = 0): TypeSpec {
+  resolveType(t: TypeSpec, b: Bindings, depth = 0): TypeSpec {
     if (depth > 24 || t.kind !== "name") return t;
     const bound = b.types.get(t.name);
     if (bound && !(bound.kind === "name" && bound.name === t.name)) {
@@ -2152,7 +2152,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
         {
           const db = ctx.thisBind ?? NO_BIND;
           const concrete = v.type.kind === "name" && db.types.has(v.type.name) ? db.types.get(v.type.name)! : v.type;
-          if (v.type.kind !== "reference" && v.type.kind !== "pointer" && ctx.cg.isAggregateType(concrete)) {
+          if (ctx.cg.isAggregateType(concrete)) {
             // matches collectLocals' aggregate predicate: the wasm local is i32 (slot address), so this
             // branch must consume the declaration even when the size is unknown. An unsized array
             // (`const int daysInMonth[] = {...}`) takes its length from the initializer.
@@ -2386,8 +2386,9 @@ function emitIncDec(ctx: FnCtx, expr: Expression): string {
 // ---- lvalue addressing ----
 
 interface Lvalue {
-  addr: string;   // WAT producing the i32 byte address
-  size: number;   // field size in bytes
+  addr: string;                 // WAT producing the i32 byte address
+  size: number;                 // field size in bytes
+  type?: TypeSpec | null;       // pointee type when known — drives signed sub-64-bit load extension
 }
 
 // A resolved memory location: its address, the pointee type (null at a struct root), the byte size,
@@ -2645,7 +2646,7 @@ function resolveInParentStruct(ctx: FnCtx, t: TypeSpec, parent: AddrNode): TypeS
 function tryLvalueAddr(ctx: FnCtx, expr: Expression): Lvalue | null {
   const n = resolveAddr(ctx, expr);
   if (!n) return null;
-  return { addr: n.addr, size: n.size };
+  return { addr: n.addr, size: n.size, type: n.type };
 }
 
 // Address of an lvalue or a materializable aggregate. Returns null if not addressable.
@@ -3644,8 +3645,6 @@ function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): ir.
     case ">": return cmp(u ? "i64.gt_u" : "i64.gt_s");
     case "<=": return cmp(u ? "i64.le_u" : "i64.le_s");
     case ">=": return cmp(u ? "i64.ge_u" : "i64.ge_s");
-    case "&&": return ir.op("i64.extend_i32_u", ir.op("i32.and", ir.op("i64.ne", ir.i64c(0), l), ir.op("i64.ne", ir.i64c(0), r)));
-    case "||": return ir.op("i64.extend_i32_u", ir.op("i32.or", ir.op("i64.ne", ir.i64c(0), l), ir.op("i64.ne", ir.i64c(0), r)));
     default: return ir.i64c(0);
   }
 }
@@ -3958,7 +3957,7 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
   // proxy-bound alias dispatches against the concrete instance.
   let ct: TypeSpec | null = node.type;
   for (let i = 0; i < 8 && ct?.kind === "name"; i++) {
-    const next = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name);
+    const next: TypeSpec | undefined = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name);
     if (!next) break;
     ct = next;
   }
@@ -4906,7 +4905,7 @@ function describeShape(e: Expression): string {
   if (e.kind === "identifier") return e.name;
   if (e.kind === "member_access") return `${describeShape(e.object)}.${e.member}`;
   if (e.kind === "call") return `${describeShape(e.callee)}(${e.args.length})`;
-  if (e.kind === "index" || (e as any).kind === "subscript") return `${describeShape((e as any).object)}[]`;
+  if (e.kind === "subscript") return `${describeShape(e.object)}[]`;
   return e.kind;
 }
 
