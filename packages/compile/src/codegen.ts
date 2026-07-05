@@ -4167,8 +4167,9 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
   return null;
 }
 
-// QPI safe-math + helper free functions, lowered to scalar i64. smul/sadd/ssub are emitted as plain
-// arithmetic (the saturating clamp only differs at the type's overflow boundary).
+// QPI safe-math + helper free functions, lowered to scalar i64. div/mod guard division by zero;
+// sadd/smul saturate at the 64-bit type extreme, both matching math_lib.h. (The 32-bit overloads
+// clamp at INT32/UINT32 natively — the i64 value model uses the 64-bit clamp for those too.)
 function emitMathCallIr(ctx: FnCtx, name: string, args: Expression[]): ir.Ir | null {
   const a = () => (args[0] ? emitValueIr(ctx, args[0]) : ir.i64c(0));
   const b = () => (args[1] ? emitValueIr(ctx, args[1]) : ir.i64c(0));
@@ -4186,9 +4187,10 @@ function emitMathCallIr(ctx: FnCtx, name: string, args: Expression[]): ir.Ir | n
     case "min": return ir.call(`$m_min_${s}`, a(), b());
     case "max": return ir.call(`$m_max_${s}`, a(), b());
     case "abs": return ir.call("$m_abs", a());
-    case "sadd": return ir.op("i64.add", a(), b());
-    case "ssub": return ir.op("i64.sub", a(), b());
-    case "smul": return ir.op("i64.mul", a(), b());
+    // sadd/smul are SATURATING natively (math_lib.h clamps at the type extreme) — plain wrap-around
+    // arithmetic silently diverges exactly at the overflow boundary.
+    case "sadd": return ir.call(`$m_sadd_${s}`, a(), b());
+    case "smul": return ir.call(`$m_smul_${s}`, a(), b());
     default: return null;
   }
 }

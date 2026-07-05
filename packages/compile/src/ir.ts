@@ -133,6 +133,10 @@ export const CALL_SIG: Record<string, CallSig> = {
   $m_max_s: sig([I64, I64], I64),
   $m_max_u: sig([I64, I64], I64),
   $m_abs: sig([I64], I64),
+  $m_sadd_s: sig([I64, I64], I64),
+  $m_sadd_u: sig([I64, I64], I64),
+  $m_smul_s: sig([I64, I64], I64),
+  $m_smul_u: sig([I64, I64], I64),
 
   // uint128
   $u128_set: sig([I32, I64, I64], "void"),

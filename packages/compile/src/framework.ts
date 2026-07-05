@@ -509,6 +509,34 @@ function emitIntrinsics(): string {
     (select (local.get $a) (local.get $b) (i64.gt_u (local.get $a) (local.get $b))))
   (func $m_abs (param $a i64) (result i64)
     (select (local.get $a) (i64.sub (i64.const 0) (local.get $a)) (i64.ge_s (local.get $a) (i64.const 0))))
+  ;; Saturating add/mul, mirroring math_lib.h: on overflow clamp to the type's extreme instead of wrapping.
+  ;; Signed add overflows iff both operands share a sign and the wrapped sum's sign differs.
+  (func $m_sadd_s (param $a i64) (param $b i64) (result i64)
+    (local $s i64)
+    (local.set $s (i64.add (local.get $a) (local.get $b)))
+    (if (result i64) (i64.lt_s (i64.and (i64.xor (local.get $a) (local.get $s)) (i64.xor (local.get $b) (local.get $s))) (i64.const 0))
+      (then (select (i64.const -9223372036854775808) (i64.const 9223372036854775807) (i64.lt_s (local.get $a) (i64.const 0))))
+      (else (local.get $s))))
+  (func $m_sadd_u (param $a i64) (param $b i64) (result i64)
+    (local $s i64)
+    (local.set $s (i64.add (local.get $a) (local.get $b)))
+    (select (i64.const -1) (local.get $s) (i64.lt_u (local.get $s) (local.get $a))))
+  ;; Signed mul: exact high limb via the unsigned product corrected for negative operands
+  ;; (hi_s = hi_u - (a<0 ? b : 0) - (b<0 ? a : 0)); overflow iff hi != sign-extension of the low limb.
+  ;; On overflow neither operand is zero, so equal sign bits mean a positive true product.
+  (func $m_smul_s (param $a i64) (param $b i64) (result i64)
+    (local $lo i64) (local $hi i64)
+    (local.set $lo (i64.mul (local.get $a) (local.get $b)))
+    (local.set $hi (i64.sub (call $u128_mulhi (local.get $a) (local.get $b)) (i64.add
+      (i64.and (i64.shr_s (local.get $a) (i64.const 63)) (local.get $b))
+      (i64.and (i64.shr_s (local.get $b) (i64.const 63)) (local.get $a)))))
+    (if (result i64) (i64.ne (local.get $hi) (i64.shr_s (local.get $lo) (i64.const 63)))
+      (then (select (i64.const 9223372036854775807) (i64.const -9223372036854775808)
+        (i64.eq (i64.shr_s (local.get $a) (i64.const 63)) (i64.shr_s (local.get $b) (i64.const 63)))))
+      (else (local.get $lo))))
+  (func $m_smul_u (param $a i64) (param $b i64) (result i64)
+    (select (i64.const -1) (i64.mul (local.get $a) (local.get $b))
+      (i64.ne (call $u128_mulhi (local.get $a) (local.get $b)) (i64.const 0))))
 
   ;; ---- uint128 (two-limb little-endian: low@0, high@8) ----
   ;; High 64 bits of the unsigned 64x64 product, via 32-bit splitting (wasm has no widening multiply).
