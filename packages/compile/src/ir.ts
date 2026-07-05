@@ -281,6 +281,14 @@ export function raw(text: string, ty: Ty, why?: string): Ir {
   return why === undefined ? { k: "raw", ty, text } : { k: "raw", ty, text, why };
 }
 
+// (select a b cond): polymorphic in wasm — both arms must agree, cond is i32, result is the arm type.
+export function selectV(a: Ir, b: Ir, cond: Ir): Ir {
+  assertTy(a, "val", "select arm 0");
+  assertTy(b, a.ty, "select arm 1");
+  assertTy(cond, "i32", "select condition");
+  return { k: "op", ty: a.ty, op: "select", args: [a, b, cond] };
+}
+
 // ---- addressing + scalar access ----
 
 // Address arithmetic: offset 0 returns the base unchanged (never wrap in a redundant i32.add).
