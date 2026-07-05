@@ -24,7 +24,7 @@ console.log("diags:", r.diagnostics.length);
 for (const d of r.diagnostics.slice(0, 5)) console.log("  L" + d.span.line + ":", d.message);
 // decode state_size from the wasm (state_size export)
 if (r.wasm.byteLength) {
-  const mod = new WebAssembly.Module(r.wasm);
+  const mod = new WebAssembly.Module(r.wasm as unknown as BufferSource);
   const inst = new WebAssembly.Instance(mod, fakeImports());
   console.log("state_size:", (inst.exports as any).state_size());
 }

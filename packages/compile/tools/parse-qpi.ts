@@ -57,6 +57,6 @@ sema.analyze(tu);
 const types = sema.getAllTypes();
 for (const name of ["HashMap", "Array", "BitArray", "Collection", "QpiContextFunctionCall"]) {
   const t = types.get(name);
-  if (t) console.log(`  captured ${name}: isTemplate=${t.isTemplate} members=${t.templateAst?.members.length ?? t.fields.size}`);
+  if (t) console.log(`  captured ${name}: isTemplate=${t.isTemplate} members=${t.templateAst?.members.length ?? t.fields.length}`);
   else console.log(`  MISSING ${name}`);
 }

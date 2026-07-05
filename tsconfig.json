@@ -11,7 +11,19 @@
     "resolveJsonModule": true,
     "types": ["bun-types"],
     "noEmit": true,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    "baseUrl": ".",
+    "paths": {
+      "@qinit/build": ["packages/build/src/index.ts"],
+      "@qinit/build/*": ["packages/build/src/*"],
+      "@qinit/compile": ["packages/compile/src/index.ts"],
+      "@qinit/core": ["packages/core/src/index.ts"],
+      "@qinit/core/*": ["packages/core/src/*"],
+      "@qinit/engine": ["packages/engine/src/index.ts"],
+      "@qinit/engine/*": ["packages/engine/src/*"],
+      "@qinit/proto": ["packages/proto/src/index.ts"],
+      "@qinit/proto/*": ["packages/proto/src/*"]
+    }
   },
-  "exclude": ["node_modules", "dist", "packages/vscode"]
+  "exclude": ["node_modules", "dist", "packages/vscode", "packages/*/tests/_probe_*"]
 }

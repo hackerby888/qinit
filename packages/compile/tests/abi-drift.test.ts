@@ -10,10 +10,11 @@ import { QpiContext } from "../../engine/src/abi";
 // would not — silently reading the wrong identity. Pin them so that drift fails the build instead.
 test("framework CTX offsets match the engine's QpiContext layout", () => {
   const O = (QpiContext as unknown as { OFFSETS: Record<string, number> }).OFFSETS;
-  expect(CTX.contractIndex).toBe(O.currentContractIndex);
-  expect(CTX.originator).toBe(O.originator);
-  expect(CTX.invocator).toBe(O.invocator);
-  expect(CTX.invocationReward).toBe(O.invocationReward);
+  // CTX's as-const literal types would pin toBe's generic to the literal — compare as plain numbers.
+  expect<number>(CTX.contractIndex).toBe(O.currentContractIndex);
+  expect<number>(CTX.originator).toBe(O.originator);
+  expect<number>(CTX.invocator).toBe(O.invocator);
+  expect<number>(CTX.invocationReward).toBe(O.invocationReward);
 });
 
 test("QpiContext header is the 256-byte size the framework carves", () => {

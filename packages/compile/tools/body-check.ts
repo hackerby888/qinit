@@ -20,8 +20,8 @@ for (const [name, path] of targets) {
     const errs = r.diagnostics.filter((d) => d.severity === "error");
     const warns = r.diagnostics.filter((d) => d.severity === "warning");
     console.log(`\n=== ${name} === wasm=${r.wasm.byteLength}b errors=${errs.length} warnings=${warns.length}`);
-    for (const e of errs.slice(0, 10)) console.log(`  ERROR ${e.line}: ${e.message}`);
-    for (const w of warns.slice(0, 20)) console.log(`  warn ${w.line}: ${w.message}`);
+    for (const e of errs.slice(0, 10)) console.log(`  ERROR ${e.span.line}: ${e.message}`);
+    for (const w of warns.slice(0, 20)) console.log(`  warn ${w.span.line}: ${w.message}`);
   } catch (e: any) {
     console.log(`\n=== ${name} === THREW: ${e.message}`);
     if (e.stack) console.log(e.stack.split("\n").slice(0, 6).join("\n"));
