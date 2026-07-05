@@ -153,6 +153,17 @@ describe("type assertions catch the silent-divergence class", () => {
   });
 });
 
+describe("escape-hatch ratchet", () => {
+  // ir.raw is the sanctioned bridge for not-yet-typed subtrees (lvalue address strings, dynamic-label
+  // calls, control-flow forms). The count must only go DOWN as conversion proceeds — lower the ceiling
+  // when you remove hatches; never raise it without a structural reason recorded here.
+  test("raw() count in codegen.ts does not grow", () => {
+    const codegen = readFileSync(join(import.meta.dir, "../src/codegen.ts"), "utf8");
+    const count = (codegen.match(/ir\.raw\(/g) ?? []).length;
+    expect(count).toBeLessThanOrEqual(32);
+  });
+});
+
 describe("CALL_SIG agrees with framework.ts", () => {
   test("every registry entry matches the framework definition", () => {
     const framework = readFileSync(join(import.meta.dir, "../src/framework.ts"), "utf8");
