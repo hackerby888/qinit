@@ -2376,6 +2376,15 @@ function emitIncDec(ctx: FnCtx, expr: Expression): string {
   // Otherwise a member/element lvalue: load, adjust, store back.
   const addr = tryLvalueAddr(ctx, arg);
   if (addr) {
+    // uint128: a scalar load-modify-store touches only the low limb and loses the carry/borrow —
+    // route through the $u128_* helpers instead (uint128.h operator++ carries across limbs).
+    if (isUint128(ctx.cg, addr.type ?? null)) {
+      const one = allocSlotIr(ctx, 16);
+      ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", one, ir.i64c(1), ir.i64c(0)))}`);
+      const res = allocSlotIr(ctx, 16);
+      ctx.lines.push(`    ${ir.emit(ir.call(op === "i64.add" ? "$u128_add" : "$u128_sub", res, addrIr(addr.addr), one))}`);
+      return ir.emit(ir.call("$copyMem", addrIr(addr.addr), res, ir.i32c(16)));
+    }
     const load = loadAt(addr.addr, addr.size, isSignedScalarType(addr.type));
     const stored = `(${op} ${load} (i64.const 1))`;
     return storeAt(addr.addr, addr.size, stored);
@@ -3330,8 +3339,29 @@ function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       if (w) ctx.lines.push(`    ${w}`);
       return ir.getL(t, "i64");
     }
-    case "ternary":
-      return ir.selectV(emitValueIr(ctx, expr.then), emitValueIr(ctx, expr.else_), ir.op("i64.ne", ir.i64c(0), emitValueIr(ctx, expr.cond)));
+    case "ternary": {
+      // C++ evaluates the condition, then exactly ONE arm. wasm select is eager, so it is only safe
+      // when both arms are pure and trap-free; otherwise lower as an if/else writing a temp — an arm
+      // like `b != 0 ? a / b : 0` must never execute the division on the guarded path.
+      const cond = emitValueIr(ctx, expr.cond);
+      const saved = ctx.lines;
+      ctx.lines = [];
+      const thenV = emitValueIr(ctx, expr.then);
+      const thenLines = ctx.lines;
+      ctx.lines = [];
+      const elseV = emitValueIr(ctx, expr.else_);
+      const elseLines = ctx.lines;
+      ctx.lines = saved;
+      if (thenLines.length === 0 && elseLines.length === 0 && ir.pureIr(thenV) && ir.pureIr(elseV)) {
+        return ir.selectV(thenV, elseV, ir.op("i64.ne", ir.i64c(0), cond));
+      }
+      const t = `tmp${ctx.tmpCount++}`;
+      ctx.localVars.set(t, { wasmType: "i64" });
+      const thenB = [...thenLines, `      ${setLocal(ctx, t, thenV)}`].join("\n");
+      const elseB = [...elseLines, `      ${setLocal(ctx, t, elseV)}`].join("\n");
+      ctx.lines.push(`    (if (i64.ne (i64.const 0) ${ir.emit(cond)}) (then\n${thenB}\n    ) (else\n${elseB}\n    ))`);
+      return ir.getL(t, "i64");
+    }
     case "c_cast":
     case "static_cast":
       return narrowCastIr(emitValueIr(ctx, expr.expr), expr.type?.kind === "name" ? expr.type.name : undefined);
@@ -3554,6 +3584,69 @@ function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
   }
 }
 
+// Best-effort (byte width, signedness) of a scalar expression, mirroring isUnsignedExpr's coverage.
+// Null when the type can't be derived — callers fall back to the legacy either-unsigned heuristic.
+function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; unsigned: boolean } | null {
+  switch (expr.kind) {
+    case "paren": return scalarTypeInfo(ctx, expr.expr);
+    case "c_cast": case "static_cast": {
+      const n = expr.type?.kind === "name" ? expr.type.name : null;
+      const sz = n ? SCALAR_SIZE[n] : undefined;
+      return sz ? { width: sz, unsigned: unsignedScalar(expr.type) } : null;
+    }
+    case "int_literal": {
+      // C++ literal typing: int → (uint for hex/octal) → long long by fit; a u/U suffix forces unsigned.
+      const v = ctx.cg["sema"].evaluateConstexpr(expr) ?? 0n;
+      const suffixU = /[uU]/.test((expr as any).suffix ?? "");
+      const hex = /^0[xX0-7]/.test((expr as any).text ?? "");
+      if (v >= -(2n ** 31n) && v < 2n ** 31n) return { width: 4, unsigned: suffixU };
+      if (hex && v < 2n ** 32n) return { width: 4, unsigned: true };
+      if (!suffixU && v < 2n ** 63n) return { width: 8, unsigned: false };
+      return { width: 8, unsigned: true };
+    }
+    case "identifier": case "member_access": case "subscript": {
+      const t = expr.kind === "identifier"
+        ? (ctx.params?.get(expr.name)?.type ?? ctx.refLocals?.get(expr.name) ?? resolveAddr(ctx, expr)?.type ?? null)
+        : (resolveAddr(ctx, expr)?.type ?? null);
+      let c = t;
+      if (c?.kind === "const") c = c.valueType;
+      if (c?.kind === "reference") c = c.refereed;
+      const sz = c?.kind === "name" ? SCALAR_SIZE[c.name] : undefined;
+      return sz ? { width: sz, unsigned: unsignedScalar(t) } : null;
+    }
+    case "binary_op": {
+      if (["+", "-", "*", "/", "%", "&", "|", "^"].includes(expr.op)) {
+        const cv = usualConversion(ctx, expr.left, expr.right);
+        return { width: cv.width, unsigned: cv.unsigned };
+      }
+      if (expr.op === "<<" || expr.op === ">>") return promoteInfo(ctx, expr.left);
+      return null;
+    }
+    default: return null;
+  }
+}
+
+// Integral promotion: sub-int scalars become int (signed, 4 bytes); unknown types fall back to the
+// legacy 64-bit + isUnsignedExpr guess so behavior is unchanged where the width can't be derived.
+function promoteInfo(ctx: FnCtx, expr: Expression): { width: number; unsigned: boolean } {
+  const info = scalarTypeInfo(ctx, expr) ?? { width: 8, unsigned: isUnsignedExpr(ctx, expr) };
+  if (info.width < 4) return { width: 4, unsigned: false };
+  return info;
+}
+
+// C++ usual arithmetic conversions over the promoted operands: same signedness → wider wins; mixed →
+// unsigned wins at equal-or-greater rank, else the signed type (which then represents every value of
+// the narrower unsigned type).
+function usualConversion(ctx: FnCtx, left: Expression, right: Expression): { width: number; unsigned: boolean } {
+  const l = promoteInfo(ctx, left);
+  const r = promoteInfo(ctx, right);
+  const width = Math.max(l.width, r.width);
+  if (l.unsigned === r.unsigned) return { width, unsigned: l.unsigned };
+  const u = l.unsigned ? l : r;
+  const s = l.unsigned ? r : l;
+  return u.width >= s.width ? { width, unsigned: true } : { width, unsigned: false };
+}
+
 function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): ir.Ir {
   // uint128 compares: 128-bit, via the $u128_* helpers (operands materialized to 16-byte slots).
   if ((expr.op === "==" || expr.op === "!=" || expr.op === "<" || expr.op === ">" || expr.op === "<=" || expr.op === ">=")
@@ -3625,22 +3718,28 @@ function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): ir.
   const l = emitValueIr(ctx, expr.left);
   const r = emitValueIr(ctx, expr.right);
   const cmp = (op: string) => ir.op("i64.extend_i32_u", ir.op(op, l, r));
-  const u = isUnsignedExpr(ctx, expr.left) || isUnsignedExpr(ctx, expr.right);
+  // C++ usual arithmetic conversions decide the operation's signedness and rank. A 32-bit unsigned
+  // result wraps at 32 bits natively (defined behavior), so +,-,*,<< mask back down; signed 32-bit
+  // overflow is UB and stays unmasked. Shifts take their type from the LEFT operand alone.
+  const cv = usualConversion(ctx, expr.left, expr.right);
+  const u = cv.unsigned;
+  const li = promoteInfo(ctx, expr.left);
+  const wrapL = (n: ir.Ir, active: boolean) => (active ? ir.op("i64.and", n, ir.i64c("0xffffffff")) : n);
+  const wrap32 = u && cv.width === 4;
   switch (expr.op) {
-    case "+": return ir.op("i64.add", l, r);
-    case "-": return ir.op("i64.sub", l, r);
-    case "*": return ir.op("i64.mul", l, r);
-    case "/": return ir.op("i64.div_s", l, r);
-    case "%": return ir.op("i64.rem_s", l, r);
-    case "<<": return ir.op("i64.shl", l, r);
-    case ">>": return ir.op("i64.shr_u", l, r);
+    case "+": return wrapL(ir.op("i64.add", l, r), wrap32);
+    case "-": return wrapL(ir.op("i64.sub", l, r), wrap32);
+    case "*": return wrapL(ir.op("i64.mul", l, r), wrap32);
+    case "/": return ir.op(u ? "i64.div_u" : "i64.div_s", l, r);
+    case "%": return ir.op(u ? "i64.rem_u" : "i64.rem_s", l, r);
+    case "<<": return wrapL(ir.op("i64.shl", l, r), li.unsigned && li.width === 4);
+    // Signed right-shift is arithmetic in C++ — zero-filling a negative sint64 silently corrupts it.
+    case ">>": return ir.op(li.unsigned ? "i64.shr_u" : "i64.shr_s", l, r);
     case "&": return ir.op("i64.and", l, r);
     case "|": return ir.op("i64.or", l, r);
     case "^": return ir.op("i64.xor", l, r);
     case "==": return cmp("i64.eq");
     case "!=": return cmp("i64.ne");
-    // C++ relational signedness: unsigned if either operand is unsigned. Default signed (back-compat: small
-    // positive values compare identically, only large/wrapped magnitudes differ).
     case "<": return cmp(u ? "i64.lt_u" : "i64.lt_s");
     case ">": return cmp(u ? "i64.gt_u" : "i64.gt_s");
     case "<=": return cmp(u ? "i64.le_u" : "i64.le_s");

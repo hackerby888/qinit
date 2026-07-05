@@ -285,6 +285,27 @@ export function raw(text: string, ty: Ty, why?: string): Ir {
   return why === undefined ? { k: "raw", ty, text } : { k: "raw", ty, text, why };
 }
 
+// True when evaluating the node can neither trap nor produce a side effect — safe for wasm select's
+// eager evaluation. Division/remainder trap on zero; calls and raw text are opaque, so both count as
+// impure. Loads are pure here: contract addresses are in-bounds by construction.
+export function pureIr(n: Ir): boolean {
+  switch (n.k) {
+    case "const":
+    case "get":
+      return true;
+    case "load":
+      return pureIr(n.addr);
+    case "op":
+      if (n.op === "i64.div_s" || n.op === "i64.div_u" || n.op === "i64.rem_s" || n.op === "i64.rem_u"
+        || n.op === "i32.div_s" || n.op === "i32.div_u" || n.op === "i32.rem_s" || n.op === "i32.rem_u") {
+        return false;
+      }
+      return n.args.every(pureIr);
+    default:
+      return false;
+  }
+}
+
 // (select a b cond): polymorphic in wasm — both arms must agree, cond is i32, result is the arm type.
 export function selectV(a: Ir, b: Ir, cond: Ir): Ir {
   assertTy(a, "val", "select arm 0");

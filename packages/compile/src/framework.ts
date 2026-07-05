@@ -618,6 +618,11 @@ function emitIntrinsics(): string {
   ;; dst = a << n (0 <= n < 128)
   (func $u128_shl (param $dst i32) (param $a i32) (param $n i64)
     (local $lo i64) (local $hi i64)
+    ;; shift >= 128 is defined zero (uint128.h) — without this the wasm shift count masks to n&63
+    (if (i64.ge_u (local.get $n) (i64.const 128)) (then
+      (i64.store (local.get $dst) (i64.const 0))
+      (i64.store offset=8 (local.get $dst) (i64.const 0))
+      (return)))
     (local.set $lo (i64.load (local.get $a)))
     (local.set $hi (i64.load offset=8 (local.get $a)))
     (if (i64.eqz (local.get $n))
@@ -636,6 +641,11 @@ function emitIntrinsics(): string {
   ;; dst = a >> n (logical, 0 <= n < 128)
   (func $u128_shr (param $dst i32) (param $a i32) (param $n i64)
     (local $lo i64) (local $hi i64)
+    ;; shift >= 128 is defined zero (uint128.h) — without this the wasm shift count masks to n&63
+    (if (i64.ge_u (local.get $n) (i64.const 128)) (then
+      (i64.store (local.get $dst) (i64.const 0))
+      (i64.store offset=8 (local.get $dst) (i64.const 0))
+      (return)))
     (local.set $lo (i64.load (local.get $a)))
     (local.set $hi (i64.load offset=8 (local.get $a)))
     (if (i64.eqz (local.get $n))
