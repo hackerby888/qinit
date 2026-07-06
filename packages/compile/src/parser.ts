@@ -1352,6 +1352,20 @@ export class Parser {
   private parseUnary(): Expression {
     const tok = this.peek();
 
+    // new/delete expressions: contracts have no heap. Report once with the real reason, then
+    // skip to the statement end so parsing continues without cascading mismatch errors.
+    if ((tok.kind === "identifier" && tok.text === "new") || tok.kind === "kw_delete") {
+      this.diagnostics.push({
+        severity: "error",
+        message: `dynamic memory allocation ('${tok.text}') is not allowed in a contract`,
+        span: tok.span,
+      });
+      while (!this.eof() && this.peek().kind !== "semicolon" && this.peek().kind !== "r_brace") {
+        this.next();
+      }
+      return { kind: "int_literal", value: "0", span: tok.span };
+    }
+
     // Prefix operators
     if (tok.kind === "bang" || tok.kind === "tilde" || tok.kind === "minus" || tok.kind === "plus" || tok.kind === "star" || tok.kind === "amp") {
       const opMap: Record<string, UnaryOp> = {
@@ -1883,7 +1897,7 @@ export class Parser {
             const d = this.pending.shift()!;
             stmts.push({ kind: "declaration", decl: d, span: (d as any).span ?? this.peek().span });
           }
-          return { kind: "compound", body: stmts, span: this.peek().span };
+          return { kind: "compound", body: stmts, span: this.peek().span, synthetic: true } as Statement;
         }
         return { kind: "declaration", decl, span: this.peek().span };
       }

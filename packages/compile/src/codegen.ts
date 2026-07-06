@@ -93,6 +93,12 @@ const SCALAR_SIZE: Record<string, number> = {
   auto: 8,   // `auto` locals in qpi.h bodies are integer counters (pointer cases carry a trailing *)
 };
 
+// Plain C scalar spellings that SCALAR_SIZE doesn't key (they lower through other paths); listed
+// so the unknown-type check doesn't flag them.
+const C_SCALAR_NAMES = new Set([
+  "int", "unsigned", "signed", "long", "short", "char", "size_t", "unsigned long", "long int",
+]);
+
 interface Bindings {
   types: Map<string, TypeSpec>;
   values: Map<string, bigint>;
@@ -119,6 +125,7 @@ class Codegen {
   constexprInit: Map<string, Expression> = new Map();           // named constexpr → its init expression
   enumConst: Map<string, bigint> = new Map();                   // enum constant (NAME and Type::NAME) → value
   enumSize: Map<string, number> = new Map();                    // enum type name → storage size from its underlying type (enum class X : uint8 → 1)
+  enumNames: Set<string> = new Set();                           // every named enum type, for type-name resolution checks
   templateMethods: Map<string, Map<string, FunctionTemplateDecl>> = new Map();  // Class → method → out-of-class def
   compiledMethods: Map<string, CompiledMethod> = new Map();     // instantiation cache key → compiled method
   emittedMethodOrder: string[] = [];                            // emitted WAT, in emission order (appended to module)
@@ -135,6 +142,7 @@ class Codegen {
   slot = 0;                                          // contract slot; oracle notification ids embed it ((slot << 22) | defLine)
   memberFnLine: Map<string, number> = new Map();     // contract member function name → definition line (__id_<proc> resolution)
   warnings: CodegenWarning[] = [];
+  errors: CodegenWarning[] = [];
 
   constructor(sema: Sema) {
     this.sema = sema;
@@ -271,6 +279,9 @@ class Codegen {
   }
 
   private collectEnum(e: { name?: string; underlyingType?: TypeSpec; members: { name: string; value?: Expression }[] }): void {
+    if (e.name) {
+      this.enumNames.add(e.name);
+    }
     if (e.name && e.underlyingType?.kind === "name") {
       const sz = SCALAR_SIZE[e.underlyingType.name];
       if (sz !== undefined && !this.enumSize.has(e.name)) this.enumSize.set(e.name, sz);
@@ -1480,6 +1491,16 @@ class Codegen {
     }
     this.warnings.push({ message, line });
   }
+
+  // Hard semantic errors (not fidelity warnings): these abort the build regardless of strict
+  // mode. Deduplicated because speculative emission may revisit the same node.
+  error(message: string, line: number): void {
+    if (this.errors.some((e) => e.message === message && e.line === line)) {
+      return;
+    }
+
+    this.errors.push({ message, line });
+  }
 }
 
 interface HelperInfo {
@@ -1527,6 +1548,7 @@ export interface LibTypes {
   constexprInit: Map<string, Expression>;
   enumConst: Map<string, bigint>;
   enumSize: Map<string, number>;
+  enumNames: Set<string>;
   templateMethods: Map<string, Map<string, FunctionTemplateDecl>>;
 }
 
@@ -1544,6 +1566,7 @@ export function buildLibTypes(decls: Declaration[]): LibTypes {
     constexprInit: cg.constexprInit,
     enumConst: cg.enumConst,
     enumSize: cg.enumSize,
+    enumNames: cg.enumNames,
     templateMethods: cg.templateMethods,
   };
 }
@@ -1578,6 +1601,7 @@ export function generateWasmModule(
     for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
     for (const [k, v] of lib.enumConst) cg.enumConst.set(k, v);
     if (lib.enumSize) for (const [k, v] of lib.enumSize) cg.enumSize.set(k, v);
+    if (lib.enumNames) for (const n of lib.enumNames) cg.enumNames.add(n);
     if (lib.templateMethods) for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
   }
   cg.collectTU(tu.declarations);
@@ -1604,6 +1628,18 @@ export function generateWasmModule(
   const regs = extractRegistrations(contract);
   const entries: UserEntry[] = [];
   const userFns: string[] = [];
+
+  // A duplicate input type within a kind makes dispatch ambiguous (first registration would
+  // silently win) — reject.
+  const seenReg = new Map<string, string>();
+  for (const r of regs) {
+    const key = `${r.kind}:${r.inputType}`;
+    const prev = seenReg.get(key);
+    if (prev) {
+      cg.error(`${r.kind === 0 ? "function" : "procedure"} input type ${r.inputType} is registered twice ('${prev}' and '${r.fnName}')`, 0);
+    }
+    seenReg.set(key, r.fnName);
+  }
 
   // Collect helper + private functions BEFORE emitting entries, so entry bodies can call them.
   // A member function is: an entry (registered), a system procedure, the register hook, a PRIVATE_
@@ -1776,9 +1812,12 @@ export function generateWasmModule(
     memBase,
   };
 
-  // expose warnings via a side channel (sema diagnostics)
+  // expose warnings + hard errors via a side channel (sema diagnostics)
   for (const w of cg.warnings) {
     sema.warn(w.message, { start: 0, end: 0, line: w.line, col: 0 }, "fidelity");
+  }
+  for (const er of cg.errors) {
+    sema.error(er.message, { start: 0, end: 0, line: er.line, col: 0 });
   }
 
   return emitModule(spec);
@@ -2011,6 +2050,13 @@ function collectLocals(stmt: Statement, ctx: FnCtx): void {
         if (s.name && !ctx.cg.globalStructs.has(s.name)) ctx.cg.globalStructs.set(s.name, s);
         break;
       }
+      // Function-scope alias (`using Local = sint64;`): record it so locals declared with the
+      // alias name resolve as known types.
+      if (stmt.decl.kind === "typedef_decl") {
+        const td = stmt.decl as { name: string; type: TypeSpec };
+        if (!ctx.cg.typedefs.has(td.name)) ctx.cg.typedefs.set(td.name, td.type);
+        break;
+      }
       if (stmt.decl.kind === "variable") {
         const v = stmt.decl as VariableDecl;
         // reference/pointer locals hold an address (i32); scalars use the i64 value model. A __ScopedScratchpad
@@ -2033,6 +2079,15 @@ function collectLocals(stmt: Statement, ctx: FnCtx): void {
               dType = op.pointee;
             }
           }
+        }
+
+        // A local of an unresolvable named type would silently corrupt the locals layout (size 0,
+        // scalar fallback) — reject it here, where every declaration passes exactly once.
+        if (dType.kind === "name" && !isAutoType(dType) && SCALAR_SIZE[dType.name] === undefined &&
+            !C_SCALAR_NAMES.has(dType.name) && !dType.name.includes("::") &&
+            !b.types.has(dType.name) && !ctx.cg.typedefs.has(dType.name) && !ctx.cg.enumNames.has(dType.name) &&
+            !ctx.cg.structByName(dType.name, b)) {
+          ctx.cg.error(`unknown type '${dType.name}' in declaration of '${v.name}'`, stmt.span.line);
         }
 
         // A struct-typed local (DateAndTime begin = *this) lives in an allocated slot; its wasm local

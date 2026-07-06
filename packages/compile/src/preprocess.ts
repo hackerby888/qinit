@@ -304,7 +304,7 @@ export class Preprocessor {
 
   // Tiny arithmetic/logic evaluator over a string of integers and operators.
   private evalArith(s: string): bigint {
-    const toks = s.match(/\d+|&&|\|\||==|!=|<=|>=|<<|>>|[()+\-*/%<>!&|]/g) ?? [];
+    const toks = s.match(/\d+|&&|\|\||==|!=|<=|>=|<<|>>|[()+\-*/%<>!&|^]/g) ?? [];
     let i = 0;
     const peek = () => toks[i];
     const next = () => toks[i++];

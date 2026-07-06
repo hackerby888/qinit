@@ -1,0 +1,785 @@
+// Semantic validation pass: rejects source that parses but is invalid C++, or valid C++ that
+// Qubic contracts forbid or this compiler cannot lower faithfully (each rule documents which).
+// Runs between parse and codegen so codegen only ever sees code it can compile with native
+// semantics. Also desugars call-site default arguments, appending the declaration's default
+// expressions so later phases see complete argument lists.
+//
+// The lowering model behind the scope rules: collectLocals hoists every declaration in a
+// function into one flat wasm-local map (first declaration wins). Sibling scopes reusing a
+// name are safe (lifetimes don't overlap, the slot is re-initialized), but nested shadowing,
+// use-before-declaration, and use-after-scope-exit all read or write the shared slot with
+// semantics that differ from native C++ — verified state divergence — so they are rejected.
+
+import type {
+  Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span,
+} from "./ast";
+
+export interface ValidateDiagnostic {
+  severity: "error";
+  message: string;
+  span: Span;
+}
+
+interface FnSig {
+  decl: FunctionDecl;
+  minArgs: number;
+  maxArgs: number;
+}
+
+const NO_SPAN: Span = { start: 0, end: 0, line: 0, col: 0 };
+
+export function validateAndDesugar(tu: { declarations: Declaration[] }): ValidateDiagnostic[] {
+  const v = new Validator();
+  v.runTopLevel(tu.declarations);
+  return v.diagnostics;
+}
+
+// Strip const/reference wrappers down to the underlying type.
+function unwrapType(t: TypeSpec): TypeSpec {
+  if (t.kind === "const") {
+    return unwrapType(t.valueType);
+  }
+  if (t.kind === "reference") {
+    return unwrapType(t.refereed);
+  }
+  return t;
+}
+
+function isVoidType(t: TypeSpec): boolean {
+  const u = unwrapType(t);
+  return u.kind === "void" || (u.kind === "name" && u.name === "void");
+}
+
+function isConstType(t: TypeSpec): boolean {
+  if (t.kind === "const") {
+    return true;
+  }
+  if (t.kind === "reference") {
+    return t.refereed.kind === "const";
+  }
+  return false;
+}
+
+// Canonical key for a case label / constant operand: numeric literals normalize through BigInt
+// (0x1 and 1 collide), identifiers key by name.
+function constKey(e: Expression): string | null {
+  if (e.kind === "int_literal") {
+    try {
+      return `#${BigInt(e.value.replace(/[uUlL]+$/, ""))}`;
+    } catch {
+      return `#${e.value}`;
+    }
+  }
+  if (e.kind === "char_literal") {
+    return `#${e.value}`;
+  }
+  if (e.kind === "bool_literal") {
+    return `#${e.value ? 1 : 0}`;
+  }
+  if (e.kind === "unary_op" && e.op === "-") {
+    const inner = constKey(e.arg);
+    return inner?.startsWith("#") ? `#${-BigInt(inner.slice(1))}` : null;
+  }
+  if (e.kind === "identifier") {
+    return `id:${e.name}`;
+  }
+  if (e.kind === "qualified_name") {
+    return `id:${e.namespace}::${e.name}`;
+  }
+  return null;
+}
+
+// True when the literal is integer zero (any radix/suffix).
+function isZeroLiteral(e: Expression): boolean {
+  return constKey(e) === "#0";
+}
+
+function isLiteral(e: Expression): boolean {
+  return e.kind === "int_literal" || e.kind === "float_literal" || e.kind === "bool_literal" ||
+    e.kind === "char_literal" || e.kind === "string_literal";
+}
+
+// Canonical spelling of a type for signature comparison.
+function typeKey(t: TypeSpec): string {
+  switch (t.kind) {
+    case "name":
+      return t.name;
+    case "const":
+      return `const ${typeKey(t.valueType)}`;
+    case "reference":
+      return `${typeKey(t.refereed)}&`;
+    case "pointer":
+      return `${typeKey(t.pointee)}*`;
+    case "template_instance":
+      return `${t.name}<${t.args.map(typeKey).join(",")}>`;
+    case "array":
+      return `${typeKey(t.elem)}[]`;
+    case "void":
+      return "void";
+    default:
+      return t.kind;
+  }
+}
+
+function paramSignature(fn: FunctionDecl): string {
+  return fn.params.map((p) => typeKey(p.type)).join(";");
+}
+
+class Validator {
+  diagnostics: ValidateDiagnostic[] = [];
+
+  private seen = new Set<string>();
+
+  private currentFn: FunctionDecl | null = null;
+
+  private error(message: string, span: Span | undefined): void {
+    const sp = span ?? NO_SPAN;
+    const key = `${message}@${sp.line}`;
+    if (this.seen.has(key)) {
+      return;
+    }
+
+    this.seen.add(key);
+    this.diagnostics.push({ severity: "error", message, span: sp });
+  }
+
+  // ---- Top level ----
+
+  runTopLevel(decls: Declaration[]): void {
+    for (const d of decls) {
+      switch (d.kind) {
+        case "variable":
+          this.checkGlobalVariable(d);
+          break;
+        case "struct":
+          this.checkStruct(d);
+          break;
+        case "namespace":
+          this.runTopLevel(d.body);
+          break;
+        case "function":
+          if (d.body) {
+            this.checkFunctionBody(d, new Map());
+          }
+          break;
+        case "class_template":
+          this.checkStruct(d as unknown as StructDecl);
+          break;
+      }
+    }
+  }
+
+  // Contracts run on consensus state only: a file-scope mutable lives outside the hashed state
+  // and silently diverges between nodes. Immutable file-scope constants are fine.
+  private checkGlobalVariable(v: VariableDecl): void {
+    if (v.isConstexpr || v.isExtern || isConstType(v.type)) {
+      return;
+    }
+
+    this.error(`global variable '${v.name}' is not allowed in a contract — state must live in the contract state struct`, v.span);
+  }
+
+  // ---- Structs ----
+
+  private checkStruct(s: StructDecl): void {
+    const fieldNames = new Set<string>();
+    const fnBodies = new Map<string, FunctionDecl>();
+    const fnSigs = new Map<string, FnSig>();
+
+    for (const m of s.members) {
+      if (m.kind === "variable") {
+        // Anonymous-union alternatives intentionally alias storage; only named duplicates in the
+        // same struct are redefinitions.
+        if (fieldNames.has(m.name)) {
+          this.error(`duplicate member '${m.name}' in struct '${s.name}'`, m.span);
+        }
+        fieldNames.add(m.name);
+      }
+
+      if (m.kind === "struct") {
+        this.checkStruct(m);
+      }
+
+      if (m.kind === "function") {
+        const sig: FnSig = {
+          decl: m,
+          minArgs: m.params.filter((p) => !p.defaultValue).length,
+          maxArgs: m.params.length,
+        };
+        if (m.body) {
+          // Two definitions with the same parameter signature are a redefinition. Overloads
+          // (differing signatures, e.g. QUSINO's divUp(uint32,..)/divUp(uint64,..)) are valid
+          // C++ and pass through; codegen resolves them by name (first definition wins).
+          const prev = fnBodies.get(m.name);
+          if (prev && paramSignature(prev) === paramSignature(m)) {
+            this.error(`'${m.name}' is already defined in struct '${s.name}' with the same signature`, m.span);
+          }
+          if (!prev) {
+            fnBodies.set(m.name, m);
+          }
+          if (!fnSigs.has(m.name) || fnSigs.get(m.name)!.decl.body === undefined) {
+            fnSigs.set(m.name, sig);
+          }
+        } else if (!fnSigs.has(m.name)) {
+          fnSigs.set(m.name, sig);
+        }
+      }
+    }
+
+    // Overloaded names can't be arity-checked or default-desugared without type-based
+    // resolution — exclude them from call checks entirely.
+    const bodyCount = new Map<string, number>();
+    for (const m of s.members) {
+      if (m.kind === "function" && m.body) {
+        bodyCount.set(m.name, (bodyCount.get(m.name) ?? 0) + 1);
+      }
+    }
+    for (const [name, n] of bodyCount) {
+      if (n > 1) {
+        fnSigs.delete(name);
+      }
+    }
+
+    for (const fn of fnBodies.values()) {
+      this.checkFunctionBody(fn, fnSigs);
+    }
+
+    this.checkRecursion(s, fnBodies);
+  }
+
+  // Qubic contracts must have statically bounded stacks: any call cycle among a struct's member
+  // functions (direct or mutual) is rejected. Edges are bare-name and this-> calls; calls through
+  // object expressions of other struct types are out of scope here.
+  private checkRecursion(s: StructDecl, fnBodies: Map<string, FunctionDecl>): void {
+    const edges = new Map<string, Set<string>>();
+    for (const [name, fn] of fnBodies) {
+      const callees = new Set<string>();
+      this.walkStatements(fn.body!, (stmt) => {
+        this.walkExpressions(stmt, (e) => {
+          if (e.kind === "call") {
+            if (e.callee.kind === "identifier" && fnBodies.has(e.callee.name)) {
+              callees.add(e.callee.name);
+            }
+            if (e.callee.kind === "member_access" && e.callee.object.kind === "identifier" &&
+                e.callee.object.name === "this" && fnBodies.has(e.callee.member)) {
+              callees.add(e.callee.member);
+            }
+          }
+        });
+      });
+      edges.set(name, callees);
+    }
+
+    const state = new Map<string, "visiting" | "done">();
+    const visit = (name: string, path: string[]): void => {
+      const st = state.get(name);
+      if (st === "done") {
+        return;
+      }
+      if (st === "visiting") {
+        const cycle = [...path.slice(path.indexOf(name)), name].join(" -> ");
+        this.error(`recursion is not allowed in a contract: ${cycle}`, fnBodies.get(name)?.span);
+        return;
+      }
+
+      state.set(name, "visiting");
+      for (const callee of edges.get(name) ?? []) {
+        visit(callee, [...path, name]);
+      }
+      state.set(name, "done");
+    };
+    for (const name of edges.keys()) {
+      visit(name, []);
+    }
+  }
+
+  // ---- Function bodies ----
+
+  private checkFunctionBody(fn: FunctionDecl, memberFns: Map<string, FnSig>): void {
+    this.currentFn = fn;
+    this.checkReturns(fn);
+
+    // Every local declared anywhere in the function, for classifying bare identifiers: names
+    // outside this set belong to members/parameters/constants and are codegen's to resolve.
+    const allLocals = new Set<string>();
+    this.walkStatements(fn.body!, (stmt) => {
+      if (stmt.kind === "declaration" && stmt.decl.kind === "variable" && !stmt.decl.isMember) {
+        allLocals.add(stmt.decl.name);
+      }
+    });
+
+    const constParams = new Set<string>();
+    for (const p of fn.params) {
+      if (isConstType(p.type)) {
+        constParams.add(p.name);
+      }
+    }
+
+    const scopes: Array<Map<string, { const: boolean }>> = [new Map()];
+    this.walkScope(fn.body!, fn, memberFns, allLocals, constParams, scopes);
+  }
+
+  private checkReturns(fn: FunctionDecl): void {
+    const isVoid = isVoidType(fn.returnType);
+    let valueReturns = 0;
+
+    this.walkStatements(fn.body!, (stmt) => {
+      if (stmt.kind !== "return") {
+        return;
+      }
+      if (stmt.value && isVoid) {
+        this.error(`void function '${fn.name}' cannot return a value`, stmt.span);
+      }
+      if (stmt.value) {
+        valueReturns++;
+      }
+    });
+
+    if (!isVoid && valueReturns === 0) {
+      this.error(`function '${fn.name}' must return a value`, fn.span);
+    }
+  }
+
+  // Ordered walk with a scope stack: declarations register in the innermost scope, identifier
+  // uses must resolve to an already-declared visible local (when the name is a local at all).
+  private walkScope(
+    stmt: Statement,
+    fn: FunctionDecl,
+    memberFns: Map<string, FnSig>,
+    allLocals: Set<string>,
+    constParams: Set<string>,
+    scopes: Array<Map<string, { const: boolean }>>,
+  ): void {
+    const recurse = (s: Statement) => this.walkScope(s, fn, memberFns, allLocals, constParams, scopes);
+    const inOwnScope = (s: Statement, extra?: () => void) => {
+      scopes.push(new Map());
+      if (extra) {
+        extra();
+      }
+      recurse(s);
+      scopes.pop();
+    };
+
+    switch (stmt.kind) {
+      case "compound":
+        // A multi-declarator statement (`uint64 x = 1, y = 3;`) is drained by the parser into a
+        // synthetic compound; it introduces no scope of its own.
+        if ((stmt as any).synthetic) {
+          for (const s of stmt.body) {
+            recurse(s);
+          }
+          break;
+        }
+
+        scopes.push(new Map());
+        for (const s of stmt.body) {
+          recurse(s);
+        }
+        scopes.pop();
+        break;
+
+      case "declaration":
+        this.checkDeclarationStatement(stmt, scopes);
+        if (stmt.decl.kind === "variable" && stmt.decl.init) {
+          this.checkExpression(stmt.decl.init, memberFns, allLocals, constParams, scopes);
+        }
+        break;
+
+      case "if":
+        this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
+        inOwnScope(stmt.then);
+        if (stmt.else_) {
+          inOwnScope(stmt.else_);
+        }
+        break;
+
+      case "for":
+        scopes.push(new Map());
+        if (stmt.init) {
+          recurse(stmt.init);
+        }
+        if (stmt.cond) {
+          this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
+        }
+        if (stmt.update) {
+          this.checkExpression(stmt.update, memberFns, allLocals, constParams, scopes);
+        }
+        inOwnScope(stmt.body);
+        scopes.pop();
+        break;
+
+      case "while":
+        this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
+        inOwnScope(stmt.body);
+        break;
+
+      case "do_while":
+        inOwnScope(stmt.body);
+        this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
+        break;
+
+      case "switch":
+        this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
+        this.checkSwitchCases(stmt.body);
+        inOwnScope(stmt.body);
+        break;
+
+      case "return":
+        if (stmt.value) {
+          this.checkExpression(stmt.value, memberFns, allLocals, constParams, scopes);
+        }
+        break;
+
+      case "expression":
+        this.checkExpression(stmt.expr, memberFns, allLocals, constParams, scopes);
+        break;
+    }
+  }
+
+  private checkDeclarationStatement(stmt: Statement & { kind: "declaration" }, scopes: Array<Map<string, { const: boolean }>>): void {
+    const d = stmt.decl;
+
+    if (d.kind === "function") {
+      if (d.body) {
+        this.error(`function '${d.name}' cannot be defined nested inside another function`, stmt.span);
+      }
+      return;
+    }
+    if (d.kind === "struct") {
+      this.checkStruct(d);
+      return;
+    }
+    if (d.kind !== "variable") {
+      return;
+    }
+
+    if (isVoidType(d.type)) {
+      this.error(`variable '${d.name}' cannot have type void`, stmt.span);
+    }
+    if (d.isStatic && !d.isConstexpr) {
+      this.error(`static local variable '${d.name}' is not allowed in a contract — its lifetime would outlive the call and bypass consensus state`, stmt.span);
+    }
+
+    const current = scopes[scopes.length - 1];
+    if (current.has(d.name)) {
+      this.error(`'${d.name}' is already declared in this scope`, stmt.span);
+    } else if (d.name !== "interContractCallError") {
+      // CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE declare
+      // `InterContractCallError interContractCallError;` at the call site, so nested calls
+      // shadow by design and each is read immediately — the shared slot is safe there.
+      for (let i = scopes.length - 2; i >= 0; i--) {
+        if (scopes[i].has(d.name)) {
+          this.error(`'${d.name}' shadows a declaration in an enclosing scope — locals share one slot per name, so shadowing is not supported`, stmt.span);
+          break;
+        }
+      }
+    }
+    current.set(d.name, { const: isConstType(d.type) });
+  }
+
+  private checkSwitchCases(body: Statement): void {
+    const keys = new Set<string>();
+
+    const scan = (s: Statement): void => {
+      switch (s.kind) {
+        case "case": {
+          const key = constKey(s.value);
+          if (key !== null) {
+            if (keys.has(key)) {
+              this.error(`duplicate case label`, s.span);
+            }
+            keys.add(key);
+          }
+          break;
+        }
+        case "compound":
+          for (const c of s.body) {
+            scan(c);
+          }
+          break;
+        case "if":
+          scan(s.then);
+          if (s.else_) {
+            scan(s.else_);
+          }
+          break;
+        case "for": case "while": case "do_while":
+          scan(s.body);
+          break;
+      }
+    };
+    scan(body);
+  }
+
+  // ---- Expressions ----
+
+  private checkExpression(
+    root: Expression,
+    memberFns: Map<string, FnSig>,
+    allLocals: Set<string>,
+    constParams: Set<string>,
+    scopes: Array<Map<string, { const: boolean }>>,
+  ): void {
+    const lookup = (name: string): { const: boolean } | null => {
+      for (let i = scopes.length - 1; i >= 0; i--) {
+        const hit = scopes[i].get(name);
+        if (hit) {
+          return hit;
+        }
+      }
+      return null;
+    };
+
+    const walk = (e: Expression): void => {
+      switch (e.kind) {
+        case "identifier":
+          if (allLocals.has(e.name) && !lookup(e.name)) {
+            this.error(`'${e.name}' is used before its declaration (or outside the scope that declares it)`, e.span);
+          }
+          break;
+
+        case "assign": {
+          this.checkAssignTarget(e.left, constParams, lookup);
+          walk(e.left);
+          walk(e.right);
+          break;
+        }
+
+        case "prefix_op": case "postfix_op":
+          this.checkAssignTarget(e.arg, constParams, lookup);
+          walk(e.arg);
+          break;
+
+        case "unary_op":
+          if (e.op === "&" && isLiteral(e.arg)) {
+            this.error(`cannot take the address of a literal`, e.span);
+          }
+          walk(e.arg);
+          break;
+
+        case "binary_op":
+          if ((e.op === "/" || e.op === "%") && isZeroLiteral(e.right)) {
+            this.error(`constant division by zero`, e.span);
+          }
+          walk(e.left);
+          walk(e.right);
+          break;
+
+        case "call": {
+          const name = e.callee.kind === "identifier" ? e.callee.name
+            : e.callee.kind === "member_access" && e.callee.object.kind === "identifier" && e.callee.object.name === "this" ? e.callee.member
+            : null;
+          const sig = name !== null && !lookup(name) && !allLocals.has(name) ? memberFns.get(name) : undefined;
+          if (sig) {
+            // Native rejects a bare non-static member call from a static context (every
+            // macro-generated entry body is static) — accepting it would compile contracts
+            // that cannot build on the real node toolchain.
+            if (this.currentFn?.isStatic && !sig.decl.isStatic) {
+              this.error(`cannot call non-static member function '${name}' from a static context — declare it static`, e.span);
+            }
+            if (e.args.length < sig.minArgs || e.args.length > sig.maxArgs) {
+              const want = sig.minArgs === sig.maxArgs ? `${sig.maxArgs}` : `${sig.minArgs}..${sig.maxArgs}`;
+              this.error(`'${name}' expects ${want} argument(s) but got ${e.args.length}`, e.span);
+            } else {
+              // Desugar defaults: append the declaration's default expressions so codegen emits
+              // the full argument list (C++ evaluates defaults at the call site).
+              for (let i = e.args.length; i < sig.maxArgs; i++) {
+                e.args.push(sig.decl.params[i].defaultValue!);
+              }
+            }
+          }
+          if (e.callee.kind !== "identifier") {
+            walk(e.callee);
+          }
+          for (const a of e.args) {
+            walk(a);
+          }
+          break;
+        }
+
+        case "template_call":
+          for (const a of e.args) {
+            walk(a);
+          }
+          break;
+
+        case "member_access":
+          walk(e.object);
+          break;
+        case "subscript":
+          walk(e.object);
+          walk(e.index);
+          break;
+        case "ternary":
+          walk(e.cond);
+          walk(e.then);
+          walk(e.else_);
+          break;
+        case "sequence":
+          for (const x of e.exprs) {
+            walk(x);
+          }
+          break;
+        case "c_cast": case "static_cast": case "reinterpret_cast":
+          walk(e.expr);
+          break;
+        case "construct": case "initializer_list":
+          for (const x of (e as any).args ?? (e as any).exprs ?? []) {
+            walk(x);
+          }
+          break;
+        case "sizeof_expr":
+          walk(e.expr);
+          break;
+      }
+    };
+    walk(root);
+  }
+
+  // The root of an assignment target must be mutable: a get() accessor result is a read-only
+  // view (writing through it verifiably lands on live state in our lowering — never allow it),
+  // and const locals/params reject writes like native.
+  private checkAssignTarget(
+    target: Expression,
+    constParams: Set<string>,
+    lookup: (name: string) => { const: boolean } | null,
+  ): void {
+    let root = target;
+    while (root.kind === "member_access" || root.kind === "subscript") {
+      root = root.kind === "member_access" ? root.object : root.object;
+    }
+
+    if (root.kind === "call" && root.callee.kind === "member_access" && root.callee.member === "get") {
+      this.error(`cannot modify through get(): it returns a read-only view — use mut()`, target.span);
+      return;
+    }
+
+    if (root.kind === "identifier") {
+      const local = lookup(root.name);
+      if (local?.const) {
+        this.error(`cannot assign to const '${root.name}'`, target.span);
+      } else if (!local && constParams.has(root.name)) {
+        this.error(`cannot assign to const parameter '${root.name}'`, target.span);
+      }
+    }
+  }
+
+  // ---- Generic walkers ----
+
+  private walkStatements(stmt: Statement, visit: (s: Statement) => void): void {
+    visit(stmt);
+
+    switch (stmt.kind) {
+      case "compound":
+        for (const s of stmt.body) {
+          this.walkStatements(s, visit);
+        }
+        break;
+      case "if":
+        this.walkStatements(stmt.then, visit);
+        if (stmt.else_) {
+          this.walkStatements(stmt.else_, visit);
+        }
+        break;
+      case "for":
+        if (stmt.init) {
+          this.walkStatements(stmt.init, visit);
+        }
+        this.walkStatements(stmt.body, visit);
+        break;
+      case "while": case "do_while": case "switch":
+        this.walkStatements(stmt.body, visit);
+        break;
+    }
+  }
+
+  private walkExpressions(stmt: Statement, visit: (e: Expression) => void): void {
+    const walkE = (e: Expression): void => {
+      visit(e);
+      switch (e.kind) {
+        case "assign": case "binary_op":
+          walkE(e.left);
+          walkE(e.right);
+          break;
+        case "unary_op":
+          walkE(e.arg);
+          break;
+        case "prefix_op": case "postfix_op":
+          walkE(e.arg);
+          break;
+        case "ternary":
+          walkE(e.cond);
+          walkE(e.then);
+          walkE(e.else_);
+          break;
+        case "member_access":
+          walkE(e.object);
+          break;
+        case "subscript":
+          walkE(e.object);
+          walkE(e.index);
+          break;
+        case "call":
+          walkE(e.callee);
+          for (const a of e.args) {
+            walkE(a);
+          }
+          break;
+        case "template_call":
+          for (const a of e.args) {
+            walkE(a);
+          }
+          break;
+        case "sequence":
+          for (const x of e.exprs) {
+            walkE(x);
+          }
+          break;
+        case "c_cast": case "static_cast": case "reinterpret_cast":
+          walkE(e.expr);
+          break;
+        case "construct": case "initializer_list":
+          for (const x of (e as any).args ?? (e as any).exprs ?? []) {
+            walkE(x);
+          }
+          break;
+        case "sizeof_expr":
+          walkE(e.expr);
+          break;
+      }
+    };
+
+    switch (stmt.kind) {
+      case "expression":
+        walkE(stmt.expr);
+        break;
+      case "declaration":
+        if (stmt.decl.kind === "variable" && stmt.decl.init) {
+          walkE(stmt.decl.init);
+        }
+        break;
+      case "if":
+        walkE(stmt.cond);
+        break;
+      case "for":
+        if (stmt.cond) {
+          walkE(stmt.cond);
+        }
+        if (stmt.update) {
+          walkE(stmt.update);
+        }
+        break;
+      case "while": case "do_while": case "switch":
+        walkE(stmt.cond);
+        break;
+      case "return":
+        if (stmt.value) {
+          walkE(stmt.value);
+        }
+        break;
+      case "case":
+        walkE(stmt.value);
+        break;
+    }
+  }
+}

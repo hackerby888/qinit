@@ -13,6 +13,7 @@ import { Preprocessor, type PreprocessOpts, type MacroDef } from "./preprocess";
 import { Parser } from "./parser";
 import type { Diagnostic as ParserDiagnostic } from "./parser";
 import { Sema } from "./sema";
+import { validateAndDesugar } from "./validate";
 import { generateWasmModule, buildLibTypes, type LibTypes } from "./codegen";
 import { QPI_STUB } from "./qpi-stub";
 import { SCAFFOLD_MACROS } from "./qpi-scaffold";
@@ -237,6 +238,19 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   const userDiags = parser.getDiagnostics().filter((d) => d.span.line >= boundaryLine);
   diagnostics.push(...userDiags);
 
+  if (diagnostics.some((d) => d.severity === "error")) {
+    return {
+      wasm: new Uint8Array(0),
+      diagnostics,
+      idl: { name: opts.name, slot: opts.slot, functions: [], procedures: [], stateSize: 0, sysprocMask: 0 },
+    };
+  }
+
+  // Semantic validation (+ default-argument desugar). Diagnostics before the user boundary are
+  // seeded-library noise, same as the parser's.
+  await phase("validating");
+  const vdiags = validateAndDesugar(tu).filter((d) => d.span.line >= boundaryLine);
+  diagnostics.push(...vdiags);
   if (diagnostics.some((d) => d.severity === "error")) {
     return {
       wasm: new Uint8Array(0),
