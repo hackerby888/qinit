@@ -20,14 +20,14 @@ export interface CodegenWarning {
   line: number;
 }
 
-interface FieldLayout {
+export interface FieldLayout {
   name: string;
   offset: number;
   size: number;
   type: TypeSpec;
 }
 
-interface StructLayout {
+export interface StructLayout {
   size: number;
   align: number;
   fields: Map<string, FieldLayout>;
@@ -99,7 +99,7 @@ const C_SCALAR_NAMES = new Set([
   "int", "unsigned", "signed", "long", "short", "char", "size_t", "unsigned long", "long int",
 ]);
 
-interface Bindings {
+export interface Bindings {
   types: Map<string, TypeSpec>;
   values: Map<string, bigint>;
   structs: Map<string, StructDecl>;   // nested structs visible in the current layout scope (e.g. HashMap::Element)
@@ -115,7 +115,7 @@ export interface CalleeIdl {
   procedures: Record<string, { inputType: number; inSize: number; outSize: number }>;
 }
 
-class Codegen {
+export class Codegen {
   private sema: Sema;
   private nested: Map<string, StructDecl> = new Map();          // contract-local nested structs
   templates: Map<string, ClassTemplate> = new Map();            // qpi.h templates (HashMap, Array, ...)
