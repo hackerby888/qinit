@@ -44,6 +44,8 @@ const SYSPROC_IMPL: Record<string, number> = {
   __impl_postReleaseShares: 7,
   __impl_postAcquireShares: 8,
   __impl_postIncomingTransfer: 9,
+  __impl_setShareholderProposal: 10,
+  __impl_setShareholderVotes: 11,
 };
 
 // The scaffold renames a lifecycle procedure to its __impl_* name, but its locals struct keeps the macro
@@ -59,17 +61,24 @@ const SYSPROC_LOCALS_PREFIX: Record<string, string> = {
   __impl_postReleaseShares: "POST_RELEASE_SHARES",
   __impl_postAcquireShares: "POST_ACQUIRE_SHARES",
   __impl_postIncomingTransfer: "POST_INCOMING_TRANSFER",
+  __impl_setShareholderProposal: "SET_SHAREHOLDER_PROPOSAL",
+  __impl_setShareholderVotes: "SET_SHAREHOLDER_VOTES",
 };
 
 // Share-transfer / incoming-transfer hooks carry real input (and, for the pre-* pair, output) structs —
 // unlike the lifecycle procedures which are NoData both ways. The structs are qpi.h globals, so size them
 // via layoutOfType (globalStructs), not the nested-only layoutFor.
-const SYSPROC_IO: Record<string, { in?: string; out?: string }> = {
+const SYSPROC_IO: Record<string, { in?: string; out?: string; typedIO?: boolean }> = {
   __impl_preReleaseShares: { in: "PreManagementRightsTransfer_input", out: "PreManagementRightsTransfer_output" },
   __impl_preAcquireShares: { in: "PreManagementRightsTransfer_input", out: "PreManagementRightsTransfer_output" },
   __impl_postReleaseShares: { in: "PostManagementRightsTransfer_input" },
   __impl_postAcquireShares: { in: "PostManagementRightsTransfer_input" },
   __impl_postIncomingTransfer: { in: "PostIncomingTransfer_input" },
+  // The shareholder-governance hooks' io are typedefs to a container (Array<uint8,1024>) and scalars
+  // (uint16 / bit) rather than field structs, so input/output need typed param aliases in the body
+  // (container dispatch and bare scalar assignment both resolve through the alias type).
+  __impl_setShareholderProposal: { in: "SET_SHAREHOLDER_PROPOSAL_input", out: "SET_SHAREHOLDER_PROPOSAL_output", typedIO: true },
+  __impl_setShareholderVotes: { in: "SET_SHAREHOLDER_VOTES_input", out: "SET_SHAREHOLDER_VOTES_output", typedIO: true },
 };
 
 // Builtin scalar sizes
@@ -1155,17 +1164,25 @@ class Codegen {
     return undefined;
   }
 
-  // `Head::Nested[::Deeper]` where Head is a template-parameter binding or typedef naming a struct
-  // (`typename OracleInterface::OracleReply` with OracleInterface → OI::Price): resolve the head
-  // struct, then walk the remaining segments through its nested structs/typedefs to the member type.
+  // `Head::Nested[::Deeper]` where Head is a template-parameter binding, a typedef, or a (possibly
+  // namespace-qualified) struct name (`typename OracleInterface::OracleReply` with OracleInterface →
+  // OI::Price, or the spelled-out `OI::Mock::OracleQuery`): resolve the head struct at each possible
+  // split point, then walk the remaining segments through its nested structs/typedefs to the member type.
   qualifiedNestedType(name: string, b: Bindings): TypeSpec | null {
-    const sep = name.indexOf("::");
-    if (sep <= 0) return null;
-    const headT = b.types.get(name.slice(0, sep)) ?? this.typedefs.get(name.slice(0, sep));
-    if (!headT) return null;
+    for (let sep = name.indexOf("::"); sep > 0; sep = name.indexOf("::", sep + 2)) {
+      const head = name.slice(0, sep);
+      const headT = b.types.get(head) ?? this.typedefs.get(head);
+      let sd = headT ? this.structOf(headT, b) : this.structByName(head, b) ?? null;
+      if (!sd) continue;
 
-    let sd = this.structOf(headT, b);
-    const segs = name.slice(sep + 2).split("::");
+      const segs = name.slice(sep + 2).split("::");
+      const walked = this.walkNestedSegments(sd, segs, b);
+      if (walked) return walked;
+    }
+    return null;
+  }
+
+  private walkNestedSegments(sd: StructDecl | null, segs: string[], b: Bindings): TypeSpec | null {
     for (let i = 0; i < segs.length; i++) {
       if (!sd) return null;
       const seg = segs[i];
@@ -1598,7 +1615,7 @@ export function generateWasmModule(
     if (m.kind !== "function") continue;
     const fn = m as FunctionDecl;
     if (!fn.body) continue;
-    if (entryNames.has(fn.name) || SYSPROC_IMPL[fn.name] !== undefined) continue;
+    if (entryNames.has(fn.name) || SYSPROC_IMPL[fn.name] !== undefined || fn.name === "__impl_migrate") continue;
     if (fn.name === "__registerUserFunctionsAndProcedures" || fn.name.includes("operator") || fn.name === contract.name) continue;
 
     if (fn.params[0]?.name === "qpi") {
@@ -1677,7 +1694,10 @@ export function generateWasmModule(
   const layoutFor = (name: string) => resolveIO(name);
   const layoutOfNamed = (name?: string) => {
     if (!name) return empty;
-    return cg.layoutOfType({ kind: "name", name }) ?? empty;
+    const lt = cg.layoutOfType({ kind: "name", name });
+    if (lt) return lt;
+    const sz = cg.sizeOfType({ kind: "name", name });
+    return sz > 0 ? { size: sz, align: Math.min(sz, 8), fields: new Map() } : empty;
   };
 
   // system procedures. Lifecycle procedures take no input/output but CAN declare locals (the
@@ -1697,10 +1717,40 @@ export function generateWasmModule(
         const io = SYSPROC_IO[fn.name];
         const inLayout = layoutOfNamed(io?.in);
         const outLayout = layoutOfNamed(io?.out);
-        userFns.push(emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout));
+        // typedIO hooks: bind input/output to their typedef targets so container methods (Array.get)
+        // and bare scalar output assignment resolve through the alias instead of the raw io region.
+        let aliases: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }> | undefined;
+        if (io?.typedIO) {
+          aliases = new Map();
+          const bindIO = (pname: string, ioName: string | undefined, slot: string) => {
+            if (!ioName) return;
+            const t = cg.typedefs.get(ioName) ?? { kind: "name", name: ioName } as TypeSpec;
+            aliases!.set(pname, { wasmType: "i32", isAddr: true, local: slot, type: t });
+          };
+          bindIO("input", io.in, "in");
+          bindIO("output", io.out, "out");
+        }
+        userFns.push(emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout, aliases));
         sysprocs.push({ id: spId, localsSize: localsLayout.size, inSize: inLayout.size, outSize: outLayout.size, label });
       }
     }
+  }
+
+  // MIGRATE() — __impl_migrate(qpi, state, const OldStateData& oldState, MIGRATE_locals& locals) rides
+  // the entry ABI with the old-state blob in the $in slot (lite_wasm_tu.h kind-3 dispatch). The oldState
+  // parameter is aliased onto $in with its nested-struct type so field reads resolve; the metadata sizes
+  // drive the engine's redeploy decision (has_migrate / migrate_old_state_size / migrate_locals_size).
+  let migrate: ModuleSpec["migrate"];
+  const migrateFn = findMemberFn(contract, "__impl_migrate");
+  if (migrateFn?.body) {
+    const oldLayout = resolveIO("OldStateData");
+    const localsLayout = resolveIO("MIGRATE_locals");
+    const aliases = new Map([["oldState", {
+      wasmType: "i32" as const, isAddr: true, local: "in",
+      type: { kind: "name", name: "OldStateData" } as TypeSpec,
+    }]]);
+    userFns.push(emitFunction(cg, "$migrate", migrateFn, stateLayout, oldLayout, empty, localsLayout, aliases));
+    migrate = { label: "$migrate", oldStateSize: oldLayout.size, localsSize: localsLayout.size };
   }
 
   // PRIVATE_ functions share the entry (ctx,state,in,out,locals) shape — emit them with emitFunction.
@@ -1722,6 +1772,7 @@ export function generateWasmModule(
     entries,
     sysprocs,
     userFunctionsWat: userFns.join("\n"),
+    migrate,
     memBase,
   };
 
@@ -1863,8 +1914,9 @@ function emitFunction(
   inL: StructLayout,
   outL: StructLayout,
   localsL: StructLayout,
+  paramAliases?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }>,
 ): string {
-  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0, hasStateParam: true };
+  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0, hasStateParam: true, params: paramAliases };
 
   // Pre-scan for local variable declarations (must be declared at function top in WAT)
   if (fn?.body) collectLocals(fn.body, ctx);
@@ -3376,10 +3428,15 @@ function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
         const m = emitMathCallIr(ctx, name, expr.args);
         if (m !== null) return m;
       }
-      if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi"
-        && (expr.callee.member === "__qpiQueryOracle" || expr.callee.member === "__qpiSubscribeOracle")) {
-        const o = emitOracleQueryCall(ctx, expr);
-        if (o !== null) return ir.raw(o, "i64", "unconverted: oracle call");
+      if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
+        if (expr.callee.member === "__qpiQueryOracle" || expr.callee.member === "__qpiSubscribeOracle") {
+          const o = emitOracleQueryCall(ctx, expr);
+          if (o !== null) return ir.raw(o, "i64", "unconverted: oracle call");
+        }
+        if (expr.callee.member === "getOracleQuery" || expr.callee.member === "getOracleReply") {
+          const o = emitOracleReadCall(ctx, expr);
+          if (o !== null) return o;
+        }
       }
       ctx.cg.warn(`unsupported template_call '${expr.callee.kind === "identifier" ? expr.callee.name : "?"}' as value`, expr.span.line);
       return ir.i64c(0);
@@ -3938,6 +3995,11 @@ const QPI_CALLS: Record<string, QpiCallDesc> = {
   ipoBidId: { fwd: "$qpi_ipoBidId", args: ["i32", "i32"], ret: "out" },
   unsubscribeOracle: { fwd: "$qpi_unsubscribeOracle", args: ["i32"], ret: "i32" },
   getOracleQueryStatus: { fwd: "$qpi_getOracleQueryStatus", args: ["i64"], ret: "i32" },
+  signatureValidity: { fwd: "$qpi_signatureValidity", args: ["addr", "addr", "addr"], ret: "i32" },
+  computeMiningFunction: { fwd: "$qpi_computeMiningFunction", args: ["addr", "addr", "addr"], ret: "out" },
+  initMiningSeed: { fwd: "$qpi_initMiningSeed", args: ["addr"], ret: "void" },
+  setShareholderProposal: { fwd: "$lh_liteSetShareholderProposal", args: ["i32", "addr", "i64"], ret: "i32" },
+  setShareholderVotes: { fwd: "$lh_liteSetShareholderVotes", args: ["i32", "sized", "i64"], ret: "i32" },
 };
 
 // Map a single qpi argument to a forwarder operand by its declared kind.
@@ -4381,11 +4443,31 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
   // is an lvalue resolved by resolveContainerElem so element(i).field chains (return null to fall
   // through to that path).
   if (node.type.name === "Collection" || node.type.name === "LinkedList") {
-    // cleanup compacts the backing arrays after many removals (a scratchpad BST rebuild using
-    // reinterpret_cast/_tzcnt) — a no-op here, as with HashMap: lookups/iteration stay correct on the
-    // uncompacted store, just slower.
-    if ((member === "cleanup" || member === "cleanupIfNeeded") && !valueWanted) return "";
-    if (member === "needsCleanup" && valueWanted) return "(i64.const 0)";
+    // Collection cleanup family: pov-table compaction + threshold checks over the mark-removal
+    // counter. The native body leans on _tzcnt_u64/_lzcnt_u64 and goto, so it is hand-written in
+    // the framework ($coll_cleanup) instead of compiled; the geometry (flag/element/population
+    // offsets and the Element stride) comes from the parsed layout. LinkedList has no cleanup API.
+    if (node.type.name === "Collection" && (member === "cleanup" || member === "cleanupIfNeeded" || member === "needsCleanup")) {
+      const lay = ctx.cg.containerLayout("Collection", node.type.args);
+      const ci = ctx.cg.collectionInfo(node.type.args);
+      const flagsF = lay.fields.get("_povOccupationFlags");
+      const elemsF = lay.fields.get("_elements");
+      const popF = lay.fields.get("_population");
+      if (ci && flagsF && elemsF && popF) {
+        const threshold = () => expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(50);
+        if (member === "cleanup" && !valueWanted) {
+          ctx.lines.push(`    ${ir.emit(ir.call("$coll_cleanup", addrIr(map), ir.i32c(ci.L), ir.i32c(flagsF.offset), ir.i32c(elemsF.offset), ir.i32c(ci.stride), ir.i32c(popF.offset)))}`);
+          return "";
+        }
+        if (member === "cleanupIfNeeded" && !valueWanted) {
+          ctx.lines.push(`    ${ir.emit(ir.call("$coll_cleanup_if", addrIr(map), ir.i32c(ci.L), ir.i32c(flagsF.offset), ir.i32c(elemsF.offset), ir.i32c(ci.stride), ir.i32c(popF.offset), threshold()))}`);
+          return "";
+        }
+        if (member === "needsCleanup" && valueWanted) {
+          return ir.emit(ir.call("$hm_needs_cleanup", addrIr(map), ir.i32c(ci.L), ir.i32c(popF.offset), threshold()));
+        }
+      }
+    }
     if ((member === "element" || member === "pov") && valueWanted) {
       const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
       return c && c.cm.retKind === "i64" ? c.call : null;
@@ -5195,6 +5277,26 @@ function emitOracleQueryCall(ctx: FnCtx, expr: Expression & { kind: "template_ca
   }
   const timeout = `(i32.wrap_i64 ${emitValue(ctx, expr.args[3])})`;
   return `(call $lh_queryOracle (i32.const ${iface}) ${qAddr} (i32.const ${qSize}) (i32.const ${procId}) ${timeout} ${fee})`;
+}
+
+// qpi.getOracleQuery<OI>(queryId, query) / qpi.getOracleReply<OI>(queryId, reply): the host copies
+// sizeof(OI::OracleQuery / OI::OracleReply) bytes into the out lvalue and reports whether the queryId
+// matched — lite_wasm_tu.h's lh_getOracleQuery(queryId, &out, sizeof(...)) != 0. The size comes from
+// the template argument's nested struct, like the native sizeof, not from the passed lvalue.
+function emitOracleReadCall(ctx: FnCtx, expr: Expression & { kind: "template_call" }): ir.Ir | null {
+  const reply = expr.callee.kind === "member_access" && expr.callee.member === "getOracleReply";
+  const t = expr.templateArgs[0];
+  if (!t || t.kind !== "name") return null;
+
+  const sd = ctx.cg.structOf(t, ctx.thisBind ?? NO_BIND);
+  const m = sd?.members.find((x): x is StructDecl => x.kind === "struct" && x.name === (reply ? "OracleReply" : "OracleQuery"));
+  const size = m ? ctx.cg.layoutOfType({ kind: "inline_struct", struct: m })?.size : undefined;
+  const outAddr = expr.args[1] ? emitAddr(ctx, expr.args[1]) : null;
+  if (!size || !outAddr) return null;
+
+  const qid = emitValueIr(ctx, expr.args[0]);
+  return ir.op("i64.extend_i32_u",
+    ir.call(reply ? "$lh_getOracleReply" : "$lh_getOracleQuery", qid, addrIr(outAddr), ir.i32c(size)));
 }
 
 function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {

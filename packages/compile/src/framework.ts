@@ -46,7 +46,7 @@ export interface ModuleSpec {
   entries: UserEntry[];
   sysprocs: SysProcInfo[];
   userFunctionsWat: string;   // the $user_N / $sys_N function definitions
-  hasMigrate?: boolean;
+  migrate?: { label: string; oldStateSize: number; localsSize: number };  // MIGRATE() metadata + dispatch target
   memBase?: number;           // shared-memory gtest mode: import env.memory and place the whole layout at
                               // this byte offset inside the provider's (corpus runner's) memory. Every
                               // address in the module is layout-global-relative, so shifting the bases in
@@ -582,6 +582,92 @@ function emitIntrinsics(): string {
     (if (i32.wrap_i64 (call $hm_needs_cleanup (local.get $map) (local.get $L) (local.get $popOff) (local.get $threshold)))
       (then (call $hm_cleanup (local.get $map) (local.get $L) (local.get $elemSize) (local.get $keySize) (local.get $occBase) (local.get $popOff) (local.get $hashMode) (local.get $totalSize)))))
 
+  ;; Collection cleanup() — rebuild the pov hash table without marked-for-removal slots, mirroring the
+  ;; native rehash (qpi_collection_impl.h): visit old pov slots in index order, reinsert flag-0b01 povs
+  ;; by linear probe from value.u64._0 & (L-1) into zeroed scratch pov/flag buffers, rewrite
+  ;; element.povIndex across the BST of every pov that changed slot, copy povs+flags back once every
+  ;; element's pov has been transferred, and clear the mark counter. population()==0 soft-resets: pov
+  ;; table + flags zeroed and counters cleared, the elements array keeps its bytes (_softReset).
+  ;; PoV records are 64 bytes ({id value; u64 population @32; head/tail; bstRootIndex @56}); an Element
+  ;; ends with the four indices, so povIndex/bstLeft/bstRight sit at elemSize-32/-16/-8.
+  (func $coll_cleanup (param $map i32) (param $L i32) (param $flagsBase i32) (param $elemsBase i32) (param $elemSize i32) (param $popOff i32)
+    (local $mrcAddr i32) (local $pop i64) (local $scratch i32) (local $stack i32) (local $newPop i64)
+    (local $old i32) (local $ni i32) (local $j i32) (local $word i32) (local $oldPov i32)
+    (local $sp i32) (local $ea i32) (local $child i64)
+    (local.set $mrcAddr (i32.add (local.get $map) (i32.add (local.get $popOff) (i32.const 8))))
+    (if (i64.eqz (i64.load (local.get $mrcAddr))) (then (return)))
+
+    (local.set $pop (i64.load (i32.add (local.get $map) (local.get $popOff))))
+    (if (i64.eqz (local.get $pop)) (then
+      (call $setMem (local.get $map) (local.get $elemsBase) (i32.const 0))
+      (i64.store (i32.add (local.get $map) (local.get $popOff)) (i64.const 0))
+      (i64.store (local.get $mrcAddr) (i64.const 0))
+      (return)))
+
+    ;; scratch: [povs+flags, elemsBase bytes — same layout as the collection head][BST stack pop*8]
+    (local.set $scratch (call $acquireScratchpad
+      (i64.add (i64.extend_i32_u (local.get $elemsBase)) (i64.mul (local.get $pop) (i64.const 8)))
+      (i32.const 1)))
+    (local.set $stack (i32.add (local.get $scratch) (local.get $elemsBase)))
+
+    (block $done
+      (loop $olds
+        (br_if $done (i32.ge_u (local.get $old) (local.get $L)))
+        (if (i32.eq (call $hm_flag (i32.add (local.get $map) (local.get $flagsBase)) (local.get $old)) (i32.const 1)) (then
+          (local.set $oldPov (i32.add (local.get $map) (i32.mul (local.get $old) (i32.const 64))))
+
+          ;; linear probe from the pov id's home slot for the first empty scratch slot
+          (local.set $ni (i32.and (i32.wrap_i64 (i64.load (local.get $oldPov))) (i32.sub (local.get $L) (i32.const 1))))
+          (local.set $j (i32.const 0))
+          (block $found
+            (loop $probe
+              (br_if $found (i32.eqz (call $hm_flag (i32.add (local.get $scratch) (local.get $flagsBase)) (local.get $ni))))
+              (local.set $ni (i32.and (i32.add (local.get $ni) (i32.const 1)) (i32.sub (local.get $L) (i32.const 1))))
+              (local.set $j (i32.add (local.get $j) (i32.const 1)))
+              (br_if $found (i32.ge_u (local.get $j) (local.get $L)))
+              (br $probe)))
+
+          ;; mark the scratch slot occupied (flag 0b01) and copy the 64-byte PoV record
+          (local.set $word (i32.add (i32.add (local.get $scratch) (local.get $flagsBase)) (i32.mul (i32.shr_u (local.get $ni) (i32.const 5)) (i32.const 8))))
+          (i64.store (local.get $word) (i64.or (i64.load (local.get $word))
+            (i64.shl (i64.const 1) (i64.extend_i32_u (i32.shl (i32.and (local.get $ni) (i32.const 31)) (i32.const 1))))))
+          (call $copyMem (i32.add (local.get $scratch) (i32.mul (local.get $ni) (i32.const 64))) (local.get $oldPov) (i32.const 64))
+
+          ;; pov changed slot: rewrite element.povIndex across its BST (iterative, scratch stack)
+          (if (i32.ne (local.get $ni) (local.get $old)) (then
+            (i64.store (local.get $stack) (i64.load (i32.add (local.get $oldPov) (i32.const 56))))
+            (local.set $sp (i32.const 1))
+            (block $walkDone
+              (loop $walk
+                (br_if $walkDone (i32.eqz (local.get $sp)))
+                (local.set $sp (i32.sub (local.get $sp) (i32.const 1)))
+                (local.set $ea (i32.add (i32.add (local.get $map) (local.get $elemsBase))
+                  (i32.mul (i32.wrap_i64 (i64.load (i32.add (local.get $stack) (i32.mul (local.get $sp) (i32.const 8))))) (local.get $elemSize))))
+                (i64.store (i32.sub (i32.add (local.get $ea) (local.get $elemSize)) (i32.const 32)) (i64.extend_i32_u (local.get $ni)))
+                (local.set $child (i64.load (i32.sub (i32.add (local.get $ea) (local.get $elemSize)) (i32.const 16))))
+                (if (i64.ne (local.get $child) (i64.const -1)) (then
+                  (i64.store (i32.add (local.get $stack) (i32.mul (local.get $sp) (i32.const 8))) (local.get $child))
+                  (local.set $sp (i32.add (local.get $sp) (i32.const 1)))))
+                (local.set $child (i64.load (i32.sub (i32.add (local.get $ea) (local.get $elemSize)) (i32.const 8))))
+                (if (i64.ne (local.get $child) (i64.const -1)) (then
+                  (i64.store (i32.add (local.get $stack) (i32.mul (local.get $sp) (i32.const 8))) (local.get $child))
+                  (local.set $sp (i32.add (local.get $sp) (i32.const 1)))))
+                (br $walk)))))
+
+          ;; done once every element's pov has been transferred
+          (local.set $newPop (i64.add (local.get $newPop) (i64.load (i32.add (local.get $oldPov) (i32.const 32)))))
+          (if (i64.eq (local.get $newPop) (local.get $pop)) (then
+            (call $copyMem (local.get $map) (local.get $scratch) (local.get $elemsBase))
+            (i64.store (local.get $mrcAddr) (i64.const 0))
+            (return)))))
+        (local.set $old (i32.add (local.get $old) (i32.const 1)))
+        (br $olds))))
+
+  ;; Collection cleanupIfNeeded(threshold%) — the threshold formula matches HashMap's ($hm_needs_cleanup)
+  (func $coll_cleanup_if (param $map i32) (param $L i32) (param $flagsBase i32) (param $elemsBase i32) (param $elemSize i32) (param $popOff i32) (param $threshold i64)
+    (if (i32.wrap_i64 (call $hm_needs_cleanup (local.get $map) (local.get $L) (local.get $popOff) (local.get $threshold)))
+      (then (call $coll_cleanup (local.get $map) (local.get $L) (local.get $flagsBase) (local.get $elemsBase) (local.get $elemSize) (local.get $popOff)))))
+
   ;; QPI safe math: div/mod return 0 on a zero divisor; min/max/abs evaluate each arg once.
   (func $m_div_s (param $a i64) (param $b i64) (result i64)
     (if (result i64) (i64.eqz (local.get $b)) (then (i64.const 0)) (else (i64.div_s (local.get $a) (local.get $b)))))
@@ -834,9 +920,9 @@ function emitMetadata(L: Layout, spec: ModuleSpec, sysprocMask: number): string 
   lines.push(emitSysSwitch(spec.sysprocs, (sp) => sp.outSize));
   lines.push(`    (i32.const 0))`);
 
-  lines.push(`  (func $has_migrate (result i32) (i32.const ${spec.hasMigrate ? 1 : 0}))`);
-  lines.push(`  (func $migrate_old_state_size (result i32) (i32.const 0))`);
-  lines.push(`  (func $migrate_locals_size (result i32) (i32.const 0))`);
+  lines.push(`  (func $has_migrate (result i32) (i32.const ${spec.migrate ? 1 : 0}))`);
+  lines.push(`  (func $migrate_old_state_size (result i32) (i32.const ${spec.migrate?.oldStateSize ?? 0}))`);
+  lines.push(`  (func $migrate_locals_size (result i32) (i32.const ${spec.migrate?.localsSize ?? 0}))`);
 
   return lines.join("\n");
 }
@@ -869,12 +955,20 @@ function emitDispatch(spec: ModuleSpec): string {
     lines.push("    (if (i32.eq (local.get $kind) (i32.const 2)) (then (return)))");
   }
 
-  // kind == 3: migrate (not yet supported) — no-op
-  lines.push("    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return)))");
+  // kind == 3: MIGRATE — inOff carries the old-state blob, outOff is unused (lite_wasm_tu.h dispatch)
+  if (spec.migrate) {
+    lines.push("    (if (i32.eq (local.get $kind) (i32.const 3)) (then");
+    lines.push(`      (call ${spec.migrate.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`);
+    lines.push("      (return)))");
+  } else {
+    lines.push("    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return)))");
+  }
 
-  // kind 0/1: user functions/procedures
+  // kind 0/1: user functions/procedures. The incoming it is masked to 16 bits like the native dispatch
+  // ((unsigned short)it, lite_wasm_tu.h) — a notification procedureId carries the contract slot above
+  // bit 22 and must still match its low-16 registration.
   for (const e of spec.entries) {
-    lines.push(`    (if (i32.and (i32.eq (local.get $it) (i32.const ${e.inputType})) (i32.eq (local.get $kind) (i32.const ${e.kind}))) (then`);
+    lines.push(`    (if (i32.and (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${e.inputType})) (i32.eq (local.get $kind) (i32.const ${e.kind}))) (then`);
     lines.push(`      (call ${e.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`);
     lines.push(`      (return)))`);
   }

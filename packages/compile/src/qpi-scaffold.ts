@@ -45,6 +45,11 @@ export const SCAFFOLD_MACROS = `
 #undef SET_SHAREHOLDER_PROPOSAL_WITH_LOCALS
 #undef SET_SHAREHOLDER_VOTES_WITH_LOCALS
 #undef EXPAND
+#undef MIGRATE
+#undef MIGRATE_WITH_LOCALS
+
+#define MIGRATE() typedef NoData MIGRATE_locals; static void __impl_migrate(const QpiContextFunctionCall& qpi, void* state, const OldStateData& oldState, MIGRATE_locals& locals)
+#define MIGRATE_WITH_LOCALS() static void __impl_migrate(const QpiContextFunctionCall& qpi, void* state, const OldStateData& oldState, MIGRATE_locals& locals)
 
 #define INITIALIZE() static void __impl_initialize(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
 #define BEGIN_EPOCH() static void __impl_beginEpoch(const QpiContextProcedureCall& qpi, void* state, NoData& input, NoData& output, void* locals)
