@@ -1,8 +1,9 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "../../../tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
     "types": ["bun-types"],
+    "baseUrl": ".",
     "paths": {
       "@qinit/engine": ["../../engine/src/index.ts"],
       "@qinit/engine/k12": ["../../engine/src/k12.ts"],
@@ -11,5 +12,5 @@
       "@qinit/build": ["../../build/src/index.ts"]
     }
   },
-  "include": ["./**/*.ts"]
+  "include": ["./**/*.ts", "../../build/src/text-assets.d.ts"]
 }
