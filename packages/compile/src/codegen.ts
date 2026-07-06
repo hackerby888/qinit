@@ -1826,7 +1826,7 @@ interface FnCtx {
   in: StructLayout;
   out: StructLayout;
   locals: StructLayout;
-  localVars: Map<string, { wasmType: "i32" | "i64" }>;
+  localVars: Map<string, { wasmType: "i32" | "i64"; type?: TypeSpec }>;
   lines: string[];
   tmpCount: number;
   loops: { brk: string; cont: string }[];   // innermost loop's break/continue labels are last
@@ -1964,17 +1964,37 @@ function collectLocals(stmt: Statement, ctx: FnCtx): void {
         // reference/pointer locals hold an address (i32); scalars use the i64 value model. A __ScopedScratchpad
         // or an Asset*Iterator local also holds an address (its scratch / iterator buffer base).
         const holdsAddr = v.type.kind === "name" && /(ScopedScratchpad|Iterator)$/.test(v.type.name);
+        const b = ctx.thisBind ?? NO_BIND;
+
+        // `auto` locals take their shape from the initializer: a cast supplies the full type
+        // (auto* queue = reinterpret_cast<sint64_4*>(...)), a subscript of a typed pointer supplies
+        // the element type (auto curRange = queue[i]). Undeduced auto stays a scalar.
+        let dType = v.type;
+        if (isAutoType(dType) && v.init) {
+          const ci = castInfo(v.init);
+          if (ci) {
+            dType = ci.type;
+          } else if (v.init.kind === "subscript" && v.init.object.kind === "identifier") {
+            const ot = ctx.localVars.get(v.init.object.name)?.type;
+            const op = ot ? resolveAliasType(ctx.cg, ot) : null;
+            if (op?.kind === "pointer") {
+              dType = op.pointee;
+            }
+          }
+        }
+
         // A struct-typed local (DateAndTime begin = *this) lives in an allocated slot; its wasm local
         // holds the slot address so member reads and method dispatch resolve through it.
-        const b = ctx.thisBind ?? NO_BIND;
-        const concrete = v.type.kind === "name" && b.types.has(v.type.name) ? b.types.get(v.type.name)! : v.type;
-        const isAgg = !holdsAddr && v.type.kind !== "reference" && v.type.kind !== "pointer" && ctx.cg.isAggregateType(concrete);
-        const isRef = v.type.kind === "reference" || v.type.kind === "pointer" || holdsAddr || isAgg;
+        const concrete = dType.kind === "name" && b.types.has(dType.name) ? b.types.get(dType.name)! : dType;
+        const isAgg = !holdsAddr && dType.kind !== "reference" && dType.kind !== "pointer" && ctx.cg.isAggregateType(concrete);
+        const isRef = dType.kind === "reference" || dType.kind === "pointer" || holdsAddr || isAgg;
         // In a ProposalVoting proxy method the `pv`/`qpi` aliases (`ProposalVotingType& pv = this->pv`) are
         // bound as the function's own parameters, not locals — skip them here.
         if (ctx.proxyClass && isRef && (v.name === "pv" || v.name === "qpi")) break;
         const wasmType: "i32" | "i64" = isRef ? "i32" : "i64";
-        if (!ctx.localVars.has(v.name)) ctx.localVars.set(v.name, { wasmType });
+        if (!ctx.localVars.has(v.name)) {
+          ctx.localVars.set(v.name, { wasmType, type: resolveAliasType(ctx.cg, concrete) });
+        }
       }
       break;
     }
@@ -2096,6 +2116,9 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
     case "declaration": {
       if (stmt.decl.kind === "variable") {
         const v = stmt.decl as VariableDecl;
+        // The collect pass stored the declared type with `auto` resolved from the initializer;
+        // classification here must agree with the wasm local type it chose.
+        const declared = ctx.localVars.get(v.name)?.type ?? v.type;
         // __ScopedScratchpad scratchpad(size, initZero): bump a scratch buffer off the arena; the local holds
         // its base address, read back by `.ptr`. (release is a no-op — the arena resets per dispatch.)
         if (v.type.kind === "name" && /ScopedScratchpad$/.test(v.type.name)) {
@@ -2124,7 +2147,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
         // reference/pointer local: bind to the ADDRESS of its lvalue initializer; member access on it
         // resolves through that address. The referent type (Element, PoV, ...) drives field offsets. A pointer
         // keeps its pointer type (not the pointee) so `p[i]` subscripts.
-        if (v.type.kind === "reference" || v.type.kind === "pointer") {
+        if (declared.kind === "reference" || declared.kind === "pointer") {
           // proxy `pv`/`qpi` aliases are already bound as parameters — drop the alias declaration.
           if (ctx.proxyClass && (v.name === "pv" || v.name === "qpi")) break;
           if (v.init) {
@@ -2136,7 +2159,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
               if (!ctx.refLocals) ctx.refLocals = new Map();
               // A pointer local keeps its pointer type so resolveAddr's subscript path fires (`shareholders[i]`);
               // a reference binds to its referent type for direct member access.
-              const refType = v.type.kind === "pointer" ? v.type : (node?.type ?? v.type.refereed);
+              const refType = declared.kind === "pointer" ? declared : (node?.type ?? declared.refereed);
               ctx.refLocals.set(v.name, refType);
               ctx.lines.push(`    ${setLocal(ctx, v.name, addrIr(addr))}`);
             } else {
@@ -2151,7 +2174,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
         // qpi.h default constructor zeroes its storage).
         {
           const db = ctx.thisBind ?? NO_BIND;
-          const concrete = v.type.kind === "name" && db.types.has(v.type.name) ? db.types.get(v.type.name)! : v.type;
+          const concrete = declared.kind === "name" && db.types.has(declared.name) ? db.types.get(declared.name)! : declared;
           if (ctx.cg.isAggregateType(concrete)) {
             // matches collectLocals' aggregate predicate: the wasm local is i32 (slot address), so this
             // branch must consume the declaration even when the size is unknown. An unsized array
@@ -2195,7 +2218,7 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
           }
         }
         if (v.init) {
-          ctx.lines.push(`    ${setLocal(ctx, v.name, emitValueIr(ctx, v.init))}`);
+          ctx.lines.push(`    ${setLocal(ctx, v.name, narrowLocalIr(ctx, v.name, emitValueIr(ctx, v.init)))}`);
         }
       }
       break;
@@ -2272,23 +2295,53 @@ function emitStmt(ctx: FnCtx, stmt: Statement): void {
       const cont = ctx.loops.length ? ctx.loops[ctx.loops.length - 1].cont : brk;
       ctx.loops.push({ brk, cont });
       const body = stmt.body.kind === "compound" ? stmt.body.body : [stmt.body];
-      // group statements by case/default markers; each non-default case is a guarded block that
-      // breaks out at its end (the qpi.h container switches never fall through).
-      const groups: { test: string | null; stmts: Statement[] }[] = [];
+
+      // Group statements by case/default markers. Each group gets a block label so
+      // dispatch can branch to it, and fallthrough works naturally: a body without an
+      // explicit break exits its enclosing block and lands on the next body in source order.
+      const groups: { test: string | null; stmts: Statement[]; label: string }[] = [];
+      let caseIdx = 0;
       for (const s of body) {
-        if (s.kind === "case") groups.push({ test: `(i64.eq (local.get $${sw}) ${emitValue(ctx, s.value)})`, stmts: [] });
-        else if (s.kind === "default") groups.push({ test: null, stmts: [] });
-        else if (groups.length) groups[groups.length - 1].stmts.push(s);
-      }
-      for (const g of groups) {
-        if (g.test) {
-          ctx.lines.push(`      (if ${g.test} (then`);
-          for (const s of g.stmts) emitStmt(ctx, s);
-          ctx.lines.push(`        (br ${brk})))`);
-        } else {
-          for (const s of g.stmts) emitStmt(ctx, s);
+        if (s.kind === "case") {
+          groups.push({
+            test: `(i64.eq (local.get $${sw}) ${emitValue(ctx, s.value)})`,
+            stmts: [],
+            label: `$swcase${n}_${caseIdx++}`,
+          });
+        } else if (s.kind === "default") {
+          groups.push({ test: null, stmts: [], label: `$swdef${n}` });
+        } else if (groups.length) {
+          groups[groups.length - 1].stmts.push(s);
         }
       }
+
+      // Open blocks from last group (outermost) to first (innermost) so that the
+      // dispatch, placed inside all of them, can br to any case/default label.
+      for (let i = groups.length - 1; i >= 0; i--) {
+        ctx.lines.push(`      (block ${groups[i].label}`);
+      }
+
+      // Dispatch chain — one conditional branch per non-default case.
+      for (const g of groups) {
+        if (g.test) {
+          ctx.lines.push(`        (if ${g.test} (then (br ${g.label})))`);
+        }
+      }
+
+      // No match falls through to default group if one exists, otherwise breaks.
+      const defaultGroup = groups.find((g) => g.test === null);
+      ctx.lines.push(`        (br ${defaultGroup ? defaultGroup.label : brk})`);
+
+      // Close blocks in source order, emitting each body between block boundaries.
+      // After a body without a break, control naturally exits the enclosing block
+      // and reaches the next body — reproducing C++ fallthrough.
+      for (const g of groups) {
+        ctx.lines.push(`      )`);
+        for (const s of g.stmts) {
+          emitStmt(ctx, s);
+        }
+      }
+
       ctx.loops.pop();
       ctx.lines.push(`    )`);
       break;
@@ -2508,6 +2561,19 @@ function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     const elemSize = ctx.cg.sizeOfType(elemType, ctx.thisBind);
     const idx = `(i32.mul (i32.wrap_i64 ${emitValue(ctx, expr.index)}) (i32.const ${elemSize}))`;
     return { addr: `(i32.add ${baseAddr} ${idx})`, type: elemType, size: elemSize, layout: ctx.cg.layoutOfType(elemType, ctx.thisBind) };
+  }
+
+  // ptr + n / ptr - n: pointer arithmetic — the address n elements away, staying pointer-typed
+  // (feeds reinterpret_cast<T*>(p + k) in the qpi.h container maintenance bodies).
+  if (expr.kind === "binary_op" && (expr.op === "+" || expr.op === "-")) {
+    const base = resolveAddr(ctx, expr.left);
+    const bt = base?.type;
+    if (base && bt?.kind === "pointer") {
+      const elemSize = ctx.cg.sizeOfType(bt.pointee, ctx.thisBind) || 8;
+      const off = `(i32.mul (i32.wrap_i64 ${emitValue(ctx, expr.right)}) (i32.const ${elemSize}))`;
+      const addr = `(${expr.op === "+" ? "i32.add" : "i32.sub"} ${base.addr} ${off})`;
+      return { addr, type: bt, size: base.size, layout: null };
+    }
   }
 
   if (expr.kind === "paren") return resolveAddr(ctx, expr.expr);
@@ -3141,23 +3207,22 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
 
   // scalar field target
   if (lhs) {
-    const rhs = emitValueIr(ctx, expr.right);
     if (expr.op === "=") {
-      ctx.lines.push(`    ${ir.emit(ir.storeScalar(addrIr(lhs.addr), lhs.size, rhs))}`);
+      ctx.lines.push(`    ${ir.emit(ir.storeScalar(addrIr(lhs.addr), lhs.size, emitValueIr(ctx, expr.right)))}`);
       return "";
     }
-    const op = compoundOp(expr.op);
-    ctx.lines.push(`    ${ir.emit(ir.storeScalar(addrIr(lhs.addr), lhs.size, ir.op(op, loadAtIr(lhs.addr, lhs.size, isSignedScalarType(lhs.type)), rhs)))}`);
+
+    // Compound assignment lowers as lhs = lhs <op> rhs so the binary op carries the operands'
+    // real types (signedness, width, 32-bit wrap) through the usual-conversion machinery.
+    ctx.lines.push(`    ${ir.emit(ir.storeScalar(addrIr(lhs.addr), lhs.size, emitValueIr(ctx, compoundToBinary(expr))))}`);
     return "";
   }
 
   // local variable / scalar value-parameter target (both are mutable wasm locals)
   if (expr.left.kind === "identifier" && isScalarLocal(ctx, expr.left.name)) {
     const n = expr.left.name;
-    const rhs = emitValueIr(ctx, expr.right);
-    const nTy = (ctx.localVars.get(n) ?? ctx.params?.get(n))?.wasmType ?? "i64";
-    if (expr.op === "=") ctx.lines.push(`    ${setLocal(ctx, n, rhs)}`);
-    else ctx.lines.push(`    ${setLocal(ctx, n, ir.op(compoundOp(expr.op), ir.getL(n, nTy), rhs))}`);
+    const rhs = expr.op === "=" ? emitValueIr(ctx, expr.right) : emitValueIr(ctx, compoundToBinary(expr));
+    ctx.lines.push(`    ${setLocal(ctx, n, narrowLocalIr(ctx, n, rhs))}`);
     return "";
   }
 
@@ -3165,20 +3230,19 @@ function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
   return "";
 }
 
-function compoundOp(op: string): string {
-  switch (op) {
-    case "+=": return "i64.add";
-    case "-=": return "i64.sub";
-    case "*=": return "i64.mul";
-    case "/=": return "i64.div_s";
-    case "%=": return "i64.rem_s";
-    case "&=": return "i64.and";
-    case "|=": return "i64.or";
-    case "^=": return "i64.xor";
-    case "<<=": return "i64.shl";
-    case ">>=": return "i64.shr_u";
-    default: return "i64.add";
+// Rewrite `lhs <op>= rhs` into the equivalent `lhs <op> rhs` expression node.
+function compoundToBinary(expr: Expression & { kind: "assign" }): Expression {
+  return { kind: "binary_op", op: expr.op.slice(0, -1), left: expr.left, right: expr.right, span: expr.span } as Expression;
+}
+
+// Keep sub-64-bit scalar locals in canonical i64 form (zero-/sign-extended) on every store, so
+// loads and compares can consume them without re-extending.
+function narrowLocalIr(ctx: FnCtx, name: string, v: ir.Ir): ir.Ir {
+  const t = ctx.localVars.get(name)?.type;
+  if (t?.kind === "name" && (SCALAR_SIZE[t.name] ?? 8) < 8) {
+    return narrowCastIr(v, t.name);
   }
+  return v;
 }
 
 // ---- value (rvalue) codegen — produces an i64 ----
@@ -3217,10 +3281,17 @@ function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       if (ctx.localVars.has(expr.name) && !ctx.refLocals?.has(expr.name)) {
         return ir.getL(expr.name, ctx.localVars.get(expr.name)!.wasmType);
       }
+      // a pointer local read as a value (p == NULL): the held address, zero-extended.
+      if (ctx.refLocals?.get(expr.name)?.kind === "pointer") {
+        return ir.op("i64.extend_i32_u", ir.getL(expr.name, "i32"));
+      }
       const p = ctx.params?.get(expr.name);
       if (p && !p.isAddr) return ir.getL(p.local ?? expr.name, p.wasmType);
-      // A scalar reference/pointer param is an address (i32) — reading its value loads through it. (Aggregate
-      // addr params are read via member access / resolveAddr, not as a bare scalar.)
+      // A pointer param read as a value (if (ptr), ptr == NULL) is the held address; a scalar
+      // reference param reads through it. (Aggregate addr params are read via member access /
+      // resolveAddr, not as a bare scalar.)
+      if (p && p.isAddr && p.type.kind === "pointer")
+        return ir.op("i64.extend_i32_u", ir.getL(p.local ?? expr.name, "i32"));
       if (p && p.isAddr && !ctx.cg.isAggregateType(p.type))
         return ir.loadScalar(ir.getL(p.local ?? expr.name, "i32"), ctx.cg.sizeOfType(p.type), !unsignedScalar(p.type));
       if (expr.name === "SELF_INDEX") return ir.op("i64.extend_i32_u", ir.call("$qpi_contractIndex"));
@@ -3316,10 +3387,27 @@ function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
     case "binary_op":
       return emitBinaryIr(ctx, expr);
     case "unary_op": {
+      // *ptr as a value: load the pointee through the pointer's held address.
+      if (expr.op === "*") {
+        const n = resolveAddr(ctx, expr);
+        if (n && n.size <= 8) {
+          return loadAtIr(n.addr, n.size, isSignedScalarType(n.type));
+        }
+      }
       const a = emitValueIr(ctx, expr.arg);
+      // A 32-bit unsigned result wraps at 32 bits (defined behavior), so - and ~ mask back down to
+      // keep the canonical zero-extended form; signed results are already canonical (sign-extended).
+      const info = scalarTypeInfo(ctx, expr);
+      const mask32 = info !== null && info.width === 4 && info.unsigned;
       switch (expr.op) {
-        case "-": return ir.op("i64.sub", ir.i64c(0), a);
-        case "~": return ir.op("i64.xor", a, ir.i64c(-1));
+        case "-": {
+          const neg = ir.op("i64.sub", ir.i64c(0), a);
+          return mask32 ? ir.op("i64.and", neg, ir.i64c("0xffffffff")) : neg;
+        }
+        case "~": {
+          const not = ir.op("i64.xor", a, ir.i64c(-1));
+          return mask32 ? ir.op("i64.and", not, ir.i64c("0xffffffff")) : not;
+        }
         case "!": return ir.op("i64.extend_i32_u", ir.op("i64.eqz", a));
         default: return a;
       }
@@ -3541,6 +3629,28 @@ function emitU128(ctx: FnCtx, expr: Expression): string {
   return ir.emit(emitU128Ir(ctx, expr));
 }
 
+// True for `auto` (or `auto*`) type specs, which take their real type from the initializer.
+function isAutoType(t: TypeSpec): boolean {
+  if (t.kind === "pointer") {
+    return isAutoType(t.pointee);
+  }
+  return t.kind === "name" && t.name === "auto";
+}
+
+// Resolve a named type through typedef/using aliases to its underlying spec (bounded walk; stops
+// at a known scalar name or a non-name spec).
+function resolveAliasType(cg: Codegen, t: TypeSpec): TypeSpec {
+  let r = t;
+  for (let i = 0; i < 8 && r.kind === "name" && SCALAR_SIZE[r.name] === undefined; i++) {
+    const td = cg.typedefs.get(r.name);
+    if (!td || td.kind === "void") {
+      break;
+    }
+    r = td;
+  }
+  return r;
+}
+
 // True if a scalar type is unsigned (uint*/unsigned/size_t-like). Drives signed-vs-unsigned op selection.
 function unsignedScalar(t: TypeSpec | null | undefined): boolean {
   if (!t) return false;
@@ -3565,6 +3675,8 @@ function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
       if (p) return unsignedScalar(p.type);
       const rl = ctx.refLocals?.get(expr.name);
       if (rl) return unsignedScalar(rl);
+      const lv = ctx.localVars.get(expr.name)?.type;
+      if (lv) return unsignedScalar(lv);
       return unsignedScalar(resolveAddr(ctx, expr)?.type ?? null);
     }
     case "member_access": case "subscript": {
@@ -3579,6 +3691,10 @@ function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
     case "binary_op":
       if (["+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>"].includes(expr.op))
         return isUnsignedExpr(ctx, expr.left) || isUnsignedExpr(ctx, expr.right);
+      return false;
+    case "unary_op":
+      if (expr.op === "-" || expr.op === "~" || expr.op === "+")
+        return isUnsignedExpr(ctx, expr.arg);
       return false;
     default: return false;
   }
@@ -3597,8 +3713,8 @@ function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; unsigned
     case "int_literal": {
       // C++ literal typing: int → (uint for hex/octal) → long long by fit; a u/U suffix forces unsigned.
       const v = ctx.cg["sema"].evaluateConstexpr(expr) ?? 0n;
-      const suffixU = /[uU]/.test((expr as any).suffix ?? "");
-      const hex = /^0[xX0-7]/.test((expr as any).text ?? "");
+      const suffixU = /[uU]/.test(expr.suffix ?? "");
+      const hex = /^0[xX0-7]/.test(expr.value ?? "");
       if (v >= -(2n ** 31n) && v < 2n ** 31n) return { width: 4, unsigned: suffixU };
       if (hex && v < 2n ** 32n) return { width: 4, unsigned: true };
       if (!suffixU && v < 2n ** 63n) return { width: 8, unsigned: false };
@@ -3606,7 +3722,7 @@ function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; unsigned
     }
     case "identifier": case "member_access": case "subscript": {
       const t = expr.kind === "identifier"
-        ? (ctx.params?.get(expr.name)?.type ?? ctx.refLocals?.get(expr.name) ?? resolveAddr(ctx, expr)?.type ?? null)
+        ? (ctx.params?.get(expr.name)?.type ?? ctx.refLocals?.get(expr.name) ?? ctx.localVars.get(expr.name)?.type ?? resolveAddr(ctx, expr)?.type ?? null)
         : (resolveAddr(ctx, expr)?.type ?? null);
       let c = t;
       if (c?.kind === "const") c = c.valueType;
@@ -3620,6 +3736,11 @@ function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; unsigned
         return { width: cv.width, unsigned: cv.unsigned };
       }
       if (expr.op === "<<" || expr.op === ">>") return promoteInfo(ctx, expr.left);
+      return null;
+    }
+    case "unary_op": {
+      if (expr.op === "-" || expr.op === "~" || expr.op === "+") return promoteInfo(ctx, expr.arg);
+      if (expr.op === "!") return { width: 4, unsigned: false };
       return null;
     }
     default: return null;
@@ -3717,7 +3838,6 @@ function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): ir.
 
   const l = emitValueIr(ctx, expr.left);
   const r = emitValueIr(ctx, expr.right);
-  const cmp = (op: string) => ir.op("i64.extend_i32_u", ir.op(op, l, r));
   // C++ usual arithmetic conversions decide the operation's signedness and rank. A 32-bit unsigned
   // result wraps at 32 bits natively (defined behavior), so +,-,*,<< mask back down; signed 32-bit
   // overflow is UB and stays unmasked. Shifts take their type from the LEFT operand alone.
@@ -3726,18 +3846,32 @@ function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): ir.
   const li = promoteInfo(ctx, expr.left);
   const wrapL = (n: ir.Ir, active: boolean) => (active ? ir.op("i64.and", n, ir.i64c("0xffffffff")) : n);
   const wrap32 = u && cv.width === 4;
+
+  // A signed 32-bit operand converted to unsigned 32-bit changes representation (sign-extended →
+  // zero-extended), so value-sensitive ops (/, %, compares) mask it to the canonical unsigned form.
+  const toU32 = (n: ir.Ir, e: Expression) => {
+    if (!wrap32) {
+      return n;
+    }
+    const pi = promoteInfo(ctx, e);
+    return pi.width === 4 && !pi.unsigned ? ir.op("i64.and", n, ir.i64c("0xffffffff")) : n;
+  };
+  const lc = toU32(l, expr.left);
+  const rc = toU32(r, expr.right);
+  const cmp = (op: string) => ir.op("i64.extend_i32_u", ir.op(op, lc, rc));
+
   switch (expr.op) {
     case "+": return wrapL(ir.op("i64.add", l, r), wrap32);
     case "-": return wrapL(ir.op("i64.sub", l, r), wrap32);
     case "*": return wrapL(ir.op("i64.mul", l, r), wrap32);
-    case "/": return ir.op(u ? "i64.div_u" : "i64.div_s", l, r);
-    case "%": return ir.op(u ? "i64.rem_u" : "i64.rem_s", l, r);
+    case "/": return ir.op(u ? "i64.div_u" : "i64.div_s", lc, rc);
+    case "%": return ir.op(u ? "i64.rem_u" : "i64.rem_s", lc, rc);
     case "<<": return wrapL(ir.op("i64.shl", l, r), li.unsigned && li.width === 4);
     // Signed right-shift is arithmetic in C++ — zero-filling a negative sint64 silently corrupts it.
     case ">>": return ir.op(li.unsigned ? "i64.shr_u" : "i64.shr_s", l, r);
     case "&": return ir.op("i64.and", l, r);
-    case "|": return ir.op("i64.or", l, r);
-    case "^": return ir.op("i64.xor", l, r);
+    case "|": return wrapL(ir.op("i64.or", l, r), wrap32);
+    case "^": return wrapL(ir.op("i64.xor", l, r), wrap32);
     case "==": return cmp("i64.eq");
     case "!=": return cmp("i64.ne");
     case "<": return cmp(u ? "i64.lt_u" : "i64.lt_s");
@@ -4178,9 +4312,20 @@ function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valu
       ctx.lines.push(`    ${ir.emit(ir.call("$hm_reset", addrIr(map), ir.i32c(info.totalSize!)))}`);
       return "";
     }
-    // cleanup family is a no-op here (our probing never reclaims removed slots; lookups stay correct)
-    if ((member === "cleanup" || member === "cleanupIfNeeded") && !valueWanted) return "";
-    if (member === "needsCleanup" && valueWanted) return "(i64.const 0)";
+    // cleanup family: compaction + threshold checks over the mark-removal counter, matching the
+    // native rehash byte-for-byte (slot placement is contract state).
+    const threshold = () => (expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(50));
+    if (member === "cleanup" && !valueWanted) {
+      ctx.lines.push(`    ${ir.emit(ir.call("$hm_cleanup", addrIr(map), ir.i32c(info.L!), ir.i32c(info.elemSize), ir.i32c(info.keySize!), ir.i32c(info.occBase!), ir.i32c(info.popOff!), ir.i32c(info.hashMode!), ir.i32c(info.totalSize!)))}`);
+      return "";
+    }
+    if (member === "cleanupIfNeeded" && !valueWanted) {
+      ctx.lines.push(`    ${ir.emit(ir.call("$hm_cleanup_if", addrIr(map), ir.i32c(info.L!), ir.i32c(info.elemSize), ir.i32c(info.keySize!), ir.i32c(info.occBase!), ir.i32c(info.popOff!), ir.i32c(info.hashMode!), ir.i32c(info.totalSize!), threshold()))}`);
+      return "";
+    }
+    if (member === "needsCleanup" && valueWanted) {
+      return ir.emit(ir.call("$hm_needs_cleanup", addrIr(map), ir.i32c(info.L!), ir.i32c(info.popOff!), threshold()));
+    }
   }
 
   if (node.type.name === "Array") {
@@ -4614,10 +4759,9 @@ function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWant
   if (!ctx.thisType || ctx.thisType.kind !== "template_instance" || expr.callee.kind !== "identifier") return null;
   const name = expr.callee.name;
 
-  // Structural-maintenance internals of Collection's BST, safe to skip — the store stays a correct (just
-  // unbalanced/uncompacted) BST: _rebuild returns the subtree root unchanged; cleanup variants do nothing.
-  // This avoids the scratchpad + SIMD (sint64_4 / reinterpret_cast / _tzcnt) rebuild path.
-  if (name === "_rebuild") return expr.args[0] ? emitValue(ctx, expr.args[0]) : "(i64.const -1)";
+  // Collection cleanup variants stay stubbed (the compaction path needs _tzcnt intrinsics); the
+  // store remains a correct, just uncompacted, BST. _rebuild compiles from its real qpi.h body via
+  // the sibling-method dispatch below — its balanced result is contract state and feeds the digest.
   if ((name === "cleanup" || name === "cleanupIfNeeded") && !valueWanted) return "";
   if (name === "needsCleanup" && valueWanted) return "(i64.const 0)";
 
@@ -4661,10 +4805,15 @@ function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWant
     if (!fp.isAddr) return emitValue(ctx, arg);
     const a = emitAddr(ctx, arg);
     if (a) return a;
+    // `&x` (pointer out-param) and parens unwrap to the same scalar-local spill as a bare `x`.
+    let root = arg;
+    while (root.kind === "paren" || (root.kind === "unary_op" && root.op === "&")) {
+      root = root.kind === "paren" ? root.expr : root.arg;
+    }
     const s = allocSlotIr(ctx, 8);
-    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, s, emitValueIr(ctx, arg)))}`);
-    if (arg.kind === "identifier" && ctx.localVars.get(arg.name)?.wasmType === "i64") {
-      writeBacks.push(`    ${setLocal(ctx, arg.name, ir.loadRaw("i64.load", null, s))}`);
+    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, s, emitValueIr(ctx, root)))}`);
+    if (root.kind === "identifier" && ctx.localVars.get(root.name)?.wasmType === "i64") {
+      writeBacks.push(`    ${setLocal(ctx, root.name, ir.loadRaw("i64.load", null, s))}`);
     }
     return ir.emit(s);
   });

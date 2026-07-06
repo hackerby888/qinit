@@ -649,8 +649,20 @@ export class Parser {
       };
     }
 
-    // using Base::member;
+    // using Alias = Type;
     const name = this.parseQualifiedName();
+    if (this.tryConsume("eq")) {
+      const type = this.parseTypeSpec();
+      this.expect("semicolon", "using alias");
+      return {
+        kind: "typedef_decl",
+        name,
+        type,
+        span: this.peek().span,
+      };
+    }
+
+    // using Base::member;
     this.expect("semicolon", "using decl");
     return {
       kind: "typedef_decl",

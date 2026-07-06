@@ -164,6 +164,9 @@ export const CALL_SIG: Record<string, CallSig> = {
   $hm_reset: sig([I32, I32], "void"),
   $hm_next: sig([I32, I32, I32, I32], I32),
   $hm_remove: sig([I32, I32, I32, I32, I32, I32, I32, I32], "void"),
+  $hm_needs_cleanup: sig([I32, I32, I32, I64], I64),
+  $hm_cleanup: sig([I32, I32, I32, I32, I32, I32, I32, I32], "void"),
+  $hm_cleanup_if: sig([I32, I32, I32, I32, I32, I32, I32, I32, I64], "void"),
 
   // qpi forwarders — zero-arg getters
   $qpi_invocationReward: sig([], I64),

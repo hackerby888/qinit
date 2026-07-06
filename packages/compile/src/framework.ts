@@ -427,34 +427,73 @@ function emitIntrinsics(): string {
     (call $copyMem (local.get $valOut) (i32.add (call $hm_elem (local.get $map) (local.get $idx) (local.get $elemSize)) (local.get $valOff)) (local.get $valSize))
     (i32.const 1))
 
-  ;; set(key, value) — insert or replace; returns slot index or -1 if full
+  ;; set(key, value) — insert or replace; returns slot index or -1 if full. Mirrors the native
+  ;; probe: an existing key is replaced in place; a fresh key takes the FIRST marked-for-removal
+  ;; slot seen (flags 0b10→0b01) in preference to a later empty slot, so slot placement — contract
+  ;; state bytes — matches native. A full map only replaces existing keys.
   (func $hm_set (param $map i32) (param $keyAddr i32) (param $valAddr i32) (param $L i32) (param $elemSize i32) (param $keySize i32) (param $valOff i32) (param $valSize i32) (param $occBase i32) (param $popOff i32) (param $hashMode i32) (result i32)
-    (local $index i32) (local $i i32) (local $occ i32) (local $flag i32) (local $e i32) (local $word i32)
+    (local $index i32) (local $i i32) (local $occ i32) (local $flag i32) (local $e i32) (local $word i32) (local $reuse i32)
     (local.set $occ (i32.add (local.get $map) (local.get $occBase)))
     (local.set $index (call $hm_hash (local.get $keyAddr) (local.get $keySize) (local.get $L) (local.get $hashMode)))
-    (block $done
-      (loop $probe
-        (br_if $done (i32.ge_u (local.get $i) (local.get $L)))
-        (local.set $flag (call $hm_flag (local.get $occ) (local.get $index)))
-        (local.set $e (call $hm_elem (local.get $map) (local.get $index) (local.get $elemSize)))
-        (if (i32.eqz (local.get $flag)) (then
-          ;; empty slot → occupy: set flag bit, write key+value, bump population
-          (local.set $word (i32.add (local.get $occ) (i32.mul (i32.shr_u (local.get $index) (i32.const 5)) (i32.const 8))))
-          (i64.store (local.get $word) (i64.or (i64.load (local.get $word))
-            (i64.shl (i64.const 1) (i64.extend_i32_u (i32.shl (i32.and (local.get $index) (i32.const 31)) (i32.const 1))))))
-          (call $copyMem (local.get $e) (local.get $keyAddr) (local.get $keySize))
-          (call $copyMem (i32.add (local.get $e) (local.get $valOff)) (local.get $valAddr) (local.get $valSize))
-          (i64.store (i32.add (local.get $map) (local.get $popOff)) (i64.add (i64.load (i32.add (local.get $map) (local.get $popOff))) (i64.const 1)))
-          (return (local.get $index))))
-        (if (i32.eq (local.get $flag) (i32.const 1)) (then
-          (if (call $memeq (local.get $e) (local.get $keyAddr) (local.get $keySize)) (then
-            ;; existing key → replace value
+    (local.set $reuse (i32.const -1))
+    (if (i64.ge_u (i64.load (i32.add (local.get $map) (local.get $popOff))) (i64.extend_i32_u (local.get $L))) (then
+      ;; full map: probe for an existing key to replace; never insert
+      (block $fdone
+        (loop $fprobe
+          (br_if $fdone (i32.ge_u (local.get $i) (local.get $L)))
+          (local.set $flag (call $hm_flag (local.get $occ) (local.get $index)))
+          (if (i32.eqz (local.get $flag)) (then (return (i32.const -1))))
+          (if (i32.eq (local.get $flag) (i32.const 1)) (then
+            (local.set $e (call $hm_elem (local.get $map) (local.get $index) (local.get $elemSize)))
+            (if (call $memeq (local.get $e) (local.get $keyAddr) (local.get $keySize)) (then
+              (call $copyMem (i32.add (local.get $e) (local.get $valOff)) (local.get $valAddr) (local.get $valSize))
+              (return (local.get $index))))))
+          (local.set $index (i32.and (i32.add (local.get $index) (i32.const 1)) (i32.sub (local.get $L) (i32.const 1))))
+          (local.set $i (i32.add (local.get $i) (i32.const 1)))
+          (br $fprobe)))
+      (return (i32.const -1))))
+    (block $reuseSlot
+      (block $done
+        (loop $probe
+          (br_if $done (i32.ge_u (local.get $i) (local.get $L)))
+          (local.set $flag (call $hm_flag (local.get $occ) (local.get $index)))
+          (local.set $e (call $hm_elem (local.get $map) (local.get $index) (local.get $elemSize)))
+          (if (i32.eqz (local.get $flag)) (then
+            ;; empty slot: an earlier marked slot wins (it sits closer to the hash index)
+            (br_if $reuseSlot (i32.ge_s (local.get $reuse) (i32.const 0)))
+            ;; ... otherwise occupy this slot: set flag bit, write key+value, bump population
+            (local.set $word (i32.add (local.get $occ) (i32.mul (i32.shr_u (local.get $index) (i32.const 5)) (i32.const 8))))
+            (i64.store (local.get $word) (i64.or (i64.load (local.get $word))
+              (i64.shl (i64.const 1) (i64.extend_i32_u (i32.shl (i32.and (local.get $index) (i32.const 31)) (i32.const 1))))))
+            (call $copyMem (local.get $e) (local.get $keyAddr) (local.get $keySize))
             (call $copyMem (i32.add (local.get $e) (local.get $valOff)) (local.get $valAddr) (local.get $valSize))
-            (return (local.get $index))))))
-        (local.set $index (i32.and (i32.add (local.get $index) (i32.const 1)) (i32.sub (local.get $L) (i32.const 1))))
-        (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $probe)))
-    (i32.const -1))
+            (i64.store (i32.add (local.get $map) (local.get $popOff)) (i64.add (i64.load (i32.add (local.get $map) (local.get $popOff))) (i64.const 1)))
+            (return (local.get $index))))
+          (if (i32.eq (local.get $flag) (i32.const 1)) (then
+            (if (call $memeq (local.get $e) (local.get $keyAddr) (local.get $keySize)) (then
+              ;; existing key → replace value
+              (call $copyMem (i32.add (local.get $e) (local.get $valOff)) (local.get $valAddr) (local.get $valSize))
+              (return (local.get $index))))))
+          (if (i32.eq (local.get $flag) (i32.const 2)) (then
+            (if (i32.lt_s (local.get $reuse) (i32.const 0)) (then
+              (local.set $reuse (local.get $index))))))
+          (local.set $index (i32.and (i32.add (local.get $index) (i32.const 1)) (i32.sub (local.get $L) (i32.const 1))))
+          (local.set $i (i32.add (local.get $i) (i32.const 1)))
+          (br $probe)))
+      ;; probed every slot without a match or an empty slot
+      (br_if $reuseSlot (i32.ge_s (local.get $reuse) (i32.const 0)))
+      (return (i32.const -1)))
+    ;; reuse the marked slot: flip flags 0b10→0b01, write key+value, bump population.
+    ;; The mark counter stays untouched — it still drives needsCleanup, matching native.
+    (local.set $index (local.get $reuse))
+    (local.set $e (call $hm_elem (local.get $map) (local.get $index) (local.get $elemSize)))
+    (local.set $word (i32.add (local.get $occ) (i32.mul (i32.shr_u (local.get $index) (i32.const 5)) (i32.const 8))))
+    (i64.store (local.get $word) (i64.xor (i64.load (local.get $word))
+      (i64.shl (i64.const 3) (i64.extend_i32_u (i32.shl (i32.and (local.get $index) (i32.const 31)) (i32.const 1))))))
+    (call $copyMem (local.get $e) (local.get $keyAddr) (local.get $keySize))
+    (call $copyMem (i32.add (local.get $e) (local.get $valOff)) (local.get $valAddr) (local.get $valSize))
+    (i64.store (i32.add (local.get $map) (local.get $popOff)) (i64.add (i64.load (i32.add (local.get $map) (local.get $popOff))) (i64.const 1)))
+    (local.get $index))
 
   ;; population() → element count
   (func $hm_population (param $map i32) (param $popOff i32) (result i64)
@@ -489,6 +528,59 @@ function emitIntrinsics(): string {
     ;; _markRemovalCounter (popOff + 8) ++
     (i64.store (i32.add (local.get $map) (i32.add (local.get $popOff) (i32.const 8))) (i64.add (i64.load (i32.add (local.get $map) (i32.add (local.get $popOff) (i32.const 8)))) (i64.const 1)))
     (call $setMem (call $hm_elem (local.get $map) (local.get $idx) (local.get $elemSize)) (local.get $elemSize) (i32.const 0)))
+
+  ;; needsCleanup(threshold%) — markRemovalCounter > threshold * L / 100
+  (func $hm_needs_cleanup (param $map i32) (param $L i32) (param $popOff i32) (param $threshold i64) (result i64)
+    (i64.extend_i32_u (i64.gt_u
+      (i64.load (i32.add (local.get $map) (i32.add (local.get $popOff) (i32.const 8))))
+      (i64.div_u (i64.mul (local.get $threshold) (i64.extend_i32_u (local.get $L))) (i64.const 100)))))
+
+  ;; cleanup() — rebuild without marked-for-removal slots, mirroring the native rehash: visit old
+  ;; slots in index order, reinsert live elements by linear probe into zeroed scratch buffers
+  ;; (elements at 0, flags at occBase — same layout as the map), copy elements+flags back once all
+  ;; live elements have been transferred, and clear the mark counter. An empty map just resets.
+  (func $hm_cleanup (param $map i32) (param $L i32) (param $elemSize i32) (param $keySize i32) (param $occBase i32) (param $popOff i32) (param $hashMode i32) (param $totalSize i32)
+    (local $mrcAddr i32) (local $pop i64) (local $scratch i32) (local $newPop i64)
+    (local $old i32) (local $e i32) (local $ni i32) (local $j i32) (local $word i32)
+    (local.set $mrcAddr (i32.add (local.get $map) (i32.add (local.get $popOff) (i32.const 8))))
+    (if (i64.eqz (i64.load (local.get $mrcAddr))) (then (return)))
+
+    (local.set $pop (i64.load (i32.add (local.get $map) (local.get $popOff))))
+    (if (i64.eqz (local.get $pop)) (then
+      (call $hm_reset (local.get $map) (local.get $totalSize))
+      (return)))
+
+    (local.set $scratch (call $acquireScratchpad (i64.extend_i32_u (local.get $popOff)) (i32.const 1)))
+    (block $done
+      (loop $olds
+        (br_if $done (i32.ge_u (local.get $old) (local.get $L)))
+        (if (i32.eq (call $hm_flag (i32.add (local.get $map) (local.get $occBase)) (local.get $old)) (i32.const 1)) (then
+          (local.set $e (call $hm_elem (local.get $map) (local.get $old) (local.get $elemSize)))
+          (local.set $ni (call $hm_hash (local.get $e) (local.get $keySize) (local.get $L) (local.get $hashMode)))
+          (local.set $j (i32.const 0))
+          (block $found
+            (loop $probe
+              (br_if $found (i32.eqz (call $hm_flag (i32.add (local.get $scratch) (local.get $occBase)) (local.get $ni))))
+              (local.set $ni (i32.and (i32.add (local.get $ni) (i32.const 1)) (i32.sub (local.get $L) (i32.const 1))))
+              (local.set $j (i32.add (local.get $j) (i32.const 1)))
+              (br_if $found (i32.ge_u (local.get $j) (local.get $L)))
+              (br $probe)))
+          (local.set $word (i32.add (i32.add (local.get $scratch) (local.get $occBase)) (i32.mul (i32.shr_u (local.get $ni) (i32.const 5)) (i32.const 8))))
+          (i64.store (local.get $word) (i64.or (i64.load (local.get $word))
+            (i64.shl (i64.const 1) (i64.extend_i32_u (i32.shl (i32.and (local.get $ni) (i32.const 31)) (i32.const 1))))))
+          (call $copyMem (i32.add (local.get $scratch) (i32.mul (local.get $ni) (local.get $elemSize))) (local.get $e) (local.get $elemSize))
+          (local.set $newPop (i64.add (local.get $newPop) (i64.const 1)))
+          (if (i64.eq (local.get $newPop) (local.get $pop)) (then
+            (call $copyMem (local.get $map) (local.get $scratch) (local.get $popOff))
+            (i64.store (local.get $mrcAddr) (i64.const 0))
+            (return)))))
+        (local.set $old (i32.add (local.get $old) (i32.const 1)))
+        (br $olds))))
+
+  ;; cleanupIfNeeded(threshold%)
+  (func $hm_cleanup_if (param $map i32) (param $L i32) (param $elemSize i32) (param $keySize i32) (param $occBase i32) (param $popOff i32) (param $hashMode i32) (param $totalSize i32) (param $threshold i64)
+    (if (i32.wrap_i64 (call $hm_needs_cleanup (local.get $map) (local.get $L) (local.get $popOff) (local.get $threshold)))
+      (then (call $hm_cleanup (local.get $map) (local.get $L) (local.get $elemSize) (local.get $keySize) (local.get $occBase) (local.get $popOff) (local.get $hashMode) (local.get $totalSize)))))
 
   ;; QPI safe math: div/mod return 0 on a zero divisor; min/max/abs evaluate each arg once.
   (func $m_div_s (param $a i64) (param $b i64) (result i64)
