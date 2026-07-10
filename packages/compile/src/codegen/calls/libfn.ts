@@ -1,14 +1,14 @@
 import { resolveAddr, emitAddr, allocSlot } from "../addr";
 import { emitHelperFunction } from "../stmt";
 import { Codegen } from "../cg";
-import { emitValueIr, isUnsignedExpr, emitValue } from "../value";
+import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo } from "../value";
 import { FnCtx, HelperInfo, Bindings, NO_BIND } from "../types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
 import * as ir from "../../ir";
 
 // QPI safe-math + helper free functions, lowered to scalar i64. div/mod guard division by zero;
-// sadd/smul saturate at the 64-bit type extreme, both matching math_lib.h. (The 32-bit overloads
-// clamp at INT32/UINT32 natively — the i64 value model uses the 64-bit clamp for those too.)
+// sadd/smul saturate at the type extreme, matching math_lib.h — the 32-bit overloads clamp at
+// INT32/UINT32, selected by argument width like native overload resolution.
 export function emitMathCallIr(ctx: FnCtx, name: string, args: Expression[]): ir.Ir | null {
   const a = () => (args[0] ? emitValueIr(ctx, args[0]) : ir.i64c(0));
   const b = () => (args[1] ? emitValueIr(ctx, args[1]) : ir.i64c(0));
@@ -27,9 +27,13 @@ export function emitMathCallIr(ctx: FnCtx, name: string, args: Expression[]): ir
     case "max": return ir.call(`$m_max_${s}`, a(), b());
     case "abs": return ir.call("$m_abs", a());
     // sadd/smul are SATURATING natively (math_lib.h clamps at the type extreme) — plain wrap-around
-    // arithmetic silently diverges exactly at the overflow boundary.
-    case "sadd": return ir.call(`$m_sadd_${s}`, a(), b());
-    case "smul": return ir.call(`$m_smul_${s}`, a(), b());
+    // arithmetic silently diverges exactly at the overflow boundary. Both args at rank ≤ 32 select
+    // the 32-bit overload (clamps at the 32-bit extremes), mirroring native overload resolution.
+    case "sadd": case "smul": {
+      const w4 = args.length >= 2 &&
+        promoteInfo(ctx, args[0]).width === 4 && promoteInfo(ctx, args[1]).width === 4;
+      return ir.call(`$m_${base}_${s}${w4 ? "32" : ""}`, a(), b());
+    }
     default: return null;
   }
 }

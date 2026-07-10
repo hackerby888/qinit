@@ -109,7 +109,7 @@ export function compoundToBinary(expr: Expression & { kind: "assign" }): Express
 // Keep sub-64-bit scalar locals in canonical i64 form (zero-/sign-extended) on every store, so
 // loads and compares can consume them without re-extending.
 export function narrowLocalIr(ctx: FnCtx, name: string, v: ir.Ir): ir.Ir {
-  const t = ctx.localVars.get(name)?.type;
+  const t = ctx.localVars.get(name)?.type ?? ctx.params?.get(name)?.type;
   if (t?.kind === "name" && (SCALAR_SIZE[t.name] ?? 8) < 8) {
     return narrowCastIr(v, t.name);
   }
@@ -269,18 +269,19 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
         }
       }
       const a = emitValueIr(ctx, expr.arg);
-      // A 32-bit unsigned result wraps at 32 bits (defined behavior), so - and ~ mask back down to
-      // keep the canonical zero-extended form; signed results are already canonical (sign-extended).
+      // A 32-bit result wraps at 32 bits, so - and ~ reduce back to the canonical form: mask for
+      // unsigned (zero-extended), extend32_s for signed (covers -INT32_MIN staying INT32_MIN).
       const info = scalarTypeInfo(ctx, expr);
       const mask32 = info !== null && info.width === 4 && info.unsigned;
+      const sext32 = info !== null && info.width === 4 && !info.unsigned;
+      const canon32 = (n: ir.Ir) =>
+        mask32 ? ir.op("i64.and", n, ir.i64c("0xffffffff")) : sext32 ? ir.op("i64.extend32_s", n) : n;
       switch (expr.op) {
         case "-": {
-          const neg = ir.op("i64.sub", ir.i64c(0), a);
-          return mask32 ? ir.op("i64.and", neg, ir.i64c("0xffffffff")) : neg;
+          return canon32(ir.op("i64.sub", ir.i64c(0), a));
         }
         case "~": {
-          const not = ir.op("i64.xor", a, ir.i64c(-1));
-          return mask32 ? ir.op("i64.and", not, ir.i64c("0xffffffff")) : not;
+          return canon32(ir.op("i64.xor", a, ir.i64c(-1)));
         }
         case "!": return ir.op("i64.extend_i32_u", ir.op("i64.eqz", a));
         default: return a;
@@ -585,10 +586,13 @@ export function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; u
       return sz ? { width: sz, unsigned: unsignedScalar(expr.type) } : null;
     }
     case "int_literal": {
-      // C++ literal typing: int → (uint for hex/octal) → long long by fit; a u/U suffix forces unsigned.
+      // C++ literal typing: int → (uint for hex/octal) → long long by fit; a u/U suffix forces
+      // unsigned and an l/L suffix forces 64-bit rank (long is 8 bytes on the x64 native target).
       const v = ctx.cg["sema"].evaluateConstexpr(expr) ?? 0n;
       const suffixU = /[uU]/.test(expr.suffix ?? "");
+      const suffixL = /[lL]/.test(expr.suffix ?? "");
       const hex = /^0[xX0-7]/.test(expr.value ?? "");
+      if (suffixL) return { width: 8, unsigned: suffixU };
       if (v >= -(2n ** 31n) && v < 2n ** 31n) return { width: 4, unsigned: suffixU };
       if (hex && v < 2n ** 32n) return { width: 4, unsigned: true };
       if (!suffixU && v < 2n ** 63n) return { width: 8, unsigned: false };
@@ -712,14 +716,19 @@ export function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" 
 
   const l = emitValueIr(ctx, expr.left);
   const r = emitValueIr(ctx, expr.right);
-  // C++ usual arithmetic conversions decide the operation's signedness and rank. A 32-bit unsigned
-  // result wraps at 32 bits natively (defined behavior), so +,-,*,<< mask back down; signed 32-bit
-  // overflow is UB and stays unmasked. Shifts take their type from the LEFT operand alone.
+  // C++ usual arithmetic conversions decide the operation's signedness and rank. A 32-bit result
+  // wraps at 32 bits natively — defined behavior when unsigned, and the observed clang lowering
+  // when signed (32-bit register arithmetic) — so +,-,*,<< reduce back to the canonical form:
+  // zero-extended for unsigned, sign-extended for signed. Shifts take their type from the LEFT
+  // operand alone, and a 32-bit shift masks its count mod 32 (i64.shl would mask mod 64).
   const cv = usualConversion(ctx, expr.left, expr.right);
   const u = cv.unsigned;
   const li = promoteInfo(ctx, expr.left);
   const wrapL = (n: ir.Ir, active: boolean) => (active ? ir.op("i64.and", n, ir.i64c("0xffffffff")) : n);
+  const wrapS = (n: ir.Ir, active: boolean) => (active ? ir.op("i64.extend32_s", n) : n);
   const wrap32 = u && cv.width === 4;
+  const swrap32 = !u && cv.width === 4;
+  const shiftCount = (n: ir.Ir) => (li.width === 4 ? ir.op("i64.and", n, ir.i64c(31)) : n);
 
   // A signed 32-bit operand converted to unsigned 32-bit changes representation (sign-extended →
   // zero-extended), so value-sensitive ops (/, %, compares) mask it to the canonical unsigned form.
@@ -735,14 +744,17 @@ export function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" 
   const cmp = (op: string) => ir.op("i64.extend_i32_u", ir.op(op, lc, rc));
 
   switch (expr.op) {
-    case "+": return wrapL(ir.op("i64.add", l, r), wrap32);
-    case "-": return wrapL(ir.op("i64.sub", l, r), wrap32);
-    case "*": return wrapL(ir.op("i64.mul", l, r), wrap32);
+    case "+": return wrapS(wrapL(ir.op("i64.add", l, r), wrap32), swrap32);
+    case "-": return wrapS(wrapL(ir.op("i64.sub", l, r), wrap32), swrap32);
+    case "*": return wrapS(wrapL(ir.op("i64.mul", l, r), wrap32), swrap32);
     case "/": return ir.op(u ? "i64.div_u" : "i64.div_s", lc, rc);
     case "%": return ir.op(u ? "i64.rem_u" : "i64.rem_s", lc, rc);
-    case "<<": return wrapL(ir.op("i64.shl", l, r), li.unsigned && li.width === 4);
+    case "<<": {
+      const sh = ir.op("i64.shl", l, shiftCount(r));
+      return li.width === 4 ? (li.unsigned ? wrapL(sh, true) : wrapS(sh, true)) : sh;
+    }
     // Signed right-shift is arithmetic in C++ — zero-filling a negative sint64 silently corrupts it.
-    case ">>": return ir.op(li.unsigned ? "i64.shr_u" : "i64.shr_s", l, r);
+    case ">>": return ir.op(li.unsigned ? "i64.shr_u" : "i64.shr_s", l, shiftCount(r));
     case "&": return ir.op("i64.and", l, r);
     case "|": return wrapL(ir.op("i64.or", l, r), wrap32);
     case "^": return wrapL(ir.op("i64.xor", l, r), wrap32);

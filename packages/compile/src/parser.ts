@@ -1533,6 +1533,12 @@ export class Parser {
     // Literals
     if (tok.kind === "int_literal") {
       this.next();
+      // Split the u/l suffix off the digits — literal typing (width/signedness) reads it.
+      // (u/l are not hex digits, so the match never eats into a 0x... value.)
+      const m = tok.text.match(/^(.+?)([uUlL]+)$/);
+      if (m) {
+        return { kind: "int_literal", value: m[1], suffix: m[2], span: tok.span };
+      }
       return { kind: "int_literal", value: tok.text, span: tok.span };
     }
 

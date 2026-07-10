@@ -601,9 +601,11 @@ export function isScalarLocal(ctx: FnCtx, name: string): boolean {
 export function emitIncDec(ctx: FnCtx, expr: Expression): string {
   const arg = expr.kind === "postfix_op" || expr.kind === "prefix_op" ? expr.arg : expr;
   const op = (expr as any).op === "++" ? "i64.add" : "i64.sub";
-  // A scalar local/value-param increments in place via local.set.
+  // A scalar local/value-param increments in place via local.set, narrowed back to its declared
+  // width so overflow wraps like native (INT32_MAX++ lands on INT32_MIN, not 2^31).
   if (arg.kind === "identifier" && isScalarLocal(ctx, arg.name)) {
-    return `(local.set $${arg.name} (${op} (local.get $${arg.name}) (i64.const 1)))`;
+    const next = ir.op(op, ir.getL(arg.name, "i64"), ir.i64c(1));
+    return `(local.set $${arg.name} ${ir.emit(narrowLocalIr(ctx, arg.name, next))})`;
   }
   // Otherwise a member/element lvalue: load, adjust, store back.
   const addr = tryLvalueAddr(ctx, arg);

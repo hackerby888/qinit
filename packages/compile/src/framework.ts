@@ -715,6 +715,28 @@ function emitIntrinsics(): string {
   (func $m_smul_u (param $a i64) (param $b i64) (result i64)
     (select (i64.const -1) (i64.mul (local.get $a) (local.get $b))
       (i64.ne (call $u128_mulhi (local.get $a) (local.get $b)) (i64.const 0))))
+  ;; 32-bit overloads (math_lib int/uint versions): operands arrive canonical (sign-/zero-extended)
+  ;; 32-bit values, so the i64 sum/product is exact — clamp directly against the 32-bit extremes.
+  (func $m_sadd_s32 (param $a i64) (param $b i64) (result i64)
+    (local $s i64)
+    (local.set $s (i64.add (local.get $a) (local.get $b)))
+    (select (i64.const -2147483648)
+      (select (i64.const 2147483647) (local.get $s) (i64.gt_s (local.get $s) (i64.const 2147483647)))
+      (i64.lt_s (local.get $s) (i64.const -2147483648))))
+  (func $m_sadd_u32 (param $a i64) (param $b i64) (result i64)
+    (local $s i64)
+    (local.set $s (i64.add (local.get $a) (local.get $b)))
+    (select (i64.const 4294967295) (local.get $s) (i64.gt_u (local.get $s) (i64.const 4294967295))))
+  (func $m_smul_s32 (param $a i64) (param $b i64) (result i64)
+    (local $p i64)
+    (local.set $p (i64.mul (local.get $a) (local.get $b)))
+    (select (i64.const -2147483648)
+      (select (i64.const 2147483647) (local.get $p) (i64.gt_s (local.get $p) (i64.const 2147483647)))
+      (i64.lt_s (local.get $p) (i64.const -2147483648))))
+  (func $m_smul_u32 (param $a i64) (param $b i64) (result i64)
+    (local $p i64)
+    (local.set $p (i64.mul (local.get $a) (local.get $b)))
+    (select (i64.const 4294967295) (local.get $p) (i64.gt_u (local.get $p) (i64.const 4294967295))))
 
   ;; ---- uint128 (two-limb little-endian: low@0, high@8) ----
   ;; High 64 bits of the unsigned 64x64 product, via 32-bit splitting (wasm has no widening multiply).
