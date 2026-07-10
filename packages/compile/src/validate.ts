@@ -198,6 +198,11 @@ class Validator {
 
   private aggregateNames = new Set<string>(["id", "m256i", "uint128"]);
 
+  // Typedef aliases, name → target type key: qpi.h's `typedef m256i id` plus the contract's own
+  // typedef_decls. Aggregate type compatibility compares CANONICAL keys, so an `id` argument
+  // binds to a `const m256i&` parameter and a `typedef Success_output Vote_output` return matches.
+  private typeAliases = new Map<string, string>([["id", "m256i"], ["uint128_t", "uint128"]]);
+
   private aggregateFieldCount = new Map<string, number>();
 
   private structFields = new Map<string, Map<string, TypeSpec>>();
@@ -205,6 +210,35 @@ class Validator {
   private currentTypes = new Map<string, TypeSpec>();
 
   private currentMemberFns = new Map<string, FnSig>();
+
+  private canonTypeKey(t: TypeSpec): string {
+    const u = unwrapType(t);
+
+    // Template value arguments canonicalize to their constant values, so Array<uint8, ALIGNED_A>
+    // and Array<uint8, ALIGNED_B> compare equal when both constants evaluate to the same number.
+    if (u.kind === "template_instance") {
+      const args = u.args.map((a) => {
+        if (a.kind === "name") {
+          const v = this.constants.get(a.name);
+          if (v !== undefined) {
+            return v.toString();
+          }
+        }
+        return this.canonTypeKey(a);
+      });
+      return `${u.name}<${args.join(",")}>`;
+    }
+
+    let k = typeKey(u);
+    for (let i = 0; i < 8; i++) {
+      const next = this.typeAliases.get(k);
+      if (!next || next === k) {
+        break;
+      }
+      k = next;
+    }
+    return k;
+  }
 
   private error(message: string, span: Span | undefined): void {
     const sp = span ?? NO_SPAN;
@@ -222,9 +256,14 @@ class Validator {
   runTopLevel(decls: Declaration[]): void {
     const typeNames = new Set<string>();
     for (const d of decls) {
-      if ((d.kind === "struct" || d.kind === "class_template" || d.kind === "enum" || d.kind === "typedef_decl") && d.name) {
+      // A memberless struct is a forward declaration (`struct StateData;`), not a definition.
+      const isForwardDecl = d.kind === "struct" && d.members.length === 0;
+      if ((d.kind === "struct" || d.kind === "class_template" || d.kind === "enum" || d.kind === "typedef_decl") && d.name && !isForwardDecl) {
         if (typeNames.has(d.name)) this.error(`duplicate type definition '${d.name}'`, d.span);
         typeNames.add(d.name);
+      }
+      if (d.kind === "typedef_decl" && d.name) {
+        this.typeAliases.set(d.name, typeKey(unwrapType((d as { type: TypeSpec }).type)));
       }
       switch (d.kind) {
         case "variable":
@@ -258,6 +297,14 @@ class Validator {
   // and silently diverges between nodes. Immutable file-scope constants are fine.
   private checkGlobalVariable(v: VariableDecl): void {
     if (v.isConstexpr || v.isExtern || isConstType(v.type)) {
+      // File-scope constexpr constants feed template-argument canonicalization (canonTypeKey)
+      // and static_assert evaluation.
+      if (v.init) {
+        const value = evalIntegralConst(v.init, (name) => this.constants.get(name) ?? null);
+        if (value !== null) {
+          this.constants.set(v.name, value);
+        }
+      }
       return;
     }
 
@@ -276,9 +323,14 @@ class Validator {
     const fnSigs = new Map<string, FnSig>();
 
     for (const m of s.members) {
-      if ((m.kind === "struct" || m.kind === "class_template" || m.kind === "enum" || m.kind === "typedef_decl") && m.name) {
+      // A memberless struct is a forward declaration (`struct StateData;`), not a definition.
+      const isForwardDecl = m.kind === "struct" && m.members.length === 0;
+      if ((m.kind === "struct" || m.kind === "class_template" || m.kind === "enum" || m.kind === "typedef_decl") && m.name && !isForwardDecl) {
         if (typeNames.has(m.name)) this.error(`duplicate type definition '${m.name}' in struct '${s.name}'`, m.span);
         typeNames.add(m.name);
+      }
+      if (m.kind === "typedef_decl" && m.name) {
+        this.typeAliases.set(m.name, typeKey(unwrapType((m as { type: TypeSpec }).type)));
       }
       if (m.kind === "variable") {
         // Anonymous-union alternatives intentionally alias storage; only named duplicates in the
@@ -445,7 +497,7 @@ class Validator {
         const actual = this.inferSimpleType(stmt.value);
         if (this.isAggregateType(fn.returnType) && actual && !this.isAggregateType(actual)) {
           this.error(`return type is incompatible: cannot convert scalar expression to aggregate '${typeKey(fn.returnType)}'`, stmt.span);
-        } else if (actual && this.isAggregateType(fn.returnType) && this.isAggregateType(actual) && typeKey(unwrapType(actual)) !== typeKey(unwrapType(fn.returnType))) {
+        } else if (actual && this.isAggregateType(fn.returnType) && this.isAggregateType(actual) && this.canonTypeKey(actual) !== this.canonTypeKey(fn.returnType)) {
           this.error(`return type mismatch: cannot convert '${typeKey(actual)}' to '${typeKey(fn.returnType)}'`, stmt.span);
         }
       }
@@ -465,6 +517,19 @@ class Validator {
       return false;
     }
     if (stmt.kind === "if") return !!stmt.else_ && this.guaranteesReturn(stmt.then) && this.guaranteesReturn(stmt.else_);
+    if (stmt.kind === "switch") {
+      // A switch guarantees a return when it has a default label, no arm can break out of it,
+      // and the final arm returns (earlier arms either return or fall through toward it).
+      const body = stmt.body.kind === "compound" ? stmt.body.body : [stmt.body];
+      const breaksOut = (s: Statement): boolean => {
+        if (s.kind === "break") return true;
+        if (s.kind === "compound") return s.body.some(breaksOut);
+        if (s.kind === "if") return breaksOut(s.then) || (!!s.else_ && breaksOut(s.else_));
+        return false;
+      };
+      const last = body[body.length - 1];
+      return body.some((s) => s.kind === "default") && !body.some(breaksOut) && !!last && this.guaranteesReturn(last);
+    }
     return false;
   }
 
@@ -740,7 +805,7 @@ class Validator {
           const leftType = this.inferSimpleType(e.left);
           const rightType = this.inferSimpleType(e.right);
           if (leftType && rightType && this.isAggregateType(leftType) && this.isAggregateType(rightType) &&
-              typeKey(unwrapType(leftType)) !== typeKey(unwrapType(rightType))) {
+              this.canonTypeKey(leftType) !== this.canonTypeKey(rightType)) {
             this.error(`incompatible aggregate assignment from '${typeKey(rightType)}' to '${typeKey(leftType)}'`, e.span);
           }
           this.checkAssignTarget(e.left, constParams, lookup);
@@ -822,7 +887,7 @@ class Validator {
               const paramType = sig.decl.params[i].type;
               const argType = this.inferSimpleType(e.args[i]);
               if (argType && this.isAggregateType(paramType) && this.isAggregateType(argType) &&
-                  typeKey(unwrapType(paramType)) !== typeKey(unwrapType(argType))) {
+                  this.canonTypeKey(paramType) !== this.canonTypeKey(argType)) {
                 this.error(`argument ${i + 1} to '${name}' has incompatible aggregate type '${typeKey(argType)}'; expected '${typeKey(paramType)}'`, e.args[i].span);
               }
               if (paramType.kind !== "reference" || isConstType(paramType)) continue;
