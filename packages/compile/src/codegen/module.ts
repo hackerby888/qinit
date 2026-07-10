@@ -1,7 +1,7 @@
 import { emitFunction, emitHelperFunction } from "./stmt";
 import { SYSPROC_IMPL, SYSPROC_LOCALS_PREFIX, SYSPROC_IO } from "./tables";
 import { Codegen } from "./cg";
-import { ClassTemplate, CalleeIdl } from "./types";
+import { ClassTemplate, CalleeIdl, HelperInfo } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
 import type { Sema } from "../sema";
 import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec } from "../framework";
@@ -115,7 +115,7 @@ export function generateWasmModule(
   // A member function is: an entry (registered), a system procedure, the register hook, a PRIVATE_
   // function (first param `qpi`, called via CALL), or a plain value helper (e.g. toReturnCode).
   const entryNames = new Set(regs.map((r) => r.fnName));
-  const helperFns: FunctionDecl[] = [];
+  const helperFns: { fn: FunctionDecl; info: HelperInfo }[] = [];
   const privateFns: FunctionDecl[] = [];
   for (const m of contract.members) {
     if (m.kind !== "function") continue;
@@ -128,9 +128,10 @@ export function generateWasmModule(
       const localsStruct = cg["nested"].get(`${fn.name}_locals`);
       cg.privates.set(fn.name, { label: `$priv_${fn.name}`, localsSize: localsStruct ? cg.layoutOf(localsStruct).size : 0 });
       privateFns.push(fn);
-    } else if (!cg.helpers.has(fn.name)) {
-      // overloaded helpers (min(uint64,...) and min(sint64,...)) share one $h_<name> — first wins, so
-      // the function is emitted once (a second emission would redefine the wasm function).
+    } else {
+      // Overloaded helpers each get their own wasm function; the call site ranks the overload set by
+      // argument signature (pickHelperOverload). cg.helpers keeps the first declaration under the bare
+      // name for single-overload lookups.
       const params = fn.params.map((p) => {
         // A NON-const scalar reference (an out-param like `uint64& revenue`) must be passed by address so the
         // write reaches the caller — without this it was an i64 value param and `r = x` was lost (RL
@@ -149,8 +150,15 @@ export function generateWasmModule(
       // size the referent for a `const T&` return — sizeOfType on the reference itself is pointer-width
       const retAgg = !isVoid && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(cg.derefType(fn.returnType)) : undefined;
       const retIsValue = !isVoid && !retAgg;
-      cg.helpers.set(fn.name, { label: `$h_${fn.name}`, params, retIsValue, retAgg });
-      helperFns.push(fn);
+      const set = cg.helperOverloads.get(fn.name) ?? [];
+      const label = set.length === 0 ? `$h_${fn.name}` : `$h_${fn.name}__ov${set.length}`;
+      const info: HelperInfo = { label, params, retIsValue, retAgg, retType: retIsValue ? cg.derefType(fn.returnType) : undefined };
+      set.push(info);
+      cg.helperOverloads.set(fn.name, set);
+      if (set.length === 1) {
+        cg.helpers.set(fn.name, info);
+      }
+      helperFns.push({ fn, info });
     }
   }
 
@@ -264,8 +272,8 @@ export function generateWasmModule(
     const info = cg.privates.get(fn.name)!;
     userFns.push(emitFunction(cg, info.label, fn, stateLayout, layoutFor(`${fn.name}_input`), layoutFor(`${fn.name}_output`), layoutFor(`${fn.name}_locals`)));
   }
-  for (const fn of helperFns) {
-    userFns.push(emitHelperFunction(cg, cg.helpers.get(fn.name)!, fn, stateLayout));
+  for (const { fn, info } of helperFns) {
+    userFns.push(emitHelperFunction(cg, info, fn, stateLayout));
   }
 
   // Instantiated container methods compiled from the real qpi.h bodies (accumulated while lowering the

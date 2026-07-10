@@ -46,6 +46,7 @@ export interface HelperInfo {
   params: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; byValAgg?: boolean }[];
   retIsValue: boolean;                                        // returns a scalar i64 (vs void)
   retAgg?: number;                                            // returns an aggregate (id/struct) by value — its size; ABI prepends a $ret dest-address param
+  retType?: TypeSpec;                                         // declared scalar return type — drives `return e` conversion and call-site type info
 }
 
 export interface PrivateInfo {
@@ -88,6 +89,7 @@ export interface FnCtx {
   loopCount: number;
   params?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }>;  // value-helper / method parameters (local overrides the wasm slot name when inlining)
   retIsValue?: boolean;                       // function returns a scalar value (return <expr>)
+  retTypeName?: string;                       // declared scalar return type name: `return e` narrows to it (C++ conversion)
   retAddr?: string;                           // helper returns an aggregate (id/struct) by value: `return e` copies e here
   retAggSize?: number;                        // size of that aggregate return
   thisLayout?: StructLayout;                  // when compiling a container method: layout of *this

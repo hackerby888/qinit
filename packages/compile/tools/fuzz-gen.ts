@@ -1,10 +1,13 @@
 // Seeded contract generator for the differential fuzzer: seed → deterministic source plus
 // input vectors. Pure — no I/O, no clock, no ambient randomness — so a seed reproduces a
-// case exactly. The v1 grammar covers scalar semantics only: typed locals, arithmetic with
-// width/signedness edges, shifts, comparisons, ternaries, casts, qpi safe-math and control
-// flow. Traps and C++ UB are avoided by construction: raw / and % run unsigned with a |1
-// divisor, safe-math div/mod are unsigned-only, abs is excluded (INT_MIN), and inc/dec never
-// appears inside a larger expression (unsequenced-modification UB).
+// case exactly. The v2 grammar covers scalar semantics plus static value helpers: typed
+// locals, arithmetic with width/signedness edges, shifts, comparisons, ternaries, casts,
+// qpi safe-math, control flow, and 1–3 static helper functions (some with a same-name
+// overload differing in parameter width/signedness). Every helper-call argument is cast
+// exactly to one signature, so native overload resolution is unambiguous and any divergence
+// is a compiler bug. Traps and C++ UB are avoided by construction: raw / and % run unsigned
+// with a |1 divisor, safe-math div/mod are unsigned-only, abs is excluded (INT_MIN), and
+// inc/dec never appears inside a larger expression (unsequenced-modification UB).
 
 export interface FuzzContract {
   seed: number;
@@ -22,6 +25,12 @@ interface LocalVar {
   name: string;
   type: ScalarType;
   mutable: boolean;
+}
+
+interface HelperSig {
+  name: string;
+  ret: ScalarType;
+  params: { name: string; type: ScalarType }[];
 }
 
 const TYPES: ScalarType[] = [
@@ -70,6 +79,8 @@ class Gen {
   private nameCounter = 0;
   private scopes: LocalVar[][] = [];
   private stmtBudget = 0;
+  private avail: HelperSig[] = [];
+  private inHelper = false;
 
   constructor(seed: number) {
     this.next = mulberry32(seed);
@@ -132,7 +143,7 @@ class Gen {
     if (r < 0.3 && vars.length > 0) {
       return this.pick(vars).name;
     }
-    if (r < 0.45) {
+    if (r < 0.45 && !this.inHelper) {
       return `input.${this.pick(["a", "b", "c", "d"])}`;
     }
     return this.literal();
@@ -207,7 +218,17 @@ class Gen {
       const targ = this.chance(0.3) ? `<${t.name}>` : "";
       return `${fn}${targ}((${t.name})(${this.expr(d)}), (${t.name})(${this.expr(d)}))`;
     }
+    if (r < 0.98 && this.avail.length > 0) {
+      return this.helperCall(d);
+    }
     return this.leaf();
+  }
+
+  // Arguments are cast exactly to the chosen signature, so native resolves the same overload.
+  private helperCall(depth: number): string {
+    const sig = this.pick(this.avail);
+    const args = sig.params.map((p) => `(${p.type.name})(${this.expr(depth)})`);
+    return `${sig.name}(${args.join(", ")})`;
   }
 
   // ---- statements ----
@@ -356,9 +377,59 @@ class Gen {
     return this.block(indent, depth, 1 + this.int(3));
   }
 
+  // ---- helper functions ----
+
+  // A helper body sees only its params (immutable) and its own locals — no input/state. Bodies of
+  // later helpers may call earlier ones (a DAG by construction, so no recursion), and an overload's
+  // body may call its earlier sibling. Half the returns are bare expressions, exercising the
+  // implicit conversion to the declared return type.
+  private helperDef(sig: HelperSig): string {
+    this.stmtBudget = 5;
+    this.inHelper = true;
+    this.scopes = [sig.params.map((p) => ({ name: p.name, type: p.type, mutable: false }))];
+
+    const lines: string[] = [];
+    const count = this.int(3);
+    for (let k = 0; k < count && this.stmtBudget > 0; k++) {
+      lines.push(this.stmt("    ", 1));
+    }
+    const ret = this.chance(0.5) ? `(${sig.ret.name})(${this.expr(3)})` : this.expr(3);
+    lines.push(`    return ${ret};`);
+    this.inHelper = false;
+
+    const params = sig.params.map((p) => `${p.type.name} ${p.name}`).join(", ");
+    return `  static ${sig.ret.name} ${sig.name}(${params})\n  {\n${lines.join("\n")}\n  }`;
+  }
+
+  private genHelpers(): string[] {
+    const defs: string[] = [];
+    const count = 1 + this.int(3);
+    for (let k = 0; k < count; k++) {
+      const name = `fn${k}`;
+      const params = Array.from({ length: 1 + this.int(2) }, () => ({ name: this.freshName("p"), type: this.pick(TYPES) }));
+      const base: HelperSig = { name, ret: this.pick(TYPES), params };
+      defs.push(this.helperDef(base));
+      this.avail.push(base);
+
+      if (this.chance(0.3)) {
+        // The overload keeps the parameter count but guarantees a different first parameter type,
+        // so the signatures differ and call sites decide by width/signedness.
+        const p2 = params.map((p) => ({ name: this.freshName("p"), type: p.type }));
+        const idx = TYPES.indexOf(p2[0].type);
+        p2[0] = { name: p2[0].name, type: TYPES[(idx + 1 + this.int(7)) % 8] };
+        const ov: HelperSig = { name, ret: this.pick(TYPES), params: p2 };
+        defs.push(this.helperDef(ov));
+        this.avail.push(ov);
+      }
+    }
+    return defs;
+  }
+
   // ---- contract assembly ----
 
   generate(seed: number): FuzzContract {
+    const helperDefs = this.genHelpers();
+
     this.stmtBudget = 48;
     this.scopes = [[]];
     const topCount = 5 + this.int(16);
@@ -388,6 +459,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData { uint64 f0; uint64 f1; uint64 f2; uint64 f3; uint64 f4; uint64 f5; uint64 f6; uint64 f7; };
   struct Go_input { uint64 a; uint64 b; uint64 c; uint64 d; };
   struct Go_output {};
+${helperDefs.join("\n")}
   PUBLIC_PROCEDURE(Go)
   {
 ${lines.join("\n")}

@@ -21,6 +21,7 @@ export class Codegen {
   private constCache: Map<string, bigint> = new Map();
   private constInProgress = new Set<string>();
   helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
+  helperOverloads: Map<string, HelperInfo[]> = new Map();   // member value helpers, ALL overloads per name in declaration order; call sites rank by argument signature
   libFns: Map<string, FunctionDecl> = new Map();   // qpi.h namespace free functions (ProposalTypes::cls), keyed by qualified name; compiled lazily
   libFnTemplates: Map<string, FunctionTemplateDecl[]> = new Map();   // qpi.h namespace free function TEMPLATES (isArraySortedWithoutDuplicates<T,L>), all overloads kept, instantiated per call-site arg types
   privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()

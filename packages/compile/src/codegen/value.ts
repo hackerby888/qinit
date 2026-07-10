@@ -1,5 +1,5 @@
 import { Codegen } from "./cg";
-import { emitMathCallIr } from "./calls/libfn";
+import { emitMathCallIr, pickHelperOverload } from "./calls/libfn";
 import { SCALAR_SIZE, MATH_INTRINSIC_NAMES } from "./tables";
 import { isScalarLocal, emitIncDec, newTmp } from "./stmt";
 import { describeShape, emitCallValueIr, emitOracleQueryCall, emitOracleReadCall } from "./calls/dispatch";
@@ -306,6 +306,10 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       // C++ evaluates the condition, then exactly ONE arm. wasm select is eager, so it is only safe
       // when both arms are pure and trap-free; otherwise lower as an if/else writing a temp — an arm
       // like `b != 0 ? a / b : 0` must never execute the division on the guarded path.
+      // The result converts to the arms' common type: a signed sub-64 arm mixed with an unsigned one
+      // (`c ? (sint16)(-1) : 3u`) yields the unsigned common type natively (0xFFFFFFFF, not -1).
+      const cv = usualConversion(ctx, expr.then, expr.else_);
+      const cvName = cv.width < 8 ? (cv.unsigned ? "uint32" : "sint32") : undefined;
       const cond = emitValueIr(ctx, expr.cond);
       const saved = ctx.lines;
       ctx.lines = [];
@@ -316,14 +320,14 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       const elseLines = ctx.lines;
       ctx.lines = saved;
       if (thenLines.length === 0 && elseLines.length === 0 && ir.pureIr(thenV) && ir.pureIr(elseV)) {
-        return ir.selectV(thenV, elseV, ir.op("i64.ne", ir.i64c(0), cond));
+        return narrowCastIr(ir.selectV(thenV, elseV, ir.op("i64.ne", ir.i64c(0), cond)), cvName);
       }
       const t = `tmp${ctx.tmpCount++}`;
       ctx.localVars.set(t, { wasmType: "i64" });
       const thenB = [...thenLines, `      ${setLocal(ctx, t, thenV)}`].join("\n");
       const elseB = [...elseLines, `      ${setLocal(ctx, t, elseV)}`].join("\n");
       ctx.lines.push(`    (if (i64.ne (i64.const 0) ${ir.emit(cond)}) (then\n${thenB}\n    ) (else\n${elseB}\n    ))`);
-      return ir.getL(t, "i64");
+      return narrowCastIr(ir.getL(t, "i64"), cvName);
     }
     case "c_cast":
     case "static_cast":
@@ -640,7 +644,16 @@ export function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; u
       const nm = expr.callee?.kind === "identifier" ? expr.callee.name : null;
       if (!nm) return null;
       const base = nm.includes("::") ? nm.slice(nm.lastIndexOf("::") + 2) : nm;
-      if (!MATH_INTRINSIC_NAMES.has(base)) return null;
+      if (!MATH_INTRINSIC_NAMES.has(base)) {
+        // A member value helper carries its declared return type; the width/signedness of
+        // `pick(x) + 1` etc. follow the overload the call resolves to.
+        const set = ctx.cg.helperOverloads.get(nm);
+        const h = set?.length ? pickHelperOverload(ctx, set, expr.args ?? []) : ctx.cg.helpers.get(nm);
+        const rt = h?.retType;
+        const sz = rt?.kind === "name" ? SCALAR_SIZE[rt.name] : undefined;
+        if (sz !== undefined && sz <= 8) return { width: sz, unsigned: unsignedScalar(rt) };
+        return null;
+      }
       if (expr.kind === "template_call" && expr.templateArgs?.[0]?.kind === "name") {
         const sz = SCALAR_SIZE[expr.templateArgs[0].name];
         if (sz) return { width: sz, unsigned: unsignedScalar(expr.templateArgs[0]) };

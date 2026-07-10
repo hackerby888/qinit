@@ -1,9 +1,9 @@
 import { resolveAddr, emitAddr, allocSlot } from "../addr";
 import { emitHelperFunction } from "../stmt";
 import { Codegen } from "../cg";
-import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo } from "../value";
+import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo, scalarTypeInfo, unsignedScalar } from "../value";
 import { FnCtx, HelperInfo, Bindings, NO_BIND } from "../types";
-import { MATH_INTRINSIC_NAMES } from "../tables";
+import { MATH_INTRINSIC_NAMES, SCALAR_SIZE } from "../tables";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
 import * as ir from "../../ir";
 
@@ -241,6 +241,47 @@ export function emitAggHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" 
   return s;
 }
 
+// Scalar width/signedness of a declared parameter or return type, or null for aggregates/unknowns.
+function scalarDeclInfo(ctx: FnCtx, t: TypeSpec): { width: number; unsigned: boolean } | null {
+  const c = ctx.cg.derefType(t);
+  const sz = c.kind === "name" ? SCALAR_SIZE[c.name] : undefined;
+  if (sz === undefined || sz > 8) return null;
+  return { width: sz, unsigned: unsignedScalar(c) };
+}
+
+// Rank a member-helper overload set against the call's argument types, mirroring C++ overload
+// resolution over the scalar subset: per argument, exact width+signedness beats width-only,
+// which beats any other conversion; ties keep declaration order. Aggregate params and untypable
+// arguments score neutral, so single-signature corpus code resolves exactly as before.
+export function pickHelperOverload(ctx: FnCtx, set: HelperInfo[], args: Expression[]): HelperInfo {
+  if (set.length === 1) return set[0];
+
+  const argInfos = args.map((a) => scalarTypeInfo(ctx, a));
+  const rank = (cand: HelperInfo): number => {
+    if (cand.params.length !== args.length) return -1;
+    let s = 0;
+    for (let i = 0; i < args.length; i++) {
+      const pi = scalarDeclInfo(ctx, cand.params[i].type);
+      const ai = argInfos[i];
+      if (!pi || !ai) continue;
+      if (pi.width === ai.width && pi.unsigned === ai.unsigned) s += 2;
+      else if (pi.width === ai.width) s += 1;
+    }
+    return s;
+  };
+
+  let best = set[0];
+  let bestScore = rank(set[0]);
+  for (let i = 1; i < set.length; i++) {
+    const s = rank(set[i]);
+    if (s > bestScore) {
+      best = set[i];
+      bestScore = s;
+    }
+  }
+  return best;
+}
+
 // Resolve a helper / lib-fn name to its (possibly just-compiled) info, or null.
 export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): HelperInfo | null {
   if (expr.callee.kind !== "identifier") return null;
@@ -249,7 +290,10 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
   const name = expr.callee.name;
   const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
   if (MATH_INTRINSIC_NAMES.has(base)) return null;
-  let info = ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name);
+  const set = ctx.cg.helperOverloads.get(expr.callee.name);
+  let info = set?.length
+    ? pickHelperOverload(ctx, set, expr.args)
+    : (ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name));
   if (!info) {
     // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call,
     // picking the overload whose parameter patterns match the argument types.

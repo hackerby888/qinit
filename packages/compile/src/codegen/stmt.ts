@@ -2,7 +2,7 @@ import { emitCall } from "./calls/dispatch";
 import { emitAssetIter } from "./calls/containers";
 import { SCALAR_SIZE, C_SCALAR_NAMES } from "./tables";
 import { isAutoType, resolveAliasType, emitValueIr, narrowLocalIr, emitValue, emitAssign } from "./value";
-import { setLocal, castInfo, resolveAddr, emitAddr, addrIr, emitConstruct, tryLvalueAddr, isUint128, allocSlotIr, loadAt, isSignedScalarType, storeAt } from "./addr";
+import { setLocal, castInfo, resolveAddr, emitAddr, addrIr, emitConstruct, tryLvalueAddr, isUint128, allocSlotIr, loadAt, isSignedScalarType, storeAt, narrowCast } from "./addr";
 import { Codegen } from "./cg";
 import { FnCtx, StructLayout, HelperInfo, Bindings, NO_BIND } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
@@ -52,6 +52,7 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
     cg, state: stateLayout, in: empty, out: empty, locals: empty,
     localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
     params: new Map(), retIsValue: info.retIsValue,
+    retTypeName: info.retType?.kind === "name" ? info.retType.name : undefined,
     // For an instantiated template free fn the body resolves T/L through these bindings (e.g. `L`→4).
     thisBind: bind,
   };
@@ -546,7 +547,8 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         if (src) ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr!), addrIr(src), ir.i32c(ctx.retAggSize!)))}`);
         ctx.lines.push(`    (return)`);
       } else if (stmt.value && ctx.retIsValue) {
-        ctx.lines.push(`    (return ${emitValue(ctx, stmt.value)})`);
+        // `return e` converts e to the declared return type (sub-64-bit returns truncate / sign-extend).
+        ctx.lines.push(`    (return ${narrowCast(emitValue(ctx, stmt.value), ctx.retTypeName)})`);
       } else {
         ctx.lines.push(`    (return)`);
       }
