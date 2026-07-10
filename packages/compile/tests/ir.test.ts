@@ -3,7 +3,7 @@
 // are copied from real codegen output shapes — if one of these changes, the WAT byte-equality
 // oracle breaks.
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   emit, assertTy, op, call, callSig, raw,
@@ -157,9 +157,14 @@ describe("escape-hatch ratchet", () => {
   // ir.raw is the sanctioned bridge for not-yet-typed subtrees (lvalue address strings, dynamic-label
   // calls, control-flow forms). The count must only go DOWN as conversion proceeds — lower the ceiling
   // when you remove hatches; never raise it without a structural reason recorded here.
-  test("raw() count in codegen.ts does not grow", () => {
-    const codegen = readFileSync(join(import.meta.dir, "../src/codegen.ts"), "utf8");
-    const count = (codegen.match(/ir\.raw\(/g) ?? []).length;
+  test("raw() count in codegen/ does not grow", () => {
+    const dir = join(import.meta.dir, "../src/codegen");
+    let count = 0;
+    for (const f of readdirSync(dir, { recursive: true }) as string[]) {
+      if (!f.endsWith(".ts")) continue;
+      const src = readFileSync(join(dir, f), "utf8");
+      count += (src.match(/ir\.raw\(/g) ?? []).length;
+    }
     expect(count).toBeLessThanOrEqual(32);
   });
 });

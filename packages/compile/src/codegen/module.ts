@@ -1,0 +1,378 @@
+import { emitFunction, emitHelperFunction } from "./stmt";
+import { SYSPROC_IMPL, SYSPROC_LOCALS_PREFIX, SYSPROC_IO } from "./tables";
+import { Codegen } from "./cg";
+import { ClassTemplate, CalleeIdl } from "./types";
+import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
+import type { Sema } from "../sema";
+import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec } from "../framework";
+
+// ---- entry point ----
+
+export interface LibTypes {
+  templates: Map<string, ClassTemplate>;
+  specializations: Map<string, { specArgs: TypeSpec[]; tmpl: ClassTemplate }[]>;
+  libFns: Map<string, FunctionDecl>;
+  libFnTemplates: Map<string, FunctionTemplateDecl[]>;
+  globalStructs: Map<string, StructDecl>;
+  typedefs: Map<string, TypeSpec>;
+  constexprInit: Map<string, Expression>;
+  enumConst: Map<string, bigint>;
+  enumSize: Map<string, number>;
+  enumNames: Set<string>;
+  templateMethods: Map<string, Map<string, FunctionTemplateDecl>>;
+}
+
+// Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants/methods).
+export function buildLibTypes(decls: Declaration[]): LibTypes {
+  const cg = new Codegen({} as Sema);
+  cg.collectTU(decls);
+  return {
+    templates: cg.templates,
+    specializations: cg.specializations,
+    libFns: cg.libFns,
+    libFnTemplates: cg.libFnTemplates,
+    globalStructs: cg.globalStructs,
+    typedefs: cg.typedefs,
+    constexprInit: cg.constexprInit,
+    enumConst: cg.enumConst,
+    enumSize: cg.enumSize,
+    enumNames: cg.enumNames,
+    templateMethods: cg.templateMethods,
+  };
+}
+
+export function generateWasmModule(
+  tu: { declarations: Declaration[] },
+  sema: Sema,
+  contractName: string,
+  slot: number,
+  arenaSz: number = 1024 * 1024 * 1024,
+  lib?: LibTypes,
+  callees?: CalleeIdl[],
+  calleeStructs?: Map<string, StructDecl>,
+  calleeTus?: Array<{ name: string; decls: Declaration[] }>,
+  memBase?: number,
+): string {
+  const cg = new Codegen(sema);
+  for (const c of callees ?? []) cg.callees.set(c.name, c);
+  // Callee struct layouts, keyed by their qualified name (`QX::Fees_output`), so a caller reading a callee's
+  // output type — `locals.qxFeesOutput.transferFee` — resolves its fields instead of folding to 0.
+  if (calleeStructs) for (const [k, v] of calleeStructs) cg.globalStructs.set(k, v);
+
+  // Seed the qpi.h library type table (templates / structs / typedefs) parsed once, then add
+  // the user contract's own declarations on top.
+  if (lib) {
+    for (const [k, v] of lib.templates) cg.templates.set(k, v);
+    if (lib.specializations) for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
+    if (lib.libFns) for (const [k, v] of lib.libFns) cg.libFns.set(k, v);
+    if (lib.libFnTemplates) for (const [k, v] of lib.libFnTemplates) cg.libFnTemplates.set(k, v);
+    for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
+    for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
+    for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
+    for (const [k, v] of lib.enumConst) cg.enumConst.set(k, v);
+    if (lib.enumSize) for (const [k, v] of lib.enumSize) cg.enumSize.set(k, v);
+    if (lib.enumNames) for (const n of lib.enumNames) cg.enumNames.add(n);
+    if (lib.templateMethods) for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
+  }
+  cg.collectTU(tu.declarations);
+  for (const ct of calleeTus ?? []) cg.seedCallee(ct.name, ct.decls);
+
+  const contract = findContractStruct(tu);
+  if (!contract) {
+    return emitModule({ stateSize: 0, arenaSize: arenaSz, entries: [], sysprocs: [], userFunctionsWat: ";; no contract struct found", memBase });
+  }
+
+  cg.collectNested(contract);
+  cg.slot = slot;
+  for (const m of contract.members) {
+    if (m.kind === "function") cg.memberFnLine.set((m as FunctionDecl).name, (m as FunctionDecl).span?.line ?? 0);
+  }
+
+  // state size from StateData
+  const stateData = cg["nested"].get("StateData");
+  const stateLayout = stateData ? cg.layoutOf(stateData) : { size: 0, align: 1, fields: new Map() };
+  const stateSize = stateLayout.size;
+  cg.contractStateLayout = stateLayout;
+
+  // registrations → entries
+  const regs = extractRegistrations(contract);
+  const entries: UserEntry[] = [];
+  const userFns: string[] = [];
+
+  // A duplicate input type within a kind makes dispatch ambiguous (first registration would
+  // silently win) — reject.
+  const seenReg = new Map<string, string>();
+  for (const r of regs) {
+    const key = `${r.kind}:${r.inputType}`;
+    const prev = seenReg.get(key);
+    if (prev) {
+      cg.error(`${r.kind === 0 ? "function" : "procedure"} input type ${r.inputType} is registered twice ('${prev}' and '${r.fnName}')`, 0);
+    }
+    seenReg.set(key, r.fnName);
+  }
+
+  // Collect helper + private functions BEFORE emitting entries, so entry bodies can call them.
+  // A member function is: an entry (registered), a system procedure, the register hook, a PRIVATE_
+  // function (first param `qpi`, called via CALL), or a plain value helper (e.g. toReturnCode).
+  const entryNames = new Set(regs.map((r) => r.fnName));
+  const helperFns: FunctionDecl[] = [];
+  const privateFns: FunctionDecl[] = [];
+  for (const m of contract.members) {
+    if (m.kind !== "function") continue;
+    const fn = m as FunctionDecl;
+    if (!fn.body) continue;
+    if (entryNames.has(fn.name) || SYSPROC_IMPL[fn.name] !== undefined || fn.name === "__impl_migrate") continue;
+    if (fn.name === "__registerUserFunctionsAndProcedures" || fn.name.includes("operator") || fn.name === contract.name) continue;
+
+    if (fn.params[0]?.name === "qpi") {
+      const localsStruct = cg["nested"].get(`${fn.name}_locals`);
+      cg.privates.set(fn.name, { label: `$priv_${fn.name}`, localsSize: localsStruct ? cg.layoutOf(localsStruct).size : 0 });
+      privateFns.push(fn);
+    } else if (!cg.helpers.has(fn.name)) {
+      // overloaded helpers (min(uint64,...) and min(sint64,...)) share one $h_<name> — first wins, so
+      // the function is emitted once (a second emission would redefine the wasm function).
+      const params = fn.params.map((p) => {
+        // A NON-const scalar reference (an out-param like `uint64& revenue`) must be passed by address so the
+        // write reaches the caller — without this it was an i64 value param and `r = x` was lost (RL
+        // getSCRevenue -> getBalance always 0). A const scalar reference (`const uint64&`) is read-only and can
+        // bind to an rvalue at the call site, so it stays a value param (the $h_ call side passes it by value;
+        // making it addr would need null-pointer/rvalue handling it doesn't have). Aggregates are addr either way.
+        const isConstRef = p.type.kind === "reference" && p.type.refereed?.kind === "const";
+        const isPtrRef = (p.type.kind === "reference" && !isConstRef) || p.type.kind === "pointer";
+        const isAddr = isPtrRef || cg.isAggregateType(p.type);
+        // A BY-VALUE aggregate param rides the by-address ABI but owns a private copy: the callee may mutate
+        // it (MakePosKey's `id r` writes r.u64._3) and that write must NOT reach the caller's bytes.
+        const byValAgg = isAddr && p.type.kind !== "reference" && p.type.kind !== "pointer";
+        return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type), byValAgg };
+      });
+      const isVoid = cg.isVoidType(fn.returnType);   // `void` may parse as {kind:"void"} OR {kind:"name","void"}
+      // size the referent for a `const T&` return — sizeOfType on the reference itself is pointer-width
+      const retAgg = !isVoid && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(cg.derefType(fn.returnType)) : undefined;
+      const retIsValue = !isVoid && !retAgg;
+      cg.helpers.set(fn.name, { label: `$h_${fn.name}`, params, retIsValue, retAgg });
+      helperFns.push(fn);
+    }
+  }
+
+  // Resolve a named I/O / locals struct to its layout, following typedefs and nested structs: a contract may
+  // alias its entry types (`typedef Success_output Vote_output;`), so a direct nested-struct lookup misses and
+  // output.* fields would resolve to nothing. layoutOfType chases the typedef to the real struct; a typedef to
+  // an id/scalar (no field layout) falls back to a size-only layout so the body still passes it by address.
+  const emptyL = () => ({ size: 0, align: 1, fields: new Map() });
+  const resolveIO = (name: string) => {
+    const s = cg["nested"].get(name);
+    if (s) return cg.layoutOf(s);
+    const lt = cg.layoutOfType({ kind: "name", name });
+    if (lt) return lt;
+    const sz = cg.sizeOfType({ kind: "name", name });
+    return sz > 0 ? { size: sz, align: Math.min(sz, 8), fields: new Map() } : emptyL();
+  };
+
+  // Pre-pass: register every REGISTER_USER_* name -> {label, localsSize} before any body is emitted, so a
+  // CALL() to a registered function/procedure resolves regardless of declaration order (a procedure may
+  // CALL a function registered after it). The label `$user_${i}` is fixed by registration index.
+  for (let i = 0; i < regs.length; i++) {
+    cg.registered.set(regs[i].fnName, { label: `$user_${i}`, localsSize: resolveIO(`${regs[i].fnName}_locals`).size });
+  }
+
+  for (let i = 0; i < regs.length; i++) {
+    const reg = regs[i];
+    const fn = findMemberFn(contract, reg.fnName);
+    const inLayout = resolveIO(`${reg.fnName}_input`);
+    const outLayout = resolveIO(`${reg.fnName}_output`);
+    const localsLayout = resolveIO(`${reg.fnName}_locals`);
+
+    const label = `$user_${i}`;
+    userFns.push(emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout));
+
+    entries.push({
+      inputType: reg.inputType,
+      kind: reg.kind,
+      inSize: inLayout.size,
+      outSize: outLayout.size,
+      localsSize: localsLayout.size,
+      label,
+    });
+  }
+
+  const empty = { size: 0, align: 1, fields: new Map() };
+  // Follows typedefs to the real struct (fields included), then to a size-only layout for id/scalar aliases.
+  const layoutFor = (name: string) => resolveIO(name);
+  const layoutOfNamed = (name?: string) => {
+    if (!name) return empty;
+    const lt = cg.layoutOfType({ kind: "name", name });
+    if (lt) return lt;
+    const sz = cg.sizeOfType({ kind: "name", name });
+    return sz > 0 ? { size: sz, align: Math.min(sz, 8), fields: new Map() } : empty;
+  };
+
+  // system procedures. Lifecycle procedures take no input/output but CAN declare locals (the
+  // *_WITH_LOCALS forms, e.g. END_EPOCH where contracts run reward distribution) — give them their
+  // <name>_locals frame so locals.* resolves, the same as user functions. Share-transfer / incoming-
+  // transfer hooks additionally carry a qpi.h input struct (and the pre-* pair an output struct) so the
+  // body's input.* / output.* field accesses resolve.
+  const sysprocs: SysProcInfo[] = [];
+  let sysIdx = 0;
+  for (const m of contract.members) {
+    if (m.kind === "function") {
+      const fn = m as FunctionDecl;
+      const spId = SYSPROC_IMPL[fn.name];
+      if (spId !== undefined) {
+        const label = `$sys_${sysIdx++}`;
+        const localsLayout = layoutFor(`${SYSPROC_LOCALS_PREFIX[fn.name] ?? fn.name}_locals`);
+        const io = SYSPROC_IO[fn.name];
+        const inLayout = layoutOfNamed(io?.in);
+        const outLayout = layoutOfNamed(io?.out);
+        // typedIO hooks: bind input/output to their typedef targets so container methods (Array.get)
+        // and bare scalar output assignment resolve through the alias instead of the raw io region.
+        let aliases: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }> | undefined;
+        if (io?.typedIO) {
+          aliases = new Map();
+          const bindIO = (pname: string, ioName: string | undefined, slot: string) => {
+            if (!ioName) return;
+            const t = cg.typedefs.get(ioName) ?? { kind: "name", name: ioName } as TypeSpec;
+            aliases!.set(pname, { wasmType: "i32", isAddr: true, local: slot, type: t });
+          };
+          bindIO("input", io.in, "in");
+          bindIO("output", io.out, "out");
+        }
+        userFns.push(emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout, aliases));
+        sysprocs.push({ id: spId, localsSize: localsLayout.size, inSize: inLayout.size, outSize: outLayout.size, label });
+      }
+    }
+  }
+
+  // MIGRATE() — __impl_migrate(qpi, state, const OldStateData& oldState, MIGRATE_locals& locals) rides
+  // the entry ABI with the old-state blob in the $in slot (lite_wasm_tu.h kind-3 dispatch). The oldState
+  // parameter is aliased onto $in with its nested-struct type so field reads resolve; the metadata sizes
+  // drive the engine's redeploy decision (has_migrate / migrate_old_state_size / migrate_locals_size).
+  let migrate: ModuleSpec["migrate"];
+  const migrateFn = findMemberFn(contract, "__impl_migrate");
+  if (migrateFn?.body) {
+    const oldLayout = resolveIO("OldStateData");
+    const localsLayout = resolveIO("MIGRATE_locals");
+    const aliases = new Map([["oldState", {
+      wasmType: "i32" as const, isAddr: true, local: "in",
+      type: { kind: "name", name: "OldStateData" } as TypeSpec,
+    }]]);
+    userFns.push(emitFunction(cg, "$migrate", migrateFn, stateLayout, oldLayout, empty, localsLayout, aliases));
+    migrate = { label: "$migrate", oldStateSize: oldLayout.size, localsSize: localsLayout.size };
+  }
+
+  // PRIVATE_ functions share the entry (ctx,state,in,out,locals) shape — emit them with emitFunction.
+  for (const fn of privateFns) {
+    const info = cg.privates.get(fn.name)!;
+    userFns.push(emitFunction(cg, info.label, fn, stateLayout, layoutFor(`${fn.name}_input`), layoutFor(`${fn.name}_output`), layoutFor(`${fn.name}_locals`)));
+  }
+  for (const fn of helperFns) {
+    userFns.push(emitHelperFunction(cg, cg.helpers.get(fn.name)!, fn, stateLayout));
+  }
+
+  // Instantiated container methods compiled from the real qpi.h bodies (accumulated while lowering the
+  // function bodies above). Appended last; each is emitted once and shared.
+  userFns.push(...cg.emittedMethodOrder);
+
+  const spec: ModuleSpec = {
+    stateSize,
+    arenaSize: arenaSz,
+    entries,
+    sysprocs,
+    userFunctionsWat: userFns.join("\n"),
+    migrate,
+    memBase,
+  };
+
+  // expose warnings + hard errors via a side channel (sema diagnostics)
+  for (const w of cg.warnings) {
+    sema.warn(w.message, { start: 0, end: 0, line: w.line, col: 0 }, "fidelity");
+  }
+  for (const er of cg.errors) {
+    sema.error(er.message, { start: 0, end: 0, line: er.line, col: 0 });
+  }
+
+  return emitModule(spec);
+}
+
+// ---- AST helpers ----
+
+export function findContractStruct(tu: { declarations: Declaration[] }): StructDecl | null {
+  // The user contract may end up nested inside a namespace if qpi.h's bracket structure recovered
+  // imperfectly, so search recursively. Prefer a struct that inherits ContractBase.
+  const all: StructDecl[] = [];
+  const walk = (decls: Declaration[]) => {
+    for (const d of decls) {
+      if (d.kind === "struct") all.push(d as StructDecl);
+      else if (d.kind === "namespace") walk((d as any).body);
+    }
+  };
+  walk(tu.declarations);
+
+  for (const s of all) {
+    if (s.bases.some((b) => b.kind === "name" && b.name === "ContractBase")) return s;
+    if (s.name === "CONTRACT_STATE_TYPE") return s;
+  }
+  // fallback: a struct with a nested StateData that isn't one of the qpi.h library types
+  for (const s of all) {
+    if (s.members.some((m) => m.kind === "struct" && (m as StructDecl).name === "StateData")) return s;
+  }
+  return null;
+}
+
+export interface RegEntry {
+  fnName: string;
+  kind: number;
+  inputType: number;
+}
+
+export function extractRegistrations(contract: StructDecl): RegEntry[] {
+  const regs: RegEntry[] = [];
+  const regFn = contract.members.find(
+    (m) => m.kind === "function" && (m as FunctionDecl).name === "__registerUserFunctionsAndProcedures",
+  ) as FunctionDecl | undefined;
+
+  if (!regFn?.body || regFn.body.kind !== "compound") return regs;
+
+  for (const stmt of regFn.body.body) {
+    if (stmt.kind !== "expression") continue;
+    const e = stmt.expr;
+    if (e.kind !== "call") continue;
+    if (e.callee.kind !== "member_access") continue;
+    const method = e.callee.member;
+    const isFn = method === "__registerUserFunction";
+    const isProc = method === "__registerUserProcedure";
+    const isNotif = method === "__registerUserProcedureNotification";
+    if (!isFn && !isProc && !isNotif) continue;
+
+    // args: (void*)fnName, inputType, sizeof(...), ...
+    const fnArg = e.args[0];
+    let fnName = "";
+    if (fnArg?.kind === "c_cast" && fnArg.expr.kind === "identifier") fnName = fnArg.expr.name;
+    else if (fnArg?.kind === "identifier") fnName = fnArg.name;
+
+    const itArg = e.args[1];
+    let inputType = 0;
+    if (itArg?.kind === "int_literal") inputType = parseInt(itArg.value);
+
+    // Notification procedure (oracle reply callback): its id arg is the synthetic __id_<proc>
+    // ((CONTRACT_INDEX << 22) | defLine, qpi.h REGISTER_USER_PROCEDURE_NOTIFICATION). Dispatch matches
+    // on the low 16 bits (lite_wasm_tu.h __registerUserProcedureNotification), which is just the
+    // definition line — the shifted slot contributes nothing below bit 22.
+    if (isNotif && fnName) {
+      const def = contract.members.find((m) => m.kind === "function" && (m as FunctionDecl).name === fnName) as FunctionDecl | undefined;
+      inputType = (def?.span?.line ?? 0) & 0xffff;
+    }
+
+    if (fnName && inputType >= 1) {
+      regs.push({ fnName, kind: isFn ? 0 : 1, inputType });
+    }
+  }
+
+  return regs;
+}
+
+export function findMemberFn(contract: StructDecl, name: string): FunctionDecl | null {
+  for (const m of contract.members) {
+    if (m.kind === "function" && (m as FunctionDecl).name === name) return m as FunctionDecl;
+  }
+  return null;
+}
