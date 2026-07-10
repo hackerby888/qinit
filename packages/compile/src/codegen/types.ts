@@ -10,6 +10,7 @@ export interface ClassTemplate {
 export interface CodegenWarning {
   message: string;
   line: number;
+  col: number;
 }
 
 export interface FieldLayout {
@@ -46,7 +47,7 @@ export interface HelperInfo {
   params: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; byValAgg?: boolean }[];
   retIsValue: boolean;                                        // returns a scalar i64 (vs void)
   retAgg?: number;                                            // returns an aggregate (id/struct) by value — its size; ABI prepends a $ret dest-address param
-  retType?: TypeSpec;                                         // declared scalar return type — drives `return e` conversion and call-site type info
+  retType?: TypeSpec;                                         // declared return type — drives conversions and aggregate-temporary member lookup
 }
 
 export interface PrivateInfo {

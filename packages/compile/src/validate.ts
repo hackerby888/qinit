@@ -13,6 +13,7 @@
 import type {
   Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span,
 } from "./ast";
+import { parseIntLiteral } from "./lexer";
 
 export interface ValidateDiagnostic {
   severity: "error";
@@ -99,6 +100,65 @@ function isLiteral(e: Expression): boolean {
     e.kind === "char_literal" || e.kind === "string_literal";
 }
 
+const CONST_TYPE_SIZE: Record<string, bigint> = {
+  bool: 1n, bit: 1n, sint8: 1n, uint8: 1n, sint16: 2n, uint16: 2n,
+  sint32: 4n, uint32: 4n, sint64: 8n, uint64: 8n, uint128: 16n,
+  id: 32n, m256i: 32n, int: 4n, unsigned: 4n, signed: 4n,
+};
+
+// Small, side-effect-free integral constant evaluator used by validation. Unknown identifiers
+// deliberately return null; callers decide whether an unresolved name is allowed in their scope.
+function evalIntegralConst(e: Expression, resolve?: (name: string) => bigint | null): bigint | null {
+  try {
+    switch (e.kind) {
+      case "int_literal": return parseIntLiteral(e.value);
+      case "bool_literal": return e.value ? 1n : 0n;
+      case "char_literal": return BigInt(e.value);
+      case "identifier": return resolve?.(e.name) ?? null;
+      case "qualified_name": return resolve?.(`${e.namespace}::${e.name}`) ?? null;
+      case "paren": return evalIntegralConst(e.expr, resolve);
+      case "unary_op": {
+        const a = evalIntegralConst(e.arg, resolve);
+        if (a === null) return null;
+        if (e.op === "-") return -a;
+        if (e.op === "+") return a;
+        if (e.op === "~") return ~a;
+        if (e.op === "!") return a === 0n ? 1n : 0n;
+        return null;
+      }
+      case "binary_op": {
+        const l = evalIntegralConst(e.left, resolve);
+        const r = evalIntegralConst(e.right, resolve);
+        if (l === null || r === null) return null;
+        switch (e.op) {
+          case "+": return l + r; case "-": return l - r; case "*": return l * r;
+          case "/": return r === 0n ? null : l / r; case "%": return r === 0n ? null : l % r;
+          case "<<": return l << r; case ">>": return l >> r;
+          case "&": return l & r; case "|": return l | r; case "^": return l ^ r;
+          case "==": return l === r ? 1n : 0n; case "!=": return l !== r ? 1n : 0n;
+          case "<": return l < r ? 1n : 0n; case ">": return l > r ? 1n : 0n;
+          case "<=": return l <= r ? 1n : 0n; case ">=": return l >= r ? 1n : 0n;
+          case "&&": return l !== 0n && r !== 0n ? 1n : 0n;
+          case "||": return l !== 0n || r !== 0n ? 1n : 0n;
+          default: return null;
+        }
+      }
+      case "ternary": {
+        const c = evalIntegralConst(e.cond, resolve);
+        return c === null ? null : evalIntegralConst(c !== 0n ? e.then : e.else_, resolve);
+      }
+      case "c_cast": case "static_cast": return evalIntegralConst(e.expr, resolve);
+      case "sizeof_type": {
+        const t = unwrapType(e.type);
+        return t.kind === "name" ? CONST_TYPE_SIZE[t.name] ?? null : null;
+      }
+      default: return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
 // Canonical spelling of a type for signature comparison.
 function typeKey(t: TypeSpec): string {
   switch (t.kind) {
@@ -132,6 +192,20 @@ class Validator {
 
   private currentFn: FunctionDecl | null = null;
 
+  private loopDepth = 0;
+
+  private constants = new Map<string, bigint>();
+
+  private aggregateNames = new Set<string>(["id", "m256i", "uint128"]);
+
+  private aggregateFieldCount = new Map<string, number>();
+
+  private structFields = new Map<string, Map<string, TypeSpec>>();
+
+  private currentTypes = new Map<string, TypeSpec>();
+
+  private currentMemberFns = new Map<string, FnSig>();
+
   private error(message: string, span: Span | undefined): void {
     const sp = span ?? NO_SPAN;
     const key = `${message}@${sp.line}`;
@@ -146,7 +220,12 @@ class Validator {
   // ---- Top level ----
 
   runTopLevel(decls: Declaration[]): void {
+    const typeNames = new Set<string>();
     for (const d of decls) {
+      if ((d.kind === "struct" || d.kind === "class_template" || d.kind === "enum" || d.kind === "typedef_decl") && d.name) {
+        if (typeNames.has(d.name)) this.error(`duplicate type definition '${d.name}'`, d.span);
+        typeNames.add(d.name);
+      }
       switch (d.kind) {
         case "variable":
           this.checkGlobalVariable(d);
@@ -161,6 +240,12 @@ class Validator {
           if (d.body) {
             this.checkFunctionBody(d, new Map());
           }
+          break;
+        case "enum":
+          this.collectEnumConstants(d);
+          break;
+        case "static_assert_decl":
+          this.checkStaticAssert(d.cond, d.message, d.span);
           break;
         case "class_template":
           this.checkStruct(d as unknown as StructDecl);
@@ -182,11 +267,19 @@ class Validator {
   // ---- Structs ----
 
   private checkStruct(s: StructDecl): void {
+    if (s.name) this.aggregateNames.add(s.name);
+    if (s.name) this.aggregateFieldCount.set(s.name, s.members.filter((m) => m.kind === "variable" && !m.isStatic && !m.isConstexpr).length);
+    if (s.name) this.structFields.set(s.name, new Map(s.members.filter((m): m is VariableDecl => m.kind === "variable").map((m) => [m.name, m.type])));
     const fieldNames = new Set<string>();
+    const typeNames = new Set<string>();
     const fnBodies = new Map<string, FunctionDecl>();
     const fnSigs = new Map<string, FnSig>();
 
     for (const m of s.members) {
+      if ((m.kind === "struct" || m.kind === "class_template" || m.kind === "enum" || m.kind === "typedef_decl") && m.name) {
+        if (typeNames.has(m.name)) this.error(`duplicate type definition '${m.name}' in struct '${s.name}'`, m.span);
+        typeNames.add(m.name);
+      }
       if (m.kind === "variable") {
         // Anonymous-union alternatives intentionally alias storage; only named duplicates in the
         // same struct are redefinitions.
@@ -194,10 +287,23 @@ class Validator {
           this.error(`duplicate member '${m.name}' in struct '${s.name}'`, m.span);
         }
         fieldNames.add(m.name);
+        if (m.init && (m.isConstexpr || isConstType(m.type))) {
+          const value = evalIntegralConst(m.init, (name) => this.constants.get(name) ?? null);
+          if (value !== null) this.constants.set(m.name, value);
+        }
       }
 
       if (m.kind === "struct") {
+        if (m.name) this.aggregateNames.add(m.name);
         this.checkStruct(m);
+      }
+
+      if (m.kind === "enum") {
+        this.collectEnumConstants(m);
+      }
+
+      if (m.kind === "static_assert_decl") {
+        this.checkStaticAssert(m.cond, m.message, m.span);
       }
 
       if (m.kind === "function") {
@@ -297,7 +403,9 @@ class Validator {
 
   private checkFunctionBody(fn: FunctionDecl, memberFns: Map<string, FnSig>): void {
     this.currentFn = fn;
-    this.checkReturns(fn);
+    this.loopDepth = 0;
+    this.currentMemberFns = memberFns;
+    this.currentTypes = new Map(fn.params.map((p) => [p.name, p.type]));
 
     // Every local declared anywhere in the function, for classifying bare identifiers: names
     // outside this set belong to members/parameters/constants and are codegen's to resolve.
@@ -305,8 +413,10 @@ class Validator {
     this.walkStatements(fn.body!, (stmt) => {
       if (stmt.kind === "declaration" && stmt.decl.kind === "variable" && !stmt.decl.isMember) {
         allLocals.add(stmt.decl.name);
+        this.currentTypes.set(stmt.decl.name, stmt.decl.type);
       }
     });
+    this.checkReturns(fn);
 
     const constParams = new Set<string>();
     for (const p of fn.params) {
@@ -332,11 +442,54 @@ class Validator {
       }
       if (stmt.value) {
         valueReturns++;
+        const actual = this.inferSimpleType(stmt.value);
+        if (this.isAggregateType(fn.returnType) && actual && !this.isAggregateType(actual)) {
+          this.error(`return type is incompatible: cannot convert scalar expression to aggregate '${typeKey(fn.returnType)}'`, stmt.span);
+        } else if (actual && this.isAggregateType(fn.returnType) && this.isAggregateType(actual) && typeKey(unwrapType(actual)) !== typeKey(unwrapType(fn.returnType))) {
+          this.error(`return type mismatch: cannot convert '${typeKey(actual)}' to '${typeKey(fn.returnType)}'`, stmt.span);
+        }
       }
     });
 
     if (!isVoid && valueReturns === 0) {
       this.error(`function '${fn.name}' must return a value`, fn.span);
+    } else if (!isVoid && !this.guaranteesReturn(fn.body!)) {
+      this.error(`non-void function '${fn.name}' has a reachable fallthrough path without a return value`, fn.span);
+    }
+  }
+
+  private guaranteesReturn(stmt: Statement): boolean {
+    if (stmt.kind === "return") return true;
+    if (stmt.kind === "compound") {
+      for (const child of stmt.body) if (this.guaranteesReturn(child)) return true;
+      return false;
+    }
+    if (stmt.kind === "if") return !!stmt.else_ && this.guaranteesReturn(stmt.then) && this.guaranteesReturn(stmt.else_);
+    return false;
+  }
+
+  private collectEnumConstants(e: Declaration & { kind: "enum" }): void {
+    const names = new Set<string>();
+    let next = 0n;
+    for (const member of e.members) {
+      if (names.has(member.name)) this.error(`duplicate enumerator '${member.name}'`, member.span);
+      names.add(member.name);
+      const value = member.value
+        ? evalIntegralConst(member.value, (name) => this.constants.get(name) ?? null)
+        : next;
+      if (value !== null) {
+        this.constants.set(member.name, value);
+        if (e.name) this.constants.set(`${e.name}::${member.name}`, value);
+        next = value + 1n;
+      }
+    }
+  }
+
+  private checkStaticAssert(cond: Expression, message: Expression | undefined, span: Span): void {
+    const value = evalIntegralConst(cond, (name) => this.constants.get(name) ?? null);
+    if (value === 0n) {
+      const detail = message?.kind === "string_literal" ? `: ${message.value}` : "";
+      this.error(`static assertion failed${detail}`, span);
     }
   }
 
@@ -404,24 +557,38 @@ class Validator {
         if (stmt.update) {
           this.checkExpression(stmt.update, memberFns, allLocals, constParams, scopes);
         }
+        this.loopDepth++;
         inOwnScope(stmt.body);
+        this.loopDepth--;
         scopes.pop();
         break;
 
       case "while":
         this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
+        this.loopDepth++;
         inOwnScope(stmt.body);
+        this.loopDepth--;
         break;
 
       case "do_while":
+        this.loopDepth++;
         inOwnScope(stmt.body);
+        this.loopDepth--;
         this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
         break;
 
       case "switch":
         this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
-        this.checkSwitchCases(stmt.body);
+        this.checkSwitchCases(stmt.body, allLocals);
         inOwnScope(stmt.body);
+        break;
+
+      case "continue":
+        if (this.loopDepth === 0) this.error(`continue statement is outside a loop`, stmt.span);
+        break;
+
+      case "static_assert":
+        this.checkStaticAssert(stmt.cond, stmt.message, stmt.span);
         break;
 
       case "return":
@@ -460,6 +627,8 @@ class Validator {
       this.error(`static local variable '${d.name}' is not allowed in a contract — its lifetime would outlive the call and bypass consensus state`, stmt.span);
     }
 
+    if (d.init) this.checkInitializerCardinality(d.type, d.init, stmt.span);
+
     const current = scopes[scopes.length - 1];
     if (current.has(d.name)) {
       this.error(`'${d.name}' is already declared in this scope`, stmt.span);
@@ -477,13 +646,38 @@ class Validator {
     current.set(d.name, { const: isConstType(d.type) });
   }
 
-  private checkSwitchCases(body: Statement): void {
+  private checkInitializerCardinality(type: TypeSpec, init: Expression, span: Span): void {
+    const args = init.kind === "initializer_list" ? init.exprs : init.kind === "construct" ? init.args : null;
+    if (!args) return;
+    const t = unwrapType(type);
+    if (t.kind === "array") {
+      const size = evalIntegralConst(t.size, (name) => this.constants.get(name) ?? null);
+      if (size !== null && size > 0n && BigInt(args.length) > size) {
+        this.error(`too many initializers for array bound ${size}`, span);
+      }
+      for (const arg of args) this.checkInitializerCardinality(t.elem, arg, arg.span);
+      return;
+    }
+    if (t.kind === "name") {
+      const fields = this.aggregateFieldCount.get(t.name);
+      if (fields !== undefined && args.length > fields) {
+        this.error(`too many initializers for aggregate '${t.name}' (${fields} fields)`, span);
+      }
+    }
+  }
+
+  private checkSwitchCases(body: Statement, allLocals: Set<string>): void {
     const keys = new Set<string>();
+    let defaults = 0;
 
     const scan = (s: Statement): void => {
       switch (s.kind) {
         case "case": {
-          const key = constKey(s.value);
+          const value = evalIntegralConst(s.value, (name) => this.constants.get(name) ?? null);
+          const key = value === null ? null : `#${value}`;
+          if (value === null && s.value.kind === "identifier" && allLocals.has(s.value.name)) {
+            this.error(`case label must be an integral constant expression`, s.span);
+          }
           if (key !== null) {
             if (keys.has(key)) {
               this.error(`duplicate case label`, s.span);
@@ -492,6 +686,10 @@ class Validator {
           }
           break;
         }
+        case "default":
+          defaults++;
+          if (defaults > 1) this.error(`duplicate default label`, s.span);
+          break;
         case "compound":
           for (const c of s.body) {
             scan(c);
@@ -539,6 +737,12 @@ class Validator {
           break;
 
         case "assign": {
+          const leftType = this.inferSimpleType(e.left);
+          const rightType = this.inferSimpleType(e.right);
+          if (leftType && rightType && this.isAggregateType(leftType) && this.isAggregateType(rightType) &&
+              typeKey(unwrapType(leftType)) !== typeKey(unwrapType(rightType))) {
+            this.error(`incompatible aggregate assignment from '${typeKey(rightType)}' to '${typeKey(leftType)}'`, e.span);
+          }
           this.checkAssignTarget(e.left, constParams, lookup);
           walk(e.left);
           walk(e.right);
@@ -569,6 +773,33 @@ class Validator {
           const name = e.callee.kind === "identifier" ? e.callee.name
             : e.callee.kind === "member_access" && e.callee.object.kind === "identifier" && e.callee.object.name === "this" ? e.callee.member
             : null;
+          if (e.callee.kind === "member_access") {
+            const method = e.callee.member;
+            const object = e.callee.object;
+            if (object.kind === "identifier" && object.name === "qpi") {
+              const qpiArity: Record<string, number> = { transfer: 2, tick: 0 };
+              const expected = qpiArity[method];
+              if (expected !== undefined && e.args.length !== expected) {
+                this.error(`qpi.${method} expects ${expected} argument(s) but got ${e.args.length}`, e.span);
+              }
+              if (this.isPublicFunctionContext() && method === "transfer") {
+                this.error(`qpi.transfer is unavailable in a public function; it may only be used by a procedure`, e.span);
+              }
+            }
+            const receiverType = this.inferSimpleType(object);
+            const receiver = receiverType ? unwrapType(receiverType) : null;
+            const isArray = receiver?.kind === "template_instance" && receiver.name === "Array";
+            if (isArray && method === "set" && e.args.length !== 2) {
+              this.error(`container set expects 2 argument(s) but got ${e.args.length}`, e.span);
+            }
+            // state.get() is a zero-argument accessor; a get call with operands is a container get.
+            if (isArray && method === "get" && e.args.length !== 1) {
+              this.error(`container get expects 1 argument but got ${e.args.length}`, e.span);
+            }
+            if (this.isPublicFunctionContext() && object.kind === "identifier" && object.name === "state" && method === "mut") {
+              this.error(`public function is read-only and cannot call state.mut()`, e.span);
+            }
+          }
           const sig = name !== null && !lookup(name) && !allLocals.has(name) ? memberFns.get(name) : undefined;
           if (sig) {
             // Native rejects a bare non-static member call from a static context (every
@@ -585,6 +816,19 @@ class Validator {
               // the full argument list (C++ evaluates defaults at the call site).
               for (let i = e.args.length; i < sig.maxArgs; i++) {
                 e.args.push(sig.decl.params[i].defaultValue!);
+              }
+            }
+            for (let i = 0; i < Math.min(e.args.length, sig.decl.params.length); i++) {
+              const paramType = sig.decl.params[i].type;
+              const argType = this.inferSimpleType(e.args[i]);
+              if (argType && this.isAggregateType(paramType) && this.isAggregateType(argType) &&
+                  typeKey(unwrapType(paramType)) !== typeKey(unwrapType(argType))) {
+                this.error(`argument ${i + 1} to '${name}' has incompatible aggregate type '${typeKey(argType)}'; expected '${typeKey(paramType)}'`, e.args[i].span);
+              }
+              if (paramType.kind !== "reference" || isConstType(paramType)) continue;
+              const arg = e.args[i];
+              if (!this.isWritableReferenceArgument(arg, constParams, lookup)) {
+                this.error(`argument ${i + 1} to '${name}' cannot bind to a non-const reference`, arg.span);
               }
             }
           }
@@ -662,6 +906,68 @@ class Validator {
         this.error(`cannot assign to const parameter '${root.name}'`, target.span);
       }
     }
+  }
+
+  private isPublicFunctionContext(): boolean {
+    if (this.currentFn?.name === "__impl_migrate") return false;
+    const first = this.currentFn?.params[0]?.type;
+    if (!first) return false;
+    const t = unwrapType(first);
+    return t.kind === "name" && t.name === "QpiContextFunctionCall";
+  }
+
+  private isAggregateType(type: TypeSpec): boolean {
+    const t = unwrapType(type);
+    return t.kind === "inline_struct" || t.kind === "array" || t.kind === "template_instance" ||
+      (t.kind === "name" && this.aggregateNames.has(t.name));
+  }
+
+  private inferSimpleType(expr: Expression): TypeSpec | null {
+    switch (expr.kind) {
+      case "identifier": return this.currentTypes.get(expr.name) ?? null;
+      case "int_literal": return { kind: "name", name: "uint64" };
+      case "bool_literal": return { kind: "name", name: "bool" };
+      case "char_literal": return { kind: "name", name: "int" };
+      case "paren": return this.inferSimpleType(expr.expr);
+      case "c_cast": case "static_cast": case "reinterpret_cast": return expr.type;
+      case "construct": return expr.type;
+      case "call": {
+        const name = expr.callee.kind === "identifier" ? expr.callee.name : null;
+        if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" &&
+            expr.callee.object.name === "state" && (expr.callee.member === "get" || expr.callee.member === "mut")) {
+          return { kind: "name", name: "StateData" };
+        }
+        return name ? this.currentMemberFns.get(name)?.decl.returnType ?? null : null;
+      }
+      case "member_access": {
+        const owner = this.inferSimpleType(expr.object);
+        const concrete = owner ? unwrapType(owner) : null;
+        return concrete?.kind === "name" ? this.structFields.get(concrete.name)?.get(expr.member) ?? null : null;
+      }
+      default: return null;
+    }
+  }
+
+  private isReadonlyStateExpression(expr: Expression): boolean {
+    let root = expr;
+    while (root.kind === "member_access" || root.kind === "subscript") root = root.object;
+    return root.kind === "call" && root.callee.kind === "member_access" &&
+      root.callee.object.kind === "identifier" && root.callee.object.name === "state" && root.callee.member === "get";
+  }
+
+  private isWritableReferenceArgument(
+    arg: Expression,
+    constParams: Set<string>,
+    lookup: (name: string) => { const: boolean } | null,
+  ): boolean {
+    if (this.isReadonlyStateExpression(arg)) return false;
+    if (arg.kind === "identifier") {
+      const local = lookup(arg.name);
+      if (local?.const || (!local && constParams.has(arg.name))) return false;
+      return true;
+    }
+    return arg.kind === "member_access" || arg.kind === "subscript" ||
+      (arg.kind === "unary_op" && arg.op === "*");
   }
 
   // ---- Generic walkers ----

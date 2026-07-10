@@ -8,11 +8,29 @@ import { FnCtx, StructLayout, HelperInfo, Bindings, NO_BIND } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
 import * as ir from "../ir";
 
+function emitArrayInitializer(ctx: FnCtx, base: ir.Ir, type: TypeSpec & { kind: "array" }, init: Expression & { kind: "initializer_list" }): void {
+  const b = ctx.thisBind ?? NO_BIND;
+  const elemSize = ctx.cg.sizeOfType(type.elem, b);
+  init.exprs.forEach((expr, index) => {
+    const dst = ir.addr0(base, index * elemSize);
+    if (type.elem.kind === "array" && expr.kind === "initializer_list") {
+      emitArrayInitializer(ctx, dst, type.elem, expr);
+    } else if (ctx.cg.isAggregateType(type.elem) && (expr.kind === "initializer_list" || expr.kind === "construct")) {
+      const args = expr.kind === "initializer_list" ? expr.exprs : expr.args;
+      emitConstruct(ctx, ir.emit(dst), type.elem, args);
+    } else {
+      ctx.lines.push(`    ${ir.emit(ir.storeScalar(dst, elemSize, emitValueIr(ctx, expr)))}`);
+    }
+  });
+}
+
 // ---- function body codegen ----
 
 // A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
 export function newTmp(ctx: FnCtx): string {
-  const n = `tmp${ctx.tmpCount++}`;
+  let n: string;
+  do n = `__qinit_tmp${ctx.tmpCount++}`;
+  while (ctx.localVars.has(n) || ctx.params?.has(n));
   ctx.localVars.set(n, { wasmType: "i32" });
   return n;
 }
@@ -32,7 +50,7 @@ export function emitFunction(
   // Pre-scan for local variable declarations (must be declared at function top in WAT)
   if (fn?.body) collectLocals(fn.body, ctx);
 
-  const header = `  (func ${label} (param $ctx i32) (param $state i32) (param $in i32) (param $out i32) (param $locals i32)`;
+  const header = `  (func ${label} (param $__qinit_ctx i32) (param $__qinit_state i32) (param $__qinit_in i32) (param $__qinit_out i32) (param $__qinit_locals i32)`;
 
   if (fn?.body) {
     emitStmt(ctx, fn.body);
@@ -59,7 +77,7 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
   // An aggregate-returning helper (`id liquidityPov(...)`) gets a leading $ret destination-address param;
   // `return e` copies the 32/N-byte value there. The caller allocates the slot and passes its address.
   if (info.retAgg) {
-    ctx.retAddr = "(local.get $ret)";
+    ctx.retAddr = "(local.get $__qinit_ret)";
     ctx.retAggSize = info.retAgg;
   }
   for (const p of info.params) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: p.type });
@@ -72,14 +90,15 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
     if (!p.byValAgg) continue;
     const size = cg.sizeOfType(p.type, bind ?? NO_BIND);
     if (!(size > 0)) continue;
-    const cp = `bv_${p.name}`;
+    let cp = `__qinit_bv_${p.name}`;
+    while (ctx.localVars.has(cp) || ctx.params?.has(cp)) cp += "_";
     ctx.localVars.set(cp, { wasmType: "i32" });
     ctx.lines.push(`    ${setLocal(ctx, cp, ir.call("$qpiAllocLocals", ir.i32c(size)))}`);
     ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(cp, "i32"), ir.getL(p.name, "i32"), ir.i32c(size)))}`);
     ctx.params!.get(p.name)!.local = cp;
   }
 
-  const retParam = info.retAgg ? "(param $ret i32) " : "";
+  const retParam = info.retAgg ? "(param $__qinit_ret i32) " : "";
   const paramDecls = info.params.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
   const result = info.retIsValue ? " (result i64)" : "";
   const header = `  (func ${info.label} ${retParam}${paramDecls}${result}`.replace(/\s+\)/, ")");
@@ -145,6 +164,10 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
           const ci = castInfo(v.init);
           if (ci) {
             dType = ci.type;
+          } else if (v.init.kind === "identifier") {
+            dType = ctx.localVars.get(v.init.name)?.type ?? ctx.params?.get(v.init.name)?.type ?? dType;
+          } else if (v.init.kind === "call" && v.init.callee.kind === "identifier") {
+            dType = ctx.cg.helpers.get(v.init.callee.name)?.retType ?? dType;
           } else if (v.init.kind === "subscript" && v.init.object.kind === "identifier") {
             const ot = ctx.localVars.get(v.init.object.name)?.type;
             const op = ot ? resolveAliasType(ctx.cg, ot) : null;
@@ -374,11 +397,8 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
             // struct locals go field-wise through emitConstruct.
             if (v.init?.kind === "initializer_list") {
               if (concrete.kind === "array") {
-                const esz = ctx.cg.sizeOfType(concrete.elem, db);
                 ctx.lines.push(`    ${ir.emit(ir.call("$setMem", ir.getL(v.name, "i32"), ir.i32c(sz), ir.i32c(0)))}`);
-                ((v.init as any).exprs ?? []).forEach((e: Expression, i: number) => {
-                  ctx.lines.push(`    ${ir.emit(ir.storeScalar(ir.addr0(ir.getL(v.name, "i32"), i * esz), esz, emitValueIr(ctx, e)))}`);
-                });
+                emitArrayInitializer(ctx, ir.getL(v.name, "i32"), concrete, v.init);
                 break;
               }
               if (emitConstruct(ctx, `(local.get $${v.name})`, concrete, (v.init as any).exprs ?? [])) {
@@ -467,7 +487,9 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
 
     case "switch": {
       const n = ctx.loopCount++;
-      const brk = `$swbrk${n}`, sw = `sw${n}`;
+      const brk = `$swbrk${n}`;
+      let sw = `__qinit_sw${n}`;
+      while (ctx.localVars.has(sw) || ctx.params?.has(sw)) sw += "_";
       ctx.localVars.set(sw, { wasmType: "i64" });
       ctx.lines.push(`    ${setLocal(ctx, sw, emitValueIr(ctx, stmt.cond))}`);
       ctx.lines.push(`    (block ${brk}`);
@@ -621,7 +643,7 @@ export function emitIncDec(ctx: FnCtx, expr: Expression): string {
       ctx.lines.push(`    ${ir.emit(ir.call(op === "i64.add" ? "$u128_add" : "$u128_sub", res, addrIr(addr.addr), one))}`);
       return ir.emit(ir.call("$copyMem", addrIr(addr.addr), res, ir.i32c(16)));
     }
-    const load = loadAt(addr.addr, addr.size, isSignedScalarType(addr.type));
+    const load = loadAt(addr.addr, addr.size, isSignedScalarType(addr.type, ctx.cg));
     const stored = `(${op} ${load} (i64.const 1))`;
     return storeAt(addr.addr, addr.size, stored);
   }

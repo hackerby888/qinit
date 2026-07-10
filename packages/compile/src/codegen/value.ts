@@ -10,6 +10,14 @@ import { FnCtx, NO_BIND } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
 import * as ir from "../ir";
 
+function newValueTmp(ctx: FnCtx): string {
+  let name: string;
+  do name = `__qinit_value${ctx.tmpCount++}`;
+  while (ctx.localVars.has(name) || ctx.params?.has(name));
+  ctx.localVars.set(name, { wasmType: "i64" });
+  return name;
+}
+
 // ---- assignment ----
 
 // Lowers an assignment by pushing WAT lines to ctx; returns "" (the statement is fully emitted).
@@ -109,7 +117,8 @@ export function compoundToBinary(expr: Expression & { kind: "assign" }): Express
 // Keep sub-64-bit scalar locals in canonical i64 form (zero-/sign-extended) on every store, so
 // loads and compares can consume them without re-extending.
 export function narrowLocalIr(ctx: FnCtx, name: string, v: ir.Ir): ir.Ir {
-  const t = ctx.localVars.get(name)?.type ?? ctx.params?.get(name)?.type;
+  const raw = ctx.localVars.get(name)?.type ?? ctx.params?.get(name)?.type;
+  const t = raw ? ctx.cg.scalarStorageType(raw) : undefined;
   if (t?.kind === "name" && (SCALAR_SIZE[t.name] ?? 8) < 8) {
     return narrowCastIr(v, t.name);
   }
@@ -173,25 +182,25 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       if (ctx.staticConsts?.has(expr.name)) return ir.i64c(ctx.staticConsts.get(expr.name)!);
       if (ctx.thisLayout) {
         const tn = resolveAddr(ctx, expr);
-        if (tn && tn.size <= 8) return loadAtIr(tn.addr, tn.size, isSignedScalarType(tn.type));
+        if (tn && tn.size <= 8) return loadAtIr(tn.addr, tn.size, isSignedScalarType(tn.type, ctx.cg));
       }
       // entry-fn `input`/`output` typed by a scalar typedef (typedef uint16 SetShareholderProposal_output):
       // the io name is a region address, so a bare read loads its scalar through it.
       if ((expr.name === "input" || expr.name === "output") && !ctx.localVars.has(expr.name)) {
         const io = resolveAddr(ctx, expr);
         if (io && io.size > 0 && io.size <= 8 && (!io.layout || io.layout.fields.size === 0)) {
-          return loadAtIr(io.addr, io.size, isSignedScalarType(io.type));
+          return loadAtIr(io.addr, io.size, isSignedScalarType(io.type, ctx.cg));
         }
       }
       // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
       const c = ctx.cg.resolveConst(expr.name);
       if (c !== null) return ir.i64c(c);
-      ctx.cg.warn(`unknown identifier '${expr.name}'`, expr.span.line);
+      ctx.cg.warn(`unknown identifier '${expr.name}'`, expr.span);
       return ir.i64c(0);
     }
     case "member_access": {
       const n = resolveAddr(ctx, expr);
-      if (n && n.size <= 8) return loadAtIr(n.addr, n.size, isSignedScalarType(n.type));
+      if (n && n.size <= 8) return loadAtIr(n.addr, n.size, isSignedScalarType(n.type, ctx.cg));
       if (n) {
         ctx.cg.warn(`aggregate value read unsupported [${describeShape(expr)}]`, expr.span.line);
         return ir.i64c(0);
@@ -226,7 +235,7 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
     }
     case "subscript": {
       const n = resolveAddr(ctx, expr);
-      if (n && n.size <= 8) return loadAtIr(n.addr, n.size, isSignedScalarType(n.type));
+      if (n && n.size <= 8) return loadAtIr(n.addr, n.size, isSignedScalarType(n.type, ctx.cg));
       ctx.cg.warn(`unsupported subscript value`, (expr as any).span?.line ?? 0);
       return ir.i64c(0);
     }
@@ -265,7 +274,7 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       if (expr.op === "*") {
         const n = resolveAddr(ctx, expr);
         if (n && n.size <= 8) {
-          return loadAtIr(n.addr, n.size, isSignedScalarType(n.type));
+          return loadAtIr(n.addr, n.size, isSignedScalarType(n.type, ctx.cg));
         }
       }
       const a = emitValueIr(ctx, expr.arg);
@@ -295,8 +304,7 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
     }
     case "postfix_op": {
       // x++ / x-- as a value: capture the old value, then apply — the expression evaluates to the old.
-      const t = `tmp${ctx.tmpCount++}`;
-      ctx.localVars.set(t, { wasmType: "i64" });
+      const t = newValueTmp(ctx);
       ctx.lines.push(`    ${ir.emit(ir.setL(t, emitValueIr(ctx, expr.arg)))}`);
       const w = emitIncDec(ctx, expr);
       if (w) ctx.lines.push(`    ${w}`);
@@ -322,8 +330,7 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       if (thenLines.length === 0 && elseLines.length === 0 && ir.pureIr(thenV) && ir.pureIr(elseV)) {
         return narrowCastIr(ir.selectV(thenV, elseV, ir.op("i64.ne", ir.i64c(0), cond)), cvName);
       }
-      const t = `tmp${ctx.tmpCount++}`;
-      ctx.localVars.set(t, { wasmType: "i64" });
+      const t = newValueTmp(ctx);
       const thenB = [...thenLines, `      ${setLocal(ctx, t, thenV)}`].join("\n");
       const elseB = [...elseLines, `      ${setLocal(ctx, t, elseV)}`].join("\n");
       ctx.lines.push(`    (if (i64.ne (i64.const 0) ${ir.emit(cond)}) (then\n${thenB}\n    ) (else\n${elseB}\n    ))`);
@@ -332,12 +339,24 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
     case "c_cast":
     case "static_cast":
       return narrowCastIr(emitValueIr(ctx, expr.expr), expr.type?.kind === "name" ? expr.type.name : undefined);
+    case "construct": {
+      const t = ctx.cg.scalarStorageType(expr.type);
+      if (t.kind === "name" && SCALAR_SIZE[t.name] !== undefined && SCALAR_SIZE[t.name] <= 8) {
+        return narrowCastIr(expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0), t.name);
+      }
+      ctx.cg.warn(`aggregate construction used as a scalar value`, expr.span);
+      return ir.i64c(0);
+    }
+    case "initializer_list":
+      return expr.exprs.length === 1 ? emitValueIr(ctx, expr.exprs[0]) : ir.i64c(0);
     case "sizeof_type":
       return ir.i64c(ctx.cg.sizeOfType(expr.type, ctx.thisBind ?? NO_BIND));
     case "sizeof_expr": {
       // sizeof someLvalue — e.g. sizeof(*this) (the container).
       const n = resolveAddr(ctx, expr.expr);
       if (n) return ir.i64c(n.size);
+      const scalar = scalarTypeInfo(ctx, expr.expr);
+      if (scalar) return ir.i64c(scalar.width);
       // sizeof(TypeName) parses here when the operand is a bare type (e.g. sizeof(Element)) rather than
       // a value — size it as a type, resolving template params (Element) through the binding.
       if (expr.expr.kind === "identifier") {
@@ -551,17 +570,20 @@ export function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
     case "int_literal": return /[uU]/.test(expr.suffix ?? "");
     case "identifier": {
       const p = ctx.params?.get(expr.name);
-      if (p) return unsignedScalar(p.type);
+      if (p) return unsignedScalar(ctx.cg.scalarStorageType(p.type));
       const rl = ctx.refLocals?.get(expr.name);
-      if (rl) return unsignedScalar(rl);
+      if (rl) return unsignedScalar(ctx.cg.scalarStorageType(rl));
       const lv = ctx.localVars.get(expr.name)?.type;
-      if (lv) return unsignedScalar(lv);
-      return unsignedScalar(resolveAddr(ctx, expr)?.type ?? null);
+      if (lv) return unsignedScalar(ctx.cg.scalarStorageType(lv));
+      const constant = ctx.cg.typeOfConstant(expr.name);
+      if (constant) return unsignedScalar(ctx.cg.scalarStorageType(constant));
+      const addrType = resolveAddr(ctx, expr)?.type;
+      return addrType ? unsignedScalar(ctx.cg.scalarStorageType(addrType)) : false;
     }
     case "member_access": case "subscript": {
       const t = resolveAddr(ctx, expr)?.type ?? null;
       if (t?.kind === "name" && t.name === "DateAndTime") return true; // compares via its packed uint64 value
-      return unsignedScalar(t);
+      return t ? unsignedScalar(ctx.cg.scalarStorageType(t)) : false;
     }
     case "call":
       // qpi out-producers read as scalars are packed uint64 values (qpi.now() → DateAndTime.value)
@@ -607,13 +629,14 @@ export function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; u
     }
     case "identifier": case "member_access": case "subscript": {
       const t = expr.kind === "identifier"
-        ? (ctx.params?.get(expr.name)?.type ?? ctx.refLocals?.get(expr.name) ?? ctx.localVars.get(expr.name)?.type ?? resolveAddr(ctx, expr)?.type ?? null)
+        ? (ctx.params?.get(expr.name)?.type ?? ctx.refLocals?.get(expr.name) ?? ctx.localVars.get(expr.name)?.type ?? ctx.cg.typeOfConstant(expr.name) ?? resolveAddr(ctx, expr)?.type ?? null)
         : (resolveAddr(ctx, expr)?.type ?? null);
       let c = t;
       if (c?.kind === "const") c = c.valueType;
       if (c?.kind === "reference") c = c.refereed;
+      if (c) c = ctx.cg.scalarStorageType(c);
       const sz = c?.kind === "name" ? SCALAR_SIZE[c.name] : undefined;
-      return sz ? { width: sz, unsigned: unsignedScalar(t) } : null;
+      return sz ? { width: sz, unsigned: unsignedScalar(c) } : null;
     }
     case "binary_op": {
       if (["+", "-", "*", "/", "%", "&", "|", "^"].includes(expr.op)) {

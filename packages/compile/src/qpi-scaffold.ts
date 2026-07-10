@@ -76,12 +76,12 @@ export const SCAFFOLD_MACROS = `
 #define SET_SHAREHOLDER_PROPOSAL_WITH_LOCALS() static void __impl_setShareholderProposal(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
 #define SET_SHAREHOLDER_VOTES_WITH_LOCALS() static void __impl_setShareholderVotes(const QpiContextProcedureCall& qpi, void* state, void* input, void* output, void* locals)
 
-#define PUBLIC_FUNCTION(f) static void f(const QpiContextFunctionCall& qpi, void* state, f##_input& input, f##_output& output, f##_locals& locals)
-#define PUBLIC_PROCEDURE(p) static void p(const QpiContextProcedureCall& qpi, void* state, p##_input& input, p##_output& output, p##_locals& locals)
+#define PUBLIC_FUNCTION(f) typedef NoData f##_locals; static void f(const QpiContextFunctionCall& qpi, void* state, f##_input& input, f##_output& output, f##_locals& locals)
+#define PUBLIC_PROCEDURE(p) typedef NoData p##_locals; static void p(const QpiContextProcedureCall& qpi, void* state, p##_input& input, p##_output& output, p##_locals& locals)
 #define PUBLIC_FUNCTION_WITH_LOCALS(f) static void f(const QpiContextFunctionCall& qpi, void* state, f##_input& input, f##_output& output, f##_locals& locals)
 #define PUBLIC_PROCEDURE_WITH_LOCALS(p) static void p(const QpiContextProcedureCall& qpi, void* state, p##_input& input, p##_output& output, p##_locals& locals)
-#define PRIVATE_FUNCTION(f) static void f(const QpiContextFunctionCall& qpi, void* state, f##_input& input, f##_output& output, f##_locals& locals)
-#define PRIVATE_PROCEDURE(p) static void p(const QpiContextProcedureCall& qpi, void* state, p##_input& input, p##_output& output, p##_locals& locals)
+#define PRIVATE_FUNCTION(f) typedef NoData f##_locals; static void f(const QpiContextFunctionCall& qpi, void* state, f##_input& input, f##_output& output, f##_locals& locals)
+#define PRIVATE_PROCEDURE(p) typedef NoData p##_locals; static void p(const QpiContextProcedureCall& qpi, void* state, p##_input& input, p##_output& output, p##_locals& locals)
 #define PRIVATE_FUNCTION_WITH_LOCALS(f) static void f(const QpiContextFunctionCall& qpi, void* state, f##_input& input, f##_output& output, f##_locals& locals)
 #define PRIVATE_PROCEDURE_WITH_LOCALS(p) static void p(const QpiContextProcedureCall& qpi, void* state, p##_input& input, p##_output& output, p##_locals& locals)
 

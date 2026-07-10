@@ -1,6 +1,6 @@
 import { SCALAR_SIZE } from "./tables";
 import { ClassTemplate, CompiledMethod, HelperInfo, PrivateInfo, CalleeIdl, StructLayout, CodegenWarning, NO_BIND, Bindings, FieldLayout, ContainerInfo } from "./types";
-import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
+import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl, Span } from "../ast";
 import type { Sema } from "../sema";
 import { parseIntLiteral as lexParseIntLiteral } from "../lexer";
 
@@ -12,8 +12,11 @@ export class Codegen {
   globalStructs: Map<string, StructDecl> = new Map();           // qpi.h global/namespace structs
   typedefs: Map<string, TypeSpec> = new Map();                  // typedef aliases
   constexprInit: Map<string, Expression> = new Map();           // named constexpr → its init expression
+  constexprType: Map<string, TypeSpec> = new Map();             // named constexpr → declared scalar type
   enumConst: Map<string, bigint> = new Map();                   // enum constant (NAME and Type::NAME) → value
   enumSize: Map<string, number> = new Map();                    // enum type name → storage size from its underlying type (enum class X : uint8 → 1)
+  enumUnderlying: Map<string, TypeSpec> = new Map();             // enum type name → declared underlying scalar type
+  enumConstType: Map<string, TypeSpec> = new Map();              // enumerator name → its enum/underlying scalar type
   enumNames: Set<string> = new Set();                           // every named enum type, for type-name resolution checks
   templateMethods: Map<string, Map<string, FunctionTemplateDecl>> = new Map();  // Class → method → out-of-class def
   compiledMethods: Map<string, CompiledMethod> = new Map();     // instantiation cache key → compiled method
@@ -164,7 +167,13 @@ export class Codegen {
 
   private collectConstant(v: VariableDecl): void {
     if (v.init && (v.isConstexpr || v.type.kind === "const")) {
-      if (!this.constexprInit.has(v.name)) this.constexprInit.set(v.name, v.init);
+      // User declarations are collected after the seeded qpi.h library and therefore shadow library
+      // constants with the same unqualified name, as class/member lookup requires.
+      this.constexprInit.set(v.name, v.init);
+      this.constexprType.set(v.name, v.type);
+      this.enumConst.delete(v.name);
+      this.enumConstType.delete(v.name);
+      this.constCache.delete(v.name);
     }
   }
 
@@ -174,15 +183,51 @@ export class Codegen {
     }
     if (e.name && e.underlyingType?.kind === "name") {
       const sz = SCALAR_SIZE[e.underlyingType.name];
-      if (sz !== undefined && !this.enumSize.has(e.name)) this.enumSize.set(e.name, sz);
+      if (sz !== undefined) this.enumSize.set(e.name, sz);
+      this.enumUnderlying.set(e.name, e.underlyingType);
     }
+    const enumType: TypeSpec = e.underlyingType ?? { kind: "name", name: "sint32" };
     let next = 0n;
     for (const m of e.members) {
       const v = m.value ? this.evalConstBig(m.value, NO_BIND) : next;
       next = v + 1n;
-      if (!this.enumConst.has(m.name)) this.enumConst.set(m.name, v);
-      if (e.name) this.enumConst.set(`${e.name}::${m.name}`, v);
+      this.constexprInit.delete(m.name);
+      this.constexprType.delete(m.name);
+      this.enumConst.set(m.name, this.normalizeConst(v, enumType));
+      this.enumConstType.set(m.name, enumType);
+      this.constCache.delete(m.name);
+      if (e.name) {
+        this.enumConst.set(`${e.name}::${m.name}`, this.normalizeConst(v, enumType));
+        this.enumConstType.set(`${e.name}::${m.name}`, enumType);
+        this.constCache.delete(`${e.name}::${m.name}`);
+      }
     }
+  }
+
+  typeOfConstant(name: string): TypeSpec | null {
+    return this.constexprType.get(name) ?? this.enumConstType.get(name) ??
+      (name.includes("::") ? this.typeOfConstant(name.slice(name.lastIndexOf("::") + 2)) : null);
+  }
+
+  scalarStorageType(type: TypeSpec): TypeSpec {
+    const t = this.derefType(type);
+    return t.kind === "name" ? this.enumUnderlying.get(t.name) ?? t : t;
+  }
+
+  private normalizeConst(value: bigint, type: TypeSpec): bigint {
+    const t = this.scalarStorageType(type);
+    if (t.kind !== "name") return value;
+    const size = SCALAR_SIZE[t.name];
+    if (size === undefined || size >= 8) return value;
+    if (t.name === "bool" || t.name === "bit") return value === 0n ? 0n : 1n;
+    const bits = BigInt(size * 8);
+    const mask = (1n << bits) - 1n;
+    const narrowed = value & mask;
+    if (/^(sint|signed\b)/.test(t.name)) {
+      const sign = 1n << (bits - 1n);
+      return (narrowed & sign) !== 0n ? narrowed - (1n << bits) : narrowed;
+    }
+    return narrowed;
   }
 
   // Resolve a named constant (enum constant or constexpr) to its integer value, or null if unknown.
@@ -212,7 +257,7 @@ export class Codegen {
     if (this.constInProgress.has(name)) return null;   // cyclic constexpr — give up
     this.constInProgress.add(name);
     try {
-      const v = this.evalConstBig(init, NO_BIND);
+      const v = this.normalizeConst(this.evalConstBig(init, NO_BIND), this.constexprType.get(name) ?? { kind: "name", name: "sint64" });
       this.constCache.set(name, v);
       return v;
     } finally {
@@ -893,7 +938,7 @@ export class Codegen {
         return BigInt(this.sizeOfType(expr.type, b));
       case "c_cast":
       case "static_cast":
-        return this.evalConstBig(expr.expr, b);
+        return this.normalizeConst(this.evalConstBig(expr.expr, b), expr.type);
       case "call":
       case "template_call": {
         // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4),
@@ -1367,20 +1412,24 @@ export class Codegen {
     return { L, nodesOff: nodesF.offset, stride: nodeLayout.size, valueOff: valueF.offset, elemType: args[0] };
   }
 
-  warn(message: string, line: number): void {
+  warn(message: string, at: number | Span): void {
     if ((globalThis as any).process?.env?.QINIT_WARN_TRACE && message.includes((globalThis as any).process.env.QINIT_WARN_TRACE) ) {
       console.error(new Error(`TRACE: ${message}`).stack);
     }
-    this.warnings.push({ message, line });
+    const line = typeof at === "number" ? at : at.line;
+    const col = typeof at === "number" ? 0 : at.col;
+    this.warnings.push({ message, line, col });
   }
 
   // Hard semantic errors (not fidelity warnings): these abort the build regardless of strict
   // mode. Deduplicated because speculative emission may revisit the same node.
-  error(message: string, line: number): void {
-    if (this.errors.some((e) => e.message === message && e.line === line)) {
+  error(message: string, at: number | Span): void {
+    const line = typeof at === "number" ? at : at.line;
+    const col = typeof at === "number" ? 0 : at.col;
+    if (this.errors.some((e) => e.message === message && e.line === line && e.col === col)) {
       return;
     }
 
-    this.errors.push({ message, line });
+    this.errors.push({ message, line, col });
   }
 }

@@ -5,7 +5,7 @@ import { Sim } from "@qinit/engine";
 import { initK12, deriveKeysSync } from "@qinit/core";
 import { compileContract, QPI_STUB } from "../src/index";
 
-const COUNTER_SRC = readFileSync("/tmp/qinit-local-test/Counter.h", "utf8");
+const COUNTER_SRC = readFileSync(new URL("../../../fixtures/Counter.h", import.meta.url), "utf8");
 
 beforeAll(async () => {
   await initK12();

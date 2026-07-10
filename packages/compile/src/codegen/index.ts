@@ -5,5 +5,5 @@
 
 export { Codegen } from "./cg";
 export { buildLibTypes, generateWasmModule } from "./module";
-export type { LibTypes } from "./module";
+export type { LibTypes, GeneratedContractMetadata } from "./module";
 export type { Bindings, CalleeIdl, CodegenWarning, FieldLayout, StructLayout } from "./types";

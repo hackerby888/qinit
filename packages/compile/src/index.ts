@@ -14,7 +14,7 @@ import { Parser } from "./parser";
 import type { Diagnostic as ParserDiagnostic } from "./parser";
 import { Sema } from "./sema";
 import { validateAndDesugar } from "./validate";
-import { generateWasmModule, buildLibTypes, type LibTypes } from "./codegen";
+import { generateWasmModule, buildLibTypes, type LibTypes, type GeneratedContractMetadata } from "./codegen";
 import { QPI_STUB } from "./qpi-stub";
 import { SCAFFOLD_MACROS } from "./qpi-scaffold";
 
@@ -103,7 +103,10 @@ const _qpiCache = new Map<string, QpiContext>();
 // Parsing qpi.h's full C++ is imperfect (its method bodies exceed our subset) but recovery still
 // captures every container/struct layout — which is all codegen needs.
 function getQpiContext(headers: string): QpiContext {
-  const key = `len:${headers.length}:${headers.length > 64 ? headers.slice(0, 64) : headers}`;
+  // Header snapshots can have the same length and prefix while defining different layouts.
+  // The cache is process-local, so using the complete immutable string is both collision-free and
+  // avoids the async digest machinery that would otherwise leak into the synchronous parse path.
+  const key = headers;
   const cached = _qpiCache.get(key);
   if (cached) return cached;
 
@@ -151,6 +154,15 @@ export interface ParseAstResult {
   diagnostics: ParserDiagnostic[];
 }
 
+function remapUserDiagnostic(d: ParserDiagnostic, boundaryLine: number): ParserDiagnostic {
+  return {
+    ...d,
+    span: d.span.line > 0
+      ? { ...d.span, line: Math.max(1, d.span.line - boundaryLine) }
+      : d.span,
+  };
+}
+
 // Parse-only entry: preprocess + lex + parse the user source (seeded with qpi.h's macros and the
 // function scaffolding) and return the raw AST plus the user's own diagnostics. Skips sema/codegen/wabt,
 // so it stays cheap for tooling that only needs the syntax tree. Declarations from the seeded library
@@ -177,7 +189,8 @@ export function parseToAst(opts: { source: string; qpiHeader?: string; name?: st
   const userDecls = tu.declarations.filter(
     (d) => (d.span?.line ?? 0) >= boundaryLine && (d as { name?: string }).name !== USER_BOUNDARY,
   );
-  const diagnostics = parser.getDiagnostics().filter((d) => d.span.line >= boundaryLine);
+  const diagnostics = parser.getDiagnostics().filter((d) => d.span.line >= boundaryLine)
+    .map((d) => remapUserDiagnostic(d, boundaryLine));
 
   return { ast: { ...tu, declarations: userDecls }, diagnostics };
 }
@@ -235,7 +248,8 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   const parser = new Parser(new Lexer(preprocessed).tokenize());
   const tu = parser.parseTranslationUnit();
   // Only diagnostics at/after the user boundary are the user's; earlier ones are seeded-library noise.
-  const userDiags = parser.getDiagnostics().filter((d) => d.span.line >= boundaryLine);
+  const userDiags = parser.getDiagnostics().filter((d) => d.span.line >= boundaryLine)
+    .map((d) => remapUserDiagnostic(d, boundaryLine));
   diagnostics.push(...userDiags);
 
   if (diagnostics.some((d) => d.severity === "error")) {
@@ -249,7 +263,8 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   // Semantic validation (+ default-argument desugar). Diagnostics before the user boundary are
   // seeded-library noise, same as the parser's.
   await phase("validating");
-  const vdiags = validateAndDesugar(tu).filter((d) => d.span.line >= boundaryLine);
+  const vdiags = validateAndDesugar(tu).filter((d) => d.span.line >= boundaryLine)
+    .map((d) => remapUserDiagnostic(d, boundaryLine));
   diagnostics.push(...vdiags);
   if (diagnostics.some((d) => d.severity === "error")) {
     return {
@@ -285,8 +300,9 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   // Codegen → WAT (seeded with the qpi.h library type table)
   await phase("generating wasm");
   let wat: string;
+  const generatedMetadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
   try {
-    wat = generateWasmModule(tu, sema, opts.name, opts.slot, opts.arenaSz ?? 1024 * 1024 * 1024, qpi.lib, opts.callees, calleeStructs, calleeTus, opts.sharedMemBase);
+    wat = generateWasmModule(tu, sema, opts.name, opts.slot, opts.arenaSz ?? 1024 * 1024 * 1024, qpi.lib, opts.callees, calleeStructs, calleeTus, opts.sharedMemBase, generatedMetadata);
   } catch (e: any) {
     diagnostics.push({
       severity: "error",
@@ -302,7 +318,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
 
   // Surface codegen diagnostics (e.g. unsupported constructs lowered to stubs) as warnings so they
   // are visible to callers; only errors abort the build.
-  diagnostics.push(...sema.getDiagnostics());
+  diagnostics.push(...sema.getDiagnostics().map((d) => d.span.line >= boundaryLine ? remapUserDiagnostic(d, boundaryLine) : d));
 
   // Opt-in WAT dump for codegen debugging.
   if ((globalThis as any).process?.env?.QINIT_DUMP_WAT) {
@@ -353,7 +369,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   closePhase();
 
   // 7. Extract IDL
-  const idl = extractIdl(tu, opts);
+  const idl = extractIdl(tu, opts, generatedMetadata);
 
   return { wasm, diagnostics, idl, timings };
 }
@@ -368,7 +384,17 @@ export function compileGtest(_opts: CompileOpts & { testSource: string }): Compi
 
 // ---- IDL extraction ----
 
-function extractIdl(tu: TranslationUnit, opts: CompileOpts): ContractIdl {
+function extractIdl(tu: TranslationUnit, opts: CompileOpts, generated?: GeneratedContractMetadata): ContractIdl {
+  if (generated) {
+    return {
+      name: opts.name,
+      slot: opts.slot,
+      functions: generated.entries.filter((entry) => entry.kind === 0).map(({ name, inputType, inSize, outSize }) => ({ name, inputType, inSize, outSize })),
+      procedures: generated.entries.filter((entry) => entry.kind !== 0).map(({ name, inputType, inSize, outSize }) => ({ name, inputType, inSize, outSize })),
+      stateSize: generated.stateSize,
+      sysprocMask: generated.sysprocMask,
+    };
+  }
   const parser = new Parser([]);
   const raw = parser.extractIdl(tu);
 

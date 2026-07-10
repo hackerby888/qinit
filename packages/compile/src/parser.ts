@@ -954,8 +954,13 @@ export class Parser {
       if (this.tryConsume("eq")) {
         init = this.parseExpression();
       } else if (this.peek().kind === "l_brace") {
-        // braced initializer — skip it for layout purposes
-        this.skipBalanced("l_brace", "r_brace");
+        // Direct-list initialization is executable semantics, not layout trivia. Preserve the
+        // elements and attach the declared type for scalar/struct construction; arrays keep the
+        // raw initializer-list shape so codegen can recurse through their dimensions.
+        const list = this.parseExpression();
+        init = type.kind === "array" || list.kind !== "initializer_list"
+          ? list
+          : { kind: "construct", type, args: list.exprs, span: list.span };
       }
 
       out.push({

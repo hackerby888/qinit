@@ -84,13 +84,13 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
       return { addr: `(local.get $${p.local ?? expr.name})`, type: p.type, size: ctx.cg.sizeOfType(p.type, b), layout: ctx.cg.layoutOfType(p.type, b) };
     }
     if (p) return null;   // a scalar param has no address; don't let it fall through to the entry-fn names
-    if (expr.name === "input") return { addr: "(local.get $in)", type: null, size: ctx.in.size, layout: ctx.in };
-    if (expr.name === "output") return { addr: "(local.get $out)", type: null, size: ctx.out.size, layout: ctx.out };
-    if (expr.name === "locals") return { addr: "(local.get $locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
+    if (expr.name === "input") return { addr: "(local.get $__qinit_in)", type: null, size: ctx.in.size, layout: ctx.in };
+    if (expr.name === "output") return { addr: "(local.get $__qinit_out)", type: null, size: ctx.out.size, layout: ctx.out };
+    if (expr.name === "locals") return { addr: "(local.get $__qinit_locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
     // bare `state` (a static helper taking ContractState& — QTF's enableBuyTicket(state, flag)): the
     // resident state region. Only meaningful where the function carries a $state param (entry/private fns).
     if (expr.name === "state" && ctx.hasStateParam && !ctx.localVars.has("state")) {
-      return { addr: "(local.get $state)", type: null, size: ctx.state.size, layout: ctx.state };
+      return { addr: "(local.get $__qinit_state)", type: null, size: ctx.state.size, layout: ctx.state };
     }
     // inside a compiled container method (or an inlined struct method): `this`, or a bare member of *this
     if (ctx.thisLayout) {
@@ -179,7 +179,9 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     // wasm local of the same name is the passed address, and the layout comes from the contract's StateData
     // (the ctx there carries an empty state layout).
     const layout = ctx.state.size > 0 ? ctx.state : ctx.cg.contractStateLayout;
-    return { addr: "(local.get $state)", type: null, size: layout.size, layout };
+    const stateParam = ctx.params?.get("state");
+    const addr = stateParam?.isAddr ? `(local.get $${stateParam.local ?? "state"})` : "(local.get $__qinit_state)";
+    return { addr, type: null, size: layout.size, layout };
   }
 
   // a container element getter (arr.get(i), map.value(i)/key(i)) is an lvalue we can keep chaining from
@@ -194,6 +196,18 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   // member access: resolve the object, then index its field
   if (expr.kind === "member_access") {
     let parent = resolveAddr(ctx, expr.object);
+    if (!parent && expr.object.kind === "call" && expr.object.callee.kind === "identifier") {
+      const helper = lookupHelper(ctx, expr.object);
+      if (helper?.retAgg && helper.retType) {
+        const addr = emitAggHelperCall(ctx, expr.object, helper);
+        parent = {
+          addr,
+          type: helper.retType,
+          size: helper.retAgg,
+          layout: ctx.cg.layoutOfType(helper.retType, ctx.thisBind ?? NO_BIND),
+        };
+      }
+    }
     // Member of an id-producing qpi call (`qpi.K12(x).u64._0`): resolveAddr has no lvalue for the call, but
     // emitAddr materializes an id out-producer into a 32-byte slot — chain the limb views off that.
     if (!parent && expr.object.kind === "call" && expr.object.callee.kind === "member_access"
@@ -570,7 +584,10 @@ export function emitConstruct(ctx: FnCtx, dstAddr: string, type: TypeSpec, args:
     const f = fields[i];
     const fAddr = ir.addr0(ir.getL(t, "i32"), f.offset);
     if (isAggregate(ctx, f.type, f.size)) {
-      const src = emitAddr(ctx, args[i]);
+      const arg = args[i];
+      const nestedArgs = arg.kind === "initializer_list" ? arg.exprs : arg.kind === "construct" ? arg.args : null;
+      if (nestedArgs && emitConstruct(ctx, ir.emit(fAddr), f.type, nestedArgs)) continue;
+      const src = emitAddr(ctx, arg);
       if (src) ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", fAddr, addrIr(src), ir.i32c(f.size)))}`);
     } else {
       ctx.lines.push(`    ${ir.emit(ir.storeScalar(fAddr, f.size, emitValueIr(ctx, args[i])))}`);
@@ -654,9 +671,10 @@ export const SIGNED_SCALARS = new Set([
   "sint8", "sint16", "sint32", "sint64",
   "signed char", "signed short", "signed int", "signed long long", "long long", "int", "short", "char",
 ]);
-export function isSignedScalarType(t: TypeSpec | null | undefined): boolean {
+export function isSignedScalarType(t: TypeSpec | null | undefined, cg?: Codegen): boolean {
   if (!t) return false;
-  if (t.kind === "const") return isSignedScalarType(t.valueType);
+  if (t.kind === "const") return isSignedScalarType(t.valueType, cg);
+  if (cg) t = cg.scalarStorageType(t);
   if (t.kind === "name") return SIGNED_SCALARS.has(t.name);
   return false;
 }

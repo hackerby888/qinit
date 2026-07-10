@@ -16,10 +16,19 @@ export interface LibTypes {
   globalStructs: Map<string, StructDecl>;
   typedefs: Map<string, TypeSpec>;
   constexprInit: Map<string, Expression>;
+  constexprType: Map<string, TypeSpec>;
   enumConst: Map<string, bigint>;
   enumSize: Map<string, number>;
+  enumUnderlying: Map<string, TypeSpec>;
+  enumConstType: Map<string, TypeSpec>;
   enumNames: Set<string>;
   templateMethods: Map<string, Map<string, FunctionTemplateDecl>>;
+}
+
+export interface GeneratedContractMetadata {
+  stateSize: number;
+  entries: Array<{ name: string; inputType: number; kind: number; inSize: number; outSize: number }>;
+  sysprocMask: number;
 }
 
 // Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants/methods).
@@ -34,8 +43,11 @@ export function buildLibTypes(decls: Declaration[]): LibTypes {
     globalStructs: cg.globalStructs,
     typedefs: cg.typedefs,
     constexprInit: cg.constexprInit,
+    constexprType: cg.constexprType,
     enumConst: cg.enumConst,
     enumSize: cg.enumSize,
+    enumUnderlying: cg.enumUnderlying,
+    enumConstType: cg.enumConstType,
     enumNames: cg.enumNames,
     templateMethods: cg.templateMethods,
   };
@@ -52,6 +64,7 @@ export function generateWasmModule(
   calleeStructs?: Map<string, StructDecl>,
   calleeTus?: Array<{ name: string; decls: Declaration[] }>,
   memBase?: number,
+  metadataOut?: GeneratedContractMetadata,
 ): string {
   const cg = new Codegen(sema);
   for (const c of callees ?? []) cg.callees.set(c.name, c);
@@ -69,8 +82,11 @@ export function generateWasmModule(
     for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
     for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
     for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
+    if (lib.constexprType) for (const [k, v] of lib.constexprType) cg.constexprType.set(k, v);
     for (const [k, v] of lib.enumConst) cg.enumConst.set(k, v);
     if (lib.enumSize) for (const [k, v] of lib.enumSize) cg.enumSize.set(k, v);
+    if (lib.enumUnderlying) for (const [k, v] of lib.enumUnderlying) cg.enumUnderlying.set(k, v);
+    if (lib.enumConstType) for (const [k, v] of lib.enumConstType) cg.enumConstType.set(k, v);
     if (lib.enumNames) for (const n of lib.enumNames) cg.enumNames.add(n);
     if (lib.templateMethods) for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
   }
@@ -95,7 +111,15 @@ export function generateWasmModule(
   cg.contractStateLayout = stateLayout;
 
   // registrations → entries
-  const regs = extractRegistrations(contract);
+  const extractedRegs = extractRegistrations(contract, cg);
+  for (const reg of extractedRegs) {
+    if (!reg.constant) {
+      cg.error(`registration input type for '${reg.fnName}' must be an integral constant expression`, reg.line);
+    } else if (reg.inputType < 1 || reg.inputType > 65535) {
+      cg.error(`registration input type for '${reg.fnName}' must be in the range 1..65535`, reg.line);
+    }
+  }
+  const regs = extractedRegs.filter((r) => r.constant && r.inputType >= 1 && r.inputType <= 65535);
   const entries: UserEntry[] = [];
   const userFns: string[] = [];
 
@@ -152,7 +176,7 @@ export function generateWasmModule(
       const retIsValue = !isVoid && !retAgg;
       const set = cg.helperOverloads.get(fn.name) ?? [];
       const label = set.length === 0 ? `$h_${fn.name}` : `$h_${fn.name}__ov${set.length}`;
-      const info: HelperInfo = { label, params, retIsValue, retAgg, retType: retIsValue ? cg.derefType(fn.returnType) : undefined };
+      const info: HelperInfo = { label, params, retIsValue, retAgg, retType: isVoid ? undefined : cg.derefType(fn.returnType) };
       set.push(info);
       cg.helperOverloads.set(fn.name, set);
       if (set.length === 1) {
@@ -175,6 +199,35 @@ export function generateWasmModule(
     const sz = cg.sizeOfType({ kind: "name", name });
     return sz > 0 ? { size: sz, align: Math.min(sz, 8), fields: new Map() } : emptyL();
   };
+
+  const hasIOType = (name: string) => cg["nested"].has(name) || cg.typedefs.has(name) || cg.globalStructs.has(name);
+  for (const reg of regs) {
+    const fn = findMemberFn(contract, reg.fnName);
+    if (!fn?.body) {
+      cg.error(`registered ${reg.kind === 0 ? "function" : "procedure"} '${reg.fnName}' has no implementation body`, reg.line);
+      continue;
+    }
+    const contextType = cg.derefType(fn.params[0]?.type ?? { kind: "void" });
+    const actualKind = contextType.kind === "name" && contextType.name === "QpiContextFunctionCall" ? 0
+      : contextType.kind === "name" && contextType.name === "QpiContextProcedureCall" ? 1
+      : -1;
+    if (actualKind >= 0 && actualKind !== reg.kind) {
+      cg.error(`'${reg.fnName}' is a ${actualKind === 0 ? "function" : "procedure"} but is registered as a ${reg.kind === 0 ? "function" : "procedure"}`, reg.line);
+    }
+
+    const inName = `${reg.fnName}_input`;
+    const outName = `${reg.fnName}_output`;
+    const localsName = `${reg.fnName}_locals`;
+    if (!hasIOType(inName)) cg.error(`entry '${reg.fnName}' is missing required type '${inName}'`, reg.line);
+    if (!hasIOType(outName)) cg.error(`entry '${reg.fnName}' is missing required type '${outName}'`, reg.line);
+
+    const inSize = resolveIO(inName).size;
+    const outSize = resolveIO(outName).size;
+    const localsSize = resolveIO(localsName).size;
+    if (reg.kind === 1 && inSize > 1024) cg.error(`${inName} exceeds MAX_INPUT_SIZE (1024 bytes)`, reg.line);
+    if (outSize > 65535) cg.error(`${outName} is too large; maximum output size is 65535 bytes`, reg.line);
+    if (localsSize > 32768) cg.error(`${localsName} exceeds MAX_SIZE_OF_CONTRACT_LOCALS (32768 bytes)`, reg.line);
+  }
 
   // Pre-pass: register every REGISTER_USER_* name -> {label, localsSize} before any body is emitted, so a
   // CALL() to a registered function/procedure resolves regardless of declaration order (a procedure may
@@ -241,8 +294,8 @@ export function generateWasmModule(
             const t = cg.typedefs.get(ioName) ?? { kind: "name", name: ioName } as TypeSpec;
             aliases!.set(pname, { wasmType: "i32", isAddr: true, local: slot, type: t });
           };
-          bindIO("input", io.in, "in");
-          bindIO("output", io.out, "out");
+          bindIO("input", io.in, "__qinit_in");
+          bindIO("output", io.out, "__qinit_out");
         }
         userFns.push(emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout, aliases));
         sysprocs.push({ id: spId, localsSize: localsLayout.size, inSize: inLayout.size, outSize: outLayout.size, label });
@@ -260,7 +313,7 @@ export function generateWasmModule(
     const oldLayout = resolveIO("OldStateData");
     const localsLayout = resolveIO("MIGRATE_locals");
     const aliases = new Map([["oldState", {
-      wasmType: "i32" as const, isAddr: true, local: "in",
+      wasmType: "i32" as const, isAddr: true, local: "__qinit_in",
       type: { kind: "name", name: "OldStateData" } as TypeSpec,
     }]]);
     userFns.push(emitFunction(cg, "$migrate", migrateFn, stateLayout, oldLayout, empty, localsLayout, aliases));
@@ -290,12 +343,24 @@ export function generateWasmModule(
     memBase,
   };
 
+  if (metadataOut) {
+    metadataOut.stateSize = stateSize;
+    metadataOut.entries = regs.map((reg, i) => ({
+      name: reg.fnName,
+      inputType: reg.inputType,
+      kind: reg.kind,
+      inSize: entries[i]?.inSize ?? 0,
+      outSize: entries[i]?.outSize ?? 0,
+    }));
+    metadataOut.sysprocMask = sysprocs.reduce((mask, proc) => mask | (1 << proc.id), 0);
+  }
+
   // expose warnings + hard errors via a side channel (sema diagnostics)
   for (const w of cg.warnings) {
-    sema.warn(w.message, { start: 0, end: 0, line: w.line, col: 0 }, "fidelity");
+    sema.warn(w.message, { start: 0, end: 0, line: w.line, col: w.col }, "fidelity");
   }
   for (const er of cg.errors) {
-    sema.error(er.message, { start: 0, end: 0, line: er.line, col: 0 });
+    sema.error(er.message, { start: 0, end: 0, line: er.line, col: er.col });
   }
 
   return emitModule(spec);
@@ -330,9 +395,60 @@ export interface RegEntry {
   fnName: string;
   kind: number;
   inputType: number;
+  constant: boolean;
+  line: number;
 }
 
-export function extractRegistrations(contract: StructDecl): RegEntry[] {
+function evalRegistrationConstant(expr: Expression | undefined, cg: Codegen): bigint | null {
+  if (!expr) return null;
+  switch (expr.kind) {
+    case "int_literal":
+      try { return lexRegistrationLiteral(expr.value); } catch { return null; }
+    case "bool_literal": return expr.value ? 1n : 0n;
+    case "char_literal": return BigInt(expr.value);
+    case "identifier": return cg.resolveConst(expr.name);
+    case "qualified_name": return cg.resolveConst(`${expr.namespace}::${expr.name}`);
+    case "paren": return evalRegistrationConstant(expr.expr, cg);
+    case "unary_op": {
+      const a = evalRegistrationConstant(expr.arg, cg);
+      if (a === null) return null;
+      if (expr.op === "-") return -a;
+      if (expr.op === "+") return a;
+      if (expr.op === "~") return ~a;
+      if (expr.op === "!") return a === 0n ? 1n : 0n;
+      return null;
+    }
+    case "binary_op": {
+      const l = evalRegistrationConstant(expr.left, cg);
+      const r = evalRegistrationConstant(expr.right, cg);
+      if (l === null || r === null) return null;
+      switch (expr.op) {
+        case "+": return l + r; case "-": return l - r; case "*": return l * r;
+        case "/": return r === 0n ? null : l / r; case "%": return r === 0n ? null : l % r;
+        case "<<": return l << r; case ">>": return l >> r;
+        case "&": return l & r; case "|": return l | r; case "^": return l ^ r;
+        case "==": return l === r ? 1n : 0n; case "!=": return l !== r ? 1n : 0n;
+        case "<": return l < r ? 1n : 0n; case ">": return l > r ? 1n : 0n;
+        case "<=": return l <= r ? 1n : 0n; case ">=": return l >= r ? 1n : 0n;
+        default: return null;
+      }
+    }
+    case "ternary": {
+      const c = evalRegistrationConstant(expr.cond, cg);
+      return c === null ? null : evalRegistrationConstant(c !== 0n ? expr.then : expr.else_, cg);
+    }
+    case "c_cast": case "static_cast": return evalRegistrationConstant(expr.expr, cg);
+    default: return null;
+  }
+}
+
+function lexRegistrationLiteral(value: string): bigint {
+  const cleaned = value.replace(/[uUlL]+$/, "").replace(/'/g, "");
+  if (/^0[0-7]+$/.test(cleaned)) return BigInt(`0o${cleaned.slice(1)}`);
+  return BigInt(cleaned);
+}
+
+export function extractRegistrations(contract: StructDecl, cg: Codegen): RegEntry[] {
   const regs: RegEntry[] = [];
   const regFn = contract.members.find(
     (m) => m.kind === "function" && (m as FunctionDecl).name === "__registerUserFunctionsAndProcedures",
@@ -358,8 +474,8 @@ export function extractRegistrations(contract: StructDecl): RegEntry[] {
     else if (fnArg?.kind === "identifier") fnName = fnArg.name;
 
     const itArg = e.args[1];
-    let inputType = 0;
-    if (itArg?.kind === "int_literal") inputType = parseInt(itArg.value);
+    const evaluated = evalRegistrationConstant(itArg, cg);
+    let inputType = evaluated === null ? 0 : Number(evaluated);
 
     // Notification procedure (oracle reply callback): its id arg is the synthetic __id_<proc>
     // ((CONTRACT_INDEX << 22) | defLine, qpi.h REGISTER_USER_PROCEDURE_NOTIFICATION). Dispatch matches
@@ -370,8 +486,8 @@ export function extractRegistrations(contract: StructDecl): RegEntry[] {
       inputType = (def?.span?.line ?? 0) & 0xffff;
     }
 
-    if (fnName && inputType >= 1) {
-      regs.push({ fnName, kind: isFn ? 0 : 1, inputType });
+    if (fnName) {
+      regs.push({ fnName, kind: isFn ? 0 : 1, inputType, constant: isNotif || evaluated !== null, line: e.span.line });
     }
   }
 

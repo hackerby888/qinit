@@ -1,4 +1,4 @@
-import { resolveAddr, emitAddr, allocSlot } from "../addr";
+import { resolveAddr, emitAddr, allocSlot, narrowCast } from "../addr";
 import { emitHelperFunction } from "../stmt";
 import { Codegen } from "../cg";
 import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo, scalarTypeInfo, unsignedScalar } from "../value";
@@ -65,7 +65,7 @@ export function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
   });
   const retAgg = !cg.isVoidType(fn.returnType) && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
   const retIsValue = !cg.isVoidType(fn.returnType) && !retAgg;
-  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${name.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue, retAgg };
+  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${name.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue, retAgg, retType: cg.derefType(fn.returnType) };
   cg.helpers.set(name, info);   // register before emit so recursion/sibling calls resolve
   try {
     cg.emittedMethodOrder.push(emitHelperFunction(cg, info, fn, { size: 0, align: 1, fields: new Map() }));
@@ -209,7 +209,7 @@ export function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args
   const retT = cg.substInBindings(cg.derefType(def.returnType), bind);
   const retAgg = !cg.isVoidType(def.returnType) && cg.isAggregateType(retT) ? cg.sizeOfType(retT, bind) : undefined;
   const retIsValue = !cg.isVoidType(def.returnType) && !retAgg;
-  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${key.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue, retAgg };
+  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${key.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue, retAgg, retType: retT };
   cg.helpers.set(key, info);   // register before emit so recursive/sibling calls resolve
   try {
     cg.emittedMethodOrder.push(emitHelperFunction(cg, info, def, { size: 0, align: 1, fields: new Map() }, bind));
@@ -227,7 +227,9 @@ export function helperCallOps(ctx: FnCtx, info: HelperInfo, args: Expression[]):
   return info.params.map((p, i) => {
     const arg = args[i];
     if (!arg) return p.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    return p.isAddr ? (emitAddr(ctx, arg) ?? "(i32.const 0)") : emitValue(ctx, arg);
+    if (p.isAddr) return emitAddr(ctx, arg) ?? "(i32.const 0)";
+    const declared = ctx.cg.derefType(p.type);
+    return narrowCast(emitValue(ctx, arg), declared.kind === "name" ? declared.name : undefined);
   }).join(" ");
 }
 

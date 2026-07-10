@@ -22,8 +22,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Probe_output {
     uint64 v;
   };
-  struct Probe_locals {};
-
   PUBLIC_FUNCTION(Probe)
   {
     output.v = UNKNOWN_FIDELITY_CONST;

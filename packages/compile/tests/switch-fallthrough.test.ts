@@ -11,10 +11,11 @@ const HEADERS = loadQpiHeader(CORE);
 const SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
-  struct StateData {};
+  struct StateData { sint64 result; };
 
   // Test 1: stacked labels — case 10 and case 20 share the same body.
   struct Stacked_input { sint64 x; };
+  struct Stacked_output {};
   PUBLIC_PROCEDURE(Stacked) {
     sint64 r = 0;
     switch (input.x) {
@@ -27,6 +28,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   // Test 2: intentional non-break fallthrough.
   struct Fallthrough_input { sint64 x; };
+  struct Fallthrough_output {};
   PUBLIC_PROCEDURE(Fallthrough) {
     sint64 a = 0;
     switch (input.x) {
@@ -37,10 +39,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     state.mut().result = a;
   }
 
-  struct StateData { sint64 result; };
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
-    REGISTER_USER_FUNCTION(Stacked, 1);
-    REGISTER_USER_FUNCTION(Fallthrough, 2);
+    REGISTER_USER_PROCEDURE(Stacked, 1);
+    REGISTER_USER_PROCEDURE(Fallthrough, 2);
   }
 };
 `;

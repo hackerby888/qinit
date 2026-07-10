@@ -146,7 +146,7 @@ export function emitProxyMethodFn(cg: Codegen, cm: CompiledMethod, def: Function
     refLocals: new Map([["pv", pvType as TypeSpec]]),   // `pv` (member) → the wrapped ProposalVoting at $pv
   };
   if (cm.retAgg) {
-    ctx.retAddr = "(local.get $ret)";
+    ctx.retAddr = "(local.get $__qinit_ret)";
     ctx.retAggSize = cm.retAgg;
   }
   // `qpi` (member) is a dummy address param; qpi.method() routes to the ambient host context.
@@ -156,7 +156,7 @@ export function emitProxyMethodFn(cg: Codegen, cm: CompiledMethod, def: Function
   if (def.body) collectLocals(def.body, ctx);
   if (def.body) emitStmt(ctx, def.body);
 
-  const retParam = cm.retAgg ? "(param $ret i32) " : "";
+  const retParam = cm.retAgg ? "(param $__qinit_ret i32) " : "";
   const paramDecls = cm.fnParams.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
   const result = cm.retKind === "i64" ? " (result i64)" : "";
   const header = `  (func ${cm.label} ${retParam}(param $pv i32) (param $qpi i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
