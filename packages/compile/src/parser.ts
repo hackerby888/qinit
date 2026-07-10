@@ -23,6 +23,13 @@ export interface Diagnostic {
   category?: "fidelity";
 }
 
+// Scalar typedef spellings that remain casts even in the `(name) & x` binary-ambiguous position.
+const SCALAR_CAST_NAMES = new Set([
+  "sint8", "uint8", "sint16", "uint16", "sint32", "uint32", "sint64", "uint64",
+  "bit", "uint128", "uint128_t", "size_t",
+  "int8_t", "uint8_t", "int16_t", "uint16_t", "int32_t", "uint32_t", "int64_t", "uint64_t",
+]);
+
 export class Parser {
   private lex: Lexer;
   private diagnostics: Diagnostic[] = [];
@@ -1761,6 +1768,11 @@ export class Parser {
     let depth = 0;
     let saw = false;
     let sawNestedParen = false;
+    let angleDepth = 0;
+    let sawPtrRef = false;
+    let tokenCount = 0;
+    let loneIdent: string | null = null;
+    let sawAngle = false;
 
     while (!this.eof()) {
       const t = this.peek();
@@ -1779,8 +1791,24 @@ export class Parser {
         t.kind === "star" || t.kind === "amp" || t.kind === "d_colon" ||
         t.kind === "l_angle" || t.kind === "r_angle" || t.kind === "r_shift" || t.kind === "comma" ||
         t.kind === "identifier";
+      // Casts in this subset only target scalar spellings — a template-angled type-id never
+      // appears in a C-style cast, but `(a < b)` / `(a < b) & c` do appear as expressions and
+      // would otherwise scan as `a<b>` template types. An unmatched `>` can't be a type at all.
+      if (t.kind === "l_angle" && depth === 0) sawAngle = true;
+      if ((t.kind === "r_angle" || t.kind === "r_shift") && angleDepth === 0) pureType = false;
+      if (t.kind === "l_angle") angleDepth++;
+      if (t.kind === "r_angle") angleDepth = Math.max(0, angleDepth - 1);
+      if (t.kind === "r_shift") angleDepth = Math.max(0, angleDepth - 2);
+      // In a type-id, `*`/`&` are declarator suffixes: outside template angles nothing type-ish may
+      // follow them. `(a & b)` / `(a * b)` are expressions, not casts to `a&` / `a*` — without this,
+      // `(a & b) - c` reads as the cast `(a&)` applied to `-c`.
+      if ((t.kind === "star" || t.kind === "amp") && angleDepth === 0) sawPtrRef = true;
+      if (sawPtrRef && angleDepth === 0 &&
+        (t.kind === "identifier" || t.kind === "d_colon" || isTypeKeyword(t.kind))) { pureType = false; }
       if (isTypeKeyword(t.kind) || (t.kind === "identifier")) sawTypeToken = true;
       if (!ok) { pureType = false; }
+      tokenCount++;
+      loneIdent = tokenCount === 1 && t.kind === "identifier" ? t.text : null;
       this.next();
     }
 
@@ -1794,9 +1822,17 @@ export class Parser {
 
     (this.lex as any).index = save;
 
+    // `(name) & x` / `(name) * x` / `(name) + x` / `(name) - x`: C++ resolves this by whether `name`
+    // is a type. Contracts only ever spell scalar casts with the QPI typedef names, so a lone
+    // identifier outside that set followed by a binary-ambiguous operator is a parenthesized value.
+    if (loneIdent && !SCALAR_CAST_NAMES.has(loneIdent) &&
+      (after.kind === "amp" || after.kind === "star" || after.kind === "plus" || after.kind === "minus")) {
+      return false;
+    }
+
     // A bare identifier in parens (`(L * 2 ...)` has operators → not pure) is a cast only when it's a
     // pure type AND an operand follows. Reject if a stray int literal appears outside template angles.
-    return saw && pureType && sawTypeToken && operandFollows && !sawNestedParen;
+    return saw && pureType && sawTypeToken && operandFollows && !sawNestedParen && !sawAngle;
   }
 
   private parseCast(): Expression {

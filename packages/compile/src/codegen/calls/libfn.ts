@@ -3,6 +3,7 @@ import { emitHelperFunction } from "../stmt";
 import { Codegen } from "../cg";
 import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo } from "../value";
 import { FnCtx, HelperInfo, Bindings, NO_BIND } from "../types";
+import { MATH_INTRINSIC_NAMES } from "../tables";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
 import * as ir from "../../ir";
 
@@ -220,10 +221,6 @@ export function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args
   return info;
 }
 
-// QPI safe-math free functions (div/mod/min/max/...) have a dedicated, divide-by-zero-safe lowering in
-// emitMathCall. Their qpi.h template bodies (`return b ? (a/b) : 0`) rely on ternary short-circuit we don't
-// guarantee, so they must NOT be instantiated as generic lib fns — let emitMathCall own them.
-export const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);
 
 // Build the args for a helper call (scalar args by value, reference/aggregate args by address).
 export function helperCallOps(ctx: FnCtx, info: HelperInfo, args: Expression[]): string {

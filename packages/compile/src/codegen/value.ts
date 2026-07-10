@@ -1,6 +1,6 @@
 import { Codegen } from "./cg";
 import { emitMathCallIr } from "./calls/libfn";
-import { SCALAR_SIZE } from "./tables";
+import { SCALAR_SIZE, MATH_INTRINSIC_NAMES } from "./tables";
 import { isScalarLocal, emitIncDec, newTmp } from "./stmt";
 import { describeShape, emitCallValueIr, emitOracleQueryCall, emitOracleReadCall } from "./calls/dispatch";
 import { emitQpiCall, QPI_CALLS } from "./calls/qpi";
@@ -571,6 +571,8 @@ export function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
       if (expr.op === "-" || expr.op === "~" || expr.op === "+")
         return isUnsignedExpr(ctx, expr.arg);
       return false;
+    case "prefix_op": case "postfix_op": return isUnsignedExpr(ctx, expr.arg);
+    case "ternary": return isUnsignedExpr(ctx, expr.then) || isUnsignedExpr(ctx, expr.else_);
     default: return false;
   }
 }
@@ -594,6 +596,7 @@ export function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; u
       const hex = /^0[xX0-7]/.test(expr.value ?? "");
       if (suffixL) return { width: 8, unsigned: suffixU };
       if (v >= -(2n ** 31n) && v < 2n ** 31n) return { width: 4, unsigned: suffixU };
+      if (suffixU && v < 2n ** 32n) return { width: 4, unsigned: true };
       if (hex && v < 2n ** 32n) return { width: 4, unsigned: true };
       if (!suffixU && v < 2n ** 63n) return { width: 8, unsigned: false };
       return { width: 8, unsigned: true };
@@ -614,12 +617,39 @@ export function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; u
         return { width: cv.width, unsigned: cv.unsigned };
       }
       if (expr.op === "<<" || expr.op === ">>") return promoteInfo(ctx, expr.left);
+      // Comparisons and logical ops yield bool, which promotes to int.
+      if (["<", ">", "<=", ">=", "==", "!=", "&&", "||"].includes(expr.op)) return { width: 4, unsigned: false };
       return null;
+    }
+    // The C++ common type of the two arms (condition contributes nothing).
+    case "ternary": {
+      const cv = usualConversion(ctx, expr.then, expr.else_);
+      return { width: cv.width, unsigned: cv.unsigned };
     }
     case "unary_op": {
       if (expr.op === "-" || expr.op === "~" || expr.op === "+") return promoteInfo(ctx, expr.arg);
       if (expr.op === "!") return { width: 4, unsigned: false };
       return null;
+    }
+    // ++x / x++ yield the operand's own type (no promotion).
+    case "prefix_op": case "postfix_op": return scalarTypeInfo(ctx, expr.arg);
+    case "call": case "template_call": {
+      // QPI safe-math intrinsics return their (deduced or explicit) argument type; without this a
+      // comparison against e.g. `math_lib::max((uint64)a, (uint64)b)` falls back to the signed guess
+      // and picks a signed compare where native resolves uint64.
+      const nm = expr.callee?.kind === "identifier" ? expr.callee.name : null;
+      if (!nm) return null;
+      const base = nm.includes("::") ? nm.slice(nm.lastIndexOf("::") + 2) : nm;
+      if (!MATH_INTRINSIC_NAMES.has(base)) return null;
+      if (expr.kind === "template_call" && expr.templateArgs?.[0]?.kind === "name") {
+        const sz = SCALAR_SIZE[expr.templateArgs[0].name];
+        if (sz) return { width: sz, unsigned: unsignedScalar(expr.templateArgs[0]) };
+      }
+      const a0 = expr.args?.[0], a1 = expr.args?.[1];
+      if (base === "abs") return a0 ? promoteInfo(ctx, a0) : null;
+      if (!a0 || !a1) return null;
+      const cv = usualConversion(ctx, a0, a1);
+      return base === "sdiv" ? { width: cv.width, unsigned: false } : cv;
     }
     default: return null;
   }

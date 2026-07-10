@@ -63,3 +63,8 @@ export const SCALAR_SIZE: Record<string, number> = {
 export const C_SCALAR_NAMES = new Set([
   "int", "unsigned", "signed", "long", "short", "char", "size_t", "unsigned long", "long int",
 ]);
+
+// QPI safe-math free functions (div/mod/min/max/...) have a dedicated, divide-by-zero-safe lowering in
+// emitMathCall. Their qpi.h template bodies (`return b ? (a/b) : 0`) rely on ternary short-circuit we don't
+// guarantee, so they must NOT be instantiated as generic lib fns — let emitMathCall own them.
+export const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);
