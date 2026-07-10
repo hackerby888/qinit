@@ -10,3 +10,4 @@ contracts_dyn/
 .clangd
 *.vsix
 .vscode-test/
+.generated/

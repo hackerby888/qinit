@@ -1,8 +1,17 @@
 // Build @qinit/compile to dist/ with Bun's bundler. Browser+Node safe.
 // @qinit/core is aliased to its node-free browser entry.
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const coreBrowser = resolve(import.meta.dir, "../core/src/browser.ts");
+
+// The browser entry embeds the generated QPI header snapshot — refuse to build without it rather
+// than let the bundler fail on an unresolvable import.
+const snapshotModule = resolve(import.meta.dir, ".generated/qpi-snapshot.ts");
+if (!existsSync(snapshotModule)) {
+  console.error("missing .generated/qpi-snapshot.ts — run: bun tools/gen-qpi-snapshot.ts --core <core-lite checkout>");
+  process.exit(1);
+}
 
 const aliasCoreBrowser = {
   name: "alias-qinit-core-browser",
@@ -12,7 +21,7 @@ const aliasCoreBrowser = {
 };
 
 const result = await Bun.build({
-  entrypoints: ["src/index.ts"],
+  entrypoints: ["src/index.ts", "src/browser.ts"],
   outdir: "dist",
   format: "esm",
   target: "browser",
@@ -26,4 +35,4 @@ if (!result.success) {
   process.exit(1);
 }
 
-console.log("built dist/index.js");
+console.log("built dist/index.js + dist/browser.js");

@@ -95,7 +95,7 @@ interface QpiContext {
 }
 
 // Marker separating the main qpi.h headers from the template-method-body impl chunks.
-const IMPL_BOUNDARY = "//__QINIT_IMPL_BOUNDARY__";
+import { IMPL_BOUNDARY, assembleQpiHeader } from "./qpi-snapshot";
 
 const _qpiCache = new Map<string, QpiContext>();
 
@@ -424,57 +424,7 @@ import { QPI_PRELUDE } from "./qpi-prelude";
 export function loadQpiHeader(corePath?: string): string {
   if (typeof process !== "undefined" && (process.versions?.bun || process.versions?.node)) {
     try {
-      const { readFileSync, existsSync } = require("node:fs") as typeof import("node:fs");
-      const base = `${corePath ?? "/home/kali/Projects/core-lite"}/src`;
-      const files = [
-        "contract_core/pre_qpi_def.h",
-        "contracts/qpi.h",
-        "contract_core/qpi_proposal_voting.h",
-        "oracle_core/oracle_interfaces_def.h",
-      ];
-      // Template method-body implementations — parsed SEPARATELY (after the IMPL boundary) so qpi.h's
-      // bulk doesn't interfere with capturing the out-of-class definitions, then instantiated per type.
-      const implFiles = [
-        "contract_core/qpi_hash_map_impl.h",
-        "contract_core/qpi_collection_impl.h",
-        "contract_core/qpi_linked_list_impl.h",
-        "contract_core/qpi_trivial_impl.h",
-      ];
-      let content = QPI_PRELUDE + "\n";
-
-      // Contract slot registry: contracts reference each other's indices (QX_CONTRACT_INDEX in
-      // Logger events, share-management filters, inter-contract transfers). Native gets these from
-      // contract_def.h; only its object-like index defines are extracted — the full header also
-      // #includes every contract, which is not parseable here and not needed.
-      const defPath = `${base}/contract_core/contract_def.h`;
-      if (existsSync(defPath)) {
-        const indexDefines = readFileSync(defPath, "utf8")
-          .split("\n")
-          .filter((l) => /^#define \w+_CONTRACT_INDEX \d+\s*$/.test(l));
-        content += indexDefines.join("\n") + "\n";
-      }
-
-      for (const f of files) {
-        const fp = `${base}/${f}`;
-        if (!existsSync(fp)) continue;
-        let text = readFileSync(fp, "utf8");
-        // The oracle def header pulls each interface (OI::Price, …) in via #include, which the
-        // preprocessor treats as a no-op — inline the interface headers so the OI structs exist.
-        if (f.endsWith("oracle_interfaces_def.h")) {
-          text = text.replace(/^[ \t]*#include[ \t]+"(oracle_interfaces\/\w+\.h)"[ \t]*$/gm, (line, rel) => {
-            const ip = `${base}/${rel}`;
-            return existsSync(ip) ? readFileSync(ip, "utf8") : line;
-          });
-        }
-        content += text + "\n";
-      }
-      for (const f of implFiles) {
-        const fp = `${base}/${f}`;
-        // Strip #include lines — impl chunks are parsed standalone for their method/free-fn bodies; the
-        // headers they pull in (four_q.h / kangaroo_twelve.h) aren't needed to parse and blow up the lexer.
-        if (existsSync(fp)) content += `\n${IMPL_BOUNDARY}\n` + readFileSync(fp, "utf8").replace(/^[ \t]*#include[ \t].*$/gm, "") + "\n";
-      }
-      return content;
+      return assembleQpiHeader(corePath ?? "/home/kali/Projects/core-lite");
     } catch {
       return QPI_PRELUDE + "\n" + QPI_STUB;
     }

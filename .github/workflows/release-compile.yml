@@ -1,0 +1,90 @@
+# Publishes @qinit/compile to npm. The QPI header snapshot is regenerated from the exact core
+# commit pinned in packages/compile/core-snapshot.json and verified against the manifest hash —
+# a release can never embed drifted header content.
+name: qinit-compile-release
+
+on:
+  push:
+    tags: ["qinit-compile-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "release tag (qinit-compile-vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Resolve tag
+        id: t
+        run: echo "tag=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Read core pin
+        id: pin
+        working-directory: packages/compile
+        run: |
+          echo "repo=$(jq -r .core.repository core-snapshot.json)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(jq -r .core.commit core-snapshot.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned core
+        run: |
+          git clone --filter=blob:none "${{ steps.pin.outputs.repo }}" core
+          git -C core checkout "${{ steps.pin.outputs.commit }}"
+
+      - name: Install deps
+        run: bun install
+
+      # Stamp the release version (tag minus 'qinit-compile-v') before generating the snapshot so
+      # the embedded compilerInfo.qinitVersion matches the published package.
+      - name: Stamp version
+        working-directory: packages/compile
+        run: |
+          V="${{ steps.t.outputs.tag }}"; V="${V#qinit-compile-}"; V="${V#v}"
+          jq --arg v "$V" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+          jq -r .version package.json
+
+      - name: Generate + verify snapshot
+        working-directory: packages/compile
+        run: bun tools/gen-qpi-snapshot.ts --core "$GITHUB_WORKSPACE/core" --verify
+
+      - name: Compiler tests
+        working-directory: packages/compile
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+        run: bun test
+
+      - name: Build package
+        working-directory: packages/compile
+        run: bun run build
+
+      - name: Browser bundle must not import Node APIs
+        working-directory: packages/compile
+        run: |
+          if grep -oE 'from *"node:[a-z]+"|import *"node:[a-z]+"|require\("node:[a-z]+"\)' dist/browser.js; then
+            echo "dist/browser.js references node: modules" >&2
+            exit 1
+          fi
+          echo "clean"
+
+      - name: Browser compile + execute smoke
+        working-directory: packages/compile
+        run: bun run tools/ci-browser-smoke.ts
+
+      - name: Publish to npm
+        working-directory: packages/compile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

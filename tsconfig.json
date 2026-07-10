@@ -25,5 +25,5 @@
       "@qinit/proto/*": ["packages/proto/src/*"]
     }
   },
-  "exclude": ["node_modules", "dist", "packages/vscode", "packages/*/tests/_probe_*"]
+  "exclude": ["node_modules", "dist", "packages/vscode", "packages/*/tests/_probe_*", "packages/compile/src/browser.ts", "packages/compile/.generated"]
 }
