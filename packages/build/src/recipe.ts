@@ -111,14 +111,50 @@ template <typename T> inline void setMemory(T& dst, uint8 value) { setMem(&dst, 
 template <typename T, unsigned int I> void setMemory(ContractState<T, I>&, uint8) = delete;
 template <typename T1, unsigned int I, typename T2> void copyMemory(ContractState<T1, I>&, const T2&) = delete;
 template <typename T1, unsigned int I, typename T2> void copyFromBuffer(ContractState<T1, I>&, const T2&) = delete;
-inline static sint64 smul(sint64 a, sint64 b) { return a * b; }
-inline static uint64 smul(uint64 a, uint64 b) { return a * b; }
-inline static sint32 smul(sint32 a, sint32 b) { return a * b; }
-inline static uint32 smul(uint32 a, uint32 b) { return a * b; }
-inline static sint64 sadd(sint64 a, sint64 b) { return a + b; }
-inline static uint64 sadd(uint64 a, uint64 b) { return a + b; }
-inline static sint32 sadd(sint32 a, sint32 b) { return a + b; }
-inline static uint32 sadd(uint32 a, uint32 b) { return a + b; }
+// Saturating add/mul mirroring core-lite math_lib.h: clamp at the type extreme instead of wrapping.
+inline static sint64 smul(sint64 a, sint64 b) {
+\t__int128 r = (__int128)a * (__int128)b;
+\tif (r < (__int128)(-9223372036854775807LL - 1)) return -9223372036854775807LL - 1;
+\tif (r > (__int128)9223372036854775807LL) return 9223372036854775807LL;
+\treturn (sint64)r;
+}
+inline static uint64 smul(uint64 a, uint64 b) {
+\tunsigned __int128 r = (unsigned __int128)a * (unsigned __int128)b;
+\tif (r > (unsigned __int128)18446744073709551615ULL) return 18446744073709551615ULL;
+\treturn (uint64)r;
+}
+inline static sint32 smul(sint32 a, sint32 b) {
+\tsint64 r = (sint64)a * (sint64)b;
+\tif (r < -2147483647LL - 1) return -2147483647 - 1;
+\tif (r > 2147483647LL) return 2147483647;
+\treturn (sint32)r;
+}
+inline static uint32 smul(uint32 a, uint32 b) {
+\tuint64 r = (uint64)a * (uint64)b;
+\tif (r > 4294967295ULL) return 4294967295u;
+\treturn (uint32)r;
+}
+inline static sint64 sadd(sint64 a, sint64 b) {
+\tsint64 sum = (sint64)((uint64)a + (uint64)b);
+\tif (a < 0 && b < 0 && sum > 0) return -9223372036854775807LL - 1;
+\tif (a > 0 && b > 0 && sum < 0) return 9223372036854775807LL;
+\treturn sum;
+}
+inline static uint64 sadd(uint64 a, uint64 b) {
+\tif (18446744073709551615ULL - a < b) return 18446744073709551615ULL;
+\treturn a + b;
+}
+inline static sint32 sadd(sint32 a, sint32 b) {
+\tsint64 sum = (sint64)a + (sint64)b;
+\tif (sum < -2147483647LL - 1) return -2147483647 - 1;
+\tif (sum > 2147483647LL) return 2147483647;
+\treturn (sint32)sum;
+}
+inline static uint32 sadd(uint32 a, uint32 b) {
+\tuint64 sum = (uint64)a + (uint64)b;
+\tif (sum > 4294967295ULL) return 4294967295u;
+\treturn (uint32)sum;
+}
 template <typename T, uint64 L> bool isArraySorted(const Array<T, L>& Array, uint64 beginIdx, uint64 endIdx) {
 \tif (endIdx > L || beginIdx > endIdx) return false;
 \tfor (uint64 i = beginIdx + 1; i < endIdx; ++i) { if (Array.get(i - 1) > Array.get(i)) return false; }
