@@ -460,7 +460,16 @@ export function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
 // existing uint128 lvalue is returned in place. Arithmetic lowers to the $u128_* framework helpers.
 export function emitU128Ir(ctx: FnCtx, expr: Expression): ir.Ir {
   if (expr.kind === "paren") return emitU128Ir(ctx, expr.expr);
-  if (expr.kind === "c_cast" || expr.kind === "static_cast") return emitU128Ir(ctx, expr.expr);
+  if (expr.kind === "c_cast" || expr.kind === "static_cast") {
+    // (uint128)(scalarExpr): the inner expression evaluates in the SCALAR domain (uint64 wraps),
+    // then zero-extends into the low limb. Recursing into a scalar expression would lift its
+    // arithmetic to 128-bit — (uint128)(a - b) must not borrow into the high limb, and
+    // (uint128)(a * b) keeps only the wrapped 64-bit product.
+    if (isU128Expr(ctx, expr.expr)) return emitU128Ir(ctx, expr.expr);
+    const s = allocSlotIr(ctx, 16);
+    ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", s, emitValueIr(ctx, expr.expr), ir.i64c(0)))}`);
+    return s;
+  }
 
   const n = resolveAddr(ctx, expr);
   if (n && isUint128(ctx.cg, n.type)) return ir.raw(n.addr, "i32", "lvalue address channel");

@@ -1,7 +1,7 @@
 import { emitCall } from "./calls/dispatch";
 import { emitAssetIter } from "./calls/containers";
 import { SCALAR_SIZE, C_SCALAR_NAMES } from "./tables";
-import { isAutoType, resolveAliasType, emitValueIr, narrowLocalIr, emitValue, emitAssign } from "./value";
+import { isAutoType, resolveAliasType, emitValueIr, narrowLocalIr, emitValue, emitAssign, emitU128Ir } from "./value";
 import { setLocal, castInfo, resolveAddr, emitAddr, addrIr, emitConstruct, tryLvalueAddr, isUint128, allocSlotIr, loadAt, isSignedScalarType, storeAt, narrowCast } from "./addr";
 import { Codegen } from "./cg";
 import { FnCtx, StructLayout, HelperInfo, Bindings, NO_BIND } from "./types";
@@ -406,6 +406,13 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
               }
             }
             if (v.init) {
+              // A computed uint128 initializer (`uint128 q = (uint128)(a - b);`, a ternary, a
+              // div<uint128>) has no address — materialize it through the $u128_* machinery,
+              // the same lowering an assignment uses.
+              if (isUint128(ctx.cg, concrete)) {
+                ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), emitU128Ir(ctx, v.init), ir.i32c(16)))}`);
+                break;
+              }
               const src = resolveAddr(ctx, v.init)?.addr ?? emitAddr(ctx, v.init);
               if (src) {
                 ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), addrIr(src), ir.i32c(sz)))}`);
