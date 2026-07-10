@@ -629,10 +629,6 @@ export class Codegen {
       // a named constant template arg (e.g. Array<RoundInfo, QEARN_MAX_EPOCHS>)
       const c = this.resolveConst(t.name);
       if (c !== null) return c;
-      if (this.sema && typeof this.sema.evaluateConstexpr === "function") {
-        const e = this.sema.evaluateConstexpr({ kind: "identifier", name: t.name, span: { start: 0, end: 0, line: 0, col: 0 } });
-        if (e !== null) return e;
-      }
     }
     return 0n;
   }
@@ -978,10 +974,6 @@ export class Codegen {
         }
         const c = this.resolveConst(expr.name);
         if (c !== null) return c;
-        if (this.sema && typeof this.sema.evaluateConstexpr === "function") {
-          const e = this.sema.evaluateConstexpr(expr);
-          if (e !== null) return e;
-        }
         return 0n;
       }
       case "unary_op": {
@@ -3422,8 +3414,6 @@ function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
       const c = ctx.cg.resolveConst(expr.name);
       if (c !== null) return ir.i64c(c);
-      const e = ctx.cg["sema"].evaluateConstexpr(expr);
-      if (e !== null) return ir.i64c(e);
       ctx.cg.warn(`unknown identifier '${expr.name}'`, expr.span.line);
       return ir.i64c(0);
     }

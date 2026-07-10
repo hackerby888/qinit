@@ -1,10 +1,7 @@
-// Sema unit tests: constexpr evaluation, type resolution, struct layout, template instantiation.
+// Sema unit tests: the diagnostics channel's constexpr evaluator (scope-free literal arithmetic).
 import { describe, test, expect } from "bun:test";
 import { Sema } from "../src/sema";
-import type {
-  Expression, TypeSpec, Declaration, StructDecl,
-  ClassTemplateDecl, Span, BinaryOp, UnaryOp, VariableDecl, TemplateParam,
-} from "../src/ast";
+import type { Expression, TypeSpec, Span, BinaryOp, UnaryOp } from "../src/ast";
 
 const NO_SPAN: Span = { start: 0, end: 0, line: 1, col: 1 };
 
@@ -14,10 +11,6 @@ const NO_SPAN: Span = { start: 0, end: 0, line: 1, col: 1 };
 // compiler stages accept; the casts just silence the literal-excess-property checks.
 
 const n = (name: string): TypeSpec => ({ kind: "name", name, span: NO_SPAN } as TypeSpec);
-const ptr = (pointee: TypeSpec): TypeSpec => ({ kind: "pointer", pointee, span: NO_SPAN } as TypeSpec);
-const cnst = (inner: TypeSpec): TypeSpec => ({ kind: "const", valueType: inner, span: NO_SPAN } as TypeSpec);
-const vd = (): TypeSpec => ({ kind: "void", span: NO_SPAN } as TypeSpec);
-const arr = (elem: TypeSpec, size: Expression): TypeSpec => ({ kind: "array", elem, size, span: NO_SPAN } as TypeSpec);
 
 const iLit = (value: string): Expression => ({ kind: "int_literal", value, span: NO_SPAN } as Expression);
 const bLit = (value: boolean): Expression => ({ kind: "bool_literal", value, span: NO_SPAN } as Expression);
@@ -27,22 +20,10 @@ const par = (expr: Expression): Expression => ({ kind: "paren", expr, span: NO_S
 const un = (op: UnaryOp, arg: Expression): Expression => ({ kind: "unary_op", op, arg, span: NO_SPAN } as Expression);
 const bin = (left: Expression, op: BinaryOp, right: Expression): Expression => ({ kind: "binary_op", op, left, right, span: NO_SPAN } as Expression);
 const ter = (cond: Expression, then: Expression, else_: Expression): Expression => ({ kind: "ternary", cond, then, else_, span: NO_SPAN } as Expression);
-const sz = (type: TypeSpec): Expression => ({ kind: "sizeof_type", type, span: NO_SPAN } as Expression);
 const cast = (type: TypeSpec, expr: Expression): Expression => ({ kind: "c_cast", type, expr, span: NO_SPAN } as Expression);
 const callx = (callee: Expression, args: Expression[]): Expression => ({ kind: "call", callee, args, span: NO_SPAN } as Expression);
 
-const fld = (name: string, type: TypeSpec, access: "public" | "protected" | "private" = "public"): VariableDecl =>
-  ({ kind: "variable", name, type, isConstexpr: false, isStatic: false, isExtern: false, isMember: true, access, span: NO_SPAN } as VariableDecl);
-
-const sdecl = (name: string, members: Declaration[], bases: TypeSpec[] = []): StructDecl =>
-  ({ kind: "struct", name, members, bases, span: NO_SPAN } as StructDecl);
-
-const tdecl = (name: string, params: TemplateParam[], members: Declaration[]): ClassTemplateDecl =>
-  ({ kind: "class_template", name, params, members, bases: [], span: NO_SPAN } as ClassTemplateDecl);
-
-// Access evaluateConstexpr via (sema as any).evaluateConstexpr
-const ceval = (sema: Sema, expr: Expression): bigint | null =>
-  (sema as any).evaluateConstexpr(expr) as bigint | null;
+const ceval = (sema: Sema, expr: Expression): bigint | null => sema.evaluateConstexpr(expr);
 
 const makeSema = () => new Sema();
 
@@ -194,21 +175,6 @@ describe("Sema — constexpr evaluation", () => {
     });
   });
 
-  // ---- sizeof ----
-  describe("sizeof", () => {
-    test("sizeof builtin types", () => {
-      const s = makeSema();
-      expect(ceval(s, sz(n("uint8")))).toBe(1n);
-      expect(ceval(s, sz(n("uint16")))).toBe(2n);
-      expect(ceval(s, sz(n("uint32")))).toBe(4n);
-      expect(ceval(s, sz(n("uint64")))).toBe(8n);
-      expect(ceval(s, sz(n("uint128")))).toBe(16n);
-      expect(ceval(s, sz(n("id")))).toBe(32n);
-      expect(ceval(s, sz(n("bool")))).toBe(1n);
-      expect(ceval(s, sz(n("void")))).toBe(0n);
-    });
-  });
-
   // ---- casts ----
   describe("casts", () => {
     test("c-style cast evaluates inner expression", () => {
@@ -261,29 +227,17 @@ describe("Sema — constexpr evaluation", () => {
     });
   });
 
-  // ---- constexpr variable lookup ----
-  describe("constexpr variable lookup", () => {
-    test("enum constants are resolvable", () => {
-      const s = new Sema();
-      const enumDecl: Declaration = {
-        kind: "enum",
-        name: "Color",
-        isClass: false,
-        members: [
-          { name: "RED", value: iLit("0"), span: NO_SPAN },
-          { name: "GREEN", value: iLit("1"), span: NO_SPAN },
-        ],
-        span: NO_SPAN,
-      } as Declaration;
-      (s as any).registerDecl(enumDecl, (s as any)._globalScope);
-
-      expect(ceval(s, ident("RED"))).toBe(0n);
-      expect(ceval(s, ident("GREEN"))).toBe(1n);
-    });
-
-    test("unknown identifier returns null", () => {
+  // ---- symbol-dependent expressions yield null ----
+  describe("symbol-dependent expressions", () => {
+    test("identifiers return null (resolved by codegen's constant table)", () => {
       const s = makeSema();
       expect(ceval(s, ident("UNKNOWN_VAR"))).toBeNull();
+    });
+
+    test("sizeof returns null (resolved by codegen's type layout)", () => {
+      const s = makeSema();
+      const expr: Expression = { kind: "sizeof_type", type: n("uint64"), span: NO_SPAN } as Expression;
+      expect(ceval(s, expr)).toBeNull();
     });
   });
 
@@ -326,181 +280,19 @@ describe("Sema — constexpr evaluation", () => {
   });
 });
 
-// ---- type resolution ----
+// ---- diagnostics channel ----
 
-describe("Sema — type resolution", () => {
-  test("builtin types resolve to correct sizes", () => {
-    const s = new Sema();
-    expect((s as any).resolveType(n("uint64"))?.size).toBe(8);
-    expect((s as any).resolveType(n("uint32"))?.size).toBe(4);
-    expect((s as any).resolveType(n("uint8"))?.size).toBe(1);
-    expect((s as any).resolveType(n("sint64"))?.size).toBe(8);
-    expect((s as any).resolveType(n("bool"))?.size).toBe(1);
-    expect((s as any).resolveType(n("void"))?.size).toBe(0);
-    expect((s as any).resolveType(n("uint128"))?.size).toBe(16);
-    expect((s as any).resolveType(n("id"))?.size).toBe(32);
-  });
+describe("Sema — diagnostics", () => {
+  test("error and warning collection", () => {
+    const s = makeSema();
+    s.error("bad thing", NO_SPAN);
+    s.warn("odd thing", NO_SPAN);
+    s.warn("placeholder thing", NO_SPAN, "fidelity");
 
-  test("pointer type resolves to i32 (size 4)", () => {
-    const s = new Sema();
-    const info = (s as any).resolveType(ptr(n("uint64")));
-    expect(info?.size).toBe(4);
-    expect(info?.name).toBe("i32");
-  });
-
-  test("void type resolves correctly", () => {
-    const s = new Sema();
-    const info = (s as any).resolveType(vd());
-    expect(info?.size).toBe(0);
-    expect(info?.name).toBe("void");
-  });
-
-  test("const type resolves to underlying", () => {
-    const s = new Sema();
-    const info = (s as any).resolveType(cnst(n("uint64")));
-    expect(info?.size).toBe(8);
-  });
-
-  test("unknown type returns null", () => {
-    const s = new Sema();
-    expect((s as any).resolveType(n("MysteryType"))).toBeNull();
-  });
-
-  test("sizeofType wrapper", () => {
-    const s = new Sema();
-    expect(s.sizeofType(n("uint64"))).toBe(8);
-    expect(s.sizeofType(n("void"))).toBe(0);
-  });
-});
-
-// ---- struct layout ----
-
-describe("Sema — struct layout", () => {
-  test("simple struct with scalar fields", () => {
-    const s = new Sema();
-    const members: Declaration[] = [
-      fld("a", n("uint64")),
-      fld("b", n("uint32")),
-    ];
-    const decl = sdecl("Test", members);
-    const fields = s.computeStructLayout(decl);
-    expect(fields).toHaveLength(2);
-    expect(fields[0].name).toBe("a");
-    expect(fields[0].offset).toBe(0);
-    expect(fields[0].size).toBe(8);
-    expect(fields[1].name).toBe("b");
-    expect(fields[1].offset).toBe(8);
-    expect(fields[1].size).toBe(4);
-  });
-
-  test("struct with mixed-width fields respects alignment", () => {
-    const s = new Sema();
-    const members: Declaration[] = [
-      fld("v1", n("uint8")),
-      fld("v2", n("uint64")),
-      fld("v3", n("uint16")),
-    ];
-    const decl = sdecl("Aligned", members);
-    const fields = s.computeStructLayout(decl);
-    expect(fields[0].offset).toBe(0);
-    expect(fields[0].size).toBe(1);
-    expect(fields[1].offset).toBe(8);   // aligned to 8
-    expect(fields[1].size).toBe(8);
-    expect(fields[2].offset).toBe(16);
-    expect(fields[2].size).toBe(2);
-  });
-
-  test("empty struct returns no fields", () => {
-    const s = new Sema();
-    const decl = sdecl("Empty", []);
-    expect(s.computeStructLayout(decl)).toHaveLength(0);
-  });
-});
-
-// ---- template instantiation ----
-
-describe("Sema — template instantiation", () => {
-  const arrayTemplateParams: TemplateParam[] = [
-    { kind: "type", name: "T", span: NO_SPAN } as TemplateParam,
-    { kind: "non_type", name: "L", type: n("uint64"), span: NO_SPAN } as TemplateParam,
-  ];
-
-  const makeArrayMembers = (): Declaration[] => [
-    fld("_data", arr(n("T"), ident("L"))),
-  ];
-
-  const makeArrayTemplate = (): ClassTemplateDecl =>
-    tdecl("Array", arrayTemplateParams, makeArrayMembers());
-
-  const registerArrayTemplate = (s: Sema): void => {
-    const tmpl = makeArrayTemplate();
-    (s as any)._globalScope.types.set("Array", {
-      kind: "struct",
-      name: "Array",
-      size: 0, alignment: 8,
-      fields: [], enumerators: new Map(),
-      isTemplate: true, templateParams: tmpl.params, templateAst: tmpl,
-    });
-  };
-
-  const exprVal = (e: Expression): TypeSpec =>
-    ({ kind: "expr_value", expr: e, span: NO_SPAN } as TypeSpec);
-
-  test("Array<uint64, 4> has correct size", () => {
-    const s = new Sema();
-    registerArrayTemplate(s);
-    const inst = s.instantiateTemplate("Array", [n("uint64"), exprVal(iLit("4"))]);
-    expect(inst).not.toBeNull();
-    expect(inst?.size).toBe(32); // uint64 = 8 bytes * 4
-  });
-
-  test("template instantiation is cached", () => {
-    const s = new Sema();
-    registerArrayTemplate(s);
-    const a1 = s.instantiateTemplate("Array", [n("uint64"), exprVal(iLit("4"))]);
-    const a2 = s.instantiateTemplate("Array", [n("uint64"), exprVal(iLit("4"))]);
-    expect(a1).toBe(a2);
-  });
-
-  test("different Array instantiations have different sizes", () => {
-    const s = new Sema();
-    registerArrayTemplate(s);
-    // Array<uint8, 4> → 4 bytes
-    expect(s.instantiateTemplate("Array", [n("uint8"), exprVal(iLit("4"))])?.size).toBe(4);
-    // Array<uint32, 4> → 16 bytes
-    expect(s.instantiateTemplate("Array", [n("uint32"), exprVal(iLit("4"))])?.size).toBe(16);
-    // Array<uint64, 8> → 64 bytes
-    expect(s.instantiateTemplate("Array", [n("uint64"), exprVal(iLit("8"))])?.size).toBe(64);
-  });
-
-  test("unknown template returns null", () => {
-    const s = new Sema();
-    expect(s.instantiateTemplate("NotATemplate", [n("int")])).toBeNull();
-  });
-});
-
-// ---- enum handling ----
-
-describe("Sema — enum handling", () => {
-  test("auto-incrementing enumerator values", () => {
-    const s = new Sema();
-    const enumDecl: Declaration = {
-      kind: "enum",
-      name: "TestEnum",
-      isClass: false,
-      members: [
-        { name: "A", value: undefined, span: NO_SPAN },
-        { name: "B", value: undefined, span: NO_SPAN },
-        { name: "C", value: iLit("10"), span: NO_SPAN },
-        { name: "D", value: undefined, span: NO_SPAN },
-      ],
-      span: NO_SPAN,
-    } as Declaration;
-    (s as any).registerDecl(enumDecl, (s as any)._globalScope);
-
-    expect(ceval(s, ident("A"))).toBe(0n);
-    expect(ceval(s, ident("B"))).toBe(1n);
-    expect(ceval(s, ident("C"))).toBe(10n);
-    expect(ceval(s, ident("D"))).toBe(11n);
+    const d = s.getDiagnostics();
+    expect(d).toHaveLength(3);
+    expect(d[0]).toMatchObject({ severity: "error", message: "bad thing" });
+    expect(d[1]).toMatchObject({ severity: "warning", message: "odd thing" });
+    expect(d[2]).toMatchObject({ severity: "warning", message: "placeholder thing", category: "fidelity" });
   });
 });

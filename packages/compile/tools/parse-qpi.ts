@@ -3,7 +3,6 @@ import { readFileSync, existsSync } from "node:fs";
 import { Preprocessor } from "../src/preprocess";
 import { Lexer } from "../src/lexer";
 import { Parser } from "../src/parser";
-import { Sema } from "../src/sema";
 import { QPI_PRELUDE } from "../src/qpi-prelude";
 
 const CORE = "/home/kali/Projects/core-lite/src";
@@ -52,11 +51,13 @@ for (const d of diags.slice(0, first)) {
 }
 
 // Check key templates captured with members
-const sema = new Sema();
-sema.analyze(tu);
-const types = sema.getAllTypes();
+const qpiNs = tu.declarations.find((d) => d.kind === "namespace" && (d as any).name === "QPI") as any;
+const captured = new Map<string, number>();
+for (const m of qpiNs?.body ?? []) {
+  if (m.kind === "class_template" || m.kind === "struct") captured.set(m.name, m.members?.length ?? 0);
+}
 for (const name of ["HashMap", "Array", "BitArray", "Collection", "QpiContextFunctionCall"]) {
-  const t = types.get(name);
-  if (t) console.log(`  captured ${name}: isTemplate=${t.isTemplate} members=${t.templateAst?.members.length ?? t.fields.length}`);
+  const n = captured.get(name);
+  if (n !== undefined) console.log(`  captured ${name}: members=${n}`);
   else console.log(`  MISSING ${name}`);
 }
