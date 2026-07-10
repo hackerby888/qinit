@@ -1,0 +1,48 @@
+import type { Span } from "../ast";
+import type { Diagnostic as ParserDiagnostic } from "../parser";
+
+export interface CalleeIdl {
+  name: string;
+  index: number;
+  functions: Record<string, { inputType: number; inSize: number; outSize: number }>;
+  procedures: Record<string, { inputType: number; inSize: number; outSize: number }>;
+}
+
+export interface CompileOpts {
+  source: string;
+  name: string;
+  slot: number;
+  arenaSz?: number;
+  callees?: CalleeIdl[];
+  calleeSources?: Array<{ name: string; source: string }>;
+  testSource?: string;
+  testPath?: string;
+  qpiHeader?: string;
+  sharedMemBase?: number;
+  onPhase?: (phase: string) => void | Promise<void>;
+  strict?: boolean;
+}
+
+export interface ContractIdl {
+  name: string;
+  slot: number;
+  functions: Array<{ name: string; inputType: number; inSize: number; outSize: number }>;
+  procedures: Array<{ name: string; inputType: number; inSize: number; outSize: number }>;
+  stateSize: number;
+  sysprocMask: number;
+}
+
+export interface CompileResult {
+  wasm: Uint8Array;
+  diagnostics: ParserDiagnostic[];
+  idl: ContractIdl;
+  timings?: Record<string, number>;
+}
+
+export interface Diagnostic {
+  severity: "error" | "warning";
+  message: string;
+  file?: string;
+  span: Span;
+  category?: "fidelity";
+}

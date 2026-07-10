@@ -3,8 +3,8 @@
 // ---- Source location ----
 
 export interface Span {
-  start: number;   // byte offset in source
-  end: number;     // byte offset past the last character
+  start: number;   // UTF-16 code-unit offset in the associated source
+  end: number;     // exclusive UTF-16 code-unit offset in the associated source
   line: number;    // 1-based
   col: number;     // 1-based column at start
 }
