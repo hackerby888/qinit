@@ -1,5 +1,4 @@
 // Missing positive coverage for QPI-legal control flow. Unlike the red regression files,
-// these cases should already pass and pin the intended continue/default/nesting semantics.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

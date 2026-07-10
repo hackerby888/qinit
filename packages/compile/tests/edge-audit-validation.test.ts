@@ -1,6 +1,4 @@
 // Regression inventory: invalid QPI/C++ that the compiler currently accepts silently.
-// These tests are intentionally red until semantic validation rejects each construct.
-// Keep this file implementation-free: it specifies diagnostics and the no-WASM-on-error contract.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 

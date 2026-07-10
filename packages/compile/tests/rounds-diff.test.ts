@@ -1,6 +1,4 @@
-// Differential gtest for chaining through a container element: Array<Struct,N>.set(i, s) and the read
-// chain arr.get(i).field (the QEARN _initialRoundInfo.get(Epoch)._epochBonusAmount pattern). The
-// element type and field offsets are derived from the parsed template, not hardcoded.
+// Differential gtest for chaining through a container element: Array<Struct,N>.set(i, s) and the read chain arr.get(i).field (the QEARN _initialRoundInfo.get(Epoch)._epochBonusAmount
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

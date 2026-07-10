@@ -1,6 +1,4 @@
 // Dumps the exact WAT text (via QINIT_DUMP_WAT) for a fixed corpus of contracts into a directory.
-// Usage: bun run tests/_dump_wat_corpus.ts <outdir>
-// The byte-equality oracle for the IR refactor: dump before, dump after, diff must be empty.
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { compileContract, loadQpiHeader } from "../src/index";
@@ -25,8 +23,7 @@ const SYSTEM_FILES = [
   "ComputorControlledFund.h", "GeneralQuorumProposal.h",
 ];
 
-// Inline fixtures covering codegen shapes the file corpus underexercises:
-// uint128 ops, narrowing casts, short-circuit && / ||, ternary, div/mod helpers.
+// Inline fixtures covering codegen shapes the file corpus underexercises: uint128 ops, narrowing casts, short-circuit && / ||, ternary,
 const TIER1_SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

@@ -1,9 +1,4 @@
-// Regenerate the pinned-seed expectations for tests/fuzz-u128.test.ts: for each seed, compile
-// with both toolchains, run the generated input vectors, and print `seed: "hex",` only when the
-// two states agree. Divergent or non-building seeds are reported and skipped — a pin must never
-// encode a known-bad state.
-//
-//   bun run tools/fuzz-pin-u128.ts <seed> [seed...]
+// Regenerates pinned seeds for `tests/fuzz-u128.test.ts`.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

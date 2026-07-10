@@ -1,6 +1,4 @@
-// Differential gtest for Collection<T, L> compiled from the real qpi.h BST body: add (struct element),
-// per-PoV iteration (headIndex → nextElementIndex), element(i).field chaining, population, and remove
-// (BST deletion). Validated against native clang.
+// Differential gtest for Collection<T, L> compiled from the real qpi.h BST body: add (struct element), per-PoV iteration (headIndex
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

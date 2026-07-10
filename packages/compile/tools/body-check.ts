@@ -1,5 +1,4 @@
 // Quick body-codegen smoke: compile fixtures, report diagnostics + wasm size. wabt validates the WAT,
-// so a non-empty wasm with no error diagnostics means the emitted module is at least well-formed.
 import { readFileSync } from "node:fs";
 import { compileContract, loadQpiHeader } from "../src/index";
 

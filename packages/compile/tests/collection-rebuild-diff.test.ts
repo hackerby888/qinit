@@ -1,8 +1,4 @@
-// Collection BST rebalancing parity: adding >32 elements to one PoV with monotonically
-// increasing priority degenerates the BST and triggers the native _rebuild (add() rebalances
-// when population > 32 and search iterations exceed population/4). The rebuilt bst*Index
-// fields are contract STATE BYTES — they feed the state digest, so ours must match native
-// exactly, not just behaviorally.
+// Collection rebalancing parity for BST in PoV state.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
@@ -88,8 +84,7 @@ describe("differential — Collection BST rebuild state parity", () => {
       sim.deploy(28, wasm);
       const user = new Uint8Array(32).fill(7);
       sim.fund(user, 1_000_000n);
-      // 48 adds with increasing priority: population passes 32 and the degenerate right-spine
-      // search exceeds population/4 iterations, firing the native rebuild.
+      // 48 adds with increasing priority: population passes 32 and the degenerate right-spine search exceeds population/4 iterations, firing the
       const inBytes = new Uint8Array(8);
       new DataView(inBytes.buffer).setBigUint64(0, 48n, true);
       sim.procedure(28, 1, inBytes, { invocator: user });

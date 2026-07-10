@@ -1,7 +1,4 @@
-// Differential gtest for LinkedList<T, L> compiled from the real qpi.h body: addHead/addTail,
-// insertAfter/insertBefore, forward and backward traversal (headIndex/tailIndex/nextElementIndex/
-// prevElementIndex), element(i).field chaining on a struct element, remove with free-list recycling,
-// replace, isEmptySlot, capacity, and reset. Validated against native clang.
+// Differential gtest for LinkedList<T, L> compiled from the real qpi.h body: addHead/addTail, insertAfter/insertBefore, forward and backward traversal (headIndex/tailIndex/nextElementIndex/
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

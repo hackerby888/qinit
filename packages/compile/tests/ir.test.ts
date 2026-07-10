@@ -1,7 +1,4 @@
-// Format lock for the typed WAT IR: every emit() branch and every leaf-helper shape must print the
-// exact single-space canonical S-expression the string-based codegen produced. Golden strings here
-// are copied from real codegen output shapes — if one of these changes, the WAT byte-equality
-// oracle breaks.
+// Format lock for the typed WAT IR: every emit() branch and every leaf-helper shape must print the exact
 import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -154,9 +151,7 @@ describe("type assertions catch the silent-divergence class", () => {
 });
 
 describe("escape-hatch ratchet", () => {
-  // ir.raw is the sanctioned bridge for not-yet-typed subtrees (lvalue address strings, dynamic-label
-  // calls, control-flow forms). The count must only go DOWN as conversion proceeds — lower the ceiling
-  // when you remove hatches; never raise it without a structural reason recorded here.
+  // ir.raw is the sanctioned bridge for not-yet-typed subtrees (lvalue address strings, dynamic-label calls, control-flow forms). The count must
   test("raw() count in codegen/ does not grow", () => {
     const dir = join(import.meta.dir, "../src/codegen");
     let count = 0;

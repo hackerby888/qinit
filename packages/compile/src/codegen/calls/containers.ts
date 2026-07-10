@@ -8,8 +8,7 @@ import * as ir from "../../ir";
 
 // ---- compiling instantiated container methods from the real qpi.h bodies ----
 
-// A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32),
-// scalars pass by value (i64).
+// A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32), scalars pass by value (i64).
 export function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec } {
   const t = p.type;
   const isPtrOrRef = t.kind === "reference" || t.kind === "pointer";
@@ -19,15 +18,13 @@ export function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): 
   return { name: p.name, wasmType: isAddr ? "i32" : "i64", isAddr, type: t };
 }
 
-// Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm
-// function. Returns null if the body isn't captured or can't be lowered, so callers fall back.
+// Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm function. Returns
 export function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "template_instance" }, methodName: string, argCount?: number): CompiledMethod | null {
   const cacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}/${argCount ?? "?"}`;
   const cached = cg.compiledMethods.get(cacheKey);
   if (cached) return cached;
 
-  // Specialization-aware: the body + its binding come from the matched template instance (primary OR partial
-  // specialization), so a specialization's storage layout and its access methods stay in agreement.
+  // Specialization-aware: the body + its binding come from the matched template instance (primary OR partial specialization), so a
   const mt = cg.methodTemplate(type.name, type.args, methodName, argCount);
   if (!mt || !mt.def.body) return null;
   const def = mt.def;
@@ -48,8 +45,7 @@ export function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "te
   return cm;
 }
 
-// Emit the wasm function for an instantiated container method: param $this + the method's own params,
-// body lowered with a `this` context (bare members resolve to *this, types substituted via bindings).
+// Emit the wasm function for an instantiated container method: param $this + the method's own params, body lowered
 export function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: FunctionTemplateDecl, type: TypeSpec & { kind: "template_instance" }, bind: Bindings): string {
   const thisLayout = cg.containerLayout(type.name, type.args);
   const empty = { size: 0, align: 1, fields: new Map<string, FieldLayout>() };
@@ -59,9 +55,7 @@ export function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: Functio
     params: new Map(), retIsValue: cm.retKind === "i64",
     thisLayout, thisType: type, thisBind: bind, staticConsts: cg.staticConstsOf(type.name, bind),
   };
-  // Register params with their CONCRETE types (ValueT → uint64): a scalar ref-param read sizes and signs
-  // its load from the registered type, and the raw template name would default to a 4-byte signed load —
-  // silently sign-truncating every HashMap<*, uint64>::set above 2^31.
+  // Register params with their CONCRETE types (ValueT → uint64): a scalar ref-param read sizes and signs its load
   for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.substInBindings(cg.derefType(p.type), bind) });
 
   if (def.body) collectLocals(def.body, ctx);
@@ -76,8 +70,6 @@ export function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: Functio
 }
 
 // Build a call to a container method compiled from its real qpi.h body. Arguments are classified from
-// the method's own parameter list (reference/aggregate → address via argAddr, scalar → value). Returns
-// the call WAT + compiled method, or null if the method isn't captured / can't be lowered.
 export function callCompiled(
   ctx: FnCtx, type: TypeSpec & { kind: "template_instance" }, method: string, self: string, args: Expression[],
 ): { call: string; cm: CompiledMethod } | null {
@@ -93,24 +85,18 @@ export function callCompiled(
 }
 
 // Lower a container method call on a HashMap/HashSet/Array state/locals field. When valueWanted, returns
-// the value WAT; otherwise pushes statement lines and returns "". Null if not a container call.
 export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
   if (expr.callee.kind !== "member_access") return null;
   const node = resolveAddr(ctx, expr.callee.object);
   if (!node || !node.type) return null;
   // follow typedefs to the concrete container instance (e.g. bit_4096 → BitArray<4096>). Resolve through the
-  // active template bindings first so a method parameter typed by a template param (ProposalDataType → D) or a
-  // proxy-bound alias dispatches against the concrete instance.
   let ct: TypeSpec | null = node.type;
   for (let i = 0; i < 8 && ct?.kind === "name"; i++) {
     const next: TypeSpec | undefined = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name);
     if (!next) break;
     ct = next;
   }
-  // A plain (non-template) struct with an inline method (ProposalDataYesNo::checkValidity) is dispatched as
-  // a zero-arg instance — normalize its name type to a template_instance so the shared method-compilation
-  // path (callCompiled → compileContainerMethod) applies, the same as a template ProposalDataType. A field
-  // of nested-struct type carries an inline_struct node (the layout inlines it) — dispatch by its name too.
+  // A plain (non-template) struct with an inline method (ProposalDataYesNo::checkValidity) is dispatched as a zero-arg instance — normalize its
   if (ct?.kind === "inline_struct" && ct.struct.name && ctx.cg.templateMethods.get(ct.struct.name)?.has(expr.callee.member)) {
     ct = { kind: "template_instance", name: ct.struct.name, args: [] } as TypeSpec;
   }
@@ -118,8 +104,7 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
     ct = { kind: "template_instance", name: ct.name, args: [] } as TypeSpec;
   }
   if (!ct || ct.kind !== "template_instance") return null;
-  // A namespace-qualified spelling (QPI::HashMap<sint64,uint32,16> local) dispatches by its base name —
-  // the layout side already strips the qualifier (instantiateTemplate), the name checks here must too.
+  // A namespace-qualified spelling (QPI::HashMap<sint64,uint32,16> local) dispatches by its base name — the layout side already strips the qualifier
   if (ct.name.includes("::") && !ctx.cg.templates.has(ct.name)) {
     ct = { ...ct, name: ct.name.slice(ct.name.lastIndexOf("::") + 2) };
   }
@@ -137,13 +122,9 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
     const indexOf = (k: string) => `(call $hm_index ${map} ${k} ${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.occBase!)} ${C(info.hashMode!)})`;
     const elemAt = (idx: Expression) => `(call $hm_elem ${map} (i32.and (i32.wrap_i64 ${emitValue(ctx, idx)}) ${C(info.L! - 1)}) ${C(info.elemSize)})`;
 
-    // Prefer the method compiled from the real qpi.h body (HashMap and HashSet share the same impl
-    // shape); the hand-written intrinsics are the fallback. Each argument is classified from the
-    // method's own parameter list — reference and aggregate params are materialized to an address
-    // (argAddr), scalars passed by value.
+    // Prefer the method compiled from the real qpi.h body (HashMap and HashSet share the same impl shape); the
     const compiledHM = (m: string) => callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, m, map, expr.args);
-    // Wire a compiled HashMap method that returns a value (or void): in value context return the call;
-    // as a statement, drop a value result or push a void call directly. Returns true once handled.
+    // Wire a compiled HashMap method that returns a value (or void): in value context return the call; as
     const wireCompiled = (m: string): boolean => {
       const c = compiledHM(m);
       if (!c) return false;
@@ -180,7 +161,6 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
     if (member === "key" && valueWanted && info.keySize! <= 8) return loadAt(elemAt(expr.args[0]), info.keySize!);
 
     // get(key, &value) — bool found, value copied out. The out parameter is a real lvalue (emitAddr),
-    // not a materialized copy, so get keeps its explicit wiring rather than going through compiledHM.
     if (member === "get") {
       const k = argAddr(ctx, expr.args[0], info.keySize!);
       const out = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
@@ -225,8 +205,7 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
       ctx.lines.push(`    ${ir.emit(ir.call("$hm_reset", addrIr(map), ir.i32c(info.totalSize!)))}`);
       return "";
     }
-    // cleanup family: compaction + threshold checks over the mark-removal counter, matching the
-    // native rehash byte-for-byte (slot placement is contract state).
+    // cleanup family: compaction + threshold checks over the mark-removal counter, matching the native rehash byte-for-byte (slot placement is
     const threshold = () => (expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(50));
     if (member === "cleanup" && !valueWanted) {
       ctx.lines.push(`    ${ir.emit(ir.call("$hm_cleanup", addrIr(map), ir.i32c(info.L!), ir.i32c(info.elemSize), ir.i32c(info.keySize!), ir.i32c(info.occBase!), ir.i32c(info.popOff!), ir.i32c(info.hashMode!), ir.i32c(info.totalSize!)))}`);
@@ -254,8 +233,7 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
     if (member === "set" && !valueWanted) {
       const ea = elemAddr(expr.args[0]);
       if (aggr) {
-        // A brace-init value (`arr.set(i, { owner, amount })`) has no address — materialize it into a slot
-        // via emitConstruct. Never fall back to copying from address 0.
+        // A brace-init value (`arr.set(i, { owner, amount })`) has no address — materialize it into a slot via
         let src = emitAddr(ctx, expr.args[1]);
         if (!src && (expr.args[1].kind === "initializer_list" || expr.args[1].kind === "construct") && info.elemType) {
           const vals = expr.args[1].kind === "initializer_list" ? expr.args[1].exprs : expr.args[1].args;
@@ -288,16 +266,9 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
     }
   }
 
-  // Collection (priority queues over a per-PoV BST) and LinkedList (doubly-linked with a free list):
-  // every method is compiled from the real qpi.h body. element(i)/pov(i) return the element value /
-  // its pov id — for a scalar element it flows as an i64 value here; an aggregate element (a struct)
-  // is an lvalue resolved by resolveContainerElem so element(i).field chains (return null to fall
-  // through to that path).
+  // Collection (priority queues over a per-PoV BST) and LinkedList (doubly-linked with a free list): every method is compiled
   if (node.type.name === "Collection" || node.type.name === "LinkedList") {
-    // Collection cleanup family: pov-table compaction + threshold checks over the mark-removal
-    // counter. The native body leans on _tzcnt_u64/_lzcnt_u64 and goto, so it is hand-written in
-    // the framework ($coll_cleanup) instead of compiled; the geometry (flag/element/population
-    // offsets and the Element stride) comes from the parsed layout. LinkedList has no cleanup API.
+    // Collection cleanup family: pov-table compaction + threshold checks over the mark-removal counter. The native body leans on _tzcnt_u64/_lzcnt_u64
     if (node.type.name === "Collection" && (member === "cleanup" || member === "cleanupIfNeeded" || member === "needsCleanup")) {
       const lay = ctx.cg.containerLayout("Collection", node.type.args);
       const ci = ctx.cg.collectionInfo(node.type.args);
@@ -331,8 +302,6 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
   }
 
   // BitArray<L> (bit_4096 etc.): get/set/setAll/capacity are inline methods compiled from the qpi.h body.
-  // Any other captured template instance (ProposalDataV1, ProposalAndVotingByComputors,
-  // ProposalWithAllVoteData, ...): dispatch the method through its real qpi.h body.
   if (node.type.name === "BitArray" || ctx.cg.templateMethods.get(node.type.name)?.has(member)) {
     const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
     if (!c) return null;
@@ -344,12 +313,7 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
   return null;
 }
 
-// Inside a compiled container method: a call to a sibling method of *this (getElementIndex(key)) or the
-// hash functor (HashFunc::hash(key)). Returns null when not applicable.
-// AssetOwnership/PossessionIterator — the contract only touches it through its methods, so we control its
-// representation: iter[0]=record count, iter[4]=cursor. begin() runs the assetEnumerate host import (kind 0
-// ownership / 1 possession) into the framework's $assetIterBase buffer (80-byte records: owner@0,
-// possessor@32, shares@64); the cursor walks it. Returns the WAT for value/addr modes, pushes lines for stmt.
+// Inside a compiled container method: a call to a sibling method of *this (getElementIndex(key)) or the hash functor
 export function emitAssetIter(ctx: FnCtx, expr: Expression & { kind: "call" }, mode: "stmt" | "value" | "addr"): string | null {
   if (expr.callee.kind !== "member_access") return null;
   const node = resolveAddr(ctx, expr.callee.object);

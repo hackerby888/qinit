@@ -1,5 +1,4 @@
 // Function-call boundaries perform implicit conversions in native C++. Keeping the caller's
-// wider i64 value changes narrowing, sign extension, and default/temporary-reference behavior.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

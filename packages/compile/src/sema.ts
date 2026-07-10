@@ -1,10 +1,4 @@
-// Diagnostics channel + scope-free constexpr folding.
-//
-// Historically this module owned a symbol table, struct layout, and template instantiation.
-// Codegen grew its own bindings-aware versions of all three (resolveType, layoutOfStruct,
-// instantiateTemplate) and the pipeline never registered declarations here, so that half was
-// unreachable and has been removed. What remains is what the pipeline actually uses: the
-// diagnostic sink that codegen reports through, and a literal-arithmetic evaluator.
+// Sema now owns only diagnostics + constexpr-only arithmetic evaluation.
 
 import type { Span, Expression } from "./ast";
 import { parseIntLiteral } from "./lexer";
@@ -34,8 +28,7 @@ export class Sema {
 
   // ---- Constexpr evaluation ----
 
-  // Folds expressions built from literals only; anything needing a symbol table (identifiers,
-  // sizeof) yields null — codegen resolves those through its own constant table first.
+  // Folds expressions built from literals only; anything needing a symbol table (identifiers, sizeof) yields null — codegen resolves
   evaluateConstexpr(expr: Expression): bigint | null {
     try {
       return this.evalExpr(expr);
@@ -98,7 +91,6 @@ export class Sema {
       case "call":
       case "template_call": {
         // QPI safe-math helpers used in constexpr contexts, e.g. div<uint32>(REGISTER_AMOUNT, 20).
-        // The explicit-type form parses as template_call; both must fold (else derived constants -> 0).
         const c = expr.callee;
         const fn = c.kind === "identifier" ? c.name : c.kind === "qualified_name" ? (c as { name: string }).name : null;
         if (fn) {

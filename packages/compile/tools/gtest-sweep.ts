@@ -1,7 +1,4 @@
 // Differential gtest sweep over the contracts @qinit/compile can build. For each: auto-generate a
-// smoke gtest (genGtest — calls every registered entry, assertions are TODO so a pass == "executed
-// without trapping"), build the native-clang test runner, build the contract with @qinit/compile,
-// then drive MY contract with the native test logic via runTestsAgainst.
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

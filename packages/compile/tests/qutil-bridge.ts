@@ -1,5 +1,4 @@
-// Shared bridge for driving the upstream contract_qutil.cpp gtest corpus against deployable QUTIL+QX
-// wasm. The runner (clang) is mode-independent; only the deployed contract wasm swaps between backends.
+// Shared bridge for driving the upstream contract_qutil.cpp gtest corpus against deployable QUTIL+QX wasm. The runner (clang) is mode-independent;
 import { existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +17,6 @@ export interface TR {
 }
 
 // The lite ContractTesting shim — injected ahead of the stripped contract_qutil.cpp body. Provides the same
-// class + free-function surface the upstream test uses, but every operation is a "thost" import bound in JS.
 export const SHIM = String.raw`
 #include <vector>
 #include <set>
@@ -119,7 +117,6 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
 }
 
 // Phase 1 (ours): QUTIL+QX compiled by our TS compiler. QUTIL gets QX's IDL + source so its
-// CALL_OTHER_CONTRACT(QX, ...) calls resolve.
 export async function buildContractsOurs(core: string): Promise<Record<number, Uint8Array>> {
   const headers = loadQpiHeader(core);
   const qutilSrc = readFileSync(`${core}/src/contracts/QUtil.h`, "utf8");
@@ -139,9 +136,7 @@ export async function buildContractsOurs(core: string): Promise<Record<number, U
   return { [QUTIL_IDX]: mineQutil.wasm, [QX_IDX]: mineQx.wasm };
 }
 
-// Phase 1 (native): QUTIL+QX built by clang (LITE_WASM_TU_BUILD) as plain deployable contract wasm —
-// no testSource, so recipe.ts emits a contract module the Sim deploys identically to the ours wasm.
-// buildContract auto-derives QX's callee prelude from corePath + QUtil.h's CALL_OTHER_CONTRACT scan.
+// Phase 1 (native): QUTIL+QX built by clang (LITE_WASM_TU_BUILD) as plain deployable contract wasm — no testSource, so recipe.ts
 export async function buildContractsNative(core: string): Promise<Record<number, Uint8Array>> {
   const dir = mkdtempSync(join(tmpdir(), "qutil-native-"));
 
@@ -199,8 +194,7 @@ export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<numb
     q_invoke: (idx: number, it: number, inPtr: number, inLen: number, amount: bigint, originPtr: number, outPtr: number, outCap: number): number => {
       const input = read(inPtr, inLen);
       const origin = id32(originPtr);
-      // The native harness debits the invocator the reward (decreaseEnergy) before invoking; sim.procedure
-      // only credits the contract, so mirror the debit here for faithful fee accounting.
+      // The native harness debits the invocator the reward (decreaseEnergy) before invoking; sim.procedure only credits the contract, so mirror
       if (amount > 0n) sim.debit(origin, BigInt(amount));
       const out = sim.procedure(idx >>> 0, it >>> 0, input, { reward: BigInt(amount), invocator: origin, originator: origin });
       const n = Math.min(out.length, outCap >>> 0);
@@ -220,8 +214,6 @@ export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<numb
     q_fund: (idPtr: number, amount: bigint) => { sim.fund(id32(idPtr), BigInt(amount)); },
     q_balance: (idPtr: number): bigint => sim.balance(id32(idPtr)),
     // spectrumIndex/decreaseEnergy: the native harness reduces an entity's energy by spectrum index. Map each
-    // queried id to a stable index, then decreaseEnergy(idx, amt) debits it (so the voter-eligibility tests
-    // that drop a voter below min_amount actually invalidate the voter).
     q_spectrum: (idPtr: number): number => {
       const h = hex(id32(idPtr));
       let i = spectrumIds.indexOf(h);
@@ -254,11 +246,8 @@ export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<numb
   };
 
   // The runner embeds a compiled QUTIL contract module (for types + the test runner) that imports "lhost" for
-  // its own qpi.* calls. That copy is dead — driving goes through thost → Sim → my separately-deployed wasm —
-  // so any lhost/wasi import is a never-called no-op. Real tables: thost (drives Sim) + env (_rdrand64_step).
   const noopModule = new Proxy({}, { get: () => () => 0 });
-  // env carries _rdrand64_step but the compiled-in QUTIL also pulls misc env symbols (addDebugMessageAssert,
-  // …) — fall back to a no-op for any name not explicitly provided.
+  // env carries _rdrand64_step but the compiled-in QUTIL also pulls misc env symbols (addDebugMessageAssert, …) — fall back to
   const envProxy = new Proxy(env, { get: (t, k: string) => (k in t ? (t as any)[k] : () => 0), has: () => true });
   const imports = new Proxy({ thost, env: envProxy } as Record<string, unknown>, {
     get: (t, m: string) => (m in t ? (t as any)[m] : noopModule),
@@ -268,8 +257,7 @@ export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<numb
   runner = await WebAssembly.instantiate(mod, imports as any);
   (runner.exports._initialize as Function)?.();
 
-  // No tests hang any more (the END_EPOCH ProposalVoting loops and the asset-ownership-iterator loop are both
-  // lowered now), so every case runs in-process.
+  // No tests hang any more (the END_EPOCH ProposalVoting loops and the asset-ownership-iterator loop are both lowered now), so
   const count = (runner.exports.test_count as Function)() >>> 0;
   for (let i = 0; i < count; i++) {
     (runner.exports.run_test as Function)(i);

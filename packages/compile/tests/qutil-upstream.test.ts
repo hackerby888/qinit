@@ -1,6 +1,4 @@
-// Upstream Qubic gtest corpus (core-lite/test/contract_qutil.cpp, 51 TEST cases) driven against
-// contracts-under-test deployed in a Sim. Backend selected by GTEST_MODE: "ours" (our TS compiler,
-// default) or "native" (clang). The bridge mechanics live in ./qutil-bridge.
+// Upstream Qubic gtest corpus (core-lite/test/contract_qutil.cpp, 51 TEST cases) driven against contracts-under-test deployed in a Sim. Backend selected by
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { CORE, wasiAvailable, buildRunner, buildContractsOurs, buildContractsNative, runUpstream } from "./qutil-bridge";

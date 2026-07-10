@@ -1,5 +1,4 @@
 // Compiler diagnostics are consumed by editors and the CLI. Their spans must refer to the original
-// contract source, not the hidden scaffold prepended before preprocessing.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 

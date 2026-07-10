@@ -1,5 +1,4 @@
 // QPI header caching must be content-addressed. Length + first 64 bytes is not sufficient:
-// browser/editor clients can compile against different same-sized header snapshots in one process.
 import { beforeAll, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

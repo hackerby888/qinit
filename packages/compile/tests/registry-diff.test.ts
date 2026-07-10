@@ -1,5 +1,4 @@
-// Differential gtest for container method completion: HashSet add/contains/remove/population and
-// HashMap removeByKey + iteration (nextElementIndex/value(i)) — validated against native clang.
+// Differential gtest for container method completion: HashSet add/contains/remove/population and HashMap removeByKey + iteration (nextElementIndex/value(i)) — validated against native
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

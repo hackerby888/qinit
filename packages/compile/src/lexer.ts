@@ -1,6 +1,4 @@
 // C++ lexer for the QPI subset. Produces a token stream consumed by the parser.
-// Handles: keywords, identifiers, integer/char/string literals, operators, comments.
-// Does NOT handle preprocessor directives — those are resolved by preprocess.ts first.
 
 export type TokenKind =
   // Keywords
@@ -640,8 +638,6 @@ export function parseIntLiteral(text: string): bigint {
   }
 
   // Convert with the detected base. Earlier this reparsed `s` as decimal regardless of base, so
-  // binary/octal literals (e.g. 0b11111) silently yielded their decimal digit-string value (11111
-  // instead of 31); hex only worked by throwing on the invalid decimal and falling through.
   const prefix = base === 16 ? "0x" : base === 2 ? "0b" : base === 8 ? "0o" : "";
   return BigInt(prefix + (s || "0"));
 }

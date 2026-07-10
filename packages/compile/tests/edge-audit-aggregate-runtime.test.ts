@@ -1,5 +1,4 @@
-// These QPI-legal aggregate cases are positive controls around the red aggregate validation tests:
-// copies, returned temporaries, const-reference binding, nested layouts, and union aliasing.
+// These QPI-legal aggregate cases are positive controls around the red aggregate validation tests: copies, returned temporaries, const-reference binding,
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

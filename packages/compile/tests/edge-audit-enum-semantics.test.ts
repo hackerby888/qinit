@@ -1,5 +1,4 @@
-// Enum storage width and signedness come from the declared underlying type, including when the
-// enum is held in a WASM local or loaded from packed contract state.
+// Enum storage width and signedness come from the declared underlying type, including when the enum is held in
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

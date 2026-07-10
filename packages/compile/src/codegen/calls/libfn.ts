@@ -8,16 +8,12 @@ import type { TypeSpec, Expression, Statement, Declaration, StructDecl, Function
 import * as ir from "../../ir";
 
 // QPI safe-math + helper free functions, lowered to scalar i64. div/mod guard division by zero;
-// sadd/smul saturate at the type extreme, matching math_lib.h — the 32-bit overloads clamp at
-// INT32/UINT32, selected by argument width like native overload resolution.
 export function emitMathCallIr(ctx: FnCtx, name: string, args: Expression[]): ir.Ir | null {
   const a = () => (args[0] ? emitValueIr(ctx, args[0]) : ir.i64c(0));
   const b = () => (args[1] ? emitValueIr(ctx, args[1]) : ir.i64c(0));
   // accept a namespace-qualified spelling (math_lib::max, QPI::div, RL::min) — strip the qualifier.
   const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
   // div/mod/min/max take the unsigned variant when either operand is unsigned (C++ usual-conversion rule).
-  // Without this, `min(div(reward,price), slots)` on a huge uint64 reward picked the wrong branch via a signed
-  // compare, so RL's BuyTicket computed a giant `toBuy` and looped ~forever. `sdiv` stays explicitly signed.
   const u = (args[0] ? isUnsignedExpr(ctx, args[0]) : false) || (args[1] ? isUnsignedExpr(ctx, args[1]) : false);
   const s = u ? "u" : "s";
   switch (base) {
@@ -27,9 +23,7 @@ export function emitMathCallIr(ctx: FnCtx, name: string, args: Expression[]): ir
     case "min": return ir.call(`$m_min_${s}`, a(), b());
     case "max": return ir.call(`$m_max_${s}`, a(), b());
     case "abs": return ir.call("$m_abs", a());
-    // sadd/smul are SATURATING natively (math_lib.h clamps at the type extreme) — plain wrap-around
-    // arithmetic silently diverges exactly at the overflow boundary. Both args at rank ≤ 32 select
-    // the 32-bit overload (clamps at the 32-bit extremes), mirroring native overload resolution.
+    // sadd/smul are SATURATING natively (math_lib.h clamps at the type extreme) — plain wrap-around arithmetic silently diverges exactly at
     case "sadd": case "smul": {
       const w4 = args.length >= 2 &&
         promoteInfo(ctx, args[0]).width === 4 && promoteInfo(ctx, args[1]).width === 4;
@@ -44,10 +38,7 @@ export function emitMathCall(ctx: FnCtx, name: string, args: Expression[]): stri
   return n === null ? null : ir.emit(n);
 }
 
-// Call to a contract value helper (toReturnCode(...)): scalar args by value, aggregate args by
-// address. valueWanted → returns the i64 result; otherwise pushes the call as a statement.
-// Compile a qpi.h namespace free function (ProposalTypes::cls / optionCount) on first use: register it as a
-// pure value helper and emit its wasm function. Returns its HelperInfo, or null if it can't be compiled.
+// Call to a contract value helper (toReturnCode(...)): scalar args by value, aggregate args by address. valueWanted → returns
 export function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
   const cached = cg.helpers.get(name);
   if (cached) return cached;
@@ -55,8 +46,7 @@ export function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
   const fn = cg.libFns.get(name) ?? cg.libFns.get(`QPI::${name}`);
   if (!fn || !fn.body) return null;
   const params = fn.params.map((p) => {
-    // A NON-const scalar reference (RL::makeDateStamp's `uint32& res`) is an out-param and must travel by
-    // address for the write to reach the caller; a const scalar ref stays a value (same policy as helpers).
+    // A NON-const scalar reference (RL::makeDateStamp's `uint32& res`) is an out-param and must travel by address for the write
     const isConstRef = p.type.kind === "reference" && p.type.refereed?.kind === "const";
     const isPtrRef = (p.type.kind === "reference" && !isConstRef) || p.type.kind === "pointer";
     const isAddr = isPtrRef || cg.isAggregateType(p.type);
@@ -77,8 +67,7 @@ export function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
   return info;
 }
 
-// Deduce template bindings (T→sint64, L→4) for a free function template from the concrete types of its
-// call-site arguments: a param `const Array<T,L>&` matched against arg `Array<sint64,4>` binds T and L.
+// Deduce template bindings (T→sint64, L→4) for a free function template from the concrete types of its call-site arguments:
 export function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args: Expression[]): Bindings {
   const types = new Map<string, TypeSpec>();
   const values = new Map<string, bigint>();
@@ -90,8 +79,7 @@ export function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args:
     let t = resolveAddr(ctx, a)?.type ?? null;
     if (!t) return null;
     t = ctx.cg.derefType(t);
-    // Resolve through the caller's template bindings so the deduced type is concrete (ProposalDataType →
-    // ProposalDataV1<false>), not a symbolic param name the instantiated lib fn can't size.
+    // Resolve through the caller's template bindings so the deduced type is concrete (ProposalDataType → ProposalDataV1<false>), not a symbolic
     if (ctx.thisBind) t = ctx.cg.derefType(ctx.cg.substInBindings(t, ctx.thisBind));
     for (let i = 0; i < 8 && t.kind === "name"; i++) {
       const td = ctx.cg.typedefs.get(t.name);
@@ -123,10 +111,6 @@ export function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args:
 }
 
 // Pick the overload whose parameter patterns best match the concrete argument types. A concrete name
-// in a pattern (ProposalWithAllVoteData<ProposalDataYesNo, maxVotes>) must EQUAL the argument's type
-// at that position — matching disqualifies the def otherwise — while a template-param name matches
-// anything. Mirrors C++ partial-ordering just far enough for qpi.h's overload sets: the YesNo
-// specialization wins for YesNo args and is rejected for V1 args.
 export function pickLibFnOverload(ctx: FnCtx, defs: FunctionTemplateDecl[], args: Expression[]): FunctionTemplateDecl {
   if (defs.length === 1) return defs[0];
 
@@ -186,8 +170,6 @@ export function pickLibFnOverload(ctx: FnCtx, defs: FunctionTemplateDecl[], args
 }
 
 // Instantiate a free function template for the concrete types at a call site, emitting its wasm function.
-// Param types are substituted through the deduced bindings (Array<T,L> → Array<sint64,4>) so the body's
-// container calls resolve, and bare value params (`L`) read from thisBind.values. Cached by instantiation.
 export function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args: Expression[]): HelperInfo | null {
   const cg = ctx.cg;
   const bind = deduceLibFnBindings(ctx, def, args);
@@ -233,9 +215,7 @@ export function helperCallOps(ctx: FnCtx, info: HelperInfo, args: Expression[]):
   }).join(" ");
 }
 
-// Call to an aggregate-returning helper (id liquidityPov(...)): allocate the destination slot, pass it as the
-// leading $ret arg, emit the call as a statement, and return the slot's address (so the result chains like any
-// aggregate lvalue).
+// Call to an aggregate-returning helper (id liquidityPov(...)): allocate the destination slot, pass it as the leading $ret arg,
 export function emitAggHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, info: HelperInfo): string {
   const s = allocSlot(ctx, info.retAgg!);
   const ops = helperCallOps(ctx, info, expr.args);
@@ -251,10 +231,7 @@ function scalarDeclInfo(ctx: FnCtx, t: TypeSpec): { width: number; unsigned: boo
   return { width: sz, unsigned: unsignedScalar(c) };
 }
 
-// Rank a member-helper overload set against the call's argument types, mirroring C++ overload
-// resolution over the scalar subset: per argument, exact width+signedness beats width-only,
-// which beats any other conversion; ties keep declaration order. Aggregate params and untypable
-// arguments score neutral, so single-signature corpus code resolves exactly as before.
+// Rank a member-helper overload set against the call's argument types, mirroring C++ overload resolution over the scalar subset:
 export function pickHelperOverload(ctx: FnCtx, set: HelperInfo[], args: Expression[]): HelperInfo {
   if (set.length === 1) return set[0];
 
@@ -287,8 +264,7 @@ export function pickHelperOverload(ctx: FnCtx, set: HelperInfo[], args: Expressi
 // Resolve a helper / lib-fn name to its (possibly just-compiled) info, or null.
 export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): HelperInfo | null {
   if (expr.callee.kind !== "identifier") return null;
-  // Match the intrinsics by base name — a qualified QPI::div would otherwise slip past this guard,
-  // get instantiated from its qpi.h template body, and lose the divide-by-zero-safe lowering.
+  // Match the intrinsics by base name — a qualified QPI::div would otherwise slip past this guard, get instantiated
   const name = expr.callee.name;
   const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
   if (MATH_INTRINSIC_NAMES.has(base)) return null;
@@ -297,15 +273,12 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
     ? pickHelperOverload(ctx, set, expr.args)
     : (ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name));
   if (!info) {
-    // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call,
-    // picking the overload whose parameter patterns match the argument types.
+    // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call, picking the overload whose parameter patterns match the
     const tdefs = ctx.cg.libFnTemplates.get(expr.callee.name) ?? ctx.cg.libFnTemplates.get(`QPI::${expr.callee.name}`);
     if (tdefs?.length) info = compileLibFnInstance(ctx, pickLibFnOverload(ctx, tdefs, expr.args), expr.args);
   }
   if (!info && name.includes("::")) {
-    // Qualified static member call (OI::Price::getQueryFee(q)) — resolve the struct (namespace members
-    // are flattened at parse; structByName strips qualifiers), wrap the static method as a template-less
-    // lib fn and instantiate it through the same helper cache.
+    // Qualified static member call (OI::Price::getQueryFee(q)) — resolve the struct (namespace members are flattened at parse; structByName strips qualifiers),
     const segs = name.split("::");
     const method = segs[segs.length - 1];
     const sd = ctx.cg.structByName(segs.slice(0, -1).join("::"), ctx.thisBind ?? NO_BIND);
@@ -313,8 +286,7 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
       (m): m is Declaration & { kind: "function" } => m.kind === "function" && m.name === method && m.isStatic && !!m.body,
     );
     if (sd && fn) {
-      // Param/return types spelled in the owner's scope (const OracleReply&) name its nested structs —
-      // substitute them inline so the instance compiles without the owner's lookup scope.
+      // Param/return types spelled in the owner's scope (const OracleReply&) name its nested structs — substitute them inline so
       const nestedOf = new Map(sd.members.filter((m): m is StructDecl => m.kind === "struct" && !!m.name).map((m) => [m.name, m]));
       const qual = (tp: TypeSpec): TypeSpec => {
         if (tp.kind === "const") return { ...tp, valueType: qual(tp.valueType) };
@@ -338,7 +310,6 @@ export function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, 
   if (!info) return null;
 
   // An aggregate-returning helper flows as an address — materialize into a slot. In value context return 0
-  // (the aggregate value is reached through emitAddr); as a statement just run it for its side effects.
   if (info.retAgg) {
     const addr = emitAggHelperCall(ctx, expr, info);
     return valueWanted ? "(i64.const 0)" : (void addr, "");

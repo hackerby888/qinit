@@ -1,5 +1,4 @@
-// Differential gtest for BitArray<L> (bit_4096) compiled from the real qpi.h inline bodies: set/get of
-// individual bits + setAll. Validated against native clang.
+// Differential gtest for BitArray<L> (bit_4096) compiled from the real qpi.h inline bodies: set/get of individual bits + setAll.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

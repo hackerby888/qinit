@@ -1,10 +1,4 @@
-// Exhaustive semantics lock for the safe-math and uint128 lowerings — the silent-divergence-sensitive
-// surface. Two layers:
-//   1. A BigInt reference model implementing math_lib.h / qpi.h semantics exactly (div-by-zero → 0,
-//      truncating division, SATURATING sadd/smul, mod-2^128 u128 arithmetic), swept over boundary
-//      vectors plus a deterministic xorshift set through the Sim — runs without a native toolchain.
-//   2. A native-clang differential gtest pinning the worst boundary cases (skips without wasi-sdk).
-// INT64_MIN / -1 is excluded everywhere: it traps in wasm and native alike (UB in C++).
+// u128/safe-math semantics lock-down for divergence-sensitive cases.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { Sim, runTestsAgainst, type TestResult } from "@qinit/engine";

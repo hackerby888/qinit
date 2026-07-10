@@ -1,7 +1,4 @@
-// Host-call parity for the qpi surface beyond the system-SC corpus: getOracleQuery/getOracleReply
-// (template reads sized by the interface's OracleQuery/OracleReply), signatureValidity,
-// initMiningSeed/computeMiningFunction, and setShareholderProposal/setShareholderVotes. Native
-// (wasi clang) and ours run the same Sim script; the contract state bytes must match exactly.
+// Host-call parity for the qpi surface beyond the system-SC corpus: getOracleQuery/getOracleReply (template reads sized by the interface's OracleQuery/OracleReply),
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
@@ -156,8 +153,7 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
       expect(firstDiff).toBe(-1);
     }
 
-    // Sanity on the resolved phase against known host behavior (guards against both sides being
-    // identically wrong): query found + echoed, reply found + echo/double, notification fired.
+    // Sanity on the resolved phase against known host behavior (guards against both sides being identically wrong): query found
     const dv = new DataView(nat.resolvedState.buffer, nat.resolvedState.byteOffset);
     expect(dv.getBigInt64(0, true)).toBe(1n);   // queryId
     expect(dv.getBigUint64(8, true)).toBe(1n);  // notified

@@ -1,10 +1,4 @@
-// @qinit/compile — QPI contract compiler (shared between browser IDE + qinit CLI)
-//
-// Public API:
-//   compileContract(opts) → CompileResult
-//   compileGtest(opts)    → CompileResult
-//
-// The full pipeline: preprocessor → lexer → parser → sema → codegen → framework → WAT → WASM.
+// @qinit/compile shared entrypoint for browser IDE + qinit CLI.
 
 import type { Span } from "./ast";
 import type { TranslationUnit } from "./ast";
@@ -45,20 +39,15 @@ export interface CompileOpts {
   slot: number;
   arenaSz?: number;
   callees?: CalleeIdl[];
-  // Callee contracts' SOURCE, so the compiler can register their nested struct layouts (`QX::Fees_output`)
-  // for a caller that reads a callee output type. Keyed like callees, by contract name.
+  // Callee contracts' SOURCE, so the compiler can register their nested struct layouts (`QX::Fees_output`) for a caller that reads
   calleeSources?: Array<{ name: string; source: string }>;
   testSource?: string;
   testPath?: string;
   qpiHeader?: string;
   sharedMemBase?: number; // shared-memory gtest mode: import env.memory and place the layout at this offset
-  // Fired at the start of each pipeline stage (preprocess/parse/analyze/codegen/assemble) so a caller can
-  // show live progress. When set, compileContract yields a macrotask after each so a UI can paint.
+  // Fired at the start of each pipeline stage (preprocess/parse/analyze/codegen/assemble) so a caller can show live progress. When set,
   onPhase?: (phase: string) => void | Promise<void>;
-  // Fidelity gate (default true): escalate "fidelity" diagnostics — constructs lowered to placeholders
-  // like (i64.const 0) instead of faithful code — to errors and abort with empty wasm. A module built
-  // from placeholders executes but silently diverges from native, so only pass false for exploratory
-  // builds where a best-effort module is acceptable.
+  // Fidelity gate (default true): escalate "fidelity" diagnostics — constructs lowered to placeholders like (i64.const 0) instead of faithful
   strict?: boolean;
 }
 
@@ -100,18 +89,13 @@ import { IMPL_BOUNDARY, assembleQpiHeader } from "./qpi-snapshot";
 const _qpiCache = new Map<string, QpiContext>();
 
 // Build (or fetch from cache) the qpi.h symbol table + macro table from the given headers.
-// Parsing qpi.h's full C++ is imperfect (its method bodies exceed our subset) but recovery still
-// captures every container/struct layout — which is all codegen needs.
 function getQpiContext(headers: string): QpiContext {
   // Header snapshots can have the same length and prefix while defining different layouts.
-  // The cache is process-local, so using the complete immutable string is both collision-free and
-  // avoids the async digest machinery that would otherwise leak into the synchronous parse path.
   const key = headers;
   const cached = _qpiCache.get(key);
   if (cached) return cached;
 
-  // Split off the impl chunks (template method bodies) — parsed separately so qpi.h's bulk doesn't
-  // derail capturing the out-of-class definitions.
+  // Split off the impl chunks (template method bodies) — parsed separately so qpi.h's bulk doesn't derail capturing the
   const [mainHeaders, ...implChunks] = headers.split(IMPL_BOUNDARY);
 
   const pp = new Preprocessor();
@@ -130,8 +114,7 @@ function getQpiContext(headers: string): QpiContext {
       if (!lib.templateMethods.has(cls)) lib.templateMethods.set(cls, new Map());
       for (const [m, def] of methods) if (!lib.templateMethods.get(cls)!.has(m)) lib.templateMethods.get(cls)!.set(m, def);
     }
-    // Free functions whose bodies live in the impl chunk (isArraySortedWithoutDuplicates) — merge so a
-    // contract call resolves them; first definition wins (the qpi.h declaration is bodyless and skipped).
+    // Free functions whose bodies live in the impl chunk (isArraySortedWithoutDuplicates) — merge so a contract call resolves them;
     for (const [k, v] of implLib.libFns) if (!lib.libFns.has(k)) lib.libFns.set(k, v);
     for (const [k, v] of implLib.libFnTemplates) {
       const cur = lib.libFnTemplates.get(k);
@@ -163,10 +146,7 @@ function remapUserDiagnostic(d: ParserDiagnostic, boundaryLine: number): ParserD
   };
 }
 
-// Parse-only entry: preprocess + lex + parse the user source (seeded with qpi.h's macros and the
-// function scaffolding) and return the raw AST plus the user's own diagnostics. Skips sema/codegen/wabt,
-// so it stays cheap for tooling that only needs the syntax tree. Declarations from the seeded library
-// are dropped by the same boundary filter compileContract uses for diagnostics.
+// Parse-only mode: preprocess+lex+parse only, no sema/codegen/wasm.
 export function parseToAst(opts: { source: string; qpiHeader?: string; name?: string; slot?: number }): ParseAstResult {
   const headers = opts.qpiHeader ?? QPI_STUB;
   const qpi = getQpiContext(headers);
@@ -200,8 +180,6 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   const headers = opts.qpiHeader ?? QPI_STUB;
 
   // Per-phase wall time (ms). Measured around each stage's real work, excluding the UI yield below, so the
-  // breakdown reflects the compiler's own cost. `phase(name)` closes the previous phase then opens this one;
-  // `closePhase()` records the last one.
   const timings: Record<string, number> = {};
   const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
   let lastName = "";
@@ -227,9 +205,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   await phase("loading qpi.h");
   const qpi = getQpiContext(headers);
 
-  // Phase 2 — preprocess + parse the USER source alone, seeded with qpi.h's macros and our
-  // simplified function-scaffolding overrides. A boundary marker lets us ignore any diagnostics
-  // that belong to the seeded library, keeping only the user's own errors.
+  // Phase 2 — preprocess + parse the USER source alone, seeded with qpi.h's macros and our simplified function-scaffolding
   await phase("preprocessing");
   const userSource = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${opts.source}`;
   const pp = new Preprocessor();
@@ -261,7 +237,6 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   }
 
   // Semantic validation (+ default-argument desugar). Diagnostics before the user boundary are
-  // seeded-library noise, same as the parser's.
   await phase("validating");
   const vdiags = validateAndDesugar(tu).filter((d) => d.span.line >= boundaryLine)
     .map((d) => remapUserDiagnostic(d, boundaryLine));
@@ -277,8 +252,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   await phase("analyzing");
   const sema = new Sema();
 
-  // Parse each callee's source and register its contract struct's nested structs under their qualified name
-  // (`QX::Fees_output`), so a caller reading the callee's output type resolves its fields.
+  // Parse each callee's source and register its contract struct's nested structs under their qualified name (`QX::Fees_output`), so a
   const calleeStructs = new Map<string, any>();
   const calleeTus: Array<{ name: string; decls: any[] }> = [];
   for (const cs of opts.calleeSources ?? []) {
@@ -317,7 +291,6 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   }
 
   // Surface codegen diagnostics (e.g. unsupported constructs lowered to stubs) as warnings so they
-  // are visible to callers; only errors abort the build.
   diagnostics.push(...sema.getDiagnostics().map((d) => d.span.line >= boundaryLine ? remapUserDiagnostic(d, boundaryLine) : d));
 
   // Opt-in WAT dump for codegen debugging.
@@ -326,8 +299,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     fs.writeFileSync((globalThis as any).process.env.QINIT_DUMP_WAT, wat);
   }
 
-  // Fidelity gate (strict, default on): any construct lowered to a placeholder makes the module a
-  // silent divergence from native execution — never ship it. Escalate to errors and abort.
+  // Fidelity gate (strict, default on): any construct lowered to a placeholder makes the module a silent divergence from
   if (opts.strict !== false) {
     for (const d of diagnostics) {
       if (d.category === "fidelity") d.severity = "error";

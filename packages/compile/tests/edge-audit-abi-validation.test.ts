@@ -1,5 +1,4 @@
 // QPI registration rules enforced by the native macros must also be enforced by the local compiler.
-// These invalid contracts currently compile or disappear silently from the registration table.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 

@@ -1,5 +1,4 @@
-// Named constexpr expressions retain their declared C++ width/signedness; user contract members
-// also shadow same-named constants imported from qpi.h.
+// Named constexpr expressions retain their declared C++ width/signedness; user contract members also shadow same-named constants imported from qpi.h.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

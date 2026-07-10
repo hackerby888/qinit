@@ -112,8 +112,7 @@ export interface Lvalue {
   type?: TypeSpec | null;       // pointee type when known — drives signed sub-64-bit load extension
 }
 
-// A resolved memory location: its address, the pointee type (null at a struct root), the byte size,
-// and the field layout for further member access (null for scalars/containers).
+// A resolved memory location: its address, the pointee type (null at a struct root), the byte size, and
 export interface AddrNode {
   addr: string;
   type: TypeSpec | null;

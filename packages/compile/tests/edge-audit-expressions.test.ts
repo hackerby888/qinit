@@ -1,5 +1,4 @@
 // Valid expression forms that currently fail strict compilation. These tests pin both
-// compilation and runtime semantics so a future fix cannot merely suppress the diagnostic.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

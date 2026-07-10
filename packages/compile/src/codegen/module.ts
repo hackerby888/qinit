@@ -68,12 +68,10 @@ export function generateWasmModule(
 ): string {
   const cg = new Codegen(sema);
   for (const c of callees ?? []) cg.callees.set(c.name, c);
-  // Callee struct layouts, keyed by their qualified name (`QX::Fees_output`), so a caller reading a callee's
-  // output type — `locals.qxFeesOutput.transferFee` — resolves its fields instead of folding to 0.
+  // Callee struct layouts, keyed by their qualified name (`QX::Fees_output`), so a caller reading a callee's output type —
   if (calleeStructs) for (const [k, v] of calleeStructs) cg.globalStructs.set(k, v);
 
-  // Seed the qpi.h library type table (templates / structs / typedefs) parsed once, then add
-  // the user contract's own declarations on top.
+  // Seed the qpi.h library type table (templates / structs / typedefs) parsed once, then add the user contract's
   if (lib) {
     for (const [k, v] of lib.templates) cg.templates.set(k, v);
     if (lib.specializations) for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
@@ -123,8 +121,7 @@ export function generateWasmModule(
   const entries: UserEntry[] = [];
   const userFns: string[] = [];
 
-  // A duplicate input type within a kind makes dispatch ambiguous (first registration would
-  // silently win) — reject.
+  // A duplicate input type within a kind makes dispatch ambiguous (first registration would silently win) — reject.
   const seenReg = new Map<string, string>();
   for (const r of regs) {
     const key = `${r.kind}:${r.inputType}`;
@@ -136,8 +133,6 @@ export function generateWasmModule(
   }
 
   // Collect helper + private functions BEFORE emitting entries, so entry bodies can call them.
-  // A member function is: an entry (registered), a system procedure, the register hook, a PRIVATE_
-  // function (first param `qpi`, called via CALL), or a plain value helper (e.g. toReturnCode).
   const entryNames = new Set(regs.map((r) => r.fnName));
   const helperFns: { fn: FunctionDecl; info: HelperInfo }[] = [];
   const privateFns: FunctionDecl[] = [];
@@ -153,20 +148,13 @@ export function generateWasmModule(
       cg.privates.set(fn.name, { label: `$priv_${fn.name}`, localsSize: localsStruct ? cg.layoutOf(localsStruct).size : 0 });
       privateFns.push(fn);
     } else {
-      // Overloaded helpers each get their own wasm function; the call site ranks the overload set by
-      // argument signature (pickHelperOverload). cg.helpers keeps the first declaration under the bare
-      // name for single-overload lookups.
+      // Overloaded helpers each get their own wasm function; the call site ranks the overload set by argument signature
       const params = fn.params.map((p) => {
-        // A NON-const scalar reference (an out-param like `uint64& revenue`) must be passed by address so the
-        // write reaches the caller — without this it was an i64 value param and `r = x` was lost (RL
-        // getSCRevenue -> getBalance always 0). A const scalar reference (`const uint64&`) is read-only and can
-        // bind to an rvalue at the call site, so it stays a value param (the $h_ call side passes it by value;
-        // making it addr would need null-pointer/rvalue handling it doesn't have). Aggregates are addr either way.
+        // A NON-const scalar reference (an out-param like `uint64& revenue`) must be passed by address so the write reaches
         const isConstRef = p.type.kind === "reference" && p.type.refereed?.kind === "const";
         const isPtrRef = (p.type.kind === "reference" && !isConstRef) || p.type.kind === "pointer";
         const isAddr = isPtrRef || cg.isAggregateType(p.type);
-        // A BY-VALUE aggregate param rides the by-address ABI but owns a private copy: the callee may mutate
-        // it (MakePosKey's `id r` writes r.u64._3) and that write must NOT reach the caller's bytes.
+        // A BY-VALUE aggregate param rides the by-address ABI but owns a private copy: the callee may mutate it
         const byValAgg = isAddr && p.type.kind !== "reference" && p.type.kind !== "pointer";
         return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type), byValAgg };
       });
@@ -187,9 +175,6 @@ export function generateWasmModule(
   }
 
   // Resolve a named I/O / locals struct to its layout, following typedefs and nested structs: a contract may
-  // alias its entry types (`typedef Success_output Vote_output;`), so a direct nested-struct lookup misses and
-  // output.* fields would resolve to nothing. layoutOfType chases the typedef to the real struct; a typedef to
-  // an id/scalar (no field layout) falls back to a size-only layout so the body still passes it by address.
   const emptyL = () => ({ size: 0, align: 1, fields: new Map() });
   const resolveIO = (name: string) => {
     const s = cg["nested"].get(name);
@@ -229,9 +214,7 @@ export function generateWasmModule(
     if (localsSize > 32768) cg.error(`${localsName} exceeds MAX_SIZE_OF_CONTRACT_LOCALS (32768 bytes)`, reg.line);
   }
 
-  // Pre-pass: register every REGISTER_USER_* name -> {label, localsSize} before any body is emitted, so a
-  // CALL() to a registered function/procedure resolves regardless of declaration order (a procedure may
-  // CALL a function registered after it). The label `$user_${i}` is fixed by registration index.
+  // Pre-pass: register every REGISTER_USER_* name -> {label, localsSize} before any body is emitted, so a CALL() to a
   for (let i = 0; i < regs.length; i++) {
     cg.registered.set(regs[i].fnName, { label: `$user_${i}`, localsSize: resolveIO(`${regs[i].fnName}_locals`).size });
   }
@@ -268,10 +251,6 @@ export function generateWasmModule(
   };
 
   // system procedures. Lifecycle procedures take no input/output but CAN declare locals (the
-  // *_WITH_LOCALS forms, e.g. END_EPOCH where contracts run reward distribution) — give them their
-  // <name>_locals frame so locals.* resolves, the same as user functions. Share-transfer / incoming-
-  // transfer hooks additionally carry a qpi.h input struct (and the pre-* pair an output struct) so the
-  // body's input.* / output.* field accesses resolve.
   const sysprocs: SysProcInfo[] = [];
   let sysIdx = 0;
   for (const m of contract.members) {
@@ -284,8 +263,7 @@ export function generateWasmModule(
         const io = SYSPROC_IO[fn.name];
         const inLayout = layoutOfNamed(io?.in);
         const outLayout = layoutOfNamed(io?.out);
-        // typedIO hooks: bind input/output to their typedef targets so container methods (Array.get)
-        // and bare scalar output assignment resolve through the alias instead of the raw io region.
+        // typedIO hooks: bind input/output to their typedef targets so container methods (Array.get) and bare scalar output assignment resolve
         let aliases: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }> | undefined;
         if (io?.typedIO) {
           aliases = new Map();
@@ -303,10 +281,7 @@ export function generateWasmModule(
     }
   }
 
-  // MIGRATE() — __impl_migrate(qpi, state, const OldStateData& oldState, MIGRATE_locals& locals) rides
-  // the entry ABI with the old-state blob in the $in slot (lite_wasm_tu.h kind-3 dispatch). The oldState
-  // parameter is aliased onto $in with its nested-struct type so field reads resolve; the metadata sizes
-  // drive the engine's redeploy decision (has_migrate / migrate_old_state_size / migrate_locals_size).
+  // MIGRATE() — __impl_migrate(qpi, state, const OldStateData& oldState, MIGRATE_locals& locals) rides the entry ABI with the old-state blob in
   let migrate: ModuleSpec["migrate"];
   const migrateFn = findMemberFn(contract, "__impl_migrate");
   if (migrateFn?.body) {
@@ -329,8 +304,7 @@ export function generateWasmModule(
     userFns.push(emitHelperFunction(cg, info, fn, stateLayout));
   }
 
-  // Instantiated container methods compiled from the real qpi.h bodies (accumulated while lowering the
-  // function bodies above). Appended last; each is emitted once and shared.
+  // Instantiated container methods compiled from the real qpi.h bodies (accumulated while lowering the function bodies above). Appended last;
   userFns.push(...cg.emittedMethodOrder);
 
   const spec: ModuleSpec = {
@@ -369,8 +343,7 @@ export function generateWasmModule(
 // ---- AST helpers ----
 
 export function findContractStruct(tu: { declarations: Declaration[] }): StructDecl | null {
-  // The user contract may end up nested inside a namespace if qpi.h's bracket structure recovered
-  // imperfectly, so search recursively. Prefer a struct that inherits ContractBase.
+  // The user contract may end up nested inside a namespace if qpi.h's bracket structure recovered imperfectly, so search
   const all: StructDecl[] = [];
   const walk = (decls: Declaration[]) => {
     for (const d of decls) {
@@ -477,10 +450,7 @@ export function extractRegistrations(contract: StructDecl, cg: Codegen): RegEntr
     const evaluated = evalRegistrationConstant(itArg, cg);
     let inputType = evaluated === null ? 0 : Number(evaluated);
 
-    // Notification procedure (oracle reply callback): its id arg is the synthetic __id_<proc>
-    // ((CONTRACT_INDEX << 22) | defLine, qpi.h REGISTER_USER_PROCEDURE_NOTIFICATION). Dispatch matches
-    // on the low 16 bits (lite_wasm_tu.h __registerUserProcedureNotification), which is just the
-    // definition line — the shifted slot contributes nothing below bit 22.
+    // Notification procedure (oracle reply callback): its id arg is the synthetic __id_<proc> ((CONTRACT_INDEX << 22) | defLine, qpi.h
     if (isNotif && fnName) {
       const def = contract.members.find((m) => m.kind === "function" && (m as FunctionDecl).name === fnName) as FunctionDecl | undefined;
       inputType = (def?.span?.line ?? 0) & 0xffff;

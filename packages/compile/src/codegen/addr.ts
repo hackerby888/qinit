@@ -20,8 +20,7 @@ export function isStateAccessor(expr: Expression): boolean {
     (expr.callee.member === "mut" || expr.callee.member === "get");
 }
 
-// id/m256i expose their 32 bytes as fixed-width limb views (`.u64`/`.u32`/`.u16`/`.u8`) with named limbs
-// `_0.._N` at element-sized strides. Each view is a synthetic struct layout.
+// id/m256i expose their 32 bytes as fixed-width limb views (`.u64`/`.u32`/`.u16`/`.u8`) with named limbs `_0.._N` at element-sized strides. Each
 export function limbLayout(elemSize: number, count: number): StructLayout {
   const t: TypeSpec = { kind: "name", name: elemSize === 8 ? "uint64" : elemSize === 4 ? "uint32" : elemSize === 2 ? "uint16" : "uint8" };
   const fields = new Map<string, FieldLayout>();
@@ -43,8 +42,6 @@ export function isUint128(cg: Codegen, t: TypeSpec | null): boolean {
 }
 
 // Resolve the address of an lvalue expression (member-access chains rooted at input/output/locals/state).
-// Normalize a cast expression to its target type + operand. C++ casts parse either as a dedicated node
-// (c_cast / static_cast / reinterpret_cast) or as a `template_call` to the cast name (static_cast<T>(e)).
 export function castInfo(e: Expression): { type: TypeSpec; operand: Expression } | null {
   if (e.kind === "static_cast" || e.kind === "c_cast" || e.kind === "reinterpret_cast") return { type: e.type, operand: e.expr };
   if (e.kind === "template_call" && e.callee.kind === "identifier" && /^(static|reinterpret|const)_cast$/.test(e.callee.name) && e.templateArgs?.[0] && e.args?.[0]) {
@@ -62,7 +59,6 @@ export function stripPtrRefConst(t: TypeSpec): TypeSpec {
 
 export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   // __ScopedScratchpad.ptr → the held scratch buffer base (the local's value). `reinterpret_cast<T*>(sp.ptr)`
-  // then retypes this address; `sp.ptr` used as a value reads the same local.
   if (expr.kind === "member_access" && expr.member === "ptr" &&
     expr.object.kind === "identifier" && ctx.scratchpadLocals?.has(expr.object.name)) {
     return { addr: `(local.get $${expr.object.name})`, type: { kind: "pointer", pointee: { kind: "name", name: "uint8" } }, size: 4, layout: null };
@@ -75,9 +71,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
       const t = ctx.refLocals.get(expr.name)!;
       return { addr: `(local.get $${expr.name})`, type: t, size: ctx.cg.sizeOfType(t, ctx.thisBind ?? NO_BIND), layout: ctx.cg.layoutOfType(t, ctx.thisBind ?? NO_BIND) };
     }
-    // an aggregate value-helper / container-method parameter holds the address of its argument; its
-    // type may reference template params (KeyT, ValueT), so resolve sizes through the binding. Params
-    // shadow the entry-fn input/output/locals names (a helper may name its own params `input`/`output`).
+    // an aggregate value-helper / container-method parameter holds the address of its argument; its type may reference template params
     const p = ctx.params?.get(expr.name);
     if (p && p.isAddr) {
       const b = ctx.thisBind ?? NO_BIND;
@@ -87,8 +81,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     if (expr.name === "input") return { addr: "(local.get $__qinit_in)", type: null, size: ctx.in.size, layout: ctx.in };
     if (expr.name === "output") return { addr: "(local.get $__qinit_out)", type: null, size: ctx.out.size, layout: ctx.out };
     if (expr.name === "locals") return { addr: "(local.get $__qinit_locals)", type: null, size: ctx.locals.size, layout: ctx.locals };
-    // bare `state` (a static helper taking ContractState& — QTF's enableBuyTicket(state, flag)): the
-    // resident state region. Only meaningful where the function carries a $state param (entry/private fns).
+    // bare `state` (a static helper taking ContractState& — QTF's enableBuyTicket(state, flag)): the resident state region. Only meaningful where
     if (expr.name === "state" && ctx.hasStateParam && !ctx.localVars.has("state")) {
       return { addr: "(local.get $__qinit_state)", type: null, size: ctx.state.size, layout: ctx.state };
     }
@@ -114,8 +107,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     return { addr: `(i32.add ${baseAddr} ${idx})`, type: elemType, size: elemSize, layout: ctx.cg.layoutOfType(elemType, ctx.thisBind) };
   }
 
-  // ptr + n / ptr - n: pointer arithmetic — the address n elements away, staying pointer-typed
-  // (feeds reinterpret_cast<T*>(p + k) in the qpi.h container maintenance bodies).
+  // ptr + n / ptr - n: pointer arithmetic — the address n elements away, staying pointer-typed (feeds
   if (expr.kind === "binary_op" && (expr.op === "+" || expr.op === "-")) {
     const base = resolveAddr(ctx, expr.left);
     const bt = base?.type;
@@ -133,10 +125,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   if (expr.kind === "this" && ctx.thisLayout) {
     return { addr: ctx.thisAddr ?? "(local.get $this)", type: ctx.thisType ?? null, size: ctx.thisLayout.size, layout: ctx.thisLayout };
   }
-  // A pointer/reference cast reinterprets the same address as the target type (the base subobject of a
-  // single-inheritance derived object is at offset 0): `static_cast<const ProposalDataType*>(&derived)`,
-  // `(ProposalDataType*)this`, `reinterpret_cast<T&>(x)`. Casts parse either as a dedicated node or as a
-  // `template_call` to static_cast/reinterpret_cast/const_cast; castInfo normalizes both.
+  // A pointer/reference cast reinterprets the same address as the target type (the base subobject of a single-inheritance derived
   {
     const ci = castInfo(expr);
     if (ci) {
@@ -148,8 +137,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     }
   }
 
-  // &lvalue (address-of) and *this (deref) are identity at the addressing level — the node already
-  // carries the operand's address.
+  // &lvalue (address-of) and *this (deref) are identity at the addressing level — the node already carries the operand's
   if (expr.kind === "unary_op" && expr.op === "&") return resolveAddr(ctx, expr.arg);
   if (expr.kind === "unary_op" && expr.op === "*") {
     if (expr.arg.kind === "this") return resolveAddr(ctx, expr.arg);
@@ -175,9 +163,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   }
 
   if (isStateAccessor(expr)) {
-    // Inside a compiled struct/template method `state` is a ContractState& PARAM (NextEpochData::apply); the
-    // wasm local of the same name is the passed address, and the layout comes from the contract's StateData
-    // (the ctx there carries an empty state layout).
+    // Inside a compiled struct/template method `state` is a ContractState& PARAM (NextEpochData::apply); the wasm local of the same name
     const layout = ctx.state.size > 0 ? ctx.state : ctx.cg.contractStateLayout;
     const stateParam = ctx.params?.get("state");
     const addr = stateParam?.isAddr ? `(local.get $${stateParam.local ?? "state"})` : "(local.get $__qinit_state)";
@@ -188,8 +174,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   if (expr.kind === "call") {
     const ce = resolveContainerElem(ctx, expr);
     if (ce) return ce;
-    // obj.method(args) where method is an inline member of obj's struct returning a reference (the fluent
-    // `Element& init(...) { ...; return *this; }` pattern) — emit it inline, resolve to the object address.
+    // obj.method(args) where method is an inline member of obj's struct returning a reference (the fluent `Element& init(...) {
     return tryInlineStructMethod(ctx, expr);
   }
 
@@ -208,8 +193,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
         };
       }
     }
-    // Member of an id-producing qpi call (`qpi.K12(x).u64._0`): resolveAddr has no lvalue for the call, but
-    // emitAddr materializes an id out-producer into a 32-byte slot — chain the limb views off that.
+    // Member of an id-producing qpi call (`qpi.K12(x).u64._0`): resolveAddr has no lvalue for the call, but emitAddr materializes an
     if (!parent && expr.object.kind === "call" && expr.object.callee.kind === "member_access"
       && expr.object.callee.object.kind === "identifier" && expr.object.callee.object.name === "qpi"
       && (QPI_CALLS[expr.object.callee.member]?.ret === "out" || QPI_ID_PRODUCERS[expr.object.callee.member])) {
@@ -229,9 +213,6 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     const f = parent.layout.fields.get(expr.member);
     if (!f) return null;
     // A member type written in terms of the parent instance's own params / nested typedefs (e.g.
-    // ProposalVoting's `proposals` element ProposalAndVotesDataType) is resolved to a concrete type so the
-    // member can itself be dispatched as a container / instance. The parent may be spelled through a
-    // typedef (NotifyX_input = OracleNotificationInput<OI::Price>) — follow it to the instance first.
     let ptype: TypeSpec | null = parent.type;
     for (let i = 0; i < 8 && ptype?.kind === "name"; i++) ptype = ctx.cg.typedefs.get(ptype.name) ?? null;
     let ftype = ptype?.kind === "template_instance" ? ctx.cg.concreteMemberType(f.type, ptype) : f.type;
@@ -247,10 +228,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   return null;
 }
 
-// Resolve a field type spelled in its declaring struct's own scope — Array<Order,256> where Order is a
-// sibling nested struct of the callee-typed parent (QX::AssetAskOrders_output). The parent's layout was
-// computed WITH that scope, so sizes already match; this carries the element declaration inline so a
-// downstream element getter (orders.get(i).price) can lay it out without the scope.
+// Resolve a field type spelled in its declaring struct's own scope — Array<Order,256> where Order is a sibling
 export function resolveInParentStruct(ctx: FnCtx, t: TypeSpec, parent: AddrNode): TypeSpec {
   const decl = parent.type?.kind === "inline_struct"
     ? parent.type.struct
@@ -290,8 +268,6 @@ export function tryLvalueAddr(ctx: FnCtx, expr: Expression): Lvalue | null {
 }
 
 // Address of an lvalue or a materializable aggregate. Returns null if not addressable.
-// SELF expands (in the preprocessor) to id(CONTRACT_INDEX,0,0,0), so id/m256i constructors and
-// id::zero() are materialized here into a 32-byte scratch slot.
 export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   if (expr.kind === "identifier" && expr.name === "SELF") return "(call $self_id)";
   // an aggregate value-helper parameter is passed by address
@@ -308,8 +284,6 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   }
 
   // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot
-  // aggregate ternary (`cond ? roomA : roomB`) selects between the two branch addresses; both branches
-  // materialize eagerly (same policy as the value-context ternary), fine for the lvalue selects it serves.
   if (expr.kind === "ternary") {
     const ta = resolveAddr(ctx, expr.then)?.addr ?? emitAddr(ctx, expr.then);
     const ea = ta ? (resolveAddr(ctx, expr.else_)?.addr ?? emitAddr(ctx, expr.else_)) : null;
@@ -320,8 +294,7 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     }
   }
 
-  // min/max over id/m256i operands select an address by the 256-bit lexicographic compare (mirroring the
-  // contract-defined `const T&`-returning template helpers); scalar min/max stays in emitMathCall.
+  // min/max over id/m256i operands select an address by the 256-bit lexicographic compare (mirroring the contract-defined `const T&`-returning template
   if (expr.kind === "call" && expr.args.length === 2 &&
     (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")) {
     const cname = expr.callee.kind === "identifier" ? expr.callee.name : expr.callee.name;
@@ -356,7 +329,6 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   }
 
   // _mm256_set_epi64x(e3, e2, e1, e0): build a 32-byte m256i. The intrinsic takes the qwords high→low (e0 is
-  // the lowest), so store reversed — byte offset i*8 holds args[3-i]. (qpi.h's ID(...) returns one of these.)
   if (expr.kind === "call" && expr.callee.kind === "identifier" && expr.callee.name === "_mm256_set_epi64x" && expr.args.length === 4) {
     const s = allocSlotIr(ctx, 32);
     for (let i = 0; i < 4; i++) {
@@ -370,9 +342,7 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     return materializeId(ctx, []);
   }
 
-  // AssetOwnershipSelect / AssetPossessionSelect constructors → materialize the 40-byte selector the engine
-  // reads (id @0, managingContract u16 @32, anyId u8 @34, anyManagingContract u8 @35). byOwner/byPossessor
-  // set the id + anyMgmt; any() sets both any flags; byManagingContract sets the index + anyId.
+  // AssetOwnershipSelect / AssetPossessionSelect constructors → materialize the 40-byte selector the engine reads (id @0, managingContract u16 @32, anyId
   if (expr.kind === "call" && expr.callee.kind === "identifier" && /^(AssetOwnershipSelect|AssetPossessionSelect)::/.test(expr.callee.name)) {
     const method = expr.callee.name.split("::")[1];
     const s = allocSlotIr(ctx, 40);
@@ -393,9 +363,6 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   }
 
   // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot.
-  // Runs AFTER the dedicated factory lowerings above — a generic instantiation of e.g.
-  // AssetOwnershipSelect::byOwner (reachable since lookupHelper resolves qualified statics) must not
-  // shadow the hand-tuned selector shape the engine reads.
   if (expr.kind === "call" && expr.callee.kind === "identifier") {
     const hinfo = lookupHelper(ctx, expr);
     if (hinfo?.retAgg) return emitAggHelperCall(ctx, expr, hinfo);
@@ -407,16 +374,13 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     if (ai !== null) return ai;
   }
 
-  // qpi(X).method(...) returning an id/struct (proposerId): compile the real proxy method and
-  // materialize the result into its $ret slot — the slot address is the lvalue.
+  // qpi(X).method(...) returning an id/struct (proposerId): compile the real proxy method and materialize the result into its $ret slot
   if (expr.kind === "call" && qpiWrapperMethod(expr)) {
     const pa = emitProposalProxyAddr(ctx, expr);
     if (pa !== null) return pa;
   }
 
-  // qpi.X(...) that returns an id/aggregate by value (computor(i), arbitrator(), nextId(x), prevId(x)):
-  // allocate a 32-byte slot, let emitQpiCall emit the host fill (with its args) into it, return the slot.
-  // Without this an id-valued qpi getter used as an operand (qpi.computor(i) == voterId) never materializes.
+  // qpi.X(...) that returns an id/aggregate by value (computor(i), arbitrator(), nextId(x), prevId(x)): allocate a 32-byte slot, let emitQpiCall emit
   if (expr.kind === "call" && expr.callee.kind === "member_access" &&
     expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
     const desc = QPI_CALLS[expr.callee.member];
@@ -439,9 +403,7 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
   return n ? n.addr : null;
 }
 
-// A call `obj.method(args)` where method is an inline member of obj's struct that returns a reference
-// (the fluent `Element& init(...) { this->x = ...; return *this; }` pattern). Emit the method body inline
-// with `this` bound to the object's address, then resolve to that address (the returned *this).
+// A call `obj.method(args)` where method is an inline member of obj's struct that returns a reference (the fluent
 export function tryInlineStructMethod(ctx: FnCtx, expr: Expression & { kind: "call" }): AddrNode | null {
   if (expr.callee.kind !== "member_access") return null;
   const method = expr.callee.member;
@@ -458,8 +420,6 @@ export function tryInlineStructMethod(ctx: FnCtx, expr: Expression & { kind: "ca
 }
 
 // Emit a struct member method inline into the current function: stash the object address in a temp (used
-// as `this` and returned), materialize each argument into its own slot, then lower the body with `this`
-// rebound and `return` suppressed. The this-context is swapped on the shared ctx and restored after.
 export function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: FunctionDecl, args: Expression[]): string {
   const self = newTmp(ctx);
   ctx.lines.push(`    ${setLocal(ctx, self, addrIr(objNode.addr))}`);
@@ -491,9 +451,7 @@ export function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: Functi
   ctx.params = params;
   ctx.inlineMethod = true;
   ctx.retIsValue = false;
-  // Hoist the inlined body's own local declarations into the host function's local set — the top-level
-  // collectLocals never saw them (the method body is a separate AST pulled in at call time), so without
-  // this their `local.set` would reference an undeclared `$name`.
+  // Hoist the inlined body's own local declarations into the host function's local set — the top-level collectLocals never
   if (fn.body) collectLocals(fn.body, ctx);
   if (fn.body) emitStmt(ctx, fn.body);
   Object.assign(ctx, save);
@@ -501,18 +459,12 @@ export function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: Functi
   return `(local.get $${self})`;
 }
 
-// Resolve a container element getter to an addressable node: Array.get(i) → T, HashMap value(i) → V /
-// key(i) → K, HashSet key(i) → K. The element address is an lvalue into the backing store, and the
-// element TYPE lets resolveAddr keep chaining (e.g. arr.get(i).field). Element type + offsets are
-// derived from the template args, never hardcoded.
+// Resolve a container element getter to an addressable node: Array.get(i) → T, HashMap value(i) → V / key(i)
 export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "call" }): AddrNode | null {
   if (expr.callee.kind !== "member_access") return null;
   const node = resolveAddr(ctx, expr.callee.object);
   if (!node || !node.type || !expr.args[0]) return null;
   // Follow typedefs / template-param bindings to the concrete container instance (e.g. RevenueDonationT →
-  // Array<RevenueDonationEntry, 128>), mirroring emitContainerCall. Without this an element getter on a
-  // typedef'd container stays unresolved, so `entry = table.get(i)` can't address the element and the
-  // aggregate copy is silently dropped.
   let ct: TypeSpec | null = node.type;
   for (let i = 0; i < 8 && ct?.kind === "name"; i++) ct = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name) ?? null;
   if (!ct || ct.kind !== "template_instance") return null;
@@ -531,9 +483,6 @@ export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "cal
   }
   if (ctype.name === "HashMap" || ctype.name === "HashSet") {
     // Only the element getters are lvalues here. The member check must come BEFORE evaluating the
-    // argument: this resolver runs on speculative probes (isU128Expr → resolveAddr), and eagerly
-    // emitting a non-getter's argument (contains(qpi.invocator())) produced spurious fidelity
-    // warnings for code the real path lowers correctly.
     if (m !== "key" && !(m === "value" && ctype.name === "HashMap")) return null;
     const info = ctype.name === "HashSet" ? ctx.cg.hashsetInfo(ctype.args) : ctx.cg.hashmapInfo(ctype.args);
     if (!info) return null;
@@ -541,8 +490,7 @@ export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "cal
     if (m === "key") return mk(elem, ctype.args[0]);
     if (m === "value" && ctype.name === "HashMap") return mk(`(i32.add ${elem} ${C(info.valOff!)})`, ctype.args[1]);
   }
-  // Collection.element(i) → &_elements[i & (L-1)].value: an lvalue of element type T, so element(i).field
-  // chains. (A scalar T also flows as a value through emitContainerCall's compiled getter.)
+  // Collection.element(i) → &_elements[i & (L-1)].value: an lvalue of element type T, so element(i).field chains. (A scalar T also
   if (ctype.name === "Collection" && m === "element") {
     const info = ctx.cg.collectionInfo(ctype.args);
     if (!info) return null;
@@ -571,8 +519,6 @@ export const QPI_ID_PRODUCERS: Record<string, string> = {
 };
 
 // Aggregate construction `Type{ a, b, c }` written into dstAddr: zero the target, then store each arg into
-// the corresponding field (declaration order). Scalars store by value, aggregate fields copy by address.
-// Returns false if the type has no resolvable layout.
 export function emitConstruct(ctx: FnCtx, dstAddr: string, type: TypeSpec, args: Expression[]): boolean {
   const layout = ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND);
   if (!layout) return false;
@@ -615,8 +561,7 @@ export function isAggregate(ctx: FnCtx, type: TypeSpec | null, size: number): bo
   return size > 8;
 }
 
-// Typed local.set line: the value's width is checked against the local's declared wasm type, so an
-// i64 flowing into an i32 address temp (or vice versa) throws at the emission site.
+// Typed local.set line: the value's width is checked against the local's declared wasm type, so an i64 flowing
 export function setLocal(ctx: FnCtx, name: string, v: ir.Ir): string {
   const lv = ctx.localVars.get(name) ?? ctx.params?.get(name);
   if (lv) {
@@ -650,14 +595,11 @@ export function addrOf(ptr: string, offset: number): string {
 }
 
 // Load a scalar into the i64 value model. Signed sub-64-bit fields MUST sign-extend — else a sint32 holding
-// -1 reads back as 4294967295, and `>= 0` guards (e.g. the proposal-index iteration `while ((i = next()) >=
-// 0)`) never go false → infinite loop. Default unsigned (the common case + back-compat).
 export function loadAt(addr: string, size: number, signed = false): string {
   return ir.emit(loadAtIr(addr, size, signed));
 }
 
-// Same load, as a typed node — for value-channel callers holding a string address (resolveAddr/Lvalue
-// stay string-typed until the statement channel converts).
+// Same load, as a typed node — for value-channel callers holding a string address (resolveAddr/Lvalue stay string-typed until
 export function loadAtIr(addr: string, size: number, signed = false): ir.Ir {
   return ir.loadScalar(addrIr(addr), size, signed);
 }
@@ -683,11 +625,7 @@ export function storeAt(addr: string, size: number, value: string): string {
   return ir.emit(ir.storeScalar(ir.raw(addr, "i32"), size, ir.raw(value, "i64")));
 }
 
-// Narrow a 64-bit register value to a sub-64-bit scalar type, matching a C++ conversion: unsigned types mask
-// to width, signed types sign-extend from width, bit/bool collapse to 0/1. 64-bit and non-scalar targets are
-// identity. A store to a typed field already truncates on write (storeAt); this covers in-register uses of a
-// cast result — a compare or arithmetic on `static_cast<uint8>(x)` before any store — that must observe the
-// narrowed value, e.g. `static_cast<uint8>(300) == 44` is true natively.
+// Narrow a 64-bit register value to a sub-64-bit scalar type, matching a C++ conversion: unsigned types mask to
 export function narrowCastIr(inner: ir.Ir, typeName: string | undefined): ir.Ir {
   if (!typeName) return inner;
   const sz = SCALAR_SIZE[typeName];

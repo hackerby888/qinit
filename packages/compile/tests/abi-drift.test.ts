@@ -1,13 +1,9 @@
 import { test, expect } from "bun:test";
 import { CTX } from "../src/framework";
-// Reach the engine's ABI struct directly (it isn't on the package's public index): QpiContext.OFFSETS is
-// derived from the C-struct layout via defineStruct and pinned to the real bytes by the engine's abi.test.ts.
-// That makes it the single source of truth for the per-call context header the framework forwarders read.
+// Reach the engine's ABI struct directly (it isn't on the package's public index): QpiContext.OFFSETS is derived from the
 import { QpiContext } from "../../engine/src/abi";
 
-// The framework hardcodes these byte-offsets into the $qpi_invocator / $qpi_originator / $qpi_invocationReward
-// WAT forwarders. If core-lite reorders the context header, the engine's defineStruct picks it up but this WAT
-// would not — silently reading the wrong identity. Pin them so that drift fails the build instead.
+// The framework hardcodes these byte-offsets into the $qpi_invocator / $qpi_originator / $qpi_invocationReward WAT forwarders. If core-lite reorders the
 test("framework CTX offsets match the engine's QpiContext layout", () => {
   const O = (QpiContext as unknown as { OFFSETS: Record<string, number> }).OFFSETS;
   // CTX's as-const literal types would pin toBe's generic to the literal — compare as plain numbers.

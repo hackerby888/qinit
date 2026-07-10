@@ -1,9 +1,4 @@
-// Collection maintenance parity: remove() marks emptied povs (flag 0b10 + _markRemovalCounter),
-// needsCleanup() reflects that counter, and cleanup() rebuilds the pov hash table without the marked
-// slots — moving displaced povs to their rebuilt probe position and rewriting element.povIndex over
-// each moved pov's BST. All of it is contract state feeding the digest, so the bytes must match the
-// native rehash exactly. The tiny collection covers the population==0 soft-reset path (pov table and
-// flags zeroed, the elements array intentionally left untouched).
+// Collection maintenance parity checks: - remove() marks emptied PoVs and updates `_markRemovalCounter`.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
@@ -122,8 +117,7 @@ describe("differential — Collection needsCleanup/cleanup state parity", () => 
     }
     expect(firstDiff).toBe(-1);
 
-    // Anchor against known semantics so both sides being identically wrong can't pass: mrc=1 of 16
-    // slots means needsCleanup() is false at the default 50% but true at 5%.
+    // Anchor against known semantics so both sides being identically wrong can't pass: mrc=1 of 16 slots means needsCleanup()
     const tinyOff = 1816; // Collection<uint64,16>: povs 1024 + flags 8 + elements 768 + pop/mrc 16
     const dv = new DataView(nat.buffer, nat.byteOffset);
     const scalarBase = tinyOff + 4 * 64 + 8 + 4 * 48 + 16;

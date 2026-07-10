@@ -1,5 +1,4 @@
 // QPI headers and contracts use static_assert as a compile-time safety boundary. A false assertion
-// must stop code generation; silently discarding it can accept an ABI or layout the author forbade.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 

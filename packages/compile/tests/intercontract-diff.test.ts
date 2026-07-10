@@ -1,7 +1,4 @@
-// Inter-contract calls compiled by @qinit/compile: a caller at a higher slot reaches a callee at a lower
-// slot via CALL_OTHER_CONTRACT_FUNCTION (→ liteCallFunction) and INVOKE_OTHER_CONTRACT_PROCEDURE (→
-// liteInvokeProcedure). The callee IDL (index + per-entry input type / IO sizes) is taken from the
-// callee's own compiled IDL. Both contracts are MY compiler's output; driven through the engine Sim.
+// Inter-contract calls compiled by @qinit/compile: a caller at a higher slot reaches a callee at a lower slot
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -22,7 +19,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 // Caller declares its own in/out structs (same byte layout as Counter's) for the call buffers — it never
-// needs Counter's type, only the name (mapped to a contract index via the callee IDL) and the entries.
 const CALLER = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

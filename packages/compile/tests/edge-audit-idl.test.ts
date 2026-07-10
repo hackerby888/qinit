@@ -1,5 +1,4 @@
 // compileContract's ContractIdl must describe the same ABI that is embedded in the generated WASM.
-// The current extractor discovers names/kinds but reports every size and lifecycle bit as zero.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader, type ContractIdl } from "../src/index";
 

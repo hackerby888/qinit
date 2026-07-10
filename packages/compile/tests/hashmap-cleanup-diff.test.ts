@@ -1,7 +1,4 @@
-// HashMap/HashSet maintenance parity: set() must reuse the first marked-for-removal slot
-// (native probe semantics — slot placement is state bytes), cleanup() must compact exactly
-// like the native rehash, needsCleanup() reflects the mark-removal counter, and a map whose
-// slots are all marked (full -> emptied) must still accept inserts.
+// HashMap/HashSet maintenance parity: set() must reuse the first marked-for-removal slot (native probe semantics — slot placement is state
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

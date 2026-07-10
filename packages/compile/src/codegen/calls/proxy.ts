@@ -37,9 +37,7 @@ export function emitProposalProxyCall(ctx: FnCtx, expr: Expression & { kind: "ca
   return callProxy(ctx, cm, target.addr, target.pvType, expr.args, valueWanted);
 }
 
-// `qpi(X).method(args)` whose method returns an aggregate: emit the call writing into a fresh slot and
-// return the slot address (the lvalue emitAddr chains through). Null when not a proxy call or the
-// method returns a scalar/void.
+// `qpi(X).method(args)` whose method returns an aggregate: emit the call writing into a fresh slot and return the slot
 export function emitProposalProxyAddr(ctx: FnCtx, expr: Expression & { kind: "call" }): string | null {
   const method = qpiWrapperMethod(expr);
   if (!method) return null;
@@ -64,7 +62,6 @@ export function emitProposalProxyAddr(ctx: FnCtx, expr: Expression & { kind: "ca
 }
 
 // A bare sibling call inside a proxy body (e.g. clearProposal(idx) from setProposal) — compile it against
-// the same ProposalVoting instance, passing the current `$pv`/`$qpi`.
 export function emitProxySiblingCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
   if (!ctx.proxyClass || expr.callee.kind !== "identifier") return null;
   const method = expr.callee.name;
@@ -77,8 +74,7 @@ export function emitProxySiblingCall(ctx: FnCtx, expr: Expression & { kind: "cal
   return callProxy(ctx, cm, "(local.get $pv)", pvType, expr.args, valueWanted);
 }
 
-// Emit the actual `(call $PV…)`: self = the ProposalVoting address, then the dummy qpi context, then the
-// method's data args (classified addr/value from the method's own parameter list).
+// Emit the actual `(call $PV…)`: self = the ProposalVoting address, then the dummy qpi context, then the method's
 export function callProxy(ctx: FnCtx, cm: CompiledMethod, self: string, pvType: TypeSpec & { kind: "template_instance" }, args: Expression[], valueWanted: boolean): string {
   const bind = ctx.cg.bindContainer(pvType.name, pvType.args);
   const ops = cm.fnParams.map((fp, i) => {
@@ -88,8 +84,6 @@ export function callProxy(ctx: FnCtx, cm: CompiledMethod, self: string, pvType: 
   });
 
   // An aggregate-returning proxy method (proposerId → id) writes through a leading $ret slot. The
-  // address flows through emitProposalProxyAddr (assignment/comparison contexts); a scalar-value read
-  // of the aggregate would be silently wrong, so it stays a loud fidelity warning.
   if (cm.retAgg) {
     const s = allocSlot(ctx, cm.retAgg);
     ctx.lines.push(`    (call ${cm.label} ${s} ${self} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`);
@@ -104,9 +98,7 @@ export function callProxy(ctx: FnCtx, cm: CompiledMethod, self: string, pvType: 
   return "";
 }
 
-// Instantiate (or fetch) a ProposalVoting proxy method from its real qpi.h body, emitting a wasm function
-// `(func $PV… (param $pv i32) (param $qpi i32) <data params…>)`. `pv` (the wrapped ProposalVoting) is a
-// reference parameter; `qpi` is a dummy — qpi.method() calls route to the ambient host context regardless.
+// Instantiate (or fetch) a ProposalVoting proxy method from its real qpi.h body, emitting a wasm function `(func $PV…
 export function compileProxyMethod(cg: Codegen, pvType: TypeSpec & { kind: "template_instance" }, proxyClass: string, method: string): CompiledMethod | null {
   let def = cg.templateMethods.get(proxyClass)?.get(method);
   if (!def) def = cg.templateMethods.get("QpiContextProposalFunctionCall")?.get(method);   // FunctionCall base

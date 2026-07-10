@@ -1,13 +1,4 @@
-// Seeded contract generator for the differential fuzzer: seed → deterministic source plus
-// input vectors. Pure — no I/O, no clock, no ambient randomness — so a seed reproduces a
-// case exactly. The v2 grammar covers scalar semantics plus static value helpers: typed
-// locals, arithmetic with width/signedness edges, shifts, comparisons, ternaries, casts,
-// qpi safe-math, control flow, and 1–3 static helper functions (some with a same-name
-// overload differing in parameter width/signedness). Every helper-call argument is cast
-// exactly to one signature, so native overload resolution is unambiguous and any divergence
-// is a compiler bug. Traps and C++ UB are avoided by construction: raw / and % run unsigned
-// with a |1 divisor, safe-math div/mod are unsigned-only, abs is excluded (INT_MIN), and
-// inc/dec never appears inside a larger expression (unsequenced-modification UB).
+// Seeded differential-fuzzer generator: deterministic source/input vectors from a seed.
 
 export interface FuzzContract {
   seed: number;
@@ -135,9 +126,7 @@ class Gen {
   }
 
   private leaf(): string {
-    // qpi.h `bit` is a struct with implicit bool conversion; mixing it into arbitrary
-    // expressions (ternary branches especially) is ambiguous for native clang, so bit
-    // locals are only written at declaration and read at the state flush.
+    // qpi.h `bit` is a struct with implicit bool conversion; mixing it into arbitrary expressions (ternary branches especially) is
     const vars = this.visibleVars().filter((v) => v.type.name !== "bit");
     const r = this.next();
     if (r < 0.3 && vars.length > 0) {
@@ -149,11 +138,7 @@ class Gen {
     return this.literal();
   }
 
-  // Counts stay below 32 so the shift is C++-defined for every operand width the expression might
-  // have. A count >= the width is UB that native clang folds to poison whenever both operands are
-  // compile-time constants (observed: `x << 69` → 0, and a poisoned `expr | 1` divisor trapping) —
-  // and `(expr & 63)` folds to a constant count too when expr has no runtime leaf. Compound-assign
-  // shifts know their lvalue's width and mask wider (&63 on 64-bit) at the statement layer.
+  // Shift counts stay C++-defined for generated operand widths.
   private shiftCount(depth: number): string {
     if (this.chance(0.4)) {
       return `(${this.expr(depth)} & 31)`;
@@ -380,9 +365,6 @@ class Gen {
   // ---- helper functions ----
 
   // A helper body sees only its params (immutable) and its own locals — no input/state. Bodies of
-  // later helpers may call earlier ones (a DAG by construction, so no recursion), and an overload's
-  // body may call its earlier sibling. Half the returns are bare expressions, exercising the
-  // implicit conversion to the declared return type.
   private helperDef(sig: HelperSig): string {
     this.stmtBudget = 5;
     this.inHelper = true;
@@ -412,8 +394,7 @@ class Gen {
       this.avail.push(base);
 
       if (this.chance(0.3)) {
-        // The overload keeps the parameter count but guarantees a different first parameter type,
-        // so the signatures differ and call sites decide by width/signedness.
+        // The overload keeps the parameter count but guarantees a different first parameter type, so the signatures differ and
         const p2 = params.map((p) => ({ name: this.freshName("p"), type: p.type }));
         const idx = TYPES.indexOf(p2[0].type);
         p2[0] = { name: p2[0].name, type: TYPES[(idx + 1 + this.int(7)) % 8] };

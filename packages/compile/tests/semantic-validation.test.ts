@@ -1,8 +1,4 @@
-// Semantic-validation coverage: constructs that are invalid C++ (or valid C++ / illegal Qubic SC)
-// must fail compilation with a targeted diagnostic instead of silently producing wasm. Every
-// negative case here compiled CLEAN before the validation pass existed; several were verified to
-// miscompile (state.get() writes mutated state, nested shadowing read the inner value after the
-// block, duplicate procedures dispatched the first body, default arguments were dropped).
+// Semantic validation coverage for invalid constructs.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
@@ -47,8 +43,7 @@ const REJECTS: Record<string, Rejects> = {
     msg: /already declared/i,
   },
   "local shadows outer scope": {
-    // Verified divergence: natively the outer v (1) survives the block; our single-slot
-    // lowering read back 2. Rejected until locals are scope-renamed.
+    // Verified divergence: natively the outer v (1) survives the block; our single-slot lowering read back 2. Rejected until
     src: wrap(`uint64 v = 1; { uint64 v = 2; state.mut().a = v; } state.mut().a = v;`),
     msg: /shadow/i,
   },
@@ -90,8 +85,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     msg: /must return/i,
   },
   "non-static member call from static context": {
-    // Entry bodies are static; native rejects the bare call ("call to non-static member
-    // function without an object argument").
+    // Entry bodies are static; native rejects the bare call ("call to non-static member function without an object argument").
     src: wrap(`state.mut().a = h();`, `uint64 h() { return 1; }`),
     msg: /non-static/i,
   },

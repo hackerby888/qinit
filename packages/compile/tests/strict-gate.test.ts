@@ -1,13 +1,10 @@
-// Strict fidelity gate: a construct the compiler can only lower to a placeholder must fail the
-// build loudly (default), never ship a silently-diverging module. strict: false keeps the legacy
-// best-effort behavior for exploratory builds.
+// Strict fidelity gate: a construct the compiler can only lower to a placeholder must fail the build loudly
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 
 const HEADERS = loadQpiHeader(process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite");
 
-// UNKNOWN_FIDELITY_CONST resolves nowhere, so emitValue falls back to (i64.const 0) with a
-// fidelity warning — the exact silent-divergence case the gate exists for.
+// UNKNOWN_FIDELITY_CONST resolves nowhere, so emitValue falls back to (i64.const 0) with a fidelity warning — the exact silent-divergence
 const SRC = `
 using namespace QPI;
 

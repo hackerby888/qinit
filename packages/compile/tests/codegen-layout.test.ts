@@ -1,7 +1,4 @@
-// Codegen struct-layout unit tests: field offsets, sizes, alignment for scalars,
-// nested structs, unions, base classes, template instantiations, and edge cases.
-// Tests `layoutOf`, `sizeOfType`, and `layoutOfType` on the Codegen class directly —
-// no compilation, no WASM, no Sim.
+// Codegen struct-layout unit tests: field offsets, sizes, alignment for scalars, nested structs, unions, base classes, template instantiations, and
 import { describe, test, expect } from "bun:test";
 import { Codegen } from "../src/codegen";
 import { Sema } from "../src/sema";
@@ -60,9 +57,7 @@ const ntparam = (name: string): TemplateParam =>
 
 const makeCg = (): Codegen => new Codegen(new Sema());
 
-// ---------------------------------------------------------------------------
-// scalar sizes
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- scalar sizes --------------------------------------------------------------------------
 
 describe("Codegen — scalar sizes", () => {
   test.each([
@@ -91,9 +86,7 @@ describe("Codegen — scalar sizes", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// simple structs
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- simple structs --------------------------------------------------------------------------
 
 describe("Codegen — simple struct layout", () => {
   test("two uint64 fields", () => {
@@ -175,9 +168,7 @@ describe("Codegen — simple struct layout", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// nested structs
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- nested structs --------------------------------------------------------------------------
 
 describe("Codegen — nested struct layout", () => {
   test("struct containing another struct as a field", () => {
@@ -200,9 +191,7 @@ describe("Codegen — nested struct layout", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// unions
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- unions --------------------------------------------------------------------------
 
 describe("Codegen — union layout", () => {
   test("all fields at offset 0, size = max field size", () => {
@@ -224,9 +213,7 @@ describe("Codegen — union layout", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// base class inheritance
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- base class inheritance --------------------------------------------------------------------------
 
 describe("Codegen — base class layout", () => {
   test("base fields placed first, derived fields follow", () => {
@@ -270,9 +257,7 @@ describe("Codegen — base class layout", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// templates
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- templates --------------------------------------------------------------------------
 
 describe("Codegen — template layout", () => {
   test("Array<uint64, 4> via layoutOfType", () => {
@@ -325,9 +310,7 @@ describe("Codegen — template layout", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// wide types (uint128, id, m256i)
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- wide types (uint128, id, m256i) --------------------------------------------------------------------------
 
 describe("Codegen — wide types", () => {
   test("uint128 aligns to 8 (clamped from 16)", () => {
@@ -368,9 +351,7 @@ describe("Codegen — wide types", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// layoutOfType via global structs
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- layoutOfType via global structs --------------------------------------------------------------------------
 
 describe("Codegen — layoutOfType via global structs", () => {
   test("resolves named struct globally", () => {
@@ -401,9 +382,7 @@ describe("Codegen — layoutOfType via global structs", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// anonymous struct promotion
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- anonymous struct promotion --------------------------------------------------------------------------
 
 describe("Codegen — anonymous struct promotion", () => {
   test("unnamed struct members are flattened into the parent", () => {
@@ -429,9 +408,7 @@ describe("Codegen — anonymous struct promotion", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// sizing through bindings
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- sizing through bindings --------------------------------------------------------------------------
 
 describe("Codegen — sizeOfType with bindings", () => {
   test("resolves template param through binding", () => {
@@ -448,9 +425,7 @@ describe("Codegen — sizeOfType with bindings", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// fieldOf helper
-// ---------------------------------------------------------------------------
+// -------------------------------------------------------------------------- fieldOf helper --------------------------------------------------------------------------
 
 describe("Codegen — fieldOf", () => {
   test("resolves a named field's offset and size", () => {

@@ -1,9 +1,4 @@
-// Share-custody system procedures compiled by @qinit/compile: PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES
-// carry a PreManagementRightsTransfer_input AND a PreManagementRightsTransfer_output. The approver hook
-// writes output.allowTransfer + output.requestedFee; the host only reads them back if the sysproc is
-// emitted with the correct out-size (16) — a 0 out-size makes every transfer read as denied. The approver
-// (slot 28) is MY compiler's output; the acquirer is the unchanged native ShareManager fixture (it only
-// calls qpi.acquireShares, no hooks), isolating the Tier-3 hook wiring. Engine-driven, no wasi needed.
+// Share custody sysproc parity (PRE_*_SHARES).
 import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Sim } from "@qinit/engine";
@@ -17,9 +12,7 @@ const SHARE_MANAGER = new Uint8Array(readFileSync("/home/kali/Projects/Qinit/pac
 
 const TOKEN = 0x4e454b4f54n; // "TOKEN"
 
-// Records what its POST_RELEASE_SHARES hook receives — validates the PostManagementRightsTransfer_input
-// layout (numberOfShares, receivedFee read past the leading Asset + owner + possessor) and that the post
-// hook (sysproc id 7) fires after a successful acquire.
+// Records what its POST_RELEASE_SHARES hook receives — validates the PostManagementRightsTransfer_input layout (numberOfShares, receivedFee read past the leading Asset
 const POST_REC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

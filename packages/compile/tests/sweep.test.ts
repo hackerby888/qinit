@@ -1,5 +1,4 @@
-// Honest conformance sweep: compile every contract through the local TS compiler and report
-// parse / wasm / engine-load / state-size results. NOT a pass/fail gate — a measurement.
+// Honest conformance sweep: compile every contract through the local TS compiler and report parse / wasm / engine-load
 import { test, expect, beforeAll } from "bun:test";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";

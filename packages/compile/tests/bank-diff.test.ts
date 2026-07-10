@@ -1,5 +1,4 @@
-// Differential gtest for Bank.h — exercises HashMap<id,uint64,1024>.set/get/population/reset and
-// Array<uint64,4>.set through my TS codegen, validated by the SAME native-clang gtest logic.
+// Differential gtest for Bank.h — exercises HashMap<id,uint64,1024>.set/get/population/reset and Array<uint64,4>.set through my TS codegen, validated by the SAME native-clang
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { buildContract } from "@qinit/build";

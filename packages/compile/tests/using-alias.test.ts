@@ -1,5 +1,4 @@
-// C++11 type aliases (`using X = Y;`) in struct and function scope — the only scopes
-// Qubic allows for typedef/using besides `using namespace QPI` at global scope.
+// C++11 type aliases (`using X = Y;`) in struct and function scope — the only scopes Qubic allows
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";

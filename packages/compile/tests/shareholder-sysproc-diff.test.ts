@@ -1,7 +1,4 @@
-// SET_SHAREHOLDER_PROPOSAL / SET_SHAREHOLDER_VOTES parity: a caller's qpi.setShareholderProposal /
-// qpi.setShareholderVotes invokes the callee's sysproc 10/11 with the typed payload (Array<uint8,1024>
-// proposal buffer / ProposalMultiVoteDataV1), and the callee's scalar output (uint16 proposal index /
-// success bit) flows back as the caller's return value. Both contracts' state bytes must match native.
+// SET_SHAREHOLDER_PROPOSAL / SET_SHAREHOLDER_VOTES parity: a caller's qpi.setShareholderProposal / qpi.setShareholderVotes invokes the callee's sysproc 10/11 with the typed payload
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
@@ -144,8 +141,7 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
       expect(firstDiff).toBe(-1);
     }
 
-    // Anchors: callee saw one proposal (first byte 42) and one vote (index 5); the caller received
-    // the callee's outputs (proposal index 7, vote success 1).
+    // Anchors: callee saw one proposal (first byte 42) and one vote (index 5); the caller received the callee's
     const callee = new DataView(nat.callee.buffer, nat.callee.byteOffset);
     expect(callee.getBigUint64(0, true)).toBe(1n);  // gotProposal
     expect(callee.getBigUint64(8, true)).toBe(42n); // firstByte

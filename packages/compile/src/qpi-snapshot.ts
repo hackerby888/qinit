@@ -1,19 +1,11 @@
-// QPI header snapshot assembly — the single source of the header text the compiler parses.
-// Node/Bun only (reads a core-lite checkout); browsers consume the pre-generated snapshot via
-// @qinit/compile/browser. Shared by loadQpiHeader, the local dev preparation step, and release CI
-// (tools/gen-qpi-snapshot.ts), so all three produce byte-identical content.
-//
-// Bump GENERATOR_VERSION whenever the assembly below changes shape (file list, prelude, inlining
-// rules) — it invalidates cached snapshots and is verified against core-snapshot.json in CI.
+// Assembles the exact header text consumed by compiler pipeline.
 import { QPI_PRELUDE } from "./qpi-prelude";
 
 export const GENERATOR_VERSION = 1;
 
 export const IMPL_BOUNDARY = "//__QINIT_IMPL_BOUNDARY__";
 
-// The core files a snapshot is assembled from, relative to <core>/src. Missing optional files are
-// skipped (matching historical loadQpiHeader behavior, so output stays byte-identical); a missing
-// contracts/qpi.h means the path is not a core checkout and assembly throws.
+// Core snapshot inputs are resolved relative to `<core>/src`.
 const HEADER_FILES = [
   "contract_core/pre_qpi_def.h",
   "contracts/qpi.h",
@@ -21,8 +13,7 @@ const HEADER_FILES = [
   "oracle_core/oracle_interfaces_def.h",
 ];
 
-// Template method-body implementations — parsed SEPARATELY (after the IMPL boundary) so qpi.h's
-// bulk doesn't interfere with capturing the out-of-class definitions, then instantiated per type.
+// Template method-body implementations — parsed SEPARATELY (after the IMPL boundary) so qpi.h's bulk doesn't interfere with capturing the
 const IMPL_FILES = [
   "contract_core/qpi_hash_map_impl.h",
   "contract_core/qpi_collection_impl.h",
@@ -31,7 +22,6 @@ const IMPL_FILES = [
 ];
 
 // Every file assembly may read, for content-hash caching and watch mode. oracle_interfaces/*.h are
-// discovered dynamically (they're inlined into oracle_interfaces_def.h).
 export function snapshotInputFiles(corePath: string): string[] {
   const { existsSync, readdirSync } = require("node:fs") as typeof import("node:fs");
   const base = `${corePath}/src`;
@@ -58,10 +48,7 @@ export function assembleQpiHeader(corePath: string): string {
 
   let content = QPI_PRELUDE + "\n";
 
-  // Contract slot registry: contracts reference each other's indices (QX_CONTRACT_INDEX in
-  // Logger events, share-management filters, inter-contract transfers). Native gets these from
-  // contract_def.h; only its object-like index defines are extracted — the full header also
-  // #includes every contract, which is not parseable here and not needed.
+  // Contract slot registry: contracts reference each other's indices (QX_CONTRACT_INDEX in Logger events, share-management filters, inter-contract transfers). Native gets
   const defPath = `${base}/contract_core/contract_def.h`;
   if (existsSync(defPath)) {
     const indexDefines = readFileSync(defPath, "utf8")
@@ -74,8 +61,7 @@ export function assembleQpiHeader(corePath: string): string {
     const fp = `${base}/${f}`;
     if (!existsSync(fp)) continue;
     let text = readFileSync(fp, "utf8");
-    // The oracle def header pulls each interface (OI::Price, …) in via #include, which the
-    // preprocessor treats as a no-op — inline the interface headers so the OI structs exist.
+    // The oracle def header pulls each interface (OI::Price, …) in via #include, which the preprocessor treats as a
     if (f.endsWith("oracle_interfaces_def.h")) {
       text = text.replace(/^[ \t]*#include[ \t]+"(oracle_interfaces\/\w+\.h)"[ \t]*$/gm, (line, rel) => {
         const ip = `${base}/${rel}`;
@@ -87,8 +73,7 @@ export function assembleQpiHeader(corePath: string): string {
 
   for (const f of IMPL_FILES) {
     const fp = `${base}/${f}`;
-    // Strip #include lines — impl chunks are parsed standalone for their method/free-fn bodies; the
-    // headers they pull in (four_q.h / kangaroo_twelve.h) aren't needed to parse and blow up the lexer.
+    // Strip #include lines — impl chunks are parsed standalone for their method/free-fn bodies; the headers they pull in
     if (existsSync(fp)) content += `\n${IMPL_BOUNDARY}\n` + readFileSync(fp, "utf8").replace(/^[ \t]*#include[ \t].*$/gm, "") + "\n";
   }
 

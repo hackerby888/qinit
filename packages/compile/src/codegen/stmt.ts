@@ -63,7 +63,6 @@ export function emitFunction(
 }
 
 // Emit a value-helper (e.g. toReturnCode) as a wasm function with its own scalar/address parameters
-// and an optional i64 result. Helpers are static and pure — they take no ctx/state/in/out/locals.
 export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: Statement }, stateLayout: StructLayout, bind?: Bindings): string {
   const empty = { size: 0, align: 1, fields: new Map() };
   const ctx: FnCtx = {
@@ -74,8 +73,7 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
     // For an instantiated template free fn the body resolves T/L through these bindings (e.g. `L`→4).
     thisBind: bind,
   };
-  // An aggregate-returning helper (`id liquidityPov(...)`) gets a leading $ret destination-address param;
-  // `return e` copies the 32/N-byte value there. The caller allocates the slot and passes its address.
+  // An aggregate-returning helper (`id liquidityPov(...)`) gets a leading $ret destination-address param; `return e` copies the 32/N-byte value there.
   if (info.retAgg) {
     ctx.retAddr = "(local.get $__qinit_ret)";
     ctx.retAggSize = info.retAgg;
@@ -84,8 +82,7 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
 
   if (fn.body) collectLocals(fn.body, ctx);
 
-  // By-value aggregate params: bind the name to a private copy, so callee writes stay local (C++ value
-  // semantics). The `local` override is honored at every param-address read.
+  // By-value aggregate params: bind the name to a private copy, so callee writes stay local (C++ value semantics).
   for (const p of info.params) {
     if (!p.byValAgg) continue;
     const size = cg.sizeOfType(p.type, bind ?? NO_BIND);
@@ -134,16 +131,13 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
       collectLocals(stmt.body, ctx);
       break;
     case "declaration": {
-      // A struct declared inside a function body (QUTIL setupNewProposal's `struct Shareholder {...}`) isn't in
-      // globalStructs, so sizeof(Shareholder) and member offsets wouldn't resolve. Register it so the body's
-      // pointer/subscript/member accesses see its layout. (Global registration is fine — names are unique here.)
+      // A struct declared inside a function body (QUTIL setupNewProposal's `struct Shareholder {...}`) isn't in globalStructs, so sizeof(Shareholder) and
       if (stmt.decl.kind === "struct") {
         const s = stmt.decl as StructDecl;
         if (s.name && !ctx.cg.globalStructs.has(s.name)) ctx.cg.globalStructs.set(s.name, s);
         break;
       }
-      // Function-scope alias (`using Local = sint64;`): record it so locals declared with the
-      // alias name resolve as known types.
+      // Function-scope alias (`using Local = sint64;`): record it so locals declared with the alias name resolve as known
       if (stmt.decl.kind === "typedef_decl") {
         const td = stmt.decl as { name: string; type: TypeSpec };
         if (!ctx.cg.typedefs.has(td.name)) ctx.cg.typedefs.set(td.name, td.type);
@@ -152,13 +146,10 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
       if (stmt.decl.kind === "variable") {
         const v = stmt.decl as VariableDecl;
         // reference/pointer locals hold an address (i32); scalars use the i64 value model. A __ScopedScratchpad
-        // or an Asset*Iterator local also holds an address (its scratch / iterator buffer base).
         const holdsAddr = v.type.kind === "name" && /(ScopedScratchpad|Iterator)$/.test(v.type.name);
         const b = ctx.thisBind ?? NO_BIND;
 
-        // `auto` locals take their shape from the initializer: a cast supplies the full type
-        // (auto* queue = reinterpret_cast<sint64_4*>(...)), a subscript of a typed pointer supplies
-        // the element type (auto curRange = queue[i]). Undeduced auto stays a scalar.
+        // `auto` locals take their shape from the initializer: a cast supplies the full type (auto* queue = reinterpret_cast<sint64_4*>(...)),
         let dType = v.type;
         if (isAutoType(dType) && v.init) {
           const ci = castInfo(v.init);
@@ -177,8 +168,7 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
           }
         }
 
-        // A local of an unresolvable named type would silently corrupt the locals layout (size 0,
-        // scalar fallback) — reject it here, where every declaration passes exactly once.
+        // A local of an unresolvable named type would silently corrupt the locals layout (size 0, scalar fallback) —
         if (dType.kind === "name" && !isAutoType(dType) && SCALAR_SIZE[dType.name] === undefined &&
             !C_SCALAR_NAMES.has(dType.name) && !dType.name.includes("::") &&
             !b.types.has(dType.name) && !ctx.cg.typedefs.has(dType.name) && !ctx.cg.enumNames.has(dType.name) &&
@@ -186,13 +176,11 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
           ctx.cg.error(`unknown type '${dType.name}' in declaration of '${v.name}'`, stmt.span.line);
         }
 
-        // A struct-typed local (DateAndTime begin = *this) lives in an allocated slot; its wasm local
-        // holds the slot address so member reads and method dispatch resolve through it.
+        // A struct-typed local (DateAndTime begin = *this) lives in an allocated slot; its wasm local holds the slot
         const concrete = dType.kind === "name" && b.types.has(dType.name) ? b.types.get(dType.name)! : dType;
         const isAgg = !holdsAddr && dType.kind !== "reference" && dType.kind !== "pointer" && ctx.cg.isAggregateType(concrete);
         const isRef = dType.kind === "reference" || dType.kind === "pointer" || holdsAddr || isAgg;
-        // In a ProposalVoting proxy method the `pv`/`qpi` aliases (`ProposalVotingType& pv = this->pv`) are
-        // bound as the function's own parameters, not locals — skip them here.
+        // In a ProposalVoting proxy method the `pv`/`qpi` aliases (`ProposalVotingType& pv = this->pv`) are bound as the function's own
         if (ctx.proxyClass && isRef && (v.name === "pv" || v.name === "qpi")) break;
         const wasmType: "i32" | "i64" = isRef ? "i32" : "i64";
         if (!ctx.localVars.has(v.name)) {
@@ -225,9 +213,6 @@ export function collectLabelsIn(stmt: Statement, out: Set<string>): void {
 }
 
 // Emit a brace block, lowering forward gotos (relooper-lite). A `goto L` that jumps forward to a label
-// L rooted in a later sibling becomes a `br` out of a synthesized block wrapping the siblings between
-// the goto and L; control lands right before L's sibling, reproducing the jump via natural fall-through.
-// (qpi.h's HashMap::set is the canonical case: `goto reuse_slot` exits both probing loops.)
 export function emitCompound(ctx: FnCtx, body: Statement[]): void {
   const spBase = ctx.scratchpadScope?.length ?? 0;
   // child index where each goto-targeted label is rooted
@@ -238,9 +223,7 @@ export function emitCompound(ctx: FnCtx, body: Statement[]): void {
     for (const l of labels) if (!labelChild.has(l)) labelChild.set(l, i);
   }
 
-  // forward gotos only: a label rooted in a later sibling than the goto. Each gets a block that ends right
-  // before the label-bearing sibling; a `goto L` becomes `br $goto_L`. The block must enclose every goto to
-  // L (so it opens at or before the earliest such goto) and close at the label.
+  // forward gotos only: a label rooted in a later sibling than the goto. Each gets a block that
   const wasmLabel = new Map<string, string>();
   const blocks: { wl: string; firstGoto: number; closeAt: number }[] = [];
   for (let i = 0; i < body.length; i++) {
@@ -264,11 +247,6 @@ export function emitCompound(ctx: FnCtx, body: Statement[]): void {
   for (const [g, wl] of wasmLabel) ctx.gotoLabels.set(g, wl);
 
   // WASM blocks must nest (LIFO). With multiple labels whose [firstGoto..closeAt] ranges OVERLAP without
-  // containment (e.g. TransferSharesToManyV1's interleaved `goto insufficientShares` / `goto transferFailed`),
-  // opening each at its own firstGoto produces an outer block that closes before an inner one — illegal, and
-  // the earlier-closing block silently never closes at its label. Open ALL of them together at the earliest
-  // firstGoto, ordered by closeAt descending (latest close = outermost). Wrapping a few extra leading siblings
-  // is harmless (they fall through), and the nesting is always valid.
   const openChild = Math.min(...blocks.map((b) => b.firstGoto));
   blocks.sort((a, b) => b.closeAt - a.closeAt);
   const closeStack: number[] = [];
@@ -291,9 +269,6 @@ export function emitCompound(ctx: FnCtx, body: Statement[]): void {
   }
 
   // Scope exit: run __ScopedScratchpad destructors declared in this compound (RAII, LIFO). Without the
-  // release, sequential container cleanups within one dispatch sum their scratch instead of reusing it and
-  // overrun the arena. (An early `return` skips these lines — that leak is bounded by the per-dispatch
-  // arena reset.)
   if (ctx.scratchpadScope && ctx.scratchpadScope.length > spBase) {
     for (let i = ctx.scratchpadScope.length - 1; i >= spBase; i--) {
       ctx.lines.push(`    ${ir.emit(ir.call("$releaseScratchpad", ir.getL(ctx.scratchpadScope[i], "i32")))}`);
@@ -319,11 +294,9 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
     case "declaration": {
       if (stmt.decl.kind === "variable") {
         const v = stmt.decl as VariableDecl;
-        // The collect pass stored the declared type with `auto` resolved from the initializer;
-        // classification here must agree with the wasm local type it chose.
+        // The collect pass stored the declared type with `auto` resolved from the initializer; classification here must agree with
         const declared = ctx.localVars.get(v.name)?.type ?? v.type;
-        // __ScopedScratchpad scratchpad(size, initZero): bump a scratch buffer off the arena; the local holds
-        // its base address, read back by `.ptr`. (release is a no-op — the arena resets per dispatch.)
+        // __ScopedScratchpad scratchpad(size, initZero): bump a scratch buffer off the arena; the local holds its base address, read back
         if (v.type.kind === "name" && /ScopedScratchpad$/.test(v.type.name)) {
           const args = v.init && (v.init.kind === "construct" || v.init.kind === "call") ? v.init.args : [];
           const size = args[0] ? emitValueIr(ctx, args[0]) : ir.i64c(0);
@@ -333,8 +306,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
           (ctx.scratchpadScope ??= []).push(v.name);
           break;
         }
-        // AssetOwnership/PossessionIterator iter(asset): an 8-byte iterator buffer (count@0, cursor@4); the
-        // constructor runs the enumerate. Track its type so iter.possessor()/reachedEnd()/next() dispatch.
+        // AssetOwnership/PossessionIterator iter(asset): an 8-byte iterator buffer (count@0, cursor@4); the constructor runs the enumerate. Track its type so iter.possessor()/reachedEnd()/next()
         if (v.type.kind === "name" && /Asset(Ownership|Possession)Iterator$/.test(v.type.name)) {
           ctx.lines.push(`    ${setLocal(ctx, v.name, ir.call("$qpiAllocLocals", ir.i32c(8)))}`);
           (ctx.refLocals ??= new Map()).set(v.name, v.type);
@@ -347,21 +319,17 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
           }
           break;
         }
-        // reference/pointer local: bind to the ADDRESS of its lvalue initializer; member access on it
-        // resolves through that address. The referent type (Element, PoV, ...) drives field offsets. A pointer
-        // keeps its pointer type (not the pointee) so `p[i]` subscripts.
+        // reference/pointer local: bind to the ADDRESS of its lvalue initializer; member access on it resolves through that address.
         if (declared.kind === "reference" || declared.kind === "pointer") {
           // proxy `pv`/`qpi` aliases are already bound as parameters — drop the alias declaration.
           if (ctx.proxyClass && (v.name === "pv" || v.name === "qpi")) break;
           if (v.init) {
             const node = resolveAddr(ctx, v.init);
-            // Fall back to emitAddr for initializers that aren't plain lvalues but still yield an address —
-            // an asset-iterator getter (`const id& possessor = iter.possessor()`), an id producer, etc.
+            // Fall back to emitAddr for initializers that aren't plain lvalues but still yield an address — an asset-iterator
             const addr = node?.addr ?? emitAddr(ctx, v.init);
             if (addr) {
               if (!ctx.refLocals) ctx.refLocals = new Map();
-              // A pointer local keeps its pointer type so resolveAddr's subscript path fires (`shareholders[i]`);
-              // a reference binds to its referent type for direct member access.
+              // A pointer local keeps its pointer type so resolveAddr's subscript path fires (`shareholders[i]`); a reference binds to its
               const refType = declared.kind === "pointer" ? declared : (node?.type ?? declared.refereed);
               ctx.refLocals.set(v.name, refType);
               ctx.lines.push(`    ${setLocal(ctx, v.name, addrIr(addr))}`);
@@ -371,17 +339,12 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
           }
           break;
         }
-        // struct-typed local (DateAndTime begin = *this): allocate a slot the wasm local points at, so
-        // member reads and method dispatch on it resolve through an address. Copy-init from an lvalue /
-        // materialized rvalue; a constructor-style init runs emitConstruct; otherwise zero-init (every
-        // qpi.h default constructor zeroes its storage).
+        // struct-typed local (DateAndTime begin = *this): allocate a slot the wasm local points at, so member reads and
         {
           const db = ctx.thisBind ?? NO_BIND;
           const concrete = declared.kind === "name" && db.types.has(declared.name) ? db.types.get(declared.name)! : declared;
           if (ctx.cg.isAggregateType(concrete)) {
-            // matches collectLocals' aggregate predicate: the wasm local is i32 (slot address), so this
-            // branch must consume the declaration even when the size is unknown. An unsized array
-            // (`const int daysInMonth[] = {...}`) takes its length from the initializer.
+            // matches collectLocals' aggregate predicate: the wasm local is i32 (slot address), so this branch must consume the declaration
             let aggSz = ctx.cg.sizeOfType(concrete, db);
             if (concrete.kind === "array" && aggSz <= 0 && v.init?.kind === "initializer_list") {
               aggSz = ctx.cg.sizeOfType(concrete.elem, db) * (((v.init as any).exprs ?? []).length);
@@ -393,8 +356,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
             if (ctorArgs && emitConstruct(ctx, `(local.get $${v.name})`, concrete, ctorArgs)) {
               break;
             }
-            // brace-init: array locals (const int daysInMonth[] = {0, 31, ...}) store element-wise;
-            // struct locals go field-wise through emitConstruct.
+            // brace-init: array locals (const int daysInMonth[] = {0, 31, ...}) store element-wise; struct locals go field-wise through emitConstruct.
             if (v.init?.kind === "initializer_list") {
               if (concrete.kind === "array") {
                 ctx.lines.push(`    ${ir.emit(ir.call("$setMem", ir.getL(v.name, "i32"), ir.i32c(sz), ir.i32c(0)))}`);
@@ -406,9 +368,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
               }
             }
             if (v.init) {
-              // A computed uint128 initializer (`uint128 q = (uint128)(a - b);`, a ternary, a
-              // div<uint128>) has no address — materialize it through the $u128_* machinery,
-              // the same lowering an assignment uses.
+              // A computed uint128 initializer (`uint128 q = (uint128)(a - b);`, a ternary, a div<uint128>) has no address —
               if (isUint128(ctx.cg, concrete)) {
                 ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), emitU128Ir(ctx, v.init), ir.i32c(16)))}`);
                 break;
@@ -506,8 +466,6 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       const body = stmt.body.kind === "compound" ? stmt.body.body : [stmt.body];
 
       // Group statements by case/default markers. Each group gets a block label so
-      // dispatch can branch to it, and fallthrough works naturally: a body without an
-      // explicit break exits its enclosing block and lands on the next body in source order.
       const groups: { test: string | null; stmts: Statement[]; label: string }[] = [];
       let caseIdx = 0;
       for (const s of body) {
@@ -524,8 +482,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         }
       }
 
-      // Open blocks from last group (outermost) to first (innermost) so that the
-      // dispatch, placed inside all of them, can br to any case/default label.
+      // Open blocks from last group (outermost) to first (innermost) so that the dispatch, placed inside all of them,
       for (let i = groups.length - 1; i >= 0; i--) {
         ctx.lines.push(`      (block ${groups[i].label}`);
       }
@@ -542,8 +499,6 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       ctx.lines.push(`        (br ${defaultGroup ? defaultGroup.label : brk})`);
 
       // Close blocks in source order, emitting each body between block boundaries.
-      // After a body without a break, control naturally exits the enclosing block
-      // and reaches the next body — reproducing C++ fallthrough.
       for (const g of groups) {
         ctx.lines.push(`      )`);
         for (const s of g.stmts) {
@@ -567,8 +522,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       break;
 
     case "return":
-      // an inlined struct method's `return *this` carries no value out (the object flows via thisAddr);
-      // emitting a wasm return here would wrongly exit the enclosing function.
+      // an inlined struct method's `return *this` carries no value out (the object flows via thisAddr); emitting a wasm
       if (ctx.inlineMethod) break;
       if (stmt.value && ctx.retAddr) {
         // aggregate-returning helper: copy the returned value into the caller-supplied dest, then return
@@ -602,7 +556,6 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
 }
 
 // Emit an expression used as a statement (side effects only). Calls/assignments push their own
-// lines to ctx; only inc/dec returns a WAT string for the caller to push.
 export function emitExprDrop(ctx: FnCtx, expr: Expression): string {
   if (expr.kind === "assign") return emitAssign(ctx, expr);
   if (expr.kind === "call") {
@@ -622,7 +575,6 @@ export function emitExprDrop(ctx: FnCtx, expr: Expression): string {
 }
 
 // A name held in a wasm local slot: a body-declared local OR a scalar (by-value) parameter. Both are
-// read via local.get and written via local.set (wasm parameters are mutable locals).
 export function isScalarLocal(ctx: FnCtx, name: string): boolean {
   if (ctx.localVars.has(name)) return true;
   const p = ctx.params?.get(name);
@@ -632,8 +584,7 @@ export function isScalarLocal(ctx: FnCtx, name: string): boolean {
 export function emitIncDec(ctx: FnCtx, expr: Expression): string {
   const arg = expr.kind === "postfix_op" || expr.kind === "prefix_op" ? expr.arg : expr;
   const op = (expr as any).op === "++" ? "i64.add" : "i64.sub";
-  // A scalar local/value-param increments in place via local.set, narrowed back to its declared
-  // width so overflow wraps like native (INT32_MAX++ lands on INT32_MIN, not 2^31).
+  // A scalar local/value-param increments in place via local.set, narrowed back to its declared width so overflow wraps like
   if (arg.kind === "identifier" && isScalarLocal(ctx, arg.name)) {
     const next = ir.op(op, ir.getL(arg.name, "i64"), ir.i64c(1));
     return `(local.set $${arg.name} ${ir.emit(narrowLocalIr(ctx, arg.name, next))})`;
@@ -641,8 +592,7 @@ export function emitIncDec(ctx: FnCtx, expr: Expression): string {
   // Otherwise a member/element lvalue: load, adjust, store back.
   const addr = tryLvalueAddr(ctx, arg);
   if (addr) {
-    // uint128: a scalar load-modify-store touches only the low limb and loses the carry/borrow —
-    // route through the $u128_* helpers instead (uint128.h operator++ carries across limbs).
+    // uint128: a scalar load-modify-store touches only the low limb and loses the carry/borrow — route through the $u128_*
     if (isUint128(ctx.cg, addr.type ?? null)) {
       const one = allocSlotIr(ctx, 16);
       ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", one, ir.i64c(1), ir.i64c(0)))}`);

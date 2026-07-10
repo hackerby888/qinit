@@ -1,7 +1,4 @@
-// Unary operator type propagation: -x and ~x carry their operand's promoted type into
-// comparisons and stores (unsigned 32-bit results wrap at 32 bits), and mixed
-// sint32/uint32 comparisons convert the signed operand per C++ usual conversions.
-// Native clang is the judge.
+// Unary operator type propagation: -x and ~x carry their operand's promoted type into comparisons and stores (unsigned 32-bit
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

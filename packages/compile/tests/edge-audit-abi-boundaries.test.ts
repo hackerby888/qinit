@@ -1,5 +1,4 @@
 // Pin the inclusive QPI registration boundaries. The exact maximum values must be accepted while
-// the neighboring out-of-range values remain covered by edge-audit-abi-validation.pending.ts.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

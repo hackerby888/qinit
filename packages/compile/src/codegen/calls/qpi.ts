@@ -22,12 +22,6 @@ export const QPI_GETTERS: Record<string, { fwd: string; ret: "i64" | "i32" }> = 
 };
 
 // qpi.* host calls taking args / returning values. Arg kinds map to forwarder param types:
-//   i64 = scalar value, i32 = scalar truncated, addr = address of an id/struct lvalue (or SELF),
-//   cidx = the contract's own index (SELF_INDEX, injected, not taken from the call's args).
-// ret "out" = void forwarder whose LAST param is an output address the produced id/struct is written
-// into — used as an assignment RHS (e.g. output.next = qpi.nextId(input.cur)).
-// "asset" consumes ONE Asset argument (id issuer; uint64 assetName) but emits TWO operands — the assetName
-// (i64, loaded from offset 32) then the issuer address — matching the lhost share calls' (name, issuer, …).
 export type ArgKind = "i64" | "i32" | "addr" | "cidx" | "asset" | "ownsel" | "possel" | "sized" | "assetref";
 export interface QpiCallDesc {
   fwd: string;
@@ -79,13 +73,6 @@ export function qpiOperand(ctx: FnCtx, expr: Expression, kind: ArgKind): string 
 }
 
 // Build the forwarder operand list. "cidx" is injected; every other kind consumes one call arg.
-// Materialize a 40-byte AssetOwnershipSelect / AssetPossessionSelect and return its address (i32). These have
-// no inferred type at the call site (brace-init or a static-factory result), so emitAddr can't lower them.
-// Layout: id owner/possessor @0 (32), managingContract u16 @32, anyOwner/anyPossessor bool @34,
-// anyManagingContract bool @35. Forms handled: a missing argument (the C++ default `::any()`), the static
-// factories any()/byOwner()/byPossessor()/byManagingContract(), a `{id, mgmt}` brace-init, and an addressable
-// select lvalue. any() = { zero, 0, true, true }; byOwner/byPossessor = { id, 0, false, true };
-// byManagingContract = { zero, mgmt, true, false } (see qpi.h AssetOwnershipSelect).
 export function materializeSelect(ctx: FnCtx, e: Expression | undefined): string {
   const s = allocSlotIr(ctx, 40);
   ctx.lines.push(`    ${ir.emit(ir.call("$setMem", s, ir.i32c(40), ir.i32c(0)))}`);
@@ -134,13 +121,11 @@ export function emitQpiOperands(ctx: FnCtx, args: Expression[], kinds: ArgKind[]
     const e = args[ai++];
     if (k === "ownsel" || k === "possel") {
       // Selector is passed by address (i32). A missing arg is the C++ default `::any()`, so this must run
-      // before the generic missing-arg fallback below (which would push an i64 0 and break wasm validation).
       ops.push(materializeSelect(ctx, e));
       continue;
     }
     if (k === "assetref") {
       // const Asset& — 40 bytes {id issuer @0, uint64 assetName @32}. Accepts a `{issuer, name}`
-      // brace-init (Escrow's numberOfShares calls) or an addressable Asset lvalue.
       if (e?.kind === "initializer_list") {
         const s = allocSlotIr(ctx, 40);
         ctx.lines.push(`    ${ir.emit(ir.call("$setMem", s, ir.i32c(40), ir.i32c(0)))}`);
@@ -206,7 +191,6 @@ export interface QpiResult {
 }
 
 // Lower a qpi.host(...) call. For "out" producers, outAddr receives the result (a scratch slot is
-// allocated when none is supplied). Returns null if the call isn't a known qpi host call.
 export function emitQpiCall(ctx: FnCtx, expr: Expression & { kind: "call" }, outAddr?: string): QpiResult | null {
   if (!(expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi")) {
     return null;

@@ -1,21 +1,4 @@
-// Seeded contract generator for the uint128 differential fuzzer: seed → deterministic source
-// plus input vectors. Pure — no I/O, no clock, no ambient randomness — so a seed reproduces a
-// case exactly. Self-contained: shares no code with tools/fuzz-gen.ts, so the two RNG streams
-// and pin sets evolve independently.
-//
-// The grammar is restricted to the intersection of what native uint128_t (platform/uint128.h)
-// and our $u128_* lowering both define:
-//   - binary + - * & << >> with a uint128 LEFT operand (native ops are member functions, so
-//     `5 + q` does not compile natively; `q + 5` would, but the RHS is always spelled as a
-//     uint128-typed expression to keep both sides on the uint128/uint128 overload — native
-//     also has a divergent operator&(int) that an explicit cast sidesteps)
-//   - shift counts are scalar; any count is fine (both sides define >= 128 → 0)
-//   - comparisons == < > <= >= (native has no operator!=)
-//   - division only via div<uint128>(a, b) (raw / is unguarded natively; both div lowerings
-//     yield 0 on a zero divisor). No % — native uint128_t has no operator%.
-//   - construction: (uint128)(scalar) and uint128(high, low); extraction: .low / .high
-//     (there is no uint128→scalar conversion natively other than operator bool)
-//   - compound += -= &= <<= >>=; no ++/--, no | ^ (native has no operator| / operator^)
+// Seeded generator for uint128 differential tests (deterministic, no I/O).
 
 export interface FuzzContract {
   seed: number;
@@ -119,7 +102,6 @@ class Gen {
   }
 
   // Comparison of two uint128 values — yields a scalar bool. The left side is always
-  // uint128-typed (member operator).
   private u128Compare(depth: number): string {
     const op = this.pick(["==", "<", ">", "<=", ">="]);
     return `(${this.u128Expr(depth)} ${op} ${this.u128Expr(depth)})`;
@@ -127,10 +109,7 @@ class Gen {
 
   // ---- uint128 layer ----
 
-  // The count is spelled as a uint128 cast: a bare int count is AMBIGUOUS natively (uint128_t's
-  // non-explicit operator bool lets the built-in operator<<(int,int) compete with the member
-  // operator). With a uint128 RHS the member overload is an exact match and wins. The cast's high
-  // limb is always 0, so our low|high collapse reads the same count.
+  // The count is spelled as a uint128 cast: a bare int count is AMBIGUOUS natively (uint128_t's non-explicit operator
   private shiftCount(): string {
     if (this.chance(0.6)) {
       return `(uint128)(${this.pick(SHIFT_COUNTS)}ull)`;
@@ -253,8 +232,7 @@ class Gen {
     this.stmtBudget = 24;
     const lines: string[] = [];
 
-    // Declarations use the two-arg constructor form only: our declaration-initializer path does not
-    // yet lower a general `(uint128)(expr)` cast init (assignments do).
+    // Declarations use the two-arg constructor form only: our declaration-initializer path does not yet lower a general `(uint128)(expr)` cast
     const u128Count = 2 + this.int(3);
     for (let k = 0; k < u128Count; k++) {
       const name = this.freshName("q");

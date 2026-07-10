@@ -1,5 +1,4 @@
 // Direct initialization is common in QPI/C++ helper bodies. The parser currently consumes braced
-// initializers only for layout recovery, dropping their runtime values.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

@@ -1,8 +1,4 @@
-// POST_INCOMING_TRANSFER system procedure compiled by @qinit/compile: the engine fires it (nested,
-// synchronous) whenever value lands on the contract, passing a PostIncomingTransfer_input { id sourceId;
-// sint64 amount; uint8 type; }. This only works if the sysproc is emitted with bit 9 in reg_sysproc_mask
-// AND sysproc_in_size(9) == sizeof(PostIncomingTransfer_input) so the host copies the notice bytes in.
-// A reward-bearing procedure call (procedureTransaction, type 1) is the simplest trigger. Engine-driven.
+// PIT (post incoming transfer) flow for @qinit/compile tests.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -55,8 +51,7 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
     expect(u64(g, 8)).toBe(0n);   // type
     expect(u64(g, 16)).toBe(0n);  // count
 
-    // Touch (proc 1) with a reward: engine credits the contract then fires PIT (procedureTransaction = 1)
-    // before the Touch body runs.
+    // Touch (proc 1) with a reward: engine credits the contract then fires PIT (procedureTransaction = 1) before the
     const user = new Uint8Array(32).fill(7);
     sim.fund(user, 1_000_000n);
     sim.procedure(28, 1, undefined, { reward: 500n, invocator: user });

@@ -1,6 +1,4 @@
 // Render a parsed TranslationUnit as an indented connector tree for inspection/debugging.
-// Spans and the `kind` tag are elided from each line; short scalar fields (name/op/member/value)
-// are folded into the node's own line, and object/array fields recurse as child branches.
 
 import type { TranslationUnit } from "./ast";
 

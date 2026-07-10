@@ -1,5 +1,4 @@
 // Lexer unit tests: tokenize source text, verify token kinds/text/spans.
-// Covers keywords, operators, literals, multi-word type collapsing, and edge cases.
 import { describe, test, expect } from "bun:test";
 import { Lexer, isTypeKeyword, parseIntLiteral } from "../src/lexer";
 import type { TokenKind } from "../src/lexer";
@@ -66,9 +65,7 @@ describe("operators and punctuators", () => {
   });
 
   test("ellipsis (...) tokenization", () => {
-    // NOTE: lexer has a peekChar(2) vs peekChar(1) bug in the ellipsis check —
-    // ... currently produces three "dot" tokens instead of one "ellipsis".
-    // This test pins current behavior until the bug is fixed.
+    // NOTE: lexer has a peekChar(2) vs peekChar(1) bug in the ellipsis check — ... currently produces three "dot"
     const toks = new Lexer("...").tokenize();
     // Expected after fix: expect(toks[0].kind).toBe("ellipsis");
     expect(toks[0].kind).toBe("dot");
@@ -220,8 +217,6 @@ describe("integer literals", () => {
 
   test("digit separator in C++14 style", () => {
     // NOTE: decimal loop in lexer doesn't handle ' separators (only hex/binary loops do).
-    // 1'000'000 tokenizes as int_literal "1", then we'd get unexpected behavior.
-    // Test with a plain decimal integer instead.
     const toks = new Lexer("1000000").tokenize();
     expect(toks[0].kind).toBe("int_literal");
     expect(toks[0].text).toBe("1000000");

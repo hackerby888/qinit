@@ -1,5 +1,4 @@
 // Regression inventory: compiler-generated WASM names must never alias QPI/C++ user names.
-// These are valid contracts. Each currently exposes a distinct generated-name collision.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

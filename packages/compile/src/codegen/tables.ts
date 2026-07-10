@@ -13,8 +13,7 @@ export const SYSPROC_IMPL: Record<string, number> = {
   __impl_setShareholderVotes: 11,
 };
 
-// The scaffold renames a lifecycle procedure to its __impl_* name, but its locals struct keeps the macro
-// spelling (END_EPOCH_locals, ...). Map the impl name back so the right locals frame is found.
+// The scaffold renames a lifecycle procedure to its __impl_* name, but its locals struct keeps the macro spelling
 export const SYSPROC_LOCALS_PREFIX: Record<string, string> = {
   __impl_initialize: "INITIALIZE",
   __impl_beginEpoch: "BEGIN_EPOCH",
@@ -30,18 +29,14 @@ export const SYSPROC_LOCALS_PREFIX: Record<string, string> = {
   __impl_setShareholderVotes: "SET_SHAREHOLDER_VOTES",
 };
 
-// Share-transfer / incoming-transfer hooks carry real input (and, for the pre-* pair, output) structs —
-// unlike the lifecycle procedures which are NoData both ways. The structs are qpi.h globals, so size them
-// via layoutOfType (globalStructs), not the nested-only layoutFor.
+// Share-transfer / incoming-transfer hooks carry real input (and, for the pre-* pair, output) structs — unlike the lifecycle
 export const SYSPROC_IO: Record<string, { in?: string; out?: string; typedIO?: boolean }> = {
   __impl_preReleaseShares: { in: "PreManagementRightsTransfer_input", out: "PreManagementRightsTransfer_output" },
   __impl_preAcquireShares: { in: "PreManagementRightsTransfer_input", out: "PreManagementRightsTransfer_output" },
   __impl_postReleaseShares: { in: "PostManagementRightsTransfer_input" },
   __impl_postAcquireShares: { in: "PostManagementRightsTransfer_input" },
   __impl_postIncomingTransfer: { in: "PostIncomingTransfer_input" },
-  // The shareholder-governance hooks' io are typedefs to a container (Array<uint8,1024>) and scalars
-  // (uint16 / bit) rather than field structs, so input/output need typed param aliases in the body
-  // (container dispatch and bare scalar assignment both resolve through the alias type).
+  // The shareholder-governance hooks' io are typedefs to a container (Array<uint8,1024>) and scalars (uint16 / bit) rather than field
   __impl_setShareholderProposal: { in: "SET_SHAREHOLDER_PROPOSAL_input", out: "SET_SHAREHOLDER_PROPOSAL_output", typedIO: true },
   __impl_setShareholderVotes: { in: "SET_SHAREHOLDER_VOTES_input", out: "SET_SHAREHOLDER_VOTES_output", typedIO: true },
 };
@@ -58,13 +53,10 @@ export const SCALAR_SIZE: Record<string, number> = {
   auto: 8,   // `auto` locals in qpi.h bodies are integer counters (pointer cases carry a trailing *)
 };
 
-// Plain C scalar spellings that SCALAR_SIZE doesn't key (they lower through other paths); listed
-// so the unknown-type check doesn't flag them.
+// Plain C scalar spellings that SCALAR_SIZE doesn't key (they lower through other paths); listed so the unknown-type check
 export const C_SCALAR_NAMES = new Set([
   "int", "unsigned", "signed", "long", "short", "char", "size_t", "unsigned long", "long int",
 ]);
 
-// QPI safe-math free functions (div/mod/min/max/...) have a dedicated, divide-by-zero-safe lowering in
-// emitMathCall. Their qpi.h template bodies (`return b ? (a/b) : 0`) rely on ternary short-circuit we don't
-// guarantee, so they must NOT be instantiated as generic lib fns — let emitMathCall own them.
+// QPI safe-math free functions (div/mod/min/max/...) have a dedicated, divide-by-zero-safe lowering in emitMathCall. Their qpi.h template bodies (`return b
 export const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);

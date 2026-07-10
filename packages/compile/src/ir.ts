@@ -1,10 +1,4 @@
-// Typed WAT IR: WebAssembly text as a tree of nodes tagged i32/i64/void, built through smart
-// constructors that assert operand types at construction time. A wrong stack type (an i64 where an
-// i32 is required, a void helper used as a value, a missed sub-64-bit narrowing) throws at the
-// codegen site instead of surfacing as a wat2wasm parse error or a silent byte divergence.
-//
-// emit() is the single printer and reproduces the codegen's canonical single-space S-expression
-// format exactly — the IR migration is verified by byte-identical WAT output.
+// Typed WAT IR nodes: `i32/i64/void` with constructor-time type assertions.
 
 export type Ty = "i32" | "i64" | "void";
 export type Val = "i32" | "i64";
@@ -96,11 +90,7 @@ export const OP_SIG: Record<string, OpSig> = {
   drop: { res: "void", ops: ["val"] },
 };
 
-// ---- framework call signatures ----
-// The ABI of every static function in framework.ts a generated function may call. Hand-derived
-// from framework.ts (the source of truth); the cross-check test regexes the framework text and
-// asserts agreement. Dynamic per-contract targets (helpers, methods, dispatch stubs) are not
-// listed — call sites use callSig with an explicit signature instead.
+// --- framework call signatures ---- Call signature table for framework static imports only.
 
 export interface CallSig {
   params: readonly Val[];
@@ -280,8 +270,7 @@ export function call(target: string, ...args: Ir[]): Ir {
   return callSig(s, target, ...args);
 }
 
-// Call through an explicit signature — for per-contract generated targets (helpers, methods,
-// dispatch stubs) that cannot live in the static registry.
+// Call through an explicit signature — for per-contract generated targets (helpers, methods, dispatch stubs) that cannot live in
 export function callSig(s: CallSig, target: string, ...args: Ir[]): Ir {
   if (args.length !== s.params.length) {
     throw new Error(`IR: call ${target} expects ${s.params.length} arg(s), got ${args.length}`);
@@ -295,8 +284,6 @@ export function raw(text: string, ty: Ty, why?: string): Ir {
 }
 
 // True when evaluating the node can neither trap nor produce a side effect — safe for wasm select's
-// eager evaluation. Division/remainder trap on zero; calls and raw text are opaque, so both count as
-// impure. Loads are pure here: contract addresses are in-bounds by construction.
 export function pureIr(n: Ir): boolean {
   switch (n.k) {
     case "const":
@@ -335,7 +322,6 @@ export function addr0(base: Ir, offset: number): Ir {
 }
 
 // Explicit-opcode load, for shapes like (i64.load offset=8 a). offset null omits the attribute;
-// offset 0 prints offset=0.
 export function loadRaw(mnemonic: string, offset: number | null, addr: Ir): Ir {
   assertTy(addr, "i32", `${mnemonic} address`);
   const ty: Val = mnemonic.startsWith("i64.") ? "i64" : "i32";
@@ -348,8 +334,7 @@ export function storeRaw(mnemonic: string, offset: number | null, addr: Ir, v: I
   return { k: "store", ty: "void", op: mnemonic, offset, addr, v };
 }
 
-// Load a scalar field into the i64 value model: 8-byte fields load directly, narrower fields load
-// at their width and zero/sign-extend. Sizes outside 1/2/4/8 fall back to a plain i64.load.
+// Load a scalar field into the i64 value model: 8-byte fields load directly, narrower fields load at their
 export function loadScalar(addr: Ir, size: number, signed = false): Ir {
   assertTy(addr, "i32", "loadScalar address");
   switch (size) {
@@ -366,8 +351,7 @@ export function loadScalar(addr: Ir, size: number, signed = false): Ir {
   }
 }
 
-// Store an i64 register value to a scalar field: 8-byte fields store directly, narrower fields
-// wrap to i32 and store at their width (the wrap is the write-side truncation).
+// Store an i64 register value to a scalar field: 8-byte fields store directly, narrower fields wrap to i32
 export function storeScalar(addr: Ir, size: number, v: Ir): Ir {
   assertTy(addr, "i32", "storeScalar address");
   assertTy(v, "i64", "storeScalar value");

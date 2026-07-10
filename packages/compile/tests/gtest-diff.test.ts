@@ -1,6 +1,4 @@
-// Differential gtest validation: drive MY TS-compiled contract wasm with the SAME gtest cases that
-// pin the native-clang build. If my contract passes them, my codegen is execution-correct (not just
-// state-layout-correct). Requires the wasi-sdk (native clang) to build the test runner — skips if absent.
+// Differential gtest validation: drive MY TS-compiled contract wasm with the SAME gtest cases that pin the native-clang build.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

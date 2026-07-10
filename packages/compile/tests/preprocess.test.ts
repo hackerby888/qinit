@@ -1,5 +1,4 @@
-// Preprocessor unit tests: macro expansion, conditional directives, built-in defines,
-// # and ## operators, recursion guard, varargs, backslash continuation.
+// Preprocessor unit tests: macro expansion, conditional directives, built-in defines, # and ## operators, recursion guard, varargs, backslash continuation.
 import { describe, test, expect } from "bun:test";
 import { Preprocessor } from "../src/preprocess";
 import type { MacroDef } from "../src/preprocess";
@@ -74,7 +73,6 @@ describe("function-like macros", () => {
   test("nested macro calls", () => {
     const out = pp("#define DOUBLE(x) ((x)+(x))\n#define SQUARE(x) ((x)*(x))\nSQUARE(DOUBLE(3))");
     // SQUARE body: ((x)*(x)). x = DOUBLE(3) = ((3)+(3)).
-    // Substitution wraps: ((((3)+(3)))*(((3)+(3))))
     expect(out).toContain("((((3)+(3)))*(((3)+(3))))");
   });
 
@@ -170,7 +168,6 @@ describe("chained expansion", () => {
 
   test("chain of 4 (beyond 3-pass limit — still ok for short chains)", () => {
     // The recursive expander runs up to 3 passes. 3-hop chain A→B→C→D works
-    // because D is object-like and each pass catches one level.
     const out = pp("#define A B\n#define B C\n#define C D\n#define D 42\nA");
     expect(out).toContain("42");
   });

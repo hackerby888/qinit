@@ -1,5 +1,4 @@
 // Calls to compiler-known QPI/container APIs need the same arity/reference checks as native C++.
-// Silently supplying zero for missing operands or dropping extras changes contract behavior.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 

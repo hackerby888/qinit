@@ -1,6 +1,4 @@
 // Dump the parsed AST of a QPI contract as an indented tree.
-//   bun packages/compile/tools/ast-dump.ts <contract.h> [outFile]
-// Core headers resolve from QINIT_CORE (default /home/kali/Projects/core-lite).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";

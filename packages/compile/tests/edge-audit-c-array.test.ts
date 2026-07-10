@@ -1,5 +1,4 @@
 // Fixed C arrays occur in QPI ABI/state layouts. Cover initialization cardinality, inferred bounds,
-// multidimensional addressing, and zero-initialization of omitted elements.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

@@ -1,8 +1,4 @@
-// (uint128)(scalarExpr) evaluates the inner expression in the scalar domain — uint64 wrap —
-// then zero-extends into the low limb. The lowering used to recurse into the cast and run the
-// arithmetic at 128 bits, so (uint128)(a - b) borrowed into the high limb and (uint128)(a * b)
-// kept the full 128-bit product. The same contract also pins computed uint128 declaration
-// initializers (cast form and div<uint128>), which used to be rejected as unsupported.
+// u128 cast semantics regression: `(uint128)(scalarExpr)` must evaluate in scalar domain, then zero-extend into low limb.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -44,8 +40,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-// native-verified with a=2, b=5: f0/f1 = 2-5 wrapped in uint64 (high stays 0 — no 128-bit
-// borrow), f2/f3 = 10, f4/f5 = decl-init cast of the same wrap, f6/f7 = 2^64 / 5.
+// native-verified with a=2, b=5: f0/f1 = 2-5 wrapped in uint64 (high stays 0 — no 128-bit borrow), f2/f3
 const EXPECTED = "fdffffffffffffff00000000000000000a000000000000000000000000000000fdffffffffffffff000000000000000033333333333333330000000000000000";
 const INPUT = [2n, 5n, 0n, 0n];
 

@@ -1,6 +1,4 @@
-// The snapshot pipeline: assembleQpiHeader is the single source of header text (loadQpiHeader
-// delegates to it), the generator's output embeds it verbatim, and the browser entry compiles
-// without a caller-provided qpiHeader.
+// The snapshot pipeline: assembleQpiHeader is the single source of header text (loadQpiHeader delegates to it), the generator's output
 import { describe, test, expect } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -40,8 +38,7 @@ describe.if(coreOk)("qpi snapshot assembly", () => {
   });
 });
 
-// Computed specifiers: both modules exist only after generation — a literal import would fail
-// typechecking on a checkout that hasn't run the generator.
+// Computed specifiers: both modules exist only after generation — a literal import would fail typechecking on a checkout
 const genModule = "../.generated/qpi-snapshot";
 const browserModule = "../src/browser";
 

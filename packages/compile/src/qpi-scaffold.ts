@@ -1,8 +1,4 @@
-// Simplified function-scaffolding macros, prepended to the USER source (override the real qpi.h
-// macros for the user-code parse only). They expand the contract's PUBLIC_FUNCTION / PUBLIC_PROCEDURE
-// / REGISTER_* / lifecycle macros into the predictable shape codegen's extractRegistrations + emitFunction
-// expect. The real qpi.h is still parsed (separately) for container/type layouts — these only affect
-// how the user's own functions are scaffolded, which the real macros' guard objects don't change.
+// Parser-only macro scaffold that overrides qpi.h for user code only.
 export const SCAFFOLD_MACROS = `
 #undef INITIALIZE
 #undef BEGIN_EPOCH

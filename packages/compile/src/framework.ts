@@ -1,26 +1,10 @@
-// Framework WAT assembler. Produces a complete WASM-text module from per-contract data
-// (state size, registered entries, system procedures, and the user function bodies).
-// No placeholders, no regex splicing — codegen passes concrete data and this emits a valid module.
-//
-// Memory layout (all offsets computed here, embedded as constants):
-//   [0 .. stateSize)            resident StateData (engine aliases contractStates[slot] here)
-//   [ctxBase .. ctxBase+256)    QpiContext header (host populates per call)
-//   [ioBase ..]                 io carve: [in 64K | out 64K | locals 32K | arena]
-//
-// QpiContext field offsets (engine abi.ts): contractIndex@0, originator@40, invocator@72, reward@104.
-
-// IO carve sizes — MUST match the engine (runtime.ts IN_SZ/OUT_SZ/LOCALS_SZ) and core-lite's
-// lite_wasm_contracts.h. tests/abi-drift.test.ts pins these against the engine so a core change can't
-// desync silently.
+// WAT assembler for a complete contract module.
 export const IN_SZ = 64 * 1024;
 export const OUT_SZ = 64 * 1024;
 export const LOCALS_SZ = 32 * 1024;
 const CTX_SZ = 256;
 
-// QpiContext field byte-offsets the forwarders read — the single place this WAT depends on the context
-// header layout. MUST equal the engine's abi.ts QpiContext.OFFSETS (which derives them from the C struct);
-// tests/abi-drift.test.ts asserts that, so a layout change in core surfaces as a failing test, not silent
-// wrong-identity reads.
+// QpiContext offsets used by all WAT forwarders.
 export const CTX = { contractIndex: 0, originator: 40, invocator: 72, invocationReward: 104 } as const;
 
 export interface UserEntry {
@@ -49,8 +33,6 @@ export interface ModuleSpec {
   migrate?: { label: string; oldStateSize: number; localsSize: number };  // MIGRATE() metadata + dispatch target
   memBase?: number;           // shared-memory gtest mode: import env.memory and place the whole layout at
                               // this byte offset inside the provider's (corpus runner's) memory. Every
-                              // address in the module is layout-global-relative, so shifting the bases in
-                              // computeLayout relocates everything — there are no data segments.
 }
 
 // Back-compat shape used by older callers / tests.
@@ -87,8 +69,7 @@ function computeLayout(stateSize: number, arenaSize: number, memBase = 0): Layou
   const arenaBase = localsBase + LOCALS_SZ;
   const arenaEnd = arenaBase + arenaSize;
   const ioSize = IN_SZ + OUT_SZ + LOCALS_SZ + arenaSize;
-  // Asset-iterator result buffer (AssetOwnership/PossessionIterator): 1024 records × 80 bytes, written by
-  // the assetEnumerate host import at begin() and indexed by the iterator's cursor.
+  // Asset-iterator result buffer (AssetOwnership/PossessionIterator): 1024 records × 80 bytes, written by the assetEnumerate host import at begin() and
   const iterBufBase = align(arenaEnd, 16);
   const iterBufSize = 80 * 1024;
   const pages = Math.ceil((iterBufBase + iterBufSize) / 65536) + 1;
@@ -309,7 +290,6 @@ function emitAllocators(L: Layout): string {
 
 function emitForwarders(): string {
   // Thin wrappers from $qpi_* (codegen targets) to the lhost imports.
-  // Context accessors read the QpiContext header at $ctxBase: contractIndex@0, originator@40, invocator@72, reward@104.
   return `  ;; ---- qpi forwarders ----
   (func $qpi_transfer (param $d i32) (param $a i64) (result i64) (call $lh_transfer (local.get $d) (local.get $a)))
   (func $qpi_transferTyped (param $d i32) (param $a i64) (param $t i32) (result i64) (call $lh_transferTyped (local.get $d) (local.get $a) (local.get $t)))
@@ -367,9 +347,6 @@ function emitForwarders(): string {
 
 function emitIntrinsics(): string {
   // Container + helper intrinsics the codegen targets. HashMap helpers reproduce the real qpi.h
-  // layout (Element _elements[L] @0, _occupationFlags @occBase, _population @popOff) and probing
-  // (linear, one occupation flag at a time — observably identical to the batched qpi.h version).
-  // hashMode: 0 = id/m256i key (hash = first 8 bytes), 1 = other key (hash = K12(key)[0..8]).
   return `  ;; ---- intrinsics ----
   ;; SELF as a materialized id: { contractIndex:u64, 0, 0, 0 } in scratch, returns its address.
   (func $self_id (result i32) (local $p i32)
@@ -960,8 +937,7 @@ function emitSysSwitch(sysprocs: SysProcInfo[], val: (sp: SysProcInfo) => number
 function emitDispatch(spec: ModuleSpec): string {
   const lines: string[] = [];
   lines.push("  ;; ---- dispatch ----");
-  // No arena reset here: a reentrant dispatch (POST_INCOMING_TRANSFER fired mid-call) must allocate above
-  // the live outer frames. The host resets arena_top at depth 0 and carves nested io regions from the arena.
+  // No arena reset here: a reentrant dispatch (POST_INCOMING_TRANSFER fired mid-call) must allocate above the live outer frames. The
   lines.push("  (func $dispatch (param $kind i32) (param $it i32) (param $inOff i32) (param $outOff i32) (param $localsOff i32)");
 
   // kind == 2: system procedure
@@ -987,8 +963,6 @@ function emitDispatch(spec: ModuleSpec): string {
   }
 
   // kind 0/1: user functions/procedures. The incoming it is masked to 16 bits like the native dispatch
-  // ((unsigned short)it, lite_wasm_tu.h) — a notification procedureId carries the contract slot above
-  // bit 22 and must still match its low-16 registration.
   for (const e of spec.entries) {
     lines.push(`    (if (i32.and (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${e.inputType})) (i32.eq (local.get $kind) (i32.const ${e.kind}))) (then`);
     lines.push(`      (call ${e.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`);

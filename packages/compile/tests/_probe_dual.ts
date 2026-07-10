@@ -29,7 +29,6 @@ function depNamesOf(c: any, corpusSrc: string, contractSrc: string): any[] {
 }
 
 // Shared-memory layout (heavy corpora): contracts live inside the runner's memory above SHARED_START.
-// Pass 1 builds/compiles normally to read state_size; pass 2 relinks/re-emits at the packed base.
 const SHARED_START = 0x20000000;
 const MAIN_ARENA = 1024 * 1024 * 1024;
 const DEP_ARENA = 128 * 1024 * 1024;
@@ -83,8 +82,7 @@ async function oursWasms(c: any, deps: any[], shared: boolean): Promise<Record<n
     nextBase = (base + stateSize + arenaSz + SLACK + 0xffff) & ~0xffff;
     return (await compileContract({ ...o, arenaSz, sharedMemBase: base })).wasm;
   };
-  // A dep may itself CALL another system contract (QRWA's corpus deploys QUTIL/QSWAP, which CALL QX) —
-  // compile every dep with its own callee IDLs, else the strict gate empties it ("no callee IDL").
+  // A dep may itself CALL another system contract (QRWA's corpus deploys QUTIL/QSWAP, which CALL QX) — compile every
   const idlCache = new Map<string, { entry: any; source: string }>();
   const calleeInfo = async (cc: any) => {
     if (idlCache.has(cc.name)) return idlCache.get(cc.name)!;
@@ -145,8 +143,7 @@ for (const c of catalog) {
     if (!runner.ok || !runner.so) { emit(`  HARNESS-BUILD  ${c.name.padEnd(11)} ${(runner.stderr ?? "").split("\n").filter((l) => /error:/.test(l))[0]?.replace(/.*\//, "").slice(0, 64) ?? "?"}`); continue; }
     const runnerBytes = new Uint8Array(readFileSync(runner.so));
     const shared = HEAVY.has(c.name);
-    // slot -> ticker (contractDescriptions assetName) so qpi.distributeDividends can find each contract's
-    // share asset in the universe.
+    // slot -> ticker (contractDescriptions assetName) so qpi.distributeDividends can find each contract's share asset in the universe.
     const assetNames = Object.fromEntries([c, ...deps].map((cc: any) => [cc.index, cc.name]));
     const nat = await runContractTesting(runnerBytes, await nativeWasms(c, deps, shared), { assetNames });
     console.log(`  [native done: ${nat.filter((t) => t.passed).length}/${nat.length}]`);

@@ -1,9 +1,4 @@
-// Differential fuzzer soak runner: generates seeded contracts, compiles each with our
-// compiler and the wasi-native clang build, runs both in fresh Sims on the same input
-// vectors and byte-compares the full StateData. Divergences and build failures land in
-// tools/fuzz-findings/ as a JSON report plus the source, keyed by seed.
-//
-//   bun run tools/fuzz-diff.ts <count> [startSeed] [--jobs N] [--ours-only]
+// Differential fuzzer driver for seeded contracts.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

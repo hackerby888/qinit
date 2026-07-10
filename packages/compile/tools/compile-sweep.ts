@@ -1,11 +1,4 @@
-// Standalone compile sweep over all loadable contracts (no engine needed). Reports wasm size +
-// error/warning counts so body-codegen regressions (new errors) or stub-coverage gaps show.
-//
-// Callee-aware: sibling system contracts referenced by a source (the corpus-run depSpecs regex,
-// `\bNAME(::|_[A-Z0-9])`) are compiled first (strict off — only their IDL/source matter here) and
-// passed as callees/calleeSources, matching what a real build wires. Without this the sweep
-// overcounts: inter-contract calls and callee struct/constant references fail as fidelity errors
-// that a real build resolves.
+// Standalone sweep tool: compile contracts without engine.
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { compileContract, loadQpiHeader, type CompileResult, type CalleeIdl } from "../src/index";

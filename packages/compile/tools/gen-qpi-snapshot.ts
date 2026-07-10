@@ -1,14 +1,4 @@
-// Generate the QPI header snapshot consumed by @qinit/compile/browser.
-//
-//   bun tools/gen-qpi-snapshot.ts [--core <core-lite checkout>] [--verify] [--watch] [--quiet]
-//
-// Reads the core checkout (--core or QINIT_CORE), assembles the header snapshot (same logic as
-// loadQpiHeader — src/qpi-snapshot.ts), and writes .generated/qpi-snapshot.{txt,ts,meta.json}.
-// Output is deterministic (no timestamps) and cached by content hash: an unchanged core produces
-// no writes, a dirty local core header edit changes the hash and regenerates.
-//
-//   --verify   fail (exit 1) when the generated hash differs from core-snapshot.json — CI gate
-//   --watch    keep running and regenerate when any input header changes
+// CLI for generating browser snapshot artifacts: `.generated/qpi-snapshot.{txt,ts,meta.json}`.
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";

@@ -1,5 +1,4 @@
 // Counter end-to-end spike: validate engine ABI + framework WAT.
-// Uses existing Counter.wasm fixture to verify the engine interface.
 
 import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync, existsSync } from "node:fs";

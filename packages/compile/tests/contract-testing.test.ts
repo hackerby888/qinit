@@ -1,7 +1,4 @@
-// Verifies that the engine's generic runContractTesting binding reproduces the QUTIL corpus outcome
-// previously validated by qutil-bridge.ts:runUpstream. The same runner wasm and contract pair are reused;
-// only the harness changes — engine binding vs bespoke bridge — so a PASS here proves the ported logic is
-// correct and the state-sync extensions are inert for QUTIL (which does not call getState).
+// Verifies that the engine's generic runContractTesting binding reproduces the QUTIL corpus outcome previously validated by qutil-bridge.ts:runUpstream. The same
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";

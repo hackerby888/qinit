@@ -1,5 +1,4 @@
 // Validator unit tests: validateAndDesugar in isolation.
-// Tests the 20+ rejection rules without going through the full compilation pipeline.
 import { describe, test, expect } from "bun:test";
 import { validateAndDesugar } from "../src/validate";
 import type {
@@ -9,9 +8,7 @@ import type {
 
 const NO_SPAN: Span = { start: 0, end: 0, line: 1, col: 1 };
 
-// ---- AST builder helpers ----
-// Cast through `any` so test builders stay concise. Every helper produces objects whose runtime
-// shape the compiler stages accept; casts just silence literal-excess-property checks.
+// --- AST builder helpers ---- Cast through `any` so test builders stay concise. Every helper produces objects whose
 
 const nt = (name: string): TypeSpec => ({ kind: "name", name, span: NO_SPAN } as TypeSpec);
 const vd = (): TypeSpec => ({ kind: "void", span: NO_SPAN } as TypeSpec);

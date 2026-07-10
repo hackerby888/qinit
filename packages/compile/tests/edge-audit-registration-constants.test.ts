@@ -1,5 +1,4 @@
 // REGISTER_USER_* accepts integral constant expressions in native C++. Registration extraction must
-// evaluate them, preserve valid entries, and diagnose folded values outside the uint16 input range.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

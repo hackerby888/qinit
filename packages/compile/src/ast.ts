@@ -1,6 +1,4 @@
 // Unified AST for the QPI C++ subset — covers user contract code AND qpi.h template bodies.
-// Serializable (JSON-friendly) so qpi.h can be pre-parsed to qpi-ast.json at build time.
-// No discriminated-union helpers; plain TypeScript tagged unions with `kind` discriminators.
 
 // ---- Source location ----
 

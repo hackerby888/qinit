@@ -1,6 +1,4 @@
 // Recursive-descent parser for the QPI C++ subset.
-// Consumes tokens from Lexer, emits AST nodes. Handles both user contract code
-// and qpi.h template bodies via the unified AST.
 
 import type { Token, TokenKind } from "./lexer";
 import { Lexer, isTypeKeyword } from "./lexer";
@@ -18,8 +16,7 @@ export interface Diagnostic {
   severity: "error" | "warning";
   message: string;
   span: Span;
-  // "fidelity": the construct was dropped or lowered to a placeholder, so the emitted module would
-  // not faithfully reproduce the source. Strict builds escalate these to errors.
+  // "fidelity": the construct was dropped or lowered to a placeholder, so the emitted module would not faithfully reproduce
   category?: "fidelity";
 }
 
@@ -34,15 +31,10 @@ export class Parser {
   private lex: Lexer;
   private diagnostics: Diagnostic[] = [];
   // Diagnostics raised while parsing a function body in isolation. They stay visible (getDiagnostics
-  // merges them) but are deliberately kept out of the structural `diagnostics` list so they never make
-  // the panic-recovery in a class/namespace member loop skip a sibling declaration.
   private bodyDiagnostics: Diagnostic[] = [];
-  // While > 0 (inside a template parameter/argument list), a top-level `>` / `>>` closes the list
-  // rather than acting as a comparison/shift operator — C++'s GreaterThanIsOperator=false. Reset to 0
-  // inside nested parens/braces so a parenthesized guard like `(a > b)` still parses.
+  // While > 0 (inside a template parameter/argument list), a top-level `>` / `>>` closes the list rather than
   private gtDisabled = 0;
   // Extra declarations produced by a single parse step (e.g. `struct {...} a, b[4];` yields the
-  // struct plus per-declarator variables). Drained by the member/decl-list loops.
   private pending: Declaration[] = [];
 
   constructor(tokens: Token[]) {
@@ -80,12 +72,7 @@ export class Parser {
     return [...this.diagnostics, ...this.bodyDiagnostics];
   }
 
-  // Parse a `{ ... }` function body in isolation. qpi.h's method bodies routinely exceed our expression
-  // subset (comma operator, braced-init arguments, local types); parsing them inline lets a failure run
-  // the cursor past the body's closing brace and collapse the enclosing struct/namespace. Instead, slice
-  // the body at balanced-brace depth, parse the slice in a sub-parser (which physically cannot read past
-  // the body), then resume the outer cursor right after the matching `}`. The cursor is positioned at the
-  // opening `{` on entry. Body diagnostics are recorded as informational so they don't trip recovery.
+  // Parse function bodies in isolation when qpi.h bodies exceed expression subset.
   private parseFunctionBody(): Statement {
     const toks = (this.lex as any).tokens as Token[];
     const openIdx = (this.lex as any).index;
@@ -173,7 +160,6 @@ export class Parser {
   }
 
   // Close a template angle. C++ lexes `>>` (and `>=`) as one token; when it closes nested template
-  // args we must split it: consume one `>` and leave the remainder for the outer template.
   private consumeAngleClose(): void {
     const tok = this.peek();
     const idx = (this.lex as any).index;
@@ -232,7 +218,6 @@ export class Parser {
         return this.parseFunctionOrVariable(); // with modifiers
       case "kw_const":
         // `const Type& name = ...` — a const qualifier belongs to the type, so peek the whole type
-        // (parseTypeSpec consumes the const) rather than treating const as a storage modifier.
         return this.parseFunctionOrVariablePeekType();
       case "hash":
         return this.parsePreprocessorLine();
@@ -269,8 +254,6 @@ export class Parser {
         return this.parseUnion();
       case "kw_operator": {
         // Conversion operator: `operator Type() const { ... }` — no leading return type. Parsed as a
-        // method named `operator Type` whose return type is the target type, matching the name shape
-        // parseQualifiedName produces for operator members.
         this.next();
         const targetType = this.parseTypeSpec();
         const targetName = targetType.kind === "name" ? targetType.name : "?";
@@ -278,8 +261,6 @@ export class Parser {
       }
       default:
         // Skip unknown token — qpi.h has constructs our subset parser doesn't handle. Recorded as a
-        // fidelity diagnostic (in bodyDiagnostics so panic-recovery is not tripped); library-side skips
-        // are filtered out by the user-boundary line, so only skips in user source surface.
         this.bodyDiagnostics.push({
           severity: "warning",
           category: "fidelity",
@@ -317,7 +298,6 @@ export class Parser {
     const name = nameTok?.text ?? "";
 
     // Partial / explicit specialization: `struct Foo<ProposalDataYesNo, numOfVotes> : ... { ... }`.
-    // Capture the specialization arguments so the codegen can select this definition over the primary.
     let specializationArgs: TypeSpec[] | undefined;
     if (this.peek().kind === "l_angle") {
       specializationArgs = this.parseSpecializationArgs();
@@ -350,10 +330,7 @@ export class Parser {
       span: this.makeSpan(start),
     };
 
-    // Combined form: `struct Tag {...} field[N], field2;` — declarators after the body become
-    // member variables whose type is this struct. The type is carried inline (not by name) so a
-    // nested tag (ProposalDataV1's `union Data {...} data`) resolves without scope lookups; the
-    // named struct is still returned as a sibling declaration for by-name references.
+    // Combined form: `struct Tag {...} field[N], field2;` — declarators after the body become member variables whose type is
     if (hadBody && this.declaratorFollows()) {
       const declType: TypeSpec = { kind: "inline_struct", struct, span: start };
       while (this.peek().kind === "star" || this.peek().kind === "amp") this.next();
@@ -374,8 +351,6 @@ export class Parser {
   }
 
   // Parse the `<...>` of a (partial) class specialization head — `struct Foo<ProposalDataYesNo, numOfVotes>`.
-  // Each argument is either a non-type value expression or a type (a concrete type to match, or a template
-  // parameter name acting as a wildcard).
   private parseSpecializationArgs(): TypeSpec[] {
     this.next(); // <
     const args: TypeSpec[] = [];
@@ -420,9 +395,6 @@ export class Parser {
     };
 
     // Combined form: `union Data {...} data;` — the declarator after the body is a member variable of this
-    // union type (e.g. ProposalDataV1's payload). Without it the union member is dropped and the enclosing
-    // struct is sized short by the union's width. Carried inline like the struct form so nested member
-    // chains (p.data.variableScalar.x) resolve without scope lookups.
     if (hadBody && this.declaratorFollows()) {
       const declType: TypeSpec = { kind: "inline_struct", struct: union, span: start };
       while (this.peek().kind === "star" || this.peek().kind === "amp") this.next();
@@ -494,7 +466,6 @@ export class Parser {
 
         if (this.tryConsume("eq")) {
           // The default value runs up to the closing `>` of the template list — don't let a top-level
-          // `>` (e.g. `proposalSlotCount = 676>`) be misread as a comparison operator.
           this.gtDisabled++;
           const defVal = this.parseExpression();
           this.gtDisabled--;
@@ -776,8 +747,7 @@ export class Parser {
       return this.parseAfterModifiers(false, false, false, false, false);
     }
 
-    // Identifier followed by ";" → variable declaration
-    // Identifier followed by "=" → variable with init
+    // Identifier followed by ";" → variable declaration Identifier followed by "=" → variable with init
     if (nextTok.kind === "semicolon" || nextTok.kind === "eq") {
       return this.parseAfterModifiers(false, false, false, false, false);
     }
@@ -798,8 +768,6 @@ export class Parser {
 
     if (!name) {
       // Constructor / destructor: `ClassName(...) {...}` or `~ClassName() {...}` — no return type. Parse
-      // as a void function named after the type so its brace body is consumed cleanly (we never compile
-      // it: state is zero-initialized in wasm mode).
       if (this.peek().kind === "l_paren" && type.kind === "name") {
         return this.parseFunctionRest(type.name, { kind: "void" }, isConstexpr, isStatic, isInline, isVirtual, isExtern);
       }
@@ -808,10 +776,7 @@ export class Parser {
       return { kind: "empty" };
     }
 
-    // `name(...)` is either a function declaration or a variable with constructor-style direct-init
-    // (Type name(expr, ...);). In this subset a function parameter list never begins with an expression
-    // token, so when the first token after `(` clearly starts an expression it is a direct-init variable
-    // (e.g. qpi.h's `__ScopedScratchpad scratchpad(sizeof(*this), false)`).
+    // `name(...)` is either a function declaration or a variable with constructor-style direct-init (Type name(expr, ...);). In this subset
     if (this.peek().kind === "l_paren") {
       if (this.looksLikeDirectInit()) {
         return this.parseDirectInitVar(name, type, isConstexpr, isStatic);
@@ -823,16 +788,14 @@ export class Parser {
     return this.parseVariableRest(name, type, isConstexpr, isStatic);
   }
 
-  // After a `name`, peek past `(` to decide function-declaration vs constructor-style direct-init: a
-  // function parameter list opens with a type, `void`, or `)`; a direct-init opens with an expression.
+  // After a `name`, peek past `(` to decide function-declaration vs constructor-style direct-init: a function parameter list opens with
   private looksLikeDirectInit(): boolean {
     const after = this.peek(1).kind;
     return (
       after === "kw_sizeof" || after === "int_literal" || after === "float_literal" ||
       after === "string_literal" || after === "char_literal" || after === "kw_true" ||
       after === "kw_false" || after === "kw_nullptr" || after === "minus" ||
-      // A `{` after `(` is a braced-init constructor argument (`AssetPossessionIterator iter({NULL_ID, name})`)
-      // — a parameter list can't open with `{`, so this is unambiguously a direct-init variable, not a function.
+      // A `{` after `(` is a braced-init constructor argument (`AssetPossessionIterator iter({NULL_ID, name})`) a parameter list can't open with
       after === "bang" || after === "tilde" || after === "l_brace"
     );
   }
@@ -925,8 +888,7 @@ export class Parser {
     return vars[0] ?? { kind: "empty" };
   }
 
-  // Parse one or more declarators sharing a base type: `name[dim]...`, `name = init`, `, name2, ...`,
-  // terminated by `;`. Handles C array members (the key qpi.h container-layout construct).
+  // Parse one or more declarators sharing a base type: `name[dim]...`, `name = init`, `, name2, ...`, terminated by
   private parseDeclaratorList(baseType: TypeSpec, firstName: string, isConstexpr: boolean, isStatic: boolean): VariableDecl[] {
     const out: VariableDecl[] = [];
     let name = firstName;
@@ -955,8 +917,6 @@ export class Parser {
         init = this.parseExpression();
       } else if (this.peek().kind === "l_brace") {
         // Direct-list initialization is executable semantics, not layout trivia. Preserve the
-        // elements and attach the declared type for scalar/struct construction; arrays keep the
-        // raw initializer-list shape so codegen can recurse through their dimensions.
         const list = this.parseExpression();
         init = type.kind === "array" || list.kind !== "initializer_list"
           ? list
@@ -1056,8 +1016,7 @@ export class Parser {
       return { kind: "name", name: "auto", span: tok.span };
     }
 
-    // `typename` is a parse-time disambiguator (typename Sel<v>::type) — drop it and parse the type that
-    // follows; any trailing `::member` is captured below as a dependent-member type.
+    // `typename` is a parse-time disambiguator (typename Sel<v>::type) — drop it and parse the type that follows; any trailing
     if (tok.kind === "kw_typename") {
       this.next();
       return this.parseBaseType();
@@ -1081,7 +1040,6 @@ export class Parser {
     }
 
     // Name or qualified name. In a type position, `Sel<args>::member` is a dependent type — stop the
-    // qualified name at the `<` so the template instance and its `::member` are captured below.
     const name = this.parseQualifiedName(true);
     if (!name) {
       this.diagnostics.push({
@@ -1100,8 +1058,7 @@ export class Parser {
 
       while (!this.eof() && this.peek().kind !== "r_angle") {
         const k = this.peek().kind;
-        // Non-type arg that is a value expression (literal, paren, sizeof, `-N`, `~N`) — parse at
-        // shift precedence so arithmetic like `64*1024*1024` is captured but `>` stays the closer.
+        // Non-type arg that is a value expression (literal, paren, sizeof, `-N`, `~N`) — parse at shift precedence so
         if (k === "int_literal" || k === "l_paren" || k === "kw_sizeof" || k === "char_literal" ||
           k === "minus" || k === "tilde" || k === "kw_true" || k === "kw_false" || this.templateArgIsExpr()) {
           args.push({ kind: "expr_value", expr: this.parseShift(), span: this.peek().span });
@@ -1131,9 +1088,7 @@ export class Parser {
     return { kind: "name", name, span: tok.span };
   }
 
-  // A template argument that begins with a (qualified) identifier followed by an arithmetic operator and
-  // another operand is a NON-TYPE value expression (e.g. Collection<T, QSWAP_MAX_POOL * QSWAP_MAX_USERS>),
-  // not a pointer type — so it is parsed as an expression rather than `Type *`.
+  // A template argument that begins with a (qualified) identifier followed by an arithmetic operator and another operand is
   private templateArgIsExpr(): boolean {
     if (this.peek().kind !== "identifier") return false;
     let i = 1;
@@ -1284,7 +1239,6 @@ export class Parser {
     while (!this.eof()) {
       const tok = this.peek();
       // `<` / `>` lex as l_angle / r_angle (shared with template brackets). At this precedence level
-      // they are comparison operators (parsePostfix already declined any template-call interpretation).
       const ops: Record<string, BinaryOp> = {
         "l_angle": "<", "r_angle": ">", "lt_eq": "<=", "gt_eq": ">=",
       };
@@ -1365,7 +1319,6 @@ export class Parser {
     const tok = this.peek();
 
     // new/delete expressions: contracts have no heap. Report once with the real reason, then
-    // skip to the statement end so parsing continues without cascading mismatch errors.
     if ((tok.kind === "identifier" && tok.text === "new") || tok.kind === "kw_delete") {
       this.diagnostics.push({
         severity: "error",
@@ -1419,8 +1372,6 @@ export class Parser {
       const tok = this.peek();
 
       // Brace-init / aggregate construction: TypeName{ a, b, c } (e.g. Logger{ idx, code, 0 }). Only an
-      // identifier/qualified-name operand can be a type here; a compound block after a condition is parsed
-      // in parseStatement, so `{` in expression position is always construction.
       if (tok.kind === "l_brace" && (expr.kind === "identifier" || expr.kind === "qualified_name")) {
         const name = expr.kind === "identifier" ? expr.name : `${expr.namespace}::${expr.name}`;
         this.next(); // {
@@ -1464,7 +1415,6 @@ export class Parser {
       }
 
       // Template call: expr<T>(args) — only when the lookahead genuinely matches `< types > (`.
-      // Otherwise `<` is a comparison operator (handled higher up), so break out.
       if (tok.kind === "l_angle" && this.looksLikeTemplateArgs()) {
         this.next();
         const templateArgs: TypeSpec[] = [];
@@ -1496,8 +1446,7 @@ export class Parser {
     return expr;
   }
 
-  // Disambiguate `<` as template-args vs comparison: scan from the `<` for a matching `>` that is
-  // immediately followed by `(`, allowing only type-ish tokens inside. Anything else → comparison.
+  // Disambiguate `<` as template-args vs comparison: scan from the `<` for a matching `>` that is immediately followed
   private looksLikeTemplateArgs(): boolean {
     const save = (this.lex as any).index;
     this.next(); // consume `<`
@@ -1546,7 +1495,6 @@ export class Parser {
     if (tok.kind === "int_literal") {
       this.next();
       // Split the u/l suffix off the digits — literal typing (width/signedness) reads it.
-      // (u/l are not hex digits, so the match never eats into a 0x... value.)
       const m = tok.text.match(/^(.+?)([uUlL]+)$/);
       if (m) {
         return { kind: "int_literal", value: m[1], suffix: m[2], span: tok.span };
@@ -1643,8 +1591,7 @@ export class Parser {
     while (!this.eof()) {
       const tok = this.peek();
       if (stopAtAngle && tok.kind === "identifier" && this.peek(1).kind === "l_angle") {
-        // Type position: `Sel<args>::type` is a dependent type — stop here and let the caller capture the
-        // template instance and its `::member`, instead of dropping the args like an out-of-class method name.
+        // Type position: `Sel<args>::type` is a dependent type — stop here and let the caller capture the template instance
         parts.push(this.next().text);
         break;
       }
@@ -1665,7 +1612,6 @@ export class Parser {
       } else if (tok.kind === "identifier") {
         parts.push(this.next().text);
         // ClassTemplate<args>::method — out-of-class definition. Drop the qualifier's template args
-        // (the binding is recovered from the template<> header), keep the qualified name.
         if (this.peek().kind === "l_angle") {
           const save = (this.lex as any).index;
           if (this.skipAngleArgs() && this.peek().kind === "d_colon") {
@@ -1700,7 +1646,6 @@ export class Parser {
   }
 
   // Parse a comma-operator sequence (`i++, flags >>= 2`) into one expression. Used where a comma joins
-  // side-effecting expressions (for-update). A single expression returns as-is.
   private parseCommaSequence(): Expression {
     const first = this.parseExpression();
     if (this.peek().kind !== "comma") return first;
@@ -1712,10 +1657,7 @@ export class Parser {
     return { kind: "sequence", exprs, span: first.span };
   }
 
-  // A local variable declaration at statement start (a typedef'd type name, not a keyword): `Type var`,
-  // `Type* var`, `Type& var`, or a `const`/`auto` lead. `identifier identifier` is never a valid
-  // expression statement in C++, so this is unambiguous. (Contract bodies have no stack locals, but
-  // qpi.h's template method bodies — which we compile — do.)
+  // A local variable declaration at statement start (a typedef'd type name, not a keyword): `Type var`, `Type* var`,
   private looksLikeLocalDecl(): boolean {
     const t0 = this.peek().kind;
     if (t0 === "kw_const" || t0 === "kw_auto") return true;
@@ -1723,8 +1665,7 @@ export class Parser {
     // Skip a qualified type name: identifier (:: identifier)* — e.g. QPI::uint64 name.
     let i = 1;
     while (this.peek(i).kind === "d_colon" && this.peek(i + 1).kind === "identifier") i += 2;
-    // Skip template arguments `<...>` so `ProposalWithAllVoteData<D, N>& p` is recognized as a decl, not
-    // read as a `<` comparison. Bail (not a declaration) if the angles don't close before the statement ends.
+    // Skip template arguments `<...>` so `ProposalWithAllVoteData<D, N>& p` is recognized as a decl, not read as a `<`
     if (this.peek(i).kind === "l_angle") {
       let depth = 0;
       let j = i;
@@ -1745,7 +1686,6 @@ export class Parser {
   }
 
   // Consume a balanced <...> template-argument group (handling nested <> and >>). Returns true if it
-  // closed cleanly. Caller saves/restores the position for speculative use.
   private skipAngleArgs(): boolean {
     if (this.peek().kind !== "l_angle") return false;
     this.next(); // <
@@ -1762,8 +1702,6 @@ export class Parser {
   }
 
   // Decide whether `( ... )` begins a C-style cast vs a parenthesized expression. Only a *pure type*
-  // inside the parens counts — `(uint64*)x`, `(id)x`. Anything containing an operator or a value
-  // literal (e.g. `(L * 2 + 63)`) is an expression, NOT a cast.
   private isTypeCast(): boolean {
     const save = (this.lex as any).index;
     this.next(); // (
@@ -1781,10 +1719,7 @@ export class Parser {
 
     while (!this.eof()) {
       const t = this.peek();
-      // A C-style cast type-id in this subset never contains parentheses (no function-pointer / decltype
-      // types), so a nested `(` means this is a parenthesized EXPRESSION, not a cast. Without this,
-      // `((uint64)_55) * 26` reads as a cast — the inner `(uint64)` looks type-ish and the trailing `*`
-      // satisfies operandFollows — which then swallows the surrounding call-argument commas.
+      // In this subset, C-style casts have no parenthesized nested expressions.
       if (t.kind === "l_paren") { depth++; sawNestedParen = true; this.next(); continue; }
       if (t.kind === "r_paren") {
         if (depth === 0) { this.next(); break; }
@@ -1796,17 +1731,13 @@ export class Parser {
         t.kind === "star" || t.kind === "amp" || t.kind === "d_colon" ||
         t.kind === "l_angle" || t.kind === "r_angle" || t.kind === "r_shift" || t.kind === "comma" ||
         t.kind === "identifier";
-      // Casts in this subset only target scalar spellings — a template-angled type-id never
-      // appears in a C-style cast, but `(a < b)` / `(a < b) & c` do appear as expressions and
-      // would otherwise scan as `a<b>` template types. An unmatched `>` can't be a type at all.
+      // C-style casts here only target scalar type spellings.
       if (t.kind === "l_angle" && depth === 0) sawAngle = true;
       if ((t.kind === "r_angle" || t.kind === "r_shift") && angleDepth === 0) pureType = false;
       if (t.kind === "l_angle") angleDepth++;
       if (t.kind === "r_angle") angleDepth = Math.max(0, angleDepth - 1);
       if (t.kind === "r_shift") angleDepth = Math.max(0, angleDepth - 2);
-      // In a type-id, `*`/`&` are declarator suffixes: outside template angles nothing type-ish may
-      // follow them. `(a & b)` / `(a * b)` are expressions, not casts to `a&` / `a*` — without this,
-      // `(a & b) - c` reads as the cast `(a&)` applied to `-c`.
+      // In type-id context, `*`/`&` act as declarator suffixes inside template-free area.
       if ((t.kind === "star" || t.kind === "amp") && angleDepth === 0) sawPtrRef = true;
       if (sawPtrRef && angleDepth === 0 &&
         (t.kind === "identifier" || t.kind === "d_colon" || isTypeKeyword(t.kind))) { pureType = false; }
@@ -1827,16 +1758,13 @@ export class Parser {
 
     (this.lex as any).index = save;
 
-    // `(name) & x` / `(name) * x` / `(name) + x` / `(name) - x`: C++ resolves this by whether `name`
-    // is a type. Contracts only ever spell scalar casts with the QPI typedef names, so a lone
-    // identifier outside that set followed by a binary-ambiguous operator is a parenthesized value.
+    // `(name) & x` / `(name) * x` / `(name) + x` / `(name) - x`: C++ resolves this
     if (loneIdent && !SCALAR_CAST_NAMES.has(loneIdent) &&
       (after.kind === "amp" || after.kind === "star" || after.kind === "plus" || after.kind === "minus")) {
       return false;
     }
 
-    // A bare identifier in parens (`(L * 2 ...)` has operators → not pure) is a cast only when it's a
-    // pure type AND an operand follows. Reject if a stray int literal appears outside template angles.
+    // A bare identifier in parens (`(L * 2 ...)` has operators → not pure) is a cast only
     return saw && pureType && sawTypeToken && operandFollows && !sawNestedParen && !sawAngle;
   }
 
@@ -1852,8 +1780,7 @@ export class Parser {
     const start = this.next().span; // sizeof
 
     if (this.tryConsume("l_paren")) {
-      // sizeof(T) or sizeof(expr)
-      // Check if it's a type
+      // sizeof(T) or sizeof(expr) Check if it's a type
       const tok = this.peek();
       if (isTypeKeyword(tok.kind) || tok.kind === "kw_unsigned" || tok.kind === "kw_signed" ||
         tok.kind === "kw_struct" || tok.kind === "kw_enum" || tok.kind === "kw_const") {
@@ -1935,9 +1862,7 @@ export class Parser {
       tok.kind === "kw_long" || this.looksLikeLocalDecl()) {
       const decl = this.parseDeclaration();
       if (decl) {
-        // Multi-declarator statement (`sint64 a = 0, b = 0;`): parseVariableRest queues the extra
-        // declarators on `pending`, which only the member/decl-list loops drain — inside a function
-        // body drain them here into a compound so no declarator is lost.
+        // Multi-declarator statement (`sint64 a = 0, b = 0;`): parseVariableRest queues the extra declarators on `pending`, which only
         if (this.pending.length) {
           const stmts: Statement[] = [{ kind: "declaration", decl, span: this.peek().span }];
           while (this.pending.length) {
@@ -2108,8 +2033,7 @@ export class Parser {
 
   // ---- Helpers ----
 
-  // Assumes the current token is the opening delimiter; consumes through the matching close
-  // (inclusive). Safe no-op if the current token is not `open`.
+  // Assumes the current token is the opening delimiter; consumes through the matching close (inclusive). Safe no-op if the
   private skipBalanced(open: TokenKind, close: TokenKind): void {
     if (this.peek().kind !== open) return;
     this.next(); // consume the opener
@@ -2165,8 +2089,7 @@ export class Parser {
     return members;
   }
 
-  // Panic recovery: if a declaration made no progress, or emitted a new error, skip to the next
-  // `;` or balanced `}` at the current brace depth so one bad member never eats the whole body.
+  // Panic recovery for declaration failures.
   private recover(beforeIndex: number, errsBefore: number): void {
     const idx = (this.lex as any).index;
     const noProgress = idx === beforeIndex;
@@ -2174,9 +2097,6 @@ export class Parser {
     if (!noProgress && !newError) return;
 
     // A declaration that consumed its full balanced body ends on `}` or `;`. Its inner errors are already
-    // contained within that body, so the cursor is at a clean sibling boundary — skipping forward here
-    // would wrongly discard the following declaration (e.g. a sibling `namespace QPI { ... }` whose
-    // definitions we need). Only the no-progress / stranded-cursor cases need panic-skipping.
     if (!noProgress && (this._last?.kind === "r_brace" || this._last?.kind === "semicolon")) {
       return;
     }
@@ -2224,12 +2144,10 @@ export class Parser {
     return { start: start.start, end: last.end, line: start.line, col: start.col };
   }
 
-  // ---- IDL extraction ----
-  // Extract contract IDL from parsed AST (input/output types per registered entry)
+  // --- IDL extraction ---- Extract contract IDL from parsed AST (input/output types per registered entry)
   extractIdl(tu: TranslationUnit): Record<string, { inputType: number; kind: number; inSize: number; outSize: number }> {
     const idl: Record<string, { inputType: number; kind: number; inSize: number; outSize: number }> = {};
     // This is driven by the REGISTER_USER_FUNCTION/PROCEDURE calls in __registerUserFunctionsAndProcedures.
-    // Parsed AST contains these as function calls with literal arguments — extract them.
     for (const decl of tu.declarations) {
       this.extractIdlFromNode(decl, idl);
     }
@@ -2272,8 +2190,7 @@ export class Parser {
     if (call.callee?.kind === "member_access" &&
       (call.callee.member === "__registerUserFunction" || call.callee.member === "__registerUserProcedure")) {
       const kind = call.callee.member === "__registerUserFunction" ? 0 : 1;
-      // sizeof(Foo_input) parses as sizeof_type when Foo_input is a known type keyword, but as sizeof_expr
-      // when it is a bare struct name (the common case) — accept either.
+      // sizeof(Foo_input) parses as sizeof_type when Foo_input is a known type keyword, but as sizeof_expr when it is a
       const isSizeof = (a: any) => a?.kind === "sizeof_type" || a?.kind === "sizeof_expr";
       if (call.args.length >= 5 &&
         call.args[1]?.kind === "int_literal" &&

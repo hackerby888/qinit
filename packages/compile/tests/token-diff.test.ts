@@ -1,5 +1,4 @@
-// Differential gtest for Token.h — exercises qpi host calls (issueAsset / isAssetIssued / nextId) and
-// id construction (SELF) through my TS codegen, validated by the SAME native-clang gtest logic.
+// Differential gtest for Token.h — exercises qpi host calls (issueAsset / isAssetIssued / nextId) and id construction (SELF)
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { buildContract } from "@qinit/build";
@@ -12,9 +11,6 @@ const HEADERS = loadQpiHeader(CORE);
 const TOKEN = readFileSync("/home/kali/Projects/Qinit/fixtures/Token.h", "utf8");
 
 // Issue = procedure it=1, Issued = func it=2, NextId = func it=4, Last = func it=5.
-// NOTE: lh_issueAsset returns 0 in the lite test genesis (asset issuance isn't wired there) — for the
-// NATIVE Token build too — so we validate the data path (issueAsset's result is captured into output
-// AND state, read back identically) and determinism, not absolute issuance success.
 const TOKEN_GTEST = `TEST(Token, IssueResultFlowsToStateAndOutput) {
   ContractTest t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");

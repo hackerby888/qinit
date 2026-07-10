@@ -1,6 +1,4 @@
-// Dev-only differential: run contract_qutil.cpp against BOTH backends (ours = @qinit/compile,
-// native = clang) through the same runner, and classify each test. native is the reference.
-// Gated by GTEST_DUAL because it pays for two contract builds. Run:  GTEST_DUAL=1 bun test tests/qutil-dual.test.ts
+// Dev-only differential: run contract_qutil.cpp against BOTH backends (ours = @qinit/compile, native = clang) through the same runner, and
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { CORE, wasiAvailable, buildRunner, buildContractsOurs, buildContractsNative, runUpstream, type TR } from "./qutil-bridge";

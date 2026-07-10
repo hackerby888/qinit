@@ -1,5 +1,4 @@
 // `auto` must preserve the initializer's C++ type. Treating every deduced scalar as uint64 delays
-// wrapping and changes comparisons, increments, and later arithmetic.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

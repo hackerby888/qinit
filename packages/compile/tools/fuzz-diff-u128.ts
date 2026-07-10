@@ -1,8 +1,4 @@
-// uint128 differential fuzzer soak runner: same protocol as tools/fuzz-diff.ts but over the
-// uint128 grammar (tools/fuzz-gen-u128.ts). Divergences and build failures land in
-// tools/fuzz-findings-u128/ as a JSON report plus the source, keyed by seed.
-//
-//   bun run tools/fuzz-diff-u128.ts <count> [startSeed] [--jobs N] [--ours-only]
+// Differential fuzzer for the `uint128` grammar.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

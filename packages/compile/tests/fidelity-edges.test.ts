@@ -1,8 +1,4 @@
-// Fidelity probe for semantic edges where the i64 value model can drift from native C++: signed
-// right-shift, raw / and % on unsigned operands, mixed-signedness comparisons, ternary laziness,
-// prefix ++ on a uint128 lvalue (limb carry), uint128 shifts >= 128, and defined 32-bit unsigned
-// wrap-around. Native clang is the judge: the gtest asserts the C++-semantics values and runs
-// against the compiled contract.
+// Fidelity probe for i64/value-model divergence edges.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

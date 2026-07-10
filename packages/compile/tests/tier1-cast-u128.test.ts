@@ -1,9 +1,4 @@
-// Regression for two silent-divergence fixes:
-//  (1) uint128 bitwise & | ^ — must operate on both limbs (was truncating to the low 64 bits).
-//  (2) narrowing scalar casts (uint8/16/32, sint8/16, functional and static_cast) — the narrowed value must
-//      be observable in-register (a compare/arith on the cast result before any store), not just on store.
-// The expected values are computed by a BigInt reference implementing the C++ conversion semantics, so this
-// runs without a native toolchain.
+// Tier-1 regression coverage for silent-divergence fixes.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";

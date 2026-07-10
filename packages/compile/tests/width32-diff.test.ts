@@ -1,9 +1,4 @@
-// 32-bit width fidelity: native clang computes int-rank expressions in 32-bit registers, so
-// results wrap at 32 bits (sign- or zero-extended into wider contexts), 32-bit shifts mask their
-// count mod 32, and the qpi sadd/smul overloads clamp at the extremes of their own width
-// (math_lib.h int/uint versions). Our i64 value model must reduce back to the canonical 32-bit
-// form at each 32-bit operation. Every case here is a differential against the wasi-native build;
-// the expected values are the native results, asserted so the oracle itself stays honest.
+// 32-bit fidelity parity for int-rank operations.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, writeFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,8 +20,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-// body → expected state.a (the native result; the differential below re-derives it from the
-// wasi build when the toolchain is present, and fails if the two ever disagree).
+// body → expected state.a (the native result; the differential below re-derives it from the wasi build when the
 const CASES: Record<string, { body: string; expect: bigint }> = {
   "sint32 add overflow wraps": {
     body: `sint32 x = 2000000000; sint64 y = x + x; state.mut().a = (uint64)y;`,

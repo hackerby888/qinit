@@ -1,5 +1,4 @@
-// Differential gtest for arithmetic body codegen: QPI safe-math (div/mod/sadd/min/max), a for-loop
-// with break/continue, member-lvalue increment, and named constants — validated against native clang.
+// Differential gtest for arithmetic body codegen: QPI safe-math (div/mod/sadd/min/max), a for-loop with break/continue, member-lvalue increment, and named constants
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

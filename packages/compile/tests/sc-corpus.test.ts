@@ -1,12 +1,4 @@
-// Dual-backend corpus sweep: validates every EASY-tier contract corpus against both the native clang
-// backend and the TS compiler backend through the qinit gtest harness path. The runner wasm is
-// mode-independent (built once per spec); only the deployed contract wasm swaps between backends.
-//
-// A contract test may loop forever under the EASY harness surface (tick/time/oracle ops are stubs).
-// A synchronous WASM loop blocks the event loop and cannot be unwound by try/catch, so the SC_SWEEP
-// sweep runs each (spec, backend) cell in a killable subprocess: this same file re-invoked under
-// `bun test` with SC_SINGLE set, writing its result to a temp file the parent reads back. A cell that
-// hangs is killed at a deadline and recorded as `hang` — the scoreboard stays complete.
+// Dual-backend corpus verification: native clang + TS compiler.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync, writeFileSync, appendFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -184,8 +176,7 @@ async function buildNative(spec: Spec, outDir: string): Promise<Record<number, U
   return out;
 }
 
-// Child entry: build the runner + one backend for one spec, run it, and record the outcome to SC_OUT.
-// Each line is a flushed append so a parent that kills a hung run still recovers the lines written so far.
+// Child entry: build the runner + one backend for one spec, run it, and record the outcome to
 async function runSingleCell(): Promise<void> {
   const outPath = process.env.SC_OUT!;
   const [name, mode] = (process.env.SC_SINGLE ?? "").split("|");

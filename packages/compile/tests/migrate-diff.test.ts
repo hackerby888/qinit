@@ -1,8 +1,4 @@
-// MIGRATE() parity: a redeploy whose new module declares MIGRATE() with a matching OldStateData size
-// runs __migrate(newState, oldState, locals) instead of the byte-overlap preserve. The transform runs
-// on zeroed new state with the old blob readable through the typed oldState reference, and the has_migrate
-// / migrate_old_state_size / migrate_locals_size exports drive the engine's redeploy decision — native
-// (wasi clang, lite_wasm_tu.h) and ours must land on identical state bytes across the whole upgrade flow.
+// MIGRATE() parity for redeploy flow.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
@@ -144,9 +140,7 @@ describe("differential — MIGRATE() redeploy state parity", () => {
       expect(firstDiff).toBe(-1);
     }
 
-    // Anchor against the intended transform (guards against both sides skipping the migration the
-    // same way): v1 ran Bump twice (counter=2, total=20), MIGRATE maps to {total:1020, counter:2,
-    // migratedFrom:4}, then one more Bump lands {total:1030, counter:3, migratedFrom:4}.
+    // Anchor against the intended transform (guards against both sides skipping the migration the same way): v1 ran Bump
     const dv = new DataView(nat.final.buffer, nat.final.byteOffset);
     expect(dv.getBigUint64(0, true)).toBe(1030n); // total
     expect(dv.getBigUint64(8, true)).toBe(3n);    // counter

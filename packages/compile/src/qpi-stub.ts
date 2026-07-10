@@ -1,6 +1,4 @@
 // Ultra-minimal QPI stub — the parser needs type names and struct layouts.
-// No array syntax [], no operators, no extern "C", no decltype.
-// Everything non-essential is stripped to keep the parser happy.
 
 export const QPI_STUB = `
 typedef signed char sint8;

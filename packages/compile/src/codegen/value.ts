@@ -24,8 +24,7 @@ function newValueTmp(ctx: FnCtx): string {
 export function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
   const lhs = resolveAddr(ctx, expr.left);
 
-  // uint128 plain assignment: materialize the RHS through the $u128_* machinery (a computed RHS — ternary,
-  // (uint128)a * (uint128)b, div<uint128> — has no address, so the aggregate copy below can't handle it).
+  // uint128 plain assignment: materialize the RHS through the $u128_* machinery (a computed RHS — ternary, (uint128)a * (uint128)b,
   if (lhs && expr.op === "=" && isUint128(ctx.cg, lhs.type)) {
     ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(lhs.addr), emitU128Ir(ctx, expr.right), ir.i32c(16)))}`);
     return "";
@@ -33,9 +32,7 @@ export function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): s
 
   // aggregate target (id/m256i/struct/array): copy by value, or let a qpi producer write into it
   if (lhs && expr.op === "=" && isAggregate(ctx, lhs.type, lhs.size)) {
-    // Assignment-form iterator construction (`locals.aoi = AssetOwnershipIterator(asset)`): the RHS
-    // `Type(...)` parses as a plain call, so it has no address — lower it like the declaration form, as a
-    // begin() on the target (which resets count/cursor and runs the enumerate when an asset is given).
+    // Assignment-form iterator construction (`locals.aoi = AssetOwnershipIterator(asset)`): the RHS `Type(...)` parses as a plain call, so it has no
     if (lhs.type?.kind === "name" && /Asset(Ownership|Possession)Iterator$/.test(lhs.type.name)
       && (expr.right.kind === "call" || expr.right.kind === "construct")
       && ((expr.right.kind === "call" && expr.right.callee.kind === "identifier" && /Asset(Ownership|Possession)Iterator$/.test(expr.right.callee.name))
@@ -75,8 +72,7 @@ export function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): s
     return "";
   }
 
-  // uint128 compound assignment (z >>= n, prod -= y + z): lhs = lhs <op> rhs via the $u128_* helpers, then
-  // copy the 16-byte result back over lhs.
+  // uint128 compound assignment (z >>= n, prod -= y + z): lhs = lhs <op> rhs via the
   if (lhs && expr.op !== "=" && isUint128(ctx.cg, lhs.type)) {
     const binOp = expr.op.slice(0, -1);
     const src = emitU128Ir(ctx, { kind: "binary_op", op: binOp, left: expr.left, right: expr.right, span: expr.span } as Expression & { kind: "binary_op" });
@@ -91,8 +87,7 @@ export function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): s
       return "";
     }
 
-    // Compound assignment lowers as lhs = lhs <op> rhs so the binary op carries the operands'
-    // real types (signedness, width, 32-bit wrap) through the usual-conversion machinery.
+    // Compound assignment lowers as lhs = lhs <op> rhs so the binary op carries the operands' real types
     ctx.lines.push(`    ${ir.emit(ir.storeScalar(addrIr(lhs.addr), lhs.size, emitValueIr(ctx, compoundToBinary(expr))))}`);
     return "";
   }
@@ -114,8 +109,7 @@ export function compoundToBinary(expr: Expression & { kind: "assign" }): Express
   return { kind: "binary_op", op: expr.op.slice(0, -1), left: expr.left, right: expr.right, span: expr.span } as Expression;
 }
 
-// Keep sub-64-bit scalar locals in canonical i64 form (zero-/sign-extended) on every store, so
-// loads and compares can consume them without re-extending.
+// Keep sub-64-bit scalar locals in canonical i64 form (zero-/sign-extended) on every store, so loads and compares can consume
 export function narrowLocalIr(ctx: FnCtx, name: string, v: ir.Ir): ir.Ir {
   const raw = ctx.localVars.get(name)?.type ?? ctx.params?.get(name)?.type;
   const t = raw ? ctx.cg.scalarStorageType(raw) : undefined;
@@ -128,17 +122,13 @@ export function narrowLocalIr(ctx: FnCtx, name: string, v: ir.Ir): ir.Ir {
 // ---- value (rvalue) codegen — produces an i64 ----
 
 export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
-  // A uint128-valued expression used in a scalar/boolean context (a `while(z)` / `if(z)` truthiness test):
-  // materialize it and collapse to (low | high), which is non-zero iff the 128-bit value is non-zero. Scalar
-  // reads of a uint128 go through its `.low` / `.high` members, not here.
+  // A uint128-valued expression used in a scalar/boolean context (a `while(z)` / `if(z)` truthiness test): materialize it and collapse
   if ((expr.kind === "call" || expr.kind === "binary_op" || expr.kind === "identifier" || expr.kind === "member_access") && isU128Expr(ctx, expr)) {
     const a = emitU128Ir(ctx, expr);
     return ir.op("i64.or", ir.loadRaw("i64.load", null, a), ir.loadRaw("i64.load", 8, a));
   }
 
   // `.low` / `.high` of a uint128-valued expression that is not itself an lvalue (e.g. `div(a, b).low`):
-  // materialize the value into a slot, then read the 64-bit half. (A uint128 lvalue's .low/.high resolve
-  // through resolveAddr's member path.)
   if (expr.kind === "member_access" && (expr.member === "low" || expr.member === "high") && isU128Expr(ctx, expr.object)) {
     const a = emitU128Ir(ctx, expr.object);
     return ir.loadRaw("i64.load", expr.member === "high" ? 8 : 0, a);
@@ -156,8 +146,7 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
     case "paren":
       return emitValueIr(ctx, expr.expr);
     case "identifier": {
-      // a reference local is an address, not a scalar value — its scalar use is always via a member
-      // (handled by resolveAddr below); a bare aggregate read is unsupported.
+      // a reference local is an address, not a scalar value — its scalar use is always via a
       if (ctx.localVars.has(expr.name) && !ctx.refLocals?.has(expr.name)) {
         return ir.getL(expr.name, ctx.localVars.get(expr.name)!.wasmType);
       }
@@ -168,24 +157,20 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       const p = ctx.params?.get(expr.name);
       if (p && !p.isAddr) return ir.getL(p.local ?? expr.name, p.wasmType);
       // A pointer param read as a value (if (ptr), ptr == NULL) is the held address; a scalar
-      // reference param reads through it. (Aggregate addr params are read via member access /
-      // resolveAddr, not as a bare scalar.)
       if (p && p.isAddr && p.type.kind === "pointer")
         return ir.op("i64.extend_i32_u", ir.getL(p.local ?? expr.name, "i32"));
       if (p && p.isAddr && !ctx.cg.isAggregateType(p.type))
         return ir.loadScalar(ir.getL(p.local ?? expr.name, "i32"), ctx.cg.sizeOfType(p.type), !unsignedScalar(p.type));
       if (expr.name === "SELF_INDEX") return ir.op("i64.extend_i32_u", ir.call("$qpi_contractIndex"));
       if (expr.name === "NULL") return ir.i64c(0);
-      // inside a compiled container method: a template non-type param (L), a static constexpr member
-      // (_nEncodedFlags), or a bare scalar member of *this (_population).
+      // inside a compiled container method: a template non-type param (L), a static constexpr member (_nEncodedFlags), or a bare
       if (ctx.thisBind?.values.has(expr.name)) return ir.i64c(ctx.thisBind.values.get(expr.name)!);
       if (ctx.staticConsts?.has(expr.name)) return ir.i64c(ctx.staticConsts.get(expr.name)!);
       if (ctx.thisLayout) {
         const tn = resolveAddr(ctx, expr);
         if (tn && tn.size <= 8) return loadAtIr(tn.addr, tn.size, isSignedScalarType(tn.type, ctx.cg));
       }
-      // entry-fn `input`/`output` typed by a scalar typedef (typedef uint16 SetShareholderProposal_output):
-      // the io name is a region address, so a bare read loads its scalar through it.
+      // entry-fn `input`/`output` typed by a scalar typedef (typedef uint16 SetShareholderProposal_output): the io name is a region address, so
       if ((expr.name === "input" || expr.name === "output") && !ctx.localVars.has(expr.name)) {
         const io = resolveAddr(ctx, expr);
         if (io && io.size > 0 && io.size <= 8 && (!io.layout || io.layout.fields.size === 0)) {
@@ -205,8 +190,7 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
         ctx.cg.warn(`aggregate value read unsupported [${describeShape(expr)}]`, expr.span.line);
         return ir.i64c(0);
       }
-      // a static constexpr member of the object's type (pv.maxProposals / pv.maxVotes on ProposalVoting<P,D>):
-      // not a runtime field, so resolveAddr can't find it — evaluate it as a constant in the object's scope.
+      // a static constexpr member of the object's type (pv.maxProposals / pv.maxVotes on ProposalVoting<P,D>): not a runtime field, so
       const obj = resolveAddr(ctx, expr.object);
       let ot: TypeSpec | null = obj?.type ?? null;
       for (let i = 0; i < 8 && ot?.kind === "name"; i++) ot = ctx.cg.typedefs.get(ot.name) ?? null;
@@ -214,8 +198,7 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
         const sc = ctx.cg.staticConstsOf(ot.name, ctx.cg.bindContainer(ot.name, ot.args));
         if (sc.has(expr.member)) return ir.i64c(sc.get(expr.member)!);
       }
-      // the same static constexpr read through an inline-typed object (data.variableScalar carries its
-      // union/struct decl inline): fold the member's initializer directly.
+      // the same static constexpr read through an inline-typed object (data.variableScalar carries its union/struct decl inline): fold the member's
       if (ot?.kind === "inline_struct") {
         const sm = ot.struct.members.find(
           (m) => m.kind === "variable" && (m as VariableDecl).name === expr.member
@@ -245,7 +228,6 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       if (expr.callee.kind === "identifier") {
         const name = expr.callee.name;
         // C++ cast spelled as a template call. static_cast narrows to its target width; reinterpret_cast/
-        // const_cast keep the bits (identity in the scalar i64 model).
         if ((name === "static_cast" || name === "reinterpret_cast" || name === "const_cast") && expr.args[0]) {
           const inner = emitValueIr(ctx, expr.args[0]);
           const tgt = expr.templateArgs?.[0];
@@ -278,8 +260,7 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
         }
       }
       const a = emitValueIr(ctx, expr.arg);
-      // A 32-bit result wraps at 32 bits, so - and ~ reduce back to the canonical form: mask for
-      // unsigned (zero-extended), extend32_s for signed (covers -INT32_MIN staying INT32_MIN).
+      // A 32-bit result wraps at 32 bits, so - and ~ reduce back to the canonical form: mask
       const info = scalarTypeInfo(ctx, expr);
       const mask32 = info !== null && info.width === 4 && info.unsigned;
       const sext32 = info !== null && info.width === 4 && !info.unsigned;
@@ -312,10 +293,6 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
     }
     case "ternary": {
       // C++ evaluates the condition, then exactly ONE arm. wasm select is eager, so it is only safe
-      // when both arms are pure and trap-free; otherwise lower as an if/else writing a temp — an arm
-      // like `b != 0 ? a / b : 0` must never execute the division on the guarded path.
-      // The result converts to the arms' common type: a signed sub-64 arm mixed with an unsigned one
-      // (`c ? (sint16)(-1) : 3u`) yields the unsigned common type natively (0xFFFFFFFF, not -1).
       const cv = usualConversion(ctx, expr.then, expr.else_);
       const cvName = cv.width < 8 ? (cv.unsigned ? "uint32" : "sint32") : undefined;
       const cond = emitValueIr(ctx, expr.cond);
@@ -358,7 +335,6 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       const scalar = scalarTypeInfo(ctx, expr.expr);
       if (scalar) return ir.i64c(scalar.width);
       // sizeof(TypeName) parses here when the operand is a bare type (e.g. sizeof(Element)) rather than
-      // a value — size it as a type, resolving template params (Element) through the binding.
       if (expr.expr.kind === "identifier") {
         const sz = ctx.cg.sizeOfType({ kind: "name", name: expr.expr.name }, ctx.thisBind ?? NO_BIND);
         if (sz > 0) return ir.i64c(sz);
@@ -367,9 +343,7 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       return ir.i64c(0);
     }
     case "assign": {
-      // assignment used as a value — `while ((i = next()) >= 0)`, `a = b = 0`. Perform the store (emitAssign
-      // pushes it), then yield the stored value by re-reading the target. The RHS is evaluated once (inside
-      // emitAssign); the re-read has no side effects.
+      // assignment used as a value — `while ((i = next()) >= 0)`, `a = b = 0`. Perform
       emitAssign(ctx, expr);
       return emitValueIr(ctx, expr.left);
     }
@@ -383,8 +357,7 @@ export function emitValue(ctx: FnCtx, expr: Expression): string {
   return ir.emit(emitValueIr(ctx, expr));
 }
 
-// Address+size of an operand that is an aggregate (id/m256i/struct): a struct-field lvalue, or a
-// materialized id producer (SELF / id(...) / qpi.invocator()). Null for scalars.
+// Address+size of an operand that is an aggregate (id/m256i/struct): a struct-field lvalue, or a materialized id producer (SELF
 export function aggOperand(ctx: FnCtx, expr: Expression): { addr: string; size: number } | null {
   const n = resolveAddr(ctx, expr);
   if (n) return n.size > 8 ? { addr: n.addr, size: n.size } : null;
@@ -392,9 +365,7 @@ export function aggOperand(ctx: FnCtx, expr: Expression): { addr: string; size: 
   return a ? { addr: a, size: 32 } : null;
 }
 
-// Whether an expression is uint128-typed (so it flows as a 16-byte value through the $u128_* helpers rather
-// than as an i64). A uint128(...) constructor, a div() of uint128 operands, an arithmetic node with a uint128
-// operand, or any lvalue of uint128 type.
+// Whether an expression is uint128-typed (so it flows as a 16-byte value through the $u128_* helpers rather than
 export function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
   if (expr.kind === "paren") return isU128Expr(ctx, expr.expr);
   if (expr.kind === "c_cast" || expr.kind === "static_cast") {
@@ -426,8 +397,6 @@ export function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
   }
 
   // Method calls: answer from the DECLARED return type. Falling through to resolveAddr would
-  // speculatively inline the method body (tryInlineStructMethod) — emitted code and fidelity
-  // warnings as a side effect of a pure type query.
   if (expr.kind === "call" && expr.callee.kind === "member_access") {
     const obj = resolveAddr(ctx, expr.callee.object);
     let ot: TypeSpec | null = obj?.type ?? null;
@@ -456,15 +425,11 @@ export function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
   return !!(n && isUint128(ctx.cg, n.type));
 }
 
-// Materialize a uint128 expression into a fresh 16-byte slot (low@0, high@8) and return its address; an
-// existing uint128 lvalue is returned in place. Arithmetic lowers to the $u128_* framework helpers.
+// Materialize a uint128 expression into a fresh 16-byte slot (low@0, high@8) and return its address; an existing uint128
 export function emitU128Ir(ctx: FnCtx, expr: Expression): ir.Ir {
   if (expr.kind === "paren") return emitU128Ir(ctx, expr.expr);
   if (expr.kind === "c_cast" || expr.kind === "static_cast") {
-    // (uint128)(scalarExpr): the inner expression evaluates in the SCALAR domain (uint64 wraps),
-    // then zero-extends into the low limb. Recursing into a scalar expression would lift its
-    // arithmetic to 128-bit — (uint128)(a - b) must not borrow into the high limb, and
-    // (uint128)(a * b) keeps only the wrapped 64-bit product.
+    // (uint128)(scalarExpr): the inner expression evaluates in the SCALAR domain (uint64 wraps), then zero-extends into the low limb. Recursing
     if (isU128Expr(ctx, expr.expr)) return emitU128Ir(ctx, expr.expr);
     const s = allocSlotIr(ctx, 16);
     ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", s, emitValueIr(ctx, expr.expr), ir.i64c(0)))}`);
@@ -525,8 +490,7 @@ export function emitU128Ir(ctx: FnCtx, expr: Expression): ir.Ir {
     }
   }
 
-  // An i64-valued sub-expression used where a uint128 is expected (a bare integer, a scalar local): zero-extend
-  // it into the low limb.
+  // An i64-valued sub-expression used where a uint128 is expected (a bare integer, a scalar local): zero-extend it into
   const s = slot();
   ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", s, emitValueIr(ctx, expr), ir.i64c(0)))}`);
   return s;
@@ -544,8 +508,7 @@ export function isAutoType(t: TypeSpec): boolean {
   return t.kind === "name" && t.name === "auto";
 }
 
-// Resolve a named type through typedef/using aliases to its underlying spec (bounded walk; stops
-// at a known scalar name or a non-name spec).
+// Resolve a named type through typedef/using aliases to its underlying spec (bounded walk; stops at a known scalar
 export function resolveAliasType(cg: Codegen, t: TypeSpec): TypeSpec {
   let r = t;
   for (let i = 0; i < 8 && r.kind === "name" && SCALAR_SIZE[r.name] === undefined; i++) {
@@ -568,10 +531,7 @@ export function unsignedScalar(t: TypeSpec | null | undefined): boolean {
   return /^(uint|unsigned\b|size_t$|bool$|bit$)/.test(t.name) || t.name === "uint128" || t.name === "uint128_t";
 }
 
-// Best-effort signedness of an integer expression: unsigned if it's an unsigned-typed lvalue/param, an unsigned
-// cast, an unsigned-suffixed literal, or arithmetic with an unsigned operand (C++ usual-conversion rule). Used
-// to pick i64.lt_u/div_u over the signed forms — without this, `uint64 price < (uint64)MAX_AMOUNT` compiled to
-// a signed compare and a wrapped-negative qu value read as < MAX_AMOUNT, slipping past range checks.
+// Best-effort signedness of an integer expression: unsigned if it's an unsigned-typed lvalue/param, an unsigned cast, an unsigned-suffixed literal,
 export function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
   switch (expr.kind) {
     case "c_cast": case "static_cast": return unsignedScalar(expr.type);
@@ -613,7 +573,6 @@ export function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
 }
 
 // Best-effort (byte width, signedness) of a scalar expression, mirroring isUnsignedExpr's coverage.
-// Null when the type can't be derived — callers fall back to the legacy either-unsigned heuristic.
 export function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; unsigned: boolean } | null {
   switch (expr.kind) {
     case "paren": return scalarTypeInfo(ctx, expr.expr);
@@ -623,8 +582,7 @@ export function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; u
       return sz ? { width: sz, unsigned: unsignedScalar(expr.type) } : null;
     }
     case "int_literal": {
-      // C++ literal typing: int → (uint for hex/octal) → long long by fit; a u/U suffix forces
-      // unsigned and an l/L suffix forces 64-bit rank (long is 8 bytes on the x64 native target).
+      // C++ literal typing: int → (uint for hex/octal) → long long by fit; a u/U suffix forces unsigned
       const v = ctx.cg["sema"].evaluateConstexpr(expr) ?? 0n;
       const suffixU = /[uU]/.test(expr.suffix ?? "");
       const suffixL = /[lL]/.test(expr.suffix ?? "");
@@ -670,15 +628,12 @@ export function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; u
     // ++x / x++ yield the operand's own type (no promotion).
     case "prefix_op": case "postfix_op": return scalarTypeInfo(ctx, expr.arg);
     case "call": case "template_call": {
-      // QPI safe-math intrinsics return their (deduced or explicit) argument type; without this a
-      // comparison against e.g. `math_lib::max((uint64)a, (uint64)b)` falls back to the signed guess
-      // and picks a signed compare where native resolves uint64.
+      // QPI safe-math intrinsics return their (deduced or explicit) argument type; without this a comparison against e.g. `math_lib::max((uint64)a, (uint64)b)`
       const nm = expr.callee?.kind === "identifier" ? expr.callee.name : null;
       if (!nm) return null;
       const base = nm.includes("::") ? nm.slice(nm.lastIndexOf("::") + 2) : nm;
       if (!MATH_INTRINSIC_NAMES.has(base)) {
-        // A member value helper carries its declared return type; the width/signedness of
-        // `pick(x) + 1` etc. follow the overload the call resolves to.
+        // A member value helper carries its declared return type; the width/signedness of `pick(x) + 1` etc. follow the
         const set = ctx.cg.helperOverloads.get(nm);
         const h = set?.length ? pickHelperOverload(ctx, set, expr.args ?? []) : ctx.cg.helpers.get(nm);
         const rt = h?.retType;
@@ -700,17 +655,14 @@ export function scalarTypeInfo(ctx: FnCtx, expr: Expression): { width: number; u
   }
 }
 
-// Integral promotion: sub-int scalars become int (signed, 4 bytes); unknown types fall back to the
-// legacy 64-bit + isUnsignedExpr guess so behavior is unchanged where the width can't be derived.
+// Integral promotion: sub-int scalars become int (signed, 4 bytes); unknown types fall back to the legacy 64-bit +
 export function promoteInfo(ctx: FnCtx, expr: Expression): { width: number; unsigned: boolean } {
   const info = scalarTypeInfo(ctx, expr) ?? { width: 8, unsigned: isUnsignedExpr(ctx, expr) };
   if (info.width < 4) return { width: 4, unsigned: false };
   return info;
 }
 
-// C++ usual arithmetic conversions over the promoted operands: same signedness → wider wins; mixed →
-// unsigned wins at equal-or-greater rank, else the signed type (which then represents every value of
-// the narrower unsigned type).
+// C++ usual arithmetic conversions over the promoted operands: same signedness → wider wins; mixed → unsigned wins at
 export function usualConversion(ctx: FnCtx, left: Expression, right: Expression): { width: number; unsigned: boolean } {
   const l = promoteInfo(ctx, left);
   const r = promoteInfo(ctx, right);
@@ -748,8 +700,7 @@ export function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" 
     }
   }
 
-  // id/m256i ordering (operator< / > / <= / >=): a 256-bit lexicographic compare of the 4 u64 limbs, not an
-  // i64 value compare. Mirror m256.h's free operator<; derive the others from it (a>b = b<a, a<=b = !(b<a)).
+  // id/m256i ordering (operator< / > / <= / >=): a 256-bit lexicographic compare of the 4 u64 limbs,
   if (expr.op === "<" || expr.op === ">" || expr.op === "<=" || expr.op === ">=") {
     const la = aggOperand(ctx, expr.left);
     const ra = aggOperand(ctx, expr.right);
@@ -763,9 +714,7 @@ export function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" 
     }
   }
 
-  // Short-circuit `&&` / `||`: the right operand must not be evaluated when the left already decides the
-  // result — C++ guards like `idx >= max || array[idx]` rely on this to stay in bounds. The right side is
-  // emitted into an isolated line buffer; if it produced statements, those run only on the not-decided path.
+  // Short-circuit `&&` / `||`: the right operand must not be evaluated when the left already decides the result
   if (expr.op === "&&" || expr.op === "||") {
     const lb = ir.op("i64.ne", ir.i64c(0), emitValueIr(ctx, expr.left));
     const saved = ctx.lines;
@@ -792,10 +741,6 @@ export function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" 
   const l = emitValueIr(ctx, expr.left);
   const r = emitValueIr(ctx, expr.right);
   // C++ usual arithmetic conversions decide the operation's signedness and rank. A 32-bit result
-  // wraps at 32 bits natively — defined behavior when unsigned, and the observed clang lowering
-  // when signed (32-bit register arithmetic) — so +,-,*,<< reduce back to the canonical form:
-  // zero-extended for unsigned, sign-extended for signed. Shifts take their type from the LEFT
-  // operand alone, and a 32-bit shift masks its count mod 32 (i64.shl would mask mod 64).
   const cv = usualConversion(ctx, expr.left, expr.right);
   const u = cv.unsigned;
   const li = promoteInfo(ctx, expr.left);
@@ -805,8 +750,7 @@ export function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" 
   const swrap32 = !u && cv.width === 4;
   const shiftCount = (n: ir.Ir) => (li.width === 4 ? ir.op("i64.and", n, ir.i64c(31)) : n);
 
-  // A signed 32-bit operand converted to unsigned 32-bit changes representation (sign-extended →
-  // zero-extended), so value-sensitive ops (/, %, compares) mask it to the canonical unsigned form.
+  // A signed 32-bit operand converted to unsigned 32-bit changes representation (sign-extended → zero-extended), so value-sensitive ops (/, %,
   const toU32 = (n: ir.Ir, e: Expression) => {
     if (!wrap32) {
       return n;

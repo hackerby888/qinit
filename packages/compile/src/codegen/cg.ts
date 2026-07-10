@@ -52,10 +52,6 @@ export class Codegen {
         if (s.name) {
           this.globalStructs.set(s.name, s);
           // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
-          // — are captured under the struct name so an instance-method call dispatches through the same
-          // per-type compilation path as template methods. (A template ProposalDataType like ProposalDataV1
-          // already gets this via the class_template branch; a plain ProposalDataType did not, so its
-          // checkValidity folded to 0 and every setProposal returned INVALID.)
           for (const m of s.members) {
             if (m.kind !== "function" || !(m as FunctionDecl).body) continue;
             const fn = m as FunctionDecl;
@@ -66,8 +62,7 @@ export class Codegen {
               kind: "function_template", name: fn.name, params: [], fnParams: fn.params,
               returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
             };
-            // overloads (isValid() vs static isValid(y,m,d,...)) are additionally keyed by arity so an
-            // arity-aware lookup picks the right one; the bare name keeps the first definition.
+            // overloads (isValid() vs static isValid(y,m,d,...)) are additionally keyed by arity so an arity-aware lookup picks the right one;
             const akey = `${fn.name}/${(fn.params ?? []).length}`;
             if (!into.has(akey)) into.set(akey, def);
             if (!into.has(fn.name)) into.set(fn.name, def);
@@ -77,11 +72,7 @@ export class Codegen {
         this.collectConstants(s.members);
       } else if (d.kind === "class_template") {
         const ct = d as any;
-        // A template may appear several times: a forward declaration (empty body), the primary definition,
-        // and partial specializations. Specializations carry their own argument list and are selected by
-        // matching the instantiation; the primary keeps the richest definition by member count so an empty
-        // forward decl doesn't clobber the real layout. Base classes are carried so a template deriving
-        // from another type contributes its fields.
+        // A template may appear several times: a forward declaration (empty body), the primary definition, and partial specializations. Specializations
         if (ct.specializationArgs) {
           if (!this.specializations.has(ct.name)) this.specializations.set(ct.name, []);
           this.specializations.get(ct.name)!.push({
@@ -95,10 +86,6 @@ export class Codegen {
           }
         }
         // Inline member methods defined with a body in the class itself (e.g. capacity()) are captured
-        // as template methods, so they compile through the same per-type instantiation path as the
-        // out-of-class (impl) definitions. Body-less declarations are skipped — their bodies live in
-        // the impl chunk and are merged separately. A specialization's methods are not registered under
-        // the shared name (they would collide with the primary's).
         for (const m of ct.specializationArgs ? [] : ct.members) {
           if (m.kind !== "function" || !(m as FunctionDecl).body) continue;
           const fn = m as FunctionDecl;
@@ -132,15 +119,11 @@ export class Codegen {
           if (!minto.has(makey)) minto.set(makey, fn);
           if (!minto.has(method)) minto.set(method, fn);
         } else if (sep < 0 && nsPrefix && d.kind === "function" && (d as FunctionDecl).body) {
-          // a namespace free function (ProposalTypes::cls, ProposalTypes::optionCount): keyed by its
-          // qualified name so a `ProposalTypes::cls(type)` call resolves; compiled lazily on first use.
+          // a namespace free function (ProposalTypes::cls, ProposalTypes::optionCount): keyed by its qualified name so a `ProposalTypes::cls(type)` call resolves; compiled lazily
           const key = `${nsPrefix}${fn.name}`;
           if (!this.libFns.has(key)) this.libFns.set(key, d as FunctionDecl);
         } else if (sep < 0 && d.kind === "function_template" && fn.body) {
-          // a namespace free function TEMPLATE (isArraySortedWithoutDuplicates<T,L>): keyed by qualified
-          // name, instantiated per call-site arg types (the call passes a concrete Array<sint64,4>).
-          // ALL overloads are kept — __getVotingSummaryScalarVotes has a generic body plus a
-          // ProposalDataYesNo specialization, and the call site must pick by argument match.
+          // a namespace free function TEMPLATE (isArraySortedWithoutDuplicates<T,L>): keyed by qualified name, instantiated per call-site arg types (the call passes
           const key = `${nsPrefix}${fn.name}`;
           const list = this.libFnTemplates.get(key);
           if (list) list.push(fn as FunctionTemplateDecl);
@@ -167,8 +150,7 @@ export class Codegen {
 
   private collectConstant(v: VariableDecl): void {
     if (v.init && (v.isConstexpr || v.type.kind === "const")) {
-      // User declarations are collected after the seeded qpi.h library and therefore shadow library
-      // constants with the same unqualified name, as class/member lookup requires.
+      // User declarations are collected after the seeded qpi.h library and therefore shadow library constants with the same unqualified
       this.constexprInit.set(v.name, v.init);
       this.constexprType.set(v.name, v.type);
       this.enumConst.delete(v.name);
@@ -241,16 +223,13 @@ export class Codegen {
     }
     const init = this.constexprInit.get(name);
     if (init === undefined) {
-      // A callee's index constant (`QX_CONTRACT_INDEX`) isn't declared in this contract's source, so resolve
-      // it from the provided callee IDL. A plain-value use — `qpi.releaseShares(..., QX_CONTRACT_INDEX, ...)`
-      // (MSVAULT) — otherwise folds to 0 and the managing-contract arg is wrong.
+      // A callee's index constant (`QX_CONTRACT_INDEX`) isn't declared in this contract's source, so resolve it from the provided callee
       const ci = name.match(/^(\w+)_CONTRACT_INDEX$/);
       if (ci) {
         const c = this.callees.get(ci[1]);
         if (c !== undefined) { this.constCache.set(name, BigInt(c.index)); return BigInt(c.index); }
       }
-      // namespace-qualified constant (ProposalTypes::Class::GeneralOptions): constants are collected by their
-      // unqualified name, so fall back to the tail after the last `::`.
+      // namespace-qualified constant (ProposalTypes::Class::GeneralOptions): constants are collected by their unqualified name, so fall back to the tail after the
       const i = name.lastIndexOf("::");
       return i >= 0 ? this.resolveConst(name.slice(i + 2)) : null;
     }
@@ -339,10 +318,6 @@ export class Codegen {
   }
 
   // Resolve a dependent member type `Selector<args>::member` (e.g. ProposalVoting's
-  // `typename __VoteStorageTypeSelector<supportScalarVotes>::type`): instantiate the selector template,
-  // bind its parameters from the args, and return its nested `member` typedef's target type together with
-  // those bindings. A captured full specialization whose non-type args match the evaluated args wins over
-  // the primary template (so `<true>` -> sint64), otherwise the primary template is used.
   private resolveDependentMember(t: Extract<TypeSpec, { kind: "dependent_member" }>, b: Bindings): { type: TypeSpec; bindings: Bindings } | null {
     const base = t.base;
     if (base.kind !== "template_instance") return null;
@@ -358,10 +333,6 @@ export class Codegen {
   }
 
   // Select the template definition for `name<args>` and build its parameter bindings. A partial/explicit
-  // specialization whose argument pattern matches wins over the primary template (e.g.
-  // `ProposalWithAllVoteData<ProposalDataYesNo, numOfVotes>`); its parameters bind by their position in the
-  // specialization's own argument list, not by index in the primary's parameter list. Returns the chosen
-  // definition together with its bindings, or null when no definition is captured.
   private instantiateTemplate(name: string, args: TypeSpec[], parent: Bindings): { tmpl: ClassTemplate; b: Bindings } | null {
     const resolved = args.map((a) => this.resolveType(a, parent));
 
@@ -392,8 +363,7 @@ export class Codegen {
       }
     }
 
-    // Templates register unqualified; a namespace-qualified spelling (QPI::ContractState<...>) must
-    // still hit them.
+    // Templates register unqualified; a namespace-qualified spelling (QPI::ContractState<...>) must still hit them.
     const tmpl = this.templates.get(name) ?? (name.includes("::") ? this.templates.get(name.slice(name.lastIndexOf("::") + 2)) : undefined);
     if (!tmpl) return null;
     const b: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
@@ -407,9 +377,7 @@ export class Codegen {
     return { tmpl, b: this.withStaticConsts(tmpl, b) };
   }
 
-  // Evaluate a template's own static constexpr members into the bindings (BitArray::_elements = (L+63)/64,
-  // ProposalWithAllVoteData::supportScalarVotes), so a member array dimension that references one sizes
-  // correctly. Done in declaration order; a non-integer constexpr is skipped.
+  // Evaluate a template's own static constexpr members into the bindings (BitArray::_elements = (L+63)/64, ProposalWithAllVoteData::supportScalarVotes), so a member array
   private withStaticConsts(tmpl: ClassTemplate, b: Bindings): Bindings {
     for (const m of tmpl.members) {
       if (m.kind !== "variable") continue;
@@ -423,8 +391,7 @@ export class Codegen {
     return b;
   }
 
-  // Instantiate a template (HashMap<id,uint64,1024>, Array<T,L>, ...) and compute its exact layout
-  // by substituting type args + non-type args into the captured member declarations.
+  // Instantiate a template (HashMap<id,uint64,1024>, Array<T,L>, ...) and compute its exact layout by substituting type args + non-type args
   private layoutOfTemplate(name: string, args: TypeSpec[], parent: Bindings): StructLayout {
     const inst = this.instantiateTemplate(name, args, parent);
     const resolved = args.map((a) => this.resolveType(a, parent));
@@ -435,8 +402,7 @@ export class Codegen {
     return this.layoutOfMembers(inst.tmpl.members, inst.b, `${name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`, false, inst.tmpl.bases);
   }
 
-  // Add the struct declarations among `members` to a child binding scope so field types that
-  // reference a sibling nested struct (e.g. HashMap::Element) resolve.
+  // Add the struct declarations among `members` to a child binding scope so field types that reference a sibling
   private withLocalStructs(members: Declaration[], b: Bindings): Bindings {
     let structs = b.structs;
     for (const m of members) {
@@ -448,17 +414,13 @@ export class Codegen {
     return structs === b.structs ? b : { types: b.types, values: b.values, structs };
   }
 
-  // If a field's type names a sibling nested struct/union (registered in the local-struct scope), return it
-  // as an inline_struct so the field's layout is self-describing. Without this, a member chain into a nested
-  // type (proposal.data.transfer.amounts) fails: data's type `Data` is nested, so layoutOfType(name "Data")
-  // can't find it globally and the chain dead-ends. inline_struct carries the decl, so each level resolves.
+  // If a field's type names a sibling nested struct/union (registered in the local-struct scope), return it as an
   private inlineNestedStruct(t: TypeSpec, b: Bindings): TypeSpec {
     const bare = t.kind === "const" ? t.valueType : t;
     if (bare.kind === "name") {
       const s = b.structs.get(bare.name);
       if (s) return { kind: "inline_struct", struct: s };
-      // A dependent spelling through a template parameter (`typename OracleInterface::OracleReply`)
-      // only resolves under these bindings — carry the resolved declaration inline for the same reason.
+      // A dependent spelling through a template parameter (`typename OracleInterface::OracleReply`) only resolves under these bindings — carry the resolved
       const qn = this.qualifiedNestedType(bare.name, b);
       if (qn) return qn;
     }
@@ -479,11 +441,7 @@ export class Codegen {
     return { size, align: 1, fields };
   }
 
-  // Resolve a type name to its concrete type, chasing both template-parameter bindings and contract/qpi
-  // typedefs (e.g. ProposalVotingT -> ProposalVoting<...>, ProposalDataT -> ProposalDataV1<false>). Used
-  // when binding template arguments, so an alias passed as an argument reaches the underlying type rather
-  // than staying an unresolved name (which would leave a derived base or member sized as 0). Self-cycles
-  // (a parameter bound to its own name) and a depth cap stop runaway chains.
+  // Resolve a type name to its concrete type, chasing both template-parameter bindings and contract/qpi typedefs (e.g. ProposalVotingT ->
   resolveType(t: TypeSpec, b: Bindings, depth = 0): TypeSpec {
     if (depth > 24 || t.kind !== "name") return t;
     const bound = b.types.get(t.name);
@@ -499,11 +457,7 @@ export class Codegen {
     return t;
   }
 
-  // Resolve a member/element type that is written in terms of a parent template instance's own parameters
-  // and nested typedefs into a concrete type. Example: ProposalVoting<P,D>'s `proposals` element type is the
-  // nested typedef `ProposalAndVotesDataType` = ProposalWithAllVoteData<ProposalDataT, maxVotes>, where
-  // ProposalDataT is a parameter (→ D) and maxVotes a member constexpr (→ 676). emitContainerCall only
-  // follows global typedefs, so without this a member that is itself a container/instance can't be dispatched.
+  // Resolve a member/element type that is written in terms of a parent template instance's own parameters and nested
   concreteMemberType(t: TypeSpec, parent: TypeSpec & { kind: "template_instance" }, depth = 0): TypeSpec {
     const inst = this.instantiateTemplate(parent.name, parent.args, NO_BIND);
     if (!inst) return t;
@@ -542,8 +496,7 @@ export class Codegen {
     return t;
   }
 
-  // Public: substitute a type through bindings (T→sint64, L→4) — turns a template free fn's param type
-  // `Array<T,L>` into the concrete `Array<sint64,4>` so its body's container calls resolve.
+  // Public: substitute a type through bindings (T→sint64, L→4) — turns a template free fn's param type `Array<T,L>` into
   substInBindings(t: TypeSpec, bind: Bindings): TypeSpec {
     return this.resolveInScope(t, bind, new Map(), 0);
   }
@@ -573,10 +526,6 @@ export class Codegen {
   }
 
   // A base class contributes its fields (laid out at the start of the derived object) and its static
-  // constexpr constants. A derived member's array dimension may reference a base constant — e.g.
-  // ProposalVoting : public P declares `proposals[P::maxProposals]` — so those constants must be lifted
-  // into the derived scope. The base may itself be a template parameter (ProposalWithAllVoteData<D,n> :
-  // public D), resolved here through the bindings.
   private baseContribution(baseType: TypeSpec, parentB: Bindings): { layout: StructLayout; consts: Map<string, bigint> } | null {
     let t: TypeSpec = baseType;
     if (t.kind === "name") {
@@ -635,8 +584,6 @@ export class Codegen {
   }
 
   // Evaluate a `TypeName::member` static constexpr. Resolves TypeName through the current bindings and
-  // typedefs to a concrete struct or template instantiation, then evaluates that type's static constexpr
-  // member in the type's own parameter scope (so e.g. ProposalAndVotingByComputors<N>::maxProposals == N).
   private evalQualifiedConst(typeName: string, member: string, b: Bindings): bigint | null {
     let t: TypeSpec = { kind: "name", name: typeName };
     for (let i = 0; i < 8 && t.kind === "name"; i++) {
@@ -680,8 +627,6 @@ export class Codegen {
   }
 
   // A layout cache key unique to each struct DECLARATION, not its (possibly shared) name. Two distinct structs
-  // can share a name — QBOND's state `Order` (…feeDebt) and `GetOrders_output::Order` (…price) — and caching by
-  // bare name let the first computed layout satisfy lookups for the second (silently dropping the price field).
   private structKeys = new WeakMap<StructDecl, string>();
   private structKeyCounter = 0;
   private structCacheKey(struct: StructDecl): string {
@@ -707,8 +652,7 @@ export class Codegen {
   }
 
   private layoutOfMembers(members: Declaration[], bIn: Bindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {
-    // Cache by a binding-aware key so each concrete instantiation is computed once (avoids the
-    // exponential blowup of deeply nested templates like Array<HashMap<...>, N>).
+    // Cache by a binding-aware key so each concrete instantiation is computed once (avoids the exponential blowup of deeply
     const key = cacheKey ? cacheKey + this.bindingSig(bIn) : "";
     if (key) {
       const cached = this.layoutCache.get(key);
@@ -742,10 +686,7 @@ export class Codegen {
         return layout;
       }
 
-      // Base classes occupy the start of the object: each base's fields are placed at the current offset
-      // and its static constexpr constants lifted into the bindings, so a following member's array
-      // dimension that references one (e.g. `proposals[maxProposals]` over an inherited maxProposals)
-      // resolves.
+      // Base classes occupy the start of the object: each base's fields are placed at the current offset and
       let memberVals = b.values;
       for (const baseType of bases) {
         const bc = this.baseContribution(baseType, b);
@@ -763,9 +704,6 @@ export class Codegen {
       }
 
       // Nested typedefs (a template may alias its own params or define a dependent storage type, e.g.
-      // ProposalVoting's `typedef ProposalWithAllVoteData<ProposalDataT, maxVotes> ProposalAndVotesDataType;`).
-      // Register them so a member typed by the alias resolves; the alias target still references params and
-      // member constexprs, which resolve lazily through the bindings.
       let memberTypes = b.types;
       for (const m of members) {
         if (m.kind !== "typedef_decl") continue;
@@ -776,10 +714,7 @@ export class Codegen {
       const bMem = (memberVals === b.values && memberTypes === b.types) ? b : { types: memberTypes, values: memberVals, structs: b.structs };
 
       for (const m of members) {
-        // An anonymous struct/union (no name, no declarator) promotes its members into this struct at the
-        // current offset (`union { Array<uint32,8> optionVoteCount; ... };` → optionVoteCount is a direct
-        // field). Named nested structs are type definitions and are skipped; a `union X {...} x;` is a
-        // regular variable member handled below.
+        // An anonymous struct/union (no name, no declarator) promotes its members into this struct at the current offset (`union
         if (m.kind === "struct" && !(m as StructDecl).name) {
           const sub = this.layoutOfStruct(m as StructDecl, bMem);
           offset = this.alignUp(offset, sub.align);
@@ -812,8 +747,7 @@ export class Codegen {
     if (t.kind === "const") return this.alignOfTypeB(t.valueType, b);
     if (t.kind === "reference" || t.kind === "pointer") return 4;
     if (t.kind === "array") return this.alignOfTypeB(t.elem, b);
-    // For aggregates, reuse the (cached) layout's computed alignment — avoids a second, uncached
-    // recursive walk that blows up on deeply nested templates.
+    // For aggregates, reuse the (cached) layout's computed alignment — avoids a second, uncached recursive walk that blows up
     if (t.kind === "inline_struct") return this.layoutOfStruct(t.struct, b).align;
     if (t.kind === "name") {
       const bound = b.types.get(t.name);
@@ -848,8 +782,7 @@ export class Codegen {
     if (t.kind === "array") return `${this.typeKey(t.elem)}[]`;
     if (t.kind === "pointer") return "*";
     if (t.kind === "expr_value") return `#${this.evalConst(t.expr)}`;
-    // inline-carried struct as a template arg (Array<Order,256> resolved through its declaring scope):
-    // key by tag + field names so same-named tags with different fields don't share a layout cache slot.
+    // inline-carried struct as a template arg (Array<Order,256> resolved through its declaring scope): key by tag + field names
     if (t.kind === "inline_struct") {
       const fields = t.struct.members.filter((m) => m.kind === "variable").map((m) => (m as VariableDecl).name).join(",");
       return `s:${t.struct.name || "anon"}{${fields}}`;
@@ -900,8 +833,6 @@ export class Codegen {
         const v = b.values.get(expr.name);
         if (v !== undefined) return v;
         // Qualified static constexpr `T::member` (e.g. ProposalVoting's maxProposals =
-        // ProposerAndVoterHandlingT::maxProposals): resolve T through the bindings/typedefs to a concrete
-        // type and evaluate its static constexpr member in that type's own param scope.
         const sep = expr.name.lastIndexOf("::");
         if (sep > 0) {
           const q = this.evalQualifiedConst(expr.name.slice(0, sep), expr.name.slice(sep + 2), b);
@@ -942,9 +873,6 @@ export class Codegen {
       case "call":
       case "template_call": {
         // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4),
-        // QRAFFLE_LOGOUT_FEE = div<uint32>(REGISTER_AMOUNT, 20)). The explicit-type form parses as a
-        // template_call; both spellings must fold, else a div/mod/min/max silently becomes 0 and corrupts
-        // the derived constant (and any fee, loop bound, or guard built on it).
         const callee = expr.callee;
         const fn = callee.kind === "identifier" ? callee.name : callee.kind === "qualified_name" ? callee.name : null;
         if (fn) {
@@ -977,24 +905,17 @@ export class Codegen {
         this.nested.set(s.name, s);
         this.captureStructMethods(s, [s.name]);
         // Also register structs nested INSIDE this one under their qualified name (`Outer::Inner`), recursively.
-        // The parser spells such a member type fully-qualified (`GetOrders_output::Order tempOrder;`), so without
-        // this structByName's lossy unqualified-suffix fallback binds it to a same-named top-level struct with
-        // different fields (QBOND's state `Order` has `feeDebt` where `GetOrders_output::Order` has `price`) —
-        // silently dropping the field's stores, or (no match) sizing the type to 4 bytes.
         this.collectNestedStructs(s, s.name);
       } else if (m.kind === "variable") {
         this.collectConstant(m as VariableDecl);
       } else if (m.kind === "enum") {
         this.collectEnum(m as any);
       } else if (m.kind === "typedef_decl") {
-        // contract-member typedef (typedef Order _Order;) — register the alias so _Order-typed locals
-        // resolve their layout/fields.
+        // contract-member typedef (typedef Order _Order;) — register the alias so _Order-typed locals resolve their layout/fields.
         const td = m as any;
         if (!this.typedefs.has(td.name)) this.typedefs.set(td.name, td.type);
       } else if (m.kind === "class_template") {
-        // contract-nested template struct (PULSE's HashMapConverter<Key,T,L>): register like a file-scope
-        // template — the layout table AND its inline methods — so instantiations lay out and methods
-        // dispatch through the compiled-container machinery.
+        // contract-nested template struct (PULSE's HashMapConverter<Key,T,L>): register like a file-scope template — the layout table AND its inline methods
         const ct = m as any;
         const prev = this.templates.get(ct.name);
         if (!prev || (prev.members?.length ?? 0) < (ct.members?.length ?? 0)) this.templates.set(ct.name, ct);
@@ -1015,13 +936,7 @@ export class Codegen {
     }
   }
 
-  // Register the struct members declared INSIDE `parent` under their qualified name `${prefix}::${name}`
-  // (recursively), without clobbering same-named top-level structs. Lets `structByName("Outer::Inner")` hit
-  // the correct inner declaration before the unqualified-suffix fallback.
-  // Seed a callee contract's cross-contract surface (the pieces a single-TU native build gets for free
-  // because all contracts share one translation unit): file-scope constants/enums (RL_DEFAULT_INIT_TIME)
-  // and the contract struct's static methods, callable qualified (`RL::makeDateStamp`) through libFns.
-  // Runs after the user's own declarations are collected — first-wins keeps the user authoritative.
+  // Register the struct members declared INSIDE `parent` under their qualified name `${prefix}::${name}` (recursively), without clobbering same-named top-level structs.
   seedCallee(name: string, decls: Declaration[]): void {
     for (const d of decls) {
       if (d.kind === "variable") {
@@ -1042,9 +957,7 @@ export class Codegen {
     }
   }
 
-  // Inline methods of a nested struct (WinnerData::isValid, EscrowAsset::setFrom) dispatch through
-  // templateMethods like any plain-struct method — capture them under each of the given names,
-  // additionally keyed by arity so overloads select correctly.
+  // Inline methods of a nested struct (WinnerData::isValid, EscrowAsset::setFrom) dispatch through templateMethods like any plain-struct method — capture them
   private captureStructMethods(s: StructDecl, names: string[]): void {
     for (const mm of s.members) {
       if (mm.kind !== "function" || !(mm as FunctionDecl).body) continue;
@@ -1070,10 +983,7 @@ export class Codegen {
         const s = m as StructDecl;
         const key = `${prefix}::${s.name}`;
         if (!this.nested.has(key)) this.nested.set(key, s);
-        // Also register the unqualified name so a bare reference written inside the declaring struct
-        // (e.g. `Array<TableEntry, 512> info;` where TableEntry is a sibling nested struct) resolves.
-        // First-wins and never shadowing a global keeps a same-named top-level/contract struct authoritative
-        // (QBOND's state `Order` stays bound to itself, not GetOrders_output::Order).
+        // Also register the unqualified name so a bare reference written inside the declaring struct (e.g. `Array<TableEntry, 512> info;`
         if (!this.nested.has(s.name) && !this.globalStructs.has(s.name)) this.nested.set(s.name, s);
         this.captureStructMethods(s, [s.name, key]);
         this.collectNestedStructs(s, key);
@@ -1088,9 +998,6 @@ export class Codegen {
   }
 
   // Resolve a struct by name across the binding / nested / global tables. Falls back to the unqualified
-  // suffix so a namespace-qualified type (`QPI::Entity` under `using namespace QPI`) finds its layout —
-  // without it, `entity.incomingAmount` became an unsupported member read folded to 0 (get_qubic_balance
-  // then computed 0 - 0 and every voter balance read as 0).
   structByName(name: string, b: Bindings): StructDecl | undefined {
     const hit = b.structs.get(name) ?? this.nested.get(name) ?? this.globalStructs.get(name);
     if (hit) return hit;
@@ -1102,10 +1009,7 @@ export class Codegen {
     return undefined;
   }
 
-  // `Head::Nested[::Deeper]` where Head is a template-parameter binding, a typedef, or a (possibly
-  // namespace-qualified) struct name (`typename OracleInterface::OracleReply` with OracleInterface →
-  // OI::Price, or the spelled-out `OI::Mock::OracleQuery`): resolve the head struct at each possible
-  // split point, then walk the remaining segments through its nested structs/typedefs to the member type.
+  // `Head::Nested[::Deeper]` where Head is a template-parameter binding, a typedef, or a (possibly namespace-qualified) struct name (`typename OracleInterface::OracleReply` with
   qualifiedNestedType(name: string, b: Bindings): TypeSpec | null {
     for (let sep = name.indexOf("::"); sep > 0; sep = name.indexOf("::", sep + 2)) {
       const head = name.slice(0, sep);
@@ -1139,24 +1043,20 @@ export class Codegen {
     return null;
   }
 
-  // Strip const/reference wrappers to the underlying type (a by-ref aggregate param holds an address
-  // to this type, and its fields are laid out by this type).
+  // Strip const/reference wrappers to the underlying type (a by-ref aggregate param holds an address to this type, and
   derefType(t: TypeSpec): TypeSpec {
     if (t.kind === "const") return this.derefType(t.valueType);
     if (t.kind === "reference") return this.derefType(t.refereed);
     return t;
   }
 
-  // True for a void return type. The parser spells void two ways — a dedicated {kind:"void"} node and, on
-  // some method paths, {kind:"name", name:"void"} — so a method like `void setupNewProposal(...)` must match
-  // both, else it gets typed as returning i64 and its bare `return;` underflows the result stack.
+  // True for a void return type. The parser spells void two ways — a dedicated {kind:"void"} node and,
   isVoidType(t: TypeSpec): boolean {
     const d = this.derefType(t);
     return d.kind === "void" || (d.kind === "name" && d.name === "void");
   }
 
-  // True if a type is an aggregate (id/m256i/struct/array/container) — passed/returned by address
-  // rather than as an i64 value. References and const are unwrapped first.
+  // True if a type is an aggregate (id/m256i/struct/array/container) — passed/returned by address rather than as an i64 value.
   isAggregateType(t: TypeSpec): boolean {
     if (t.kind === "const") return this.isAggregateType(t.valueType);
     if (t.kind === "reference") return this.isAggregateType(t.refereed);
@@ -1222,8 +1122,7 @@ export class Codegen {
 
   // The full layout of a container instantiation (HashMap<id,uint64,1024> → _elements/_occupationFlags/...).
   containerLayout(name: string, args: TypeSpec[], b: Bindings = NO_BIND): StructLayout {
-    // A plain (non-template) struct dispatched as a zero-arg instance (ProposalDataYesNo, or a contract-
-    // nested WinnerData) has no template entry — its `this` layout is the ordinary struct layout.
+    // A plain (non-template) struct dispatched as a zero-arg instance (ProposalDataYesNo, or a contract- nested WinnerData) has no template
     if (!this.templates.has(name) && !this.specializations.has(name)) {
       const s = this.globalStructs.get(name) ?? this.nested.get(name);
       if (s) return this.layoutOfStruct(s, b);
@@ -1232,7 +1131,6 @@ export class Codegen {
   }
 
   // template params → concrete args (KeyT→id, L→1024). A defaulted trailing param (HashFunc) is omitted.
-  // The container's nested structs (HashMap::Element) are added to the scope so method bodies resolve them.
   bindContainer(name: string, args: TypeSpec[], b: Bindings = NO_BIND): Bindings {
     const tmpl = this.templates.get(name);
     const out: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
@@ -1250,9 +1148,6 @@ export class Codegen {
       else if (m.kind === "typedef_decl" && !out.types.has((m as any).name)) out.types.set((m as any).name, (m as any).type);
     }
     // Static constexpr members (supportScalarVotes, maxVotes, ...). Without these a method body that sizes a
-    // dependent member type — `VoteStorageType = __VoteStorageTypeSelector<supportScalarVotes>::type` — can't
-    // evaluate the selector argument and defaults to the wrong width (4 vs 1), unlike the struct layout which
-    // already carries them. Mirrors layoutOfMembers' member-scope so body and layout agree.
     for (const m of tmpl.members) {
       if (m.kind !== "variable") continue;
       const v = m as VariableDecl;
@@ -1285,23 +1180,13 @@ export class Codegen {
     return Number(this.evalConstBig(expr, b));
   }
 
-  // Public: resolve a container/struct method to its body + the binding for the matched template instance,
-  // HONORING PARTIAL SPECIALIZATIONS. ProposalWithAllVoteData<ProposalDataYesNo, N> is a specialization that
-  // stores 2 bits per vote (votes[(2N+7)/8]) with its own set/setVoteValue/getVoteValue; the primary stores
-  // one byte per vote. The layout already selects the specialization (instantiateTemplate matches it), so the
-  // method body must come from the SAME instantiation — otherwise the primary's 1-byte access runs over the
-  // specialization's bit-packed store and every unvoted slot reads as option 0. Falls back to the primary's
-  // method table for methods defined OUT of the class body (HashMap::set), which the inline scan won't find.
+  // Public: resolve a container/struct method to its body + the binding for the matched template instance, HONORING PARTIAL
   methodTemplate(name: string, args: TypeSpec[], methodName: string, argCount?: number): { def: FunctionTemplateDecl; bind: Bindings } | null {
-    // bindContainer carries the full method-scope binding (params + nested typedefs like VoteStorageType +
-    // static constexprs); instantiateTemplate's binding omits the nested typedefs, so the body's dependent
-    // types would size to 0. The non-type param values (numOfVotes) match either way, so this binding is
-    // correct for both the primary and a specialization that reuses the primary's parameter names.
+    // bindContainer carries the full method-scope binding (params + nested typedefs like VoteStorageType + static constexprs); instantiateTemplate's binding omits
     const bind = this.bindContainer(name, args);
     const inst = this.instantiateTemplate(name, args, NO_BIND);
     if (inst) {
-      // Overload selection by arity (DateAndTime::isValid() vs the static isValid(y,m,d,...)): prefer an
-      // exact parameter-count match, then one whose extra trailing params all have defaults, then first.
+      // Overload selection by arity (DateAndTime::isValid() vs the static isValid(y,m,d,...)): prefer an exact parameter-count match, then one whose extra
       const cands = inst.tmpl.members.filter(
         (mm) => mm.kind === "function" && (mm as FunctionDecl).name === methodName && (mm as FunctionDecl).body,
       ) as FunctionDecl[];
@@ -1327,9 +1212,7 @@ export class Codegen {
     return def && def.body ? { def, bind } : null;
   }
 
-  // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they
-  // track the real field order / occupation-flag sizing rather than a baked-in formula). Returns null
-  // if the template body wasn't captured, in which case callers fall back to the structural formula.
+  // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they track the real field
   private hashContainerOffsets(name: string, args: TypeSpec[], b: Bindings, L: number): { elemSize: number; occBase: number; popOff: number; totalSize: number } | null {
     if (!this.templates.has(name) || !L) return null;
     const lt = this.layoutOfTemplate(name, args, b);
@@ -1341,7 +1224,6 @@ export class Codegen {
   }
 
   // Concrete offsets/sizes for HashMap<K,V,L>. Key/value sizing follows standard C struct layout of
-  // Element{K key; V value}; the occupation/population offsets come from the parsed qpi.h layout.
   hashmapInfo(args: TypeSpec[], b: Bindings = NO_BIND): ContainerInfo | null {
     if (args.length < 3) return null;
     const keySize = this.sizeOfType(args[0], b);
@@ -1384,8 +1266,7 @@ export class Codegen {
     return { kind: "Array", L, elemSize, elemType: args[0] };
   }
 
-  // Backing-store geometry for Collection<T, L>.element(i) = _elements[i & (L-1)].value — all offsets
-  // read from the parsed layout (the Element record is _elements' array element type).
+  // Backing-store geometry for Collection<T, L>.element(i) = _elements[i & (L-1)].value — all offsets read from the parsed layout (the
   collectionInfo(args: TypeSpec[], b: Bindings = NO_BIND): { L: number; elementsOff: number; stride: number; valueOff: number; elemType: TypeSpec } | null {
     if (args.length < 2) return null;
     const L = Number(this.evalConstFromType(args[1], b));
@@ -1398,8 +1279,7 @@ export class Codegen {
     return { L, elementsOff: elementsF.offset, stride: elemLayout.size, valueOff: valueF.offset, elemType: args[0] };
   }
 
-  // Backing-store geometry for LinkedList<T, L>.element(i) = _nodes[i & (L-1)].value — offsets from
-  // the parsed layout (the Node record is _nodes' array element type).
+  // Backing-store geometry for LinkedList<T, L>.element(i) = _nodes[i & (L-1)].value — offsets from the parsed layout (the Node record
   linkedListInfo(args: TypeSpec[], b: Bindings = NO_BIND): { L: number; nodesOff: number; stride: number; valueOff: number; elemType: TypeSpec } | null {
     if (args.length < 2) return null;
     const L = Number(this.evalConstFromType(args[1], b));
@@ -1421,8 +1301,7 @@ export class Codegen {
     this.warnings.push({ message, line, col });
   }
 
-  // Hard semantic errors (not fidelity warnings): these abort the build regardless of strict
-  // mode. Deduplicated because speculative emission may revisit the same node.
+  // Hard semantic errors (not fidelity warnings): these abort the build regardless of strict mode. Deduplicated because speculative emission
   error(message: string, at: number | Span): void {
     const line = typeof at === "number" ? at : at.line;
     const col = typeof at === "number" ? 0 : at.col;

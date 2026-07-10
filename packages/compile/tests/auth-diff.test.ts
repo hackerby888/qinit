@@ -1,5 +1,4 @@
-// Differential gtest for id-valued body codegen: qpi.invocator() captured into state (id copy), an
-// id == id guard, and reading an id back out — the dominant access-control pattern.
+// Differential gtest for id-valued body codegen: qpi.invocator() captured into state (id copy), an id == id guard, and
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

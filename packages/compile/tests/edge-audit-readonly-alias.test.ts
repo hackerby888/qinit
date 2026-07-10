@@ -1,5 +1,4 @@
 // state.get() exposes read-only contract state. A non-const reference must not turn a nested
-// expression derived from it into a writable alias, especially inside a PUBLIC_FUNCTION.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 

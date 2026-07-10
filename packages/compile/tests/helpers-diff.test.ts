@@ -1,5 +1,4 @@
-// Differential gtest for user-defined helper functions: plain value helpers (triple/addThem, called
-// directly) and a PRIVATE_PROCEDURE invoked via CALL() with the caller's in/out lvalues.
+// Differential gtest for user-defined helper functions: plain value helpers (triple/addThem, called directly) and a PRIVATE_PROCEDURE invoked via CALL()
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

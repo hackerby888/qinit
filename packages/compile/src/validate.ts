@@ -1,14 +1,4 @@
-// Semantic validation pass: rejects source that parses but is invalid C++, or valid C++ that
-// Qubic contracts forbid or this compiler cannot lower faithfully (each rule documents which).
-// Runs between parse and codegen so codegen only ever sees code it can compile with native
-// semantics. Also desugars call-site default arguments, appending the declaration's default
-// expressions so later phases see complete argument lists.
-//
-// The lowering model behind the scope rules: collectLocals hoists every declaration in a
-// function into one flat wasm-local map (first declaration wins). Sibling scopes reusing a
-// name are safe (lifetimes don't overlap, the slot is re-initialized), but nested shadowing,
-// use-before-declaration, and use-after-scope-exit all read or write the shared slot with
-// semantics that differ from native C++ — verified state divergence — so they are rejected.
+// Validation runs after parse and before codegen.
 
 import type {
   Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span,
@@ -61,8 +51,7 @@ function isConstType(t: TypeSpec): boolean {
   return false;
 }
 
-// Canonical key for a case label / constant operand: numeric literals normalize through BigInt
-// (0x1 and 1 collide), identifiers key by name.
+// Canonical key for a case label / constant operand: numeric literals normalize through BigInt (0x1 and 1 collide),
 function constKey(e: Expression): string | null {
   if (e.kind === "int_literal") {
     try {
@@ -107,7 +96,6 @@ const CONST_TYPE_SIZE: Record<string, bigint> = {
 };
 
 // Small, side-effect-free integral constant evaluator used by validation. Unknown identifiers
-// deliberately return null; callers decide whether an unresolved name is allowed in their scope.
 function evalIntegralConst(e: Expression, resolve?: (name: string) => bigint | null): bigint | null {
   try {
     switch (e.kind) {
@@ -198,9 +186,7 @@ class Validator {
 
   private aggregateNames = new Set<string>(["id", "m256i", "uint128"]);
 
-  // Typedef aliases, name → target type key: qpi.h's `typedef m256i id` plus the contract's own
-  // typedef_decls. Aggregate type compatibility compares CANONICAL keys, so an `id` argument
-  // binds to a `const m256i&` parameter and a `typedef Success_output Vote_output` return matches.
+  // Typedef aliases, name → target type key: qpi.h's `typedef m256i id` plus the contract's own typedef_decls. Aggregate type
   private typeAliases = new Map<string, string>([["id", "m256i"], ["uint128_t", "uint128"]]);
 
   private aggregateFieldCount = new Map<string, number>();
@@ -214,8 +200,7 @@ class Validator {
   private canonTypeKey(t: TypeSpec): string {
     const u = unwrapType(t);
 
-    // Template value arguments canonicalize to their constant values, so Array<uint8, ALIGNED_A>
-    // and Array<uint8, ALIGNED_B> compare equal when both constants evaluate to the same number.
+    // Template value arguments canonicalize to their constant values, so Array<uint8, ALIGNED_A> and Array<uint8, ALIGNED_B> compare equal when both
     if (u.kind === "template_instance") {
       const args = u.args.map((a) => {
         if (a.kind === "name") {
@@ -293,12 +278,10 @@ class Validator {
     }
   }
 
-  // Contracts run on consensus state only: a file-scope mutable lives outside the hashed state
-  // and silently diverges between nodes. Immutable file-scope constants are fine.
+  // Contracts run on consensus state only: a file-scope mutable lives outside the hashed state and silently diverges between
   private checkGlobalVariable(v: VariableDecl): void {
     if (v.isConstexpr || v.isExtern || isConstType(v.type)) {
-      // File-scope constexpr constants feed template-argument canonicalization (canonTypeKey)
-      // and static_assert evaluation.
+      // File-scope constexpr constants feed template-argument canonicalization (canonTypeKey) and static_assert evaluation.
       if (v.init) {
         const value = evalIntegralConst(v.init, (name) => this.constants.get(name) ?? null);
         if (value !== null) {
@@ -333,8 +316,7 @@ class Validator {
         this.typeAliases.set(m.name, typeKey(unwrapType((m as { type: TypeSpec }).type)));
       }
       if (m.kind === "variable") {
-        // Anonymous-union alternatives intentionally alias storage; only named duplicates in the
-        // same struct are redefinitions.
+        // Anonymous-union alternatives intentionally alias storage; only named duplicates in the same struct are redefinitions.
         if (fieldNames.has(m.name)) {
           this.error(`duplicate member '${m.name}' in struct '${s.name}'`, m.span);
         }
@@ -366,8 +348,6 @@ class Validator {
         };
         if (m.body) {
           // Two definitions with the same parameter signature are a redefinition. Overloads
-          // (differing signatures, e.g. QUSINO's divUp(uint32,..)/divUp(uint64,..)) are valid
-          // C++ and pass through; codegen resolves them by name (first definition wins).
           const prev = fnBodies.get(m.name);
           if (prev && paramSignature(prev) === paramSignature(m)) {
             this.error(`'${m.name}' is already defined in struct '${s.name}' with the same signature`, m.span);
@@ -384,8 +364,7 @@ class Validator {
       }
     }
 
-    // Overloaded names can't be arity-checked or default-desugared without type-based
-    // resolution — exclude them from call checks entirely.
+    // Overloaded names can't be arity-checked or default-desugared without type-based resolution — exclude them from call checks entirely.
     const bodyCount = new Map<string, number>();
     for (const m of s.members) {
       if (m.kind === "function" && m.body) {
@@ -405,9 +384,7 @@ class Validator {
     this.checkRecursion(s, fnBodies);
   }
 
-  // Qubic contracts must have statically bounded stacks: any call cycle among a struct's member
-  // functions (direct or mutual) is rejected. Edges are bare-name and this-> calls; calls through
-  // object expressions of other struct types are out of scope here.
+  // Qubic contracts must have statically bounded stacks: any call cycle among a struct's member functions (direct or mutual)
   private checkRecursion(s: StructDecl, fnBodies: Map<string, FunctionDecl>): void {
     const edges = new Map<string, Set<string>>();
     for (const [name, fn] of fnBodies) {
@@ -459,8 +436,7 @@ class Validator {
     this.currentMemberFns = memberFns;
     this.currentTypes = new Map(fn.params.map((p) => [p.name, p.type]));
 
-    // Every local declared anywhere in the function, for classifying bare identifiers: names
-    // outside this set belong to members/parameters/constants and are codegen's to resolve.
+    // Every local declared anywhere in the function, for classifying bare identifiers: names outside this set belong to members/parameters/constants
     const allLocals = new Set<string>();
     this.walkStatements(fn.body!, (stmt) => {
       if (stmt.kind === "declaration" && stmt.decl.kind === "variable" && !stmt.decl.isMember) {
@@ -519,7 +495,6 @@ class Validator {
     if (stmt.kind === "if") return !!stmt.else_ && this.guaranteesReturn(stmt.then) && this.guaranteesReturn(stmt.else_);
     if (stmt.kind === "switch") {
       // A switch guarantees a return when it has a default label, no arm can break out of it,
-      // and the final arm returns (earlier arms either return or fall through toward it).
       const body = stmt.body.kind === "compound" ? stmt.body.body : [stmt.body];
       const breaksOut = (s: Statement): boolean => {
         if (s.kind === "break") return true;
@@ -558,8 +533,7 @@ class Validator {
     }
   }
 
-  // Ordered walk with a scope stack: declarations register in the innermost scope, identifier
-  // uses must resolve to an already-declared visible local (when the name is a local at all).
+  // Ordered walk with a scope stack: declarations register in the innermost scope, identifier uses must resolve to an
   private walkScope(
     stmt: Statement,
     fn: FunctionDecl,
@@ -580,8 +554,7 @@ class Validator {
 
     switch (stmt.kind) {
       case "compound":
-        // A multi-declarator statement (`uint64 x = 1, y = 3;`) is drained by the parser into a
-        // synthetic compound; it introduces no scope of its own.
+        // A multi-declarator statement (`uint64 x = 1, y = 3;`) is drained by the parser into a synthetic
         if ((stmt as any).synthetic) {
           for (const s of stmt.body) {
             recurse(s);
@@ -698,9 +671,7 @@ class Validator {
     if (current.has(d.name)) {
       this.error(`'${d.name}' is already declared in this scope`, stmt.span);
     } else if (d.name !== "interContractCallError") {
-      // CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE declare
-      // `InterContractCallError interContractCallError;` at the call site, so nested calls
-      // shadow by design and each is read immediately — the shared slot is safe there.
+      // CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE declare `InterContractCallError interContractCallError;` at the call site, so nested calls shadow by design and each
       for (let i = scopes.length - 2; i >= 0; i--) {
         if (scopes[i].has(d.name)) {
           this.error(`'${d.name}' shadows a declaration in an enclosing scope — locals share one slot per name, so shadowing is not supported`, stmt.span);
@@ -867,9 +838,7 @@ class Validator {
           }
           const sig = name !== null && !lookup(name) && !allLocals.has(name) ? memberFns.get(name) : undefined;
           if (sig) {
-            // Native rejects a bare non-static member call from a static context (every
-            // macro-generated entry body is static) — accepting it would compile contracts
-            // that cannot build on the real node toolchain.
+            // Native rejects a bare non-static member call from a static context (every macro-generated entry body is static) —
             if (this.currentFn?.isStatic && !sig.decl.isStatic) {
               this.error(`cannot call non-static member function '${name}' from a static context — declare it static`, e.span);
             }
@@ -877,8 +846,7 @@ class Validator {
               const want = sig.minArgs === sig.maxArgs ? `${sig.maxArgs}` : `${sig.minArgs}..${sig.maxArgs}`;
               this.error(`'${name}' expects ${want} argument(s) but got ${e.args.length}`, e.span);
             } else {
-              // Desugar defaults: append the declaration's default expressions so codegen emits
-              // the full argument list (C++ evaluates defaults at the call site).
+              // Desugar defaults: append the declaration's default expressions so codegen emits the full argument list (C++ evaluates defaults at
               for (let i = e.args.length; i < sig.maxArgs; i++) {
                 e.args.push(sig.decl.params[i].defaultValue!);
               }
@@ -945,9 +913,7 @@ class Validator {
     walk(root);
   }
 
-  // The root of an assignment target must be mutable: a get() accessor result is a read-only
-  // view (writing through it verifiably lands on live state in our lowering — never allow it),
-  // and const locals/params reject writes like native.
+  // The root of an assignment target must be mutable: a get() accessor result is a read-only view (writing
   private checkAssignTarget(
     target: Expression,
     constParams: Set<string>,

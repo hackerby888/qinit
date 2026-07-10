@@ -1,6 +1,4 @@
 // C preprocessor for QPI subset. Operates on text, not tokens.
-// Handles: #define (object-like + function-like with ## and #), #include, #pragma once,
-// __LINE__, simple conditional directives (#ifdef / #ifndef / #endif / #else).
 
 export interface PreprocessOpts {
   source: string;                     // contract source
@@ -27,7 +25,6 @@ export class Preprocessor {
   private pos: number = 0;
   private srcLine: number[];          // line → byte offset map
   // Conditional-compilation stack. Each frame: whether this branch is emitting, and whether any
-  // branch of the group has already been taken (so #elif/#else know to stay off).
   private condStack: { active: boolean; taken: boolean; parentActive: boolean }[] = [];
 
   constructor() {
@@ -102,8 +99,7 @@ export class Preprocessor {
   }
 
   private process(src: string): string {
-    // Normalize CRLF/CR → LF so backslash line-continuations (`\` + CRLF) in multi-line macro definitions
-    // join correctly — core-lite headers ship with CRLF endings.
+    // Normalize CRLF/CR → LF so backslash line-continuations (`\` + CRLF) in multi-line macro definitions join correctly — core-lite
     this.input = src.replace(/\r\n?/g, "\n");
     this.pos = 0;
     this.line = 1;
@@ -373,7 +369,6 @@ export class Preprocessor {
     }
 
     // #include directives in preprocessed source are no-ops (qpi.h is already embedded).
-    // The directive is replaced with a newline so line numbering stays consistent.
     this.result += "\n";
   }
 
@@ -428,8 +423,7 @@ export class Preprocessor {
   private handlePragma(): void {
     this.skipWhitespace();
     const pragma = this.readIdentifier();
-    // #pragma once — no action (we track it but the caller should ensure qpi.h is included once)
-    // All other pragmas passed through
+    // #pragma once — no action (we track it but the caller should ensure qpi.h is included once) All
     if (pragma === "once") {
       this.skipToNewline();
     } else {
@@ -458,7 +452,6 @@ export class Preprocessor {
       }
 
       // Body might have parameter references from outer scope — no args to bind.
-      // For simple constants, just return the body.
       return this.expandBody(def, []);
     }
 
@@ -606,8 +599,7 @@ export class Preprocessor {
     return body.replace(new RegExp(`(?<![#\\w])${escaped}(?!\\w)`, "g"), value);
   }
 
-  // Read a function-like macro's argument list from a STRING (not the main input stream) starting at the
-  // open paren. Mirrors the depth/comma splitting in tryExpandMacro. Returns null on an unbalanced list.
+  // Read a function-like macro's argument list from a STRING (not the main input stream) starting at the open
   private readArgsFromString(text: string, openIdx: number): { args: string[]; end: number } | null {
     if (text[openIdx] !== "(") return null;
 
@@ -641,14 +633,7 @@ export class Preprocessor {
   }
 
   private expandRecursive(text: string): string {
-    // Re-process the expanded text to expand any macros within it
-    // This is a simplified version — full recursive expansion would need a real tokenizer.
-    // For qpi.h macros, one level of expansion is usually sufficient because
-    // the body of a macro typically contains identifiers that are NOT macros
-    // (function names, type names). Only a few patterns (like CALL_OTHER_CONTRACT_FUNCTION_E
-    // containing InterContractCallError) need a second pass.
-    //
-    // We run 3 passes to catch common chaining patterns.
+    // Rescan expanded text to expand nested macro references.
     let result = text;
     for (let pass = 0; pass < 3; pass++) {
       let changed = false;
@@ -669,8 +654,6 @@ export class Preprocessor {
             changed = true;
           } else if (def && def.params !== null && !this.expanding.has(ident)) {
             // Function-like macro — expand only if actually invoked (an open paren follows). A macro body
-            // can contain further function-like calls (qpi.h's IMPLEMENT_* wrappers expand to nested
-            // IMPLEMENT_*/PUBLIC_* calls), so the rescan must reach them, not just object-like names.
             let j = i + ident.length;
             while (j < result.length && (result[j] === " " || result[j] === "\t" || result[j] === "\n")) j++;
             const parsed = result[j] === "(" ? this.readArgsFromString(result, j) : null;
@@ -823,7 +806,6 @@ export class Preprocessor {
 // Export a convenience function that embeds the qpi.h content
 export function createQpiHeader(corePath: string): string {
   // This will be replaced at build time or the caller provides the content.
-  // For now, provide a minimal stub — the real qpi.h content is loaded by the compiler host.
   return `// qpi.h stub — real content injected by compiler host
 `;
 }

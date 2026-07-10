@@ -1,6 +1,4 @@
-// Differential gtest for system-procedure locals: a lifecycle procedure (END_EPOCH_WITH_LOCALS) reads and
-// writes its `locals.*` frame, which only works if the sysproc is emitted with its <NAME>_locals layout
-// (not an empty frame). Driven by ticking across an epoch boundary; validated against native clang.
+// Differential gtest for system-procedure locals: a lifecycle procedure (END_EPOCH_WITH_LOCALS) reads and writes its `locals.*` frame, which only works
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

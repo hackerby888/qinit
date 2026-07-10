@@ -1,12 +1,4 @@
-// uint128 differential-fuzzer regression gate. Each pinned seed generates a contract
-// (tools/fuzz-gen-u128.ts is pure: seed → identical source and inputs forever), runs it in the
-// engine, and compares the full StateData against a recording that was native-verified when the
-// pin was made — so the suite catches uint128 codegen regressions without needing clang. When
-// the wasi toolchain is present the native build re-derives every pin.
-//
-// The pins encode the generator grammar: any change to tools/fuzz-gen-u128.ts shifts the RNG
-// stream and invalidates them. Regenerate with `bun run tools/fuzz-pin-u128.ts <seeds...>` (it
-// refuses to pin a divergent seed). Known-divergent seeds live in tools/fuzz-findings-u128/.
+// u128 differential-gate over pinned seeds from `tools/fuzz-gen-u128.ts`.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

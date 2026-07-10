@@ -1,7 +1,4 @@
-// Compound assignment signedness: >>= must be arithmetic on signed operands, /= and %= must
-// follow the target's signedness, and += on a uint32 wraps at 32 bits. Also covers plain
-// binary ops on function-body locals, whose declared type drives the op selection.
-// Native clang is the judge.
+// Compound assignment signedness: >>= must be arithmetic on signed operands, /= and %= must follow the target's signedness,
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

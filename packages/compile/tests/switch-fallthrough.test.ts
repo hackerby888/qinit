@@ -1,7 +1,4 @@
-// Regression test: switch/case fallthrough compiles to correct WASM with
-// proper fallthrough semantics (stacked labels, intentional non-break fallthrough).
-// Old codegen wrapped each case group in (if ... (then ... (br $swbrk))) which
-// made fallthrough impossible. Fixed to emit nested blocks with dispatch+bodies.
+// Regression test: switch/case fallthrough compiles to correct WASM with proper fallthrough semantics (stacked labels, intentional non-break fallthrough).
 import { test, expect } from "bun:test";
 import { compileContract, loadQpiHeader } from "@qinit/compile";
 
@@ -82,10 +79,7 @@ test("WAT uses nested dispatch+bodies pattern (no unconditional break between ca
   }
   expect(switchStarts.length).toBe(2);
 
-  // Verify each switch has:
-  //   a) nested case blocks that stay open: (block $swcase...  (NOT closed immediately)
-  //   b) a dispatch chain: (if ... (then (br $swcase...)))
-  //   c) a default fallthrough dispatch: (br $swdef...)
+  // Verify each switch has: a) nested case blocks that stay open: (block $swcase... (NOT closed immediately)
   for (const start of switchStarts) {
     let caseDispatch = 0;
     let defaultDispatch = false;

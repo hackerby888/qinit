@@ -1,8 +1,4 @@
-// Overloaded static helpers must resolve by argument signature, not declaration order.
-// Each call site casts its argument to exactly one overload's parameter type, so C++
-// resolution is unambiguous and the recorded states are what native clang produces.
-// The second contract pins ternary common-type conversion: a signed sub-64 arm mixed
-// with an unsigned arm converts to the unsigned common type ((sint16)-1 → 0xFFFFFFFF).
+// Overload-resolution parity for static helpers.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -49,8 +45,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-// native-verified: f0 = pick(uint64)(5)+2000, f1 = pick(uint32)(6)+1000,
-// f2 = sgn(sint32)(-2) = -1, f3 = sgn(uint32) = 7
+// native-verified: f0 = pick(uint64)(5)+2000, f1 = pick(uint32)(6)+1000, f2 = sgn(sint32)(-2) = -1, f3 = sgn(uint32) = 7
 const EXPECTED = "d507000000000000ee03000000000000ffffffffffffffff07000000000000000000000000000000000000000000000000000000000000000000000000000000";
 const INPUT = [5n, 6n, 0xfffffffen, 3n];
 
@@ -73,8 +68,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-// native-verified: each ternary takes the sint16 -1 arm, converted to uint32 0xFFFFFFFF;
-// f2 = sadd(0xFFFFFFFF, 1000)
+// native-verified: each ternary takes the sint16 -1 arm, converted to uint32 0xFFFFFFFF; f2 = sadd(0xFFFFFFFF, 1000)
 const TERNARY_EXPECTED = "ffffffff00000000ffffffff00000000e70300000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 
 const runState = (wasm: Uint8Array): string => {
