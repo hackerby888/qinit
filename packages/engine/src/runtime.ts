@@ -415,6 +415,8 @@ export class Contract {
     u8.set(oldState, oldOff);
     this.writeCtx({});                                            // NULL_ID / zero ctx (QpiContextMigrateProcedureCall)
     this.arenaBump = this.arenaBase + ((oldState.length + 15) & ~15);   // scratch past the old blob
+    const arenaTopG: WebAssembly.Global | undefined = this.ex.arena_top;
+    if (arenaTopG) arenaTopG.value = this.arenaBump;
     this.ex.dispatch(KIND.MIGRATE >>> 0, 0, oldOff >>> 0, 0, localsOff >>> 0);
     this.host.markDirty(this.slot);
   }

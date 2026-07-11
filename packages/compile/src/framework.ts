@@ -80,7 +80,12 @@ function computeLayout(stateSize: number, arenaSize: number, memBase = 0): Layou
 // ---- The complete module assembler ----
 
 export function emitModule(spec: ModuleSpec): string {
-  const L = computeLayout(spec.stateSize, spec.arenaSize, spec.memBase ?? 0);
+  const usesPrng = spec.userFunctionsWat.includes("$intr_rdrand");
+  // WAMR's app-to-native adapter treats linear-memory offset 0 as nullptr.
+  // Random-capable modules pass their resident state to lhost.k12 when seeding,
+  // so keep that state at a non-zero offset. Shared-memory gtests retain their
+  // explicit base, and modules without PRNG code retain the historical zero base.
+  const L = computeLayout(spec.stateSize, spec.arenaSize, spec.memBase ?? (usesPrng ? 8 : 0));
   const sysprocMask = spec.sysprocs.reduce((m, sp) => m | (1 << sp.id), 0);
 
   return [
@@ -95,10 +100,10 @@ export function emitModule(spec: ModuleSpec): string {
     emitMemOps(),
     emitAllocators(L),
     emitForwarders(),
-    emitIntrinsics(),
+    emitIntrinsics(L, spec),
     emitMetadata(L, spec, sysprocMask),
     spec.userFunctionsWat,
-    emitDispatch(spec),
+    emitDispatch(spec, usesPrng),
     emitInitialize(),
     ")",
   ].join("\n");
@@ -182,7 +187,6 @@ ${gtest ? `  ;; ---- private TS gtest host imports ----
   (import "qtest" "query" (func $qt_query (param i32 i32 i32 i32 i32 i32) (result i32)))
   (import "qtest" "fund" (func $qt_fund (param i32 i64)))
   (import "qtest" "balance" (func $qt_balance (param i32) (result i64)))
-  (import "qtest" "randomId" (func $qt_random_id (param i32)))
   (import "qtest" "state" (func $qt_state (param i32 i32 i32) (result i32)))
   (import "qtest" "system" (func $qt_system (param i32 i32) (result i32)))
   (import "qtest" "setEpoch" (func $qt_set_epoch (param i32)))
@@ -198,7 +202,13 @@ function emitGlobals(L: Layout): string {
   (global $ioBase i32 (i32.const ${L.ioBase}))
   (global $arenaBase i32 (i32.const ${L.arenaBase}))
   (global $arenaTop (export "arena_top") (mut i32) (i32.const ${L.arenaBase}))
-  (global $assetIterBase i32 (i32.const ${L.iterBufBase}))`;
+  (global $assetIterBase i32 (i32.const ${L.iterBufBase}))
+  (global $prngSeed0 (mut i64) (i64.const 0))
+  (global $prngSeed1 (mut i64) (i64.const 0))
+  (global $prngSeed2 (mut i64) (i64.const 0))
+  (global $prngSeed3 (mut i64) (i64.const 0))
+  (global $prngCounter (mut i64) (i64.const 0))
+  (global $dispatchDepth (mut i32) (i32.const 0))`;
 }
 
 function emitExportList(): string {
@@ -358,9 +368,71 @@ function emitForwarders(): string {
   (func $qpi_invocationReward (result i64) (i64.load (i32.add (global.get $ctxBase) (i32.const ${CTX.invocationReward}))))`;
 }
 
-function emitIntrinsics(): string {
+function emitIntrinsics(L: Layout, spec: ModuleSpec): string {
+  const inputSizeCases: string[] = [];
+  for (const entry of spec.entries) {
+    inputSizeCases.push(`    (if (i32.and (i32.eq (local.get $kind) (i32.const ${entry.kind})) (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${entry.inputType}))) (then (return (i32.const ${entry.inSize}))))`);
+  }
+  for (const sysproc of spec.sysprocs) {
+    inputSizeCases.push(`    (if (i32.and (i32.eq (local.get $kind) (i32.const 2)) (i32.eq (local.get $it) (i32.const ${sysproc.id}))) (then (return (i32.const ${sysproc.inSize}))))`);
+  }
+  if (spec.migrate) {
+    inputSizeCases.push(`    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return (i32.const ${spec.migrate.oldStateSize}))))`);
+  }
   // Container + helper intrinsics the codegen targets. HashMap helpers reproduce the real qpi.h
   return `  ;; ---- intrinsics ----
+  ;; Canonical dispatch transcript:
+  ;; prev spectrum[32], tick:u32, contract:u32, kind:u32, inputType:u32,
+  ;; invocator[32], originator[32], reward:u64, inputLen:u32, stateLen:u32,
+  ;; K12(resident state)[32], input bytes. All integers are little-endian.
+  (func $dispatch_input_size (param $kind i32) (param $it i32) (result i32)
+${inputSizeCases.join("\n")}
+    (i32.const 0))
+
+  (func $prng_seed_dispatch (param $kind i32) (param $it i32) (param $inOff i32)
+    (local $inputSize i32) (local $transcript i32) (local $digest i32)
+    (local.set $inputSize (call $dispatch_input_size (local.get $kind) (local.get $it)))
+    (local.set $transcript (call $qpiAllocLocals (i32.add (i32.const 192) (local.get $inputSize))))
+    (call $lh_prevSpectrumDigest (local.get $transcript))
+    (i32.store (i32.add (local.get $transcript) (i32.const 32)) (call $lh_tick))
+    (i32.store (i32.add (local.get $transcript) (i32.const 36)) (call $qpi_contractIndex))
+    (i32.store (i32.add (local.get $transcript) (i32.const 40)) (local.get $kind))
+    (i32.store (i32.add (local.get $transcript) (i32.const 44)) (local.get $it))
+    (call $copyMem (i32.add (local.get $transcript) (i32.const 48)) (i32.add (global.get $ctxBase) (i32.const ${CTX.invocator})) (i32.const 32))
+    (call $copyMem (i32.add (local.get $transcript) (i32.const 80)) (i32.add (global.get $ctxBase) (i32.const ${CTX.originator})) (i32.const 32))
+    (i64.store (i32.add (local.get $transcript) (i32.const 112)) (call $qpi_invocationReward))
+    (i32.store (i32.add (local.get $transcript) (i32.const 120)) (local.get $inputSize))
+    (i32.store (i32.add (local.get $transcript) (i32.const 124)) (i32.const ${L.stateSize}))
+    (call $lh_k12 (global.get $stateBase) (i32.const ${L.stateSize}) (i32.add (local.get $transcript) (i32.const 128)))
+    (call $copyMem (i32.add (local.get $transcript) (i32.const 160)) (local.get $inOff) (local.get $inputSize))
+    (local.set $digest (i32.add (i32.add (local.get $transcript) (i32.const 160)) (local.get $inputSize)))
+    (call $lh_k12 (local.get $transcript) (i32.add (i32.const 160) (local.get $inputSize)) (local.get $digest))
+    (global.set $prngSeed0 (i64.load (local.get $digest)))
+    (global.set $prngSeed1 (i64.load (i32.add (local.get $digest) (i32.const 8))))
+    (global.set $prngSeed2 (i64.load (i32.add (local.get $digest) (i32.const 16))))
+    (global.set $prngSeed3 (i64.load (i32.add (local.get $digest) (i32.const 24))))
+    (global.set $prngCounter (i64.const 0)))
+
+  ;; Portable replacement for the x86 RDRAND step contract: write one value and
+  ;; report success. K12(seed || counter) gives a deterministic dispatch-local
+  ;; testnet stream; it is replayable chain-derived data, not independent CPU entropy.
+  (func $prng_next (param $out i32) (param $width i32) (result i32)
+    (local $block i32) (local $digest i32)
+    (local.set $block (call $qpiAllocLocals (i32.const 72)))
+    (i64.store (local.get $block) (global.get $prngSeed0))
+    (i64.store (i32.add (local.get $block) (i32.const 8)) (global.get $prngSeed1))
+    (i64.store (i32.add (local.get $block) (i32.const 16)) (global.get $prngSeed2))
+    (i64.store (i32.add (local.get $block) (i32.const 24)) (global.get $prngSeed3))
+    (i64.store (i32.add (local.get $block) (i32.const 32)) (global.get $prngCounter))
+    (local.set $digest (i32.add (local.get $block) (i32.const 40)))
+    (call $lh_k12 (local.get $block) (i32.const 40) (local.get $digest))
+    (call $copyMem (local.get $out) (local.get $digest) (local.get $width))
+    (global.set $prngCounter (i64.add (global.get $prngCounter) (i64.const 1)))
+    (i32.const 1))
+  (func $intr_rdrand16 (param $out i32) (result i32) (call $prng_next (local.get $out) (i32.const 2)))
+  (func $intr_rdrand32 (param $out i32) (result i32) (call $prng_next (local.get $out) (i32.const 4)))
+  (func $intr_rdrand64 (param $out i32) (result i32) (call $prng_next (local.get $out) (i32.const 8)))
+
   ;; SELF as a materialized id: { contractIndex:u64, 0, 0, 0 } in scratch, returns its address.
   (func $self_id (result i32) (local $p i32)
     (local.set $p (call $qpiAllocLocals (i32.const 32)))
@@ -450,11 +522,38 @@ function emitSysSwitch(sysprocs: SysProcInfo[], val: (sp: SysProcInfo) => number
   return lines.join("\n");
 }
 
-function emitDispatch(spec: ModuleSpec): string {
+function emitDispatch(spec: ModuleSpec, usesPrng: boolean): string {
   const lines: string[] = [];
   lines.push("  ;; ---- dispatch ----");
-  // No arena reset here: a reentrant dispatch (POST_INCOMING_TRANSFER fired mid-call) must allocate above the live outer frames. The
   lines.push("  (func $dispatch (param $kind i32) (param $it i32) (param $inOff i32) (param $outOff i32) (param $localsOff i32)");
+  if (usesPrng) {
+    // The wrapper is the PRNG frame boundary. Wasm locals survive a synchronous
+    // reentrant host call, so they hold the caller stream while the nested dispatch
+    // derives and consumes its own seed.
+    lines.push("    (local $saved0 i64) (local $saved1 i64) (local $saved2 i64) (local $saved3 i64) (local $savedCounter i64) (local $nested i32)");
+    lines.push("    (local.set $saved0 (global.get $prngSeed0))");
+    lines.push("    (local.set $saved1 (global.get $prngSeed1))");
+    lines.push("    (local.set $saved2 (global.get $prngSeed2))");
+    lines.push("    (local.set $saved3 (global.get $prngSeed3))");
+    lines.push("    (local.set $savedCounter (global.get $prngCounter))");
+    lines.push("    (local.set $nested (global.get $dispatchDepth))");
+    lines.push("    (global.set $dispatchDepth (i32.add (global.get $dispatchDepth) (i32.const 1)))");
+    lines.push("    (call $prng_seed_dispatch (local.get $kind) (local.get $it) (local.get $inOff))");
+    lines.push("    (call $dispatch_body (local.get $kind) (local.get $it) (local.get $inOff) (local.get $outOff) (local.get $localsOff))");
+    lines.push("    (global.set $dispatchDepth (i32.sub (global.get $dispatchDepth) (i32.const 1)))");
+    lines.push("    (if (local.get $nested) (then");
+    lines.push("      (global.set $prngSeed0 (local.get $saved0))");
+    lines.push("      (global.set $prngSeed1 (local.get $saved1))");
+    lines.push("      (global.set $prngSeed2 (local.get $saved2))");
+    lines.push("      (global.set $prngSeed3 (local.get $saved3))");
+    lines.push("      (global.set $prngCounter (local.get $savedCounter))))");
+  } else {
+    lines.push("    (call $dispatch_body (local.get $kind) (local.get $it) (local.get $inOff) (local.get $outOff) (local.get $localsOff))");
+  }
+  lines.push("  )");
+
+  // No arena reset here: a reentrant dispatch must allocate above the live outer frames.
+  lines.push("  (func $dispatch_body (param $kind i32) (param $it i32) (param $inOff i32) (param $outOff i32) (param $localsOff i32)");
 
   // kind == 2: system procedure
   if (spec.sysprocs.length > 0) {

@@ -107,7 +107,6 @@ export const CALL_SIG: Record<string, CallSig> = {
   $qt_query: sig([I32, I32, I32, I32, I32, I32], I32),
   $qt_fund: sig([I32, I64], "void"),
   $qt_balance: sig([I32], I64),
-  $qt_random_id: sig([I32], "void"),
   $qt_state: sig([I32, I32, I32], I32),
   $qt_system: sig([I32, I32], I32),
   $qt_set_epoch: sig([I32], "void"),
@@ -129,6 +128,9 @@ export const CALL_SIG: Record<string, CallSig> = {
   // compiler target primitives for platform widening multiply
   $intr_mulhi_u: sig([I64, I64], I64),
   $intr_mulhi_s: sig([I64, I64], I64),
+  $intr_rdrand16: sig([I32], I32),
+  $intr_rdrand32: sig([I32], I32),
+  $intr_rdrand64: sig([I32], I32),
 
   // qpi forwarders — zero-arg getters
   $qpi_invocationReward: sig([], I64),

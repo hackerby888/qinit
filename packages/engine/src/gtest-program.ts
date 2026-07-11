@@ -42,7 +42,6 @@ export async function runCompiledGtest(
     sim.epochN = (program.mainConstructionEpoch ?? 0) & 0xffff;
     const handles: Record<number, Contract> = {};
     const messages: string[] = [];
-    let random = 0;
     let runner!: Contract;
     const initialized = new Set<number>();
 
@@ -75,7 +74,6 @@ export async function runCompiledGtest(
       },
       fund: (idPtr: number, amount: bigint): void => sim.fund(read(idPtr, 32), BigInt(amount)),
       balance: (idPtr: number): bigint => sim.balance(read(idPtr, 32)),
-      randomId: (outputPtr: number): void => write(outputPtr, accountId(`gtest:${test.name}:${random++}`), 32),
       state: (slot: number, outputPtr: number, outputSize: number): number => {
         const contract = handles[slot >>> 0];
         if (!contract) return 0;

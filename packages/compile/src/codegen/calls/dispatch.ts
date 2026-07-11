@@ -136,6 +136,16 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
     if (intrinsic === "_lzcnt_u64" || intrinsic === "__lzcnt64") {
       return ir.op("i64.clz", emitValueIr(ctx, expr.args[0]));
     }
+    const rdrand = ({
+      _rdrand16_step: "$intr_rdrand16",
+      _rdrand32_step: "$intr_rdrand32",
+      _rdrand64_step: "$intr_rdrand64",
+    } as const)[intrinsic as "_rdrand16_step" | "_rdrand32_step" | "_rdrand64_step"];
+    if (rdrand) {
+      const output = emitAddr(ctx, expr.args[0]);
+      if (!output) throw new Error(`${intrinsic} output is not addressable`);
+      return ir.op("i64.extend_i32_u", ir.call(rdrand, addrIr(output)));
+    }
   }
 
   // isZero(id) / id.isZero() — true iff all 32 bytes are zero (OR the four 64-bit limbs, test for zero).
@@ -464,6 +474,11 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
 
   // ASSERT is ((void)0) in release builds (platform/assert.h) — the argument is not even evaluated, so dropping the statement
   if (expr.callee.kind === "identifier" && expr.callee.name === "ASSERT") return;
+
+  if (expr.callee.kind === "identifier" && /^_rdrand(?:16|32|64)_step$/.test(expr.callee.name)) {
+    ctx.lines.push(`    ${ir.emit(ir.op("drop", emitCallValueIr(ctx, expr)))}`);
+    return;
+  }
 
   if (expr.callee.kind === "member_access" && emitInlineStructStatement(ctx, expr)) return;
 
