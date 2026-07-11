@@ -1,10 +1,8 @@
-// Self-contained test SDK source (codec + tx + rpc + call + provider), inlined so a user's
-// `bun test` runs with only the public @qubic-lib/qubic-ts-library — no qinit monorepo.
-// The .qtmpl is embedded as text by `bun build --compile`.
-// @ts-ignore - bun text import attribute (not typechecked against tsconfig)
-import RUNTIME from "./assets/test-runtime.qtmpl" with { type: "text" };
+// Self-contained test SDK source (codec + tx + rpc + call + provider), generated from the canonical sources
+// and inlined by Bun while it bundles Qinit. The generated client therefore needs only the public @qubic-lib.
+import { generateRuntimeMacro } from "../scripts/gen-runtime" with { type: "macro" };
 
-export const testRuntimeSource: string = RUNTIME as unknown as string;
+export const testRuntimeSource: string = generateRuntimeMacro();
 
 // A starter bun:test spec for the counter template (overwritten only if no test exists).
 export function sampleTest(name: string): string {
