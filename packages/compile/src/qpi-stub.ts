@@ -111,9 +111,13 @@ struct ContractBase {};
 #define REGISTER_USER_PROCEDURE(userProcedure, inputType) \\
   qpi.__registerUserProcedure((void*)userProcedure, inputType, sizeof(userProcedure##_input), sizeof(userProcedure##_output), sizeof(userProcedure##_locals))
 
-#define LOG_INFO(msg)
-#define LOG_ERROR(msg)
-#define LOG_WARN(msg)
+#define LOG_INFO(msg) __qinit_log_info(msg)
+#define LOG_ERROR(msg) __qinit_log_error(msg)
+#define LOG_WARNING(msg) __qinit_log_warning(msg)
+#define LOG_WARN(msg) __qinit_log_warning(msg)
+#define LOG_DEBUG(msg) __qinit_log_debug(msg)
+#define LOG_PAUSE() __qinit_log_pause()
+#define LOG_RESUME() __qinit_log_resume()
 #define CALL_OTHER_CONTRACT_FUNCTION(calleeType, function, input, output)
 #define INVOKE_OTHER_CONTRACT_PROCEDURE(calleeType, procedure, input, output, reward)
 #define CALL_OTHER_CONTRACT_FUNCTION_E(calleeType, function, input, output, errorVar)

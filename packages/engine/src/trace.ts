@@ -6,7 +6,7 @@
 import { toHex } from "./k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
 
-const STATE_CAP = 256 * 1024; // bound the per-entry state scan (node caps too)
+export const TRACE_STATE_CAP = 256 * 1024; // bound the per-entry state scan (node caps too)
 const ENTRY_CAP = 4096;       // ring-buffer the entries so a long session can't grow unbounded
 
 // Contiguous changed-byte runs between two equal-length state snapshots -> DebugStateRegion[].
@@ -36,6 +36,7 @@ export interface BeginMeta {
   invocator: Uint8Array | undefined;
   invocationReward: bigint;
   input: Uint8Array;
+  stateSize: number;
   stateBefore: Uint8Array;
 }
 
@@ -72,7 +73,7 @@ export class TraceRecorder {
     if (!this.enabled) {
       return null;
     }
-    const stateSize = m.stateBefore.length;
+    const stateSize = m.stateSize;
     const e: DebugEntry = {
       seq: this.seq++,
       tick: m.tick,
@@ -84,7 +85,7 @@ export class TraceRecorder {
       inSize: m.input.length,
       outSize: 0,
       stateSize,
-      stateTruncated: stateSize > STATE_CAP,
+      stateTruncated: stateSize > TRACE_STATE_CAP,
       invocator: m.invocator ? toHex(m.invocator.subarray(0, 32)) : "0".repeat(64),
       invocationReward: Number(m.invocationReward),
       inHex: toHex(m.input),
@@ -109,7 +110,7 @@ export class TraceRecorder {
     if (m.trap) {
       e.trap = m.trap;
     }
-    const cap = Math.min(m.stateBefore.length, STATE_CAP);
+    const cap = Math.min(m.stateBefore.length, m.stateAfter.length, TRACE_STATE_CAP);
     e.stateDiff = diffRegions(m.stateBefore.subarray(0, cap), m.stateAfter.subarray(0, cap));
 
     this.stack.pop();

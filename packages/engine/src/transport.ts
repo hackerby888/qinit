@@ -13,6 +13,7 @@ import type { CommitteeOpts } from "./consensus";
 import { Contract, KIND } from "./runtime";
 import { k12Bytes, toHex, verifySync, deriveKeysSync, initK12 } from "./k12";
 import { Transaction } from "./wire";
+import { NativeLogger } from "./native-logger";
 
 interface SlotMeta { name: string; codeHash: string; version: number; }
 interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
@@ -21,6 +22,7 @@ export interface EngineOpts { slotBase?: number; slotCount?: number; consensus?:
 
 export class VirtualNode implements NodeTransport {
   readonly sim: Sim;
+  readonly logger: NativeLogger;
   readonly slotBase: number;
   readonly slotCount: number;
   private meta = new Map<number, SlotMeta>();
@@ -56,7 +58,8 @@ export class VirtualNode implements NodeTransport {
   // keeps these off at its lower layer; the realistic defaults live here. Direct `new` still works for callers
   // that have already awaited initK12() (the legacy setup).
   constructor(opts: EngineOpts = {}) {
-    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool ?? true, fees: opts.fees ?? "metered", defaultReserve: opts.defaultReserve, liteTicking: opts.liteTicking });
+    this.logger = new NativeLogger();
+    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool ?? true, fees: opts.fees ?? "metered", defaultReserve: opts.defaultReserve, liteTicking: opts.liteTicking, nativeLogger: this.logger });
     this.slotBase = opts.slotBase ?? 28;
     this.slotCount = opts.slotCount ?? 4;
     this.verifySigs = opts.verifySigs ?? true;

@@ -28,10 +28,11 @@ async function seedSystemContracts(srv: EngineServer, names: string[]): Promise<
 // caller can lower it (down to 0 = as fast as the event loop allows) via `qinit node run --tick-ms`.
 export const DEFAULT_TICK_MS = 1000;
 
-export async function serveEngine(rpcBase: string, tickMs?: number, system: string[] = []): Promise<never> {
+export async function serveEngine(rpcBase: string, tickMs?: number, system: string[] = [], peerPort = 21841): Promise<never> {
   const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
   const srv = new EngineServer();
-  await srv.start(portFromRpc(rpcBase), ms);
+  await srv.start(portFromRpc(rpcBase), ms, peerPort);
+  process.stdout.write(`qinit virtual node: rpc ${rpcBase} · peer 127.0.0.1:${peerPort}\n`);
   await seedSystemContracts(srv, system);
 
   // Keep the process alive indefinitely — EngineServer auto-advances ticks on its own interval, and the

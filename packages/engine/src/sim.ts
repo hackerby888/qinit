@@ -17,6 +17,8 @@ import { PreManagementRightsTransferInput, PreManagementRightsTransferOutput, Po
 import { TxPool, type TxRecord } from "./txs";
 import { ContractRegistry, K12_MAX_LEAF_BYTES } from "./registry";
 import type { LogSink, LogLevel } from "./log";
+import type { NativeLogger } from "./native-logger";
+import { LOG_SC_BEGIN_EPOCH, LOG_SC_BEGIN_TICK, LOG_SC_END_EPOCH, LOG_SC_END_TICK, LOG_SC_INITIALIZE } from "./native-logger";
 import type { DebugTrace } from "@qinit/core";
 
 export type { AssetSnapshot };
@@ -82,12 +84,14 @@ export class Sim {
   timeBaseMs = Date.UTC(2024, 0, 1); // chain clock origin (tick 0); the chain clock = timeBaseMs + tick*tickDuration
   private mempoolMode: boolean; // when true, broadcast txs are deferred to their scheduled tick (opt-in)
   private fees: FeeManager; // per-contract execution-fee reserves + the fee-mode policy
+  private nativeLogger?: NativeLogger;
   private computorOverride = new Map<number, Uint8Array>(); // test seam: qpi.computor(i) overrides (gtest harness)
   prevSpectrumDigestOverride?: Uint8Array; // test seam: corpus-pinned digest (native harness's etalonTick.prevSpectrumDigest)
 
-  constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean; fees?: FeeMode; defaultReserve?: bigint; liteTicking?: boolean } = {}) {
+  constructor(opts: { consensus?: CommitteeOpts; mempool?: boolean; fees?: FeeMode; defaultReserve?: bigint; liteTicking?: boolean; nativeLogger?: NativeLogger } = {}) {
     this.mempoolMode = opts.mempool ?? false;
     this.fees = new FeeManager(opts.fees ?? "off", opts.defaultReserve);
+    this.nativeLogger = opts.nativeLogger;
     this.registry = new ContractRegistry(this.fees, this.recorder);
     this.ticking = new TickConsensus(
       {
@@ -117,7 +121,12 @@ export class Sim {
       nowMs: () => this.nowMs(),
       numberOfTickTransactions: () => this.tickTxCount,
       markDirty: (slot) => this.dirty.add(slot),
-      log: (_slot, level, msg) => this.recorder.log(level, msg),
+      log: (slot, level, msg) => {
+        this.recorder.log(level, msg);
+        this.nativeLogger?.log(slot, level, msg, this.epochN);
+      },
+      pauseLog: () => this.nativeLogger?.pause(),
+      resumeLog: () => this.nativeLogger?.resume(),
       transfer: (slot, dest, amount, type) => this.doTransfer(slot, dest, amount, type),
       burn: (slot, amount, burnedFor) => this.doBurn(slot, amount, burnedFor),
       getEntity: (id) => this.entityOf(id),
@@ -500,7 +509,13 @@ export class Sim {
   // Deploy + construct (ContractRegistry owns the instances); stays on the façade for the public API.
   // `thost` is set only for a gtest module (lite_test.h) — the test-host import table bound beside lhost.
   deploy(slot: number, wasm: Uint8Array, thost?: Record<string, Function>, extMem?: WebAssembly.Memory): Contract {
-    const c = this.registry.deploy(slot, wasm, this.host, thost, extMem);
+    this.nativeLogger?.begin(this.tickN, LOG_SC_INITIALIZE);
+    let c: Contract;
+    try {
+      c = this.registry.deploy(slot, wasm, this.host, thost, extMem);
+    } finally {
+      this.nativeLogger?.end();
+    }
     this.emit("info", "deploy", `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`);
     if (c.stateSize > K12_MAX_LEAF_BYTES) {
       // A mainnet-sized state (e.g. QX ~600 MB) can't be K12-hashed, so it gets a zero computer-digest leaf
@@ -534,17 +549,23 @@ export class Sim {
   // Epoch-boundary sysprocs are exempt from the fee gate (execution_fees.md): they run even on a depleted
   // reserve to keep contract state valid.
   beginEpoch(): void {
-    for (const s of this.registry.slots(true)) {
-      const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.BEGIN_EPOCH)) this.registry.fire(c, KIND.SYSPROC, SP.BEGIN_EPOCH, new Uint8Array(0), { entryPoint: SP.BEGIN_EPOCH });
-    }
+    this.nativeLogger?.begin(this.tickN, LOG_SC_BEGIN_EPOCH);
+    try {
+      for (const s of this.registry.slots(true)) {
+        const c = this.contracts.get(s)!;
+        if (c.hasSysproc(SP.BEGIN_EPOCH)) this.registry.fire(c, KIND.SYSPROC, SP.BEGIN_EPOCH, new Uint8Array(0), { entryPoint: SP.BEGIN_EPOCH });
+      }
+    } finally { this.nativeLogger?.end(); }
   }
 
   endEpoch(): void {
-    for (const s of this.registry.slots(false)) {
-      const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.END_EPOCH)) this.registry.fire(c, KIND.SYSPROC, SP.END_EPOCH, new Uint8Array(0), { entryPoint: SP.END_EPOCH });
-    }
+    this.nativeLogger?.begin(this.tickN, LOG_SC_END_EPOCH);
+    try {
+      for (const s of this.registry.slots(false)) {
+        const c = this.contracts.get(s)!;
+        if (c.hasSysproc(SP.END_EPOCH)) this.registry.fire(c, KIND.SYSPROC, SP.END_EPOCH, new Uint8Array(0), { entryPoint: SP.END_EPOCH });
+      }
+    } finally { this.nativeLogger?.end(); }
   }
 
   // BEGIN_TICK / END_TICK are gated: a metered contract with a non-positive reserve is skipped (dormant) until
@@ -554,19 +575,25 @@ export class Sim {
     this.tickTxCount = this.txpool.dueCount(this.tickN); // the tick's tx-set size, fixed before BEGIN_TICK (core-lite numberTickTransactions)
     this.emit("debug", "tick", `tick ${this.tickN} begin · ${this.tickTxCount} tx`);
 
-    for (const s of this.registry.slots(true)) {
-      // BEGIN_TICK: ascending 1->N
-      const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.BEGIN_TICK) && this.fees.reserveOk(s)) this.registry.fire(c, KIND.SYSPROC, SP.BEGIN_TICK, new Uint8Array(0), { entryPoint: SP.BEGIN_TICK });
-    }
+    this.nativeLogger?.begin(this.tickN, LOG_SC_BEGIN_TICK);
+    try {
+      for (const s of this.registry.slots(true)) {
+        // BEGIN_TICK: ascending 1->N
+        const c = this.contracts.get(s)!;
+        if (c.hasSysproc(SP.BEGIN_TICK) && this.fees.reserveOk(s)) this.registry.fire(c, KIND.SYSPROC, SP.BEGIN_TICK, new Uint8Array(0), { entryPoint: SP.BEGIN_TICK });
+      }
+    } finally { this.nativeLogger?.end(); }
   }
 
   endTick(): void {
-    for (const s of this.registry.slots(false)) {
-      // END_TICK: descending N->1
-      const c = this.contracts.get(s)!;
-      if (c.hasSysproc(SP.END_TICK) && this.fees.reserveOk(s)) this.registry.fire(c, KIND.SYSPROC, SP.END_TICK, new Uint8Array(0), { entryPoint: SP.END_TICK });
-    }
+    this.nativeLogger?.begin(this.tickN, LOG_SC_END_TICK);
+    try {
+      for (const s of this.registry.slots(false)) {
+        // END_TICK: descending N->1
+        const c = this.contracts.get(s)!;
+        if (c.hasSysproc(SP.END_TICK) && this.fees.reserveOk(s)) this.registry.fire(c, KIND.SYSPROC, SP.END_TICK, new Uint8Array(0), { entryPoint: SP.END_TICK });
+      }
+    } finally { this.nativeLogger?.end(); }
     this.emit("debug", "tick", `tick ${this.tickN} end`);
   }
 
@@ -588,6 +615,7 @@ export class Sim {
     this.oracle.pump();
     this.endTick();
     this.ticking.finalizeTick();
+    this.nativeLogger?.finalizeTick(this.tickN);
   }
 
   query(slot: number, it: number, input?: Uint8Array): Uint8Array {
@@ -743,6 +771,9 @@ export class Sim {
   // with a non-procedure inputType). Money moves first (debit source, credit dest), then routing by dest+type.
   applyTx(source: Uint8Array, dest: Uint8Array, amount: bigint, inputType: number, payload: Uint8Array, txId: string, digest: Uint8Array = ZERO32): { moneyFlew: boolean } {
     const tick = this.tickN;
+    const txIndex = this.txpool.tickTransactions(tick).length;
+    this.nativeLogger?.begin(tick, txIndex);
+    try {
     let moneyFlew = false;
 
     if (amount > 0n && this.balance(source) >= amount) {
@@ -794,6 +825,9 @@ export class Sim {
     this.emit("info", "tx", `tx → ${slot >= 0 ? `slot ${slot}` : "user"} it=${inputType} amount=${amount} moneyFlew=${moneyFlew}`);
     this.txpool.record({ txId, tick, source: this.key(source), dest: this.key(dest), amount, inputType, moneyFlew, digest });
     return { moneyFlew };
+    } finally {
+      this.nativeLogger?.end();
+    }
   }
 
   // Submit a broadcast tx. In mempool mode a tx whose scheduled tick is still ahead is held until the chain
@@ -907,4 +941,3 @@ export class Sim {
     return this.ticking.signedComputorList(slotCount);
   }
 }
-

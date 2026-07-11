@@ -3,6 +3,7 @@
 // sweep. Driven through the Vault fixture (real qinit-built wasm), asserting the ledger + state the C++
 // semantics produce.
 import { test, expect } from "bun:test";
+import { bytesToIdentity } from "@qinit/core";
 import { initK12 } from "../src/k12";
 import { Sim } from "../src/sim";
 
@@ -56,6 +57,20 @@ test("transfer to a user moves balance, no PIT; insufficient transfer is a no-op
   expect(get(sim, 28).incomingCount).toBe(1n); // user dest -> no extra PIT
   expect(send(sim, 28, USER, 1000n)).toBe(-930n); // 70 - 1000 < 0 -> nothing moves
   expect(sim.balanceOf(28)).toBe(70n);
+});
+
+test("transfer host events show eight chars from both ends of a Qubic identity", async () => {
+  await initK12();
+  const sim = new Sim();
+  sim.deploy(28, await wasm("Vault"));
+  sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
+  sim.setDebug(true);
+
+  expect(send(sim, 28, USER, 30n)).toBe(70n);
+
+  const identity = await bytesToIdentity(USER);
+  const call = sim.getTrace().entries.at(-1)?.hostCalls.find((host) => host.name === "transfer");
+  expect(call?.detail).toBe(`→ ${identity.slice(0, 8)}…${identity.slice(-8)} 30`);
 });
 
 test("contract-to-contract transfer fires the destination's POST_INCOMING_TRANSFER", async () => {

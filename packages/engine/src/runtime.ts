@@ -5,7 +5,7 @@
 // the resident-state digest.
 import { k12Bytes, toHex } from "./k12";
 import { bytesEqual } from "./bytes";
-import type { TraceRecorder } from "./trace";
+import { TRACE_STATE_CAP, type TraceRecorder } from "./trace";
 import { QpiContext } from "./abi";
 import { EntityRecord, M256i } from "./wire";
 
@@ -113,6 +113,8 @@ export interface HostServices {
   numberOfTickTransactions(): number;
   markDirty(slot: number): void;
   log(slot: number, level: number, msg: Uint8Array): void;
+  pauseLog(): void;
+  resumeLog(): void;
   transfer(slot: number, dest: Uint8Array, amount: bigint, transferType: number): bigint;
   burn(slot: number, amount: bigint, burnedFor: number): bigint;
   getEntity(id: Uint8Array): Entity | null;
@@ -370,15 +372,16 @@ export class Contract {
     // is snapshotted once and shared with the meter (it needs before/after to price the digest recompute).
     const rec = this.trace?.enabled ? this.trace : null;
     const wantState = metering || rec != null;
-    const stateBefore = wantState ? this.state() : EMPTY;
-    const e = rec ? rec.begin({ tick: this.host.tick(), index: this.slot, entry: it, kind, invocator: ctx.invocator, invocationReward: ctx.invocationReward ?? 0n, input, stateBefore }) : null;
+    const snapshotLimit = metering ? this.stateSize : TRACE_STATE_CAP;
+    const stateBefore = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
+    const e = rec ? rec.begin({ tick: this.host.tick(), index: this.slot, entry: it, kind, invocator: ctx.invocator, invocationReward: ctx.invocationReward ?? 0n, input, stateSize: this.stateSize, stateBefore }) : null;
     const t0 = rec ? performance.now() : 0;
 
     this.dispatchDepth++;
     try {
       this.ex.dispatch(kind >>> 0, it >>> 0, inOff >>> 0, outOff >>> 0, localsOff >>> 0);
     } catch (err) {
-      const stateAfter = wantState ? this.state() : EMPTY;
+      const stateAfter = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
       this.finishMeter(metering, savedCost, stateBefore, stateAfter);
       if (rec) {
         rec.end(e, { output: EMPTY, ok: false, trap: trapMessage(err), stateBefore, stateAfter, execNs: (performance.now() - t0) * 1e6 });
@@ -394,7 +397,7 @@ export class Contract {
       }
     }
 
-    const stateAfter = wantState ? this.state() : EMPTY;
+    const stateAfter = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
     const output = this.u8().slice(outOff, outOff + outSize); // fresh view after dispatch
     this.finishMeter(metering, savedCost, stateBefore, stateAfter);
     if (rec) {
@@ -436,7 +439,11 @@ export class Contract {
   }
 
   state(): Uint8Array {
-    return this.u8().slice(this.stateAddr, this.stateAddr + this.stateSize);
+    return this.stateSnapshot(this.stateSize);
+  }
+  private stateSnapshot(limit: number): Uint8Array {
+    const n = Math.min(limit >>> 0, this.stateSize);
+    return this.u8().slice(this.stateAddr, this.stateAddr + n);
   }
   // A view (no copy) over the live state region, for callers that immediately copy it elsewhere. Valid only
   // until the next dispatch can grow/detach the memory — read it now, don't retain it.
@@ -489,8 +496,8 @@ export class Contract {
       beginFn: (_id: number) => {},
       endFn: (_id: number) => {},
       markDirty: (_ci: number) => this.host.markDirty(this.slot),
-      pauseLog: () => {},
-      resumeLog: () => {},
+      pauseLog: () => this.host.pauseLog(),
+      resumeLog: () => this.host.resumeLog(),
       acquireScratch: (size: bigint, initZero: number) => {
         const n = Number((size + 7n) & ~7n);
         if (this.arenaBump + n > this.arenaEnd) throw new Error("lhost: scratch arena exhausted");
@@ -735,7 +742,7 @@ export class Contract {
 }
 
 // A compact label for a 32-byte id in a host-call detail line: a contract id (id(slot,0,0,0)) shows as
-// `@slot`, any other identity as a short Qubic-id prefix (NOT raw hex — hex is meaningless to a Qubic user).
+// `@slot`, any other identity as the first and last eight chars of its Qubic identity.
 function shortId(id: Uint8Array): string {
   let high = false;
   for (let i = 8; i < 32; i++) {
@@ -747,7 +754,7 @@ function shortId(id: Uint8Array): string {
   if (!high) {
     return "@" + new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true).toString();
   }
-  return idPrefix(id, 12) + "…";
+  return idPrefix(id, 8) + "…" + idSuffix(id);
 }
 
 // The leading chars of the Qubic identity body: base-26 of the first 8-byte LE chunk (chars 0..13 of the
@@ -759,6 +766,27 @@ function idPrefix(id: Uint8Array, n: number): string {
   for (let i = 0; i < n; i++) {
     s += String.fromCharCode(65 + Number(val % 26n));
     val /= 26n;
+  }
+  return s;
+}
+
+// The final identity-body chunk followed by its four checksum chars, matching core-lite's getIdentity.
+function idSuffix(id: Uint8Array): string {
+  let fragment = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(24, true);
+  let s = "";
+  for (let i = 0; i < 10; i++) {
+    fragment /= 26n;
+  }
+  for (let i = 0; i < 4; i++) {
+    s += String.fromCharCode(65 + Number(fragment % 26n));
+    fragment /= 26n;
+  }
+
+  const digest = k12Bytes(id);
+  let checksum = (digest[0] | (digest[1] << 8) | (digest[2] << 16)) & 0x3ffff;
+  for (let i = 0; i < 4; i++) {
+    s += String.fromCharCode(65 + (checksum % 26));
+    checksum = Math.floor(checksum / 26);
   }
   return s;
 }

@@ -30,21 +30,23 @@ export class PeerServer {
 
   // Listen on `port` (21841 = the default Qubic node port). Auto-advances one tick every `tickMs` so the current
   // tick advances + broadcast txs land; `tickMs` is also reported as the chain's tickDuration. Pre-funds the funded seed.
-  async start(port = 21841, tickMs = 50): Promise<PeerServerHandle> {
+  async start(port = 21841, tickMs = 50, autoTick = true): Promise<PeerServerHandle> {
     await initK12();
     await this.engine.seedFaucet();
     this.engine.sim.tickDuration = tickMs;
 
     // Present a realistic, ticking chain to a client: a non-zero epoch (a client treats epoch 0 as "no data")
     // and a few finalized ticks so the very first query already carries a tick + quorum votes.
-    if (this.engine.sim.epochN === 0) {
+    if (autoTick && this.engine.sim.epochN === 0) {
       this.engine.sim.epochN = 1;
     }
-    this.engine.advanceTick(5);
+    if (autoTick) this.engine.advanceTick(5);
 
-    this.ticker = setInterval(() => {
-      this.engine.advanceTick(1);
-    }, tickMs);
+    if (autoTick) {
+      this.ticker = setInterval(() => {
+        this.engine.advanceTick(1);
+      }, tickMs);
+    }
 
     const self = this;
     const server = Bun.listen<ConnState>({
@@ -78,19 +80,27 @@ export class PeerServer {
 
   // Reassemble the TCP stream into complete [header|payload] frames and dispatch each. Leftover bytes (a partial
   // frame) are retained for the next chunk.
-  private async onData(socket: { data: ConnState; write: (b: Uint8Array) => void }, chunk: Uint8Array<ArrayBufferLike>): Promise<void> {
+  private async onData(socket: { data: ConnState; write: (b: Uint8Array) => void; end: () => void }, chunk: Uint8Array<ArrayBufferLike>): Promise<void> {
     let buf = concat(socket.data.buf, new Uint8Array(chunk));
 
     while (true) {
       const header = codec.readHeader(buf);
-      if (!header || buf.length < header.size) {
+      if (!header) {
         break;
       }
+      if (header.size < codec.HEADER_SIZE || header.size > 0xffffff) {
+        socket.end();
+        buf = new Uint8Array(0);
+        break;
+      }
+      if (buf.length < header.size) break;
 
       const payload = buf.subarray(codec.HEADER_SIZE, header.size);
       try {
+        if (process.env.QINIT_PEER_DEBUG) console.error(`peer request type=${header.type} size=${header.size} dejavu=${header.dejavu}`);
         const resp = await this.dispatch(header.type, payload, header.dejavu);
         if (resp) {
+          if (process.env.QINIT_PEER_DEBUG) console.error(`peer response type=${codec.readHeader(resp)?.type} size=${resp.length}`);
           socket.write(resp);
         }
       } catch {
@@ -116,6 +126,16 @@ export class PeerServer {
         return null;
       case MSG.REQUEST_SYSTEM_INFO:
         return this.respondSystemInfo(dejavu);
+      case MSG.REQUEST_LOG:
+        return this.respondLog(payload, dejavu);
+      case MSG.REQUEST_LOG_ID_RANGE_FROM_TX:
+        return this.respondLogRange(payload, dejavu);
+      case MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX:
+        return this.respondAllLogRanges(payload, dejavu);
+      case MSG.REQUEST_PRUNING_LOG:
+        return this.respondPruneLog(payload, dejavu);
+      case MSG.REQUEST_LOG_STATE_DIGEST:
+        return this.respondLogDigest(payload, dejavu);
       case MSG.REQUEST_TX_STATUS:
         return this.respondTxStatus(payload, dejavu);
       case MSG.REQUEST_TICK_TRANSACTIONS:
@@ -194,6 +214,39 @@ export class PeerServer {
       numberOfTransactions: sim.txCount(),
     });
     return codec.frame(MSG.RESPOND_SYSTEM_INFO, payload, dejavu);
+  }
+
+  private respondLog(payload: Uint8Array, dejavu: number): Uint8Array {
+    const req = codec.decodeRequestLog(payload);
+    if (!req || req.from > req.to) return codec.endResponse(dejavu);
+    const bytes = this.engine.logger.recordsBetween(req.from, req.to);
+    return bytes ? codec.frame(MSG.RESPOND_LOG, bytes, dejavu) : codec.endResponse(dejavu);
+  }
+
+  private respondLogRange(payload: Uint8Array, dejavu: number): Uint8Array {
+    const req = codec.decodeLogRangeRequest(payload);
+    if (!req) return codec.endResponse(dejavu);
+    const range = this.engine.logger.range(req.tick, req.txId);
+    return codec.frame(MSG.RESPOND_LOG_ID_RANGE_FROM_TX, codec.encodeLogRange(range.fromLogId, range.length), dejavu);
+  }
+
+  private respondAllLogRanges(payload: Uint8Array, dejavu: number): Uint8Array {
+    const tick = codec.decodeAllLogRangesRequest(payload);
+    if (tick === null) return codec.endResponse(dejavu);
+    return codec.frame(MSG.RESPOND_ALL_LOG_ID_RANGES_FROM_TX, codec.encodeAllLogRanges(this.engine.logger.tickRanges(tick)), dejavu);
+  }
+
+  private respondPruneLog(payload: Uint8Array, dejavu: number): Uint8Array {
+    const req = codec.decodePruneLogRequest(payload);
+    if (!req) return codec.endResponse(dejavu);
+    return codec.frame(MSG.RESPOND_PRUNING_LOG, codec.encodePruneResult(this.engine.logger.prune(req.from, req.to)), dejavu);
+  }
+
+  private respondLogDigest(payload: Uint8Array, dejavu: number): Uint8Array {
+    const tick = codec.decodeLogDigestRequest(payload);
+    if (tick === null) return codec.endResponse(dejavu);
+    const digest = this.engine.logger.digest(tick);
+    return digest ? codec.frame(MSG.RESPOND_LOG_STATE_DIGEST, digest, dejavu) : codec.endResponse(dejavu);
   }
 
   private respondTxStatus(payload: Uint8Array, dejavu: number): Uint8Array {

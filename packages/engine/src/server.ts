@@ -4,9 +4,11 @@
 // (start() touches Bun.serve); importing the class is browser-safe since nothing runs until start().
 import { VirtualNode } from "./transport";
 import { initK12 } from "@qinit/core";
+import { PeerServer } from "./peer-server";
 
 export interface EngineServerHandle {
   rpcBase: string;
+  peerPort?: number;
   stop: () => void;
 }
 
@@ -14,6 +16,7 @@ export class EngineServer {
   readonly engine: VirtualNode;
   private server: ReturnType<typeof Bun.serve> | null = null;
   private ticker: ReturnType<typeof setInterval> | null = null;
+  private peer: PeerServer | null = null;
   private tickMs = 50;
 
   constructor(engine: VirtualNode = new VirtualNode()) {
@@ -38,7 +41,7 @@ export class EngineServer {
   }
 
   // Serve on an ephemeral port (0) by default; auto-advances ticks so deploy's "is it ticking?" polls pass.
-  async start(port = 0, tickMs = 50): Promise<EngineServerHandle> {
+  async start(port = 0, tickMs = 50, peerPort?: number): Promise<EngineServerHandle> {
     await initK12(); // the engine's digest / codeHash / lh_k12 need the crypto module resolved
     const eng = this.engine;
     const json = (data: unknown, status = 200): Response =>
@@ -127,10 +130,19 @@ export class EngineServer {
       },
     });
     this.server = server;
-    return { rpcBase: `http://127.0.0.1:${server.port}`, stop: () => this.stop() };
+    let boundPeerPort: number | undefined;
+    if (peerPort !== undefined) {
+      this.peer = new PeerServer(this.engine);
+      boundPeerPort = (await this.peer.start(peerPort, tickMs, false)).port;
+    }
+    return { rpcBase: `http://127.0.0.1:${server.port}`, peerPort: boundPeerPort, stop: () => this.stop() };
   }
 
   stop(): void {
+    if (this.peer) {
+      this.peer.stop();
+      this.peer = null;
+    }
     if (this.ticker) {
       clearInterval(this.ticker);
       this.ticker = null;

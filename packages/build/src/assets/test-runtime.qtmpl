@@ -416,6 +416,8 @@ function alignOf(n) {
   switch (n.kind) {
     case "scalar":
       return n.size;
+    case "uint128":
+      return 8;
     case "id":
       return 8;
     case "bytes":
@@ -465,8 +467,8 @@ function parseType(s, i) {
     return [{ kind: "id" }, j];
   if (tok === "m256i")
     return [{ kind: "bytes", size: 32 }, j];
-  if (tok === "uint128" || tok === "sint128")
-    return [{ kind: "bytes", size: 16 }, j];
+  if (tok === "uint128")
+    return [{ kind: "uint128" }, j];
   const size = SCALAR_SIZE[tok];
   if (!size)
     throw new Error(`unknown type '${tok}'`);
@@ -494,6 +496,11 @@ async function decodeNode(v, off, node) {
       else
         val = node.signed ? v.getInt8(off) : v.getUint8(off);
       return [val, off + node.size];
+    }
+    case "uint128": {
+      const low = v.getBigUint64(off, true);
+      const high = v.getBigUint64(off + 8, true);
+      return [high << 64n | low, off + 16];
     }
     case "id": {
       const b = new Uint8Array(32);
@@ -592,6 +599,8 @@ function tokenAlign(tok) {
     return 8;
   if (tok.endsWith("m256i"))
     return 8;
+  if (tok.endsWith("uint128"))
+    return 8;
   const m = tok.match(/^-?\d+([a-z0-9]+)$/);
   return m ? SCALAR_SIZE[m[1]] ?? 1 : 1;
 }
@@ -642,6 +651,23 @@ async function encodeToken(tok, out) {
       throw new Error(`m256i must be 64 hex chars (32 bytes), got '${v}'`);
     padTo(out, 8);
     for (const x of hexToBytes(v))
+      out.push(x);
+    return;
+  }
+  if (tok.endsWith("uint128")) {
+    const numStr2 = tok.slice(0, -7).trim();
+    if (!/^-?\d+$/.test(numStr2))
+      throw new Error(`uint128 must be an unsigned integer, got '${numStr2}'`);
+    const val2 = BigInt(numStr2);
+    const max = (1n << 128n) - 1n;
+    if (val2 < 0n || val2 > max)
+      throw new Error(`uint128 out of range: ${numStr2} (allowed 0..${max})`);
+    padTo(out, 8);
+    const buf2 = new Uint8Array(16);
+    const dv2 = new DataView(buf2.buffer);
+    dv2.setBigUint64(0, val2 & (1n << 64n) - 1n, true);
+    dv2.setBigUint64(8, val2 >> 64n, true);
+    for (const x of buf2)
       out.push(x);
     return;
   }

@@ -21,6 +21,23 @@ test("signed sint64 negative", async () => {
   expect(await decodeOutput(await encodeInput("-1sint32"), "sint32")).toBe(-1);
 });
 
+test("uint128 round-trip uses low@0 and high@8 without Number precision loss", async () => {
+  const max = (1n << 128n) - 1n;
+  const b = await encodeInput(`${max}uint128`);
+  expect(b.length).toBe(16);
+  expect(hex(b)).toBe("ff".repeat(16));
+  expect(await decodeOutput(b, "uint128")).toBe(max);
+
+  const limbs = await encodeInput(`${(2n << 64n) + 3n}uint128`);
+  expect(hex(limbs)).toBe("03000000000000000200000000000000");
+  expect(await decodeOutput(limbs, "uint128")).toBe((2n << 64n) + 3n);
+});
+
+test("uint128 rejects negative and overflowing values", async () => {
+  await expect(encodeInput("-1uint128")).rejects.toThrow(/out of range/);
+  await expect(encodeInput(`${1n << 128n}uint128`)).rejects.toThrow(/out of range/);
+});
+
 test("natural alignment: {uint16, uint32} pads uint32 to offset 4", async () => {
   const b = await encodeInput("5uint16, 7uint32");
   expect(hex(b)).toBe("0500" + "0000" + "07000000"); // val, pad, val
@@ -103,6 +120,7 @@ test("layoutOf: TAIL padding included (sizeof != end-of-last-field)", () => {
   expect(layoutOf("{ uint64, uint8 }")).toEqual({ size: 16, align: 8 });  // 9 bytes used -> padded to 16
   expect(layoutOf("uint8")).toEqual({ size: 1, align: 1 });
   expect(layoutOf("m256i")).toEqual({ size: 32, align: 8 });
+  expect(layoutOf("uint128")).toEqual({ size: 16, align: 8 });
   expect(layoutOf("[3;uint16]")).toEqual({ size: 6, align: 2 });          // 3 * stride(2)
 });
 
@@ -149,14 +167,14 @@ test("zeroInputFmt: builds a schema-matched all-zero sample (scalar/id/array/str
   expect(zeroInputFmt("{ uint32, id }")).toBe(`0uint32, ${"0".repeat(64)}id`);   // top-level struct -> implicit field list (no braces, encodeInput-consistent)
   expect(zeroInputFmt("uint16, uint32")).toBe("0uint16, 0uint32");
   expect(zeroInputFmt("m256i")).toBe(`${"0".repeat(64)}m256i`);
+  expect(zeroInputFmt("uint128")).toBe("0uint128");
 });
 
 test("zeroInputFmt: the sample is valid input — encodes to exactly the layout size", async () => {
-  for (const fmt of ["uint64", "[64; uint64], id", "{ uint32, id }", "uint16, uint32", "m256i", "[3; { uint8, uint64 }]"]) {
+  for (const fmt of ["uint64", "uint128", "[64; uint64], id", "{ uint32, id }", "uint16, uint32", "m256i", "[3; { uint8, uint64 }]"]) {
     const sample = zeroInputFmt(fmt);
     const b = await encodeInput(sample);
     expect(hex(b)).toBe("00".repeat(b.length));            // all zero
     expect(b.length).toBe(layoutOf(fmt).size);             // matches the entry's input scheme byte-for-byte
   }
-  expect(() => zeroInputFmt("uint128")).toThrow();          // no input token for a 16-byte field -> caller shows none
 });

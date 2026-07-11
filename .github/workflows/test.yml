@@ -87,10 +87,19 @@ jobs:
           repository: qubic/qubic-cli
           path: qubic-cli
           submodules: recursive
+      - name: Checkout qlogging
+        uses: actions/checkout@v4
+        with:
+          repository: qubic/qlogging
+          path: qlogging
       - name: Build qubic-cli
         run: |
           cmake -S qubic-cli -B qubic-cli/build -DCMAKE_BUILD_TYPE=Release
           cmake --build qubic-cli/build -j"$(nproc)"
+      - name: Build qlogging
+        run: |
+          cmake -S qlogging -B qlogging/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake --build qlogging/build -j"$(nproc)"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -98,7 +107,8 @@ jobs:
       - name: CLI e2e against the in-process engine
         env:
           QUBIC_CLI: ${{ github.workspace }}/qubic-cli/build/qubic-cli
-        run: bun test packages/engine/tests/cli-e2e.test.ts
+          QLOGGING: ${{ github.workspace }}/qlogging/build/qlogging
+        run: bun test packages/engine/tests/cli-e2e.test.ts packages/engine/tests/qlogging-integration.test.ts
 
   # contractverify every fixtures/*.h against the qpi.h protocol rules (the AST checker, not just a wasm
   # compile). The script self-fetches the cached verify tool; a fixture that drifts out of compliance reds it.
@@ -241,10 +251,11 @@ jobs:
           bun run scripts/ci-deploy-smoke.ts; c1=$?
           bun run scripts/gauntlet-smoke.ts;  c2=$?   # QPI edge-case gauntlet (div/mod, wrap, K12, HashMap, ...)
           bun run scripts/ci-qpi-dual-engine.ts; c3=$? # one TS artifact, byte-identical Sim + production WAMR state/output/digest
+          bun run scripts/ci-logging-dual-engine.ts; c4=$? # one TS artifact, byte-identical LOG_* payloads in Sim + production WAMR
           set -e
           kill "$(cat run/node.pid)" 2>/dev/null || true
           echo "=== node.log tail ==="; tail -25 run/node.log
-          [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ]
+          [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ]
 
   # QPI VS Code extension. Unit tests run in lint-test (bun test); these two prove the parts that need a
   # toolchain or a real editor: the clangd enablement gate, and the providers in a headless VS Code.

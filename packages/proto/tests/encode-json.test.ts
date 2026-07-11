@@ -15,6 +15,11 @@ test("jsonToInputFmt: id field passes the identity through", () => {
   expect(jsonToInputFmt([{ name: "dst", type: "id" }], { dst: id })).toBe(`${id}id`);
 });
 
+test("encodeInputJson: the 60-A zero identity hint encodes to the zero id", async () => {
+  const b = await encodeInputJson([{ name: "dst", type: "id" }], { dst: "A".repeat(60) });
+  expect(b).toEqual(new Uint8Array(32));
+});
+
 test("jsonToInputFmt: nested struct (positional) + fixed array", () => {
   expect(jsonToInputFmt([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1, 2] })).toBe("{ 1uint64, 2uint32 }");
   expect(jsonToInputFmt([{ name: "xs", type: "[3;uint64]" }], { xs: [1, 2, 3] })).toBe("[3; 1uint64, 2uint64, 3uint64]");
@@ -23,6 +28,13 @@ test("jsonToInputFmt: nested struct (positional) + fixed array", () => {
 test("jsonToInputFmt: bool -> bit, big numeric string preserved", () => {
   expect(jsonToInputFmt([{ name: "f", type: "bit" }], { f: true })).toBe("1bit");
   expect(jsonToInputFmt([{ name: "n", type: "uint64" }], { n: "18446744073709551615" })).toBe("18446744073709551615uint64");
+});
+
+test("jsonToInputFmt: uint128 decimal string remains lossless", async () => {
+  const max = (1n << 128n) - 1n;
+  expect(jsonToInputFmt([{ name: "n", type: "uint128" }], { n: max.toString() })).toBe(`${max}uint128`);
+  const b = await encodeInputJson([{ name: "n", type: "uint128" }], { n: max.toString() });
+  expect(await decodeOutput(b, "uint128")).toBe(max);
 });
 
 test("jsonToInputFmt: missing field + arity mismatch throw", () => {

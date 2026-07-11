@@ -358,15 +358,40 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
     return;
   }
 
-  // LOG_* macros expand to __logContract{Info,Debug,...}Message — a side channel that does not affect state or the digest, so
-  if (expr.callee.kind === "identifier" && expr.callee.name.startsWith("__logContract")) return;
+  if (expr.callee.kind === "identifier" && expr.callee.name.startsWith("__qinit_log_")) {
+    const levels: Record<string, number> = {
+      __qinit_log_error: 4,
+      __qinit_log_warning: 5,
+      __qinit_log_info: 6,
+      __qinit_log_debug: 7,
+    };
+    const level = levels[expr.callee.name];
+    if (level !== undefined) {
+      const payload = expr.args[0] ? resolveAddr(ctx, expr.args[0]) : null;
+      if (!payload) throw new Error(`${expr.callee.name} payload must be an addressable aggregate`);
+      if (!payload.layout) throw new Error(`${expr.callee.name} payload must be a struct`);
+      const terminator = payload.layout.fields.get("_terminator");
+      if (!terminator) throw new Error(`${expr.callee.name} payload struct must contain _terminator`);
+      if (terminator.offset < 8) throw new Error(`${expr.callee.name} payload _terminator offset must be at least 8 bytes`);
+      const address = addrIr(payload.addr);
+      ctx.lines.push(`    ${ir.emit(ir.call("$qpi_logBytes", ir.i32c(ctx.cg.slot), ir.i32c(level), address, ir.i32c(terminator.offset)))}`);
+      // Native qpi.h restores the host-stamped contract index so logging cannot alter contract state.
+      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store", null, address, ir.i32c(0)))}`);
+      return;
+    }
+    if (expr.callee.name === "__qinit_log_pause") {
+      ctx.lines.push("    (call $lh_pauseLog)");
+      return;
+    }
+    if (expr.callee.name === "__qinit_log_resume") {
+      ctx.lines.push("    (call $lh_resumeLog)");
+      return;
+    }
+    throw new Error(`unknown logging intrinsic '${expr.callee.name}'`);
+  }
 
   // ASSERT is ((void)0) in release builds (platform/assert.h) — the argument is not even evaluated, so dropping the statement
   if (expr.callee.kind === "identifier" && expr.callee.name === "ASSERT") return;
-
-  // LOG_PAUSE/LOG_RESUME expand to __pauseLogMessage()/__resumeLogMessage() — same log side channel as __logContract*, no effect on state or the digest.
-  if (expr.callee.kind === "identifier" &&
-      (expr.callee.name === "__pauseLogMessage" || expr.callee.name === "__resumeLogMessage")) return;
 
   // ProposalVoting proxy `qpi(state.proposals).method(...)` as a statement (e.g. getProposal/vote write
   if (ctx.proxyClass && emitProxySiblingCall(ctx, expr, false) !== null) return;

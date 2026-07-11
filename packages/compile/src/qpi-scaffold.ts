@@ -25,6 +25,8 @@ export const SCAFFOLD_MACROS = `
 #undef LOG_ERROR
 #undef LOG_WARNING
 #undef LOG_DEBUG
+#undef LOG_PAUSE
+#undef LOG_RESUME
 
 #undef INITIALIZE_WITH_LOCALS
 #undef BEGIN_EPOCH_WITH_LOCALS
@@ -87,10 +89,12 @@ export const SCAFFOLD_MACROS = `
 #undef REGISTER_USER_PROCEDURE_NOTIFICATION
 #define REGISTER_USER_PROCEDURE_NOTIFICATION(p) qpi.__registerUserProcedureNotification((void*)p, __id_##p, sizeof(p##_input), sizeof(p##_output), sizeof(p##_locals));
 
-#define LOG_INFO(m)
-#define LOG_ERROR(m)
-#define LOG_WARNING(m)
-#define LOG_DEBUG(m)
+#define LOG_INFO(m) __qinit_log_info(m)
+#define LOG_ERROR(m) __qinit_log_error(m)
+#define LOG_WARNING(m) __qinit_log_warning(m)
+#define LOG_DEBUG(m) __qinit_log_debug(m)
+#define LOG_PAUSE() __qinit_log_pause()
+#define LOG_RESUME() __qinit_log_resume()
 
 #undef CALL
 #undef CALL_OTHER_CONTRACT_FUNCTION

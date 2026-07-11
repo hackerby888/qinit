@@ -26,6 +26,7 @@ export function NodeRun({ args }: { args: string[] }) {
   const { exit } = useApp();
   const o = parse(args);
   const rpcBase = o.rpc || "http://127.0.0.1:41841";
+  const peerPort = Number(o["peer-port"] || 21841);
   const ref = o.ref || "latest";
   // `qinit mode` chooses the backend; an explicit --real/--realnode or --virtual flag overrides it for this run
   // (parity with `qinit test`), so `qinit node run --real` isn't silently ignored.
@@ -111,7 +112,7 @@ export function NodeRun({ args }: { args: string[] }) {
           set("run", "active", `${why} → launching${virtual ? " virtual engine" : ""}`);
           await killNode(o.dir);
           const l = virtual
-            ? launchVirtualNode({ dir: o.dir, rpcBase, keep: o.keep !== undefined, tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined, system: loadConfig().system })
+            ? launchVirtualNode({ dir: o.dir, rpcBase, peerPort, keep: o.keep !== undefined, tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined, system: loadConfig().system })
             : launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers, keep: o.keep !== undefined });
           scratch = l.scratch;
           const w = await waitTicking(rpcBase, Number(o.wait || 90));
@@ -127,6 +128,7 @@ export function NodeRun({ args }: { args: string[] }) {
           ["version", version], ["rpc", rpcBase], ["tick", String(tick)],
           ["contracts", contracts.length ? contracts.join(", ") : "(none)"],
         ];
+        if (virtual) rows.splice(3, 0, ["peer", `127.0.0.1:${peerPort}`]);
         if (scratch) rows.push(["scratch", scratch]);
         setDone({ title: ok ? "node up ✓" : "node not ticking", color: ok ? theme.ok : theme.warn, rows });
       } catch (e: any) {

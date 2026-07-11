@@ -39,8 +39,18 @@ export const MSG = {
   RESPOND_POSSESSED_ASSETS: 41,
   REQUEST_CONTRACT_FUNCTION: 42,
   RESPOND_CONTRACT_FUNCTION: 43,
+  REQUEST_LOG: 44,
+  RESPOND_LOG: 45,
   REQUEST_SYSTEM_INFO: 46,
   RESPOND_SYSTEM_INFO: 47,
+  REQUEST_LOG_ID_RANGE_FROM_TX: 48,
+  RESPOND_LOG_ID_RANGE_FROM_TX: 49,
+  REQUEST_ALL_LOG_ID_RANGES_FROM_TX: 50,
+  RESPOND_ALL_LOG_ID_RANGES_FROM_TX: 51,
+  REQUEST_PRUNING_LOG: 56,
+  RESPOND_PRUNING_LOG: 57,
+  REQUEST_LOG_STATE_DIGEST: 58,
+  RESPOND_LOG_STATE_DIGEST: 59,
   REQUEST_TX_STATUS: 201,
   RESPOND_TX_STATUS: 202,
   PROCESS_SPECIAL_COMMAND: 255,
@@ -102,6 +112,62 @@ export function decodeContractFunction(p: Uint8Array): ContractFunctionRequest {
 // A 4-byte little-endian tick (RequestedTickData / RequestTxStatus / RequestedQuorumTick prefix).
 export function decodeTick(p: Uint8Array): number {
   return RequestTickData.wrap(p).tick;
+}
+
+export function hasZeroLogPasscode(p: Uint8Array): boolean {
+  if (p.length < 32) return false;
+  for (let i = 0; i < 32; i++) if (p[i] !== 0) return false;
+  return true;
+}
+
+export function decodeRequestLog(p: Uint8Array): { from: bigint; to: bigint } | null {
+  if (p.length !== 48 || !hasZeroLogPasscode(p)) return null;
+  const d = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  return { from: d.getBigUint64(32, true), to: d.getBigUint64(40, true) };
+}
+
+export function decodeLogRangeRequest(p: Uint8Array): { tick: number; txId: number } | null {
+  if (p.length !== 40 || !hasZeroLogPasscode(p)) return null;
+  const d = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  return { tick: d.getUint32(32, true), txId: d.getUint32(36, true) };
+}
+
+export function decodeAllLogRangesRequest(p: Uint8Array): number | null {
+  // The C++ struct is 40 bytes on the supported ABI: 32-byte passcode + tick + 4 bytes tail padding.
+  if ((p.length !== 36 && p.length !== 40) || !hasZeroLogPasscode(p)) return null;
+  return new DataView(p.buffer, p.byteOffset, p.byteLength).getUint32(32, true);
+}
+
+export function decodePruneLogRequest(p: Uint8Array): { from: bigint; to: bigint } | null {
+  return decodeRequestLog(p);
+}
+
+export function decodeLogDigestRequest(p: Uint8Array): number | null {
+  return decodeAllLogRangesRequest(p);
+}
+
+export function encodeLogRange(fromLogId: bigint, length: bigint): Uint8Array {
+  const out = new Uint8Array(16);
+  const d = new DataView(out.buffer);
+  d.setBigInt64(0, fromLogId, true);
+  d.setBigInt64(8, length, true);
+  return out;
+}
+
+export function encodeAllLogRanges(ranges: ReadonlyArray<{ fromLogId: bigint; length: bigint }>): Uint8Array {
+  const out = new Uint8Array(ranges.length * 16);
+  const d = new DataView(out.buffer);
+  for (let i = 0; i < ranges.length; i++) {
+    d.setBigInt64(i * 8, ranges[i].fromLogId, true);
+    d.setBigInt64((ranges.length + i) * 8, ranges[i].length, true);
+  }
+  return out;
+}
+
+export function encodePruneResult(result: number): Uint8Array {
+  const out = new Uint8Array(8);
+  new DataView(out.buffer).setBigInt64(0, BigInt(result), true);
+  return out;
 }
 
 // ---- response encoders ----

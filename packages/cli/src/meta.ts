@@ -26,6 +26,7 @@ export const META: Record<string, CommandMeta> = {
     flags: [["--ref <tag>", "node/headers release to use (default: latest)"], ["--restart", "force a fresh node even if one is ticking"],
       ["--offline", "use only cached node/headers (no network)"], ["--bin <path>", "run a local node binary (skip fetch)"],
       ["--tick-ms <n>", "virtualnode: ms between ticks (default 1000; 0 = fastest)"],
+      ["--peer-port <n>", "virtualnode: Qubic TCP peer port for native clients (default 21841)"],
       ["--keep", "keep the node's scratch dir"], ["--rpc <url>", "node RPC base"], ["--wait <s>", "seconds to wait for ticking"],
       ["--real", "use a real ephemeral node this run (override `qinit mode`)"], ["--virtual", "use the in-process engine this run"]],
   },

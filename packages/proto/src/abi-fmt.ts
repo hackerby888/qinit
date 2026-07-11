@@ -18,6 +18,7 @@ const SCALAR_SIZE: Record<string, number> = {
 
 export type TypeNode =
   | { kind: "scalar"; type: string; size: number; signed: boolean; big: boolean }
+  | { kind: "uint128" }
   | { kind: "id" }
   | { kind: "bytes"; size: number } // m256i as raw hex (a digest, NOT an identity)
   | { kind: "array"; count: number; elem: TypeNode }
@@ -26,6 +27,7 @@ export type TypeNode =
 function alignOf(n: TypeNode): number {
   switch (n.kind) {
     case "scalar": return n.size;     // 1/2/4/8
+    case "uint128": return 8;         // uint128_t = { uint64 low; uint64 high; }
     case "id": return 8;              // m256i = 4x uint64 -> align 8
     case "bytes": return n.size >= 8 ? 8 : 1; // bytes32 (m256i) -> align 8
     case "array": return alignOf(n.elem);
@@ -36,6 +38,7 @@ function alignOf(n: TypeNode): number {
 function sizeOf(n: TypeNode): number {
   switch (n.kind) {
     case "scalar": return n.size;
+    case "uint128": return 16;
     case "id": return 32;             // identity = 32 bytes on the wire
     case "bytes": return n.size;
     case "array": return n.count * roundUp(sizeOf(n.elem), alignOf(n.elem)); // padded element stride
@@ -87,7 +90,7 @@ function parseType(s: string, i: number): [TypeNode, number] {
   const tok = s.slice(i, j);
   if (tok === "id") return [{ kind: "id" }, j];
   if (tok === "m256i") return [{ kind: "bytes", size: 32 }, j]; // m256i raw hex (vs id = identity)
-  if (tok === "uint128" || tok === "sint128") return [{ kind: "bytes", size: 16 }, j]; // 128-bit -> raw hex (offsets correct)
+  if (tok === "uint128") return [{ kind: "uint128" }, j];
   const size = SCALAR_SIZE[tok];
   if (!size) throw new Error(`unknown type '${tok}'`);
   return [{ kind: "scalar", type: tok, size, signed: tok.startsWith("sint"), big: size === 8 }, j];
@@ -111,6 +114,11 @@ async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[an
       else if (node.size === 2) val = node.signed ? v.getInt16(off, true) : v.getUint16(off, true);
       else val = node.signed ? v.getInt8(off) : v.getUint8(off);
       return [val, off + node.size];
+    }
+    case "uint128": {
+      const low = v.getBigUint64(off, true);
+      const high = v.getBigUint64(off + 8, true);
+      return [(high << 64n) | low, off + 16];
     }
     case "id": {
       const b = new Uint8Array(32);
@@ -188,6 +196,7 @@ function tokenAlign(tok: string): number {
   if (tok[0] === "[") { const inner = tok.slice(1, tok.lastIndexOf("]")); const semi = inner.indexOf(";"); const p = splitTop(semi >= 0 ? inner.slice(semi + 1) : inner); return p.length ? tokenAlign(p[0]) : 1; }
   if (tok.endsWith("id")) return 8;
   if (tok.endsWith("m256i")) return 8;
+  if (tok.endsWith("uint128")) return 8;
   const m = tok.match(/^-?\d+([a-z0-9]+)$/);
   return m ? (SCALAR_SIZE[m[1]] ?? 1) : 1;
 }
@@ -228,6 +237,20 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     if (!/^[0-9a-fA-F]{64}$/.test(v)) throw new Error(`m256i must be 64 hex chars (32 bytes), got '${v}'`);
     padTo(out, 8);
     for (const x of hexToBytes(v)) out.push(x);
+    return;
+  }
+  if (tok.endsWith("uint128")) {
+    const numStr = tok.slice(0, -7).trim();
+    if (!/^-?\d+$/.test(numStr)) throw new Error(`uint128 must be an unsigned integer, got '${numStr}'`);
+    const val = BigInt(numStr);
+    const max = (1n << 128n) - 1n;
+    if (val < 0n || val > max) throw new Error(`uint128 out of range: ${numStr} (allowed 0..${max})`);
+    padTo(out, 8);
+    const buf = new Uint8Array(16);
+    const dv = new DataView(buf.buffer);
+    dv.setBigUint64(0, val & ((1n << 64n) - 1n), true);
+    dv.setBigUint64(8, val >> 64n, true);
+    for (const x of buf) out.push(x);
     return;
   }
   const m = tok.match(/^(-?\d+)([a-z0-9]+)$/);
@@ -303,6 +326,7 @@ export function zeroInputFmt(fmt: string): string {
   const emit = (n: TypeNode): string => {
     switch (n.kind) {
       case "scalar": return `0${n.type}`;
+      case "uint128": return "0uint128";
       case "id": return `${"0".repeat(64)}id`;
       case "bytes": if (n.size === 32) return `${"0".repeat(64)}m256i`; throw new Error(`no input token for ${n.size}-byte field`);
       case "array": return `[${n.count}; ${emit(n.elem)} ×${n.count}]`;
