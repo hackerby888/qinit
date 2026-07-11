@@ -160,6 +160,16 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
             dType = ctx.localVars.get(v.init.name)?.type ?? ctx.params?.get(v.init.name)?.type ?? dType;
           } else if (v.init.kind === "call" && v.init.callee.kind === "identifier") {
             dType = ctx.cg.helpers.get(v.init.callee.name)?.retType ?? dType;
+          } else if (v.init.kind === "call" && v.init.callee.kind === "member_access"
+              && v.init.callee.object.kind === "identifier") {
+            const callee = v.init.callee;
+            const objectName = v.init.callee.object.name;
+            const objectType = ctx.localVars.get(objectName)?.type
+              ?? ctx.params?.get(objectName)?.type;
+            const objectStruct = objectType ? ctx.cg.structOf(objectType, b) : null;
+            const named = objectStruct?.members.find((member) => member.kind === "function"
+              && (member as FunctionDecl).name === callee.member) as FunctionDecl | undefined;
+            dType = named?.returnType ?? dType;
           } else if (v.init.kind === "subscript" && v.init.object.kind === "identifier") {
             const ot = ctx.localVars.get(v.init.object.name)?.type;
             const op = ot ? resolveAliasType(ctx.cg, ot) : null;

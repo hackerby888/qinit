@@ -110,6 +110,9 @@ export const CALL_SIG: Record<string, CallSig> = {
   $qt_random_id: sig([I32], "void"),
   $qt_state: sig([I32, I32, I32], I32),
   $qt_system: sig([I32, I32], I32),
+  $qt_set_epoch: sig([I32], "void"),
+  $qt_set_tick: sig([I32], "void"),
+  $qt_construction_epoch: sig([I32], I32),
   $qt_fail: sig([I32, I32], "void"),
 
   // memory + runtime plumbing

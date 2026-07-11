@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { extractIdl, type ContractIdl } from "./idl";
 import { qpiPrelude } from "./prelude";
 
-export interface SystemContract { index: number; name: string; stateType: string; file: string; source: string; idl: ContractIdl }
+export interface SystemContract { index: number; name: string; constructionEpoch: number; stateType: string; file: string; source: string; idl: ContractIdl }
 
 const cache = new Map<string, SystemContract[]>();
 
@@ -53,6 +53,15 @@ function indexToName(defSrc: string): Map<number, string> {
   return out;
 }
 
+function indexToConstructionEpoch(defSrc: string): Map<number, number> {
+  const out = new Map<number, number>();
+  const m = defSrc.match(/contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\n\s*\};/);
+  if (!m) return out;
+  let i = 0;
+  for (const entry of m[1].matchAll(/\{\s*"[^"]*"\s*,\s*(\d+)/g)) out.set(i++, Number(entry[1]));
+  return out;
+}
+
 // Build the catalog from a resolved core snapshot root (the dir holding src/contract_core + src/contracts).
 export function systemContracts(coreRoot: string): SystemContract[] {
   if (cache.has(coreRoot)) return cache.get(coreRoot)!;
@@ -61,7 +70,7 @@ export function systemContracts(coreRoot: string): SystemContract[] {
   const out: SystemContract[] = [];
   if (existsSync(def)) {
     const defSrc = readFileSync(def, "utf8");
-    const files = indexToFile(defSrc), names = indexToName(defSrc), stateTypes = indexToStateType(defSrc);
+    const files = indexToFile(defSrc), names = indexToName(defSrc), epochs = indexToConstructionEpoch(defSrc), stateTypes = indexToStateType(defSrc);
     for (const [index, name] of [...names].sort((a, b) => a[0] - b[0])) {
       const file = files.get(index);
       if (!file) continue;
@@ -70,7 +79,7 @@ export function systemContracts(coreRoot: string): SystemContract[] {
       if (!existsSync(path)) continue;
       try {
         const source = readFileSync(path, "utf8").replace(/X_MULTIPLIER/g, "1");   // testnet scaling (sizes only)
-        out.push({ index, name, stateType: stateTypes.get(index) ?? name, file, source, idl: extractIdl(source, name, { prelude: qpiPrelude(coreRoot) }) });
+        out.push({ index, name, constructionEpoch: epochs.get(index) ?? 0, stateType: stateTypes.get(index) ?? name, file, source, idl: extractIdl(source, name, { prelude: qpiPrelude(coreRoot) }) });
       } catch { /* skip a contract that fails to parse — never break the catalog */ }
     }
   }

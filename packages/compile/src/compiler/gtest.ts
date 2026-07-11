@@ -238,7 +238,7 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
       qpi.lib,
       undefined,
       targetTypes,
-      undefined,
+      [{ name: opts.name, decls: target.ast.declarations }],
       undefined,
       metadata,
       true,
@@ -266,6 +266,7 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
       contract: opts.name,
       mainSlot: opts.slot,
       runnerSlot: RUNNER_SLOT,
+      mainConstructionEpoch: opts.constructionEpoch ?? 0,
       tests: tests.map((test, index) => ({ name: test.name, inputType: index + 1 })),
     };
     return { wasm, program, diagnostics, idl };

@@ -21,6 +21,7 @@ export interface CompileOpts {
   sharedMemBase?: number;
   onPhase?: (phase: string) => void | Promise<void>;
   strict?: boolean;
+  constructionEpoch?: number;
 }
 
 export interface ContractIdl {
@@ -44,6 +45,7 @@ export interface GtestProgram {
   contract: string;
   mainSlot: number;
   runnerSlot: number;
+  mainConstructionEpoch: number;
   tests: Array<{ name: string; inputType: number }>;
 }
 

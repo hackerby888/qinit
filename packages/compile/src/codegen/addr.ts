@@ -311,15 +311,16 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     if (cached) return cached.addr;
   }
 
-  if (ctx.cg.gtestMode && expr.kind === "call" && expr.callee.kind === "identifier") {
-    if (expr.callee.name === "id::randomValue" || expr.callee.name === "QPI::id::randomValue") {
+  if (ctx.cg.gtestMode && expr.kind === "call" && (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")) {
+    const calleeName = expr.callee.name;
+    if (calleeName === "id::randomValue" || calleeName === "QPI::id::randomValue") {
       const destination = allocSlotIr(ctx, 32);
       ctx.lines.push(`    ${ir.emit(ir.call("$qt_random_id", destination))}`);
       const addr = ir.emit(destination);
       (ctx.materializedCalls ??= new WeakMap()).set(expr, { addr, type: { kind: "name", name: "id" }, size: 32, layout: null });
       return addr;
     }
-    if (expr.callee.name === "__qtest_state") {
+    if (calleeName === "__qtest_state") {
       const sizeExpr = expr.args[1];
       const size = sizeExpr?.kind === "sizeof_expr" && sizeExpr.expr.kind === "identifier"
         ? ctx.cg.sizeOfType({ kind: "name", name: sizeExpr.expr.name }, ctx.thisBind ?? NO_BIND)
@@ -331,6 +332,27 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
       const addr = ir.emit(destination);
       (ctx.materializedCalls ??= new WeakMap()).set(expr, { addr, type: null, size, layout: null });
       return addr;
+    }
+
+    // Core-lite fixtures commonly pass an empty input temporary directly to callFunction, for example
+    // `callFunction(..., CCF::GetProposalFee_input(), output)`. It has the same zero-initialized object
+    // representation as a local `CCF::GetProposalFee_input input{}` and needs a real wasm32 address for
+    // the qtest host ABI.
+    if (expr.args.length === 0) {
+      const type: TypeSpec = { kind: "name", name: calleeName };
+      const size = ctx.cg.sizeOfType(type, ctx.thisBind ?? NO_BIND);
+      if (size > 0 || /_(?:input|output)$/.test(calleeName)) {
+        const destination = size > 0 ? allocSlotIr(ctx, size) : ir.i32c(0);
+        if (size > 0) ctx.lines.push(`    ${ir.emit(ir.call("$setMem", destination, ir.i32c(size), ir.i32c(0)))}`);
+        const addr = ir.emit(destination);
+        (ctx.materializedCalls ??= new WeakMap()).set(expr, {
+          addr,
+          type,
+          size,
+          layout: ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND),
+        });
+        return addr;
+      }
     }
   }
 

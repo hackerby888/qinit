@@ -42,9 +42,8 @@ public:
     return out;
   }
   Counter::Get_output get() const {
-    Counter::Get_input in{};
     Counter::Get_output out{};
-    callFunction(Counter_CONTRACT_INDEX, 1, in, out);
+    callFunction(Counter_CONTRACT_INDEX, 1, Counter::Get_input(), out);
     return out;
   }
   void add(const id& user, uint64 delta) {

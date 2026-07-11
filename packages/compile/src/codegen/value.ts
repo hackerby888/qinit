@@ -22,6 +22,13 @@ function newValueTmp(ctx: FnCtx): string {
 
 // Lowers an assignment by pushing WAT lines to ctx; returns "" (the statement is fully emitted).
 export function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
+  if (ctx.cg.gtestMode && expr.op === "=" && expr.left.kind === "member_access"
+      && expr.left.object.kind === "identifier" && expr.left.object.name === "system"
+      && (expr.left.member === "epoch" || expr.left.member === "tick")) {
+    const host = expr.left.member === "epoch" ? "$qt_set_epoch" : "$qt_set_tick";
+    ctx.lines.push(`    ${ir.emit(ir.call(host, ir.op("i32.wrap_i64", emitValueIr(ctx, expr.right))))}`);
+    return "";
+  }
   const lhs = resolveAddr(ctx, expr.left);
 
   // uint128 plain assignment: materialize the RHS through source-compiled uint128_t methods (a computed RHS — ternary, (uint128)a * (uint128)b,
@@ -122,6 +129,11 @@ export function narrowLocalIr(ctx: FnCtx, name: string, v: ir.Ir): ir.Ir {
 // ---- value (rvalue) codegen — produces an i64 ----
 
 export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
+  if (ctx.cg.gtestMode && expr.kind === "member_access" && expr.member === "constructionEpoch"
+      && expr.object.kind === "subscript" && expr.object.object.kind === "identifier"
+      && expr.object.object.name === "contractDescriptions") {
+    return ir.op("i64.extend_i32_u", ir.call("$qt_construction_epoch", ir.op("i32.wrap_i64", emitValueIr(ctx, expr.object.index))));
+  }
   if (expr.kind === "member_access" && expr.member === "ptr" &&
       expr.object.kind === "identifier" && ctx.scratchpadLocals?.has(expr.object.name)) {
     return ir.op("i64.extend_i32_u", ir.getL(expr.object.name, "i32"));

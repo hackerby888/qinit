@@ -7,6 +7,7 @@ export interface CompiledGtestProgram {
   contract: string;
   mainSlot: number;
   runnerSlot: number;
+  mainConstructionEpoch?: number;
   tests: Array<{ name: string; inputType: number }>;
 }
 
@@ -38,6 +39,7 @@ export async function runCompiledGtest(
 
   for (const test of program.tests) {
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    sim.epochN = (program.mainConstructionEpoch ?? 0) & 0xffff;
     const handles: Record<number, Contract> = {};
     const messages: string[] = [];
     let random = 0;
@@ -89,6 +91,11 @@ export async function runCompiledGtest(
         contract.invoke(KIND.SYSPROC, procedure >>> 0, new Uint8Array(0), { entryPoint: procedure >>> 0 });
         return 1;
       },
+      setEpoch: (epoch: number): void => { sim.epochN = epoch & 0xffff; },
+      setTick: (tick: number): void => { sim.tickN = tick >>> 0; },
+      constructionEpoch: (slot: number): number => slot >>> 0 === program.mainSlot
+        ? (program.mainConstructionEpoch ?? 0) & 0xffff
+        : 0,
       fail: (code: number, fatal: number): void => {
         const assertion = ASSERTION_NAMES[code >>> 0] ?? "EXPECT";
         messages.push(`${assertion} failed${fatal ? " (fatal)" : ""}`);

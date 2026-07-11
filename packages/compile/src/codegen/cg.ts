@@ -987,7 +987,15 @@ export class Codegen {
         const s = d as StructDecl;
         if (!s.bases?.some((b) => b.kind === "name" && b.name === "ContractBase")) continue;
         for (const m of s.members) {
-          if (m.kind === "function") {
+          if (m.kind === "struct") {
+            const nested = m as StructDecl;
+            this.globalStructs.set(`${name}::${nested.name}`, nested);
+            this.collectNestedStructs(nested, `${name}::${nested.name}`);
+          } else if (m.kind === "typedef_decl") {
+            const td = m as { name: string; type: TypeSpec };
+            this.typedefs.set(`${name}::${td.name}`, td.type);
+            if (!this.typedefs.has(td.name)) this.typedefs.set(td.name, td.type);
+          } else if (m.kind === "function") {
             const fn = m as FunctionDecl;
             if (!fn.body || !fn.isStatic) continue;
             const key = `${name}::${fn.name}`;

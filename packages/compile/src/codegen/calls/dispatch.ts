@@ -355,9 +355,20 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
       return;
     }
     if (name === "callFunction") {
-      const input = expr.args[2] ? resolveAddr(ctx, expr.args[2]) : null;
+      let input = expr.args[2] ? resolveAddr(ctx, expr.args[2]) : null;
       const output = expr.args[3] ? resolveAddr(ctx, expr.args[3]) : null;
-      if (!input || !output) throw new Error("gtest callFunction requires addressable input and output");
+      if (!input && expr.args[2]) {
+        const addr = emitAddr(ctx, expr.args[2]);
+        const callee = expr.args[2].kind === "call" && (expr.args[2].callee.kind === "identifier" || expr.args[2].callee.kind === "qualified_name")
+          ? expr.args[2].callee.name
+          : null;
+        const type: TypeSpec | null = callee ? { kind: "name", name: callee } : null;
+        const size = type ? ctx.cg.sizeOfType(type, ctx.thisBind ?? NO_BIND) : 0;
+        if (addr && type) input = { addr, type, size, layout: ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND) };
+      }
+      if (!input || !output) {
+        throw new Error(`gtest callFunction requires addressable input and output (${describeShape(expr.args[2])}, ${describeShape(expr.args[3])})`);
+      }
       const slot = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[0]));
       const inputType = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1]));
       ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.call("$qt_query", slot, inputType, addrIr(input.addr), ir.i32c(input.size), addrIr(output.addr), ir.i32c(output.size))))}`);

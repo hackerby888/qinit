@@ -185,6 +185,9 @@ ${gtest ? `  ;; ---- private TS gtest host imports ----
   (import "qtest" "randomId" (func $qt_random_id (param i32)))
   (import "qtest" "state" (func $qt_state (param i32 i32 i32) (result i32)))
   (import "qtest" "system" (func $qt_system (param i32 i32) (result i32)))
+  (import "qtest" "setEpoch" (func $qt_set_epoch (param i32)))
+  (import "qtest" "setTick" (func $qt_set_tick (param i32)))
+  (import "qtest" "constructionEpoch" (func $qt_construction_epoch (param i32) (result i32)))
   (import "qtest" "fail" (func $qt_fail (param i32 i32)))` : ""}`;
 }
 
