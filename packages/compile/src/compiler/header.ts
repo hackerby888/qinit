@@ -4,11 +4,7 @@ import { assembleQpiHeader } from "../qpi-snapshot";
 
 export function loadQpiHeader(corePath?: string): string {
   if (typeof process !== "undefined" && (process.versions?.bun || process.versions?.node)) {
-    try {
-      return assembleQpiHeader(corePath ?? "/home/kali/Projects/core-lite");
-    } catch {
-      return QPI_PRELUDE + "\n" + QPI_STUB;
-    }
+    return assembleQpiHeader(corePath ?? "/home/kali/Projects/core-lite");
   }
   return QPI_PRELUDE + "\n" + QPI_STUB;
 }

@@ -1,5 +1,5 @@
 import { emitCall } from "./calls/dispatch";
-import { emitAssetIter } from "./calls/containers";
+import { callCompiled, emitAssetIter } from "./calls/containers";
 import { SCALAR_SIZE, C_SCALAR_NAMES } from "./tables";
 import { isAutoType, resolveAliasType, emitValueIr, narrowLocalIr, emitValue, emitAssign, emitU128Ir } from "./value";
 import { setLocal, castInfo, resolveAddr, emitAddr, addrIr, emitConstruct, tryLvalueAddr, isUint128, allocSlotIr, loadAt, isSignedScalarType, storeAt, narrowCast } from "./addr";
@@ -72,6 +72,7 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
     retTypeName: info.retType?.kind === "name" ? info.retType.name : undefined,
     // For an instantiated template free fn the body resolves T/L through these bindings (e.g. `L`→4).
     thisBind: bind,
+    sourceNamespace: info.sourceNamespace,
   };
   // An aggregate-returning helper (`id liquidityPov(...)`) gets a leading $ret destination-address param; `return e` copies the 32/N-byte value there.
   if (info.retAgg) {
@@ -212,9 +213,27 @@ export function collectLabelsIn(stmt: Statement, out: Set<string>): void {
   }
 }
 
+function emitScratchpadReleases(ctx: FnCtx, from: number, consume: boolean): void {
+  if (!ctx.scratchpadScope || ctx.scratchpadScope.length <= from) return;
+  for (let i = ctx.scratchpadScope.length - 1; i >= from; i--) {
+    ctx.lines.push(`    ${ir.emit(ir.call("$releaseScratchpad", ir.getL(ctx.scratchpadScope[i], "i32")))}`);
+  }
+  if (consume) ctx.scratchpadScope.length = from;
+}
+
 // Emit a brace block, lowering forward gotos (relooper-lite). A `goto L` that jumps forward to a label
 export function emitCompound(ctx: FnCtx, body: Statement[]): void {
   const spBase = ctx.scratchpadScope?.length ?? 0;
+  const scratchDepthAt = (child: number): number => {
+    let depth = spBase;
+    for (let i = 0; i < child; i++) {
+      const statement = body[i];
+      if (statement.kind !== "declaration" || statement.decl.kind !== "variable") continue;
+      const type = (statement.decl as VariableDecl).type;
+      if (type.kind === "name" && /ScopedScratchpad$/.test(type.name)) depth++;
+    }
+    return depth;
+  };
   // child index where each goto-targeted label is rooted
   const labelChild = new Map<string, number>();
   for (let i = 0; i < body.length; i++) {
@@ -240,43 +259,39 @@ export function emitCompound(ctx: FnCtx, body: Statement[]): void {
 
   if (wasmLabel.size === 0) {
     for (const s of body) emitStmt(ctx, s);
-    return;
-  }
+  } else {
+    if (!ctx.gotoLabels) ctx.gotoLabels = new Map();
+    for (const [g, wl] of wasmLabel) {
+      ctx.gotoLabels.set(g, { label: wl, scratchDepth: scratchDepthAt(labelChild.get(g) ?? 0) });
+    }
 
-  if (!ctx.gotoLabels) ctx.gotoLabels = new Map();
-  for (const [g, wl] of wasmLabel) ctx.gotoLabels.set(g, wl);
-
-  // WASM blocks must nest (LIFO). With multiple labels whose [firstGoto..closeAt] ranges OVERLAP without
-  const openChild = Math.min(...blocks.map((b) => b.firstGoto));
-  blocks.sort((a, b) => b.closeAt - a.closeAt);
-  const closeStack: number[] = [];
-  for (let i = 0; i < body.length; i++) {
-    while (closeStack.length && closeStack[closeStack.length - 1] === i) {
+    // WASM blocks must nest (LIFO). With multiple labels whose [firstGoto..closeAt] ranges OVERLAP without
+    const openChild = Math.min(...blocks.map((b) => b.firstGoto));
+    blocks.sort((a, b) => b.closeAt - a.closeAt);
+    const closeStack: number[] = [];
+    for (let i = 0; i < body.length; i++) {
+      while (closeStack.length && closeStack[closeStack.length - 1] === i) {
+        ctx.lines.push(`    )`);
+        closeStack.pop();
+      }
+      if (i === openChild) {
+        for (const b of blocks) {
+          ctx.lines.push(`    (block ${b.wl}`);
+          closeStack.push(b.closeAt);
+        }
+      }
+      emitStmt(ctx, body[i]);
+    }
+    while (closeStack.length) {
       ctx.lines.push(`    )`);
       closeStack.pop();
     }
-    if (i === openChild) {
-      for (const b of blocks) {
-        ctx.lines.push(`    (block ${b.wl}`);
-        closeStack.push(b.closeAt);
-      }
-    }
-    emitStmt(ctx, body[i]);
-  }
-  while (closeStack.length) {
-    ctx.lines.push(`    )`);
-    closeStack.pop();
+
+    for (const g of wasmLabel.keys()) ctx.gotoLabels!.delete(g);
   }
 
   // Scope exit: run __ScopedScratchpad destructors declared in this compound (RAII, LIFO). Without the
-  if (ctx.scratchpadScope && ctx.scratchpadScope.length > spBase) {
-    for (let i = ctx.scratchpadScope.length - 1; i >= spBase; i--) {
-      ctx.lines.push(`    ${ir.emit(ir.call("$releaseScratchpad", ir.getL(ctx.scratchpadScope[i], "i32")))}`);
-    }
-    ctx.scratchpadScope.length = spBase;
-  }
-
-  for (const g of wasmLabel.keys()) ctx.gotoLabels!.delete(g);
+  emitScratchpadReleases(ctx, spBase, true);
 }
 
 export function emitStmt(ctx: FnCtx, stmt: Statement): void {
@@ -352,6 +367,14 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
             const sz = Math.max(aggSz, 8);
             ctx.lines.push(`    ${setLocal(ctx, v.name, ir.call("$qpiAllocLocals", ir.i32c(sz)))}`);
             (ctx.refLocals ??= new Map()).set(v.name, concrete);
+            // uint128_t is a class, not a pair of fields to initialize positionally: its two-argument
+            // constructor accepts (high, low), while the resident layout is (low, high). Route every
+            // initialized declaration through the source-compiled constructor/operator path before the
+            // generic aggregate constructor can mistake the argument order for member order.
+            if (v.init && isUint128(ctx.cg, concrete)) {
+              ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), emitU128Ir(ctx, v.init), ir.i32c(16)))}`);
+              break;
+            }
             const ctorArgs = v.init && (v.init.kind === "construct" || (v.init.kind === "call" && v.init.callee.kind === "identifier" && (v.init.callee as any).name === (v.type.kind === "name" ? v.type.name : ""))) ? (v.init as any).args : null;
             if (ctorArgs && emitConstruct(ctx, `(local.get $${v.name})`, concrete, ctorArgs)) {
               break;
@@ -368,11 +391,6 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
               }
             }
             if (v.init) {
-              // A computed uint128 initializer (`uint128 q = (uint128)(a - b);`, a ternary, a div<uint128>) has no address —
-              if (isUint128(ctx.cg, concrete)) {
-                ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), emitU128Ir(ctx, v.init), ir.i32c(16)))}`);
-                break;
-              }
               const src = resolveAddr(ctx, v.init)?.addr ?? emitAddr(ctx, v.init);
               if (src) {
                 ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), addrIr(src), ir.i32c(sz)))}`);
@@ -413,7 +431,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       }
       // continue jumps out of the $cont block to run the update, then loops — matching C semantics.
       ctx.lines.push(`      (block ${cont}`);
-      ctx.loops.push({ brk, cont });
+      ctx.loops.push({ brk, cont, scratchDepth: ctx.scratchpadScope?.length ?? 0 });
       emitStmt(ctx, stmt.body);
       ctx.loops.pop();
       ctx.lines.push(`      )`);
@@ -431,7 +449,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       ctx.lines.push(`    (block ${brk} (loop ${loop}`);
       ctx.lines.push(`      (br_if ${brk} (i64.eqz ${emitValue(ctx, stmt.cond)}))`);
       ctx.lines.push(`      (block ${cont}`);
-      ctx.loops.push({ brk, cont });
+      ctx.loops.push({ brk, cont, scratchDepth: ctx.scratchpadScope?.length ?? 0 });
       emitStmt(ctx, stmt.body);
       ctx.loops.pop();
       ctx.lines.push(`      )`);
@@ -444,7 +462,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       const brk = `$brk${n}`, loop = `$loop${n}`, cont = `$cont${n}`;
       ctx.lines.push(`    (block ${brk} (loop ${loop}`);
       ctx.lines.push(`      (block ${cont}`);
-      ctx.loops.push({ brk, cont });
+      ctx.loops.push({ brk, cont, scratchDepth: ctx.scratchpadScope?.length ?? 0 });
       emitStmt(ctx, stmt.body);
       ctx.loops.pop();
       ctx.lines.push(`      )`);
@@ -462,7 +480,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       ctx.lines.push(`    (block ${brk}`);
       // break targets the switch; continue still targets the enclosing loop (if any).
       const cont = ctx.loops.length ? ctx.loops[ctx.loops.length - 1].cont : brk;
-      ctx.loops.push({ brk, cont });
+      ctx.loops.push({ brk, cont, scratchDepth: ctx.scratchpadScope?.length ?? 0 });
       const body = stmt.body.kind === "compound" ? stmt.body.body : [stmt.body];
 
       // Group statements by case/default markers. Each group gets a block label so
@@ -512,12 +530,20 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
     }
 
     case "break":
-      if (ctx.loops.length) ctx.lines.push(`    (br ${ctx.loops[ctx.loops.length - 1].brk})`);
+      if (ctx.loops.length) {
+        const loop = ctx.loops[ctx.loops.length - 1];
+        emitScratchpadReleases(ctx, loop.scratchDepth, false);
+        ctx.lines.push(`    (br ${loop.brk})`);
+      }
       else ctx.cg.warn(`break outside loop`, stmt.span.line);
       break;
 
     case "continue":
-      if (ctx.loops.length) ctx.lines.push(`    (br ${ctx.loops[ctx.loops.length - 1].cont})`);
+      if (ctx.loops.length) {
+        const loop = ctx.loops[ctx.loops.length - 1];
+        emitScratchpadReleases(ctx, loop.scratchDepth, false);
+        ctx.lines.push(`    (br ${loop.cont})`);
+      }
       else ctx.cg.warn(`continue outside loop`, stmt.span.line);
       break;
 
@@ -528,11 +554,42 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         // aggregate-returning helper: copy the returned value into the caller-supplied dest, then return
         const src = emitAddr(ctx, stmt.value);
         if (src) ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr!), addrIr(src), ir.i32c(ctx.retAggSize!)))}`);
+        emitScratchpadReleases(ctx, 0, false);
         ctx.lines.push(`    (return)`);
+      } else if (stmt.value && ctx.retIsAddr) {
+        // Reference-returning compound operators commonly return their assignment
+        // expression (`return *this += rhs`). Perform the write, then return the
+        // address of the assigned lvalue as required by C++ value-category rules.
+        let addr: string | null;
+        if (stmt.value.kind === "assign") {
+          emitAssign(ctx, stmt.value);
+          addr = emitAddr(ctx, stmt.value.left);
+        } else {
+          addr = emitAddr(ctx, stmt.value);
+        }
+        if (!addr) {
+          ctx.cg.warn("reference return expression is not addressable", stmt.span.line);
+          ctx.lines.push("    (return (i32.const 0))");
+          break;
+        }
+        const result = newTmp(ctx);
+        ctx.lines.push(`    (local.set $${result} ${addr})`);
+        emitScratchpadReleases(ctx, 0, false);
+        ctx.lines.push(`    (return (local.get $${result}))`);
       } else if (stmt.value && ctx.retIsValue) {
         // `return e` converts e to the declared return type (sub-64-bit returns truncate / sign-extend).
-        ctx.lines.push(`    (return ${narrowCast(emitValue(ctx, stmt.value), ctx.retTypeName)})`);
+        const value = narrowCast(emitValue(ctx, stmt.value), ctx.retTypeName);
+        if (ctx.scratchpadScope?.length) {
+          const result = newTmp(ctx);
+          ctx.localVars.set(result, { wasmType: "i64" });
+          ctx.lines.push(`    (local.set $${result} ${value})`);
+          emitScratchpadReleases(ctx, 0, false);
+          ctx.lines.push(`    (return (local.get $${result}))`);
+        } else {
+          ctx.lines.push(`    (return ${value})`);
+        }
       } else {
+        emitScratchpadReleases(ctx, 0, false);
         ctx.lines.push(`    (return)`);
       }
       break;
@@ -543,8 +600,11 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       break;
 
     case "goto": {
-      const wl = ctx.gotoLabels?.get(stmt.label);
-      if (wl) ctx.lines.push(`    (br ${wl})`);
+      const target = ctx.gotoLabels?.get(stmt.label);
+      if (target) {
+        emitScratchpadReleases(ctx, target.scratchDepth, false);
+        ctx.lines.push(`    (br ${target.label})`);
+      }
       else ctx.cg.warn(`unsupported goto '${stmt.label}'`, stmt.span.line);
       break;
     }
@@ -592,12 +652,24 @@ export function emitIncDec(ctx: FnCtx, expr: Expression): string {
   // Otherwise a member/element lvalue: load, adjust, store back.
   const addr = tryLvalueAddr(ctx, arg);
   if (addr) {
-    // uint128: a scalar load-modify-store touches only the low limb and loses the carry/borrow — route through the $u128_*
+    // uint128 increment/decrement uses the source-compiled arithmetic operator.
     if (isUint128(ctx.cg, addr.type ?? null)) {
-      const one = allocSlotIr(ctx, 16);
-      ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", one, ir.i64c(1), ir.i64c(0)))}`);
-      const res = allocSlotIr(ctx, 16);
-      ctx.lines.push(`    ${ir.emit(ir.call(op === "i64.add" ? "$u128_add" : "$u128_sub", res, addrIr(addr.addr), one))}`);
+      if ((expr as any).op === "++") {
+        const type = { kind: "template_instance", name: "uint128_t", args: [] } as TypeSpec & { kind: "template_instance" };
+        const compiled = callCompiled(ctx, type, "operator++", addr.addr, []);
+        if (!compiled || compiled.cm.retKind !== "i32") {
+          throw new Error("authoritative uint128_t::operator++ could not be lowered");
+        }
+        return ir.emit(ir.op("drop", ir.callSig({ params: ["i32"], res: "i32" }, compiled.cm.label, addrIr(addr.addr))));
+      }
+      const one: Expression = { kind: "int_literal", value: "1", span: (expr as any).span };
+      const res = emitU128Ir(ctx, {
+        kind: "binary_op",
+        op: op === "i64.add" ? "+" : "-",
+        left: arg,
+        right: one,
+        span: (expr as any).span,
+      });
       return ir.emit(ir.call("$copyMem", addrIr(addr.addr), res, ir.i32c(16)));
     }
     const load = loadAt(addr.addr, addr.size, isSignedScalarType(addr.type, ctx.cg));

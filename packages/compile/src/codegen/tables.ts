@@ -58,5 +58,6 @@ export const C_SCALAR_NAMES = new Set([
   "int", "unsigned", "signed", "long", "short", "char", "size_t", "unsigned long", "long int",
 ]);
 
-// QPI safe-math free functions (div/mod/min/max/...) have a dedicated, divide-by-zero-safe lowering in emitMathCall. Their qpi.h template bodies (`return b
+// QPI safe-math names whose result type follows their arguments. Their bodies are compiled from the
+// authoritative qpi.h/math_lib.h sources; this set is used only for type inference.
 export const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);

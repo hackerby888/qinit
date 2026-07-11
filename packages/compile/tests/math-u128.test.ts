@@ -81,6 +81,12 @@ const S = (v: bigint) => BigInt.asIntN(64, v);
 const U = (v: bigint) => BigInt.asUintN(64, v);
 
 function refMath(sa: bigint, sb: bigint, ua: bigint, ub: bigint) {
+  // Mirror the pinned math_lib.h implementation byte-for-byte. Its signed sadd performs the
+  // overflow checks after the native-width addition (so MIN+MIN wraps to zero and is not clamped).
+  const wrappedSum = S(sa + sb);
+  const sourceSadd = sa < 0n && sb < 0n && wrappedSum > 0n ? I64_MIN
+    : sa > 0n && sb > 0n && wrappedSum < 0n ? I64_MAX
+      : wrappedSum;
   return {
     divS: sb === 0n ? 0n : sa / sb,
     modS: sb === 0n ? 0n : sa % sb,
@@ -91,7 +97,7 @@ function refMath(sa: bigint, sb: bigint, ua: bigint, ub: bigint) {
     minU: ua < ub ? ua : ub,
     maxU: ua > ub ? ua : ub,
     absS: sa === I64_MIN ? I64_MIN : (sa < 0n ? -sa : sa),
-    saddS: sa + sb > I64_MAX ? I64_MAX : sa + sb < I64_MIN ? I64_MIN : sa + sb,
+    saddS: sourceSadd,
     saddU: ua + ub > U64_MAX ? U64_MAX : ua + ub,
     smulS: sa * sb > I64_MAX ? I64_MAX : sa * sb < I64_MIN ? I64_MIN : sa * sb,
     smulU: ua * ub > U64_MAX ? U64_MAX : ua * ub,

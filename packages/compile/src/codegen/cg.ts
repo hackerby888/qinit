@@ -26,6 +26,7 @@ export class Codegen {
   helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
   helperOverloads: Map<string, HelperInfo[]> = new Map();   // member value helpers, ALL overloads per name in declaration order; call sites rank by argument signature
   libFns: Map<string, FunctionDecl> = new Map();   // qpi.h namespace free functions (ProposalTypes::cls), keyed by qualified name; compiled lazily
+  libFnOverloads: Map<string, FunctionDecl[]> = new Map();   // all non-template overloads, in source order
   libFnTemplates: Map<string, FunctionTemplateDecl[]> = new Map();   // qpi.h namespace free function TEMPLATES (isArraySortedWithoutDuplicates<T,L>), all overloads kept, instantiated per call-site arg types
   privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()
   registered: Map<string, PrivateInfo> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
@@ -55,7 +56,7 @@ export class Codegen {
           for (const m of s.members) {
             if (m.kind !== "function" || !(m as FunctionDecl).body) continue;
             const fn = m as FunctionDecl;
-            if (fn.name === s.name || fn.name.startsWith("operator") || fn.name.startsWith("~")) continue;
+            if (fn.name.startsWith("~")) continue;
             if (!this.templateMethods.has(s.name)) this.templateMethods.set(s.name, new Map());
             const into = this.templateMethods.get(s.name)!;
             const def: FunctionTemplateDecl = {
@@ -64,6 +65,7 @@ export class Codegen {
             };
             // overloads (isValid() vs static isValid(y,m,d,...)) are additionally keyed by arity so an arity-aware lookup picks the right one;
             const akey = `${fn.name}/${(fn.params ?? []).length}`;
+            if (fn.params[0]) into.set(`${akey}@${this.typeKey(this.derefType(fn.params[0].type))}`, def);
             if (!into.has(akey)) into.set(akey, def);
             if (!into.has(fn.name)) into.set(fn.name, def);
           }
@@ -102,6 +104,7 @@ export class Codegen {
             span: fn.span,
           };
           const akey = `${fn.name}/${(fn.params ?? []).length}`;
+          if (fn.params[0]) into.set(`${akey}@${this.typeKey(this.derefType(fn.params[0].type))}`, def);
           if (!into.has(akey)) into.set(akey, def);
           if (!into.has(fn.name)) into.set(fn.name, def);
         }
@@ -109,18 +112,35 @@ export class Codegen {
         // out-of-class template method definition: HashMap::set, Collection::add, ...
         const fn = d as FunctionTemplateDecl;
         const sep = fn.name.indexOf("::");
-        if (sep > 0 && fn.body) {
+        const qpiFreeFunction = sep > 0 && fn.body && fn.name.startsWith("QPI::") && fn.name.indexOf("::", sep + 2) < 0;
+        if (qpiFreeFunction && d.kind === "function") {
+          const key = fn.name;
+          const overloads = this.libFnOverloads.get(key);
+          if (overloads) overloads.push(d as FunctionDecl);
+          else this.libFnOverloads.set(key, [d as FunctionDecl]);
+          if (!this.libFns.has(key)) this.libFns.set(key, d as FunctionDecl);
+        } else if (sep > 0 && fn.body) {
           const cls = fn.name.slice(0, sep);
           const method = fn.name.slice(sep + 2);
           if (!this.templateMethods.has(cls)) this.templateMethods.set(cls, new Map());
           // first definition wins (skip explicit specializations like HashFunction<m256i>)
           const minto = this.templateMethods.get(cls)!;
           const makey = `${method}/${(fn.fnParams ?? (fn as any).params ?? []).length}`;
+          // An explicit specialization (`template <> HashFunction<m256i>::hash`) loses the
+          // class argument in the parser's normalized name, but its concrete first parameter
+          // still identifies the specialization unambiguously.
+          if (fn.params.length === 0 && fn.fnParams?.length) {
+            const concrete = this.derefType(fn.fnParams[0].type);
+            minto.set(`${makey}@${this.typeKey(concrete)}`, fn);
+          }
           if (!minto.has(makey)) minto.set(makey, fn);
           if (!minto.has(method)) minto.set(method, fn);
         } else if (sep < 0 && nsPrefix && d.kind === "function" && (d as FunctionDecl).body) {
           // a namespace free function (ProposalTypes::cls, ProposalTypes::optionCount): keyed by its qualified name so a `ProposalTypes::cls(type)` call resolves; compiled lazily
           const key = `${nsPrefix}${fn.name}`;
+          const overloads = this.libFnOverloads.get(key);
+          if (overloads) overloads.push(d as FunctionDecl);
+          else this.libFnOverloads.set(key, [d as FunctionDecl]);
           if (!this.libFns.has(key)) this.libFns.set(key, d as FunctionDecl);
         } else if (sep < 0 && d.kind === "function_template" && fn.body) {
           // a namespace free function TEMPLATE (isArraySortedWithoutDuplicates<T,L>): keyed by qualified name, instantiated per call-site arg types (the call passes
@@ -146,6 +166,13 @@ export class Codegen {
       if (m.kind === "variable") this.collectConstant(m as VariableDecl);
       else if (m.kind === "enum") this.collectEnum(m as any);
     }
+  }
+
+  private registerLibFnTemplate(key: string, fn: FunctionTemplateDecl): void {
+    if (!fn.body) return;
+    const list = this.libFnTemplates.get(key);
+    if (list) list.push(fn);
+    else this.libFnTemplates.set(key, [fn]);
   }
 
   private collectConstant(v: VariableDecl): void {
@@ -193,7 +220,10 @@ export class Codegen {
 
   scalarStorageType(type: TypeSpec): TypeSpec {
     const t = this.derefType(type);
-    return t.kind === "name" ? this.enumUnderlying.get(t.name) ?? t : t;
+    if (t.kind !== "name") return t;
+    const base = t.name.includes("::") ? t.name.slice(t.name.lastIndexOf("::") + 2) : t.name;
+    const normalized = SCALAR_SIZE[base] !== undefined ? { ...t, name: base } : t;
+    return this.enumUnderlying.get(normalized.name) ?? normalized;
   }
 
   private normalizeConst(value: bigint, type: TypeSpec): bigint {
@@ -369,7 +399,11 @@ export class Codegen {
     const b: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
     for (let i = 0; i < tmpl.params.length; i++) {
       const p = tmpl.params[i];
-      const arg = resolved[i];
+      const arg = resolved[i] ?? (p.kind === "type" && p.default
+        ? this.substInBindings(p.default, b)
+        : p.kind === "non_type_default"
+          ? ({ kind: "expr_value", expr: p.default } as TypeSpec)
+          : undefined);
       if (!arg) continue;
       if (p.kind === "type") b.types.set(p.name, arg);
       else b.values.set(p.name, this.evalConstFromType(arg, parent));
@@ -932,6 +966,11 @@ export class Codegen {
           if (!into.has(akey)) into.set(akey, def);
           if (!into.has(fn.name)) into.set(fn.name, def);
         }
+      } else if (m.kind === "function_template") {
+        // Static function templates declared directly on the contract (QBond/RandomLottery/Pulse
+        // min/max) are ordinary source helpers, not class-layout methods. Register them under the
+        // unqualified spelling used by the contract body and instantiate them lazily at call sites.
+        this.registerLibFnTemplate((m as FunctionTemplateDecl).name, m as FunctionTemplateDecl);
       }
     }
   }
@@ -947,11 +986,18 @@ export class Codegen {
         const s = d as StructDecl;
         if (!s.bases?.some((b) => b.kind === "name" && b.name === "ContractBase")) continue;
         for (const m of s.members) {
-          if (m.kind !== "function") continue;
-          const fn = m as FunctionDecl;
-          if (!fn.body || !fn.isStatic) continue;
-          const key = `${name}::${fn.name}`;
-          if (!this.libFns.has(key)) this.libFns.set(key, fn);
+          if (m.kind === "function") {
+            const fn = m as FunctionDecl;
+            if (!fn.body || !fn.isStatic) continue;
+            const key = `${name}::${fn.name}`;
+            if (!this.libFns.has(key)) this.libFns.set(key, fn);
+          } else if (m.kind === "function_template") {
+            // Callee templates are needed by qualified source calls such as RL::min/max. The
+            // parser currently drops the `static` bit on FunctionTemplateDecl, but contract-level
+            // function templates are callable without an instance and are safe to seed here.
+            const fn = m as FunctionTemplateDecl;
+            this.registerLibFnTemplate(`${name}::${fn.name}`, fn);
+          }
         }
       }
     }
@@ -962,7 +1008,7 @@ export class Codegen {
     for (const mm of s.members) {
       if (mm.kind !== "function" || !(mm as FunctionDecl).body) continue;
       const fn = mm as FunctionDecl;
-      if (fn.name === s.name || fn.name.startsWith("operator") || fn.name.startsWith("~")) continue;
+      if (fn.name.startsWith("~")) continue;
       const def: FunctionTemplateDecl = {
         kind: "function_template", name: fn.name, params: [], fnParams: fn.params,
         returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
@@ -1130,7 +1176,8 @@ export class Codegen {
     return this.layoutOfTemplate(name, args, b);
   }
 
-  // template params → concrete args (KeyT→id, L→1024). A defaulted trailing param (HashFunc) is omitted.
+  // template params → concrete args (KeyT→id, L→1024), including authoritative defaults such as
+  // HashFunc = HashFunction<KeyT>.
   bindContainer(name: string, args: TypeSpec[], b: Bindings = NO_BIND): Bindings {
     const tmpl = this.templates.get(name);
     const out: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
@@ -1138,7 +1185,11 @@ export class Codegen {
     const resolved = args.map((a) => this.resolveType(a, b));
     for (let i = 0; i < tmpl.params.length; i++) {
       const p = tmpl.params[i];
-      const arg = resolved[i];
+      const arg = resolved[i] ?? (p.kind === "type" && p.default
+        ? this.substInBindings(p.default, out)
+        : p.kind === "non_type_default"
+          ? ({ kind: "expr_value", expr: p.default } as TypeSpec)
+          : undefined);
       if (!arg) continue;
       if (p.kind === "type") out.types.set(p.name, arg);
       else out.values.set(p.name, this.evalConstFromType(arg, b));
@@ -1181,7 +1232,7 @@ export class Codegen {
   }
 
   // Public: resolve a container/struct method to its body + the binding for the matched template instance, HONORING PARTIAL
-  methodTemplate(name: string, args: TypeSpec[], methodName: string, argCount?: number): { def: FunctionTemplateDecl; bind: Bindings } | null {
+  methodTemplate(name: string, args: TypeSpec[], methodName: string, argCount?: number, paramTypeKey?: string): { def: FunctionTemplateDecl; bind: Bindings } | null {
     // bindContainer carries the full method-scope binding (params + nested typedefs like VoteStorageType + static constexprs); instantiateTemplate's binding omits
     const bind = this.bindContainer(name, args);
     const inst = this.instantiateTemplate(name, args, NO_BIND);
@@ -1208,8 +1259,33 @@ export class Codegen {
       }
     }
     const byName = this.templateMethods.get(name);
-    const def = (argCount !== undefined ? byName?.get(`${methodName}/${argCount}`) : undefined) ?? byName?.get(methodName);
-    return def && def.body ? { def, bind } : null;
+    const specializationKey = argCount !== undefined && args[0]
+      ? `${methodName}/${argCount}@${this.typeKey(this.resolveType(args[0], bind))}`
+      : undefined;
+    const overloadKey = argCount !== undefined && paramTypeKey ? `${methodName}/${argCount}@${paramTypeKey}` : undefined;
+    const def = (overloadKey ? byName?.get(overloadKey) : undefined)
+      ?? (specializationKey ? byName?.get(specializationKey) : undefined)
+      ?? (argCount !== undefined ? byName?.get(`${methodName}/${argCount}`) : undefined)
+      ?? byName?.get(methodName);
+    if (!def?.body) return null;
+
+    // Out-of-class definitions do not repeat default arguments. Preserve defaults from the authoritative
+    // class declaration so a source-compiled call such as needsCleanup() still passes its declared 50%.
+    const declared = inst?.tmpl.members.find((member): member is FunctionDecl =>
+      member.kind === "function" && member.name === methodName &&
+      member.params.length === (def.fnParams ?? []).length,
+    );
+    if (!declared) return { def, bind };
+    return {
+      def: {
+        ...def,
+        fnParams: (def.fnParams ?? []).map((param, index) => ({
+          ...param,
+          defaultValue: param.defaultValue ?? declared.params[index]?.defaultValue,
+        })),
+      },
+      bind,
+    };
   }
 
   // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they track the real field

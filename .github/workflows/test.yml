@@ -160,6 +160,13 @@ jobs:
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run scripts/ci-build-corpus.ts
 
+      - name: Shared-memory system corpus (TS compiler)
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+        run: bun run scripts/ci-qpi-shared-memory.ts
+
   deploy-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -233,10 +240,11 @@ jobs:
           set +e
           bun run scripts/ci-deploy-smoke.ts; c1=$?
           bun run scripts/gauntlet-smoke.ts;  c2=$?   # QPI edge-case gauntlet (div/mod, wrap, K12, HashMap, ...)
+          bun run scripts/ci-qpi-dual-engine.ts; c3=$? # one TS artifact, byte-identical Sim + production WAMR state/output/digest
           set -e
           kill "$(cat run/node.pid)" 2>/dev/null || true
           echo "=== node.log tail ==="; tail -25 run/node.log
-          [ $c1 -eq 0 ] && [ $c2 -eq 0 ]
+          [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ]
 
   # QPI VS Code extension. Unit tests run in lint-test (bun test); these two prove the parts that need a
   # toolchain or a real editor: the clangd enablement gate, and the providers in a headless VS Code.

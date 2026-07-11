@@ -96,6 +96,10 @@ export class LiteRpc implements NodeTransport {
   stateRead(slot: number, off: number, len: number) {
     return this.get<{ off: number; len: number; stateSize: number; hex: string }>(`/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`);
   }
+  /** K12 digest of the full effective resident state, as computed by the node. */
+  contractDigest(slot: number) {
+    return this.get<{ slot: number; stateSize: number; digest: string }>(`/live/v1/dev/contract-digest?slot=${slot}`);
+  }
 
   /** Testnet-only funded seed for signing txs when none is given (GET /live/v1/dev/funded-seed). */
   async fundedSeed(): Promise<string | undefined> {

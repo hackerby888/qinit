@@ -48,6 +48,7 @@ export interface HelperInfo {
   retIsValue: boolean;                                        // returns a scalar i64 (vs void)
   retAgg?: number;                                            // returns an aggregate (id/struct) by value — its size; ABI prepends a $ret dest-address param
   retType?: TypeSpec;                                         // declared return type — drives conversions and aggregate-temporary member lookup
+  sourceNamespace?: string;                                   // lexical namespace/owner used to resolve unqualified sibling helpers
 }
 
 export interface PrivateInfo {
@@ -57,9 +58,10 @@ export interface PrivateInfo {
 
 export interface CompiledMethod {
   label: string;                                             // WAT function name ($T<n>_<Class>_<method>)
-  fnParams: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec }[];
-  retKind: "i64" | "void";
+  fnParams: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; defaultValue?: Expression }[];
+  retKind: "i32" | "i64" | "void";
   retAgg?: number;                                           // aggregate (id/struct) return size — ABI prepends a $ret dest-address param
+  retType?: TypeSpec;                                        // concrete return/referent type
 }
 
 export interface ContainerInfo {
@@ -86,10 +88,11 @@ export interface FnCtx {
   localVars: Map<string, { wasmType: "i32" | "i64"; type?: TypeSpec }>;
   lines: string[];
   tmpCount: number;
-  loops: { brk: string; cont: string }[];   // innermost loop's break/continue labels are last
+  loops: { brk: string; cont: string; scratchDepth: number }[];   // innermost loop's break/continue labels are last
   loopCount: number;
   params?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }>;  // value-helper / method parameters (local overrides the wasm slot name when inlining)
   retIsValue?: boolean;                       // function returns a scalar value (return <expr>)
+  retIsAddr?: boolean;                        // function returns a reference/pointer as a wasm32 address
   retTypeName?: string;                       // declared scalar return type name: `return e` narrows to it (C++ conversion)
   retAddr?: string;                           // helper returns an aggregate (id/struct) by value: `return e` copies e here
   retAggSize?: number;                        // size of that aggregate return
@@ -97,13 +100,14 @@ export interface FnCtx {
   thisType?: TypeSpec;                        // the container template_instance (HashMap<id,uint64,1024>)
   thisBind?: Bindings;                        // template-param bindings (KeyT→id, L→1024, ...) for the body
   staticConsts?: Map<string, bigint>;         // the container's static constexpr members (_nEncodedFlags, ...)
-  gotoLabels?: Map<string, string>;           // C++ label name → enclosing wasm block label (forward goto)
+  gotoLabels?: Map<string, { label: string; scratchDepth: number }>; // C++ label → wasm block + RAII unwind depth
   refLocals?: Map<string, TypeSpec>;          // reference/pointer locals: name → referent type (holds an address)
   scratchpadLocals?: Set<string>;             // __ScopedScratchpad locals: an i32 holding the scratch buffer base; `.ptr` reads it
   scratchpadScope?: string[];                 // scratchpads live in the current scope chain — released LIFO at compound exit
   thisAddr?: string;                           // WAT for *this's address (default "(local.get $this)"); set when inlining a struct method
   inlineMethod?: boolean;                       // emitting a struct method inline into the caller — `return` is suppressed (the value flows via thisAddr)
   proxyClass?: string;                          // emitting a ProposalVoting proxy method (qpi(pv).m()): the proxy class for sibling resolution
+  sourceNamespace?: string;                     // lexical namespace/owner for unqualified free/static helper calls
 }
 
 export interface Lvalue {

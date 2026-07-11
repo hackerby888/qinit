@@ -239,6 +239,9 @@ class LiteRpc {
   stateRead(slot, off, len) {
     return this.get(`/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`);
   }
+  contractDigest(slot) {
+    return this.get(`/live/v1/dev/contract-digest?slot=${slot}`);
+  }
   async fundedSeed() {
     try {
       return (await this.get("/live/v1/dev/funded-seed")).seed;

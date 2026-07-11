@@ -1,6 +1,6 @@
-import { SCALAR_SIZE } from "../tables";
+import { MATH_INTRINSIC_NAMES, SCALAR_SIZE } from "../tables";
 import { QPI_GETTERS, QPI_CALLS, emitQpiCall } from "./qpi";
-import { emitHelperCall, emitMathCallIr } from "./libfn";
+import { emitHelperCall } from "./libfn";
 import { emitProxySiblingCall, emitProposalProxyCall } from "./proxy";
 import { newTmp } from "../stmt";
 import { compileContainerMethod, emitAssetIter, emitContainerCall } from "./containers";
@@ -14,10 +14,6 @@ export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, va
   if (!ctx.thisType || ctx.thisType.kind !== "template_instance" || expr.callee.kind !== "identifier") return null;
   const name = expr.callee.name;
 
-  // Collection cleanup variants stay stubbed (the compaction path needs _tzcnt intrinsics); the store remains a correct, just uncompacted,
-  if ((name === "cleanup" || name === "cleanupIfNeeded") && !valueWanted) return "";
-  if (name === "needsCleanup" && valueWanted) return "(i64.const 0)";
-
   // memory builtins used by container bodies: reset → setMem(this, ...); removeByIndex → setMem(&elem, ...).
   if ((name === "setMem" || name === "copyMem") && !valueWanted) {
     const dst = emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)";
@@ -30,15 +26,31 @@ export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, va
     return "";
   }
 
-  // HashFunc::hash(key) — for an id/m256i key the hash is its first 8 bytes; otherwise K12(key).
+  // Resolve the dependent static call through the actual HashFunc template binding. This is important
+  // both for the default HashFunction<KeyT> body and for contract-provided custom hashers.
   if (name.endsWith("::hash")) {
-    const keyAddr = emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)";
-    const keyT = ctx.thisBind?.types.get("KeyT") ?? ctx.thisBind?.types.get("T");
-    const keySize = keyT ? ctx.cg.sizeOfType(keyT, ctx.thisBind) : 32;
-    if (keySize === 32) return `(i64.load ${keyAddr})`;
-    const s = allocSlotIr(ctx, 8);
-    ctx.lines.push(`    ${ir.emit(ir.call("$qpi_k12", addrIr(keyAddr), ir.i32c(keySize), s))}`);
-    return `(i64.load ${ir.emit(s)})`;
+    const bound = ctx.thisBind?.types.get(name.slice(0, name.lastIndexOf("::")));
+    const target: (TypeSpec & { kind: "template_instance" }) | null = bound?.kind === "template_instance"
+      ? bound
+      : bound?.kind === "name"
+        ? { kind: "template_instance", name: bound.name, args: [] }
+        : null;
+    if (!target) throw new Error(`dependent hash target '${name}' is not bound`);
+    const cm = compileContainerMethod(ctx.cg, target, "hash", expr.args.length);
+    if (!cm || cm.retKind !== "i64") {
+      throw new Error(`authoritative QPI method ${target.name}::hash could not be lowered`);
+    }
+    const ops = cm.fnParams.map((fp, index) => {
+      const arg = expr.args[index] ?? fp.defaultValue;
+      if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+      if (!fp.isAddr) return emitValue(ctx, arg);
+      const direct = emitAddr(ctx, arg);
+      if (direct) return direct;
+      const spill = allocSlotIr(ctx, Math.max(8, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), ctx.thisBind ?? NO_BIND)));
+      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, spill, emitValueIr(ctx, arg)))}`);
+      return ir.emit(spill);
+    });
+    return `(call ${cm.label} (local.get $this)${ops.length ? " " + ops.join(" ") : ""})`;
   }
 
   // a sibling method of this container instance — compile it and call with $this + args. An
@@ -48,13 +60,14 @@ export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, va
   // A reference-scalar argument that is a plain wasm local (addAndComputeCarry(newMicrosec, carry, ...)) has no address: spill it to
   const writeBacks: string[] = [];
   const ops = cm.fnParams.map((fp, i) => {
-    const arg = expr.args[i];
+    const arg = expr.args[i] ?? fp.defaultValue;
     if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    if (arg.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
     if (!fp.isAddr) return emitValue(ctx, arg);
     const a = emitAddr(ctx, arg);
     if (a) return a;
     // `&x` (pointer out-param) and parens unwrap to the same scalar-local spill as a bare `x`.
-    let root = arg;
+    let root: Expression = arg;
     while (root.kind === "paren" || (root.kind === "unary_op" && root.op === "&")) {
       root = root.kind === "paren" ? root.expr : root.arg;
     }
@@ -86,6 +99,40 @@ export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, va
 
 // rvalue call: a value helper, qpi getter, qpi valued host call, a value-returning container method, or a math
 export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" }): ir.Ir {
+  // MSVC widening-multiply intrinsics used by authoritative math_lib bodies. Wasm supplies the
+  // low limb directly; the frontend primitive computes and writes the high limb.
+  if (expr.callee.kind === "identifier" && (expr.callee.name === "_mul128" || expr.callee.name === "_umul128")) {
+    const left = expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0);
+    const right = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);
+    const high = ir.call(expr.callee.name === "_mul128" ? "$intr_mulhi_s" : "$intr_mulhi_u", left, right);
+    let output: Expression | undefined = expr.args[2];
+    while (output?.kind === "paren" || (output?.kind === "unary_op" && output.op === "&")) {
+      output = output.kind === "paren" ? output.expr : output.arg;
+    }
+    if (output?.kind === "identifier" && ctx.localVars.get(output.name)?.wasmType === "i64") {
+      ctx.lines.push(`    ${setLocal(ctx, output.name, high)}`);
+    } else {
+      const out = expr.args[2] ? emitAddr(ctx, expr.args[2]) : null;
+      if (!out) throw new Error(`${expr.callee.name} high-limb output is not addressable`);
+      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, addrIr(out), high))}`);
+    }
+    return ir.op("i64.mul", left, right);
+  }
+
+  // x86 count intrinsics used by the authoritative container cleanup bodies. Wasm defines clz/ctz(0)
+  // as the operand width (64), which is the same contract as the core-lite intrinsics.
+  if (expr.callee.kind === "identifier" && expr.args.length === 1) {
+    const intrinsic = expr.callee.name.includes("::")
+      ? expr.callee.name.slice(expr.callee.name.lastIndexOf("::") + 2)
+      : expr.callee.name;
+    if (intrinsic === "_tzcnt_u64" || intrinsic === "_tzcnt64") {
+      return ir.op("i64.ctz", emitValueIr(ctx, expr.args[0]));
+    }
+    if (intrinsic === "_lzcnt_u64" || intrinsic === "__lzcnt64") {
+      return ir.op("i64.clz", emitValueIr(ctx, expr.args[0]));
+    }
+  }
+
   // isZero(id) / id.isZero() — true iff all 32 bytes are zero (OR the four 64-bit limbs, test for zero).
   {
     const idObj = expr.callee.kind === "identifier" && expr.callee.name === "isZero" ? expr.args[0]
@@ -138,10 +185,13 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
   if (h !== null) return ir.raw(h, "i64", "unconverted: helper call");
 
   if (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name") {
-    const nm = expr.callee.kind === "identifier" ? expr.callee.name : `${expr.callee.namespace}::${expr.callee.name}`;
-    const m = emitMathCallIr(ctx, nm, expr.args);
-    if (m !== null) return m;
+    const name = expr.callee.kind === "identifier" ? expr.callee.name : expr.callee.name;
+    const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
+    if (MATH_INTRINSIC_NAMES.has(base)) {
+      throw new Error(`authoritative QPI math function '${name}' could not be lowered`);
+    }
   }
+
   if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
     const g = QPI_GETTERS[expr.callee.member];
     if (g) return g.ret === "i64" ? ir.call(g.fwd) : ir.op("i64.extend_i32_u", ir.call(g.fwd));
@@ -284,6 +334,30 @@ export function emitOracleReadCall(ctx: FnCtx, expr: Expression & { kind: "templ
 }
 
 export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
+  // The generic HashFunction<KeyT> source body calls core-lite's KangarooTwelve primitive with an
+  // explicit output length. The lite host exposes K12 as a 32-byte producer, so hash into a private
+  // 32-byte slot and then copy/assign the requested prefix.
+  if (expr.callee.kind === "identifier" && expr.callee.name === "KangarooTwelve") {
+    const input = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
+    const inputSize = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);
+    const digest = allocSlotIr(ctx, 32);
+    ctx.lines.push(`    ${ir.emit(ir.call("$qpi_k12", addrIr(input), ir.op("i32.wrap_i64", inputSize), digest))}`);
+
+    let output: Expression | undefined = expr.args[2];
+    while (output?.kind === "paren" || (output?.kind === "unary_op" && output.op === "&")) {
+      output = output.kind === "paren" ? output.expr : output.arg;
+    }
+    if (output?.kind === "identifier" && ctx.localVars.get(output.name)?.wasmType === "i64") {
+      ctx.lines.push(`    ${setLocal(ctx, output.name, ir.loadRaw("i64.load", null, digest))}`);
+    } else {
+      const outAddr = expr.args[2] ? emitAddr(ctx, expr.args[2]) : null;
+      if (!outAddr) throw new Error("KangarooTwelve output is not addressable");
+      const outputSize = expr.args[3] ? emitValueIr(ctx, expr.args[3]) : ir.i64c(32);
+      ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(outAddr), digest, ir.op("i32.wrap_i64", outputSize)))}`);
+    }
+    return;
+  }
+
   // LOG_* macros expand to __logContract{Info,Debug,...}Message — a side channel that does not affect state or the digest, so
   if (expr.callee.kind === "identifier" && expr.callee.name.startsWith("__logContract")) return;
 

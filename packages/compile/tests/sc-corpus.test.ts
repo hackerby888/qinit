@@ -42,7 +42,7 @@ const SPECS: Spec[] = [
     name: "QRP",
     stateType: "QRP",
     slot: 21,
-    callees: [],
+    callees: [{ name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 }],
   },
   {
     corpus: "contract_vottunbridge.cpp",

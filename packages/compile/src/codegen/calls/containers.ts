@@ -1,5 +1,5 @@
 import { emitValue, emitValueIr } from "../value";
-import { argAddr, resolveAddr, loadAt, emitAddr, addrIr, setLocal, isAggregate, allocSlot, emitConstruct, storeAt, allocSlotIr } from "../addr";
+import { argAddr, resolveAddr, loadAt, emitAddr, addrIr, setLocal, isAggregate, allocSlot, emitConstruct, storeAt, allocSlotIr, isSignedScalarType } from "../addr";
 import { collectLocals, emitStmt, newTmp } from "../stmt";
 import { Bindings, CompiledMethod, FieldLayout, FnCtx } from "../types";
 import { Codegen } from "../cg";
@@ -9,38 +9,53 @@ import * as ir from "../../ir";
 // ---- compiling instantiated container methods from the real qpi.h bodies ----
 
 // A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32), scalars pass by value (i64).
-export function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec } {
+export function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; defaultValue?: Expression } {
   const t = p.type;
   const isPtrOrRef = t.kind === "reference" || t.kind === "pointer";
   const deref = cg.derefType(t);
   const concrete = deref.kind === "name" && bind.types.has(deref.name) ? bind.types.get(deref.name)! : deref;
   const isAddr = isPtrOrRef || cg.isAggregateType(concrete);
-  return { name: p.name, wasmType: isAddr ? "i32" : "i64", isAddr, type: t };
+  return { name: p.name, wasmType: isAddr ? "i32" : "i64", isAddr, type: t, defaultValue: p.defaultValue };
 }
 
 // Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm function. Returns
-export function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "template_instance" }, methodName: string, argCount?: number): CompiledMethod | null {
-  const cacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}/${argCount ?? "?"}`;
+export function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "template_instance" }, methodName: string, argCount?: number, paramTypeKey?: string): CompiledMethod | null {
+  const cacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}`;
   const cached = cg.compiledMethods.get(cacheKey);
   if (cached) return cached;
 
   // Specialization-aware: the body + its binding come from the matched template instance (primary OR partial specialization), so a
-  const mt = cg.methodTemplate(type.name, type.args, methodName, argCount);
+  const mt = cg.methodTemplate(type.name, type.args, methodName, argCount, paramTypeKey);
   if (!mt || !mt.def.body) return null;
   const def = mt.def;
   const bind = mt.bind;
   const fnParams = (def.fnParams ?? []).map((p) => classifyMethodParam(cg, p, bind));
-  const retKind: "i64" | "void" = cg.isVoidType(def.returnType) ? "void" : (cg.isAggregateType(cg.derefType(def.returnType)) ? "void" : "i64");
+  const retType = cg.substInBindings(cg.derefType(def.returnType), bind);
+  const returnsAddr = def.returnType.kind === "reference" || def.returnType.kind === "pointer";
+  const returnsAggregate = !returnsAddr && !cg.isVoidType(def.returnType) && cg.isAggregateType(retType);
+  const retKind: "i32" | "i64" | "void" = returnsAddr ? "i32" : (cg.isVoidType(def.returnType) || returnsAggregate ? "void" : "i64");
+  const retAgg = returnsAggregate ? cg.sizeOfType(retType, bind) : undefined;
 
-  const cm: CompiledMethod = { label: `$T${cg.compiledMethods.size}_${type.name}_${methodName}`, fnParams, retKind };
+  const safeMethodName = methodName.replace(/[^a-zA-Z0-9_]/g, "_");
+  const cm: CompiledMethod = { label: `$T${cg.compiledMethods.size}_${type.name}_${safeMethodName}`, fnParams, retKind, retAgg, retType };
   cg.compiledMethods.set(cacheKey, cm);   // register before emitting so recursive/sibling calls resolve
 
   try {
-    cg.emittedMethodOrder.push(emitTemplateMethod(cg, cm, def, type, bind));
+    const warningBase = cg.warnings.length;
+    const errorBase = cg.errors.length;
+    const wat = emitTemplateMethod(cg, cm, def, type, bind);
+    if (cg.warnings.length !== warningBase || cg.errors.length !== errorBase) {
+      const diagnostic = cg.errors[errorBase]?.message ?? cg.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
+      throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
+    }
+    cg.emittedMethodOrder.push(wat);
   } catch (e: any) {
     cg.warn(`failed to compile ${cacheKey}: ${e.message}`, def.span?.line ?? 0);
     cg.compiledMethods.delete(cacheKey);
-    return null;
+    // Once an authoritative method body has been selected, a lowering failure is a
+    // compiler error. Returning null here used to let callers substitute handwritten
+    // behavior or a zero value and made source coverage impossible to ratchet.
+    throw e;
   }
   return cm;
 }
@@ -52,36 +67,48 @@ export function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: Functio
   const ctx: FnCtx = {
     cg, state: empty, in: empty, out: empty, locals: empty,
     localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
-    params: new Map(), retIsValue: cm.retKind === "i64",
+    params: new Map(), retIsValue: cm.retKind === "i64", retIsAddr: cm.retKind === "i32",
     thisLayout, thisType: type, thisBind: bind, staticConsts: cg.staticConstsOf(type.name, bind),
   };
+  if (cm.retAgg) {
+    ctx.retAddr = "(local.get $__qinit_ret)";
+    ctx.retAggSize = cm.retAgg;
+  }
   // Register params with their CONCRETE types (ValueT → uint64): a scalar ref-param read sizes and signs its load
   for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.substInBindings(cg.derefType(p.type), bind) });
 
   if (def.body) collectLocals(def.body, ctx);
   if (def.body) emitStmt(ctx, def.body);
 
+  const retParam = cm.retAgg ? "(param $__qinit_ret i32) " : "";
   const paramDecls = cm.fnParams.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
-  const result = cm.retKind === "i64" ? " (result i64)" : "";
-  const header = `  (func ${cm.label} (param $this i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
+  const result = cm.retKind === "i64" ? " (result i64)" : cm.retKind === "i32" ? " (result i32)" : "";
+  const header = `  (func ${cm.label} ${retParam}(param $this i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
   const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
-  const tail = cm.retKind === "i64" ? ["    (i64.const 0)"] : [];
+  const tail = cm.retKind === "i64" ? ["    (i64.const 0)"] : cm.retKind === "i32" ? ["    (i32.const 0)"] : [];
   return [header, ...localDecls, ...ctx.lines, ...tail, "  )"].join("\n");
 }
 
 // Build a call to a container method compiled from its real qpi.h body. Arguments are classified from
 export function callCompiled(
-  ctx: FnCtx, type: TypeSpec & { kind: "template_instance" }, method: string, self: string, args: Expression[],
-): { call: string; cm: CompiledMethod } | null {
-  const cm = compileContainerMethod(ctx.cg, type, method, args.length);
+  ctx: FnCtx, type: TypeSpec & { kind: "template_instance" }, method: string, self: string, args: Expression[], paramTypeKey?: string,
+): { call: string; cm: CompiledMethod; retDest?: string } | null {
+  const cm = compileContainerMethod(ctx.cg, type, method, args.length, paramTypeKey);
   if (!cm) return null;
   const bind = ctx.cg.bindContainer(type.name, type.args);
   const ops = cm.fnParams.map((fp, i) => {
-    const arg = args[i];
+    const arg = args[i] ?? fp.defaultValue;
     if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    if (arg.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
     return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
   });
-  return { call: `(call ${cm.label} ${self}${ops.length ? " " + ops.join(" ") : ""})`, cm };
+  let retDest = "";
+  if (cm.retAgg) retDest = ir.emit(allocSlotIr(ctx, cm.retAgg));
+  return {
+    call: `(call ${cm.label}${retDest ? " " + retDest : ""} ${self}${ops.length ? " " + ops.join(" ") : ""})`,
+    cm,
+    ...(retDest ? { retDest } : {}),
+  };
 }
 
 // Lower a container method call on a HashMap/HashSet/Array state/locals field. When valueWanted, returns
@@ -115,109 +142,32 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
   const C = (n: number) => `(i32.const ${n})`;
 
   if (node.type.name === "HashMap" || node.type.name === "HashSet") {
-    const isSet = node.type.name === "HashSet";
-    const info = isSet ? ctx.cg.hashsetInfo(node.type.args) : ctx.cg.hashmapInfo(node.type.args);
-    if (!info) return null;
-    const dims = `${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.valOff!)} ${C(info.valSize!)} ${C(info.occBase!)}`;
-    const indexOf = (k: string) => `(call $hm_index ${map} ${k} ${C(info.L!)} ${C(info.elemSize)} ${C(info.keySize!)} ${C(info.occBase!)} ${C(info.hashMode!)})`;
-    const elemAt = (idx: Expression) => `(call $hm_elem ${map} (i32.and (i32.wrap_i64 ${emitValue(ctx, idx)}) ${C(info.L! - 1)}) ${C(info.elemSize)})`;
-
-    // Prefer the method compiled from the real qpi.h body (HashMap and HashSet share the same impl shape); the
-    const compiledHM = (m: string) => callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, m, map, expr.args);
-    // Wire a compiled HashMap method that returns a value (or void): in value context return the call; as
-    const wireCompiled = (m: string): boolean => {
-      const c = compiledHM(m);
-      if (!c) return false;
-      if (valueWanted) { lastWired = c.call; return true; }
-      ctx.lines.push(c.cm.retKind === "void" ? `    ${c.call}` : `    (drop ${c.call})`);
-      lastWired = "";
-      return true;
-    };
-    let lastWired = "";
-
-    // queries (value context)
-    if (member === "population" && valueWanted) return wireCompiled("population") ? lastWired : `(call $hm_population ${map} ${C(info.popOff!)})`;
-    if (member === "capacity" && valueWanted) return `(i64.const ${info.L})`;
-    if (member === "contains" && valueWanted) {
-      if (wireCompiled("contains")) return lastWired;
-      const k = argAddr(ctx, expr.args[0], info.keySize!);
-      return `(i64.extend_i32_u (i32.ne ${indexOf(k)} (i32.const -1)))`;
+    // HashMap/HashSet behavior is authoritative only when the real core-lite body lowers. There is
+    // deliberately no handwritten probing/cleanup fallback: a compiler gap must fail the build.
+    const compiled = callCompiled(
+      ctx,
+      node.type as TypeSpec & { kind: "template_instance" },
+      member,
+      map,
+      expr.args,
+    );
+    if (!compiled) {
+      throw new Error(`authoritative QPI method ${node.type.name}::${member} could not be lowered`);
     }
-    if (member === "getElementIndex" && valueWanted) {
-      if (wireCompiled("getElementIndex")) return lastWired;
-      const k = argAddr(ctx, expr.args[0], info.keySize!);
-      return `(i64.extend_i32_s ${indexOf(k)})`;
+    if (valueWanted) {
+      if (compiled.cm.retKind === "void") {
+        throw new Error(`void QPI method ${node.type.name}::${member} used as a value`);
+      }
+      if (compiled.cm.retKind === "i32") {
+        if (!compiled.cm.retType || ctx.cg.isAggregateType(compiled.cm.retType)) {
+          throw new Error(`aggregate QPI reference ${node.type.name}::${member} used as a scalar`);
+        }
+        return loadAt(compiled.call, ctx.cg.sizeOfType(compiled.cm.retType, ctx.thisBind), isSignedScalarType(compiled.cm.retType, ctx.cg));
+      }
+      return compiled.call;
     }
-    if (member === "nextElementIndex" && valueWanted) {
-      if (wireCompiled("nextElementIndex")) return lastWired;
-      return `(i64.extend_i32_s (call $hm_next ${map} (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L!)} ${C(info.occBase!)}))`;
-    }
-    if (member === "isEmptySlot" && valueWanted) {
-      if (wireCompiled("isEmptySlot")) return lastWired;
-      const idx = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L! - 1)})`;
-      return `(i64.extend_i32_u (i32.ne (call $hm_flag (i32.add ${map} ${C(info.occBase!)}) ${idx}) (i32.const 1)))`;
-    }
-    if (member === "value" && valueWanted) return loadAt(`(i32.add ${elemAt(expr.args[0])} ${C(info.valOff!)})`, info.valSize!);
-    if (member === "key" && valueWanted && info.keySize! <= 8) return loadAt(elemAt(expr.args[0]), info.keySize!);
-
-    // get(key, &value) — bool found, value copied out. The out parameter is a real lvalue (emitAddr),
-    if (member === "get") {
-      const k = argAddr(ctx, expr.args[0], info.keySize!);
-      const out = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
-      const cm = compileContainerMethod(ctx.cg, node.type, "get", 2);
-      const call = cm
-        ? `(call ${cm.label} ${map} ${k} ${out})`
-        : `(i64.extend_i32_u (call $hm_get ${map} ${k} ${out} ${dims} ${C(info.hashMode!)}))`;
-      if (valueWanted) return call;
-      ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.raw(call, "i64", "unconverted: container call")))}`);
-      return "";
-    }
-
-    // set (HashMap) / add (HashSet) both insert; add has no value.
-    if (member === "set" || member === "add") {
-      if (wireCompiled(member)) return valueWanted ? lastWired : "";
-      const k = argAddr(ctx, expr.args[0], info.keySize!);
-      const v = isSet ? k : argAddr(ctx, expr.args[1], info.valSize!);
-      const call = `(i64.extend_i32_s (call $hm_set ${map} ${k} ${v} ${dims} ${C(info.popOff!)} ${C(info.hashMode!)}))`;
-      if (valueWanted) return call;
-      ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.raw(call, "i64", "unconverted: container call")))}`);
-      return "";
-    }
-    if (member === "removeByKey" || member === "remove") {
-      if (wireCompiled(member)) return valueWanted ? lastWired : "";
-      if (valueWanted) return null;
-      const k = argAddr(ctx, expr.args[0], info.keySize!);
-      ctx.lines.push(`    ${ir.emit(ir.call("$hm_remove", addrIr(map), addrIr(k), ir.i32c(info.L!), ir.i32c(info.elemSize), ir.i32c(info.keySize!), ir.i32c(info.occBase!), ir.i32c(info.popOff!), ir.i32c(info.hashMode!)))}`);
-      return "";
-    }
-    if (member === "replace") {
-      if (wireCompiled("replace")) return valueWanted ? lastWired : "";
-      if (valueWanted) return null;
-      const k = argAddr(ctx, expr.args[0], info.keySize!);
-      const v = argAddr(ctx, expr.args[1], info.valSize!);
-      const t = newTmp(ctx);
-      ctx.lines.push(`    ${setLocal(ctx, t, ir.raw(indexOf(k), "i32", "unconverted: hm index probe"))}`);
-      ctx.lines.push(`    (if (i32.ge_s (local.get $${t}) (i32.const 0)) (then (call $copyMem (i32.add (call $hm_elem ${map} (local.get $${t}) ${C(info.elemSize)}) ${C(info.valOff!)}) ${v} ${C(info.valSize!)})))`);
-      return "";
-    }
-    if (member === "reset" && !valueWanted) {
-      if (wireCompiled("reset")) return "";
-      ctx.lines.push(`    ${ir.emit(ir.call("$hm_reset", addrIr(map), ir.i32c(info.totalSize!)))}`);
-      return "";
-    }
-    // cleanup family: compaction + threshold checks over the mark-removal counter, matching the native rehash byte-for-byte (slot placement is
-    const threshold = () => (expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(50));
-    if (member === "cleanup" && !valueWanted) {
-      ctx.lines.push(`    ${ir.emit(ir.call("$hm_cleanup", addrIr(map), ir.i32c(info.L!), ir.i32c(info.elemSize), ir.i32c(info.keySize!), ir.i32c(info.occBase!), ir.i32c(info.popOff!), ir.i32c(info.hashMode!), ir.i32c(info.totalSize!)))}`);
-      return "";
-    }
-    if (member === "cleanupIfNeeded" && !valueWanted) {
-      ctx.lines.push(`    ${ir.emit(ir.call("$hm_cleanup_if", addrIr(map), ir.i32c(info.L!), ir.i32c(info.elemSize), ir.i32c(info.keySize!), ir.i32c(info.occBase!), ir.i32c(info.popOff!), ir.i32c(info.hashMode!), ir.i32c(info.totalSize!), threshold()))}`);
-      return "";
-    }
-    if (member === "needsCleanup" && valueWanted) {
-      return ir.emit(ir.call("$hm_needs_cleanup", addrIr(map), ir.i32c(info.L!), ir.i32c(info.popOff!), threshold()));
-    }
+    ctx.lines.push(compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
+    return "";
   }
 
   if (node.type.name === "Array") {
@@ -268,35 +218,22 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
 
   // Collection (priority queues over a per-PoV BST) and LinkedList (doubly-linked with a free list): every method is compiled
   if (node.type.name === "Collection" || node.type.name === "LinkedList") {
-    // Collection cleanup family: pov-table compaction + threshold checks over the mark-removal counter. The native body leans on _tzcnt_u64/_lzcnt_u64
-    if (node.type.name === "Collection" && (member === "cleanup" || member === "cleanupIfNeeded" || member === "needsCleanup")) {
-      const lay = ctx.cg.containerLayout("Collection", node.type.args);
-      const ci = ctx.cg.collectionInfo(node.type.args);
-      const flagsF = lay.fields.get("_povOccupationFlags");
-      const elemsF = lay.fields.get("_elements");
-      const popF = lay.fields.get("_population");
-      if (ci && flagsF && elemsF && popF) {
-        const threshold = () => expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(50);
-        if (member === "cleanup" && !valueWanted) {
-          ctx.lines.push(`    ${ir.emit(ir.call("$coll_cleanup", addrIr(map), ir.i32c(ci.L), ir.i32c(flagsF.offset), ir.i32c(elemsF.offset), ir.i32c(ci.stride), ir.i32c(popF.offset)))}`);
-          return "";
-        }
-        if (member === "cleanupIfNeeded" && !valueWanted) {
-          ctx.lines.push(`    ${ir.emit(ir.call("$coll_cleanup_if", addrIr(map), ir.i32c(ci.L), ir.i32c(flagsF.offset), ir.i32c(elemsF.offset), ir.i32c(ci.stride), ir.i32c(popF.offset), threshold()))}`);
-          return "";
-        }
-        if (member === "needsCleanup" && valueWanted) {
-          return ir.emit(ir.call("$hm_needs_cleanup", addrIr(map), ir.i32c(ci.L), ir.i32c(popF.offset), threshold()));
-        }
-      }
-    }
-    if ((member === "element" || member === "pov") && valueWanted) {
-      const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
-      return c && c.cm.retKind === "i64" ? c.call : null;
-    }
     const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
-    if (!c) return null;
-    if (valueWanted) return c.cm.retKind === "void" ? null : c.call;
+    if (!c) {
+      throw new Error(`authoritative QPI method ${node.type.name}::${member} could not be lowered`);
+    }
+    if (valueWanted) {
+      if (c.cm.retKind === "void") {
+        throw new Error(`void QPI method ${node.type.name}::${member} used as a value`);
+      }
+      if (c.cm.retKind === "i32") {
+        if (!c.cm.retType || ctx.cg.isAggregateType(c.cm.retType)) {
+          throw new Error(`aggregate QPI reference ${node.type.name}::${member} used as a scalar`);
+        }
+        return loadAt(c.call, ctx.cg.sizeOfType(c.cm.retType, ctx.thisBind), isSignedScalarType(c.cm.retType, ctx.cg));
+      }
+      return c.call;
+    }
     ctx.lines.push(c.cm.retKind === "void" ? `    ${c.call}` : `    (drop ${c.call})`);
     return "";
   }

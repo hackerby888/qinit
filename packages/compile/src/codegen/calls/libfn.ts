@@ -1,49 +1,18 @@
 import { resolveAddr, emitAddr, allocSlot, narrowCast } from "../addr";
 import { emitHelperFunction } from "../stmt";
 import { Codegen } from "../cg";
-import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo, scalarTypeInfo, unsignedScalar } from "../value";
+import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo, scalarTypeInfo, unsignedScalar, isU128Expr } from "../value";
 import { FnCtx, HelperInfo, Bindings, NO_BIND } from "../types";
 import { MATH_INTRINSIC_NAMES, SCALAR_SIZE } from "../tables";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
 import * as ir from "../../ir";
 
-// QPI safe-math + helper free functions, lowered to scalar i64. div/mod guard division by zero;
-export function emitMathCallIr(ctx: FnCtx, name: string, args: Expression[]): ir.Ir | null {
-  const a = () => (args[0] ? emitValueIr(ctx, args[0]) : ir.i64c(0));
-  const b = () => (args[1] ? emitValueIr(ctx, args[1]) : ir.i64c(0));
-  // accept a namespace-qualified spelling (math_lib::max, QPI::div, RL::min) — strip the qualifier.
-  const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
-  // div/mod/min/max take the unsigned variant when either operand is unsigned (C++ usual-conversion rule).
-  const u = (args[0] ? isUnsignedExpr(ctx, args[0]) : false) || (args[1] ? isUnsignedExpr(ctx, args[1]) : false);
-  const s = u ? "u" : "s";
-  switch (base) {
-    case "sdiv": return ir.call("$m_div_s", a(), b());
-    case "div": return ir.call(`$m_div_${s}`, a(), b());
-    case "mod": return ir.call(`$m_mod_${s}`, a(), b());
-    case "min": return ir.call(`$m_min_${s}`, a(), b());
-    case "max": return ir.call(`$m_max_${s}`, a(), b());
-    case "abs": return ir.call("$m_abs", a());
-    // sadd/smul are SATURATING natively (math_lib.h clamps at the type extreme) — plain wrap-around arithmetic silently diverges exactly at
-    case "sadd": case "smul": {
-      const w4 = args.length >= 2 &&
-        promoteInfo(ctx, args[0]).width === 4 && promoteInfo(ctx, args[1]).width === 4;
-      return ir.call(`$m_${base}_${s}${w4 ? "32" : ""}`, a(), b());
-    }
-    default: return null;
-  }
-}
-
-export function emitMathCall(ctx: FnCtx, name: string, args: Expression[]): string | null {
-  const n = emitMathCallIr(ctx, name, args);
-  return n === null ? null : ir.emit(n);
-}
-
 // Call to a contract value helper (toReturnCode(...)): scalar args by value, aggregate args by address. valueWanted → returns
-export function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
-  const cached = cg.helpers.get(name);
+export function compileLibFn(cg: Codegen, name: string, definition?: FunctionDecl, cacheKey = name): HelperInfo | null {
+  const cached = cg.helpers.get(cacheKey);
   if (cached) return cached;
   // `using namespace QPI` lets a call drop the QPI:: qualifier; libFns are keyed by full namespace path.
-  const fn = cg.libFns.get(name) ?? cg.libFns.get(`QPI::${name}`);
+  const fn = definition ?? cg.libFns.get(name) ?? cg.libFns.get(`QPI::${name}`);
   if (!fn || !fn.body) return null;
   const params = fn.params.map((p) => {
     // A NON-const scalar reference (RL::makeDateStamp's `uint32& res`) is an out-param and must travel by address for the write
@@ -55,29 +24,66 @@ export function compileLibFn(cg: Codegen, name: string): HelperInfo | null {
   });
   const retAgg = !cg.isVoidType(fn.returnType) && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
   const retIsValue = !cg.isVoidType(fn.returnType) && !retAgg;
-  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${name.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue, retAgg, retType: cg.derefType(fn.returnType) };
-  cg.helpers.set(name, info);   // register before emit so recursion/sibling calls resolve
+  const nameSep = name.lastIndexOf("::");
+  const info: HelperInfo = {
+    label: `$lib${cg.helpers.size}_${name.replace(/[^a-zA-Z0-9]/g, "_")}`,
+    params,
+    retIsValue,
+    retAgg,
+    retType: cg.derefType(fn.returnType),
+    sourceNamespace: nameSep >= 0 ? name.slice(0, nameSep) : undefined,
+  };
+  cg.helpers.set(cacheKey, info);   // register before emit so recursion/sibling calls resolve
   try {
-    cg.emittedMethodOrder.push(emitHelperFunction(cg, info, fn, { size: 0, align: 1, fields: new Map() }));
+    const warningBase = cg.warnings.length;
+    const errorBase = cg.errors.length;
+    const wat = emitHelperFunction(cg, info, fn, { size: 0, align: 1, fields: new Map() });
+    if ((name.startsWith("QPI::") || name.startsWith("math_lib::")) &&
+        (cg.warnings.length !== warningBase || cg.errors.length !== errorBase)) {
+      const diagnostic = cg.errors[errorBase]?.message ?? cg.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
+      throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
+    }
+    cg.emittedMethodOrder.push(wat);
   } catch (e: any) {
     cg.warn(`failed to compile lib fn ${name}: ${e.message}`, fn.span?.line ?? 0);
-    cg.helpers.delete(name);
+    cg.helpers.delete(cacheKey);
+    if (name.startsWith("QPI::") || name.startsWith("math_lib::")) throw e;
     return null;
   }
   return info;
 }
 
 // Deduce template bindings (T→sint64, L→4) for a free function template from the concrete types of its call-site arguments:
-export function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args: Expression[]): Bindings {
+export function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args: Expression[], explicit: TypeSpec[] = []): Bindings {
   const types = new Map<string, TypeSpec>();
   const values = new Map<string, bigint>();
   const typeParams = new Set(def.params.filter((p) => p.kind === "type").map((p) => p.name));
   const valueParams = new Set(def.params.filter((p) => p.kind !== "type").map((p) => p.name));
   const fps = def.fnParams ?? [];
 
+  def.params.forEach((param, index) => {
+    const arg = explicit[index];
+    if (!arg) return;
+    if (param.kind === "type") {
+      types.set(param.name, ctx.thisBind ? ctx.cg.substInBindings(arg, ctx.thisBind) : arg);
+    } else {
+      values.set(param.name, ctx.cg.valueOfTypeArg(arg, ctx.thisBind ?? NO_BIND));
+    }
+  });
+
   const argType = (a: Expression): TypeSpec | null => {
     let t = resolveAddr(ctx, a)?.type ?? null;
-    if (!t) return null;
+    if (!t) {
+      // A computed uint128 rvalue has no lvalue address until call lowering materializes it,
+      // but template deduction still sees its class type (`div(a * b, c)` in GGWP/Qswap).
+      if (isU128Expr(ctx, a)) return { kind: "name", name: "uint128_t" };
+      const scalar = scalarTypeInfo(ctx, a);
+      if (!scalar) return null;
+      const name = scalar.width <= 4
+        ? (scalar.unsigned ? "uint32" : "sint32")
+        : (scalar.unsigned ? "uint64" : "sint64");
+      return { kind: "name", name };
+    }
     t = ctx.cg.derefType(t);
     // Resolve through the caller's template bindings so the deduced type is concrete (ProposalDataType → ProposalDataV1<false>), not a symbolic
     if (ctx.thisBind) t = ctx.cg.derefType(ctx.cg.substInBindings(t, ctx.thisBind));
@@ -170,9 +176,16 @@ export function pickLibFnOverload(ctx: FnCtx, defs: FunctionTemplateDecl[], args
 }
 
 // Instantiate a free function template for the concrete types at a call site, emitting its wasm function.
-export function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args: Expression[]): HelperInfo | null {
+export function compileLibFnInstance(
+  ctx: FnCtx,
+  def: FunctionTemplateDecl,
+  args: Expression[],
+  explicit: TypeSpec[] = [],
+  authoritative = false,
+  sourceKey = def.name,
+): HelperInfo | null {
   const cg = ctx.cg;
-  const bind = deduceLibFnBindings(ctx, def, args);
+  const bind = deduceLibFnBindings(ctx, def, args, explicit);
   const keyArgs = def.params
     .map((p) => (p.kind === "type" ? cg.typeKeyOf(bind.types.get(p.name) ?? { kind: "name", name: p.name }) : (bind.values.get(p.name)?.toString() ?? p.name)))
     .join(",");
@@ -182,22 +195,40 @@ export function compileLibFnInstance(ctx: FnCtx, def: FunctionTemplateDecl, args
   if (cached) return cached;
 
   const params = (def.fnParams ?? []).map((p) => {
-    const isPtrRef = p.type.kind === "reference" || p.type.kind === "pointer";
     const concrete = cg.substInBindings(cg.derefType(p.type), bind);
-    const isAddr = isPtrRef || cg.isAggregateType(concrete);
-    const byValAgg = isAddr && !isPtrRef;
+    const aggregate = cg.isAggregateType(concrete);
+    const constScalarRef = p.type.kind === "reference" && p.type.refereed.kind === "const" && !aggregate;
+    const isPtrRef = p.type.kind === "pointer" || (p.type.kind === "reference" && !constScalarRef);
+    const isAddr = isPtrRef || aggregate;
+    const byValAgg = isAddr && !isPtrRef && aggregate;
     return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: concrete, byValAgg };
   });
   const retT = cg.substInBindings(cg.derefType(def.returnType), bind);
   const retAgg = !cg.isVoidType(def.returnType) && cg.isAggregateType(retT) ? cg.sizeOfType(retT, bind) : undefined;
   const retIsValue = !cg.isVoidType(def.returnType) && !retAgg;
-  const info: HelperInfo = { label: `$lib${cg.helpers.size}_${key.replace(/[^a-zA-Z0-9]/g, "_")}`, params, retIsValue, retAgg, retType: retT };
+  const sourceSep = sourceKey.lastIndexOf("::");
+  const info: HelperInfo = {
+    label: `$lib${cg.helpers.size}_${key.replace(/[^a-zA-Z0-9]/g, "_")}`,
+    params,
+    retIsValue,
+    retAgg,
+    retType: retT,
+    sourceNamespace: sourceSep >= 0 ? sourceKey.slice(0, sourceSep) : undefined,
+  };
   cg.helpers.set(key, info);   // register before emit so recursive/sibling calls resolve
   try {
-    cg.emittedMethodOrder.push(emitHelperFunction(cg, info, def, { size: 0, align: 1, fields: new Map() }, bind));
+    const warningBase = cg.warnings.length;
+    const errorBase = cg.errors.length;
+    const wat = emitHelperFunction(cg, info, def, { size: 0, align: 1, fields: new Map() }, bind);
+    if (authoritative && (cg.warnings.length !== warningBase || cg.errors.length !== errorBase)) {
+      const diagnostic = cg.errors[errorBase]?.message ?? cg.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
+      throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
+    }
+    cg.emittedMethodOrder.push(wat);
   } catch (e: any) {
     cg.warn(`failed to instantiate lib fn ${key}: ${e.message}`, def.span?.line ?? 0);
     cg.helpers.delete(key);
+    if (authoritative) throw e;
     return null;
   }
   return info;
@@ -226,9 +257,18 @@ export function emitAggHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" 
 // Scalar width/signedness of a declared parameter or return type, or null for aggregates/unknowns.
 function scalarDeclInfo(ctx: FnCtx, t: TypeSpec): { width: number; unsigned: boolean } | null {
   const c = ctx.cg.derefType(t);
-  const sz = c.kind === "name" ? SCALAR_SIZE[c.name] : undefined;
+  const name = c.kind === "name" && c.name.includes("::") ? c.name.slice(c.name.lastIndexOf("::") + 2) : c.kind === "name" ? c.name : "";
+  // The parser keeps a plain C `int` as `int`, while QPI's corresponding
+  // typedef is spelled `sint32`. Treat the C spelling as its canonical signed
+  // type during overload ranking; otherwise `unsigned int` is the only
+  // four-byte candidate with a known width and wins calls from `sint32`.
+  const canonical = name === "int" || name === "signed" ? "signed int"
+    : name === "unsigned" ? "unsigned int"
+    : name;
+  const normalized: TypeSpec = c.kind === "name" ? { ...c, name: canonical } : c;
+  const sz = normalized.kind === "name" ? SCALAR_SIZE[normalized.name] : undefined;
   if (sz === undefined || sz > 8) return null;
-  return { width: sz, unsigned: unsignedScalar(c) };
+  return { width: sz, unsigned: unsignedScalar(normalized) };
 }
 
 // Rank a member-helper overload set against the call's argument types, mirroring C++ overload resolution over the scalar subset:
@@ -267,15 +307,43 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
   // Match the intrinsics by base name — a qualified QPI::div would otherwise slip past this guard, get instantiated
   const name = expr.callee.name;
   const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
-  if (MATH_INTRINSIC_NAMES.has(base)) return null;
+  const sourceKeys = name.includes("::")
+    ? [name]
+    : [...new Set([
+      ...(ctx.sourceNamespace ? [`${ctx.sourceNamespace}::${name}`] : []),
+      name,
+      `QPI::${name}`,
+    ])];
   const set = ctx.cg.helperOverloads.get(expr.callee.name);
-  let info = set?.length
+  let info: HelperInfo | null | undefined = set?.length
     ? pickHelperOverload(ctx, set, expr.args)
-    : (ctx.cg.helpers.get(expr.callee.name) ?? compileLibFn(ctx.cg, expr.callee.name));
+    : sourceKeys.map((key) => ctx.cg.helpers.get(key)).find((candidate) => candidate !== undefined);
+  if (!info) {
+    for (const sourceKey of sourceKeys) {
+      const defs = ctx.cg.libFnOverloads.get(sourceKey);
+      if (!defs?.length) continue;
+      const compiled = defs
+        .map((definition, index) => compileLibFn(ctx.cg, sourceKey, definition, `${sourceKey}@${definition.span?.line ?? index}`))
+        .filter((candidate): candidate is HelperInfo => candidate !== null);
+      if (compiled.length) info = pickHelperOverload(ctx, compiled, expr.args);
+      if (info) break;
+    }
+  }
+  if (!info && !MATH_INTRINSIC_NAMES.has(base)) {
+    info = compileLibFn(ctx.cg, expr.callee.name);
+  }
   if (!info) {
     // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call, picking the overload whose parameter patterns match the
-    const tdefs = ctx.cg.libFnTemplates.get(expr.callee.name) ?? ctx.cg.libFnTemplates.get(`QPI::${expr.callee.name}`);
-    if (tdefs?.length) info = compileLibFnInstance(ctx, pickLibFnOverload(ctx, tdefs, expr.args), expr.args);
+    const templateKey = sourceKeys.find((key) => ctx.cg.libFnTemplates.has(key));
+    const tdefs = templateKey ? ctx.cg.libFnTemplates.get(templateKey) : undefined;
+    if (tdefs?.length) info = compileLibFnInstance(
+      ctx,
+      pickLibFnOverload(ctx, tdefs, expr.args),
+      expr.args,
+      (expr as Expression & { templateArgs?: TypeSpec[] }).templateArgs ?? [],
+      templateKey!.startsWith("QPI::") || templateKey!.startsWith("math_lib::"),
+      templateKey!,
+    );
   }
   if (!info && name.includes("::")) {
     // Qualified static member call (OI::Price::getQueryFee(q)) — resolve the struct (namespace members are flattened at parse; structByName strips qualifiers),

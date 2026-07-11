@@ -1,7 +1,8 @@
 // Assembles the exact header text consumed by compiler pipeline.
 import { QPI_PRELUDE } from "./qpi-prelude";
 
-export const GENERATOR_VERSION = 1;
+// v2 adds the authoritative math_lib and platform/uint128 implementation chunks.
+export const GENERATOR_VERSION = 2;
 
 export const IMPL_BOUNDARY = "//__QINIT_IMPL_BOUNDARY__";
 
@@ -15,9 +16,11 @@ const HEADER_FILES = [
 
 // Template method-body implementations — parsed SEPARATELY (after the IMPL boundary) so qpi.h's bulk doesn't interfere with capturing the
 const IMPL_FILES = [
+  "platform/uint128.h",
   "contract_core/qpi_hash_map_impl.h",
   "contract_core/qpi_collection_impl.h",
   "contract_core/qpi_linked_list_impl.h",
+  "contracts/math_lib.h",
   "contract_core/qpi_trivial_impl.h",
 ];
 

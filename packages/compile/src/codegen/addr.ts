@@ -1,7 +1,7 @@
 import { SCALAR_SIZE } from "./tables";
 import { emitProposalProxyAddr } from "./calls/proxy";
 import { qpiWrapperMethod } from "./calls/dispatch";
-import { emitAssetIter, classifyMethodParam } from "./calls/containers";
+import { emitAssetIter, classifyMethodParam, callCompiled, compileContainerMethod } from "./calls/containers";
 import { lookupHelper, emitAggHelperCall } from "./calls/libfn";
 import { newTmp, collectLocals, emitStmt } from "./stmt";
 import { QPI_CALLS, emitQpiCall } from "./calls/qpi";
@@ -38,7 +38,7 @@ export function isIdLike(cg: Codegen, t: TypeSpec | null): boolean {
 export function isUint128(cg: Codegen, t: TypeSpec | null): boolean {
   if (!t) return false;
   const d = cg.derefType(t);
-  return d.kind === "name" && (d.name === "uint128" || d.name === "uint128_t");
+  return (d.kind === "name" || d.kind === "template_instance") && (d.name === "uint128" || d.name === "uint128_t");
 }
 
 // Resolve the address of an lvalue expression (member-access chains rooted at input/output/locals/state).
@@ -132,6 +132,11 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
       const inner = resolveAddr(ctx, ci.operand);
       if (!inner) return null;
       const b = ctx.thisBind ?? NO_BIND;
+      // A cast to T* produces a pointer value at the same wasm32 address. Keep the pointer wrapper so
+      // subsequent `+ n`, subscripting, and unary `*` scale by sizeof(T) and load the pointee.
+      if (ci.type.kind === "pointer") {
+        return { addr: inner.addr, type: ci.type, size: 4, layout: null };
+      }
       const t = stripPtrRefConst(ci.type);
       return { addr: inner.addr, type: t, size: ctx.cg.sizeOfType(t, b), layout: ctx.cg.layoutOfType(t, b) };
     }
@@ -276,12 +281,16 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     if (p && p.isAddr) return `(local.get $${p.local ?? expr.name})`;
   }
   if (expr.kind === "paren") return emitAddr(ctx, expr.expr);
-  if (expr.kind === "c_cast" || expr.kind === "static_cast") return emitAddr(ctx, expr.expr);
 
-  // a uint128-valued expression (constructor / arithmetic / div) materializes into a 16-byte slot
-  if ((expr.kind === "call" || expr.kind === "binary_op") && isU128Expr(ctx, expr)) {
+  // A computed uint128 value must go through its source-compiled constructor/operator
+  // before it is passed by reference. In particular, do this before stripping a C-style
+  // cast: `(uint128)scalar` is a conversion, not the address of the scalar operand.
+  if ((expr.kind === "call" || expr.kind === "template_call" || expr.kind === "construct" || expr.kind === "binary_op" ||
+       expr.kind === "c_cast" || expr.kind === "static_cast" || expr.kind === "ternary") &&
+      isU128Expr(ctx, expr)) {
     return emitU128(ctx, expr);
   }
+  if (expr.kind === "c_cast" || expr.kind === "static_cast") return emitAddr(ctx, expr.expr);
 
   // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot
   if (expr.kind === "ternary") {
@@ -415,6 +424,13 @@ export function tryInlineStructMethod(ctx: FnCtx, expr: Expression & { kind: "ca
     (m) => m.kind === "function" && (m as FunctionDecl).name === method && (m as FunctionDecl).body,
   ) as FunctionDecl | undefined;
   if (!fn) return null;
+  // This address channel is only valid for fluent/reference-returning methods. Scalar methods
+  // such as WinnerData::isValid() must flow through normal value-call compilation; inlining them
+  // here suppresses their return and spuriously treats the receiver address as the result.
+  const returnsAddress = (type: TypeSpec): boolean =>
+    type.kind === "reference" || type.kind === "pointer" ||
+    (type.kind === "const" && returnsAddress(type.valueType));
+  if (!returnsAddress(fn.returnType)) return null;
   const addr = emitInlineStructMethod(ctx, objNode, fn, expr.args);
   return { addr, type: objNode.type, size: objNode.size, layout: objNode.layout };
 }
@@ -482,29 +498,24 @@ export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "cal
     return mk(addr, ctype.args[0]);
   }
   if (ctype.name === "HashMap" || ctype.name === "HashSet") {
-    // Only the element getters are lvalues here. The member check must come BEFORE evaluating the
     if (m !== "key" && !(m === "value" && ctype.name === "HashMap")) return null;
-    const info = ctype.name === "HashSet" ? ctx.cg.hashsetInfo(ctype.args) : ctx.cg.hashmapInfo(ctype.args);
-    if (!info) return null;
-    const elem = `(call $hm_elem ${node.addr} (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)})`;
-    if (m === "key") return mk(elem, ctype.args[0]);
-    if (m === "value" && ctype.name === "HashMap") return mk(`(i32.add ${elem} ${C(info.valOff!)})`, ctype.args[1]);
+    const compiled = callCompiled(ctx, ctype, m, node.addr, expr.args);
+    if (!compiled || !compiled.cm.retType || (compiled.cm.retKind !== "i32" && !compiled.retDest)) {
+      throw new Error(`authoritative QPI reference method ${ctype.name}::${m} could not be lowered`);
+    }
+    if (compiled.retDest) ctx.lines.push(`    ${compiled.call}`);
+    return mk(compiled.retDest ?? compiled.call, compiled.cm.retType);
   }
-  // Collection.element(i) → &_elements[i & (L-1)].value: an lvalue of element type T, so element(i).field chains. (A scalar T also
-  if (ctype.name === "Collection" && m === "element") {
-    const info = ctx.cg.collectionInfo(ctype.args);
-    if (!info) return null;
-    const idx = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)})`;
-    const addr = `(i32.add ${node.addr} (i32.add ${C(info.elementsOff + info.valueOff)} (i32.mul ${idx} ${C(info.stride)})))`;
-    return mk(addr, info.elemType);
-  }
-  // LinkedList.element(i) → &_nodes[i & (L-1)].value — same lvalue chaining as Collection.
-  if (ctype.name === "LinkedList" && m === "element") {
-    const info = ctx.cg.linkedListInfo(ctype.args);
-    if (!info) return null;
-    const idx = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)})`;
-    const addr = `(i32.add ${node.addr} (i32.add ${C(info.nodesOff + info.valueOff)} (i32.mul ${idx} ${C(info.stride)})))`;
-    return mk(addr, info.elemType);
+  if ((ctype.name === "Collection" && (m === "element" || m === "pov")) ||
+      (ctype.name === "LinkedList" && m === "element")) {
+    const method = compileContainerMethod(ctx.cg, ctype, m, expr.args.length);
+    if (method?.retKind === "i64") return null;
+    const compiled = callCompiled(ctx, ctype, m, node.addr, expr.args);
+    if (!compiled || !compiled.cm.retType || (compiled.cm.retKind !== "i32" && !compiled.retDest)) {
+      throw new Error(`authoritative QPI reference method ${ctype.name}::${m} could not be lowered`);
+    }
+    if (compiled.retDest) ctx.lines.push(`    ${compiled.call}`);
+    return mk(compiled.retDest ?? compiled.call, compiled.cm.retType);
   }
   return null;
 }

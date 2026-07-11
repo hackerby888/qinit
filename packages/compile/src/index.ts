@@ -15,6 +15,24 @@ export type { FrameworkOpts, UserEntry, SysProcInfo, ModuleSpec } from "./framew
 export { compileContract, compileGtest, parseToAst } from "./compiler/pipeline";
 export type { ParseAstResult } from "./compiler/pipeline";
 export { loadQpiHeader, withPrelude } from "./compiler/header";
+export {
+  inspectLiteWasmModule,
+  LHOST_ABI,
+  LITE_WASM_FUNCTION_ABI,
+} from "./compiler/wasm-inspect";
+export type {
+  InspectedMemoryMode,
+  InspectedWasmExport,
+  InspectedWasmImport,
+  InspectedWasmMemory,
+  LiteWasmInspection,
+  LiteWasmInspectionOptions,
+  LiteWasmMemoryMode,
+  WasmExternalKind,
+  WasmFunctionSignature,
+  WasmInspectionDiagnostic,
+  WasmValueType,
+} from "./compiler/wasm-inspect";
 export type {
   CalleeIdl,
   CompileOpts,

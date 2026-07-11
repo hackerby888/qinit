@@ -12,6 +12,7 @@ export interface LibTypes {
   templates: Map<string, ClassTemplate>;
   specializations: Map<string, { specArgs: TypeSpec[]; tmpl: ClassTemplate }[]>;
   libFns: Map<string, FunctionDecl>;
+  libFnOverloads: Map<string, FunctionDecl[]>;
   libFnTemplates: Map<string, FunctionTemplateDecl[]>;
   globalStructs: Map<string, StructDecl>;
   typedefs: Map<string, TypeSpec>;
@@ -39,6 +40,7 @@ export function buildLibTypes(decls: Declaration[]): LibTypes {
     templates: cg.templates,
     specializations: cg.specializations,
     libFns: cg.libFns,
+    libFnOverloads: cg.libFnOverloads,
     libFnTemplates: cg.libFnTemplates,
     globalStructs: cg.globalStructs,
     typedefs: cg.typedefs,
@@ -76,6 +78,7 @@ export function generateWasmModule(
     for (const [k, v] of lib.templates) cg.templates.set(k, v);
     if (lib.specializations) for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
     if (lib.libFns) for (const [k, v] of lib.libFns) cg.libFns.set(k, v);
+    if (lib.libFnOverloads) for (const [k, v] of lib.libFnOverloads) cg.libFnOverloads.set(k, [...v]);
     if (lib.libFnTemplates) for (const [k, v] of lib.libFnTemplates) cg.libFnTemplates.set(k, v);
     for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
     for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);

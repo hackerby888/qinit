@@ -80,6 +80,12 @@ export interface DeployOpts {
   seed?: string; dynCallees?: Record<string, { header: string; index: number }>;
   slotOverride?: number; outDir?: string; skipVerify?: boolean;
   compiler?: Compiler; // native clang | in-process TS; omitted -> saved `qinit compiler` pick (default native)
+  /** Already-compiled bytes. Deployment uploads these exact bytes and never invokes either compiler. */
+  artifact?: {
+    wasm: Uint8Array; hash?: string; idl?: ContractIdl;
+    /** Expected WAMR registration table shape; catches an armed slot whose module failed to load. */
+    registration?: { functions: number; procedures: number };
+  };
   rpc?: LiteRpc;   // injectable (tests pass a mock; prod builds one from rpcBase)
 }
 export interface DeployResult {
@@ -148,11 +154,14 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   // same rich idl (build's extractIdl) so downstream deploy/confirm is compiler-agnostic below this point.
   const compiler: Compiler = o.compiler ?? savedCompiler() ?? "native";
   const outDir = o.outDir ?? resolve("dist/contracts");
-  if (compiler === "local") emit({ note: "compiler: local TS (qinit compiler local)" });
-  emit({ step: "build", state: "active", detail: compiler === "local" ? "compiling (local TS)…" : "compiling…" });
-  const b = compiler === "local"
-    ? await compileLocal({ contractPath: o.contractPath, name: o.name, slot, core: o.core, outDir, dynCallees })
-    : await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir, dynCallees, skipVerify: o.skipVerify });
+  if (o.artifact) emit({ note: "compiler: prebuilt artifact (exact bytes)" });
+  else if (compiler === "local") emit({ note: "compiler: local TS (qinit compiler local)" });
+  emit({ step: "build", state: "active", detail: o.artifact ? "validating prebuilt bytes…" : compiler === "local" ? "compiling (local TS)…" : "compiling…" });
+  const b: any = o.artifact
+    ? { ok: o.artifact.wasm.byteLength > 0, idl: o.artifact.idl }
+    : compiler === "local"
+      ? await compileLocal({ contractPath: o.contractPath, name: o.name, slot, core: o.core, outDir, dynCallees })
+      : await buildContract({ contractPath: o.contractPath, name: o.name, slot, corePath: o.core, outDir, dynCallees, skipVerify: o.skipVerify });
   if (!b.ok) {
     const vr = (b as BuildResult).verify; // only the native path runs the protocol gate; local reports via stderr
     const why = vr && !vr.ok && vr.errors.length ? `protocol: ${vr.errors[0]}` : "compile failed";
@@ -160,8 +169,8 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     emit({ note: (b.stderr ?? "").split("\n").slice(0, 14).join("\n") });
     return { ok: false, slot, error: why };
   }
-  const so = readFileSync(b.so!);
-  const hash = b.hash ?? (await k12Hex(new Uint8Array(so)));
+  const so = o.artifact ? Buffer.from(o.artifact.wasm) : readFileSync(b.so!);
+  const hash = o.artifact?.hash ?? b.hash ?? (await k12Hex(new Uint8Array(so)));
   emit({ step: "build", state: "ok", detail: `${so.length}B · k12 ${hash.slice(0, 12)}…` });
   if (b.idlError) emit({ note: "⚠ IDL parse failed — no typed client/state names: " + b.idlError });
 
@@ -279,6 +288,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   emit({ step: "confirm", state: "active", detail: "polling arm…" });
   const want = hash.toLowerCase();
   let armed = false, constructed = false, present = false, onNode = "", last = cur, regOk = false;
+  let registrationMismatch = false;
   for (let i = 0; i < 420; i++) {   // ~per-second poll budget; early-exits on armed+constructed (slow nodes tick ~8s; the Windows port can stall ticks for minutes)
     await sleep(1000);
     try {
@@ -289,7 +299,15 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
         present = !!c.armed; onNode = (c.codeHash || "").toLowerCase();
         if (c.armed && onNode === want) {
           armed = true;
-          if (c.constructed) { constructed = true; break; }
+          const expected = o.artifact?.registration;
+          const registrationReady = !expected ||
+            ((c.functions?.length ?? 0) === expected.functions && (c.procedures?.length ?? 0) === expected.procedures);
+          if (c.constructed && registrationReady) { constructed = true; break; }
+          if (c.constructed && !registrationReady) {
+            registrationMismatch = true;
+            emit({ step: "confirm", state: "active", detail: "armed · registration missing (wasm load failed?)" });
+            break;
+          }
           emit({ step: "confirm", state: "active", detail: `armed · constructing… tick ${last}` });
           continue;
         }
@@ -298,19 +316,23 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     } catch {}
   }
   let reason: string | undefined;
-  if (armed) {
+  if (armed && !registrationMismatch) {
     // submit this contract's .h to the node so later inter-contract callers can resolve it without --callee.
     try { await rpc.putContractSource(slot, readFileSync(o.contractPath, "utf8")); } catch {}
     if (constructed) emit({ step: "confirm", state: "ok", detail: `ready · ${want.slice(0, 12)}…` });
     else { emit({ step: "confirm", state: "ok", detail: `armed (construct pending) · ${want.slice(0, 12)}…` });
            emit({ note: "⚠ armed but INITIALIZE hasn't settled — a call now may read pre-init state; retry shortly" }); }
   }
-  else {
+  else if (registrationMismatch) {
+    reason = "registration-mismatch";
+    emit({ step: "confirm", state: "fail", detail: "armed code has no matching WAMR registration table" });
+    emit({ note: "slot armed with the expected hash, but the module did not register its functions/procedures — inspect the node's LITEWASM load error" });
+  } else {
     const cl = classifyConfirm({ present, regOk, onNode, want });
     reason = cl.reason;
     emit({ step: "confirm", state: "fail", detail: cl.detail });
     emit({ note: cl.note });
   }
 
-  return { ok: armed, slot, reused, hash, txId: dr.transactionId, armed, constructed, reason, idl: b.idl };
+  return { ok: armed && !registrationMismatch, slot, reused, hash, txId: dr.transactionId, armed, constructed, reason, idl: b.idl };
 }

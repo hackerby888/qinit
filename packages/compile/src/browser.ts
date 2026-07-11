@@ -5,6 +5,16 @@ import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../.generated/qpi-snapshot";
 
 export type { CompileOpts, CompileResult, ContractIdl, CalleeIdl } from "./index";
 export type { Diagnostic as CompileDiagnostic } from "./parser";
+export {
+  inspectLiteWasmModule,
+  LHOST_ABI,
+  LITE_WASM_FUNCTION_ABI,
+} from "./compiler/wasm-inspect";
+export type {
+  LiteWasmInspection,
+  LiteWasmInspectionOptions,
+  WasmInspectionDiagnostic,
+} from "./compiler/wasm-inspect";
 
 // Bumped when the compile request/result contract visible to embedders (worker protocols, IDE facades) changes incompatibly — lets a
 export const COMPILER_PROTOCOL_VERSION = 1;

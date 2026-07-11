@@ -1,10 +1,10 @@
 import { Codegen } from "./cg";
-import { emitMathCallIr, pickHelperOverload } from "./calls/libfn";
+import { emitAggHelperCall, emitHelperCall, lookupHelper, pickHelperOverload } from "./calls/libfn";
 import { SCALAR_SIZE, MATH_INTRINSIC_NAMES } from "./tables";
 import { isScalarLocal, emitIncDec, newTmp } from "./stmt";
 import { describeShape, emitCallValueIr, emitOracleQueryCall, emitOracleReadCall } from "./calls/dispatch";
 import { emitQpiCall, QPI_CALLS } from "./calls/qpi";
-import { emitAssetIter } from "./calls/containers";
+import { callCompiled, emitAssetIter } from "./calls/containers";
 import { resolveAddr, isUint128, addrIr, isAggregate, emitConstruct, emitAddr, setLocal, narrowCastIr, loadAtIr, isSignedScalarType, allocSlotIr } from "./addr";
 import { FnCtx, NO_BIND } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
@@ -24,7 +24,7 @@ function newValueTmp(ctx: FnCtx): string {
 export function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): string {
   const lhs = resolveAddr(ctx, expr.left);
 
-  // uint128 plain assignment: materialize the RHS through the $u128_* machinery (a computed RHS — ternary, (uint128)a * (uint128)b,
+  // uint128 plain assignment: materialize the RHS through source-compiled uint128_t methods (a computed RHS — ternary, (uint128)a * (uint128)b,
   if (lhs && expr.op === "=" && isUint128(ctx.cg, lhs.type)) {
     ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(lhs.addr), emitU128Ir(ctx, expr.right), ir.i32c(16)))}`);
     return "";
@@ -122,10 +122,14 @@ export function narrowLocalIr(ctx: FnCtx, name: string, v: ir.Ir): ir.Ir {
 // ---- value (rvalue) codegen — produces an i64 ----
 
 export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
+  if (expr.kind === "member_access" && expr.member === "ptr" &&
+      expr.object.kind === "identifier" && ctx.scratchpadLocals?.has(expr.object.name)) {
+    return ir.op("i64.extend_i32_u", ir.getL(expr.object.name, "i32"));
+  }
   // A uint128-valued expression used in a scalar/boolean context (a `while(z)` / `if(z)` truthiness test): materialize it and collapse
   if ((expr.kind === "call" || expr.kind === "binary_op" || expr.kind === "identifier" || expr.kind === "member_access") && isU128Expr(ctx, expr)) {
-    const a = emitU128Ir(ctx, expr);
-    return ir.op("i64.or", ir.loadRaw("i64.load", null, a), ir.loadRaw("i64.load", 8, a));
+    const result = sourceU128Result(ctx, "operator bool", emitU128Ir(ctx, expr), []);
+    return result.ty === "i64" ? result : ir.op("i64.extend_i32_u", result);
   }
 
   // `.low` / `.high` of a uint128-valued expression that is not itself an lvalue (e.g. `div(a, b).low`):
@@ -141,6 +145,8 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
     }
     case "bool_literal":
       return ir.i64c(expr.value ? 1 : 0);
+    case "nullptr_literal":
+      return ir.i64c(0);
     case "char_literal":
       return ir.i64c(expr.value);
     case "paren":
@@ -233,8 +239,8 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
           const tgt = expr.templateArgs?.[0];
           return name === "static_cast" && tgt?.kind === "name" ? narrowCastIr(inner, tgt.name) : inner;
         }
-        const m = emitMathCallIr(ctx, name, expr.args);
-        if (m !== null) return m;
+        const helper = emitHelperCall(ctx, expr as unknown as Expression & { kind: "call" }, true);
+        if (helper !== null) return ir.raw(helper, "i64", "source-compiled template helper");
       }
       if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
         if (expr.callee.member === "__qpiQueryOracle" || expr.callee.member === "__qpiSubscribeOracle") {
@@ -365,9 +371,10 @@ export function aggOperand(ctx: FnCtx, expr: Expression): { addr: string; size: 
   return a ? { addr: a, size: 32 } : null;
 }
 
-// Whether an expression is uint128-typed (so it flows as a 16-byte value through the $u128_* helpers rather than
+// Whether an expression is uint128-typed (so it flows as a 16-byte value through source-compiled methods rather than
 export function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
   if (expr.kind === "paren") return isU128Expr(ctx, expr.expr);
+  if (expr.kind === "construct") return isUint128(ctx.cg, expr.type);
   if (expr.kind === "c_cast" || expr.kind === "static_cast") {
     const t = (expr as any).type;
     if (t?.kind === "name" && (t.name === "uint128" || t.name === "uint128_t")) return true;
@@ -385,13 +392,15 @@ export function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
   if (expr.kind === "call" && expr.callee.kind === "identifier") {
     const nm = expr.callee.name;
     if (nm === "uint128" || nm === "uint128_t") return true;
+    const bound = ctx.thisBind?.types.get(nm);
+    if (bound && isUint128(ctx.cg, bound)) return true;
     if ((nm === "div" || nm === "QPI::div" || nm === "mod") && expr.args.length === 2) {
       return isU128Expr(ctx, expr.args[0]) || isU128Expr(ctx, expr.args[1]);
     }
   }
   if (expr.kind === "binary_op") {
     if (expr.op === "<<" || expr.op === ">>") return isU128Expr(ctx, expr.left);
-    if (expr.op === "*" || expr.op === "+" || expr.op === "-" || expr.op === "&" || expr.op === "|" || expr.op === "^")
+    if (expr.op === "*" || expr.op === "/" || expr.op === "+" || expr.op === "-" || expr.op === "&" || expr.op === "|" || expr.op === "^")
       return isU128Expr(ctx, expr.left) || isU128Expr(ctx, expr.right);
     return false;
   }
@@ -426,76 +435,123 @@ export function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
 }
 
 // Materialize a uint128 expression into a fresh 16-byte slot (low@0, high@8) and return its address; an existing uint128
+const U128_CLASS: TypeSpec & { kind: "template_instance" } = {
+  kind: "template_instance",
+  name: "uint128_t",
+  args: [],
+};
+
+function constructU128(ctx: FnCtx, args: Expression[]): ir.Ir {
+  const destination = allocSlotIr(ctx, 16);
+  const compiled = callCompiled(ctx, U128_CLASS, "uint128_t", ir.emit(destination), args);
+  if (!compiled || compiled.cm.retKind !== "void") {
+    throw new Error("authoritative uint128_t constructor could not be lowered");
+  }
+  ctx.lines.push(`    ${compiled.call}`);
+  return destination;
+}
+
+function u128ConstructorExpr(expr: Expression): Expression {
+  return {
+    kind: "call",
+    callee: { kind: "identifier", name: "uint128_t", span: expr.span },
+    args: [expr],
+    span: expr.span,
+  };
+}
+
+function sourceU128Result(ctx: FnCtx, method: string, self: ir.Ir, args: Expression[], paramTypeKey?: string): ir.Ir {
+  const compiled = callCompiled(ctx, U128_CLASS, method, ir.emit(self), args, paramTypeKey);
+  if (!compiled) throw new Error(`authoritative uint128_t::${method} could not be lowered`);
+  if (compiled.retDest) {
+    ctx.lines.push(`    ${compiled.call}`);
+    return ir.raw(compiled.retDest, "i32", "source-compiled uint128 aggregate result");
+  }
+  if (compiled.cm.retKind === "i64") return ir.raw(compiled.call, "i64", "source-compiled uint128 scalar result");
+  if (compiled.cm.retKind === "i32") return ir.raw(compiled.call, "i32", "source-compiled uint128 reference result");
+  ctx.lines.push(`    ${compiled.call}`);
+  throw new Error(`void uint128_t::${method} used as a value`);
+}
+
+// Materialize a uint128 expression into a 16-byte slot (low@0, high@8). Arithmetic and
+// comparisons are instantiated from the authoritative platform/uint128.h method bodies.
 export function emitU128Ir(ctx: FnCtx, expr: Expression): ir.Ir {
   if (expr.kind === "paren") return emitU128Ir(ctx, expr.expr);
+  if (expr.kind === "initializer_list") return constructU128(ctx, expr.exprs);
+  if (expr.kind === "construct" && isUint128(ctx.cg, expr.type)) return constructU128(ctx, expr.args);
   if (expr.kind === "c_cast" || expr.kind === "static_cast") {
-    // (uint128)(scalarExpr): the inner expression evaluates in the SCALAR domain (uint64 wraps), then zero-extends into the low limb. Recursing
     if (isU128Expr(ctx, expr.expr)) return emitU128Ir(ctx, expr.expr);
-    const s = allocSlotIr(ctx, 16);
-    ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", s, emitValueIr(ctx, expr.expr), ir.i64c(0)))}`);
-    return s;
+    return constructU128(ctx, [expr.expr]);
   }
 
   const n = resolveAddr(ctx, expr);
   if (n && isUint128(ctx.cg, n.type)) return ir.raw(n.addr, "i32", "lvalue address channel");
 
-  const slot = (): ir.Ir => allocSlotIr(ctx, 16);
+  if (expr.kind === "call" && expr.callee.kind === "identifier") {
+    const bound = ctx.thisBind?.types.get(expr.callee.name);
+    const constructor = expr.callee.name === "uint128" || expr.callee.name === "uint128_t" ||
+      (bound ? isUint128(ctx.cg, bound) : false);
+    if (constructor) return constructU128(ctx, expr.args);
 
-  if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "uint128" || expr.callee.name === "uint128_t")) {
-    const s = slot();
-    if (expr.args.length === 2) {
-      ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", s, emitValueIr(ctx, expr.args[1]), emitValueIr(ctx, expr.args[0])))}`);
-    } else {
-      ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", s, expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0), ir.i64c(0)))}`);
+    if (/^(QPI::)?div$/.test(expr.callee.name) && expr.args.length === 2) {
+      const helper = lookupHelper(ctx, expr);
+      if (!helper?.retAgg || helper.retAgg !== 16) {
+        throw new Error(`authoritative QPI::div<uint128_t> could not be lowered`);
+      }
+      return ir.raw(emitAggHelperCall(ctx, expr, helper), "i32", "source-compiled uint128 div result");
     }
-    return s;
   }
 
-  if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "div" || expr.callee.name === "QPI::div") && expr.args.length === 2) {
-    const s = slot();
-    ctx.lines.push(`    ${ir.emit(ir.call("$u128_divmod", s, emitU128Ir(ctx, expr.args[0]), emitU128Ir(ctx, expr.args[1])))}`);
-    return s;
-  }
-
-  // div<uint128>(a, b) spelled with an explicit template argument
   if (expr.kind === "template_call" && expr.callee.kind === "identifier" &&
-    /^(QPI::)?div$/.test((expr.callee as any).name) && expr.args.length === 2) {
-    const s = slot();
-    ctx.lines.push(`    ${ir.emit(ir.call("$u128_divmod", s, emitU128Ir(ctx, expr.args[0]), emitU128Ir(ctx, expr.args[1])))}`);
-    return s;
+      /^(QPI::)?div$/.test(expr.callee.name) && expr.args.length === 2) {
+    const callExpr = expr as unknown as Expression & { kind: "call" };
+    const helper = lookupHelper(ctx, callExpr);
+    if (!helper?.retAgg || helper.retAgg !== 16) {
+      throw new Error(`authoritative QPI::div<uint128_t> could not be lowered`);
+    }
+    return ir.raw(emitAggHelperCall(ctx, callExpr, helper), "i32", "source-compiled uint128 div result");
   }
 
-  // uint128 ternary: one 16-byte slot, each arm copies its materialized value in.
   if (expr.kind === "ternary") {
-    const s = slot();
+    const destination = allocSlotIr(ctx, 16);
     ctx.lines.push(`    (if ${ir.emit(ir.op("i64.ne", ir.i64c(0), emitValueIr(ctx, expr.cond)))} (then`);
-    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", s, emitU128Ir(ctx, expr.then), ir.i32c(16)))}`);
-    ctx.lines.push(`    ) (else`);
-    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", s, emitU128Ir(ctx, expr.else_), ir.i32c(16)))}`);
-    ctx.lines.push(`    ))`);
-    return s;
+    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", destination, emitU128Ir(ctx, expr.then), ir.i32c(16)))}`);
+    ctx.lines.push("    ) (else");
+    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", destination, emitU128Ir(ctx, expr.else_), ir.i32c(16)))}`);
+    ctx.lines.push("    ))");
+    return destination;
   }
 
   if (expr.kind === "binary_op") {
-    const s = slot();
-    if (expr.op === "<<" || expr.op === ">>") {
-      ctx.lines.push(`    ${ir.emit(ir.call(expr.op === "<<" ? "$u128_shl" : "$u128_shr", s, emitU128Ir(ctx, expr.left), emitValueIr(ctx, expr.right)))}`);
-      return s;
+    // The pinned uint128_t class has no |/^ overloads. Keep these representation-level bitwise
+    // operations as compiler primitives; every defined class operator below is source-compiled.
+    if (expr.op === "|" || expr.op === "^") {
+      const destination = allocSlotIr(ctx, 16);
+      const left = emitU128Ir(ctx, expr.left);
+      const right = emitU128Ir(ctx, expr.right);
+      const opcode = expr.op === "|" ? "i64.or" : "i64.xor";
+      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, destination, ir.op(opcode, ir.loadRaw("i64.load", null, left), ir.loadRaw("i64.load", null, right))))}`);
+      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", 8, destination, ir.op(opcode, ir.loadRaw("i64.load", 8, left), ir.loadRaw("i64.load", 8, right))))}`);
+      return destination;
     }
-    const fn = expr.op === "*" ? "$u128_mul" : expr.op === "+" ? "$u128_add" : expr.op === "-" ? "$u128_sub"
-      : expr.op === "&" ? "$u128_and" : expr.op === "|" ? "$u128_or" : expr.op === "^" ? "$u128_xor" : null;
-    if (fn) {
-      ctx.lines.push(`    ${ir.emit(ir.call(fn, s, emitU128Ir(ctx, expr.left), emitU128Ir(ctx, expr.right)))}`);
-      return s;
+
+    const method = ["+", "-", "*", "/", "&", "<<", ">>"].includes(expr.op) ? `operator${expr.op}` : null;
+    if (method) {
+      const left = emitU128Ir(ctx, expr.left);
+      const scalarRight = !isU128Expr(ctx, expr.right);
+      // platform/uint128.h defines scalar overloads only for `& int` and `>> unsigned
+      // int`. Every other scalar operand reaches the uint128_t overload through the
+      // authoritative one-argument constructor, exactly as C++ overload resolution does.
+      const key = scalarRight && expr.op === "&" ? "int"
+        : scalarRight && expr.op === ">>" ? "unsigned int"
+          : "uint128_t";
+      const right = key === "uint128_t" && scalarRight ? u128ConstructorExpr(expr.right) : expr.right;
+      return sourceU128Result(ctx, method, left, [right], key);
     }
   }
 
-  // An i64-valued sub-expression used where a uint128 is expected (a bare integer, a scalar local): zero-extend it into
-  const s = slot();
-  ctx.lines.push(`    ${ir.emit(ir.call("$u128_set", s, emitValueIr(ctx, expr), ir.i64c(0)))}`);
-  return s;
+  return constructU128(ctx, [expr]);
 }
-
 export function emitU128(ctx: FnCtx, expr: Expression): string {
   return ir.emit(emitU128Ir(ctx, expr));
 }
@@ -674,20 +730,15 @@ export function usualConversion(ctx: FnCtx, left: Expression, right: Expression)
 }
 
 export function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" }): ir.Ir {
-  // uint128 compares: 128-bit, via the $u128_* helpers (operands materialized to 16-byte slots).
+  // uint128 comparisons instantiate the corresponding platform/uint128.h operator body.
   if ((expr.op === "==" || expr.op === "!=" || expr.op === "<" || expr.op === ">" || expr.op === "<=" || expr.op === ">=")
     && (isU128Expr(ctx, expr.left) || isU128Expr(ctx, expr.right))) {
-    const la = emitU128Ir(ctx, expr.left), ra = emitU128Ir(ctx, expr.right);
-    const lt = (x: ir.Ir, y: ir.Ir) => ir.call("$u128_lt", x, y);
-    const wrap = (e: ir.Ir) => ir.op("i64.extend_i32_u", e);
-    switch (expr.op) {
-      case "==": return wrap(ir.call("$u128_eq", la, ra));
-      case "!=": return wrap(ir.op("i32.eqz", ir.call("$u128_eq", la, ra)));
-      case "<": return wrap(lt(la, ra));
-      case ">": return wrap(lt(ra, la));
-      case "<=": return wrap(ir.op("i32.eqz", lt(ra, la)));
-      default: return wrap(ir.op("i32.eqz", lt(la, ra))); // >=
-    }
+    const left = emitU128Ir(ctx, expr.left);
+    const method = expr.op === "!=" ? "operator==" : `operator${expr.op}`;
+    const right = isU128Expr(ctx, expr.right) ? expr.right : u128ConstructorExpr(expr.right);
+    const result = sourceU128Result(ctx, method, left, [right], "uint128_t");
+    if (result.ty !== "i64") throw new Error(`uint128_t::${method} did not return a scalar`);
+    return expr.op === "!=" ? ir.op("i64.extend_i32_u", ir.op("i64.eqz", result)) : result;
   }
 
   // id/struct equality compares bytes, not an i64 value.

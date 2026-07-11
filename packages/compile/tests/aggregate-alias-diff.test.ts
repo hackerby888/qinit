@@ -60,7 +60,7 @@ const NATIVE_AVAILABLE = (() => {
 })();
 
 const nativeTest = NATIVE_AVAILABLE ? test : test.skip;
-let oursWasm = new Uint8Array();
+let oursWasm: Uint8Array = new Uint8Array();
 let nativeWasm = new Uint8Array();
 let nativeDir: string | undefined;
 

@@ -17,6 +17,7 @@ import {
 import { extractIdl } from "./idl";
 import { validateCompileOpts } from "./options";
 import { getQpiContext } from "./qpi-context";
+import { inspectLiteWasmModule } from "./wasm-inspect";
 import type { CompileOpts, CompileResult } from "./types";
 
 export interface ParseAstResult {
@@ -166,7 +167,17 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     const wabt = await import("wabt");
     const module = await wabt.default();
     const parsed = module.parseWat("contract.wat", wat);
+    parsed.validate();
     wasm = new Uint8Array(parsed.toBinary({}).buffer);
+    if (!WebAssembly.validate(wasm)) {
+      throw new Error("generated module failed WebAssembly validation");
+    }
+    const inspection = inspectLiteWasmModule(wasm, {
+      memoryMode: opts.sharedMemBase === undefined ? "defined" : "imported",
+    });
+    if (!inspection.ok) {
+      throw new Error(inspection.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
+    }
   } catch (error: any) {
     diagnostics.push({
       severity: "error",

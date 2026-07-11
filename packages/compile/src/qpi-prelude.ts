@@ -16,6 +16,14 @@ namespace std {
 }
 typedef unsigned long size_t;
 typedef signed long ptrdiff_t;
+typedef unsigned long long uint64_t;
+typedef unsigned int uint32_t;
+typedef unsigned short uint16_t;
+typedef unsigned char uint8_t;
+typedef signed long long int64_t;
+typedef signed int int32_t;
+typedef signed short int16_t;
+typedef signed char int8_t;
 
 // Protocol amount constants (network_messages/common_def.h) + standard integer limits, referenced by contracts but defined in headers the compiler does
 #define ISSUANCE_RATE 1000000000000LL
@@ -25,6 +33,7 @@ typedef signed long ptrdiff_t;
 #define INT64_MIN (-9223372036854775807LL - 1)
 #define UINT64_MAX 18446744073709551615ULL
 #define INT32_MAX 2147483647
+#define INT32_MIN (-2147483647 - 1)
 #define UINT32_MAX 4294967295U
 #define INT16_MAX 32767
 #define UINT16_MAX 65535

@@ -87,9 +87,11 @@ describe("leaf-helper shapes (loadAt/storeAt/addrOf parity)", () => {
       .toBe("(i64.extend_i32_u (i64.ne (i64.const 0) (local.get $v)))");
   });
 
-  test("math-call shapes", () => {
-    expect(emit(call("$m_div_s", v, i64c(3)))).toBe("(call $m_div_s (local.get $v) (i64.const 3))");
-    expect(emit(call("$m_abs", v))).toBe("(call $m_abs (local.get $v))");
+  test("compiler target primitive call shapes", () => {
+    expect(emit(call("$intr_mulhi_u", v, i64c(3))))
+      .toBe("(call $intr_mulhi_u (local.get $v) (i64.const 3))");
+    expect(emit(call("$intr_mulhi_s", v, i64c(-3))))
+      .toBe("(call $intr_mulhi_s (local.get $v) (i64.const -3))");
   });
 });
 
@@ -116,7 +118,7 @@ describe("type assertions catch the silent-divergence class", () => {
   });
 
   test("call arg width checked against the registry", () => {
-    expect(() => call("$u128_set", p, v, p)).toThrow(/call \$u128_set arg 2.*expected i64, got i32/);
+    expect(() => call("$intr_mulhi_u", v, p)).toThrow(/call \$intr_mulhi_u arg 1.*expected i64, got i32/);
     expect(() => call("$copyMem", p, p)).toThrow(/expects 3 arg/);
   });
 
@@ -160,11 +162,32 @@ describe("escape-hatch ratchet", () => {
       const src = readFileSync(join(dir, f), "utf8");
       count += (src.match(/ir\.raw\(/g) ?? []).length;
     }
-    expect(count).toBeLessThanOrEqual(32);
+    // Source-instantiated uint128/free-function calls carry signatures discovered at
+    // codegen time, so they currently cross the dynamic-call bridge intentionally.
+    expect(count).toBeLessThanOrEqual(35);
   });
 });
 
 describe("CALL_SIG agrees with framework.ts", () => {
+  test("handwritten QPI algorithm kernels cannot return", () => {
+    const roots = [
+      join(import.meta.dir, "../src/framework.ts"),
+      join(import.meta.dir, "../src/ir.ts"),
+      join(import.meta.dir, "../src/codegen"),
+    ];
+    const files: string[] = [];
+    for (const root of roots) {
+      if (root.endsWith(".ts")) files.push(root);
+      else for (const file of readdirSync(root, { recursive: true }) as string[]) {
+        if (file.endsWith(".ts")) files.push(join(root, file));
+      }
+    }
+    const forbidden = /\$(?:hm|coll|m|u128)_[a-zA-Z0-9_]+/g;
+    const hits = files.flatMap((file) =>
+      [...readFileSync(file, "utf8").matchAll(forbidden)].map((match) => `${file}:${match[0]}`));
+    expect(hits).toEqual([]);
+  });
+
   test("every registry entry matches the framework definition", () => {
     const framework = readFileSync(join(import.meta.dir, "../src/framework.ts"), "utf8");
     const defined = new Map<string, { params: string[]; res: string }>();
@@ -196,7 +219,7 @@ describe("CALL_SIG agrees with framework.ts", () => {
   });
 
   test("registry covers the helpers codegen emits calls to", () => {
-    for (const t of ["$copyMem", "$setMem", "$qpiAllocLocals", "$u128_set", "$hm_elem", "$m_div_u", "$memeq", "$self_id"]) {
+    for (const t of ["$copyMem", "$setMem", "$qpiAllocLocals", "$intr_mulhi_u", "$intr_mulhi_s", "$memeq", "$self_id"]) {
       expect(CALL_SIG[t]).toBeDefined();
     }
     expect(OP_SIG["i64.extend_i32_u"]).toBeDefined();

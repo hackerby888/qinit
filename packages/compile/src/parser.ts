@@ -1419,7 +1419,17 @@ export class Parser {
         this.next();
         const templateArgs: TypeSpec[] = [];
         while (!this.eof() && this.peek().kind !== "r_angle") {
-          templateArgs.push(this.parseTypeSpec());
+          const argStart = this.peek().span;
+          const k = this.peek().kind;
+          // Function-template arguments may be non-type values (`irootK64<2>` and
+          // `irootNewtonStep<k>`), just like class-template arguments. Preserve the
+          // value expression so codegen can evaluate it under the caller's bindings.
+          if (k === "int_literal" || k === "l_paren" || k === "kw_sizeof" || k === "char_literal" ||
+            k === "minus" || k === "tilde" || k === "kw_true" || k === "kw_false" || this.templateArgIsExpr()) {
+            templateArgs.push({ kind: "expr_value", expr: this.parseShift(), span: argStart });
+          } else {
+            templateArgs.push(this.parseTypeSpec());
+          }
           if (!this.tryConsume("comma")) break;
         }
         this.consumeAngleClose();

@@ -47,11 +47,26 @@ const depCache = new Map<string, { entry: CalleeIdl; source: string } | null>();
 
 async function calleeFor(c: SystemContract): Promise<{ entry: CalleeIdl; source: string } | null> {
   if (depCache.has(c.name)) return depCache.get(c.name)!;
+  // Break possible catalog cycles while recursively giving a callee the IDLs it
+  // itself needs (QThirtyFour -> QRP -> RL is the current real chain).
+  depCache.set(c.name, null);
 
   let result: { entry: CalleeIdl; source: string } | null = null;
   try {
     const source = readFileSync(`${SYS}/${c.file}`, "utf8");
-    const r = await compileContract({ source, name: c.stateType, slot: c.index, qpiHeader: HEADERS, arenaSz: 1024 * 1024, strict: false });
+    const callees: CalleeIdl[] = [];
+    const calleeSources: Array<{ name: string; source: string }> = [];
+    for (const dependency of depsOf(source, c.file)) {
+      const nested = await calleeFor(dependency);
+      if (!nested) continue;
+      callees.push(nested.entry);
+      calleeSources.push({ name: nested.entry.name, source: nested.source });
+    }
+    const r = await compileContract({
+      source, name: c.stateType, slot: c.index, qpiHeader: HEADERS, arenaSz: 1024 * 1024, strict: false,
+      callees: callees.length ? callees : undefined,
+      calleeSources: calleeSources.length ? calleeSources : undefined,
+    });
     result = {
       source,
       entry: {
@@ -121,3 +136,4 @@ console.log("-".repeat(64));
 console.log(`compiled clean: ${ok}/${targets.length}  ·  total errors: ${totalErr}  ·  total warnings: ${totalWarn}`);
 console.log("\ndiagnostic histogram:");
 for (const [m, c] of Object.entries(warnHist).sort((a, b) => b[1] - a[1])) console.log(`  ${c}×  ${m}`);
+if (ok !== targets.length || totalErr !== 0 || totalWarn !== 0) process.exitCode = 1;

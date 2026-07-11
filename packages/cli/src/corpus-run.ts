@@ -50,7 +50,9 @@ export interface CorpusRun extends StdGtestRun {
   available: string[];            // system-contract names (for a not-found hint)
 }
 
-const align64k = (x: number) => (x + 0xffff) & ~0xffff;
+// Keep offsets unsigned above 2 GiB. JavaScript bitwise operators coerce to
+// signed i32 and would turn a valid imported-memory base negative.
+const align64k = (x: number) => Math.ceil(x / 0x10000) * 0x10000;
 
 // Read a contract wasm's exported state_size without wiring real host imports (stub every import to 0).
 function stateSizeOf(wasm: Uint8Array): number {
@@ -68,13 +70,22 @@ function stateSizeOf(wasm: Uint8Array): number {
 // Sibling SYSTEM contracts referenced by the test or the contract source — built + deployed alongside the main.
 function depSpecs(catalog: any[], mainName: string, testSrc: string, contractSrc: string, core: string): Spec[] {
   const deps: Spec[] = [];
-  for (const other of catalog) {
-    if (other.name === mainName) continue;
-    const re = new RegExp(`\\b${other.name}(::|_[A-Z0-9])`);
-    if (re.test(testSrc) || re.test(contractSrc)) {
-      deps.push({ contractPath: join(core, "src", "contracts", other.file), name: other.name, stateType: other.stateType, slot: other.index });
+  const seen = new Set<string>([mainName]);
+  const visit = (source: string) => {
+    for (const other of catalog) {
+      if (seen.has(other.name)) continue;
+      const re = new RegExp(`\\b(${other.name}|${other.stateType})(::|_[A-Z0-9])`);
+      if (!re.test(source)) continue;
+      seen.add(other.name);
+      const contractPath = join(core, "src", "contracts", other.file);
+      const dependencySource = readFileSync(contractPath, "utf8");
+      // Push after visiting nested references so compile/deploy order gives a
+      // dependency the IDLs of its own callees (PULSE -> QTF -> QRP -> RL).
+      visit(dependencySource);
+      deps.push({ contractPath, name: other.name, stateType: other.stateType, slot: other.index });
     }
-  }
+  };
+  visit(`${testSrc}\n${contractSrc}`);
   return deps;
 }
 
@@ -113,20 +124,39 @@ async function oursWasms(core: string, headers: string, main: Spec, deps: Spec[]
   let nextBase = SHARED_START;
   const emitAt = async (o: any, arenaSz: number): Promise<{ wasm: Uint8Array; timings?: Record<string, number> }> => {
     const oph = onPhase ? (p: string) => onPhase(`compiling ${o.name} (local TS) — ${p}`) : undefined;
+    const requireWasm = (r: Awaited<ReturnType<typeof compileContract>>, stage: string) => {
+      if (r.wasm.byteLength) return r;
+      const errors = r.diagnostics.filter((diagnostic) => diagnostic.severity === "error").map((diagnostic) => diagnostic.message);
+      throw new Error(`${o.name} ${stage}: ${errors.join("; ") || "compiler returned empty wasm"}`);
+    };
     if (!shared) {
-      const r = await compileContract({ ...o, arenaSz: ARENA, onPhase: oph });
+      const r = requireWasm(await compileContract({ ...o, arenaSz: ARENA, onPhase: oph }), "build");
       return { wasm: r.wasm, timings: r.timings };
     }
-    const p1 = (await compileContract({ ...o, arenaSz: ARENA })).wasm; // state_size probe (silent — arena-independent)
+    const p1 = requireWasm(await compileContract({ ...o, arenaSz: ARENA }), "state-size probe").wasm; // silent — arena-independent
     const base = nextBase;
     nextBase = align64k(base + stateSizeOf(p1) + arenaSz + SLACK);
-    const r = await compileContract({ ...o, arenaSz, sharedMemBase: base, onPhase: oph });
+    const r = requireWasm(await compileContract({ ...o, arenaSz, sharedMemBase: base, onPhase: oph }), "shared-memory build");
     return { wasm: r.wasm, timings: r.timings };
   };
   for (const d of deps) {
     const dsrc = readFileSync(d.contractPath, "utf8");
-    const dr = await compileContract({ source: dsrc, name: d.name, slot: d.slot, qpiHeader: headers, arenaSz: ARENA });
-    out[d.slot] = shared ? (await emitAt({ source: dsrc, name: d.name, slot: d.slot, qpiHeader: headers }, DEP_ARENA)).wasm : dr.wasm;
+    // System dependencies may themselves call an earlier-index dependency
+    // (PULSE -> QTF -> RL, for example). Feed the IDL/source context built so
+    // far into both the metadata probe and the shared-memory build; otherwise
+    // strict compilation returns an empty wasm and stateSizeOf() obscures the
+    // actual missing-callee diagnostic with a WebAssembly parse error.
+    const depOpts = {
+      source: dsrc, name: d.name, slot: d.slot, qpiHeader: headers,
+      callees: callees.length ? callees : undefined,
+      calleeSources: calleeSources.length ? calleeSources : undefined,
+    };
+    const dr = await compileContract({ ...depOpts, arenaSz: ARENA });
+    if (!dr.wasm.byteLength) {
+      const errors = dr.diagnostics.filter((diagnostic) => diagnostic.severity === "error").map((diagnostic) => diagnostic.message);
+      throw new Error(`local dependency ${d.name}: ${errors.join("; ") || "compiler returned empty wasm"}`);
+    }
+    out[d.slot] = shared ? (await emitAt(depOpts, DEP_ARENA)).wasm : dr.wasm;
     callees.push({
       name: d.name, index: d.slot,
       functions: Object.fromEntries(dr.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }])),
