@@ -1,3 +1,4 @@
+/// <reference path="./text-assets.d.ts" />
 // Compile a qpi.h-constrained contract .h into a wasm contract module (run by the node's WAMR engine).
 // Pinned recipe: include qpi.h + lite_wasm_tu.h, never contract_exec.h; define LITE_WASM_TU_BUILD +
 // CONTRACT_INDEX/STATE_TYPE.
@@ -8,6 +9,12 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { writeLineMap } from "./linemap";
+import WASM_GTEST_H from "./assets/wasm_gtest.h" with { type: "text" };
+import WASM_CONTRACT_TESTING_H from "./assets/wasm_contract_testing.h" with { type: "text" };
+import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
+
+export const WASM_CONTRACT_TESTING_HEADER = WASM_CONTRACT_TESTING_H;
+export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
 
 export interface BuildOpts {
   contractPath: string; // absolute path to the contract .h
@@ -23,8 +30,7 @@ export interface BuildOpts {
   wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
   skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some lite macros)
   arenaSz?: number;     // contract-side arena size (LITE_WASM_ARENA_SZ), default 1GB; shrink for browser IDE builds
-  testSource?: string;  // gtest-style test source: compiled INTO the wasm after the contract (LITE_TEST_BUILD +
-                        // extensions/lite_test.h), producing a combined module the engine runs via runTests()
+  testSource?: string;  // core-lite contract_testing.h-style source compiled into a private Wasm runner
   testPath?: string;    // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
   extraCompileFlags?: string[]; // appended to the consuming compile only (not the PCH); used by the gtest
                         // corpus path to relax test-harness-only diagnostics (e.g. -Wno-error=return-mismatch)
@@ -217,12 +223,13 @@ export function genWrapperWasm(o: BuildOpts): string {
   if (!o.testSource) {
     return wrapper;
   }
-  // Combined test module: the gtest shim + the user's TEST cases compile in after the contract, so the
-  // engine can drive the contract in-process (lite_test.h's runner exports + thost imports). See lite_test.h.
+  // Test runner module: inject Qinit's private TEST/EXPECT registry before the standard core-lite-style
+  // source. The source itself uses contract_testing.h / ContractTesting; only the runner implementation is
+  // replaced for Wasm by buildCorpusRunner.
   // The #line directive maps EXPECT_* failure locations back to the test file instead of this wrapper.
   const testPath = (o.testPath ?? `${o.name}.test.cpp`).replace(/\\/g, "/").replace(/"/g, "");
-  return `${wrapper}#define LITE_TEST_BUILD
-#include "extensions/lite_test.h"
+  return `${wrapper}#define QINIT_WASM_GTEST
+${WASM_GTEST_H}
 #line 1 "${testPath}"
 ${o.testSource}
 `;
@@ -390,4 +397,3 @@ export function resolveClang(pref?: string): string {
   }
   throw new Error("no clang++ >= 18 found on PATH (clang required, not gcc)");
 }
-

@@ -1,8 +1,9 @@
 // Differential gtest for Token.h — exercises qpi host calls (issueAsset / isAssetIssued / nextId) and id construction (SELF)
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -11,8 +12,8 @@ const HEADERS = loadQpiHeader(CORE);
 const TOKEN = readFileSync("/home/kali/Projects/Qinit/fixtures/Token.h", "utf8");
 
 // Issue = procedure it=1, Issued = func it=2, NextId = func it=4, Last = func it=5.
-const TOKEN_GTEST = `TEST(Token, IssueResultFlowsToStateAndOutput) {
-  ContractTest t;
+const TOKEN_GTEST = coreGtest("Token", `TEST(Token, IssueResultFlowsToStateAndOutput) {
+  ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000000ll);
   Token::Issue_input ii{}; ii.name = 5460308ull; ii.shares = 1000ll;
@@ -21,12 +22,12 @@ const TOKEN_GTEST = `TEST(Token, IssueResultFlowsToStateAndOutput) {
   EXPECT_EQ(t.call<Token::Last_output>(5, li).result, ir.result);
 }
 TEST(Token, IssuedReadsAssetUniverse) {
-  ContractTest t;
+  ContractTestingHarness t;
   Token::Issued_input qi{}; qi.name = 5460308ull;
   EXPECT_EQ(t.call<Token::Issued_output>(2, qi).issued, 0ll);
 }
 TEST(Token, NextIdIsDeterministic) {
-  ContractTest t;
+  ContractTestingHarness t;
   QPI::id u = t.idFromSeed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   Token::NextId_input ni{}; ni.cur = u;
   auto a = t.call<Token::NextId_output>(4, ni);
@@ -34,7 +35,7 @@ TEST(Token, NextIdIsDeterministic) {
   EXPECT_TRUE(a.next == b.next);
   EXPECT_FALSE(a.next == u);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -62,9 +63,11 @@ describe("differential gtest — Token (qpi host calls)", () => {
     const contractPath = join(dir, "Token.h");
     writeFileSync(contractPath, TOKEN);
 
-    const built = await buildContract({
-      contractPath, name: "Token", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: TOKEN_GTEST, testPath: "Token.test.cpp",
+    const testPath = join(dir, "Token.test.cpp");
+    writeFileSync(testPath, TOKEN_GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Token", stateType: "Token", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -73,7 +76,7 @@ describe("differential gtest — Token (qpi host calls)", () => {
     // numberOfShares (Select args) is a known gap — only errors should block; warnings are fine.
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

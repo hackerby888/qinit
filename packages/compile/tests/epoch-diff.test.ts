@@ -1,8 +1,9 @@
 // Differential gtest for system-procedure locals: a lifecycle procedure (END_EPOCH_WITH_LOCALS) reads and writes its `locals.*` frame, which only works
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -26,19 +27,19 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 // epochLength is 3000 ticks (Sim TESTNET_EPOCH_DURATION); each boundary crossing fires END_EPOCH once.
-const EPOCHER_GTEST = `TEST(Epoch, EndEpochUsesLocals) {
-  ContractTest t;
+const EPOCHER_GTEST = coreGtest("Epoch", `TEST(Epoch, EndEpochUsesLocals) {
+  ContractTestingHarness t;
   Epoch::Get_input g{};
   EXPECT_EQ(t.call<Epoch::Get_output>(1, g).acc, 0ull);
   EXPECT_EQ(t.call<Epoch::Get_output>(1, g).epochs, 0ull);
-  t.advanceTick(3000);                            // cross one epoch boundary
+  t.endEpoch();                            // cross one epoch boundary
   EXPECT_EQ(t.call<Epoch::Get_output>(1, g).epochs, 1ull);
   EXPECT_EQ(t.call<Epoch::Get_output>(1, g).acc, 42ull);
-  t.advanceTick(3000);                            // cross a second boundary
+  t.endEpoch();                            // cross a second boundary
   EXPECT_EQ(t.call<Epoch::Get_output>(1, g).epochs, 2ull);
   EXPECT_EQ(t.call<Epoch::Get_output>(1, g).acc, 84ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -66,9 +67,11 @@ describe("differential gtest — Epoch (END_EPOCH sysproc locals)", () => {
     const contractPath = join(dir, "Epoch.h");
     writeFileSync(contractPath, EPOCHER);
 
-    const built = await buildContract({
-      contractPath, name: "Epoch", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: EPOCHER_GTEST, testPath: "Epoch.test.cpp",
+    const testPath = join(dir, "Epoch.test.cpp");
+    writeFileSync(testPath, EPOCHER_GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Epoch", stateType: "Epoch", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -76,7 +79,7 @@ describe("differential gtest — Epoch (END_EPOCH sysproc locals)", () => {
     const mine = await compileContract({ source: EPOCHER, name: "Epoch", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

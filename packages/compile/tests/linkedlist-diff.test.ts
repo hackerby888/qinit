@@ -1,8 +1,9 @@
 // Differential gtest for LinkedList<T, L> compiled from the real qpi.h body: addHead/addTail, insertAfter/insertBefore, forward and backward traversal (headIndex/tailIndex/nextElementIndex/
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -79,8 +80,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-const QUEUE_GTEST = `TEST(LinkedList, AddInsertTraverseRemove) {
-  ContractTest t;
+const QUEUE_GTEST = coreGtest("Queue", `TEST(LinkedList, AddInsertTraverseRemove) {
+  ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u1, 1000000000ll);
   CONTRACT_STATE_TYPE::Push_input p{};
@@ -133,7 +134,7 @@ const QUEUE_GTEST = `TEST(LinkedList, AddInsertTraverseRemove) {
 }
 
 TEST(LinkedList, ResetAndReuse) {
-  ContractTest t;
+  ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u1, 1000000000ll);
   CONTRACT_STATE_TYPE::Push_input p{}; p.where = 0;
@@ -158,7 +159,7 @@ TEST(LinkedList, ResetAndReuse) {
   EXPECT_EQ(r2.pop, 1ull);
   EXPECT_EQ(r2.fwdTagChain, 3ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -186,9 +187,11 @@ describe("differential gtest — LinkedList (add/insert/traverse/remove/reset)",
     const contractPath = join(dir, "Queue.h");
     writeFileSync(contractPath, QUEUE);
 
-    const built = await buildContract({
-      contractPath, name: "Queue", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: QUEUE_GTEST, testPath: "Queue.test.cpp",
+    const testPath = join(dir, "Queue.test.cpp");
+    writeFileSync(testPath, QUEUE_GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Queue", stateType: "Queue", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -196,7 +199,7 @@ describe("differential gtest — LinkedList (add/insert/traverse/remove/reset)",
     const mine = await compileContract({ source: QUEUE, name: "Queue", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

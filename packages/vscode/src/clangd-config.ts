@@ -17,7 +17,7 @@
 // Pure (node:fs/path + @qinit/build string templating only — no `vscode`, no Bun).
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { genWrapperWasm, type BuildOpts } from "@qinit/build/recipe";
+import { genWrapperWasm, WASM_CONTRACT_TESTING_HEADER, WASM_TEST_UTIL_HEADER, type BuildOpts } from "@qinit/build/recipe";
 import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
 
 export const DEFAULT_SLOT = 28; // mirrors packages/cli/src/commands/build.tsx (`cfg.slot ?? 28`)
@@ -175,11 +175,9 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   return { dir, prefixPath, contractFile, dbPath, dotClangdPath, name, slot, args };
 }
 
-// Clangd compile entry for a gtest TEST file (core-lite extensions/lite_test.h). Unlike a contract, the
-// test is parsed with the FULL combined preamble: the contract wrapper (which #includes the contract +
-// lite_wasm_tu.h) THEN LITE_TEST_BUILD + lite_test.h — so TEST / EXPECT_* / ContractTest and the
-// contract's <Name>::Foo_input types all resolve when clangd parses the test as the main file. `file` is
-// the test, so clangd uses this command when the test is opened (one entry per test, merged into the DB).
+// Clangd compile entry for a standard core-lite contract_testing.h gtest. The contract wrapper and Qinit's
+// private Wasm registry are force-included; a local redirect header supplies the virtual-node implementation
+// of ContractTesting while preserving the source format used by native core-lite.
 export function generateTestClangdConfig(o: ClangdInputs & { testPath: string }): { dbPath: string; prefixPath: string; testFile: string } {
   const contractPath = resolve(o.contractPath);
   const contractFile = fwd(contractPath);
@@ -203,11 +201,12 @@ export function generateTestClangdConfig(o: ClangdInputs & { testPath: string })
     /* no prelude */
   }
 
-  // The combined test preamble = the whole contract wrapper + the test harness include. genWrapperWasm
-  // (without testSource) ends at `#include "extensions/lite_wasm_tu.h"`; appending LITE_TEST_BUILD +
-  // lite_test.h is exactly the prefix the real combined build force-includes before the test body.
+  // A non-empty testSource asks genWrapperWasm to inject the private TEST/EXPECT registry. The real test file
+  // remains clangd's main file and includes contract_testing.h in the ordinary core-lite style.
   const opts: BuildOpts = { contractPath: contractFile, name, slot, corePath: o.corePath, outDir: dir, calleePrelude };
-  const preamble = `${genWrapperWasm(opts)}#define LITE_TEST_BUILD\n#include "extensions/lite_test.h"\n`;
+  const preamble = genWrapperWasm({ ...opts, testSource: "\n", testPath: "gtest-prefix.h" });
+  writeFileSync(join(dir, "contract_testing.h"), WASM_CONTRACT_TESTING_HEADER);
+  writeFileSync(join(dir, "test_util.h"), WASM_TEST_UTIL_HEADER);
 
   const testPath = resolve(o.testPath);
   const testFile = fwd(testPath);
@@ -215,7 +214,7 @@ export function generateTestClangdConfig(o: ClangdInputs & { testPath: string })
   const prefixPath = join(dir, `${testBase}.test.prefix.h`);
   writeFileSync(prefixPath, preamble);
 
-  const args = [...compileArgs(o), "-include", fwd(prefixPath), "-x", "c++", testFile];
+  const args = [...compileArgs(o), "-I", fwd(dir), "-include", fwd(prefixPath), "-x", "c++", testFile];
   const dbPath = join(dir, "compile_commands.json");
   const entry = { directory: fwd(dir), file: testFile, arguments: args };
   let entries: Array<{ file?: string }> = [];

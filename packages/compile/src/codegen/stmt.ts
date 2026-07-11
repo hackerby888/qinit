@@ -2,7 +2,7 @@ import { emitCall } from "./calls/dispatch";
 import { callCompiled, emitAssetIter } from "./calls/containers";
 import { SCALAR_SIZE, C_SCALAR_NAMES } from "./tables";
 import { isAutoType, resolveAliasType, emitValueIr, narrowLocalIr, emitValue, emitAssign, emitU128Ir } from "./value";
-import { setLocal, castInfo, resolveAddr, emitAddr, addrIr, emitConstruct, tryLvalueAddr, isUint128, allocSlotIr, loadAt, isSignedScalarType, storeAt, narrowCast } from "./addr";
+import { setLocal, castInfo, resolveAddr, emitAddr, addrIr, emitConstruct, emitInlineStructMethod, tryLvalueAddr, isUint128, allocSlotIr, loadAt, isSignedScalarType, storeAt, narrowCast } from "./addr";
 import { Codegen } from "./cg";
 import { FnCtx, StructLayout, HelperInfo, Bindings, NO_BIND } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
@@ -399,6 +399,16 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
               ctx.cg.warn(`unsupported struct-local initializer for '${v.name}'`, stmt.span.line);
             }
             ctx.lines.push(`    ${ir.emit(ir.call("$setMem", ir.getL(v.name, "i32"), ir.i32c(sz), ir.i32c(0)))}`);
+            if (ctx.cg.gtestMode && !v.init && concrete.kind === "name") {
+              const struct = ctx.cg.structOf(concrete, db);
+              const constructor = struct?.members.find(
+                (member) => member.kind === "function" && (member as FunctionDecl).name === concrete.name && (member as FunctionDecl).body,
+              ) as FunctionDecl | undefined;
+              const layout = ctx.cg.layoutOfType(concrete, db);
+              if (constructor && layout) {
+                emitInlineStructMethod(ctx, { addr: `(local.get $${v.name})`, type: concrete, size: sz, layout }, constructor, []);
+              }
+            }
             break;
           }
         }
@@ -548,6 +558,17 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       break;
 
     case "return":
+      if (ctx.inlineReturnLabel) {
+        if (stmt.value && ctx.retAddr) {
+          const src = emitAddr(ctx, stmt.value);
+          if (!src) throw new Error("aggregate return expression from inline method is not addressable");
+          ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr), addrIr(src), ir.i32c(ctx.retAggSize ?? 0)))}`);
+        } else if (stmt.value && ctx.inlineValueLocal) {
+          ctx.lines.push(`    ${setLocal(ctx, ctx.inlineValueLocal, narrowLocalIr(ctx, ctx.inlineValueLocal, emitValueIr(ctx, stmt.value)))}`);
+        }
+        ctx.lines.push(`    (br ${ctx.inlineReturnLabel})`);
+        break;
+      }
       // an inlined struct method's `return *this` carries no value out (the object flows via thisAddr); emitting a wasm
       if (ctx.inlineMethod) break;
       if (stmt.value && ctx.retAddr) {

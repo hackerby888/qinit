@@ -50,9 +50,9 @@ the pinned npm package in production.
   Node APIs, or a representative contract cannot compile and execute.
 - Qinit-web production CI installs the exact npm release, builds the SPA, runs its IDE smoke
   test, and deploys `frontend/dist` to Cloudflare Pages with Wrangler.
-- The IDE compile facade routes ordinary contract diagnostics and Compile & Run through the
-  local worker. Backend clang remains the fallback for unsupported constructs, verification,
-  system contracts, and gtests.
+- The IDE compile facade routes contract builds and core-lite `ContractTesting` gtests through the local
+  worker. `TEST` bodies and fixture methods use the normal parser, typed IR, and Wasm codegen; only virtual-node
+  operations use the private `qtest` host ABI. Native clang remains the authoritative CLI/CI gtest backend.
 - Local WASM crosses the worker boundary as a transferable ArrayBuffer. The worker result is
   normalized to the IDE's existing rich IDL instead of casting the compiler's minimal ABI
   metadata.

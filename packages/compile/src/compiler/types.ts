@@ -39,6 +39,23 @@ export interface CompileResult {
   timings?: Record<string, number>;
 }
 
+export interface GtestProgram {
+  version: 2;
+  contract: string;
+  mainSlot: number;
+  runnerSlot: number;
+  tests: Array<{ name: string; inputType: number }>;
+}
+
+export type GtestDiagnostic = ParserDiagnostic;
+
+export interface GtestCompileResult {
+  wasm?: Uint8Array;
+  program?: GtestProgram;
+  diagnostics: GtestDiagnostic[];
+  idl: ContractIdl;
+}
+
 export interface Diagnostic {
   severity: "error" | "warning";
   message: string;

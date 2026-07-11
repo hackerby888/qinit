@@ -34,6 +34,7 @@ export class Codegen {
   private layoutCache: Map<string, StructLayout> = new Map();
   contractStateLayout: StructLayout = { size: 0, align: 1, fields: new Map() };  // the contract's StateData (a ContractState& param in any function resolves through it)
   slot = 0;                                          // contract slot; oracle notification ids embed it ((slot << 22) | defLine)
+  gtestMode = false;                                  // test-runner module: enable qtest host intrinsics
   memberFnLine: Map<string, number> = new Map();     // contract member function name → definition line (__id_<proc> resolution)
   warnings: CodegenWarning[] = [];
   errors: CodegenWarning[] = [];

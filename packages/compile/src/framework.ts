@@ -33,6 +33,7 @@ export interface ModuleSpec {
   migrate?: { label: string; oldStateSize: number; localsSize: number };  // MIGRATE() metadata + dispatch target
   memBase?: number;           // shared-memory gtest mode: import env.memory and place the whole layout at
                               // this byte offset inside the provider's (corpus runner's) memory. Every
+  gtest?: boolean;            // TS-compiled test runner: include the private qtest host ABI
 }
 
 // Back-compat shape used by older callers / tests.
@@ -85,7 +86,7 @@ export function emitModule(spec: ModuleSpec): string {
   return [
     "(module",
     "  ;; ---- qinit-compile generated module ----",
-    emitImports(),
+    emitImports(spec.gtest),
     spec.memBase !== undefined
       ? `  (import "env" "memory" (memory ${L.pages}))`
       : `  (memory (export "memory") ${L.pages} ${L.pages})`,
@@ -114,7 +115,7 @@ export function emitFramework(opts: FrameworkOpts): string {
   });
 }
 
-function emitImports(): string {
+function emitImports(gtest = false): string {
   return `  ;; ---- lhost imports ----
   (import "lhost" "beginFn" (func $lh_beginFn (param i32)))
   (import "lhost" "endFn" (func $lh_endFn (param i32)))
@@ -175,7 +176,16 @@ function emitImports(): string {
   (import "lhost" "liteInvokeProcedure" (func $lh_liteInvokeProcedure (param i32 i32 i32 i32 i32 i32 i64) (result i32)))
   (import "lhost" "liteSetShareholderProposal" (func $lh_liteSetShareholderProposal (param i32 i32 i64) (result i32)))
   (import "lhost" "liteSetShareholderVotes" (func $lh_liteSetShareholderVotes (param i32 i32 i32 i64) (result i32)))
-  (import "lhost" "assetEnumerate" (func $lh_assetEnumerate (param i32 i32 i32 i32 i32 i32) (result i32)))`;
+  (import "lhost" "assetEnumerate" (func $lh_assetEnumerate (param i32 i32 i32 i32 i32 i32) (result i32)))
+${gtest ? `  ;; ---- private TS gtest host imports ----
+  (import "qtest" "invoke" (func $qt_invoke (param i32 i32 i32 i32 i32 i64 i32) (result i32)))
+  (import "qtest" "query" (func $qt_query (param i32 i32 i32 i32 i32 i32) (result i32)))
+  (import "qtest" "fund" (func $qt_fund (param i32 i64)))
+  (import "qtest" "balance" (func $qt_balance (param i32) (result i64)))
+  (import "qtest" "randomId" (func $qt_random_id (param i32)))
+  (import "qtest" "state" (func $qt_state (param i32 i32 i32) (result i32)))
+  (import "qtest" "system" (func $qt_system (param i32 i32) (result i32)))
+  (import "qtest" "fail" (func $qt_fail (param i32 i32)))` : ""}`;
 }
 
 function emitGlobals(L: Layout): string {

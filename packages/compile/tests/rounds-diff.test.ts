@@ -1,8 +1,9 @@
 // Differential gtest for chaining through a container element: Array<Struct,N>.set(i, s) and the read chain arr.get(i).field (the QEARN _initialRoundInfo.get(Epoch)._epochBonusAmount
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -35,8 +36,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-const ROUNDS_GTEST = `TEST(Rounds, SetStructThenReadFieldChain) {
-  ContractTest t;
+const ROUNDS_GTEST = coreGtest("Rounds", `TEST(Rounds, SetStructThenReadFieldChain) {
+  ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000ll);
   Rounds::Put_input p{}; p.i = 3ull; p.bonus = 100ull; p.locked = 50ull;
@@ -52,7 +53,7 @@ const ROUNDS_GTEST = `TEST(Rounds, SetStructThenReadFieldChain) {
   gl.i = 7ull;
   EXPECT_EQ(t.call<Rounds::GetLocked_output>(2, gl).locked, 0ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -80,9 +81,11 @@ describe("differential gtest — Rounds (chain through Array element)", () => {
     const contractPath = join(dir, "Rounds.h");
     writeFileSync(contractPath, ROUNDS);
 
-    const built = await buildContract({
-      contractPath, name: "Rounds", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: ROUNDS_GTEST, testPath: "Rounds.test.cpp",
+    const testPath = join(dir, "Rounds.test.cpp");
+    writeFileSync(testPath, ROUNDS_GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Rounds", stateType: "Rounds", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -90,7 +93,7 @@ describe("differential gtest — Rounds (chain through Array element)", () => {
     const mine = await compileContract({ source: ROUNDS, name: "Rounds", slot: 28, qpiHeader: HEADERS, arenaSz: 256 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

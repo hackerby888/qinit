@@ -1,8 +1,9 @@
 // Differential gtest for BitArray<L> (bit_4096) compiled from the real qpi.h inline bodies: set/get of individual bits + setAll.
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -24,8 +25,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-const BITS_GTEST = `TEST(Bits, SetGetSetAll) {
-  ContractTest t;
+const BITS_GTEST = coreGtest("Bits", `TEST(Bits, SetGetSetAll) {
+  ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000ll);
   CONTRACT_STATE_TYPE::Set_input s{}; CONTRACT_STATE_TYPE::Get_input g{};
@@ -43,7 +44,7 @@ const BITS_GTEST = `TEST(Bits, SetGetSetAll) {
   g.index = 7; EXPECT_EQ(t.call<CONTRACT_STATE_TYPE::Get_output>(1, g).value, 1ull);
   g.index = 4095; EXPECT_EQ(t.call<CONTRACT_STATE_TYPE::Get_output>(1, g).value, 1ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -71,9 +72,11 @@ describe("differential gtest — BitArray (bit_4096 set/get/setAll)", () => {
     const contractPath = join(dir, "Bits.h");
     writeFileSync(contractPath, BITS);
 
-    const built = await buildContract({
-      contractPath, name: "Bits", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: BITS_GTEST, testPath: "Bits.test.cpp",
+    const testPath = join(dir, "Bits.test.cpp");
+    writeFileSync(testPath, BITS_GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Bits", stateType: "Bits", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -81,7 +84,7 @@ describe("differential gtest — BitArray (bit_4096 set/get/setAll)", () => {
     const mine = await compileContract({ source: BITS, name: "Bits", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

@@ -48,10 +48,10 @@ export class ContractRegistry {
   // Deploy + construct: load the wasm, zero state, then run INITIALIZE (qubic.cpp contractProcessor INITIALIZE).
   // A metered contract is born funded (a successful IPO) unless its reserve was pre-set; INITIALIZE is exempt
   // from the reserve gate.
-  deploy(slot: number, wasm: Uint8Array, host: HostServices, thost?: Record<string, Function>, extMem?: WebAssembly.Memory): Contract {
+  deploy(slot: number, wasm: Uint8Array, host: HostServices, extMem?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
     const prev = this.contracts.get(slot);          // existing instance => this is a redeploy
     const prevState = prev ? prev.state() : null;   // snapshot old state before the new instance replaces it
-    const c = Contract.load(wasm, slot, host, thost, extMem);
+    const c = Contract.load(wasm, slot, host, extMem, extraImports);
     c.trace = this.recorder;
     c.metering = this.fees.metered;
     this.contracts.set(slot, c);

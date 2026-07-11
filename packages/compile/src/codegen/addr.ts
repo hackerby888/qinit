@@ -58,6 +58,7 @@ export function stripPtrRefConst(t: TypeSpec): TypeSpec {
 }
 
 export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
+  if (expr.kind === "paren") return resolveAddr(ctx, expr.expr);
   // __ScopedScratchpad.ptr → the held scratch buffer base (the local's value). `reinterpret_cast<T*>(sp.ptr)`
   if (expr.kind === "member_access" && expr.member === "ptr" &&
     expr.object.kind === "identifier" && ctx.scratchpadLocals?.has(expr.object.name)) {
@@ -119,8 +120,6 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     }
   }
 
-  if (expr.kind === "paren") return resolveAddr(ctx, expr.expr);
-
   // inside a compiled container method: `this` (the object) and `*this` both address the instance.
   if (expr.kind === "this" && ctx.thisLayout) {
     return { addr: ctx.thisAddr ?? "(local.get $this)", type: ctx.thisType ?? null, size: ctx.thisLayout.size, layout: ctx.thisLayout };
@@ -130,15 +129,17 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     const ci = castInfo(expr);
     if (ci) {
       const inner = resolveAddr(ctx, ci.operand);
-      if (!inner) return null;
+      const materialized = !inner && ctx.cg.gtestMode ? emitAddr(ctx, ci.operand) : null;
+      if (!inner && !materialized) return null;
+      const address = inner?.addr ?? materialized!;
       const b = ctx.thisBind ?? NO_BIND;
       // A cast to T* produces a pointer value at the same wasm32 address. Keep the pointer wrapper so
       // subsequent `+ n`, subscripting, and unary `*` scale by sizeof(T) and load the pointee.
       if (ci.type.kind === "pointer") {
-        return { addr: inner.addr, type: ci.type, size: 4, layout: null };
+        return { addr: address, type: ci.type, size: 4, layout: null };
       }
       const t = stripPtrRefConst(ci.type);
-      return { addr: inner.addr, type: t, size: ctx.cg.sizeOfType(t, b), layout: ctx.cg.layoutOfType(t, b) };
+      return { addr: address, type: t, size: ctx.cg.sizeOfType(t, b), layout: ctx.cg.layoutOfType(t, b) };
     }
   }
 
@@ -150,10 +151,11 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     const ci = castInfo(expr.arg);
     if (ci && ci.type.kind === "pointer") {
       const inner = resolveAddr(ctx, ci.operand);
-      if (inner) {
+      const materialized = !inner && ctx.cg.gtestMode ? emitAddr(ctx, ci.operand) : null;
+      if (inner || materialized) {
         const b = ctx.thisBind ?? NO_BIND;
         const t = stripPtrRefConst(ci.type);
-        return { addr: inner.addr, type: t, size: ctx.cg.sizeOfType(t, b), layout: ctx.cg.layoutOfType(t, b) };
+        return { addr: inner?.addr ?? materialized!, type: t, size: ctx.cg.sizeOfType(t, b), layout: ctx.cg.layoutOfType(t, b) };
       }
     }
     // *ptr: a pointer param/local holds the pointed-to address, so dereferencing yields that address.
@@ -186,6 +188,19 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
   // member access: resolve the object, then index its field
   if (expr.kind === "member_access") {
     let parent = resolveAddr(ctx, expr.object);
+    if (!parent && expr.object.kind === "call" && expr.object.callee.kind === "member_access") {
+      const method = inlineMethodInfo(ctx, expr.object);
+      if (method && ctx.cg.isAggregateType(ctx.cg.derefType(method.fn.returnType))) {
+        const type = ctx.cg.derefType(method.fn.returnType);
+        const addr = emitAddr(ctx, expr.object);
+        if (addr) parent = {
+          addr,
+          type,
+          size: Math.max(1, ctx.cg.sizeOfType(type, ctx.thisBind ?? NO_BIND)),
+          layout: ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND),
+        };
+      }
+    }
     if (!parent && expr.object.kind === "call" && expr.object.callee.kind === "identifier") {
       const helper = lookupHelper(ctx, expr.object);
       if (helper?.retAgg && helper.retType) {
@@ -206,6 +221,15 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
       if (addr) parent = { addr, type: { kind: "name", name: "id" }, size: 32, layout: null };
     }
     if (!parent) return null;
+    if (expr.arrow && parent.type?.kind === "pointer") {
+      const pointee = parent.type.pointee;
+      parent = {
+        addr: parent.addr,
+        type: pointee,
+        size: ctx.cg.sizeOfType(pointee, ctx.thisBind ?? NO_BIND),
+        layout: ctx.cg.layoutOfType(pointee, ctx.thisBind ?? NO_BIND),
+      };
+    }
     // id/m256i limb views (`.u64`/`.u32`/`.u16`/`.u8`) → a fixed-width array at the value's base.
     if (isIdLike(ctx.cg, parent.type) && ID_VIEWS[expr.member]) {
       return { addr: parent.addr, type: null, size: 32, layout: ID_VIEWS[expr.member] };
@@ -281,6 +305,47 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     if (p && p.isAddr) return `(local.get $${p.local ?? expr.name})`;
   }
   if (expr.kind === "paren") return emitAddr(ctx, expr.expr);
+
+  if (expr.kind === "call") {
+    const cached = ctx.materializedCalls?.get(expr);
+    if (cached) return cached.addr;
+  }
+
+  if (ctx.cg.gtestMode && expr.kind === "call" && expr.callee.kind === "identifier") {
+    if (expr.callee.name === "id::randomValue" || expr.callee.name === "QPI::id::randomValue") {
+      const destination = allocSlotIr(ctx, 32);
+      ctx.lines.push(`    ${ir.emit(ir.call("$qt_random_id", destination))}`);
+      const addr = ir.emit(destination);
+      (ctx.materializedCalls ??= new WeakMap()).set(expr, { addr, type: { kind: "name", name: "id" }, size: 32, layout: null });
+      return addr;
+    }
+    if (expr.callee.name === "__qtest_state") {
+      const sizeExpr = expr.args[1];
+      const size = sizeExpr?.kind === "sizeof_expr" && sizeExpr.expr.kind === "identifier"
+        ? ctx.cg.sizeOfType({ kind: "name", name: sizeExpr.expr.name }, ctx.thisBind ?? NO_BIND)
+        : sizeExpr ? Number(ctx.cg.evalConstBig(sizeExpr, ctx.thisBind ?? NO_BIND)) : 0;
+      if (!(size > 0)) throw new Error("gtest state access requires a constant positive state size");
+      const destination = allocSlotIr(ctx, size);
+      const slot = ir.op("i32.wrap_i64", expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0));
+      ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.call("$qt_state", slot, destination, ir.i32c(size))))}`);
+      const addr = ir.emit(destination);
+      (ctx.materializedCalls ??= new WeakMap()).set(expr, { addr, type: null, size, layout: null });
+      return addr;
+    }
+  }
+
+  if (ctx.cg.gtestMode && expr.kind === "call" && expr.callee.kind === "member_access") {
+    const resolved = inlineMethodInfo(ctx, expr);
+    if (resolved && ctx.cg.isAggregateType(ctx.cg.derefType(resolved.fn.returnType))) {
+      const type = ctx.cg.derefType(resolved.fn.returnType);
+      const size = Math.max(1, ctx.cg.sizeOfType(type, ctx.thisBind ?? NO_BIND));
+      const destination = allocSlotIr(ctx, size);
+      emitInlineStructMethod(ctx, resolved.object, resolved.fn, expr.args, { retAddr: ir.emit(destination), retSize: size });
+      const addr = ir.emit(destination);
+      (ctx.materializedCalls ??= new WeakMap()).set(expr, { addr, type, size, layout: ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND) });
+      return addr;
+    }
+  }
 
   // A computed uint128 value must go through its source-compiled constructor/operator
   // before it is passed by reference. In particular, do this before stripping a C-style
@@ -435,8 +500,75 @@ export function tryInlineStructMethod(ctx: FnCtx, expr: Expression & { kind: "ca
   return { addr, type: objNode.type, size: objNode.size, layout: objNode.layout };
 }
 
+function inlineMethodInfo(ctx: FnCtx, expr: Expression & { kind: "call" }): { object: AddrNode; fn: FunctionDecl } | null {
+  if (expr.callee.kind !== "member_access") return null;
+  const object = resolveAddr(ctx, expr.callee.object);
+  if (!object?.type || !object.layout) return null;
+  if (object.type.kind === "template_instance") return null;
+  const struct = ctx.cg.structOf(object.type, ctx.thisBind ?? NO_BIND);
+  const method = expr.callee.member;
+  const fn = struct?.members.find(
+    (member) => member.kind === "function" && (member as FunctionDecl).name === method && (member as FunctionDecl).body,
+  ) as FunctionDecl | undefined;
+  return fn ? { object, fn } : null;
+}
+
+export function emitInlineStructValue(ctx: FnCtx, expr: Expression & { kind: "call" }): ir.Ir | null {
+  if (!ctx.cg.gtestMode) return null;
+  const resolved = inlineMethodInfo(ctx, expr);
+  if (!resolved || ctx.cg.isVoidType(resolved.fn.returnType) || ctx.cg.isAggregateType(ctx.cg.derefType(resolved.fn.returnType))) return null;
+  const result = newTmp(ctx);
+  ctx.localVars.set(result, { wasmType: "i64", type: ctx.cg.derefType(resolved.fn.returnType) });
+  ctx.lines.push(`    ${setLocal(ctx, result, ir.i64c(0))}`);
+  emitInlineStructMethod(ctx, resolved.object, resolved.fn, expr.args, { retValue: result });
+  return ir.getL(result, "i64");
+}
+
+export function emitInlineStructStatement(ctx: FnCtx, expr: Expression & { kind: "call" }): boolean {
+  if (!ctx.cg.gtestMode) return false;
+  const resolved = inlineMethodInfo(ctx, expr);
+  if (!resolved) return false;
+  emitInlineStructMethod(ctx, resolved.object, resolved.fn, expr.args);
+  return true;
+}
+
+function renameInlineLocals(body: Statement, suffix: string): Statement {
+  const names = new Map<string, string>();
+  const collect = (value: unknown): void => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const item of value) collect(item);
+      return;
+    }
+    const node = value as Record<string, unknown>;
+    if (node.kind === "variable" && node.isMember === false && typeof node.name === "string") {
+      names.set(node.name, `${node.name}${suffix}`);
+    }
+    for (const child of Object.values(node)) collect(child);
+  };
+  collect(body);
+  const clone = (value: unknown): unknown => {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(clone);
+    const node = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(node)) out[key] = clone(child);
+    if ((node.kind === "identifier" || (node.kind === "variable" && node.isMember === false)) && typeof node.name === "string") {
+      out.name = names.get(node.name) ?? node.name;
+    }
+    return out;
+  };
+  return clone(body) as Statement;
+}
+
 // Emit a struct member method inline into the current function: stash the object address in a temp (used
-export function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: FunctionDecl, args: Expression[]): string {
+export function emitInlineStructMethod(
+  ctx: FnCtx,
+  objNode: AddrNode,
+  fn: FunctionDecl,
+  args: Expression[],
+  result: { retAddr?: string; retSize?: number; retValue?: string } = {},
+): string {
   const self = newTmp(ctx);
   ctx.lines.push(`    ${setLocal(ctx, self, addrIr(objNode.addr))}`);
   const bind = ctx.thisBind ?? NO_BIND;
@@ -447,7 +579,7 @@ export function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: Functi
     const cls = classifyMethodParam(ctx.cg, p, bind);
     const slot = `marg${ctx.tmpCount++}`;
     ctx.localVars.set(slot, { wasmType: cls.wasmType });
-    const arg = args[i];
+    const arg = args[i] ?? p.defaultValue;
     if (arg) {
       const v = cls.isAddr
         ? addrIr(argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(p.type), bind)))
@@ -460,6 +592,8 @@ export function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: Functi
   const save = {
     thisLayout: ctx.thisLayout, thisType: ctx.thisType, thisAddr: ctx.thisAddr,
     params: ctx.params, inlineMethod: ctx.inlineMethod, retIsValue: ctx.retIsValue,
+    retAddr: ctx.retAddr, retAggSize: ctx.retAggSize, inlineReturnLabel: ctx.inlineReturnLabel,
+    inlineValueLocal: ctx.inlineValueLocal, retTypeName: ctx.retTypeName,
   };
   ctx.thisLayout = objNode.layout ?? undefined;
   ctx.thisType = objNode.type ?? undefined;
@@ -467,9 +601,18 @@ export function emitInlineStructMethod(ctx: FnCtx, objNode: AddrNode, fn: Functi
   ctx.params = params;
   ctx.inlineMethod = true;
   ctx.retIsValue = false;
+  ctx.retAddr = result.retAddr;
+  ctx.retAggSize = result.retSize;
+  ctx.inlineValueLocal = result.retValue;
+  ctx.retTypeName = fn.returnType.kind === "name" ? fn.returnType.name : undefined;
+  const returnLabel = `$inline_return_${ctx.loopCount++}`;
+  ctx.inlineReturnLabel = returnLabel;
   // Hoist the inlined body's own local declarations into the host function's local set — the top-level collectLocals never
-  if (fn.body) collectLocals(fn.body, ctx);
-  if (fn.body) emitStmt(ctx, fn.body);
+  const body = fn.body ? renameInlineLocals(fn.body, `__inline${ctx.tmpCount++}`) : undefined;
+  if (body) collectLocals(body, ctx);
+  ctx.lines.push(`    (block ${returnLabel}`);
+  if (body) emitStmt(ctx, body);
+  ctx.lines.push("    )");
   Object.assign(ctx, save);
 
   return `(local.get $${self})`;

@@ -24,11 +24,10 @@ export function isContractDoc(doc: vscode.TextDocument): boolean {
   return /\.(h|hpp|hxx)$/.test(doc.fileName);
 }
 
-// A gtest test (core-lite extensions/lite_test.h): a .cpp/.cc/.cxx source, or any file that includes the
-// harness / declares a TEST(). Gets its own clangd TU (the combined contract+test preamble) instead of the
-// contract path, so clangd resolves TEST/EXPECT_*/ContractTest + the contract's types.
+// A core-lite contract_testing.h gtest. It gets its own clangd TU instead of the contract path, so clangd
+// resolves TEST/EXPECT_*/ContractTesting and the contract's types.
 export function isTestDoc(doc: vscode.TextDocument): boolean {
   if (doc.uri.scheme !== "file") return false;
   if (/\.(cpp|cc|cxx)$/.test(doc.fileName)) return true;
-  return /#include\s+["<][^">]*lite_test\.h|(^|\n)\s*TEST\s*\(/.test(doc.getText());
+  return /#include\s+["<][^">]*contract_testing\.h|(^|\n)\s*TEST\s*\(/.test(doc.getText());
 }

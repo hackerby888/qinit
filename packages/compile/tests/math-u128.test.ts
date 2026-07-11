@@ -1,8 +1,9 @@
 // u128/safe-math semantics lock-down for divergence-sensitive cases.
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { Sim, runTestsAgainst, type TestResult } from "@qinit/engine";
-import { buildContract } from "@qinit/build";
+import { Sim, runContractTesting, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -251,8 +252,8 @@ describe("safe-math + uint128 semantics vs BigInt reference", () => {
 
 // ---- native differential: pin the boundary semantics against clang-compiled qpi.h itself ----
 
-const GTEST = `TEST(MathSat, SaturationAndDivGuards) {
-  ContractTest t;
+const GTEST = coreGtest("M128", `TEST(MathSat, SaturationAndDivGuards) {
+  ContractTestingHarness t;
   CONTRACT_STATE_TYPE::MathOp_input in{};
   // positive add overflow saturates
   in.sa = 9223372036854775807ll; in.sb = 1ll; in.ua = 18446744073709551615ull; in.ub = 1ull;
@@ -289,7 +290,7 @@ const GTEST = `TEST(MathSat, SaturationAndDivGuards) {
 }
 
 TEST(MathSat, U128Boundaries) {
-  ContractTest t;
+  ContractTestingHarness t;
   CONTRACT_STATE_TYPE::U128Op_input in{};
   // add carry across the limb boundary; sub borrow back
   in.ahi = 0ull; in.alo = 18446744073709551615ull; in.bhi = 0ull; in.blo = 1ull; in.sh = 64ull;
@@ -320,7 +321,7 @@ TEST(MathSat, U128Boundaries) {
   EXPECT_EQ(r.shrLo, 3ull); EXPECT_EQ(r.shrHi, 0ull);   // (7*2^64+9) >> 65
   EXPECT_EQ(r.shlLo, 0ull); EXPECT_EQ(r.shlHi, 18ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -348,9 +349,11 @@ describe("differential gtest — safe-math saturation + uint128 boundaries", () 
     const contractPath = join(dir, "M128.h");
     writeFileSync(contractPath, SRC);
 
-    const built = await buildContract({
-      contractPath, name: "M128", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: GTEST, testPath: "M128.test.cpp",
+    const testPath = join(dir, "M128.test.cpp");
+    writeFileSync(testPath, GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "M128", stateType: "M128", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -358,7 +361,7 @@ describe("differential gtest — safe-math saturation + uint128 boundaries", () 
     const mine = await compileContract({ source: SRC, name: "M128", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

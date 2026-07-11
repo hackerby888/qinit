@@ -9,10 +9,10 @@ test("zeroSample: schema-matched all-zero sample from e.in, else from inFields",
   expect(zeroSample(E({ inFields: [{ name: "a", type: "uint32" }, { name: "b", type: "id" }] }))).toBe(`0uint32, ${"0".repeat(64)}id`);
 });
 
-test("zeroSample: null for no-input and for unsizable (uint128 has no input token)", () => {
+test("zeroSample: null for no-input and a sample for uint128", () => {
   expect(zeroSample(E({ in: "" }))).toBe(null);
   expect(zeroSample(E({}))).toBe(null);            // no in, no inFields
-  expect(zeroSample(E({ in: "uint128" }))).toBe(null);
+  expect(zeroSample(E({ in: "uint128" }))).toBe("0uint128");
 });
 
 test("tmplOf: <name>type per field; undefined when no fields", () => {

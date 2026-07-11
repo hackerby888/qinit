@@ -5,7 +5,7 @@ import { isScalarLocal, emitIncDec, newTmp } from "./stmt";
 import { describeShape, emitCallValueIr, emitOracleQueryCall, emitOracleReadCall } from "./calls/dispatch";
 import { emitQpiCall, QPI_CALLS } from "./calls/qpi";
 import { callCompiled, emitAssetIter } from "./calls/containers";
-import { resolveAddr, isUint128, addrIr, isAggregate, emitConstruct, emitAddr, setLocal, narrowCastIr, loadAtIr, isSignedScalarType, allocSlotIr } from "./addr";
+import { resolveAddr, isUint128, addrIr, isAggregate, emitConstruct, emitAddr, emitInlineStructValue, setLocal, narrowCastIr, loadAtIr, isSignedScalarType, allocSlotIr } from "./addr";
 import { FnCtx, NO_BIND } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
 import * as ir from "../ir";
@@ -228,8 +228,10 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
       ctx.cg.warn(`unsupported subscript value`, (expr as any).span?.line ?? 0);
       return ir.i64c(0);
     }
-    case "call":
-      return emitCallValueIr(ctx, expr);
+    case "call": {
+      const inline = emitInlineStructValue(ctx, expr);
+      return inline ?? emitCallValueIr(ctx, expr);
+    }
     case "template_call": {
       if (expr.callee.kind === "identifier") {
         const name = expr.callee.name;

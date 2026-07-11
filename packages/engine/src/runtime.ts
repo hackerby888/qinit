@@ -195,21 +195,18 @@ export class Contract {
   migrateLocalsSize = 0;
   everInitialized = false;     // INITIALIZE has run once -> redeploy preserves/migrates state, never re-inits
 
-  // Optional "thost" (test-host) import table — set only when the module is a gtest build (lite_test.h). Bound
-  // beside lhost so the in-module test runner can drive the contract through the engine. See gtest.ts.
-  private thost?: Record<string, Function>;
-
   // Shared-memory mode (gtest): the module was linked with --import-memory and lives inside the provided
   // memory (the corpus runner's), so the runner's contractStates[i] pointer IS the live state — no copies.
   private extMem?: WebAssembly.Memory;
+  private extraImports?: WebAssembly.Imports;
 
   get sharedMem(): boolean {
     return !!this.extMem;
   }
 
-  private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module, thost?: Record<string, Function>, extMem?: WebAssembly.Memory) {
-    this.thost = thost;
+  private constructor(public slot: number, public host: HostServices, mod: WebAssembly.Module, extMem?: WebAssembly.Memory, extraImports?: WebAssembly.Imports) {
     this.extMem = extMem;
+    this.extraImports = extraImports;
     if (extMem) {
       // The import's declared minimum covers the module's relocated data end (--global-base + footprint);
       // grow the provider up to it before instantiating.
@@ -239,8 +236,8 @@ export class Contract {
     this.readRegistry();
   }
 
-  static load(bytes: Uint8Array, slot: number, host: HostServices, thost?: Record<string, Function>, extMem?: WebAssembly.Memory): Contract {
-    return new Contract(slot, host, new WebAssembly.Module(bytes as BufferSource), thost, extMem);
+  static load(bytes: Uint8Array, slot: number, host: HostServices, extMem?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
+    return new Contract(slot, host, new WebAssembly.Module(bytes as BufferSource), extMem, extraImports);
   }
 
   // Fresh views each use — memory.grow detaches the underlying ArrayBuffer, so never hold a view
@@ -736,8 +733,7 @@ export class Contract {
     const wasi = wasiBase;
     const env: Record<string, unknown> = envBase;
     if (this.extMem) env.memory = this.extMem;
-    const testHost = this.thost ? { thost: this.thost } : {};
-    return { lhost, env, wasi_snapshot_preview1: wasi, ...testHost } as unknown as WebAssembly.Imports;
+    return { lhost, env, wasi_snapshot_preview1: wasi, ...(this.extraImports ?? {}) } as unknown as WebAssembly.Imports;
   }
 }
 

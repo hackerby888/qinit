@@ -1,8 +1,9 @@
 // Differential gtest for Bank.h — exercises HashMap<id,uint64,1024>.set/get/population/reset and Array<uint64,4>.set through my TS codegen, validated by the SAME native-clang
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -11,8 +12,8 @@ const HEADERS = loadQpiHeader(CORE);
 const BANK = readFileSync("/home/kali/Projects/Qinit/fixtures/Bank.h", "utf8");
 
 // Two distinct funded ids; Set is a procedure (it=1), BalanceOf func it=1, Stats func it=2.
-const BANK_GTEST = `TEST(Bank, SetThenBalanceOf) {
-  ContractTest t;
+const BANK_GTEST = coreGtest("Bank", `TEST(Bank, SetThenBalanceOf) {
+  ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000);
   Bank::Set_input s{}; s.who = u; s.amount = 100ull;
@@ -21,13 +22,13 @@ const BANK_GTEST = `TEST(Bank, SetThenBalanceOf) {
   EXPECT_EQ(t.call<Bank::BalanceOf_output>(1, b).amount, 100ull);
 }
 TEST(Bank, MissingKeyIsZero) {
-  ContractTest t;
+  ContractTestingHarness t;
   QPI::id u = t.idFromSeed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   Bank::BalanceOf_input b{}; b.who = u;
   EXPECT_EQ(t.call<Bank::BalanceOf_output>(1, b).amount, 0ull);
 }
 TEST(Bank, ReplaceSameKeyKeepsPopulationOne) {
-  ContractTest t;
+  ContractTestingHarness t;
   QPI::id u = t.idFromSeed("ccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
   t.fund(u, 1000000000);
   Bank::Set_input s{}; s.who = u; s.amount = 100ull;
@@ -42,7 +43,7 @@ TEST(Bank, ReplaceSameKeyKeepsPopulationOne) {
   EXPECT_EQ(st.population, 1ull);
 }
 TEST(Bank, TwoKeysPopulationTwo) {
-  ContractTest t;
+  ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("ddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
   QPI::id u2 = t.idFromSeed("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
   t.fund(u1, 1000000000);
@@ -60,7 +61,7 @@ TEST(Bank, TwoKeysPopulationTwo) {
   EXPECT_EQ(st.total, 150ull);
   EXPECT_EQ(st.population, 2ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -88,9 +89,11 @@ describe("differential gtest — Bank (HashMap + Array)", () => {
     const contractPath = join(dir, "Bank.h");
     writeFileSync(contractPath, BANK);
 
-    const built = await buildContract({
-      contractPath, name: "Bank", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: BANK_GTEST, testPath: "Bank.test.cpp",
+    const testPath = join(dir, "Bank.test.cpp");
+    writeFileSync(testPath, BANK_GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Bank", stateType: "Bank", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -98,7 +101,7 @@ describe("differential gtest — Bank (HashMap + Array)", () => {
     const mine = await compileContract({ source: BANK, name: "Bank", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

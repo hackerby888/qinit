@@ -99,7 +99,7 @@ async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChan
 }
 
 // (Re)generate the clangd compile DB for a gtest TEST file: a combined contract+test TU so clangd resolves
-// TEST / EXPECT_* / ContractTest and the contract's <Name>::Foo_input types. The test pairs with the
+// TEST / EXPECT_* / ContractTesting and the contract's <Name>::Foo_input types. The test pairs with the
 // project's primary contract (qinit.json `contract`). Silent for non-tests / non-projects.
 function regenerateTestClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): void {
   if (!isTestDoc(doc)) return;

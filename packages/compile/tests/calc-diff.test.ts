@@ -1,8 +1,9 @@
 // Differential gtest for arithmetic body codegen: QPI safe-math (div/mod/sadd/min/max), a for-loop with break/continue, member-lvalue increment, and named constants
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -36,8 +37,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-const CALC_GTEST = `TEST(Calc, SafeDivMod) {
-  ContractTest t;
+const CALC_GTEST = coreGtest("Calc", `TEST(Calc, SafeDivMod) {
+  ContractTestingHarness t;
   Calc::Div_input a{}; a.a = 10ull; a.b = 3ull;
   auto r = t.call<Calc::Div_output>(1, a);
   EXPECT_EQ(r.q, 3ull);
@@ -48,13 +49,13 @@ const CALC_GTEST = `TEST(Calc, SafeDivMod) {
   EXPECT_EQ(rz.r, 0ull);
 }
 TEST(Calc, LoopSumWithBreakCap) {
-  ContractTest t;
+  ContractTestingHarness t;
   Calc::SumTo_input s{}; s.n = 5ull;
   EXPECT_EQ(t.call<Calc::SumTo_output>(2, s).s, 15ull);
   s.n = 200ull;
   EXPECT_EQ(t.call<Calc::SumTo_output>(2, s).s, 5050ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -82,9 +83,11 @@ describe("differential gtest — Calc (safe math, loops, break, constants)", () 
     const contractPath = join(dir, "Calc.h");
     writeFileSync(contractPath, CALC);
 
-    const built = await buildContract({
-      contractPath, name: "Calc", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: CALC_GTEST, testPath: "Calc.test.cpp",
+    const testPath = join(dir, "Calc.test.cpp");
+    writeFileSync(testPath, CALC_GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Calc", stateType: "Calc", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -92,7 +95,7 @@ describe("differential gtest — Calc (safe math, loops, break, constants)", () 
     const mine = await compileContract({ source: CALC, name: "Calc", slot: 28, qpiHeader: HEADERS, arenaSz: 64 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

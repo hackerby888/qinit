@@ -67,8 +67,10 @@ export function generateWasmModule(
   calleeTus?: Array<{ name: string; decls: Declaration[] }>,
   memBase?: number,
   metadataOut?: GeneratedContractMetadata,
+  gtestMode = false,
 ): string {
   const cg = new Codegen(sema);
+  cg.gtestMode = gtestMode;
   for (const c of callees ?? []) cg.callees.set(c.name, c);
   // Callee struct layouts, keyed by their qualified name (`QX::Fees_output`), so a caller reading a callee's output type —
   if (calleeStructs) for (const [k, v] of calleeStructs) cg.globalStructs.set(k, v);
@@ -318,6 +320,7 @@ export function generateWasmModule(
     userFunctionsWat: userFns.join("\n"),
     migrate,
     memBase,
+    gtest: gtestMode,
   };
 
   if (metadataOut) {

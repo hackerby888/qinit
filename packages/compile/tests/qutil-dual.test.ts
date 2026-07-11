@@ -52,7 +52,7 @@ describe("dual-backend differential — ours vs native", () => {
       console.log(`  COMPILER  ${name} — ours fails, native passes (fix codegen)`);
     }
     for (const name of buckets.BRIDGE) {
-      console.log(`  BRIDGE    ${name} — native fails (fix SHIM/thost/Sim)`);
+      console.log(`  BRIDGE    ${name} — native fails (fix ContractTesting bridge/Sim)`);
     }
     for (const name of buckets.SUSPECT) {
       console.log(`  SUSPECT   ${name} — ours passes, native fails (oracle says fail — investigate)`);

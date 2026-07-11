@@ -1,8 +1,9 @@
 // Compound assignment signedness: >>= must be arithmetic on signed operands, /= and %= must follow the target's signedness,
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -52,8 +53,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Probe, 1); }
 };`;
 
-const GTEST = `TEST(CompoundAssign, Signedness) {
-  ContractTest t;
+const GTEST = coreGtest("CompoundP", `TEST(CompoundAssign, Signedness) {
+  ContractTestingHarness t;
   CONTRACT_STATE_TYPE::Probe_input in{};
   in.sa = -8ll; in.ua = 0x8000000000000001ull;
   auto r = t.call<CONTRACT_STATE_TYPE::Probe_output>(1, in);
@@ -65,7 +66,7 @@ const GTEST = `TEST(CompoundAssign, Signedness) {
   EXPECT_EQ(r.wrapAdd, 0ull);                        // uint32 += wraps at 32 bits
   EXPECT_EQ(r.shrULocal, 0x4000000000000000ull);     // logical shift on unsigned
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -93,9 +94,11 @@ describe("differential gtest — compound assignment signedness", () => {
     const contractPath = join(dir, "CompoundP.h");
     writeFileSync(contractPath, SRC);
 
-    const built = await buildContract({
-      contractPath, name: "CompoundP", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: GTEST, testPath: "CompoundP.test.cpp",
+    const testPath = join(dir, "CompoundP.test.cpp");
+    writeFileSync(testPath, GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "CompoundP", stateType: "CompoundP", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -103,7 +106,7 @@ describe("differential gtest — compound assignment signedness", () => {
     const mine = await compileContract({ source: SRC, name: "CompoundP", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`);
     }

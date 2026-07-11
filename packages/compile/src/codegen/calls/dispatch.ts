@@ -5,7 +5,7 @@ import { emitProxySiblingCall, emitProposalProxyCall } from "./proxy";
 import { newTmp } from "../stmt";
 import { compileContainerMethod, emitAssetIter, emitContainerCall } from "./containers";
 import { emitValueIr, emitValue } from "../value";
-import { emitAddr, addrIr, allocSlotIr, setLocal, narrowCastIr, resolveAddr } from "../addr";
+import { emitAddr, emitInlineStructStatement, addrIr, allocSlotIr, setLocal, narrowCastIr, resolveAddr } from "../addr";
 import { FnCtx, NO_BIND } from "../types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
 import * as ir from "../../ir";
@@ -99,6 +99,11 @@ export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, va
 
 // rvalue call: a value helper, qpi getter, qpi valued host call, a value-returning container method, or a math
 export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" }): ir.Ir {
+  if (ctx.cg.gtestMode && expr.callee.kind === "identifier" && expr.callee.name === "getBalance") {
+    const who = expr.args[0] ? emitAddr(ctx, expr.args[0]) : null;
+    if (!who) throw new Error("gtest getBalance account must be addressable");
+    return ir.call("$qt_balance", addrIr(who));
+  }
   // MSVC widening-multiply intrinsics used by authoritative math_lib bodies. Wasm supplies the
   // low limb directly; the frontend primitive computes and writes the high limb.
   if (expr.callee.kind === "identifier" && (expr.callee.name === "_mul128" || expr.callee.name === "_umul128")) {
@@ -334,6 +339,62 @@ export function emitOracleReadCall(ctx: FnCtx, expr: Expression & { kind: "templ
 }
 
 export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
+  if (ctx.cg.gtestMode && expr.callee.kind === "identifier") {
+    const name = expr.callee.name;
+    if (name === "__qtest_noop" || name === "initEmptySpectrum" || name === "initEmptyUniverse") return;
+
+    if (name === "invokeUserProcedure") {
+      const input = expr.args[2] ? resolveAddr(ctx, expr.args[2]) : null;
+      const output = expr.args[3] ? resolveAddr(ctx, expr.args[3]) : null;
+      const origin = expr.args[4] ? emitAddr(ctx, expr.args[4]) : null;
+      if (!input || !output || !origin) throw new Error("gtest invokeUserProcedure requires addressable input, output, and origin");
+      const slot = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[0]));
+      const inputType = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1]));
+      const amount = expr.args[5] ? emitValueIr(ctx, expr.args[5]) : ir.i64c(0);
+      ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.call("$qt_invoke", slot, inputType, addrIr(input.addr), ir.i32c(input.size), addrIr(output.addr), amount, addrIr(origin))))}`);
+      return;
+    }
+    if (name === "callFunction") {
+      const input = expr.args[2] ? resolveAddr(ctx, expr.args[2]) : null;
+      const output = expr.args[3] ? resolveAddr(ctx, expr.args[3]) : null;
+      if (!input || !output) throw new Error("gtest callFunction requires addressable input and output");
+      const slot = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[0]));
+      const inputType = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1]));
+      ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.call("$qt_query", slot, inputType, addrIr(input.addr), ir.i32c(input.size), addrIr(output.addr), ir.i32c(output.size))))}`);
+      return;
+    }
+    if (name === "increaseEnergy") {
+      const who = expr.args[0] ? emitAddr(ctx, expr.args[0]) : null;
+      if (!who) throw new Error("gtest increaseEnergy account must be addressable");
+      ctx.lines.push(`    ${ir.emit(ir.call("$qt_fund", addrIr(who), expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0)))}`);
+      return;
+    }
+    if (name === "callSystemProcedure") {
+      const slot = ir.op("i32.wrap_i64", expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0));
+      const procedure = ir.op("i32.wrap_i64", expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0));
+      ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.call("$qt_system", slot, procedure)))}`);
+      return;
+    }
+
+    const assertion = name.match(/^__qtest_(expect|assert)_(eq|ne|lt|le|gt|ge|true|false)$/);
+    if (assertion) {
+      const fatal = assertion[1] === "assert";
+      const operation = assertion[2];
+      const left = expr.args[0] ?? ({ kind: "int_literal", value: "0", span: expr.span } as Expression);
+      const right = operation === "true" || operation === "false"
+        ? ({ kind: "int_literal", value: operation === "true" ? "0" : "0", span: expr.span } as Expression)
+        : (expr.args[1] ?? ({ kind: "int_literal", value: "0", span: expr.span } as Expression));
+      const op = operation === "true" ? "!=" : operation === "false" ? "==" : ({ eq: "==", ne: "!=", lt: "<", le: "<=", gt: ">", ge: ">=" } as const)[operation as "eq" | "ne" | "lt" | "le" | "gt" | "ge"];
+      const comparison = emitValueIr(ctx, { kind: "binary_op", op, left, right, span: expr.span });
+      const code = ["eq", "ne", "lt", "le", "gt", "ge", "true", "false"].indexOf(operation);
+      ctx.lines.push(`    (if (i64.eqz ${ir.emit(comparison)}) (then`);
+      ctx.lines.push(`      ${ir.emit(ir.call("$qt_fail", ir.i32c(code), ir.i32c(fatal ? 1 : 0)))}`);
+      if (fatal) ctx.lines.push("      (return)");
+      ctx.lines.push("    ))");
+      return;
+    }
+  }
+
   // The generic HashFunction<KeyT> source body calls core-lite's KangarooTwelve primitive with an
   // explicit output length. The lite host exposes K12 as a 32-byte producer, so hash into a private
   // 32-byte slot and then copy/assign the requested prefix.
@@ -392,6 +453,8 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
 
   // ASSERT is ((void)0) in release builds (platform/assert.h) — the argument is not even evaluated, so dropping the statement
   if (expr.callee.kind === "identifier" && expr.callee.name === "ASSERT") return;
+
+  if (expr.callee.kind === "member_access" && emitInlineStructStatement(ctx, expr)) return;
 
   // ProposalVoting proxy `qpi(state.proposals).method(...)` as a statement (e.g. getProposal/vote write
   if (ctx.proxyClass && emitProxySiblingCall(ctx, expr, false) !== null) return;

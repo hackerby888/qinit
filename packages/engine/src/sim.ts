@@ -507,12 +507,11 @@ export class Sim {
   }
 
   // Deploy + construct (ContractRegistry owns the instances); stays on the façade for the public API.
-  // `thost` is set only for a gtest module (lite_test.h) — the test-host import table bound beside lhost.
-  deploy(slot: number, wasm: Uint8Array, thost?: Record<string, Function>, extMem?: WebAssembly.Memory): Contract {
+  deploy(slot: number, wasm: Uint8Array, extMem?: WebAssembly.Memory): Contract {
     this.nativeLogger?.begin(this.tickN, LOG_SC_INITIALIZE);
     let c: Contract;
     try {
-      c = this.registry.deploy(slot, wasm, this.host, thost, extMem);
+      c = this.registry.deploy(slot, wasm, this.host, extMem);
     } finally {
       this.nativeLogger?.end();
     }
@@ -523,6 +522,16 @@ export class Sim {
       this.emit("warn", "digest", `slot ${slot} state ${(c.stateSize / 1048576) | 0}MB > ${K12_MAX_LEAF_BYTES / 1048576}MB — excluded from computer digest (zero leaf)`);
     }
     return c;
+  }
+
+  // Private test-runner hook: production contracts never receive engine-specific imports.
+  deployWithImports(slot: number, wasm: Uint8Array, imports: WebAssembly.Imports): Contract {
+    this.nativeLogger?.begin(this.tickN, LOG_SC_INITIALIZE);
+    try {
+      return this.registry.deploy(slot, wasm, this.host, undefined, imports);
+    } finally {
+      this.nativeLogger?.end();
+    }
   }
 
   undeploy(slot: number): boolean {

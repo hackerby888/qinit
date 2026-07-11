@@ -1,8 +1,9 @@
 // Differential gtest for container method completion: HashSet add/contains/remove/population and HashMap removeByKey + iteration (nextElementIndex/value(i)) — validated against native
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -54,8 +55,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-const REGISTRY_GTEST = `TEST(Registry, HashSetAddContainsRemovePopulation) {
-  ContractTest t;
+const REGISTRY_GTEST = coreGtest("Registry", `TEST(Registry, HashSetAddContainsRemovePopulation) {
+  ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   QPI::id u2 = t.idFromSeed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
   QPI::id u3 = t.idFromSeed("ccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
@@ -76,7 +77,7 @@ const REGISTRY_GTEST = `TEST(Registry, HashSetAddContainsRemovePopulation) {
   EXPECT_EQ(t.call<Registry::IsMember_output>(1, m).yes, 0ull);
 }
 TEST(Registry, HashMapIterateAndRemove) {
-  ContractTest t;
+  ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("ddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
   QPI::id u2 = t.idFromSeed("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
   t.fund(u1, 1000000000ll); t.fund(u2, 1000000000ll);
@@ -91,7 +92,7 @@ TEST(Registry, HashMapIterateAndRemove) {
   EXPECT_EQ(t.call<Registry::SumAll_output>(3, s).sum, 50ull);
 }
 TEST(Registry, HashMapReuseRemovedSlot) {
-  ContractTest t;
+  ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("fffffffffffffffffffffffffffffffffffffffffffffffffffffff");
   t.fund(u1, 1000000000ll);
   Registry::Deposit_input d{}; d.amt = 100ull;
@@ -103,7 +104,7 @@ TEST(Registry, HashMapReuseRemovedSlot) {
   Registry::SumAll_input s{};                          // marked for removal and takes goto reuse_slot
   EXPECT_EQ(t.call<Registry::SumAll_output>(3, s).sum, 200ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -131,9 +132,11 @@ describe("differential gtest — Registry (HashSet + HashMap iteration/remove)",
     const contractPath = join(dir, "Registry.h");
     writeFileSync(contractPath, REGISTRY);
 
-    const built = await buildContract({
-      contractPath, name: "Registry", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: REGISTRY_GTEST, testPath: "Registry.test.cpp",
+    const testPath = join(dir, "Registry.test.cpp");
+    writeFileSync(testPath, REGISTRY_GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Registry", stateType: "Registry", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -141,7 +144,7 @@ describe("differential gtest — Registry (HashSet + HashMap iteration/remove)",
     const mine = await compileContract({ source: REGISTRY, name: "Registry", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

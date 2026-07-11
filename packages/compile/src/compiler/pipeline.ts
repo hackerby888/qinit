@@ -1,4 +1,3 @@
-import type { TranslationUnit } from "../ast";
 import { Lexer } from "../lexer";
 import { Parser, type Diagnostic as ParserDiagnostic } from "../parser";
 import { Preprocessor } from "../preprocess";
@@ -19,11 +18,11 @@ import { validateCompileOpts } from "./options";
 import { getQpiContext } from "./qpi-context";
 import { inspectLiteWasmModule } from "./wasm-inspect";
 import type { CompileOpts, CompileResult } from "./types";
+import type { GtestCompileResult } from "./types";
+import { compileCoreGtest } from "./gtest";
 
-export interface ParseAstResult {
-  ast: TranslationUnit;
-  diagnostics: ParserDiagnostic[];
-}
+export { parseToAst } from "./parse-ast";
+export type { ParseAstResult } from "./parse-ast";
 
 function emptyResult(opts: CompileOpts, diagnostics: ParserDiagnostic[], timings?: Record<string, number>): CompileResult {
   return {
@@ -32,31 +31,6 @@ function emptyResult(opts: CompileOpts, diagnostics: ParserDiagnostic[], timings
     idl: { name: opts.name, slot: opts.slot, functions: [], procedures: [], stateSize: 0, sysprocMask: 0 },
     ...(timings ? { timings } : {}),
   };
-}
-
-export function parseToAst(opts: { source: string; qpiHeader?: string; name?: string; slot?: number }): ParseAstResult {
-  const qpi = getQpiContext(opts.qpiHeader ?? QPI_STUB);
-  const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(opts.source)}`;
-  const text = new Preprocessor().preprocess({
-    source,
-    qpiHeader: "",
-    contractName: opts.name ?? "Contract",
-    contractIndex: opts.slot ?? 0,
-    seedMacros: qpi.macros,
-  });
-  const boundaryIndex = text.indexOf(USER_BOUNDARY);
-  const boundaryLine = boundaryIndex >= 0 ? text.slice(0, boundaryIndex).split("\n").length : 0;
-  const remap = makeUserDiagnosticRemapper(opts.source, text, boundaryLine);
-  const parser = new Parser(new Lexer(text).tokenize());
-  const unit = parser.parseTranslationUnit();
-  const declarations = unit.declarations.filter(
-    (declaration) => (declaration.span?.line ?? 0) > boundaryLine && (declaration as { name?: string }).name !== USER_BOUNDARY,
-  );
-  const diagnostics = [
-    ...scanUnterminatedSource(opts.source),
-    ...parser.getDiagnostics().filter((diagnostic) => diagnostic.span.line > boundaryLine).map(remap),
-  ].sort((a, b) => a.span.start - b.span.start || a.span.end - b.span.end);
-  return { ast: { ...unit, declarations }, diagnostics };
 }
 
 export async function compileContract(opts: CompileOpts): Promise<CompileResult> {
@@ -191,14 +165,6 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   return { wasm, diagnostics, idl: extractIdl(unit, opts, metadata), timings };
 }
 
-export function compileGtest(opts: CompileOpts & { testSource: string }): CompileResult {
-  return {
-    wasm: new Uint8Array(0),
-    diagnostics: [{
-      severity: "error",
-      message: "gtest local compilation not yet supported — use backend",
-      span: { start: 0, end: 0, line: 0, col: 0 },
-    }],
-    idl: { name: opts.name, slot: opts.slot, functions: [], procedures: [], stateSize: 0, sysprocMask: 0 },
-  };
+export async function compileGtest(opts: CompileOpts & { testSource: string }): Promise<GtestCompileResult> {
+  return compileCoreGtest(opts);
 }

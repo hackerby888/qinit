@@ -39,4 +39,7 @@ export type {
   CompileResult,
   ContractIdl,
   Diagnostic,
+  GtestCompileResult,
+  GtestDiagnostic,
+  GtestProgram,
 } from "./compiler/types";

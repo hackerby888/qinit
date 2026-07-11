@@ -1,8 +1,9 @@
 // Differential gtest for user-defined helper functions: plain value helpers (triple/addThem, called directly) and a PRIVATE_PROCEDURE invoked via CALL()
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -54,18 +55,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-const HELPERS_GTEST = `TEST(Helpers, ValueHelperReturn) {
-  ContractTest t;
+const HELPERS_GTEST = coreGtest("Helpers", `TEST(Helpers, ValueHelperReturn) {
+  ContractTestingHarness t;
   Helpers::Apply_input a{}; a.x = 5ull;
   EXPECT_EQ(t.call<Helpers::Apply_output>(1, a).y, 15ull);
 }
 TEST(Helpers, AggregateParamFieldRead) {
-  ContractTest t;
+  ContractTestingHarness t;
   Helpers::Combine_input c{}; c.p.lo = 11ull; c.p.hi = 31ull;
   EXPECT_EQ(t.call<Helpers::Combine_output>(3, c).s, 42ull);
 }
 TEST(Helpers, PrivateCallMutatesStateViaCallerLvalues) {
-  ContractTest t;
+  ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000ll);
   Helpers::AddAndBump_input ab{}; ab.a = 3ull; ab.b = 4ull;
@@ -79,7 +80,7 @@ TEST(Helpers, PrivateCallMutatesStateViaCallerLvalues) {
   Helpers::Total_input ti{};
   EXPECT_EQ(t.call<Helpers::Total_output>(2, ti).total, 17ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -107,9 +108,11 @@ describe("differential gtest — Helpers (value helpers + PRIVATE_ via CALL)", (
     const contractPath = join(dir, "Helpers.h");
     writeFileSync(contractPath, HELPERS);
 
-    const built = await buildContract({
-      contractPath, name: "Helpers", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: HELPERS_GTEST, testPath: "Helpers.test.cpp",
+    const testPath = join(dir, "Helpers.test.cpp");
+    writeFileSync(testPath, HELPERS_GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Helpers", stateType: "Helpers", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -117,7 +120,7 @@ describe("differential gtest — Helpers (value helpers + PRIVATE_ via CALL)", (
     const mine = await compileContract({ source: HELPERS, name: "Helpers", slot: 28, qpiHeader: HEADERS, arenaSz: 64 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
     }

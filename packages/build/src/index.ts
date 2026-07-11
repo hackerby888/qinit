@@ -1,3 +1,4 @@
+/// <reference path="./text-assets.d.ts" />
 // qinit build: contract .h -> wasm module (run by the node's WAMR engine) + K12 hash + IDL.
 import { statSync, readFileSync } from "node:fs";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
@@ -24,7 +25,6 @@ export type { ContractIdl, IdlEntry, Field, LogStruct, EnumDef } from "./idl";
 export { systemContracts, systemNames, type SystemContract } from "./system-contracts";
 export { generateClient } from "./gen-client";
 export { testRuntimeSource, sampleTest } from "./gen-test";
-export { genGtest } from "./gen-gtest";
 export { genStdGtest } from "./gen-std-gtest";
 export { buildSnapshot } from "./snapshot";
 export type { SnapshotResult } from "./snapshot";
@@ -108,7 +108,7 @@ export async function buildCorpusRunner(o: {
   // The corpus runner is a test tool, not a deployed contract, so it has no need for the recipe's
   // -O0 -g debuggability. Build it -O2 (the trailing -O wins over the recipe's -O0): corpus checkers
   // sweep whole fixed-capacity state arrays (e.g. QEARN's 4,194,304-entry locker) every assertion, and
-  // -O0 makes those loops the dominant cost. lite_test.h's EXPECT_*/ASSERT_* expand to a bare `return;`
+  // -O0 makes those loops the dominant cost. The private Wasm EXPECT_*/ASSERT_* macros expand to a bare `return;`
   // (under `if (fatal)`), a C++ default-error in non-void corpus helpers; native uses real gtest (no
   // return), so relax it here — scoped to the corpus path, production deploys keep the strict default.
   // QINIT_CORPUS_RUNNER shrinks the runner's dead in-module state buffer to one page (lite_wasm_tu.h): the

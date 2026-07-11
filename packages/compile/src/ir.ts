@@ -102,6 +102,16 @@ const I32 = "i32" as const;
 const I64 = "i64" as const;
 
 export const CALL_SIG: Record<string, CallSig> = {
+  // private TS gtest runner host
+  $qt_invoke: sig([I32, I32, I32, I32, I32, I64, I32], I32),
+  $qt_query: sig([I32, I32, I32, I32, I32, I32], I32),
+  $qt_fund: sig([I32, I64], "void"),
+  $qt_balance: sig([I32], I64),
+  $qt_random_id: sig([I32], "void"),
+  $qt_state: sig([I32, I32, I32], I32),
+  $qt_system: sig([I32, I32], I32),
+  $qt_fail: sig([I32, I32], "void"),
+
   // memory + runtime plumbing
   $setMem: sig([I32, I32, I32], "void"),
   $copyMem: sig([I32, I32, I32], "void"),

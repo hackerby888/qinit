@@ -1,8 +1,9 @@
 // Fidelity probe for i64/value-model divergence edges.
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -50,8 +51,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Probe, 1); }
 };`;
 
-const GTEST = `TEST(Fidelity, SemanticEdges) {
-  ContractTest t;
+const GTEST = coreGtest("Edge", `TEST(Fidelity, SemanticEdges) {
+  ContractTestingHarness t;
   CONTRACT_STATE_TYPE::Probe_input in{};
   in.sa = -8ll; in.sb = 2ll; in.ua = 9223372036854775818ull; in.ub = 3ull;
   auto r = t.call<CONTRACT_STATE_TYPE::Probe_output>(1, in);
@@ -71,14 +72,14 @@ const GTEST = `TEST(Fidelity, SemanticEdges) {
 }
 
 TEST(Fidelity, TernaryIsLazy) {
-  ContractTest t;
+  ContractTestingHarness t;
   CONTRACT_STATE_TYPE::Probe_input in{};
   in.sa = 5ll; in.sb = 0ll; in.ua = 7ull; in.ub = 1ull;
   auto r = t.call<CONTRACT_STATE_TYPE::Probe_output>(1, in);
   EXPECT_EQ(r.lazyTern, -7ll);   // untaken arm divides by zero — must never evaluate
   EXPECT_EQ(r.rawDivU, 7ull);
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -106,9 +107,11 @@ describe("differential gtest — semantic fidelity edges", () => {
     const contractPath = join(dir, "Edge.h");
     writeFileSync(contractPath, SRC);
 
-    const built = await buildContract({
-      contractPath, name: "Edge", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: GTEST, testPath: "Edge.test.cpp",
+    const testPath = join(dir, "Edge.test.cpp");
+    writeFileSync(testPath, GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "Edge", stateType: "Edge", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -116,7 +119,7 @@ describe("differential gtest — semantic fidelity edges", () => {
     const mine = await compileContract({ source: SRC, name: "Edge", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`);
     }

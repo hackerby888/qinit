@@ -7,7 +7,7 @@
 
 // Wasm-mode replacement for core-lite contract_testing.h.
 // Routes ContractTesting / free-helper calls to "thost" imports bound by
-// @qinit/engine runContractTesting(). Included after extensions/lite_test.h
+// @qinit/engine runContractTesting(). Included after Qinit's private Wasm gtest registry
 // inside the wrapper TU; relies on types already in scope: QPI::id, QPI::Asset,
 // QPI::sint64, setMem, copyMem, malloc.
 
@@ -663,17 +663,17 @@ static inline bool transferShareOwnershipAndPossession(int sourceOwnershipIndex,
 }
 
 // ---- streamable EXPECT_* (gtest `EXPECT_EQ(a,b) << "note"`) ----
-// lite_test.h defines the EXPECT_*/ASSERT_* comparisons as `do{...}while(0)` statements, so a corpus that
+// The private Wasm registry defines EXPECT_*/ASSERT_* comparisons as `do{...}while(0)` statements, so a corpus that
 // streams a failure note (`EXPECT_EQ(x, y) << "msg"`, RANDOM) won't compile. Redefine the non-fatal EXPECT_*
-// comparisons (included AFTER lite_test.h) as an `if/else` whose else branch is a sink that swallows the
-// trailing <<. The recording still happens (litetest::failAt on mismatch); the note is parsed but not run.
+// comparisons as an `if/else` whose else branch is a sink that swallows the
+// trailing <<. The recording still happens (qinit_gtest::failAt on mismatch); the note is parsed but not run.
 // Operands are passed once (by const ref) so there's no double-evaluation. ASSERT_* keep the original form
 // (they `return` on failure, which an expression can't), so `ASSERT_* << msg` is still unsupported.
-namespace litetest {
+namespace qinit_gtest {
     struct Sink { template <class T> Sink& operator<<(const T&) { return *this; } };
 }
 #define QBCT_REC_CMP(suffix, op)                                                                             \
-    namespace litetest {                                                                                     \
+    namespace qinit_gtest {                                                                                 \
         template <class A, class B>                                                                          \
         static inline bool recCmp##suffix(const char* f, int l, const char* w, const A& a, const B& b) {     \
             if (!(a op b)) { failAt(f, l, w); appendStr(" ("); appendVal(a); appendStr(" vs "); appendVal(b); appendStr(")"); } \
@@ -681,7 +681,7 @@ namespace litetest {
         }                                                                                                    \
     }
 QBCT_REC_CMP(Eq, ==) QBCT_REC_CMP(Ne, !=) QBCT_REC_CMP(Lt, <) QBCT_REC_CMP(Le, <=) QBCT_REC_CMP(Gt, >) QBCT_REC_CMP(Ge, >=)
-namespace litetest {
+namespace qinit_gtest {
     static inline bool recBool(const char* f, int l, const char* w, bool cond) { if (!cond) failAt(f, l, w); return true; }
 
     // Refresh engine-dirty state shadows before an assertion evaluates its operands: a corpus commonly caches
@@ -695,7 +695,7 @@ namespace litetest {
 }
 #define QBCT_EXPECT(suffix, a, b, label)                                                                     \
     switch (0) case 0: default:                                                                              \
-        if (::litetest::qbSyncThen() && ::litetest::recCmp##suffix(__FILE__, __LINE__, label, (a), (b))) ; else ::litetest::Sink()
+        if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recCmp##suffix(__FILE__, __LINE__, label, (a), (b))) ; else ::qinit_gtest::Sink()
 #undef EXPECT_EQ
 #undef EXPECT_NE
 #undef EXPECT_LT
@@ -710,8 +710,8 @@ namespace litetest {
 #define EXPECT_LE(a, b) QBCT_EXPECT(Le, a, b, "EXPECT_LE(" #a ", " #b ")")
 #define EXPECT_GT(a, b) QBCT_EXPECT(Gt, a, b, "EXPECT_GT(" #a ", " #b ")")
 #define EXPECT_GE(a, b) QBCT_EXPECT(Ge, a, b, "EXPECT_GE(" #a ", " #b ")")
-#define EXPECT_TRUE(x)  switch (0) case 0: default: if (::litetest::qbSyncThen() && ::litetest::recBool(__FILE__, __LINE__, "EXPECT_TRUE(" #x ")", (bool)(x))) ; else ::litetest::Sink()
-#define EXPECT_FALSE(x) switch (0) case 0: default: if (::litetest::qbSyncThen() && ::litetest::recBool(__FILE__, __LINE__, "EXPECT_FALSE(" #x ")", !(bool)(x))) ; else ::litetest::Sink()
+#define EXPECT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_TRUE(" #x ")", (bool)(x))) ; else ::qinit_gtest::Sink()
+#define EXPECT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_FALSE(" #x ")", !(bool)(x))) ; else ::qinit_gtest::Sink()
 // ASSERT_* likewise — streamable so `ASSERT_*(...) << "msg"` (RANDOM) compiles. These record the failure but do
 // NOT early-return (an expression can't), so a failed ASSERT continues; the test still ends up failed (recorded,
 // and any follow-on trap is caught per-test by the harness). Passing tests never hit a failed ASSERT, so this
@@ -730,8 +730,8 @@ namespace litetest {
 #define ASSERT_LE(a, b) QBCT_EXPECT(Le, a, b, "ASSERT_LE(" #a ", " #b ")")
 #define ASSERT_GT(a, b) QBCT_EXPECT(Gt, a, b, "ASSERT_GT(" #a ", " #b ")")
 #define ASSERT_GE(a, b) QBCT_EXPECT(Ge, a, b, "ASSERT_GE(" #a ", " #b ")")
-#define ASSERT_TRUE(x)  switch (0) case 0: default: if (::litetest::qbSyncThen() && ::litetest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else ::litetest::Sink()
-#define ASSERT_FALSE(x) switch (0) case 0: default: if (::litetest::qbSyncThen() && ::litetest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else ::litetest::Sink()
+#define ASSERT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_TRUE(" #x ")", (bool)(x))) ; else ::qinit_gtest::Sink()
+#define ASSERT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "ASSERT_FALSE(" #x ")", !(bool)(x))) ; else ::qinit_gtest::Sink()
 
 static inline long long numberOfPossessedShares(unsigned long long name, const QPI::id& issuer, const QPI::id& owner, const QPI::id& possessor, unsigned int om, unsigned int pm) {
     return bq_possessed(name, &issuer, &owner, &possessor, om, pm);

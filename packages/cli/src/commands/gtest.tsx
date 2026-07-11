@@ -1,15 +1,12 @@
-// `qinit gtest` — compile a contract's C++ gtest INTO its wasm (core-lite extensions/lite_test.h) and run it on
-// a fresh, isolated in-process Virtual Node. No native toolchain, no node deploy: the same combined-module path
-// the IDE "Run gtest" button uses, here in Bun. Scaffolds tests/<Name>.test.cpp from the IDL when absent.
+// `qinit gtest` — run the authoritative core-lite contract_testing.h style against an isolated virtual node.
 import { useEffect, useState } from "react";
 import { Box, Text, Static, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { loadConfig, resolveCore } from "../config";
-import { buildContract, genGtest, genStdGtest, extractIdl, qpiPrelude } from "@qinit/build";
-import { runTests, runTestsAgainst, type TestResult } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "@qinit/compile";
+import { genStdGtest, extractIdl, qpiPrelude } from "@qinit/build";
+import type { TestResult } from "@qinit/engine";
 import { runCorpus, runStdGtest } from "../corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 
@@ -127,8 +124,7 @@ export function Gtest({ args }: { args: string[] }) {
           ]);
         }
 
-        // Default = STANDARD contract_testing.h gtest (the real Qubic format). --lite = the portable
-        // lite_test.h shim (browser/no-toolchain). Auto-detect from an existing test file when no flag.
+        // One accepted source format: core-lite contract_testing.h / ContractTesting.
         const contractPath = resolve(o.contract ?? cfg.contract ?? "contracts/" + (cfg.name ?? "") + ".h");
         if (!existsSync(contractPath)) {
           add("contract", false, contractPath + " not found");
@@ -140,90 +136,34 @@ export function Gtest({ args }: { args: string[] }) {
         const contractSrc = readFileSync(contractPath, "utf8");
         const testPath = resolve(pos[0] ?? join("tests", `${name}.test.cpp`));
 
-        // Harness: explicit --lite/--std, else sniff an existing test, else standard.
-        const sniffLite = (src: string) => /lite_test\.h|\bContractTest\b/.test(src) && !/contract_testing\.h|\bContractTesting\b/.test(src);
-        const harness: "std" | "lite" =
-          "lite" in o ? "lite" : "std" in o ? "std" : existsSync(testPath) && sniffLite(readFileSync(testPath, "utf8")) ? "lite" : "std";
-
-        // Scaffold the test when missing (or --new), in the selected harness's style.
+        // Scaffold the test when missing (or --new).
         if (!existsSync(testPath) || o.new !== undefined) {
           const idl = extractIdl(contractSrc, name, { prelude: qpiPrelude(core) });
           mkdirSync(join(testPath, ".."), { recursive: true });
-          writeFileSync(testPath, harness === "lite" ? genGtest(idl) : genStdGtest(idl, name, stateType));
-          add("scaffold", true, `${testPath.replace(process.cwd() + "/", "")} (${harness})`);
+          writeFileSync(testPath, genStdGtest(idl, name, stateType));
+          add("scaffold", true, `${testPath.replace(process.cwd() + "/", "")} (core-lite)`);
         }
 
-        // STANDARD path: build the real gtest + contract (native or --local TS) and run on an isolated engine.
-        if (harness === "std") {
-          const backend = "local" in o ? "local" : "native";
-          spin(`building the gtest for ${name} (${backend})`);
-          const run = await runStdGtest({
-            contractPath, testPath, name, stateType, slot, core, backend,
-            shared: "shared-mem" in o, scratch: join(tmpdir(), "qinit-corpus"),
-            onResult, onPhase: backend === "local" ? (label) => spin(label) : undefined,
-          });
-          if (!run.runnerOk) {
-            add("build", false, "test-wasm build failed");
-            return done(false, [["stderr", (run.buildError ?? "").slice(0, 400)]]);
-          }
-          const ctiming = fmtTimings(run.timings);
-          if (ctiming) note(`  compile   ${ctiming}`);
-          const rr = run.results.filter((t) => matches(t.name));
-          const pass = rr.filter((t) => t.passed).length;
-          const ok = rr.length > 0 && pass === rr.length;
-          add("tests", ok, `${pass}/${rr.length} passed`);
-          return done(ok, [
-            ["contract", `${name} @ ${slot}${run.heavy ? " (shared-mem)" : ""}`],
-            ["backend", backend === "local" ? "local TS compiler" : "native clang"],
-            ["test", testPath.replace(process.cwd() + "/", "")],
-            ["node", "in-process engine (isolated genesis)"],
-          ]);
+        const backend = "local" in o ? "local" : "native";
+        spin(`building the gtest for ${name} (${backend})`);
+        const run = await runStdGtest({
+          contractPath, testPath, name, stateType, slot, core, backend,
+          shared: "shared-mem" in o, scratch: join(tmpdir(), "qinit-corpus"),
+          onResult, onPhase: backend === "local" ? (label) => spin(label) : undefined,
+        });
+        if (!run.runnerOk) {
+          add("build", false, "test-wasm build failed");
+          return done(false, [["stderr", (run.buildError ?? "").slice(0, 400)]]);
         }
-
-        // LITE path: the portable lite_test.h shim — combined contract+test wasm, driven via runTests/against.
-        const testSrc = readFileSync(testPath, "utf8");
-        spin("compiling contract + test → wasm (lite)");
-        const outDir = join(tmpdir(), "qinit-gtest");
-        mkdirSync(outDir, { recursive: true });
-        const r = await buildContract({ contractPath, name, slot, corePath: core, outDir, skipVerify: true, testSource: testSrc, testPath: basename(testPath) });
-        if (!r.ok || !r.so) {
-          add("build", false, "compile failed");
-          return done(false, [["stderr", (r.stderr ?? "").trim().split("\n").slice(-6).join("\n")]]);
-        }
-        add("build", true, `${((r.size ?? 0) / 1024) | 0}KB wasm`);
-
-        let results: TestResult[];
-        let localTimings: Record<string, number> | undefined;
-        if ("local" in o) {
-          spin("compiling contract with local TS compiler");
-          const qpiHeader = loadQpiHeader(core);
-          if (!qpiHeader) {
-            add("compile", false, "cannot load qpi.h — set QINIT_CORE or --core");
-            return done(false, []);
-          }
-          const cres = await compileContract({ source: contractSrc, name, slot, qpiHeader, onPhase: (p) => spin(`compiling ${name} (local) — ${p}`) });
-          localTimings = cres.timings;
-          const errs = cres.diagnostics.filter((d) => d.severity === "error");
-          if (errs.length) {
-            add("compile", false, `${errs.length} error(s)`);
-            return done(false, [["diagnostics", errs.slice(0, 6).map((d) => d.message).join("\n")]]);
-          }
-          add("compile", true, `${(cres.wasm.byteLength / 1024) | 0}KB wasm (local)`);
-          spin("running tests on a fresh, isolated virtual node (local backend)");
-          results = await runTestsAgainst(new Uint8Array(readFileSync(r.so)), cres.wasm, onResult);
-        } else {
-          spin("running tests on a fresh, isolated virtual node");
-          results = await runTests(new Uint8Array(readFileSync(r.so)), onResult);
-        }
-        const filtered = results.filter((t) => matches(t.name));
-        const pass = filtered.filter((t) => t.passed).length;
-        const ok = filtered.length > 0 && pass === filtered.length;
-        add("tests", ok, `${pass}/${filtered.length} passed`);
-        const ltiming = fmtTimings(localTimings);
-        if (ltiming) note(`  compile   ${ltiming}`);
-        done(ok, [
-          ["contract", `${name} @ ${slot}`],
-          ["backend", "local" in o ? "local TS compiler (differential, lite)" : "native clang (lite)"],
+        const ctiming = fmtTimings(run.timings);
+        if (ctiming) note(`  compile   ${ctiming}`);
+        const rr = run.results.filter((t) => matches(t.name));
+        const pass = rr.filter((t) => t.passed).length;
+        const ok = rr.length > 0 && pass === rr.length;
+        add("tests", ok, `${pass}/${rr.length} passed`);
+        return done(ok, [
+          ["contract", `${name} @ ${slot}${run.heavy ? " (shared-mem)" : ""}`],
+          ["backend", backend === "local" ? "local TS compiler" : "native clang"],
           ["test", testPath.replace(process.cwd() + "/", "")],
           ["node", "in-process engine (isolated genesis)"],
         ]);

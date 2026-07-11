@@ -2,8 +2,8 @@
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContract, genGtest, extractIdl, qpiPrelude } from "@qinit/build";
-import { runTestsAgainst } from "@qinit/engine";
+import { buildCorpusRunner, genStdGtest, extractIdl, qpiPrelude } from "@qinit/build";
+import { runContractTesting } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -51,7 +51,7 @@ for (const [disp, base, file] of TARGETS) {
   let testSrc = "";
   try {
     const idl = extractIdl(src, name, { prelude });
-    testSrc = genGtest(idl);
+    testSrc = genStdGtest(idl, name, name);
   } catch (e: any) {
     console.log(pad(disp, 22) + pad("idl-fail", 9) + "-");
     continue;
@@ -62,7 +62,9 @@ for (const [disp, base, file] of TARGETS) {
   try {
     const cp = join(dir, `${name}.h`);
     writeFileSync(cp, src);
-    const b = await buildContract({ contractPath: cp, name, slot: 28, corePath: CORE, outDir: dir, skipVerify: true, testSource: testSrc, testPath: `${name}.test.cpp` });
+    const testPath = join(dir, `${name}.test.cpp`);
+    writeFileSync(testPath, testSrc);
+    const b = await buildCorpusRunner({ corpusPath: testPath, contractPath: cp, name, stateType: name, slot: 28, corePath: CORE, outDir: dir });
     if (b.ok && b.so) { runner = new Uint8Array(readFileSync(b.so)); native = "ok"; }
     else native = "FAIL";
   } catch { native = "THROW"; }
@@ -78,7 +80,7 @@ for (const [disp, base, file] of TARGETS) {
   // 4. drive my contract with the native test logic
   if (runner && mineWasm) {
     try {
-      const res = await runTestsAgainst(runner, mineWasm);
+      const res = await runContractTesting(runner, { 28: mineWasm });
       const p = res.filter((r) => r.passed).length;
       testsStr = `${p}/${res.length}`;
       totalTests += res.length; passTests += p;
@@ -94,4 +96,4 @@ for (const [disp, base, file] of TARGETS) {
 
 console.log("-".repeat(64));
 console.log(`contracts all-pass: ${passContracts}/${TARGETS.length}  ·  smoke tests: ${passTests}/${totalTests}`);
-console.log("(pass == executed without trapping; genGtest emits no value assertions)\n");
+console.log("(pass == executed without trapping; genStdGtest emits no value assertions)\n");

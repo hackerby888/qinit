@@ -1,8 +1,9 @@
 // Unary operator type propagation: -x and ~x carry their operand's promoted type into comparisons and stores (unsigned 32-bit
+import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { runTestsAgainst, type TestResult } from "@qinit/engine";
+import { buildCorpusRunner } from "@qinit/build";
+import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
@@ -43,8 +44,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Probe, 1); }
 };`;
 
-const GTEST = `TEST(UnaryType, Promotion) {
-  ContractTest t;
+const GTEST = coreGtest("UnaryP", `TEST(UnaryType, Promotion) {
+  ContractTestingHarness t;
   CONTRACT_STATE_TYPE::Probe_input in{};
   auto r = t.call<CONTRACT_STATE_TYPE::Probe_output>(1, in);
   EXPECT_EQ(r.negCmp, 0ull);           // -uint32 is unsigned: 4294967295u < 0 is false
@@ -54,7 +55,7 @@ const GTEST = `TEST(UnaryType, Promotion) {
   EXPECT_EQ(r.mixEq, 1ull);            // sint32(-1) converts to 4294967295u
   EXPECT_EQ(r.mixLt, 0ull);            // sint32(-2) converts to 4294967294u, not < 1
 }
-`;
+`);
 
 function wasiAvailable(): boolean {
   try {
@@ -82,9 +83,11 @@ describe("differential gtest — unary type propagation", () => {
     const contractPath = join(dir, "UnaryP.h");
     writeFileSync(contractPath, SRC);
 
-    const built = await buildContract({
-      contractPath, name: "UnaryP", slot: 28, corePath: CORE, outDir: dir,
-      skipVerify: true, testSource: GTEST, testPath: "UnaryP.test.cpp",
+    const testPath = join(dir, "UnaryP.test.cpp");
+    writeFileSync(testPath, GTEST);
+    const built = await buildCorpusRunner({
+      corpusPath: testPath, contractPath, name: "UnaryP", stateType: "UnaryP", slot: 28,
+      corePath: CORE, outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
@@ -92,7 +95,7 @@ describe("differential gtest — unary type propagation", () => {
     const mine = await compileContract({ source: SRC, name: "UnaryP", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runTestsAgainst(runnerWasm, mine.wasm);
+    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
       console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`);
     }

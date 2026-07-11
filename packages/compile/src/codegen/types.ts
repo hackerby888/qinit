@@ -106,6 +106,9 @@ export interface FnCtx {
   scratchpadScope?: string[];                 // scratchpads live in the current scope chain — released LIFO at compound exit
   thisAddr?: string;                           // WAT for *this's address (default "(local.get $this)"); set when inlining a struct method
   inlineMethod?: boolean;                       // emitting a struct method inline into the caller — `return` is suppressed (the value flows via thisAddr)
+  inlineReturnLabel?: string;                    // block used to implement return from an inlined ordinary struct method
+  inlineValueLocal?: string;                     // scalar return destination for an inlined method
+  materializedCalls?: WeakMap<object, AddrNode>;  // side-effecting aggregate calls are evaluated once per AST expression
   proxyClass?: string;                          // emitting a ProposalVoting proxy method (qpi(pv).m()): the proxy class for sibling resolution
   sourceNamespace?: string;                     // lexical namespace/owner for unqualified free/static helper calls
 }
