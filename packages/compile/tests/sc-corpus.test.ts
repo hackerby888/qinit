@@ -76,6 +76,78 @@ const SPECS: Spec[] = [
     slot: 8,
     callees: [],
   },
+  {
+    corpus: "contract_random.cpp",
+    header: "Random.h",
+    name: "RANDOM",
+    stateType: "RANDOM",
+    slot: 3,
+    callees: [],
+  },
+  {
+    corpus: "contract_qip.cpp",
+    header: "QIP.h",
+    name: "QIP",
+    stateType: "QIP",
+    slot: 18,
+    callees: [{ name: "QX", header: "Qx.h", stateType: "QX", slot: 1 }],
+  },
+  {
+    corpus: "contract_qraffle.cpp",
+    header: "QRaffle.h",
+    name: "QRAFFLE",
+    stateType: "QRAFFLE",
+    slot: 19,
+    callees: [{ name: "QX", header: "Qx.h", stateType: "QX", slot: 1 }],
+  },
+  {
+    corpus: "contract_qduel.cpp",
+    header: "QDuel.h",
+    name: "QDUEL",
+    stateType: "QDUEL",
+    slot: 23,
+    callees: [{ name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 }],
+  },
+  {
+    corpus: "contract_rl.cpp",
+    header: "RandomLottery.h",
+    name: "RL",
+    stateType: "RL",
+    slot: 16,
+    callees: [],
+  },
+  {
+    corpus: "contract_ggwp.cpp",
+    header: "GGWP.h",
+    name: "GGWP",
+    stateType: "WOLFPACK",
+    slot: 28,
+    callees: [],
+  },
+  {
+    corpus: "contract_qtf.cpp",
+    header: "QThirtyFour.h",
+    name: "QTF",
+    stateType: "QTF",
+    slot: 22,
+    callees: [
+      { name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 },
+      { name: "QRP", header: "QReservePool.h", stateType: "QRP", slot: 21 },
+    ],
+  },
+  {
+    corpus: "contract_pulse.cpp",
+    header: "Pulse.h",
+    name: "PULSE",
+    stateType: "PULSE",
+    slot: 24,
+    callees: [
+      { name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 },
+      { name: "QRP", header: "QReservePool.h", stateType: "QRP", slot: 21 },
+      { name: "QTF", header: "QThirtyFour.h", stateType: "QTF", slot: 22 },
+      { name: "QX", header: "Qx.h", stateType: "QX", slot: 1 },
+    ],
+  },
 ];
 
 function calleeIdlFrom(name: string, index: number, r: CompileResult): CalleeIdl {
@@ -115,7 +187,14 @@ async function buildOurs(spec: Spec): Promise<Record<number, Uint8Array>> {
 
   for (const callee of spec.callees) {
     const src = readFileSync(`${CORE}/src/contracts/${callee.header}`, "utf8");
-    const r = await compileContract({ source: src, name: callee.name, slot: callee.slot, qpiHeader: headers, arenaSz: ARENA });
+    const prior = spec.callees.slice(0, calleeResults.length);
+    const priorIdl = prior.map((item, index) => calleeIdlFrom(item.name, item.slot, calleeResults[index]));
+    const priorSources = prior.map((item) => ({ name: item.name, source: readFileSync(`${CORE}/src/contracts/${item.header}`, "utf8") }));
+    const r = await compileContract({
+      source: src, name: callee.name, slot: callee.slot, qpiHeader: headers, arenaSz: ARENA,
+      callees: priorIdl.length ? priorIdl : undefined,
+      calleeSources: priorSources.length ? priorSources : undefined,
+    });
     const errs = r.diagnostics.filter((d) => d.severity === "error");
     if (errs.length) {
       throw new Error(`ours ${callee.name}: ${errs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`);
@@ -199,6 +278,9 @@ async function runSingleCell(): Promise<void> {
     const results = await runContractTesting(runner, contracts);
     const passed = results.filter((r) => r.passed).length;
     appendFileSync(outPath, `SCORE ${passed}/${results.length}\n`);
+    for (const result of results.filter((item) => !item.passed)) {
+      appendFileSync(outPath, `FAIL ${result.name} — ${result.message.replace(/\s+/g, " ").slice(0, 300)}\n`);
+    }
   } catch (e: any) {
     if (!runnerOk) {
       appendFileSync(outPath, "RUNNER err\n");
@@ -220,7 +302,7 @@ async function spawnCell(name: string, mode: string, timeoutMs: number): Promise
   const outPath = join(tmpdir(), `qinit-cell-${name.toLowerCase()}-${mode}-${Date.now()}.txt`);
   writeFileSync(outPath, "");
 
-  const proc = Bun.spawn(["bun", "test", import.meta.path], {
+  const proc = Bun.spawn([process.execPath, "test", import.meta.path], {
     cwd: join(import.meta.dir, ".."),
     env: { ...process.env, SC_SINGLE: `${name}|${mode}`, SC_OUT: outPath, SC_SWEEP: "" },
     stdout: "ignore",
@@ -268,7 +350,7 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
   }, 600000);
 
   test("QUTIL parity: native >= 51 AND ours >= 51 via qinit harness", async () => {
-    if (process.env.SC_SINGLE) {
+    if (process.env.SC_SINGLE || process.env.SC_OURS_ONLY) {
       return;
     }
     if (!wasiAvailable()) {
@@ -326,8 +408,12 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
     const CELL_TIMEOUT = 120000;
     const rows: Row[] = [];
 
-    for (const spec of SPECS) {
-      const native = await spawnCell(spec.name, "native", CELL_TIMEOUT);
+    const selectedNames = new Set((process.env.SC_SWEEP_FILTER ?? "").split(",").filter(Boolean));
+    const selected = selectedNames.size ? SPECS.filter((spec) => selectedNames.has(spec.name)) : SPECS;
+    const oursOnly = !!process.env.SC_OURS_ONLY;
+
+    for (const spec of selected) {
+      const native = oursOnly ? { runner: "-", score: "skip" } : await spawnCell(spec.name, "native", CELL_TIMEOUT);
       const ours = await spawnCell(spec.name, "ours", CELL_TIMEOUT);
 
       const runner = native.runner === "ok" || ours.runner === "ok" ? "ok" : "err";
@@ -352,6 +438,6 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
 
     console.log("\n" + tableLines.join("\n"));
 
-    expect(rows.length).toBe(6);
+    expect(rows.length).toBe(selected.length);
   }, 1800000);
 });

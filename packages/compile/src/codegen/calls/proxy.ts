@@ -54,7 +54,10 @@ export function emitProposalProxyAddr(ctx: FnCtx, expr: Expression & { kind: "ca
   const ops = cm.fnParams.map((fp, i) => {
     const arg = expr.args[i];
     if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
+    const paramType = ctx.cg.substInBindings(ctx.cg.derefType(fp.type), bind);
+    return fp.isAddr
+      ? argAddr(ctx, arg, ctx.cg.sizeOfType(paramType, bind), paramType, fp.readOnlyRef === true)
+      : emitValue(ctx, arg);
   });
   const s = allocSlot(ctx, cm.retAgg!);
   ctx.lines.push(`    (call ${cm.label} ${s} ${target.addr} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`);
@@ -80,7 +83,10 @@ export function callProxy(ctx: FnCtx, cm: CompiledMethod, self: string, pvType: 
   const ops = cm.fnParams.map((fp, i) => {
     const arg = args[i];
     if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
+    const paramType = ctx.cg.substInBindings(ctx.cg.derefType(fp.type), bind);
+    return fp.isAddr
+      ? argAddr(ctx, arg, ctx.cg.sizeOfType(paramType, bind), paramType, fp.readOnlyRef === true)
+      : emitValue(ctx, arg);
   });
 
   // An aggregate-returning proxy method (proposerId → id) writes through a leading $ret slot. The
@@ -88,12 +94,14 @@ export function callProxy(ctx: FnCtx, cm: CompiledMethod, self: string, pvType: 
     const s = allocSlot(ctx, cm.retAgg);
     ctx.lines.push(`    (call ${cm.label} ${s} ${self} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`);
     if (!valueWanted) return "";
-    ctx.cg.warn(`aggregate proxy return used as scalar value`, 0);
-    return "(i64.const 0)";
+    throw new Error("aggregate proposal method return used as a scalar");
   }
 
   const call = `(call ${cm.label} ${self} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`;
-  if (valueWanted) return cm.retKind === "i64" ? call : "(i64.const 0)";
+  if (valueWanted) {
+    if (cm.retKind !== "i64") throw new Error("void proposal method used as a value");
+    return call;
+  }
   ctx.lines.push(cm.retKind === "i64" ? `    ${ir.emit(ir.op("drop", ir.raw(call, "i64", "unconverted: proxy method call")))}` : `    ${call}`);
   return "";
 }
@@ -116,14 +124,14 @@ export function compileProxyMethod(cg: Codegen, pvType: TypeSpec & { kind: "temp
   const retKind: "i64" | "void" = cg.isVoidType(def.returnType) || isAggRet ? "void" : "i64";
   const retAgg = isAggRet ? cg.sizeOfType(retT, bind) : undefined;
 
-  const cm: CompiledMethod = { label: `$PV${cg.compiledMethods.size}_${proxyClass}_${method}`, fnParams, retKind, retAgg };
+  const cm: CompiledMethod = { label: `$PV${cg.compiledMethods.size}_${proxyClass}_${method}`, fnParams, retKind, retAgg, retType: retT };
   cg.compiledMethods.set(cacheKey, cm);   // register before emitting so recursive/sibling calls resolve
   try {
     cg.emittedMethodOrder.push(emitProxyMethodFn(cg, cm, def, pvType, bind, proxyClass));
   } catch (e: any) {
     cg.warn(`failed to compile proxy ${cacheKey}: ${e.message}`, def.span?.line ?? 0);
     cg.compiledMethods.delete(cacheKey);
-    return null;
+    throw e;
   }
   return cm;
 }
@@ -140,6 +148,7 @@ export function emitProxyMethodFn(cg: Codegen, cm: CompiledMethod, def: Function
   if (cm.retAgg) {
     ctx.retAddr = "(local.get $__qinit_ret)";
     ctx.retAggSize = cm.retAgg;
+    ctx.retType = cm.retType;
   }
   // `qpi` (member) is a dummy address param; qpi.method() routes to the ambient host context.
   ctx.params!.set("qpi", { wasmType: "i32", isAddr: true, type: { kind: "name", name: "QpiContextFunctionCall" } });

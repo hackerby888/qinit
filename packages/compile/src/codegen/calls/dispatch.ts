@@ -176,9 +176,7 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
     if (m) {
       const real = emitProposalProxyCall(ctx, expr, true);
       if (real !== null) return ir.raw(real, "i64", "unconverted: proposal proxy call");
-      if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex") return ir.i64c(-1);
-      if (m === "setProposal") return ir.i64c(ctx.cg.resolveConst("INVALID_PROPOSAL_INDEX") ?? 65535n);
-      return ir.i64c(0);
+      throw new Error(`authoritative proposal method '${m}' could not be lowered`);
     }
   }
 
@@ -484,8 +482,11 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
 
   // ProposalVoting proxy `qpi(state.proposals).method(...)` as a statement (e.g. getProposal/vote write
   if (ctx.proxyClass && emitProxySiblingCall(ctx, expr, false) !== null) return;
-  if (qpiWrapperMethod(expr)) {
-    emitProposalProxyCall(ctx, expr, false);
+  const proxyMethod = qpiWrapperMethod(expr);
+  if (proxyMethod) {
+    if (emitProposalProxyCall(ctx, expr, false) === null) {
+      throw new Error(`authoritative proposal method '${proxyMethod}' could not be lowered`);
+    }
     return;
   }
 

@@ -431,30 +431,9 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     return materializeId(ctx, []);
   }
 
-  // AssetOwnershipSelect / AssetPossessionSelect constructors → materialize the 40-byte selector the engine reads (id @0, managingContract u16 @32, anyId
-  if (expr.kind === "call" && expr.callee.kind === "identifier" && /^(AssetOwnershipSelect|AssetPossessionSelect)::/.test(expr.callee.name)) {
-    const method = expr.callee.name.split("::")[1];
-    const s = allocSlotIr(ctx, 40);
-    ctx.lines.push(`    ${ir.emit(ir.call("$setMem", s, ir.i32c(40), ir.i32c(0)))}`);
-    if (method === "byOwner" || method === "byPossessor") {
-      const src = expr.args[0] ? emitAddr(ctx, expr.args[0]) : null;
-      if (src) ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", s, addrIr(src), ir.i32c(32)))}`);
-      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(s, 35), ir.i32c(1)))}`);
-    } else if (method === "any") {
-      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(s, 34), ir.i32c(1)))}`);
-      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(s, 35), ir.i32c(1)))}`);
-    } else if (method === "byManagingContract") {
-      const mc = ir.op("i32.and", ir.op("i32.wrap_i64", expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0)), ir.i32c("0xffff"));
-      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store16", null, ir.addr0(s, 32), mc))}`);
-      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(s, 34), ir.i32c(1)))}`);
-    }
-    return ir.emit(s);
-  }
-
   // A qualified static method returning an aggregate is compiled from the owning
-  // struct's authoritative body after established ABI constructors have had a
-  // chance to lower. Typedef owners (id -> m256i) resolve to the same implementation;
-  // no random-method name receives special behavior here.
+  // struct's authoritative body. Typedef owners (id -> m256i) resolve to the same
+  // implementation; no individual method name receives semantic behavior here.
   if (expr.kind === "call" && (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")) {
     const qualified = expr.callee.name;
     const separator = qualified.lastIndexOf("::");
@@ -632,8 +611,9 @@ export function emitInlineStructMethod(
     ctx.localVars.set(slot, { wasmType: cls.wasmType });
     const arg = args[i] ?? p.defaultValue;
     if (arg) {
+      const paramType = ctx.cg.substInBindings(ctx.cg.derefType(p.type), bind);
       const v = cls.isAddr
-        ? addrIr(argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(p.type), bind)))
+        ? addrIr(argAddr(ctx, arg, ctx.cg.sizeOfType(paramType, bind), paramType, cls.readOnlyRef === true))
         : emitValueIr(ctx, arg);
       ctx.lines.push(`    ${setLocal(ctx, slot, v)}`);
     }
@@ -643,7 +623,7 @@ export function emitInlineStructMethod(
   const save = {
     thisLayout: ctx.thisLayout, thisType: ctx.thisType, thisAddr: ctx.thisAddr,
     params: ctx.params, inlineMethod: ctx.inlineMethod, retIsValue: ctx.retIsValue,
-    retAddr: ctx.retAddr, retAggSize: ctx.retAggSize, inlineReturnLabel: ctx.inlineReturnLabel,
+    retAddr: ctx.retAddr, retAggSize: ctx.retAggSize, retType: ctx.retType, inlineReturnLabel: ctx.inlineReturnLabel,
     inlineValueLocal: ctx.inlineValueLocal, retTypeName: ctx.retTypeName,
   };
   ctx.thisLayout = objNode.layout ?? undefined;
@@ -654,6 +634,7 @@ export function emitInlineStructMethod(
   ctx.retIsValue = false;
   ctx.retAddr = result.retAddr;
   ctx.retAggSize = result.retSize;
+  ctx.retType = ctx.cg.derefType(fn.returnType);
   ctx.inlineValueLocal = result.retValue;
   ctx.retTypeName = fn.returnType.kind === "name" ? fn.returnType.name : undefined;
   const returnLabel = `$inline_return_${ctx.loopCount++}`;
@@ -680,38 +661,19 @@ export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "cal
   if (!ct || ct.kind !== "template_instance") return null;
   const ctype = ct;
   const m = expr.callee.member;
-  const C = (n: number) => `(i32.const ${n})`;
   const mk = (addr: string, elemType: TypeSpec): AddrNode => ({
     addr, type: elemType, size: ctx.cg.sizeOfType(elemType), layout: ctx.cg.layoutOfType(elemType),
   });
 
-  if (ctype.name === "Array" && m === "get") {
-    const info = ctx.cg.arrayInfo(ctype.args);
-    if (!info) return null;
-    const addr = `(i32.add ${node.addr} (i32.mul (i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[0])}) ${C(info.L - 1)}) ${C(info.elemSize)}))`;
-    return mk(addr, ctype.args[0]);
+  if (!ctx.cg.templateMethods.get(ctype.name)?.has(m)) return null;
+  const method = compileContainerMethod(ctx.cg, ctype, m, expr.args.length);
+  if (!method || (method.retKind !== "i32" && !method.retAgg)) return null;
+  const compiled = callCompiled(ctx, ctype, m, node.addr, expr.args);
+  if (!compiled?.cm.retType) {
+    throw new Error(`authoritative aggregate/reference method ${ctype.name}::${m} could not be lowered`);
   }
-  if (ctype.name === "HashMap" || ctype.name === "HashSet") {
-    if (m !== "key" && !(m === "value" && ctype.name === "HashMap")) return null;
-    const compiled = callCompiled(ctx, ctype, m, node.addr, expr.args);
-    if (!compiled || !compiled.cm.retType || (compiled.cm.retKind !== "i32" && !compiled.retDest)) {
-      throw new Error(`authoritative QPI reference method ${ctype.name}::${m} could not be lowered`);
-    }
-    if (compiled.retDest) ctx.lines.push(`    ${compiled.call}`);
-    return mk(compiled.retDest ?? compiled.call, compiled.cm.retType);
-  }
-  if ((ctype.name === "Collection" && (m === "element" || m === "pov")) ||
-      (ctype.name === "LinkedList" && m === "element")) {
-    const method = compileContainerMethod(ctx.cg, ctype, m, expr.args.length);
-    if (method?.retKind === "i64") return null;
-    const compiled = callCompiled(ctx, ctype, m, node.addr, expr.args);
-    if (!compiled || !compiled.cm.retType || (compiled.cm.retKind !== "i32" && !compiled.retDest)) {
-      throw new Error(`authoritative QPI reference method ${ctype.name}::${m} could not be lowered`);
-    }
-    if (compiled.retDest) ctx.lines.push(`    ${compiled.call}`);
-    return mk(compiled.retDest ?? compiled.call, compiled.cm.retType);
-  }
-  return null;
+  if (compiled.retDest) ctx.lines.push(`    ${compiled.call}`);
+  return mk(compiled.retDest ?? compiled.call, compiled.cm.retType);
 }
 
 // qpi.* zero-arg accessors that return a 32-byte id by value, written to an out address.
@@ -786,11 +748,22 @@ export function allocSlot(ctx: FnCtx, size: number): string {
   return ir.emit(allocSlotIr(ctx, size));
 }
 
-// Address of an argument: an lvalue/SELF directly, else materialize the scalar value into scratch.
-export function argAddr(ctx: FnCtx, expr: Expression, size: number): string {
-  const a = emitAddr(ctx, expr);
-  if (a) return a;
+// Address of an argument: use an existing lvalue directly, or materialize a
+// temporary according to the declaration's concrete parameter type.
+export function argAddr(ctx: FnCtx, expr: Expression, size: number, type?: TypeSpec, copyConstScalar = false): string {
+  const copyValue = copyConstScalar && !!type && !ctx.cg.isAggregateType(type);
+  if (!copyValue) {
+    const a = emitAddr(ctx, expr);
+    if (a) return a;
+  }
   const s = allocSlot(ctx, size);
+  if (type && (expr.kind === "initializer_list" || expr.kind === "construct")) {
+    const args = expr.kind === "initializer_list" ? expr.exprs : expr.args;
+    if (!emitConstruct(ctx, s, type, args)) {
+      throw new Error("aggregate argument initializer could not be constructed");
+    }
+    return s;
+  }
   ctx.lines.push(`    ${storeAt(s, size, emitValue(ctx, expr))}`);
   return s;
 }

@@ -1,5 +1,5 @@
-import { emitValue, emitValueIr } from "../value";
-import { argAddr, resolveAddr, loadAt, emitAddr, addrIr, setLocal, isAggregate, allocSlot, emitConstruct, storeAt, allocSlotIr, isSignedScalarType } from "../addr";
+import { emitValue } from "../value";
+import { argAddr, resolveAddr, loadAt, emitAddr, addrIr, setLocal, allocSlotIr, isSignedScalarType } from "../addr";
 import { collectLocals, emitStmt, newTmp } from "../stmt";
 import { Bindings, CompiledMethod, FieldLayout, FnCtx } from "../types";
 import { Codegen } from "../cg";
@@ -9,13 +9,14 @@ import * as ir from "../../ir";
 // ---- compiling instantiated container methods from the real qpi.h bodies ----
 
 // A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32), scalars pass by value (i64).
-export function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; defaultValue?: Expression } {
+export function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; defaultValue?: Expression; readOnlyRef?: boolean } {
   const t = p.type;
   const isPtrOrRef = t.kind === "reference" || t.kind === "pointer";
+  const readOnlyRef = t.kind === "reference" && t.refereed.kind === "const";
   const deref = cg.derefType(t);
   const concrete = deref.kind === "name" && bind.types.has(deref.name) ? bind.types.get(deref.name)! : deref;
   const isAddr = isPtrOrRef || cg.isAggregateType(concrete);
-  return { name: p.name, wasmType: isAddr ? "i32" : "i64", isAddr, type: t, defaultValue: p.defaultValue };
+  return { name: p.name, wasmType: isAddr ? "i32" : "i64", isAddr, type: t, defaultValue: p.defaultValue, readOnlyRef };
 }
 
 // Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm function. Returns
@@ -73,6 +74,7 @@ export function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: Functio
   if (cm.retAgg) {
     ctx.retAddr = "(local.get $__qinit_ret)";
     ctx.retAggSize = cm.retAgg;
+    ctx.retType = cm.retType;
   }
   // Register params with their CONCRETE types (ValueT → uint64): a scalar ref-param read sizes and signs its load
   for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.substInBindings(cg.derefType(p.type), bind) });
@@ -100,7 +102,10 @@ export function callCompiled(
     const arg = args[i] ?? fp.defaultValue;
     if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
     if (arg.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    return fp.isAddr ? argAddr(ctx, arg, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), bind)) : emitValue(ctx, arg);
+    const paramType = ctx.cg.substInBindings(ctx.cg.derefType(fp.type), bind);
+    return fp.isAddr
+      ? argAddr(ctx, arg, ctx.cg.sizeOfType(paramType, bind), paramType, fp.readOnlyRef === true)
+      : emitValue(ctx, arg);
   });
   let retDest = "";
   if (cm.retAgg) retDest = ir.emit(allocSlotIr(ctx, cm.retAgg));
@@ -139,115 +144,32 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
 
   const map = node.addr;
   const member = expr.callee.member;
-  const C = (n: number) => `(i32.const ${n})`;
+  // Any captured instance method goes through the same source-instantiation path.
+  // Container family and method names do not carry semantics here: the selected
+  // declaration determines parameter ABI, return channel, and emitted behavior.
+  if (!ctx.cg.templateMethods.get(node.type.name)?.has(member)) return null;
+  const compiled = callCompiled(ctx, node.type, member, map, expr.args);
+  if (!compiled) throw new Error(`authoritative method ${node.type.name}::${member} could not be lowered`);
 
-  if (node.type.name === "HashMap" || node.type.name === "HashSet") {
-    // HashMap/HashSet behavior is authoritative only when the real core-lite body lowers. There is
-    // deliberately no handwritten probing/cleanup fallback: a compiler gap must fail the build.
-    const compiled = callCompiled(
-      ctx,
-      node.type as TypeSpec & { kind: "template_instance" },
-      member,
-      map,
-      expr.args,
-    );
-    if (!compiled) {
-      throw new Error(`authoritative QPI method ${node.type.name}::${member} could not be lowered`);
+  if (valueWanted) {
+    if (compiled.retDest || compiled.cm.retKind === "void") {
+      throw new Error(`aggregate or void method ${node.type.name}::${member} used as a scalar`);
     }
-    if (valueWanted) {
-      if (compiled.cm.retKind === "void") {
-        throw new Error(`void QPI method ${node.type.name}::${member} used as a value`);
+    if (compiled.cm.retKind === "i32") {
+      if (!compiled.cm.retType || ctx.cg.isAggregateType(compiled.cm.retType)) {
+        throw new Error(`aggregate reference ${node.type.name}::${member} used as a scalar`);
       }
-      if (compiled.cm.retKind === "i32") {
-        if (!compiled.cm.retType || ctx.cg.isAggregateType(compiled.cm.retType)) {
-          throw new Error(`aggregate QPI reference ${node.type.name}::${member} used as a scalar`);
-        }
-        return loadAt(compiled.call, ctx.cg.sizeOfType(compiled.cm.retType, ctx.thisBind), isSignedScalarType(compiled.cm.retType, ctx.cg));
-      }
-      return compiled.call;
+      return loadAt(
+        compiled.call,
+        ctx.cg.sizeOfType(compiled.cm.retType, ctx.thisBind),
+        isSignedScalarType(compiled.cm.retType, ctx.cg),
+      );
     }
-    ctx.lines.push(compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
-    return "";
+    return compiled.call;
   }
 
-  if (node.type.name === "Array") {
-    const info = ctx.cg.arrayInfo(node.type.args);
-    if (!info) return null;
-    const mask = info.L - 1;
-    const aggr = isAggregate(ctx, info.elemType ?? null, info.elemSize);
-    const elemAddr = (idx: Expression) =>
-      `(i32.add ${map} (i32.mul (i32.and (i32.wrap_i64 ${emitValue(ctx, idx)}) ${C(mask)}) ${C(info.elemSize)}))`;
-
-    if (member === "get" && valueWanted && !aggr) return loadAt(elemAddr(expr.args[0]), info.elemSize);
-    if (member === "capacity" && valueWanted) return `(i64.const ${info.L})`;
-    if (member === "set" && !valueWanted) {
-      const ea = elemAddr(expr.args[0]);
-      if (aggr) {
-        // A brace-init value (`arr.set(i, { owner, amount })`) has no address — materialize it into a slot via
-        let src = emitAddr(ctx, expr.args[1]);
-        if (!src && (expr.args[1].kind === "initializer_list" || expr.args[1].kind === "construct") && info.elemType) {
-          const vals = expr.args[1].kind === "initializer_list" ? expr.args[1].exprs : expr.args[1].args;
-          const s = allocSlot(ctx, info.elemSize);
-          if (emitConstruct(ctx, s, info.elemType, vals)) src = s;
-        }
-        if (!src) {
-          ctx.cg.warn(`unsupported Array.set aggregate value`, expr.span.line);
-          return "";
-        }
-        ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ea), addrIr(src), ir.i32c(info.elemSize)))}`);
-      } else {
-        ctx.lines.push(`    ${storeAt(ea, info.elemSize, emitValue(ctx, expr.args[1]))}`);
-      }
-      return "";
-    }
-    if (member === "setAll" && !valueWanted && !aggr) {
-      // setAll(v): write v to every element. value scalar only (aggregate setAll is rare).
-      const v = emitValueIr(ctx, expr.args[0]);
-      const i = newTmp(ctx), val = newTmp(ctx);
-      ctx.localVars.set(val, { wasmType: "i64" });
-      ctx.lines.push(`    ${setLocal(ctx, val, v)}`);
-      ctx.lines.push(`    ${setLocal(ctx, i, ir.i32c(0))}`);
-      ctx.lines.push(`    (block $sa_done (loop $sa`);
-      ctx.lines.push(`      (br_if $sa_done (i32.ge_u (local.get $${i}) ${C(info.L)}))`);
-      ctx.lines.push(`      ${storeAt(`(i32.add ${map} (i32.mul (local.get $${i}) ${C(info.elemSize)}))`, info.elemSize, `(local.get $${val})`)}`);
-      ctx.lines.push(`      (local.set $${i} (i32.add (local.get $${i}) (i32.const 1)))`);
-      ctx.lines.push(`      (br $sa)))`);
-      return "";
-    }
-  }
-
-  // Collection (priority queues over a per-PoV BST) and LinkedList (doubly-linked with a free list): every method is compiled
-  if (node.type.name === "Collection" || node.type.name === "LinkedList") {
-    const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
-    if (!c) {
-      throw new Error(`authoritative QPI method ${node.type.name}::${member} could not be lowered`);
-    }
-    if (valueWanted) {
-      if (c.cm.retKind === "void") {
-        throw new Error(`void QPI method ${node.type.name}::${member} used as a value`);
-      }
-      if (c.cm.retKind === "i32") {
-        if (!c.cm.retType || ctx.cg.isAggregateType(c.cm.retType)) {
-          throw new Error(`aggregate QPI reference ${node.type.name}::${member} used as a scalar`);
-        }
-        return loadAt(c.call, ctx.cg.sizeOfType(c.cm.retType, ctx.thisBind), isSignedScalarType(c.cm.retType, ctx.cg));
-      }
-      return c.call;
-    }
-    ctx.lines.push(c.cm.retKind === "void" ? `    ${c.call}` : `    (drop ${c.call})`);
-    return "";
-  }
-
-  // BitArray<L> (bit_4096 etc.): get/set/setAll/capacity are inline methods compiled from the qpi.h body.
-  if (node.type.name === "BitArray" || ctx.cg.templateMethods.get(node.type.name)?.has(member)) {
-    const c = callCompiled(ctx, node.type as TypeSpec & { kind: "template_instance" }, member, map, expr.args);
-    if (!c) return null;
-    if (valueWanted) return c.cm.retKind === "void" ? null : c.call;
-    ctx.lines.push(c.cm.retKind === "void" ? `    ${c.call}` : `    (drop ${c.call})`);
-    return "";
-  }
-
-  return null;
+  ctx.lines.push(compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
+  return "";
 }
 
 // Inside a compiled container method: a call to a sibling method of *this (getElementIndex(key)) or the hash functor

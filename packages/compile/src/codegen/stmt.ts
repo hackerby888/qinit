@@ -78,6 +78,7 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
   if (info.retAgg) {
     ctx.retAddr = "(local.get $__qinit_ret)";
     ctx.retAggSize = info.retAgg;
+    ctx.retType = info.retType;
   }
   for (const p of info.params) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: p.type });
 
@@ -571,8 +572,16 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       if (ctx.inlineReturnLabel) {
         if (stmt.value && ctx.retAddr) {
           const src = emitAddr(ctx, stmt.value);
-          if (!src) throw new Error("aggregate return expression from inline method is not addressable");
-          ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr), addrIr(src), ir.i32c(ctx.retAggSize ?? 0)))}`);
+          if (src) {
+            ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr), addrIr(src), ir.i32c(ctx.retAggSize ?? 0)))}`);
+          } else if (ctx.retType && (stmt.value.kind === "initializer_list" || stmt.value.kind === "construct")) {
+            const args = stmt.value.kind === "initializer_list" ? stmt.value.exprs : stmt.value.args;
+            if (!emitConstruct(ctx, ctx.retAddr, ctx.retType, args)) {
+              throw new Error("aggregate return initializer could not be constructed");
+            }
+          } else {
+            throw new Error("aggregate return expression from inline method is not addressable");
+          }
         } else if (stmt.value && ctx.inlineValueLocal) {
           ctx.lines.push(`    ${setLocal(ctx, ctx.inlineValueLocal, narrowLocalIr(ctx, ctx.inlineValueLocal, emitValueIr(ctx, stmt.value)))}`);
         }
@@ -584,7 +593,16 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       if (stmt.value && ctx.retAddr) {
         // aggregate-returning helper: copy the returned value into the caller-supplied dest, then return
         const src = emitAddr(ctx, stmt.value);
-        if (src) ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr!), addrIr(src), ir.i32c(ctx.retAggSize!)))}`);
+        if (src) {
+          ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr!), addrIr(src), ir.i32c(ctx.retAggSize!)))}`);
+        } else if (ctx.retType && (stmt.value.kind === "initializer_list" || stmt.value.kind === "construct")) {
+          const args = stmt.value.kind === "initializer_list" ? stmt.value.exprs : stmt.value.args;
+          if (!emitConstruct(ctx, ctx.retAddr, ctx.retType, args)) {
+            throw new Error("aggregate return initializer could not be constructed");
+          }
+        } else {
+          throw new Error("aggregate return expression is not addressable");
+        }
         emitScratchpadReleases(ctx, 0, false);
         ctx.lines.push(`    (return)`);
       } else if (stmt.value && ctx.retIsAddr) {

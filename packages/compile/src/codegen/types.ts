@@ -58,7 +58,7 @@ export interface PrivateInfo {
 
 export interface CompiledMethod {
   label: string;                                             // WAT function name ($T<n>_<Class>_<method>)
-  fnParams: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; defaultValue?: Expression }[];
+  fnParams: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; defaultValue?: Expression; readOnlyRef?: boolean }[];
   retKind: "i32" | "i64" | "void";
   retAgg?: number;                                           // aggregate (id/struct) return size — ABI prepends a $ret dest-address param
   retType?: TypeSpec;                                        // concrete return/referent type
@@ -94,6 +94,7 @@ export interface FnCtx {
   retIsValue?: boolean;                       // function returns a scalar value (return <expr>)
   retIsAddr?: boolean;                        // function returns a reference/pointer as a wasm32 address
   retTypeName?: string;                       // declared scalar return type name: `return e` narrows to it (C++ conversion)
+  retType?: TypeSpec;                         // concrete aggregate return type (initializer-list construction into retAddr)
   retAddr?: string;                           // helper returns an aggregate (id/struct) by value: `return e` copies e here
   retAggSize?: number;                        // size of that aggregate return
   thisLayout?: StructLayout;                  // when compiling a container method: layout of *this
