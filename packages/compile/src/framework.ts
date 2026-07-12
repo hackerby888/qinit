@@ -271,7 +271,7 @@ ${emitQpiBindingForwarders()}
   (func $qpi_logBytes (param $ci i32) (param $lv i32) (param $m i32) (param $sz i32) (call $lh_logBytes (local.get $ci) (local.get $lv) (local.get $m) (local.get $sz)))
   (func $liteCallFunction (param $c i32) (param $it i32) (param $i i32) (param $is i32) (param $o i32) (param $os i32) (result i32) (call $lh_liteCallFunction (local.get $c) (local.get $it) (local.get $i) (local.get $is) (local.get $o) (local.get $os)))
   (func $liteInvokeProcedure (param $c i32) (param $it i32) (param $i i32) (param $is i32) (param $o i32) (param $os i32) (param $r i64) (result i32) (call $lh_liteInvokeProcedure (local.get $c) (local.get $it) (local.get $i) (local.get $is) (local.get $o) (local.get $os) (local.get $r)))
-  ;; context header accessors (offsets from CTX — pinned to the engine's abi.ts by tests/abi-drift.test.ts)
+  ;; context header accessors (offsets from CTX — pinned to the engine's abi.ts by tests/qpi/abi-drift.test.ts)
   (func $qpi_contractIndex (result i32) (i32.load (i32.add (global.get $ctxBase) (i32.const ${CTX.contractIndex}))))
   (func $qpi_invocator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const ${CTX.invocator})) (i32.const 32)))
   (func $qpi_originator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const ${CTX.originator})) (i32.const 32)))

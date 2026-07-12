@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../test-utils/paths";
-// Regenerates pinned seeds for `tests/fuzz-diff.test.ts`.
+// Regenerates pinned seeds for `tests/fuzz/fuzz-diff.test.ts`.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

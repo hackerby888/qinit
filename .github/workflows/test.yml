@@ -116,7 +116,7 @@ jobs:
         env:
           QUBIC_CLI: ${{ github.workspace }}/qubic-cli/build/qubic-cli
           QLOGGING: ${{ github.workspace }}/qlogging/build/qlogging
-        run: bun test packages/engine/tests/cli-e2e.test.ts packages/engine/tests/qlogging-integration.test.ts
+        run: bun test packages/engine/tests/integration/cli-e2e.test.ts packages/engine/tests/logging/qlogging-integration.test.ts
 
   # contractverify every fixtures/*.h against the qpi.h protocol rules (the AST checker, not just a wasm
   # compile). The script self-fetches the cached verify tool; a fixture that drifts out of compliance reds it.
