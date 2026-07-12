@@ -155,7 +155,7 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
         const holdsAddr = v.type.kind === "name" && /(ScopedScratchpad|Iterator)$/.test(v.type.name);
         const b = ctx.thisBind ?? NO_BIND;
 
-        // `auto` locals take their shape from the initializer: a cast supplies the full type (auto* queue = reinterpret_cast<sint64_4*>(...)),
+        // `auto` locals take their shape from the initializer; casts supply full type (e.g., auto* queue = reinterpret_cast<sint64_4*>(...)).
         let dType = v.type;
         if (isAutoType(dType) && v.init) {
           const ci = castInfo(v.init);
@@ -384,8 +384,6 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
             (ctx.refLocals ??= new Map()).set(v.name, concrete);
             // uint128_t is a class, not a pair of fields to initialize positionally: its two-argument
             // constructor accepts (high, low), while the resident layout is (low, high). Route every
-            // initialized declaration through the source-compiled constructor/operator path before the
-            // generic aggregate constructor can mistake the argument order for member order.
             if (v.init && isUint128(ctx.cg, concrete)) {
               ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), emitU128Ir(ctx, v.init), ir.i32c(16)))}`);
               break;
@@ -525,7 +523,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         }
       }
 
-      // Open blocks from last group (outermost) to first (innermost) so that the dispatch, placed inside all of them,
+      // Open blocks from outermost to innermost so dispatch is placed inside all of them.
       for (let i = groups.length - 1; i >= 0; i--) {
         ctx.lines.push(`      (block ${groups[i].label}`);
       }
@@ -612,7 +610,6 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       } else if (stmt.value && ctx.retIsAddr) {
         // Reference-returning compound operators commonly return their assignment
         // expression (`return *this += rhs`). Perform the write, then return the
-        // address of the assigned lvalue as required by C++ value-category rules.
         let addr: string | null;
         if (stmt.value.kind === "assign") {
           emitAssign(ctx, stmt.value);

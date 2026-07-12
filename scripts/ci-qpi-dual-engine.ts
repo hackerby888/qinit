@@ -1,6 +1,5 @@
 // Production QPI acceptance: compile once with the TS compiler, run the exact
-// bytes in Sim, upload those same bytes to the release-configured WAMR node,
-// issue the same call, and compare output/state/K12 byte-for-byte.
+// bytes in Sim upload unchanged to the release-configured WAMR node.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";

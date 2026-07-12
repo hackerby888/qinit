@@ -1,8 +1,5 @@
 // The contract registry — the deployed contracts (their wasm instances + persistent state), the deploy/construct
 // path, the metered invoke (fire), and the computer digest (the K12 merkle over contract-state leaves). The TS
-// analogue of core-lite contract_core (contractStates + the contract processor) + getComputerDigest. It owns the
-// contract instances and runs them; the orchestrator (Sim) decides what to run and sequences the tick. The fee
-// metering is delegated to the injected FeeManager.
 import { Contract, type HostServices, KIND, SP } from "./runtime";
 import { k12Bytes } from "./k12";
 
@@ -47,7 +44,6 @@ export class ContractRegistry {
 
   // Deploy + construct: load the wasm, zero state, then run INITIALIZE (qubic.cpp contractProcessor INITIALIZE).
   // A metered contract is born funded (a successful IPO) unless its reserve was pre-set; INITIALIZE is exempt
-  // from the reserve gate.
   deploy(slot: number, wasm: Uint8Array, host: HostServices, extMem?: WebAssembly.Memory, extraImports?: WebAssembly.Imports): Contract {
     const prev = this.contracts.get(slot);          // existing instance => this is a redeploy
     const prevState = prev ? prev.state() : null;   // snapshot old state before the new instance replaces it
@@ -82,7 +78,6 @@ export class ContractRegistry {
 
   // Run a contract entry and, when metered, debit its measured cost from its own reserve. Every Sim-driven
   // procedure / sysproc / callback goes through here; read-only function queries deliberately do not (they are
-  // never charged). Re-entrant frames each report their own lastCost, so nested calls are charged correctly.
   fire(c: Contract, kind: number, it: number, input: Uint8Array, ctx: FireContext): Uint8Array {
     const out = c.invoke(kind, it, input, ctx);
     if (this.fees.metered) {
@@ -103,8 +98,6 @@ export class ContractRegistry {
     for (const [slot, c] of this.contracts) {
       // The one-shot wasm K12 caps near 8 MB of input; a contract with a larger state — e.g. QX's ~600 MB
       // order books — can't be hashed here without overflowing it, and slicing that state out every tick is
-      // itself ruinous. The sim runs no real consensus, so for such an oversized state fall back to a zero
-      // leaf (checked via stateSize, no copy) instead of throwing out of finalizeTick and killing ticking.
       leaves.set(slot, c.stateSize > K12_MAX_LEAF_BYTES ? new Uint8Array(32) : k12Bytes(c.state()));
     }
 

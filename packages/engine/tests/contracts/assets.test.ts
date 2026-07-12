@@ -1,7 +1,5 @@
 // Phase 3 — assets/shares: issueAsset, isAssetIssued, numberOfShares, numberOfPossessedShares,
 // transferShareOwnershipAndPossession, and distributeDividends. Driven through the Token + Dividend fixtures
-// (real qinit-built wasm), asserting the universe (issuance + holdings) the C++ semantics produce. Assets are
-// NOT in the contract-state digest (they live in the universe), so these assert return values + holdings.
 import { test, expect } from "bun:test";
 import { initK12, deriveKeysSync, signSync, k12Bytes, toHex } from "../../src/k12";
 import { Sim } from "../../src/sim";

@@ -1,6 +1,5 @@
 // Shared terminal-UI kit (no external deps — bundles clean into the `bun --compile` binary).
-// Primitives: gradient wordmark, banner/header, panels, status lines, key-value, badges,
-// spinner, and a phase step-list. Pure ink <Box>/<Text> + ANSI hex colors via chalk.
+// UI primitives include gradient wordmark, banner/header, panels, status lines, key-value, and badges.
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { output } from "./args";
@@ -9,8 +8,6 @@ export type Theme = { gradFrom: string; gradTo: string; brand: string; accent: s
 
 // Color variants. ok/err/warn stay semantic (green/red/amber); brand/accent/info/gradient carry the "look".
 // Pick with `qinit theme`; the choice persists and every command's UI follows it.
-// Each variant is an analogous ramp: brand is the primary, accent a lighter in-family sibling, info a tint
-// toward the gradient end — so the whole UI reads as one hue family. ok/err/warn stay semantic (status only).
 export const THEMES: Record<string, Theme> = {
   default: { gradFrom: "#7c5cff", gradTo: "#22d3ee", brand: "#7c5cff", accent: "#a78bfa", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#38bdf8", mute: "gray" },
   emerald: { gradFrom: "#10b981", gradTo: "#6ee7b7", brand: "#10b981", accent: "#34d399", ok: "#22c55e", err: "#ef4444", warn: "#f59e0b", info: "#2dd4bf", mute: "gray" },
@@ -219,7 +216,6 @@ export function StepRow({ state, label, detail, pct, elapsedMs }:
 
 // ---- table -----------------------------------------------------------------
 // Auto-width columns from content (capped to the terminal); per-column align/color/dim/max; truncMid cells.
-// `selected` (row index) inverse-highlights a row — for interactive lists (debug). gap = 2 spaces.
 export interface Column { header: string; align?: "left" | "right"; color?: string; dim?: boolean; max?: number }
 export function Table({ columns, rows, selected, rowColor }:
   { columns: Column[]; rows: string[][]; selected?: number; rowColor?: (i: number) => string | undefined }) {

@@ -1,10 +1,5 @@
 // Qubic QPI extension.
 //   M1 — clangd enablement: on opening/saving a contract header in a qinit project, (re)generate the
-//        per-contract clangd compile DB so the bundled vscode-clangd gives full IntelliSense with no
-//        manual `#include "qpi.h"`.
-//   M2 — live QPI diagnostics (Tier-A lexer + IDL checks), IDL hover, and an Array<T,N> quick-fix.
-// Deliberately UI-light: no build/deploy/call buttons (CodeLens) or palette actions — use the `qinit`
-// CLI in a terminal for those. The extension is purely editor smarts.
 import * as vscode from "vscode";
 import { join, resolve } from "node:path";
 import { resolveCore, wasiSdkPaths, loadConfig } from "@qinit/core/project";
@@ -25,7 +20,6 @@ function warnOncePerMinute(msg: string): void {
 
 // (Re)generate the clangd compile DB for a contract document (M1). Silent for non-contracts and
 // non-projects; warns (at most once a minute) when the toolchain isn't synced. Async because it
-// resolves inter-contract callees from the running node (best-effort) — never rejects.
 async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChannel, calleeDiags: vscode.DiagnosticCollection): Promise<void> {
   if (!isContractDoc(doc)) return;
   const root = findProjectRoot(doc.fileName);
@@ -100,7 +94,6 @@ async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChan
 
 // (Re)generate the clangd compile DB for a gtest TEST file: a combined contract+test TU so clangd resolves
 // TEST / EXPECT_* / ContractTesting and the contract's <Name>::Foo_input types. The test pairs with the
-// project's primary contract (qinit.json `contract`). Silent for non-tests / non-projects.
 function regenerateTestClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): void {
   if (!isTestDoc(doc)) return;
   const root = findProjectRoot(doc.fileName);

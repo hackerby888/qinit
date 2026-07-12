@@ -1,6 +1,5 @@
 // CI: compile the fixture corpus (+ the real QX/QEARN) to wasm against $QINIT_CORE. Fails if any contract no
 // longer builds — catches core header / qpi.h / ABI drift from the qinit side. Run by .github/workflows/test.yml.
-// Needs: QINIT_CORE (a core-lite checkout), WASM_CLANG + WASI_SYSROOT (wasi-sdk).
 import { resolve } from "node:path";
 import { buildContract } from "../packages/build/src/index";
 

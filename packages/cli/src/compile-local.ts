@@ -1,9 +1,5 @@
 // Build a contract .h -> wasm with the in-process TS compiler (@qinit/compile) — no clang, no toolchain.
 // Shared by `qinit build` and the deploy pipeline (deploy/dev/test) so the `qinit compiler local` selection
-// routes every build the same way. Returns a build result shaped like @qinit/build's buildContract: the wasm
-// path plus the RICH idl (build's extractIdl, a pure source parse) so downstream tooling — qinit.idl.json,
-// gen, call, state, the test SDK — is identical regardless of which compiler produced the wasm. The TS
-// compiler's own (minimal) idl is used only internally, for inter-contract callee type resolution.
 import { readFileSync, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { compileContract, loadQpiHeader } from "@qinit/compile";

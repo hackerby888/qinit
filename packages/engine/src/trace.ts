@@ -1,8 +1,5 @@
 // Debug-trace recorder for the VirtualNode — fills the DebugEntry/DebugTrace shape the node's RPC
 // returns, so `qinit debug`/`call --trace`/`state` and the browser IDE's tx inspector light up against
-// the TS engine too (they already decode this shape via the shared trace-format decoder). Opt-in
-// (setDebug) — a no-op with zero overhead when disabled. One entry per Contract.invoke (top-level tx,
-// query, sysproc, or a nested inter-contract call), nesting tracked by a stack.
 import { toHex } from "./k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
 

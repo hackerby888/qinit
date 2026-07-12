@@ -42,7 +42,6 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   if (rn.exitCode !== 0) throw new Error("clang -M failed:\n" + new TextDecoder().decode(rn.stderr));
   // WASM closure — computed with the actual wasm target+sysroot so it matches what compileWasmContract pulls
   // (lite_wasm_tu.h, the -include'd intrinsics shim, AND the simde m256i headers the wasm path takes — none of
-  // which the native -mavx2 closure references). This is the bug: the snapshot must mirror the wasm compile.
   const sdk = wasiSdkPaths();
   const wasmClang = process.env.WASM_CLANG ?? sdk?.clang;
   const sysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;

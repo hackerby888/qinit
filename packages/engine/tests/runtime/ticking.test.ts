@@ -1,6 +1,5 @@
 // TickConsensus (ticking.ts) in isolation — no Sim. A fake ConsensusHost supplies the three state digests, the
 // tick's tx digests, and the clock/tick/epoch, so the committee + quorum-vote + TickData record logic runs
-// directly. The committee uses fixed seeds for reproducibility.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex } from "../../src/k12";
 import { TickConsensus, type ConsensusHost } from "../../src/ticking";

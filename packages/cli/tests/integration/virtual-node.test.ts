@@ -1,8 +1,5 @@
 // The virtualnode backend that `qinit node run` boots under `qinit mode virtualnode`: an EngineServer the CLI
 // talks to over its OWN client surface — LiteRpc (@qinit/core) + the proto call helpers (callFunction /
-// invokeProcedure) that `qinit call` uses. Proves the in-process node ticks, serves reads, and processes signed
-// procedure txs end-to-end — the path the CLI depends on, which the CLI's own tests didn't cover. Mirrors
-// engine/tests/server.test.ts but exercises the CLI glue (LiteRpc + @qinit/proto) instead of raw fetch.
 import { test, expect, beforeAll } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
 import { initK12, LiteRpc, deriveIdentity } from "@qinit/core";

@@ -1,6 +1,5 @@
 // Shared decode of a contract's state + a debug-trace entry — used by `qinit debug` (TUI), `qinit call --trace`
 // (inline post-call view) and `qinit state` (standalone dump). Keeps the field/container/log decoding in ONE
-// place so all three stay consistent. RPC dep is the narrow StateReader (real LiteRpc / a fake in tests).
 import { decodeOutput, layoutOf, decodeHashMap, decodeHashSet, decodeCollection, decodeLog, type DecodedLog } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { bytesToIdentity, roundUp, type DebugEntry } from "@qinit/core";

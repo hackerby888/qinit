@@ -1,7 +1,5 @@
 // Tier-B: authoritative contractverify diagnostics via `qinit verify --json`. The CLI owns tool
 // resolution + invocation + concretize + allowedPrefixes, so the editor's verdict never drifts from
-// `qinit build`/`deploy`. Shelled on save only (it spawns a process); violations map to file-level
-// Error diagnostics (contractverify messages carry no column, so they anchor at the top of the file).
 import * as vscode from "vscode";
 import { execFile } from "node:child_process";
 import { findProjectRoot, isContractDoc } from "./project-util";

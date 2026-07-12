@@ -1,6 +1,5 @@
 // IDL-derived diagnostics: cheap structural checks over the REGISTER_*/PUBLIC_* macros that the
 // compiler/clangd won't flag (they're protocol semantics, not C++). Pure (no vscode/Bun). Uses the
-// `d` regex flag for exact group offsets so diagnostics land on the right token.
 import type { QpiFinding } from "./qpi-rules";
 
 // Replace comment bodies with spaces (offsets preserved) so commented-out macros don't false-fire.
@@ -65,9 +64,6 @@ export function idlChecks(source: string): QpiFinding[] {
 
   // Complex types with internal hash/list state are forbidden in the PUBLIC interface — a contract's
   // `<fn>_input`/`<fn>_output` may use only scalars, `id`, `Array`, `BitArray`, and structs of those
-  // (doc/contracts.md:631; they can carry inconsistent state across the inter-contract boundary). The
-  // size caps (input ≤1024, output ≤65535, locals ≤32KB) are already static_assert'd in qpi.h, so
-  // clangd flags those — this catches the type rule the compiler won't.
   const FORBIDDEN = /\b(Collection|LinkedList|HashMap|HashSet)\b/g;
   for (const m of src.matchAll(/\bstruct\s+(\w+)_(input|output)\b\s*\{/g)) {
     if (!publicNames.has(m[1])) continue; // only the PUBLIC interface

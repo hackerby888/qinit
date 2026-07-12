@@ -1,6 +1,5 @@
 // Oracle — a wasm contract queries / subscribes to the Mock interface (value -> {echoed, doubled}); the engine
 // records the query as opaque bytes and, on resolve (manual or via a provider), fires the contract's
-// notification procedure with the reply. Driven through the real qinit-built OracleProbe fixture.
 import { test, expect } from "bun:test";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";

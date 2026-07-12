@@ -1,6 +1,5 @@
 // Ergonomics: VirtualNode.create() self-inits crypto (one await, no initK12 ceremony) and deploy()
 // auto-assigns the slot by name (redeploy-by-name reuses it). This file deliberately never imports initK12 —
-// every test drives crypto purely through create(), proving the engine sets it up behind the scenes.
 import { test, expect } from "bun:test";
 import { VirtualNode } from "../../src/transport";
 

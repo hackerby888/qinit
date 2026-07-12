@@ -1,7 +1,5 @@
 // TickData consensus — each tick's leader (computor[tick % N]) packs the tick's per-tx digests into a signed
 // TickData; the quorum votes commit transaction = K12(TickData), and the bridge serves that exact artifact.
-// These tests assert the leader rotation, the wire layout (size + computorIndex/epoch/tick + the tx digests),
-// the leader signature, the vote↔TickData binding, and that a tx targeting the next tick lands in that tick.
 import { test, expect } from "bun:test";
 import { initK12, k12Bytes, toHex, verifySync } from "../../src/k12";
 import { Sim } from "../../src/sim";

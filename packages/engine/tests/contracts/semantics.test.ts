@@ -1,7 +1,5 @@
 // Phase 3 — semantics breadth: invocationReward, qpi.transfer (+ balances), the POST_INCOMING_TRANSFER
 // trigger (procedureTransaction + contract-to-contract), insufficient-funds, and the BEGIN_TICK lifecycle
-// sweep. Driven through the Vault fixture (real qinit-built wasm), asserting the ledger + state the C++
-// semantics produce.
 import { test, expect } from "bun:test";
 import { bytesToIdentity } from "@qinit/core";
 import { initK12 } from "../../src/k12";

@@ -1,6 +1,5 @@
 // MVP acceptance (plan phase 1): run qinit contract flows entirely in the TS engine and prove byte-identical
 // state via the K12 digest — the same value the node's /dev/contract-digest returns. Fixtures are the real
-// wasm `qinit build` emits (committed here so the test is self-contained).
 import { test, expect } from "bun:test";
 import { k12Hex } from "@qinit/core";
 import { initK12 } from "../../src/k12";

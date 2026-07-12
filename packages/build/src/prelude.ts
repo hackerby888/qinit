@@ -1,9 +1,5 @@
 // The ambient qpi library headers a contract is compiled against but never #includes — their struct/enum/typedef
 // definitions (proposal-voting data, oracle interfaces, qpi built-ins) are merged into extractIdl (as its
-// `prelude`) so contract field types that reference them resolve instead of staying `unknown`. Quoted #includes
-// inside these headers are expanded (the oracle registry only #includes its per-interface headers, where the
-// OracleQuery/OracleReply structs actually live). Cached per core path; missing headers are skipped, so a partial
-// core tree degrades gracefully.
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 

@@ -1,7 +1,5 @@
 // Transaction storage — the per-tick tx history + tx-by-id index, plus the mempool of broadcast txs awaiting
 // their scheduled tick (the lite analogue of core-lite's tick_storage + pending-transaction pool). Pure storage
-// + scheduling: it holds no money/contract logic — the orchestrator (Sim) dispatches each tx (applyTx) and hands
-// the resulting record here, and drives the mempool drain.
 
 export interface TxRecord {
   txId: string;

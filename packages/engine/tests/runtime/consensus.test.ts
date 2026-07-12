@@ -1,8 +1,5 @@
 // Tick consensus — the N-computor quorum is real: each tick every computor signs a Tick vote over the chain's
 // computed state digests (spectrum/universe/computer), and the tick finalizes at aligned votes >= QUORUM. These
-// tests assert the committee derivation, the arbitrator-signed computor list, that every tick reaches quorum
-// with verifiable FourQ signatures, the faithful computer-digest merkle, and that consensus is additive — it
-// never alters a contract's StateData digest (the cross-platform oracle still holds).
 import { test, expect } from "bun:test";
 import { initK12, k12Bytes, toHex, deriveKeysSync, verifySync } from "../../src/k12";
 import { Sim } from "../../src/sim";

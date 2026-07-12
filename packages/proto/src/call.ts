@@ -1,12 +1,10 @@
 // Contract call/invoke, qubic-cli style, over the built-in RPC.
 //   function (read)  -> POST /live/v1/querySmartContract
-//   procedure (write)-> signed tx to the contract address, POST /live/v1/broadcast-transaction
 import { LiteRpc, buildSignedTx, broadcastTx, type BroadcastResult } from "@qinit/core";
 import { encodeInput, decodeOutput } from "./abi-fmt";
 
 // Resolve which slot to deploy a contract to, by name — the user never picks a slot.
 // Reuse the slot a same-named contract already occupies (upgrade); else the first free slot.
-// `override` (explicit --slot/config) wins if given.
 export async function resolveSlot(
   rpc: LiteRpc, name: string, override?: number,
 ): Promise<{ slot: number; reused: boolean }> {
@@ -37,8 +35,6 @@ export async function callFunction(
 
 // Invoke a contract procedure (signed tx). tick must be a near-future, accepted tick.
 // confirm: poll the tx-status RPC until the tx is processed (Anchor .rpc()-style) — exact
-// landed/dropped verdict instead of a tick guess. Falls back to a tick-margin wait if the
-// node lacks the addon. included=false with confirmed=true => the tx was dropped.
 export async function invokeProcedure(opts: {
   seed: string; rpcBase: string; contractIndex: number; procId: number;
   amount: number; inFmt: string; tick: number;

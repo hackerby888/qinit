@@ -1,8 +1,5 @@
 // Tick consensus — N computors, quorum votes, the per-tick TickData + vote record. The TS model of core-lite
 // ticking/ + vote_counter.h + the qubic.cpp tick processor (the leader packs the tick's tx digests into a signed
-// TickData; every computor signs a Tick vote; the aligned count must reach QUORUM). Decoupled from the rest of
-// the engine through the injected ConsensusHost — it pulls the three state digests, the tick's tx digests, and
-// the chain clock from there, and exposes the previous tick's committed roots (the qpi prev*Digest).
 import { Committee, type CommitteeOpts, type TickStateDigests, buildTickVote, buildTickData, voteIsAligned, DEFAULT_NUMBER_OF_COMPUTORS } from "./consensus";
 import { k12Bytes } from "./k12";
 import type { Tick, TickData } from "./wire";
@@ -78,8 +75,7 @@ export class TickConsensus {
   }
 
   // Produce + store this tick's quorum record. The leader (computor[tick % N]) packs the tick's per-tx digests
-  // into a signed TickData; every computor then signs a Tick vote whose transactionDigest commits K12(TickData),
-  // and the aligned count must reach QUORUM (always, for an honest committee) for the tick to be valid.
+  // into a signed TickData. Every computor then signs a Tick vote with K12(TickData).
   finalizeTick(): void {
     const tick = this.host.tick();
     const epoch = this.host.epoch();
@@ -92,9 +88,6 @@ export class TickConsensus {
 
     // Lite ticking (the in-browser IDE): an empty tick commits no transactions, so its quorum record — 8 FourQ
     // computor votes + the leader's TickData signature — is pure overhead. Jumping a whole epoch (~3000 ticks)
-    // would otherwise sign ~27k times on the main thread and freeze the page. The digest chain above still
-    // advances (all an empty tick affects); a tick WITH transactions still builds the full record below, so the
-    // tx explorer stays correct. Off by default — node/CLI/peer builds keep the full per-tick quorum.
     if (this.lite && txDigests.length === 0) {
       return;
     }

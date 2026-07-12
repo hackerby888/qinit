@@ -1,10 +1,5 @@
 // Typed views over the Qubic wire structures — the TS mirror of core-lite src/network_messages/* (+ the m256i
 // from platform/m256.h). Layout is not hand-written: a struct is declared as a list of primitive codecs and
-// `defineStruct` derives every field offset + the struct size the way the C compiler does — summing field sizes
-// and inserting natural-alignment padding (char/u8 align 1, u16 align 2, u32 align 4, i64/u64/m256i align 8).
-// The core network_messages structs are not #pragma pack-ed (they assert sizeof == the bare field-size sum), so
-// the naturally-aligned layout the emulator produces is byte-identical to the node's. Views are zero-copy and
-// little-endian: each wraps a backing Uint8Array and reads/writes its fields in place.
 import { toHex } from "./k12";
 import { type Codec, u8, u16, u24, u32, i16, i32, i64, u64, blob, array, sub, roundUp, View, defineStruct } from "@qinit/core";
 
@@ -240,8 +235,6 @@ export class Transaction {
 
 // ---- AssetRecord (network_messages/assets.h): a 48-byte union of issuance / ownership / possession. The caller
 // reads the variant fields matching `type`. Variant offsets are derived from the same alignment cursor as the
-// structs above, so the ownership/possession `padding[1]` at @33 emerges naturally (type@32 is a char, then the
-// u16 managingContractIndex aligns to @34). issuanceIndex (ownership) and ownershipIndex (possession) share @36.
 const assetIssuance = layout([
   ["publicKey", DIGEST_SIZE, 8],
   ["type", 1, 1],

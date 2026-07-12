@@ -1,8 +1,5 @@
 // Wire-constant lock — the peer protocol the bridge speaks is the Qubic mainnet layout an external client
 // (qubic-cli, built against qubic/core) parses by fixed struct sizes. These constants are hand-mirrored with no
-// compile-time link to that client, so a single wrong value silently corrupts every framed response: a stale
-// TXS_PER_TICK once shifted TickData from 139376 to 41072 and only the live cli caught it. Pin the sizes here
-// so an accidental edit reds immediately. Sources: core network_messages/{common_def.h, tick.h}, structs.h.
 import { test, expect } from "bun:test";
 import { TICKDATA_SIZE, TXS_PER_TICK, TICK_SIZE } from "../../src/consensus";
 import { TXS_PER_TICK as CODEC_TXS_PER_TICK, CLI_NUMBER_OF_COMPUTORS, SPECTRUM_DEPTH } from "../../src/peer-codec";

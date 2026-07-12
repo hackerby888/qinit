@@ -1,7 +1,5 @@
 // Scaffold a STANDARD gtest (core-lite `contract_testing.h`) from a contract's IDL — the real Qubic SC-test
 // format (a `ContractTesting<Name>` fixture over the `ContractTesting` base, one TEST per procedure/function).
-// This is what `qinit gtest` runs by default; the `contract_testing.h` include is redirected to the engine-
-// backed `wasm_contract_testing.h` by buildCorpusRunner, so the same source runs natively and in the engine.
 import type { ContractIdl, IdlEntry } from "./idl";
 
 const SAMPLE_SEED_ID = "id::randomValue()";

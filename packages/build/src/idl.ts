@@ -1,15 +1,11 @@
 // Extract an IDL from a qpi.h contract .h: REGISTER_USER_* names + _input/_output
 // struct layouts -> codec format strings. Output is keyed to match qinit.idl.json
-// (consumed by the interactive `/call` picker): { name, functions:{[inputType]:{name,in,out}},
-// procedures:{[inputType]:{name,in,out}} }. Light regex parse — handles flat structs, Array<T,N>,
-// nested structs (one+ levels), id; unknown types pass through verbatim.
 
 // QPI container layouts come from @qinit/proto qpi-layout (single source of truth shared with the decoders).
 import { hashMapFmt, hashSetFmt, collectionFmt } from "@qinit/proto/qpi-layout";
 
 // type = codec token (uint64, id, bytes32, [N;T], { ... }); container = QPI HashMap/HashSet meta (for logical decode).
 // struct/array = the resolved nested shape for typed codegen: `struct` holds the member fields when this field is a
-// (possibly array-of) struct; `array` marks Array<...> elements. `type` (the flat codec token) is always present.
 export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number }; struct?: Field[]; array?: boolean }
 export interface IdlEntry { name: string; in: string; out?: string; inFields: Field[]; outFields?: Field[] }
 // A qpi LOG_* struct (ends with `sint8 _terminator`): fmt/fields cover only the members BEFORE the terminator
@@ -34,7 +30,6 @@ const SCALARS = new Set([
 
 // Blank out comments (length-preserving: keep newlines + offsets) so the struct/enum/typedef scanners never
 // match a keyword that appears inside a comment — e.g. `// gov struct` immediately before `struct QtryGOV {`
-// would otherwise make the regex capture `struct` as the struct name and swallow the real definition.
 function blankComments(src: string): string {
   return src
     .replace(/\/\/[^\n]*/g, (m) => " ".repeat(m.length))
@@ -172,7 +167,6 @@ const NATIVE: Record<string, string> = {
 
 // Resolve a (possibly bare) struct name to the key in `structs`, preferring a name SCOPED to the current struct
 // (Parent::Child) over the bare name — collectStructs registers every scoped suffix, so a nested `Order` resolves
-// to its OWN parent's definition instead of the first-declared same-name struct (fixes same-name collisions).
 function resolveStructName(name: string, structs: Map<string, string>, scope?: string): string | null {
   name = name.trim();
   if (scope) {
@@ -185,7 +179,6 @@ function resolveStructName(name: string, structs: Map<string, string>, scope?: s
   if (structs.has(name)) return name;
   // A qualified reference (e.g. namespace-scoped `OI::Price::OracleQuery`) — try each trailing suffix, longest
   // first, so it lands on the scoped struct key `Price::OracleQuery` (the right interface) rather than the bare
-  // `OracleQuery`, which several oracle interfaces each define.
   if (name.includes("::")) {
     const segs = name.split("::");
     for (let k = 1; k < segs.length; k++) {
@@ -198,7 +191,6 @@ function resolveStructName(name: string, structs: Map<string, string>, scope?: s
 
 // Remove nested type DEFINITIONS (`struct/union/class/enum Name { ... };`) from a struct body, brace-matched, so
 // they are not mis-parsed as fields (a nested `struct Order {...};` would otherwise leak a junk `Order` field).
-// Run before stripMethods (which removes the remaining method bodies).
 function stripNestedDefs(body: string): string {
   let out = body;
   for (;;) {
@@ -264,7 +256,6 @@ const isTypeDef = (raw: string) => /^(?:struct|union|class|enum)\b/.test(raw);
 
 // Parse a struct body into ordered fields (name + codec type + nested struct/array tree). The SINGLE source of
 // truth for both the flat format string (.map(f => f.type)) and the typed field tree, so they can never drift —
-// notably multi-variable declarations (`id dst0, dst1, ...;`) expand identically for both.
 function parseMembers(body: string, structs: Map<string, string>, scope: string, depth: number): Field[] {
   const out: Field[] = [];
   for (let raw of memberBody(body).split(";")) {
@@ -321,8 +312,6 @@ function fieldsForStruct(structs: Map<string, string>, structName: string, scope
 
 // `opts.prelude` is extra source (e.g. the ambient qpi proposal-voting / oracle-interface library headers a
 // contract is compiled against but doesn't #include) whose struct/enum/typedef/const definitions are merged into
-// the symbol tables so contract field types that reference them resolve — its REGISTER_* entries are ignored, so
-// only the contract's own functions/procedures are emitted.
 export function extractIdl(source: string, name: string, opts?: { prelude?: string }): ContractIdl {
   const src = blankComments(source);
   const symbols = opts?.prelude ? blankComments(opts.prelude) + "\n" + src : src;

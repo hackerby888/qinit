@@ -1,8 +1,5 @@
 // Single source of truth for QPI container on-wire layouts (mirrors core src/contracts/qpi.h).
 // Both the IDL fmt-string builder (build/idl.ts `typeToken`) and the logical decoders (decode-container.ts)
-// derive from this — a qpi.h layout change is ONE edit here instead of three drifting copies.
-//
-// 2-bit occupation flags packed into uint64 words: 32 slots/word, 2 bits/slot (00 empty, 01 occupied, 10 removed).
 export const SLOTS_PER_FLAG_WORD = 32;
 export const FLAG_BITS_PER_SLOT = 2;
 export const flagWordCount = (capacity: number) => Math.ceil((capacity * FLAG_BITS_PER_SLOT) / 64);

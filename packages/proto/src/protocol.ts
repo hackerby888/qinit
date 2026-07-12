@@ -18,5 +18,4 @@ export const TX_HEADER_SIZE = 144;                        // src32+dst32+amount8
 
 // Ticks ahead of the current tick to schedule an outgoing tx. The dev node runs --ticking-delay 1000
 // (~1 tick/s), so +3 gives ~3 s for the tx to propagate and land in a future tick — the minimum that
-// clears the "tick already in progress" window without making the user wait. NOT a protocol constant.
 export const TX_TICK_OFFSET = 3;

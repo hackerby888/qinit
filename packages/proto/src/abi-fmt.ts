@@ -1,12 +1,5 @@
 // Contract ABI format-string codec (qubic-cli compatible).
 //   types : uint8/16/32/64, sint8/16/32/64, id, bit ; struct { t, t } ; array [N; elem]
-//   output format = types only:              "{ [16;id], uint16, uint8 }"
-//   input  format = values (carry their type):"ABC…(60-char)id, 5uint64, [2; 1uint64, 2uint64]"
-//   input  repeat shorthand: "<tok> ×N" (× / * / x, spaces optional) -> N copies, e.g. "[64; 0uint64 ×64]"
-//                            or "[64; 9uint32x32]" = 32 copies of 9uint32
-// Matches the C++ ABI: NATURAL ALIGNMENT (no packing). Each field is padded to its alignment
-// (uint16→2, uint32→4, uint64/id→8), structs to their max member alignment. id <-> 60-char
-// identity via @qinit/core (async, wasm). "" = empty.
 import { bytesToIdentity, identityToBytes, roundUp } from "@qinit/core";
 
 const SCALAR_SIZE: Record<string, number> = {
@@ -175,8 +168,6 @@ function splitTop(s: string): string[] {
 
 // Expand the "<token> ×N" repeat shorthand (mirrors the output formatter's run-length display) into N copies
 // of the token. Multiplier is ×, *, or x (spaces optional — "9uint32x32" is valid; no value-token type
-// contains x, and 0x… hex ends in id/m256i so it never trails x<digits>). Applied to each comma-separated
-// element/field, so e.g. "[64; 0uint64 ×64]" or "{1uint64,2uint64} ×3" expands before encoding.
 const REPEAT_RE = /^(.+?)\s*[×*x]\s*(\d+)$/;
 function expandReps(parts: string[]): string[] {
   const out: string[] = [];
@@ -280,8 +271,6 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
 
 // ---------- JSON -> input value-format (field-name keyed; reuses the encodeInput grammar) ----------
 // Build the value-format string encodeInput consumes from a JSON object keyed by field name (or a positional
-// array). Top-level fields are named via `fields`; NESTED structs/arrays take positional JSON arrays (a type
-// token carries no inner names). Lets `qinit call --args '{"dst":"ABC…","amount":1000}'` replace hand fmt.
 function jsonValueToFmt(typeTok: string, value: any): string {
   typeTok = typeTok.trim();
   if (typeTok[0] === "{") {
@@ -321,7 +310,6 @@ export async function encodeInputJson(fields: { name: string; type: string }[], 
 
 // Build an ALL-ZERO input value-format from a type-format (the input scheme) — same grammar encodeInput
 // consumes — so a user whose input fails to parse gets a valid, copy-pasteable sample matching their entry.
-// Throws if a field has no representable input token (e.g. a non-m256i bytes type) -> caller shows no sample.
 export function zeroInputFmt(fmt: string): string {
   const emit = (n: TypeNode): string => {
     switch (n.kind) {

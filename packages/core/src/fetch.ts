@@ -98,7 +98,6 @@ export async function extractTarGz(tarGz: Uint8Array, destDir: string): Promise<
   mkdirSync(destDir, { recursive: true });
   // `tar` is the one external tool the fetch path needs (node bundle, wasi-sdk, headers). Surface a clear,
   // actionable error instead of a cryptic spawn ENOENT when it's absent. Windows 10 (1803+)/11 ship tar.exe
-  // in System32, and macOS/Linux/Git-for-Windows all provide it — only a stripped or pre-1803 box won't.
   if (!Bun.which("tar")) {
     throw new Error(
       process.platform === "win32"
@@ -116,7 +115,6 @@ export async function extractTarGz(tarGz: Uint8Array, destDir: string): Promise<
 
 // current.json — headers vs node tracked with SEPARATE versions so one update never clobbers
 // the other's version (prevents node/headers drift, which would mean building against headers
-// that don't match the running node = silent ABI mismatch).
 export interface CurrentPointer {
   headersVersion?: string; coreHeaders?: string;
   nodeVersion?: string; node?: string;
@@ -141,7 +139,6 @@ export function cacheHeaders(version: string): string { return join(cacheDir(ver
 
 // ---- contractverify tool distribution + auto-update --------------------------
 // The verify tool ships in its own moving release (re-published when upstream changes), so it
-// updates independently of the node/headers version set. version = upstream image digest.
 export const VERIFY_REPO = "hackerby888/qinit";
 export const VERIFY_TAG = "verify-latest";
 export interface VerifyManifest { version: string; assets: Record<string, AssetRef>; }
@@ -196,8 +193,6 @@ export async function autoUpdateVerifyTool(opts?: { force?: boolean; maxAgeMs?: 
 
 // ---- wasi-sdk (clang + wasi-sysroot for `qinit build`) ------------------------------------------
 // Pinned to 29 (33 declares getrusage, breaking the toolchain's config assumptions). Upstream ships
-// prebuilts for every host (linux/macos/windows x x64/arm64), so we fetch the one matching this box.
-// The wasm CONTRACT artifact is OS-independent — only the COMPILER is per-host, hence a per-host download.
 const WASI_SDK_VER = "29";
 function wasiSdkAsset(): { url: string; base: string } {
   const arch = process.arch === "arm64" ? "arm64" : "x86_64";

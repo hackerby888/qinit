@@ -1,8 +1,5 @@
 // Build-time line map for source-mapped trap backtraces (#2 part C). At -O0 -g every instruction has a
 // source line, so this resolves 100% of trap offsets. WAMR (classic) reports `ip - module->load_addr` =
-// the wasm FILE offset; the DWARF line table + DW_AT_low_pc are in a compressed "code" space. The shift
-// between them is constant per module: base = (objdump function file-start) - (its DW_AT_low_pc). Then
-// dwarfAddr = fileOffset - base, and we precompute fileOffset -> {file,line,col,func} for every line row.
 import { spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 

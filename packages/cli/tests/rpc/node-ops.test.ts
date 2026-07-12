@@ -1,6 +1,5 @@
 // Node lifecycle: killNode/nodeAlive must act on the tracked PID (the on-disk pidfile), never a broad
 // image-name pkill/taskkill that also kills unrelated Qubic instances on a dev box. Uses detached
-// sleeper processes (own process group, reaped by init -> no test-side zombies) as stand-in nodes.
 import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";

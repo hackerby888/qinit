@@ -1,9 +1,5 @@
 // Source-mapped trap backtrace resolver (#2 part C). A contract trap on the dev node (built with
 // -DLITE_WASM_TRAP_BACKTRACE=ON: classic interp + DUMP_CALL_STACK) makes WAMR auto-print a backtrace to
-// node.log:  #00: 0x0000f1 - $f1   /   #01: 0x0000af - dispatch   /   Exception: integer divide by zero
-// WAMR's offset is `ip - module->load_addr` = the wasm FILE offset. We map each offset -> source via the
-// build-time line map (qinit build emits <name>.lines.json from the -O0 -g sidecar; 100% line coverage)
-// and decode the raw exception to a plain cause.
 
 import { existsSync, readFileSync } from "node:fs";
 

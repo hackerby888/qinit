@@ -171,7 +171,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
     // WAMR maps wasm offset 0 to nullptr at the host-import boundary. A random-
     // capable module hashes its resident state through lhost.k12, so state_addr
-    // must be non-zero even though ordinary modules may continue to use offset 0.
     const module = await WebAssembly.compile(wasm);
     const lhost = Object.fromEntries(
       WebAssembly.Module.imports(module)

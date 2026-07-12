@@ -1,8 +1,5 @@
 // Pre-compile protocol-rule check using the Qubic contract-verify tool (contractverify):
-// a prebuilt native CppParser AST checker that enforces the qpi.h restrictions — no `#`,
-// no ctor/dtor, no throw/try, no function pointers, no `[]` arrays / stack allocation,
-// only allowed integer/id/Array IO types, etc. Source: Franziska-Mueller/qubic-contract-verify.
-// Shipped like the node: a cached binary, not embedded in the dep-free qinit binary.
+// a prebuilt native CppParser AST checker that enforces qpi.h restrictions with no `#include` dependency.
 import { existsSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -27,14 +24,12 @@ export function resolveVerifyTool(): string | null {
 
 // The contract .h uses the CONTRACT_STATE(2)_TYPE macros (substituted at compile by the build
 // wrapper). The verify tool parses raw source, so it needs the concrete names: a global struct
-// deriving ContractBase named <name>, and state2 = <name>2. Substitute STATE2 first (longer).
 function concretize(src: string, name: string): string {
   return src.replaceAll("CONTRACT_STATE2_TYPE", `${name}2`).replaceAll("CONTRACT_STATE_TYPE", name);
 }
 
 // allowedPrefixes: inter-contract callee names (from --callee / CALL_OTHER_CONTRACT). The tool only whitelists
 // the upstream registered contracts, so it rejects `<DynCallee>::Type` scope resolution; those errors are false
-// for declared callees and are dropped here (all other rules still apply).
 export async function verifyContract(file: string, name: string, opts?: { oracle?: boolean; allowedPrefixes?: string[] }): Promise<VerifyResult> {
   const tool = resolveVerifyTool();
   const oracle = !!opts?.oracle || /oracle_interface/i.test(file);
@@ -56,7 +51,6 @@ export async function verifyContract(file: string, name: string, opts?: { oracle
   const dropped = allErrors.length - errors.length;
   // A non-zero exit with NO parsed [ ERROR ] lines is a tool malfunction (crash / unsupported host /
   // missing dep), not a real violation — report it unavailable (skip) like an absent tool, so a broken
-  // verifier never fails the build. (Caught a cold-CI contractverify crash that failed only on x64.)
   if (p.exitCode !== 0 && allErrors.length === 0)
     return { available: false, ok: true, oracle, errors: [], raw, tool };
   // pass on a clean exit, or when the only violations were the declared-callee scope-resolution errors.

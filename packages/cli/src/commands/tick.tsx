@@ -6,9 +6,6 @@ import { Header, Spinner, Bar, KV, theme } from "../ui";
 
 // qinit tick                     -> show the current-epoch tick window
 // qinit tick advance <n>         -> advance the chain by n ticks (capped at the epoch's last tick)
-// qinit tick advance-to-last [g] -> advance to (lastTick - g), default g=3 (the pre-transition resting point)
-// qinit tick rate <ms>           -> virtualnode: set ms-per-tick on the running node (no respawn; 0 = fastest)
-// Big jumps run in bounded server batches with a progress bar (each tick is a real tick — a few per second).
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = { sub: "", arg: "" };
   const pos: string[] = [];

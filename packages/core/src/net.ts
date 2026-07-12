@@ -1,6 +1,5 @@
 // fetch with a connect/response timeout (AbortController). The timer guards only until the response
 // HEADERS arrive (cleared in finally), so a slow/large body STREAM is not killed — only a hung
-// connection (node accepts the socket but never replies) is aborted instead of hanging the CLI forever.
 export async function fetchT(url: string, init?: RequestInit, ms = 10000): Promise<Response> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), ms);
@@ -11,8 +10,6 @@ export async function fetchT(url: string, init?: RequestInit, ms = 10000): Promi
 
 // Read a response body fully with an INACTIVITY watchdog: if no chunk arrives for `stallMs`, abort.
 // fetchT's timeout only guards until the headers arrive — this guards the body, so a stalled stream
-// (slow-loris / dropped mid-download) is killed instead of hanging forever. A slow-but-progressing
-// large download is fine (the timer resets on every chunk). onProgress streams bytes for a progress bar.
 export async function readBody(r: Response, stallMs = 60000, onProgress?: (recv: number, total: number) => void): Promise<Uint8Array> {
   if (!r.body) return new Uint8Array(await r.arrayBuffer());
   const total = Number(r.headers.get("content-length") ?? 0);
@@ -38,7 +35,6 @@ export async function readBody(r: Response, stallMs = 60000, onProgress?: (recv:
 
 // Broadcast a signed tx via the node's built-in RPC: POST /live/v1/broadcast-transaction
 // with { encodedTransaction: <base64> }. The endpoint checkValidity + verifies the signature
-// server-side, so its response also tells us whether our tx crafting/signing is correct.
 export interface BroadcastResult {
   ok: boolean;
   transactionId?: string;
@@ -46,7 +42,6 @@ export interface BroadcastResult {
   message?: string;
   // Set by the in-process engine: whether qu moved, and whether the tx was queued for a future tick rather than
   // applied now. moneyFlew is only meaningful when queued is falsy (an applied tx); a queued tx's outcome is
-  // known later via tx-status. A real-node broadcast leaves both undefined.
   moneyFlew?: boolean;
   queued?: boolean;
 }

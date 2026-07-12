@@ -1,20 +1,5 @@
 // Generate the clangd compile DB that turns a qpi.h-constrained contract .h into a fully-resolved C++
 // translation unit FOR THE EDITOR — without the author needing the `#include "qpi.h"` dev-hack, and
-// without the Microsoft C/C++ engine redlining code it can't parse.
-//
-// Mechanism: the real wasm TU is `genWrapperWasm()` (qinit build's exact recipe). For the editor we
-// take its PREAMBLE (everything before the `#include "<contract>"`) and write it as `<Name>.prefix.h`,
-// then add a compile_commands.json entry whose `file` is the CONTRACT ITSELF with `-include <prefix.h>`.
-// clangd parses the opened contract as the main file WITH that preamble in scope, so CONTRACT_INDEX /
-// CONTRACT_STATE_TYPE / qpi.h are all defined → the PUBLIC_*/REGISTER_* macros resolve and
-// `state.mut()` / `input` / containers complete.
-//
-// Why not `file` = the wrapper.cpp? Because for "open the contract", clangd parses the OPENED file as
-// the main file using the chosen command — the wrapper's in-source `#define`s never reach it, so the
-// macros break (undeclared CONTRACT_INDEX, __FunctionOrProcedureBeginEndGuard, …). The trailing impl
-// headers in the full wrapper aren't needed merely to PARSE the contract, so the preamble suffices.
-//
-// Pure (node:fs/path + @qinit/build string templating only — no `vscode`, no Bun).
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { genWrapperWasm, WASM_CONTRACT_TESTING_HEADER, WASM_TEST_UTIL_HEADER, type BuildOpts } from "@qinit/build/recipe";
@@ -27,7 +12,6 @@ const fwd = (p: string) => p.replace(/\\/g, "/");
 
 // CONTRACT_STATE_TYPE name: explicit (qinit.json `name`), else the file basename — like build.tsx
 // (`cfg.name ?? basename(contractPath)`), so the editor's TU matches a real build. Splits on BOTH `/`
-// and `\` so a Windows-style path resolves the same on Linux/macOS (node's POSIX basename ignores `\`).
 export function deriveName(contractPath: string, explicit?: string): string {
   if (explicit && explicit.length) return explicit;
   return (contractPath.split(/[/\\]/).pop() ?? contractPath).replace(/\.[^.]+$/, "");
@@ -68,16 +52,12 @@ function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: str
     "-fno-exceptions",
     // Editor-only suppressions for artifacts of the parse-only TU (we omit the post-contract impl
     // headers that the real build links): -Wundefined-inline fires because qpi.h declares inlines
-    // (__qpiAllocLocals/__qpiFreeLocals, used by CALL/_WITH_LOCALS) whose bodies live in those omitted
-    // headers. These are valid QPI — never redline them. (The real build, which includes the impls,
-    // doesn't see these, so the editor stays in step.)
     "-Wno-undefined-inline",
     "-DLITEDYN_CONTRACT_TU",
     "-include", shim,
     ...(o.wasiSysroot ? [`--sysroot=${fwd(o.wasiSysroot)}`] : []),
     // Core headers as SYSTEM headers (not -I): clangd then excludes qpi.h's internal symbols from its
     // cross-file index (cutting the completion flood) + suppresses qpi.h's own diagnostics. Index-only —
-    // member/qualified/in-scope completion of the public API (Array.get, qpi.x, QPI::*) is unaffected.
     "-isystem", core,
     "-isystem", `${core}/src`,
   ];
@@ -85,7 +65,6 @@ function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: str
 
 // Make clangd the sole C++ IntelliSense provider in the project: disable the Microsoft C/C++
 // extension's engine so it never squiggles QPI code it can't understand (no qpi.h). Merge-safe: only
-// adds the key when absent, and never rewrites a settings.json we can't parse cleanly.
 export function ensureEditorSettings(workspaceRoot: string): void {
   const dir = join(workspaceRoot, ".vscode");
   const file = join(dir, "settings.json");
@@ -96,7 +75,6 @@ export function ensureEditorSettings(workspaceRoot: string): void {
   }
   // clangd is the C++ provider here. Turn the MS C/C++ extension's engine off AND force its error
   // squiggles off — its default `enabledIfIncludesResolve` still squiggles "cannot open qpi.h" using
-  // its own includePath (it doesn't read our compile DB). Set each only if absent, so a user choice wins.
   let changed = false;
   for (const [k, v] of [["C_Cpp.intelliSenseEngine", "disabled"], ["C_Cpp.errorSquiggles", "disabled"]] as const) {
     if (!(k in settings)) { settings[k] = v; changed = true; }
@@ -119,7 +97,6 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   try { source = readFileSync(contractPath, "utf8"); } catch { /* not yet on disk */ }
   // CONTRACT_STATE_TYPE name: the actual `struct <Name> : public ContractBase` in the SOURCE wins —
   // the file may not match qinit.json (e.g. you pasted ESCROW into Counter.h). Fall back to qinit.json
-  // `name`/basename for the fixture style (`struct CONTRACT_STATE_TYPE`, which the wrapper renames).
   const detected = detectStateType(source);
   const name = detected && detected !== "CONTRACT_STATE_TYPE" ? detected : deriveName(o.contractPath, o.name);
   const slot = o.slot ?? DEFAULT_SLOT;
@@ -128,7 +105,6 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
 
   // Inter-contract prelude — same input the real build feeds genWrapperWasm. Best-effort: a contract
   // with no CALL_OTHER_CONTRACT_* yields "" (without touching corePath); a resolve failure must not
-  // kill IntelliSense.
   let calleePrelude = "";
   try { calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {}); } catch { /* no prelude */ }
 
@@ -177,7 +153,6 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
 
 // Clangd compile entry for a standard core-lite contract_testing.h gtest. The contract wrapper and Qinit's
 // private Wasm registry are force-included; a local redirect header supplies the virtual-node implementation
-// of ContractTesting while preserving the source format used by native core-lite.
 export function generateTestClangdConfig(o: ClangdInputs & { testPath: string }): { dbPath: string; prefixPath: string; testFile: string } {
   const contractPath = resolve(o.contractPath);
   const contractFile = fwd(contractPath);

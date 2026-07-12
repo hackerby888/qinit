@@ -1,7 +1,5 @@
 // QPI semantic hover: hovering a registered function/procedure name shows its on-chain index, the
 // input/output codec format, and how to call it — derived from the SAME extractIdl() the CLI uses, so
-// the editor view matches `qinit deploy`/`gen`. (Full deploy identity is added in a later milestone;
-// for now the contract address is shown in `id(slot,0,0,0)` form, which needs no crypto in-bundle.)
 import * as vscode from "vscode";
 import { extractIdl, type IdlEntry } from "@qinit/build/idl";
 import { loadConfig } from "@qinit/core/project";

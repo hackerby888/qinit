@@ -1,6 +1,5 @@
 // Inter-contract calls — Proxy (slot 29) calls Counter (slot 28, lower index) via liteCallFunction (CALL
 // function) and liteInvokeProcedure (INVOKE procedure). Routing is by contract index to whatever Contract is
-// deployed at the callee slot (a user contract here; a system contract would be its wasm deployed the same way).
 import { test, expect } from "bun:test";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";

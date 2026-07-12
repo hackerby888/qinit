@@ -1,8 +1,5 @@
 // Generative round-trip + layout fuzz over the wire views (wire.ts). The fixed vectors in wire.test.ts pin a few
 // known offsets by hand; this sweeps every defineStruct field with random values to catch any getter/setter
-// offset or alignment mismatch the fixed cases miss, and proves the derived layout leaves the C compiler's
-// padding exactly where the natural-alignment emulation places it (no field bleeds into a neighbour's gap). A
-// seeded PRNG makes any failure reproducible from its seed. Sources: src/wire.ts + core-lite network_messages/*.
 import { test, expect } from "bun:test";
 import {
   M256i, RequestResponseHeader, EntityRecord, Tick, TickData, Transaction, AssetRecord,

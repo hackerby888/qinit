@@ -1,14 +1,5 @@
 // Run a STANDARD gtest (core-lite `contract_testing.h` suite) against a contract on a fresh isolated engine.
 // buildCorpusRunner swaps the test's `#include "contract_testing.h"` for the engine-backed
-// `wasm_contract_testing.h` and compiles it to a test wasm (native clang); the contract under test is built by
-// native clang or by our TS compiler (--local), deployed alongside its referenced sibling contracts, then
-// driven by runContractTesting. Works for any contract — a user's, or a built-in via runCorpus() below.
-//
-// Shared-memory mode (opt-in / system HEAVY set): the contract wasms are linked --import-memory and live inside
-// the runner's own memory above SHARED_START, so contractStates[i] is the LIVE state with no shadow copies.
-// A few system suites (QTRY/QEARN/…) need it because they read state through cached pointers at 100k+
-// dispatches; normal contracts don't (the shim's contractStates proxy syncs per access). Pass 1 builds to read
-// state_size, pass 2 relinks at the packed base.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildContract, buildCorpusRunner, systemContracts } from "@qinit/build";
@@ -143,9 +134,6 @@ async function oursWasms(core: string, headers: string, main: Spec, deps: Spec[]
     const dsrc = readFileSync(d.contractPath, "utf8");
     // System dependencies may themselves call an earlier-index dependency
     // (PULSE -> QTF -> RL, for example). Feed the IDL/source context built so
-    // far into both the metadata probe and the shared-memory build; otherwise
-    // strict compilation returns an empty wasm and stateSizeOf() obscures the
-    // actual missing-callee diagnostic with a WebAssembly parse error.
     const depOpts = {
       source: dsrc, name: d.name, slot: d.slot, qpiHeader: headers,
       callees: callees.length ? callees : undefined,

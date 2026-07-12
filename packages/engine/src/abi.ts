@@ -1,8 +1,5 @@
 // Typed views over the contract-execution ABI buffers — the TS mirror of core-lite's qpi.h context header and
 // the fixed system-procedure input/output layouts the host marshals when calling into a contract. Same zero-copy
-// `defineStruct` kit as the wire structs (struct.ts), so field offsets are derived from natural alignment, never
-// hand-written. These feed entity/spectrum digests and the cross-contract call path, so the layouts must match
-// the C structs byte-for-byte (the .SIZE/.OFFSETS asserts in abi.test.ts pin that).
 import { defineStruct, blob, u8, u16, u32, i32, i64, u64, pad, sub } from "@qinit/core";
 
 // ---- QpiContext (qpi.h): the 256-byte per-call header a contract reads for its identity + the caller chain.

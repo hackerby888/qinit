@@ -1,6 +1,5 @@
 // Wire encodings for the on-chain chunked-upload deploy protocol (DYNAMIC_CONTRACTS.md §2.2).
 // These payloads ride lite-range transaction inputTypes to the system destination (dest == 0).
-// Little-endian, packed. The core host-side handlers mirror these exact layouts.
 
 // Lite transaction inputTypes + chunk sizing live in ./protocol (mirrored against core by the drift guard).
 import { LITE_TX, CHUNK_DATA_MAX } from "./protocol";
@@ -9,7 +8,6 @@ export { LITE_TX, CHUNK_DATA_MAX };
 
 // The on-wire message layouts, as zero-copy struct views. ONE definition: proto encodes them here and the
 // engine's VirtualNode decodes the SAME views (packages/engine/src/transport.ts), so encoder and decoder can't
-// drift. Little-endian, packed (the chunk + deploy messages carry no trailing pad on the wire).
 export const UploadBegin = defineStruct("UploadBegin", {
   sessionId: u64, // @0
   totalSize: u32, // @8

@@ -5,7 +5,6 @@ import { Header, Grad, GradLine, THEMES, THEME_NAMES, applyTheme, theme } from "
 
 // qinit theme            -> interactive picker (live preview); ↵ saves, q cancels
 // qinit theme <name>     -> set directly
-// qinit theme --show     -> print the active theme
 function parse(args: string[]): { name?: string; show?: boolean } {
   const o: { name?: string; show?: boolean } = {};
   for (const a of args) { if (a === "--show") o.show = true; else if (!a.startsWith("--")) o.name = a; }
@@ -26,7 +25,6 @@ export function ThemeCmd({ args }: { args: string[] }) {
   const [i, setI] = useState(Math.max(0, THEME_NAMES.indexOf(cur)));
   // Selected index in a ref too: ink only re-subscribes useInput after React commits, so a fast arrow→↵ can
   // hit the pre-move handler and save the previously-highlighted theme. The ref is updated synchronously in
-  // the same key event, so ↵ always reads where the cursor actually is.
   const sel = useRef(i);
   const move = (d: number): void => {
     sel.current = (sel.current + d + THEME_NAMES.length) % THEME_NAMES.length;

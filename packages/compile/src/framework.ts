@@ -88,9 +88,7 @@ function computeLayout(stateSize: number, arenaSize: number, memBase = 0): Layou
 export function emitModule(spec: ModuleSpec): string {
   const usesPrng = spec.capabilities?.includes("chain-prng") ?? false;
   // WAMR's app-to-native adapter treats linear-memory offset 0 as nullptr.
-  // Random-capable modules pass their resident state to lhost.k12 when seeding,
-  // so keep that state at a non-zero offset. Shared-memory gtests retain their
-  // explicit base, and modules without PRNG code retain the historical zero base.
+  // Random-capable modules pass resident state to lhost.k12 when seeding for deterministic behavior.
   const L = computeLayout(spec.stateSize, spec.arenaSize, spec.memBase ?? (usesPrng ? 8 : 0));
   const sysprocMask = spec.sysprocs.reduce((m, sp) => m | (1 << sp.id), 0);
 
@@ -450,7 +448,6 @@ function emitDispatch(spec: ModuleSpec, usesPrng: boolean): string {
   if (usesPrng) {
     // The wrapper is the PRNG frame boundary. Wasm locals survive a synchronous
     // reentrant host call, so they hold the caller stream while the nested dispatch
-    // derives and consumes its own seed.
     lines.push("    (local $saved0 i64) (local $saved1 i64) (local $saved2 i64) (local $saved3 i64) (local $savedCounter i64) (local $nested i32)");
     lines.push("    (local.set $saved0 (global.get $prngSeed0))");
     lines.push("    (local.set $saved1 (global.get $prngSeed1))");

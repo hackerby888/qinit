@@ -1,8 +1,5 @@
 // QPI edge-case gauntlet: deploy fixtures/Gauntlet.h to a live node and assert a broad QPI surface
 // runs correctly on-chain — div/mod incl. divide-by-zero, unsigned/signed wrap, bit ops, Array index
-// masking, HashMap set/get/population, qpi.invocator/invocationReward, and qpi.K12. Exits non-zero on
-// any mismatch. Run by CI (test.yml deploy-smoke) against a freshly built node; needs QINIT_CORE + a
-// ticking node on QINIT_RPC. Harder counterpart to ci-deploy-smoke.ts's Counter Get->Inc->Get.
 import { resolve } from "node:path";
 import { deployContract } from "../packages/cli/src/deploy-ops";
 import { callFunction, invokeProcedure } from "../packages/proto/src/index";

@@ -1,6 +1,5 @@
 // Client codegen: a typed method per fn/proc. A regression here produces a client that encodes the wrong
 // args or maps the wrong output -> every call against the contract breaks. Drive real IDLs through
-// extractIdl, then assert the generated source shape (flat-vs-raw params, single-vs-multi output, proc wiring).
 import { test, expect } from "bun:test";
 import { extractIdl } from "../../src/idl";
 import { generateClient } from "../../src/gen-client";

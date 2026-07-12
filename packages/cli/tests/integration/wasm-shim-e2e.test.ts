@@ -1,9 +1,6 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // End-to-end correctness of the wasm QPI shim (recipe.ts): build a real system contract to wasm, deploy it on
 // the VirtualNode, and drive a procedure that allocates function locals (__qpiAllocLocals) and moves qu. The
-// shim compiles the pure helpers (smul / copyMemory / __qpiAllocLocals) INTO the wasm; this asserts they're not
-// just non-crashing but produce the EXACT right result — recipients credited the precise amounts, a clean burn,
-// and a function output that decodes. Builds with clang, so it's skipped when the core-lite tree isn't present.
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildSystemContract } from "@qinit/build";

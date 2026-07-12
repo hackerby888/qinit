@@ -47,8 +47,6 @@ export interface BuildResult {
 export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   // Protocol-rule gate first (cheap, fails before clang): reject contracts that break the
   // qpi.h restrictions. Skipped (not failed) when the verify tool isn't synced on this box.
-  // Inter-contract callee names (--callee + CALL/INVOKE_OTHER_CONTRACT) are passed so the tool's
-  // false "scope resolution with prefix <DynCallee>" errors don't block a legit inter-contract deploy.
   const calleeNames = [...new Set([
     ...Object.keys(o.dynCallees ?? {}),
     ...[...readFileSync(o.contractPath, "utf8").matchAll(/(?:CALL|INVOKE)_OTHER_CONTRACT_\w+\s*\(\s*(\w+)/g)].map((m) => m[1]),
@@ -81,8 +79,6 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
 
 // Compile a corpus file (core-lite/test/contract_X.cpp) into a runner wasm by redirecting its
 // `#include "contract_testing.h"` to the qinit-shipped `wasm_contract_testing.h` header.
-// The corpus body is inlined as testSource; the header asset is written into outDir so the
-// quote-include resolves relative to the wrapper TU's physical location.
 export async function buildCorpusRunner(o: {
   corpusPath: string;
   contractPath: string;
@@ -107,13 +103,6 @@ export async function buildCorpusRunner(o: {
 
   // The corpus runner is a test tool, not a deployed contract, so it has no need for the recipe's
   // -O0 -g debuggability. Build it -O2 (the trailing -O wins over the recipe's -O0): corpus checkers
-  // sweep whole fixed-capacity state arrays (e.g. QEARN's 4,194,304-entry locker) every assertion, and
-  // -O0 makes those loops the dominant cost. The private Wasm EXPECT_*/ASSERT_* macros expand to a bare `return;`
-  // (under `if (fatal)`), a C++ default-error in non-void corpus helpers; native uses real gtest (no
-  // return), so relax it here — scoped to the corpus path, production deploys keep the strict default.
-  // QINIT_CORPUS_RUNNER shrinks the runner's dead in-module state buffer to one page (lite_wasm_tu.h): the
-  // contract under test runs in engine-deployed instances, and a full-size buffer would push the runner's
-  // data end into the shared-memory region where those instances live.
   const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch", "-DQINIT_CORPUS_RUNNER"];
 
   // When the corpus pulls real <iostream>/<ostream> itself, suppress the harness's std::cout stubs so
@@ -124,7 +113,6 @@ export async function buildCorpusRunner(o: {
 
   // Derive the inter-contract callee prelude from the contract AND the corpus: a corpus often references a
   // sibling contract's types directly (e.g. `QX::IssueAsset_input` to seed an asset) even when the contract
-  // under test never calls it, so the contract-only scan misses it and the runner fails to compile.
   let calleePrelude: string | undefined;
   try {
     const contractSrc = readFileSync(o.contractPath, "utf8");
@@ -149,8 +137,6 @@ export async function buildCorpusRunner(o: {
 
 // Compile a named built-in system contract (QX, QEARN, …) from the core snapshot catalog. Shared by the CLI
 // (`qinit system`) and the backend's compile-system route. skipVerify because system code uses sysproc macros
-// the protocol verifier can't parse; these are trusted core sources. Returns the build result + the contract's
-// canonical slot index.
 export async function buildSystemContract(
   name: string, corePath: string, opts: { outDir?: string; wasmClang?: string; wasmSysroot?: string } = {},
 ): Promise<BuildResult & { index?: number }> {

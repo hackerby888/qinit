@@ -1,18 +1,6 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Cross-host state equivalence — the capstone fidelity check. qinit's engine is a TS port of the node's C++
 // wasm host; the only thing that proves the port faithful (and keeps it faithful) is showing both produce
-// byte-identical contract state for the same wasm + the same ops. For each fixture below we build ONE wasm, run
-// INITIALIZE + a fixed procedure script on BOTH the node's WAMR (the qubic_core_tests
-// `WasmContracts.CrossHostStateEquivalence` gtest, shelled with QINIT_WASM/QINIT_SCRIPT) and qinit's Sim, and
-// assert the StateData bytes match. Equal bytes => equal K12 state digest across hosts — the consensus-critical
-// invariant, asserted live instead of against a hand-captured digest oracle.
-//
-// Coverage spans the layouts most likely to drift in marshalling: mixed-width scalars + Arrays (DigestProbe),
-// a small Array (Registry), and the two complex QPI containers whose internal bucket / free-list / priority
-// layout is the highest-risk (HashMap in DbgMap, Collection in DbgColl). The container code is compiled INTO
-// the wasm, so byte-equality of the full container state proves the host marshals input + drives dispatch
-// identically across the two independent implementations.
-// Skipped unless the core tree + the prebuilt gtest binary (build-wtests) are present.
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";

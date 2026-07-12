@@ -1,6 +1,5 @@
 // Phase 2 — the NodeTransport seam. Proves the in-process engine answers qinit's RPC surface and is driven by
 // qinit's OWN codec (encodeInput/decodeOutput), a REAL @qubic-lib signed tx, and the real deploy wire
-// protocol — i.e. it is interchangeable with the HTTP LiteRpc backend.
 import { test, expect } from "bun:test";
 import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes } from "@qinit/core";
 import {
@@ -16,7 +15,6 @@ async function wasm(n: string): Promise<Uint8Array> { return new Uint8Array(awai
 
 // A tx with the canonical Qubic header but no real signature — the engine ignores it (consensus simplified).
 // Lets the deploy wire path run without a FourQ sign per chunk. The header offsets are validated against real
-// @qubic-lib output by the "REAL signed tx" assertion below.
 function wrapTx(inputType: number, payload: Uint8Array, destU64: bigint): Uint8Array {
   const b = new Uint8Array(80 + payload.length + 64);
   const v = new DataView(b.buffer);

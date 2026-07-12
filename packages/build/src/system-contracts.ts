@@ -1,6 +1,5 @@
 // Catalog of the built-in (system) contracts, parsed from the fetched core snapshot's contract_def.h.
 // index -> { name (on-chain ticker), source file, IDL }. Lets qinit call/ls/state see QX, QEARN, … the
-// same way as user-deployed dynamic contracts (every call mechanism is index-driven already).
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { extractIdl, type ContractIdl } from "./idl";
@@ -12,8 +11,6 @@ const cache = new Map<string, SystemContract[]>();
 
 // index -> source file, from the `#define <NAME>_CONTRACT_INDEX n` ... `#include "contracts/<File>.h"` blocks.
 // The appended test contracts use a relative form `constexpr ... <NAME>_CONTRACT_INDEX = (CONTRACT_INDEX + 1)`
-// instead of a literal #define — track that too, else `cur` goes stale and a later #include overwrites the wrong
-// index (e.g. TestExampleD.h clobbering GGWP.h at the last numeric index).
 function indexToFile(defSrc: string): Map<number, string> {
   const out = new Map<number, string>();
   let cur = -1;
@@ -29,7 +26,6 @@ function indexToFile(defSrc: string): Map<number, string> {
 
 // index -> C++ struct type, from the `#define <X>_CONTRACT_INDEX n` ... `#define CONTRACT_STATE_TYPE <Type>`
 // blocks. The struct type can differ from the on-chain ticker (e.g. ticker QTRY -> struct QUOTTERY) and is what
-// the wrapper must #define so the contract's CONTRACT_STATE_TYPE references resolve.
 function indexToStateType(defSrc: string): Map<number, string> {
   const out = new Map<number, string>();
   let cur = -1;

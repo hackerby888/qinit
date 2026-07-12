@@ -1,7 +1,5 @@
 // Lifecycle hooks: BEGIN_TICK/END_TICK fire on every advanced tick, and crossing an epoch boundary (the
 // tick reaching a multiple of epochLength) fires END_EPOCH then BEGIN_EPOCH — core's SystemProcedureID
-// order. The Hooks fixture bumps a per-hook counter in its StateData, so Get() reports how many times each
-// ran. Fixture is the wasm `qinit build` emits for tests/fixtures/Hooks.h (committed, self-contained).
 import { test, expect } from "bun:test";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";

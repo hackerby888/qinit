@@ -7,8 +7,7 @@ import { VERSION } from "../version";
 import { Header, Status, Spinner, Bar, theme } from "../ui";
 
 // qinit self-update [--force] [--dry-run]
-// Replace the running qinit binary with the newest qinit-cli-* release (mirrors install.sh: API tag resolve,
-// per-host asset, sha256 verify). Atomic same-dir rename over the running exe (linux/macOS allow that).
+// Replace the running qinit binary with the newest qinit-cli-* release (mirrors install.sh API tag resolution).
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
   for (const a of args) if (a.startsWith("--")) o[a.slice(2)] = "";

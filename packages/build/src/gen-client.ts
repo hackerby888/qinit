@@ -1,6 +1,5 @@
 // Generate a typed TS client from a contract IDL: named interfaces + a class whose methods
-// wrap callFunction / invokeProcedure (no format strings for the caller). Flat inputs (scalars,
-// id, m256i) get typed args; array/struct inputs fall back to a raw `inFmt: string` param.
+// wrap callFunction / invokeProcedure (no format strings for the caller). Flat inputs stay deterministic and easy to fuzz.
 import type { ContractIdl, Field } from "./idl";
 
 // codec token -> TS type (QPI names).

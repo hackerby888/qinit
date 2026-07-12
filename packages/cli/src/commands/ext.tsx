@@ -7,8 +7,6 @@ import { output } from "../args";
 
 // qinit ext install [--vsix <path>] [--editor <cmd>]
 // Installs the Qubic QPI VS Code extension into a detected editor. All of code/cursor/windsurf/codium
-// accept the same `--install-extension` flag. With --vsix, installs a local package; otherwise pulls
-// the published extension from the marketplace by id.
 const EXTENSION_ID = "qubic.qpi-vscode";
 const EDITORS = ["code", "cursor", "windsurf", "codium"];
 

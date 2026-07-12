@@ -1,6 +1,5 @@
 // parseArgs is the one parser every command routes through — its boolean/multi/positional rules are the
 // contract that replaced the old per-command off-by-ones, so they're worth pinning. nearest drives the
-// "did you mean?" suggestion; initOutput sets the global --json/--plain mode.
 import { test, expect } from "bun:test";
 import { parseArgs, nearest, initOutput, output } from "../../src/args";
 

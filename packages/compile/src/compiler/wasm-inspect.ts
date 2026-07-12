@@ -1,13 +1,7 @@
 import { LHOST_ABI } from "@qinit/core";
 
-/**
- * Static inspection for the Lite dynamic-contract Wasm ABI.
- *
- * This deliberately parses the binary instead of instantiating it.  That keeps
- * the gate usable in the browser compiler and lets it check function signatures,
- * which WebAssembly.Module.imports()/exports() do not expose consistently across
- * JavaScript engines.
- */
+// Static inspection for the Lite dynamic-contract Wasm ABI.
+// Parse bytes without instantiation so signature checks stay stable across engines.
 
 export type WasmValueType = "i32" | "i64" | "f32" | "f64";
 
@@ -748,10 +742,8 @@ function asUint8Array(bytes: Uint8Array | ArrayBuffer): Uint8Array {
   return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 }
 
-/**
- * Inspect a module against the production Lite Wasm ABI and the JS+WAMR
- * portability profile.  No imports are invoked and no module is instantiated.
- */
+// Inspect a module against the production Lite Wasm ABI and JS+WAMR portability profile.
+// No imports are invoked and the module is never instantiated.
 export function inspectLiteWasmModule(
   input: Uint8Array | ArrayBuffer,
   options: LiteWasmInspectionOptions = {},

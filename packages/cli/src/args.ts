@@ -1,10 +1,8 @@
 // Shared CLI arg parsing + global output mode + nearest-match suggestion.
 // The router uses this for global flags (--json/--plain), per-command --help, and "did you mean?";
-// commands use parseArgs() so flag handling is consistent (and the old per-command off-by-ones are gone).
 
 // ---- global output mode (--json / --plain) ---------------------------------
 // json: emit a machine-readable result instead of the TUI (for scripting/CI).
-// plain: no spinners/gradients/colors (auto-on when piped, NO_COLOR, or under --json) so logs stay clean.
 export const output = { json: false, plain: false };
 export function initOutput(args: string[]): void {
   output.json = args.includes("--json");

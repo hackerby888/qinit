@@ -1,9 +1,5 @@
 // Logical-entry decode for QPI containers. Given a container's raw bytes + its element key/value formats +
 // capacity, walk the 2-bit occupation flags and emit the OCCUPIED entries (key/value decoded). On-wire layout
-// mirrors qpi.h: HashMap = Element{key,value}[L] then uint64 _occupationFlags[ceil(2L/64)] then _population,
-// _markRemovalCounter; HashSet = key[L] + the same flags. Flag for slot i = (flags[i>>5] >> ((i&31)*2)) & 3,
-// where 1 = occupied (00 empty, 10 marked-for-removal -> both excluded). qpi_hash_map_impl.h:38/130/186.
-// (Collection's PoV + per-PoV BST layout is not decoded here.)
 import { decodeOutput, structFieldOffsets, layoutOf } from "./abi-fmt";
 import { flagWordCount, hashMapElemFmt, collectionElemFmt, COLLECTION_POV_FMT } from "./qpi-layout";
 import { roundUp } from "@qinit/core";
@@ -56,8 +52,6 @@ export async function decodeHashSet(buf: Uint8Array, keyFmt: string, capacity: n
 
 // Collection<T,L>: PoV{ id value; uint64 population; sint64 head, tail, bstRoot } _povs[L] + 2-bit pov flags +
 // Element{ T value; sint64 priority, povIndex, bstParent, bstLeft, bstRight } _elements[L] + 2 counters.
-// For each occupied PoV, in-order-traverse its priority BST (left,node,right). qpi stores higher priority on
-// the left, so in-order yields priority-queue order: head first = highest priority.
 export async function decodeCollection(buf: Uint8Array, valFmt: string, capacity: number): Promise<CollEntry[]> {
   const povFmt = COLLECTION_POV_FMT;
   const elemFmt = collectionElemFmt(valFmt);

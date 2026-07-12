@@ -1,9 +1,5 @@
 // Qubic peer-protocol codec — the pure, framework-free wire layer for the TCP bridge (peer-server.ts).
-// Mirrors core-lite src/network_messages/{header.h, network_message_type.h, entity.h, tick.h, contract.h,
-// system_info.h}. Every packet is an 8-byte RequestResponseHeader (size[3] LE | type | dejavu[4]) followed by
-// a typed payload, where `size` counts the header too. Response struct sizes follow the Qubic protocol
-// (SPECTRUM_DEPTH 24, NUMBER_OF_TRANSACTIONS_PER_TICK 4096, NUMBER_OF_COMPUTORS 676) — a client zero-pads short
-// payloads to its struct size but matches strictly on `type`, so we emit the meaningful field prefix.
+// Mirrors core-lite src/network_messages/{header.h, network_message_type.h, entity.h, tick.h, contract.h}.
 import {
   M256i, RequestResponseHeader, ASSET_TYPE, SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK,
   RequestTickData, RequestContractFunction, RespondCurrentTickInfo, RespondSystemInfo, RespondEntity,
@@ -181,8 +177,7 @@ export interface EntityFields {
 }
 
 // RespondEntity (entity.h): EntityRecord(64) + tick(4) + spectrumIndex(4) + siblings[SPECTRUM_DEPTH*32]. The
-// siblings are the merkle proof — a client recomputes the spectrum root from (EntityRecord, spectrumIndex,
-// siblings) and checks it against the quorum-committed spectrumDigest.
+// siblings are the merkle proof; a client recomputes the spectrum root from EntityRecord and spectrumIndex.
 export function encodeRespondEntity(id: Uint8Array, e: EntityFields, tick: number, spectrumIndex: number, siblings: Uint8Array[] = []): Uint8Array {
   const r = RespondEntity.alloc();
 
@@ -283,8 +278,6 @@ export interface OwnedAssetView {
 
 // RespondOwnedAssets (structs.h) — the AssetRecord ownership variant + the issuance AssetRecord + tick +
 // universeIndex (siblings[ASSETS_DEPTH] are zero-padded by a client). AssetRecord is a 48-byte union:
-// ownership = publicKey(32) type(1) pad(1) managingContractIndex(2) issuanceIndex(4) numberOfShares(8);
-// issuance  = publicKey(32) type(1) name(7) numberOfDecimalPlaces(1) unitOfMeasurement(7). type: 1=issuance, 2=ownership.
 export function encodeRespondOwnedAssets(v: OwnedAssetView, universeIndex = 0, siblings: Uint8Array[] = [], record?: Uint8Array): Uint8Array {
   const r = RespondOwnedAssets.alloc();
 
@@ -326,7 +319,6 @@ export interface PossessedAssetView {
 
 // RespondPossessedAssets (structs.h) — the possession AssetRecord + the ownership AssetRecord + the issuance
 // AssetRecord + tick + universeIndex (siblings[ASSETS_DEPTH] zero-padded by a client). AssetRecord type:
-// 1=issuance, 2=ownership, 3=possession. The possession variant's @36 field is the ownershipIndex (left zero).
 export function encodeRespondPossessedAssets(v: PossessedAssetView, universeIndex = 0, siblings: Uint8Array[] = [], record?: Uint8Array): Uint8Array {
   const r = RespondPossessedAssets.alloc();
 

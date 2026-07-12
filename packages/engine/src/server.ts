@@ -1,7 +1,5 @@
 // HTTP adapter — serves an VirtualNode on the qubic-core-lite node's RPC routes (Bun.serve). This is how
-// the TS engine becomes a drop-in node: qinit's deploy-ops AND the spawned `bun test` runtime both talk HTTP,
-// so pointing QINIT_RPC at this server runs the whole flow against the engine with no node binary. Bun-only
-// (start() touches Bun.serve); importing the class is browser-safe since nothing runs until start().
+// TS engine is a drop-in node: deploy-ops and spawned `bun test` runtime both use HTTP.
 import { VirtualNode } from "./transport";
 import { initK12 } from "@qinit/core";
 import { PeerServer } from "./peer-server";

@@ -1,9 +1,5 @@
 // The digest chain — proof that the three committed state roots a tick vote carries (prevSpectrumDigest,
 // prevUniverseDigest, prevComputerDigest) are the same roots a light client reconstructs from a merkle proof, and
-// that a QUORUM of signed votes commits each. light-client.test.ts already pins the spectrum side via
-// verifyEntityProof; this adds the missing asset (universe) analogue and the computer root, and asserts the
-// byte-equality spectrum digest == proof root == every aligned vote's committed digest. Sources: consensus.ts
-// (TickStateDigests / buildTickVote) + merkle.ts (rootFromSiblings) + core-lite network_messages/tick.h.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex, verifySync } from "../../src/k12";
 import { Sim } from "../../src/sim";

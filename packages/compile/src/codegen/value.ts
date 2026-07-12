@@ -31,7 +31,7 @@ export function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): s
   }
   const lhs = resolveAddr(ctx, expr.left);
 
-  // uint128 plain assignment: materialize the RHS through source-compiled uint128_t methods (a computed RHS — ternary, (uint128)a * (uint128)b,
+  // uint128 plain assignment materializes RHS through source-compiled uint128_t helpers for computed expressions.
   if (lhs && expr.op === "=" && isUint128(ctx.cg, lhs.type)) {
     ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(lhs.addr), emitU128Ir(ctx, expr.right), ir.i32c(16)))}`);
     return "";
@@ -555,7 +555,6 @@ export function emitU128Ir(ctx: FnCtx, expr: Expression): ir.Ir {
       const scalarRight = !isU128Expr(ctx, expr.right);
       // platform/uint128.h defines scalar overloads only for `& int` and `>> unsigned
       // int`. Every other scalar operand reaches the uint128_t overload through the
-      // authoritative one-argument constructor, exactly as C++ overload resolution does.
       const key = scalarRight && expr.op === "&" ? "int"
         : scalarRight && expr.op === ">>" ? "unsigned int"
           : "uint128_t";
@@ -601,7 +600,7 @@ export function unsignedScalar(t: TypeSpec | null | undefined): boolean {
   return /^(uint|unsigned\b|size_t$|bool$|bit$)/.test(t.name) || t.name === "uint128" || t.name === "uint128_t";
 }
 
-// Best-effort signedness of an integer expression: unsigned if it's an unsigned-typed lvalue/param, an unsigned cast, an unsigned-suffixed literal,
+// Best-effort signedness is unsigned when unsigned lvalue/params, casts, or suffixed literals are present.
 export function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
   switch (expr.kind) {
     case "c_cast": case "static_cast": return unsignedScalar(expr.type);
@@ -765,7 +764,7 @@ export function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" 
     }
   }
 
-  // id/m256i ordering (operator< / > / <= / >=): a 256-bit lexicographic compare of the 4 u64 limbs,
+  // id/m256i ordering is a 256-bit lexicographic compare of 4 u64 limbs.
   if (expr.op === "<" || expr.op === ">" || expr.op === "<=" || expr.op === ">=") {
     const la = aggOperand(ctx, expr.left);
     const ra = aggOperand(ctx, expr.right);
@@ -815,7 +814,7 @@ export function emitBinaryIr(ctx: FnCtx, expr: Expression & { kind: "binary_op" 
   const swrap32 = !u && cv.width === 4;
   const shiftCount = (n: ir.Ir) => (li.width === 4 ? ir.op("i64.and", n, ir.i64c(31)) : n);
 
-  // A signed 32-bit operand converted to unsigned 32-bit changes representation (sign-extended → zero-extended), so value-sensitive ops (/, %,
+  // Signed-to-unsigned 32-bit converts by sign extension rules, so / and % follow unsigned arithmetic semantics.
   const toU32 = (n: ir.Ir, e: Expression) => {
     if (!wrap32) {
       return n;

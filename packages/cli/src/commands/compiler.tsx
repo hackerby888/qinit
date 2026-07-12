@@ -5,7 +5,6 @@ import { Header, GradLine, theme } from "../ui";
 
 // qinit compiler                 -> interactive picker; ↵ saves, q cancels
 // qinit compiler <native|local>  -> set directly
-// qinit compiler --show          -> print the active compiler
 function parse(args: string[]): { name?: string; show?: boolean } {
   const o: { name?: string; show?: boolean } = {};
   for (const a of args) {
@@ -31,7 +30,6 @@ export function CompilerCmd({ args }: { args: string[] }) {
   const [i, setI] = useState(Math.max(0, COMPILERS.indexOf(cur)));
   // Selected index in a ref too: ink only re-subscribes useInput after React commits, so a fast arrow→↵ can
   // hit the pre-move handler and save the previously-highlighted choice. The ref updates synchronously in the
-  // same key event, so ↵ always reads where the cursor actually is.
   const sel = useRef(i);
   const move = (d: number): void => {
     sel.current = (sel.current + d + COMPILERS.length) % COMPILERS.length;

@@ -138,7 +138,6 @@ export class Codegen {
           const makey = `${method}/${(fn.fnParams ?? (fn as any).params ?? []).length}`;
           // An explicit specialization (`template <> HashFunction<m256i>::hash`) loses the
           // class argument in the parser's normalized name, but its concrete first parameter
-          // still identifies the specialization unambiguously.
           if (fn.params.length === 0 && fn.fnParams?.length) {
             const concrete = this.derefType(fn.fnParams[0].type);
             minto.set(`${makey}@${this.typeKey(concrete)}`, fn);
@@ -148,7 +147,6 @@ export class Codegen {
         } else if (sep < 0 && d.kind === "function" && (d as FunctionDecl).body) {
           // A namespace or platform free function (__m256i_convert, ProposalTypes::cls): keyed by its qualified
           // name and compiled lazily. Platform conversion/equality helpers must remain source-backed so they
-          // can carry address-valued intrinsic results into the registered leaf primitives.
           const key = `${nsPrefix}${fn.name}`;
           const overloads = this.libFnOverloads.get(key);
           if (overloads) overloads.push(d as FunctionDecl);
@@ -918,7 +916,7 @@ export class Codegen {
         return this.normalizeConst(this.evalConstBig(expr.expr, b), expr.type);
       case "call":
       case "template_call": {
-        // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4),
+        // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4)).
         const callee = expr.callee;
         const fn = callee.kind === "identifier" ? callee.name : callee.kind === "qualified_name" ? callee.name : null;
         if (fn) {
@@ -981,7 +979,6 @@ export class Codegen {
       } else if (m.kind === "function_template") {
         // Static function templates declared directly on the contract (QBond/RandomLottery/Pulse
         // min/max) are ordinary source helpers, not class-layout methods. Register them under the
-        // unqualified spelling used by the contract body and instantiate them lazily at call sites.
         this.registerLibFnTemplate((m as FunctionTemplateDecl).name, m as FunctionTemplateDecl);
       }
     }
@@ -1014,7 +1011,6 @@ export class Codegen {
           } else if (m.kind === "function_template") {
             // Callee templates are needed by qualified source calls such as RL::min/max. The
             // parser currently drops the `static` bit on FunctionTemplateDecl, but contract-level
-            // function templates are callable without an instance and are safe to seed here.
             const fn = m as FunctionTemplateDecl;
             this.registerLibFnTemplate(`${name}::${fn.name}`, fn);
           }
@@ -1116,7 +1112,7 @@ export class Codegen {
     return t;
   }
 
-  // True for a void return type. The parser spells void two ways — a dedicated {kind:"void"} node and,
+  // True for a void return type. The parser spells void with both {kind:"void"} nodes and dedicated tokens.
   isVoidType(t: TypeSpec): boolean {
     const d = this.derefType(t);
     return d.kind === "void" || (d.kind === "name" && d.name === "void");

@@ -1,6 +1,5 @@
 // Imported-memory acceptance for system suites that are invalid in the
 // ordinary shadow-state harness. Each contract body is compiled by the local
-// TS compiler; only the standard contract_testing.cpp runner uses clang.
 import { rmSync } from "node:fs";
 import { runCorpus } from "../packages/cli/src/corpus-run";
 

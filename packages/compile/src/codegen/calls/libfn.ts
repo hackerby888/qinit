@@ -250,7 +250,7 @@ export function helperCallOps(ctx: FnCtx, info: HelperInfo, args: Expression[]):
   }).join(" ");
 }
 
-// Call to an aggregate-returning helper (id liquidityPov(...)): allocate the destination slot, pass it as the leading $ret arg,
+// Aggregate-returning helpers allocate destination first, then pass it as the leading $ret arg.
 export function emitAggHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, info: HelperInfo): string {
   const s = allocSlot(ctx, info.retAgg!);
   const ops = helperCallOps(ctx, info, expr.args);
@@ -264,8 +264,6 @@ function scalarDeclInfo(ctx: FnCtx, t: TypeSpec): { width: number; unsigned: boo
   const name = c.kind === "name" && c.name.includes("::") ? c.name.slice(c.name.lastIndexOf("::") + 2) : c.kind === "name" ? c.name : "";
   // The parser keeps a plain C `int` as `int`, while QPI's corresponding
   // typedef is spelled `sint32`. Treat the C spelling as its canonical signed
-  // type during overload ranking; otherwise `unsigned int` is the only
-  // four-byte candidate with a known width and wins calls from `sint32`.
   const canonical = name === "int" || name === "signed" ? "signed int"
     : name === "unsigned" ? "unsigned int"
     : name;
@@ -350,7 +348,7 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
     );
   }
   if (!info && name.includes("::")) {
-    // Qualified static member call (OI::Price::getQueryFee(q)) — resolve the struct (namespace members are flattened at parse; structByName strips qualifiers),
+    // Qualified static member calls resolve by flattened namespace members; structByName strips qualifiers.
     const segs = name.split("::");
     const method = segs[segs.length - 1];
     const sd = ctx.cg.structByName(segs.slice(0, -1).join("::"), ctx.thisBind ?? NO_BIND);

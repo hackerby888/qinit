@@ -3,7 +3,6 @@ import { clangdErrorLines, clangdErrorCount } from "../../src/clangd-diag";
 
 // Captured `clangd --check` output shapes (verified against real runs). A broken contract emits
 // `E[ts] [code] Line N: …` diagnostics PLUS tweak-availability probes (SpecialMembers "Class body in
-// wrong file"), and the summary tallies BOTH — so neither the summary nor an "error:" scan is right.
 const BROKEN = [
   "I[00:00:00.000] Building AST...",
   "E[00:00:00.001] [undeclared_var_use] Line 19: use of undeclared identifier 'Counter'",

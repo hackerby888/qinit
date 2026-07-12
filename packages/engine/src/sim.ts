@@ -1,8 +1,5 @@
 // Layer 2 — chain-sim. Drives contracts + a single-authority testnet: deploy/registry, tick/epoch, the
-// lifecycle sweep, the money model (spectrum of Entity records, invocationReward, transfer/burn,
-// POST_INCOMING_TRANSFER), assets, and the faithful transaction dispatcher (applyTx) — a SC procedure call is
-// just a tx to the contract address with inputType=procId + payload, exactly like qubic.cpp
-// processTickTransaction. Mirrors core-lite qpi_spectrum_impl.h / qpi_asset_impl.h.
+// lifecycle sweep uses the money model for entity spectrum, invocationReward, transfer/burn flows.
 import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
 import { toHex, verifySync } from "./k12";
 import { TraceRecorder } from "./trace";
@@ -233,8 +230,6 @@ export class Sim {
 
   // Test helper (core's notifyContractOfIncomingTransfer): MOVE `amount` from source to dest, then fire dest's
   // POST_INCOMING_TRANSFER callback — a full inbound transfer the corpus wants the contract to react to. The
-  // move must debit the source: if the handler refunds (as RL does), crediting dest without debiting source
-  // would leave the sender doubled.
   notifyIncomingTransfer(source: Uint8Array, dest: Uint8Array, amount: bigint, type: number): void {
     this.spectrum.decreaseEnergy(source, amount, this.tickN);
     this.spectrum.increaseEnergy(dest, amount, this.tickN);
@@ -243,8 +238,6 @@ export class Sim {
 
   // gtest seam: override qpi.computor(i) so a corpus that seeds its own committee (the proposal-voting
   // contracts write broadcastedComputors.computors.publicKeys[i]) gets the same identities back from the
-  // engine — otherwise the contract's proposer-is-a-computor check never matches. A zero key clears the
-  // override (falls back to the real committee).
   setComputorKey(index: number, key: Uint8Array): void {
     if (key.every((b) => b === 0)) {
       this.computorOverride.delete(index >>> 0);
@@ -255,7 +248,6 @@ export class Sim {
 
   // Wipe the ledger back to genesis (empty spectrum + empty universe) without touching deployed instances —
   // gtest isolation: each test starts from a clean balance/asset state. The deployed contract's own StateData
-  // is reset separately (zeroState + INITIALIZE). Used only by the gtest runner (gtest.ts).
   resetLedger(): void {
     this.spectrum = new SpectrumLedger();
     this.assets = new AssetLedger({ contractId: (slot) => this.contractId(slot) });
@@ -297,7 +289,6 @@ export class Sim {
 
   // qpi.burn(amount, burnedFor): burn the caller's QU and credit it to a contract's execution-fee reserve. The
   // target is `burnedFor` when it's a valid index, else the caller itself (qpi.h burn). A failed-IPO target
-  // can't be refilled. When fees are off the burn still debits balance (existing behaviour) but tracks no reserve.
   private doBurn(slot: number, amount: bigint, burnedFor: number): bigint {
     if (amount < 0n || amount > MAX_AMOUNT) return -(MAX_AMOUNT + 1n);
 
@@ -352,8 +343,6 @@ export class Sim {
 
   // qpi.acquireShares — the calling contract takes management rights of (owner,possessor)'s shares currently
   // managed by srcMgmt. The source managing contract approves via PRE_RELEASE_SHARES (and may charge a fee);
-  // on success the shares become managed by callerSlot. Returns the paid fee (>= 0), -requestedFee if the
-  // offered fee / balance is insufficient, INVALID_AMOUNT on any other error.
   acquireShares(callerSlot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, srcOwnMgmt: number, srcPosMgmt: number, offeredFee: bigint): bigint {
     if (!this.idEq(owner, possessor) || srcOwnMgmt !== srcPosMgmt) {
       return INVALID_AMOUNT;
@@ -426,10 +415,6 @@ export class Sim {
 
   // distributeDividends (qpi_asset_impl.h): deduct amountPerShare * 676 from the contract up front, then pay
   // amountPerShare per share to every POSSESSOR of the contract's own share asset (issuer = zero id, name =
-  // the contract's ticker), firing each contract receiver's POST_INCOMING_TRANSFER (type qpiDistributeDividends,
-  // source = the contract id) nested mid-iteration. If fewer than 676 shares exist in the universe the
-  // difference stays deducted (the node's post-IPO invariant is exactly 676 shares — see registerContractAsset).
-  // Forbidden inside a POST_INCOMING_TRANSFER callback.
   private doDistributeDividends(slot: number, amountPerShare: bigint): number {
     if (this.pitDepth > 0) return 0; // forbidden inside POST_INCOMING_TRANSFER
     if (amountPerShare < 0n || amountPerShare * BigInt(IPO_SHARE_COUNT) > MAX_AMOUNT) return 0;
@@ -458,7 +443,6 @@ export class Sim {
 
   // The contract's share-asset name (its ticker, packed ASCII) — what distributeDividends iterates. System
   // contracts get it from contract_def.h's contractDescriptions (the gtest harness passes the catalog);
-  // dynamic contracts get it at deploy.
   private contractAssetNames = new Map<number, bigint>();
 
   setContractAssetName(slot: number, name: bigint | string): void {
@@ -467,7 +451,6 @@ export class Sim {
 
   // Dev-deploy stand-in for the IPO: mint the contract's 676 shares (issuer = zero id) to `holder`, managed
   // by QX — mirrors the node's post-IPO state with the deployer standing in for the IPO winners. No-op if
-  // the share asset already exists (redeploy).
   mintDeployShares(slot: number, name: bigint | string, holder: Uint8Array): void {
     const packed = typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn;
     this.setContractAssetName(slot, packed);
@@ -608,9 +591,6 @@ export class Sim {
 
   // Advance one tick. When the new tick reaches an epoch boundary (a multiple of epochLength) the chain
   // switches epoch first — END_EPOCH of the closing epoch, epoch++, then BEGIN_EPOCH of the new one (core's
-  // SystemProcedureID order) — before this tick's BEGIN_TICK/END_TICK run. This is how the live network
-  // fires the epoch lifecycle; deploy still runs only INITIALIZE, so a contract's first BEGIN_EPOCH lands at
-  // the next boundary (mirroring construction mid-epoch on the node).
   advance(): void {
     const nextTick = this.tickN + 1;
     if (this.epochLength > 0 && nextTick % this.epochLength === 0) {
@@ -661,7 +641,6 @@ export class Sim {
 
   // Inter-contract function call (liteCallFunction) — route to whatever Contract is at calleeIdx (a user
   // contract or a wasm-deployed system contract; no native/wasm distinction). Returns the
-  // InterContractCallError + the callee's output bytes.
   doCallFunction(callerSlot: number, calleeIdx: number, inputType: number, input: Uint8Array, originator: Uint8Array): { error: number; output: Uint8Array } {
     const callee = this.contracts.get(calleeIdx);
     if (!callee) return { error: CALL_ERR_INACTIVE, output: EMPTY };
@@ -777,7 +756,6 @@ export class Sim {
 
   // The faithful transaction dispatcher (qubic.cpp processTickTransaction). A SC procedure call is a tx to the
   // contract address with inputType=procId + payload; a plain transfer is any other (dest=user, or dest=contract
-  // with a non-procedure inputType). Money moves first (debit source, credit dest), then routing by dest+type.
   applyTx(source: Uint8Array, dest: Uint8Array, amount: bigint, inputType: number, payload: Uint8Array, txId: string, digest: Uint8Array = ZERO32): { moneyFlew: boolean } {
     const tick = this.tickN;
     const txIndex = this.txpool.tickTransactions(tick).length;
@@ -809,10 +787,6 @@ export class Sim {
       } else if (isProcedure) {
         // Isolate a faulting procedure (a wasm trap like divide-by-zero, an abort, or a host error). Without this
         // the throw unwinds out of drainMempool and crashes the whole node — one buggy contract tx kills the tick
-        // and every later tx in it. Snapshot the contract state and refund the attached amount on failure, so a
-        // faulting tx neither persists partial state nor pockets the reward, and the tick still finalizes.
-        // (Side effects on OTHER state — a transfer/asset op done before the trap — are not rolled back yet; full
-        // cross-state tx atomicity is a separate concern.)
         const stateBefore = c.state().slice();
         try {
           this.runProcedure(slot, inputType, payload, source, source, reward);
@@ -841,7 +815,6 @@ export class Sim {
 
   // Submit a broadcast tx. In mempool mode a tx whose scheduled tick is still ahead is held until the chain
   // reaches that tick (drained in advance), so it is recorded under that tick; otherwise — and always when
-  // mempool mode is off — it applies immediately at the current tick.
   enqueueTx(scheduledTick: number, source: Uint8Array, dest: Uint8Array, amount: bigint, inputType: number, payload: Uint8Array, txId: string, digest: Uint8Array = ZERO32): { moneyFlew: boolean; queued: boolean } {
     if (!this.mempoolMode || scheduledTick <= this.tickN) {
       const r = this.applyTx(source, dest, amount, inputType, payload, txId, digest);

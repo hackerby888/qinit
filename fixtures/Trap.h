@@ -1,6 +1,5 @@
 // Fault-injection fixture: Div does a raw integer division (input.a / input.b) which the wasm executes as
-// i64.div — a wasm TRAP on b == 0. Used to assert the engine isolates a faulting procedure (the tick survives,
-// state rolls back) instead of crashing. qpi-DIRTY on purpose (raw /), so it builds only with skipVerify.
+// i64.div is a wasm TRAP on b == 0. Used to ensure the engine isolates a faulting procedure (the tick survives).
 using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase

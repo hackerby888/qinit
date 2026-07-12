@@ -1,6 +1,5 @@
 // Quick-fix provider for Tier-A findings: `T[N]` -> `Array<T, N>` (qpi/no-brackets), `a / b` -> `div(a,
 // b)` / `a % b` -> `mod(a, b)` (qpi/no-division, qpi/no-modulo). Each is offered only when the source
-// matches a safe shape (see codefix.ts) so a quick-fix never produces broken or mis-precedenced code.
 import * as vscode from "vscode";
 import { arrayFixForLine, divModFixForLine, moveLocalToWithLocalsEdits } from "./codefix";
 import { isContractDoc } from "./project-util";

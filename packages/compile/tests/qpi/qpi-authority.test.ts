@@ -17,8 +17,6 @@ beforeAll(async () => {
 
 // Calls every public operation in the source-backed container families and each
 // source-backed arithmetic family. Compilation is lazy, so this is also the
-// capability inventory: adding a method here forces its authoritative body and
-// every private helper it reaches through the frontend.
 const CAPABILITY_SOURCE = `using namespace QPI;
 struct CustomHash
 {

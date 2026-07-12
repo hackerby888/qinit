@@ -1,6 +1,5 @@
 // Regular transactions + spectrum + tickdata + getEntity. A SC procedure call is a tx to the contract address
 // with inputType=procId + payload; a plain transfer is a non-procedure inputType or a user destination. Money
-// moves first (debit source, credit dest), then routing — faithful to qubic.cpp processTickTransaction.
 import { test, expect } from "bun:test";
 import { buildSignedTx, deriveIdentity } from "@qinit/core";
 import { contractAddress, encodeInput } from "@qinit/proto";

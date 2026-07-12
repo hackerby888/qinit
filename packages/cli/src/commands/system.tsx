@@ -8,8 +8,6 @@ import { Header, Spinner, Status } from "../ui";
 
 // qinit system               -> list the system contracts (catalog + which are live on the node + selected)
 // qinit system add <name…>   -> compile (cache) + direct-deploy onto the running virtual node; save to qinit.json
-// qinit system rm  <name…>   -> undeploy on the node + drop from qinit.json
-// Only the user's picks are ever compiled/deployed — a real node embeds system contracts and 404s the route.
 function parse(args: string[]): { sub: string; names: string[]; rpc?: string } {
   const names: string[] = [];
   let sub = "";

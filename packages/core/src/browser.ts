@@ -1,11 +1,5 @@
 // Browser-safe entry for @qinit/core. The package index re-exports ./fetch, ./project, ./backtrace, which
-// pull node:fs / child_process; this entry exposes only the browser-usable surface: identity, tx signing,
-// rpc/net (fetch-based), the transport types, and K12. The one rewrite vs the index is K12 — ./qubic resolves
-// @qubic-lib's emscripten crypto via bun `require(...)`, which doesn't exist in a browser/bundler, so here it
-// is a normal ESM import (the non-K12 identity helpers in ./qubic are import-safe and re-used as-is).
-//
-// Consumed two ways: bundlers that need a node-free @qinit/core alias to this file (e.g. @qinit/engine's
-// build), and apps that want it directly via `@qinit/core/browser`.
+// pull node:fs / child_process; this entry exposes only browser-safe identity, tx signing, and signing helpers.
 export * from "./struct"; // zero-copy struct-view kit — node-free, safe in the browser bundle
 export { LHOST_ABI, ASSET_ENUMERATION_RECORD } from "./lhost-abi";
 export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./lhost-abi";
@@ -28,9 +22,7 @@ export type { NodeTransport, TxStatus, StateRead, EntityInfo, TxInfo } from "./t
 export type { KeyPair } from "./qubic";
 
 // K12 (KangarooTwelve): ESM import of @qubic-lib's emscripten crypto (the same module ./qubic uses), so it
-// runs in the page. `default` resolves (once the wasm runtime is ready) to { K12, schnorrq } where K12(input,
-// out, outLen) writes into `out`. k12Sync mirrors @qinit/core's signature — `(bytes) => Uint8Array(32)`; the
-// schnorrq object backs the sync FourQ key/sign/verify the engine's tick-consensus needs.
+// runs in the page. `default` resolves (once runtime ready) to { K12, schnorrq } where K12(input) is usable.
 import cryptoModule from "@qubic-lib/qubic-ts-library/dist/crypto/index.js";
 import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper.js";
 import type { KeyPair } from "./qubic";

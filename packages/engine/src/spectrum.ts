@@ -1,7 +1,5 @@
 // The spectrum — every entity's balance record (energy = incomingAmount - outgoingAmount) and the incremental
 // 2^24 merkle whose root is the spectrumDigest. The TS mirror of core-lite spectrum/spectrum.h (energy /
-// increaseEnergy / decreaseEnergy / getSpectrumDigest). Pure ledger: no contract / fee / asset coupling — the
-// orchestrator (Sim) layers transfer/burn policy on top of these primitives.
 import type { Entity } from "./runtime";
 import { toHex, k12Bytes } from "./k12";
 import { SparseMerkle } from "./merkle";

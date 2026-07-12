@@ -1,6 +1,5 @@
 // Cache/tool path + release-asset builders. Pure (env + process.platform/arch driven) — a regression here
 // points the node/sdk/verify-tool cache at the wrong place. Runs on every CI OS, so it also pins the
-// per-platform shapes (incl. the windows-only `cliAssetName` throw).
 import { test, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

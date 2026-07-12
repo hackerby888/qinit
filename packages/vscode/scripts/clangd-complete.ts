@@ -1,8 +1,5 @@
 // Headless completion probe: drives clangd over stdio LSP against the generated compile DB to prove
 // the completion behavior the user cares about — the PUBLIC QPI surface completes (state./Array./qpi.
-// members) while the cross-scope std/OS flood is gone (Completion.AllScopes: No). Run where core +
-// wasi + clangd are present (locally with QINIT_CORE, or CI's vscode-clangd-check job):
-//   QINIT_CORE=/path/to/core-lite bun run packages/vscode/scripts/clangd-complete.ts
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";

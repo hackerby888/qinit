@@ -57,7 +57,6 @@ export function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "te
     cg.compiledMethods.delete(cacheKey);
     // Once an authoritative method body has been selected, a lowering failure is a
     // compiler error. Returning null here used to let callers substitute handwritten
-    // behavior or a zero value and made source coverage impossible to ratchet.
     throw e;
   }
   return cm;
@@ -148,7 +147,6 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
   const member = expr.callee.member;
   // Any captured instance method goes through the same source-instantiation path.
   // Container family and method names do not carry semantics here: the selected
-  // declaration determines parameter ABI, return channel, and emitted behavior.
   if (!ctx.cg.templateMethods.get(node.type.name)?.has(member)) return null;
   const compiled = callCompiled(ctx, node.type, member, map, expr.args);
   if (!compiled) throw new Error(`authoritative method ${node.type.name}::${member} could not be lowered`);

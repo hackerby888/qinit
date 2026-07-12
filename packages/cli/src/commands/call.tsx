@@ -19,10 +19,6 @@ type Confirm = { start: number; net: number; target: number };
 
 // Non-interactive forms (qubic-cli style):
 //   qinit call --fn   <idx> <fnId>   --in "<fmt>" --out "<fmt>"
-//   qinit call --proc <idx> <procId> --amount N --in "<fmt>" --seed <55>
-//   --args '<json>'  encode the input from a field-name JSON object (or positional array) via the IDL
-//   --trace          after the call, print the captured debug trace (decoded I/O, state diff, logs, host-calls)
-// No --fn/--proc  -> interactive picker driven by the node's dyn-registry.
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};

@@ -1,9 +1,5 @@
 // Merkle incrementality — the spectrum (SpectrumLedger) and universe (AssetLedger) digests are built on the
 // sparse 2^24 SparseMerkle, which rehashes only a changed leaf's 24-node path, never the whole tree. These tests
-// pin the two properties that matter: (1) the incremental path is correct — a digest taken after every single op
-// equals the digest of the same final state computed in one shot, and the root is order-independent; (2) a single
-// leaf update on a large tree stays bounded work (a 24-hash path), guarding against a regression to an O(2^24)
-// full rebuild. Sources: src/merkle.ts, src/spectrum.ts, src/assets.ts.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex, k12Bytes } from "../../src/k12";
 import { SparseMerkle, MERKLE_DEPTH } from "../../src/merkle";

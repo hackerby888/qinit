@@ -1,6 +1,5 @@
 // OS-sensitive cache/io helpers: atomic write, tar extraction (the Windows `tar -C` bug class),
 // body-stream reader, and path builders. These run on every CI OS leg, so they catch portability
-// regressions (e.g. MSYS tar path mangling) at the source instead of downstream in core's smoke.
 import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

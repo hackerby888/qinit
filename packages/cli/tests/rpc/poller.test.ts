@@ -1,7 +1,5 @@
 // The shared boot-wait poller (scripts/poll-node-json.sh) gates both qinit's own CI and core-lite's
 // qinit-release smoke, so a regression in it is expensive. Exercise it directly against a Bun.serve:
-// present -> echo value + exit 0; never-ready -> retry then exit 1; "0" treated as not-ready (tick poll).
-// Running under the windows lint-test leg also proves `bash <script>` resolves on the Git-bash runner.
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 

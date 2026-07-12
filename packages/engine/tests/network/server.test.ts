@@ -1,7 +1,5 @@
 // EngineServer (server.ts) — the HTTP adapter. Spins it up on an ephemeral port over an VirtualNode and
-// drives the qubic-core-lite RPC routes: tick info, the funded-seed faucet balance, a contract query over HTTP,
-// the per-contract digest, and the 404 path. The TCP peer bridge is covered by peer-server.test; this closes the
-// HTTP surface that qinit's deploy-ops + the spawned test runtime talk to.
+// drives qubic-core-lite RPC routes: tick info, faucet balance, and contract query over HTTP.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12 } from "../../src/k12";
 import { VirtualNode } from "../../src/transport";

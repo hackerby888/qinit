@@ -1,8 +1,5 @@
 // Typed wire-struct views (wire.ts). The layout is derived by `defineStruct` emulating the C compiler's
 // natural-alignment rules, so these tests pin three things: (1) every auto-computed SIZE/offset equals the C++
-// network_messages layout (the static_assert sums), incl. the alignment padding the compiler inserts; (2) the
-// views are zero-copy (writes reach the backing buffer, m256 getters return live windows); (3) the m256i
-// primitive's id/digest helpers. Offsets are cited from core-lite network_messages/* + platform/m256.h.
 import { test, expect } from "bun:test";
 import {
   M256i, RequestResponseHeader, EntityRecord, AssetRecord, Tick, TickData, Transaction,

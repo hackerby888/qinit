@@ -1,7 +1,5 @@
 // Peer-protocol server — integration over a real TCP socket. Starts a PeerServer on an ephemeral port, connects
-// with Bun.connect, sends raw request packets, and asserts the decoded responses: the handshake,
-// current-tick-info (with real aligned votes), entity balance, a contract-function call, and the
-// arbitrator-signed computor list.
+// with Bun.connect, sends raw request packets, and asserts decoded responses including the handshake.
 import { test, expect } from "bun:test";
 import { initK12, k12Bytes, toHex, verifySync } from "../../src/k12";
 import { VirtualNode } from "../../src/transport";

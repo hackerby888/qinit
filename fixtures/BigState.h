@@ -1,6 +1,5 @@
 // Big-state fixture: 64MB state (2^26). Set writes a marker at offset 0 AND near the 64MB end; Get reads both
 // back. Proves the system allocator gives the instance 64MB linear memory, the 1GB dyn slot holds it, and the
-// per-call state copy round-trips the whole thing.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

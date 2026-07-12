@@ -1,6 +1,5 @@
 // Live QPI diagnostics: runs the Tier-A lexer (qpi-rules) + the IDL structural checks (idl-checks)
 // on contract documents and publishes them to a DiagnosticCollection. Debounced on edit, immediate
-// on open/save. Both engines are pure offset->finding; this maps offsets to editor ranges.
 import * as vscode from "vscode";
 import { scanQpi, scanLocals, scanLocalsForm, type QpiFinding } from "./lint/qpi-rules";
 import { idlChecks } from "./lint/idl-checks";

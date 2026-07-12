@@ -1,7 +1,5 @@
 // Oracle queries + subscriptions — the TS model of core-lite oracle_core/oracle_engine.h (query metadata +
-// recurring subscriptions + the contract notification). Interface-agnostic: the query/reply are opaque bytes,
-// the contract owns the typing. Decoupled from the rest of the engine through the injected OracleHost — it
-// reaches spectrum (to charge a query fee) and contract execution (to fire a notification) only through that.
+// recurring subscriptions + contract notification are interface-agnostic: query/reply are opaque bytes.
 
 // network_messages/common_def.h ORACLE_QUERY_STATUS_* — the contract-observable lifecycle of an oracle query.
 export const ORACLE_STATUS = { UNKNOWN: 0, PENDING: 1, COMMITTED: 2, SUCCESS: 3, TIMEOUT: 4, UNRESOLVABLE: 5 };
@@ -33,7 +31,6 @@ interface OracleSubRec {
 
 // The seams the OracleManager needs from the rest of the engine: the query fee touches the spectrum (balance of
 // / debit the querying contract), the notification runs the contract's notification procedure, and the
-// subscription scheduler reads the chain clock.
 export interface OracleHost {
   contractBalance(slot: number): bigint;
   debitContract(slot: number, amount: bigint): void;

@@ -5,7 +5,6 @@ import { Header, GradLine, theme } from "../ui";
 
 // qinit mode                          -> interactive picker; ↵ saves, q cancels
 // qinit mode <realnode|virtualnode>   -> set directly
-// qinit mode --show                   -> print the active mode
 function parse(args: string[]): { name?: string; show?: boolean } {
   const o: { name?: string; show?: boolean } = {};
   for (const a of args) {
@@ -32,7 +31,6 @@ export function ModeCmd({ args }: { args: string[] }) {
   const [i, setI] = useState(Math.max(0, NODE_MODES.indexOf(cur)));
   // Selected index in a ref too: ink only re-subscribes useInput after React commits, so a fast arrow→↵ can
   // hit the pre-move handler and save the previously-highlighted mode. The ref is updated synchronously in the
-  // same key event, so ↵ always reads where the cursor actually is.
   const sel = useRef(i);
   const move = (d: number): void => {
     sel.current = (sel.current + d + NODE_MODES.length) % NODE_MODES.length;

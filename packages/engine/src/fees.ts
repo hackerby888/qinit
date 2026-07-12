@@ -1,13 +1,9 @@
 // Execution-fee reserves — the TS mirror of core-lite's Contract-0 contractFeeReserves
 // (contract_core/*: get/setContractFeeReserve, addTo/subtractFromContractFeeReserve) plus the qinit-sim policy
-// from doc/execution_fees.md. Pure reserve accounting: this holds the per-contract reserve map and the fee-mode
-// switch, with no contract-execution or spectrum coupling — the orchestrator (Sim) calls reserveOk()/add()/sub()
-// around the contract it runs. The whole model is inert when mode === "off" (the default IDE behaviour).
 import { MAX_NUMBER_OF_CONTRACTS } from "./consensus";
 
 // Execution-fee accounting mode. "off" keeps the original behaviour (every contract always runs, queryFeeReserve
 // is a positive constant) so the IDE and existing digests are unchanged. "metered" turns on the fee model:
-// per-contract reserves, the cost meter, and the gating from doc/execution_fees.md.
 export type FeeMode = "off" | "metered";
 
 const IPO_COMPUTORS = 676n; // NUMBER_OF_COMPUTORS — a completed IPO funds the reserve to finalPrice * 676

@@ -1,6 +1,5 @@
 // Per-project config (qinit.json) + core resolution now live in @qinit/core (project.ts) so the
 // VS Code extension can share them without pulling in Ink/React. Re-exported here for back-compat:
-// every command still does `import { loadConfig, resolveCore } from "../config"`.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
@@ -11,7 +10,6 @@ export type { QinitConfig } from "@qinit/core";
 
 // qinit's config dir. Honors $XDG_CONFIG_HOME on every platform (tests + power users rely on it); otherwise
 // %APPDATA%\qinit on Windows (idiomatic) and ~/.config/qinit elsewhere. Back-compat: an existing
-// ~/.config/qinit written by an earlier Windows build is honored so a saved seed is never orphaned by the move.
 function configDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
   if (xdg) return join(xdg, "qinit");
@@ -50,7 +48,6 @@ export function setSavedTheme(name: string): void {
 
 // Globally-chosen node mode (set by `qinit mode`): the backend `qinit test` runs against — a real ephemeral
 // qubic node ("realnode") or the in-process TS engine ("virtualnode"). Saved in qinit's config dir; defaults
-// to realnode when unset, so behavior matches the pre-mode CLI.
 export type NodeMode = "realnode" | "virtualnode";
 export const NODE_MODES: NodeMode[] = ["realnode", "virtualnode"];
 
@@ -75,7 +72,6 @@ export function setSavedMode(mode: NodeMode): void {
 
 // Globally-chosen contract compiler (set by `qinit compiler`): the backend `qinit build/deploy/dev/test` use
 // to turn a .h into wasm — native clang ("native", the default, matches the pre-compiler CLI) or the in-process
-// TS compiler ("local", no toolchain). Saved in qinit's config dir.
 export type Compiler = "native" | "local";
 export const COMPILERS: Compiler[] = ["native", "local"];
 

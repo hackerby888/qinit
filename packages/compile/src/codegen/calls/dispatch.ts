@@ -296,7 +296,7 @@ export function describeShape(e: Expression): string {
   return e.kind;
 }
 
-// QUERY_ORACLE / SUBSCRIBE_ORACLE (qpi.h:3290/3327): qpi.__qpiQueryOracle<OI::Price>(query, proc, __id_proc, timeout) lowers like native lite_wasm_tu.h — the host import takes (ifaceIdx,
+// QUERY_ORACLE / SUBSCRIBE_ORACLE (qpi.h:3290/3327) lowers through host import args (ifaceIdx, timeout).
 export function emitOracleQueryCall(ctx: FnCtx, expr: Expression & { kind: "template_call" }): string | null {
   const subscribe = expr.callee.kind === "member_access" && expr.callee.member === "__qpiSubscribeOracle";
   const t = expr.templateArgs[0];
@@ -417,7 +417,6 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
 
   // The generic HashFunction<KeyT> source body calls core-lite's KangarooTwelve primitive with an
   // explicit output length. The lite host exposes K12 as a 32-byte producer, so hash into a private
-  // 32-byte slot and then copy/assign the requested prefix.
   if (expr.callee.kind === "identifier" && expr.callee.name === "KangarooTwelve") {
     const input = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
     const inputSize = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);

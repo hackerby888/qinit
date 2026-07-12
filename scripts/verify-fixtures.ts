@@ -1,7 +1,5 @@
 // Run contractverify (the qpi.h protocol-rule AST checker) over every fixtures/*.h and fail if any
 // real violation is found. Fast: concretize + run the tool, no wasm compile. Used by CI so a fixture
-// that drifts out of qpi-compliance (stack locals, [], % //, native types, ...) turns the build red.
-// Needs the cached contractverify tool (`qinit node run`, or QINIT_VERIFY=/path). Tool-absent => skip (green).
 import { readdirSync } from "node:fs";
 import { join, basename } from "node:path";
 import { verifyContract } from "../packages/build/src/verify";

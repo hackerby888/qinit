@@ -1,10 +1,5 @@
 // Tier-A QPI linter: a single comment/string-aware C++ scanner over the enumerable qpi.h rules
-// (qpi.h:18-39 + doc/contracts.md:592-632). ADVISORY by design — it catches the high-confidence,
-// low-false-positive violations (forbidden characters + keywords) instantly, in-editor, without a
-// compile. The parse-heavy rules (stack-locals, pointers/&, recursion, unprefixed globals) are left
-// to Tier-B (`contractverify`) where they're authoritative; flagging them here would false-positive.
-//
-// Pure (no `vscode`, no Bun) → unit-tested under `bun test`, bundles cleanly into the Node host.
+// (qpi.h + doc/contracts.md) advisory checks catch high-confidence issues before emit.
 
 export type QpiSeverity = "warn" | "info";
 
@@ -74,8 +69,6 @@ export function scanQpi(src: string): QpiFinding[] {
       const directive = src.slice(i, j);
       // The qpi.h dev-include is the sanctioned IntelliSense workaround (doc/contracts.md) and this
       // extension makes it harmless — treat it as an exception (no diagnostic). Every OTHER preprocessor
-      // directive stays forbidden. Either way, skip the rest of the line so its path string isn't
-      // mis-flagged as a QPI string literal.
       if (!/^#\s*include\s*[<"][^>"]*qpi\.h[>"]/.test(directive)) {
         push("qpi/no-preprocessor", "Preprocessor directives (`#`) are forbidden in QPI (remove before deploying).", i, 1, "info");
       }
@@ -107,8 +100,6 @@ export function scanQpi(src: string): QpiFinding[] {
 
       // STATIC_ASSERT(...) / static_assert(...) is a COMPILE-TIME assertion: its message string and
       // its condition (even `/`, `%`) are not runtime QPI violations. Skip the whole call so we don't
-      // flag e.g. STATIC_ASSERT(A == B, "A == B"). (qpi.h's STATIC_ASSERT macro accepts a message; real
-      // contracts like Pulse.h use it.)
       if (word === "STATIC_ASSERT" || word === "static_assert") {
         let j = i;
         while (j < n && /\s/.test(src[j])) j++;
@@ -185,7 +176,6 @@ export function blankCommentsAndStrings(src: string): string {
 
 // The contract "functions" whose bodies hold user code (where stack locals are forbidden). Lifecycle
 // hooks + PUBLIC/PRIVATE functions/procedures (incl. _WITH_LOCALS — you still can't declare a raw local
-// there; you use the `locals` struct).
 const LIFECYCLE = "INITIALIZE|BEGIN_EPOCH|END_EPOCH|BEGIN_TICK|END_TICK|POST_INCOMING_TRANSFER|PRE_ACQUIRE_SHARES|POST_ACQUIRE_SHARES|PRE_RELEASE_SHARES|POST_RELEASE_SHARES|EXPAND";
 const FN_MACRO = new RegExp(
   `\\b(?:PUBLIC|PRIVATE)_(?:FUNCTION|PROCEDURE)(?:_WITH_LOCALS)?\\s*\\([^)]*\\)|\\b(?:${LIFECYCLE})(?:_WITH_LOCALS)?\\s*\\(\\s*\\)`,
@@ -251,8 +241,6 @@ const STMT_KEYWORDS = new Set([
 
 // Detect a function/procedure that needs the `_WITH_LOCALS` form but uses the plain one: it either
 // defines a `<Name>_locals` struct (which the plain macro re-typedefs to empty `QPI::NoData` → clang's
-// cryptic "typedef redefinition") or uses `locals.` in its body (which would be empty). Turn that into
-// an actionable hint pointing at `_WITH_LOCALS`.
 export function scanLocalsForm(source: string): QpiFinding[] {
   const src = blankCommentsAndStrings(source);
   const out: QpiFinding[] = [];
@@ -302,9 +290,6 @@ export function scanLocalsForm(source: string): QpiFinding[] {
 
 // Detect stack-local variable declarations inside QPI function/procedure bodies (forbidden — use the
 // *_WITH_LOCALS form + a `<fn>_locals` struct, or store state via `state.mut()`). Conservative: only
-// the unambiguous `<Type> <name>;` / `<Type> <name> = …;` / `for (<Type> <name> = …` forms — never
-// calls (`foo(...)`), member access (`state.x = …`), or assignments. Restricted to function bodies, so
-// struct fields (StateData, *_input/_output/_locals) are never touched.
 export function scanLocals(source: string): QpiFinding[] {
   const src = blankCommentsAndStrings(source);
   const out: QpiFinding[] = [];

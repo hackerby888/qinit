@@ -1,9 +1,5 @@
 // QPI edge-case gauntlet for `qinit test` / CI deploy-smoke. Exercises a broad QPI surface the
-// counter fixtures don't: div/mod (incl. divide-by-zero -> 0), unsigned + signed wrap arithmetic,
-// bit ops/shifts, Array<T,N> (index masked by N-1), HashMap<id,uint64> set/get/population, the
-// procedure context (qpi.invocator / qpi.invocationReward), and qpi.K12 hashing.
-// qpi-clean: every temporary lives in a *_locals struct (no stack locals), no [], no % or / (use
-// div/mod), no native types — so it passes contractverify, not just --skip-verify.
+// counter fixtures: div/mod (incl. divide-by-zero -> 0), unsigned + signed wrap arithmetic.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

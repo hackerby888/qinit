@@ -1,8 +1,6 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // constexpr array-size resolution: the qpi math helpers come in a templated form (div<uint64>(a,b)) AND a plain
 // form (div(a,b)). The size evaluator only rewrote the templated form, so a contract sizing an array with the
-// plain form left the constant name in the format string (e.g. QThirtyFour's [QTF_BATCH_TICKET_VALUES_COUNT;uint8]
-// -> unencodable). These pin the plain form resolving.
 import { test, expect } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { extractIdl } from "../../src/idl";

@@ -1,6 +1,5 @@
 // Project-level config (qinit.json) + core/toolchain resolution, shared by @qinit/cli and the
 // VS Code extension. Bun-free (node:fs/path only) so it is safe to call from the Node-based VS Code
-// extension host. Hoisted out of @qinit/cli (an Ink app) so non-CLI consumers don't pull in React/Ink.
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readCurrent } from "./fetch";

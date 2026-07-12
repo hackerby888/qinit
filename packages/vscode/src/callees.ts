@@ -6,7 +6,6 @@ import { blankCommentsAndStrings } from "./lint/qpi-rules";
 
 // Position-aware callee references: each CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE
 // (+ _E) call and the offset of its callee-name token. Comments/strings are blanked first (offsets
-// preserved) so a commented-out call isn't reported.
 export function findCalleeRefs(source: string): { name: string; offset: number; length: number }[] {
   const src = blankCommentsAndStrings(source);
   const out: { name: string; offset: number; length: number }[] = [];
@@ -20,22 +19,15 @@ export function findCalleeRefs(source: string): { name: string; offset: number; 
 
 // Callee references that resolve to NEITHER an in-core contract (contract_def.h) nor a known dynamic
 // (node-deployed) callee — they'll have no declarations in the editor TU, so clangd shows raw
-// "undeclared identifier" errors. The caller turns these into one actionable diagnostic instead.
 export function unresolvedCalleeRefs(source: string, known: Set<string>): { name: string; offset: number; length: number }[] {
   return findCalleeRefs(source).filter((r) => !known.has(r.name));
 }
 
 // Dynamic inter-contract resolution for the editor. A qinit-deployed contract that does
 // CALL_OTHER_CONTRACT_*(Foo, …) needs Foo's declarations to parse. Foo isn't in core's contract_def.h
-// (those are the built-in callees buildCalleePrelude already resolves) — but the node stores each
-// deployed contract's .h source (POST /live/v1/dev/contract-source) and serves it back in the
-// dyn-registry. So we fetch the registry, match it against the names this source calls, drop each
-// match's source into a temp header, and hand buildCalleePrelude a DynCallees map — exactly how the
-// node itself resolves callees, with no qinit.json/--callee config.
 
 // Build the DynCallees map for the other-contract names `source` references from the node's registry
 // contracts, writing each matched callee's stored .h to <calleeDir>/<Name>.h. Network-free (the caller
-// supplies `contracts`); only writes under calleeDir. Returns {} when nothing matches.
 export function calleesFromRegistry(source: string, contracts: DynContract[], calleeDir: string): DynCallees {
   const wanted = scanCallees(source);
   if (wanted.size === 0) return {};

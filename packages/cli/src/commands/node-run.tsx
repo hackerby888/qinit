@@ -10,9 +10,6 @@ import { parseArgs, output } from "../args";
 
 // qinit node run [--ref <tag>] [--restart] [--offline] [--bin <path>] [--tick-ms <n>] [--keep] [--rpc] [--wait]
 // One command bring-up: sync headers + fetch the wasm compiler + get the node + run it. Reuses a node that's
-// already ticking (preserves deployed contracts); restarts only a stale/idle node or on --restart. Skips
-// re-fetch when cached. With `qinit mode virtualnode` the in-process engine replaces the node binary.
-// Shared parser — `restart`/`offline`/`keep` are booleans (never consume the next token); everything else `--k v`.
 function parse(args: string[]): Record<string, string> {
   const a = parseArgs(args, { booleans: ["restart", "offline", "keep", "real", "realnode", "virtual"] });
   const o: Record<string, string> = { ...a.flags };

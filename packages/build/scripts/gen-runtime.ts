@@ -1,7 +1,5 @@
 // Bundle the test-SDK (src/sdk-entry.ts) into one self-contained string from the real @qinit source. Bun calls
 // generateRuntimeMacro at Qinit bundle time and inlines the result, so there is no generated source artifact.
-// @qubic-lib stays external (the user's project installs it); @qinit/core is pinned to its browser-safe entry so
-// proto's internal imports don't pull the node-heavy package index.
 import { join } from "node:path";
 
 const BUILD = join(import.meta.dir, "..");

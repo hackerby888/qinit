@@ -1,7 +1,6 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Smoke-compile the QUTIL upstream corpus (core-lite/test/contract_qutil.cpp) through
 // buildCorpusRunner to verify: (1) the include redirect works, (2) wasm_contract_testing.h
-// resolves from outDir, (3) the corpus compiles verbatim against the qinit harness header.
 import { test, expect } from "bun:test";
 import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";

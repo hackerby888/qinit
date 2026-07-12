@@ -1,7 +1,5 @@
 // End-to-end against the real external CLI binary. Gated: runs only when QUBIC_CLI points at a built binary, so
 // CI and machines without it skip. Each test stands up an in-process PeerServer on an ephemeral port, spawns
-// the CLI against it, and asserts its stdout.
-//   QUBIC_CLI=/path/to/qubic-cli bun test tests/cli-e2e.test.ts
 import { test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { initK12 } from "../../src/k12";
@@ -40,8 +38,6 @@ async function serve(setup?: (e: VirtualNode) => void | Promise<void>): Promise<
 
 // Does the external binary trust the engine's dev arbitrator? The CLI hardcodes its ARBITRATOR identity at
 // compile time (defines.h); the engine signs the computor list with its own dev arbitrator (DEFAULT_ARBITRATOR_
-// SEED). When they differ, the CLI prints "Computor list is NOT verified" and cannot verify a tick's leader
-// signature — so the signature-verify assertions are gated on a binary built with the matching arbitrator.
 let arbitratorTrusted = false;
 
 beforeAll(async () => {

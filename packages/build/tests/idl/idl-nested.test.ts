@@ -1,9 +1,6 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Nested-type IDL extraction: a contract field that is a struct (or Array<struct>) must parse into a named
 // field TREE (Field.struct / .array), not collapse to an opaque format token — and same-name nested structs in
-// different parents must each resolve to their OWN definition (scoped). Driven by the real QX/QEARN/Quottery
-// headers (rich nested order-book + state types) plus a synthetic alignment case. Also pins two bugs this work
-// fixes: a nested `struct` definition leaking as a junk field, and a bare same-name collision.
 import { test, expect } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { extractIdl, type Field } from "../../src/idl";

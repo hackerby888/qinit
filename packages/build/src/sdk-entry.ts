@@ -1,8 +1,5 @@
 // The test-SDK surface, assembled from the REAL @qinit source so the emitted runtime can't drift from the
 // codec/tx/rpc the rest of qinit uses. A build macro (scripts/gen-runtime.ts) bundles this into a single
-// self-contained string with @qubic-lib left external; `qinit test` / `qinit gen` write that string into a
-// user's project as runtime.ts. The only hand-written part is the
-// test glue below (env-injected provider + settle + the oracle dev seam), which has no home in the packages.
 export { deriveIdentity, bytesToIdentity, identityToBytes, buildSignedTx, broadcastTx, initK12, LiteRpc } from "@qinit/core/browser";
 export { encodeInput, decodeOutput, callFunction, invokeProcedure, contractAddress } from "@qinit/proto";
 import { LiteRpc } from "@qinit/core/browser";

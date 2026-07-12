@@ -1,8 +1,5 @@
 // Execution-fee conformance (core-lite doc/execution_fees.md). Asserts the opt-in fee model: gating at the
 // right entry points, the exemptions (epoch sysprocs + callbacks), reserve depletion/refill, the IPO seed, and
-// the invariant that fee accounting never alters contract state (a metered run digests identically to an
-// unmetered one). Fixtures are the real wasm `qinit build` emits — Hooks bumps a per-hook counter, Counter is
-// an Inc procedure + Get function, Proxy calls Counter across the contract boundary.
 import { test, expect } from "bun:test";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";

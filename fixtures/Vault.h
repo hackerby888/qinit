@@ -1,6 +1,5 @@
 // Phase-3 semantics fixture: invocationReward, qpi.transfer, and the POST_INCOMING_TRANSFER + BEGIN_TICK
 // lifecycle callbacks. Drives the TS engine's money model (ledger + transfer + reward + PIT trigger).
-// qpi-clean (no stack locals, no [], no % / /) so it passes contractverify.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

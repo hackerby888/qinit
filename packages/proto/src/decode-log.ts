@@ -1,8 +1,5 @@
 // Decode a contract LOG_* call. Qubic SCs cannot use strings (qpi forbids ""), so logs are NUMERIC STRUCTS.
 // A log struct ends with a `sint8 _terminator`; the node logs offsetof(_terminator) bytes = every field BEFORE
-// the terminator, WITH internal alignment padding but WITHOUT the struct's tail padding. So the match size is
-// the end of the last real field (structFieldOffsets), NOT layoutOf().size (which adds tail pad). We size-match
-// the logged byte count against the contract's log-struct catalog; a unique hit decodes via decodeOutput.
 import { decodeOutput, structFieldOffsets } from "./abi-fmt";
 import { LOG_SEVERITY as SEVERITY } from "./protocol";
 

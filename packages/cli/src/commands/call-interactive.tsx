@@ -225,7 +225,6 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
 
   // ---- entries for the chosen contract (registry truth, merged with IDL names/formats) ----
   // names + in/out fmts: prefer the local qinit.idl.json, else derive from the node-stored contract source
-  // (dyn-registry) via extractIdl — so the picker auto-fills in/out even without a local IDL.
   const entriesFor = (c: DynContract): Entry[] => {
     const di = idl[String(c.index)];
     let src: { functions?: Record<string, any>; procedures?: Record<string, any> } | null = null;

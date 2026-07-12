@@ -370,8 +370,6 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
 
     // Core-lite fixtures commonly pass an empty input temporary directly to callFunction, for example
     // `callFunction(..., CCF::GetProposalFee_input(), output)`. It has the same zero-initialized object
-    // representation as a local `CCF::GetProposalFee_input input{}` and needs a real wasm32 address for
-    // the qtest host ABI.
     if (expr.args.length === 0) {
       const type: TypeSpec = { kind: "name", name: calleeName };
       const size = ctx.cg.sizeOfType(type, ctx.thisBind ?? NO_BIND);
@@ -405,7 +403,6 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
 
   // A computed uint128 value must go through its source-compiled constructor/operator
   // before it is passed by reference. In particular, do this before stripping a C-style
-  // cast: `(uint128)scalar` is a conversion, not the address of the scalar operand.
   if ((expr.kind === "call" || expr.kind === "template_call" || expr.kind === "construct" || expr.kind === "binary_op" ||
        expr.kind === "c_cast" || expr.kind === "static_cast" || expr.kind === "ternary") &&
       isU128Expr(ctx, expr)) {
@@ -465,7 +462,6 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
 
   // A qualified static method returning an aggregate is compiled from the owning
   // struct's authoritative body. Typedef owners (id -> m256i) resolve to the same
-  // implementation; no individual method name receives semantic behavior here.
   if (expr.kind === "call" && (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")) {
     const qualified = expr.callee.name;
     const separator = qualified.lastIndexOf("::");
@@ -553,7 +549,6 @@ export function tryInlineStructMethod(ctx: FnCtx, expr: Expression & { kind: "ca
   if (!fn) return null;
   // This address channel is only valid for fluent/reference-returning methods. Scalar methods
   // such as WinnerData::isValid() must flow through normal value-call compilation; inlining them
-  // here suppresses their return and spuriously treats the receiver address as the result.
   const returnsAddress = (type: TypeSpec): boolean =>
     type.kind === "reference" || type.kind === "pointer" ||
     (type.kind === "const" && returnsAddress(type.valueType));

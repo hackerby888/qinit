@@ -1,11 +1,5 @@
 // Real-corpus false-positive gate. Every DEPLOYED core contract is valid QPI, so the Tier-A linter
 // must raise ZERO warning/error-severity findings on them — anything it does raise is a false positive.
-// (info-level hints, e.g. `#if 0` dead-code in QUtil, are advisory and tolerated.)
-//
-// The deployed set is derived from core-lite's contract_def.h (`#include "contracts/X.h"`), minus the
-// non-deployed test harnesses + the superseded Qswap_old. Run locally with QINIT_CORE, and in CI's
-// `corpus` job (which checks out core-lite):
-//   QINIT_CORE=/path/to/core-lite bun run packages/vscode/scripts/lint-corpus.ts
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { resolveCore } from "@qinit/core/project";

@@ -1,7 +1,5 @@
 // Layer 3 — NodeTransport adapter. The VirtualNode implements the qinit RPC surface (@qinit/core NodeTransport)
 // on top of the in-process chain (Sim + Contract), so qinit's deploy/test/call flows can target the TS engine
-// instead of an HTTP node. Deploy works two ways: deploy() (direct, for the IDE) and the on-chain
-// UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol via broadcastTx (drop-in for qinit's deploy-ops).
 import type {
   NodeTransport, TxStatus, StateRead, TickInfo, DynRegistry, DynContract, DynEntry, DynUpload, DebugTrace, BroadcastResult, EntityInfo, TxInfo,
 } from "@qinit/core";
@@ -46,7 +44,6 @@ export class VirtualNode implements NodeTransport {
 
   // Self-initializing constructor: awaits the crypto module (initK12) ONCE, then returns a ready engine —
   // callers never touch initK12. After this resolves, every k12/sign op stays synchronous (the wasm crypto
-  // is loaded process-wide). Use this instead of `await initK12(); new VirtualNode()`.
   static async create(opts: EngineOpts = {}): Promise<VirtualNode> {
     await initK12();
     return new VirtualNode(opts);
@@ -54,9 +51,6 @@ export class VirtualNode implements NodeTransport {
 
   // Realistic node behaviour by default: mempool (txs land on their target tick), signature verification, and
   // metered execution fees are all ON — so a bare engine mirrors a real node. Opt out per flag for the sim
-  // conveniences (immediate apply / no sig check / no fee gating), e.g. the IDE passes them off. `Sim` itself
-  // keeps these off at its lower layer; the realistic defaults live here. Direct `new` still works for callers
-  // that have already awaited initK12() (the legacy setup).
   constructor(opts: EngineOpts = {}) {
     this.logger = new NativeLogger();
     this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool ?? true, fees: opts.fees ?? "metered", defaultReserve: opts.defaultReserve, liteTicking: opts.liteTicking, nativeLogger: this.logger });
@@ -80,9 +74,6 @@ export class VirtualNode implements NodeTransport {
 
   // Direct deploy (IDE / tests): bypass the chunk protocol — load wasm into the slot + construct (INITIALIZE).
   // Two forms:
-  //   deploy(wasm, { name })       — slot auto-assigned by name; redeploying the same name reuses its slot (→ migrate)
-  //   deploy(wasm, { name, slot })  — pin a slot (system contracts, inter-contract ordering)
-  //   deploy(slot, wasm, name)      — legacy positional form, retained verbatim
   deploy(wasm: Uint8Array, opts?: { name?: string; slot?: number; deployer?: Uint8Array }): Contract;
   deploy(slot: number, wasm: Uint8Array, name?: string, deployer?: Uint8Array): Contract;
   deploy(a: number | Uint8Array, b?: Uint8Array | { name?: string; slot?: number; deployer?: Uint8Array }, c?: string, d?: Uint8Array): Contract {
@@ -112,8 +103,6 @@ export class VirtualNode implements NodeTransport {
 
     // Post-IPO invariant: a contract's 676 shares always exist in the universe (distributeDividends pays
     // their possessors). The dev engine has no IPO, so mint them at deploy — to the deploying identity when
-    // known (the wire path's tx source), else the arbitrator as a stand-in. The ticker is the deploy name's
-    // first 7 chars uppercased. A redeploy (asset already issued) is a no-op.
     const ticker = (name ?? "Contract").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7) || "C";
     this.sim.mintDeployShares(slot, ticker, deployer ?? this.sim.getCommittee().arbitrator.publicKey);
 
@@ -122,7 +111,6 @@ export class VirtualNode implements NodeTransport {
 
   // Slot policy: an explicit slot always wins (pin). Else a known name reuses its slot — that routes into the
   // registry's redeploy/migrate path. Else allocate the lowest free slot at or above slotBase. Unnamed deploys
-  // are never reused (no name to key on), so each gets a fresh slot rather than silently redeploying.
   private resolveSlot(explicit: number | undefined, name: string | undefined): number {
     if (explicit !== undefined) {
       return explicit;
@@ -254,10 +242,6 @@ export class VirtualNode implements NodeTransport {
   async txStatus(tick: number, txId: string): Promise<TxStatus> {
     // Single-authority engine: every broadcast tx is included. But a tx scheduled for tick T only mutates state
     // when the ticker reaches T — so `processed` must wait for the chain to advance PAST T, else a confirm()
-    // returns before the procedure ran and the caller reads stale state (the natural `await proc(); read()`
-    // pattern, incl. the default counter sample). Tick-based, not txByHash-based: qinit's tx.id is
-    // K12(tx)->identity which may differ from the engine's tickdata id, so a hash lookup is unreliable for the
-    // processed gate (moneyFlew stays best-effort on it).
     const r = this.sim.txByHash(txId);
     const processed = this.sim.tickN > tick;
     return { tick, currentTick: this.sim.tickN, txId, found: true, moneyFlew: r?.moneyFlew ?? true, processed };
@@ -269,8 +253,6 @@ export class VirtualNode implements NodeTransport {
 
   // ---- direct engine ops (instant, byte-level — the in-process test fast path). No signing, no tick
   // scheduling: procedure() runs the contract NOW and returns its output; for a realistic signed, tick-bound
-  // invocation use broadcastTx() instead. These re-expose the most-used Sim ops so callers needn't reach into
-  // `eng.sim` (which stays available as the low-level escape hatch).
   procedure(slot: number, it: number, input?: Uint8Array, opts?: ProcedureOpts): Uint8Array {
     return this.sim.procedure(slot, it, input, opts);
   }
@@ -294,9 +276,6 @@ export class VirtualNode implements NodeTransport {
 
   // Decode a signed tx and dispatch it faithfully (qubic.cpp processTickTransaction). The signature is NOT
   // verified (consensus simplified). Layout = src[32] dest[32] amount[8] tick[4] inputType[2] inputSize[2]
-  // payload[inputSize] sig[64]. dest==99999 -> deploy wire protocol; otherwise sim.applyTx routes by
-  // (destination, inputType): a contract procedure (registered inputType), a plain transfer to a contract, or a
-  // regular user-to-user transfer.
   async broadcastTx(txBytes: Uint8Array): Promise<BroadcastResult> {
     try {
       const tx = Transaction.wrap(txBytes);
@@ -402,7 +381,6 @@ export class VirtualNode implements NodeTransport {
 
   // Deterministic, reproducible pool of funded dev seeds — mirrors the real node, whose /dev/funded-seeds
   // returns its (funded) computor seeds. pool[0] is the universal default "a"*55 that every command falls back
-  // to; the rest are derived from K12 so the identities are stable across restarts. Built lazily (needs initK12).
   fundedPool(): string[] {
     if (this._pool) {
       return this._pool;

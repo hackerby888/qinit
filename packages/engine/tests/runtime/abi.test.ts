@@ -1,7 +1,5 @@
 // Contract-ABI struct layouts (abi.ts) — these views replace the hand-written byte offsets the host used to
 // marshal the QpiContext header and the sysproc input/output buffers. The layouts feed entity/spectrum digests
-// and the cross-contract call path, so they must match the core-lite C structs byte-for-byte: this pins each
-// struct's SIZE + field offsets against qpi.h, and round-trips a write/read so a drift in the kit is caught here.
 import { test, expect } from "bun:test";
 import {
   QpiContext,

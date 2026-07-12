@@ -1,8 +1,5 @@
 // Cross-platform digest-equivalence probe. A mixed-width StateData (uint8/16/32/64 + sint64 + two arrays)
 // set to fixed values in INITIALIZE, so the contract-state digest (K12 of the full effective state) covers a
-// rich layout the 8-byte Counter can't — broadening the host<->wasm marshalling / exec coverage of the
-// cross-platform digest check. Inc/Get keep it compatible with `qinit test`'s Get->Inc->Get smoke.
-// qpi-clean (no stack locals, no [], no %/ /) so it also passes contractverify.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

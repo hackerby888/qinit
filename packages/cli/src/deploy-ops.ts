@@ -31,9 +31,6 @@ export function tickFailureMessage(reached: boolean, rpcBase: string): string {
 
 // Best-effort: resolve a contract's inter-contract callees from the live node registry — each deployed
 // contract submits its .h source at deploy, so the node knows name -> { deployed slot, source }. Used by both
-// deploy and build (most builds run with a node up). Skips callees already supplied (e.g. --callee) and any the
-// node doesn't know (system callees resolve from contract_def.h at compile; offline = no-op). Never throws: a
-// down/unreachable node just leaves the callee for --callee or contract_def.h.
 export async function resolveNodeCallees(
   rpc: Pick<LiteRpc, "dynRegistry">,
   contractSrc: string,
@@ -116,7 +113,6 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   // tick — wait until advancing (broadcasting during boot crashes the node). 300s: a cold node can
   // stall a few minutes in its first ticks (initial-epoch work; seen on the Windows port) before
-  // settling into a steady rate — a ticking node exits this loop within seconds either way.
   emit({ step: "tick", state: "active", detail: "waiting for node…" });
   let t0 = -1, cur = 0, reached = false, miss = 0;
   for (let i = 0; i < 300; i++) {
@@ -151,7 +147,6 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   // build — native clang or the in-process TS compiler, per `qinit compiler` (or an explicit override). The
   // local path skips the protocol-rule gate (the TS compiler surfaces its own diagnostics) and produces the
-  // same rich idl (build's extractIdl) so downstream deploy/confirm is compiler-agnostic below this point.
   const compiler: Compiler = o.compiler ?? savedCompiler() ?? "native";
   const outDir = o.outDir ?? resolve("dist/contracts");
   if (o.artifact) emit({ note: "compiler: prebuilt artifact (exact bytes)" });
@@ -176,7 +171,6 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   // Single-authority virtual node: no peer network or quorum to satisfy, so skip the chunk-upload + multi-tick
   // confirm and drop the wasm straight into the slot. The route 404s on a real node (returns null) -> the
-  // chunked path below runs unchanged.
   const direct = await rpc.directDeploy(slot, new Uint8Array(so), o.name).catch(() => null);
   if (direct) {
     emit({ step: "upload", state: "ok", detail: "direct (virtualnode)" });
@@ -190,14 +184,10 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   const curTick = async () => { try { const ti: any = await rpc.tickInfo(); return (ti.tick ?? ti.currentTick ?? cur) as number; } catch { return cur; } };
   // tries is a per-second poll budget; early-exits on reach, so a high cap only matters for slow nodes
   // (e.g. a RAM-constrained CI box ticking ~8s/tick, or the Windows port's multi-minute tick stalls)
-  // — keeps deploy from racing ahead of a lagging chain.
   const waitTickReach = async (target: number, tries = 300) => { let t = cur; for (let i = 0; i < tries; i++) { t = await curTick(); if (t >= target) break; await sleep(1000); } return t; };
 
   // Fail-fast on a pathologically slow chain (e.g. the free windows-latest CI runner, whose ~190x-slower
   // loopback drags ticks to ~50s). The upload + arm need dozens of ticks, so without this the per-step 300s
-  // waits stack and burn the whole job timeout -> the run is CANCELLED (no clean failure, no logs). Probe the
-  // tick rate briefly (early-exit the instant it looks healthy), and abort with a clear message if it's far
-  // slower than even a RAM-constrained node (~8s/tick is fine). A normal node clears this in ~5s.
   { const ps = Date.now(); const base = cur; let adv = 0;
     while (Date.now() - ps < 30000) { await sleep(2000); adv = (await curTick()) - base; if (adv >= 3) break; }
     if (adv < 2) {
@@ -236,7 +226,6 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   // assemble — broadcast-OK ≠ landed in a tick (a chunk tx can be accepted then dropped from the
   // tick). Confirm the node reassembled the full .so via dyn-upload before DEPLOY, else DEPLOY no-ops
-  // on an incomplete session and confirm fails. Resend only the missing seqs (idempotent scatter-write).
   let assembled = false;
   await waitTickReach(uploadTick + 1);              // let the chunk tick be processed first
   for (let round = 0; round < 4 && !assembled; round++) {
@@ -284,7 +273,6 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   // confirm — poll dyn-registry until armed && codeHash, then until constructed (INITIALIZE runs a few ticks
   // after arming). "ready" means constructed = callable; an armed-but-unconstructed result is flagged so the
-  // user knows a call may read pre-INITIALIZE state. Classify the failure otherwise.
   emit({ step: "confirm", state: "active", detail: "polling arm…" });
   const want = hash.toLowerCase();
   let armed = false, constructed = false, present = false, onNode = "", last = cur, regOk = false;

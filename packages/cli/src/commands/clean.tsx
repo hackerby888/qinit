@@ -5,8 +5,7 @@ import { cacheInfo, wipeCache, human, type CacheItem } from "../cache-ops";
 import { Header, Status, Spinner, KV, theme } from "../ui";
 
 // qinit clean [--dry-run]
-// Remove ALL qinit cache (~/.cache/qinit or $QINIT_CACHE): the fetched node, core-headers, wasi-sdk/clang,
-// verify tools, and the scratch run dir. Everything here is re-fetched on the next `qinit node run` — safe to wipe.
+// Remove ALL qinit cache (~/.cache/qinit or $QINIT_CACHE): fetched node, core-headers, wasi-sdk/clang artifacts.
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
   for (const a of args) if (a.startsWith("--")) o[a.slice(2)] = "";

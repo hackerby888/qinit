@@ -1,8 +1,5 @@
 // Sparse binary Merkle tree (depth 24 = SPECTRUM_DEPTH / ASSETS_DEPTH) with incremental updates. The full tree
 // has 2^24 leaves; almost all are empty, so only the occupied paths are stored and each empty subtree collapses
-// to a precomputed per-level hash. A leaf change rehashes just its 24-node path to the root — no full recompute.
-// leaf = K12(record); parent = K12(leftChild ‖ rightChild) where the left child is the even-index sibling. This
-// is exactly the hashing an external Qubic client's getDigestFromSiblings reproduces, so the proofs verify.
 import { k12Bytes } from "./k12";
 
 export const MERKLE_DEPTH = 24;

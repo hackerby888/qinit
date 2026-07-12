@@ -22,7 +22,6 @@ function pidAlive(pid: number): boolean {
 
 // Stop ONLY the node qinit started (by tracked PID) + confirm gone. Never a broad pkill/taskkill by
 // image name — that also kills unrelated Qubic instances on a multi-node dev box. No pidfile => nothing
-// of ours to stop (a foreign node keeps running; a fresh launch then surfaces a clear port-in-use error).
 export async function killNode(scratch = scratchDir()): Promise<void> {
   scratch = resolve(scratch);
   const pid = trackedPid(scratch);
@@ -74,8 +73,6 @@ export function cachedNode(): string | undefined { const n = readCurrent()?.node
 
 // Resolve the node binary to run: prefer the latest/pinned release (fetchNodeBin no-op-skips the
 // download when that version is already cached) and fall back to a cached node only when the manifest
-// is unreachable (offline). Fixes the stale-cache bug — callers that checked cachedNode() first would
-// silently run a long-cached older version (e.g. v0.0.3) against newer tooling instead of the release.
 export async function ensureNode(ref = "latest", onProgress?: (recv: number, total: number) => void): Promise<{ bin: string; version: string; stale: boolean }> {
   try {
     const r = await fetchNodeBin(ref, onProgress);
@@ -97,7 +94,6 @@ export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: 
   const fd = openSync(log, "a");
   // detached + unref so the node OUTLIVES qinit (notably `qinit node run`/`test --keep`). A non-detached child
   // is killed when the parent process exits on Windows; detached:true gives it its own process group on
-  // every OS. windowsHide stops a console window popping up.
   const child = spawn(o.bin, ["--peers", o.peers || "127.0.0.1", "--node-mode", o.mode || "3", "--ticking-delay", "1000"],
     { cwd: scratch, stdio: ["ignore", fd, fd], detached: true, windowsHide: true });
   child.unref();
@@ -109,8 +105,6 @@ export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: 
 
 // Launch the in-process TS engine as a detached background node (`qinit mode virtualnode`). Re-invokes this
 // same qinit — the compiled binary, or `bun index.tsx` in dev — as the hidden `__serve` process bound to the
-// RPC port, so every node command then talks to the engine over HTTP just like a real node. Tracked by the
-// same pidfile as launchNode, so killNode / nodeAlive / `qinit node stop` work unchanged.
 export function launchVirtualNode(o: { dir?: string; rpcBase?: string; peerPort?: number; keep?: boolean; tickMs?: number; system?: string[] }): { pid: number; scratch: string; log: string } {
   const scratch = resolve(o.dir || scratchDir());
   if (!o.keep) rmSync(scratch, { recursive: true, force: true });

@@ -1,8 +1,5 @@
 // Inter-contract call auto-derivation. The contract uses the upstream
 // CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE macros (portable to mainnet); for the
-// .so build we generate a prelude that (1) compiles each referenced callee's TYPES at its index, (2)
-// emits the per-fn inputType constants the lite macro-redefine needs. Source of truth = the core's
-// contract_def.h (re-parsed every build → new upstream contracts picked up automatically).
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -45,11 +42,6 @@ export type DynCallees = Record<string, { header: string; index: number }>;
 
 // Build the wrapper prelude (empty if the contract makes no inter-contract calls). Resolves the
 // transitive closure of callees, compiles their TYPES at their indices (ascending), emits inputType
-// constants, then includes the lite macro-redefine header.
-// Every contract's <NAME>_CONTRACT_INDEX from contract_def.h, each #ifndef-guarded. The full-core build gets
-// these from contract_def.h; a single-contract TU does not — so a contract that directly #includes a sibling
-// header (which uses its own <NAME>_CONTRACT_INDEX, with no CALL_OTHER_CONTRACT macro for scanCallees to catch)
-// would fail to compile. Guarded so contract_def.h's own #define wins when it is in scope.
 export function contractIndexDefines(corePath: string): string {
   let src: string;
   try {
@@ -76,8 +68,6 @@ export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: D
   const wanted = scanCallees(contractSrc);
   // Also pull siblings referenced by type/static-method/constant (e.g. RL::makeDateStamp, RL_DEFAULT_INIT_TIME,
   // QTF_RANDOM_LOTTERY_ASSET_NAME) — these have no CALL_OTHER_CONTRACT macro for scanCallees to catch, but the
-  // sibling's definition must be in scope. The full-core build gets it from contract_def.h order; the
-  // single-contract TU has to splice it in here. Skip the contract's own type (it's the main TU body).
   for (const type of defMap.keys()) {
     if (type !== selfType && new RegExp(`\\b${type}(?:::|_[A-Z])`).test(contractSrc)) {
       wanted.add(type);
@@ -112,8 +102,6 @@ export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: D
   }
   // Callee CONTRACT_INDEX constants. The full build gets these from contract_def.h, but the
   // single-contract TU (qinit lite build + the editor) doesn't include it — so a contract that uses a
-  // callee's index directly (e.g. QUtil: `id(QX_CONTRACT_INDEX, 0, 0, 0)`) needs them here. Guarded so
-  // that when contract_def.h IS in scope, its #define wins and there's no redefinition.
   s += "// ---- callee <Type>_CONTRACT_INDEX constants ----\n";
   for (const c of all)
     s += `#ifndef ${c.type}_CONTRACT_INDEX\n#define ${c.type}_CONTRACT_INDEX ${c.index}\n#endif\n`;

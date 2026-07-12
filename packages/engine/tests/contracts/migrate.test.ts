@@ -1,8 +1,5 @@
 // State migration on redeploy: when the redeployed module declares MIGRATE() and its OldStateData size matches
 // the live state, the engine runs __migrate(newState, oldState) to convert the old state into the new layout —
-// instead of zeroing it. Mirrors core-lite (lite_wasm_contracts.h kind=3 + lite_dynamic_contracts.h). Also
-// covers the parity fix: a plain redeploy (no MIGRATE) preserves overlapping state rather than wiping it.
-// Fixtures: CounterV1 = { counter }; CounterV2 = { counter, lastMigratedTick } + MIGRATE() carrying counter over.
 import { test, expect } from "bun:test";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";

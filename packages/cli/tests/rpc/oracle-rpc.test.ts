@@ -1,8 +1,5 @@
 // The oracle dev/test RPC seam: the virtual node has no real oracle machines, so a TS test must (a) discover the
 // PENDING query a contract raised — a tx-raised query's id is never returned to the broadcaster — and (b) inject
-// the reply, which fires the contract's notification procedure. Without these endpoints an oracle contract was
-// deployable + queryable via `qinit test` but its notification path was untestable. Driven through the real
-// qinit-built OracleProbe fixture over the EngineServer HTTP surface.
 import { test, expect } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
 import { initK12 } from "@qinit/core";

@@ -1,6 +1,5 @@
 // Source/destination manager fixture for the share custody paths: issues its own asset, approves both
 // PRE_RELEASE_SHARES (with a settable fee) and PRE_ACQUIRE_SHARES so another contract can acquire from it or
-// release back to it.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

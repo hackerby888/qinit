@@ -49,7 +49,6 @@ interface Line {
 }
 // Everything permanent (header, build status, each finished test) is an append-only Static item so it
 // commits to the terminal top-to-bottom and survives a suite taller than the viewport; only the spinner
-// (or the final summary box) lives in the dynamic tail below it.
 type Item = { kind: "header" } | { kind: "line"; line: Line } | { kind: "test"; t: TestResult } | { kind: "note"; text: string };
 type Tail =
   | { phase: "work"; spin: string }
@@ -85,7 +84,6 @@ export function Gtest({ args }: { args: string[] }) {
 
         // --corpus <NAME>: run a system contract's REAL gtest (core-lite test/contract_<x>.cpp, the
         // contract_testing.h suite) on an isolated engine. Contract built by native clang, or by our TS
-        // compiler with --local. Everything (header, test, deps, slot) derives from the core-lite checkout.
         if ("corpus" in o) {
           const scName = o.corpus || pos[0];
           if (!scName) {

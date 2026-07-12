@@ -1,6 +1,5 @@
 // Protocol drift guard: assert qinit's cross-boundary constants (packages/proto/src/protocol.ts) still match
 // core-lite. These are hand-mirrored across two repos with no compile-time link, so a core change can silently
-// break the wire. Run in CI where core is checked out (QINIT_CORE). Exits non-zero on any mismatch.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LITE_TX, LOG_SEVERITY, MAX_INPUT_SIZE, CHUNK_DATA_MAX } from "../packages/proto/src/protocol";

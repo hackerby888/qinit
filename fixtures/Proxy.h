@@ -1,6 +1,5 @@
 // Inter-contract caller fixture. Calls the Counter contract (deployed at a LOWER slot) using the
 // upstream macros — ReadCounter reads Counter's value (CALL function), BumpCounter increments it
-// (INVOKE procedure). Qinit auto-derives Counter's type + inputType constants from its source.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

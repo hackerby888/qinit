@@ -1,6 +1,5 @@
 // CI deploy smoke: deploy the Counter contract (wasm) to a live node and prove read + write run
 // on-chain — Get()=0 after INITIALIZE, Inc() tx, Get()=1. Exits non-zero on any mismatch. Run by
-// .github/workflows/test.yml against a freshly built node. Needs QINIT_CORE + a ticking node on QINIT_RPC.
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { deployContract } from "../packages/cli/src/deploy-ops";

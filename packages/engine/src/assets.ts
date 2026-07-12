@@ -1,10 +1,5 @@
 // The asset universe — a faithful TS mirror of core-lite's assets/assets.h record table: a 2^24-slot
 // open-addressing hash table of 48-byte ISSUANCE / OWNERSHIP / POSSESSION records, linearly probed from
-// publicKey's first u32, plus the LIFO index lists used for "any owner/possessor" iteration. Matching
-// conditions, probe order, index-list order, zero-share record retention and the position-indexed universe
-// merkle all follow the node (assets.h + contract_core/qpi_asset_impl.h), so contract-visible behavior —
-// iteration order included — is identical. The fee / callback / spectrum orchestration of acquireShares /
-// releaseShares / distributeDividends stays in Sim, which calls these primitives.
 import { toHex, k12Bytes } from "./k12";
 import { SparseMerkle } from "./merkle";
 import { AssetRecord, ASSET_RECORD_SIZE } from "./wire";
@@ -178,7 +173,6 @@ export class AssetLedger {
 
   // ---- ownership / possession iteration (qpi_asset_impl.h AssetOwnership/PossessionIterator) ----
   // Specific id -> hash-probe from the id's u32 (collecting every matching record until an EMPTY slot);
-  // any id -> walk the LIFO index list, filtering on the managing contract when requested.
 
   private ownershipIndices(issuanceIdx: number, sel: Select): number[] {
     const out: number[] = [];
@@ -303,7 +297,6 @@ export class AssetLedger {
 
   // Enumerate records for the contract-side AssetOwnership/PossessionIterator (assetEnumerate host import).
   // kind 0 = ownership records, kind 1 = possession records — in the node's iteration order (LIFO index
-  // lists for "any" ids, hash-probe order for specific ids).
   enumerate(assetB: Uint8Array, ownSelB: Uint8Array, posSelB: Uint8Array, kind: number): AssetEntry[] {
     const a = Asset.wrap(assetB);
     const own = parseSelect(ownSelB);
@@ -369,7 +362,6 @@ export class AssetLedger {
 
   // Asset layer (assets.h): move `shares` from the source ownership+possession pair to destinationPublicKey,
   // preserving each record's managingContractIndex. A zero destination burns (refused for contract shares).
-  // Source records are retained at their reduced (possibly zero) share count — the node never deletes records.
   private transferOwnershipAndPossessionIdx(sourceOwnershipIdx: number, sourcePossessionIdx: number, destination: Uint8Array, shares: bigint): boolean {
     if (shares <= 0n) return false;
 
@@ -427,9 +419,6 @@ export class AssetLedger {
 
   // qpi.transferShareOwnershipAndPossession (qpi_asset_impl.h wrapper): drill down requiring BOTH the
   // ownership and the possession record to be managed by the calling contract. Return codes mirror the node:
-  // -(MAX_AMOUNT+1) on an out-of-range share count; -shares when any record is missing (or not caller-managed
-  // at the possession level); remaining - shares when insufficient; INVALID_AMOUNT if the asset-layer move
-  // fails; the source possession's remaining shares on success.
   transferShareOwnershipAndPossession(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint {
     if (shares <= 0n || shares > MAX_AMOUNT) return -(MAX_AMOUNT + 1n);
 
@@ -504,7 +493,6 @@ export class AssetLedger {
 
   // Name-based façade used by Sim's acquire/release wrappers (owner == possessor and equal managing pairs at
   // the qpi level — the node rejects split custody there too). Resolves the caller-managed record pair, then
-  // runs the index-based move.
   transferShareManagementRights(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, srcMgmt: number, dstMgmt: number, shares: bigint): boolean {
     if (shares <= 0n) return false;
 

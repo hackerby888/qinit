@@ -1,7 +1,5 @@
 // A contract can declare `env.*` imports (--allow-undefined) for symbols the wasm build didn't compile in. The
 // engine used to stub every such import with `() => 0`; for an i64-return helper (e.g. QPI::smul) that 0 became a
-// cryptic "Invalid argument type in ToBigInt operation" trap deep in execution, hiding the real cause. The stub
-// now fails loud WHEN CALLED, naming the missing symbol — except the known assert helper, which stays a no-op.
 import { test, expect } from "bun:test";
 import { envImportStub } from "../../src/runtime";
 

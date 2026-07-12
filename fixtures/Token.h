@@ -1,6 +1,5 @@
 // Asset-op fixture: issueAsset / isAssetIssued / numberOfShares / transferShareOwnershipAndPossession
 // / numberOfPossessedShares, plus nextId. The contract issues its own asset (issuer = SELF) and can
-// move shares to another id.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

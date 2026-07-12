@@ -9,7 +9,6 @@ import { output } from "../args";
 
 // qinit verify <file.h> [--name <n>] [--callee <n>=<hdr>@<i>] [--json]
 // Standalone protocol-rule check (the same contractverify gate `qinit build` runs first), exposed so
-// the VS Code extension can surface authoritative violations on save via `--json`.
 function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
   const o: Record<string, string> = {};
   const pos: string[] = [];

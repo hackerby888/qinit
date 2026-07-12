@@ -1,6 +1,5 @@
 // Counter variant: Inc adds 5 (upgradeability proof for inter-contract runtime dispatch).
-// Same fn/proc inputTypes as Counter, deployed over slot 28; Proxy (built against Counter@28,
-// unchanged) must see +5 per BumpCounter -> proves it runs the DEPLOYED code, not an inlined copy.
+// Same fn/proc inputTypes as Counter, deployed over slot 28. Proxy is built against Counter@28.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

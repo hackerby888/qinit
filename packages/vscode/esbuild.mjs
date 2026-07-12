@@ -1,6 +1,5 @@
 // Bundle the extension for the VS Code (Node) host. The @qinit/* packages are TypeScript SOURCE
 // (no dist/), so esbuild transpiles + inlines them; the shipped .js has zero @qinit/* runtime deps.
-// `vscode` is provided by the host, never bundled. Output is CommonJS (the host `require()`s main).
 import { build, context } from "esbuild";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

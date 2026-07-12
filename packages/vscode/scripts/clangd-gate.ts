@@ -1,11 +1,5 @@
 // clangd enablement gate — proves the generated compile DB makes clangd fully resolve a qpi.h contract
 // (ZERO C++ errors) WITHOUT the author including qpi.h. Runs over the qinit fixtures AND the real
-// deployed core contracts (QX/QEARN/QUtil/Random — HashMap, inter-contract, lifecycle, proposals), so
-// IntelliSense is proven on real-world complexity, not just toy fixtures.
-//
-//   QINIT_CORE=/path/to/core-lite bun run packages/vscode/scripts/clangd-gate.ts [Name ...]
-// Needs `clangd` on PATH (or $CLANGD) — ideally the same major version as the wasi-sdk clang. wasi from
-// the synced cache (local `qinit node run`) or WASM_CLANG/WASI_SYSROOT env (CI).
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -40,7 +34,6 @@ const entries = names.map(entryFor).filter((e): e is { name: string; path: strin
 
 // Offline inter-contract resolution: a fixture that calls a sibling fixture (e.g. Proxy -> Counter)
 // gets that sibling fed as a dyn callee — the same DynCallees the extension builds from the node's
-// stored sources at runtime. In-core callees (QX's, etc.) resolve via contract_def.h, not here.
 function siblingCallees(source: string): DynCallees {
   const out: DynCallees = {};
   for (const callee of scanCallees(source)) {

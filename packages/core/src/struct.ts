@@ -1,9 +1,5 @@
 // Zero-copy struct-view kit: a struct is declared as a list of primitive codecs and `defineStruct` derives
 // every field offset + the struct size the way the C compiler does — summing field sizes and inserting
-// natural-alignment padding (char/u8 align 1, u16 align 2, u32 align 4, i64/u64/m256i align 8). Views are
-// zero-copy and little-endian: each wraps a backing Uint8Array and reads/writes its fields in place. Shared by
-// the wire structs (wire.ts) and the contract-ABI structs (abi.ts). The `m256` codec lives in wire.ts because it
-// depends on the M256i primitive defined there.
 
 // ---- codec combinator: a struct is composed from these primitives; offsets/sizes are derived, never typed. ----
 export interface Backing {
@@ -123,7 +119,6 @@ export const blob = (n: number): Codec<Uint8Array> => ({
 
 // explicit padding — an escape hatch for #pragma pack structs and for the reserved gaps in fixed ABI headers
 // (e.g. the unused words of QpiContext); the natural-alignment emulation makes it unnecessary for structs whose
-// gaps emerge from alignment.
 export const pad = (n: number): Codec<void> => ({
   size: n,
   align: 1,
@@ -171,7 +166,6 @@ export const array = <T>(elem: Codec<T>, n: number): Codec<ArrayView<T>> => ({
 
 // an embedded struct field (e.g. RespondEntity's EntityRecord, PreManagementRightsTransfer's Asset): the getter
 // returns a zero-copy view of the embedded struct over the parent buffer, so callers mutate it in place. align
-// defaults to 8 (the Qubic structs embedded here are 8-aligned).
 export const sub = <T extends { bytes: Uint8Array }>(
   klass: { SIZE: number; wrap(buf: Uint8Array, off?: number): T },
   align = 8,
@@ -216,7 +210,6 @@ export interface StructClass<S extends Record<string, Codec<any>>> {
 
 // Build a struct view class from a field list, emulating the C compiler's natural-alignment layout: each field
 // is placed at the next offset aligned to its codec's alignment, and SIZE is rounded up to the struct's max
-// alignment (the trailing pad). `packed: true` lays fields tightly (alignment 1) for #pragma pack structs.
 export function defineStruct<S extends Record<string, Codec<any>>>(
   name: string,
   fields: S,

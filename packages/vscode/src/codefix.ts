@@ -1,6 +1,5 @@
 // Pure quick-fix transforms for Tier-A findings (no vscode). Each returns the replacement text for a
 // single line, or null when the line doesn't match the expected shape — so the editor only offers the
-// action when the rewrite is safe.
 import { enclosingFunction, blankCommentsAndStrings } from "./lint/qpi-rules";
 
 export interface SourceEdit { start: number; end: number; newText: string; } // [start,end) -> newText; start==end inserts
@@ -19,9 +18,6 @@ const OPERAND = "[A-Za-z_]\\w*(?:\\.\\w+)*|\\d+"; // identifier / dotted member 
 
 // `a / b` -> `div(a, b)` and `a % b` -> `mod(a, b)`, for qpi/no-division / qpi/no-modulo. `col` is the
 // operator's column on `line`. CONSERVATIVE: only when both operands are simple primaries (so `/` `%`'s
-// high left-assoc precedence is preserved by rewriting just the immediate operands) and neither is part
-// of a larger chain (a leading `state.get().x` / trailing `f(y)`). Returns the replacement span + text,
-// or null to decline (compound `/=` `%=`, complex operands) so the editor never offers an unsafe fix.
 export function divModFixForLine(line: string, col: number, op: "/" | "%"): { start: number; end: number; text: string } | null {
   if (line[col] !== op || line[col + 1] === "=" || line[col + 1] === op || line[col - 1] === op) return null; // not a bare binary op
   const left = line.slice(0, col).match(new RegExp(`(${OPERAND})\\s*$`));
@@ -38,9 +34,6 @@ const TYPE_RE = "[A-Za-z_]\\w*(?:::[A-Za-z_]\\w*)*(?:\\s*<(?:[^<>]|<[^<>]*>)*>)?
 
 // Move a flagged stack local (qpi/stack-local) into its function's `<fn>_locals` struct: switch the
 // macro to *_WITH_LOCALS, create or extend `struct <fn>_locals`, drop the declaration (keeping any
-// initializer as `locals.<v> = …;`), and prefix every in-body use of <v> with `locals.`. Returns the
-// source edits, or null for anything but a clean single `<Type> <v> [= …];` statement — so the editor
-// only offers it when the whole rewrite is unambiguous.
 export function moveLocalToWithLocalsEdits(source: string, nameOffset: number, nameLength: number): SourceEdit[] | null {
   const fn = enclosingFunction(source, nameOffset);
   if (!fn || !fn.name) return null;

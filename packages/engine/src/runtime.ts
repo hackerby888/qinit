@@ -1,8 +1,5 @@
 // Layer 1 — wasm-host-runtime. The TypeScript port of the node's WASM host shim
 // (core-lite: src/extensions/lite_wasm_contracts.h + lite_wasm_imports.h), driving the browser/Bun
-// `WebAssembly` API instead of WAMR. One Contract == one WebAssembly.Instance of a built contract .wasm.
-// The contract bytes run unchanged; this supplies the "lhost" import table, the per-call marshalling, and
-// the resident-state digest.
 import { ASSET_ENUMERATION_RECORD, LHOST_ABI } from "@qinit/core";
 import { k12Bytes, toHex } from "./k12";
 import { bytesEqual } from "./bytes";
@@ -14,10 +11,6 @@ const EMPTY = new Uint8Array(0);
 
 // `env.*` imports a contract declares via `--allow-undefined`. The known assert/diagnostic helper (qpi.h
 // ASSERT's addDebugMessageAssert) only fires on a failed assert, so it's a no-op. Any OTHER env import means the
-// contract needs a symbol the wasm build didn't compile in and the host doesn't provide (e.g. a QPI helper such
-// as copyMemory / smul / __qpiAllocLocals from an impl header that isn't part of the wasm TU). Silently returning
-// 0 there turns a real gap into a cryptic i64/ToBigInt trap deep in execution — so this fails loud WHEN CALLED,
-// naming the symbol. Instantiation still succeeds: an undefined-but-unused import is never invoked.
 const ENV_NOOP = new Set(["addDebugMessageAssert"]);
 export function envImportStub(name: string): Function {
   if (typeof name !== "string" || ENV_NOOP.has(name)) {
@@ -43,10 +36,6 @@ const IN_SZ = 64 * 1024, OUT_SZ = 64 * 1024, LOCALS_SZ = 32 * 1024;
 
 // Deterministic execution-cost meter. The chain-sim (Layer 2) reads Contract.lastCost to debit the contract's
 // execution-fee reserve (core-lite doc/execution_fees.md). Real qubic prices a procedure by its wall-clock
-// microseconds — non-deterministic, and would break the sim's K12 digest reproducibility — so this instead
-// counts weighted host-ABI calls plus a digest-recompute term proportional to StateData size (the dominant
-// cost for large state, per the doc). Units are relative; Layer 2 may scale them by a fee multiplier. The
-// meter is inert unless Contract.metering is set, so a non-metered sim pays nothing for it.
 const BASE_CALL_COST = 10n;  // fixed cost charged on every metered contract entry
 const DIGEST_BYTE_COST = 1n; // per StateData byte, charged once when a call mutates state (digest recompute)
 const HOST_WEIGHT: Record<string, bigint> = {
@@ -83,7 +72,6 @@ export function dateFields(ms: number): { year: number; month: number; day: numb
 
 // Pack the chain clock into the qubic 8-byte DateAndTime (qpi.h DateAndTime::set): the full year at bit 46, then
 // month/day/hour/minute/second/millisecond; the microsecond field (bits 0-9) is not modeled. now() writes this as
-// a little-endian uint64. The year is the full form (etalonTick.year + 2000), matching DateAndTime::now().
 export function packDateAndTime(ms: number): bigint {
   const t = dateFields(ms);
   return (BigInt(t.year + 2000) << 46n)
@@ -314,10 +302,6 @@ export class Contract {
   invoke(kind: number, it: number, input: Uint8Array = new Uint8Array(0), ctx: CallCtx = {}): Uint8Array {
     // Reentrant dispatch (e.g. POST_INCOMING_TRANSFER or a PRE/POST share callback fired by a cross-contract
     // call mid-procedure) must not reuse the fixed io regions or reset the locals arena — both hold the outer
-    // call's live frames. Carve the nested in/out/locals from the arena instead: through the module's own
-    // arena pointer when it exports one (our compiler's wasm — its in-wasm allocator bumps that global), else
-    // through the host-side bump cursor (native lite wasm — its allocator is the acquireScratch import, so
-    // the host cursor is authoritative). The ctx header the nested writeCtx clobbers is restored on exit.
     const arenaTopG: WebAssembly.Global | undefined = this.ex.arena_top;
     const nested = this.dispatchDepth > 0;
     let inOff: number, outOff: number, localsOff: number;
@@ -328,7 +312,6 @@ export class Contract {
     if (nested) {
       // No 32-bit bitwise alignment here: a shared-memory contract's arena can sit beyond 2^31 (large
       // states pack high), where JS bitops go negative — a negative offset makes fill() wrap from the
-      // buffer END and silently corrupt other contracts' regions before set() throws.
       const base = arenaTopG ? ((arenaTopG.value as number) >>> 0) : this.arenaBump;
       inOff = base + 7 - ((base + 7) % 8);
       outOff = inOff + IN_SZ;
@@ -352,9 +335,6 @@ export class Contract {
     pre.fill(0, outOff, outOff + OUT_SZ);
     // Zero the locals scratch too. QPI hands the contract a zeroed locals frame every dispatch (native
     // contract_exec.h clears it; qpi.h documents it as a "zeroed instance"), and HashMap::get / iterators
-    // leave their out-param UNTOUCHED on a miss — so without this a contract reads stale bytes left in the
-    // locals region by the previous dispatch (e.g. QUSINO transferSTAROrQSC crediting a fresh receiver from a
-    // prior call's leftover volume). migrate() below already does this.
     pre.fill(0, localsOff, localsOff + LOCALS_SZ);
     if (input.length) pre.set(input, inOff);
     this.writeCtx(ctx);
@@ -367,7 +347,6 @@ export class Contract {
 
     // Debug trace (opt-in): snapshot state, open an entry, time the dispatch, capture a trap. Nesting
     // (inter-contract calls / sysprocs) is handled by the recorder's stack — each invoke is one entry. State
-    // is snapshotted once and shared with the meter (it needs before/after to price the digest recompute).
     const rec = this.trace?.enabled ? this.trace : null;
     const wantState = metering || rec != null;
     const snapshotLimit = metering ? this.stateSize : TRACE_STATE_CAP;
@@ -406,7 +385,6 @@ export class Contract {
 
   // Run the contract's __migrate(newState, oldState, locals) to convert the old state into the new layout.
   // Mirrors the core host path (lite_wasm_contracts.h kind=3): copy old bytes into the arena, zero the new
-  // state, shift the scratch base past the blob, dispatch. Used on redeploy when the new module declares MIGRATE().
   migrate(oldState: Uint8Array): void {
     const localsOff = this.ioBase + IN_SZ + OUT_SZ;
     const oldOff = this.arenaBase;
@@ -424,7 +402,6 @@ export class Contract {
 
   // Close out the frame's cost meter: total = base + accumulated host weight + (state changed ? digest
   // recompute over the whole StateData : 0). Records it in lastCost for Layer 2 to debit, then restores the
-  // parent frame's accumulator. A no-op (lastCost = 0) when this contract isn't metered.
   private finishMeter(metering: boolean, savedCost: bigint, before: Uint8Array, after: Uint8Array): void {
     if (metering) {
       let c = BASE_CALL_COST + this.cost;
@@ -457,7 +434,6 @@ export class Contract {
 
   // Record an effectful host-ABI call (transfer/burn/asset/inter-contract) onto the active debug entry —
   // the host-event timeline the debugger/IDE shows next to the state diff. The detail thunk runs only when
-  // tracing is enabled, so the hot path pays nothing when it's off.
   private recHost(name: string, detail: () => string): void {
     const rec = this.trace;
     if (rec?.enabled) {
@@ -467,8 +443,6 @@ export class Contract {
 
   // Wrap the priced lhost imports so each call adds its weight to the in-flight frame's cost (only the entries
   // in HOST_WEIGHT — free ops keep their original closure, so an unmetered run is untouched). The wrapper
-  // forwards args positionally; wasm matches imports by declared signature, so the rest-spread is transparent
-  // and i64 (bigint) returns pass straight through.
   private meterLhost(lhost: Record<string, Function>): void {
     for (const name of Object.keys(lhost)) {
       const w = HOST_WEIGHT[name];
@@ -487,7 +461,6 @@ export class Contract {
 
   // The "lhost" import table (core-lite src/extensions/lite_wasm_imports.h LHOST_TABLE) + WASI stubs.
   // The contract wires only the subset it declares; extras are ignored. Effectful ledger/asset/inter-contract
-  // ops throw loudly (not silently wrong) until Layer 2 models them.
   private imports(mod?: WebAssembly.Module): WebAssembly.Imports {
     const u8 = () => this.u8();
     const ctxView = () => QpiContext.wrap(u8(), this.ctxAddr); // the live QpiContext header (originator / invocator)
@@ -507,7 +480,6 @@ export class Contract {
       },
       // Scoped release (pre_qpi_def.h __ScopedScratchpad is RAII, so releases nest strictly LIFO): pop the
       // bump back to the released block. Without this a dispatch that reorganizes several containers
-      // (Collection/HashMap cleanup acquires a scratch the size of the whole container) exhausts any arena.
       releaseScratch: (off: number) => {
         const p = off >>> 0;
         if (p >= this.arenaBase && p <= this.arenaBump) this.arenaBump = p;
@@ -525,7 +497,6 @@ export class Contract {
       numberOfTickTransactions: () => this.host.numberOfTickTransactions(),
       // qpi date/time: derived from the chain clock. The individual accessors return the qubic 2-digit year
       // (year - 2000, like QpiContextFunctionCall::year); now() packs the 8-byte DateAndTime with the full year
-      // (DateAndTime::now() = etalonTick.year + 2000).
       day: () => dateFields(this.host.nowMs()).day,
       year: () => dateFields(this.host.nowMs()).year,
       hour: () => dateFields(this.host.nowMs()).hour,
@@ -595,7 +566,6 @@ export class Contract {
         this.host.numberOfPossessedShares(name, u8().slice(issOff, issOff + 32), u8().slice(ownOff, ownOff + 32), u8().slice(posOff, posOff + 32), ownMgmt & 0xffff, posMgmt & 0xffff),
       // Asset enumeration for the contract-side AssetOwnership/PossessionIterator (via the wasm shim): write each
       // matching record (owner@0, possessor@32, shares@64, ownMgmt@72, posMgmt@74 — 80 bytes) to the contract's
-      // outBuf and return the count. issuance=40B (Asset), ownSel/posSel=36B (AssetOwnership/PossessionSelect).
       assetEnumerate: (kind: number, issOff: number, ownOff: number, posOff: number, outOff: number, maxN: number) => {
         const entries = this.host.assetEnumerate(u8().slice(issOff, issOff + 40), u8().slice(ownOff, ownOff + 36), u8().slice(posOff, posOff + 36), kind >>> 0);
         const n = Math.min(entries.length, maxN >>> 0);
@@ -678,7 +648,6 @@ export class Contract {
       },
       // inter-contract: in/out are offsets in the CALLER's memory; route to the callee Contract, write the
       // result back, return the InterContractCallError code. The callee's originator propagates from the
-      // caller's QpiContext header.
       liteCallFunction: (calleeIdx: number, inputType: number, inOff: number, inSize: number, outOff: number, outSize: number) => {
         const input = u8().slice(inOff, inOff + inSize);
         const originator = ctxView().originator;
@@ -714,14 +683,11 @@ export class Contract {
     this.meterLhost(lhost);
     // wasm i32 params surface as SIGNED JS numbers; a shared-memory module (gtest) lives above 2GB, so its
     // pointers arrive negative and would corrupt every slice/set below. Coerce every i32 arg to unsigned at
-    // the boundary — the handlers that need a narrower or signed view already re-mask locally (& 0xffff,
-    // | 0, << 24 >> 24), so the coercion is bit-transparent for them.
     const toU32Args = (fn: Function) =>
       (...args: unknown[]) => fn(...args.map((a) => (typeof a === "number" ? a >>> 0 : a)));
     for (const k of Object.keys(lhost)) lhost[k] = toU32Args(lhost[k]);
     // WASI + env: build plain objects with explicit stubs for every import the module declares,
     // since Bun 1.3.14 has a Proxy + wasm i64-marshalling bug that crashes on i64-param imports
-    // ("Invalid argument type in ToBigInt") when the import object uses Proxy fallbacks.
     const safeNoop = (..._args: unknown[]): number | bigint => 0n;
     const wasiBase: Record<string, Function> = {
       proc_exit: (c: number) => { throw new Error("wasm proc_exit(" + c + ")"); },
@@ -764,7 +730,6 @@ function shortId(id: Uint8Array): string {
 
 // The leading chars of the Qubic identity body: base-26 of the first 8-byte LE chunk (chars 0..13 of the
 // 60-char id). The checksum (last 4 chars) needs K12, so it's omitted — a prefix needs no crypto and stays
-// sync for the trace hot path. n must be <= 14 (one chunk yields 14 chars).
 function idPrefix(id: Uint8Array, n: number): string {
   let val = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true);
   let s = "";

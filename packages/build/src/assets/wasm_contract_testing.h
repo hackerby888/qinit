@@ -7,9 +7,6 @@
 
 // Wasm-mode replacement for core-lite contract_testing.h.
 // Routes ContractTesting / free-helper calls to "thost" imports bound by
-// @qinit/engine runContractTesting(). Included after Qinit's private Wasm gtest registry
-// inside the wrapper TU; relies on types already in scope: QPI::id, QPI::Asset,
-// QPI::sint64, setMem, copyMem, malloc.
 
 // ---- thost import declarations (module "thost", names fixed by runContractTesting) ----
 
@@ -49,11 +46,6 @@ QBCT_IMPORT(q_set_prev_spectrum_digest) void bq_set_prev_spectrum_digest(const v
 
 // ---- std::cout / std::cerr / std::endl: no-op sinks ----
 // The wasm TU has no <iostream>; corpora stream PRINT_TEST_INFO debug output through std::cout.
-// A null stream swallows every `<<` (values and the std::endl manipulator) so the prints type-check
-// and compile away. std::vector/map/set/min/max resolve from the container/<algorithm> includes above.
-//
-// Skipped when the corpus pulls real <iostream> itself: buildCorpusRunner defines QINIT_HAVE_IOSTREAM
-// in that case, so the real std::cout is used and these stubs don't collide with it.
 
 #ifndef QINIT_HAVE_IOSTREAM
 
@@ -93,19 +85,10 @@ enum SystemProcedureID {
 
 // ---- user-function call context (a read-only function call that also carries an invocator) ----
 // core-lite's contract_core/contract_def.h defines USER_FUNCTION_CALL as an OtherEntryPointIDs value
-// (contractSystemProcedureCount + 2 == 14), and contract_core/contract_exec.h a QpiContextUserFunctionCall
-// a corpus constructs to run a contract's user FUNCTION directly in-process (QDUEL: computeWinner /
-// calculateRevenue / getUserProfileFor invoke GetWinnerPlayer(qpi, state, ...) etc. through such a context).
-// Neither header is compiled in wasm mode, so provide both here. The entry-point id is only stored on the
-// context (QpiContext::_entryPoint); no wasm-TU code dispatches on it, so it is inert beyond naming the call
-// kind — we keep core's numeric value for faithfulness. A corpus may also derive its own invocator-carrying
-// variant straight from QPI::QpiContextFunctionCall's protected 4-arg ctor
-// (contractIndex, originator, invocationReward, entryPoint) with USER_FUNCTION_CALL as the entry point.
 enum : unsigned char { USER_PROCEDURE_CALL = 13, USER_FUNCTION_CALL = 14 };
 
 // contractError[slot]: contract execution status array from contract_exec.h (native harness asserts it).
 // In wasm mode a contract dispatch runs in the engine, so errors are engine-side; treat as always-clean
-// for the shim (bq_query/bq_invoke signal errors in the returned status, not this array).
 static unsigned int contractError[64];
 
 struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall {
@@ -140,8 +123,6 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
 
     // In-runner qpi asset mutations (QTRY seeds its QUSD supply this way). The runner's lhost surface is
     // read-only — its ABI carries no contract index, so a mutation resolved there would be a silent no-op.
-    // Shadow the QPI members and route through the slot-carrying thost asset operations; the managing
-    // contract is this context's own index, matching the native harness semantics.
     long long issueAsset(unsigned long long name, const QPI::id& issuer, signed char numberOfDecimalPlaces,
                          long long numberOfShares, unsigned long long unitOfMeasurement) const {
         return bq_issue_asset(&issuer, name, (int)numberOfDecimalPlaces, numberOfShares, unitOfMeasurement,
@@ -211,7 +192,6 @@ public:
         setMem(&output, sizeof(output), 0);
         // Mirror core-lite contract_testing.h: the invocation fails (no procedure run, nothing transferred)
         // when the user has NO spectrum record at all (spectrumIndex < 0 — even with amount 0), or can't
-        // fund the attached amount. Corpora assert this return (QEARN ErrorChecking's unknown-user lock).
         if (bq_spectrum(&user) < 0) {
             return false;
         }
@@ -302,17 +282,6 @@ struct QbSystemStruct {
 
 // ---- utcTime / etalonTick / updateTime / updateQpiTime: corpus time control ----
 // The native harness exposes a mutable `etalonTick` (a Tick global) whose date fields ARE the simulated chain
-// clock: qpi.year()/month()/day()/hour()/minute()/second() read them live. Corpora set the date either by
-// assigning etalonTick fields directly (e.g. `etalonTick.year = 25; etalonTick.month = 11; ...`, where year is
-// the 2-digit form = calendar year - 2000) or via updateQpiTime(), which copies utcTime -> etalonTick.
-//
-// The engine clock is driven by q_set_datetime (module "thost"), which expects a FULL calendar year. The
-// live-read semantics are reproduced with a proxy: every etalonTick field mutation re-pushes the whole date to
-// the engine (adding 2000 back to the 2-digit year), so the next contract call observes it. Intermediate
-// pushes from partially-written dates are harmless — the contract reads time only after the corpus finishes
-// writing every field for a given instant.
-//
-// utcTime is the EFI_TIME (lib/platform_efi/uefi.h, already in scope) some corpora set before updateQpiTime().
 static EFI_TIME utcTime = { 2024, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 static void qbEtalonSync();  // defined just below etalonTick
@@ -360,9 +329,6 @@ struct QbEtalonField {
 
 // Date-only stand-in for core-lite's Tick global. backing[] holds year (2-digit) / month / day / hour /
 // minute / second / millisecond; the proxy fields alias those slots so writes route through qbEtalonSync().
-// Prev-tick spectrum digest: contracts XOR it into digest-derived RNG (QDUEL's GetWinnerPlayer). In the native
-// harness it's the zero-initialized etalonTick global the corpus may pin; assignments push the value to the
-// engine so qpi.getPrevSpectrumDigest() (contract-side AND in-runner) reads exactly what the corpus set.
 struct QbDigestProxy {
     m256i v;
     QbDigestProxy& operator=(const m256i& d) {
@@ -412,7 +378,6 @@ static QbSystemStruct qubicSystemStruct;
 
 // QPI::mod is `template<T> mod(T, T)`, so `mod(system.tick, (uint32)X)` (RL) can't deduce T from the proxy +
 // a uint32. This non-template overload is an exact match for that call (and wins over the failed-deduction
-// template); other mod(T,T) calls are unaffected (the proxy type never matches them).
 static inline unsigned int mod(const QbTickProxy& a, unsigned int b) {
     return b ? ((unsigned int)a % b) : 0u;
 }
@@ -471,10 +436,6 @@ static const unsigned int contractCount =
 
 // ---- broadcastedComputors: layout-compatible stub of core-lite's global ----
 // GQMPROP/CCF corpora seed committee identities via `broadcastedComputors.computors.publicKeys[i] = id`.
-// Native pulls this from special_entities.h; the wasm TU does not, so a matching struct is declared here
-// (m256i and NUMBER_OF_COMPUTORS come from qpi.h). publicKeys is a write-through proxy: each assignment
-// both stores locally (for read-back) and routes to bq_set_computor, so the engine's qpi.computor(i)
-// returns the same identity the test seeded and the contract's proposer-is-a-computor check matches.
 
 struct QbComputorKeys {
     m256i _keys[NUMBER_OF_COMPUTORS];
@@ -532,8 +493,6 @@ static inline unsigned long long assetNameFromString(const char* s);  // defined
 
 // The native harness returns opaque asset-universe indices from issueAsset and threads them into the index-based
 // transferShareOwnershipAndPossession. The engine keys assets by holding (issuer+name / owner / possessor), so
-// each returned index is mapped to the holding it denotes and transfers are replayed on the holding side. Index 0
-// is the "unknown holding" sentinel.
 namespace qbctidx {
     struct Holding {
         unsigned long long name;
@@ -567,8 +526,6 @@ namespace qbctidx {
 
 // Mint an asset for a test; name/unit are short ASCII strings. A NULL_ID issuer is the QX contract-share
 // convention, which the engine's contract-facing issueAsset rejects, so route it through the holding-based
-// contract-share mint. The out-indices denote the newly minted holding (issuer owns and possesses every share).
-// Returns the number of shares minted (0 on failure).
 static inline long long issueAsset(const QPI::id& issuer, const char* name, signed char decimals, const char* unit,
                                    long long numberOfShares, unsigned short managingContract,
                                    int* issuanceIndex, int* ownershipIndex, int* possessionIndex) {
@@ -611,9 +568,6 @@ static inline QPI::sint64 numberOfShares(const QPI::Asset& a,
 
 // Issue a contract's shares (NULL_ID issuer convention, managed by QX) and transfer them to the initial owners.
 // The native harness uses the index-based issueAsset + transferShareOwnershipAndPossession; the engine models
-// assets by holding (issuer+name / owner / possessor), so mint the contract shares then holding-transfer each
-// owner's slice from the NULL_ID holder. Same end state: `numberOfShares({NULL_ID, name}) == NUMBER_OF_COMPUTORS`
-// with each owner possessing its count.
 static inline void issueContractShares(unsigned int contractIndex, std::vector<std::pair<m256i, unsigned int>>& initialOwnerShares, bool warnOnTooFewShares = true) {
     (void)warnOnTooFewShares;
     const unsigned long long assetName = assetNameFromString(contractDescriptions[contractIndex].assetName);
@@ -633,8 +587,6 @@ static inline void issueContractShares(unsigned int contractIndex, std::vector<s
 
 // Index-based share transfer (googletest free helper): move `numberOfShares` from the holding denoted by
 // sourceOwnershipIndex (a prior issueAsset / transfer result) to newOwner. The engine transfers ownership and
-// possession together, so one holding-transfer covers both the source ownership and possession indices. Returns
-// true on success (native returns bool) and records the destination holding so chained transfers resolve.
 static inline bool transferShareOwnershipAndPossession(int sourceOwnershipIndex, int sourcePossessionIndex,
                                                        const QPI::id& newOwner, long long numberOfShares,
                                                        int* destinationOwnershipIndex, int* destinationPossessionIndex,
@@ -664,11 +616,6 @@ static inline bool transferShareOwnershipAndPossession(int sourceOwnershipIndex,
 
 // ---- streamable EXPECT_* (gtest `EXPECT_EQ(a,b) << "note"`) ----
 // The private Wasm registry defines EXPECT_*/ASSERT_* comparisons as `do{...}while(0)` statements, so a corpus that
-// streams a failure note (`EXPECT_EQ(x, y) << "msg"`, RANDOM) won't compile. Redefine the non-fatal EXPECT_*
-// comparisons as an `if/else` whose else branch is a sink that swallows the
-// trailing <<. The recording still happens (qinit_gtest::failAt on mismatch); the note is parsed but not run.
-// Operands are passed once (by const ref) so there's no double-evaluation. ASSERT_* keep the original form
-// (they `return` on failure, which an expression can't), so `ASSERT_* << msg` is still unsupported.
 namespace qinit_gtest {
     struct Sink { template <class T> Sink& operator<<(const T&) { return *this; } };
 }
@@ -686,8 +633,6 @@ namespace qinit_gtest {
 
     // Refresh engine-dirty state shadows before an assertion evaluates its operands: a corpus commonly caches
     // `auto state = getState()` and asserts through that pointer after dispatches. For a very large state
-    // (hundreds of MB) the engine defers the post-dispatch shadow refresh to this point rather than paying a
-    // full copy per dispatch; the `&&` in the assertion macros sequences this strictly before the operand reads.
     static inline bool qbSyncThen() {
         bq_state_sync();
         return true;
@@ -713,9 +658,7 @@ namespace qinit_gtest {
 #define EXPECT_TRUE(x)  switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_TRUE(" #x ")", (bool)(x))) ; else ::qinit_gtest::Sink()
 #define EXPECT_FALSE(x) switch (0) case 0: default: if (::qinit_gtest::qbSyncThen() && ::qinit_gtest::recBool(__FILE__, __LINE__, "EXPECT_FALSE(" #x ")", !(bool)(x))) ; else ::qinit_gtest::Sink()
 // ASSERT_* likewise — streamable so `ASSERT_*(...) << "msg"` (RANDOM) compiles. These record the failure but do
-// NOT early-return (an expression can't), so a failed ASSERT continues; the test still ends up failed (recorded,
-// and any follow-on trap is caught per-test by the harness). Passing tests never hit a failed ASSERT, so this
-// doesn't change their outcome.
+// NOT early-return (an expression can't). A failed ASSERT continues; the test still ends up failed (recorded).
 #undef ASSERT_EQ
 #undef ASSERT_NE
 #undef ASSERT_LT
@@ -757,7 +700,6 @@ static inline void checkContractExecCleanup() {
 
 // Identity (56 A-Z chars + 4-char checksum) -> 32-byte public key: base26 decode, 14 chars per 64-bit limb,
 // little-endian; the trailing checksum chars are not needed to recover the key. Mirrors core-lite four_q.h
-// getPublicKeyFromIdentity. Corpora seed fixed identities this way (QSWAP's invest-rewards address).
 static inline bool getPublicKeyFromIdentity(const unsigned char* identity, unsigned char* publicKey) {
     for (int i = 0; i < 4; i++) {
         unsigned long long limb = 0;
@@ -777,7 +719,6 @@ static inline bool getPublicKeyFromIdentity(const unsigned char* identity, unsig
 
 // State save/load to disk — core-lite platform/file_io.h, which has no wasm equivalent. A corpus may define a
 // loadState()/saveState() helper over these (QSWAP) without any test invoking it, so never-called stubs that
-// report failure are enough to compile. CHAR16 is already in scope from the included platform headers.
 static inline long long load(const CHAR16*, unsigned long long, void*, const CHAR16* = nullptr) {
     return -1;
 }

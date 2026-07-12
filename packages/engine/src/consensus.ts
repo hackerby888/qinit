@@ -1,8 +1,5 @@
 // Tick consensus — core-lite's quorum model ported to the deterministic in-process sim. One process plays all
 // N honest computors: each tick, every computor computes the same chain-state digests, signs a Tick vote, and
-// the tick finalizes once aligned votes >= QUORUM (always, for an honest committee). Grounded in core-lite
-// src/network_messages/{tick.h, computors.h, common_def.h} + the qubic.cpp tick processor. All crypto is the
-// sync FourQ/K12 from @qinit/core (deriveKeysSync / signSync), so Sim.advance() stays synchronous.
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "./k12";
 import { dateFields } from "./runtime";
 import { rootFromSiblings } from "./merkle";
@@ -64,7 +61,6 @@ export class Committee {
 
   // The signed Computors wire struct (core-lite computors.h): epoch(2) + publicKeys[slotCount*32] +
   // arbitrator signature(64) over K12(struct − signature). slotCount defaults to the committee size; the
-  // peer-protocol bridge pads to the protocol's 676-slot list (the real NUMBER_OF_COMPUTORS).
   signedComputorList(epoch: number, slotCount = this.computors.length): Uint8Array {
     const size = 2 + slotCount * DIGEST_SIZE + SIG_SIZE;
     const buf = new Uint8Array(size);
@@ -85,9 +81,6 @@ export class Committee {
 
 // The chain-state digests a tick vote commits to. spectrum/universe are the roots of the incremental 2^24
 // SparseMerkle trees (SpectrumLedger.getSpectrumDigest / AssetLedger.getUniverseDigest); computer is the
-// 1024-leaf contract-state merkle; transaction is K12 of the leader's signed TickData. A light client recomputes
-// spectrum/universe/computer from a merkle proof and checks it against these committed roots (verifyEntityProof
-// + the digest-chain test pin that the proof root equals the digest a quorum of votes signed).
 export interface TickStateDigests {
   spectrum: Uint8Array;
   universe: Uint8Array;
@@ -128,8 +121,6 @@ function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
 
 // Build + sign one computor's 352-byte Tick vote (network_messages/tick.h). The three m256i state digests are
 // committed as prev*Digest and as salted*Digest = K12(pubKey ‖ prevDigest). Time fields and the u32
-// resource/tx-body digests are zeroed (deterministic; not modeled in the dev sim). The signature is FourQ over
-// K12(Tick − signature), with the mainnet TARGET_TICK_VOTE_SIGNATURE proof-of-work intentionally skipped.
 export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests, timeMs: number): Tick {
   const v = Tick.alloc();
   v.computorIndex = c.index;
@@ -179,10 +170,6 @@ export function tickVoteSignature(vote: Uint8Array): Uint8Array {
 
 // ---- TickData (network_messages/tick.h; BROADCAST_FUTURE_TICK_DATA) ----
 // The leader-proposed transaction set for a tick, in the wire form an external Qubic client reads:
-// computorIndex(2) epoch(2) tick(4) [millisecond(2) second minute hour day month year(1 each)] timelock(32)
-// transactionDigests[NUMBER_OF_TRANSACTIONS_PER_TICK][32] contractFees[…](8 each) signature(64). The leader is
-// computor[tick % N]; the signature is FourQ over K12(TickData − signature) with computorIndex XORed by the
-// future-tick-data message type (the same domain-separation tweak qubic.cpp applies before verifying).
 const TICKDATA_TYPE = 8; // BROADCAST_FUTURE_TICK_DATA — XORed into computorIndex for the signature domain
 
 // timelock = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) — the tick's committed state roots.
@@ -254,8 +241,6 @@ export function voteIsAligned(vote: Tick, d: TickStateDigests): boolean {
 
 // A light-client check: is `record` (an EntityRecord) provably part of the state that >= QUORUM computors
 // signed? Recompute the spectrum root from the merkle proof, then count the tick votes that (a) carry a valid
-// signature from their computor and (b) commit that exact spectrum root. True iff the count reaches quorum —
-// i.e. the balance is in a state a supermajority of the committee agreed on, verified by math, not trust.
 export function verifyEntityProof(record: Uint8Array, index: number, siblings: Uint8Array[], votes: Tick[], committee: Committee): boolean {
   if (index < 0) {
     return false;
