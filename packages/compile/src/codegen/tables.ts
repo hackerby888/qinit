@@ -61,3 +61,20 @@ export const C_SCALAR_NAMES = new Set([
 // QPI safe-math names whose result type follows their arguments. Their bodies are compiled from the
 // authoritative qpi.h/math_lib.h sources; this set is used only for type inference.
 export const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);
+
+// Platform free-function namespaces whose bodies must lower without fidelity diagnostics.
+// Host qpi.xxx methods stay in QPI_BINDINGS; this set covers free helpers (QPI::div, math_lib::max, …).
+export const AUTHORITATIVE_NAMESPACES = new Set(["QPI", "math_lib"]);
+
+/** True when a qualified symbol lives under an authoritative platform namespace (QPI::div, math_lib::max). */
+export function isAuthoritativeSymbol(qualifiedName: string): boolean {
+  const sep = qualifiedName.indexOf("::");
+  if (sep <= 0) return false;
+  return AUTHORITATIVE_NAMESPACES.has(qualifiedName.slice(0, sep));
+}
+
+/** Unqualified base of a possibly qualified call name (QPI::div → div). */
+export function symbolBaseName(name: string): string {
+  const sep = name.lastIndexOf("::");
+  return sep >= 0 ? name.slice(sep + 2) : name;
+}

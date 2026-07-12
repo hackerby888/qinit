@@ -138,11 +138,13 @@ export function compileProxyMethod(cg: Codegen, pvType: TypeSpec & { kind: "temp
 
 export function emitProxyMethodFn(cg: Codegen, cm: CompiledMethod, def: FunctionTemplateDecl, pvType: TypeSpec & { kind: "template_instance" }, bind: Bindings, proxyClass: string): string {
   const empty = { size: 0, align: 1, fields: new Map<string, FieldLayout>() };
+  const lookup = cg.namespaceContextOf(def);
   const ctx: FnCtx = {
     cg, state: empty, in: empty, out: empty, locals: empty,
     localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
     params: new Map(), retIsValue: cm.retKind === "i64",
     thisBind: bind, proxyClass,
+    sourceNamespace: lookup.sourceNamespace, usingNamespaces: lookup.usingNamespaces,
     refLocals: new Map([["pv", pvType as TypeSpec]]),   // `pv` (member) → the wrapped ProposalVoting at $pv
   };
   if (cm.retAgg) {

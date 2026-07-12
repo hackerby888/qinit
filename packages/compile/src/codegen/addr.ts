@@ -466,30 +466,42 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     const qualified = expr.callee.name;
     const separator = qualified.lastIndexOf("::");
     if (separator > 0) {
-      const ownerSpelling = qualified.slice(0, separator).replace(/^QPI::/, "");
+      const ownerSpelling = qualified.slice(0, separator);
       const method = qualified.slice(separator + 2);
-      const ownerType = ctx.cg.resolveType({ kind: "name", name: ownerSpelling }, ctx.thisBind ?? NO_BIND);
-      const ownerStruct = ctx.cg.structOf(ownerType, ctx.thisBind ?? NO_BIND);
-      const declaration = ownerStruct?.members.find(
-        (member): member is FunctionDecl => member.kind === "function" && member.name === method && member.isStatic && !!member.body,
-      );
-      if (declaration && ctx.cg.isAggregateType(ctx.cg.derefType(declaration.returnType))) {
-        const concreteOwner = ownerType.kind === "name" ? ownerType.name : ownerStruct!.name;
-        const target: TypeSpec & { kind: "template_instance" } = { kind: "template_instance", name: concreteOwner, args: [] };
-        const compiled = callCompiled(ctx, target, method, "(i32.const 0)", expr.args);
-        if (!compiled?.retDest || !compiled.cm.retType) {
-          throw new Error(`authoritative static aggregate method ${qualified} could not be lowered`);
+      // Resolve NS::Type (or Type) without assuming a QPI:: prefix — try full spelling, then tail.
+      const bind = ctx.thisBind ?? NO_BIND;
+      const resolveOwner = (spelling: string): { type: TypeSpec; struct: StructDecl } | null => {
+        const type = ctx.cg.resolveType({ kind: "name", name: spelling }, bind);
+        const struct = ctx.cg.structOf(type, bind);
+        return struct ? { type, struct } : null;
+      };
+      let owner = resolveOwner(ownerSpelling);
+      if (!owner && ownerSpelling.includes("::")) {
+        const tail = ownerSpelling.slice(ownerSpelling.lastIndexOf("::") + 2);
+        owner = resolveOwner(tail);
+      }
+      if (owner) {
+        const declaration = owner.struct.members.find(
+          (member): member is FunctionDecl => member.kind === "function" && member.name === method && member.isStatic && !!member.body,
+        );
+        if (declaration && ctx.cg.isAggregateType(ctx.cg.derefType(declaration.returnType))) {
+          const concreteOwner = owner.type.kind === "name" ? owner.type.name : owner.struct.name;
+          const target: TypeSpec & { kind: "template_instance" } = { kind: "template_instance", name: concreteOwner, args: [] };
+          const compiled = callCompiled(ctx, target, method, "(i32.const 0)", expr.args);
+          if (!compiled?.retDest || !compiled.cm.retType) {
+            throw new Error(`authoritative static aggregate method ${qualified} could not be lowered`);
+          }
+          ctx.lines.push(`    ${compiled.call}`);
+          const type = ctx.cg.substInBindings(ctx.cg.derefType(compiled.cm.retType), bind);
+          const size = compiled.cm.retAgg ?? ctx.cg.sizeOfType(type, bind);
+          (ctx.materializedCalls ??= new WeakMap()).set(expr, {
+            addr: compiled.retDest,
+            type,
+            size,
+            layout: ctx.cg.layoutOfType(type, bind),
+          });
+          return compiled.retDest;
         }
-        ctx.lines.push(`    ${compiled.call}`);
-        const type = ctx.cg.substInBindings(ctx.cg.derefType(compiled.cm.retType), ctx.thisBind ?? NO_BIND);
-        const size = compiled.cm.retAgg ?? ctx.cg.sizeOfType(type, ctx.thisBind ?? NO_BIND);
-        (ctx.materializedCalls ??= new WeakMap()).set(expr, {
-          addr: compiled.retDest,
-          type,
-          size,
-          layout: ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND),
-        });
-        return compiled.retDest;
       }
     }
   }

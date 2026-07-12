@@ -1,6 +1,6 @@
 import { Codegen } from "./cg";
 import { emitAggHelperCall, emitHelperCall, lookupHelper, pickHelperOverload } from "./calls/libfn";
-import { SCALAR_SIZE, MATH_INTRINSIC_NAMES } from "./tables";
+import { SCALAR_SIZE, MATH_INTRINSIC_NAMES, symbolBaseName } from "./tables";
 import { isScalarLocal, emitIncDec, newTmp } from "./stmt";
 import { describeShape, emitCallValueIr, emitOracleQueryCall, emitOracleReadCall } from "./calls/dispatch";
 import { emitQpiCall, QPI_CALLS } from "./calls/qpi";
@@ -396,8 +396,8 @@ export function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
   }
   if (expr.kind === "ternary") return isU128Expr(ctx, expr.then) || isU128Expr(ctx, expr.else_);
   if (expr.kind === "template_call" && expr.callee.kind === "identifier") {
-    const nm = (expr.callee as any).name;
-    if ((nm === "div" || nm === "QPI::div" || nm === "mod" || nm === "QPI::mod") && expr.args.length === 2) {
+    const base = symbolBaseName((expr.callee as any).name);
+    if ((base === "div" || base === "mod") && MATH_INTRINSIC_NAMES.has(base) && expr.args.length === 2) {
       const ta = expr.templateArgs?.[0];
       if (ta?.kind === "name" && (ta.name === "uint128" || ta.name === "uint128_t")) return true;
       return isU128Expr(ctx, expr.args[0]) || isU128Expr(ctx, expr.args[1]);
@@ -408,7 +408,8 @@ export function isU128Expr(ctx: FnCtx, expr: Expression): boolean {
     if (nm === "uint128" || nm === "uint128_t") return true;
     const bound = ctx.thisBind?.types.get(nm);
     if (bound && isUint128(ctx.cg, bound)) return true;
-    if ((nm === "div" || nm === "QPI::div" || nm === "mod") && expr.args.length === 2) {
+    const base = symbolBaseName(nm);
+    if ((base === "div" || base === "mod") && MATH_INTRINSIC_NAMES.has(base) && expr.args.length === 2) {
       return isU128Expr(ctx, expr.args[0]) || isU128Expr(ctx, expr.args[1]);
     }
   }
@@ -507,7 +508,7 @@ export function emitU128Ir(ctx: FnCtx, expr: Expression): ir.Ir {
       (bound ? isUint128(ctx.cg, bound) : false);
     if (constructor) return constructU128(ctx, expr.args);
 
-    if (/^(QPI::)?div$/.test(expr.callee.name) && expr.args.length === 2) {
+    if (symbolBaseName(expr.callee.name) === "div" && MATH_INTRINSIC_NAMES.has("div") && expr.args.length === 2) {
       const helper = lookupHelper(ctx, expr);
       if (!helper?.retAgg || helper.retAgg !== 16) {
         throw new Error(`authoritative QPI::div<uint128_t> could not be lowered`);
@@ -517,7 +518,7 @@ export function emitU128Ir(ctx: FnCtx, expr: Expression): ir.Ir {
   }
 
   if (expr.kind === "template_call" && expr.callee.kind === "identifier" &&
-      /^(QPI::)?div$/.test(expr.callee.name) && expr.args.length === 2) {
+      symbolBaseName(expr.callee.name) === "div" && MATH_INTRINSIC_NAMES.has("div") && expr.args.length === 2) {
     const callExpr = expr as unknown as Expression & { kind: "call" };
     const helper = lookupHelper(ctx, callExpr);
     if (!helper?.retAgg || helper.retAgg !== 16) {

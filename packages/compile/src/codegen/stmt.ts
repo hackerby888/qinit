@@ -49,7 +49,12 @@ export function emitFunction(
   const qpiContext = contextType?.kind === "name" && contextType.name === "QpiContextProcedureCall" ? "procedure"
     : contextType?.kind === "name" && contextType.name === "QpiContextFunctionCall" ? "function"
     : undefined;
-  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0, hasStateParam: true, params: paramAliases, qpiContext };
+  const lookup = cg.namespaceContextOf(fn);
+  const ctx: FnCtx = {
+    cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
+    hasStateParam: true, params: paramAliases, qpiContext,
+    sourceNamespace: lookup.sourceNamespace, usingNamespaces: lookup.usingNamespaces,
+  };
 
   // Pre-scan for local variable declarations (must be declared at function top in WAT)
   if (fn?.body) collectLocals(fn.body, ctx);
@@ -77,6 +82,7 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
     // For an instantiated template free fn the body resolves T/L through these bindings (e.g. `L`→4).
     thisBind: bind,
     sourceNamespace: info.sourceNamespace,
+    usingNamespaces: info.usingNamespaces,
   };
   // An aggregate-returning helper (`id liquidityPov(...)`) gets a leading $ret destination-address param; `return e` copies the 32/N-byte value there.
   if (info.retAgg) {

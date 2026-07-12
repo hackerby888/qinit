@@ -31,7 +31,7 @@ export function getQpiContext(headers: string): QpiContext {
       seedMacros: macros,
     });
     const implTu = new Parser(new Lexer(implText).tokenize()).parseTranslationUnit();
-    const implLib = buildLibTypes(implTu.declarations);
+    const implLib = buildLibTypes(implTu.declarations, lib.namespaceUsings);
     for (const [name, definition] of implLib.globalStructs) if (!lib.globalStructs.has(name)) lib.globalStructs.set(name, definition);
     for (const [name, definition] of implLib.typedefs) if (!lib.typedefs.has(name)) lib.typedefs.set(name, definition);
     for (const [name, expression] of implLib.constexprInit) if (!lib.constexprInit.has(name)) lib.constexprInit.set(name, expression);
@@ -58,6 +58,12 @@ export function getQpiContext(headers: string): QpiContext {
       if (current) current.push(...definitions);
       else lib.libFnTemplates.set(name, definitions);
     }
+    for (const [scope, namespaces] of implLib.namespaceUsings) {
+      const current = lib.namespaceUsings.get(scope) ?? [];
+      for (const namespace of namespaces) if (!current.includes(namespace)) current.push(namespace);
+      lib.namespaceUsings.set(scope, current);
+    }
+    for (const [declaration, context] of implLib.namespaceContexts) lib.namespaceContexts.set(declaration, context);
   }
 
   const context = { macros, lib };

@@ -3,7 +3,7 @@ import { emitHelperFunction } from "../stmt";
 import { Codegen } from "../cg";
 import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo, scalarTypeInfo, unsignedScalar, isU128Expr } from "../value";
 import { FnCtx, HelperInfo, Bindings, NO_BIND } from "../types";
-import { MATH_INTRINSIC_NAMES, SCALAR_SIZE } from "../tables";
+import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, isAuthoritativeSymbol, symbolBaseName } from "../tables";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
 import * as ir from "../../ir";
 
@@ -11,8 +11,19 @@ import * as ir from "../../ir";
 export function compileLibFn(cg: Codegen, name: string, definition?: FunctionDecl, cacheKey = name): HelperInfo | null {
   const cached = cg.helpers.get(cacheKey);
   if (cached) return cached;
-  // `using namespace QPI` lets a call drop the QPI:: qualifier; libFns are keyed by full namespace path.
-  const fn = definition ?? cg.libFns.get(name) ?? cg.libFns.get(`QPI::${name}`);
+  // Resolve via namespace candidates (using-directives + lexical source). libFns are keyed by full namespace path.
+  let resolvedKey = name;
+  let fn = definition;
+  if (!fn) {
+    for (const key of cg.namespaceCandidates(name)) {
+      const hit = cg.libFns.get(key);
+      if (hit) {
+        fn = hit;
+        resolvedKey = key;
+        break;
+      }
+    }
+  }
   if (!fn || !fn.body) return null;
   const params = fn.params.map((p) => {
     // A NON-const scalar reference (RL::makeDateStamp's `uint32& res`) is an out-param and must travel by address for the write
@@ -24,30 +35,33 @@ export function compileLibFn(cg: Codegen, name: string, definition?: FunctionDec
   });
   const retAgg = !cg.isVoidType(fn.returnType) && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
   const retIsValue = !cg.isVoidType(fn.returnType) && !retAgg;
-  const nameSep = name.lastIndexOf("::");
+  const nameSep = resolvedKey.lastIndexOf("::");
+  const authoritative = isAuthoritativeSymbol(resolvedKey);
+  const lookup = cg.namespaceContextOf(fn);
   const info: HelperInfo = {
-    label: `$lib${cg.helpers.size}_${name.replace(/[^a-zA-Z0-9]/g, "_")}`,
+    label: `$lib${cg.helpers.size}_${resolvedKey.replace(/[^a-zA-Z0-9]/g, "_")}`,
     params,
     retIsValue,
     retAgg,
     retType: cg.derefType(fn.returnType),
-    sourceNamespace: nameSep >= 0 ? name.slice(0, nameSep) : undefined,
+    sourceNamespace: nameSep >= 0 ? resolvedKey.slice(0, nameSep) : undefined,
+    usingNamespaces: lookup.usingNamespaces,
   };
   cg.helpers.set(cacheKey, info);   // register before emit so recursion/sibling calls resolve
   try {
     const warningBase = cg.warnings.length;
     const errorBase = cg.errors.length;
     const wat = emitHelperFunction(cg, info, fn, { size: 0, align: 1, fields: new Map() });
-    if ((name.startsWith("QPI::") || name.startsWith("math_lib::")) &&
+    if (authoritative &&
         (cg.warnings.length !== warningBase || cg.errors.length !== errorBase)) {
       const diagnostic = cg.errors[errorBase]?.message ?? cg.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
       throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
     }
     cg.emittedMethodOrder.push(wat);
   } catch (e: any) {
-    cg.warn(`failed to compile lib fn ${name}: ${e.message}`, fn.span?.line ?? 0);
+    cg.warn(`failed to compile lib fn ${resolvedKey}: ${e.message}`, fn.span?.line ?? 0);
     cg.helpers.delete(cacheKey);
-    if (name.startsWith("QPI::") || name.startsWith("math_lib::")) throw e;
+    if (authoritative) throw e;
     return null;
   }
   return info;
@@ -207,6 +221,7 @@ export function compileLibFnInstance(
   const retAgg = !cg.isVoidType(def.returnType) && cg.isAggregateType(retT) ? cg.sizeOfType(retT, bind) : undefined;
   const retIsValue = !cg.isVoidType(def.returnType) && !retAgg;
   const sourceSep = sourceKey.lastIndexOf("::");
+  const lookup = cg.namespaceContextOf(def);
   const info: HelperInfo = {
     label: `$lib${cg.helpers.size}_${key.replace(/[^a-zA-Z0-9]/g, "_")}`,
     params,
@@ -214,6 +229,7 @@ export function compileLibFnInstance(
     retAgg,
     retType: retT,
     sourceNamespace: sourceSep >= 0 ? sourceKey.slice(0, sourceSep) : undefined,
+    usingNamespaces: lookup.usingNamespaces,
   };
   cg.helpers.set(key, info);   // register before emit so recursive/sibling calls resolve
   try {
@@ -308,14 +324,8 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
   if (expr.callee.kind !== "identifier") return null;
   // Match the intrinsics by base name — a qualified QPI::div would otherwise slip past this guard, get instantiated
   const name = expr.callee.name;
-  const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
-  const sourceKeys = name.includes("::")
-    ? [name]
-    : [...new Set([
-      ...(ctx.sourceNamespace ? [`${ctx.sourceNamespace}::${name}`] : []),
-      name,
-      `QPI::${name}`,
-    ])];
+  const base = symbolBaseName(name);
+  const sourceKeys = ctx.cg.namespaceCandidates(name, ctx.sourceNamespace, ctx.usingNamespaces);
   const set = ctx.cg.helperOverloads.get(expr.callee.name);
   let info: HelperInfo | null | undefined = set?.length
     ? pickHelperOverload(ctx, set, expr.args)
@@ -343,7 +353,7 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
       pickLibFnOverload(ctx, tdefs, expr.args),
       expr.args,
       (expr as Expression & { templateArgs?: TypeSpec[] }).templateArgs ?? [],
-      templateKey!.startsWith("QPI::") || templateKey!.startsWith("math_lib::"),
+      isAuthoritativeSymbol(templateKey!),
       templateKey!,
     );
   }

@@ -1,4 +1,4 @@
-import { MATH_INTRINSIC_NAMES, SCALAR_SIZE } from "../tables";
+import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, symbolBaseName } from "../tables";
 import { QPI_BINDINGS, QPI_GETTERS, QPI_CALLS, emitQpiCall } from "./qpi";
 import { emitHelperCall } from "./libfn";
 import { emitProxySiblingCall, emitProposalProxyCall } from "./proxy";
@@ -198,7 +198,7 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
 
   if (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name") {
     const name = expr.callee.kind === "identifier" ? expr.callee.name : expr.callee.name;
-    const base = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
+    const base = symbolBaseName(name);
     if (MATH_INTRINSIC_NAMES.has(base)) {
       throw new Error(`authoritative QPI math function '${name}' could not be lowered`);
     }

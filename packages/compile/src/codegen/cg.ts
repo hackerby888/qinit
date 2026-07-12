@@ -1,5 +1,5 @@
 import { SCALAR_SIZE } from "./tables";
-import { ClassTemplate, CompiledMethod, HelperInfo, PrivateInfo, CalleeIdl, StructLayout, CodegenWarning, NO_BIND, Bindings, FieldLayout, ContainerInfo } from "./types";
+import { ClassTemplate, CompiledMethod, HelperInfo, PrivateInfo, CalleeIdl, StructLayout, CodegenWarning, NO_BIND, Bindings, FieldLayout, ContainerInfo, NamespaceLookupContext } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl, Span } from "../ast";
 import type { Sema } from "../sema";
 import { parseIntLiteral as lexParseIntLiteral } from "../lexer";
@@ -29,6 +29,8 @@ export class Codegen {
   libFns: Map<string, FunctionDecl> = new Map();   // qpi.h namespace free functions (ProposalTypes::cls), keyed by qualified name; compiled lazily
   libFnOverloads: Map<string, FunctionDecl[]> = new Map();   // all non-template overloads, in source order
   libFnTemplates: Map<string, FunctionTemplateDecl[]> = new Map();   // qpi.h namespace free function TEMPLATES (isArraySortedWithoutDuplicates<T,L>), all overloads kept, instantiated per call-site arg types
+  namespaceUsings: Map<string, string[]> = new Map(); // namespace scope -> directives visible to later declarations in that scope
+  namespaceContexts: Map<object, NamespaceLookupContext> = new Map(); // declaration -> namespace lookup state at its definition
   privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()
   registered: Map<string, PrivateInfo> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
   callees: Map<string, CalleeIdl> = new Map();      // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
@@ -47,12 +49,26 @@ export class Codegen {
 
   // ---- collect declarations from the whole TU (descends into namespaces) ----
 
-  collectTU(decls: Declaration[], nsPrefix = ""): void {
+  collectTU(decls: Declaration[], nsPrefix = "", inheritedUsing: string[] = []): void {
+    const scopeUsing = this.namespaceUsings.get(nsPrefix) ?? [];
+    if (!this.namespaceUsings.has(nsPrefix)) this.namespaceUsings.set(nsPrefix, scopeUsing);
+    const activeUsing = [...new Set([...inheritedUsing, ...scopeUsing])];
+    const sourceNamespace = nsPrefix.endsWith("::") ? nsPrefix.slice(0, -2) : nsPrefix || undefined;
     for (const d of decls) {
+      const td = d.kind === "typedef_decl" ? d as any : null;
+      const usingMatch = typeof td?.name === "string" ? /^using namespace (.+)$/.exec(td.name) : null;
+      if (usingMatch) {
+        if (!scopeUsing.includes(usingMatch[1])) scopeUsing.push(usingMatch[1]);
+        if (!activeUsing.includes(usingMatch[1])) activeUsing.push(usingMatch[1]);
+        continue;
+      }
+      const lookupContext: NamespaceLookupContext = { sourceNamespace, usingNamespaces: [...activeUsing] };
+      this.namespaceContexts.set(d, lookupContext);
       if (d.kind === "namespace") {
-        this.collectTU((d as any).body, `${nsPrefix}${(d as any).name}::`);
+        this.collectTU((d as any).body, `${nsPrefix}${(d as any).name}::`, activeUsing);
       } else if (d.kind === "struct") {
         const s = d as StructDecl;
+        this.captureMemberNamespaceContexts(s.members, lookupContext);
         if (s.name) {
           this.globalStructs.set(s.name, s);
           // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
@@ -66,6 +82,7 @@ export class Codegen {
               kind: "function_template", name: fn.name, params: [], fnParams: fn.params,
               returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
             };
+            this.namespaceContexts.set(def, lookupContext);
             // overloads (isValid() vs static isValid(y,m,d,...)) are additionally keyed by arity so an arity-aware lookup picks the right one;
             const akey = `${fn.name}/${(fn.params ?? []).length}`;
             if (fn.params[0]) into.set(`${akey}@${this.typeKey(this.derefType(fn.params[0].type))}`, def);
@@ -84,6 +101,7 @@ export class Codegen {
         this.collectConstants(s.members);
       } else if (d.kind === "class_template") {
         const ct = d as any;
+        this.captureMemberNamespaceContexts(ct.members, lookupContext);
         // A template may appear several times: a forward declaration (empty body), the primary definition, and partial specializations. Specializations
         if (ct.specializationArgs) {
           if (!this.specializations.has(ct.name)) this.specializations.set(ct.name, []);
@@ -113,6 +131,7 @@ export class Codegen {
             isConstexpr: fn.isConstexpr,
             span: fn.span,
           };
+          this.namespaceContexts.set(def, lookupContext);
           const akey = `${fn.name}/${(fn.params ?? []).length}`;
           if (fn.params[0]) into.set(`${akey}@${this.typeKey(this.derefType(fn.params[0].type))}`, def);
           if (!into.has(akey)) into.set(akey, def);
@@ -122,8 +141,13 @@ export class Codegen {
         // out-of-class template method definition: HashMap::set, Collection::add, ...
         const fn = d as FunctionTemplateDecl;
         const sep = fn.name.indexOf("::");
-        const qpiFreeFunction = sep > 0 && fn.body && fn.name.startsWith("QPI::") && fn.name.indexOf("::", sep + 2) < 0;
-        if (qpiFreeFunction && d.kind === "function") {
+        // Single-level NS::fn free function (not Class::method): owner is neither a known template nor struct.
+        const owner = sep > 0 ? fn.name.slice(0, sep) : "";
+        const freeQualified = sep > 0 && fn.body && d.kind === "function"
+          && fn.name.indexOf("::", sep + 2) < 0
+          && !this.templates.has(owner)
+          && !this.globalStructs.has(owner);
+        if (freeQualified) {
           const key = fn.name;
           const overloads = this.libFnOverloads.get(key);
           if (overloads) overloads.push(d as FunctionDecl);
@@ -160,7 +184,6 @@ export class Codegen {
           else this.libFnTemplates.set(key, [fn as FunctionTemplateDecl]);
         }
       } else if (d.kind === "typedef_decl") {
-        const td = d as any;
         this.typedefs.set(td.name, td.type);
       } else if (d.kind === "variable") {
         this.collectConstant(d as VariableDecl);
@@ -168,6 +191,40 @@ export class Codegen {
         this.collectEnum(d as any);
       }
     }
+  }
+
+  private captureMemberNamespaceContexts(members: Declaration[], context: NamespaceLookupContext): void {
+    for (const member of members) {
+      this.namespaceContexts.set(member, context);
+      if (member.kind === "struct" || member.kind === "class_template") {
+        this.captureMemberNamespaceContexts((member as StructDecl).members, context);
+      }
+    }
+  }
+
+  namespaceContextOf(declaration?: object | null): NamespaceLookupContext {
+    return declaration ? this.namespaceContexts.get(declaration) ?? { usingNamespaces: [] } : { usingNamespaces: [] };
+  }
+
+  /**
+   * Ordered lookup keys for a free helper / lib-fn call.
+   * 1. exact qualified name
+   * 2. lexical sourceNamespace variant (if available)
+   * 3. active `using namespace` directives (declaration order)
+   * 4. bare/unqualified name (global), only when name is unqualified
+   * First hit wins; no hardcoded QPI:: fallback.
+   */
+  namespaceCandidates(name: string, sourceNamespace?: string, usingNamespaces: string[] = []): string[] {
+    const hasNamespace = name.includes("::");
+    const keys: string[] = [];
+    const add = (key: string) => {
+      if (!keys.includes(key)) keys.push(key);
+    };
+    add(name);
+    if (sourceNamespace) add(`${sourceNamespace}::${name}`);
+    for (const ns of usingNamespaces) add(`${ns}::${name}`);
+    if (!hasNamespace) add(name);
+    return keys;
   }
 
   // Collect named constexpr/const-with-initializer values and enum constants from a member list.
@@ -1265,11 +1322,13 @@ export class Codegen {
       }
       if (m) {
         const fn = m as FunctionDecl;
+        const def: FunctionTemplateDecl = {
+          kind: "function_template", name: fn.name, params: inst.tmpl.params, fnParams: fn.params,
+          returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+        };
+        this.namespaceContexts.set(def, this.namespaceContextOf(fn));
         return {
-          def: {
-            kind: "function_template", name: fn.name, params: inst.tmpl.params, fnParams: fn.params,
-            returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
-          },
+          def,
           bind,
         };
       }
@@ -1292,14 +1351,16 @@ export class Codegen {
       member.params.length === (def.fnParams ?? []).length,
     );
     if (!declared) return { def, bind };
+    const mergedDef: FunctionTemplateDecl = {
+      ...def,
+      fnParams: (def.fnParams ?? []).map((param, index) => ({
+        ...param,
+        defaultValue: param.defaultValue ?? declared.params[index]?.defaultValue,
+      })),
+    };
+    this.namespaceContexts.set(mergedDef, this.namespaceContextOf(def));
     return {
-      def: {
-        ...def,
-        fnParams: (def.fnParams ?? []).map((param, index) => ({
-          ...param,
-          defaultValue: param.defaultValue ?? declared.params[index]?.defaultValue,
-        })),
-      },
+      def: mergedDef,
       bind,
     };
   }

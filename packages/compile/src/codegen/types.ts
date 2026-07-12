@@ -34,6 +34,11 @@ export interface Bindings {
 
 export const NO_BIND: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
 
+export interface NamespaceLookupContext {
+  sourceNamespace?: string;
+  usingNamespaces: string[];
+}
+
 // Callee contract IDL for inter-contract calls — name → contract index + per-entry input type / IO sizes.
 export interface CalleeIdl {
   name: string;
@@ -49,6 +54,7 @@ export interface HelperInfo {
   retAgg?: number;                                            // returns an aggregate (id/struct) by value — its size; ABI prepends a $ret dest-address param
   retType?: TypeSpec;                                         // declared return type — drives conversions and aggregate-temporary member lookup
   sourceNamespace?: string;                                   // lexical namespace/owner used to resolve unqualified sibling helpers
+  usingNamespaces?: string[];                                 // using-directives visible at the helper definition
 }
 
 export interface PrivateInfo {
@@ -112,6 +118,7 @@ export interface FnCtx {
   materializedCalls?: WeakMap<object, AddrNode>;  // side-effecting aggregate calls are evaluated once per AST expression
   proxyClass?: string;                          // emitting a ProposalVoting proxy method (qpi(pv).m()): the proxy class for sibling resolution
   sourceNamespace?: string;                     // lexical namespace/owner for unqualified free/static helper calls
+  usingNamespaces?: string[];                   // using-directives visible at the current function definition
   qpiContext?: "function" | "procedure";       // ambient entry context for QPI binding permission checks
 }
 

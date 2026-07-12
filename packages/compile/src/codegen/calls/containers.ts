@@ -66,11 +66,13 @@ export function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "te
 export function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: FunctionTemplateDecl, type: TypeSpec & { kind: "template_instance" }, bind: Bindings): string {
   const thisLayout = cg.containerLayout(type.name, type.args);
   const empty = { size: 0, align: 1, fields: new Map<string, FieldLayout>() };
+  const lookup = cg.namespaceContextOf(def);
   const ctx: FnCtx = {
     cg, state: empty, in: empty, out: empty, locals: empty,
     localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
     params: new Map(), retIsValue: cm.retKind === "i64", retIsAddr: cm.retKind === "i32",
     thisLayout, thisType: type, thisBind: bind, staticConsts: cg.staticConstsOf(type.name, bind),
+    sourceNamespace: lookup.sourceNamespace, usingNamespaces: lookup.usingNamespaces,
   };
   if (cm.retAgg) {
     ctx.retAddr = "(local.get $__qinit_ret)";

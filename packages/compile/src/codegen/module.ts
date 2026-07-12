@@ -1,7 +1,7 @@
 import { emitFunction, emitHelperFunction } from "./stmt";
 import { SYSPROC_IMPL, SYSPROC_LOCALS_PREFIX, SYSPROC_IO } from "./tables";
 import { Codegen } from "./cg";
-import { ClassTemplate, CalleeIdl, HelperInfo } from "./types";
+import { ClassTemplate, CalleeIdl, HelperInfo, NamespaceLookupContext } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
 import type { Sema } from "../sema";
 import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec } from "../framework";
@@ -24,6 +24,8 @@ export interface LibTypes {
   enumConstType: Map<string, TypeSpec>;
   enumNames: Set<string>;
   templateMethods: Map<string, Map<string, FunctionTemplateDecl>>;
+  namespaceUsings: Map<string, string[]>;
+  namespaceContexts: Map<object, NamespaceLookupContext>;
 }
 
 export interface GeneratedContractMetadata {
@@ -33,8 +35,11 @@ export interface GeneratedContractMetadata {
 }
 
 // Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants/methods).
-export function buildLibTypes(decls: Declaration[]): LibTypes {
+export function buildLibTypes(decls: Declaration[], inheritedNamespaceUsings?: Map<string, string[]>): LibTypes {
   const cg = new Codegen({} as Sema);
+  if (inheritedNamespaceUsings) {
+    for (const [scope, namespaces] of inheritedNamespaceUsings) cg.namespaceUsings.set(scope, [...namespaces]);
+  }
   cg.collectTU(decls);
   return {
     templates: cg.templates,
@@ -52,6 +57,8 @@ export function buildLibTypes(decls: Declaration[]): LibTypes {
     enumConstType: cg.enumConstType,
     enumNames: cg.enumNames,
     templateMethods: cg.templateMethods,
+    namespaceUsings: cg.namespaceUsings,
+    namespaceContexts: cg.namespaceContexts,
   };
 }
 
@@ -92,6 +99,8 @@ export function generateWasmModule(
     if (lib.enumConstType) for (const [k, v] of lib.enumConstType) cg.enumConstType.set(k, v);
     if (lib.enumNames) for (const n of lib.enumNames) cg.enumNames.add(n);
     if (lib.templateMethods) for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
+    if (lib.namespaceUsings) for (const [scope, namespaces] of lib.namespaceUsings) cg.namespaceUsings.set(scope, [...namespaces]);
+    if (lib.namespaceContexts) for (const [declaration, context] of lib.namespaceContexts) cg.namespaceContexts.set(declaration, context);
   }
   cg.collectTU(tu.declarations);
   for (const ct of calleeTus ?? []) cg.seedCallee(ct.name, ct.decls);
@@ -169,7 +178,11 @@ export function generateWasmModule(
       const retIsValue = !isVoid && !retAgg;
       const set = cg.helperOverloads.get(fn.name) ?? [];
       const label = set.length === 0 ? `$h_${fn.name}` : `$h_${fn.name}__ov${set.length}`;
-      const info: HelperInfo = { label, params, retIsValue, retAgg, retType: isVoid ? undefined : cg.derefType(fn.returnType) };
+      const lookup = cg.namespaceContextOf(fn);
+      const info: HelperInfo = {
+        label, params, retIsValue, retAgg, retType: isVoid ? undefined : cg.derefType(fn.returnType),
+        sourceNamespace: lookup.sourceNamespace, usingNamespaces: lookup.usingNamespaces,
+      };
       set.push(info);
       cg.helperOverloads.set(fn.name, set);
       if (set.length === 1) {
