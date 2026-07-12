@@ -1,8 +1,9 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Compiler diagnostics are consumed by editors and the CLI. Their spans must refer to the original
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const HEADERS = loadQpiHeader("/home/kali/Projects/core-lite");
+const HEADERS = loadQpiHeader(CORE_PATH);
 
 const UNKNOWN_SOURCE = [
   `using namespace QPI;`,

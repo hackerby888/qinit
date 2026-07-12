@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // End-to-end standard gtest: the same contract_testing.h source is compiled into a Wasm runner and drives a
 // separately deployed contract on an isolated Virtual Node. Covers pass, fixture isolation, and reporting.
 import { test, expect } from "bun:test";
@@ -5,7 +6,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { buildContract, buildCorpusRunner } from "@qinit/build";
 import { runContractTesting } from "@qinit/engine";
 
-const CORE = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const CONTRACT = `${import.meta.dir}/../../../fixtures/Counter.h`;
 const have = existsSync(`${CORE}/test/contract_testing.h`) && existsSync(CONTRACT);
 

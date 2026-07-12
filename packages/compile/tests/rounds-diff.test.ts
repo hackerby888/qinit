@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Differential gtest for chaining through a container element: Array<Struct,N>.set(i, s) and the read chain arr.get(i).field (the QEARN _initialRoundInfo.get(Epoch)._epochBonusAmount
 import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -7,7 +8,7 @@ import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const ROUNDS = `using namespace QPI;

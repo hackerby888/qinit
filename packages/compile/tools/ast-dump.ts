@@ -1,10 +1,11 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Dump the parsed AST of a QPI contract as an indented tree.
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename } from "node:path";
 import { parseToAst, formatAst, loadQpiHeader } from "../src/index";
 
-const CORE = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 
 const input = process.argv[2];
 if (!input) {

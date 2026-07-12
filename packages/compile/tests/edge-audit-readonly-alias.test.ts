@@ -1,8 +1,9 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // state.get() exposes read-only contract state. A non-const reference must not turn a nested
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const HEADERS = loadQpiHeader("/home/kali/Projects/core-lite");
+const HEADERS = loadQpiHeader(CORE_PATH);
 
 const wrap = (stateData: string, entry: string, registration: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};

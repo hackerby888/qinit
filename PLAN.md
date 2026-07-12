@@ -203,7 +203,7 @@ Then:
 `qinit.toml` (per project):
 ```toml
 [project]      name = "myc"
-[toolchain]    core = "/home/kali/Projects/qubic-core-lite"; clang = "clang++-18"
+[toolchain]    core = "/path/to/core-lite"; clang = "clang++-18"
 [contract]     header = "src/MyContract.h"; slot = 0; state_type = "MYC"
 [node]         rpc = "http://127.0.0.1:41841"; p2p = "127.0.0.1:31841"
 [deploy]       seed_ref = "env:QINIT_SEED"          # never store raw seed in the file

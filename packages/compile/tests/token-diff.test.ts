@@ -1,3 +1,4 @@
+import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Differential gtest for Token.h — exercises qpi host calls (issueAsset / isAssetIssued / nextId) and id construction (SELF)
 import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -7,9 +8,9 @@ import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
-const TOKEN = readFileSync("/home/kali/Projects/Qinit/fixtures/Token.h", "utf8");
+const TOKEN = readFileSync(QINIT_ROOT + "/fixtures/Token.h", "utf8");
 
 // Issue = procedure it=1, Issued = func it=2, NextId = func it=4, Last = func it=5.
 const TOKEN_GTEST = coreGtest("Token", `TEST(Token, IssueResultFlowsToStateAndOutput) {

@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Smoke-compile the QUTIL upstream corpus (core-lite/test/contract_qutil.cpp) through
 // buildCorpusRunner to verify: (1) the include redirect works, (2) wasm_contract_testing.h
 // resolves from outDir, (3) the corpus compiles verbatim against the qinit harness header.
@@ -7,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCorpusRunner } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 
 function wasiAvailable(): boolean {
   try {

@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Differential fuzzer for the `uint128` grammar.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +9,7 @@ import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 import { generate, encodeInput, type FuzzContract } from "./fuzz-gen-u128";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const FINDINGS_DIR = join(import.meta.dir, "fuzz-findings-u128");
 
 interface Finding {

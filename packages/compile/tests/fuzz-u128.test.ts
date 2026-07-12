@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // u128 differential-gate over pinned seeds from `tools/fuzz-gen-u128.ts`.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -9,7 +10,7 @@ import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 import { generate, encodeInput } from "../tools/fuzz-gen-u128";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const PINNED: Record<number, string> = {

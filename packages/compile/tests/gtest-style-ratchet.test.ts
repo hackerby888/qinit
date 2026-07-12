@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -14,6 +15,6 @@ test("only the core-lite ContractTesting source style is public", () => {
 });
 
 test("the Qinit-specific lite_test header is no longer required from core-lite", () => {
-  const core = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
+  const core = CORE_PATH;
   if (existsSync(core)) expect(existsSync(resolve(core, "src/extensions/lite_test.h"))).toBe(false);
 });

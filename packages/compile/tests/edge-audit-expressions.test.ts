@@ -1,10 +1,11 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Valid expression forms that currently fail strict compilation. These tests pin both
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const wrap = (members: string, body: string) => `using namespace QPI;

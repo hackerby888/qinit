@@ -1,10 +1,11 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../src";
 
-const CORE = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADER = loadQpiHeader(CORE);
 
 const SOURCE = `using namespace QPI;

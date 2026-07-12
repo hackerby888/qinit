@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -6,7 +7,7 @@ import { initK12 } from "@qinit/core";
 import { runCompiledGtest } from "@qinit/engine";
 import { compileContract, compileGtest, loadQpiHeader } from "../src";
 
-const CORE = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const QPI = loadQpiHeader(CORE);
 
 const SUPPORTED_SYSTEM_GTESTS = [

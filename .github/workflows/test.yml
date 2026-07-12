@@ -32,8 +32,16 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
+    env:
+      QINIT_CORE: ${{ github.workspace }}/core
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout core-lite (${{ env.CORE_REF }})
+        uses: actions/checkout@v4
+        with:
+          repository: hackerby888/core-lite
+          ref: ${{ env.CORE_REF }}
+          path: core
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}

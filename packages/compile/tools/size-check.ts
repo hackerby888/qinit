@@ -1,6 +1,7 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const headers = loadQpiHeader("/home/kali/Projects/core-lite");
+const headers = loadQpiHeader(CORE_PATH);
 
 const probe = `
 using namespace QPI;

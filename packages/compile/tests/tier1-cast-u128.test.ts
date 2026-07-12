@@ -1,10 +1,11 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Tier-1 regression coverage for silent-divergence fixes.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const SRC = `using namespace QPI;

@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // End-to-end correctness of the wasm QPI shim (recipe.ts): build a real system contract to wasm, deploy it on
 // the VirtualNode, and drive a procedure that allocates function locals (__qpiAllocLocals) and moves qu. The
 // shim compiles the pure helpers (smul / copyMemory / __qpiAllocLocals) INTO the wasm; this asserts they're not
@@ -8,7 +9,7 @@ import { existsSync } from "node:fs";
 import { buildSystemContract } from "@qinit/build";
 import { VirtualNode } from "@qinit/engine";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const haveCore = existsSync(`${CORE}/src/contracts/QUtil.h`);
 const id = (b: number) => new Uint8Array(32).fill(b);
 const i64 = (b: Uint8Array, off = 0) => new DataView(b.buffer, b.byteOffset, b.byteLength).getBigInt64(off, true);

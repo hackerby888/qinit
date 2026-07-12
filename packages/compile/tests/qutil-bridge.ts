@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Shared bridge for driving the upstream contract_qutil.cpp gtest corpus against deployable QUTIL+QX wasm. The runner (clang) is mode-independent;
 import { existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,7 +7,7 @@ import { runContractTesting } from "@qinit/engine";
 import { compileContract, loadQpiHeader, type CompileResult } from "../src/index";
 import { buildContract, buildCorpusRunner } from "@qinit/build";
 
-export const CORE = "/home/kali/Projects/core-lite";
+export const CORE = CORE_PATH;
 export const QUTIL_IDX = 4;
 export const QX_IDX = 1;
 

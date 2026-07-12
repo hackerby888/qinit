@@ -4,9 +4,9 @@ import { initK12 } from "../src/k12";
 import { VirtualNode } from "../src/transport";
 import { EngineServer } from "../src/server";
 
-const QLOGGING = process.env.QLOGGING ?? "/home/kali/Projects/qlogging/build-codex/qlogging";
+const QLOGGING = process.env.QLOGGING;
 
-test.skipIf(!existsSync(QLOGGING))("unmodified qlogging fetches VirtualNode contract logs", async () => {
+test.skipIf(!QLOGGING || !existsSync(QLOGGING))("unmodified qlogging fetches VirtualNode contract logs", async () => {
   await initK12();
   const engine = new VirtualNode();
   const server = new EngineServer(engine);
@@ -22,7 +22,7 @@ test.skipIf(!existsSync(QLOGGING))("unmodified qlogging fetches VirtualNode cont
     engine.logger.end();
     engine.logger.finalizeTick(tick);
 
-    const proc = Bun.spawn([QLOGGING, "127.0.0.1", String(port), "0", "0", "0", "0", String(tick), "-single"], {
+    const proc = Bun.spawn([QLOGGING!, "127.0.0.1", String(port), "0", "0", "0", "0", String(tick), "-single"], {
       stdout: "pipe",
       stderr: "pipe",
     });

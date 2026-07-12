@@ -1,3 +1,4 @@
+import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Dumps the exact WAT text (via QINIT_DUMP_WAT) for a fixed corpus of contracts into a directory.
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -10,9 +11,9 @@ if (!OUT) {
 }
 mkdirSync(OUT, { recursive: true });
 
-const QPI = loadQpiHeader("/home/kali/Projects/core-lite");
-const FIXTURES = "/home/kali/Projects/Qinit/fixtures";
-const SYSTEM = "/home/kali/Projects/core-lite/src/contracts";
+const QPI = loadQpiHeader(CORE_PATH);
+const FIXTURES = QINIT_ROOT + "/fixtures";
+const SYSTEM = CORE_PATH + "/src/contracts";
 
 const FIXTURE_FILES = ["Counter.h", "Counter5.h", "Bank.h", "Token.h", "Vault.h", "Dividend.h", "Proxy.h", "DigestProbe.h", "BigState.h"];
 const SYSTEM_FILES = [

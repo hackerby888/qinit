@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Differential gtest for arithmetic body codegen: QPI safe-math (div/mod/sadd/min/max), a for-loop with break/continue, member-lvalue increment, and named constants
 import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -7,7 +8,7 @@ import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const CALC = `using namespace QPI;

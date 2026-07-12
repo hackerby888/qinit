@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // The snapshot pipeline: assembleQpiHeader is the single source of header text (loadQpiHeader delegates to it), the generator's output
 import { describe, test, expect } from "bun:test";
 import { createHash } from "node:crypto";
@@ -6,7 +7,7 @@ import { join } from "node:path";
 import { loadQpiHeader } from "../src/index";
 import { assembleQpiHeader, GENERATOR_VERSION } from "../src/qpi-snapshot";
 
-const CORE = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "contracts", "qpi.h"));
 const genDir = join(import.meta.dir, "..", ".generated");
 const genOk = existsSync(join(genDir, "qpi-snapshot.ts"));

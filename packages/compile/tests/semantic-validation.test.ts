@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Semantic validation coverage for invalid constructs.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
@@ -6,7 +7,7 @@ import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const wrap = (body: string, members = "") => `using namespace QPI;

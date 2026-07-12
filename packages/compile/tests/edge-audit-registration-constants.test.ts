@@ -1,10 +1,11 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // REGISTER_USER_* accepts integral constant expressions in native C++. Registration extraction must
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const HEADERS = loadQpiHeader("/home/kali/Projects/core-lite");
+const HEADERS = loadQpiHeader(CORE_PATH);
 
 const wrap = (members: string, inputType: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};

@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // 32-bit fidelity parity for int-rank operations.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, writeFileSync, mkdtempSync, readFileSync } from "node:fs";
@@ -8,7 +9,7 @@ import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const wrap = (body: string) => `using namespace QPI;

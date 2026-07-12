@@ -1,15 +1,12 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "declaration": true,
     "emitDeclarationOnly": true,
     "outDir": "dist",
     "rootDir": "src",
-    "skipLibCheck": true,
-    "paths": {
-      "@qinit/core": ["packages/compile/types-build/core-abi.d.ts"]
-    }
+    "skipLibCheck": true
   },
   "include": ["src/index.ts"]
 }

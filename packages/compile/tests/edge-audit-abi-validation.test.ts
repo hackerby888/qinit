@@ -1,8 +1,9 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // QPI registration rules enforced by the native macros must also be enforced by the local compiler.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const HEADERS = loadQpiHeader("/home/kali/Projects/core-lite");
+const HEADERS = loadQpiHeader(CORE_PATH);
 
 interface RejectCase { source: string; diagnostic: RegExp }
 

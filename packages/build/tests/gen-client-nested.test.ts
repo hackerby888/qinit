@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Nested-type client codegen, end-to-end. Asserts the generated source shape (inline nested object types,
 // recursive output mapper, typed args for nested-struct inputs), that real QX/Quottery clients transpile, and —
 // the real proof — RUNS a generated client against a fake RPC so a nested input is byte-exact encoded and a
@@ -8,7 +9,7 @@ import { Transpiler } from "bun";
 import { extractIdl } from "../src/idl";
 import { generateClient } from "../src/gen-client";
 
-const CORE = "/home/kali/Projects/core-lite/src/contracts";
+const CORE = CORE_PATH + "/src/contracts";
 const have = (c: string) => existsSync(`${CORE}/${c}.h`);
 const srcOf = (c: string) => readFileSync(`${CORE}/${c}.h`, "utf8");
 

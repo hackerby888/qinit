@@ -1,3 +1,4 @@
+import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Share custody sysproc parity (PRE_*_SHARES).
 import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -5,10 +6,10 @@ import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
-const APPROVER_SRC = readFileSync("/home/kali/Projects/Qinit/fixtures/ShareApprover.h", "utf8");
-const SHARE_MANAGER = new Uint8Array(readFileSync("/home/kali/Projects/Qinit/packages/engine/tests/fixtures/ShareManager.wasm"));
+const APPROVER_SRC = readFileSync(QINIT_ROOT + "/fixtures/ShareApprover.h", "utf8");
+const SHARE_MANAGER = new Uint8Array(readFileSync(QINIT_ROOT + "/packages/engine/tests/fixtures/ShareManager.wasm"));
 
 const TOKEN = 0x4e454b4f54n; // "TOKEN"
 

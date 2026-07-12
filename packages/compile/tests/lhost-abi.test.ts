@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -5,7 +6,7 @@ import { ASSET_ENUMERATION_RECORD, LHOST_ABI } from "@qinit/core";
 import { emitModule } from "../src/framework";
 import { inspectLiteWasmModule } from "../src/compiler/wasm-inspect";
 
-const CORE = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const importsHeader = join(CORE, "src/extensions/lite_wasm_imports.h");
 const dynamicHeader = join(CORE, "src/extensions/lite_dynamic_contracts.h");
 

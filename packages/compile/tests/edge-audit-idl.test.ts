@@ -1,8 +1,9 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // compileContract's ContractIdl must describe the same ABI that is embedded in the generated WASM.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader, type ContractIdl } from "../src/index";
 
-const HEADERS = loadQpiHeader("/home/kali/Projects/core-lite");
+const HEADERS = loadQpiHeader(CORE_PATH);
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};

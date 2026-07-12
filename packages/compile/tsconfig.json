@@ -1,8 +1,12 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "rootDir": "src",
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "paths": {
+      "@qinit/core": ["types-build/core-abi.d.ts"]
+    }
   },
   "include": ["src/**/*.ts"]
 }

@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -5,7 +6,7 @@ import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, inspectLiteWasmModule, loadQpiHeader } from "../src/index";
 
-const CORE = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "contracts", "qpi.h"));
 const generated = join(import.meta.dir, "..", ".generated", "qpi-snapshot.ts");
 const generatedOk = existsSync(generated);

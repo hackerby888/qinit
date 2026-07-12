@@ -1,10 +1,11 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Enum storage width and signedness come from the declared underlying type, including when the enum is held in
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const HEADERS = loadQpiHeader("/home/kali/Projects/core-lite");
+const HEADERS = loadQpiHeader(CORE_PATH);
 
 const wrap = (enumDecl: string, stateExtra: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};

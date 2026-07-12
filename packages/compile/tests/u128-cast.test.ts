@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // u128 cast semantics regression: `(uint128)(scalarExpr)` must evaluate in scalar domain, then zero-extend into low limb.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -8,7 +9,7 @@ import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const SOURCE = `using namespace QPI;

@@ -61,7 +61,11 @@ bun run build:all
 
 ## Config
 
-- `QINIT_CORE` — path to the `qubic-core-lite` checkout (default `/home/kali/Projects/qubic-core-lite`).
+- `QINIT_CORE` — path to a core-lite checkout. Required by tests and tools that consume live core source:
+
+  ```bash
+  export QINIT_CORE=/path/to/core-lite
+  ```
 
 ## Layout
 

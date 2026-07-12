@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Compound assignment signedness: >>= must be arithmetic on signed operands, /= and %= must follow the target's signedness,
 import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -7,7 +8,7 @@ import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const SRC = `using namespace QPI;

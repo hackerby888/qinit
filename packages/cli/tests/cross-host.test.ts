@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Cross-host state equivalence — the capstone fidelity check. qinit's engine is a TS port of the node's C++
 // wasm host; the only thing that proves the port faithful (and keeps it faithful) is showing both produce
 // byte-identical contract state for the same wasm + the same ops. For each fixture below we build ONE wasm, run
@@ -17,7 +18,7 @@ import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
 import { Sim, initK12, toHex } from "@qinit/engine";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const GTEST = `${CORE}/build-wtests/test/qubic_core_tests`;
 const FIX = `${import.meta.dir}/../../../fixtures`;
 const haveBoth = existsSync(GTEST) && existsSync(`${FIX}/DigestProbe.h`);

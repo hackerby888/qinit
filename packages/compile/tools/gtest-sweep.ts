@@ -1,3 +1,4 @@
+import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Differential gtest sweep over the contracts @qinit/compile can build. For each: auto-generate a
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,9 +8,9 @@ import { runContractTesting } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
-const FIX = "/home/kali/Projects/Qinit/fixtures";
+const FIX = QINIT_ROOT + "/fixtures";
 const SYS = `${CORE}/src/contracts`;
 
 // (display, file dir, file) for the contracts that loaded in the layout sweep.

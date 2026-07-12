@@ -4,7 +4,11 @@ import { assembleQpiHeader } from "../qpi-snapshot";
 
 export function loadQpiHeader(corePath?: string): string {
   if (typeof process !== "undefined" && (process.versions?.bun || process.versions?.node)) {
-    return assembleQpiHeader(corePath ?? "/home/kali/Projects/core-lite");
+    const configured = corePath ?? process.env.QINIT_CORE;
+    if (!configured) {
+      throw new Error("cannot load live qpi.h: pass a core-lite path or set QINIT_CORE");
+    }
+    return assembleQpiHeader(configured);
   }
   return QPI_PRELUDE + "\n" + QPI_STUB;
 }

@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Iteration harness: preprocess + parse the REAL core-lite headers, report errors + captured layouts.
 import { readFileSync, existsSync } from "node:fs";
 import { Preprocessor } from "../src/preprocess";
@@ -5,7 +6,7 @@ import { Lexer } from "../src/lexer";
 import { Parser } from "../src/parser";
 import { QPI_PRELUDE } from "../src/qpi-prelude";
 
-const CORE = "/home/kali/Projects/core-lite/src";
+const CORE = CORE_PATH + "/src";
 
 const HEADERS = [
   "contract_core/pre_qpi_def.h",

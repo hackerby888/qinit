@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // SET_SHAREHOLDER_PROPOSAL / SET_SHAREHOLDER_VOTES parity: a caller's qpi.setShareholderProposal / qpi.setShareholderVotes invokes the callee's sysproc 10/11 with the typed payload
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
@@ -6,7 +7,7 @@ import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const CALLEE_SRC = `using namespace QPI;

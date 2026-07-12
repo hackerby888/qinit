@@ -1,8 +1,9 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Regression test: switch/case fallthrough compiles to correct WASM with proper fallthrough semantics (stacked labels, intentional non-break fallthrough).
 import { test, expect } from "bun:test";
 import { compileContract, loadQpiHeader } from "@qinit/compile";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const SRC = `using namespace QPI;

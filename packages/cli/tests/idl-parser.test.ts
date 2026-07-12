@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { stateFieldsOf } from "../src/trace-format";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 
 const SRC = `using namespace QPI;
 constexpr uint64 CAP = 4 * 2;
@@ -56,11 +57,10 @@ test("parser: unresolvable field type degrades gracefully (marks bad + stops)", 
 });
 
 // Optional sweep: every system contract parses without crashing (skipped if the core checkout isn't present).
-const CORE = "/home/kali/Projects/qubic-core-lite/src/contracts";
-test("sweep: all system contracts parse without throwing", () => {
-  if (!existsSync(CORE)) return;
-  for (const f of readdirSync(CORE).filter((x) => x.endsWith(".h") && !["qpi.h", "math_lib.h"].includes(x))) {
-    expect(() => stateFieldsOf(extractIdl(readFileSync(`${CORE}/${f}`, "utf8"), f.replace(".h", "")))).not.toThrow();
+const CORE_CONTRACTS = process.env.QINIT_CORE ? join(process.env.QINIT_CORE, "src", "contracts") : undefined;
+test.skipIf(!CORE_CONTRACTS || !existsSync(CORE_CONTRACTS))("sweep: all system contracts parse without throwing", () => {
+  for (const f of readdirSync(CORE_CONTRACTS!).filter((x) => x.endsWith(".h") && !["qpi.h", "math_lib.h"].includes(x))) {
+    expect(() => stateFieldsOf(extractIdl(readFileSync(join(CORE_CONTRACTS!, f), "utf8"), f.replace(".h", "")))).not.toThrow();
   }
 });
 

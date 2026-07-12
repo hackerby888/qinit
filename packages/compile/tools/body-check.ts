@@ -1,10 +1,11 @@
+import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Quick body-codegen smoke: compile fixtures, report diagnostics + wasm size. wabt validates the WAT,
 import { readFileSync } from "node:fs";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
-const FIX = "/home/kali/Projects/Qinit/fixtures";
+const FIX = QINIT_ROOT + "/fixtures";
 
 const targets: [string, string][] = [
   ["Counter", `${FIX}/Counter.h`],

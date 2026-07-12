@@ -1,3 +1,4 @@
+import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Honest conformance sweep: compile every contract through the local TS compiler and report parse / wasm / engine-load
 import { test, expect, beforeAll } from "bun:test";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
@@ -6,10 +7,10 @@ import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader, type CalleeIdl, type CompileResult } from "../src/index";
 
-const QPI = loadQpiHeader("/home/kali/Projects/core-lite");
+const QPI = loadQpiHeader(CORE_PATH);
 
-const FIXTURES = "/home/kali/Projects/Qinit/fixtures";
-const SYSTEM = "/home/kali/Projects/core-lite/src/contracts";
+const FIXTURES = QINIT_ROOT + "/fixtures";
+const SYSTEM = CORE_PATH + "/src/contracts";
 
 // system contract files (exclude headers/templates/old/test variants)
 const SYSTEM_FILES = [

@@ -1,3 +1,4 @@
+import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Differential gtest for Bank.h — exercises HashMap<id,uint64,1024>.set/get/population/reset and Array<uint64,4>.set through my TS codegen, validated by the SAME native-clang
 import { coreGtest } from "./core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -7,9 +8,9 @@ import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
-const BANK = readFileSync("/home/kali/Projects/Qinit/fixtures/Bank.h", "utf8");
+const BANK = readFileSync(QINIT_ROOT + "/fixtures/Bank.h", "utf8");
 
 // Two distinct funded ids; Set is a procedure (it=1), BalanceOf func it=1, Stats func it=2.
 const BANK_GTEST = coreGtest("Bank", `TEST(Bank, SetThenBalanceOf) {

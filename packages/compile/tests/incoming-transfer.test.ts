@@ -1,10 +1,11 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // PIT (post incoming transfer) flow for @qinit/compile tests.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const SINK = `using namespace QPI;

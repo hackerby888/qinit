@@ -1,10 +1,11 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Inter-contract calls compiled by @qinit/compile: a caller at a higher slot reaches a callee at a lower slot
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader, type CompileResult } from "../src/index";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
 const COUNTER = `using namespace QPI;

@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // constexpr array-size resolution: the qpi math helpers come in a templated form (div<uint64>(a,b)) AND a plain
 // form (div(a,b)). The size evaluator only rewrote the templated form, so a contract sizing an array with the
 // plain form left the constant name in the format string (e.g. QThirtyFour's [QTF_BATCH_TICKET_VALUES_COUNT;uint8]
@@ -34,9 +35,9 @@ constexpr uint64 B = mod(N, 3);`;
   expect(e.in).toBe("[6;uint8], [0;uint8]"); // div(12,2)=6 ; mod(12,3)=0
 });
 
-const QTF = "/home/kali/Projects/core-lite/src/contracts/QThirtyFour.h";
+const QTF = CORE_PATH + "/src/contracts/QThirtyFour.h";
 test.skipIf(!existsSync(QTF))("real QThirtyFour: BuyTicketsBatch array size resolves (was a leaked const name)", () => {
-  const idl = extractIdl(readFileSync(QTF, "utf8"), "QThirtyFour", { prelude: qpiPrelude("/home/kali/Projects/core-lite") });
+  const idl = extractIdl(readFileSync(QTF, "utf8"), "QThirtyFour", { prelude: qpiPrelude(CORE_PATH) });
   const e = Object.values({ ...idl.functions, ...idl.procedures }).find((x) => x.name === "BuyTicketsBatch")!;
   // QTF_BATCH_TICKET_VALUES_COUNT = div(QTF_MAX_NUMBER_OF_PLAYERS=1024, 4) * QTF_RANDOM_VALUES_COUNT=4 = 1024
   expect(e.in).toBe("[1024;uint8]");

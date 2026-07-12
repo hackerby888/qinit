@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // A system contract's on-chain ticker can differ from its C++ struct type (e.g. ticker QTRY -> struct QUOTTERY).
 // The wrapper must #define CONTRACT_STATE_TYPE to the STRUCT type, not the ticker, or the build fails with
 // "use of undeclared identifier". These pin the stateType threading.
@@ -22,7 +23,7 @@ test("genWrapper defaults stateType to name (user contracts where they match)", 
   expect(w).toContain("#define Counter_CONTRACT_INDEX 2");
 });
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 test.skipIf(!existsSync(`${CORE}/src/contract_core/contract_def.h`))("system catalog records the struct type distinct from the ticker", () => {
   const cat = systemContracts(CORE);
   const qtry = cat.find((c) => c.name === "QTRY");

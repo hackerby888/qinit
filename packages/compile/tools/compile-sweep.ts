@@ -1,12 +1,13 @@
+import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Standalone sweep tool: compile contracts without engine.
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { compileContract, loadQpiHeader, type CompileResult, type CalleeIdl } from "../src/index";
 import { systemContracts, type SystemContract } from "../../build/src/system-contracts";
 
-const CORE = process.env.QINIT_CORE ?? "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
-const FIX = "/home/kali/Projects/Qinit/fixtures";
+const FIX = QINIT_ROOT + "/fixtures";
 const SYS = `${CORE}/src/contracts`;
 
 const targets: [string, string][] = [

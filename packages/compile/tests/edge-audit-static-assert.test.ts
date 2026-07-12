@@ -1,8 +1,9 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // QPI headers and contracts use static_assert as a compile-time safety boundary. A false assertion
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../src/index";
 
-const HEADERS = loadQpiHeader("/home/kali/Projects/core-lite");
+const HEADERS = loadQpiHeader(CORE_PATH);
 
 const wrap = (classMember: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};

@@ -1,3 +1,4 @@
+import { CORE_PATH } from "../../../test-utils/paths";
 // Regenerates pinned seeds for `tests/fuzz-u128.test.ts`.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +9,7 @@ import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../src/index";
 import { generate, encodeInput } from "./fuzz-gen-u128";
 
-const CORE = "/home/kali/Projects/core-lite";
+const CORE = CORE_PATH;
 const H = loadQpiHeader(CORE);
 await initK12();
 
