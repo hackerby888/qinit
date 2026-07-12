@@ -1,19 +1,17 @@
+import { CORE_PATH } from "../../../../test-utils/paths";
 import { test, expect } from "bun:test";
-import { CTX } from "../../src/framework";
+import { deriveQpiContextLayout } from "../../src/codegen/module";
+import { getQpiContext } from "../../src/compiler/qpi-context";
+import { loadQpiHeader } from "../../src/compiler/header";
 // Reach the engine's ABI struct directly (it isn't on the package's public index): QpiContext.OFFSETS is derived from the
 import { QpiContext } from "../../../engine/src/abi";
 
-// The framework hardcodes these byte-offsets into the $qpi_invocator / $qpi_originator / $qpi_invocationReward WAT forwarders. If core-lite reorders the
-test("framework CTX offsets match the engine's QpiContext layout", () => {
+test("live qpi.h context layout matches the engine ABI", () => {
+  const layout = deriveQpiContextLayout(getQpiContext(loadQpiHeader(CORE_PATH)).lib);
   const O = (QpiContext as unknown as { OFFSETS: Record<string, number> }).OFFSETS;
-  // CTX's as-const literal types would pin toBe's generic to the literal — compare as plain numbers.
-  expect<number>(CTX.contractIndex).toBe(O.currentContractIndex);
-  expect<number>(CTX.originator).toBe(O.originator);
-  expect<number>(CTX.invocator).toBe(O.invocator);
-  expect<number>(CTX.invocationReward).toBe(O.invocationReward);
-});
-
-test("QpiContext header is the 256-byte size the framework carves", () => {
-  const SIZE = (QpiContext as unknown as { SIZE: number }).SIZE;
-  expect(SIZE).toBe(256);
+  expect(layout.size).toBe((QpiContext as unknown as { SIZE: number }).SIZE);
+  expect(layout.contractIndex).toBe(O.currentContractIndex);
+  expect(layout.originator).toBe(O.originator);
+  expect(layout.invocator).toBe(O.invocator);
+  expect(layout.invocationReward).toBe(O.invocationReward);
 });

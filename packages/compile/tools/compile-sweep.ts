@@ -10,25 +10,20 @@ const HEADERS = loadQpiHeader(CORE);
 const FIX = QINIT_ROOT + "/fixtures";
 const SYS = `${CORE}/src/contracts`;
 
-const targets: [string, string][] = [
-  ["Counter", `${FIX}/Counter.h`], ["Bank", `${FIX}/Bank.h`], ["Token", `${FIX}/Token.h`],
-  ["Vault", `${FIX}/Vault.h`], ["Dividend", `${FIX}/Dividend.h`], ["Proxy", `${FIX}/Proxy.h`],
-  ["DigestProbe", `${FIX}/DigestProbe.h`],
-  ["Random", `${SYS}/Random.h`], ["QEARN", `${SYS}/Qearn.h`], ["QIP", `${SYS}/QIP.h`],
-  ["QBond", `${SYS}/QBond.h`], ["GGWP", `${SYS}/GGWP.h`], ["MsVault", `${SYS}/MsVault.h`],
-  ["QDuel", `${SYS}/QDuel.h`], ["Qdraw", `${SYS}/Qdraw.h`], ["QReservePool", `${SYS}/QReservePool.h`],
-  ["RandomLottery", `${SYS}/RandomLottery.h`], ["Pulse", `${SYS}/Pulse.h`], ["Escrow", `${SYS}/Escrow.h`],
-  ["Nostromo", `${SYS}/Nostromo.h`], ["QThirtyFour", `${SYS}/QThirtyFour.h`], ["Qx", `${SYS}/Qx.h`],
-  ["SupplyWatcher", `${SYS}/SupplyWatcher.h`], ["GeneralQuorumProposal", `${SYS}/GeneralQuorumProposal.h`],
-  ["ComputorControlledFund", `${SYS}/ComputorControlledFund.h`],
-  // unblocked by the Tier-1 parser robustness work
-  ["Qbay", `${SYS}/Qbay.h`], ["QRaffle", `${SYS}/QRaffle.h`], ["VottunBridge", `${SYS}/VottunBridge.h`],
-  ["QVAULT", `${SYS}/QVAULT.h`], ["Qswap", `${SYS}/Qswap.h`], ["Qusino", `${SYS}/Qusino.h`],
-  ["Quottery", `${SYS}/Quottery.h`],
-  ["QUTIL", `${SYS}/QUtil.h`], ["QRWA", `${SYS}/qRWA.h`],
-];
-
 const catalog = systemContracts(CORE);
+interface Target { name: string; compileName: string; path: string; slot?: number }
+const fixtures: Target[] = [
+  "Counter", "Bank", "Token", "Vault", "Dividend", "Proxy", "DigestProbe",
+].map((name) => ({ name, compileName: name, path: `${FIX}/${name}.h`, slot: name === "Proxy" ? 29 : 28 }));
+const targets: Target[] = [
+  ...fixtures,
+  ...catalog.map((contract) => ({
+    name: contract.name,
+    compileName: contract.stateType,
+    path: `${SYS}/${contract.file}`,
+    slot: contract.index,
+  })),
+];
 
 // Fixture-to-fixture callees (not in the system catalog): Proxy CALLs the Counter fixture.
 const FIXTURE_DEPS: Record<string, Array<{ name: string; path: string; slot: number }>> = {
@@ -90,7 +85,7 @@ console.log(pad("CONTRACT", 24) + pad("WASM", 9) + pad("ERR", 5) + pad("WARN", 6
 console.log("-".repeat(64));
 let ok = 0, totalWarn = 0, totalErr = 0;
 const warnHist: Record<string, number> = {};
-for (const [name, path] of targets) {
+for (const { name, compileName, path, slot: targetSlot } of targets) {
   let src: string;
   try { src = readFileSync(path, "utf8"); } catch { console.log(pad(name, 24) + "no-file"); continue; }
   try {
@@ -115,9 +110,9 @@ for (const [name, path] of targets) {
       calleeSources.push({ name: fd.name, source: fsrc });
     }
 
-    const slot = FIXTURE_MAIN_SLOT[name] ?? catalog.find((c) => c.file === basename(path))?.index ?? 28;
+    const slot = targetSlot ?? FIXTURE_MAIN_SLOT[name] ?? catalog.find((c) => c.file === basename(path))?.index ?? 28;
     const r = await compileContract({
-      source: src, name, slot, qpiHeader: HEADERS, arenaSz: 1024 * 1024,
+      source: src, name: compileName, slot, qpiHeader: HEADERS, arenaSz: 1024 * 1024,
       callees: callees.length ? callees : undefined,
       calleeSources: calleeSources.length ? calleeSources : undefined,
     });

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { ASSET_ENUMERATION_RECORD, LHOST_ABI } from "@qinit/core";
 import { emitModule } from "../../src/framework";
 import { inspectLiteWasmModule } from "../../src/compiler/wasm-inspect";
+import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const CORE = CORE_PATH;
 const importsHeader = join(CORE, "src/extensions/lite_wasm_imports.h");
@@ -32,7 +33,14 @@ describe("shared lhost ABI", () => {
   });
 
   test("framework imports cover the manifest exactly", async () => {
-    const wat = emitModule({ stateSize: 0, arenaSize: 64 * 1024, entries: [], sysprocs: [], userFunctionsWat: ";; none" });
+    const wat = emitModule({
+      stateSize: 0,
+      arenaSize: 64 * 1024,
+      contextLayout: QPI_CONTEXT_LAYOUT,
+      entries: [],
+      sysprocs: [],
+      userFunctionsWat: ";; none",
+    });
     const wabt = await import("wabt");
     const api = await wabt.default();
     const parsed = api.parseWat("lhost-abi.test.wat", wat);

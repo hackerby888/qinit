@@ -1309,6 +1309,29 @@ export class Codegen {
     return Number(this.evalConstBig(expr, b));
   }
 
+  private methodOwnerNames(name: string, seen = new Set<string>()): string[] {
+    const bare = name.includes("::") && !this.globalStructs.has(name) ? name.slice(name.lastIndexOf("::") + 2) : name;
+    if (seen.has(bare)) return [];
+    seen.add(bare);
+    const out = [bare];
+    const struct = this.globalStructs.get(bare) ?? this.nested.get(bare);
+    for (const base of struct?.bases ?? []) {
+      const resolved = this.resolveType(base, NO_BIND);
+      const baseName = resolved.kind === "name" ? resolved.name
+        : resolved.kind === "template_instance" ? resolved.name
+        : null;
+      if (baseName) out.push(...this.methodOwnerNames(baseName, seen));
+    }
+    return out;
+  }
+
+  hasInstanceMethod(name: string, methodName: string): boolean {
+    return this.methodOwnerNames(name).some((owner) => {
+      const methods = this.templateMethods.get(owner);
+      return methods?.has(methodName) || [...(methods?.keys() ?? [])].some((key) => key.startsWith(`${methodName}/`));
+    });
+  }
+
   // Public: resolve a container/struct method to its body + the binding for the matched template instance, HONORING PARTIAL
   methodTemplate(name: string, args: TypeSpec[], methodName: string, argCount?: number, paramTypeKey?: string): { def: FunctionTemplateDecl; bind: Bindings; memberTemplate?: boolean } | null {
     // bindContainer carries the full method-scope binding (params + nested typedefs like VoteStorageType + static constexprs); instantiateTemplate's binding omits
@@ -1344,15 +1367,19 @@ export class Codegen {
         };
       }
     }
-    const byName = this.templateMethods.get(name);
     const specializationKey = argCount !== undefined && args[0]
       ? `${methodName}/${argCount}@${this.typeKey(this.resolveType(args[0], bind))}`
       : undefined;
     const overloadKey = argCount !== undefined && paramTypeKey ? `${methodName}/${argCount}@${paramTypeKey}` : undefined;
-    const def = (overloadKey ? byName?.get(overloadKey) : undefined)
-      ?? (specializationKey ? byName?.get(specializationKey) : undefined)
-      ?? (argCount !== undefined ? byName?.get(`${methodName}/${argCount}`) : undefined)
-      ?? byName?.get(methodName);
+    let def: FunctionTemplateDecl | undefined;
+    for (const owner of this.methodOwnerNames(name)) {
+      const byName = this.templateMethods.get(owner);
+      def = (overloadKey ? byName?.get(overloadKey) : undefined)
+        ?? (specializationKey ? byName?.get(specializationKey) : undefined)
+        ?? (argCount !== undefined ? byName?.get(`${methodName}/${argCount}`) : undefined)
+        ?? byName?.get(methodName);
+      if (def) break;
+    }
     if (!def?.body) return null;
 
     // Out-of-class definitions do not repeat default arguments. Preserve defaults from the authoritative

@@ -118,7 +118,6 @@ export const QPI_GETTERS: Readonly<Record<string, { fwd: string; ret: "i64" | "i
   ...Object.fromEntries(Object.entries(QPI_BINDINGS)
     .filter(([, descriptor]) => descriptor.args.length === 0 && (descriptor.ret === "i32" || descriptor.ret === "i64"))
     .map(([name, descriptor]) => [name, Object.freeze({ fwd: descriptor.fwd, ret: descriptor.ret as "i64" | "i32" })])),
-  invocationReward: Object.freeze({ fwd: "$qpi_invocationReward", ret: "i64" as const }),
   contractIndex: Object.freeze({ fwd: "$qpi_contractIndex", ret: "i32" as const }),
 });
 
@@ -274,8 +273,10 @@ export function emitQpiCall(ctx: FnCtx, expr: Expression & { kind: "call" }, out
   }
   const desc = QPI_BINDINGS[expr.callee.member];
   if (!desc) {
+    const contextType = ctx.params?.get("qpi")?.type;
+    if (contextType?.kind === "name" && ctx.cg.hasInstanceMethod(contextType.name, expr.callee.member)) return null;
     if (QPI_GETTERS[expr.callee.member] || [
-      "invocator", "originator", "getPrevSpectrumDigest", "getPrevUniverseDigest", "getPrevComputerDigest",
+      "getPrevSpectrumDigest", "getPrevUniverseDigest", "getPrevComputerDigest",
     ].includes(expr.callee.member)) return null;
     throw new Error(`unknown QPI binding '${expr.callee.member}'`);
   }

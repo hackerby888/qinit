@@ -8,6 +8,7 @@ import { Sim } from "@qinit/engine";
 import { initK12, deriveKeysSync } from "@qinit/core";
 import { emitFramework } from "../../src/framework";
 import type { UserEntry, SysProcInfo } from "../../src/framework";
+import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const FIXTURE = resolve(import.meta.dir, "../../../engine/tests/fixtures/Counter.wasm");
 const SPIKE_WAT = resolve(import.meta.dir, "counter-spike.wat");
@@ -21,6 +22,7 @@ function generateCounterWat(): string {
   const framework = emitFramework({
     stateSize: 8,
     arenaSize: 64 * 1024,
+    contextLayout: QPI_CONTEXT_LAYOUT,
     userEntryCount: 2,
     sysprocMask: 0,
   });

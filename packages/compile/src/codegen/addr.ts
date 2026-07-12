@@ -694,11 +694,20 @@ export function emitInlineStructMethod(
 // Resolve a container element getter to an addressable node: Array.get(i) → T, HashMap value(i) → V / key(i)
 export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "call" }): AddrNode | null {
   if (expr.callee.kind !== "member_access") return null;
+  const cached = ctx.materializedCalls?.get(expr);
+  if (cached) return cached;
   const node = resolveAddr(ctx, expr.callee.object);
-  if (!node || !node.type || !expr.args[0]) return null;
+  if (!node || !node.type) return null;
   // Follow typedefs / template-param bindings to the concrete container instance (e.g. RevenueDonationT →
   let ct: TypeSpec | null = node.type;
-  for (let i = 0; i < 8 && ct?.kind === "name"; i++) ct = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name) ?? null;
+  for (let i = 0; i < 8 && ct?.kind === "name"; i++) {
+    const next: TypeSpec | undefined = ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name);
+    if (!next) break;
+    ct = next;
+  }
+  if (ct?.kind === "name" && (ctx.cg.globalStructs.has(ct.name) || ctx.cg.templateMethods.has(ct.name))) {
+    ct = { kind: "template_instance", name: ct.name, args: [] };
+  }
   if (!ct || ct.kind !== "template_instance") return null;
   const ctype = ct;
   const m = expr.callee.member;
@@ -706,7 +715,6 @@ export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "cal
     addr, type: elemType, size: ctx.cg.sizeOfType(elemType), layout: ctx.cg.layoutOfType(elemType),
   });
 
-  if (!ctx.cg.templateMethods.get(ctype.name)?.has(m)) return null;
   const method = compileContainerMethod(ctx.cg, ctype, m, expr.args.length);
   if (!method || (method.retKind !== "i32" && !method.retAgg)) return null;
   const compiled = callCompiled(ctx, ctype, m, node.addr, expr.args);
@@ -714,13 +722,13 @@ export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "cal
     throw new Error(`authoritative aggregate/reference method ${ctype.name}::${m} could not be lowered`);
   }
   if (compiled.retDest) ctx.lines.push(`    ${compiled.call}`);
-  return mk(compiled.retDest ?? compiled.call, compiled.cm.retType);
+  const result = mk(compiled.retDest ?? compiled.call, compiled.cm.retType);
+  if (compiled.retDest) (ctx.materializedCalls ??= new WeakMap()).set(expr, result);
+  return result;
 }
 
 // qpi.* zero-arg accessors that return a 32-byte id by value, written to an out address.
 export const QPI_ID_PRODUCERS: Record<string, string> = {
-  invocator: "$qpi_invocator",
-  originator: "$qpi_originator",
   getPrevSpectrumDigest: "$qpi_prevSpectrumDigest",
   getPrevUniverseDigest: "$qpi_prevUniverseDigest",
   getPrevComputerDigest: "$qpi_prevComputerDigest",

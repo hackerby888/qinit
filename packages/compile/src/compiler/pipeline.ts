@@ -4,7 +4,6 @@ import { Preprocessor } from "../preprocess";
 import { Sema } from "../sema";
 import { validateAndDesugar } from "../validate";
 import { generateWasmModule, type GeneratedContractMetadata } from "../codegen";
-import { QPI_STUB } from "../qpi-stub";
 import { SCAFFOLD_MACROS } from "../qpi-scaffold";
 import { buildCalleeContext } from "./callees";
 import {
@@ -14,6 +13,7 @@ import {
   USER_BOUNDARY,
 } from "./diagnostics";
 import { extractIdl } from "./idl";
+import { loadQpiHeader } from "./header";
 import { validateCompileOpts } from "./options";
 import { getQpiContext } from "./qpi-context";
 import { inspectLiteWasmModule } from "./wasm-inspect";
@@ -60,7 +60,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   };
 
   await phase("loading qpi.h");
-  const qpi = getQpiContext(opts.qpiHeader ?? QPI_STUB);
+  const qpi = getQpiContext(opts.qpiHeader ?? loadQpiHeader());
 
   await phase("preprocessing");
   const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(opts.source)}`;

@@ -136,7 +136,6 @@ export const CALL_SIG: Record<string, CallSig> = {
   $intr_rdrand64: sig([I32], I32),
 
   // qpi forwarders — zero-arg getters
-  $qpi_invocationReward: sig([], I64),
   $qpi_epoch: sig([], I32),
   $qpi_tick: sig([], I32),
   $qpi_numberOfTickTransactions: sig([], I32),
@@ -162,8 +161,6 @@ export const CALL_SIG: Record<string, CallSig> = {
   $qpi_isContractId: sig([I32], I32),
   $qpi_arbitrator: sig([I32], "void"),
   $qpi_computor: sig([I32, I32], "void"),
-  $qpi_invocator: sig([I32], "void"),
-  $qpi_originator: sig([I32], "void"),
   $qpi_prevSpectrumDigest: sig([I32], "void"),
   $qpi_prevUniverseDigest: sig([I32], "void"),
   $qpi_prevComputerDigest: sig([I32], "void"),

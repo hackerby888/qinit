@@ -204,6 +204,9 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
     }
   }
 
+  const c = emitContainerCall(ctx, expr, true);
+  if (c !== null) return ir.raw(c, "i64", "source-compiled instance method");
+
   if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
     const g = QPI_GETTERS[expr.callee.member];
     if (g) return g.ret === "i64" ? ir.call(g.fwd) : ir.op("i64.extend_i32_u", ir.call(g.fwd));
@@ -220,9 +223,6 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
     if (q.ret === "i64") return ir.raw(q.wat, "i64", "unconverted: qpi call");
     if (q.ret === "i32") return ir.op("i64.extend_i32_u", ir.raw(q.wat, "i32", "unconverted: qpi call"));
   }
-
-  const c = emitContainerCall(ctx, expr, true);
-  if (c !== null) return ir.raw(c, "i64", "unconverted: container call");
 
   // Functional-style scalar cast: uint64(x) / sint64(x) / uint8(x) / bit(x) ... — narrowed to the target
   if (expr.callee.kind === "identifier" && SCALAR_SIZE[expr.callee.name] !== undefined && expr.args.length === 1) {

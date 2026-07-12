@@ -32,7 +32,7 @@ the pinned npm package in production.
   sibling `../../qubic-core-lite`. Either may be overridden.
 - Qinit-web's local dev command first invokes Qinit's snapshot preparation using `QINIT_CORE`,
   then starts Vite. Missing repositories are hard errors; it must not silently fall back to npm
-  or `QPI_STUB`.
+  or a handwritten QPI header stub.
 - Snapshot preparation caches by actual input-content hash so dirty local core header edits are
   detected. A watch mode regenerates the snapshot when relevant headers change.
 - Production builds use `QINIT_SOURCE=package`, disable the compiler source alias, and resolve

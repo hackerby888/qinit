@@ -1,7 +1,5 @@
 // Stable public surface for @qinit/compile. Compiler implementation lives under ./compiler.
 
-export { QPI_STUB } from "./qpi-stub";
-
 export type { Span, TypeSpec, Expression, Statement, Declaration, TranslationUnit } from "./ast";
 export { Lexer } from "./lexer";
 export type { Token, TokenKind } from "./lexer";

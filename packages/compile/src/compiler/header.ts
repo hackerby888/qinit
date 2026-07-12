@@ -1,5 +1,4 @@
 import { QPI_PRELUDE } from "../qpi-prelude";
-import { QPI_STUB } from "../qpi-stub";
 import { assembleQpiHeader } from "../qpi-snapshot";
 
 export function loadQpiHeader(corePath?: string): string {
@@ -10,7 +9,7 @@ export function loadQpiHeader(corePath?: string): string {
     }
     return assembleQpiHeader(configured);
   }
-  return QPI_PRELUDE + "\n" + QPI_STUB;
+  throw new Error("cannot load live qpi.h in a browser; use @qinit/compile/browser so the generated core snapshot is supplied");
 }
 
 export function withPrelude(headers: string): string {

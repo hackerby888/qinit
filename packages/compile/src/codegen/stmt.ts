@@ -49,10 +49,14 @@ export function emitFunction(
   const qpiContext = contextType?.kind === "name" && contextType.name === "QpiContextProcedureCall" ? "procedure"
     : contextType?.kind === "name" && contextType.name === "QpiContextFunctionCall" ? "function"
     : undefined;
+  const params = new Map(paramAliases ?? []);
+  if (fn?.params[0]?.name === "qpi" && contextType && qpiContext) {
+    params.set("qpi", { wasmType: "i32", isAddr: true, type: contextType, local: "__qinit_ctx" });
+  }
   const lookup = cg.namespaceContextOf(fn);
   const ctx: FnCtx = {
     cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
-    hasStateParam: true, params: paramAliases, qpiContext,
+    hasStateParam: true, params, qpiContext,
     sourceNamespace: lookup.sourceNamespace, usingNamespaces: lookup.usingNamespaces,
   };
 

@@ -168,7 +168,7 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
   if (ct?.kind === "inline_struct" && ct.struct.name && ctx.cg.templateMethods.get(ct.struct.name)?.has(expr.callee.member)) {
     ct = { kind: "template_instance", name: ct.struct.name, args: [] } as TypeSpec;
   }
-  if (ct?.kind === "name" && ctx.cg.templateMethods.get(ct.name)?.has(expr.callee.member)) {
+  if (ct?.kind === "name" && (ctx.cg.globalStructs.has(ct.name) || ctx.cg.templateMethods.has(ct.name))) {
     ct = { kind: "template_instance", name: ct.name, args: [] } as TypeSpec;
   }
   if (!ct || ct.kind !== "template_instance") return null;
@@ -182,9 +182,8 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
   const member = expr.callee.member;
   // Any captured instance method goes through the same source-instantiation path.
   // Container family and method names do not carry semantics here: the selected
-  if (!ctx.cg.templateMethods.get(node.type.name)?.has(member)) return null;
   const compiled = callCompiled(ctx, node.type, member, map, expr.args);
-  if (!compiled) throw new Error(`authoritative method ${node.type.name}::${member} could not be lowered`);
+  if (!compiled) return null;
 
   if (valueWanted) {
     if (compiled.retDest || compiled.cm.retKind === "void") {

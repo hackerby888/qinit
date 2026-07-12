@@ -3,7 +3,7 @@ import { generateWasmModule, type GeneratedContractMetadata } from "../codegen";
 import { findContractStruct } from "../codegen/module";
 import type { StructDecl } from "../ast";
 import { Sema } from "../sema";
-import { QPI_STUB } from "../qpi-stub";
+import { loadQpiHeader } from "./header";
 import { getQpiContext } from "./qpi-context";
 import { parseToAst } from "./parse-ast";
 import type { CompileOpts, GtestCompileResult, GtestDiagnostic, GtestProgram } from "./types";
@@ -196,9 +196,10 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
     return { diagnostics, idl };
   }
 
-  const target = parseToAst({ source: opts.source, qpiHeader: opts.qpiHeader, name: opts.name, slot: opts.slot });
+  const qpiHeader = opts.qpiHeader ?? loadQpiHeader();
+  const target = parseToAst({ source: opts.source, qpiHeader, name: opts.name, slot: opts.slot });
   diagnostics.push(...target.diagnostics);
-  const qpi = getQpiContext(opts.qpiHeader ?? QPI_STUB);
+  const qpi = getQpiContext(qpiHeader);
   const targetSema = new Sema();
   const targetMetadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
   try {
@@ -213,7 +214,7 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
     const fs = await import("node:fs");
     fs.writeFileSync((globalThis as any).process.env.QINIT_DUMP_GTEST_SOURCE, runnerSource);
   }
-  const runner = parseToAst({ source: runnerSource, qpiHeader: opts.qpiHeader, name: runnerName, slot: RUNNER_SLOT });
+  const runner = parseToAst({ source: runnerSource, qpiHeader, name: runnerName, slot: RUNNER_SLOT });
   diagnostics.push(...runner.diagnostics);
   if (diagnostics.some((item) => item.severity === "error")) return { diagnostics, idl };
 

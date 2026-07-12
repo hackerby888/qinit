@@ -2,11 +2,13 @@
 import { beforeAll, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
-import { compileContract } from "../../src/index";
+import { CORE_PATH } from "../../../../test-utils/paths";
+import { compileContract, loadQpiHeader } from "../../src/index";
 
 const PREFIX = "/* edge-audit unique cache-key prefix */".padEnd(63, " ") + "\n";
-const HEADER_8 = `${PREFIX}struct HeaderType { uint64 value; };`;
-const HEADER_4 = `${PREFIX}struct HeaderType { uint32 value; };`;
+const CORE_HEADER = loadQpiHeader(CORE_PATH);
+const HEADER_8 = `${CORE_HEADER}\n${PREFIX}struct HeaderType { uint64 value; };`;
+const HEADER_4 = `${CORE_HEADER}\n${PREFIX}struct HeaderType { uint32 value; };`;
 
 const SOURCE = `struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

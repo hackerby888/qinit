@@ -7,10 +7,14 @@ import { QPI_BINDINGS } from "./codegen/calls/qpi";
 export const IN_SZ = 64 * 1024;
 export const OUT_SZ = 64 * 1024;
 export const LOCALS_SZ = 32 * 1024;
-const CTX_SZ = 256;
 
-// QpiContext offsets used by all WAT forwarders.
-export const CTX = { contractIndex: 0, originator: 40, invocator: 72, invocationReward: 104 } as const;
+export interface QpiContextLayout {
+  size: number;
+  contractIndex: number;
+  originator: number;
+  invocator: number;
+  invocationReward: number;
+}
 
 export interface UserEntry {
   inputType: number;       // user-assigned [1..65535]
@@ -32,6 +36,7 @@ export interface SysProcInfo {
 export interface ModuleSpec {
   stateSize: number;
   arenaSize: number;
+  contextLayout: QpiContextLayout;
   entries: UserEntry[];
   sysprocs: SysProcInfo[];
   userFunctionsWat: string;   // the $user_N / $sys_N function definitions
@@ -48,6 +53,7 @@ export interface FrameworkOpts {
   arenaSize: number;
   userEntryCount: number;
   sysprocMask: number;
+  contextLayout: QpiContextLayout;
 }
 
 interface Layout {
@@ -65,11 +71,11 @@ interface Layout {
   iterBufBase: number;
 }
 
-function computeLayout(stateSize: number, arenaSize: number, memBase = 0): Layout {
+function computeLayout(stateSize: number, arenaSize: number, contextSize: number, memBase = 0): Layout {
   const align = (n: number, a: number) => Math.ceil(n / a) * a;
   const stateBase = memBase;
   const ctxBase = align(stateBase + Math.max(stateSize, 8), 16);
-  const ioBase = align(ctxBase + CTX_SZ, 16);
+  const ioBase = align(ctxBase + contextSize, 16);
   const inBase = ioBase;
   const outBase = inBase + IN_SZ;
   const localsBase = outBase + OUT_SZ;
@@ -89,7 +95,7 @@ export function emitModule(spec: ModuleSpec): string {
   const usesPrng = spec.capabilities?.includes("chain-prng") ?? false;
   // WAMR's app-to-native adapter treats linear-memory offset 0 as nullptr.
   // Random-capable modules pass resident state to lhost.k12 when seeding for deterministic behavior.
-  const L = computeLayout(spec.stateSize, spec.arenaSize, spec.memBase ?? (usesPrng ? 8 : 0));
+  const L = computeLayout(spec.stateSize, spec.arenaSize, spec.contextLayout.size, spec.memBase ?? (usesPrng ? 8 : 0));
   const sysprocMask = spec.sysprocs.reduce((m, sp) => m | (1 << sp.id), 0);
 
   return [
@@ -103,7 +109,7 @@ export function emitModule(spec: ModuleSpec): string {
     emitExportList(),
     emitMemOps(),
     emitAllocators(L),
-    emitForwarders(),
+    emitForwarders(spec.contextLayout),
     emitIntrinsics(L, spec),
     emitMetadata(L, spec, sysprocMask),
     spec.userFunctionsWat,
@@ -118,6 +124,7 @@ export function emitFramework(opts: FrameworkOpts): string {
   return emitModule({
     stateSize: opts.stateSize,
     arenaSize: opts.arenaSize,
+    contextLayout: opts.contextLayout,
     entries: [],
     sysprocs: [],
     userFunctionsWat: "  ;; ---- USER CODE (spliced by codegen.ts) ----",
@@ -256,7 +263,7 @@ function emitAllocators(L: Layout): string {
       (then (global.set $arenaTop (local.get $ptr)))))`;
 }
 
-function emitForwarders(): string {
+function emitForwarders(contextLayout: QpiContextLayout): string {
   // Thin wrappers from $qpi_* (codegen targets) to the lhost imports.
   return `  ;; ---- qpi forwarders ----
 ${emitQpiBindingForwarders()}
@@ -269,11 +276,8 @@ ${emitQpiBindingForwarders()}
   (func $qpi_logBytes (param $ci i32) (param $lv i32) (param $m i32) (param $sz i32) (call $lh_logBytes (local.get $ci) (local.get $lv) (local.get $m) (local.get $sz)))
   (func $liteCallFunction (param $c i32) (param $it i32) (param $i i32) (param $is i32) (param $o i32) (param $os i32) (result i32) (call $lh_liteCallFunction (local.get $c) (local.get $it) (local.get $i) (local.get $is) (local.get $o) (local.get $os)))
   (func $liteInvokeProcedure (param $c i32) (param $it i32) (param $i i32) (param $is i32) (param $o i32) (param $os i32) (param $r i64) (result i32) (call $lh_liteInvokeProcedure (local.get $c) (local.get $it) (local.get $i) (local.get $is) (local.get $o) (local.get $os) (local.get $r)))
-  ;; context header accessors (offsets from CTX — pinned to the engine's abi.ts by tests/qpi/abi-drift.test.ts)
-  (func $qpi_contractIndex (result i32) (i32.load (i32.add (global.get $ctxBase) (i32.const ${CTX.contractIndex}))))
-  (func $qpi_invocator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const ${CTX.invocator})) (i32.const 32)))
-  (func $qpi_originator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const ${CTX.originator})) (i32.const 32)))
-  (func $qpi_invocationReward (result i64) (i64.load (i32.add (global.get $ctxBase) (i32.const ${CTX.invocationReward}))))`;
+  ;; Internal context index accessor. User-visible context accessors compile from qpi.h.
+  (func $qpi_contractIndex (result i32) (i32.load (i32.add (global.get $ctxBase) (i32.const ${contextLayout.contractIndex}))))`;
 }
 
 function emitQpiBindingForwarders(): string {
@@ -317,9 +321,9 @@ ${inputSizeCases.join("\n")}
     (i32.store (i32.add (local.get $transcript) (i32.const 36)) (call $qpi_contractIndex))
     (i32.store (i32.add (local.get $transcript) (i32.const 40)) (local.get $kind))
     (i32.store (i32.add (local.get $transcript) (i32.const 44)) (local.get $it))
-    (call $copyMem (i32.add (local.get $transcript) (i32.const 48)) (i32.add (global.get $ctxBase) (i32.const ${CTX.invocator})) (i32.const 32))
-    (call $copyMem (i32.add (local.get $transcript) (i32.const 80)) (i32.add (global.get $ctxBase) (i32.const ${CTX.originator})) (i32.const 32))
-    (i64.store (i32.add (local.get $transcript) (i32.const 112)) (call $qpi_invocationReward))
+    (call $copyMem (i32.add (local.get $transcript) (i32.const 48)) (i32.add (global.get $ctxBase) (i32.const ${spec.contextLayout.invocator})) (i32.const 32))
+    (call $copyMem (i32.add (local.get $transcript) (i32.const 80)) (i32.add (global.get $ctxBase) (i32.const ${spec.contextLayout.originator})) (i32.const 32))
+    (i64.store (i32.add (local.get $transcript) (i32.const 112)) (i64.load (i32.add (global.get $ctxBase) (i32.const ${spec.contextLayout.invocationReward}))))
     (i32.store (i32.add (local.get $transcript) (i32.const 120)) (local.get $inputSize))
     (i32.store (i32.add (local.get $transcript) (i32.const 124)) (i32.const ${L.stateSize}))
     (call $lh_k12 (global.get $stateBase) (i32.const ${L.stateSize}) (i32.add (local.get $transcript) (i32.const 128)))

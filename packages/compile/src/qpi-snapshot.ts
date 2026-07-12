@@ -1,8 +1,8 @@
 // Assembles the exact header text consumed by compiler pipeline.
 import { QPI_PRELUDE } from "./qpi-prelude";
 
-// v3 adds the authoritative platform random and m256 implementation chunks.
-export const GENERATOR_VERSION = 3;
+// v4 also carries core-lite's declared Wasm context-buffer capacity into the parsed header snapshot.
+export const GENERATOR_VERSION = 4;
 
 export const IMPL_BOUNDARY = "//__QINIT_IMPL_BOUNDARY__";
 
@@ -32,6 +32,7 @@ export function snapshotInputFiles(corePath: string): string[] {
   const base = `${corePath}/src`;
   const files = [
     `${base}/contract_core/contract_def.h`,
+    `${base}/extensions/lite_wasm_tu.h`,
     ...HEADER_FILES.map((f) => `${base}/${f}`),
     ...IMPL_FILES.map((f) => `${base}/${f}`),
   ];
@@ -75,6 +76,12 @@ export function assembleQpiHeader(corePath: string): string {
     }
     content += text + "\n";
   }
+
+  const wasmTuPath = `${base}/extensions/lite_wasm_tu.h`;
+  const wasmTu = existsSync(wasmTuPath) ? readFileSync(wasmTuPath, "utf8") : "";
+  const contextBuffer = /\bg_wasmCtxBuf\s*\[\s*(\d+)\s*\]/.exec(wasmTu);
+  if (!contextBuffer) throw new Error(`${wasmTuPath} does not declare g_wasmCtxBuf capacity`);
+  content += `\nstatic constexpr unsigned long long __qinit_qpi_context_buffer_size = ${contextBuffer[1]};\n`;
 
   for (const f of IMPL_FILES) {
     const fp = `${base}/${f}`;

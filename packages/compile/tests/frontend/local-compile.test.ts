@@ -3,9 +3,11 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Sim } from "@qinit/engine";
 import { initK12, deriveKeysSync } from "@qinit/core";
-import { compileContract, QPI_STUB } from "../../src/index";
+import { CORE_PATH } from "../../../../test-utils/paths";
+import { compileContract, loadQpiHeader } from "../../src/index";
 
 const COUNTER_SRC = readFileSync(new URL("../../../../fixtures/Counter.h", import.meta.url), "utf8");
+const QPI_HEADER = loadQpiHeader(CORE_PATH);
 
 beforeAll(async () => {
   await initK12();
@@ -13,13 +15,13 @@ beforeAll(async () => {
 
 describe("Local Counter compilation", () => {
   test("compiles Counter.h with zero errors", async () => {
-    const r = await compileContract({ source: COUNTER_SRC, name: "Counter", slot: 28, qpiHeader: QPI_STUB });
+    const r = await compileContract({ source: COUNTER_SRC, name: "Counter", slot: 28, qpiHeader: QPI_HEADER });
     expect(r.diagnostics).toHaveLength(0);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });
 
   test("compiled Counter loads in engine with correct state_size", async () => {
-    const r = await compileContract({ source: COUNTER_SRC, name: "Counter", slot: 28, qpiHeader: QPI_STUB });
+    const r = await compileContract({ source: COUNTER_SRC, name: "Counter", slot: 28, qpiHeader: QPI_HEADER });
     const sim = new Sim();
     const c = sim.deploy(28, r.wasm);
     expect(typeof c.ex.dispatch).toBe("function");
@@ -27,7 +29,7 @@ describe("Local Counter compilation", () => {
   });
 
   test("Get returns 0 initially", async () => {
-    const r = await compileContract({ source: COUNTER_SRC, name: "Counter", slot: 28, qpiHeader: QPI_STUB });
+    const r = await compileContract({ source: COUNTER_SRC, name: "Counter", slot: 28, qpiHeader: QPI_HEADER });
     const sim = new Sim();
     sim.deploy(28, r.wasm);
     const result = sim.query(28, 1);
@@ -36,7 +38,7 @@ describe("Local Counter compilation", () => {
   });
 
   test("Inc increments then Get returns 1", async () => {
-    const r = await compileContract({ source: COUNTER_SRC, name: "Counter", slot: 28, qpiHeader: QPI_STUB });
+    const r = await compileContract({ source: COUNTER_SRC, name: "Counter", slot: 28, qpiHeader: QPI_HEADER });
     const sim = new Sim();
     sim.deploy(28, r.wasm);
     const id = deriveKeysSync("aaaa").publicKey;

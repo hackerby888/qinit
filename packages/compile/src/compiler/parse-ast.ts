@@ -2,9 +2,9 @@ import type { TranslationUnit } from "../ast";
 import { Lexer } from "../lexer";
 import { Parser, type Diagnostic as ParserDiagnostic } from "../parser";
 import { Preprocessor } from "../preprocess";
-import { QPI_STUB } from "../qpi-stub";
 import { SCAFFOLD_MACROS } from "../qpi-scaffold";
 import { makeUserDiagnosticRemapper, scanUnterminatedSource, sourceWithoutLeadingBom, USER_BOUNDARY } from "./diagnostics";
+import { loadQpiHeader } from "./header";
 import { getQpiContext } from "./qpi-context";
 
 export interface ParseAstResult {
@@ -13,7 +13,7 @@ export interface ParseAstResult {
 }
 
 export function parseToAst(opts: { source: string; qpiHeader?: string; name?: string; slot?: number }): ParseAstResult {
-  const qpi = getQpiContext(opts.qpiHeader ?? QPI_STUB);
+  const qpi = getQpiContext(opts.qpiHeader ?? loadQpiHeader());
   const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(opts.source)}`;
   const text = new Preprocessor().preprocess({
     source,

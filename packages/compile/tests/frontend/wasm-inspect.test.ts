@@ -5,10 +5,12 @@ import {
   LHOST_ABI,
   LITE_WASM_FUNCTION_ABI,
 } from "../../src/compiler/wasm-inspect";
+import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const SPEC: ModuleSpec = {
   stateSize: 8,
   arenaSize: 64 * 1024,
+  contextLayout: QPI_CONTEXT_LAYOUT,
   entries: [],
   sysprocs: [],
   userFunctionsWat: "  ;; no user functions",

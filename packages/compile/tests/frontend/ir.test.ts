@@ -9,6 +9,7 @@ import {
   CALL_SIG, OP_SIG,
 } from "../../src/ir";
 import { emitModule } from "../../src/framework";
+import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const p = getL("p", "i32");
 const v = getL("v", "i64");
@@ -193,6 +194,7 @@ describe("CALL_SIG agrees with framework.ts", () => {
     const framework = emitModule({
       stateSize: 0,
       arenaSize: 64 * 1024,
+      contextLayout: QPI_CONTEXT_LAYOUT,
       entries: [],
       sysprocs: [],
       userFunctionsWat: ";; no user functions",

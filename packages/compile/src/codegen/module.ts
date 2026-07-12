@@ -4,7 +4,7 @@ import { Codegen } from "./cg";
 import { ClassTemplate, CalleeIdl, HelperInfo, NamespaceLookupContext } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
 import type { Sema } from "../sema";
-import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec } from "../framework";
+import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec, type QpiContextLayout } from "../framework";
 
 // ---- entry point ----
 
@@ -32,6 +32,52 @@ export interface GeneratedContractMetadata {
   stateSize: number;
   entries: Array<{ name: string; inputType: number; kind: number; inSize: number; outSize: number }>;
   sysprocMask: number;
+}
+
+function seedLibTypes(cg: Codegen, lib: LibTypes): void {
+  for (const [k, v] of lib.templates) cg.templates.set(k, v);
+  for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
+  for (const [k, v] of lib.libFns) cg.libFns.set(k, v);
+  for (const [k, v] of lib.libFnOverloads) cg.libFnOverloads.set(k, [...v]);
+  for (const [k, v] of lib.libFnTemplates) cg.libFnTemplates.set(k, v);
+  for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
+  for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
+  for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
+  for (const [k, v] of lib.constexprType) cg.constexprType.set(k, v);
+  for (const [k, v] of lib.enumConst) cg.enumConst.set(k, v);
+  for (const [k, v] of lib.enumSize) cg.enumSize.set(k, v);
+  for (const [k, v] of lib.enumUnderlying) cg.enumUnderlying.set(k, v);
+  for (const [k, v] of lib.enumConstType) cg.enumConstType.set(k, v);
+  for (const n of lib.enumNames) cg.enumNames.add(n);
+  for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
+  for (const [scope, namespaces] of lib.namespaceUsings) cg.namespaceUsings.set(scope, [...namespaces]);
+  for (const [declaration, context] of lib.namespaceContexts) cg.namespaceContexts.set(declaration, context);
+}
+
+function contextLayoutFromCodegen(cg: Codegen): QpiContextLayout {
+  const context = cg.globalStructs.get("QpiContext");
+  if (!context) throw new Error("qpi.h is missing QpiContext");
+  const bufferSize = cg.constexprInit.get("__qinit_qpi_context_buffer_size");
+  if (!bufferSize) throw new Error("assembled core headers are missing the Wasm QpiContext buffer capacity");
+  const layout = cg.layoutOf(context);
+  const offset = (name: string): number => {
+    const field = layout.fields.get(name);
+    if (!field) throw new Error(`QpiContext is missing field '${name}'`);
+    return field.offset;
+  };
+  return {
+    size: cg.evalConst(bufferSize),
+    contractIndex: offset("_currentContractIndex"),
+    originator: offset("_originator"),
+    invocator: offset("_invocator"),
+    invocationReward: offset("_invocationReward"),
+  };
+}
+
+export function deriveQpiContextLayout(lib: LibTypes): QpiContextLayout {
+  const cg = new Codegen({} as Sema);
+  seedLibTypes(cg, lib);
+  return contextLayoutFromCodegen(cg);
 }
 
 // Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants/methods).
@@ -84,30 +130,15 @@ export function generateWasmModule(
 
   // Seed the qpi.h library type table (templates / structs / typedefs) parsed once, then add the user contract's
   if (lib) {
-    for (const [k, v] of lib.templates) cg.templates.set(k, v);
-    if (lib.specializations) for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
-    if (lib.libFns) for (const [k, v] of lib.libFns) cg.libFns.set(k, v);
-    if (lib.libFnOverloads) for (const [k, v] of lib.libFnOverloads) cg.libFnOverloads.set(k, [...v]);
-    if (lib.libFnTemplates) for (const [k, v] of lib.libFnTemplates) cg.libFnTemplates.set(k, v);
-    for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
-    for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
-    for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
-    if (lib.constexprType) for (const [k, v] of lib.constexprType) cg.constexprType.set(k, v);
-    for (const [k, v] of lib.enumConst) cg.enumConst.set(k, v);
-    if (lib.enumSize) for (const [k, v] of lib.enumSize) cg.enumSize.set(k, v);
-    if (lib.enumUnderlying) for (const [k, v] of lib.enumUnderlying) cg.enumUnderlying.set(k, v);
-    if (lib.enumConstType) for (const [k, v] of lib.enumConstType) cg.enumConstType.set(k, v);
-    if (lib.enumNames) for (const n of lib.enumNames) cg.enumNames.add(n);
-    if (lib.templateMethods) for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
-    if (lib.namespaceUsings) for (const [scope, namespaces] of lib.namespaceUsings) cg.namespaceUsings.set(scope, [...namespaces]);
-    if (lib.namespaceContexts) for (const [declaration, context] of lib.namespaceContexts) cg.namespaceContexts.set(declaration, context);
+    seedLibTypes(cg, lib);
   }
+  const contextLayout = contextLayoutFromCodegen(cg);
   cg.collectTU(tu.declarations);
   for (const ct of calleeTus ?? []) cg.seedCallee(ct.name, ct.decls);
 
   const contract = findContractStruct(tu);
   if (!contract) {
-    return emitModule({ stateSize: 0, arenaSize: arenaSz, entries: [], sysprocs: [], userFunctionsWat: ";; no contract struct found", memBase });
+    return emitModule({ stateSize: 0, arenaSize: arenaSz, contextLayout, entries: [], sysprocs: [], userFunctionsWat: ";; no contract struct found", memBase });
   }
 
   cg.collectNested(contract);
@@ -328,6 +359,7 @@ export function generateWasmModule(
   const spec: ModuleSpec = {
     stateSize,
     arenaSize: arenaSz,
+    contextLayout,
     entries,
     sysprocs,
     userFunctionsWat: userFns.join("\n"),
