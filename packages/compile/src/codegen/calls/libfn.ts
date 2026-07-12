@@ -239,8 +239,12 @@ export function compileLibFnInstance(
 export function helperCallOps(ctx: FnCtx, info: HelperInfo, args: Expression[]): string {
   return info.params.map((p, i) => {
     const arg = args[i];
-    if (!arg) return p.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    if (p.isAddr) return emitAddr(ctx, arg) ?? "(i32.const 0)";
+    if (!arg) throw new Error(`${info.sourceNamespace ?? info.label} is missing required argument ${i + 1}`);
+    if (p.isAddr) {
+      const address = emitAddr(ctx, arg);
+      if (!address) throw new Error(`${info.sourceNamespace ?? info.label} argument ${i + 1} is not addressable`);
+      return address;
+    }
     const declared = ctx.cg.derefType(p.type);
     return narrowCast(emitValue(ctx, arg), declared.kind === "name" ? declared.name : undefined);
   }).join(" ");

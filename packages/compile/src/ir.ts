@@ -1,3 +1,5 @@
+import { LHOST_CALL_SIG } from "./lhost";
+
 // Typed WAT IR nodes: `i32/i64/void` with constructor-time type assertions.
 
 export type Ty = "i32" | "i64" | "void";
@@ -102,6 +104,7 @@ const I32 = "i32" as const;
 const I64 = "i64" as const;
 
 export const CALL_SIG: Record<string, CallSig> = {
+  ...LHOST_CALL_SIG,
   // private TS gtest runner host
   $qt_invoke: sig([I32, I32, I32, I32, I32, I64, I32], I32),
   $qt_query: sig([I32, I32, I32, I32, I32, I32], I32),
@@ -185,12 +188,7 @@ export const CALL_SIG: Record<string, CallSig> = {
   $qpi_markDirty: sig([I32], "void"),
   $qpi_logBytes: sig([I32, I32, I32, I32], "void"),
 
-  // lhost bridges used directly by generated code
-  $lh_queryOracle: sig([I32, I32, I32, I32, I32, I64], I64),
-  $lh_subscribeOracle: sig([I32, I32, I32, I32, I32, I32, I64], I32),
-  $lh_getOracleQuery: sig([I64, I32, I32], I32),
-  $lh_getOracleReply: sig([I64, I32, I32], I32),
-  $lh_assetEnumerate: sig([I32, I32, I32, I32, I32, I32], I32),
+  // non-import bridges used directly by generated code
   $liteCallFunction: sig([I32, I32, I32, I32, I32, I32], I32),
   $liteInvokeProcedure: sig([I32, I32, I32, I32, I32, I32, I64], I32),
   $lh_liteSetShareholderProposal: sig([I32, I32, I64], I32),

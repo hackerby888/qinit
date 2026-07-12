@@ -1,3 +1,5 @@
+import { LHOST_ABI } from "@qinit/core";
+
 /**
  * Static inspection for the Lite dynamic-contract Wasm ABI.
  *
@@ -65,6 +67,8 @@ export interface LiteWasmInspection {
   readonly features: readonly string[];
 }
 
+export { LHOST_ABI } from "@qinit/core";
+
 const signature = (
   params: readonly WasmValueType[] = [],
   results: readonly WasmValueType[] = [],
@@ -76,70 +80,6 @@ const I64 = "i64" as const;
 // Enabled by both JavaScript engines and WAMR's interpreter in the release node.
 // Keep this deliberately narrow; every other detected post-MVP feature fails closed.
 const PORTABLE_FEATURES = new Set(["sign-extension-operators"]);
-
-/** Exact names and signatures registered by core-lite's LHOST_TABLE. */
-export const LHOST_ABI: Readonly<Record<string, WasmFunctionSignature>> = Object.freeze({
-  beginFn: signature([I32]),
-  endFn: signature([I32]),
-  markDirty: signature([I32]),
-  pauseLog: signature(),
-  resumeLog: signature(),
-  acquireScratch: signature([I64, I32], [I32]),
-  releaseScratch: signature([I32]),
-  logBytes: signature([I32, I32, I32, I32]),
-  k12: signature([I32, I32, I32]),
-  transfer: signature([I32, I64], [I64]),
-  transferTyped: signature([I32, I64, I32], [I64]),
-  abort: signature([I32]),
-  burn: signature([I64, I32], [I64]),
-  epoch: signature([], [I32]),
-  tick: signature([], [I32]),
-  numberOfTickTransactions: signature([], [I32]),
-  getEntity: signature([I32, I32], [I32]),
-  queryFeeReserve: signature([I32], [I64]),
-  nextId: signature([I32, I32]),
-  prevId: signature([I32, I32]),
-  isContractId: signature([I32], [I32]),
-  arbitrator: signature([I32]),
-  computor: signature([I32, I32]),
-  day: signature([], [I32]),
-  year: signature([], [I32]),
-  hour: signature([], [I32]),
-  minute: signature([], [I32]),
-  month: signature([], [I32]),
-  second: signature([], [I32]),
-  millisecond: signature([], [I32]),
-  now: signature([I32]),
-  prevSpectrumDigest: signature([I32]),
-  prevUniverseDigest: signature([I32]),
-  prevComputerDigest: signature([I32]),
-  isAssetIssued: signature([I32, I64], [I32]),
-  issueAsset: signature([I64, I32, I32, I64, I64], [I64]),
-  numberOfShares: signature([I32, I32, I32], [I64]),
-  numberOfPossessedShares: signature([I64, I32, I32, I32, I32, I32], [I64]),
-  assetEnumerate: signature([I32, I32, I32, I32, I32, I32], [I32]),
-  transferShareOwnershipAndPossession: signature([I64, I32, I32, I32, I64, I32], [I64]),
-  acquireShares: signature([I64, I32, I32, I32, I64, I32, I32, I64], [I64]),
-  releaseShares: signature([I64, I32, I32, I32, I64, I32, I32, I64], [I64]),
-  dayOfWeek: signature([I32, I32, I32], [I32]),
-  signatureValidity: signature([I32, I32, I32], [I32]),
-  bidInIPO: signature([I32, I64, I32], [I64]),
-  ipoBidId: signature([I32, I32, I32]),
-  ipoBidPrice: signature([I32, I32], [I64]),
-  computeMiningFunction: signature([I32, I32, I32, I32]),
-  initMiningSeed: signature([I32]),
-  getOracleQueryStatus: signature([I64], [I32]),
-  unsubscribeOracle: signature([I32], [I32]),
-  queryOracle: signature([I32, I32, I32, I32, I32, I64], [I64]),
-  subscribeOracle: signature([I32, I32, I32, I32, I32, I32, I64], [I32]),
-  getOracleQuery: signature([I64, I32, I32], [I32]),
-  getOracleReply: signature([I64, I32, I32], [I32]),
-  distributeDividends: signature([I64], [I32]),
-  liteCallFunction: signature([I32, I32, I32, I32, I32, I32], [I32]),
-  liteInvokeProcedure: signature([I32, I32, I32, I32, I32, I32, I64], [I32]),
-  liteSetShareholderProposal: signature([I32, I32, I64], [I32]),
-  liteSetShareholderVotes: signature([I32, I32, I32, I64], [I32]),
-});
 
 /** Function exports consumed by the Qinit engine and core-lite dynamic loader. */
 export const LITE_WASM_FUNCTION_ABI: Readonly<Record<string, WasmFunctionSignature>> = Object.freeze({
@@ -738,7 +678,7 @@ function classifyMemory(memories: readonly InspectedWasmMemory[]): InspectedMemo
 function validateImports(parsed: ParsedModule): void {
   for (const imported of parsed.imports) {
     if (imported.module === "lhost" && imported.kind === "function") {
-      const expected = LHOST_ABI[imported.name];
+      const expected = LHOST_ABI[imported.name as keyof typeof LHOST_ABI];
       if (!expected) {
         error(parsed.diagnostics, "unknown-import", `unknown lhost import '${imported.name}'`);
       } else if (!sameSignature(imported.signature, expected)) {

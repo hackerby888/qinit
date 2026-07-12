@@ -1,5 +1,5 @@
 import { MATH_INTRINSIC_NAMES, SCALAR_SIZE } from "../tables";
-import { QPI_GETTERS, QPI_CALLS, emitQpiCall } from "./qpi";
+import { QPI_BINDINGS, QPI_GETTERS, QPI_CALLS, emitQpiCall } from "./qpi";
 import { emitHelperCall } from "./libfn";
 import { emitProxySiblingCall, emitProposalProxyCall } from "./proxy";
 import { newTmp } from "../stmt";
@@ -9,6 +9,7 @@ import { emitAddr, emitInlineStructStatement, addrIr, allocSlotIr, setLocal, nar
 import { FnCtx, NO_BIND } from "../types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
 import * as ir from "../../ir";
+import { platformPrimitive } from "../platform-primitives";
 
 export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
   if (!ctx.thisType || ctx.thisType.kind !== "template_instance" || expr.callee.kind !== "identifier") return null;
@@ -104,12 +105,20 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
     if (!who) throw new Error("gtest getBalance account must be addressable");
     return ir.call("$qt_balance", addrIr(who));
   }
-  // MSVC widening-multiply intrinsics used by authoritative math_lib bodies. Wasm supplies the
-  // low limb directly; the frontend primitive computes and writes the high limb.
-  if (expr.callee.kind === "identifier" && (expr.callee.name === "_mul128" || expr.callee.name === "_umul128")) {
+  const primitive = (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")
+    ? platformPrimitive(expr.callee.name)
+    : undefined;
+  if (primitive) {
+    for (const capability of primitive.capabilities ?? []) ctx.cg.capabilities.add(capability);
+    if (expr.args.length !== primitive.operands.length) {
+      throw new Error(`${primitive.name} expects ${primitive.operands.length} argument(s), got ${expr.args.length}`);
+    }
+  }
+
+  if (primitive?.kind === "multiply-high") {
     const left = expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0);
     const right = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);
-    const high = ir.call(expr.callee.name === "_mul128" ? "$intr_mulhi_s" : "$intr_mulhi_u", left, right);
+    const high = ir.call(primitive.signed ? "$intr_mulhi_s" : "$intr_mulhi_u", left, right);
     let output: Expression | undefined = expr.args[2];
     while (output?.kind === "paren" || (output?.kind === "unary_op" && output.op === "&")) {
       output = output.kind === "paren" ? output.expr : output.arg;
@@ -118,52 +127,42 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
       ctx.lines.push(`    ${setLocal(ctx, output.name, high)}`);
     } else {
       const out = expr.args[2] ? emitAddr(ctx, expr.args[2]) : null;
-      if (!out) throw new Error(`${expr.callee.name} high-limb output is not addressable`);
+      if (!out) throw new Error(`${primitive.name} high-limb output is not addressable`);
       ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, addrIr(out), high))}`);
     }
     return ir.op("i64.mul", left, right);
   }
 
-  // x86 count intrinsics used by the authoritative container cleanup bodies. Wasm defines clz/ctz(0)
-  // as the operand width (64), which is the same contract as the core-lite intrinsics.
-  if (expr.callee.kind === "identifier" && expr.args.length === 1) {
-    const intrinsic = expr.callee.name.includes("::")
-      ? expr.callee.name.slice(expr.callee.name.lastIndexOf("::") + 2)
-      : expr.callee.name;
-    if (intrinsic === "_tzcnt_u64" || intrinsic === "_tzcnt64") {
-      return ir.op("i64.ctz", emitValueIr(ctx, expr.args[0]));
-    }
-    if (intrinsic === "_lzcnt_u64" || intrinsic === "__lzcnt64") {
-      return ir.op("i64.clz", emitValueIr(ctx, expr.args[0]));
-    }
-    const rdrand = ({
-      _rdrand16_step: "$intr_rdrand16",
-      _rdrand32_step: "$intr_rdrand32",
-      _rdrand64_step: "$intr_rdrand64",
-    } as const)[intrinsic as "_rdrand16_step" | "_rdrand32_step" | "_rdrand64_step"];
-    if (rdrand) {
-      const output = emitAddr(ctx, expr.args[0]);
-      if (!output) throw new Error(`${intrinsic} output is not addressable`);
-      return ir.op("i64.extend_i32_u", ir.call(rdrand, addrIr(output)));
-    }
+  if (primitive?.kind === "wasm-unary" && primitive.wasmOp) {
+    return ir.op(primitive.wasmOp, emitValueIr(ctx, expr.args[0]));
   }
-
-  // isZero(id) / id.isZero() — true iff all 32 bytes are zero (OR the four 64-bit limbs, test for zero).
-  {
-    const idObj = expr.callee.kind === "identifier" && expr.callee.name === "isZero" ? expr.args[0]
-      : (expr.callee.kind === "member_access" && expr.callee.member === "isZero") ? expr.callee.object
-      : null;
-    if (idObj) {
-      const addr = emitAddr(ctx, idObj);
-      if (addr) {
-        const t = newTmp(ctx);
-        ctx.lines.push(`    ${setLocal(ctx, t, addrIr(addr))}`);
-        const a = ir.getL(t, "i32");
-        const limb = (off: number) => ir.loadRaw("i64.load", null, ir.addr0(a, off));
-        const ors = ir.op("i64.or", ir.op("i64.or", limb(0), limb(8)), ir.op("i64.or", limb(16), limb(24)));
-        return ir.op("i64.extend_i32_u", ir.op("i64.eqz", ors));
-      }
+  if (primitive?.kind === "chain-rdrand" && primitive.width) {
+    const output = emitAddr(ctx, expr.args[0]);
+    if (!output) throw new Error(`${primitive.name} output is not addressable`);
+    return ir.op("i64.extend_i32_u", ir.call(`$intr_rdrand${primitive.width}`, addrIr(output)));
+  }
+  if (primitive?.kind === "mask-extract") {
+    const input = emitAddr(ctx, expr.args[0]);
+    if (!input) throw new Error(`${primitive.name} operand must be addressable`);
+    let mask: ir.Ir = ir.i64c(0);
+    for (let byte = 0; byte < 32; byte++) {
+      const value = ir.loadRaw("i64.load8_u", byte, addrIr(input));
+      const bit = ir.op("i64.and", ir.op("i64.shr_u", value, ir.i64c(7)), ir.i64c(1));
+      mask = ir.op("i64.or", mask, ir.op("i64.shl", bit, ir.i64c(byte)));
     }
+    return mask;
+  }
+  if (primitive?.kind === "test-zero") {
+    const left = emitAddr(ctx, expr.args[0]);
+    const right = emitAddr(ctx, expr.args[1]);
+    if (!left || !right) throw new Error(`${primitive.name} operands must be addressable`);
+    let combined: ir.Ir = ir.i64c(0);
+    for (let lane = 0; lane < 4; lane++) {
+      const a = ir.loadRaw("i64.load", lane * 8, addrIr(left));
+      const b = ir.loadRaw("i64.load", lane * 8, addrIr(right));
+      combined = ir.op("i64.or", combined, ir.op("i64.and", a, b));
+    }
+    return ir.op("i64.extend_i32_u", ir.op("i64.eqz", combined));
   }
 
   // ProposalVoting proxy `qpi(state.proposals).method(...)` — compile the real qpi.h proxy method against the wrapped ProposalVoting instance. A sibling proxy
@@ -264,17 +263,19 @@ export function emitInterContract(ctx: FnCtx, expr: Expression & { kind: "call" 
   const entry = isInvoke ? callee?.procedures[fArg.name] : callee?.functions[fArg.name];
   if (idx === null || !entry) return null;
 
-  const inAddr = expr.args[2] ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)") : "(i32.const 0)";
-  const outAddr = expr.args[3] ? (emitAddr(ctx, expr.args[3]) ?? "(i32.const 0)") : "(i32.const 0)";
+  if (!expr.args[2] || !expr.args[3]) throw new Error(`${isInvoke ? "INVOKE" : "CALL"}_OTHER requires input and output buffers`);
+  const inAddr = emitAddr(ctx, expr.args[2]);
+  const outAddr = emitAddr(ctx, expr.args[3]);
+  if (!inAddr || !outAddr) throw new Error(`${isInvoke ? "INVOKE" : "CALL"}_OTHER input and output must be addressable`);
   const inSize = (expr.args[2] ? resolveAddr(ctx, expr.args[2])?.size : undefined) ?? entry.inSize;
   const outSize = (expr.args[3] ? resolveAddr(ctx, expr.args[3])?.size : undefined) ?? entry.outSize;
   const dims = `(i32.const ${idx}) (i32.const ${entry.inputType}) ${inAddr} (i32.const ${inSize}) ${outAddr} (i32.const ${outSize})`;
   // Returns the bare i32 call expression (the InterContractCallError). The statement caller drops it; the
   if (isInvoke) {
     const reward = expr.args[4] ? emitValue(ctx, expr.args[4]) : "(i64.const 0)";
-    return `(call $liteInvokeProcedure ${dims} ${reward})`;
+    return `(call ${QPI_BINDINGS.__invokeOther.fwd} ${dims} ${reward})`;
   }
-  return `(call $liteCallFunction ${dims})`;
+  return `(call ${QPI_BINDINGS.__callOther.fwd} ${dims})`;
 }
 
 // The ProposalVoting wrapper call shape: `qpi(<aggregate>).<method>(...)` — a member call whose object is a `qpi(...)` call. Returns the
@@ -323,10 +324,10 @@ export function emitOracleQueryCall(ctx: FnCtx, expr: Expression & { kind: "temp
   if (subscribe) {
     const period = `(i32.wrap_i64 ${emitValue(ctx, expr.args[3])})`;
     const prev = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[4])}) (i32.const 1))`;
-    return `(i64.extend_i32_s (call $lh_subscribeOracle (i32.const ${iface}) ${qAddr} (i32.const ${qSize}) (i32.const ${procId}) ${period} ${prev} ${fee}))`;
+    return `(i64.extend_i32_s (call ${QPI_BINDINGS.__subscribeOracle.fwd} (i32.const ${iface}) ${qAddr} (i32.const ${qSize}) (i32.const ${procId}) ${period} ${prev} ${fee}))`;
   }
   const timeout = `(i32.wrap_i64 ${emitValue(ctx, expr.args[3])})`;
-  return `(call $lh_queryOracle (i32.const ${iface}) ${qAddr} (i32.const ${qSize}) (i32.const ${procId}) ${timeout} ${fee})`;
+  return `(call ${QPI_BINDINGS.__queryOracle.fwd} (i32.const ${iface}) ${qAddr} (i32.const ${qSize}) (i32.const ${procId}) ${timeout} ${fee})`;
 }
 
 // qpi.getOracleQuery<OI>(queryId, query) / qpi.getOracleReply<OI>(queryId, reply): the host copies sizeof(OI::OracleQuery / OI::OracleReply) bytes into the out lvalue and reports
@@ -343,7 +344,7 @@ export function emitOracleReadCall(ctx: FnCtx, expr: Expression & { kind: "templ
 
   const qid = emitValueIr(ctx, expr.args[0]);
   return ir.op("i64.extend_i32_u",
-    ir.call(reply ? "$lh_getOracleReply" : "$lh_getOracleQuery", qid, addrIr(outAddr), ir.i32c(size)));
+    ir.call(reply ? QPI_BINDINGS.__getOracleReply.fwd : QPI_BINDINGS.__getOracleQuery.fwd, qid, addrIr(outAddr), ir.i32c(size)));
 }
 
 export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
@@ -473,7 +474,18 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
   // ASSERT is ((void)0) in release builds (platform/assert.h) — the argument is not even evaluated, so dropping the statement
   if (expr.callee.kind === "identifier" && expr.callee.name === "ASSERT") return;
 
-  if (expr.callee.kind === "identifier" && /^_rdrand(?:16|32|64)_step$/.test(expr.callee.name)) {
+  const primitive = (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")
+    ? platformPrimitive(expr.callee.name)
+    : undefined;
+  if (primitive?.kind === "memory-store") {
+    const destination = emitAddr(ctx, expr.args[0]);
+    const source = emitAddr(ctx, expr.args[1]);
+    if (!destination || !source) throw new Error(`${primitive.name} operands must be addressable`);
+    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(destination), addrIr(source), ir.i32c(32)))}`);
+    return;
+  }
+
+  if (primitive?.kind === "chain-rdrand") {
     ctx.lines.push(`    ${ir.emit(ir.op("drop", emitCallValueIr(ctx, expr)))}`);
     return;
   }

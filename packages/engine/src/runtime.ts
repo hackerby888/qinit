@@ -3,6 +3,7 @@
 // `WebAssembly` API instead of WAMR. One Contract == one WebAssembly.Instance of a built contract .wasm.
 // The contract bytes run unchanged; this supplies the "lhost" import table, the per-call marshalling, and
 // the resident-state digest.
+import { ASSET_ENUMERATION_RECORD, LHOST_ABI } from "@qinit/core";
 import { k12Bytes, toHex } from "./k12";
 import { bytesEqual } from "./bytes";
 import { TRACE_STATE_CAP, type TraceRecorder } from "./trace";
@@ -600,15 +601,16 @@ export class Contract {
         const n = Math.min(entries.length, maxN >>> 0);
         const mem = u8();
         const dv = new DataView(this.mem.buffer);
+        const record = ASSET_ENUMERATION_RECORD;
         let p = outOff >>> 0;
         for (let i = 0; i < n; i++) {
           const e = entries[i];
-          mem.set(e.owner.subarray(0, 32), p);
-          mem.set(e.possessor.subarray(0, 32), p + 32);
-          dv.setBigInt64(p + 64, e.shares, true);
-          dv.setUint16(p + 72, e.ownMgmt & 0xffff, true);
-          dv.setUint16(p + 74, e.posMgmt & 0xffff, true);
-          p += 80;
+          mem.set(e.owner.subarray(0, record.fields.owner.size), p + record.fields.owner.offset);
+          mem.set(e.possessor.subarray(0, record.fields.possessor.size), p + record.fields.possessor.offset);
+          dv.setBigInt64(p + record.fields.shares.offset, e.shares, true);
+          dv.setUint16(p + record.fields.ownershipManagingContract.offset, e.ownMgmt & 0xffff, true);
+          dv.setUint16(p + record.fields.possessionManagingContract.offset, e.posMgmt & 0xffff, true);
+          p += record.size;
         }
         return n;
       },
@@ -704,6 +706,11 @@ export class Contract {
         return this.host.setShareholderVotes(this.slot, calleeIdx >>> 0, vote, reward, originator);
       },
     };
+    const missingLhost = Object.keys(LHOST_ABI).filter((name) => !(name in lhost));
+    const extraLhost = Object.keys(lhost).filter((name) => !(name in LHOST_ABI));
+    if (missingLhost.length || extraLhost.length) {
+      throw new Error(`virtual-engine lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`);
+    }
     this.meterLhost(lhost);
     // wasm i32 params surface as SIGNED JS numbers; a shared-memory module (gtest) lives above 2GB, so its
     // pointers arrive negative and would corrupt every slice/set below. Coerce every i32 arg to unsigned at

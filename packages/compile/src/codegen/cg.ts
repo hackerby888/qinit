@@ -3,6 +3,7 @@ import { ClassTemplate, CompiledMethod, HelperInfo, PrivateInfo, CalleeIdl, Stru
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl, Span } from "../ast";
 import type { Sema } from "../sema";
 import { parseIntLiteral as lexParseIntLiteral } from "../lexer";
+import type { PlatformCapability } from "./platform-primitives";
 
 export class Codegen {
   private sema: Sema;
@@ -38,6 +39,7 @@ export class Codegen {
   memberFnLine: Map<string, number> = new Map();     // contract member function name → definition line (__id_<proc> resolution)
   warnings: CodegenWarning[] = [];
   errors: CodegenWarning[] = [];
+  capabilities: Set<PlatformCapability> = new Set();
 
   constructor(sema: Sema) {
     this.sema = sema;
@@ -68,6 +70,13 @@ export class Codegen {
             const akey = `${fn.name}/${(fn.params ?? []).length}`;
             if (fn.params[0]) into.set(`${akey}@${this.typeKey(this.derefType(fn.params[0].type))}`, def);
             if (!into.has(akey)) into.set(akey, def);
+            const firstDefault = fn.params.findIndex((param) => param.defaultValue !== undefined);
+            if (firstDefault >= 0) {
+              for (let arity = firstDefault; arity < fn.params.length; arity++) {
+                const defaultKey = `${fn.name}/${arity}`;
+                if (!into.has(defaultKey)) into.set(defaultKey, def);
+              }
+            }
             if (!into.has(fn.name)) into.set(fn.name, def);
           }
         }
@@ -136,8 +145,10 @@ export class Codegen {
           }
           if (!minto.has(makey)) minto.set(makey, fn);
           if (!minto.has(method)) minto.set(method, fn);
-        } else if (sep < 0 && nsPrefix && d.kind === "function" && (d as FunctionDecl).body) {
-          // a namespace free function (ProposalTypes::cls, ProposalTypes::optionCount): keyed by its qualified name so a `ProposalTypes::cls(type)` call resolves; compiled lazily
+        } else if (sep < 0 && d.kind === "function" && (d as FunctionDecl).body) {
+          // A namespace or platform free function (__m256i_convert, ProposalTypes::cls): keyed by its qualified
+          // name and compiled lazily. Platform conversion/equality helpers must remain source-backed so they
+          // can carry address-valued intrinsic results into the registered leaf primitives.
           const key = `${nsPrefix}${fn.name}`;
           const overloads = this.libFnOverloads.get(key);
           if (overloads) overloads.push(d as FunctionDecl);
@@ -1117,7 +1128,7 @@ export class Codegen {
     if (t.kind === "reference") return this.isAggregateType(t.refereed);
     if (t.kind === "array" || t.kind === "inline_struct" || t.kind === "template_instance") return true;
     if (t.kind === "name") {
-      if (t.name === "id" || t.name === "m256i" || t.name === "uint128" || t.name === "uint128_t") return true;
+      if (t.name === "id" || t.name === "m256i" || t.name === "__m256i" || t.name === "uint128" || t.name === "uint128_t") return true;
       if (SCALAR_SIZE[t.name] !== undefined) return false;
       return this.layoutOfType(t) !== null;
     }

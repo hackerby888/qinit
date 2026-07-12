@@ -112,6 +112,7 @@ export interface FnCtx {
   materializedCalls?: WeakMap<object, AddrNode>;  // side-effecting aggregate calls are evaluated once per AST expression
   proxyClass?: string;                          // emitting a ProposalVoting proxy method (qpi(pv).m()): the proxy class for sibling resolution
   sourceNamespace?: string;                     // lexical namespace/owner for unqualified free/static helper calls
+  qpiContext?: "function" | "procedure";       // ambient entry context for QPI binding permission checks
 }
 
 export interface Lvalue {

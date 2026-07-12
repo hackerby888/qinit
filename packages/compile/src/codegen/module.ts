@@ -321,6 +321,7 @@ export function generateWasmModule(
     migrate,
     memBase,
     gtest: gtestMode,
+    capabilities: [...cg.capabilities],
   };
 
   if (metadataOut) {

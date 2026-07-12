@@ -45,7 +45,11 @@ export function emitFunction(
   localsL: StructLayout,
   paramAliases?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }>,
 ): string {
-  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0, hasStateParam: true, params: paramAliases };
+  const contextType = fn?.params[0] ? cg.derefType(fn.params[0].type) : null;
+  const qpiContext = contextType?.kind === "name" && contextType.name === "QpiContextProcedureCall" ? "procedure"
+    : contextType?.kind === "name" && contextType.name === "QpiContextFunctionCall" ? "function"
+    : undefined;
+  const ctx: FnCtx = { cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0, hasStateParam: true, params: paramAliases, qpiContext };
 
   // Pre-scan for local variable declarations (must be declared at function top in WAT)
   if (fn?.body) collectLocals(fn.body, ctx);

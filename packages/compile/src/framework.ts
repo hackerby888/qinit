@@ -1,3 +1,8 @@
+import { ASSET_ENUMERATION_RECORD, LHOST_ABI } from "@qinit/core";
+import { emitLhostImports, lhostSymbol } from "./lhost";
+import type { PlatformCapability } from "./codegen/platform-primitives";
+import { QPI_BINDINGS } from "./codegen/calls/qpi";
+
 // WAT assembler for a complete contract module.
 export const IN_SZ = 64 * 1024;
 export const OUT_SZ = 64 * 1024;
@@ -34,6 +39,7 @@ export interface ModuleSpec {
   memBase?: number;           // shared-memory gtest mode: import env.memory and place the whole layout at
                               // this byte offset inside the provider's (corpus runner's) memory. Every
   gtest?: boolean;            // TS-compiled test runner: include the private qtest host ABI
+  capabilities?: readonly PlatformCapability[];
 }
 
 // Back-compat shape used by older callers / tests.
@@ -72,7 +78,7 @@ function computeLayout(stateSize: number, arenaSize: number, memBase = 0): Layou
   const ioSize = IN_SZ + OUT_SZ + LOCALS_SZ + arenaSize;
   // Asset-iterator result buffer (AssetOwnership/PossessionIterator): 1024 records × 80 bytes, written by the assetEnumerate host import at begin() and
   const iterBufBase = align(arenaEnd, 16);
-  const iterBufSize = 80 * 1024;
+  const iterBufSize = ASSET_ENUMERATION_RECORD.size * ASSET_ENUMERATION_RECORD.capacity;
   const pages = Math.ceil((iterBufBase + iterBufSize) / 65536) + 1;
   return { stateBase, stateSize, ctxBase, ioBase, inBase, outBase, localsBase, arenaBase, arenaEnd, ioSize, pages, iterBufBase };
 }
@@ -80,7 +86,7 @@ function computeLayout(stateSize: number, arenaSize: number, memBase = 0): Layou
 // ---- The complete module assembler ----
 
 export function emitModule(spec: ModuleSpec): string {
-  const usesPrng = spec.userFunctionsWat.includes("$intr_rdrand");
+  const usesPrng = spec.capabilities?.includes("chain-prng") ?? false;
   // WAMR's app-to-native adapter treats linear-memory offset 0 as nullptr.
   // Random-capable modules pass their resident state to lhost.k12 when seeding,
   // so keep that state at a non-zero offset. Shared-memory gtests retain their
@@ -122,66 +128,7 @@ export function emitFramework(opts: FrameworkOpts): string {
 
 function emitImports(gtest = false): string {
   return `  ;; ---- lhost imports ----
-  (import "lhost" "beginFn" (func $lh_beginFn (param i32)))
-  (import "lhost" "endFn" (func $lh_endFn (param i32)))
-  (import "lhost" "markDirty" (func $lh_markDirty (param i32)))
-  (import "lhost" "pauseLog" (func $lh_pauseLog))
-  (import "lhost" "resumeLog" (func $lh_resumeLog))
-  (import "lhost" "acquireScratch" (func $lh_acquireScratch (param i64 i32) (result i32)))
-  (import "lhost" "releaseScratch" (func $lh_releaseScratch (param i32)))
-  (import "lhost" "logBytes" (func $lh_logBytes (param i32 i32 i32 i32)))
-  (import "lhost" "k12" (func $lh_k12 (param i32 i32 i32)))
-  (import "lhost" "transfer" (func $lh_transfer (param i32 i64) (result i64)))
-  (import "lhost" "transferTyped" (func $lh_transferTyped (param i32 i64 i32) (result i64)))
-  (import "lhost" "abort" (func $lh_abort (param i32)))
-  (import "lhost" "burn" (func $lh_burn (param i64 i32) (result i64)))
-  (import "lhost" "epoch" (func $lh_epoch (result i32)))
-  (import "lhost" "tick" (func $lh_tick (result i32)))
-  (import "lhost" "numberOfTickTransactions" (func $lh_numberOfTickTransactions (result i32)))
-  (import "lhost" "getEntity" (func $lh_getEntity (param i32 i32) (result i32)))
-  (import "lhost" "queryFeeReserve" (func $lh_queryFeeReserve (param i32) (result i64)))
-  (import "lhost" "nextId" (func $lh_nextId (param i32 i32)))
-  (import "lhost" "prevId" (func $lh_prevId (param i32 i32)))
-  (import "lhost" "isContractId" (func $lh_isContractId (param i32) (result i32)))
-  (import "lhost" "arbitrator" (func $lh_arbitrator (param i32)))
-  (import "lhost" "computor" (func $lh_computor (param i32 i32)))
-  (import "lhost" "day" (func $lh_day (result i32)))
-  (import "lhost" "year" (func $lh_year (result i32)))
-  (import "lhost" "hour" (func $lh_hour (result i32)))
-  (import "lhost" "minute" (func $lh_minute (result i32)))
-  (import "lhost" "month" (func $lh_month (result i32)))
-  (import "lhost" "second" (func $lh_second (result i32)))
-  (import "lhost" "millisecond" (func $lh_millisecond (result i32)))
-  (import "lhost" "now" (func $lh_now (param i32)))
-  (import "lhost" "prevSpectrumDigest" (func $lh_prevSpectrumDigest (param i32)))
-  (import "lhost" "prevUniverseDigest" (func $lh_prevUniverseDigest (param i32)))
-  (import "lhost" "prevComputerDigest" (func $lh_prevComputerDigest (param i32)))
-  (import "lhost" "isAssetIssued" (func $lh_isAssetIssued (param i32 i64) (result i32)))
-  (import "lhost" "issueAsset" (func $lh_issueAsset (param i64 i32 i32 i64 i64) (result i64)))
-  (import "lhost" "numberOfShares" (func $lh_numberOfShares (param i32 i32 i32) (result i64)))
-  (import "lhost" "numberOfPossessedShares" (func $lh_numberOfPossessedShares (param i64 i32 i32 i32 i32 i32) (result i64)))
-  (import "lhost" "transferShareOwnershipAndPossession" (func $lh_transferShares (param i64 i32 i32 i32 i64 i32) (result i64)))
-  (import "lhost" "acquireShares" (func $lh_acquireShares (param i64 i32 i32 i32 i64 i32 i32 i64) (result i64)))
-  (import "lhost" "releaseShares" (func $lh_releaseShares (param i64 i32 i32 i32 i64 i32 i32 i64) (result i64)))
-  (import "lhost" "dayOfWeek" (func $lh_dayOfWeek (param i32 i32 i32) (result i32)))
-  (import "lhost" "signatureValidity" (func $lh_signatureValidity (param i32 i32 i32) (result i32)))
-  (import "lhost" "bidInIPO" (func $lh_bidInIPO (param i32 i64 i32) (result i64)))
-  (import "lhost" "ipoBidId" (func $lh_ipoBidId (param i32 i32 i32)))
-  (import "lhost" "ipoBidPrice" (func $lh_ipoBidPrice (param i32 i32) (result i64)))
-  (import "lhost" "computeMiningFunction" (func $lh_computeMiningFunction (param i32 i32 i32 i32)))
-  (import "lhost" "initMiningSeed" (func $lh_initMiningSeed (param i32)))
-  (import "lhost" "getOracleQueryStatus" (func $lh_getOracleQueryStatus (param i64) (result i32)))
-  (import "lhost" "unsubscribeOracle" (func $lh_unsubscribeOracle (param i32) (result i32)))
-  (import "lhost" "queryOracle" (func $lh_queryOracle (param i32 i32 i32 i32 i32 i64) (result i64)))
-  (import "lhost" "subscribeOracle" (func $lh_subscribeOracle (param i32 i32 i32 i32 i32 i32 i64) (result i32)))
-  (import "lhost" "getOracleQuery" (func $lh_getOracleQuery (param i64 i32 i32) (result i32)))
-  (import "lhost" "getOracleReply" (func $lh_getOracleReply (param i64 i32 i32) (result i32)))
-  (import "lhost" "distributeDividends" (func $lh_distributeDividends (param i64) (result i32)))
-  (import "lhost" "liteCallFunction" (func $lh_liteCallFunction (param i32 i32 i32 i32 i32 i32) (result i32)))
-  (import "lhost" "liteInvokeProcedure" (func $lh_liteInvokeProcedure (param i32 i32 i32 i32 i32 i32 i64) (result i32)))
-  (import "lhost" "liteSetShareholderProposal" (func $lh_liteSetShareholderProposal (param i32 i32 i64) (result i32)))
-  (import "lhost" "liteSetShareholderVotes" (func $lh_liteSetShareholderVotes (param i32 i32 i32 i64) (result i32)))
-  (import "lhost" "assetEnumerate" (func $lh_assetEnumerate (param i32 i32 i32 i32 i32 i32) (result i32)))
+${emitLhostImports()}
 ${gtest ? `  ;; ---- private TS gtest host imports ----
   (import "qtest" "invoke" (func $qt_invoke (param i32 i32 i32 i32 i32 i64 i32) (result i32)))
   (import "qtest" "query" (func $qt_query (param i32 i32 i32 i32 i32 i32) (result i32)))
@@ -314,48 +261,11 @@ function emitAllocators(L: Layout): string {
 function emitForwarders(): string {
   // Thin wrappers from $qpi_* (codegen targets) to the lhost imports.
   return `  ;; ---- qpi forwarders ----
-  (func $qpi_transfer (param $d i32) (param $a i64) (result i64) (call $lh_transfer (local.get $d) (local.get $a)))
+${emitQpiBindingForwarders()}
   (func $qpi_transferTyped (param $d i32) (param $a i64) (param $t i32) (result i64) (call $lh_transferTyped (local.get $d) (local.get $a) (local.get $t)))
-  (func $qpi_burn (param $a i64) (param $c i32) (result i64) (call $lh_burn (local.get $a) (local.get $c)))
-  (func $qpi_epoch (result i32) (call $lh_epoch))
-  (func $qpi_tick (result i32) (call $lh_tick))
-  (func $qpi_numberOfTickTransactions (result i32) (call $lh_numberOfTickTransactions))
-  (func $qpi_day (result i32) (call $lh_day))
-  (func $qpi_year (result i32) (call $lh_year))
-  (func $qpi_hour (result i32) (call $lh_hour))
-  (func $qpi_minute (result i32) (call $lh_minute))
-  (func $qpi_month (result i32) (call $lh_month))
-  (func $qpi_second (result i32) (call $lh_second))
-  (func $qpi_millisecond (result i32) (call $lh_millisecond))
-  (func $qpi_now (param $o i32) (call $lh_now (local.get $o)))
-  (func $qpi_k12 (param $i i32) (param $l i32) (param $o i32) (call $lh_k12 (local.get $i) (local.get $l) (local.get $o)))
-  (func $qpi_getEntity (param $i i32) (param $e i32) (result i32) (call $lh_getEntity (local.get $i) (local.get $e)))
-  (func $qpi_queryFeeReserve (param $c i32) (result i64) (call $lh_queryFeeReserve (local.get $c)))
-  (func $qpi_nextId (param $i i32) (param $o i32) (call $lh_nextId (local.get $i) (local.get $o)))
-  (func $qpi_prevId (param $i i32) (param $o i32) (call $lh_prevId (local.get $i) (local.get $o)))
-  (func $qpi_isContractId (param $i i32) (result i32) (call $lh_isContractId (local.get $i)))
-  (func $qpi_arbitrator (param $o i32) (call $lh_arbitrator (local.get $o)))
-  (func $qpi_computor (param $i i32) (param $o i32) (call $lh_computor (local.get $i) (local.get $o)))
   (func $qpi_prevSpectrumDigest (param $o i32) (call $lh_prevSpectrumDigest (local.get $o)))
   (func $qpi_prevUniverseDigest (param $o i32) (call $lh_prevUniverseDigest (local.get $o)))
   (func $qpi_prevComputerDigest (param $o i32) (call $lh_prevComputerDigest (local.get $o)))
-  (func $qpi_isAssetIssued (param $i i32) (param $n i64) (result i32) (call $lh_isAssetIssued (local.get $i) (local.get $n)))
-  (func $qpi_issueAsset (param $n i64) (param $i i32) (param $d i32) (param $s i64) (param $u i64) (result i64) (call $lh_issueAsset (local.get $n) (local.get $i) (local.get $d) (local.get $s) (local.get $u)))
-  (func $qpi_numberOfShares (param $a i32) (param $o i32) (param $p i32) (result i64) (call $lh_numberOfShares (local.get $a) (local.get $o) (local.get $p)))
-  (func $qpi_numberOfPossessedShares (param $n i64) (param $i i32) (param $o i32) (param $p i32) (param $om i32) (param $pm i32) (result i64) (call $lh_numberOfPossessedShares (local.get $n) (local.get $i) (local.get $o) (local.get $p) (local.get $om) (local.get $pm)))
-  (func $qpi_transferShares (param $n i64) (param $i i32) (param $o i32) (param $p i32) (param $s i64) (param $no i32) (result i64) (call $lh_transferShares (local.get $n) (local.get $i) (local.get $o) (local.get $p) (local.get $s) (local.get $no)))
-  (func $qpi_acquireShares (param $n i64) (param $i i32) (param $o i32) (param $p i32) (param $s i64) (param $som i32) (param $spm i32) (param $f i64) (result i64) (call $lh_acquireShares (local.get $n) (local.get $i) (local.get $o) (local.get $p) (local.get $s) (local.get $som) (local.get $spm) (local.get $f)))
-  (func $qpi_releaseShares (param $n i64) (param $i i32) (param $o i32) (param $p i32) (param $s i64) (param $dom i32) (param $dpm i32) (param $f i64) (result i64) (call $lh_releaseShares (local.get $n) (local.get $i) (local.get $o) (local.get $p) (local.get $s) (local.get $dom) (local.get $dpm) (local.get $f)))
-  (func $qpi_dayOfWeek (param $y i32) (param $m i32) (param $d i32) (result i32) (call $lh_dayOfWeek (local.get $y) (local.get $m) (local.get $d)))
-  (func $qpi_signatureValidity (param $e i32) (param $g i32) (param $s i32) (result i32) (call $lh_signatureValidity (local.get $e) (local.get $g) (local.get $s)))
-  (func $qpi_bidInIPO (param $i i32) (param $p i64) (param $q i32) (result i64) (call $lh_bidInIPO (local.get $i) (local.get $p) (local.get $q)))
-  (func $qpi_ipoBidId (param $i i32) (param $b i32) (param $o i32) (call $lh_ipoBidId (local.get $i) (local.get $b) (local.get $o)))
-  (func $qpi_ipoBidPrice (param $i i32) (param $b i32) (result i64) (call $lh_ipoBidPrice (local.get $i) (local.get $b)))
-  (func $qpi_computeMiningFunction (param $s i32) (param $p i32) (param $n i32) (param $o i32) (call $lh_computeMiningFunction (local.get $s) (local.get $p) (local.get $n) (local.get $o)))
-  (func $qpi_initMiningSeed (param $s i32) (call $lh_initMiningSeed (local.get $s)))
-  (func $qpi_getOracleQueryStatus (param $q i64) (result i32) (call $lh_getOracleQueryStatus (local.get $q)))
-  (func $qpi_unsubscribeOracle (param $s i32) (result i32) (call $lh_unsubscribeOracle (local.get $s)))
-  (func $qpi_distributeDividends (param $a i64) (result i32) (call $lh_distributeDividends (local.get $a)))
   (func $qpi_abort (param $c i32) (call $lh_abort (local.get $c)))
   (func $qpi_markDirty (param $c i32) (call $lh_markDirty (local.get $c)))
   (func $qpi_logBytes (param $ci i32) (param $lv i32) (param $m i32) (param $sz i32) (call $lh_logBytes (local.get $ci) (local.get $lv) (local.get $m) (local.get $sz)))
@@ -366,6 +276,17 @@ function emitForwarders(): string {
   (func $qpi_invocator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const ${CTX.invocator})) (i32.const 32)))
   (func $qpi_originator (param $o i32) (call $copyMem (local.get $o) (i32.add (global.get $ctxBase) (i32.const ${CTX.originator})) (i32.const 32)))
   (func $qpi_invocationReward (result i64) (i64.load (i32.add (global.get $ctxBase) (i32.const ${CTX.invocationReward}))))`;
+}
+
+function emitQpiBindingForwarders(): string {
+  return Object.values(QPI_BINDINGS).flatMap((binding) => {
+    if (!binding.host || !binding.fwd.startsWith("$qpi_")) return [];
+    const signature = LHOST_ABI[binding.host];
+    const params = signature.params.map((type, index) => `(param $p${index} ${type})`).join(" ");
+    const result = signature.results[0] ? ` (result ${signature.results[0]})` : "";
+    const operands = signature.params.map((_, index) => `(local.get $p${index})`).join(" ");
+    return [`  (func ${binding.fwd}${params ? " " + params : ""}${result} (call ${lhostSymbol(binding.host)}${operands ? " " + operands : ""}))`];
+  }).join("\n");
 }
 
 function emitIntrinsics(L: Layout, spec: ModuleSpec): string {

@@ -1,3 +1,4 @@
+import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
 import { emitValue } from "../value";
 import { argAddr, resolveAddr, loadAt, emitAddr, addrIr, setLocal, allocSlotIr, isSignedScalarType } from "../addr";
 import { collectLocals, emitStmt, newTmp } from "../stmt";
@@ -5,6 +6,7 @@ import { Bindings, CompiledMethod, FieldLayout, FnCtx } from "../types";
 import { Codegen } from "../cg";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
 import * as ir from "../../ir";
+import { materializeAssetAddress, QPI_AGGREGATE_LAYOUTS, QPI_BINDINGS } from "./qpi";
 
 // ---- compiling instantiated container methods from the real qpi.h bodies ----
 
@@ -100,7 +102,7 @@ export function callCompiled(
   const bind = ctx.cg.bindContainer(type.name, type.args);
   const ops = cm.fnParams.map((fp, i) => {
     const arg = args[i] ?? fp.defaultValue;
-    if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    if (!arg) throw new Error(`${type.name}::${method} is missing required argument ${i + 1}`);
     if (arg.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
     const paramType = ctx.cg.substInBindings(ctx.cg.derefType(fp.type), bind);
     return fp.isAddr
@@ -186,16 +188,18 @@ export function emitAssetIter(ctx: FnCtx, expr: Expression & { kind: "call" }, m
   const cursorN = ir.loadRaw("i32.load", null, ir.addr0(itN, 4));
   const count = `(i32.load ${iter})`;
   const cursor = ir.emit(cursorN);
-  const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const 80)))`;
+  const record = ASSET_ENUMERATION_RECORD;
+  const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const ${record.size})))`;
 
   if (method === "begin") {
-    const selN = allocSlotIr(ctx, 40);
-    ctx.lines.push(`    ${ir.emit(ir.call("$setMem", selN, ir.i32c(40), ir.i32c(0)))}`);   // any-select: anyId + anyMgmt
-    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(selN, 34), ir.i32c(1)))}`);
-    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(selN, 35), ir.i32c(1)))}`);
-    const asset = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
+    const selector = QPI_AGGREGATE_LAYOUTS.AssetSelect;
+    const selN = allocSlotIr(ctx, selector.size);
+    ctx.lines.push(`    ${ir.emit(ir.call("$setMem", selN, ir.i32c(selector.size), ir.i32c(0)))}`);   // any-select: anyId + anyMgmt
+    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(selN, selector.fields.anyId), ir.i32c(1)))}`);
+    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(selN, selector.fields.anyManagingContract), ir.i32c(1)))}`);
+    const asset = materializeAssetAddress(ctx, expr.args[0], `${tn}.begin`);
     const kind = tn === "AssetPossessionIterator" ? 1 : 0;
-    const enumerate = ir.call("$lh_assetEnumerate", ir.i32c(kind), addrIr(asset), selN, selN, ir.raw("(global.get $assetIterBase)", "i32"), ir.i32c(1024));
+    const enumerate = ir.call(QPI_BINDINGS.__assetEnumerate.fwd, ir.i32c(kind), addrIr(asset), selN, selN, ir.raw("(global.get $assetIterBase)", "i32"), ir.i32c(record.capacity));
     ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store", null, itN, enumerate))}`);
     ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store", null, ir.addr0(itN, 4), ir.i32c(0)))}`);
     return "";
@@ -205,9 +209,9 @@ export function emitAssetIter(ctx: FnCtx, expr: Expression & { kind: "call" }, m
     return "";
   }
   if (method === "reachedEnd") return `(i64.extend_i32_u (i32.ge_u ${cursor} ${count}))`;
-  if (method === "numberOfPossessedShares" || method === "numberOfOwnedShares") return `(i64.load (i32.add ${rec} (i32.const 64)))`;
-  if (method === "possessor") return mode === "addr" ? `(i32.add ${rec} (i32.const 32))` : `(i64.load (i32.add ${rec} (i32.const 32)))`;
+  if (method === "numberOfPossessedShares" || method === "numberOfOwnedShares") return `(i64.load (i32.add ${rec} (i32.const ${record.fields.shares.offset})))`;
+  if (method === "possessor") return mode === "addr" ? `(i32.add ${rec} (i32.const ${record.fields.possessor.offset}))` : `(i64.load (i32.add ${rec} (i32.const ${record.fields.possessor.offset})))`;
   if (method === "owner") return mode === "addr" ? rec : `(i64.load ${rec})`;
-  if (method === "ownershipManagingContract") return `(i64.extend_i32_u (i32.load16_u (i32.add ${rec} (i32.const 72))))`;
+  if (method === "ownershipManagingContract") return `(i64.extend_i32_u (i32.load16_u (i32.add ${rec} (i32.const ${record.fields.ownershipManagingContract.offset}))))`;
   return null;
 }

@@ -4,6 +4,7 @@ import type {
   Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span,
 } from "./ast";
 import { parseIntLiteral } from "./lexer";
+import { QPI_BINDINGS, QPI_GETTERS } from "./codegen/calls/qpi";
 
 export interface ValidateDiagnostic {
   severity: "error";
@@ -813,13 +814,20 @@ class Validator {
             const method = e.callee.member;
             const object = e.callee.object;
             if (object.kind === "identifier" && object.name === "qpi") {
-              const qpiArity: Record<string, number> = { transfer: 2, tick: 0 };
-              const expected = qpiArity[method];
-              if (expected !== undefined && e.args.length !== expected) {
-                this.error(`qpi.${method} expects ${expected} argument(s) but got ${e.args.length}`, e.span);
+              const binding = QPI_BINDINGS[method];
+              const getter = QPI_GETTERS[method];
+              if (binding?.recipeMode === "generic") {
+                const minArgs = binding.args.filter((kind) => kind !== "cidx" && kind !== "ownsel" && kind !== "possel").length;
+                const maxArgs = binding.args.length;
+                if (e.args.length < minArgs || e.args.length > maxArgs) {
+                  const expected = minArgs === maxArgs ? `${maxArgs}` : `${minArgs}..${maxArgs}`;
+                  this.error(`qpi.${method} expects ${expected} argument(s) but got ${e.args.length}`, e.span);
+                }
+              } else if (getter && e.args.length !== 0) {
+                this.error(`qpi.${method} expects 0 argument(s) but got ${e.args.length}`, e.span);
               }
-              if (this.isPublicFunctionContext() && method === "transfer") {
-                this.error(`qpi.transfer is unavailable in a public function; it may only be used by a procedure`, e.span);
+              if (this.isPublicFunctionContext() && binding?.context === "procedure") {
+                this.error(`qpi.${method} is unavailable in a public function; it may only be used by a procedure`, e.span);
               }
             }
             const receiverType = this.inferSimpleType(object);

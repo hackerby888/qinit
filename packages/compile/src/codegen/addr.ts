@@ -2,6 +2,7 @@ import { SCALAR_SIZE } from "./tables";
 import { emitProposalProxyAddr } from "./calls/proxy";
 import { qpiWrapperMethod } from "./calls/dispatch";
 import { emitAssetIter, classifyMethodParam, callCompiled, compileContainerMethod } from "./calls/containers";
+import { platformPrimitive } from "./platform-primitives";
 import { lookupHelper, emitAggHelperCall } from "./calls/libfn";
 import { newTmp, collectLocals, emitStmt } from "./stmt";
 import { QPI_CALLS, emitQpiCall } from "./calls/qpi";
@@ -311,6 +312,46 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     if (cached) return cached.addr;
   }
 
+  if (expr.kind === "call" && (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")) {
+    const primitive = platformPrimitive(expr.callee.name);
+    if (primitive?.result === "address") {
+      for (const capability of primitive.capabilities ?? []) ctx.cg.capabilities.add(capability);
+      if (expr.args.length !== primitive.operands.length) {
+        throw new Error(`${primitive.name} expects ${primitive.operands.length} argument(s), got ${expr.args.length}`);
+      }
+      const destination = allocSlotIr(ctx, 32);
+      if (primitive.kind === "zero") {
+        ctx.lines.push(`    ${ir.emit(ir.call("$setMem", destination, ir.i32c(32), ir.i32c(0)))}`);
+      } else if (primitive.kind === "lane-pack-64") {
+        for (let lane = 0; lane < 4; lane++) {
+          ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", lane * 8, destination, emitValueIr(ctx, expr.args[3 - lane])))}`);
+        }
+      } else if (primitive.kind === "lane-pack-8") {
+        for (let lane = 0; lane < 32; lane++) {
+          const byte = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[31 - lane]));
+          ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", lane, destination, byte))}`);
+        }
+      } else if (primitive.kind === "memory-load") {
+        const source = emitAddr(ctx, expr.args[0]);
+        if (!source) throw new Error(`${primitive.name} source is not addressable`);
+        ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", destination, addrIr(source), ir.i32c(32)))}`);
+      } else if (primitive.kind === "lane-compare-64") {
+        const left = emitAddr(ctx, expr.args[0]);
+        const right = emitAddr(ctx, expr.args[1]);
+        if (!left || !right) throw new Error(`${primitive.name} operands must be addressable`);
+        for (let lane = 0; lane < 4; lane++) {
+          const a = ir.loadRaw("i64.load", lane * 8, addrIr(left));
+          const b = ir.loadRaw("i64.load", lane * 8, addrIr(right));
+          const value = ir.selectV(ir.i64c(-1), ir.i64c(0), ir.op("i64.eq", a, b));
+          ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", lane * 8, destination, value))}`);
+        }
+      } else {
+        throw new Error(`platform primitive '${primitive.name}' cannot produce an address via ${primitive.kind}`);
+      }
+      return ir.emit(destination);
+    }
+  }
+
   if (ctx.cg.gtestMode && expr.kind === "call" && (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")) {
     const calleeName = expr.callee.name;
     if (calleeName === "__qtest_state") {
@@ -412,23 +453,14 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     }
   }
 
-  // id(a,b,c,d) / m256i(a,b,c,d) constructor → materialize the four 64-bit limbs (missing ones = 0).
+  // Plain aggregate constructor syntax is normalized through the authoritative class constructor.
   if (expr.kind === "call" && expr.callee.kind === "identifier" && (expr.callee.name === "id" || expr.callee.name === "m256i")) {
-    return materializeId(ctx, expr.args);
-  }
-
-  // _mm256_set_epi64x(e3, e2, e1, e0): build a 32-byte m256i. The intrinsic takes the qwords high→low (e0 is
-  if (expr.kind === "call" && expr.callee.kind === "identifier" && expr.callee.name === "_mm256_set_epi64x" && expr.args.length === 4) {
-    const s = allocSlotIr(ctx, 32);
-    for (let i = 0; i < 4; i++) {
-      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", i * 8, s, emitValueIr(ctx, expr.args[3 - i])))}`);
+    const type: TypeSpec = { kind: "name", name: expr.callee.name };
+    const destination = allocSlot(ctx, 32);
+    if (!emitConstruct(ctx, destination, type, expr.args)) {
+      throw new Error(`authoritative ${expr.callee.name} constructor could not be lowered`);
     }
-    return ir.emit(s);
-  }
-  // id::zero() / m256i::zero() → 32 zero bytes (X::y parses as one qualified identifier "X::y")
-  if (expr.kind === "call" && expr.callee.kind === "identifier" &&
-    (expr.callee.name === "id::zero" || expr.callee.name === "m256i::zero")) {
-    return materializeId(ctx, []);
+    return destination;
   }
 
   // A qualified static method returning an aggregate is compiled from the owning
@@ -489,7 +521,7 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
     const desc = QPI_CALLS[expr.callee.member];
     if (desc && desc.ret === "out") {
-      const s = allocSlot(ctx, 32);
+      const s = allocSlot(ctx, desc.outSize ?? 32);
       const q = emitQpiCall(ctx, expr, s);
       if (q) ctx.lines.push(`    ${q.wat}`);
       return s;
@@ -687,6 +719,23 @@ export const QPI_ID_PRODUCERS: Record<string, string> = {
 
 // Aggregate construction `Type{ a, b, c }` written into dstAddr: zero the target, then store each arg into
 export function emitConstruct(ctx: FnCtx, dstAddr: string, type: TypeSpec, args: Expression[]): boolean {
+  const resolved = ctx.cg.resolveType(type, ctx.thisBind ?? NO_BIND);
+  const owner = resolved.kind === "name" ? resolved.name
+    : resolved.kind === "template_instance" ? resolved.name
+    : type.kind === "name" ? type.name : null;
+  if (owner && ctx.cg.templateMethods.get(owner)?.has(owner)) {
+    const instance: TypeSpec & { kind: "template_instance" } = {
+      kind: "template_instance",
+      name: owner,
+      args: resolved.kind === "template_instance" ? resolved.args : [],
+    };
+    const compiled = callCompiled(ctx, instance, owner, dstAddr, args);
+    if (!compiled || compiled.cm.retKind !== "void") {
+      throw new Error(`authoritative ${owner} constructor could not be lowered`);
+    }
+    ctx.lines.push(`    ${compiled.call}`);
+    return true;
+  }
   const layout = ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND);
   if (!layout) return false;
   const fields = [...layout.fields.values()];

@@ -8,6 +8,7 @@ import {
   addr0, loadRaw, storeRaw, loadScalar, storeScalar,
   CALL_SIG, OP_SIG,
 } from "../src/ir";
+import { emitModule } from "../src/framework";
 
 const p = getL("p", "i32");
 const v = getL("v", "i64");
@@ -189,7 +190,14 @@ describe("CALL_SIG agrees with framework.ts", () => {
   });
 
   test("every registry entry matches the framework definition", () => {
-    const framework = readFileSync(join(import.meta.dir, "../src/framework.ts"), "utf8");
+    const framework = emitModule({
+      stateSize: 0,
+      arenaSize: 64 * 1024,
+      entries: [],
+      sysprocs: [],
+      userFunctionsWat: ";; no user functions",
+      gtest: true,
+    });
     const defined = new Map<string, { params: string[]; res: string }>();
     const re = /\(func (\$[a-zA-Z0-9_]+)((?:\s*\(param(?:\s+\$[a-zA-Z0-9_.]+)?(?:\s+(?:i32|i64))+\))*)\s*(?:\(result (i32|i64)\))?/g;
     for (const m of framework.matchAll(re)) {
