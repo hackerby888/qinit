@@ -1,7 +1,7 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Collection maintenance parity checks: - remove() marks emptied PoVs and updates `_markRemovalCounter`.
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { buildContract } from "@qinit/build";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -61,25 +61,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential — Collection needsCleanup/cleanup state parity", () => {
   beforeAll(async () => {
     await initK12();
   });
 
-  test("state bytes after remove/mark/cleanup match native exactly", async () => {
-    if (!wasiAvailable()) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
+  toolchainTest("state bytes after remove/mark/cleanup match native exactly", wasi, async () => {
     const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");

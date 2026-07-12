@@ -12,6 +12,10 @@
     "smoke": "bun run packages/cli/src/index.tsx smoke",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test",
+    "test:sc": "bun run scripts/test-system-gtests.ts --light",
+    "test:sc:light": "bun run scripts/test-system-gtests.ts --light",
+    "test:sc:heavy": "bun run scripts/test-system-gtests.ts --heavy",
+    "test:sc:all": "bun run scripts/test-system-gtests.ts --all",
     "test:compiled": "bash scripts/check-compiled.sh",
     "test:node": "bash scripts/smoke-node.sh"
   },

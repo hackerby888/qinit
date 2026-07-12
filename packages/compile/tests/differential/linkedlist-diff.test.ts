@@ -1,8 +1,8 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential gtest for LinkedList<T, L> compiled from the real qpi.h body: addHead/addTail, insertAfter/insertBefore, forward and backward traversal (headIndex/tailIndex/nextElementIndex/
 import { coreGtest } from "../support/core-gtest";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
 import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -162,25 +162,14 @@ TEST(LinkedList, ResetAndReuse) {
 }
 `);
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — LinkedList (add/insert/traverse/remove/reset)", () => {
   beforeAll(async () => {
     await initK12();
   });
 
-  test("my LinkedList contract passes the native LinkedList gtest", async () => {
-    if (!wasiAvailable()) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
+  toolchainTest("my LinkedList contract passes the native LinkedList gtest", wasi, async () => {
     const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");

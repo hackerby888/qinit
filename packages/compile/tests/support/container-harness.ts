@@ -1,0 +1,178 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildContract } from "@qinit/build";
+import { Sim } from "@qinit/engine";
+import { compileContract } from "../../src/index";
+
+export const CONTAINER_SLOT = 27;
+export const CONTAINER_ARENA_SIZE = 4 * 1024 * 1024;
+
+export interface ContainerOperation {
+  op: bigint;
+  a?: bigint;
+  b?: bigint;
+  c?: bigint;
+  d?: bigint;
+  e?: bigint;
+}
+
+export interface ContainerFixture {
+  family: string;
+  name: string;
+  source: string;
+  boundary: ContainerOperation[];
+}
+
+export interface ExecutionResult {
+  outputs: Uint8Array[];
+  state: Uint8Array;
+}
+
+export function encodeContainerOperation(operation: ContainerOperation): Uint8Array {
+  const values = [operation.op, operation.a ?? 0n, operation.b ?? 0n, operation.c ?? 0n, operation.d ?? 0n, operation.e ?? 0n];
+  const bytes = new Uint8Array(values.length * 8);
+  const view = new DataView(bytes.buffer);
+  values.forEach((value, index) => view.setBigUint64(index * 8, BigInt.asUintN(64, value), true));
+  return bytes;
+}
+
+export function decodeWords(bytes: Uint8Array): bigint[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return Array.from({ length: Math.floor(bytes.byteLength / 8) }, (_, index) => view.getBigUint64(index * 8, true));
+}
+
+export function executeContainerScript(wasm: Uint8Array, operations: readonly ContainerOperation[]): ExecutionResult {
+  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const user = new Uint8Array(32).fill(7);
+  sim.fund(user, 1_000_000n);
+  const contract = sim.deploy(CONTAINER_SLOT, wasm);
+  const outputs = operations.map((operation) => sim.procedure(
+    CONTAINER_SLOT,
+    1,
+    encodeContainerOperation(operation),
+    { invocator: user },
+  ).slice());
+  return { outputs, state: contract.state().slice() };
+}
+
+export async function compileTsFixture(fixture: ContainerFixture, qpiHeader: string): Promise<Uint8Array> {
+  const result = await compileContract({
+    source: fixture.source,
+    name: fixture.name,
+    slot: CONTAINER_SLOT,
+    qpiHeader,
+    arenaSz: CONTAINER_ARENA_SIZE,
+  });
+  const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  if (errors.length || !result.wasm.byteLength) {
+    throw new Error(`${fixture.family} TS compile failed: ${errors.map((error) => error.message).join(" | ") || "empty artifact"}`);
+  }
+  return result.wasm;
+}
+
+export async function compileNativeFixture(fixture: ContainerFixture, corePath: string): Promise<{ wasm: Uint8Array; dispose: () => void }> {
+  const dir = mkdtempSync(join(tmpdir(), `qinit-container-${fixture.family.toLowerCase()}-`));
+  const contractPath = join(dir, `${fixture.name}.h`);
+  writeFileSync(contractPath, fixture.source);
+  const result = await buildContract({
+    contractPath,
+    name: fixture.name,
+    slot: CONTAINER_SLOT,
+    corePath,
+    outDir: dir,
+    arenaSz: CONTAINER_ARENA_SIZE,
+    skipVerify: true,
+  });
+  if (!result.ok || !result.so) {
+    rmSync(dir, { recursive: true, force: true });
+    throw new Error(`${fixture.family} native WASI compile failed: ${result.stderr ?? "no artifact"}`);
+  }
+  return {
+    wasm: new Uint8Array(readFileSync(result.so)),
+    dispose: () => rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+export function compareExecutions(left: ExecutionResult, right: ExecutionResult): string | null {
+  if (left.outputs.length !== right.outputs.length) return `output count ${left.outputs.length} != ${right.outputs.length}`;
+  for (let index = 0; index < left.outputs.length; index++) {
+    if (!Buffer.from(left.outputs[index]).equals(Buffer.from(right.outputs[index]))) {
+      return `operation ${index} output differs: ${Buffer.from(left.outputs[index]).toString("hex")} != ${Buffer.from(right.outputs[index]).toString("hex")}`;
+    }
+  }
+  if (!Buffer.from(left.state).equals(Buffer.from(right.state))) {
+    const first = left.state.findIndex((value, index) => value !== right.state[index]);
+    return `final state differs at byte ${first}: ${left.state[first]} != ${right.state[first]}`;
+  }
+  return null;
+}
+
+export function wamrScript(operations: readonly ContainerOperation[]): string {
+  return operations.map((operation) => `1:${Buffer.from(encodeContainerOperation(operation)).toString("hex")}`).join(";");
+}
+
+export function executeWamr(gtestPath: string, wasm: Uint8Array, operations: readonly ContainerOperation[]): Uint8Array {
+  const dir = mkdtempSync(join(tmpdir(), "qinit-container-wamr-"));
+  const artifact = join(dir, "fixture.wasm");
+  try {
+    writeFileSync(artifact, wasm);
+    const process = Bun.spawnSync([gtestPath, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"], {
+      env: { ...globalThis.process.env, QINIT_WASM: artifact, QINIT_SCRIPT: wamrScript(operations) },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stdout = process.stdout.toString();
+    const stderr = process.stderr.toString();
+    if (process.exitCode !== 0) throw new Error(`WAMR gtest exited ${process.exitCode}:\n${stdout}\n${stderr}`);
+    const match = stdout.match(/CROSSHOST_STATE=([0-9a-f]+)/);
+    if (!match) throw new Error(`WAMR gtest emitted no state:\n${stdout}\n${stderr}`);
+    return new Uint8Array(Buffer.from(match[1], "hex"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export function seededOperations(family: string, seed: number, count: number): ContainerOperation[] {
+  let state = (seed ^ 0x9e3779b9) >>> 0;
+  const next = () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return state >>> 0;
+  };
+  const opcodeCounts: Record<string, number> = { Array: 8, BitArray: 8, HashMap: 13, HashSet: 12, Collection: 13, LinkedList: 10 };
+  const opcodeCount = opcodeCounts[family];
+  if (!opcodeCount) throw new Error(`unknown container family ${family}`);
+  return Array.from({ length: count }, () => {
+    const operation: ContainerOperation = {
+      op: BigInt(next() % opcodeCount),
+      a: BigInt(next()),
+      b: BigInt(next()),
+      c: BigInt(next()),
+      d: BigInt(next()),
+      e: BigInt(next()),
+    };
+    const opcode = Number(operation.op);
+    // Random scripts stay inside each method's documented preconditions. Dedicated boundary scripts
+    // carry the invalid-index/range cases, so stress runs do not turn native undefined behavior into
+    // a false compiler differential or accidentally create billion-iteration Array::setRange calls.
+    if (family === "Array" && (opcode === 2 || opcode === 3)) {
+      operation.a = operation.a! % 10n;
+      operation.b = operation.b! % 10n;
+    } else if (family === "HashMap" && opcode === 6) {
+      operation.a = BigInt.asUintN(64, (operation.a! % 18n) - 1n);
+    } else if (family === "HashSet" && opcode === 4) {
+      operation.a = BigInt.asUintN(64, (operation.a! % 18n) - 1n);
+    } else if (family === "Collection" && (opcode === 1 || opcode === 2)) {
+      operation.a = operation.a! % 19n;
+    } else if (family === "Collection" && (opcode === 4 || opcode === 5)) {
+      operation.a = operation.a! % 16n;
+    } else if (family === "Collection" && opcode === 12) {
+      operation.a = operation.a! % 49n;
+    } else if (family === "LinkedList" && opcode >= 2 && opcode <= 5) {
+      operation.a = operation.a! % 11n;
+    }
+    return operation;
+  });
+}

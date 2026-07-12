@@ -178,12 +178,96 @@ jobs:
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run scripts/ci-build-corpus.ts
 
+      - name: Light system-contract gtests (Clang runner, TS contracts)
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+        run: bun run test:sc:light
+
+      - name: Heavy system-contract gtests (scheduled/manual only)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+        run: bun run test:sc:heavy
+
       - name: Shared-memory system corpus (TS compiler)
         env:
           QINIT_CORE: ${{ github.workspace }}/core
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run scripts/ci-qpi-shared-memory.ts
+
+  # Deterministic randomized differential gate for every public QPI container family. Each fixture is
+  # compiled once by the TS compiler and native WASI, then reset between seeds. The exact TS artifact
+  # is also executed unchanged by the standalone core-lite WAMR gtest.
+  container-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      QINIT_CORE: ${{ github.workspace }}/core
+      QINIT_CONTAINER_PARITY: "1"
+      QINIT_REQUIRE_CONTAINER_TOOLCHAINS: "1"
+      QINIT_CONTAINER_SEEDS: ${{ github.event_name == 'schedule' && '32' || '4' }}
+      QINIT_CONTAINER_OPERATIONS: ${{ github.event_name == 'schedule' && '256' || '64' }}
+      QINIT_WAMR_GTEST: ${{ github.workspace }}/core/build-container-parity/test/qubic_core_tests
+      WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+      WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout core-lite with submodules (${{ env.CORE_REF }})
+        uses: actions/checkout@v4
+        with:
+          repository: hackerby888/core-lite
+          ref: ${{ env.CORE_REF }}
+          path: core
+          submodules: recursive
+
+      - name: Install core-lite test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-18 cmake nasm ccache g++ \
+            libboost-stacktrace-dev libc++-dev libc++abi-dev libjsoncpp-dev uuid-dev \
+            zlib1g-dev libzstd-dev libfmt-dev liblzo2-dev liblz4-dev libssl-dev libffi-dev
+      - uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: core-container-parity
+          max-size: 2G
+
+      - name: Build standalone WAMR core tests
+        working-directory: core
+        run: |
+          cmake -S . -B build-container-parity -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DBUILD_BINARY=OFF -DBUILD_TESTS=ON -DENABLE_AVX512=OFF -DUSE_SANITIZER=OFF \
+            -DLITE_WASM_CONTRACTS=ON
+          cmake --build build-container-parity --target qubic_core_tests -- -j$(nproc)
+          test -x build-container-parity/test/qubic_core_tests
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install
+
+      - name: Cache wasi-sdk
+        id: container-wasi
+        uses: actions/cache@v4
+        with:
+          path: wasi-sdk
+          key: wasi-sdk-29.0-x86_64-linux
+      - name: Fetch wasi-sdk-29
+        if: steps.container-wasi.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o wasi-sdk.tar.gz \
+            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-29/wasi-sdk-29.0-x86_64-linux.tar.gz
+          mkdir -p wasi-sdk && tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components=1
+
+      - name: Native differential and exact-artifact WAMR parity
+        run: bun test packages/compile/tests/differential/container-parity.test.ts
 
   deploy-smoke:
     runs-on: ubuntu-latest

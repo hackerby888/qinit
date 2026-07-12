@@ -649,14 +649,16 @@ export function emitInlineStructMethod(
     const slot = `marg${ctx.tmpCount++}`;
     ctx.localVars.set(slot, { wasmType: cls.wasmType });
     const arg = args[i] ?? p.defaultValue;
+    const paramType = ctx.cg.substInBindings(ctx.cg.derefType(p.type), bind);
     if (arg) {
-      const paramType = ctx.cg.substInBindings(ctx.cg.derefType(p.type), bind);
       const v = cls.isAddr
         ? addrIr(argAddr(ctx, arg, ctx.cg.sizeOfType(paramType, bind), paramType, cls.readOnlyRef === true))
         : emitValueIr(ctx, arg);
       ctx.lines.push(`    ${setLocal(ctx, slot, v)}`);
     }
-    params.set(p.name, { wasmType: cls.wasmType, isAddr: cls.isAddr, type: ctx.cg.derefType(p.type), local: slot });
+    // Keep dependent fields concrete inside the inlined body. Leaving `T` here made a `const T&`
+    // parameter fall back to a signed 32-bit load even when the owning container bound T=uint64.
+    params.set(p.name, { wasmType: cls.wasmType, isAddr: cls.isAddr, type: paramType, local: slot });
   }
 
   const save = {
@@ -806,15 +808,28 @@ export function allocSlot(ctx: FnCtx, size: number): string {
 
 // Address of an argument: use an existing lvalue directly, or materialize a
 // temporary according to the declaration's concrete parameter type.
-export function argAddr(ctx: FnCtx, expr: Expression, size: number, type?: TypeSpec, copyConstScalar = false): string {
-  const copyValue = copyConstScalar && !!type && !ctx.cg.isAggregateType(type);
-  if (!copyValue) {
+export function argAddr(
+  ctx: FnCtx,
+  expr: Expression,
+  size: number,
+  type?: TypeSpec,
+  copyConstScalar = false,
+  convertScalarToAggregate = false,
+): string {
+  const targetAggregate = !!type && ctx.cg.isAggregateType(type);
+  const source = convertScalarToAggregate ? resolveAddr(ctx, expr) : null;
+  const sourceAggregate = (!!source && isAggregate(ctx, source.type, source.size))
+    || (expr.kind === "construct" && ctx.cg.isAggregateType(expr.type))
+    || isU128Expr(ctx, expr);
+  const convertToAggregate = convertScalarToAggregate && targetAggregate && !sourceAggregate;
+  const copyValue = copyConstScalar && !!type && !targetAggregate;
+  if (!copyValue && !convertToAggregate) {
     const a = emitAddr(ctx, expr);
     if (a) return a;
   }
   const s = allocSlot(ctx, size);
-  if (type && (expr.kind === "initializer_list" || expr.kind === "construct")) {
-    const args = expr.kind === "initializer_list" ? expr.exprs : expr.args;
+  if (type && (convertToAggregate || expr.kind === "initializer_list" || expr.kind === "construct")) {
+    const args = expr.kind === "initializer_list" ? expr.exprs : expr.kind === "construct" ? expr.args : [expr];
     if (!emitConstruct(ctx, s, type, args)) {
       throw new Error("aggregate argument initializer could not be constructed");
     }

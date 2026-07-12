@@ -1,20 +1,24 @@
 // Run a STANDARD gtest (core-lite `contract_testing.h` suite) against a contract on a fresh isolated engine.
 // buildCorpusRunner swaps the test's `#include "contract_testing.h"` for the engine-backed
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildContract, buildCorpusRunner, systemContracts } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "@qinit/compile";
 import { initK12 } from "@qinit/core";
 
-// System suites that must run in shared-memory mode. NOT size-based (QUTIL is 384MB and runs fine non-shared;
-// PULSE/QTF are tiny yet need it) — it tracks the corpus's cached-pointer state-read pattern. Empirical.
-const HEAVY = new Set(["PULSE", "QTF", "QTRY", "GGWP", "QEARN"]);
+// System suites that are too memory- or dispatch-heavy for the routine developer gate. They run in
+// shared-memory mode and belong to the opt-in heavy suite. This is empirical rather than purely state-size
+// based: PULSE/QTF need shared state because their corpora retain state pointers, while NOST has ~1 GiB state.
+const HEAVY_SYSTEM_GTEST_NAMES = new Set(["PULSE", "QTF", "QTRY", "GGWP", "QEARN", "NOST"]);
 const ARENA = 8 * 1024 * 1024;
 const SHARED_START = 0x20000000;
 const MAIN_ARENA = 1024 * 1024 * 1024;
 const DEP_ARENA = 128 * 1024 * 1024;
+const NOST_ARENA = 256 * 1024 * 1024;
 const SLACK = 128 * 1024 * 1024;
+
+const mainArenaSize = (name: string): number => name === "NOST" ? NOST_ARENA : MAIN_ARENA;
 
 // A contract to build/deploy: the .h path + the identity the recipe needs.
 interface Spec {
@@ -39,6 +43,45 @@ export interface CorpusRun extends StdGtestRun {
   found: boolean;                 // the name matched a system contract
   hasCorpus: boolean;             // a test/contract_<x>.cpp exists
   available: string[];            // system-contract names (for a not-found hint)
+}
+
+export type SystemGtestTier = "light" | "heavy";
+
+export interface SystemGtestCorpus {
+  name: string;
+  slot: number;
+  stateType: string;
+  contractPath: string;
+  corpusPath: string;
+  tier: SystemGtestTier;
+}
+
+export function systemGtestTier(name: string): SystemGtestTier {
+  return HEAVY_SYSTEM_GTEST_NAMES.has(name.toUpperCase()) ? "heavy" : "light";
+}
+
+function corpusPathFor(core: string, name: string, file: string): string | undefined {
+  return [
+    join(core, "test", `contract_${name.toLowerCase()}.cpp`),
+    join(core, "test", `contract_${file.replace(/\.h$/, "").toLowerCase()}.cpp`),
+  ].find(existsSync);
+}
+
+// Discover from the live core checkout so a newly added or renamed system-contract corpus is picked up
+// automatically instead of waiting for a second hard-coded Qinit list to be updated.
+export function systemGtestCorpora(core: string): SystemGtestCorpus[] {
+  return systemContracts(core).flatMap((contract) => {
+    const corpusPath = corpusPathFor(core, contract.name, contract.file);
+    if (!corpusPath) return [];
+    return [{
+      name: contract.name,
+      slot: contract.index,
+      stateType: contract.stateType,
+      contractPath: join(core, "src", "contracts", contract.file),
+      corpusPath,
+      tier: systemGtestTier(contract.name),
+    }];
+  });
 }
 
 // Keep offsets unsigned above 2 GiB. JavaScript bitwise operators coerce to
@@ -84,23 +127,25 @@ function depSpecs(catalog: any[], mainName: string, testSrc: string, contractSrc
 async function nativeWasms(core: string, scratch: string, main: Spec, deps: Spec[], shared: boolean): Promise<Record<number, Uint8Array>> {
   const out: Record<number, Uint8Array> = {};
   let nextBase = SHARED_START;
-  const build = async (s: Spec, arenaSz: number, isMain: boolean): Promise<Uint8Array | null> => {
+  const build = async (s: Spec, arenaSz: number, isMain: boolean, useShared: boolean): Promise<Uint8Array | null> => {
     const common = { contractPath: s.contractPath, name: s.name, stateType: s.stateType, slot: s.slot, corePath: core, skipVerify: true };
-    const p1 = await buildContract({ ...common, outDir: join(scratch, "n_" + s.name), ...(shared ? { arenaSz } : {}) });
+    const p1 = await buildContract({ ...common, outDir: join(scratch, "n_" + s.name), ...(useShared ? { arenaSz } : {}) });
     if (!p1.so) {
       if (isMain) throw new Error("native build: " + (p1.stderr ?? "").split("\n").filter((l: string) => /error:/.test(l))[0]);
       return null;
     }
-    if (!shared) return new Uint8Array(readFileSync(p1.so));
+    if (!useShared) return new Uint8Array(readFileSync(p1.so));
     const base = nextBase;
     nextBase = align64k(base + stateSizeOf(new Uint8Array(readFileSync(p1.so))) + arenaSz + SLACK);
     const p2 = await buildContract({ ...common, outDir: join(scratch, "ns_" + s.name), arenaSz, sharedMemBase: base });
     return p2.so ? new Uint8Array(readFileSync(p2.so)) : null;
   };
-  const m = await build(main, MAIN_ARENA, true);
+  const m = await build(main, mainArenaSize(main.name), true, shared);
   if (m) out[main.slot] = m;
   for (const d of deps) {
-    const w = await build(d, DEP_ARENA, false);
+    // NOST's state is already close to the Wasm32 address-space ceiling. Its QX dependency does not retain
+    // runner-side state pointers, so keep that dependency in its own memory instead of exceeding 4 GiB.
+    const w = await build(d, DEP_ARENA, false, shared && main.name !== "NOST");
     if (w) out[d.slot] = w;
   }
   return out;
@@ -144,7 +189,7 @@ async function oursWasms(core: string, headers: string, main: Spec, deps: Spec[]
       const errors = dr.diagnostics.filter((diagnostic) => diagnostic.severity === "error").map((diagnostic) => diagnostic.message);
       throw new Error(`local dependency ${d.name}: ${errors.join("; ") || "compiler returned empty wasm"}`);
     }
-    out[d.slot] = shared ? (await emitAt(depOpts, DEP_ARENA)).wasm : dr.wasm;
+    out[d.slot] = shared && main.name !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : dr.wasm;
     callees.push({
       name: d.name, index: d.slot,
       functions: Object.fromEntries(dr.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }])),
@@ -153,7 +198,7 @@ async function oursWasms(core: string, headers: string, main: Spec, deps: Spec[]
     calleeSources.push({ name: d.name, source: dsrc });
   }
   const csrc = readFileSync(main.contractPath, "utf8");
-  const m = await emitAt({ source: csrc, name: main.name, slot: main.slot, qpiHeader: headers, callees: callees.length ? callees : undefined, calleeSources: calleeSources.length ? calleeSources : undefined }, MAIN_ARENA);
+  const m = await emitAt({ source: csrc, name: main.name, slot: main.slot, qpiHeader: headers, callees: callees.length ? callees : undefined, calleeSources: calleeSources.length ? calleeSources : undefined }, mainArenaSize(main.name));
   out[main.slot] = m.wasm;
   return { wasms: out, timings: m.timings };
 }
@@ -204,7 +249,12 @@ export async function runStdGtest(opts: {
     contracts = await nativeWasms(opts.core, opts.scratch, main, deps, shared);
   }
 
-  const results = await runContractTesting(runnerBytes, contracts, { onResult: opts.onResult });
+  const assetNames = Object.fromEntries([main, ...deps].map((contract) => [contract.slot, contract.name]));
+  const results = await runContractTesting(runnerBytes, contracts, {
+    mainSlot: main.slot,
+    assetNames,
+    onResult: opts.onResult,
+  });
   return { ...ret, runnerOk: true, results, timings };
 }
 
@@ -216,16 +266,13 @@ export async function runCorpus(opts: { name: string; core: string; backend: "na
   const miss = { name: c?.name ?? opts.name, slot: c?.index ?? 0, heavy: false, backend: opts.backend, runnerOk: false, results: [] as TestResult[], available };
   if (!c) return { ...miss, found: false, hasCorpus: false };
 
-  const corpusPath = [
-    join(opts.core, "test", `contract_${c.name.toLowerCase()}.cpp`),
-    join(opts.core, "test", `contract_${String(c.file).replace(/\.h$/, "").toLowerCase()}.cpp`),
-  ].find((p) => { try { readFileSync(p); return true; } catch { return false; } });
+  const corpusPath = corpusPathFor(opts.core, c.name, c.file);
   if (!corpusPath) return { ...miss, found: true, hasCorpus: false };
 
   const r = await runStdGtest({
     contractPath: join(opts.core, "src", "contracts", c.file), testPath: corpusPath,
     name: c.name, stateType: c.stateType, slot: c.index,
-    core: opts.core, backend: opts.backend, scratch: opts.scratch, shared: HEAVY.has(c.name),
+    core: opts.core, backend: opts.backend, scratch: opts.scratch, shared: systemGtestTier(c.name) === "heavy",
     onResult: opts.onResult, onPhase: opts.onPhase,
   });
   return { ...r, found: true, hasCorpus: true, available };

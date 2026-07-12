@@ -1,8 +1,8 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential gtest for Collection<T, L> compiled from the real qpi.h BST body: add (struct element), per-PoV iteration (headIndex
 import { coreGtest } from "../support/core-gtest";
+import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
 import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -71,25 +71,14 @@ const ORDERS_GTEST = coreGtest("Orders", `TEST(Coll, AddIterateRemove) {
 }
 `);
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — Collection (BST add/iterate/remove)", () => {
   beforeAll(async () => {
     await initK12();
   });
 
-  test("my Collection contract passes the native Collection gtest", async () => {
-    if (!wasiAvailable()) {
-      console.log("  (wasi-sdk clang not found — skipping)");
-      return;
-    }
+  toolchainTest("my Collection contract passes the native Collection gtest", wasi, async () => {
     const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");

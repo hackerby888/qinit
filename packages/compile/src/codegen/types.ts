@@ -64,7 +64,7 @@ export interface PrivateInfo {
 
 export interface CompiledMethod {
   label: string;                                             // WAT function name ($T<n>_<Class>_<method>)
-  fnParams: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; defaultValue?: Expression; readOnlyRef?: boolean }[];
+  fnParams: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; concreteType?: TypeSpec; defaultValue?: Expression; readOnlyRef?: boolean }[];
   retKind: "i32" | "i64" | "void";
   retAgg?: number;                                           // aggregate (id/struct) return size — ABI prepends a $ret dest-address param
   retType?: TypeSpec;                                        // concrete return/referent type

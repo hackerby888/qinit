@@ -1,4 +1,4 @@
-import { resolveAddr, emitAddr, allocSlot, narrowCast } from "../addr";
+import { resolveAddr, emitAddr, allocSlot, narrowCast, argAddr } from "../addr";
 import { emitHelperFunction } from "../stmt";
 import { Codegen } from "../cg";
 import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo, scalarTypeInfo, unsignedScalar, isU128Expr } from "../value";
@@ -257,9 +257,7 @@ export function helperCallOps(ctx: FnCtx, info: HelperInfo, args: Expression[]):
     const arg = args[i];
     if (!arg) throw new Error(`${info.sourceNamespace ?? info.label} is missing required argument ${i + 1}`);
     if (p.isAddr) {
-      const address = emitAddr(ctx, arg);
-      if (!address) throw new Error(`${info.sourceNamespace ?? info.label} argument ${i + 1} is not addressable`);
-      return address;
+      return argAddr(ctx, arg, ctx.cg.sizeOfType(p.type, ctx.thisBind ?? NO_BIND), p.type, false, true);
     }
     const declared = ctx.cg.derefType(p.type);
     return narrowCast(emitValue(ctx, arg), declared.kind === "name" ? declared.name : undefined);

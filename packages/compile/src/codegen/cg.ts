@@ -115,25 +115,30 @@ export class Codegen {
             this.templates.set(ct.name, { params: ct.params, members: ct.members, bases: ct.bases });
           }
         }
-        // Inline member methods defined with a body in the class itself (e.g. capacity()) are captured
+        // Inline member methods defined with a body in the class itself (e.g. capacity()) are captured.
+        // A member may itself be a function template (Array::setMem<AT>); keep that body on the
+        // owning class as well so call-site argument types can complete its bindings lazily.
         for (const m of ct.specializationArgs ? [] : ct.members) {
-          if (m.kind !== "function" || !(m as FunctionDecl).body) continue;
-          const fn = m as FunctionDecl;
+          if ((m.kind !== "function" && m.kind !== "function_template") || !(m as FunctionDecl | FunctionTemplateDecl).body) continue;
+          const fn = m as FunctionDecl | FunctionTemplateDecl;
           if (!this.templateMethods.has(ct.name)) this.templateMethods.set(ct.name, new Map());
           const into = this.templateMethods.get(ct.name)!;
-          const def: FunctionTemplateDecl = {
-            kind: "function_template",
-            name: fn.name,
-            params: ct.params,
-            fnParams: fn.params,
-            returnType: fn.returnType,
-            body: fn.body,
-            isConstexpr: fn.isConstexpr,
-            span: fn.span,
-          };
+          const def: FunctionTemplateDecl = m.kind === "function_template"
+            ? m as FunctionTemplateDecl
+            : {
+                kind: "function_template",
+                name: fn.name,
+                params: ct.params,
+                fnParams: (fn as FunctionDecl).params,
+                returnType: fn.returnType,
+                body: fn.body,
+                isConstexpr: fn.isConstexpr,
+                span: fn.span,
+              };
           this.namespaceContexts.set(def, lookupContext);
-          const akey = `${fn.name}/${(fn.params ?? []).length}`;
-          if (fn.params[0]) into.set(`${akey}@${this.typeKey(this.derefType(fn.params[0].type))}`, def);
+          const fnParams = m.kind === "function_template" ? (m as FunctionTemplateDecl).fnParams ?? [] : (m as FunctionDecl).params;
+          const akey = `${fn.name}/${fnParams.length}`;
+          if (fnParams[0]) into.set(`${akey}@${this.typeKey(this.derefType(fnParams[0].type))}`, def);
           if (!into.has(akey)) into.set(akey, def);
           if (!into.has(fn.name)) into.set(fn.name, def);
         }
@@ -1305,31 +1310,37 @@ export class Codegen {
   }
 
   // Public: resolve a container/struct method to its body + the binding for the matched template instance, HONORING PARTIAL
-  methodTemplate(name: string, args: TypeSpec[], methodName: string, argCount?: number, paramTypeKey?: string): { def: FunctionTemplateDecl; bind: Bindings } | null {
+  methodTemplate(name: string, args: TypeSpec[], methodName: string, argCount?: number, paramTypeKey?: string): { def: FunctionTemplateDecl; bind: Bindings; memberTemplate?: boolean } | null {
     // bindContainer carries the full method-scope binding (params + nested typedefs like VoteStorageType + static constexprs); instantiateTemplate's binding omits
     const bind = this.bindContainer(name, args);
     const inst = this.instantiateTemplate(name, args, NO_BIND);
     if (inst) {
       // Overload selection by arity (DateAndTime::isValid() vs the static isValid(y,m,d,...)): prefer an exact parameter-count match, then one whose extra
       const cands = inst.tmpl.members.filter(
-        (mm) => mm.kind === "function" && (mm as FunctionDecl).name === methodName && (mm as FunctionDecl).body,
-      ) as FunctionDecl[];
-      let m: FunctionDecl | undefined = cands[0];
+        (mm) => (mm.kind === "function" || mm.kind === "function_template") &&
+          (mm as FunctionDecl | FunctionTemplateDecl).name === methodName &&
+          (mm as FunctionDecl | FunctionTemplateDecl).body,
+      ) as Array<FunctionDecl | FunctionTemplateDecl>;
+      const paramsOf = (candidate: FunctionDecl | FunctionTemplateDecl) => candidate.kind === "function_template" ? candidate.fnParams ?? [] : candidate.params;
+      let m: FunctionDecl | FunctionTemplateDecl | undefined = cands[0];
       if (argCount !== undefined && cands.length > 1) {
-        m = cands.find((f) => (f.params ?? []).length === argCount)
-          ?? cands.find((f) => (f.params ?? []).length > argCount && (f.params ?? []).slice(argCount).every((p) => p.defaultValue !== undefined))
+        m = cands.find((f) => paramsOf(f).length === argCount)
+          ?? cands.find((f) => paramsOf(f).length > argCount && paramsOf(f).slice(argCount).every((p) => p.defaultValue !== undefined))
           ?? cands[0];
       }
       if (m) {
-        const fn = m as FunctionDecl;
-        const def: FunctionTemplateDecl = {
-          kind: "function_template", name: fn.name, params: inst.tmpl.params, fnParams: fn.params,
-          returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
-        };
+        const fn = m;
+        const def: FunctionTemplateDecl = fn.kind === "function_template"
+          ? fn
+          : {
+              kind: "function_template", name: fn.name, params: inst.tmpl.params, fnParams: fn.params,
+              returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+            };
         this.namespaceContexts.set(def, this.namespaceContextOf(fn));
         return {
           def,
           bind,
+          memberTemplate: fn.kind === "function_template",
         };
       }
     }

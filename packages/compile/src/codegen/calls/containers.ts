@@ -11,27 +11,56 @@ import { materializeAssetAddress, QPI_AGGREGATE_LAYOUTS, QPI_BINDINGS } from "./
 // ---- compiling instantiated container methods from the real qpi.h bodies ----
 
 // A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32), scalars pass by value (i64).
-export function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; defaultValue?: Expression; readOnlyRef?: boolean } {
+export function classifyMethodParam(cg: Codegen, p: ParamDecl, bind: Bindings): { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; concreteType: TypeSpec; defaultValue?: Expression; readOnlyRef?: boolean } {
   const t = p.type;
   const isPtrOrRef = t.kind === "reference" || t.kind === "pointer";
   const readOnlyRef = t.kind === "reference" && t.refereed.kind === "const";
   const deref = cg.derefType(t);
-  const concrete = deref.kind === "name" && bind.types.has(deref.name) ? bind.types.get(deref.name)! : deref;
+  const concrete = cg.substInBindings(deref, bind);
   const isAddr = isPtrOrRef || cg.isAggregateType(concrete);
-  return { name: p.name, wasmType: isAddr ? "i32" : "i64", isAddr, type: t, defaultValue: p.defaultValue, readOnlyRef };
+  return { name: p.name, wasmType: isAddr ? "i32" : "i64", isAddr, type: t, concreteType: concrete, defaultValue: p.defaultValue, readOnlyRef };
 }
 
 // Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm function. Returns
-export function compileContainerMethod(cg: Codegen, type: TypeSpec & { kind: "template_instance" }, methodName: string, argCount?: number, paramTypeKey?: string): CompiledMethod | null {
-  const cacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}`;
-  const cached = cg.compiledMethods.get(cacheKey);
-  if (cached) return cached;
+export function compileContainerMethod(
+  cg: Codegen,
+  type: TypeSpec & { kind: "template_instance" },
+  methodName: string,
+  argCount?: number,
+  paramTypeKey?: string,
+  methodArgTypes?: () => Array<TypeSpec | null>,
+): CompiledMethod | null {
+  const baseCacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}`;
+  const baseCached = cg.compiledMethods.get(baseCacheKey);
+  if (baseCached) return baseCached;
 
   // Specialization-aware: the body + its binding come from the matched template instance (primary OR partial specialization), so a
   const mt = cg.methodTemplate(type.name, type.args, methodName, argCount, paramTypeKey);
   if (!mt || !mt.def.body) return null;
   const def = mt.def;
-  const bind = mt.bind;
+  const resolvedMethodArgTypes = mt.memberTemplate ? methodArgTypes?.() ?? [] : [];
+  const methodTypeKey = mt.memberTemplate
+    ? resolvedMethodArgTypes.map((arg) => arg ? cg.typeKeyOf(arg) : "?").join(",")
+    : "";
+  const cacheKey = `${baseCacheKey}${methodTypeKey ? `#${methodTypeKey}` : ""}`;
+  const cached = cg.compiledMethods.get(cacheKey);
+  if (cached) return cached;
+  let bind = mt.bind;
+  // Infer a member-function template's type parameters from its concrete call arguments. This is
+  // deliberately structural: any authoritative `const T&`/`T&` member-template parameter benefits,
+  // rather than assigning semantics to Array::setMem or any other method name.
+  if (mt.memberTemplate && def.params.some((param) => param.kind === "type")) {
+    const types = new Map(bind.types);
+    const templateTypeNames = new Set(def.params.filter((param) => param.kind === "type").map((param) => param.name));
+    for (let index = 0; index < (def.fnParams ?? []).length; index++) {
+      const declared = cg.derefType(def.fnParams![index].type);
+      const actual = resolvedMethodArgTypes[index];
+      if (declared.kind === "name" && templateTypeNames.has(declared.name) && actual) {
+        types.set(declared.name, actual);
+      }
+    }
+    bind = { ...bind, types };
+  }
   const fnParams = (def.fnParams ?? []).map((p) => classifyMethodParam(cg, p, bind));
   const retType = cg.substInBindings(cg.derefType(def.returnType), bind);
   const returnsAddr = def.returnType.kind === "reference" || def.returnType.kind === "pointer";
@@ -80,7 +109,7 @@ export function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: Functio
     ctx.retType = cm.retType;
   }
   // Register params with their CONCRETE types (ValueT → uint64): a scalar ref-param read sizes and signs its load
-  for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: cg.substInBindings(cg.derefType(p.type), bind) });
+  for (const p of cm.fnParams) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: p.concreteType ?? cg.substInBindings(cg.derefType(p.type), bind) });
 
   if (def.body) collectLocals(def.body, ctx);
   if (def.body) emitStmt(ctx, def.body);
@@ -98,14 +127,18 @@ export function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: Functio
 export function callCompiled(
   ctx: FnCtx, type: TypeSpec & { kind: "template_instance" }, method: string, self: string, args: Expression[], paramTypeKey?: string,
 ): { call: string; cm: CompiledMethod; retDest?: string } | null {
-  const cm = compileContainerMethod(ctx.cg, type, method, args.length, paramTypeKey);
+  const methodArgTypes = () => args.map((arg) => {
+    const node = resolveAddr(ctx, arg);
+    return node?.type ? ctx.cg.derefType(node.type) : null;
+  });
+  const cm = compileContainerMethod(ctx.cg, type, method, args.length, paramTypeKey, methodArgTypes);
   if (!cm) return null;
   const bind = ctx.cg.bindContainer(type.name, type.args);
   const ops = cm.fnParams.map((fp, i) => {
     const arg = args[i] ?? fp.defaultValue;
     if (!arg) throw new Error(`${type.name}::${method} is missing required argument ${i + 1}`);
     if (arg.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    const paramType = ctx.cg.substInBindings(ctx.cg.derefType(fp.type), bind);
+    const paramType = fp.concreteType ?? ctx.cg.substInBindings(ctx.cg.derefType(fp.type), bind);
     return fp.isAddr
       ? argAddr(ctx, arg, ctx.cg.sizeOfType(paramType, bind), paramType, fp.readOnlyRef === true)
       : emitValue(ctx, arg);

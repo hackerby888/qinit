@@ -10,7 +10,7 @@ const HEADERS = loadQpiHeader(CORE_PATH);
 const wrap = (helper: string, body: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
-  struct StateData { uint64 result; };
+  struct StateData { uint64 result; uint64 denominator; uint64 adjacent; };
   ${helper}
   struct Go_input {}; struct Go_output {};
   PUBLIC_PROCEDURE(Go) { ${body} }
@@ -64,5 +64,23 @@ describe("edge audit — implicit parameter conversions", () => {
 
   test("a const uint8 reference binds to a converted temporary", async () => {
     expect(await run(`static uint64 cv(const uint8& value) { return value; }`, `state.mut().result = cv(300);`)).toBe(44n);
+  });
+
+  test("a scalar state field binds to a converted temporary for a const uint128 reference", async () => {
+    expect(await run(
+      ``,
+      `state.mut().denominator = 2; state.mut().adjacent = 1;
+       uint128 numerator = (uint128)84;
+       state.mut().result = div<uint128>(numerator, state.get().denominator).low;`,
+    )).toBe(42n);
+  });
+
+  test("a widened product divides by a scalar state field through a const uint128 reference", async () => {
+    expect(await run(
+      ``,
+      `state.mut().denominator = 1000000; state.mut().adjacent = 450000;
+       uint128 numerator = (uint128)150000 * (uint128)state.get().adjacent;
+       state.mut().result = div<uint128>(numerator, state.get().denominator).low;`,
+    )).toBe(67500n);
   });
 });
