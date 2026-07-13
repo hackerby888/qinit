@@ -1,15 +1,6 @@
 // Browser entry for @qinit/compile.
-import type {
-  CompileOptions,
-  CompileResult,
-  ContractIdl,
-  CalleeIdl,
-  GtestCompileResult,
-} from "./compiler/types";
-import {
-  compileContract as compileWithHeader,
-  compileGtest as compileGtestWithHeader,
-} from "./compiler/pipeline";
+import type { CompileOptions, CompileResult, ContractIdl, CalleeIdl, GtestCompileResult } from "./compiler/types";
+import { compileContract as compileWithHeader, compileGtest as compileGtestWithHeader } from "./compiler/pipeline";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "./generated/qpi-snapshot";
 
 export type {

@@ -1,9 +1,9 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
+import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
 const HEADER = loadQpiHeader(CORE);
@@ -72,37 +72,20 @@ describe("source-method lowering ratchet", () => {
   });
 
   test("name-specific semantic fallbacks cannot return", () => {
-    const containers = readFileSync(
-      new URL("../../src/codegen/calls/containers.ts", import.meta.url),
-      "utf8",
-    );
-    const addr = readFileSync(
-      new URL("../../src/codegen/address-resolution.ts", import.meta.url),
-      "utf8",
-    );
-    const dispatch = readFileSync(
-      new URL("../../src/codegen/calls/dispatch.ts", import.meta.url),
-      "utf8",
-    );
-    const qpi = readFileSync(new URL("../../src/codegen/calls/qpi.ts", import.meta.url), "utf8");
-    const framework = readFileSync(new URL("../../src/framework.ts", import.meta.url), "utf8");
-    const qpiContext = readFileSync(
-      new URL("../../src/compiler/qpi-context.ts", import.meta.url),
-      "utf8",
-    );
-    const pipeline = readFileSync(
-      new URL("../../src/compiler/pipeline.ts", import.meta.url),
-      "utf8",
-    );
-    expect(containers).not.toContain('node.type.name === "Array"');
-    expect(addr).not.toMatch(/\^\(AssetOwnershipSelect\|AssetPossessionSelect\)::/);
-    expect(dispatch).not.toContain(
+    const calls = readSourceTree("../../src/backend/wasm/calls", import.meta.url);
+    const memory = readSourceTree("../../src/backend/wasm/memory", import.meta.url);
+    const framework = readSourceTree("../../src/backend/wasm/framework", import.meta.url);
+    const qpiContext = readSourceTree("../../src/compiler/qpi-context.ts", import.meta.url);
+    const pipeline = readSourceTree("../../src/compiler", import.meta.url);
+    expect(calls).not.toContain('node.type.name === "Array"');
+    expect(memory).not.toMatch(/\^\(AssetOwnershipSelect\|AssetPossessionSelect\)::/);
+    expect(calls).not.toContain(
       'if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex")',
     );
-    expect(qpi).not.toContain('invocationReward: Object.freeze({ fwd: "$qpi_invocationReward"');
-    expect(qpi).not.toContain('"invocator", "originator"');
-    expect(addr).not.toContain('invocator: "$qpi_invocator"');
-    expect(addr).not.toContain('originator: "$qpi_originator"');
+    expect(calls).not.toContain('invocationReward: Object.freeze({ fwd: "$qpi_invocationReward"');
+    expect(calls).not.toContain('"invocator", "originator"');
+    expect(memory).not.toContain('invocator: "$qpi_invocator"');
+    expect(memory).not.toContain('originator: "$qpi_originator"');
     expect(framework).not.toMatch(/const CTX\s*=/);
     expect(framework).not.toContain("CTX_SZ");
     expect(qpiContext).not.toContain("QPI_CONTEXT_FALLBACK");

@@ -1,16 +1,17 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { readSourceTree } from "../support/source-tree";
 
 const source = (relative: string) => readFileSync(new URL(relative, import.meta.url), "utf8");
 
 test("removed QPI and Wasm ABI mirrors cannot return", () => {
-  const qpi = source("../../src/codegen/calls/qpi.ts");
-  const framework = source("../../src/framework.ts");
+  const qpi = readSourceTree("../../src/backend/wasm/calls", import.meta.url);
+  const framework = readSourceTree("../../src/backend/wasm/framework", import.meta.url);
   const recipe = source("../../../build/src/recipe.ts");
   const runtime = source("../../../engine/src/runtime.ts");
   const codegen = source("../../src/codegen/index.ts");
   const testing = source("../../../build/src/assets/wasm_contract_testing.h");
-  const tables = source("../../src/codegen/tables.ts");
+  const tables = readSourceTree("../../src/backend/wasm/abi", import.meta.url);
 
   expect(qpi).not.toContain("RAW_QPI_BINDINGS");
   expect(qpi).not.toContain("QPI_BINDINGS");

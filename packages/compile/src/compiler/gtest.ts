@@ -1,6 +1,6 @@
 import type { Declaration } from "../ast";
 import { generateWasmModule, type GeneratedContractMetadata } from "../codegen";
-import { findContractStruct } from "../codegen/module";
+import { findContractStruct } from "../backend/wasm/module/contract-discovery";
 import type { StructDecl } from "../ast";
 import { Sema } from "../sema";
 import { getQpiContext } from "./qpi-context";

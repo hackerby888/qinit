@@ -1,0 +1,294 @@
+import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
+import type { TypeSpec, Declaration, StructDecl, VariableDecl } from "../ast";
+import type { ProgramAnalysisInternals } from "./program-analysis-context";
+
+export function layoutOf(context: ProgramAnalysisInternals, struct: StructDecl): StructLayout {
+    return context.layoutOfStruct(struct, EMPTY_TEMPLATE_BINDINGS);
+}
+
+export function baseContribution(context: ProgramAnalysisInternals, baseType: TypeSpec, parentB: TemplateBindings): {
+    layout: StructLayout;
+    consts: Map<string, bigint>;
+} | null {
+    let resolvedBaseType: TypeSpec = baseType;
+    if (resolvedBaseType.kind === "name") {
+        const bound = parentB.types.get(resolvedBaseType.name);
+        if (bound)
+            resolvedBaseType = bound;
+        else {
+            const td = context.typedefs.get(resolvedBaseType.name);
+            if (td)
+                resolvedBaseType = td;
+        }
+    }
+    if (resolvedBaseType.kind === "template_instance") {
+        const templateDeclaration = context.templates.get(resolvedBaseType.name);
+        if (!templateDeclaration)
+            return {
+                layout: context.layoutOfTemplate(resolvedBaseType.name, resolvedBaseType.callArguments, parentB),
+                consts: new Map(),
+            };
+        const templateBindings: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
+        const resolved = resolvedBaseType.callArguments.map((argument) => context.resolveType(argument, parentB));
+        for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
+            const parameter = templateDeclaration.params[parameterIndex];
+            const argument = resolved[parameterIndex];
+            if (!argument)
+                continue;
+            if (parameter.kind === "type")
+                templateBindings.types.set(parameter.name, argument);
+            else
+                templateBindings.values.set(parameter.name, context.evalConstFromType(argument, parentB));
+        }
+        const consts = new Map<string, bigint>();
+        for (const member of templateDeclaration.members) {
+            if (member.kind !== "variable")
+                continue;
+            const variableDeclaration = member as VariableDecl;
+            if ((variableDeclaration.isStatic || variableDeclaration.isConstexpr) && variableDeclaration.initializer && !templateBindings.values.has(variableDeclaration.name)) {
+                try {
+                    const val = context.evalConstBig(variableDeclaration.initializer, templateBindings);
+                    templateBindings.values.set(variableDeclaration.name, val);
+                    consts.set(variableDeclaration.name, val);
+                }
+                catch {
+                    /* a non-integer static constexpr (e.g. a bool selector) — not a dimension */
+                }
+            }
+        }
+        const layout = context.layoutOfMembers(templateDeclaration.members, templateBindings, `${resolvedBaseType.name}<${resolved.map((resolvedItem) => context.typeKey(resolvedItem)).join(",")}>`, false, templateDeclaration.bases);
+        return { layout, consts };
+    }
+    if (resolvedBaseType.kind === "name") {
+        const struct = context.structByName(resolvedBaseType.name, parentB);
+        if (struct) {
+            const consts = new Map<string, bigint>();
+            for (const member of struct.members) {
+                if (member.kind !== "variable")
+                    continue;
+                const variableDeclaration = member as VariableDecl;
+                if ((variableDeclaration.isStatic || variableDeclaration.isConstexpr) && variableDeclaration.initializer) {
+                    try {
+                        consts.set(variableDeclaration.name, context.evalConstBig(variableDeclaration.initializer, parentB));
+                    }
+                    catch {
+                        /* not a dimension */
+                    }
+                }
+            }
+            const layout = context.layoutOfMembers(struct.members, parentB, context.structCacheKey(struct), struct.isUnion, struct.bases);
+            return { layout, consts };
+        }
+    }
+    return null;
+}
+
+export function evalQualifiedConst(context: ProgramAnalysisInternals, typeName: string, member: string, templateBindings: TemplateBindings): bigint | null {
+    let type: TypeSpec = { kind: "name", name: typeName };
+    for (let index = 0; index < 8 && type.kind === "name"; index++) {
+        const bound = templateBindings.types.get(type.name);
+        if (bound) {
+            type = bound;
+            continue;
+        }
+        const td = context.typedefs.get(type.name);
+        if (td) {
+            type = td;
+            continue;
+        }
+        break;
+    }
+    let members: Declaration[] | null = null;
+    let tb: TemplateBindings = templateBindings;
+    if (type.kind === "template_instance") {
+        const templateDeclaration = context.templates.get(type.name);
+        if (!templateDeclaration)
+            return null;
+        members = templateDeclaration.members;
+        tb = { types: new Map(), values: new Map(), structs: new Map() };
+        const resolved = type.callArguments.map((argument) => context.resolveType(argument, templateBindings));
+        for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
+            const parameter = templateDeclaration.params[parameterIndex];
+            const argument = resolved[parameterIndex];
+            if (!argument)
+                continue;
+            if (parameter.kind === "type")
+                tb.types.set(parameter.name, argument);
+            else
+                tb.values.set(parameter.name, context.evalConstFromType(argument, templateBindings));
+        }
+    }
+    else if (type.kind === "name") {
+        const structDeclaration = context.structByName(type.name, templateBindings);
+        if (!structDeclaration)
+            return null;
+        members = structDeclaration.members;
+    }
+    if (!members)
+        return null;
+    for (const memberDeclaration of members) {
+        if (memberDeclaration.kind !== "variable")
+            continue;
+        const variableDeclaration = memberDeclaration as VariableDecl;
+        if (variableDeclaration.name === member && variableDeclaration.initializer) {
+            try {
+                return context.evalConstBig(variableDeclaration.initializer, tb);
+            }
+            catch {
+                return null;
+            }
+        }
+    }
+    return null;
+}
+
+export function structCacheKey(context: ProgramAnalysisInternals, struct: StructDecl): string {
+    let cacheKey = context.structKeys.get(struct);
+    if (cacheKey === undefined) {
+        cacheKey = `${struct.name}#${context.structKeyCounter++}`;
+        context.structKeys.set(struct, cacheKey);
+    }
+    return cacheKey;
+}
+
+export function layoutOfStruct(context: ProgramAnalysisInternals, struct: StructDecl, templateBindings: TemplateBindings): StructLayout {
+    return context.layoutOfMembers(struct.members, templateBindings, context.structCacheKey(struct), struct.isUnion, struct.bases);
+}
+
+export function bindingSig(context: ProgramAnalysisInternals, templateBindings: TemplateBindings): string {
+    if (templateBindings.types.size + templateBindings.values.size === 0)
+        return "";
+    const typeBindingSignature = [...templateBindings.types].map(([name, type]) => `${name}=${context.typeKey(type)}`).join(",");
+    const valueBindingSignature = [...templateBindings.values].map(([name, value]) => `${name}=${value}`).join(",");
+    return `|${typeBindingSignature}|${valueBindingSignature}`;
+}
+
+export function layoutOfMembers(context: ProgramAnalysisInternals, members: Declaration[], bIn: TemplateBindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {
+    // Cache by a binding-aware key so each concrete instantiation is computed once (avoids the exponential blowup of deeply
+    const key = cacheKey ? cacheKey + context.bindingSig(bIn) : "";
+    if (key) {
+        const cached = context.layoutCache.get(key);
+        if (cached)
+            return cached;
+        // Cycle breaker: a type reachable from its own field returns an empty back-edge layout.
+        if (context.inProgress.has(key))
+            return { size: 0, align: 1, fields: new Map() };
+        context.inProgress.add(key);
+    }
+    try {
+        const templateBindings = context.withLocalStructs(members, bIn);
+        const fields = new Map<string, FieldLayout>();
+        let offset = 0;
+        let maxAlign = 1;
+        if (isUnion) {
+            let max = 0;
+            for (const member of members) {
+                if (member.kind === "variable") {
+                    const variableDeclaration = member as VariableDecl;
+                    if (variableDeclaration.isStatic || variableDeclaration.isConstexpr)
+                        continue;
+                    const byteSize = context.sizeOfType(variableDeclaration.type, templateBindings);
+                    const align = context.alignOfTypeB(variableDeclaration.type, templateBindings);
+                    fields.set(variableDeclaration.name, {
+                        name: variableDeclaration.name,
+                        offset: 0,
+                        size: byteSize,
+                        type: context.inlineNestedStruct(variableDeclaration.type, templateBindings),
+                    });
+                    if (byteSize > max)
+                        max = byteSize;
+                    if (align > maxAlign)
+                        maxAlign = align;
+                }
+            }
+            const layout = { size: max, align: maxAlign, fields };
+            if (key)
+                context.layoutCache.set(key, layout);
+            return layout;
+        }
+        // Base classes occupy the start of the object: each base's fields are placed at the current offset and
+        let memberVals = templateBindings.values;
+        for (const baseType of bases) {
+            const baseContribution = context.baseContribution(baseType, templateBindings);
+            if (!baseContribution)
+                continue;
+            offset = context.alignUp(offset, baseContribution.layout.align);
+            for (const baseField of baseContribution.layout.fields.values()) {
+                fields.set(baseField.name, {
+                    name: baseField.name,
+                    offset: offset + baseField.offset,
+                    size: baseField.size,
+                    type: baseField.type,
+                });
+            }
+            offset += baseContribution.layout.size;
+            if (baseContribution.layout.align > maxAlign)
+                maxAlign = baseContribution.layout.align;
+            if (baseContribution.consts.size) {
+                if (memberVals === templateBindings.values)
+                    memberVals = new Map(templateBindings.values);
+                for (const [baseConstName, baseConstValue] of baseContribution.consts)
+                    if (!memberVals.has(baseConstName))
+                        memberVals.set(baseConstName, baseConstValue);
+            }
+        }
+        // Nested typedefs (a template may alias its own params or define a dependent storage type, e.g.
+        let memberTypes = templateBindings.types;
+        for (const member of members) {
+            if (member.kind !== "typedef_decl")
+                continue;
+            const td = member as any;
+            if (memberTypes === templateBindings.types)
+                memberTypes = new Map(templateBindings.types);
+            if (!memberTypes.has(td.name))
+                memberTypes.set(td.name, td.type);
+        }
+        const bMem = memberVals === templateBindings.values && memberTypes === templateBindings.types
+            ? templateBindings
+            : { types: memberTypes, values: memberVals, structs: templateBindings.structs };
+        for (const memberDeclaration of members) {
+            // An anonymous struct/union (no name, no declarator) promotes its members into this struct at the current offset (`union
+            if (memberDeclaration.kind === "struct" && !(memberDeclaration as StructDecl).name) {
+                const sub = context.layoutOfStruct(memberDeclaration as StructDecl, bMem);
+                offset = context.alignUp(offset, sub.align);
+                for (const inheritedField of sub.fields.values())
+                    fields.set(inheritedField.name, {
+                        name: inheritedField.name,
+                        offset: offset + inheritedField.offset,
+                        size: inheritedField.size,
+                        type: inheritedField.type,
+                    });
+                offset += sub.size;
+                if (sub.align > maxAlign)
+                    maxAlign = sub.align;
+                continue;
+            }
+            if (memberDeclaration.kind !== "variable")
+                continue;
+            const variableDeclaration = memberDeclaration as VariableDecl;
+            if (variableDeclaration.isStatic || variableDeclaration.isConstexpr)
+                continue;
+            const byteSize = context.sizeOfType(variableDeclaration.type, bMem);
+            const align = Math.min(context.alignOfTypeB(variableDeclaration.type, bMem), 8);
+            offset = context.alignUp(offset, align);
+            fields.set(variableDeclaration.name, {
+                name: variableDeclaration.name,
+                offset,
+                size: byteSize,
+                type: context.inlineNestedStruct(variableDeclaration.type, bMem),
+            });
+            offset += byteSize;
+            if (align > maxAlign)
+                maxAlign = align;
+        }
+        const size = context.alignUp(offset, maxAlign);
+        const layout = { size, align: maxAlign, fields };
+        if (key)
+            context.layoutCache.set(key, layout);
+        return layout;
+    }
+    finally {
+        if (key)
+            context.inProgress.delete(key);
+    }
+}

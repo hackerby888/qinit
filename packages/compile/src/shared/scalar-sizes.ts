@@ -1,0 +1,27 @@
+// Builtin scalar sizes
+export const SCALAR_SIZE: Record<string, number> = {
+    bool: 1,
+    bit: 1,
+    sint8: 1,
+    uint8: 1,
+    "signed char": 1,
+    "unsigned char": 1,
+    sint16: 2,
+    uint16: 2,
+    "signed short": 2,
+    "unsigned short": 2,
+    sint32: 4,
+    uint32: 4,
+    "signed int": 4,
+    "unsigned int": 4,
+    sint64: 8,
+    uint64: 8,
+    "signed long long": 8,
+    "unsigned long long": 8,
+    "long long": 8,
+    uint128: 16,
+    id: 32,
+    m256i: 32,
+    __m256i: 32,
+    auto: 8, // `auto` locals in qpi.h bodies are integer counters (pointer cases carry a trailing *)
+};

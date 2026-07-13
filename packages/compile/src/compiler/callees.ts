@@ -5,12 +5,7 @@ import { SCAFFOLD_MACROS } from "../qpi-scaffold";
 import type { Declaration, StructDecl } from "../ast";
 import type { CompileOptions } from "./types";
 import type { QpiContext } from "./qpi-context";
-import {
-  makeUserDiagnosticRemapper,
-  scanUnterminatedSource,
-  sourceWithoutLeadingBom,
-  USER_BOUNDARY,
-} from "./diagnostics";
+import { makeUserDiagnosticRemapper, scanUnterminatedSource, sourceWithoutLeadingBom, USER_BOUNDARY } from "./diagnostics";
 
 export interface CalleeContext {
   contractStructs: Map<string, StructDecl>;

@@ -3,12 +3,7 @@ import { Lexer } from "../lexer";
 import { Parser, type Diagnostic as ParserDiagnostic } from "../parser";
 import { Preprocessor } from "../preprocess";
 import { SCAFFOLD_MACROS } from "../qpi-scaffold";
-import {
-  makeUserDiagnosticRemapper,
-  scanUnterminatedSource,
-  sourceWithoutLeadingBom,
-  USER_BOUNDARY,
-} from "./diagnostics";
+import { makeUserDiagnosticRemapper, scanUnterminatedSource, sourceWithoutLeadingBom, USER_BOUNDARY } from "./diagnostics";
 import { getQpiMacros } from "./qpi-context";
 
 export interface ParseAstResult {

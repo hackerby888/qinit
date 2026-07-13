@@ -1,9 +1,22 @@
-// WAT codegen: walks the parsed contract AST and emits a complete WASM-text module.
+import "../backend/wasm/functions/function-lowering-services";
 
-export { CodeGenerationContext } from "./code-generation-context";
 export {
+  ProgramAnalysis,
+  ProgramAnalysis as CodeGenerationContext,
+} from "../analysis";
+export {
+  deriveQpiContextLayout,
   indexLibraryDeclarations,
-  generateWasmModule,
-} from "./module";
-export type { LibrarySymbolIndex, GeneratedContractMetadata } from "./module";
-export type { TemplateBindings, CalleeIdl, CodeGenerationWarning, FieldLayout, StructLayout } from "./types";
+} from "../backend/wasm/module/library-index";
+export { generateWasmModule } from "../backend/wasm/module/module-generator";
+export type {
+  GeneratedContractMetadata,
+  LibrarySymbolIndex,
+} from "../backend/wasm/module/library-index";
+export type {
+  CalleeIdl,
+  CodeGenerationWarning,
+  FieldLayout,
+  StructLayout,
+  TemplateBindings,
+} from "../backend/wasm/types";

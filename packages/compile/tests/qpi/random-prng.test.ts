@@ -1,9 +1,9 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, inspectLiteWasmModule, loadQpiHeader } from "../../src";
+import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -210,13 +210,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     const instance = await WebAssembly.instantiate(module, { lhost });
     expect((instance.exports.state_addr as CallableFunction)()).toBeGreaterThan(0);
 
-    const framework = readFileSync(new URL("../../src/framework.ts", import.meta.url), "utf8");
-    const addr = readFileSync(
-      new URL("../../src/codegen/address-resolution.ts", import.meta.url),
-      "utf8",
-    );
+    const framework = readSourceTree("../../src/backend/wasm/framework", import.meta.url);
+    const memory = readSourceTree("../../src/backend/wasm/memory", import.meta.url);
     expect(framework).not.toContain('"qtest" "randomId"');
     expect(framework).not.toContain("$qt_random_id");
-    expect(addr).not.toMatch(/calleeName\s*===\s*["'](?:QPI::)?id::randomValue["']/);
+    expect(memory).not.toMatch(/calleeName\s*===\s*["'](?:QPI::)?id::randomValue["']/);
   });
 });

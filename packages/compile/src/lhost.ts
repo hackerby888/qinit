@@ -1,9 +1,4 @@
-import {
-  LHOST_ABI,
-  type LhostFunctionSignature,
-  type LhostImportName,
-  type LhostValueType,
-} from "@qinit/core";
+import { LHOST_ABI, type LhostFunctionSignature, type LhostImportName, type LhostValueType } from "@qinit/core";
 
 export type LhostAbiSpec = Readonly<Record<string, LhostFunctionSignature>>;
 

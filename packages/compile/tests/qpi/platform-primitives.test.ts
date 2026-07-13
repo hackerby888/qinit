@@ -1,10 +1,10 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
 import { PLATFORM_PRIMITIVES, platformPrimitive } from "../../src/codegen/platform-primitives";
+import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
 const HEADER = loadQpiHeader(CORE);
@@ -96,17 +96,11 @@ describe("typed platform primitive registry", () => {
   });
 
   test("migrated semantics appear only in the registry", () => {
-    const addr = readFileSync(
-      new URL("../../src/codegen/address-resolution.ts", import.meta.url),
-      "utf8",
-    );
-    const dispatch = readFileSync(
-      new URL("../../src/codegen/calls/dispatch.ts", import.meta.url),
-      "utf8",
-    );
-    expect(addr).not.toContain('expr.callee.name === "m256i::zero"');
-    expect(addr).not.toContain('expr.callee.name === "_mm256_set_epi64x"');
-    expect(dispatch).not.toMatch(/intrinsic === "_(?:tzcnt|lzcnt)/);
-    expect(dispatch).not.toMatch(/\^_rdrand/);
+    const memory = readSourceTree("../../src/backend/wasm/memory", import.meta.url);
+    const calls = readSourceTree("../../src/backend/wasm/calls", import.meta.url);
+    expect(memory).not.toContain('expr.callee.name === "m256i::zero"');
+    expect(memory).not.toContain('expr.callee.name === "_mm256_set_epi64x"');
+    expect(calls).not.toMatch(/intrinsic === "_(?:tzcnt|lzcnt)/);
+    expect(calls).not.toMatch(/\^_rdrand/);
   });
 });

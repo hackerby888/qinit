@@ -1,5 +1,4 @@
 // Render a parsed TranslationUnit as an indented connector tree for inspection/debugging.
-
 import type { TranslationUnit } from "./ast";
 
 const HEAD_KEYS = ["name", "member", "op", "value", "text"];

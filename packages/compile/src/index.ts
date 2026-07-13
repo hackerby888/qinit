@@ -1,10 +1,5 @@
 // Stable public surface for @qinit/compile. Compiler implementation lives under ./compiler.
-
-import {
-  compileContract as compileContractWithHeader,
-  compileGtest as compileGtestWithHeader,
-  parseToAst as parseToAstWithHeader,
-} from "./compiler/pipeline";
+import { compileContract as compileContractWithHeader, compileGtest as compileGtestWithHeader, parseToAst as parseToAstWithHeader } from "./compiler/pipeline";
 import { loadQpiHeader } from "./compiler/header";
 import type { CompileOptions, CompileResult, GtestCompileResult } from "./compiler/types";
 
