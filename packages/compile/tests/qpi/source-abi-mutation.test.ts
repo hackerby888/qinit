@@ -29,6 +29,12 @@ function mutateEmbeddedAbi(
   return header.replace(pattern, `${LITE_ABI_MARKER}${JSON.stringify(abi)}`);
 }
 
+function replaceRequired(source: string, pattern: RegExp, replacement: string): string {
+  const changed = source.replace(pattern, replacement);
+  if (changed === source) throw new Error(`ABI mutation pattern did not match: ${pattern}`);
+  return changed;
+}
+
 const contract = (body: string, output = "uint64 value;") => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
@@ -132,15 +138,16 @@ describe("source-backed ABI mutations", () => {
   });
 
   test("system-procedure IDs and method names follow the canonical table", async () => {
-    const changed = metadata
-      .replace(
-        "X(INITIALIZE,               0, initialize,               __initializeEmpty)",
-        "X(BEGIN_EPOCH,              0, beginEpoch,               __beginEpochEmpty)",
-      )
-      .replace(
-        "X(BEGIN_EPOCH,              1, beginEpoch,               __beginEpochEmpty)",
-        "X(INITIALIZE,               1, initialize,               __initializeEmpty)",
-      );
+    const initializeReplaced = replaceRequired(
+      metadata,
+      /X\(INITIALIZE,\s*0,\s*initialize,\s*__initializeEmpty\)/,
+      "X(BEGIN_EPOCH, 0, beginEpoch, __beginEpochEmpty)",
+    );
+    const changed = replaceRequired(
+      initializeReplaced,
+      /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/,
+      "X(INITIALIZE, 1, initialize, __initializeEmpty)",
+    );
     expect(parseLiteAbiSource(changed, shared).systemProcedures.slice(0, 2)).toEqual([
       { name: "BEGIN_EPOCH", id: 0, method: "beginEpoch" },
       { name: "INITIALIZE", id: 1, method: "initialize" },
@@ -185,7 +192,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     ).toThrow(/unsupported LiteAssetEntry field/);
     expect(() =>
       parseLiteAbiSource(
-        metadata.replace("X(BEGIN_EPOCH,              1", "X(BEGIN_EPOCH,              7"),
+        replaceRequired(
+          metadata,
+          /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/,
+          "X(BEGIN_EPOCH, 7, beginEpoch, __beginEpochEmpty)",
+        ),
         shared,
       ),
     ).toThrow(/ambiguous system-procedure order/);
