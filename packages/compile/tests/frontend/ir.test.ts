@@ -212,7 +212,7 @@ describe("CALL_SIG agrees with framework.ts", () => {
   test("handwritten QPI algorithm kernels cannot return", () => {
     const roots = [
       join(import.meta.dir, "../../src/framework.ts"),
-      join(import.meta.dir, "../../src/ir.ts"),
+      join(import.meta.dir, "../../src/wat-ir.ts"),
       join(import.meta.dir, "../../src/codegen"),
     ];
     const files: string[] = [];

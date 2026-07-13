@@ -8,7 +8,7 @@ test("removed QPI and Wasm ABI mirrors cannot return", () => {
   const framework = source("../../src/framework.ts");
   const recipe = source("../../../build/src/recipe.ts");
   const runtime = source("../../../engine/src/runtime.ts");
-  const codegen = source("../../src/codegen/cg.ts");
+  const codegen = source("../../src/codegen/index.ts");
   const testing = source("../../../build/src/assets/wasm_contract_testing.h");
   const tables = source("../../src/codegen/tables.ts");
 
