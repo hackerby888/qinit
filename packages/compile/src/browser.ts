@@ -1,9 +1,9 @@
 // Browser entry for @qinit/compile.
-import type { CompileOpts, CompileResult, ContractIdl, CalleeIdl, GtestCompileResult } from "./index";
-import { compileContract as compileWithHeader, compileGtest as compileGtestWithHeader } from "./index";
-import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../.generated/qpi-snapshot";
+import type { CompileOpts, CompileResult, ContractIdl, CalleeIdl, GtestCompileResult } from "./compiler/types";
+import { compileContract as compileWithHeader, compileGtest as compileGtestWithHeader } from "./compiler/pipeline";
+import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "./generated/qpi-snapshot";
 
-export type { CompileOpts, CompileResult, ContractIdl, CalleeIdl, GtestCompileResult, GtestProgram } from "./index";
+export type { CompileOpts, CompileResult, ContractIdl, CalleeIdl, GtestCompileResult, GtestProgram } from "./compiler/types";
 export type { Diagnostic as CompileDiagnostic } from "./parser";
 export {
   inspectLiteWasmModule,

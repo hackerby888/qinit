@@ -7,9 +7,9 @@ const coreBrowser = resolve(import.meta.dir, "../core/src/browser.ts");
 
 // The browser entry embeds the generated QPI header snapshot — refuse to build without it rather
 // than let the bundler fail on an unresolvable import.
-const snapshotModule = resolve(import.meta.dir, ".generated/qpi-snapshot.ts");
+const snapshotModule = resolve(import.meta.dir, "src/generated/qpi-snapshot.ts");
 if (!existsSync(snapshotModule)) {
-  console.error("missing .generated/qpi-snapshot.ts — run: bun tools/gen-qpi-snapshot.ts --core <core-lite checkout>");
+  console.error("missing tracked browser snapshot — restore src/generated/qpi-snapshot.ts from the Qinit checkout");
   process.exit(1);
 }
 

@@ -6,11 +6,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadQpiHeader } from "../../src/index";
 import { assembleQpiHeader, GENERATOR_VERSION } from "../../src/qpi-snapshot";
+import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapshot";
 
 const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "contracts", "qpi.h"));
-const genDir = join(import.meta.dir, "..", "..", ".generated");
-const genOk = existsSync(join(genDir, "qpi-snapshot.ts"));
+const manifest = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "core-snapshot.json"), "utf8"));
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -39,20 +39,17 @@ describe.if(coreOk)("qpi snapshot assembly", () => {
   });
 });
 
-// Computed specifiers: both modules exist only after generation — a literal import would fail typechecking on a checkout
-const genModule = "../../.generated/qpi-snapshot";
 const browserModule = "../../src/browser";
 
-describe.if(genOk)("generated snapshot + browser entry", () => {
+describe("tracked snapshot + browser entry", () => {
   test("generated module embeds the assembly verbatim with a matching hash", async () => {
-    const gen = await import(genModule);
     if (coreOk) {
-      expect(gen.QPI_SNAPSHOT).toBe(assembleQpiHeader(CORE));
+      expect(QPI_SNAPSHOT).toBe(assembleQpiHeader(CORE));
     }
-    const hash = "sha256:" + createHash("sha256").update(gen.QPI_SNAPSHOT).digest("hex");
-    expect(gen.QPI_SNAPSHOT_META.snapshotHash as string).toBe(hash);
-    expect(gen.QPI_SNAPSHOT_META.generatorVersion).toBe(GENERATOR_VERSION);
-    expect(readFileSync(join(genDir, "qpi-snapshot.txt"), "utf8")).toBe(gen.QPI_SNAPSHOT);
+    const hash = "sha256:" + createHash("sha256").update(QPI_SNAPSHOT).digest("hex");
+    expect(QPI_SNAPSHOT_META.snapshotHash as string).toBe(hash);
+    expect(QPI_SNAPSHOT_META.generatorVersion).toBe(GENERATOR_VERSION);
+    expect(QPI_SNAPSHOT_META.coreCommit).toBe(manifest.core.commit);
   });
 
   test("browser entry compiles without a caller-provided qpiHeader", async () => {

@@ -2,7 +2,7 @@ import { Lexer } from "../lexer";
 import { Parser } from "../parser";
 import { Preprocessor, type MacroDef } from "../preprocess";
 import { buildLibTypes, type LibTypes } from "../codegen";
-import { embeddedLiteAbi, IMPL_BOUNDARY } from "../qpi-snapshot";
+import { embeddedLiteAbi, IMPL_BOUNDARY } from "../qpi-snapshot-format";
 
 export interface QpiContext {
   macros: Map<string, MacroDef>;

@@ -4,7 +4,6 @@ import { Parser, type Diagnostic as ParserDiagnostic } from "../parser";
 import { Preprocessor } from "../preprocess";
 import { SCAFFOLD_MACROS } from "../qpi-scaffold";
 import { makeUserDiagnosticRemapper, scanUnterminatedSource, sourceWithoutLeadingBom, USER_BOUNDARY } from "./diagnostics";
-import { loadQpiHeader } from "./header";
 import { getQpiMacros } from "./qpi-context";
 
 export interface ParseAstResult {
@@ -13,7 +12,8 @@ export interface ParseAstResult {
 }
 
 export function parseToAst(opts: { source: string; qpiHeader?: string; name?: string; slot?: number }): ParseAstResult {
-  const macros = getQpiMacros(opts.qpiHeader ?? loadQpiHeader());
+  if (opts.qpiHeader === undefined) throw new Error("internal parser requires a QPI header snapshot");
+  const macros = getQpiMacros(opts.qpiHeader);
   const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(opts.source)}`;
   const text = new Preprocessor().preprocess({
     source,

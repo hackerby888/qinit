@@ -3,7 +3,6 @@ import { generateWasmModule, type GeneratedContractMetadata } from "../codegen";
 import { findContractStruct } from "../codegen/module";
 import type { StructDecl } from "../ast";
 import { Sema } from "../sema";
-import { loadQpiHeader } from "./header";
 import { getQpiContext } from "./qpi-context";
 import { parseToAst } from "./parse-ast";
 import type { CompileOpts, GtestCompileResult, GtestDiagnostic, GtestProgram } from "./types";
@@ -196,7 +195,8 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
     return { diagnostics, idl };
   }
 
-  const qpiHeader = opts.qpiHeader ?? loadQpiHeader();
+  if (opts.qpiHeader === undefined) throw new Error("internal gtest compiler requires a QPI header snapshot");
+  const qpiHeader = opts.qpiHeader;
   const target = parseToAst({ source: opts.source, qpiHeader, name: opts.name, slot: opts.slot });
   diagnostics.push(...target.diagnostics);
   const qpi = getQpiContext(qpiHeader);

@@ -1,18 +1,9 @@
 // Assembles the exact header text consumed by compiler pipeline.
 import { QPI_PRELUDE } from "./qpi-prelude";
-import { parseLiteAbiSource, type LiteAbiSource } from "@qinit/core/lite-abi-source";
+import { parseLiteAbiSource } from "@qinit/core/lite-abi-source";
+import { GENERATOR_VERSION, IMPL_BOUNDARY, LITE_ABI_MARKER } from "./qpi-snapshot-format";
 
-// v6 embeds canonical core ABI metadata and orders parsed imports from that table.
-export const GENERATOR_VERSION = 6;
-
-export const IMPL_BOUNDARY = "//__QINIT_IMPL_BOUNDARY__";
-export const LITE_ABI_MARKER = "//__QINIT_LITE_ABI__";
-
-export function embeddedLiteAbi(headers: string): LiteAbiSource {
-  const line = headers.split(/\r?\n/).find((value) => value.startsWith(LITE_ABI_MARKER));
-  if (!line) throw new Error("QPI headers are missing embedded core ABI metadata");
-  return JSON.parse(line.slice(LITE_ABI_MARKER.length)) as LiteAbiSource;
-}
+export { embeddedLiteAbi, GENERATOR_VERSION, IMPL_BOUNDARY, LITE_ABI_MARKER } from "./qpi-snapshot-format";
 
 // Core snapshot inputs are resolved relative to `<core>/src`.
 const HEADER_FILES = [

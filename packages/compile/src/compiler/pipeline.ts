@@ -13,7 +13,6 @@ import {
   USER_BOUNDARY,
 } from "./diagnostics";
 import { extractIdl } from "./idl";
-import { loadQpiHeader } from "./header";
 import { validateCompileOpts } from "./options";
 import { getQpiContext } from "./qpi-context";
 import { inspectLiteWasmModule } from "./wasm-inspect";
@@ -60,7 +59,8 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   };
 
   await phase("loading qpi.h");
-  const qpi = getQpiContext(opts.qpiHeader ?? loadQpiHeader());
+  if (opts.qpiHeader === undefined) throw new Error("internal compiler requires a QPI header snapshot");
+  const qpi = getQpiContext(opts.qpiHeader);
 
   await phase("preprocessing");
   const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(opts.source)}`;

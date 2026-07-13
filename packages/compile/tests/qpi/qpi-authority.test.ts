@@ -5,11 +5,10 @@ import { join } from "node:path";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, inspectLiteWasmModule, loadQpiHeader } from "../../src/index";
+import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
 const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "contracts", "qpi.h"));
-const generated = join(import.meta.dir, "..", "..", ".generated", "qpi-snapshot.ts");
-const generatedOk = existsSync(generated);
 
 beforeAll(async () => {
   await initK12();
@@ -138,7 +137,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 describe("authoritative QPI capability matrix", () => {
   const variants: Array<[string, () => Promise<string> | string]> = [];
   if (coreOk) variants.push(["live core-lite", () => loadQpiHeader(CORE)]);
-  if (generatedOk) variants.push(["pinned browser snapshot", async () => (await import("../../.generated/qpi-snapshot")).QPI_SNAPSHOT]);
+  variants.push(["pinned browser snapshot", () => QPI_SNAPSHOT]);
 
   for (const [label, header] of variants) {
     test(`compiles every supported family from ${label}`, async () => {
