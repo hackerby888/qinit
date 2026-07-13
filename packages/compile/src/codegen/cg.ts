@@ -4,8 +4,10 @@ import type { TypeSpec, Expression, Statement, Declaration, StructDecl, Function
 import type { Sema } from "../sema";
 import { parseIntLiteral as lexParseIntLiteral } from "../lexer";
 import type { PlatformCapability } from "./platform-primitives";
+import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
 
 export class Codegen {
+  assetEnumerationRecord: { size: number; capacity: number; fields: Record<string, { offset: number; size: number }> } = ASSET_ENUMERATION_RECORD;
   private sema: Sema;
   private nested: Map<string, StructDecl> = new Map();          // contract-local nested structs
   templates: Map<string, ClassTemplate> = new Map();            // qpi.h templates (HashMap, Array, ...)
@@ -66,6 +68,8 @@ export class Codegen {
       this.namespaceContexts.set(d, lookupContext);
       if (d.kind === "namespace") {
         this.collectTU((d as any).body, `${nsPrefix}${(d as any).name}::`, activeUsing);
+      } else if (d.kind === "extern_block") {
+        this.collectTU((d as any).body, nsPrefix, activeUsing);
       } else if (d.kind === "struct") {
         const s = d as StructDecl;
         this.captureMemberNamespaceContexts(s.members, lookupContext);
@@ -145,13 +149,14 @@ export class Codegen {
       } else if (d.kind === "function_template" || d.kind === "function") {
         // out-of-class template method definition: HashMap::set, Collection::add, ...
         const fn = d as FunctionTemplateDecl;
-        const sep = fn.name.indexOf("::");
+        const sep = fn.name.lastIndexOf("::");
         // Single-level NS::fn free function (not Class::method): owner is neither a known template nor struct.
         const owner = sep > 0 ? fn.name.slice(0, sep) : "";
+        const ownerBase = owner.includes("::") ? owner.slice(owner.lastIndexOf("::") + 2) : owner;
         const freeQualified = sep > 0 && fn.body && d.kind === "function"
-          && fn.name.indexOf("::", sep + 2) < 0
-          && !this.templates.has(owner)
-          && !this.globalStructs.has(owner);
+          && !owner.includes("::")
+          && !this.templates.has(ownerBase)
+          && !this.globalStructs.has(ownerBase);
         if (freeQualified) {
           const key = fn.name;
           const overloads = this.libFnOverloads.get(key);
@@ -159,20 +164,27 @@ export class Codegen {
           else this.libFnOverloads.set(key, [d as FunctionDecl]);
           if (!this.libFns.has(key)) this.libFns.set(key, d as FunctionDecl);
         } else if (sep > 0 && fn.body) {
-          const cls = fn.name.slice(0, sep);
+          const cls = ownerBase;
           const method = fn.name.slice(sep + 2);
+          const methodDefinition: FunctionTemplateDecl = d.kind === "function_template"
+            ? fn
+            : {
+                kind: "function_template", name: method, params: [], fnParams: (d as FunctionDecl).params,
+                returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+              };
+          this.namespaceContexts.set(methodDefinition, lookupContext);
           if (!this.templateMethods.has(cls)) this.templateMethods.set(cls, new Map());
           // first definition wins (skip explicit specializations like HashFunction<m256i>)
           const minto = this.templateMethods.get(cls)!;
           const makey = `${method}/${(fn.fnParams ?? (fn as any).params ?? []).length}`;
           // An explicit specialization (`template <> HashFunction<m256i>::hash`) loses the
           // class argument in the parser's normalized name, but its concrete first parameter
-          if (fn.params.length === 0 && fn.fnParams?.length) {
-            const concrete = this.derefType(fn.fnParams[0].type);
-            minto.set(`${makey}@${this.typeKey(concrete)}`, fn);
+          if (methodDefinition.params.length === 0 && methodDefinition.fnParams?.length) {
+            const concrete = this.derefType(methodDefinition.fnParams[0].type);
+            minto.set(`${makey}@${this.typeKey(concrete)}`, methodDefinition);
           }
-          if (!minto.has(makey)) minto.set(makey, fn);
-          if (!minto.has(method)) minto.set(method, fn);
+          if (!minto.has(makey)) minto.set(makey, methodDefinition);
+          if (!minto.has(method)) minto.set(method, methodDefinition);
         } else if (sep < 0 && d.kind === "function" && (d as FunctionDecl).body) {
           // A namespace or platform free function (__m256i_convert, ProposalTypes::cls): keyed by its qualified
           // name and compiled lazily. Platform conversion/equality helpers must remain source-backed so they
@@ -379,14 +391,15 @@ export class Codegen {
     }
 
     if (t.kind === "name") {
+      const baseName = t.name.includes("::") ? t.name.slice(t.name.lastIndexOf("::") + 2) : t.name;
       // template parameter bound to a concrete type?
-      const bound = b.types.get(t.name);
+      const bound = b.types.get(t.name) ?? b.types.get(baseName);
       if (bound) return this.sizeOfType(bound, b);
 
-      const s = SCALAR_SIZE[t.name];
+      const s = SCALAR_SIZE[t.name] ?? SCALAR_SIZE[baseName];
       if (s !== undefined) return s;
 
-      const td = this.typedefs.get(t.name);
+      const td = this.typedefs.get(t.name) ?? this.typedefs.get(baseName);
       if (td) return this.sizeOfType(td, b);
 
       const struct = this.structByName(t.name, b);
@@ -502,7 +515,6 @@ export class Codegen {
     const inst = this.instantiateTemplate(name, args, parent);
     const resolved = args.map((a) => this.resolveType(a, parent));
     if (!inst) {
-      // Templates whose body we didn't capture: fall back to known formulas.
       return this.fallbackTemplateLayout(name, resolved, parent);
     }
     return this.layoutOfMembers(inst.tmpl.members, inst.b, `${name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`, false, inst.tmpl.bases);
@@ -534,17 +546,8 @@ export class Codegen {
   }
 
   private fallbackTemplateLayout(name: string, args: TypeSpec[], b: Bindings): StructLayout {
-    const fields = new Map<string, FieldLayout>();
-    let size = 0;
-    if (name === "Array") {
-      size = this.sizeOfType(args[0], b) * Number(this.evalConstFromType(args[1], b));
-    } else if (name === "BitArray") {
-      size = Math.ceil(Number(this.evalConstFromType(args[0], b)) / 64) * 8;
-    } else {
-      this.warn(`template '${name}<...>' not captured — size approximate`, 0);
-      size = 8;
-    }
-    return { size, align: 1, fields };
+    const rendered = args.map((arg) => this.typeKey(arg)).join(", ");
+    throw new Error(`template '${name}<${rendered}>' was not captured from core source; refusing an approximate layout`);
   }
 
   // Resolve a type name to its concrete type, chasing both template-parameter bindings and contract/qpi typedefs (e.g. ProposalVotingT ->
@@ -1186,8 +1189,9 @@ export class Codegen {
     if (t.kind === "reference") return this.isAggregateType(t.refereed);
     if (t.kind === "array" || t.kind === "inline_struct" || t.kind === "template_instance") return true;
     if (t.kind === "name") {
-      if (t.name === "id" || t.name === "m256i" || t.name === "__m256i" || t.name === "uint128" || t.name === "uint128_t") return true;
-      if (SCALAR_SIZE[t.name] !== undefined) return false;
+      const baseName = t.name.includes("::") ? t.name.slice(t.name.lastIndexOf("::") + 2) : t.name;
+      if (baseName === "id" || baseName === "m256i" || baseName === "__m256i" || baseName === "uint128" || baseName === "uint128_t") return true;
+      if (SCALAR_SIZE[t.name] !== undefined || SCALAR_SIZE[baseName] !== undefined) return false;
       return this.layoutOfType(t) !== null;
     }
     return false;
@@ -1201,10 +1205,11 @@ export class Codegen {
       return this.templates.get(t.name) ? this.layoutOfTemplate(t.name, t.args, b) : null;
     }
     if (t.kind === "name") {
-      const bound = b.types.get(t.name);
+      const baseName = t.name.includes("::") ? t.name.slice(t.name.lastIndexOf("::") + 2) : t.name;
+      const bound = b.types.get(t.name) ?? b.types.get(baseName);
       if (bound) return this.layoutOfType(bound, b);
-      if (SCALAR_SIZE[t.name] !== undefined) return null;
-      const td = this.typedefs.get(t.name);
+      if (SCALAR_SIZE[t.name] !== undefined || SCALAR_SIZE[baseName] !== undefined) return null;
+      const td = this.typedefs.get(t.name) ?? this.typedefs.get(baseName);
       if (td) return this.layoutOfType(td, b);
       const s = this.structByName(t.name, b);
       if (s) return this.layoutOfStruct(s, b);
@@ -1388,7 +1393,8 @@ export class Codegen {
       member.kind === "function" && member.name === methodName &&
       member.params.length === (def.fnParams ?? []).length,
     );
-    if (!declared) return { def, bind };
+    const memberTemplate = !this.templates.has(name) && def.params.length > 0;
+    if (!declared) return { def, bind, memberTemplate };
     const mergedDef: FunctionTemplateDecl = {
       ...def,
       fnParams: (def.fnParams ?? []).map((param, index) => ({
@@ -1400,6 +1406,7 @@ export class Codegen {
     return {
       def: mergedDef,
       bind,
+      memberTemplate,
     };
   }
 

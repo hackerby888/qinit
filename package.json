@@ -17,7 +17,8 @@
     "test:sc:heavy": "bun run scripts/test-system-gtests.ts --heavy",
     "test:sc:all": "bun run scripts/test-system-gtests.ts --all",
     "test:compiled": "bash scripts/check-compiled.sh",
-    "test:node": "bash scripts/smoke-node.sh"
+    "test:node": "bash scripts/smoke-node.sh",
+    "generate:core-abi": "bun packages/core/tools/gen-lite-abi.ts"
   },
   "devDependencies": {
     "bun-types": "latest",

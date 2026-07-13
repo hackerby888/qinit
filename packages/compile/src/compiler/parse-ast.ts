@@ -5,7 +5,7 @@ import { Preprocessor } from "../preprocess";
 import { SCAFFOLD_MACROS } from "../qpi-scaffold";
 import { makeUserDiagnosticRemapper, scanUnterminatedSource, sourceWithoutLeadingBom, USER_BOUNDARY } from "./diagnostics";
 import { loadQpiHeader } from "./header";
-import { getQpiContext } from "./qpi-context";
+import { getQpiMacros } from "./qpi-context";
 
 export interface ParseAstResult {
   ast: TranslationUnit;
@@ -13,14 +13,14 @@ export interface ParseAstResult {
 }
 
 export function parseToAst(opts: { source: string; qpiHeader?: string; name?: string; slot?: number }): ParseAstResult {
-  const qpi = getQpiContext(opts.qpiHeader ?? loadQpiHeader());
+  const macros = getQpiMacros(opts.qpiHeader ?? loadQpiHeader());
   const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(opts.source)}`;
   const text = new Preprocessor().preprocess({
     source,
     qpiHeader: "",
     contractName: opts.name ?? "Contract",
     contractIndex: opts.slot ?? 0,
-    seedMacros: qpi.macros,
+    seedMacros: macros,
   });
   const boundaryIndex = text.indexOf(USER_BOUNDARY);
   const boundaryLine = boundaryIndex >= 0 ? text.slice(0, boundaryIndex).split("\n").length : 0;

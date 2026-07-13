@@ -46,6 +46,8 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install
+      - name: Verify generated core ABI
+        run: bun packages/core/tools/gen-lite-abi.ts --core "$QINIT_CORE" --check
       - name: Typecheck
         run: bunx tsc --noEmit -p tsconfig.json
       - name: Unit tests

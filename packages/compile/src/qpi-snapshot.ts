@@ -1,10 +1,18 @@
 // Assembles the exact header text consumed by compiler pipeline.
 import { QPI_PRELUDE } from "./qpi-prelude";
+import { parseLiteAbiSource, type LiteAbiSource } from "@qinit/core/lite-abi-source";
 
-// v4 also carries core-lite's declared Wasm context-buffer capacity into the parsed header snapshot.
-export const GENERATOR_VERSION = 4;
+// v6 embeds canonical core ABI metadata and orders parsed imports from that table.
+export const GENERATOR_VERSION = 6;
 
 export const IMPL_BOUNDARY = "//__QINIT_IMPL_BOUNDARY__";
+export const LITE_ABI_MARKER = "//__QINIT_LITE_ABI__";
+
+export function embeddedLiteAbi(headers: string): LiteAbiSource {
+  const line = headers.split(/\r?\n/).find((value) => value.startsWith(LITE_ABI_MARKER));
+  if (!line) throw new Error("QPI headers are missing embedded core ABI metadata");
+  return JSON.parse(line.slice(LITE_ABI_MARKER.length)) as LiteAbiSource;
+}
 
 // Core snapshot inputs are resolved relative to `<core>/src`.
 const HEADER_FILES = [
@@ -33,6 +41,9 @@ export function snapshotInputFiles(corePath: string): string[] {
   const files = [
     `${base}/contract_core/contract_def.h`,
     `${base}/extensions/lite_wasm_tu.h`,
+    `${base}/extensions/lite_wasm_target.h`,
+    `${base}/extensions/lite_abi_metadata.h`,
+    `${base}/extensions/lite_dyn_abi.h`,
     ...HEADER_FILES.map((f) => `${base}/${f}`),
     ...IMPL_FILES.map((f) => `${base}/${f}`),
   ];
@@ -53,6 +64,11 @@ export function assembleQpiHeader(corePath: string): string {
   }
 
   let content = QPI_PRELUDE + "\n";
+  const liteAbi = parseLiteAbiSource(
+    readFileSync(`${base}/extensions/lite_abi_metadata.h`, "utf8"),
+    readFileSync(`${base}/extensions/lite_dyn_abi.h`, "utf8"),
+  );
+  content += `${LITE_ABI_MARKER}${JSON.stringify(liteAbi)}\n`;
 
   // Contract slot registry: contracts reference each other's indices (QX_CONTRACT_INDEX in Logger events, share-management filters, inter-contract transfers). Native gets
   const defPath = `${base}/contract_core/contract_def.h`;
@@ -88,6 +104,43 @@ export function assembleQpiHeader(corePath: string): string {
     // Strip #include lines — impl chunks are parsed standalone for their method/free-fn bodies; the headers they pull in
     if (existsSync(fp)) content += `\n${IMPL_BOUNDARY}\n` + readFileSync(fp, "utf8").replace(/^[ \t]*#include[ \t].*$/gm, "") + "\n";
   }
+
+  // Parse the real contract-side import declarations and QPI wrapper bodies. Normalize imported symbol
+  // names to their canonical host name so the frontend can derive the Wasm ABI from C++ types without a
+  // second handwritten mapping (several C symbols intentionally differ from their import name).
+  const importStart = wasmTu.indexOf('extern "C" {');
+  const importEndMarker = '} // extern "C"';
+  const importEnd = wasmTu.indexOf(importEndMarker, importStart);
+  const wrapperStart = wasmTu.indexOf("// ---- QpiContext method forwarders");
+  const wrapperEnd = wasmTu.indexOf("// ---- registration capture", wrapperStart);
+  if (importStart < 0 || importEnd < 0 || wrapperStart < 0 || wrapperEnd < 0) {
+    throw new Error(`${wasmTuPath} does not expose the expected import/wrapper source boundaries`);
+  }
+  const importSource = wasmTu.slice(importStart, importEnd + importEndMarker.length);
+  const wrapperBody = wasmTu.slice(wrapperStart, wrapperEnd);
+  const importedSymbols = new Map<string, string>();
+  const declarations = new Map<string, string>();
+  for (const match of importSource.matchAll(/LH_IMPORT\((\w+)\)\s+[^;\n]*?\b(\w+)\s*\([^;\n]*\)\s*;/g)) {
+    importedSymbols.set(match[2], match[1]);
+    declarations.set(match[1], match[0]);
+  }
+  if (!importedSymbols.size) throw new Error(`${wasmTuPath} declares no LH_IMPORT functions`);
+  const canonicalNames = liteAbi.lhost.map((row) => row.name);
+  const missing = canonicalNames.filter((name) => !declarations.has(name));
+  const extra = [...declarations.keys()].filter((name) => !canonicalNames.includes(name));
+  if (missing.length || extra.length) {
+    throw new Error(`${wasmTuPath} LH_IMPORT declarations differ from canonical metadata (missing: ${missing.join(", ") || "none"}; extra: ${extra.join(", ") || "none"})`);
+  }
+  const normalizeSymbols = (source: string): string => {
+    let normalized = source.replace(/LH_IMPORT\(\w+\)\s*/g, "");
+    for (const [symbol, hostName] of importedSymbols) {
+      normalized = normalized.replace(new RegExp(`\\b${symbol}\\b`, "g"), `__lhost_${hostName}`);
+    }
+    return normalized;
+  };
+  const orderedImports = canonicalNames.map((name) => normalizeSymbols(declarations.get(name)!)).join("\n");
+  const wrapperSource = `extern "C" {\n${orderedImports}\n} // extern "C"\n${normalizeSymbols(wrapperBody)}`;
+  content += `\n${IMPL_BOUNDARY}\n${wrapperSource}\n`;
 
   return content;
 }

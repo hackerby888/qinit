@@ -1,7 +1,10 @@
 // Qubic protocol primitives for Qinit, wrapping @qubic-lib/qubic-ts-library.
 export * from "./struct"; // zero-copy struct-view kit (defineStruct + codecs), shared by @qinit/engine + @qinit/proto
-export { LHOST_ABI, ASSET_ENUMERATION_RECORD } from "./lhost-abi";
+export { LHOST_ABI, ASSET_ENUMERATION_RECORD, LITE_ABI_VERSION, SYSTEM_PROCEDURES } from "./lhost-abi";
 export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./lhost-abi";
+export { loadLiteAbiSource } from "./lite-abi-node";
+export { parseLiteAbiSource } from "./lite-abi-source";
+export type { LiteAbiSource, LiteAbiValueType } from "./lite-abi-source";
 export { deriveIdentity, cryptoSmoke, k12Hex, initK12, k12Sync, bytesToIdentity, identityToBytes, deriveKeysSync, signSync, verifySync } from "./qubic";
 export type { IdentityResult, CryptoSmokeResult, KeyPair } from "./qubic";
 export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./tx";

@@ -148,6 +148,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     }
     const inspection = inspectLiteWasmModule(wasm, {
       memoryMode: opts.sharedMemBase === undefined ? "defined" : "imported",
+      lhostAbi: metadata.lhostAbi,
     });
     if (!inspection.ok) {
       throw new Error(inspection.diagnostics.map((diagnostic) => diagnostic.message).join("; "));

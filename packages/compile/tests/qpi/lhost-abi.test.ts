@@ -1,35 +1,24 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { ASSET_ENUMERATION_RECORD, LHOST_ABI } from "@qinit/core";
+import { ASSET_ENUMERATION_RECORD, LHOST_ABI, loadLiteAbiSource } from "@qinit/core";
 import { emitModule } from "../../src/framework";
 import { inspectLiteWasmModule } from "../../src/compiler/wasm-inspect";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const CORE = CORE_PATH;
-const importsHeader = join(CORE, "src/extensions/lite_wasm_imports.h");
-const dynamicHeader = join(CORE, "src/extensions/lite_dynamic_contracts.h");
-
-function coreSignature(text: string): { params: string[]; results: string[] } {
-  const match = /^\(([^)]*)\)(.*)$/.exec(text);
-  if (!match) throw new Error(`invalid core-lite WAMR signature '${text}'`);
-  const type = (char: string) => char === "i" ? "i32" : char === "I" ? "i64" : (() => { throw new Error(`unsupported core-lite WAMR type '${char}'`); })();
-  return { params: [...match[1]].map(type), results: [...match[2]].map(type) };
-}
+const metadataHeader = join(CORE, "src/extensions/lite_abi_metadata.h");
 
 describe("shared lhost ABI", () => {
-  test.if(existsSync(importsHeader))("matches core-lite's canonical LHOST_TABLE independently", () => {
-    const source = readFileSync(importsHeader, "utf8");
-    const table = source.slice(source.indexOf("#define LHOST_TABLE"), source.indexOf("#define LHOST_AS_GQ"));
-    const rows = [...table.matchAll(/\b(?:GQ|GI|HQ|HI)\(\s*"([^"]+)"[^\n]*?"(\([iI]*\)[iI]?)"\s*\)/g)]
-      .map((match) => [match[1], coreSignature(match[2])] as const);
-    expect(rows.map(([name]) => name)).toEqual(Object.keys(LHOST_ABI));
+  test.if(existsSync(metadataHeader))("matches core-lite's generated canonical metadata", () => {
+    const rows = loadLiteAbiSource(CORE).lhost;
+    expect(rows.map(({ name }) => name)).toEqual(Object.keys(LHOST_ABI));
     const manifest = Object.fromEntries(Object.entries(LHOST_ABI).map(([name, abi]) => [name, {
       params: [...abi.params],
       results: [...abi.results],
     }]));
-    expect(Object.fromEntries(rows)).toEqual(manifest);
+    expect(Object.fromEntries(rows.map(({ name, params, results }) => [name, { params, results }]))).toEqual(manifest);
   });
 
   test("framework imports cover the manifest exactly", async () => {
@@ -54,9 +43,10 @@ describe("shared lhost ABI", () => {
     }
   });
 
-  test.if(existsSync(dynamicHeader))("asset enumeration layout matches core-lite's host adapter", () => {
-    const source = readFileSync(dynamicHeader, "utf8");
-    expect(source).toContain("unsigned char owner[32]; unsigned char possessor[32]; long long shares; unsigned short ownMgmt; unsigned short posMgmt; unsigned char pad[4]");
+  test.if(existsSync(metadataHeader))("asset enumeration layout comes from core-lite's named exchange record", () => {
+    const source = loadLiteAbiSource(CORE).records.LiteAssetEntry;
+    expect(source.size).toBe(ASSET_ENUMERATION_RECORD.size);
+    expect(source.capacity).toBe(ASSET_ENUMERATION_RECORD.capacity);
     expect(ASSET_ENUMERATION_RECORD).toMatchObject({
       size: 80,
       fields: {

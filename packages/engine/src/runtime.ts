@@ -1,6 +1,6 @@
 // Layer 1 — wasm-host-runtime. The TypeScript port of the node's WASM host shim
 // (core-lite: src/extensions/lite_wasm_contracts.h + lite_wasm_imports.h), driving the browser/Bun
-import { ASSET_ENUMERATION_RECORD, LHOST_ABI } from "@qinit/core";
+import { ASSET_ENUMERATION_RECORD, LHOST_ABI, SYSTEM_PROCEDURES } from "@qinit/core";
 import { k12Bytes, toHex } from "./k12";
 import { bytesEqual } from "./bytes";
 import { TRACE_STATE_CAP, type TraceRecorder } from "./trace";
@@ -24,11 +24,7 @@ export function envImportStub(name: string): Function {
 export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2, MIGRATE: 3 } as const;
 
 // System-procedure ids — LiteSysProcId order (core-lite: src/extensions/lite_dyn_abi.h).
-export const SP = {
-  INITIALIZE: 0, BEGIN_EPOCH: 1, END_EPOCH: 2, BEGIN_TICK: 3, END_TICK: 4,
-  PRE_RELEASE_SHARES: 5, PRE_ACQUIRE_SHARES: 6, POST_RELEASE_SHARES: 7, POST_ACQUIRE_SHARES: 8,
-  POST_INCOMING_TRANSFER: 9, SET_SHAREHOLDER_PROPOSAL: 10, SET_SHAREHOLDER_VOTES: 11,
-} as const;
+export const SP = SYSTEM_PROCEDURES;
 
 // IO carve inside the contract's io_base region: [in 64K | out 64K | locals 32K | arena].
 // MUST match LITE_WASM_*_SZ in core-lite src/extensions/lite_wasm_contracts.h.

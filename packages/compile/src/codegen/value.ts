@@ -2,8 +2,8 @@ import { Codegen } from "./cg";
 import { emitAggHelperCall, emitHelperCall, lookupHelper, pickHelperOverload } from "./calls/libfn";
 import { SCALAR_SIZE, MATH_INTRINSIC_NAMES, symbolBaseName } from "./tables";
 import { isScalarLocal, emitIncDec, newTmp } from "./stmt";
-import { describeShape, emitCallValueIr, emitOracleQueryCall, emitOracleReadCall } from "./calls/dispatch";
-import { emitQpiCall, QPI_CALLS } from "./calls/qpi";
+import { describeShape, emitCallValueIr } from "./calls/dispatch";
+import { emitTemplateContainerCall } from "./calls/containers";
 import { callCompiled, emitAssetIter } from "./calls/containers";
 import { resolveAddr, isUint128, addrIr, isAggregate, emitConstruct, emitAddr, emitInlineStructValue, setLocal, narrowCastIr, loadAtIr, isSignedScalarType, allocSlotIr } from "./addr";
 import { FnCtx, NO_BIND } from "./types";
@@ -54,13 +54,6 @@ export function emitAssign(ctx: FnCtx, expr: Expression & { kind: "assign" }): s
         ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, addrIr(lhs.addr), ir.i64c(0)))}`); // zero count+cursor
       }
       return "";
-    }
-    if (expr.right.kind === "call") {
-      const out = emitQpiCall(ctx, expr.right, lhs.addr);
-      if (out && out.ret === "out") {
-        ctx.lines.push(`    ${out.wat}`);
-        return "";
-      }
     }
     // aggregate construction `target = Type{ ... }` (e.g. a Logger) — materialize the fields in place.
     if (expr.right.kind === "construct" && lhs.type && emitConstruct(ctx, lhs.addr, lhs.type, expr.right.args)) {
@@ -181,6 +174,10 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
         return ir.loadScalar(ir.getL(p.local ?? expr.name, "i32"), ctx.cg.sizeOfType(p.type), !unsignedScalar(p.type));
       if (expr.name === "SELF_INDEX") return ir.op("i64.extend_i32_u", ir.call("$qpi_contractIndex"));
       if (expr.name === "NULL") return ir.i64c(0);
+      if (expr.name.startsWith("__id_")) {
+        const line = ctx.cg.memberFnLine.get(expr.name.slice(5));
+        if (line !== undefined) return ir.i64c((ctx.cg.slot << 22) | (line & 0x3fffff));
+      }
       // inside a compiled container method: a template non-type param (L), a static constexpr member (_nEncodedFlags), or a bare
       if (ctx.thisBind?.values.has(expr.name)) return ir.i64c(ctx.thisBind.values.get(expr.name)!);
       if (ctx.staticConsts?.has(expr.name)) return ir.i64c(ctx.staticConsts.get(expr.name)!);
@@ -257,14 +254,8 @@ export function emitValueIr(ctx: FnCtx, expr: Expression): ir.Ir {
         if (helper !== null) return ir.raw(helper, "i64", "source-compiled template helper");
       }
       if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
-        if (expr.callee.member === "__qpiQueryOracle" || expr.callee.member === "__qpiSubscribeOracle") {
-          const o = emitOracleQueryCall(ctx, expr);
-          if (o !== null) return ir.raw(o, "i64", "unconverted: oracle call");
-        }
-        if (expr.callee.member === "getOracleQuery" || expr.callee.member === "getOracleReply") {
-          const o = emitOracleReadCall(ctx, expr);
-          if (o !== null) return o;
-        }
+        const source = emitTemplateContainerCall(ctx, expr, true);
+        if (source !== null) return ir.raw(source, "i64", "source-compiled template instance method");
       }
       ctx.cg.warn(`unsupported template_call '${expr.callee.kind === "identifier" ? expr.callee.name : "?"}' as value`, expr.span.line);
       return ir.i64c(0);
@@ -624,10 +615,21 @@ export function isUnsignedExpr(ctx: FnCtx, expr: Expression): boolean {
       if (t?.kind === "name" && t.name === "DateAndTime") return true; // compares via its packed uint64 value
       return t ? unsignedScalar(ctx.cg.scalarStorageType(t)) : false;
     }
-    case "call":
-      // qpi out-producers read as scalars are packed uint64 values (qpi.now() → DateAndTime.value)
-      return expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier"
-        && expr.callee.object.name === "qpi" && QPI_CALLS[expr.callee.member]?.ret === "out";
+    case "call": {
+      if (expr.callee.kind !== "member_access" || expr.callee.object.kind !== "identifier" || expr.callee.object.name !== "qpi") {
+        return false;
+      }
+      const context = resolveAddr(ctx, expr.callee.object)?.type;
+      const separator = context?.kind === "name" ? context.name.lastIndexOf("::") : -1;
+      const owner = context?.kind === "name"
+        ? separator >= 0 ? context.name.slice(separator + 2) : context.name
+        : context?.kind === "template_instance" ? context.name : null;
+      if (!owner) return false;
+      const method = ctx.cg.methodTemplate(owner, context?.kind === "template_instance" ? context.args : [], expr.callee.member, expr.args.length);
+      if (!method) return false;
+      const result = ctx.cg.substInBindings(ctx.cg.derefType(method.def.returnType), method.bind);
+      return ctx.cg.isAggregateType(result) || unsignedScalar(ctx.cg.scalarStorageType(result));
+    }
     case "binary_op":
       if (["+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>"].includes(expr.op))
         return isUnsignedExpr(ctx, expr.left) || isUnsignedExpr(ctx, expr.right);

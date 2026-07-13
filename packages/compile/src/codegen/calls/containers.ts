@@ -1,4 +1,3 @@
-import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
 import { emitValue } from "../value";
 import { argAddr, resolveAddr, loadAt, emitAddr, addrIr, setLocal, allocSlotIr, isSignedScalarType } from "../addr";
 import { collectLocals, emitStmt, newTmp } from "../stmt";
@@ -6,7 +5,7 @@ import { Bindings, CompiledMethod, FieldLayout, FnCtx } from "../types";
 import { Codegen } from "../cg";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
 import * as ir from "../../ir";
-import { materializeAssetAddress, QPI_AGGREGATE_LAYOUTS, QPI_BINDINGS } from "./qpi";
+import { materializeAssetAddress, materializeSelect } from "./qpi";
 
 // ---- compiling instantiated container methods from the real qpi.h bodies ----
 
@@ -29,8 +28,10 @@ export function compileContainerMethod(
   argCount?: number,
   paramTypeKey?: string,
   methodArgTypes?: () => Array<TypeSpec | null>,
+  explicitTemplateArgs: TypeSpec[] = [],
 ): CompiledMethod | null {
-  const baseCacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}`;
+  const explicitKey = explicitTemplateArgs.map((arg) => cg.typeKeyOf(arg)).join(",");
+  const baseCacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}${explicitKey ? `<${explicitKey}>` : ""}`;
   const baseCached = cg.compiledMethods.get(baseCacheKey);
   if (baseCached) return baseCached;
 
@@ -46,6 +47,17 @@ export function compileContainerMethod(
   const cached = cg.compiledMethods.get(cacheKey);
   if (cached) return cached;
   let bind = mt.bind;
+  if (explicitTemplateArgs.length) {
+    const types = new Map(bind.types);
+    const values = new Map(bind.values);
+    def.params.forEach((parameter, index) => {
+      const argument = explicitTemplateArgs[index];
+      if (!argument) return;
+      if (parameter.kind === "type") types.set(parameter.name, argument);
+      else values.set(parameter.name, cg.valueOfTypeArg(argument, bind));
+    });
+    bind = { ...bind, types, values };
+  }
   // Infer a member-function template's type parameters from its concrete call arguments. This is
   // deliberately structural: any authoritative `const T&`/`T&` member-template parameter benefits,
   // rather than assigning semantics to Array::setMem or any other method name.
@@ -126,22 +138,45 @@ export function emitTemplateMethod(cg: Codegen, cm: CompiledMethod, def: Functio
 // Build a call to a container method compiled from its real qpi.h body. Arguments are classified from
 export function callCompiled(
   ctx: FnCtx, type: TypeSpec & { kind: "template_instance" }, method: string, self: string, args: Expression[], paramTypeKey?: string,
+  explicitTemplateArgs: TypeSpec[] = [],
 ): { call: string; cm: CompiledMethod; retDest?: string } | null {
   const methodArgTypes = () => args.map((arg) => {
     const node = resolveAddr(ctx, arg);
-    return node?.type ? ctx.cg.derefType(node.type) : null;
+    if (node?.type) return ctx.cg.derefType(node.type);
+    if (arg.kind === "construct") return ctx.cg.derefType(arg.type);
+    if (arg.kind === "call" && arg.callee.kind === "identifier") {
+      const type: TypeSpec = { kind: "name", name: arg.callee.name };
+      if (ctx.cg.isAggregateType(type)) return type;
+    }
+    return null;
   });
-  const cm = compileContainerMethod(ctx.cg, type, method, args.length, paramTypeKey, methodArgTypes);
+  const cm = compileContainerMethod(ctx.cg, type, method, args.length, paramTypeKey, methodArgTypes, explicitTemplateArgs);
   if (!cm) return null;
+  const minimumArgs = cm.fnParams.findIndex((parameter) => parameter.defaultValue !== undefined);
+  const minimum = minimumArgs < 0 ? cm.fnParams.length : minimumArgs;
+  if (args.length < minimum || args.length > cm.fnParams.length) {
+    const expected = minimum === cm.fnParams.length ? `${minimum}` : `${minimum}..${cm.fnParams.length}`;
+    throw new Error(`${type.name}::${method} expects ${expected} argument(s), got ${args.length}`);
+  }
   const bind = ctx.cg.bindContainer(type.name, type.args);
   const ops = cm.fnParams.map((fp, i) => {
     const arg = args[i] ?? fp.defaultValue;
     if (!arg) throw new Error(`${type.name}::${method} is missing required argument ${i + 1}`);
     if (arg.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
     const paramType = fp.concreteType ?? ctx.cg.substInBindings(ctx.cg.derefType(fp.type), bind);
-    return fp.isAddr
-      ? argAddr(ctx, arg, ctx.cg.sizeOfType(paramType, bind), paramType, fp.readOnlyRef === true)
-      : emitValue(ctx, arg);
+    if (!fp.isAddr) return emitValue(ctx, arg);
+    if (fp.type.kind === "pointer" && ctx.cg.isVoidType(fp.type.pointee) && !resolveAddr(ctx, arg)) {
+      return "(i32.const 0)";
+    }
+    if (ctx.cg.isAggregateType(paramType)) {
+      if (arg.kind === "initializer_list") {
+        return argAddr(ctx, arg, ctx.cg.sizeOfType(paramType, bind), paramType, fp.readOnlyRef === true);
+      }
+      const direct = emitAddr(ctx, arg);
+      if (!direct) throw new Error(`${type.name}::${method} aggregate argument ${i + 1} is not addressable`);
+      return direct;
+    }
+    return argAddr(ctx, arg, ctx.cg.sizeOfType(paramType, bind), paramType, fp.readOnlyRef === true);
   });
   let retDest = "";
   if (cm.retAgg) retDest = ir.emit(allocSlotIr(ctx, cm.retAgg));
@@ -150,6 +185,30 @@ export function callCompiled(
     cm,
     ...(retDest ? { retDest } : {}),
   };
+}
+
+export function emitTemplateContainerCall(
+  ctx: FnCtx,
+  expr: Expression & { kind: "template_call" },
+  valueWanted: boolean,
+): string | null {
+  if (expr.callee.kind !== "member_access") return null;
+  const node = resolveAddr(ctx, expr.callee.object);
+  if (!node?.type) return null;
+  let type: TypeSpec = node.type;
+  if (type.kind === "name" && (ctx.cg.globalStructs.has(type.name) || ctx.cg.templateMethods.has(type.name))) {
+    type = { kind: "template_instance", name: type.name, args: [] };
+  }
+  if (type.kind !== "template_instance") return null;
+  const compiled = callCompiled(ctx, type, expr.callee.member, node.addr, expr.args, undefined, expr.templateArgs ?? []);
+  if (!compiled) return null;
+  if (valueWanted) {
+    if (compiled.retDest || compiled.cm.retKind === "void") throw new Error(`aggregate or void method ${type.name}::${expr.callee.member} used as a scalar`);
+    if (compiled.cm.retKind === "i32") return loadAt(compiled.call, ctx.cg.sizeOfType(compiled.cm.retType!), isSignedScalarType(compiled.cm.retType!, ctx.cg));
+    return compiled.call;
+  }
+  ctx.lines.push(compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
+  return "";
 }
 
 // Lower a container method call on a HashMap/HashSet/Array state/locals field. When valueWanted, returns
@@ -186,9 +245,11 @@ export function emitContainerCall(ctx: FnCtx, expr: Expression & { kind: "call" 
   if (!compiled) return null;
 
   if (valueWanted) {
-    if (compiled.retDest || compiled.cm.retKind === "void") {
-      throw new Error(`aggregate or void method ${node.type.name}::${member} used as a scalar`);
+    if (compiled.retDest) {
+      ctx.lines.push(`    ${compiled.call}`);
+      return `(i64.load ${compiled.retDest})`;
     }
+    if (compiled.cm.retKind === "void") throw new Error(`void method ${node.type.name}::${member} used as a scalar`);
     if (compiled.cm.retKind === "i32") {
       if (!compiled.cm.retType || ctx.cg.isAggregateType(compiled.cm.retType)) {
         throw new Error(`aggregate reference ${node.type.name}::${member} used as a scalar`);
@@ -220,18 +281,14 @@ export function emitAssetIter(ctx: FnCtx, expr: Expression & { kind: "call" }, m
   const cursorN = ir.loadRaw("i32.load", null, ir.addr0(itN, 4));
   const count = `(i32.load ${iter})`;
   const cursor = ir.emit(cursorN);
-  const record = ASSET_ENUMERATION_RECORD;
+  const record = ctx.cg.assetEnumerationRecord;
   const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const ${record.size})))`;
 
   if (method === "begin") {
-    const selector = QPI_AGGREGATE_LAYOUTS.AssetSelect;
-    const selN = allocSlotIr(ctx, selector.size);
-    ctx.lines.push(`    ${ir.emit(ir.call("$setMem", selN, ir.i32c(selector.size), ir.i32c(0)))}`);   // any-select: anyId + anyMgmt
-    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(selN, selector.fields.anyId), ir.i32c(1)))}`);
-    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(selN, selector.fields.anyManagingContract), ir.i32c(1)))}`);
+    const selN = ir.raw(materializeSelect(ctx, undefined), "i32");
     const asset = materializeAssetAddress(ctx, expr.args[0], `${tn}.begin`);
     const kind = tn === "AssetPossessionIterator" ? 1 : 0;
-    const enumerate = ir.call(QPI_BINDINGS.__assetEnumerate.fwd, ir.i32c(kind), addrIr(asset), selN, selN, ir.raw("(global.get $assetIterBase)", "i32"), ir.i32c(record.capacity));
+    const enumerate = ir.call("$lh_assetEnumerate", ir.i32c(kind), addrIr(asset), selN, selN, ir.raw("(global.get $assetIterBase)", "i32"), ir.i32c(record.capacity));
     ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store", null, itN, enumerate))}`);
     ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store", null, ir.addr0(itN, 4), ir.i32c(0)))}`);
     return "";

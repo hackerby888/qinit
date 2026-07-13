@@ -49,6 +49,8 @@ export interface WasmInspectionDiagnostic {
 export interface LiteWasmInspectionOptions {
   /** Production contracts define memory; shared-memory gtests import env.memory. */
   readonly memoryMode?: LiteWasmMemoryMode;
+  /** Parsed live-core imports used by Node compilation; defaults to the generated browser ABI. */
+  readonly lhostAbi?: Readonly<Record<string, WasmFunctionSignature>>;
 }
 
 export interface LiteWasmInspection {
@@ -669,10 +671,10 @@ function classifyMemory(memories: readonly InspectedWasmMemory[]): InspectedMemo
   return imported && defined ? "mixed" : imported ? "imported" : "defined";
 }
 
-function validateImports(parsed: ParsedModule): void {
+function validateImports(parsed: ParsedModule, lhostAbi: Readonly<Record<string, WasmFunctionSignature>>): void {
   for (const imported of parsed.imports) {
     if (imported.module === "lhost" && imported.kind === "function") {
-      const expected = LHOST_ABI[imported.name as keyof typeof LHOST_ABI];
+      const expected = lhostAbi[imported.name];
       if (!expected) {
         error(parsed.diagnostics, "unknown-import", `unknown lhost import '${imported.name}'`);
       } else if (!sameSignature(imported.signature, expected)) {
@@ -780,7 +782,7 @@ export function inspectLiteWasmModule(
     error(parsed.diagnostics, "js-validation", `JavaScript Wasm validation failed: ${caught instanceof Error ? caught.message : String(caught)}`);
   }
 
-  validateImports(parsed);
+  validateImports(parsed, options.lhostAbi ?? LHOST_ABI);
   const memoryMode = classifyMemory(parsed.memories);
   if (parsed.memories.length !== 1) {
     error(parsed.diagnostics, "memory-count", `expected exactly one wasm32 memory; found ${parsed.memories.length}`);

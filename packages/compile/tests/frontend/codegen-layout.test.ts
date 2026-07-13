@@ -297,16 +297,14 @@ describe("Codegen — template layout", () => {
     expect(a1).toBe(a2);  // same object reference = cache hit
   });
 
-  test("missing template falls back to Array formula", () => {
+  test("missing Array template fails instead of using an approximate formula", () => {
     const cg = makeCg();
-    // Array<uint64, 4> with NO template body registered → fallback size
-    expect(cg.sizeOfType(tinst("Array", [n("uint64"), exprVal(4)]))).toBe(32);
+    expect(() => cg.sizeOfType(tinst("Array", [n("uint64"), exprVal(4)]))).toThrow(/not captured.*refusing an approximate layout/);
   });
 
-  test("missing template falls back to BitArray formula", () => {
+  test("missing BitArray template fails instead of using an approximate formula", () => {
     const cg = makeCg();
-    // BitArray<256> → ceil(256/64)*8 = 32
-    expect(cg.sizeOfType(tinst("BitArray", [exprVal(256)]))).toBe(32);
+    expect(() => cg.sizeOfType(tinst("BitArray", [exprVal(256)]))).toThrow(/not captured.*refusing an approximate layout/);
   });
 });
 

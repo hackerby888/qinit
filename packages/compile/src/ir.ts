@@ -135,52 +135,12 @@ export const CALL_SIG: Record<string, CallSig> = {
   $intr_rdrand32: sig([I32], I32),
   $intr_rdrand64: sig([I32], I32),
 
-  // qpi forwarders — zero-arg getters
-  $qpi_epoch: sig([], I32),
-  $qpi_tick: sig([], I32),
-  $qpi_numberOfTickTransactions: sig([], I32),
-  $qpi_day: sig([], I32),
-  $qpi_year: sig([], I32),
-  $qpi_hour: sig([], I32),
-  $qpi_minute: sig([], I32),
-  $qpi_month: sig([], I32),
-  $qpi_second: sig([], I32),
-  $qpi_millisecond: sig([], I32),
+  // Runtime bridges that are still emitted by framework.ts.
   $qpi_contractIndex: sig([], I32),
-
-  // qpi forwarders — calls
-  $qpi_transfer: sig([I32, I64], I64),
   $qpi_transferTyped: sig([I32, I64, I32], I64),
-  $qpi_burn: sig([I64, I32], I64),
-  $qpi_now: sig([I32], "void"),
-  $qpi_k12: sig([I32, I32, I32], "void"),
-  $qpi_getEntity: sig([I32, I32], I32),
-  $qpi_queryFeeReserve: sig([I32], I64),
-  $qpi_nextId: sig([I32, I32], "void"),
-  $qpi_prevId: sig([I32, I32], "void"),
-  $qpi_isContractId: sig([I32], I32),
-  $qpi_arbitrator: sig([I32], "void"),
-  $qpi_computor: sig([I32, I32], "void"),
   $qpi_prevSpectrumDigest: sig([I32], "void"),
   $qpi_prevUniverseDigest: sig([I32], "void"),
   $qpi_prevComputerDigest: sig([I32], "void"),
-  $qpi_isAssetIssued: sig([I32, I64], I32),
-  $qpi_issueAsset: sig([I64, I32, I32, I64, I64], I64),
-  $qpi_numberOfShares: sig([I32, I32, I32], I64),
-  $qpi_numberOfPossessedShares: sig([I64, I32, I32, I32, I32, I32], I64),
-  $qpi_transferShares: sig([I64, I32, I32, I32, I64, I32], I64),
-  $qpi_acquireShares: sig([I64, I32, I32, I32, I64, I32, I32, I64], I64),
-  $qpi_releaseShares: sig([I64, I32, I32, I32, I64, I32, I32, I64], I64),
-  $qpi_dayOfWeek: sig([I32, I32, I32], I32),
-  $qpi_signatureValidity: sig([I32, I32, I32], I32),
-  $qpi_bidInIPO: sig([I32, I64, I32], I64),
-  $qpi_ipoBidId: sig([I32, I32, I32], "void"),
-  $qpi_ipoBidPrice: sig([I32, I32], I64),
-  $qpi_computeMiningFunction: sig([I32, I32, I32, I32], "void"),
-  $qpi_initMiningSeed: sig([I32], "void"),
-  $qpi_getOracleQueryStatus: sig([I64], I32),
-  $qpi_unsubscribeOracle: sig([I32], I32),
-  $qpi_distributeDividends: sig([I64], I32),
   $qpi_abort: sig([I32], "void"),
   $qpi_markDirty: sig([I32], "void"),
   $qpi_logBytes: sig([I32, I32, I32, I32], "void"),
@@ -191,6 +151,15 @@ export const CALL_SIG: Record<string, CallSig> = {
   $lh_liteSetShareholderProposal: sig([I32, I32, I64], I32),
   $lh_liteSetShareholderVotes: sig([I32, I32, I32, I64], I32),
 };
+
+export function registerCallSig(target: string, signature: CallSig): void {
+  CALL_SIG[target] = signature;
+}
+
+export function resetLhostCallSigs(): void {
+  for (const target of Object.keys(CALL_SIG)) if (target.startsWith("$lh_")) delete CALL_SIG[target];
+  Object.assign(CALL_SIG, LHOST_CALL_SIG);
+}
 
 // ---- smart constructors ----
 

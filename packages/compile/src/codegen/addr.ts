@@ -1,11 +1,10 @@
 import { SCALAR_SIZE } from "./tables";
 import { emitProposalProxyAddr } from "./calls/proxy";
 import { qpiWrapperMethod } from "./calls/dispatch";
-import { emitAssetIter, classifyMethodParam, callCompiled, compileContainerMethod } from "./calls/containers";
+import { emitAssetIter, classifyMethodParam, callCompiled } from "./calls/containers";
 import { platformPrimitive } from "./platform-primitives";
 import { lookupHelper, emitAggHelperCall } from "./calls/libfn";
 import { newTmp, collectLocals, emitStmt } from "./stmt";
-import { QPI_CALLS, emitQpiCall } from "./calls/qpi";
 import { emitValue, isU128Expr, emitU128, emitValueIr, aggOperand } from "./value";
 import { Codegen } from "./cg";
 import { StructLayout, FieldLayout, FnCtx, AddrNode, NO_BIND, Lvalue } from "./types";
@@ -34,12 +33,18 @@ export const ID_VIEWS: Record<string, StructLayout> = {
 export function isIdLike(cg: Codegen, t: TypeSpec | null): boolean {
   if (!t) return false;
   const d = cg.derefType(t);
-  return d.kind === "name" && (d.name === "id" || d.name === "m256i");
+  if (d.kind !== "name") return false;
+  const separator = d.name.lastIndexOf("::");
+  const name = separator >= 0 ? d.name.slice(separator + 2) : d.name;
+  return name === "id" || name === "m256i";
 }
 export function isUint128(cg: Codegen, t: TypeSpec | null): boolean {
   if (!t) return false;
   const d = cg.derefType(t);
-  return (d.kind === "name" || d.kind === "template_instance") && (d.name === "uint128" || d.name === "uint128_t");
+  if (d.kind !== "name" && d.kind !== "template_instance") return false;
+  const separator = d.name.lastIndexOf("::");
+  const name = separator >= 0 ? d.name.slice(separator + 2) : d.name;
+  return name === "uint128" || name === "uint128_t";
 }
 
 // Resolve the address of an lvalue expression (member-access chains rooted at input/output/locals/state).
@@ -216,8 +221,7 @@ export function resolveAddr(ctx: FnCtx, expr: Expression): AddrNode | null {
     }
     // Member of an id-producing qpi call (`qpi.K12(x).u64._0`): resolveAddr has no lvalue for the call, but emitAddr materializes an
     if (!parent && expr.object.kind === "call" && expr.object.callee.kind === "member_access"
-      && expr.object.callee.object.kind === "identifier" && expr.object.callee.object.name === "qpi"
-      && (QPI_CALLS[expr.object.callee.member]?.ret === "out" || QPI_ID_PRODUCERS[expr.object.callee.member])) {
+      && expr.object.callee.object.kind === "identifier" && expr.object.callee.object.name === "qpi") {
       const addr = emitAddr(ctx, expr.object);
       if (addr) parent = { addr, type: { kind: "name", name: "id" }, size: 32, layout: null };
     }
@@ -524,25 +528,6 @@ export function emitAddr(ctx: FnCtx, expr: Expression): string | null {
     if (pa !== null) return pa;
   }
 
-  // qpi.X(...) that returns an id/aggregate by value (computor(i), arbitrator(), nextId(x), prevId(x)): allocate a 32-byte slot, let emitQpiCall emit
-  if (expr.kind === "call" && expr.callee.kind === "member_access" &&
-    expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
-    const desc = QPI_CALLS[expr.callee.member];
-    if (desc && desc.ret === "out") {
-      const s = allocSlot(ctx, desc.outSize ?? 32);
-      const q = emitQpiCall(ctx, expr, s);
-      if (q) ctx.lines.push(`    ${q.wat}`);
-      return s;
-    }
-    // qpi.invocator() / qpi.originator(): arg-less id producers not in QPI_CALLS.
-    const fwd = QPI_ID_PRODUCERS[expr.callee.member];
-    if (fwd) {
-      const s = allocSlotIr(ctx, 32);
-      ctx.lines.push(`    ${ir.emit(ir.call(fwd, s))}`);
-      return ir.emit(s);
-    }
-  }
-
   const n = resolveAddr(ctx, expr);
   return n ? n.addr : null;
 }
@@ -715,9 +700,8 @@ export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "cal
     addr, type: elemType, size: ctx.cg.sizeOfType(elemType), layout: ctx.cg.layoutOfType(elemType),
   });
 
-  const method = compileContainerMethod(ctx.cg, ctype, m, expr.args.length);
-  if (!method || (method.retKind !== "i32" && !method.retAgg)) return null;
   const compiled = callCompiled(ctx, ctype, m, node.addr, expr.args);
+  if (!compiled || (compiled.cm.retKind !== "i32" && !compiled.cm.retAgg)) return null;
   if (!compiled?.cm.retType) {
     throw new Error(`authoritative aggregate/reference method ${ctype.name}::${m} could not be lowered`);
   }
@@ -727,12 +711,6 @@ export function resolveContainerElem(ctx: FnCtx, expr: Expression & { kind: "cal
   return result;
 }
 
-// qpi.* zero-arg accessors that return a 32-byte id by value, written to an out address.
-export const QPI_ID_PRODUCERS: Record<string, string> = {
-  getPrevSpectrumDigest: "$qpi_prevSpectrumDigest",
-  getPrevUniverseDigest: "$qpi_prevUniverseDigest",
-  getPrevComputerDigest: "$qpi_prevComputerDigest",
-};
 
 // Aggregate construction `Type{ a, b, c }` written into dstAddr: zero the target, then store each arg into
 export function emitConstruct(ctx: FnCtx, dstAddr: string, type: TypeSpec, args: Expression[]): boolean {

@@ -1,10 +1,13 @@
 import { emitFunction, emitHelperFunction } from "./stmt";
-import { SYSPROC_IMPL, SYSPROC_LOCALS_PREFIX, SYSPROC_IO } from "./tables";
+import { SYSPROC_IO } from "./tables";
 import { Codegen } from "./cg";
 import { ClassTemplate, CalleeIdl, HelperInfo, NamespaceLookupContext } from "./types";
 import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
 import type { Sema } from "../sema";
 import { emitModule, type UserEntry, type SysProcInfo, type ModuleSpec, type QpiContextLayout } from "../framework";
+import type { LhostAbiSpec } from "../lhost";
+import { registerCallSig } from "../ir";
+import type { LiteAbiSource } from "@qinit/core/lite-abi-source";
 
 // ---- entry point ----
 
@@ -26,15 +29,19 @@ export interface LibTypes {
   templateMethods: Map<string, Map<string, FunctionTemplateDecl>>;
   namespaceUsings: Map<string, string[]>;
   namespaceContexts: Map<object, NamespaceLookupContext>;
+  importedFunctions: Map<string, FunctionDecl>;
+  liteAbi?: LiteAbiSource;
 }
 
 export interface GeneratedContractMetadata {
   stateSize: number;
   entries: Array<{ name: string; inputType: number; kind: number; inSize: number; outSize: number }>;
   sysprocMask: number;
+  lhostAbi?: LhostAbiSpec;
 }
 
-function seedLibTypes(cg: Codegen, lib: LibTypes): void {
+function seedLibTypes(cg: Codegen, lib: LibTypes): LhostAbiSpec {
+  if (lib.liteAbi) cg.assetEnumerationRecord = lib.liteAbi.records.LiteAssetEntry;
   for (const [k, v] of lib.templates) cg.templates.set(k, v);
   for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
   for (const [k, v] of lib.libFns) cg.libFns.set(k, v);
@@ -52,6 +59,50 @@ function seedLibTypes(cg: Codegen, lib: LibTypes): void {
   for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
   for (const [scope, namespaces] of lib.namespaceUsings) cg.namespaceUsings.set(scope, [...namespaces]);
   for (const [declaration, context] of lib.namespaceContexts) cg.namespaceContexts.set(declaration, context);
+  const lhostAbi: Record<string, { params: readonly ("i32" | "i64")[]; results: readonly ("i32" | "i64")[] }> = {};
+  for (const [name, fn] of lib.importedFunctions) {
+    const params = fn.params.map((param) => {
+      const declared = cg.derefType(param.type);
+      const isAddr = param.type.kind === "reference" || param.type.kind === "pointer" || cg.isAggregateType(declared);
+      const width = isAddr ? 4 : cg.sizeOfType(declared);
+      if (!isAddr && width !== 1 && width !== 2 && width !== 4 && width !== 8) {
+        throw new Error(`unsupported imported parameter '${name}.${param.name}' width ${width}`);
+      }
+      return {
+        name: param.name,
+        wasmType: (isAddr || width < 8 ? "i32" : "i64") as "i32" | "i64",
+        isAddr,
+        type: declared,
+      };
+    });
+    const returnType = cg.derefType(fn.returnType);
+    const returnAggregate = !cg.isVoidType(returnType) && cg.isAggregateType(returnType);
+    if (returnAggregate) throw new Error(`imported function '${name}' has an aggregate return; declare its hidden output address explicitly`);
+    const returnWidth = cg.isVoidType(returnType) ? 0 : cg.sizeOfType(returnType);
+    if (returnWidth !== 0 && returnWidth !== 1 && returnWidth !== 2 && returnWidth !== 4 && returnWidth !== 8) {
+      throw new Error(`unsupported imported return '${name}' width ${returnWidth}`);
+    }
+    const helper: HelperInfo = {
+      label: `$lh_${name.slice("__lhost_".length)}`,
+      params,
+      retIsValue: returnWidth !== 0,
+      retWasmType: returnWidth === 0 ? undefined : returnWidth < 8 ? "i32" : "i64",
+      retType: returnType,
+    };
+    cg.helpers.set(name, helper);
+    const importName = name.slice("__lhost_".length);
+    const abiParams = params.map((param) => param.wasmType);
+    const results = helper.retWasmType ? [helper.retWasmType] : [];
+    lhostAbi[importName] = { params: abiParams, results };
+    registerCallSig(helper.label, { params: abiParams, res: helper.retWasmType ?? "void" });
+  }
+  for (const row of lib.liteAbi?.lhost ?? []) {
+    const derived = lhostAbi[row.name];
+    if (!derived || derived.params.join(",") !== row.params.join(",") || derived.results.join(",") !== row.results.join(",")) {
+      throw new Error(`LH_IMPORT declaration for '${row.name}' does not match canonical core ABI metadata`);
+    }
+  }
+  return lhostAbi;
 }
 
 function contextLayoutFromCodegen(cg: Codegen): QpiContextLayout {
@@ -87,6 +138,17 @@ export function buildLibTypes(decls: Declaration[], inheritedNamespaceUsings?: M
     for (const [scope, namespaces] of inheritedNamespaceUsings) cg.namespaceUsings.set(scope, [...namespaces]);
   }
   cg.collectTU(decls);
+  const importedFunctions = new Map<string, FunctionDecl>();
+  const collectImports = (items: Declaration[]): void => {
+    for (const declaration of items) {
+      if (declaration.kind === "extern_block" || declaration.kind === "namespace") {
+        collectImports((declaration as any).body);
+      } else if (declaration.kind === "function" && declaration.name.startsWith("__lhost_") && !declaration.body) {
+        importedFunctions.set(declaration.name, declaration);
+      }
+    }
+  };
+  collectImports(decls);
   return {
     templates: cg.templates,
     specializations: cg.specializations,
@@ -105,6 +167,8 @@ export function buildLibTypes(decls: Declaration[], inheritedNamespaceUsings?: M
     templateMethods: cg.templateMethods,
     namespaceUsings: cg.namespaceUsings,
     namespaceContexts: cg.namespaceContexts,
+    importedFunctions,
+    liteAbi: undefined,
   };
 }
 
@@ -129,8 +193,13 @@ export function generateWasmModule(
   if (calleeStructs) for (const [k, v] of calleeStructs) cg.globalStructs.set(k, v);
 
   // Seed the qpi.h library type table (templates / structs / typedefs) parsed once, then add the user contract's
-  if (lib) {
-    seedLibTypes(cg, lib);
+  const lhostAbi = lib ? seedLibTypes(cg, lib) : undefined;
+  const systemProcedureImpl = new Map<string, number>();
+  const systemProcedurePrefix = new Map<string, string>();
+  for (const procedure of lib?.liteAbi?.systemProcedures ?? []) {
+    const implementation = `__impl_${procedure.method}`;
+    systemProcedureImpl.set(implementation, procedure.id);
+    systemProcedurePrefix.set(implementation, procedure.name);
   }
   const contextLayout = contextLayoutFromCodegen(cg);
   cg.collectTU(tu.declarations);
@@ -138,7 +207,7 @@ export function generateWasmModule(
 
   const contract = findContractStruct(tu);
   if (!contract) {
-    return emitModule({ stateSize: 0, arenaSize: arenaSz, contextLayout, entries: [], sysprocs: [], userFunctionsWat: ";; no contract struct found", memBase });
+    return emitModule({ stateSize: 0, arenaSize: arenaSz, contextLayout, entries: [], sysprocs: [], userFunctionsWat: ";; no contract struct found", memBase, lhostAbi, assetEnumerationRecord: cg.assetEnumerationRecord });
   }
 
   cg.collectNested(contract);
@@ -185,7 +254,7 @@ export function generateWasmModule(
     if (m.kind !== "function") continue;
     const fn = m as FunctionDecl;
     if (!fn.body) continue;
-    if (entryNames.has(fn.name) || SYSPROC_IMPL[fn.name] !== undefined || fn.name === "__impl_migrate") continue;
+    if (entryNames.has(fn.name) || systemProcedureImpl.has(fn.name) || fn.name === "__impl_migrate") continue;
     if (fn.name === "__registerUserFunctionsAndProcedures" || fn.name.includes("operator") || fn.name === contract.name) continue;
 
     if (fn.params[0]?.name === "qpi") {
@@ -305,10 +374,10 @@ export function generateWasmModule(
   for (const m of contract.members) {
     if (m.kind === "function") {
       const fn = m as FunctionDecl;
-      const spId = SYSPROC_IMPL[fn.name];
+      const spId = systemProcedureImpl.get(fn.name);
       if (spId !== undefined) {
         const label = `$sys_${sysIdx++}`;
-        const localsLayout = layoutFor(`${SYSPROC_LOCALS_PREFIX[fn.name] ?? fn.name}_locals`);
+        const localsLayout = layoutFor(`${systemProcedurePrefix.get(fn.name) ?? fn.name}_locals`);
         const io = SYSPROC_IO[fn.name];
         const inLayout = layoutOfNamed(io?.in);
         const outLayout = layoutOfNamed(io?.out);
@@ -367,6 +436,8 @@ export function generateWasmModule(
     memBase,
     gtest: gtestMode,
     capabilities: [...cg.capabilities],
+    lhostAbi,
+    assetEnumerationRecord: cg.assetEnumerationRecord,
   };
 
   if (metadataOut) {
@@ -379,6 +450,7 @@ export function generateWasmModule(
       outSize: entries[i]?.outSize ?? 0,
     }));
     metadataOut.sysprocMask = sysprocs.reduce((mask, proc) => mask | (1 << proc.id), 0);
+    metadataOut.lhostAbi = lhostAbi;
   }
 
   // expose warnings + hard errors via a side channel (sema diagnostics)

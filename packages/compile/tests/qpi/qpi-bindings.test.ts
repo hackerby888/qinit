@@ -1,9 +1,10 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
+import { LHOST_ABI } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
-import { QPI_AGGREGATE_LAYOUTS, QPI_BINDINGS } from "../../src/codegen/calls/qpi";
+import { getQpiContext } from "../../src/compiler/qpi-context";
 
 const CORE = CORE_PATH;
 const HEADER = loadQpiHeader(CORE);
@@ -21,19 +22,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 describe("typed QPI bindings", () => {
   beforeAll(initK12);
 
-  test("registry names and compiler symbols are unique and fully typed", () => {
-    const names = Object.keys(QPI_BINDINGS);
-    const symbols = Object.values(QPI_BINDINGS).map((binding) => binding.fwd);
-    expect(new Set(names).size).toBe(names.length);
-    expect(new Set(symbols).size).toBe(symbols.length);
-    for (const binding of Object.values(QPI_BINDINGS)) {
-      expect(binding.source.length).toBeGreaterThan(0);
-      expect(["function", "procedure", "both"]).toContain(binding.context);
-      expect(["value", "address", "void"]).toContain(binding.channel);
-      if (binding.ret === "out") expect(binding.outSize).toBeGreaterThan(0);
-    }
-    expect(QPI_AGGREGATE_LAYOUTS.Asset.fields).toEqual({ issuer: 0, assetName: 32 });
-    expect(QPI_AGGREGATE_LAYOUTS.AssetSelect.fields).toEqual({ id: 0, managingContract: 32, anyId: 34, anyManagingContract: 35 });
+  test("import registry and QPI methods come from parsed core source", () => {
+    const lib = getQpiContext(HEADER).lib;
+    expect([...lib.importedFunctions.keys()].map((name) => name.slice("__lhost_".length))).toEqual(Object.keys(LHOST_ABI));
+    expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("epoch")).toBe(true);
+    expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("nextId")).toBe(true);
+    expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("transfer")).toBe(true);
+    expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("setShareholderVotes")).toBe(true);
   });
 
   test("const-reference scalar temporaries use a real sized buffer", async () => {
@@ -78,6 +73,23 @@ describe("typed QPI bindings", () => {
       arenaSz: 1 << 20,
     });
     expect(procedureResult.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+  });
+
+  test("signed source-wrapper results preserve negative host failures", async () => {
+    const result = await compileContract({
+      source: wrap("PROCEDURE", `
+        output.result = qpi.transferShareOwnershipAndPossession(0x515049ull, SELF, SELF, SELF, 1, SELF) < 0;
+      `),
+      name: "QpiSignedResult",
+      slot: 27,
+      qpiHeader: HEADER,
+      arenaSz: 1 << 20,
+    });
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    sim.deploy(27, result.wasm);
+    const output = sim.procedure(27, 1);
+    expect(new DataView(output.buffer, output.byteOffset, output.byteLength).getBigInt64(32, true)).toBe(1n);
   });
 
   test("context violations and unknown bindings fail closed even with strict false", async () => {

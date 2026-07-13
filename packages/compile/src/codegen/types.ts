@@ -51,6 +51,7 @@ export interface HelperInfo {
   label: string;                                              // WAT function name ($h_<name>)
   params: { name: string; wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; byValAgg?: boolean }[];
   retIsValue: boolean;                                        // returns a scalar i64 (vs void)
+  retWasmType?: "i32" | "i64";                              // imported scalar ABI; ordinary helpers use i64
   retAgg?: number;                                            // returns an aggregate (id/struct) by value — its size; ABI prepends a $ret dest-address param
   retType?: TypeSpec;                                         // declared return type — drives conversions and aggregate-temporary member lookup
   sourceNamespace?: string;                                   // lexical namespace/owner used to resolve unqualified sibling helpers

@@ -955,10 +955,28 @@ export class Parser {
     }
 
     while (!this.eof() && this.peek().kind !== "r_paren") {
-      const type = this.parseTypeSpec();
+      let type = this.parseTypeSpec();
       let name = "";
 
-      if (this.peek().kind === "identifier") {
+      // Function-pointer parameter: `void (*callback)(Args...)` or the unnamed `void (*)(Args...)`
+      // used by core's oracle wrappers. The pointee signature is not called by generated Wasm, but the
+      // parameter remains an address in the parsed ABI and still counts for overload resolution.
+      if (this.peek().kind === "l_paren" && this.peek(1).kind === "star") {
+        this.next();
+        this.next();
+        if (this.peek().kind === "identifier") name = this.next().text;
+        this.expect("r_paren", "function-pointer declarator");
+        this.expect("l_paren", "function-pointer parameters");
+        let depth = 1;
+        while (!this.eof() && depth > 0) {
+          const token = this.next();
+          if (token.kind === "l_paren") depth++;
+          else if (token.kind === "r_paren") depth--;
+        }
+        type = { kind: "pointer", pointee: type, span: type.span };
+      }
+
+      if (!name && this.peek().kind === "identifier") {
         name = this.next().text;
       }
 
@@ -1792,7 +1810,7 @@ export class Parser {
       // sizeof(T) or sizeof(expr) Check if it's a type
       const tok = this.peek();
       if (isTypeKeyword(tok.kind) || tok.kind === "kw_unsigned" || tok.kind === "kw_signed" ||
-        tok.kind === "kw_struct" || tok.kind === "kw_enum" || tok.kind === "kw_const") {
+        tok.kind === "kw_struct" || tok.kind === "kw_enum" || tok.kind === "kw_const" || tok.kind === "kw_typename") {
         const type = this.parseTypeSpec();
         this.expect("r_paren", "sizeof type");
         return { kind: "sizeof_type", type, span: this.makeSpan(start) };

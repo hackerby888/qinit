@@ -59,6 +59,7 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   extra.push(join(corePath, "src", "extensions", "lite_contract_calls.h"));
   extra.push(join(corePath, "src", "extensions", "lite_wasm_intrinsics.h"));   // -include'd by the wasm compile
   extra.push(join(corePath, "src", "extensions", "lite_wasm_tu.h"));           // wasm TU binding (swapped in)
+  extra.push(join(corePath, "src", "extensions", "lite_wasm_target.h"));       // core-owned contract target helpers
 
   const root = join(outRoot, "core-headers");
   rmSync(root, { recursive: true, force: true });

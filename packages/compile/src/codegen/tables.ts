@@ -1,34 +1,3 @@
-export const SYSPROC_IMPL: Record<string, number> = {
-  __impl_initialize: 0,
-  __impl_beginEpoch: 1,
-  __impl_endEpoch: 2,
-  __impl_beginTick: 3,
-  __impl_endTick: 4,
-  __impl_preReleaseShares: 5,
-  __impl_preAcquireShares: 6,
-  __impl_postReleaseShares: 7,
-  __impl_postAcquireShares: 8,
-  __impl_postIncomingTransfer: 9,
-  __impl_setShareholderProposal: 10,
-  __impl_setShareholderVotes: 11,
-};
-
-// The scaffold renames a lifecycle procedure to its __impl_* name, but its locals struct keeps the macro spelling
-export const SYSPROC_LOCALS_PREFIX: Record<string, string> = {
-  __impl_initialize: "INITIALIZE",
-  __impl_beginEpoch: "BEGIN_EPOCH",
-  __impl_endEpoch: "END_EPOCH",
-  __impl_beginTick: "BEGIN_TICK",
-  __impl_endTick: "END_TICK",
-  __impl_preReleaseShares: "PRE_RELEASE_SHARES",
-  __impl_preAcquireShares: "PRE_ACQUIRE_SHARES",
-  __impl_postReleaseShares: "POST_RELEASE_SHARES",
-  __impl_postAcquireShares: "POST_ACQUIRE_SHARES",
-  __impl_postIncomingTransfer: "POST_INCOMING_TRANSFER",
-  __impl_setShareholderProposal: "SET_SHAREHOLDER_PROPOSAL",
-  __impl_setShareholderVotes: "SET_SHAREHOLDER_VOTES",
-};
-
 // Share-transfer / incoming-transfer hooks carry real input (and, for the pre-* pair, output) structs — unlike the lifecycle
 export const SYSPROC_IO: Record<string, { in?: string; out?: string; typedIO?: boolean }> = {
   __impl_preReleaseShares: { in: "PreManagementRightsTransfer_input", out: "PreManagementRightsTransfer_output" },
@@ -63,7 +32,7 @@ export const C_SCALAR_NAMES = new Set([
 export const MATH_INTRINSIC_NAMES = new Set(["div", "sdiv", "mod", "min", "max", "abs", "sadd", "ssub", "smul"]);
 
 // Platform free-function namespaces whose bodies must lower without fidelity diagnostics.
-// Host qpi.xxx methods stay in QPI_BINDINGS; this set covers free helpers (QPI::div, math_lib::max, …).
+// Free helpers (QPI::div, math_lib::max, …); QPI context methods come from parsed core wrapper bodies.
 export const AUTHORITATIVE_NAMESPACES = new Set(["QPI", "math_lib"]);
 
 /** True when a qualified symbol lives under an authoritative platform namespace (QPI::div, math_lib::max). */

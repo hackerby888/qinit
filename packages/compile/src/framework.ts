@@ -1,7 +1,7 @@
-import { ASSET_ENUMERATION_RECORD, LHOST_ABI } from "@qinit/core";
-import { emitLhostImports, lhostSymbol } from "./lhost";
+import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
+import { emitLhostImports, type LhostAbiSpec } from "./lhost";
 import type { PlatformCapability } from "./codegen/platform-primitives";
-import { QPI_BINDINGS } from "./codegen/calls/qpi";
+import { resetLhostCallSigs } from "./ir";
 
 // WAT assembler for a complete contract module.
 export const IN_SZ = 64 * 1024;
@@ -45,6 +45,8 @@ export interface ModuleSpec {
                               // this byte offset inside the provider's (corpus runner's) memory. Every
   gtest?: boolean;            // TS-compiled test runner: include the private qtest host ABI
   capabilities?: readonly PlatformCapability[];
+  lhostAbi?: LhostAbiSpec;      // parsed live-core imports; browser/direct callers use the generated default
+  assetEnumerationRecord?: { readonly size: number; readonly capacity: number };
 }
 
 // Back-compat shape used by older callers / tests.
@@ -71,7 +73,13 @@ interface Layout {
   iterBufBase: number;
 }
 
-function computeLayout(stateSize: number, arenaSize: number, contextSize: number, memBase = 0): Layout {
+function computeLayout(
+  stateSize: number,
+  arenaSize: number,
+  contextSize: number,
+  memBase = 0,
+  assetRecord: { readonly size: number; readonly capacity: number } = ASSET_ENUMERATION_RECORD,
+): Layout {
   const align = (n: number, a: number) => Math.ceil(n / a) * a;
   const stateBase = memBase;
   const ctxBase = align(stateBase + Math.max(stateSize, 8), 16);
@@ -84,7 +92,7 @@ function computeLayout(stateSize: number, arenaSize: number, contextSize: number
   const ioSize = IN_SZ + OUT_SZ + LOCALS_SZ + arenaSize;
   // Asset-iterator result buffer (AssetOwnership/PossessionIterator): 1024 records × 80 bytes, written by the assetEnumerate host import at begin() and
   const iterBufBase = align(arenaEnd, 16);
-  const iterBufSize = ASSET_ENUMERATION_RECORD.size * ASSET_ENUMERATION_RECORD.capacity;
+  const iterBufSize = assetRecord.size * assetRecord.capacity;
   const pages = Math.ceil((iterBufBase + iterBufSize) / 65536) + 1;
   return { stateBase, stateSize, ctxBase, ioBase, inBase, outBase, localsBase, arenaBase, arenaEnd, ioSize, pages, iterBufBase };
 }
@@ -92,16 +100,19 @@ function computeLayout(stateSize: number, arenaSize: number, contextSize: number
 // ---- The complete module assembler ----
 
 export function emitModule(spec: ModuleSpec): string {
+  // Live-core signatures are needed while lowering user/wrapper bodies. Module assembly is the
+  // terminal phase, so restore the generated baseline and avoid leaking a mutated checkout into later compilations.
+  resetLhostCallSigs();
   const usesPrng = spec.capabilities?.includes("chain-prng") ?? false;
   // WAMR's app-to-native adapter treats linear-memory offset 0 as nullptr.
   // Random-capable modules pass resident state to lhost.k12 when seeding for deterministic behavior.
-  const L = computeLayout(spec.stateSize, spec.arenaSize, spec.contextLayout.size, spec.memBase ?? (usesPrng ? 8 : 0));
+  const L = computeLayout(spec.stateSize, spec.arenaSize, spec.contextLayout.size, spec.memBase ?? (usesPrng ? 8 : 0), spec.assetEnumerationRecord);
   const sysprocMask = spec.sysprocs.reduce((m, sp) => m | (1 << sp.id), 0);
 
   return [
     "(module",
     "  ;; ---- qinit-compile generated module ----",
-    emitImports(spec.gtest),
+    emitImports(spec.gtest, spec.lhostAbi),
     spec.memBase !== undefined
       ? `  (import "env" "memory" (memory ${L.pages}))`
       : `  (memory (export "memory") ${L.pages} ${L.pages})`,
@@ -131,9 +142,9 @@ export function emitFramework(opts: FrameworkOpts): string {
   });
 }
 
-function emitImports(gtest = false): string {
+function emitImports(gtest = false, lhostAbi?: LhostAbiSpec): string {
   return `  ;; ---- lhost imports ----
-${emitLhostImports()}
+${emitLhostImports(lhostAbi)}
 ${gtest ? `  ;; ---- private TS gtest host imports ----
   (import "qtest" "invoke" (func $qt_invoke (param i32 i32 i32 i32 i32 i64 i32) (result i32)))
   (import "qtest" "query" (func $qt_query (param i32 i32 i32 i32 i32 i32) (result i32)))
@@ -266,7 +277,6 @@ function emitAllocators(L: Layout): string {
 function emitForwarders(contextLayout: QpiContextLayout): string {
   // Thin wrappers from $qpi_* (codegen targets) to the lhost imports.
   return `  ;; ---- qpi forwarders ----
-${emitQpiBindingForwarders()}
   (func $qpi_transferTyped (param $d i32) (param $a i64) (param $t i32) (result i64) (call $lh_transferTyped (local.get $d) (local.get $a) (local.get $t)))
   (func $qpi_prevSpectrumDigest (param $o i32) (call $lh_prevSpectrumDigest (local.get $o)))
   (func $qpi_prevUniverseDigest (param $o i32) (call $lh_prevUniverseDigest (local.get $o)))
@@ -278,17 +288,6 @@ ${emitQpiBindingForwarders()}
   (func $liteInvokeProcedure (param $c i32) (param $it i32) (param $i i32) (param $is i32) (param $o i32) (param $os i32) (param $r i64) (result i32) (call $lh_liteInvokeProcedure (local.get $c) (local.get $it) (local.get $i) (local.get $is) (local.get $o) (local.get $os) (local.get $r)))
   ;; Internal context index accessor. User-visible context accessors compile from qpi.h.
   (func $qpi_contractIndex (result i32) (i32.load (i32.add (global.get $ctxBase) (i32.const ${contextLayout.contractIndex}))))`;
-}
-
-function emitQpiBindingForwarders(): string {
-  return Object.values(QPI_BINDINGS).flatMap((binding) => {
-    if (!binding.host || !binding.fwd.startsWith("$qpi_")) return [];
-    const signature = LHOST_ABI[binding.host];
-    const params = signature.params.map((type, index) => `(param $p${index} ${type})`).join(" ");
-    const result = signature.results[0] ? ` (result ${signature.results[0]})` : "";
-    const operands = signature.params.map((_, index) => `(local.get $p${index})`).join(" ");
-    return [`  (func ${binding.fwd}${params ? " " + params : ""}${result} (call ${lhostSymbol(binding.host)}${operands ? " " + operands : ""}))`];
-  }).join("\n");
 }
 
 function emitIntrinsics(L: Layout, spec: ModuleSpec): string {

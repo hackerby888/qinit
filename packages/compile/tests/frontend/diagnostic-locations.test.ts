@@ -76,6 +76,15 @@ describe("compiler diagnostics - source locations", () => {
     expect(diagnostics.every((diagnostic) => diagnostic.span.start <= source.length)).toBe(true);
   });
 
+  test("still requires embedded ABI metadata for full compilation", async () => {
+    await expect(compileContract({
+      source: "struct UserSource {};",
+      name: "DiagProbe",
+      slot: 27,
+      qpiHeader: "struct HeaderOnly {};",
+    })).rejects.toThrow("QPI headers are missing embedded core ABI metadata");
+  });
+
   test("orders and deduplicates recovered diagnostics deterministically", () => {
     const source = [
       "struct Broken {",

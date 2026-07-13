@@ -260,7 +260,8 @@ export function helperCallOps(ctx: FnCtx, info: HelperInfo, args: Expression[]):
       return argAddr(ctx, arg, ctx.cg.sizeOfType(p.type, ctx.thisBind ?? NO_BIND), p.type, false, true);
     }
     const declared = ctx.cg.derefType(p.type);
-    return narrowCast(emitValue(ctx, arg), declared.kind === "name" ? declared.name : undefined);
+    const value = narrowCast(emitValue(ctx, arg), declared.kind === "name" ? declared.name : undefined);
+    return p.wasmType === "i32" ? `(i32.wrap_i64 ${value})` : value;
   }).join(" ");
 }
 
@@ -359,7 +360,11 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
     // Qualified static member calls resolve by flattened namespace members; structByName strips qualifiers.
     const segs = name.split("::");
     const method = segs[segs.length - 1];
-    const sd = ctx.cg.structByName(segs.slice(0, -1).join("::"), ctx.thisBind ?? NO_BIND);
+    const ownerName = segs.slice(0, -1).join("::");
+    const boundOwner = ctx.thisBind?.types.get(ownerName) ?? ctx.thisBind?.types.get(ownerName.split("::").pop()!);
+    const sd = boundOwner
+      ? ctx.cg.structOf(boundOwner, ctx.thisBind ?? NO_BIND) ?? undefined
+      : ctx.cg.structByName(ownerName, ctx.thisBind ?? NO_BIND);
     const fn = sd?.members.find(
       (m): m is Declaration & { kind: "function" } => m.kind === "function" && m.name === method && m.isStatic && !!m.body,
     );
@@ -396,7 +401,14 @@ export function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, 
   const ops = helperCallOps(ctx, info, expr.args);
   const call = `(call ${info.label}${ops ? " " + ops : ""})`;
 
-  if (valueWanted) return info.retIsValue ? call : "(i64.const 0)";
+  if (valueWanted) {
+    if (!info.retIsValue) return "(i64.const 0)";
+    if (info.retWasmType === "i32") {
+      const unsigned = info.retType ? unsignedScalar(ctx.cg.derefType(info.retType)) : true;
+      return `(${unsigned ? "i64.extend_i32_u" : "i64.extend_i32_s"} ${call})`;
+    }
+    return call;
+  }
   ctx.lines.push(info.retIsValue ? `    (drop ${call})` : `    ${call}`);
   return "";
 }

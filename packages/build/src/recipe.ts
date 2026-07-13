@@ -90,122 +90,13 @@ export function genWrapper(o: BuildOpts): string {
 `;
 }
 
-// The pure QPI helpers a wasm contract needs but the wasm TU can't get from qpi_trivial_impl.h / contract_exec.h
-// (those pull four_q's x86 asm + redefine K12/arbitrator/computor that lite_wasm_tu.h already provides). Faithful
-const WASM_QPI_SHIM = `// ---- qinit wasm QPI shim (pure trivial helpers + locals allocator; see recipe.ts) ----
-#include "platform/memory.h"
-namespace QPI {
-template <typename T1, typename T2> inline void copyMemory(T1& dst, const T2& src) {
-\tstatic_assert(sizeof(dst) == sizeof(src), "Size of source and destination must match to run copyMemory().");
-\tcopyMem(&dst, &src, sizeof(dst));
-}
-template <typename T1, typename T2> inline void copyFromBuffer(T1& dst, const T2& src) {
-\tstatic_assert(sizeof(dst) <= sizeof(src), "Destination object must be at most the size of the source buffer.");
-\tcopyMem(&dst, &src, sizeof(dst));
-}
-template <typename T> inline void setMemory(T& dst, uint8 value) { setMem(&dst, sizeof(dst), value); }
-template <typename T, unsigned int I> void setMemory(ContractState<T, I>&, uint8) = delete;
-template <typename T1, unsigned int I, typename T2> void copyMemory(ContractState<T1, I>&, const T2&) = delete;
-template <typename T1, unsigned int I, typename T2> void copyFromBuffer(ContractState<T1, I>&, const T2&) = delete;
-// Saturating add/mul mirroring core-lite math_lib.h: clamp at the type extreme instead of wrapping.
-inline static sint64 smul(sint64 a, sint64 b) {
-\t__int128 r = (__int128)a * (__int128)b;
-\tif (r < (__int128)(-9223372036854775807LL - 1)) return -9223372036854775807LL - 1;
-\tif (r > (__int128)9223372036854775807LL) return 9223372036854775807LL;
-\treturn (sint64)r;
-}
-inline static uint64 smul(uint64 a, uint64 b) {
-\tunsigned __int128 r = (unsigned __int128)a * (unsigned __int128)b;
-\tif (r > (unsigned __int128)18446744073709551615ULL) return 18446744073709551615ULL;
-\treturn (uint64)r;
-}
-inline static sint32 smul(sint32 a, sint32 b) {
-\tsint64 r = (sint64)a * (sint64)b;
-\tif (r < -2147483647LL - 1) return -2147483647 - 1;
-\tif (r > 2147483647LL) return 2147483647;
-\treturn (sint32)r;
-}
-inline static uint32 smul(uint32 a, uint32 b) {
-\tuint64 r = (uint64)a * (uint64)b;
-\tif (r > 4294967295ULL) return 4294967295u;
-\treturn (uint32)r;
-}
-inline static sint64 sadd(sint64 a, sint64 b) {
-\tsint64 sum = (sint64)((uint64)a + (uint64)b);
-\tif (a < 0 && b < 0 && sum > 0) return -9223372036854775807LL - 1;
-\tif (a > 0 && b > 0 && sum < 0) return 9223372036854775807LL;
-\treturn sum;
-}
-inline static uint64 sadd(uint64 a, uint64 b) {
-\tif (18446744073709551615ULL - a < b) return 18446744073709551615ULL;
-\treturn a + b;
-}
-inline static sint32 sadd(sint32 a, sint32 b) {
-\tsint64 sum = (sint64)a + (sint64)b;
-\tif (sum < -2147483647LL - 1) return -2147483647 - 1;
-\tif (sum > 2147483647LL) return 2147483647;
-\treturn (sint32)sum;
-}
-inline static uint32 sadd(uint32 a, uint32 b) {
-\tuint64 sum = (uint64)a + (uint64)b;
-\tif (sum > 4294967295ULL) return 4294967295u;
-\treturn (uint32)sum;
-}
-template <typename T, uint64 L> bool isArraySorted(const Array<T, L>& Array, uint64 beginIdx, uint64 endIdx) {
-\tif (endIdx > L || beginIdx > endIdx) return false;
-\tfor (uint64 i = beginIdx + 1; i < endIdx; ++i) { if (Array.get(i - 1) > Array.get(i)) return false; }
-\treturn true;
-}
-template <typename T, uint64 L> bool isArraySortedWithoutDuplicates(const Array<T, L>& Array, uint64 beginIdx, uint64 endIdx) {
-\tif (endIdx > L || beginIdx > endIdx) return false;
-\tfor (uint64 i = beginIdx + 1; i < endIdx; ++i) { if (Array.get(i - 1) >= Array.get(i)) return false; }
-\treturn true;
-}
-}
-namespace { unsigned char __qinitLocalsBuf[2u << 20]; unsigned long __qinitLocalsTop = 0; unsigned long __qinitLocalsMark[256]; int __qinitLocalsDepth = 0; }
-void* QPI::QpiContextFunctionCall::__qpiAllocLocals(unsigned int sizeOfLocals) const {
-\tunsigned long off = __qinitLocalsTop;
-\tif (__qinitLocalsDepth < 256) __qinitLocalsMark[__qinitLocalsDepth++] = off;
-\t__qinitLocalsTop = (off + sizeOfLocals + 7) & ~7ul;
-\t// native contract_exec.h zeroes every locals frame (setMem after allocate); a nested CALL()'s locals
-\t// (e.g. a HashSet used as a dedup scratch) must start empty or membership tests read stale garbage.
-\t__builtin_memset(&__qinitLocalsBuf[off], 0, sizeOfLocals);
-\treturn (void*)&__qinitLocalsBuf[off];
-}
-void QPI::QpiContextFunctionCall::__qpiFreeLocals() const { if (__qinitLocalsDepth > 0) __qinitLocalsTop = __qinitLocalsMark[--__qinitLocalsDepth]; }
-// ---- asset iterators: host-coupled, so they can't be compiled freestanding. The shim defines the methods over a
-// new lhost import (assetEnumerate) that returns the matching records into a static buffer; the cursor lives in
-__attribute__((import_module("lhost"), import_name("assetEnumerate"))) extern "C" unsigned int __qinit_lh_assetEnumerate(unsigned int kind, const void* issuance, const void* ownSel, const void* posSel, void* outBuf, unsigned int maxEntries);
-namespace { struct __qinitAssetEntry { unsigned char owner[32]; unsigned char possessor[32]; long long shares; unsigned short ownMgmt; unsigned short posMgmt; unsigned char pad[4]; }; __qinitAssetEntry __qinitIterBuf[1024]; }
-void QPI::AssetOwnershipIterator::begin(const QPI::Asset& issuance, const QPI::AssetOwnershipSelect& ownership) {
-\t_issuance = issuance; _ownership = ownership;
-\t_issuanceIdx = __qinit_lh_assetEnumerate(0, &_issuance, &_ownership, &_ownership, __qinitIterBuf, 1024);
-\t_ownershipIdx = 0;
-}
-bool QPI::AssetOwnershipIterator::reachedEnd() const { return _ownershipIdx >= _issuanceIdx; }
-bool QPI::AssetOwnershipIterator::next() { ++_ownershipIdx; return _ownershipIdx < _issuanceIdx; }
-QPI::id QPI::AssetOwnershipIterator::issuer() const { return _issuance.issuer; }
-QPI::uint64 QPI::AssetOwnershipIterator::assetName() const { return _issuance.assetName; }
-QPI::id QPI::AssetOwnershipIterator::owner() const { QPI::id r; copyMem(&r, __qinitIterBuf[_ownershipIdx].owner, 32); return r; }
-QPI::sint64 QPI::AssetOwnershipIterator::numberOfOwnedShares() const { return __qinitIterBuf[_ownershipIdx].shares; }
-QPI::uint16 QPI::AssetOwnershipIterator::ownershipManagingContract() const { return __qinitIterBuf[_ownershipIdx].ownMgmt; }
-void QPI::AssetPossessionIterator::begin(const QPI::Asset& issuance, const QPI::AssetOwnershipSelect& ownership, const QPI::AssetPossessionSelect& possession) {
-\t_issuance = issuance; _ownership = ownership; _possession = possession;
-\t_issuanceIdx = __qinit_lh_assetEnumerate(1, &_issuance, &_ownership, &_possession, __qinitIterBuf, 1024);
-\t_ownershipIdx = 0;
-}
-bool QPI::AssetPossessionIterator::reachedEnd() const { return _ownershipIdx >= _issuanceIdx; }
-bool QPI::AssetPossessionIterator::next() { ++_ownershipIdx; return _ownershipIdx < _issuanceIdx; }
-QPI::id QPI::AssetPossessionIterator::possessor() const { QPI::id r; copyMem(&r, __qinitIterBuf[_ownershipIdx].possessor, 32); return r; }
-QPI::sint64 QPI::AssetPossessionIterator::numberOfPossessedShares() const { return __qinitIterBuf[_ownershipIdx].shares; }
-`;
 
 // --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
 // Same TU as the .so, but binds to lite_wasm_tu.h (qpi.h calls -> "lhost" wasm imports + dispatch/reg/state
 export function genWrapperWasm(o: BuildOpts): string {
   const wrapper = genWrapper(o)
     .replace("#define LITE_DYN_SO_BUILD", "#define LITE_WASM_TU_BUILD")
-    .replace(`#include "${o.contractPath}"`, `${WASM_QPI_SHIM}#include "${o.contractPath}"`)
+    .replace(`#include "${o.contractPath}"`, `#include "extensions/lite_wasm_target.h"\n#include "${o.contractPath}"`)
     .replace('#include "extensions/lite_dyn_abi.h"', '#include "extensions/lite_wasm_tu.h"');
   if (!o.testSource) {
     return wrapper;

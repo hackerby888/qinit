@@ -1,5 +1,5 @@
 import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, symbolBaseName } from "../tables";
-import { QPI_BINDINGS, QPI_GETTERS, QPI_CALLS, emitQpiCall } from "./qpi";
+import { emitQpiCall } from "./qpi";
 import { emitHelperCall } from "./libfn";
 import { emitProxySiblingCall, emitProposalProxyCall } from "./proxy";
 import { newTmp } from "../stmt";
@@ -207,22 +207,7 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
   const c = emitContainerCall(ctx, expr, true);
   if (c !== null) return ir.raw(c, "i64", "source-compiled instance method");
 
-  if (expr.callee.kind === "member_access" && expr.callee.object.kind === "identifier" && expr.callee.object.name === "qpi") {
-    const g = QPI_GETTERS[expr.callee.member];
-    if (g) return g.ret === "i64" ? ir.call(g.fwd) : ir.op("i64.extend_i32_u", ir.call(g.fwd));
-    // qpi out-producer used as a scalar value (`qpi.now() < endDate`): materialize the out struct and read its leading
-    const desc = QPI_CALLS[expr.callee.member];
-    if (desc && desc.ret === "out") {
-      const a = emitAddr(ctx, expr);
-      if (a) return ir.loadRaw("i64.load", null, ir.raw(a, "i32", "lvalue address channel"));
-    }
-  }
-
-  const q = emitQpiCall(ctx, expr);
-  if (q) {
-    if (q.ret === "i64") return ir.raw(q.wat, "i64", "unconverted: qpi call");
-    if (q.ret === "i32") return ir.op("i64.extend_i32_u", ir.raw(q.wat, "i32", "unconverted: qpi call"));
-  }
+  emitQpiCall(ctx, expr);
 
   // Functional-style scalar cast: uint64(x) / sint64(x) / uint8(x) / bit(x) ... — narrowed to the target
   if (expr.callee.kind === "identifier" && SCALAR_SIZE[expr.callee.name] !== undefined && expr.args.length === 1) {
@@ -273,9 +258,9 @@ export function emitInterContract(ctx: FnCtx, expr: Expression & { kind: "call" 
   // Returns the bare i32 call expression (the InterContractCallError). The statement caller drops it; the
   if (isInvoke) {
     const reward = expr.args[4] ? emitValue(ctx, expr.args[4]) : "(i64.const 0)";
-    return `(call ${QPI_BINDINGS.__invokeOther.fwd} ${dims} ${reward})`;
+    return `(call $liteInvokeProcedure ${dims} ${reward})`;
   }
-  return `(call ${QPI_BINDINGS.__callOther.fwd} ${dims})`;
+  return `(call $liteCallFunction ${dims})`;
 }
 
 // The ProposalVoting wrapper call shape: `qpi(<aggregate>).<method>(...)` — a member call whose object is a `qpi(...)` call. Returns the
@@ -296,56 +281,6 @@ export function describeShape(e: Expression): string {
   return e.kind;
 }
 
-// QUERY_ORACLE / SUBSCRIBE_ORACLE (qpi.h:3290/3327) lowers through host import args (ifaceIdx, timeout).
-export function emitOracleQueryCall(ctx: FnCtx, expr: Expression & { kind: "template_call" }): string | null {
-  const subscribe = expr.callee.kind === "member_access" && expr.callee.member === "__qpiSubscribeOracle";
-  const t = expr.templateArgs[0];
-  if (!t || t.kind !== "name") return null;
-
-  const sd = ctx.cg.structOf(t, ctx.thisBind ?? NO_BIND);
-  const iface = ctx.cg.resolveConst(`${t.name}::oracleInterfaceIndex`);
-  const q = sd?.members.find((m): m is StructDecl => m.kind === "struct" && m.name === "OracleQuery");
-  const qSize = q ? ctx.cg.layoutOfType({ kind: "inline_struct", struct: q })?.size : undefined;
-  const qAddr = expr.args[0] ? emitAddr(ctx, expr.args[0]) : null;
-  const idArg = expr.args[2];
-  const procName = idArg?.kind === "identifier" && idArg.name.startsWith("__id_") ? idArg.name.slice(5) : null;
-  const defLine = procName ? ctx.cg.memberFnLine.get(procName) : undefined;
-  if (iface === null || !q || !qSize || !qAddr || defLine === undefined) return null;
-  const procId = (ctx.cg.slot << 22) | (defLine & 0x3fffff);
-
-  const feeCall = {
-    kind: "call",
-    callee: { kind: "identifier", name: `${t.name}::${subscribe ? "getSubscriptionFee" : "getQueryFee"}`, span: expr.span },
-    args: subscribe ? [expr.args[0], expr.args[3]] : [expr.args[0]],
-    span: expr.span,
-  } as Expression & { kind: "call" };
-  const fee = emitCallValue(ctx, feeCall);
-
-  if (subscribe) {
-    const period = `(i32.wrap_i64 ${emitValue(ctx, expr.args[3])})`;
-    const prev = `(i32.and (i32.wrap_i64 ${emitValue(ctx, expr.args[4])}) (i32.const 1))`;
-    return `(i64.extend_i32_s (call ${QPI_BINDINGS.__subscribeOracle.fwd} (i32.const ${iface}) ${qAddr} (i32.const ${qSize}) (i32.const ${procId}) ${period} ${prev} ${fee}))`;
-  }
-  const timeout = `(i32.wrap_i64 ${emitValue(ctx, expr.args[3])})`;
-  return `(call ${QPI_BINDINGS.__queryOracle.fwd} (i32.const ${iface}) ${qAddr} (i32.const ${qSize}) (i32.const ${procId}) ${timeout} ${fee})`;
-}
-
-// qpi.getOracleQuery<OI>(queryId, query) / qpi.getOracleReply<OI>(queryId, reply): the host copies sizeof(OI::OracleQuery / OI::OracleReply) bytes into the out lvalue and reports
-export function emitOracleReadCall(ctx: FnCtx, expr: Expression & { kind: "template_call" }): ir.Ir | null {
-  const reply = expr.callee.kind === "member_access" && expr.callee.member === "getOracleReply";
-  const t = expr.templateArgs[0];
-  if (!t || t.kind !== "name") return null;
-
-  const sd = ctx.cg.structOf(t, ctx.thisBind ?? NO_BIND);
-  const m = sd?.members.find((x): x is StructDecl => x.kind === "struct" && x.name === (reply ? "OracleReply" : "OracleQuery"));
-  const size = m ? ctx.cg.layoutOfType({ kind: "inline_struct", struct: m })?.size : undefined;
-  const outAddr = expr.args[1] ? emitAddr(ctx, expr.args[1]) : null;
-  if (!size || !outAddr) return null;
-
-  const qid = emitValueIr(ctx, expr.args[0]);
-  return ir.op("i64.extend_i32_u",
-    ir.call(reply ? QPI_BINDINGS.__getOracleReply.fwd : QPI_BINDINGS.__getOracleQuery.fwd, qid, addrIr(outAddr), ir.i32c(size)));
-}
 
 export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   if (ctx.cg.gtestMode && expr.callee.kind === "identifier") {
@@ -421,7 +356,7 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
     const input = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
     const inputSize = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);
     const digest = allocSlotIr(ctx, 32);
-    ctx.lines.push(`    ${ir.emit(ir.call("$qpi_k12", addrIr(input), ir.op("i32.wrap_i64", inputSize), digest))}`);
+    ctx.lines.push(`    ${ir.emit(ir.call("$lh_k12", addrIr(input), ir.op("i32.wrap_i64", inputSize), digest))}`);
 
     let output: Expression | undefined = expr.args[2];
     while (output?.kind === "paren" || (output?.kind === "unary_op" && output.op === "&")) {
@@ -579,12 +514,7 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
   const c = emitContainerCall(ctx, expr, false);
   if (c !== null) return;
 
-  const q = emitQpiCall(ctx, expr);
-  if (q) {
-    if (q.ret === "void" || q.ret === "out") ctx.lines.push(`    ${q.wat}`);
-    else ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.raw(q.wat, q.ret === "i32" ? "i32" : "i64", "unconverted: qpi call")))}`);
-    return;
-  }
+  emitQpiCall(ctx, expr);
 
   ctx.cg.warn(`unsupported call statement [${describeShape(expr)}]`, expr.span.line);
 }

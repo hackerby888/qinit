@@ -25,8 +25,14 @@ export interface ContainerFixture {
 }
 
 export interface ExecutionResult {
+  operations: OperationResult[];
   outputs: Uint8Array[];
   state: Uint8Array;
+}
+
+export interface OperationResult {
+  status: "ok" | "trap" | "rejected";
+  output?: Uint8Array;
 }
 
 export function encodeContainerOperation(operation: ContainerOperation): Uint8Array {
@@ -47,13 +53,25 @@ export function executeContainerScript(wasm: Uint8Array, operations: readonly Co
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   const contract = sim.deploy(CONTAINER_SLOT, wasm);
-  const outputs = operations.map((operation) => sim.procedure(
-    CONTAINER_SLOT,
-    1,
-    encodeContainerOperation(operation),
-    { invocator: user },
-  ).slice());
-  return { outputs, state: contract.state().slice() };
+  const results: OperationResult[] = [];
+  for (const operation of operations) {
+    try {
+      results.push({
+        status: "ok",
+        output: sim.procedure(
+          CONTAINER_SLOT,
+          1,
+          encodeContainerOperation(operation),
+          { invocator: user },
+        ).slice(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      results.push({ status: /reject|invalid|not found/i.test(message) ? "rejected" : "trap" });
+      break;
+    }
+  }
+  return { operations: results, outputs: results.flatMap((result) => result.output ? [result.output] : []), state: contract.state().slice() };
 }
 
 export async function compileTsFixture(fixture: ContainerFixture, qpiHeader: string): Promise<Uint8Array> {
@@ -95,10 +113,15 @@ export async function compileNativeFixture(fixture: ContainerFixture, corePath: 
 }
 
 export function compareExecutions(left: ExecutionResult, right: ExecutionResult): string | null {
-  if (left.outputs.length !== right.outputs.length) return `output count ${left.outputs.length} != ${right.outputs.length}`;
-  for (let index = 0; index < left.outputs.length; index++) {
-    if (!Buffer.from(left.outputs[index]).equals(Buffer.from(right.outputs[index]))) {
-      return `operation ${index} output differs: ${Buffer.from(left.outputs[index]).toString("hex")} != ${Buffer.from(right.outputs[index]).toString("hex")}`;
+  if (left.operations.length !== right.operations.length) return `operation count ${left.operations.length} != ${right.operations.length}`;
+  for (let index = 0; index < left.operations.length; index++) {
+    const leftOperation = left.operations[index];
+    const rightOperation = right.operations[index];
+    if (leftOperation.status !== rightOperation.status) {
+      return `operation ${index} status differs: ${leftOperation.status} != ${rightOperation.status}`;
+    }
+    if (leftOperation.status === "ok" && !Buffer.from(leftOperation.output!).equals(Buffer.from(rightOperation.output!))) {
+      return `operation ${index} output differs: ${Buffer.from(leftOperation.output!).toString("hex")} != ${Buffer.from(rightOperation.output!).toString("hex")}`;
     }
   }
   if (!Buffer.from(left.state).equals(Buffer.from(right.state))) {
@@ -112,7 +135,7 @@ export function wamrScript(operations: readonly ContainerOperation[]): string {
   return operations.map((operation) => `1:${Buffer.from(encodeContainerOperation(operation)).toString("hex")}`).join(";");
 }
 
-export function executeWamr(gtestPath: string, wasm: Uint8Array, operations: readonly ContainerOperation[]): Uint8Array {
+export function executeWamr(gtestPath: string, wasm: Uint8Array, operations: readonly ContainerOperation[]): ExecutionResult {
   const dir = mkdtempSync(join(tmpdir(), "qinit-container-wamr-"));
   const artifact = join(dir, "fixture.wasm");
   try {
@@ -125,9 +148,25 @@ export function executeWamr(gtestPath: string, wasm: Uint8Array, operations: rea
     const stdout = process.stdout.toString();
     const stderr = process.stderr.toString();
     if (process.exitCode !== 0) throw new Error(`WAMR gtest exited ${process.exitCode}:\n${stdout}\n${stderr}`);
-    const match = stdout.match(/CROSSHOST_STATE=([0-9a-f]+)/);
-    if (!match) throw new Error(`WAMR gtest emitted no state:\n${stdout}\n${stderr}`);
-    return new Uint8Array(Buffer.from(match[1], "hex"));
+    const stateMatch = stdout.match(/CROSSHOST_STATE=([0-9a-f]+)/);
+    if (!stateMatch) throw new Error(`WAMR gtest emitted no state:\n${stdout}\n${stderr}`);
+    const operationResults: OperationResult[] = [];
+    for (const match of stdout.matchAll(/CROSSHOST_OP=(\d+):(ok|trap|rejected)(?::([0-9a-f]*))?/g)) {
+      const index = Number(match[1]);
+      if (index !== operationResults.length) throw new Error(`WAMR gtest emitted out-of-order operation ${index}`);
+      operationResults.push({
+        status: match[2] as OperationResult["status"],
+        ...(match[2] === "ok" ? { output: new Uint8Array(Buffer.from(match[3] ?? "", "hex")) } : {}),
+      });
+    }
+    if (operationResults.length !== operations.length && operationResults.at(-1)?.status === "ok") {
+      throw new Error(`WAMR gtest emitted ${operationResults.length}/${operations.length} operation results:\n${stdout}`);
+    }
+    return {
+      operations: operationResults,
+      outputs: operationResults.flatMap((result) => result.output ? [result.output] : []),
+      state: new Uint8Array(Buffer.from(stateMatch[1], "hex")),
+    };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

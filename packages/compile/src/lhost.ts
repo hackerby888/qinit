@@ -1,11 +1,9 @@
-import { LHOST_ABI, type LhostImportName, type LhostValueType } from "@qinit/core";
+import { LHOST_ABI, type LhostFunctionSignature, type LhostImportName, type LhostValueType } from "@qinit/core";
 
-const SYMBOL_OVERRIDES: Partial<Record<LhostImportName, string>> = {
-  transferShareOwnershipAndPossession: "$lh_transferShares",
-};
+export type LhostAbiSpec = Readonly<Record<string, LhostFunctionSignature>>;
 
-export function lhostSymbol(name: LhostImportName): string {
-  return SYMBOL_OVERRIDES[name] ?? `$lh_${name}`;
+export function lhostSymbol(name: string): string {
+  return `$lh_${name}`;
 }
 
 export const LHOST_CALL_SIG = Object.freeze(Object.fromEntries(
@@ -18,8 +16,8 @@ export const LHOST_CALL_SIG = Object.freeze(Object.fromEntries(
   }),
 ));
 
-export function emitLhostImports(): string {
-  return (Object.entries(LHOST_ABI) as [LhostImportName, (typeof LHOST_ABI)[LhostImportName]][])
+export function emitLhostImports(abi: LhostAbiSpec = LHOST_ABI): string {
+  return Object.entries(abi)
     .map(([name, abi]) => {
       const params = abi.params.length ? ` (param ${abi.params.join(" ")})` : "";
       const result = abi.results.length ? ` (result ${abi.results[0]})` : "";
