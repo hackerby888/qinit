@@ -2,6 +2,7 @@ import { Lexer } from "../lexer";
 import { Parser, type Diagnostic as ParserDiagnostic } from "../parser";
 import { Preprocessor } from "../preprocess";
 import { SCAFFOLD_MACROS } from "../qpi-scaffold";
+import type { Declaration, StructDecl } from "../ast";
 import type { CompileOpts } from "./types";
 import type { QpiContext } from "./qpi-context";
 import {
@@ -12,14 +13,14 @@ import {
 } from "./diagnostics";
 
 export interface CalleeContext {
-  structs: Map<string, any>;
-  translationUnits: Array<{ name: string; decls: any[] }>;
+  contractStructs: Map<string, StructDecl>;
+  calleeTranslationUnits: Array<{ contractName: string; declarations: Declaration[] }>;
   diagnostics: ParserDiagnostic[];
 }
 
-export function buildCalleeContext(opts: CompileOpts, qpi: QpiContext): CalleeContext {
-  const structs = new Map<string, any>();
-  const translationUnits: Array<{ name: string; decls: any[] }> = [];
+export function collectCalleeContext(opts: CompileOpts, qpi: QpiContext): CalleeContext {
+  const contractStructs = new Map<string, StructDecl>();
+  const calleeTranslationUnits: Array<{ contractName: string; declarations: Declaration[] }> = [];
   const diagnostics: ParserDiagnostic[] = [];
 
   for (const callee of opts.calleeSources ?? []) {
@@ -53,20 +54,20 @@ export function buildCalleeContext(opts: CompileOpts, qpi: QpiContext): CalleeCo
     diagnostics.push(...parsed);
     if (parsed.some((diagnostic) => diagnostic.severity === "error")) continue;
 
-    translationUnits.push({ name: callee.name, decls: unit.declarations });
+    calleeTranslationUnits.push({ contractName: callee.name, declarations: unit.declarations });
     for (const declaration of unit.declarations) {
       if (declaration.kind !== "struct") continue;
-      const struct = declaration as any;
+      const struct = declaration;
       const isContract =
-        struct.bases?.some((base: any) => base.kind === "name" && base.name === "ContractBase") ||
+        struct.bases?.some((base) => base.kind === "name" && base.name === "ContractBase") ||
         struct.name === "CONTRACT_STATE_TYPE";
       if (!isContract) continue;
       for (const member of struct.members ?? []) {
         if (member.kind === "struct" && member.name)
-          structs.set(`${callee.name}::${member.name}`, member);
+          contractStructs.set(`${callee.name}::${member.name}`, member);
       }
     }
   }
 
-  return { structs, translationUnits, diagnostics };
+  return { contractStructs, calleeTranslationUnits, diagnostics };
 }

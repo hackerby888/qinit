@@ -78,9 +78,13 @@ export class Codegen {
     this.sema = sema;
   }
 
-  // ---- collect declarations from the whole TU (descends into namespaces) ----
+  // ---- register declarations from the parsed TU into codegen lookup tables ----
 
-  collectTU(decls: Declaration[], nsPrefix = "", inheritedUsing: string[] = []): void {
+  registerTopLevelDeclarations(
+    decls: Declaration[],
+    nsPrefix = "",
+    inheritedUsing: string[] = [],
+  ): void {
     const scopeUsing = this.namespaceUsings.get(nsPrefix) ?? [];
     if (!this.namespaceUsings.has(nsPrefix)) this.namespaceUsings.set(nsPrefix, scopeUsing);
     const activeUsing = [...new Set([...inheritedUsing, ...scopeUsing])];
@@ -100,9 +104,9 @@ export class Codegen {
       };
       this.namespaceContexts.set(d, lookupContext);
       if (d.kind === "namespace") {
-        this.collectTU((d as any).body, `${nsPrefix}${(d as any).name}::`, activeUsing);
+        this.registerTopLevelDeclarations((d as any).body, `${nsPrefix}${(d as any).name}::`, activeUsing);
       } else if (d.kind === "extern_block") {
-        this.collectTU((d as any).body, nsPrefix, activeUsing);
+        this.registerTopLevelDeclarations((d as any).body, nsPrefix, activeUsing);
       } else if (d.kind === "struct") {
         const s = d as StructDecl;
         this.captureMemberNamespaceContexts(s.members, lookupContext);
@@ -1318,8 +1322,8 @@ export class Codegen {
     }
   }
 
-  // Register the struct members declared INSIDE `parent` under their qualified name `${prefix}::${name}` (recursively), without clobbering same-named top-level structs.
-  seedCallee(name: string, decls: Declaration[]): void {
+  // Register nested declarations from a callee contract translation unit under `${name}::`.
+  registerCalleeContractDeclarations(name: string, decls: Declaration[]): void {
     for (const d of decls) {
       if (d.kind === "variable") {
         this.collectConstant(d as VariableDecl);

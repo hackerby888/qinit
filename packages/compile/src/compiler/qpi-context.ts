@@ -1,7 +1,7 @@
 import { Lexer } from "../lexer";
 import { Parser } from "../parser";
 import { Preprocessor, type MacroDef } from "../preprocess";
-import { buildLibTypes, type LibTypes } from "../codegen";
+import { collectLibraryTypes, type LibTypes } from "../codegen";
 import { embeddedLiteAbi, IMPL_BOUNDARY } from "../qpi-snapshot-format";
 
 export interface QpiContext {
@@ -39,10 +39,10 @@ export function getQpiContext(headers: string): QpiContext {
 
   const [mainHeaders, ...implChunks] = headers.split(IMPL_BOUNDARY);
   const { text: libText, macros } = getQpiPrelude(mainHeaders);
-  const libTu = new Parser(new Lexer(libText).tokenize()).parseTranslationUnit();
-  const lib = buildLibTypes(libTu.declarations);
+  const coreHeaderTu = new Parser(new Lexer(libText).tokenize()).parseTranslationUnit();
+  const coreLibrary = collectLibraryTypes(coreHeaderTu.declarations);
   const liteAbi = embeddedLiteAbi(headers);
-  lib.liteAbi = liteAbi;
+  coreLibrary.liteAbi = liteAbi;
 
   for (const chunk of implChunks) {
     const implText = new Preprocessor().preprocess({
@@ -52,32 +52,32 @@ export function getQpiContext(headers: string): QpiContext {
       contractIndex: 0,
       seedMacros: macros,
     });
-    const implTu = new Parser(new Lexer(implText).tokenize()).parseTranslationUnit();
-    const implLib = buildLibTypes(implTu.declarations, lib.namespaceUsings);
-    const sourceBackedHostWrappers = implLib.importedFunctions.size > 0;
-    for (const [name, definition] of implLib.globalStructs)
-      if (!lib.globalStructs.has(name)) lib.globalStructs.set(name, definition);
-    for (const [name, definition] of implLib.typedefs)
-      if (!lib.typedefs.has(name)) lib.typedefs.set(name, definition);
-    for (const [name, expression] of implLib.constexprInit)
-      if (!lib.constexprInit.has(name)) lib.constexprInit.set(name, expression);
-    for (const [name, type] of implLib.constexprType)
-      if (!lib.constexprType.has(name)) lib.constexprType.set(name, type);
-    for (const [name, value] of implLib.enumConst)
-      if (!lib.enumConst.has(name)) lib.enumConst.set(name, value);
-    for (const [name, size] of implLib.enumSize)
-      if (!lib.enumSize.has(name)) lib.enumSize.set(name, size);
-    for (const [name, type] of implLib.enumUnderlying)
-      if (!lib.enumUnderlying.has(name)) lib.enumUnderlying.set(name, type);
-    for (const [name, type] of implLib.enumConstType)
-      if (!lib.enumConstType.has(name)) lib.enumConstType.set(name, type);
-    for (const name of implLib.enumNames) lib.enumNames.add(name);
-    for (const [cls, methods] of implLib.templateMethods) {
-      if (!lib.templateMethods.has(cls)) lib.templateMethods.set(cls, new Map());
+    const implHeaderTu = new Parser(new Lexer(implText).tokenize()).parseTranslationUnit();
+    const implLibrary = collectLibraryTypes(implHeaderTu.declarations, coreLibrary.namespaceUsings);
+    const hasSourceBackedHostWrappers = implLibrary.importedFunctions.size > 0;
+    for (const [name, definition] of implLibrary.globalStructs)
+      if (!coreLibrary.globalStructs.has(name)) coreLibrary.globalStructs.set(name, definition);
+    for (const [name, definition] of implLibrary.typedefs)
+      if (!coreLibrary.typedefs.has(name)) coreLibrary.typedefs.set(name, definition);
+    for (const [name, expression] of implLibrary.constexprInit)
+      if (!coreLibrary.constexprInit.has(name)) coreLibrary.constexprInit.set(name, expression);
+    for (const [name, type] of implLibrary.constexprType)
+      if (!coreLibrary.constexprType.has(name)) coreLibrary.constexprType.set(name, type);
+    for (const [name, value] of implLibrary.enumConst)
+      if (!coreLibrary.enumConst.has(name)) coreLibrary.enumConst.set(name, value);
+    for (const [name, size] of implLibrary.enumSize)
+      if (!coreLibrary.enumSize.has(name)) coreLibrary.enumSize.set(name, size);
+    for (const [name, type] of implLibrary.enumUnderlying)
+      if (!coreLibrary.enumUnderlying.has(name)) coreLibrary.enumUnderlying.set(name, type);
+    for (const [name, type] of implLibrary.enumConstType)
+      if (!coreLibrary.enumConstType.has(name)) coreLibrary.enumConstType.set(name, type);
+    for (const name of implLibrary.enumNames) coreLibrary.enumNames.add(name);
+    for (const [cls, methods] of implLibrary.templateMethods) {
+      if (!coreLibrary.templateMethods.has(cls)) coreLibrary.templateMethods.set(cls, new Map());
       for (const [name, definition] of methods) {
-        if (sourceBackedHostWrappers && cls.startsWith("QpiContext")) {
+        if (hasSourceBackedHostWrappers && cls.startsWith("QpiContext")) {
           const baseName = name.includes("/") ? name.slice(0, name.indexOf("/")) : name;
-          const declared = lib.globalStructs
+          const declared = coreLibrary.globalStructs
             .get(cls)
             ?.members.find(
               (member) =>
@@ -87,7 +87,7 @@ export function getQpiContext(headers: string): QpiContext {
             );
           const merged =
             declared?.kind === "function"
-              ? {
+            ? {
                   ...definition,
                   fnParams: (definition.fnParams ?? []).map((param, index) => ({
                     ...param,
@@ -95,59 +95,59 @@ export function getQpiContext(headers: string): QpiContext {
                   })),
                 }
               : definition;
-          lib.templateMethods.get(cls)!.set(name, merged);
-        } else if (!lib.templateMethods.get(cls)!.has(name))
-          lib.templateMethods.get(cls)!.set(name, definition);
+          coreLibrary.templateMethods.get(cls)!.set(name, merged);
+        } else if (!coreLibrary.templateMethods.get(cls)!.has(name))
+          coreLibrary.templateMethods.get(cls)!.set(name, definition);
       }
     }
-    for (const [name, definition] of implLib.libFns)
-      if (!lib.libFns.has(name)) lib.libFns.set(name, definition);
-    for (const [name, definitions] of implLib.libFnOverloads) {
-      const current = lib.libFnOverloads.get(name);
+    for (const [name, definition] of implLibrary.libFns)
+      if (!coreLibrary.libFns.has(name)) coreLibrary.libFns.set(name, definition);
+    for (const [name, definitions] of implLibrary.libFnOverloads) {
+      const current = coreLibrary.libFnOverloads.get(name);
       if (current) current.push(...definitions);
-      else lib.libFnOverloads.set(name, [...definitions]);
+      else coreLibrary.libFnOverloads.set(name, [...definitions]);
     }
-    for (const [name, definitions] of implLib.libFnTemplates) {
-      const current = lib.libFnTemplates.get(name);
+    for (const [name, definitions] of implLibrary.libFnTemplates) {
+      const current = coreLibrary.libFnTemplates.get(name);
       if (current) current.push(...definitions);
-      else lib.libFnTemplates.set(name, definitions);
+      else coreLibrary.libFnTemplates.set(name, definitions);
     }
-    for (const [scope, namespaces] of implLib.namespaceUsings) {
-      const current = lib.namespaceUsings.get(scope) ?? [];
+    for (const [scope, namespaces] of implLibrary.namespaceUsings) {
+      const current = coreLibrary.namespaceUsings.get(scope) ?? [];
       for (const namespace of namespaces) if (!current.includes(namespace)) current.push(namespace);
-      lib.namespaceUsings.set(scope, current);
+      coreLibrary.namespaceUsings.set(scope, current);
     }
-    for (const [declaration, context] of implLib.namespaceContexts)
-      lib.namespaceContexts.set(declaration, context);
-    for (const [name, definition] of implLib.importedFunctions) {
-      const previous = lib.importedFunctions.get(name);
+    for (const [declaration, context] of implLibrary.namespaceContexts)
+      coreLibrary.namespaceContexts.set(declaration, context);
+    for (const [name, definition] of implLibrary.importedFunctions) {
+      const previous = coreLibrary.importedFunctions.get(name);
       if (previous) throw new Error(`duplicate imported function '${name}' in core QPI sources`);
-      lib.importedFunctions.set(name, definition);
+      coreLibrary.importedFunctions.set(name, definition);
     }
   }
 
   const orderedImports = new Map<
     string,
-    typeof lib.importedFunctions extends Map<string, infer V> ? V : never
+    typeof coreLibrary.importedFunctions extends Map<string, infer V> ? V : never
   >();
   for (const row of liteAbi.lhost) {
     const symbol = `__lhost_${row.name}`;
-    const declaration = lib.importedFunctions.get(symbol);
+    const declaration = coreLibrary.importedFunctions.get(symbol);
     if (!declaration)
       throw new Error(`canonical LHOST import '${row.name}' has no LH_IMPORT declaration`);
     orderedImports.set(symbol, declaration);
   }
-  const extraImports = [...lib.importedFunctions.keys()].filter(
+  const extraImports = [...coreLibrary.importedFunctions.keys()].filter(
     (name) => !orderedImports.has(name),
   );
   if (extraImports.length)
     throw new Error(
       `LH_IMPORT declarations missing from canonical metadata: ${extraImports.join(", ")}`,
     );
-  lib.importedFunctions.clear();
-  for (const [name, declaration] of orderedImports) lib.importedFunctions.set(name, declaration);
+  coreLibrary.importedFunctions.clear();
+  for (const [name, declaration] of orderedImports) coreLibrary.importedFunctions.set(name, declaration);
 
-  const context = { macros, lib };
+  const context = { macros, lib: coreLibrary };
   qpiCache.set(headers, context);
   return context;
 }

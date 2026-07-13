@@ -286,7 +286,7 @@ export async function compileCoreGtest(
       qpi.lib,
       undefined,
       targetTypes,
-      [{ name: opts.name, decls: target.ast.declarations }],
+      [{ contractName: opts.name, declarations: target.ast.declarations }],
       undefined,
       metadata,
       true,

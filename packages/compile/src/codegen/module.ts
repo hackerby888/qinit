@@ -63,32 +63,32 @@ export interface GeneratedContractMetadata {
   lhostAbi?: LhostAbiSpec;
 }
 
-function seedLibTypes(cg: Codegen, lib: LibTypes): LhostAbiSpec {
-  if (lib.liteAbi) cg.assetEnumerationRecord = lib.liteAbi.records.LiteAssetEntry;
-  for (const [k, v] of lib.templates) cg.templates.set(k, v);
-  for (const [k, v] of lib.specializations) cg.specializations.set(k, [...v]);
-  for (const [k, v] of lib.libFns) cg.libFns.set(k, v);
-  for (const [k, v] of lib.libFnOverloads) cg.libFnOverloads.set(k, [...v]);
-  for (const [k, v] of lib.libFnTemplates) cg.libFnTemplates.set(k, v);
-  for (const [k, v] of lib.globalStructs) cg.globalStructs.set(k, v);
-  for (const [k, v] of lib.typedefs) cg.typedefs.set(k, v);
-  for (const [k, v] of lib.constexprInit) cg.constexprInit.set(k, v);
-  for (const [k, v] of lib.constexprType) cg.constexprType.set(k, v);
-  for (const [k, v] of lib.enumConst) cg.enumConst.set(k, v);
-  for (const [k, v] of lib.enumSize) cg.enumSize.set(k, v);
-  for (const [k, v] of lib.enumUnderlying) cg.enumUnderlying.set(k, v);
-  for (const [k, v] of lib.enumConstType) cg.enumConstType.set(k, v);
-  for (const n of lib.enumNames) cg.enumNames.add(n);
-  for (const [k, v] of lib.templateMethods) cg.templateMethods.set(k, new Map(v));
-  for (const [scope, namespaces] of lib.namespaceUsings)
+function registerLibraryMetadata(cg: Codegen, libraryTypes: LibTypes): LhostAbiSpec {
+  if (libraryTypes.liteAbi) cg.assetEnumerationRecord = libraryTypes.liteAbi.records.LiteAssetEntry;
+  for (const [k, v] of libraryTypes.templates) cg.templates.set(k, v);
+  for (const [k, v] of libraryTypes.specializations) cg.specializations.set(k, [...v]);
+  for (const [k, v] of libraryTypes.libFns) cg.libFns.set(k, v);
+  for (const [k, v] of libraryTypes.libFnOverloads) cg.libFnOverloads.set(k, [...v]);
+  for (const [k, v] of libraryTypes.libFnTemplates) cg.libFnTemplates.set(k, v);
+  for (const [k, v] of libraryTypes.globalStructs) cg.globalStructs.set(k, v);
+  for (const [k, v] of libraryTypes.typedefs) cg.typedefs.set(k, v);
+  for (const [k, v] of libraryTypes.constexprInit) cg.constexprInit.set(k, v);
+  for (const [k, v] of libraryTypes.constexprType) cg.constexprType.set(k, v);
+  for (const [k, v] of libraryTypes.enumConst) cg.enumConst.set(k, v);
+  for (const [k, v] of libraryTypes.enumSize) cg.enumSize.set(k, v);
+  for (const [k, v] of libraryTypes.enumUnderlying) cg.enumUnderlying.set(k, v);
+  for (const [k, v] of libraryTypes.enumConstType) cg.enumConstType.set(k, v);
+  for (const n of libraryTypes.enumNames) cg.enumNames.add(n);
+  for (const [k, v] of libraryTypes.templateMethods) cg.templateMethods.set(k, new Map(v));
+  for (const [scope, namespaces] of libraryTypes.namespaceUsings)
     cg.namespaceUsings.set(scope, [...namespaces]);
-  for (const [declaration, context] of lib.namespaceContexts)
+  for (const [declaration, context] of libraryTypes.namespaceContexts)
     cg.namespaceContexts.set(declaration, context);
   const lhostAbi: Record<
     string,
     { params: readonly ("i32" | "i64")[]; results: readonly ("i32" | "i64")[] }
   > = {};
-  for (const [name, fn] of lib.importedFunctions) {
+  for (const [name, fn] of libraryTypes.importedFunctions) {
     const params = fn.params.map((param) => {
       const declared = cg.derefType(param.type);
       const isAddr =
@@ -136,7 +136,7 @@ function seedLibTypes(cg: Codegen, lib: LibTypes): LhostAbiSpec {
     lhostAbi[importName] = { params: abiParams, results };
     registerCallSig(helper.label, { params: abiParams, res: helper.retWasmType ?? "void" });
   }
-  for (const row of lib.liteAbi?.lhost ?? []) {
+  for (const row of libraryTypes.liteAbi?.lhost ?? []) {
     const derived = lhostAbi[row.name];
     if (
       !derived ||
@@ -172,14 +172,14 @@ function contextLayoutFromCodegen(cg: Codegen): QpiContextLayout {
   };
 }
 
-export function deriveQpiContextLayout(lib: LibTypes): QpiContextLayout {
+export function deriveQpiContextLayout(libraryTypes: LibTypes): QpiContextLayout {
   const cg = new Codegen({} as Sema);
-  seedLibTypes(cg, lib);
+  registerLibraryMetadata(cg, libraryTypes);
   return contextLayoutFromCodegen(cg);
 }
 
 // Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants/methods).
-export function buildLibTypes(
+export function collectLibraryTypes(
   decls: Declaration[],
   inheritedNamespaceUsings?: Map<string, string[]>,
 ): LibTypes {
@@ -188,12 +188,12 @@ export function buildLibTypes(
     for (const [scope, namespaces] of inheritedNamespaceUsings)
       cg.namespaceUsings.set(scope, [...namespaces]);
   }
-  cg.collectTU(decls);
+  cg.registerTopLevelDeclarations(decls);
   const importedFunctions = new Map<string, FunctionDecl>();
-  const collectImports = (items: Declaration[]): void => {
+  const collectHostImportDeclarations = (items: Declaration[]): void => {
     for (const declaration of items) {
       if (declaration.kind === "extern_block" || declaration.kind === "namespace") {
-        collectImports((declaration as any).body);
+        collectHostImportDeclarations((declaration as any).body);
       } else if (
         declaration.kind === "function" &&
         declaration.name.startsWith("__lhost_") &&
@@ -203,7 +203,7 @@ export function buildLibTypes(
       }
     }
   };
-  collectImports(decls);
+  collectHostImportDeclarations(decls);
   return {
     templates: cg.templates,
     specializations: cg.specializations,
@@ -236,7 +236,7 @@ export function generateWasmModule(
   lib?: LibTypes,
   callees?: CalleeIdl[],
   calleeStructs?: Map<string, StructDecl>,
-  calleeTus?: Array<{ name: string; decls: Declaration[] }>,
+  calleeTus?: Array<{ contractName: string; declarations: Declaration[] }>,
   memBase?: number,
   metadataOut?: GeneratedContractMetadata,
   gtestMode = false,
@@ -247,8 +247,8 @@ export function generateWasmModule(
   // Callee struct layouts, keyed by their qualified name (`QX::Fees_output`), so a caller reading a callee's output type —
   if (calleeStructs) for (const [k, v] of calleeStructs) cg.globalStructs.set(k, v);
 
-  // Seed the qpi.h library type table (templates / structs / typedefs) parsed once, then add the user contract's
-  const lhostAbi = lib ? seedLibTypes(cg, lib) : undefined;
+  // Register qpi.h library declarations (templates / structs / typedefs) once, then add the user contract's declarations.
+  const lhostAbi = lib ? registerLibraryMetadata(cg, lib) : undefined;
   const systemProcedureImpl = new Map<string, number>();
   const systemProcedurePrefix = new Map<string, string>();
   for (const procedure of lib?.liteAbi?.systemProcedures ?? []) {
@@ -257,8 +257,9 @@ export function generateWasmModule(
     systemProcedurePrefix.set(implementation, procedure.name);
   }
   const contextLayout = contextLayoutFromCodegen(cg);
-  cg.collectTU(tu.declarations);
-  for (const ct of calleeTus ?? []) cg.seedCallee(ct.name, ct.decls);
+  cg.registerTopLevelDeclarations(tu.declarations);
+  for (const ct of calleeTus ?? [])
+    cg.registerCalleeContractDeclarations(ct.contractName, ct.declarations);
 
   const contract = findContractStruct(tu);
   if (!contract) {

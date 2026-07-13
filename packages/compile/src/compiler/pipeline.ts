@@ -5,7 +5,7 @@ import { Sema } from "../sema";
 import { validateAndDesugar } from "../validate";
 import { generateWasmModule, type GeneratedContractMetadata } from "../codegen";
 import { SCAFFOLD_MACROS } from "../qpi-scaffold";
-import { buildCalleeContext } from "./callees";
+import { collectCalleeContext } from "./callees";
 import {
   makeUserDiagnosticRemapper,
   scanUnterminatedSource,
@@ -110,8 +110,8 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
 
   await phase("analyzing");
   const sema = new Sema();
-  const callees = buildCalleeContext(opts, qpi);
-  diagnostics.push(...callees.diagnostics);
+  const calleeContext = collectCalleeContext(opts, qpi);
+  diagnostics.push(...calleeContext.diagnostics);
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     closePhase();
     return emptyResult(opts, diagnostics, timings);
@@ -129,8 +129,8 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
       opts.arenaSz ?? 1024 * 1024 * 1024,
       qpi.lib,
       opts.callees,
-      callees.structs,
-      callees.translationUnits,
+      calleeContext.contractStructs,
+      calleeContext.calleeTranslationUnits,
       opts.sharedMemBase,
       metadata,
     );
