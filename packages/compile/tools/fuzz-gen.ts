@@ -141,12 +141,12 @@ class Gen {
   // Shift counts stay C++-defined for generated operand widths.
   private shiftCount(depth: number): string {
     if (this.chance(0.4)) {
-      return `(${this.expr(depth)} & 31)`;
+      return `(${this.expression(depth)} & 31)`;
     }
     return `${this.int(32)}`;
   }
 
-  private expr(depth: number): string {
+  private expression(depth: number): string {
     if (depth <= 0) {
       return this.leaf();
     }
@@ -154,54 +154,54 @@ class Gen {
     const d = depth - 1;
     const r = this.next();
     if (r < 0.28) {
-      const op = this.pick(["+", "-", "*", "&", "|", "^"]);
-      return `(${this.expr(d)} ${op} ${this.expr(d)})`;
+      const operator = this.pick(["+", "-", "*", "&", "|", "^"]);
+      return `(${this.expression(d)} ${operator} ${this.expression(d)})`;
     }
     if (r < 0.36) {
-      const op = this.pick(["<", ">", "<=", ">=", "==", "!="]);
-      return `(${this.expr(d)} ${op} ${this.expr(d)})`;
+      const operator = this.pick(["<", ">", "<=", ">=", "==", "!="]);
+      return `(${this.expression(d)} ${operator} ${this.expression(d)})`;
     }
     if (r < 0.42) {
-      const op = this.pick(["<<", ">>"]);
-      return `(${this.expr(d)} ${op} ${this.shiftCount(d)})`;
+      const operator = this.pick(["<<", ">>"]);
+      return `(${this.expression(d)} ${operator} ${this.shiftCount(d)})`;
     }
     if (r < 0.47) {
       const t = this.pick(UNSIGNED_DIV_TYPES);
-      const op = this.pick(["/", "%"]);
+      const operator = this.pick(["/", "%"]);
       const one = t.width === 4 ? "1u" : "1ull";
-      return `((${t.name})(${this.expr(d)}) ${op} (((${t.name})(${this.expr(d)})) | ${one}))`;
+      return `((${t.name})(${this.expression(d)}) ${operator} (((${t.name})(${this.expression(d)})) | ${one}))`;
     }
     if (r < 0.53) {
-      return `((${this.expr(d)}) ? (${this.expr(d)}) : (${this.expr(d)}))`;
+      return `((${this.expression(d)}) ? (${this.expression(d)}) : (${this.expression(d)}))`;
     }
     if (r < 0.6) {
       const t = this.pick(TYPES);
-      return `(${t.name})(${this.expr(d)})`;
+      return `(${t.name})(${this.expression(d)})`;
     }
     if (r < 0.67) {
-      const op = this.pick(["-", "~", "!"]);
-      return `(${op}(${this.expr(d)}))`;
+      const operator = this.pick(["-", "~", "!"]);
+      return `(${operator}(${this.expression(d)}))`;
     }
     if (r < 0.72) {
-      const op = this.pick(["&&", "||"]);
-      return `(${this.expr(d)} ${op} ${this.expr(d)})`;
+      const operator = this.pick(["&&", "||"]);
+      return `(${this.expression(d)} ${operator} ${this.expression(d)})`;
     }
     if (r < 0.79) {
       const t = this.pick(SAFE_MATH_TYPES);
       const fn = this.pick(["sadd", "smul"]);
-      return `${fn}((${t.name})(${this.expr(d)}), (${t.name})(${this.expr(d)}))`;
+      return `${fn}((${t.name})(${this.expression(d)}), (${t.name})(${this.expression(d)}))`;
     }
     if (r < 0.86) {
       const t = this.pick(UNSIGNED_DIV_TYPES);
       const fn = this.pick(["div", "mod"]);
       const targ = this.chance(0.3) ? `<${t.name}>` : "";
-      return `${fn}${targ}((${t.name})(${this.expr(d)}), (${t.name})(${this.expr(d)}))`;
+      return `${fn}${targ}((${t.name})(${this.expression(d)}), (${t.name})(${this.expression(d)}))`;
     }
     if (r < 0.93) {
       const t = this.pick(TYPES);
       const fn = this.pick(["math_lib::min", "math_lib::max"]);
       const targ = this.chance(0.3) ? `<${t.name}>` : "";
-      return `${fn}${targ}((${t.name})(${this.expr(d)}), (${t.name})(${this.expr(d)}))`;
+      return `${fn}${targ}((${t.name})(${this.expression(d)}), (${t.name})(${this.expression(d)}))`;
     }
     if (r < 0.98 && this.avail.length > 0) {
       return this.helperCall(d);
@@ -212,8 +212,8 @@ class Gen {
   // Arguments are cast exactly to the chosen signature, so native resolves the same overload.
   private helperCall(depth: number): string {
     const sig = this.pick(this.avail);
-    const args = sig.params.map((p) => `(${p.type.name})(${this.expr(depth)})`);
-    return `${sig.name}(${args.join(", ")})`;
+    const callArguments = sig.params.map((p) => `(${p.type.name})(${this.expression(depth)})`);
+    return `${sig.name}(${callArguments.join(", ")})`;
   }
 
   // ---- statements ----
@@ -225,58 +225,58 @@ class Gen {
     if (bitDecl) {
       const v: LocalVar = { name, type: { name: "bit", width: 1, signed: false }, mutable: false };
       this.scopes[this.scopes.length - 1].push(v);
-      return `${indent}bit ${name} = (bit)(${this.expr(3)});`;
+      return `${indent}bit ${name} = (bit)(${this.expression(3)});`;
     }
 
     const t = this.pick(TYPES);
-    const init = this.chance(0.5) ? `(${t.name})(${this.expr(3)})` : this.expr(3);
+    const initializer = this.chance(0.5) ? `(${t.name})(${this.expression(3)})` : this.expression(3);
     this.scopes[this.scopes.length - 1].push({ name, type: t, mutable: true });
-    return `${indent}${t.name} ${name} = ${init};`;
+    return `${indent}${t.name} ${name} = ${initializer};`;
   }
 
   private assignStmt(indent: string): string {
     const v = this.pick(this.mutableVars());
-    const rhs = this.chance(0.4) ? `(${v.type.name})(${this.expr(3)})` : this.expr(3);
+    const rhs = this.chance(0.4) ? `(${v.type.name})(${this.expression(3)})` : this.expression(3);
     return `${indent}${v.name} = ${rhs};`;
   }
 
   private compoundStmt(indent: string): string {
     const v = this.pick(this.mutableVars());
-    const op = this.pick(["+=", "-=", "*=", "&=", "|=", "^=", "<<=", ">>="]);
-    if (op === "<<=" || op === ">>=") {
+    const operator = this.pick(["+=", "-=", "*=", "&=", "|=", "^=", "<<=", ">>="]);
+    if (operator === "<<=" || operator === ">>=") {
       const mask = v.type.width === 8 ? 63 : 31;
-      return `${indent}${v.name} ${op} ((${this.expr(2)}) & ${mask});`;
+      return `${indent}${v.name} ${operator} ((${this.expression(2)}) & ${mask});`;
     }
-    return `${indent}${v.name} ${op} ${this.expr(2)};`;
+    return `${indent}${v.name} ${operator} ${this.expression(2)};`;
   }
 
   private incDecStmt(indent: string): string {
     const v = this.pick(this.mutableVars());
-    const op = this.pick(["++", "--"]);
+    const operator = this.pick(["++", "--"]);
     const r = this.next();
     if (r < 0.5) {
-      return this.chance(0.5) ? `${indent}${v.name}${op};` : `${indent}${op}${v.name};`;
+      return this.chance(0.5) ? `${indent}${v.name}${operator};` : `${indent}${operator}${v.name};`;
     }
 
     const targets = this.mutableVars().filter((t) => t.name !== v.name);
     if (targets.length === 0) {
-      return `${indent}${v.name}${op};`;
+      return `${indent}${v.name}${operator};`;
     }
     const dst = this.pick(targets);
-    const form = this.chance(0.5) ? `${v.name}${op}` : `${op}${v.name}`;
+    const form = this.chance(0.5) ? `${v.name}${operator}` : `${operator}${v.name}`;
     return this.chance(0.5)
       ? `${indent}${dst.name} = ${form};`
       : `${indent}${dst.name} = (${form}) + ${this.literal()};`;
   }
 
   private ifStmt(indent: string, depth: number): string {
-    const cond = this.expr(2);
+    const condition = this.expression(2);
     const body = this.block(indent, depth, 1 + this.int(3));
     if (this.chance(0.4)) {
       const els = this.block(indent, depth, 1 + this.int(2));
-      return `${indent}if (${cond})\n${body}\n${indent}else\n${els}`;
+      return `${indent}if (${condition})\n${body}\n${indent}else\n${els}`;
     }
-    return `${indent}if (${cond})\n${body}`;
+    return `${indent}if (${condition})\n${body}`;
   }
 
   private forStmt(indent: string, depth: number): string {
@@ -287,7 +287,7 @@ class Gen {
     const lines: string[] = [];
     const count = 1 + this.int(3);
     for (let k = 0; k < count && this.stmtBudget > 0; k++) {
-      lines.push(this.stmt(inner, depth - 1));
+      lines.push(this.statement(inner, depth - 1));
     }
     this.scopes.pop();
     return `${indent}for (sint32 ${iv} = 0; ${iv} < ${bound}; ${iv}++) {\n${lines.join("\n")}\n${indent}}`;
@@ -297,7 +297,7 @@ class Gen {
     const caseCount = 2 + this.int(3);
     const mask = caseCount === 2 ? 1 : 3;
     const inner = indent + "  ";
-    const lines: string[] = [`${indent}switch ((sint32)((${this.expr(2)}) & ${mask})) {`];
+    const lines: string[] = [`${indent}switch ((sint32)((${this.expression(2)}) & ${mask})) {`];
 
     for (let c = 0; c < caseCount; c++) {
       lines.push(`${indent}case ${c}:`);
@@ -324,13 +324,13 @@ class Gen {
     const inner = indent + "  ";
     const lines: string[] = [];
     for (let k = 0; k < count && this.stmtBudget > 0; k++) {
-      lines.push(this.stmt(inner, depth - 1));
+      lines.push(this.statement(inner, depth - 1));
     }
     this.scopes.pop();
     return `${indent}{\n${lines.join("\n")}\n${indent}}`;
   }
 
-  private stmt(indent: string, depth: number): string {
+  private statement(indent: string, depth: number): string {
     this.stmtBudget--;
     const canMutate = this.mutableVars().length > 0;
     const r = this.next();
@@ -373,9 +373,9 @@ class Gen {
     const lines: string[] = [];
     const count = this.int(3);
     for (let k = 0; k < count && this.stmtBudget > 0; k++) {
-      lines.push(this.stmt("    ", 1));
+      lines.push(this.statement("    ", 1));
     }
-    const ret = this.chance(0.5) ? `(${sig.ret.name})(${this.expr(3)})` : this.expr(3);
+    const ret = this.chance(0.5) ? `(${sig.ret.name})(${this.expression(3)})` : this.expression(3);
     lines.push(`    return ${ret};`);
     this.inHelper = false;
 
@@ -421,7 +421,7 @@ class Gen {
       lines.push(this.declStmt("    "));
     }
     for (let k = 2; k < topCount && this.stmtBudget > 0; k++) {
-      lines.push(this.stmt("    ", 2));
+      lines.push(this.statement("    ", 2));
     }
 
     const tops = this.scopes[0];

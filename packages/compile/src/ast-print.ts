@@ -4,12 +4,12 @@ import type { TranslationUnit } from "./ast";
 
 const HEAD_KEYS = ["name", "member", "op", "value", "text"];
 
-export function formatAst(tu: TranslationUnit): string {
+export function formatAst(translationUnit: TranslationUnit): string {
   const lines: string[] = ["TranslationUnit"];
-  const decls = tu.declarations ?? [];
+  const declarations = translationUnit.declarations ?? [];
 
-  decls.forEach((decl, i) => {
-    renderNode("", decl, "", i === decls.length - 1, lines);
+  declarations.forEach((declaration, declarationIndex) => {
+    renderNode("", declaration, "", declarationIndex === declarations.length - 1, lines);
   });
 
   return lines.join("\n");
@@ -27,8 +27,8 @@ function renderNode(
 
   if (Array.isArray(value)) {
     lines.push(`${prefix}${branch}${label} [${value.length}]`);
-    value.forEach((el, i) => {
-      renderNode("", el, childPrefix, i === value.length - 1, lines);
+    value.forEach((el, valueItemIndex) => {
+      renderNode("", el, childPrefix, valueItemIndex === value.length - 1, lines);
     });
     return;
   }
@@ -39,8 +39,8 @@ function renderNode(
     lines.push(`${prefix}${branch}${label ? `${label}: ${head}` : head}`);
 
     const kids = childrenOf(node);
-    kids.forEach((c, i) => {
-      renderNode(c.label, c.value, childPrefix, i === kids.length - 1, lines);
+    kids.forEach((kid, kidIndex) => {
+      renderNode(kid.label, kid.value, childPrefix, kidIndex === kids.length - 1, lines);
     });
     return;
   }
@@ -53,10 +53,10 @@ function headText(node: Record<string, unknown>): string {
   const kind = typeof node.kind === "string" ? node.kind : "node";
   const parts: string[] = [];
 
-  for (const k of HEAD_KEYS) {
-    const v = node[k];
-    if (v === undefined || v === null || typeof v === "object") continue;
-    parts.push(typeof v === "string" ? `${k}="${v}"` : `${k}=${v}`);
+  for (const HEAD_KEYSItem of HEAD_KEYS) {
+    const nodeItem = node[HEAD_KEYSItem];
+    if (nodeItem === undefined || nodeItem === null || typeof nodeItem === "object") continue;
+    parts.push(typeof nodeItem === "string" ? `${HEAD_KEYSItem}="${nodeItem}"` : `${HEAD_KEYSItem}=${nodeItem}`);
   }
 
   return parts.length ? `${kind}  ${parts.join(" ")}` : kind;

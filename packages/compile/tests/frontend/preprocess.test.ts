@@ -6,7 +6,7 @@ import type { MacroDef } from "../../src/preprocess";
 /** Shortcut: preprocess with minimal opts (no qpiHeader so source controls everything). */
 const pp = (
   source: string,
-  opts?: {
+  options?: {
     contractName?: string;
     contractIndex?: number;
     seedMacros?: Map<string, MacroDef>;
@@ -16,16 +16,16 @@ const pp = (
   const p = new Preprocessor();
   return p.preprocess({
     source,
-    qpiHeader: opts?.qpiHeader ?? "",
-    contractName: opts?.contractName ?? "T",
-    contractIndex: opts?.contractIndex ?? 0,
-    seedMacros: opts?.seedMacros,
+    qpiHeader: options?.qpiHeader ?? "",
+    contractName: options?.contractName ?? "T",
+    contractIndex: options?.contractIndex ?? 0,
+    seedMacros: options?.seedMacros,
   });
 };
 
 /** Preprocess and return non-empty lines (trimmed) for easier assertions. */
-const lines = (source: string, opts?: Parameters<typeof pp>[1]): string[] =>
-  pp(source, opts)
+const lines = (source: string, options?: Parameters<typeof pp>[1]): string[] =>
+  pp(source, options)
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l.length > 0);

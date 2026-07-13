@@ -40,13 +40,13 @@ export function snapshotInputFiles(corePath: string): string[] {
     `${base}/extensions/lite_wasm_target.h`,
     `${base}/extensions/lite_abi_metadata.h`,
     `${base}/extensions/lite_dyn_abi.h`,
-    ...HEADER_FILES.map((f) => `${base}/${f}`),
-    ...IMPL_FILES.map((f) => `${base}/${f}`),
+    ...HEADER_FILES.map((HEADER_FILESItem) => `${base}/${HEADER_FILESItem}`),
+    ...IMPL_FILES.map((IMPL_FILESItem) => `${base}/${IMPL_FILESItem}`),
   ];
   const oracleDir = `${base}/oracle_interfaces`;
   if (existsSync(oracleDir)) {
-    for (const f of readdirSync(oracleDir)) {
-      if (f.endsWith(".h")) files.push(`${oracleDir}/${f}`);
+    for (const itemItem of readdirSync(oracleDir)) {
+      if (itemItem.endsWith(".h")) files.push(`${oracleDir}/${itemItem}`);
     }
   }
   return files;
@@ -71,16 +71,16 @@ export function assembleQpiHeader(corePath: string): string {
   if (existsSync(defPath)) {
     const indexDefines = readFileSync(defPath, "utf8")
       .split("\n")
-      .filter((l) => /^#define \w+_CONTRACT_INDEX \d+\s*$/.test(l));
+      .filter((text) => /^#define \w+_CONTRACT_INDEX \d+\s*$/.test(text));
     content += indexDefines.join("\n") + "\n";
   }
 
-  for (const f of HEADER_FILES) {
-    const fp = `${base}/${f}`;
+  for (const HEADER_FILESItem of HEADER_FILES) {
+    const fp = `${base}/${HEADER_FILESItem}`;
     if (!existsSync(fp)) continue;
     let text = readFileSync(fp, "utf8");
     // The oracle def header pulls each interface (OI::Price, …) in via #include, which the preprocessor treats as a
-    if (f.endsWith("oracle_interfaces_def.h")) {
+    if (HEADER_FILESItem.endsWith("oracle_interfaces_def.h")) {
       text = text.replace(
         /^[ \t]*#include[ \t]+"(oracle_interfaces\/\w+\.h)"[ \t]*$/gm,
         (line, rel) => {
@@ -98,8 +98,8 @@ export function assembleQpiHeader(corePath: string): string {
   if (!contextBuffer) throw new Error(`${wasmTuPath} does not declare g_wasmCtxBuf capacity`);
   content += `\nstatic constexpr unsigned long long __qinit_qpi_context_buffer_size = ${contextBuffer[1]};\n`;
 
-  for (const f of IMPL_FILES) {
-    const fp = `${base}/${f}`;
+  for (const IMPL_FILESItem of IMPL_FILES) {
+    const fp = `${base}/${IMPL_FILESItem}`;
     // Strip #include lines — impl chunks are parsed standalone for their method/free-fn bodies; the headers they pull in
     if (existsSync(fp))
       content +=

@@ -5,11 +5,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { assembleQpiHeader, GENERATOR_VERSION } from "../src/qpi-snapshot";
 
-const args = process.argv.slice(2);
-const flag = (name: string): boolean => args.includes(name);
+const callArguments = process.argv.slice(2);
+const flag = (name: string): boolean => callArguments.includes(name);
 const opt = (name: string): string | undefined => {
-  const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
+  const i = callArguments.indexOf(name);
+  return i >= 0 ? callArguments[i + 1] : undefined;
 };
 
 const pkgDir = resolve(import.meta.dir, "..");

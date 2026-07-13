@@ -1,10 +1,9 @@
 // WAT codegen: walks the parsed contract AST and emits a complete WASM-text module.
 
-export { Codegen } from "./cg";
+export { CodeGenerationContext } from "./code-generation-context";
 export {
-  collectLibraryTypes,
-  collectLibraryTypes as buildLibTypes,
+  indexLibraryDeclarations,
   generateWasmModule,
 } from "./module";
-export type { LibTypes, GeneratedContractMetadata } from "./module";
-export type { Bindings, CalleeIdl, CodegenWarning, FieldLayout, StructLayout } from "./types";
+export type { LibrarySymbolIndex, GeneratedContractMetadata } from "./module";
+export type { TemplateBindings, CalleeIdl, CodeGenerationWarning, FieldLayout, StructLayout } from "./types";

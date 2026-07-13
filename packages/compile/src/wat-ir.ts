@@ -1,0 +1,335 @@
+import { LHOST_CALL_SIG } from "./lhost";
+
+// Typed WAT IR nodes: `i32/i64/void` with constructor-time type assertions.
+
+export type WatNodeType = "i32" | "i64" | "void";
+export type WatValueType = "i32" | "i64";
+
+export type WatNode =
+  | { k: "const"; ty: WatValueType; lit: string }
+  | { k: "get"; ty: WatValueType; name: string }
+  | { k: "set"; ty: "void"; name: string; v: WatNode }
+  | { k: "load"; ty: WatValueType; operator: string; offset: number | null; addr: WatNode }
+  | { k: "store"; ty: "void"; operator: string; offset: number | null; addr: WatNode; v: WatNode }
+  | { k: "op"; ty: WatNodeType; operator: string; callArguments: WatNode[] }
+  | { k: "call"; ty: WatNodeType; target: string; callArguments: WatNode[] }
+  | { k: "raw"; ty: WatNodeType; text: string; why?: string };
+
+// ---- printer ----
+
+export function serializeWatNode(count: WatNode): string {
+  switch (count.k) {
+    case "const":
+      return `(${count.ty}.const ${count.lit})`;
+    case "get":
+      return `(local.get $${count.name})`;
+    case "set":
+      return `(local.set $${count.name} ${serializeWatNode(count.v)})`;
+    case "load":
+      return count.offset === null
+        ? `(${count.operator} ${serializeWatNode(count.addr)})`
+        : `(${count.operator} offset=${count.offset} ${serializeWatNode(count.addr)})`;
+    case "store":
+      return count.offset === null
+        ? `(${count.operator} ${serializeWatNode(count.addr)} ${serializeWatNode(count.v)})`
+        : `(${count.operator} offset=${count.offset} ${serializeWatNode(count.addr)} ${serializeWatNode(count.v)})`;
+    case "op":
+      return count.callArguments.length === 0 ? `(${count.operator})` : `(${count.operator} ${count.callArguments.map(serializeWatNode).join(" ")})`;
+    case "call":
+      return count.callArguments.length === 0
+        ? `(call ${count.target})`
+        : `(call ${count.target} ${count.callArguments.map(serializeWatNode).join(" ")})`;
+    case "raw":
+      return count.text;
+  }
+}
+
+// ---- type assertion ----
+
+// "val" accepts either value type (used by drop and by value-position checks).
+export type ExpectedWatType = WatNodeType | "val";
+
+export function assertWatType(count: WatNode, want: ExpectedWatType, context?: string): WatNode {
+  const ok = want === "val" ? count.ty !== "void" : count.ty === want;
+  if (!ok) {
+    const where = context ? ` in ${context}` : "";
+    throw new Error(`IR type error${where}: expected ${want}, got ${count.ty}: ${serializeWatNode(count)}`);
+  }
+  return count;
+}
+
+// ---- opcode signatures ----
+
+interface WatOperationSignature {
+  res: WatNodeType;
+  ops: readonly ExpectedWatType[];
+}
+
+function binops(prefix: WatValueType): Record<string, WatOperationSignature> {
+  const text: Record<string, WatOperationSignature> = {};
+  for (const itemItem of [
+    "add",
+    "sub",
+    "mul",
+    "div_s",
+    "div_u",
+    "rem_s",
+    "rem_u",
+    "and",
+    "or",
+    "xor",
+    "shl",
+    "shr_s",
+    "shr_u",
+    "rotl",
+    "rotr",
+  ]) {
+    text[`${prefix}.${itemItem}`] = { res: prefix, ops: [prefix, prefix] };
+  }
+  for (const itemItemCandidate of ["eq", "ne", "lt_s", "lt_u", "gt_s", "gt_u", "le_s", "le_u", "ge_s", "ge_u"]) {
+    text[`${prefix}.${itemItemCandidate}`] = { res: "i32", ops: [prefix, prefix] };
+  }
+  for (const itemItemCandidate of ["clz", "ctz", "popcnt"]) {
+    text[`${prefix}.${itemItemCandidate}`] = { res: prefix, ops: [prefix] };
+  }
+  text[`${prefix}.eqz`] = { res: "i32", ops: [prefix] };
+  return text;
+}
+
+export const OP_SIG: Record<string, WatOperationSignature> = {
+  ...binops("i32"),
+  ...binops("i64"),
+  "i32.wrap_i64": { res: "i32", ops: ["i64"] },
+  "i64.extend_i32_u": { res: "i64", ops: ["i32"] },
+  "i64.extend_i32_s": { res: "i64", ops: ["i32"] },
+  "i64.extend8_s": { res: "i64", ops: ["i64"] },
+  "i64.extend16_s": { res: "i64", ops: ["i64"] },
+  "i64.extend32_s": { res: "i64", ops: ["i64"] },
+  "i32.extend8_s": { res: "i32", ops: ["i32"] },
+  "i32.extend16_s": { res: "i32", ops: ["i32"] },
+  drop: { res: "void", ops: ["val"] },
+};
+
+// --- framework call signatures ---- Call signature table for framework static imports only.
+
+export interface WatCallSignature {
+  params: readonly WatValueType[];
+  res: WatNodeType;
+}
+
+const sig = (params: readonly WatValueType[], res: WatNodeType): WatCallSignature => ({ params, res });
+const I32 = "i32" as const;
+const I64 = "i64" as const;
+
+export const CALL_SIG: Record<string, WatCallSignature> = {
+  ...LHOST_CALL_SIG,
+  // private TS gtest runner host
+  $qt_invoke: sig([I32, I32, I32, I32, I32, I64, I32], I32),
+  $qt_query: sig([I32, I32, I32, I32, I32, I32], I32),
+  $qt_fund: sig([I32, I64], "void"),
+  $qt_balance: sig([I32], I64),
+  $qt_state: sig([I32, I32, I32], I32),
+  $qt_system: sig([I32, I32], I32),
+  $qt_set_epoch: sig([I32], "void"),
+  $qt_set_tick: sig([I32], "void"),
+  $qt_construction_epoch: sig([I32], I32),
+  $qt_fail: sig([I32, I32], "void"),
+
+  // memory + runtime plumbing
+  $setMem: sig([I32, I32, I32], "void"),
+  $copyMem: sig([I32, I32, I32], "void"),
+  $memeq: sig([I32, I32, I32], I32),
+  $m256_lt: sig([I32, I32], I32),
+  $qpiAllocLocals: sig([I32], I32),
+  $qpiFreeLocals: sig([], "void"),
+  $acquireScratchpad: sig([I64, I32], I32),
+  $releaseScratchpad: sig([I32], "void"),
+  $self_id: sig([], I32),
+
+  // compiler target primitives for platform widening multiply
+  $intr_mulhi_u: sig([I64, I64], I64),
+  $intr_mulhi_s: sig([I64, I64], I64),
+  $intr_rdrand16: sig([I32], I32),
+  $intr_rdrand32: sig([I32], I32),
+  $intr_rdrand64: sig([I32], I32),
+
+  // Runtime bridges that are still emitted by framework.ts.
+  $qpi_contractIndex: sig([], I32),
+  $qpi_transferTyped: sig([I32, I64, I32], I64),
+  $qpi_prevSpectrumDigest: sig([I32], "void"),
+  $qpi_prevUniverseDigest: sig([I32], "void"),
+  $qpi_prevComputerDigest: sig([I32], "void"),
+  $qpi_abort: sig([I32], "void"),
+  $qpi_markDirty: sig([I32], "void"),
+  $qpi_logBytes: sig([I32, I32, I32, I32], "void"),
+
+  // non-import bridges used directly by generated code
+  $liteCallFunction: sig([I32, I32, I32, I32, I32, I32], I32),
+  $liteInvokeProcedure: sig([I32, I32, I32, I32, I32, I32, I64], I32),
+  $lh_liteSetShareholderProposal: sig([I32, I32, I64], I32),
+  $lh_liteSetShareholderVotes: sig([I32, I32, I32, I64], I32),
+};
+
+export function registerCallSig(target: string, signature: WatCallSignature): void {
+  CALL_SIG[target] = signature;
+}
+
+export function resetLhostCallSigs(): void {
+  for (const target of Object.keys(CALL_SIG))
+    if (target.startsWith("$lh_")) delete CALL_SIG[target];
+  Object.assign(CALL_SIG, LHOST_CALL_SIG);
+}
+
+// ---- smart constructors ----
+
+export function i32Constant(lit: string | number | bigint): WatNode {
+  return { k: "const", ty: "i32", lit: String(lit) };
+}
+
+export function i64Constant(lit: string | number | bigint): WatNode {
+  return { k: "const", ty: "i64", lit: String(lit) };
+}
+
+// name is the bare local name (no $ prefix; the printer adds it).
+export function localGet(name: string, ty: WatValueType): WatNode {
+  return { k: "get", ty, name };
+}
+
+export function localSet(name: string, value: WatNode): WatNode {
+  assertWatType(value, "val", `local.set $${name}`);
+  return { k: "set", ty: "void", name, v: value };
+}
+
+export function operation(mnemonic: string, ...callArguments: WatNode[]): WatNode {
+  const OP_SIGItem = OP_SIG[mnemonic];
+  if (!OP_SIGItem) {
+    throw new Error(`IR: unknown opcode ${mnemonic}`);
+  }
+  if (callArguments.length !== OP_SIGItem.ops.length) {
+    throw new Error(`IR: ${mnemonic} expects ${OP_SIGItem.ops.length} operand(s), got ${callArguments.length}`);
+  }
+  callArguments.forEach((argument, argumentIndex) => assertWatType(argument, OP_SIGItem.ops[argumentIndex], `${mnemonic} operand ${argumentIndex}`));
+  return { k: "op", ty: OP_SIGItem.res, operator: mnemonic, callArguments };
+}
+
+// target includes the $ prefix, exactly as it appears in the WAT.
+export function functionCall(target: string, ...callArguments: WatNode[]): WatNode {
+  const CALL_SIGItem = CALL_SIG[target];
+  if (!CALL_SIGItem) {
+    throw new Error(`IR: unknown call target ${target} (use callSig for dynamic targets)`);
+  }
+  return functionCallWithSignature(CALL_SIGItem, target, ...callArguments);
+}
+
+// Call through an explicit signature — for per-contract generated targets (helpers, methods, dispatch stubs) that cannot live in
+export function functionCallWithSignature(size: WatCallSignature, target: string, ...callArguments: WatNode[]): WatNode {
+  if (callArguments.length !== size.params.length) {
+    throw new Error(`IR: call ${target} expects ${size.params.length} arg(s), got ${callArguments.length}`);
+  }
+  callArguments.forEach((argument, argumentIndex) => assertWatType(argument, size.params[argumentIndex], `call ${target} arg ${argumentIndex}`));
+  return { k: "call", ty: size.res, target, callArguments };
+}
+
+export function rawWatNode(text: string, ty: WatNodeType, why?: string): WatNode {
+  return why === undefined ? { k: "raw", ty, text } : { k: "raw", ty, text, why };
+}
+
+// True when evaluating the node can neither trap nor produce a side effect — safe for wasm select's
+export function isPureWatNode(count: WatNode): boolean {
+  switch (count.k) {
+    case "const":
+    case "get":
+      return true;
+    case "load":
+      return isPureWatNode(count.addr);
+    case "op":
+      if (
+        count.operator === "i64.div_s" ||
+        count.operator === "i64.div_u" ||
+        count.operator === "i64.rem_s" ||
+        count.operator === "i64.rem_u" ||
+        count.operator === "i32.div_s" ||
+        count.operator === "i32.div_u" ||
+        count.operator === "i32.rem_s" ||
+        count.operator === "i32.rem_u"
+      ) {
+        return false;
+      }
+      return count.callArguments.every(isPureWatNode);
+    default:
+      return false;
+  }
+}
+
+// (select a b cond): polymorphic in wasm — both arms must agree, cond is i32, result is the arm type.
+export function selectValue(argument: WatNode, templateBindings: WatNode, condition: WatNode): WatNode {
+  assertWatType(argument, "val", "select arm 0");
+  assertWatType(templateBindings, argument.ty, "select arm 1");
+  assertWatType(condition, "i32", "select condition");
+  return { k: "op", ty: argument.ty, operator: "select", callArguments: [argument, templateBindings, condition] };
+}
+
+// ---- addressing + scalar access ----
+
+// Address arithmetic: offset 0 returns the base unchanged (never wrap in a redundant i32.add).
+export function addressWithOffset(base: WatNode, offset: number): WatNode {
+  assertWatType(base, "i32", "addrOf base");
+  if (offset === 0) {
+    return base;
+  }
+  return operation("i32.add", base, i32Constant(offset));
+}
+
+// Explicit-opcode load, for shapes like (i64.load offset=8 a). offset null omits the attribute;
+export function rawLoad(mnemonic: string, offset: number | null, addr: WatNode): WatNode {
+  assertWatType(addr, "i32", `${mnemonic} address`);
+  const ty: WatValueType = mnemonic.startsWith("i64.") ? "i64" : "i32";
+  return { k: "load", ty, operator: mnemonic, offset, addr };
+}
+
+export function rawStore(mnemonic: string, offset: number | null, addr: WatNode, value: WatNode): WatNode {
+  assertWatType(addr, "i32", `${mnemonic} address`);
+  assertWatType(value, mnemonic.startsWith("i64.") ? "i64" : "i32", `${mnemonic} value`);
+  return { k: "store", ty: "void", operator: mnemonic, offset, addr, v: value };
+}
+
+// Load a scalar field into the i64 value model: 8-byte fields load directly, narrower fields load at their
+export function loadScalar(addr: WatNode, size: number, signed = false): WatNode {
+  assertWatType(addr, "i32", "loadScalar address");
+  switch (size) {
+    case 8:
+      return rawLoad("i64.load", null, addr);
+    case 4:
+      return operation(signed ? "i64.extend_i32_s" : "i64.extend_i32_u", rawLoad("i32.load", null, addr));
+    case 2:
+      return operation(
+        signed ? "i64.extend_i32_s" : "i64.extend_i32_u",
+        rawLoad(signed ? "i32.load16_s" : "i32.load16_u", null, addr),
+      );
+    case 1:
+      return operation(
+        signed ? "i64.extend_i32_s" : "i64.extend_i32_u",
+        rawLoad(signed ? "i32.load8_s" : "i32.load8_u", null, addr),
+      );
+    default:
+      return rawLoad("i64.load", null, addr);
+  }
+}
+
+// Store an i64 register value to a scalar field: 8-byte fields store directly, narrower fields wrap to i32
+export function storeScalar(addr: WatNode, size: number, value: WatNode): WatNode {
+  assertWatType(addr, "i32", "storeScalar address");
+  assertWatType(value, "i64", "storeScalar value");
+  switch (size) {
+    case 8:
+      return rawStore("i64.store", null, addr, value);
+    case 4:
+      return rawStore("i32.store", null, addr, operation("i32.wrap_i64", value));
+    case 2:
+      return rawStore("i32.store16", null, addr, operation("i32.wrap_i64", value));
+    case 1:
+      return rawStore("i32.store8", null, addr, operation("i32.wrap_i64", value));
+    default:
+      return rawStore("i64.store", null, addr, value);
+  }
+}

@@ -1,20 +1,20 @@
 import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, symbolBaseName } from "../tables";
 import { emitQpiCall } from "./qpi";
-import { emitHelperCall } from "./libfn";
+import { emitHelperCall } from "./library-functions";
 import { emitProxySiblingCall, emitProposalProxyCall } from "./proxy";
-import { newTmp } from "../stmt";
+import { allocateTemporaryLocalName } from "../statement-emitter";
 import { compileContainerMethod, emitAssetIter, emitContainerCall } from "./containers";
-import { emitValueIr, emitValue } from "../value";
+import { lowerValueExpression, emitValue } from "../expression-lowering";
 import {
-  emitAddr,
+  emitAddress,
   emitInlineStructStatement,
   addrIr,
-  allocSlotIr,
+  allocateScratchSlotNode,
   setLocal,
   narrowCastIr,
-  resolveAddr,
-} from "../addr";
-import { FnCtx, NO_BIND } from "../types";
+  resolveExpressionAddress,
+} from "../address-resolution";
+import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type {
   TypeSpec,
   Expression,
@@ -27,33 +27,33 @@ import type {
   TemplateParam,
   ParamDecl,
 } from "../../ast";
-import * as ir from "../../ir";
+import * as watIr from "../../wat-ir";
 import { platformPrimitive } from "../platform-primitives";
 
 export function emitThisCall(
-  ctx: FnCtx,
-  expr: Expression & { kind: "call" },
+  context: FunctionEmissionContext,
+  expression: Expression & { kind: "call" },
   valueWanted: boolean,
 ): string | null {
   if (
-    !ctx.thisType ||
-    ctx.thisType.kind !== "template_instance" ||
-    expr.callee.kind !== "identifier"
+    !context.thisType ||
+    context.thisType.kind !== "template_instance" ||
+    expression.callee.kind !== "identifier"
   )
     return null;
-  const name = expr.callee.name;
+  const name = expression.callee.name;
 
   // memory builtins used by container bodies: reset → setMem(this, ...); removeByIndex → setMem(&elem, ...).
   if ((name === "setMem" || name === "copyMem") && !valueWanted) {
-    const dst = emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)";
+    const dst = emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)";
     if (name === "copyMem") {
-      const src = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
-      ctx.lines.push(
-        `    ${ir.emit(ir.call("$copyMem", addrIr(dst), addrIr(src), ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[2]))))}`,
+      const src = emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)";
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(dst), addrIr(src), watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[2]))))}`,
       );
     } else {
-      ctx.lines.push(
-        `    ${ir.emit(ir.call("$setMem", addrIr(dst), ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1])), ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[2]))))}`,
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", addrIr(dst), watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[1])), watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[2]))))}`,
       );
     }
     return "";
@@ -62,364 +62,364 @@ export function emitThisCall(
   // Resolve the dependent static call through the actual HashFunc template binding. This is important
   // both for the default HashFunction<KeyT> body and for contract-provided custom hashers.
   if (name.endsWith("::hash")) {
-    const bound = ctx.thisBind?.types.get(name.slice(0, name.lastIndexOf("::")));
+    const bound = context.thisBind?.types.get(name.slice(0, name.lastIndexOf("::")));
     const target: (TypeSpec & { kind: "template_instance" }) | null =
       bound?.kind === "template_instance"
         ? bound
         : bound?.kind === "name"
-          ? { kind: "template_instance", name: bound.name, args: [] }
+          ? { kind: "template_instance", name: bound.name, callArguments: [] }
           : null;
     if (!target) throw new Error(`dependent hash target '${name}' is not bound`);
-    const cm = compileContainerMethod(ctx.cg, target, "hash", expr.args.length);
+    const cm = compileContainerMethod(context.codeGenerationContext, target, "hash", expression.callArguments.length);
     if (!cm || cm.retKind !== "i64") {
       throw new Error(`authoritative QPI method ${target.name}::hash could not be lowered`);
     }
-    const ops = cm.fnParams.map((fp, index) => {
-      const arg = expr.args[index] ?? fp.defaultValue;
-      if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-      if (!fp.isAddr) return emitValue(ctx, arg);
-      const direct = emitAddr(ctx, arg);
+    const ops = cm.functionParameters.map((fp, index) => {
+      const argument = expression.callArguments[index] ?? fp.defaultValue;
+      if (!argument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+      if (!fp.isAddr) return emitValue(context, argument);
+      const direct = emitAddress(context, argument);
       if (direct) return direct;
-      const spill = allocSlotIr(
-        ctx,
-        Math.max(8, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), ctx.thisBind ?? NO_BIND)),
+      const spill = allocateScratchSlotNode(
+        context,
+        Math.max(8, context.codeGenerationContext.sizeOfType(context.codeGenerationContext.derefType(fp.type), context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)),
       );
-      ctx.lines.push(
-        `    ${ir.emit(ir.storeRaw("i64.store", null, spill, emitValueIr(ctx, arg)))}`,
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, spill, lowerValueExpression(context, argument)))}`,
       );
-      return ir.emit(spill);
+      return watIr.serializeWatNode(spill);
     });
     return `(call ${cm.label} (local.get $this)${ops.length ? " " + ops.join(" ") : ""})`;
   }
 
   // a sibling method of this container instance — compile it and call with $this + args. An
-  const mname = name.startsWith(`${ctx.thisType.name}::`)
-    ? name.slice(ctx.thisType.name.length + 2)
+  const mname = name.startsWith(`${context.thisType.name}::`)
+    ? name.slice(context.thisType.name.length + 2)
     : name;
-  const cm = compileContainerMethod(ctx.cg, ctx.thisType, mname, expr.args.length);
+  const cm = compileContainerMethod(context.codeGenerationContext, context.thisType, mname, expression.callArguments.length);
   if (!cm) return null;
   // A reference-scalar argument that is a plain wasm local (addAndComputeCarry(newMicrosec, carry, ...)) has no address: spill it to
   const writeBacks: string[] = [];
-  const ops = cm.fnParams.map((fp, i) => {
-    const arg = expr.args[i] ?? fp.defaultValue;
-    if (!arg) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    if (arg.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    if (!fp.isAddr) return emitValue(ctx, arg);
-    const a = emitAddr(ctx, arg);
-    if (a) return a;
+  const ops = cm.functionParameters.map((fp, fnParamIndex) => {
+    const argument = expression.callArguments[fnParamIndex] ?? fp.defaultValue;
+    if (!argument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    if (argument.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    if (!fp.isAddr) return emitValue(context, argument);
+    const emittedAddress = emitAddress(context, argument);
+    if (emittedAddress) return emittedAddress;
     // `&x` (pointer out-param) and parens unwrap to the same scalar-local spill as a bare `x`.
-    let root: Expression = arg;
-    while (root.kind === "paren" || (root.kind === "unary_op" && root.op === "&")) {
-      root = root.kind === "paren" ? root.expr : root.arg;
+    let root: Expression = argument;
+    while (root.kind === "paren" || (root.kind === "unary_op" && root.operator === "&")) {
+      root = root.kind === "paren" ? root.expression : root.argument;
     }
-    const s = allocSlotIr(ctx, 8);
-    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, s, emitValueIr(ctx, root)))}`);
-    if (root.kind === "identifier" && ctx.localVars.get(root.name)?.wasmType === "i64") {
-      writeBacks.push(`    ${setLocal(ctx, root.name, ir.loadRaw("i64.load", null, s))}`);
+    const size = allocateScratchSlotNode(context, 8);
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, size, lowerValueExpression(context, root)))}`);
+    if (root.kind === "identifier" && context.localVars.get(root.name)?.wasmType === "i64") {
+      writeBacks.push(`    ${setLocal(context, root.name, watIr.rawLoad("i64.load", null, size))}`);
     }
-    return ir.emit(s);
+    return watIr.serializeWatNode(size);
   });
   const call = `(call ${cm.label} (local.get $this) ${ops.join(" ")})`;
   if (valueWanted) {
     if (cm.retKind !== "i64") {
-      ctx.lines.push(`    ${call}`);
-      ctx.lines.push(...writeBacks);
+      context.lines.push(`    ${call}`);
+      context.lines.push(...writeBacks);
       return "(i64.const 0)";
     }
     if (!writeBacks.length) return call;
-    const r = `tmp${ctx.tmpCount++}`;
-    ctx.localVars.set(r, { wasmType: "i64" });
-    ctx.lines.push(
-      `    ${setLocal(ctx, r, ir.raw(call, "i64", "unconverted: container method call"))}`,
+    const text = `tmp${context.tmpCount++}`;
+    context.localVars.set(text, { wasmType: "i64" });
+    context.lines.push(
+      `    ${setLocal(context, text, watIr.rawWatNode(call, "i64", "unconverted: container method call"))}`,
     );
-    ctx.lines.push(...writeBacks);
-    return `(local.get $${r})`;
+    context.lines.push(...writeBacks);
+    return `(local.get $${text})`;
   }
-  ctx.lines.push(
+  context.lines.push(
     cm.retKind === "i64"
-      ? `    ${ir.emit(ir.op("drop", ir.raw(call, "i64", "unconverted: container method call")))}`
+      ? `    ${watIr.serializeWatNode(watIr.operation("drop", watIr.rawWatNode(call, "i64", "unconverted: container method call")))}`
       : `    ${call}`,
   );
-  ctx.lines.push(...writeBacks);
+  context.lines.push(...writeBacks);
   return "";
 }
 
 // rvalue call: a value helper, qpi getter, qpi valued host call, a value-returning container method, or a math
-export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" }): ir.Ir {
-  if (ctx.cg.gtestMode && expr.callee.kind === "identifier" && expr.callee.name === "getBalance") {
-    const who = expr.args[0] ? emitAddr(ctx, expr.args[0]) : null;
+export function emitCallValueIr(context: FunctionEmissionContext, expression: Expression & { kind: "call" }): watIr.WatNode {
+  if (context.codeGenerationContext.gtestMode && expression.callee.kind === "identifier" && expression.callee.name === "getBalance") {
+    const who = expression.callArguments[0] ? emitAddress(context, expression.callArguments[0]) : null;
     if (!who) throw new Error("gtest getBalance account must be addressable");
-    return ir.call("$qt_balance", addrIr(who));
+    return watIr.functionCall("$qt_balance", addrIr(who));
   }
   const primitive =
-    expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name"
-      ? platformPrimitive(expr.callee.name)
+    expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name"
+      ? platformPrimitive(expression.callee.name)
       : undefined;
   if (primitive) {
-    for (const capability of primitive.capabilities ?? []) ctx.cg.capabilities.add(capability);
-    if (expr.args.length !== primitive.operands.length) {
+    for (const capability of primitive.capabilities ?? []) context.codeGenerationContext.capabilities.add(capability);
+    if (expression.callArguments.length !== primitive.operands.length) {
       throw new Error(
-        `${primitive.name} expects ${primitive.operands.length} argument(s), got ${expr.args.length}`,
+        `${primitive.name} expects ${primitive.operands.length} argument(s), got ${expression.callArguments.length}`,
       );
     }
   }
 
   if (primitive?.kind === "multiply-high") {
-    const left = expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0);
-    const right = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);
-    const high = ir.call(primitive.signed ? "$intr_mulhi_s" : "$intr_mulhi_u", left, right);
-    let output: Expression | undefined = expr.args[2];
-    while (output?.kind === "paren" || (output?.kind === "unary_op" && output.op === "&")) {
-      output = output.kind === "paren" ? output.expr : output.arg;
+    const left = expression.callArguments[0] ? lowerValueExpression(context, expression.callArguments[0]) : watIr.i64Constant(0);
+    const right = expression.callArguments[1] ? lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0);
+    const high = watIr.functionCall(primitive.signed ? "$intr_mulhi_s" : "$intr_mulhi_u", left, right);
+    let output: Expression | undefined = expression.callArguments[2];
+    while (output?.kind === "paren" || (output?.kind === "unary_op" && output.operator === "&")) {
+      output = output.kind === "paren" ? output.expression : output.argument;
     }
-    if (output?.kind === "identifier" && ctx.localVars.get(output.name)?.wasmType === "i64") {
-      ctx.lines.push(`    ${setLocal(ctx, output.name, high)}`);
+    if (output?.kind === "identifier" && context.localVars.get(output.name)?.wasmType === "i64") {
+      context.lines.push(`    ${setLocal(context, output.name, high)}`);
     } else {
-      const out = expr.args[2] ? emitAddr(ctx, expr.args[2]) : null;
+      const out = expression.callArguments[2] ? emitAddress(context, expression.callArguments[2]) : null;
       if (!out) throw new Error(`${primitive.name} high-limb output is not addressable`);
-      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, addrIr(out), high))}`);
+      context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, addrIr(out), high))}`);
     }
-    return ir.op("i64.mul", left, right);
+    return watIr.operation("i64.mul", left, right);
   }
 
   if (primitive?.kind === "wasm-unary" && primitive.wasmOp) {
-    return ir.op(primitive.wasmOp, emitValueIr(ctx, expr.args[0]));
+    return watIr.operation(primitive.wasmOp, lowerValueExpression(context, expression.callArguments[0]));
   }
   if (primitive?.kind === "chain-rdrand" && primitive.width) {
-    const output = emitAddr(ctx, expr.args[0]);
+    const output = emitAddress(context, expression.callArguments[0]);
     if (!output) throw new Error(`${primitive.name} output is not addressable`);
-    return ir.op("i64.extend_i32_u", ir.call(`$intr_rdrand${primitive.width}`, addrIr(output)));
+    return watIr.operation("i64.extend_i32_u", watIr.functionCall(`$intr_rdrand${primitive.width}`, addrIr(output)));
   }
   if (primitive?.kind === "mask-extract") {
-    const input = emitAddr(ctx, expr.args[0]);
+    const input = emitAddress(context, expression.callArguments[0]);
     if (!input) throw new Error(`${primitive.name} operand must be addressable`);
-    let mask: ir.Ir = ir.i64c(0);
+    let mask: watIr.WatNode = watIr.i64Constant(0);
     for (let byte = 0; byte < 32; byte++) {
-      const value = ir.loadRaw("i64.load8_u", byte, addrIr(input));
-      const bit = ir.op("i64.and", ir.op("i64.shr_u", value, ir.i64c(7)), ir.i64c(1));
-      mask = ir.op("i64.or", mask, ir.op("i64.shl", bit, ir.i64c(byte)));
+      const value = watIr.rawLoad("i64.load8_u", byte, addrIr(input));
+      const bit = watIr.operation("i64.and", watIr.operation("i64.shr_u", value, watIr.i64Constant(7)), watIr.i64Constant(1));
+      mask = watIr.operation("i64.or", mask, watIr.operation("i64.shl", bit, watIr.i64Constant(byte)));
     }
     return mask;
   }
   if (primitive?.kind === "test-zero") {
-    const left = emitAddr(ctx, expr.args[0]);
-    const right = emitAddr(ctx, expr.args[1]);
+    const left = emitAddress(context, expression.callArguments[0]);
+    const right = emitAddress(context, expression.callArguments[1]);
     if (!left || !right) throw new Error(`${primitive.name} operands must be addressable`);
-    let combined: ir.Ir = ir.i64c(0);
+    let combined: watIr.WatNode = watIr.i64Constant(0);
     for (let lane = 0; lane < 4; lane++) {
-      const a = ir.loadRaw("i64.load", lane * 8, addrIr(left));
-      const b = ir.loadRaw("i64.load", lane * 8, addrIr(right));
-      combined = ir.op("i64.or", combined, ir.op("i64.and", a, b));
+      const argument = watIr.rawLoad("i64.load", lane * 8, addrIr(left));
+      const templateBindings = watIr.rawLoad("i64.load", lane * 8, addrIr(right));
+      combined = watIr.operation("i64.or", combined, watIr.operation("i64.and", argument, templateBindings));
     }
-    return ir.op("i64.extend_i32_u", ir.op("i64.eqz", combined));
+    return watIr.operation("i64.extend_i32_u", watIr.operation("i64.eqz", combined));
   }
 
   // ProposalVoting proxy `qpi(state.proposals).method(...)` — compile the real qpi.h proxy method against the wrapped ProposalVoting instance. A sibling proxy
-  if (ctx.proxyClass) {
-    const sib = emitProxySiblingCall(ctx, expr, true);
-    if (sib !== null) return ir.raw(sib, "i64", "unconverted: proxy sibling call");
+  if (context.proxyClass) {
+    const sib = emitProxySiblingCall(context, expression, true);
+    if (sib !== null) return watIr.rawWatNode(sib, "i64", "unconverted: proxy sibling call");
   }
   {
-    const m = qpiWrapperMethod(expr);
-    if (m) {
-      const real = emitProposalProxyCall(ctx, expr, true);
-      if (real !== null) return ir.raw(real, "i64", "unconverted: proposal proxy call");
-      throw new Error(`authoritative proposal method '${m}' could not be lowered`);
+    const text = qpiWrapperMethod(expression);
+    if (text) {
+      const real = emitProposalProxyCall(context, expression, true);
+      if (real !== null) return watIr.rawWatNode(real, "i64", "unconverted: proposal proxy call");
+      throw new Error(`authoritative proposal method '${text}' could not be lowered`);
     }
   }
 
   // Inter-contract call in value context — the _E forms capture the InterContractCallError into a variable (`InterContractCallError err =
   if (
-    expr.callee.kind === "identifier" &&
-    (expr.callee.name === "__qpi_call_other" || expr.callee.name === "__qpi_invoke_other")
+    expression.callee.kind === "identifier" &&
+    (expression.callee.name === "__qpi_call_other" || expression.callee.name === "__qpi_invoke_other")
   ) {
-    const wat = emitInterContract(ctx, expr, expr.callee.name === "__qpi_invoke_other");
+    const wat = emitInterContract(context, expression, expression.callee.name === "__qpi_invoke_other");
     if (wat)
-      return ir.op("i64.extend_i32_s", ir.raw(wat, "i32", "unconverted: inter-contract call"));
-    ctx.cg.warn(
-      `unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`,
-      expr.span.line,
+      return watIr.operation("i64.extend_i32_s", watIr.rawWatNode(wat, "i32", "unconverted: inter-contract call"));
+    context.codeGenerationContext.warn(
+      `unsupported inter-contract call to '${expression.callArguments[0]?.kind === "identifier" ? expression.callArguments[0].name : "?"}' (no callee IDL)`,
+      expression.span.line,
     );
-    return ir.i64c(0);
+    return watIr.i64Constant(0);
   }
 
-  const ai = emitAssetIter(ctx, expr, "value");
-  if (ai !== null) return ir.raw(ai, "i64", "unconverted: asset iterator");
+  const ai = emitAssetIter(context, expression, "value");
+  if (ai !== null) return watIr.rawWatNode(ai, "i64", "unconverted: asset iterator");
 
-  const tc = emitThisCall(ctx, expr, true);
-  if (tc !== null) return ir.raw(tc, "i64", "unconverted: this-call");
+  const tc = emitThisCall(context, expression, true);
+  if (tc !== null) return watIr.rawWatNode(tc, "i64", "unconverted: this-call");
 
-  const h = emitHelperCall(ctx, expr, true);
-  if (h !== null) return ir.raw(h, "i64", "unconverted: helper call");
+  const text = emitHelperCall(context, expression, true);
+  if (text !== null) return watIr.rawWatNode(text, "i64", "unconverted: helper call");
 
-  if (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name") {
-    const name = expr.callee.kind === "identifier" ? expr.callee.name : expr.callee.name;
+  if (expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name") {
+    const name = expression.callee.kind === "identifier" ? expression.callee.name : expression.callee.name;
     const base = symbolBaseName(name);
     if (MATH_INTRINSIC_NAMES.has(base)) {
       throw new Error(`authoritative QPI math function '${name}' could not be lowered`);
     }
   }
 
-  const c = emitContainerCall(ctx, expr, true);
-  if (c !== null) return ir.raw(c, "i64", "source-compiled instance method");
+  const textCandidate = emitContainerCall(context, expression, true);
+  if (textCandidate !== null) return watIr.rawWatNode(textCandidate, "i64", "source-compiled instance method");
 
-  emitQpiCall(ctx, expr);
+  emitQpiCall(context, expression);
 
   // Functional-style scalar cast: uint64(x) / sint64(x) / uint8(x) / bit(x) ... — narrowed to the target
   if (
-    expr.callee.kind === "identifier" &&
-    SCALAR_SIZE[expr.callee.name] !== undefined &&
-    expr.args.length === 1
+    expression.callee.kind === "identifier" &&
+    SCALAR_SIZE[expression.callee.name] !== undefined &&
+    expression.callArguments.length === 1
   ) {
-    return narrowCastIr(emitValueIr(ctx, expr.args[0]), expr.callee.name);
+    return narrowCastIr(lowerValueExpression(context, expression.callArguments[0]), expression.callee.name);
   }
 
   // The same cast through a template parameter: T(x) inside a qpi.h template body where T binds to a
-  if (expr.callee.kind === "identifier" && expr.args.length === 1) {
-    const bound = ctx.thisBind?.types.get(expr.callee.name);
+  if (expression.callee.kind === "identifier" && expression.callArguments.length === 1) {
+    const bound = context.thisBind?.types.get(expression.callee.name);
     if (bound?.kind === "name" && SCALAR_SIZE[bound.name] !== undefined) {
-      return narrowCastIr(emitValueIr(ctx, expr.args[0]), bound.name);
+      return narrowCastIr(lowerValueExpression(context, expression.callArguments[0]), bound.name);
     }
   }
 
   // uint128(i_high, i_low) two-arg constructor as a scalar value: the i64-collapsed model carries the low 64 bits, so the
   if (
-    expr.callee.kind === "identifier" &&
-    (expr.callee.name === "uint128" || expr.callee.name === "uint128_t") &&
-    expr.args.length === 2
+    expression.callee.kind === "identifier" &&
+    (expression.callee.name === "uint128" || expression.callee.name === "uint128_t") &&
+    expression.callArguments.length === 2
   ) {
-    return emitValueIr(ctx, expr.args[1]);
+    return lowerValueExpression(context, expression.callArguments[1]);
   }
 
-  ctx.cg.warn(`unsupported call as value [${describeShape(expr)}]`, expr.span.line);
-  return ir.i64c(0);
+  context.codeGenerationContext.warn(`unsupported call as value [${describeShape(expression)}]`, expression.span.line);
+  return watIr.i64Constant(0);
 }
 
-export function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): string {
-  return ir.emit(emitCallValueIr(ctx, expr));
+export function emitCallValue(context: FunctionEmissionContext, expression: Expression & { kind: "call" }): string {
+  return watIr.serializeWatNode(emitCallValueIr(context, expression));
 }
 
 // statement call: a container mutation or a side-effecting qpi host call.
 export function emitInterContract(
-  ctx: FnCtx,
-  expr: Expression & { kind: "call" },
+  context: FunctionEmissionContext,
+  expression: Expression & { kind: "call" },
   isInvoke: boolean,
 ): string | null {
-  const cArg = expr.args[0],
-    fArg = expr.args[1];
+  const cArg = expression.callArguments[0],
+    fArg = expression.callArguments[1];
   if (cArg?.kind !== "identifier" || fArg?.kind !== "identifier") return null;
-  const callee = ctx.cg.callees.get(cArg.name);
+  const callee = context.codeGenerationContext.callees.get(cArg.name);
   let idx: number | null = callee?.index ?? null;
   if (idx === null) {
-    const c = ctx.cg.resolveConst(`${cArg.name}_CONTRACT_INDEX`);
-    if (c !== null) idx = Number(c);
+    const resolvedConstant = context.codeGenerationContext.resolveConst(`${cArg.name}_CONTRACT_INDEX`);
+    if (resolvedConstant !== null) idx = Number(resolvedConstant);
   }
   const entry = isInvoke ? callee?.procedures[fArg.name] : callee?.functions[fArg.name];
   if (idx === null || !entry) return null;
 
-  if (!expr.args[2] || !expr.args[3])
+  if (!expression.callArguments[2] || !expression.callArguments[3])
     throw new Error(`${isInvoke ? "INVOKE" : "CALL"}_OTHER requires input and output buffers`);
-  const inAddr = emitAddr(ctx, expr.args[2]);
-  const outAddr = emitAddr(ctx, expr.args[3]);
+  const inAddr = emitAddress(context, expression.callArguments[2]);
+  const outAddr = emitAddress(context, expression.callArguments[3]);
   if (!inAddr || !outAddr)
     throw new Error(`${isInvoke ? "INVOKE" : "CALL"}_OTHER input and output must be addressable`);
-  const inSize = (expr.args[2] ? resolveAddr(ctx, expr.args[2])?.size : undefined) ?? entry.inSize;
+  const inSize = (expression.callArguments[2] ? resolveExpressionAddress(context, expression.callArguments[2])?.size : undefined) ?? entry.inSize;
   const outSize =
-    (expr.args[3] ? resolveAddr(ctx, expr.args[3])?.size : undefined) ?? entry.outSize;
+    (expression.callArguments[3] ? resolveExpressionAddress(context, expression.callArguments[3])?.size : undefined) ?? entry.outSize;
   const dims = `(i32.const ${idx}) (i32.const ${entry.inputType}) ${inAddr} (i32.const ${inSize}) ${outAddr} (i32.const ${outSize})`;
   // Returns the bare i32 call expression (the InterContractCallError). The statement caller drops it; the
   if (isInvoke) {
-    const reward = expr.args[4] ? emitValue(ctx, expr.args[4]) : "(i64.const 0)";
+    const reward = expression.callArguments[4] ? emitValue(context, expression.callArguments[4]) : "(i64.const 0)";
     return `(call $liteInvokeProcedure ${dims} ${reward})`;
   }
   return `(call $liteCallFunction ${dims})`;
 }
 
 // The ProposalVoting wrapper call shape: `qpi(<aggregate>).<method>(...)` — a member call whose object is a `qpi(...)` call. Returns the
-export function qpiWrapperMethod(expr: Expression & { kind: "call" }): string | null {
-  const c = expr.callee;
-  if (c.kind !== "member_access") return null;
-  const o = c.object;
-  if (o.kind === "call" && o.callee.kind === "identifier" && o.callee.name === "qpi")
-    return c.member;
+export function qpiWrapperMethod(expression: Expression & { kind: "call" }): string | null {
+  const callee = expression.callee;
+  if (callee.kind !== "member_access") return null;
+  const object = callee.object;
+  if (object.kind === "call" && object.callee.kind === "identifier" && object.callee.name === "qpi")
+    return callee.member;
   return null;
 }
 
-export function describeShape(e: Expression): string {
-  if (!e) return "?";
-  if (e.kind === "identifier") return e.name;
-  if (e.kind === "member_access") return `${describeShape(e.object)}.${e.member}`;
-  if (e.kind === "call") return `${describeShape(e.callee)}(${e.args.length})`;
-  if (e.kind === "subscript") return `${describeShape(e.object)}[]`;
-  return e.kind;
+export function describeShape(expression: Expression): string {
+  if (!expression) return "?";
+  if (expression.kind === "identifier") return expression.name;
+  if (expression.kind === "member_access") return `${describeShape(expression.object)}.${expression.member}`;
+  if (expression.kind === "call") return `${describeShape(expression.callee)}(${expression.callArguments.length})`;
+  if (expression.kind === "subscript") return `${describeShape(expression.object)}[]`;
+  return expression.kind;
 }
 
-export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
-  if (ctx.cg.gtestMode && expr.callee.kind === "identifier") {
-    const name = expr.callee.name;
+export function emitCall(context: FunctionEmissionContext, expression: Expression & { kind: "call" }): void {
+  if (context.codeGenerationContext.gtestMode && expression.callee.kind === "identifier") {
+    const name = expression.callee.name;
     if (name === "__qtest_noop" || name === "initEmptySpectrum" || name === "initEmptyUniverse")
       return;
 
     if (name === "invokeUserProcedure") {
-      const input = expr.args[2] ? resolveAddr(ctx, expr.args[2]) : null;
-      const output = expr.args[3] ? resolveAddr(ctx, expr.args[3]) : null;
-      const origin = expr.args[4] ? emitAddr(ctx, expr.args[4]) : null;
+      const input = expression.callArguments[2] ? resolveExpressionAddress(context, expression.callArguments[2]) : null;
+      const output = expression.callArguments[3] ? resolveExpressionAddress(context, expression.callArguments[3]) : null;
+      const origin = expression.callArguments[4] ? emitAddress(context, expression.callArguments[4]) : null;
       if (!input || !output || !origin)
         throw new Error("gtest invokeUserProcedure requires addressable input, output, and origin");
-      const slot = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[0]));
-      const inputType = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1]));
-      const amount = expr.args[5] ? emitValueIr(ctx, expr.args[5]) : ir.i64c(0);
-      ctx.lines.push(
-        `    ${ir.emit(ir.op("drop", ir.call("$qt_invoke", slot, inputType, addrIr(input.addr), ir.i32c(input.size), addrIr(output.addr), amount, addrIr(origin))))}`,
+      const slot = watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[0]));
+      const inputType = watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[1]));
+      const amount = expression.callArguments[5] ? lowerValueExpression(context, expression.callArguments[5]) : watIr.i64Constant(0);
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.operation("drop", watIr.functionCall("$qt_invoke", slot, inputType, addrIr(input.addr), watIr.i32Constant(input.size), addrIr(output.addr), amount, addrIr(origin))))}`,
       );
       return;
     }
     if (name === "callFunction") {
-      let input = expr.args[2] ? resolveAddr(ctx, expr.args[2]) : null;
-      const output = expr.args[3] ? resolveAddr(ctx, expr.args[3]) : null;
-      if (!input && expr.args[2]) {
-        const addr = emitAddr(ctx, expr.args[2]);
+      let input = expression.callArguments[2] ? resolveExpressionAddress(context, expression.callArguments[2]) : null;
+      const output = expression.callArguments[3] ? resolveExpressionAddress(context, expression.callArguments[3]) : null;
+      if (!input && expression.callArguments[2]) {
+        const addr = emitAddress(context, expression.callArguments[2]);
         const callee =
-          expr.args[2].kind === "call" &&
-          (expr.args[2].callee.kind === "identifier" ||
-            expr.args[2].callee.kind === "qualified_name")
-            ? expr.args[2].callee.name
+          expression.callArguments[2].kind === "call" &&
+          (expression.callArguments[2].callee.kind === "identifier" ||
+            expression.callArguments[2].callee.kind === "qualified_name")
+            ? expression.callArguments[2].callee.name
             : null;
         const type: TypeSpec | null = callee ? { kind: "name", name: callee } : null;
-        const size = type ? ctx.cg.sizeOfType(type, ctx.thisBind ?? NO_BIND) : 0;
+        const size = type ? context.codeGenerationContext.sizeOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS) : 0;
         if (addr && type)
-          input = { addr, type, size, layout: ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND) };
+          input = { addr, type, size, layout: context.codeGenerationContext.layoutOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS) };
       }
       if (!input || !output) {
         throw new Error(
-          `gtest callFunction requires addressable input and output (${describeShape(expr.args[2])}, ${describeShape(expr.args[3])})`,
+          `gtest callFunction requires addressable input and output (${describeShape(expression.callArguments[2])}, ${describeShape(expression.callArguments[3])})`,
         );
       }
-      const slot = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[0]));
-      const inputType = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1]));
-      ctx.lines.push(
-        `    ${ir.emit(ir.op("drop", ir.call("$qt_query", slot, inputType, addrIr(input.addr), ir.i32c(input.size), addrIr(output.addr), ir.i32c(output.size))))}`,
+      const slot = watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[0]));
+      const inputType = watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[1]));
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.operation("drop", watIr.functionCall("$qt_query", slot, inputType, addrIr(input.addr), watIr.i32Constant(input.size), addrIr(output.addr), watIr.i32Constant(output.size))))}`,
       );
       return;
     }
     if (name === "increaseEnergy") {
-      const who = expr.args[0] ? emitAddr(ctx, expr.args[0]) : null;
+      const who = expression.callArguments[0] ? emitAddress(context, expression.callArguments[0]) : null;
       if (!who) throw new Error("gtest increaseEnergy account must be addressable");
-      ctx.lines.push(
-        `    ${ir.emit(ir.call("$qt_fund", addrIr(who), expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0)))}`,
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.functionCall("$qt_fund", addrIr(who), expression.callArguments[1] ? lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0)))}`,
       );
       return;
     }
     if (name === "callSystemProcedure") {
-      const slot = ir.op(
+      const slot = watIr.operation(
         "i32.wrap_i64",
-        expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0),
+        expression.callArguments[0] ? lowerValueExpression(context, expression.callArguments[0]) : watIr.i64Constant(0),
       );
-      const procedure = ir.op(
+      const procedure = watIr.operation(
         "i32.wrap_i64",
-        expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0),
+        expression.callArguments[1] ? lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0),
       );
-      ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.call("$qt_system", slot, procedure)))}`);
+      context.lines.push(`    ${watIr.serializeWatNode(watIr.operation("drop", watIr.functionCall("$qt_system", slot, procedure)))}`);
       return;
     }
 
@@ -428,16 +428,16 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
       const fatal = assertion[1] === "assert";
       const operation = assertion[2];
       const left =
-        expr.args[0] ?? ({ kind: "int_literal", value: "0", span: expr.span } as Expression);
+        expression.callArguments[0] ?? ({ kind: "int_literal", value: "0", span: expression.span } as Expression);
       const right =
         operation === "true" || operation === "false"
           ? ({
               kind: "int_literal",
               value: operation === "true" ? "0" : "0",
-              span: expr.span,
+              span: expression.span,
             } as Expression)
-          : (expr.args[1] ?? ({ kind: "int_literal", value: "0", span: expr.span } as Expression));
-      const op =
+          : (expression.callArguments[1] ?? ({ kind: "int_literal", value: "0", span: expression.span } as Expression));
+      const operator =
         operation === "true"
           ? "!="
           : operation === "false"
@@ -445,134 +445,134 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
             : ({ eq: "==", ne: "!=", lt: "<", le: "<=", gt: ">", ge: ">=" } as const)[
                 operation as "eq" | "ne" | "lt" | "le" | "gt" | "ge"
               ];
-      const comparison = emitValueIr(ctx, { kind: "binary_op", op, left, right, span: expr.span });
+      const comparison = lowerValueExpression(context, { kind: "binary_op", operator, left, right, span: expression.span });
       const code = ["eq", "ne", "lt", "le", "gt", "ge", "true", "false"].indexOf(operation);
-      ctx.lines.push(`    (if (i64.eqz ${ir.emit(comparison)}) (then`);
-      ctx.lines.push(
-        `      ${ir.emit(ir.call("$qt_fail", ir.i32c(code), ir.i32c(fatal ? 1 : 0)))}`,
+      context.lines.push(`    (if (i64.eqz ${watIr.serializeWatNode(comparison)}) (then`);
+      context.lines.push(
+        `      ${watIr.serializeWatNode(watIr.functionCall("$qt_fail", watIr.i32Constant(code), watIr.i32Constant(fatal ? 1 : 0)))}`,
       );
-      if (fatal) ctx.lines.push("      (return)");
-      ctx.lines.push("    ))");
+      if (fatal) context.lines.push("      (return)");
+      context.lines.push("    ))");
       return;
     }
   }
 
   // The generic HashFunction<KeyT> source body calls core-lite's KangarooTwelve primitive with an
   // explicit output length. The lite host exposes K12 as a 32-byte producer, so hash into a private
-  if (expr.callee.kind === "identifier" && expr.callee.name === "KangarooTwelve") {
-    const input = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
-    const inputSize = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);
-    const digest = allocSlotIr(ctx, 32);
-    ctx.lines.push(
-      `    ${ir.emit(ir.call("$lh_k12", addrIr(input), ir.op("i32.wrap_i64", inputSize), digest))}`,
+  if (expression.callee.kind === "identifier" && expression.callee.name === "KangarooTwelve") {
+    const input = expression.callArguments[0] ? (emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)") : "(i32.const 0)";
+    const inputSize = expression.callArguments[1] ? lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0);
+    const digest = allocateScratchSlotNode(context, 32);
+    context.lines.push(
+      `    ${watIr.serializeWatNode(watIr.functionCall("$lh_k12", addrIr(input), watIr.operation("i32.wrap_i64", inputSize), digest))}`,
     );
 
-    let output: Expression | undefined = expr.args[2];
-    while (output?.kind === "paren" || (output?.kind === "unary_op" && output.op === "&")) {
-      output = output.kind === "paren" ? output.expr : output.arg;
+    let output: Expression | undefined = expression.callArguments[2];
+    while (output?.kind === "paren" || (output?.kind === "unary_op" && output.operator === "&")) {
+      output = output.kind === "paren" ? output.expression : output.argument;
     }
-    if (output?.kind === "identifier" && ctx.localVars.get(output.name)?.wasmType === "i64") {
-      ctx.lines.push(`    ${setLocal(ctx, output.name, ir.loadRaw("i64.load", null, digest))}`);
+    if (output?.kind === "identifier" && context.localVars.get(output.name)?.wasmType === "i64") {
+      context.lines.push(`    ${setLocal(context, output.name, watIr.rawLoad("i64.load", null, digest))}`);
     } else {
-      const outAddr = expr.args[2] ? emitAddr(ctx, expr.args[2]) : null;
+      const outAddr = expression.callArguments[2] ? emitAddress(context, expression.callArguments[2]) : null;
       if (!outAddr) throw new Error("KangarooTwelve output is not addressable");
-      const outputSize = expr.args[3] ? emitValueIr(ctx, expr.args[3]) : ir.i64c(32);
-      ctx.lines.push(
-        `    ${ir.emit(ir.call("$copyMem", addrIr(outAddr), digest, ir.op("i32.wrap_i64", outputSize)))}`,
+      const outputSize = expression.callArguments[3] ? lowerValueExpression(context, expression.callArguments[3]) : watIr.i64Constant(32);
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(outAddr), digest, watIr.operation("i32.wrap_i64", outputSize)))}`,
       );
     }
     return;
   }
 
-  if (expr.callee.kind === "identifier" && expr.callee.name.startsWith("__qinit_log_")) {
+  if (expression.callee.kind === "identifier" && expression.callee.name.startsWith("__qinit_log_")) {
     const levels: Record<string, number> = {
       __qinit_log_error: 4,
       __qinit_log_warning: 5,
       __qinit_log_info: 6,
       __qinit_log_debug: 7,
     };
-    const level = levels[expr.callee.name];
+    const level = levels[expression.callee.name];
     if (level !== undefined) {
-      const payload = expr.args[0] ? resolveAddr(ctx, expr.args[0]) : null;
-      if (!payload) throw new Error(`${expr.callee.name} payload must be an addressable aggregate`);
-      if (!payload.layout) throw new Error(`${expr.callee.name} payload must be a struct`);
+      const payload = expression.callArguments[0] ? resolveExpressionAddress(context, expression.callArguments[0]) : null;
+      if (!payload) throw new Error(`${expression.callee.name} payload must be an addressable aggregate`);
+      if (!payload.layout) throw new Error(`${expression.callee.name} payload must be a struct`);
       const terminator = payload.layout.fields.get("_terminator");
       if (!terminator)
-        throw new Error(`${expr.callee.name} payload struct must contain _terminator`);
+        throw new Error(`${expression.callee.name} payload struct must contain _terminator`);
       if (terminator.offset < 8)
-        throw new Error(`${expr.callee.name} payload _terminator offset must be at least 8 bytes`);
+        throw new Error(`${expression.callee.name} payload _terminator offset must be at least 8 bytes`);
       const address = addrIr(payload.addr);
-      ctx.lines.push(
-        `    ${ir.emit(ir.call("$qpi_logBytes", ir.i32c(ctx.cg.slot), ir.i32c(level), address, ir.i32c(terminator.offset)))}`,
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.functionCall("$qpi_logBytes", watIr.i32Constant(context.codeGenerationContext.slot), watIr.i32Constant(level), address, watIr.i32Constant(terminator.offset)))}`,
       );
       // Native qpi.h restores the host-stamped contract index so logging cannot alter contract state.
-      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store", null, address, ir.i32c(0)))}`);
+      context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, address, watIr.i32Constant(0)))}`);
       return;
     }
-    if (expr.callee.name === "__qinit_log_pause") {
-      ctx.lines.push("    (call $lh_pauseLog)");
+    if (expression.callee.name === "__qinit_log_pause") {
+      context.lines.push("    (call $lh_pauseLog)");
       return;
     }
-    if (expr.callee.name === "__qinit_log_resume") {
-      ctx.lines.push("    (call $lh_resumeLog)");
+    if (expression.callee.name === "__qinit_log_resume") {
+      context.lines.push("    (call $lh_resumeLog)");
       return;
     }
-    throw new Error(`unknown logging intrinsic '${expr.callee.name}'`);
+    throw new Error(`unknown logging intrinsic '${expression.callee.name}'`);
   }
 
   // ASSERT is ((void)0) in release builds (platform/assert.h) — the argument is not even evaluated, so dropping the statement
-  if (expr.callee.kind === "identifier" && expr.callee.name === "ASSERT") return;
+  if (expression.callee.kind === "identifier" && expression.callee.name === "ASSERT") return;
 
   const primitive =
-    expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name"
-      ? platformPrimitive(expr.callee.name)
+    expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name"
+      ? platformPrimitive(expression.callee.name)
       : undefined;
   if (primitive?.kind === "memory-store") {
-    const destination = emitAddr(ctx, expr.args[0]);
-    const source = emitAddr(ctx, expr.args[1]);
+    const destination = emitAddress(context, expression.callArguments[0]);
+    const source = emitAddress(context, expression.callArguments[1]);
     if (!destination || !source) throw new Error(`${primitive.name} operands must be addressable`);
-    ctx.lines.push(
-      `    ${ir.emit(ir.call("$copyMem", addrIr(destination), addrIr(source), ir.i32c(32)))}`,
+    context.lines.push(
+      `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(destination), addrIr(source), watIr.i32Constant(32)))}`,
     );
     return;
   }
 
   if (primitive?.kind === "chain-rdrand") {
-    ctx.lines.push(`    ${ir.emit(ir.op("drop", emitCallValueIr(ctx, expr)))}`);
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.operation("drop", emitCallValueIr(context, expression)))}`);
     return;
   }
 
-  if (expr.callee.kind === "member_access" && emitInlineStructStatement(ctx, expr)) return;
+  if (expression.callee.kind === "member_access" && emitInlineStructStatement(context, expression)) return;
 
   // ProposalVoting proxy `qpi(state.proposals).method(...)` as a statement (e.g. getProposal/vote write
-  if (ctx.proxyClass && emitProxySiblingCall(ctx, expr, false) !== null) return;
-  const proxyMethod = qpiWrapperMethod(expr);
+  if (context.proxyClass && emitProxySiblingCall(context, expression, false) !== null) return;
+  const proxyMethod = qpiWrapperMethod(expression);
   if (proxyMethod) {
-    if (emitProposalProxyCall(ctx, expr, false) === null) {
+    if (emitProposalProxyCall(context, expression, false) === null) {
       throw new Error(`authoritative proposal method '${proxyMethod}' could not be lowered`);
     }
     return;
   }
 
   // AssetOwnership/PossessionIterator.begin()/next() — statement forms.
-  if (emitAssetIter(ctx, expr, "stmt") !== null) return;
+  if (emitAssetIter(context, expression, "stmt") !== null) return;
 
   // CALL(fn, in, out) → __qpi_call_self(fn, in, out): invoke a PRIVATE_ function of this contract, passing the caller's in/out
-  if (expr.callee.kind === "identifier" && expr.callee.name === "__qpi_call_self") {
-    const fnArg = expr.args[0];
+  if (expression.callee.kind === "identifier" && expression.callee.name === "__qpi_call_self") {
+    const fnArg = expression.callArguments[0];
     const info =
       fnArg?.kind === "identifier"
-        ? (ctx.cg.privates.get(fnArg.name) ?? ctx.cg.registered.get(fnArg.name))
+        ? (context.codeGenerationContext.privates.get(fnArg.name) ?? context.codeGenerationContext.registered.get(fnArg.name))
         : undefined;
     if (info) {
-      const inAddr = expr.args[1]
-        ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)")
+      const inAddr = expression.callArguments[1]
+        ? (emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)")
         : "(i32.const 0)";
-      const outAddr = expr.args[2]
-        ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)")
+      const outAddr = expression.callArguments[2]
+        ? (emitAddress(context, expression.callArguments[2]) ?? "(i32.const 0)")
         : "(i32.const 0)";
       const locals = `(call $qpiAllocLocals (i32.const ${info.localsSize}))`;
-      ctx.lines.push(
+      context.lines.push(
         `    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${locals})`,
       );
       return;
@@ -581,23 +581,23 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
 
   // Direct PRIVATE_ function call: `priv(qpi, state, in, out, locals)` — QUtil calls its helpers this way (get_voter_balance/get_qubic_balance) instead
   if (
-    expr.callee.kind === "identifier" &&
-    expr.args[0]?.kind === "identifier" &&
-    expr.args[0].name === "qpi"
+    expression.callee.kind === "identifier" &&
+    expression.callArguments[0]?.kind === "identifier" &&
+    expression.callArguments[0].name === "qpi"
   ) {
     // Registered PUBLIC entries are callable the same way (MsVault's isShareHolder(qpi, state, ...)).
-    const info = ctx.cg.privates.get(expr.callee.name) ?? ctx.cg.registered.get(expr.callee.name);
+    const info = context.codeGenerationContext.privates.get(expression.callee.name) ?? context.codeGenerationContext.registered.get(expression.callee.name);
     if (info) {
-      const inAddr = expr.args[2]
-        ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)")
+      const inAddr = expression.callArguments[2]
+        ? (emitAddress(context, expression.callArguments[2]) ?? "(i32.const 0)")
         : "(i32.const 0)";
-      const outAddr = expr.args[3]
-        ? (emitAddr(ctx, expr.args[3]) ?? "(i32.const 0)")
+      const outAddr = expression.callArguments[3]
+        ? (emitAddress(context, expression.callArguments[3]) ?? "(i32.const 0)")
         : "(i32.const 0)";
-      const localsAddr = expr.args[4]
-        ? (emitAddr(ctx, expr.args[4]) ?? `(call $qpiAllocLocals (i32.const ${info.localsSize}))`)
+      const localsAddr = expression.callArguments[4]
+        ? (emitAddress(context, expression.callArguments[4]) ?? `(call $qpiAllocLocals (i32.const ${info.localsSize}))`)
         : `(call $qpiAllocLocals (i32.const ${info.localsSize}))`;
-      ctx.lines.push(
+      context.lines.push(
         `    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${localsAddr})`,
       );
       return;
@@ -606,84 +606,84 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
 
   // CALL_OTHER_CONTRACT_FUNCTION(C,f,in,out) / INVOKE_OTHER_CONTRACT_PROCEDURE(C,p,in,out,reward) → a host-mediated call into the contract at C's index. Needs C's callee IDL (index
   if (
-    expr.callee.kind === "identifier" &&
-    (expr.callee.name === "__qpi_call_other" || expr.callee.name === "__qpi_invoke_other")
+    expression.callee.kind === "identifier" &&
+    (expression.callee.name === "__qpi_call_other" || expression.callee.name === "__qpi_invoke_other")
   ) {
-    const wat = emitInterContract(ctx, expr, expr.callee.name === "__qpi_invoke_other");
+    const wat = emitInterContract(context, expression, expression.callee.name === "__qpi_invoke_other");
     if (wat)
-      ctx.lines.push(
-        `    ${ir.emit(ir.op("drop", ir.raw(wat, "i32", "unconverted: inter-contract call")))}`,
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.operation("drop", watIr.rawWatNode(wat, "i32", "unconverted: inter-contract call")))}`,
       );
     else
-      ctx.cg.warn(
-        `unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`,
-        expr.span.line,
+      context.codeGenerationContext.warn(
+        `unsupported inter-contract call to '${expression.callArguments[0]?.kind === "identifier" ? expression.callArguments[0].name : "?"}' (no callee IDL)`,
+        expression.span.line,
       );
     return;
   }
 
   // QPI memory wrappers: setMemory(dst,val) / copyMemory(dst,src) / copyFromBuffer(dst,src) / copyToBuffer(dst,src,tailZero). Lowered at the call site so the byte
   if (
-    expr.callee.kind === "identifier" &&
-    (expr.callee.name === "setMemory" ||
-      expr.callee.name === "copyMemory" ||
-      expr.callee.name === "copyFromBuffer" ||
-      expr.callee.name === "copyToBuffer")
+    expression.callee.kind === "identifier" &&
+    (expression.callee.name === "setMemory" ||
+      expression.callee.name === "copyMemory" ||
+      expression.callee.name === "copyFromBuffer" ||
+      expression.callee.name === "copyToBuffer")
   ) {
-    const name = expr.callee.name;
-    const dstNode = expr.args[0] ? resolveAddr(ctx, expr.args[0]) : null;
+    const name = expression.callee.name;
+    const dstNode = expression.callArguments[0] ? resolveExpressionAddress(context, expression.callArguments[0]) : null;
     const dst =
       dstNode?.addr ??
-      (expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)");
+      (expression.callArguments[0] ? (emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)") : "(i32.const 0)");
     if (name === "setMemory") {
-      const val = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);
+      const val = expression.callArguments[1] ? lowerValueExpression(context, expression.callArguments[1]) : watIr.i64Constant(0);
       // $setMem is (dst, size, val).
-      ctx.lines.push(
-        `    ${ir.emit(ir.call("$setMem", addrIr(dst), ir.i32c(dstNode?.size ?? 0), ir.op("i32.wrap_i64", val)))}`,
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", addrIr(dst), watIr.i32Constant(dstNode?.size ?? 0), watIr.operation("i32.wrap_i64", val)))}`,
       );
       return;
     }
-    const srcNode = expr.args[1] ? resolveAddr(ctx, expr.args[1]) : null;
+    const srcNode = expression.callArguments[1] ? resolveExpressionAddress(context, expression.callArguments[1]) : null;
     const src =
       srcNode?.addr ??
-      (expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)");
+      (expression.callArguments[1] ? (emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)") : "(i32.const 0)");
     // copyToBuffer copies sizeof(src) (the smaller object into a larger buffer); the others copy sizeof(dst).
     const size = name === "copyToBuffer" ? (srcNode?.size ?? 0) : (dstNode?.size ?? 0);
-    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(dst), addrIr(src), ir.i32c(size)))}`);
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(dst), addrIr(src), watIr.i32Constant(size)))}`);
     return;
   }
 
   // Low-level memory intrinsics copyMem(dst,src,n) / setMem(dst,val,n). Handled here (not only in
   if (
-    expr.callee.kind === "identifier" &&
-    (expr.callee.name === "copyMem" || expr.callee.name === "setMem")
+    expression.callee.kind === "identifier" &&
+    (expression.callee.name === "copyMem" || expression.callee.name === "setMem")
   ) {
-    const dst = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
-    const wrapArg = (e: Expression | undefined) =>
-      ir.op("i32.wrap_i64", e ? emitValueIr(ctx, e) : ir.i64c(0));
-    if (expr.callee.name === "copyMem") {
-      const src = expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)";
-      ctx.lines.push(
-        `    ${ir.emit(ir.call("$copyMem", addrIr(dst), addrIr(src), wrapArg(expr.args[2])))}`,
+    const dst = expression.callArguments[0] ? (emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)") : "(i32.const 0)";
+    const wrapArg = (expression: Expression | undefined) =>
+      watIr.operation("i32.wrap_i64", expression ? lowerValueExpression(context, expression) : watIr.i64Constant(0));
+    if (expression.callee.name === "copyMem") {
+      const src = expression.callArguments[1] ? (emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)") : "(i32.const 0)";
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(dst), addrIr(src), wrapArg(expression.callArguments[2])))}`,
       );
     } else {
-      ctx.lines.push(
-        `    ${ir.emit(ir.call("$setMem", addrIr(dst), wrapArg(expr.args[1]), wrapArg(expr.args[2])))}`,
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", addrIr(dst), wrapArg(expression.callArguments[1]), wrapArg(expression.callArguments[2])))}`,
       );
     }
     return;
   }
 
-  const tc = emitThisCall(ctx, expr, false);
+  const tc = emitThisCall(context, expression, false);
   if (tc !== null) return;
 
-  const h = emitHelperCall(ctx, expr, false);
-  if (h !== null) return;
+  const text = emitHelperCall(context, expression, false);
+  if (text !== null) return;
 
-  const c = emitContainerCall(ctx, expr, false);
-  if (c !== null) return;
+  const textCandidate = emitContainerCall(context, expression, false);
+  if (textCandidate !== null) return;
 
-  emitQpiCall(ctx, expr);
+  emitQpiCall(context, expression);
 
-  ctx.cg.warn(`unsupported call statement [${describeShape(expr)}]`, expr.span.line);
+  context.codeGenerationContext.warn(`unsupported call statement [${describeShape(expression)}]`, expression.span.line);
 }

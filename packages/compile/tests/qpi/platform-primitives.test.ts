@@ -96,7 +96,10 @@ describe("typed platform primitive registry", () => {
   });
 
   test("migrated semantics appear only in the registry", () => {
-    const addr = readFileSync(new URL("../../src/codegen/addr.ts", import.meta.url), "utf8");
+    const addr = readFileSync(
+      new URL("../../src/codegen/address-resolution.ts", import.meta.url),
+      "utf8",
+    );
     const dispatch = readFileSync(
       new URL("../../src/codegen/calls/dispatch.ts", import.meta.url),
       "utf8",

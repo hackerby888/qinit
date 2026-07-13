@@ -16,26 +16,26 @@ export interface ParseAstResult {
   diagnostics: ParserDiagnostic[];
 }
 
-export function parseToAst(opts: {
+export function parseToAst(options: {
   source: string;
   qpiHeader?: string;
   name?: string;
   slot?: number;
 }): ParseAstResult {
-  if (opts.qpiHeader === undefined)
+  if (options.qpiHeader === undefined)
     throw new Error("internal parser requires a QPI header snapshot");
-  const macros = getQpiMacros(opts.qpiHeader);
-  const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(opts.source)}`;
+  const macros = getQpiMacros(options.qpiHeader);
+  const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(options.source)}`;
   const text = new Preprocessor().preprocess({
     source,
     qpiHeader: "",
-    contractName: opts.name ?? "Contract",
-    contractIndex: opts.slot ?? 0,
+    contractName: options.name ?? "Contract",
+    contractIndex: options.slot ?? 0,
     seedMacros: macros,
   });
   const boundaryIndex = text.indexOf(USER_BOUNDARY);
   const boundaryLine = boundaryIndex >= 0 ? text.slice(0, boundaryIndex).split("\n").length : 0;
-  const remap = makeUserDiagnosticRemapper(opts.source, text, boundaryLine);
+  const remap = makeUserDiagnosticRemapper(options.source, text, boundaryLine);
   const parser = new Parser(new Lexer(text).tokenize());
   const unit = parser.parseTranslationUnit();
   const declarations = unit.declarations.filter(
@@ -44,11 +44,11 @@ export function parseToAst(opts: {
       (declaration as { name?: string }).name !== USER_BOUNDARY,
   );
   const diagnostics = [
-    ...scanUnterminatedSource(opts.source),
+    ...scanUnterminatedSource(options.source),
     ...parser
       .getDiagnostics()
       .filter((diagnostic) => diagnostic.span.line > boundaryLine)
       .map(remap),
-  ].sort((a, b) => a.span.start - b.span.start || a.span.end - b.span.end);
+  ].sort((argument, templateBindings) => argument.span.start - templateBindings.span.start || argument.span.end - templateBindings.span.end);
   return { ast: { ...unit, declarations }, diagnostics };
 }

@@ -1,6 +1,6 @@
 // Browser entry for @qinit/compile.
 import type {
-  CompileOpts,
+  CompileOptions,
   CompileResult,
   ContractIdl,
   CalleeIdl,
@@ -13,7 +13,7 @@ import {
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "./generated/qpi-snapshot";
 
 export type {
-  CompileOpts,
+  CompileOptions,
   CompileResult,
   ContractIdl,
   CalleeIdl,
@@ -49,14 +49,14 @@ export const compilerInfo: CompilerInfo = {
 
 export const qpiSnapshot: string = QPI_SNAPSHOT;
 
-export type BrowserCompileOpts = Omit<CompileOpts, "qpiHeader"> & { qpiHeader?: string };
+export type BrowserCompileOptions = Omit<CompileOptions, "qpiHeader"> & { qpiHeader?: string };
 
-export async function compileContract(opts: BrowserCompileOpts): Promise<CompileResult> {
-  return compileWithHeader({ ...opts, qpiHeader: opts.qpiHeader ?? QPI_SNAPSHOT });
+export async function compileContract(options: BrowserCompileOptions): Promise<CompileResult> {
+  return compileWithHeader({ ...options, qpiHeader: options.qpiHeader ?? QPI_SNAPSHOT });
 }
 
 export async function compileGtest(
-  opts: BrowserCompileOpts & { testSource: string },
+  options: BrowserCompileOptions & { testSource: string },
 ): Promise<GtestCompileResult> {
-  return compileGtestWithHeader({ ...opts, qpiHeader: opts.qpiHeader ?? QPI_SNAPSHOT });
+  return compileGtestWithHeader({ ...options, qpiHeader: options.qpiHeader ?? QPI_SNAPSHOT });
 }

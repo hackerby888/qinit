@@ -29,43 +29,43 @@ export class Sema {
   // ---- Constexpr evaluation ----
 
   // Folds expressions built from literals only; anything needing a symbol table (identifiers, sizeof) yields null — codegen resolves
-  evaluateConstexpr(expr: Expression): bigint | null {
+  evaluateConstexpr(expression: Expression): bigint | null {
     try {
-      return this.evalExpr(expr);
+      return this.evalExpr(expression);
     } catch {
       return null;
     }
   }
 
-  private evalExpr(expr: Expression): bigint {
-    switch (expr.kind) {
+  private evalExpr(expression: Expression): bigint {
+    switch (expression.kind) {
       case "int_literal":
-        return parseIntLiteral(expr.value);
+        return parseIntLiteral(expression.value);
       case "bool_literal":
-        return BigInt(expr.value ? 1 : 0);
+        return BigInt(expression.value ? 1 : 0);
       case "char_literal":
-        return BigInt(expr.value);
+        return BigInt(expression.value);
       case "paren":
-        return this.evalExpr(expr.expr);
+        return this.evalExpr(expression.expression);
       case "unary_op": {
-        const ue = expr as { kind: "unary_op"; op: string; arg: Expression; span: Span };
-        const arg = this.evalExpr(ue.arg);
-        switch (ue.op) {
+        const ue = expression as { kind: "unary_op"; operator: string; argument: Expression; span: Span };
+        const argument = this.evalExpr(ue.argument);
+        switch (ue.operator) {
           case "!":
-            return arg === 0n ? 1n : 0n;
+            return argument === 0n ? 1n : 0n;
           case "~":
-            return ~arg;
+            return ~argument;
           case "-":
-            return -arg;
+            return -argument;
           case "+":
-            return arg;
+            return argument;
         }
-        throw new Error(`unknown unary op: ${expr.op}`);
+        throw new Error(`unknown unary op: ${expression.operator}`);
       }
       case "binary_op": {
-        const left = this.evalExpr(expr.left);
-        const right = this.evalExpr(expr.right);
-        switch (expr.op) {
+        const left = this.evalExpr(expression.left);
+        const right = this.evalExpr(expression.right);
+        switch (expression.operator) {
           case "+":
             return left + right;
           case "-":
@@ -103,45 +103,45 @@ export class Sema {
           case "||":
             return left !== 0n || right !== 0n ? 1n : 0n;
           default:
-            throw new Error(`unknown binary op: ${expr.op}`);
+            throw new Error(`unknown binary op: ${expression.operator}`);
         }
       }
       case "ternary":
-        return this.evalExpr(expr.cond) !== 0n
-          ? this.evalExpr(expr.then)
-          : this.evalExpr(expr.else_);
+        return this.evalExpr(expression.condition) !== 0n
+          ? this.evalExpr(expression.then)
+          : this.evalExpr(expression.else_);
       case "c_cast":
       case "static_cast":
-        return this.evalExpr(expr.expr);
+        return this.evalExpr(expression.expression);
       case "call":
       case "template_call": {
         // QPI safe-math helpers used in constexpr contexts, e.g. div<uint32>(REGISTER_AMOUNT, 20).
-        const c = expr.callee;
+        const callee = expression.callee;
         const fn =
-          c.kind === "identifier"
-            ? c.name
-            : c.kind === "qualified_name"
-              ? (c as { name: string }).name
+          callee.kind === "identifier"
+            ? callee.name
+            : callee.kind === "qualified_name"
+              ? (callee as { name: string }).name
               : null;
         if (fn) {
-          const a = expr.args.map((x) => this.evalExpr(x));
+          const numericValue = expression.callArguments.map((argument) => this.evalExpr(argument));
           switch (fn) {
             case "div":
-              return a[1] === 0n ? 0n : a[0] / a[1];
+              return numericValue[1] === 0n ? 0n : numericValue[0] / numericValue[1];
             case "mod":
-              return a[1] === 0n ? 0n : a[0] % a[1];
+              return numericValue[1] === 0n ? 0n : numericValue[0] % numericValue[1];
             case "min":
-              return a[0] <= a[1] ? a[0] : a[1];
+              return numericValue[0] <= numericValue[1] ? numericValue[0] : numericValue[1];
             case "max":
-              return a[0] >= a[1] ? a[0] : a[1];
+              return numericValue[0] >= numericValue[1] ? numericValue[0] : numericValue[1];
             case "abs":
-              return a[0] < 0n ? -a[0] : a[0];
+              return numericValue[0] < 0n ? -numericValue[0] : numericValue[0];
           }
         }
         throw new Error(`constexpr eval not supported for call to ${fn ?? "?"}`);
       }
       default:
-        throw new Error(`constexpr eval not supported for ${expr.kind}`);
+        throw new Error(`constexpr eval not supported for ${expression.kind}`);
     }
   }
 }

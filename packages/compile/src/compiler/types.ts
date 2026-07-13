@@ -8,7 +8,7 @@ export interface CalleeIdl {
   procedures: Record<string, { inputType: number; inSize: number; outSize: number }>;
 }
 
-export interface CompileOpts {
+export interface CompileOptions {
   source: string;
   name: string;
   slot: number;

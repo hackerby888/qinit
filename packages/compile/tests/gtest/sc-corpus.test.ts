@@ -478,14 +478,14 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
       console.log(`  [${spec.name}] runner:${runner}  native:${native.score}  ours:${ours.score}`);
     }
 
-    const col = (s: string, w: number) => s.padEnd(w);
-    const header = `${col("CONTRACT", 16)} ${col("RUNNER", 8)} ${col("NATIVE", 10)} ${col("OURS", 10)}`;
+    const column = (s: string, w: number) => s.padEnd(w);
+    const header = `${column("CONTRACT", 16)} ${column("RUNNER", 8)} ${column("NATIVE", 10)} ${column("OURS", 10)}`;
     const sep = "-".repeat(header.length);
 
     const tableLines = [sep, header, sep];
     for (const row of rows) {
       tableLines.push(
-        `${col(row.name, 16)} ${col(row.runner, 8)} ${col(row.native, 10)} ${col(row.ours, 10)}`,
+        `${column(row.name, 16)} ${column(row.runner, 8)} ${column(row.native, 10)} ${column(row.ours, 10)}`,
       );
     }
     tableLines.push(sep);

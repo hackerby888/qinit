@@ -8,7 +8,7 @@ export function sourceWithoutLeadingBom(source: string): string {
 
 function lineStarts(source: string): number[] {
   const starts = [0];
-  for (let i = 0; i < source.length; i++) if (source.charCodeAt(i) === 10) starts.push(i + 1);
+  for (let sourceItemIndex = 0; sourceItemIndex < source.length; sourceItemIndex++) if (source.charCodeAt(sourceItemIndex) === 10) starts.push(sourceItemIndex + 1);
   return starts;
 }
 
@@ -68,17 +68,17 @@ export function makeUserDiagnosticRemapper(
   const originalStarts = lineStarts(originalSource);
   const generatedStarts = lineStarts(generatedSource);
 
-  const mapOffset = (generatedOffset: number): { offset: number; line: number; col: number } => {
+  const mapOffset = (generatedOffset: number): { offset: number; line: number; column: number } => {
     const safeGeneratedOffset = Math.max(0, Math.min(generatedOffset, generatedSource.length));
     const generatedLineIndex = lineIndexAt(generatedStarts, safeGeneratedOffset);
     const userLineIndex = generatedLineIndex - boundaryLine;
-    if (userLineIndex < 0) return { offset: 0, line: 1, col: 1 };
+    if (userLineIndex < 0) return { offset: 0, line: 1, column: 1 };
     if (userLineIndex >= originalStarts.length) {
       const lastLine = originalStarts.length - 1;
       return {
         offset: originalSource.length,
         line: lastLine + 1,
-        col: originalSource.length - originalStarts[lastLine] + 1,
+        column: originalSource.length - originalStarts[lastLine] + 1,
       };
     }
 
@@ -89,7 +89,7 @@ export function makeUserDiagnosticRemapper(
     return {
       offset: Math.min(originalSource.length, originalStarts[userLineIndex] + originalColumn),
       line: userLineIndex + 1,
-      col: originalColumn + 1,
+      column: originalColumn + 1,
     };
   };
 
@@ -101,7 +101,7 @@ export function makeUserDiagnosticRemapper(
       Math.min(diagnostic.span.line - 1, generatedStarts.length - 1),
     );
     const lineOnlyOffset =
-      generatedStarts[generatedLineIndex] + Math.max(0, diagnostic.span.col - 1);
+      generatedStarts[generatedLineIndex] + Math.max(0, diagnostic.span.column - 1);
     const start = mapOffset(hasOffsets ? diagnostic.span.start : lineOnlyOffset);
     const end = mapOffset(hasOffsets ? diagnostic.span.end : lineOnlyOffset);
     return {
@@ -110,7 +110,7 @@ export function makeUserDiagnosticRemapper(
         start: start.offset,
         end: Math.max(start.offset, end.offset),
         line: start.line,
-        col: start.col,
+        column: start.column,
       },
     };
   };
@@ -138,14 +138,14 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
         start: safeStart,
         end: safeEnd,
         line: lineIndex + 1,
-        col: safeStart - starts[lineIndex] + 1,
+        column: safeStart - starts[lineIndex] + 1,
       },
     });
   };
 
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i];
-    const next = source[i + 1];
+  for (let sourceItemIndex = 0; sourceItemIndex < source.length; sourceItemIndex++) {
+    const ch = source[sourceItemIndex];
+    const next = source[sourceItemIndex + 1];
     if (state === "line_comment") {
       if (ch === "\n") {
         state = "normal";
@@ -156,7 +156,7 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
     if (state === "block_comment") {
       if (ch === "*" && next === "/") {
         state = "normal";
-        i++;
+        sourceItemIndex++;
       } else if (ch === "\n") lineHasOnlyWhitespace = true;
       continue;
     }
@@ -178,13 +178,13 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
     if (ch === " " || ch === "\t" || ch === "\r" || ch === "\f" || ch === "\v") continue;
     if (ch === "/" && next === "/") {
       state = "line_comment";
-      i++;
+      sourceItemIndex++;
       continue;
     }
     if (ch === "/" && next === "*") {
       state = "block_comment";
-      blockCommentStart = i;
-      i++;
+      blockCommentStart = sourceItemIndex;
+      sourceItemIndex++;
       continue;
     }
     if (ch === '"') {
@@ -200,11 +200,11 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
       continue;
     }
     if (ch === "#" && lineHasOnlyWhitespace) {
-      const lineEnd = source.indexOf("\n", i);
+      const lineEnd = source.indexOf("\n", sourceItemIndex);
       const match = /^#[ \t]*([A-Za-z_][A-Za-z0-9_]*)/.exec(
-        source.slice(i, lineEnd < 0 ? source.length : lineEnd),
+        source.slice(sourceItemIndex, lineEnd < 0 ? source.length : lineEnd),
       );
-      if (match) directives.push({ name: match[1], start: i, end: i + match[0].length });
+      if (match) directives.push({ name: match[1], start: sourceItemIndex, end: sourceItemIndex + match[0].length });
     }
     lineHasOnlyWhitespace = false;
   }
@@ -231,5 +231,5 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
   }
   for (const directive of conditionalStack)
     addDiagnostic(`unterminated #${directive.name} directive`, directive.start, directive.end);
-  return diagnostics.sort((a, b) => a.span.start - b.span.start || a.span.end - b.span.end);
+  return diagnostics.sort((diagnostic, diagnosticIndex) => diagnostic.span.start - diagnosticIndex.span.start || diagnostic.span.end - diagnosticIndex.span.end);
 }

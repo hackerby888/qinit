@@ -1,7 +1,7 @@
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
 import { emitLhostImports, type LhostAbiSpec } from "./lhost";
 import type { PlatformCapability } from "./codegen/platform-primitives";
-import { resetLhostCallSigs } from "./ir";
+import { resetLhostCallSigs } from "./wat-ir";
 
 // WAT assembler for a complete contract module.
 export const IN_SZ = 64 * 1024;
@@ -25,7 +25,7 @@ export interface UserEntry {
   label: string; // WAT function name, e.g. "$user_0"
 }
 
-export interface SysProcInfo {
+export interface SystemProcedureInfo {
   id: number; // LITE_SP_* id (0..11)
   localsSize: number;
   inSize: number;
@@ -33,12 +33,12 @@ export interface SysProcInfo {
   label: string; // WAT function name, e.g. "$sys_0"
 }
 
-export interface ModuleSpec {
+export interface ModuleSpecification {
   stateSize: number;
   arenaSize: number;
   contextLayout: QpiContextLayout;
   entries: UserEntry[];
-  sysprocs: SysProcInfo[];
+  sysprocs: SystemProcedureInfo[];
   userFunctionsWat: string; // the $user_N / $sys_N function definitions
   migrate?: { label: string; oldStateSize: number; localsSize: number }; // MIGRATE() metadata + dispatch target
   memBase?: number; // shared-memory gtest mode: import env.memory and place the whole layout at
@@ -50,7 +50,7 @@ export interface ModuleSpec {
 }
 
 // Back-compat shape used by older callers / tests.
-export interface FrameworkOpts {
+export interface FrameworkOptions {
   stateSize: number;
   arenaSize: number;
   userEntryCount: number;
@@ -80,7 +80,7 @@ function computeLayout(
   memBase = 0,
   assetRecord: { readonly size: number; readonly capacity: number } = ASSET_ENUMERATION_RECORD,
 ): Layout {
-  const align = (n: number, a: number) => Math.ceil(n / a) * a;
+  const align = (count: number, argument: number) => Math.ceil(count / argument) * argument;
   const stateBase = memBase;
   const ctxBase = align(stateBase + Math.max(stateSize, 8), 16);
   const ioBase = align(ctxBase + contextSize, 16);
@@ -112,36 +112,36 @@ function computeLayout(
 
 // ---- The complete module assembler ----
 
-export function emitModule(spec: ModuleSpec): string {
+export function emitModule(spec: ModuleSpecification): string {
   // Live-core signatures are needed while lowering user/wrapper bodies. Module assembly is the
   // terminal phase, so restore the generated baseline and avoid leaking a mutated checkout into later compilations.
   resetLhostCallSigs();
   const usesPrng = spec.capabilities?.includes("chain-prng") ?? false;
   // WAMR's app-to-native adapter treats linear-memory offset 0 as nullptr.
   // Random-capable modules pass resident state to lhost.k12 when seeding for deterministic behavior.
-  const L = computeLayout(
+  const capacity = computeLayout(
     spec.stateSize,
     spec.arenaSize,
     spec.contextLayout.size,
     spec.memBase ?? (usesPrng ? 8 : 0),
     spec.assetEnumerationRecord,
   );
-  const sysprocMask = spec.sysprocs.reduce((m, sp) => m | (1 << sp.id), 0);
+  const sysprocMask = spec.sysprocs.reduce((sysproc, sp) => sysproc | (1 << sp.id), 0);
 
   return [
     "(module",
     "  ;; ---- qinit-compile generated module ----",
     emitImports(spec.gtest, spec.lhostAbi),
     spec.memBase !== undefined
-      ? `  (import "env" "memory" (memory ${L.pages}))`
-      : `  (memory (export "memory") ${L.pages} ${L.pages})`,
-    emitGlobals(L),
+      ? `  (import "env" "memory" (memory ${capacity.pages}))`
+      : `  (memory (export "memory") ${capacity.pages} ${capacity.pages})`,
+    emitGlobals(capacity),
     emitExportList(),
     emitMemOps(),
-    emitAllocators(L),
+    emitAllocators(capacity),
     emitForwarders(spec.contextLayout),
-    emitIntrinsics(L, spec),
-    emitMetadata(L, spec, sysprocMask),
+    emitIntrinsics(capacity, spec),
+    emitMetadata(capacity, spec, sysprocMask),
     spec.userFunctionsWat,
     emitDispatch(spec, usesPrng),
     emitInitialize(),
@@ -150,11 +150,11 @@ export function emitModule(spec: ModuleSpec): string {
 }
 
 // Back-compat wrapper (string-only, no user functions) used by the spike test.
-export function emitFramework(opts: FrameworkOpts): string {
+export function emitFramework(options: FrameworkOptions): string {
   return emitModule({
-    stateSize: opts.stateSize,
-    arenaSize: opts.arenaSize,
-    contextLayout: opts.contextLayout,
+    stateSize: options.stateSize,
+    arenaSize: options.arenaSize,
+    contextLayout: options.contextLayout,
     entries: [],
     sysprocs: [],
     userFunctionsWat: "  ;; ---- USER CODE (spliced by codegen.ts) ----",
@@ -181,14 +181,14 @@ ${
 }`;
 }
 
-function emitGlobals(L: Layout): string {
+function emitGlobals(capacity: Layout): string {
   return `  ;; ---- globals ----
-  (global $stateBase i32 (i32.const ${L.stateBase}))
-  (global $ctxBase i32 (i32.const ${L.ctxBase}))
-  (global $ioBase i32 (i32.const ${L.ioBase}))
-  (global $arenaBase i32 (i32.const ${L.arenaBase}))
-  (global $arenaTop (export "arena_top") (mut i32) (i32.const ${L.arenaBase}))
-  (global $assetIterBase i32 (i32.const ${L.iterBufBase}))
+  (global $stateBase i32 (i32.const ${capacity.stateBase}))
+  (global $ctxBase i32 (i32.const ${capacity.ctxBase}))
+  (global $ioBase i32 (i32.const ${capacity.ioBase}))
+  (global $arenaBase i32 (i32.const ${capacity.arenaBase}))
+  (global $arenaTop (export "arena_top") (mut i32) (i32.const ${capacity.arenaBase}))
+  (global $assetIterBase i32 (i32.const ${capacity.iterBufBase}))
   (global $prngSeed0 (mut i64) (i64.const 0))
   (global $prngSeed1 (mut i64) (i64.const 0))
   (global $prngSeed2 (mut i64) (i64.const 0))
@@ -266,7 +266,7 @@ function emitMemOps(): string {
     (i32.const 0))`;
 }
 
-function emitAllocators(L: Layout): string {
+function emitAllocators(capacity: Layout): string {
   // Arena bump allocator. Locals + scratchpad both bump the arena; dispatch resets it per call.
   return `  ;; ---- allocators (arena bump; reset each dispatch) ----
   ;; Zeroed like native contract_exec.h's __qpiAllocLocals (setMem after allocate): a nested CALL()'s locals
@@ -282,12 +282,12 @@ function emitAllocators(L: Layout): string {
   (func $qpiFreeLocals nop)
 
   (func $acquireScratchpad (param $size i64) (param $initZero i32) (result i32)
-    (local $off i32) (local $sz i32)
-    (local.set $off (global.get $arenaTop))
-    (local.set $sz (i32.wrap_i64 (local.get $size)))
-    (global.set $arenaTop (i32.and (i32.add (i32.add (local.get $off) (local.get $sz)) (i32.const 7)) (i32.const -8)))
-    (if (local.get $initZero) (then (call $setMem (local.get $off) (local.get $sz) (i32.const 0))))
-    (local.get $off))
+    (local $offset i32) (local $byteSize i32)
+    (local.set $offset (global.get $arenaTop))
+    (local.set $byteSize (i32.wrap_i64 (local.get $size)))
+    (global.set $arenaTop (i32.and (i32.add (i32.add (local.get $offset) (local.get $byteSize)) (i32.const 7)) (i32.const -8)))
+    (if (local.get $initZero) (then (call $setMem (local.get $offset) (local.get $byteSize) (i32.const 0))))
+    (local.get $offset))
 
   ;; Scoped release (RAII in qpi.h, so releases nest strictly LIFO): pop the bump back to the released
   ;; block. Enclosing locals frames were allocated below the scratch, so the pop never frees live memory;
@@ -306,14 +306,14 @@ function emitForwarders(contextLayout: QpiContextLayout): string {
   (func $qpi_prevComputerDigest (param $o i32) (call $lh_prevComputerDigest (local.get $o)))
   (func $qpi_abort (param $c i32) (call $lh_abort (local.get $c)))
   (func $qpi_markDirty (param $c i32) (call $lh_markDirty (local.get $c)))
-  (func $qpi_logBytes (param $ci i32) (param $lv i32) (param $m i32) (param $sz i32) (call $lh_logBytes (local.get $ci) (local.get $lv) (local.get $m) (local.get $sz)))
+  (func $qpi_logBytes (param $contractIndex i32) (param $logLevel i32) (param $message i32) (param $byteSize i32) (call $lh_logBytes (local.get $contractIndex) (local.get $logLevel) (local.get $message) (local.get $byteSize)))
   (func $liteCallFunction (param $c i32) (param $it i32) (param $i i32) (param $is i32) (param $o i32) (param $os i32) (result i32) (call $lh_liteCallFunction (local.get $c) (local.get $it) (local.get $i) (local.get $is) (local.get $o) (local.get $os)))
   (func $liteInvokeProcedure (param $c i32) (param $it i32) (param $i i32) (param $is i32) (param $o i32) (param $os i32) (param $r i64) (result i32) (call $lh_liteInvokeProcedure (local.get $c) (local.get $it) (local.get $i) (local.get $is) (local.get $o) (local.get $os) (local.get $r)))
   ;; Internal context index accessor. User-visible context accessors compile from qpi.h.
   (func $qpi_contractIndex (result i32) (i32.load (i32.add (global.get $ctxBase) (i32.const ${contextLayout.contractIndex}))))`;
 }
 
-function emitIntrinsics(L: Layout, spec: ModuleSpec): string {
+function emitIntrinsics(capacity: Layout, spec: ModuleSpecification): string {
   const inputSizeCases: string[] = [];
   for (const entry of spec.entries) {
     inputSizeCases.push(
@@ -353,8 +353,8 @@ ${inputSizeCases.join("\n")}
     (call $copyMem (i32.add (local.get $transcript) (i32.const 80)) (i32.add (global.get $ctxBase) (i32.const ${spec.contextLayout.originator})) (i32.const 32))
     (i64.store (i32.add (local.get $transcript) (i32.const 112)) (i64.load (i32.add (global.get $ctxBase) (i32.const ${spec.contextLayout.invocationReward}))))
     (i32.store (i32.add (local.get $transcript) (i32.const 120)) (local.get $inputSize))
-    (i32.store (i32.add (local.get $transcript) (i32.const 124)) (i32.const ${L.stateSize}))
-    (call $lh_k12 (global.get $stateBase) (i32.const ${L.stateSize}) (i32.add (local.get $transcript) (i32.const 128)))
+    (i32.store (i32.add (local.get $transcript) (i32.const 124)) (i32.const ${capacity.stateSize}))
+    (call $lh_k12 (global.get $stateBase) (i32.const ${capacity.stateSize}) (i32.add (local.get $transcript) (i32.const 128)))
     (call $copyMem (i32.add (local.get $transcript) (i32.const 160)) (local.get $inOff) (local.get $inputSize))
     (local.set $digest (i32.add (i32.add (local.get $transcript) (i32.const 160)) (local.get $inputSize)))
     (call $lh_k12 (local.get $transcript) (i32.add (i32.const 160) (local.get $inputSize)) (local.get $digest))
@@ -418,26 +418,26 @@ ${inputSizeCases.join("\n")}
 `;
 }
 
-function emitMetadata(L: Layout, spec: ModuleSpec, sysprocMask: number): string {
+function emitMetadata(capacity: Layout, spec: ModuleSpecification, sysprocMask: number): string {
   const lines: string[] = [];
   lines.push("  ;; ---- metadata exports ----");
-  lines.push(`  (func $state_addr (result i32) (i32.const ${L.stateBase}))`);
-  lines.push(`  (func $state_size (result i32) (i32.const ${L.stateSize}))`);
-  lines.push(`  (func $io_base (result i32) (i32.const ${L.ioBase}))`);
-  lines.push(`  (func $io_size (result i32) (i32.const ${L.ioSize}))`);
-  lines.push(`  (func $ctx_addr (result i32) (i32.const ${L.ctxBase}))`);
+  lines.push(`  (func $state_addr (result i32) (i32.const ${capacity.stateBase}))`);
+  lines.push(`  (func $state_size (result i32) (i32.const ${capacity.stateSize}))`);
+  lines.push(`  (func $io_base (result i32) (i32.const ${capacity.ioBase}))`);
+  lines.push(`  (func $io_size (result i32) (i32.const ${capacity.ioSize}))`);
+  lines.push(`  (func $ctx_addr (result i32) (i32.const ${capacity.ctxBase}))`);
   lines.push(`  (func $reg_count (result i32) (i32.const ${spec.entries.length}))`);
 
   // reg_info(index, outPtr) — writes { inputType:u32, kind:u32, inSize:u32, outSize:u32 }
   lines.push(`  (func $reg_info (param $i i32) (param $o i32)`);
-  for (let i = 0; i < spec.entries.length; i++) {
-    const e = spec.entries[i];
-    lines.push(`    (if (i32.eq (local.get $i) (i32.const ${i})) (then`);
-    lines.push(`      (i32.store (local.get $o) (i32.const ${e.inputType}))`);
-    lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 4)) (i32.const ${e.kind}))`);
-    lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 8)) (i32.const ${e.inSize}))`);
+  for (let entryIndex = 0; entryIndex < spec.entries.length; entryIndex++) {
+    const entry = spec.entries[entryIndex];
+    lines.push(`    (if (i32.eq (local.get $i) (i32.const ${entryIndex})) (then`);
+    lines.push(`      (i32.store (local.get $o) (i32.const ${entry.inputType}))`);
+    lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 4)) (i32.const ${entry.kind}))`);
+    lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 8)) (i32.const ${entry.inSize}))`);
     lines.push(
-      `      (i32.store (i32.add (local.get $o) (i32.const 12)) (i32.const ${e.outSize}))`,
+      `      (i32.store (i32.add (local.get $o) (i32.const 12)) (i32.const ${entry.outSize}))`,
     );
     lines.push(`      (return)))`);
   }
@@ -471,7 +471,7 @@ function emitMetadata(L: Layout, spec: ModuleSpec, sysprocMask: number): string 
   return lines.join("\n");
 }
 
-function emitSysSwitch(sysprocs: SysProcInfo[], val: (sp: SysProcInfo) => number): string {
+function emitSysSwitch(sysprocs: SystemProcedureInfo[], val: (sp: SystemProcedureInfo) => number): string {
   const lines: string[] = [];
   for (const sp of sysprocs) {
     lines.push(
@@ -481,7 +481,7 @@ function emitSysSwitch(sysprocs: SysProcInfo[], val: (sp: SysProcInfo) => number
   return lines.join("\n");
 }
 
-function emitDispatch(spec: ModuleSpec, usesPrng: boolean): string {
+function emitDispatch(spec: ModuleSpecification, usesPrng: boolean): string {
   const lines: string[] = [];
   lines.push("  ;; ---- dispatch ----");
   lines.push(
@@ -556,12 +556,12 @@ function emitDispatch(spec: ModuleSpec, usesPrng: boolean): string {
   }
 
   // kind 0/1: user functions/procedures. The incoming it is masked to 16 bits like the native dispatch
-  for (const e of spec.entries) {
+  for (const entry of spec.entries) {
     lines.push(
-      `    (if (i32.and (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${e.inputType})) (i32.eq (local.get $kind) (i32.const ${e.kind}))) (then`,
+      `    (if (i32.and (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${entry.inputType})) (i32.eq (local.get $kind) (i32.const ${entry.kind}))) (then`,
     );
     lines.push(
-      `      (call ${e.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`,
+      `      (call ${entry.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`,
     );
     lines.push(`      (return)))`);
   }

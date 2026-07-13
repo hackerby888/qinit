@@ -1,7 +1,7 @@
-import { emitFunction, emitHelperFunction } from "./stmt";
+import { emitFunction, emitHelperFunction } from "./statement-emitter";
 import { SYSPROC_IO } from "./tables";
-import { Codegen } from "./cg";
-import { ClassTemplate, CalleeIdl, HelperInfo, NamespaceLookupContext } from "./types";
+import { CodeGenerationContext } from "./code-generation-context";
+import { ClassTemplate, CalleeIdl, CompiledHelperMetadata, NamespaceLookupContext } from "./types";
 import type {
   TypeSpec,
   Expression,
@@ -18,19 +18,19 @@ import type { Sema } from "../sema";
 import {
   emitModule,
   type UserEntry,
-  type SysProcInfo,
-  type ModuleSpec,
+  type SystemProcedureInfo,
+  type ModuleSpecification,
   type QpiContextLayout,
 } from "../framework";
 import type { LhostAbiSpec } from "../lhost";
-import { registerCallSig } from "../ir";
+import { registerCallSig } from "../wat-ir";
 import type { LiteAbiSource } from "@qinit/core/lite-abi-source";
 
 // ---- entry point ----
 
-export interface LibTypes {
+export interface LibrarySymbolIndex {
   templates: Map<string, ClassTemplate>;
-  specializations: Map<string, { specArgs: TypeSpec[]; tmpl: ClassTemplate }[]>;
+  specializations: Map<string, { specArgs: TypeSpec[]; templateDeclaration: ClassTemplate }[]>;
   libFns: Map<string, FunctionDecl>;
   libFnOverloads: Map<string, FunctionDecl[]>;
   libFnTemplates: Map<string, FunctionTemplateDecl[]>;
@@ -63,39 +63,39 @@ export interface GeneratedContractMetadata {
   lhostAbi?: LhostAbiSpec;
 }
 
-function registerLibraryMetadata(cg: Codegen, libraryTypes: LibTypes): LhostAbiSpec {
-  if (libraryTypes.liteAbi) cg.assetEnumerationRecord = libraryTypes.liteAbi.records.LiteAssetEntry;
-  for (const [k, v] of libraryTypes.templates) cg.templates.set(k, v);
-  for (const [k, v] of libraryTypes.specializations) cg.specializations.set(k, [...v]);
-  for (const [k, v] of libraryTypes.libFns) cg.libFns.set(k, v);
-  for (const [k, v] of libraryTypes.libFnOverloads) cg.libFnOverloads.set(k, [...v]);
-  for (const [k, v] of libraryTypes.libFnTemplates) cg.libFnTemplates.set(k, v);
-  for (const [k, v] of libraryTypes.globalStructs) cg.globalStructs.set(k, v);
-  for (const [k, v] of libraryTypes.typedefs) cg.typedefs.set(k, v);
-  for (const [k, v] of libraryTypes.constexprInit) cg.constexprInit.set(k, v);
-  for (const [k, v] of libraryTypes.constexprType) cg.constexprType.set(k, v);
-  for (const [k, v] of libraryTypes.enumConst) cg.enumConst.set(k, v);
-  for (const [k, v] of libraryTypes.enumSize) cg.enumSize.set(k, v);
-  for (const [k, v] of libraryTypes.enumUnderlying) cg.enumUnderlying.set(k, v);
-  for (const [k, v] of libraryTypes.enumConstType) cg.enumConstType.set(k, v);
-  for (const n of libraryTypes.enumNames) cg.enumNames.add(n);
-  for (const [k, v] of libraryTypes.templateMethods) cg.templateMethods.set(k, new Map(v));
+function registerLibraryMetadata(codeGenerationContext: CodeGenerationContext, libraryTypes: LibrarySymbolIndex): LhostAbiSpec {
+  if (libraryTypes.liteAbi) codeGenerationContext.assetEnumerationRecord = libraryTypes.liteAbi.records.LiteAssetEntry;
+  for (const [k, v] of libraryTypes.templates) codeGenerationContext.templates.set(k, v);
+  for (const [k, v] of libraryTypes.specializations) codeGenerationContext.specializations.set(k, [...v]);
+  for (const [k, v] of libraryTypes.libFns) codeGenerationContext.libFns.set(k, v);
+  for (const [k, v] of libraryTypes.libFnOverloads) codeGenerationContext.libFnOverloads.set(k, [...v]);
+  for (const [k, v] of libraryTypes.libFnTemplates) codeGenerationContext.libFnTemplates.set(k, v);
+  for (const [k, v] of libraryTypes.globalStructs) codeGenerationContext.globalStructs.set(k, v);
+  for (const [k, v] of libraryTypes.typedefs) codeGenerationContext.typedefs.set(k, v);
+  for (const [k, v] of libraryTypes.constexprInit) codeGenerationContext.constexprInit.set(k, v);
+  for (const [k, v] of libraryTypes.constexprType) codeGenerationContext.constexprType.set(k, v);
+  for (const [k, v] of libraryTypes.enumConst) codeGenerationContext.enumConst.set(k, v);
+  for (const [k, v] of libraryTypes.enumSize) codeGenerationContext.enumSize.set(k, v);
+  for (const [k, v] of libraryTypes.enumUnderlying) codeGenerationContext.enumUnderlying.set(k, v);
+  for (const [k, v] of libraryTypes.enumConstType) codeGenerationContext.enumConstType.set(k, v);
+  for (const enumName of libraryTypes.enumNames) codeGenerationContext.enumNames.add(enumName);
+  for (const [k, v] of libraryTypes.templateMethods) codeGenerationContext.templateMethods.set(k, new Map(v));
   for (const [scope, namespaces] of libraryTypes.namespaceUsings)
-    cg.namespaceUsings.set(scope, [...namespaces]);
+    codeGenerationContext.namespaceUsings.set(scope, [...namespaces]);
   for (const [declaration, context] of libraryTypes.namespaceContexts)
-    cg.namespaceContexts.set(declaration, context);
+    codeGenerationContext.namespaceContexts.set(declaration, context);
   const lhostAbi: Record<
     string,
     { params: readonly ("i32" | "i64")[]; results: readonly ("i32" | "i64")[] }
   > = {};
   for (const [name, fn] of libraryTypes.importedFunctions) {
     const params = fn.params.map((param) => {
-      const declared = cg.derefType(param.type);
+      const declared = codeGenerationContext.derefType(param.type);
       const isAddr =
         param.type.kind === "reference" ||
         param.type.kind === "pointer" ||
-        cg.isAggregateType(declared);
-      const width = isAddr ? 4 : cg.sizeOfType(declared);
+        codeGenerationContext.isAggregateType(declared);
+      const width = isAddr ? 4 : codeGenerationContext.sizeOfType(declared);
       if (!isAddr && width !== 1 && width !== 2 && width !== 4 && width !== 8) {
         throw new Error(`unsupported imported parameter '${name}.${param.name}' width ${width}`);
       }
@@ -106,13 +106,13 @@ function registerLibraryMetadata(cg: Codegen, libraryTypes: LibTypes): LhostAbiS
         type: declared,
       };
     });
-    const returnType = cg.derefType(fn.returnType);
-    const returnAggregate = !cg.isVoidType(returnType) && cg.isAggregateType(returnType);
+    const returnType = codeGenerationContext.derefType(fn.returnType);
+    const returnAggregate = !codeGenerationContext.isVoidType(returnType) && codeGenerationContext.isAggregateType(returnType);
     if (returnAggregate)
       throw new Error(
         `imported function '${name}' has an aggregate return; declare its hidden output address explicitly`,
       );
-    const returnWidth = cg.isVoidType(returnType) ? 0 : cg.sizeOfType(returnType);
+    const returnWidth = codeGenerationContext.isVoidType(returnType) ? 0 : codeGenerationContext.sizeOfType(returnType);
     if (
       returnWidth !== 0 &&
       returnWidth !== 1 &&
@@ -122,14 +122,14 @@ function registerLibraryMetadata(cg: Codegen, libraryTypes: LibTypes): LhostAbiS
     ) {
       throw new Error(`unsupported imported return '${name}' width ${returnWidth}`);
     }
-    const helper: HelperInfo = {
+    const helper: CompiledHelperMetadata = {
       label: `$lh_${name.slice("__lhost_".length)}`,
       params,
       retIsValue: returnWidth !== 0,
       retWasmType: returnWidth === 0 ? undefined : returnWidth < 8 ? "i32" : "i64",
       retType: returnType,
     };
-    cg.helpers.set(name, helper);
+    codeGenerationContext.helpers.set(name, helper);
     const importName = name.slice("__lhost_".length);
     const abiParams = params.map((param) => param.wasmType);
     const results = helper.retWasmType ? [helper.retWasmType] : [];
@@ -151,20 +151,20 @@ function registerLibraryMetadata(cg: Codegen, libraryTypes: LibTypes): LhostAbiS
   return lhostAbi;
 }
 
-function contextLayoutFromCodegen(cg: Codegen): QpiContextLayout {
-  const context = cg.globalStructs.get("QpiContext");
+function contextLayoutFromCodegen(codeGenerationContext: CodeGenerationContext): QpiContextLayout {
+  const context = codeGenerationContext.globalStructs.get("QpiContext");
   if (!context) throw new Error("qpi.h is missing QpiContext");
-  const bufferSize = cg.constexprInit.get("__qinit_qpi_context_buffer_size");
+  const bufferSize = codeGenerationContext.constexprInit.get("__qinit_qpi_context_buffer_size");
   if (!bufferSize)
     throw new Error("assembled core headers are missing the Wasm QpiContext buffer capacity");
-  const layout = cg.layoutOf(context);
+  const layout = codeGenerationContext.layoutOf(context);
   const offset = (name: string): number => {
     const field = layout.fields.get(name);
     if (!field) throw new Error(`QpiContext is missing field '${name}'`);
     return field.offset;
   };
   return {
-    size: cg.evalConst(bufferSize),
+    size: codeGenerationContext.evalConst(bufferSize),
     contractIndex: offset("_currentContractIndex"),
     originator: offset("_originator"),
     invocator: offset("_invocator"),
@@ -172,23 +172,23 @@ function contextLayoutFromCodegen(cg: Codegen): QpiContextLayout {
   };
 }
 
-export function deriveQpiContextLayout(libraryTypes: LibTypes): QpiContextLayout {
-  const cg = new Codegen({} as Sema);
-  registerLibraryMetadata(cg, libraryTypes);
-  return contextLayoutFromCodegen(cg);
+export function deriveQpiContextLayout(libraryTypes: LibrarySymbolIndex): QpiContextLayout {
+  const codeGenerationContext = new CodeGenerationContext({} as Sema);
+  registerLibraryMetadata(codeGenerationContext, libraryTypes);
+  return contextLayoutFromCodegen(codeGenerationContext);
 }
 
 // Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants/methods).
-export function collectLibraryTypes(
-  decls: Declaration[],
+export function indexLibraryDeclarations(
+  declarations: Declaration[],
   inheritedNamespaceUsings?: Map<string, string[]>,
-): LibTypes {
-  const cg = new Codegen({} as Sema);
+): LibrarySymbolIndex {
+  const codeGenerationContext = new CodeGenerationContext({} as Sema);
   if (inheritedNamespaceUsings) {
     for (const [scope, namespaces] of inheritedNamespaceUsings)
-      cg.namespaceUsings.set(scope, [...namespaces]);
+      codeGenerationContext.namespaceUsings.set(scope, [...namespaces]);
   }
-  cg.registerTopLevelDeclarations(decls);
+  codeGenerationContext.registerTopLevelDeclarations(declarations);
   const importedFunctions = new Map<string, FunctionDecl>();
   const collectHostImportDeclarations = (items: Declaration[]): void => {
     for (const declaration of items) {
@@ -203,37 +203,37 @@ export function collectLibraryTypes(
       }
     }
   };
-  collectHostImportDeclarations(decls);
+  collectHostImportDeclarations(declarations);
   return {
-    templates: cg.templates,
-    specializations: cg.specializations,
-    libFns: cg.libFns,
-    libFnOverloads: cg.libFnOverloads,
-    libFnTemplates: cg.libFnTemplates,
-    globalStructs: cg.globalStructs,
-    typedefs: cg.typedefs,
-    constexprInit: cg.constexprInit,
-    constexprType: cg.constexprType,
-    enumConst: cg.enumConst,
-    enumSize: cg.enumSize,
-    enumUnderlying: cg.enumUnderlying,
-    enumConstType: cg.enumConstType,
-    enumNames: cg.enumNames,
-    templateMethods: cg.templateMethods,
-    namespaceUsings: cg.namespaceUsings,
-    namespaceContexts: cg.namespaceContexts,
+    templates: codeGenerationContext.templates,
+    specializations: codeGenerationContext.specializations,
+    libFns: codeGenerationContext.libFns,
+    libFnOverloads: codeGenerationContext.libFnOverloads,
+    libFnTemplates: codeGenerationContext.libFnTemplates,
+    globalStructs: codeGenerationContext.globalStructs,
+    typedefs: codeGenerationContext.typedefs,
+    constexprInit: codeGenerationContext.constexprInit,
+    constexprType: codeGenerationContext.constexprType,
+    enumConst: codeGenerationContext.enumConst,
+    enumSize: codeGenerationContext.enumSize,
+    enumUnderlying: codeGenerationContext.enumUnderlying,
+    enumConstType: codeGenerationContext.enumConstType,
+    enumNames: codeGenerationContext.enumNames,
+    templateMethods: codeGenerationContext.templateMethods,
+    namespaceUsings: codeGenerationContext.namespaceUsings,
+    namespaceContexts: codeGenerationContext.namespaceContexts,
     importedFunctions,
     liteAbi: undefined,
   };
 }
 
 export function generateWasmModule(
-  tu: { declarations: Declaration[] },
+  translationUnit: { declarations: Declaration[] },
   sema: Sema,
   contractName: string,
   slot: number,
   arenaSz: number = 1024 * 1024 * 1024,
-  lib?: LibTypes,
+  lib?: LibrarySymbolIndex,
   callees?: CalleeIdl[],
   calleeStructs?: Map<string, StructDecl>,
   calleeTus?: Array<{ contractName: string; declarations: Declaration[] }>,
@@ -241,14 +241,14 @@ export function generateWasmModule(
   metadataOut?: GeneratedContractMetadata,
   gtestMode = false,
 ): string {
-  const cg = new Codegen(sema);
-  cg.gtestMode = gtestMode;
-  for (const c of callees ?? []) cg.callees.set(c.name, c);
+  const codeGenerationContext = new CodeGenerationContext(sema);
+  codeGenerationContext.gtestMode = gtestMode;
+  for (const itemItem of callees ?? []) codeGenerationContext.callees.set(itemItem.name, itemItem);
   // Callee struct layouts, keyed by their qualified name (`QX::Fees_output`), so a caller reading a callee's output type —
-  if (calleeStructs) for (const [k, v] of calleeStructs) cg.globalStructs.set(k, v);
+  if (calleeStructs) for (const [k, v] of calleeStructs) codeGenerationContext.globalStructs.set(k, v);
 
   // Register qpi.h library declarations (templates / structs / typedefs) once, then add the user contract's declarations.
-  const lhostAbi = lib ? registerLibraryMetadata(cg, lib) : undefined;
+  const lhostAbi = lib ? registerLibraryMetadata(codeGenerationContext, lib) : undefined;
   const systemProcedureImpl = new Map<string, number>();
   const systemProcedurePrefix = new Map<string, string>();
   for (const procedure of lib?.liteAbi?.systemProcedures ?? []) {
@@ -256,12 +256,12 @@ export function generateWasmModule(
     systemProcedureImpl.set(implementation, procedure.id);
     systemProcedurePrefix.set(implementation, procedure.name);
   }
-  const contextLayout = contextLayoutFromCodegen(cg);
-  cg.registerTopLevelDeclarations(tu.declarations);
+  const contextLayout = contextLayoutFromCodegen(codeGenerationContext);
+  codeGenerationContext.registerTopLevelDeclarations(translationUnit.declarations);
   for (const ct of calleeTus ?? [])
-    cg.registerCalleeContractDeclarations(ct.contractName, ct.declarations);
+    codeGenerationContext.registerCalleeContractDeclarations(ct.contractName, ct.declarations);
 
-  const contract = findContractStruct(tu);
+  const contract = findContractStruct(translationUnit);
   if (!contract) {
     return emitModule({
       stateSize: 0,
@@ -272,63 +272,63 @@ export function generateWasmModule(
       userFunctionsWat: ";; no contract struct found",
       memBase,
       lhostAbi,
-      assetEnumerationRecord: cg.assetEnumerationRecord,
+      assetEnumerationRecord: codeGenerationContext.assetEnumerationRecord,
     });
   }
 
-  cg.collectNested(contract);
-  cg.slot = slot;
-  for (const m of contract.members) {
-    if (m.kind === "function")
-      cg.memberFnLine.set((m as FunctionDecl).name, (m as FunctionDecl).span?.line ?? 0);
+  codeGenerationContext.collectNested(contract);
+  codeGenerationContext.slot = slot;
+  for (const member of contract.members) {
+    if (member.kind === "function")
+      codeGenerationContext.memberFnLine.set((member as FunctionDecl).name, (member as FunctionDecl).span?.line ?? 0);
   }
 
   // state size from StateData
-  const stateData = cg["nested"].get("StateData");
-  const stateLayout = stateData ? cg.layoutOf(stateData) : { size: 0, align: 1, fields: new Map() };
+  const stateData = codeGenerationContext["nested"].get("StateData");
+  const stateLayout = stateData ? codeGenerationContext.layoutOf(stateData) : { size: 0, align: 1, fields: new Map() };
   const stateSize = stateLayout.size;
-  cg.contractStateLayout = stateLayout;
+  codeGenerationContext.contractStateLayout = stateLayout;
 
   // registrations → entries
-  const extractedRegs = extractRegistrations(contract, cg);
+  const extractedRegs = extractRegistrations(contract, codeGenerationContext);
   for (const reg of extractedRegs) {
     if (!reg.constant) {
-      cg.error(
+      codeGenerationContext.error(
         `registration input type for '${reg.fnName}' must be an integral constant expression`,
         reg.line,
       );
     } else if (reg.inputType < 1 || reg.inputType > 65535) {
-      cg.error(
+      codeGenerationContext.error(
         `registration input type for '${reg.fnName}' must be in the range 1..65535`,
         reg.line,
       );
     }
   }
-  const regs = extractedRegs.filter((r) => r.constant && r.inputType >= 1 && r.inputType <= 65535);
+  const regs = extractedRegs.filter((extractedReg) => extractedReg.constant && extractedReg.inputType >= 1 && extractedReg.inputType <= 65535);
   const entries: UserEntry[] = [];
   const userFns: string[] = [];
 
   // A duplicate input type within a kind makes dispatch ambiguous (first registration would silently win) — reject.
   const seenReg = new Map<string, string>();
-  for (const r of regs) {
-    const key = `${r.kind}:${r.inputType}`;
+  for (const regCandidate of regs) {
+    const key = `${regCandidate.kind}:${regCandidate.inputType}`;
     const prev = seenReg.get(key);
     if (prev) {
-      cg.error(
-        `${r.kind === 0 ? "function" : "procedure"} input type ${r.inputType} is registered twice ('${prev}' and '${r.fnName}')`,
+      codeGenerationContext.error(
+        `${regCandidate.kind === 0 ? "function" : "procedure"} input type ${regCandidate.inputType} is registered twice ('${prev}' and '${regCandidate.fnName}')`,
         0,
       );
     }
-    seenReg.set(key, r.fnName);
+    seenReg.set(key, regCandidate.fnName);
   }
 
   // Collect helper + private functions BEFORE emitting entries, so entry bodies can call them.
-  const entryNames = new Set(regs.map((r) => r.fnName));
-  const helperFns: { fn: FunctionDecl; info: HelperInfo }[] = [];
+  const entryNames = new Set(regs.map((reg) => reg.fnName));
+  const helperFns: { fn: FunctionDecl; info: CompiledHelperMetadata }[] = [];
   const privateFns: FunctionDecl[] = [];
-  for (const m of contract.members) {
-    if (m.kind !== "function") continue;
-    const fn = m as FunctionDecl;
+  for (const memberCandidate of contract.members) {
+    if (memberCandidate.kind !== "function") continue;
+    const fn = memberCandidate as FunctionDecl;
     if (!fn.body) continue;
     if (entryNames.has(fn.name) || systemProcedureImpl.has(fn.name) || fn.name === "__impl_migrate")
       continue;
@@ -340,52 +340,52 @@ export function generateWasmModule(
       continue;
 
     if (fn.params[0]?.name === "qpi") {
-      const localsStruct = cg["nested"].get(`${fn.name}_locals`);
-      cg.privates.set(fn.name, {
+      const localsStruct = codeGenerationContext["nested"].get(`${fn.name}_locals`);
+      codeGenerationContext.privates.set(fn.name, {
         label: `$priv_${fn.name}`,
-        localsSize: localsStruct ? cg.layoutOf(localsStruct).size : 0,
+        localsSize: localsStruct ? codeGenerationContext.layoutOf(localsStruct).size : 0,
       });
       privateFns.push(fn);
     } else {
       // Overloaded helpers each get their own wasm function; the call site ranks the overload set by argument signature
-      const params = fn.params.map((p) => {
+      const params = fn.params.map((parameter) => {
         // A NON-const scalar reference (an out-param like `uint64& revenue`) must be passed by address so the write reaches
-        const isConstRef = p.type.kind === "reference" && p.type.refereed?.kind === "const";
-        const isPtrRef = (p.type.kind === "reference" && !isConstRef) || p.type.kind === "pointer";
-        const isAddr = isPtrRef || cg.isAggregateType(p.type);
+        const isConstRef = parameter.type.kind === "reference" && parameter.type.referentType?.kind === "const";
+        const isPtrRef = (parameter.type.kind === "reference" && !isConstRef) || parameter.type.kind === "pointer";
+        const isAddr = isPtrRef || codeGenerationContext.isAggregateType(parameter.type);
         // A BY-VALUE aggregate param rides the by-address ABI but owns a private copy: the callee may mutate it
-        const byValAgg = isAddr && p.type.kind !== "reference" && p.type.kind !== "pointer";
+        const byValAgg = isAddr && parameter.type.kind !== "reference" && parameter.type.kind !== "pointer";
         return {
-          name: p.name,
+          name: parameter.name,
           wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64",
           isAddr,
-          type: cg.derefType(p.type),
+          type: codeGenerationContext.derefType(parameter.type),
           byValAgg,
         };
       });
-      const isVoid = cg.isVoidType(fn.returnType); // `void` may parse as {kind:"void"} OR {kind:"name","void"}
+      const isVoid = codeGenerationContext.isVoidType(fn.returnType); // `void` may parse as {kind:"void"} OR {kind:"name","void"}
       // size the referent for a `const T&` return — sizeOfType on the reference itself is pointer-width
       const retAgg =
-        !isVoid && cg.isAggregateType(fn.returnType)
-          ? cg.sizeOfType(cg.derefType(fn.returnType))
+        !isVoid && codeGenerationContext.isAggregateType(fn.returnType)
+          ? codeGenerationContext.sizeOfType(codeGenerationContext.derefType(fn.returnType))
           : undefined;
       const retIsValue = !isVoid && !retAgg;
-      const set = cg.helperOverloads.get(fn.name) ?? [];
+      const set = codeGenerationContext.helperOverloads.get(fn.name) ?? [];
       const label = set.length === 0 ? `$h_${fn.name}` : `$h_${fn.name}__ov${set.length}`;
-      const lookup = cg.namespaceContextOf(fn);
-      const info: HelperInfo = {
+      const lookup = codeGenerationContext.namespaceContextOf(fn);
+      const info: CompiledHelperMetadata = {
         label,
         params,
         retIsValue,
         retAgg,
-        retType: isVoid ? undefined : cg.derefType(fn.returnType),
+        retType: isVoid ? undefined : codeGenerationContext.derefType(fn.returnType),
         sourceNamespace: lookup.sourceNamespace,
         usingNamespaces: lookup.usingNamespaces,
       };
       set.push(info);
-      cg.helperOverloads.set(fn.name, set);
+      codeGenerationContext.helperOverloads.set(fn.name, set);
       if (set.length === 1) {
-        cg.helpers.set(fn.name, info);
+        codeGenerationContext.helpers.set(fn.name, info);
       }
       helperFns.push({ fn, info });
     }
@@ -394,26 +394,26 @@ export function generateWasmModule(
   // Resolve a named I/O / locals struct to its layout, following typedefs and nested structs: a contract may
   const emptyL = () => ({ size: 0, align: 1, fields: new Map() });
   const resolveIO = (name: string) => {
-    const s = cg["nested"].get(name);
-    if (s) return cg.layoutOf(s);
-    const lt = cg.layoutOfType({ kind: "name", name });
+    const structDeclaration = codeGenerationContext["nested"].get(name);
+    if (structDeclaration) return codeGenerationContext.layoutOf(structDeclaration);
+    const lt = codeGenerationContext.layoutOfType({ kind: "name", name });
     if (lt) return lt;
-    const sz = cg.sizeOfType({ kind: "name", name });
-    return sz > 0 ? { size: sz, align: Math.min(sz, 8), fields: new Map() } : emptyL();
+    const byteSize = codeGenerationContext.sizeOfType({ kind: "name", name });
+    return byteSize > 0 ? { size: byteSize, align: Math.min(byteSize, 8), fields: new Map() } : emptyL();
   };
 
   const hasIOType = (name: string) =>
-    cg["nested"].has(name) || cg.typedefs.has(name) || cg.globalStructs.has(name);
+    codeGenerationContext["nested"].has(name) || codeGenerationContext.typedefs.has(name) || codeGenerationContext.globalStructs.has(name);
   for (const reg of regs) {
     const fn = findMemberFn(contract, reg.fnName);
     if (!fn?.body) {
-      cg.error(
+      codeGenerationContext.error(
         `registered ${reg.kind === 0 ? "function" : "procedure"} '${reg.fnName}' has no implementation body`,
         reg.line,
       );
       continue;
     }
-    const contextType = cg.derefType(fn.params[0]?.type ?? { kind: "void" });
+    const contextType = codeGenerationContext.derefType(fn.params[0]?.type ?? { kind: "void" });
     const actualKind =
       contextType.kind === "name" && contextType.name === "QpiContextFunctionCall"
         ? 0
@@ -421,7 +421,7 @@ export function generateWasmModule(
           ? 1
           : -1;
     if (actualKind >= 0 && actualKind !== reg.kind) {
-      cg.error(
+      codeGenerationContext.error(
         `'${reg.fnName}' is a ${actualKind === 0 ? "function" : "procedure"} but is registered as a ${reg.kind === 0 ? "function" : "procedure"}`,
         reg.line,
       );
@@ -431,38 +431,38 @@ export function generateWasmModule(
     const outName = `${reg.fnName}_output`;
     const localsName = `${reg.fnName}_locals`;
     if (!hasIOType(inName))
-      cg.error(`entry '${reg.fnName}' is missing required type '${inName}'`, reg.line);
+      codeGenerationContext.error(`entry '${reg.fnName}' is missing required type '${inName}'`, reg.line);
     if (!hasIOType(outName))
-      cg.error(`entry '${reg.fnName}' is missing required type '${outName}'`, reg.line);
+      codeGenerationContext.error(`entry '${reg.fnName}' is missing required type '${outName}'`, reg.line);
 
     const inSize = resolveIO(inName).size;
     const outSize = resolveIO(outName).size;
     const localsSize = resolveIO(localsName).size;
     if (reg.kind === 1 && inSize > 1024)
-      cg.error(`${inName} exceeds MAX_INPUT_SIZE (1024 bytes)`, reg.line);
+      codeGenerationContext.error(`${inName} exceeds MAX_INPUT_SIZE (1024 bytes)`, reg.line);
     if (outSize > 65535)
-      cg.error(`${outName} is too large; maximum output size is 65535 bytes`, reg.line);
+      codeGenerationContext.error(`${outName} is too large; maximum output size is 65535 bytes`, reg.line);
     if (localsSize > 32768)
-      cg.error(`${localsName} exceeds MAX_SIZE_OF_CONTRACT_LOCALS (32768 bytes)`, reg.line);
+      codeGenerationContext.error(`${localsName} exceeds MAX_SIZE_OF_CONTRACT_LOCALS (32768 bytes)`, reg.line);
   }
 
   // Pre-pass: register every REGISTER_USER_* name -> {label, localsSize} before any body is emitted, so a CALL() to a
-  for (let i = 0; i < regs.length; i++) {
-    cg.registered.set(regs[i].fnName, {
-      label: `$user_${i}`,
-      localsSize: resolveIO(`${regs[i].fnName}_locals`).size,
+  for (let regIndex = 0; regIndex < regs.length; regIndex++) {
+    codeGenerationContext.registered.set(regs[regIndex].fnName, {
+      label: `$user_${regIndex}`,
+      localsSize: resolveIO(`${regs[regIndex].fnName}_locals`).size,
     });
   }
 
-  for (let i = 0; i < regs.length; i++) {
-    const reg = regs[i];
+  for (let regIndexInner = 0; regIndexInner < regs.length; regIndexInner++) {
+    const reg = regs[regIndexInner];
     const fn = findMemberFn(contract, reg.fnName);
     const inLayout = resolveIO(`${reg.fnName}_input`);
     const outLayout = resolveIO(`${reg.fnName}_output`);
     const localsLayout = resolveIO(`${reg.fnName}_locals`);
 
-    const label = `$user_${i}`;
-    userFns.push(emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout));
+    const label = `$user_${regIndexInner}`;
+    userFns.push(emitFunction(codeGenerationContext, label, fn, stateLayout, inLayout, outLayout, localsLayout));
 
     entries.push({
       inputType: reg.inputType,
@@ -479,18 +479,18 @@ export function generateWasmModule(
   const layoutFor = (name: string) => resolveIO(name);
   const layoutOfNamed = (name?: string) => {
     if (!name) return empty;
-    const lt = cg.layoutOfType({ kind: "name", name });
+    const lt = codeGenerationContext.layoutOfType({ kind: "name", name });
     if (lt) return lt;
-    const sz = cg.sizeOfType({ kind: "name", name });
-    return sz > 0 ? { size: sz, align: Math.min(sz, 8), fields: new Map() } : empty;
+    const byteSize = codeGenerationContext.sizeOfType({ kind: "name", name });
+    return byteSize > 0 ? { size: byteSize, align: Math.min(byteSize, 8), fields: new Map() } : empty;
   };
 
   // system procedures. Lifecycle procedures take no input/output but CAN declare locals (the
-  const sysprocs: SysProcInfo[] = [];
+  const sysprocs: SystemProcedureInfo[] = [];
   let sysIdx = 0;
-  for (const m of contract.members) {
-    if (m.kind === "function") {
-      const fn = m as FunctionDecl;
+  for (const memberCandidate of contract.members) {
+    if (memberCandidate.kind === "function") {
+      const fn = memberCandidate as FunctionDecl;
       const spId = systemProcedureImpl.get(fn.name);
       if (spId !== undefined) {
         const label = `$sys_${sysIdx++}`;
@@ -509,14 +509,14 @@ export function generateWasmModule(
           aliases = new Map();
           const bindIO = (pname: string, ioName: string | undefined, slot: string) => {
             if (!ioName) return;
-            const t = cg.typedefs.get(ioName) ?? ({ kind: "name", name: ioName } as TypeSpec);
-            aliases!.set(pname, { wasmType: "i32", isAddr: true, local: slot, type: t });
+            const type = codeGenerationContext.typedefs.get(ioName) ?? ({ kind: "name", name: ioName } as TypeSpec);
+            aliases!.set(pname, { wasmType: "i32", isAddr: true, local: slot, type: type });
           };
           bindIO("input", io.in, "__qinit_in");
           bindIO("output", io.out, "__qinit_out");
         }
         userFns.push(
-          emitFunction(cg, label, fn, stateLayout, inLayout, outLayout, localsLayout, aliases),
+          emitFunction(codeGenerationContext, label, fn, stateLayout, inLayout, outLayout, localsLayout, aliases),
         );
         sysprocs.push({
           id: spId,
@@ -530,7 +530,7 @@ export function generateWasmModule(
   }
 
   // MIGRATE() — __impl_migrate(qpi, state, const OldStateData& oldState, MIGRATE_locals& locals) rides the entry ABI with the old-state blob in
-  let migrate: ModuleSpec["migrate"];
+  let migrate: ModuleSpecification["migrate"];
   const migrateFn = findMemberFn(contract, "__impl_migrate");
   if (migrateFn?.body) {
     const oldLayout = resolveIO("OldStateData");
@@ -547,17 +547,17 @@ export function generateWasmModule(
       ],
     ]);
     userFns.push(
-      emitFunction(cg, "$migrate", migrateFn, stateLayout, oldLayout, empty, localsLayout, aliases),
+      emitFunction(codeGenerationContext, "$migrate", migrateFn, stateLayout, oldLayout, empty, localsLayout, aliases),
     );
     migrate = { label: "$migrate", oldStateSize: oldLayout.size, localsSize: localsLayout.size };
   }
 
-  // PRIVATE_ functions share the entry (ctx,state,in,out,locals) shape — emit them with emitFunction.
+  // PRIVATE_ functions share the entry (context, state, input, output, locals) shape — emit them with emitFunction.
   for (const fn of privateFns) {
-    const info = cg.privates.get(fn.name)!;
+    const info = codeGenerationContext.privates.get(fn.name)!;
     userFns.push(
       emitFunction(
-        cg,
+        codeGenerationContext,
         info.label,
         fn,
         stateLayout,
@@ -568,13 +568,13 @@ export function generateWasmModule(
     );
   }
   for (const { fn, info } of helperFns) {
-    userFns.push(emitHelperFunction(cg, info, fn, stateLayout));
+    userFns.push(emitHelperFunction(codeGenerationContext, info, fn, stateLayout));
   }
 
   // Instantiated container methods compiled from the real qpi.h bodies (accumulated while lowering the function bodies above). Appended last;
-  userFns.push(...cg.emittedMethodOrder);
+  userFns.push(...codeGenerationContext.emittedMethodOrder);
 
-  const spec: ModuleSpec = {
+  const spec: ModuleSpecification = {
     stateSize,
     arenaSize: arenaSz,
     contextLayout,
@@ -584,30 +584,30 @@ export function generateWasmModule(
     migrate,
     memBase,
     gtest: gtestMode,
-    capabilities: [...cg.capabilities],
+    capabilities: [...codeGenerationContext.capabilities],
     lhostAbi,
-    assetEnumerationRecord: cg.assetEnumerationRecord,
+    assetEnumerationRecord: codeGenerationContext.assetEnumerationRecord,
   };
 
   if (metadataOut) {
     metadataOut.stateSize = stateSize;
-    metadataOut.entries = regs.map((reg, i) => ({
+    metadataOut.entries = regs.map((reg, regIndex) => ({
       name: reg.fnName,
       inputType: reg.inputType,
       kind: reg.kind,
-      inSize: entries[i]?.inSize ?? 0,
-      outSize: entries[i]?.outSize ?? 0,
+      inSize: entries[regIndex]?.inSize ?? 0,
+      outSize: entries[regIndex]?.outSize ?? 0,
     }));
     metadataOut.sysprocMask = sysprocs.reduce((mask, proc) => mask | (1 << proc.id), 0);
     metadataOut.lhostAbi = lhostAbi;
   }
 
   // expose warnings + hard errors via a side channel (sema diagnostics)
-  for (const w of cg.warnings) {
-    sema.warn(w.message, { start: 0, end: 0, line: w.line, col: w.col }, "fidelity");
+  for (const warning of codeGenerationContext.warnings) {
+    sema.warn(warning.message, { start: 0, end: 0, line: warning.line, column: warning.column }, "fidelity");
   }
-  for (const er of cg.errors) {
-    sema.error(er.message, { start: 0, end: 0, line: er.line, col: er.col });
+  for (const er of codeGenerationContext.errors) {
+    sema.error(er.message, { start: 0, end: 0, line: er.line, column: er.column });
   }
 
   return emitModule(spec);
@@ -615,30 +615,30 @@ export function generateWasmModule(
 
 // ---- AST helpers ----
 
-export function findContractStruct(tu: { declarations: Declaration[] }): StructDecl | null {
+export function findContractStruct(translationUnit: { declarations: Declaration[] }): StructDecl | null {
   // The user contract may end up nested inside a namespace if qpi.h's bracket structure recovered imperfectly, so search
   const all: StructDecl[] = [];
-  const walk = (decls: Declaration[]) => {
-    for (const d of decls) {
-      if (d.kind === "struct") all.push(d as StructDecl);
-      else if (d.kind === "namespace") walk((d as any).body);
+  const walk = (declarations: Declaration[]) => {
+    for (const declaration of declarations) {
+      if (declaration.kind === "struct") all.push(declaration as StructDecl);
+      else if (declaration.kind === "namespace") walk((declaration as any).body);
     }
   };
-  walk(tu.declarations);
+  walk(translationUnit.declarations);
 
-  for (const s of all) {
-    if (s.bases.some((b) => b.kind === "name" && b.name === "ContractBase")) return s;
-    if (s.name === "CONTRACT_STATE_TYPE") return s;
+  for (const allItem of all) {
+    if (allItem.bases.some((baseType) => baseType.kind === "name" && baseType.name === "ContractBase")) return allItem;
+    if (allItem.name === "CONTRACT_STATE_TYPE") return allItem;
   }
   // fallback: a struct with a nested StateData that isn't one of the qpi.h library types
-  for (const s of all) {
-    if (s.members.some((m) => m.kind === "struct" && (m as StructDecl).name === "StateData"))
-      return s;
+  for (const allItemCandidate of all) {
+    if (allItemCandidate.members.some((member) => member.kind === "struct" && (member as StructDecl).name === "StateData"))
+      return allItemCandidate;
   }
   return null;
 }
 
-export interface RegEntry {
+export interface ContractRegistration {
   fnName: string;
   kind: number;
   inputType: number;
@@ -646,82 +646,82 @@ export interface RegEntry {
   line: number;
 }
 
-function evalRegistrationConstant(expr: Expression | undefined, cg: Codegen): bigint | null {
-  if (!expr) return null;
-  switch (expr.kind) {
+function evalRegistrationConstant(expression: Expression | undefined, codeGenerationContext: CodeGenerationContext): bigint | null {
+  if (!expression) return null;
+  switch (expression.kind) {
     case "int_literal":
       try {
-        return lexRegistrationLiteral(expr.value);
+        return lexRegistrationLiteral(expression.value);
       } catch {
         return null;
       }
     case "bool_literal":
-      return expr.value ? 1n : 0n;
+      return expression.value ? 1n : 0n;
     case "char_literal":
-      return BigInt(expr.value);
+      return BigInt(expression.value);
     case "identifier":
-      return cg.resolveConst(expr.name);
+      return codeGenerationContext.resolveConst(expression.name);
     case "qualified_name":
-      return cg.resolveConst(`${expr.namespace}::${expr.name}`);
+      return codeGenerationContext.resolveConst(`${expression.namespace}::${expression.name}`);
     case "paren":
-      return evalRegistrationConstant(expr.expr, cg);
+      return evalRegistrationConstant(expression.expression, codeGenerationContext);
     case "unary_op": {
-      const a = evalRegistrationConstant(expr.arg, cg);
-      if (a === null) return null;
-      if (expr.op === "-") return -a;
-      if (expr.op === "+") return a;
-      if (expr.op === "~") return ~a;
-      if (expr.op === "!") return a === 0n ? 1n : 0n;
+      const numericValue = evalRegistrationConstant(expression.argument, codeGenerationContext);
+      if (numericValue === null) return null;
+      if (expression.operator === "-") return -numericValue;
+      if (expression.operator === "+") return numericValue;
+      if (expression.operator === "~") return ~numericValue;
+      if (expression.operator === "!") return numericValue === 0n ? 1n : 0n;
       return null;
     }
     case "binary_op": {
-      const l = evalRegistrationConstant(expr.left, cg);
-      const r = evalRegistrationConstant(expr.right, cg);
-      if (l === null || r === null) return null;
-      switch (expr.op) {
+      const leftValue = evalRegistrationConstant(expression.left, codeGenerationContext);
+      const rightValue = evalRegistrationConstant(expression.right, codeGenerationContext);
+      if (leftValue === null || rightValue === null) return null;
+      switch (expression.operator) {
         case "+":
-          return l + r;
+          return leftValue + rightValue;
         case "-":
-          return l - r;
+          return leftValue - rightValue;
         case "*":
-          return l * r;
+          return leftValue * rightValue;
         case "/":
-          return r === 0n ? null : l / r;
+          return rightValue === 0n ? null : leftValue / rightValue;
         case "%":
-          return r === 0n ? null : l % r;
+          return rightValue === 0n ? null : leftValue % rightValue;
         case "<<":
-          return l << r;
+          return leftValue << rightValue;
         case ">>":
-          return l >> r;
+          return leftValue >> rightValue;
         case "&":
-          return l & r;
+          return leftValue & rightValue;
         case "|":
-          return l | r;
+          return leftValue | rightValue;
         case "^":
-          return l ^ r;
+          return leftValue ^ rightValue;
         case "==":
-          return l === r ? 1n : 0n;
+          return leftValue === rightValue ? 1n : 0n;
         case "!=":
-          return l !== r ? 1n : 0n;
+          return leftValue !== rightValue ? 1n : 0n;
         case "<":
-          return l < r ? 1n : 0n;
+          return leftValue < rightValue ? 1n : 0n;
         case ">":
-          return l > r ? 1n : 0n;
+          return leftValue > rightValue ? 1n : 0n;
         case "<=":
-          return l <= r ? 1n : 0n;
+          return leftValue <= rightValue ? 1n : 0n;
         case ">=":
-          return l >= r ? 1n : 0n;
+          return leftValue >= rightValue ? 1n : 0n;
         default:
           return null;
       }
     }
     case "ternary": {
-      const c = evalRegistrationConstant(expr.cond, cg);
-      return c === null ? null : evalRegistrationConstant(c !== 0n ? expr.then : expr.else_, cg);
+      const numericValue = evalRegistrationConstant(expression.condition, codeGenerationContext);
+      return numericValue === null ? null : evalRegistrationConstant(numericValue !== 0n ? expression.then : expression.else_, codeGenerationContext);
     }
     case "c_cast":
     case "static_cast":
-      return evalRegistrationConstant(expr.expr, cg);
+      return evalRegistrationConstant(expression.expression, codeGenerationContext);
     default:
       return null;
   }
@@ -733,40 +733,40 @@ function lexRegistrationLiteral(value: string): bigint {
   return BigInt(cleaned);
 }
 
-export function extractRegistrations(contract: StructDecl, cg: Codegen): RegEntry[] {
-  const regs: RegEntry[] = [];
+export function extractRegistrations(contract: StructDecl, codeGenerationContext: CodeGenerationContext): ContractRegistration[] {
+  const regs: ContractRegistration[] = [];
   const regFn = contract.members.find(
-    (m) =>
-      m.kind === "function" && (m as FunctionDecl).name === "__registerUserFunctionsAndProcedures",
+    (member) =>
+      member.kind === "function" && (member as FunctionDecl).name === "__registerUserFunctionsAndProcedures",
   ) as FunctionDecl | undefined;
 
   if (!regFn?.body || regFn.body.kind !== "compound") return regs;
 
-  for (const stmt of regFn.body.body) {
-    if (stmt.kind !== "expression") continue;
-    const e = stmt.expr;
-    if (e.kind !== "call") continue;
-    if (e.callee.kind !== "member_access") continue;
-    const method = e.callee.member;
+  for (const statement of regFn.body.body) {
+    if (statement.kind !== "expression") continue;
+    const expression = statement.expression;
+    if (expression.kind !== "call") continue;
+    if (expression.callee.kind !== "member_access") continue;
+    const method = expression.callee.member;
     const isFn = method === "__registerUserFunction";
     const isProc = method === "__registerUserProcedure";
     const isNotif = method === "__registerUserProcedureNotification";
     if (!isFn && !isProc && !isNotif) continue;
 
     // args: (void*)fnName, inputType, sizeof(...), ...
-    const fnArg = e.args[0];
+    const fnArg = expression.callArguments[0];
     let fnName = "";
-    if (fnArg?.kind === "c_cast" && fnArg.expr.kind === "identifier") fnName = fnArg.expr.name;
+    if (fnArg?.kind === "c_cast" && fnArg.expression.kind === "identifier") fnName = fnArg.expression.name;
     else if (fnArg?.kind === "identifier") fnName = fnArg.name;
 
-    const itArg = e.args[1];
-    const evaluated = evalRegistrationConstant(itArg, cg);
+    const itArg = expression.callArguments[1];
+    const evaluated = evalRegistrationConstant(itArg, codeGenerationContext);
     let inputType = evaluated === null ? 0 : Number(evaluated);
 
     // Notification procedure (oracle reply callback): its id arg is the synthetic __id_<proc> ((CONTRACT_INDEX << 22) | defLine, qpi.h
     if (isNotif && fnName) {
       const def = contract.members.find(
-        (m) => m.kind === "function" && (m as FunctionDecl).name === fnName,
+        (member) => member.kind === "function" && (member as FunctionDecl).name === fnName,
       ) as FunctionDecl | undefined;
       inputType = (def?.span?.line ?? 0) & 0xffff;
     }
@@ -777,7 +777,7 @@ export function extractRegistrations(contract: StructDecl, cg: Codegen): RegEntr
         kind: isFn ? 0 : 1,
         inputType,
         constant: isNotif || evaluated !== null,
-        line: e.span.line,
+        line: expression.span.line,
       });
     }
   }
@@ -786,8 +786,8 @@ export function extractRegistrations(contract: StructDecl, cg: Codegen): RegEntr
 }
 
 export function findMemberFn(contract: StructDecl, name: string): FunctionDecl | null {
-  for (const m of contract.members) {
-    if (m.kind === "function" && (m as FunctionDecl).name === name) return m as FunctionDecl;
+  for (const member of contract.members) {
+    if (member.kind === "function" && (member as FunctionDecl).name === name) return member as FunctionDecl;
   }
   return null;
 }

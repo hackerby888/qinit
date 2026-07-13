@@ -89,8 +89,8 @@ class Gen {
     const d = depth - 1;
     const r = this.next();
     if (r < 0.3) {
-      const op = this.pick(["+", "-", "*", "&", "|", "^"]);
-      return `(${this.scalarExpr(d)} ${op} ${this.scalarExpr(d)})`;
+      const operator = this.pick(["+", "-", "*", "&", "|", "^"]);
+      return `(${this.scalarExpr(d)} ${operator} ${this.scalarExpr(d)})`;
     }
     if (r < 0.5 && this.u128Vars.length > 0) {
       return `(uint64)(${this.pick(this.u128Vars)}.${this.pick(["low", "high"])})`;
@@ -103,8 +103,8 @@ class Gen {
 
   // Comparison of two uint128 values — yields a scalar bool. The left side is always
   private u128Compare(depth: number): string {
-    const op = this.pick(["==", "<", ">", "<=", ">="]);
-    return `(${this.u128Expr(depth)} ${op} ${this.u128Expr(depth)})`;
+    const operator = this.pick(["==", "<", ">", "<=", ">="]);
+    return `(${this.u128Expr(depth)} ${operator} ${this.u128Expr(depth)})`;
   }
 
   // ---- uint128 layer ----
@@ -136,12 +136,12 @@ class Gen {
     const d = depth - 1;
     const r = this.next();
     if (r < 0.3) {
-      const op = this.pick(["+", "-", "*", "&"]);
-      return `(${this.u128Expr(d)} ${op} ${this.u128Expr(d)})`;
+      const operator = this.pick(["+", "-", "*", "&"]);
+      return `(${this.u128Expr(d)} ${operator} ${this.u128Expr(d)})`;
     }
     if (r < 0.5) {
-      const op = this.pick(["<<", ">>"]);
-      return `(${this.u128Expr(d)} ${op} ${this.shiftCount()})`;
+      const operator = this.pick(["<<", ">>"]);
+      return `(${this.u128Expr(d)} ${operator} ${this.shiftCount()})`;
     }
     if (r < 0.62) {
       return `div<uint128>(${this.u128Expr(d)}, ${this.u128Expr(d)})`;
@@ -161,11 +161,11 @@ class Gen {
       return `${indent}${v} = ${this.u128Expr(3)};`;
     }
     if (r < 0.75) {
-      const op = this.pick(["+=", "-=", "&="]);
-      return `${indent}${v} ${op} ${this.u128Expr(2)};`;
+      const operator = this.pick(["+=", "-=", "&="]);
+      return `${indent}${v} ${operator} ${this.u128Expr(2)};`;
     }
-    const op = this.pick(["<<=", ">>="]);
-    return `${indent}${v} ${op} ${this.shiftCount()};`;
+    const operator = this.pick(["<<=", ">>="]);
+    return `${indent}${v} ${operator} ${this.shiftCount()};`;
   }
 
   private scalarAssignStmt(indent: string): string {
@@ -181,23 +181,23 @@ class Gen {
   }
 
   private ifStmt(indent: string, depth: number): string {
-    const cond = this.chance(0.6) ? this.u128Compare(1) : this.scalarExpr(2);
+    const condition = this.chance(0.6) ? this.u128Compare(1) : this.scalarExpr(2);
     const inner = indent + "  ";
     const bodyLines: string[] = [];
     const n = 1 + this.int(3);
     for (let k = 0; k < n && this.stmtBudget > 0; k++) {
-      bodyLines.push(this.stmt(inner, depth - 1));
+      bodyLines.push(this.statement(inner, depth - 1));
     }
     const body = `${indent}{\n${bodyLines.join("\n")}\n${indent}}`;
     if (this.chance(0.4)) {
       const elseLines: string[] = [];
       const m = 1 + this.int(2);
       for (let k = 0; k < m && this.stmtBudget > 0; k++) {
-        elseLines.push(this.stmt(inner, depth - 1));
+        elseLines.push(this.statement(inner, depth - 1));
       }
-      return `${indent}if (${cond})\n${body}\n${indent}else\n${indent}{\n${elseLines.join("\n")}\n${indent}}`;
+      return `${indent}if (${condition})\n${body}\n${indent}else\n${indent}{\n${elseLines.join("\n")}\n${indent}}`;
     }
-    return `${indent}if (${cond})\n${body}`;
+    return `${indent}if (${condition})\n${body}`;
   }
 
   private forStmt(indent: string, depth: number): string {
@@ -208,13 +208,13 @@ class Gen {
     const lines: string[] = [];
     const count = 1 + this.int(3);
     for (let k = 0; k < count && this.stmtBudget > 0; k++) {
-      lines.push(this.stmt(inner, depth - 1));
+      lines.push(this.statement(inner, depth - 1));
     }
     this.ivStack.pop();
     return `${indent}for (sint32 ${iv} = 0; ${iv} < ${bound}; ${iv}++) {\n${lines.join("\n")}\n${indent}}`;
   }
 
-  private stmt(indent: string, depth: number): string {
+  private statement(indent: string, depth: number): string {
     this.stmtBudget--;
     const r = this.next();
     if (depth <= 0 || r < 0.6) {
@@ -236,10 +236,10 @@ class Gen {
     const u128Count = 2 + this.int(3);
     for (let k = 0; k < u128Count; k++) {
       const name = this.freshName("q");
-      const init = this.chance(0.5)
+      const initializer = this.chance(0.5)
         ? `uint128(0ull, ${this.scalarExpr(1)})`
         : `uint128(${this.scalarExpr(1)}, ${this.scalarExpr(1)})`;
-      lines.push(`    uint128 ${name} = ${init};`);
+      lines.push(`    uint128 ${name} = ${initializer};`);
       this.u128Vars.push(name);
     }
     const scalarCount = 1 + this.int(2);
@@ -251,7 +251,7 @@ class Gen {
 
     const topCount = 4 + this.int(9);
     for (let k = 0; k < topCount && this.stmtBudget > 0; k++) {
-      lines.push(this.stmt("    ", 2));
+      lines.push(this.statement("    ", 2));
     }
 
     const flushExprs: string[] = [];

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compileContract, type CalleeIdl, type CompileOpts } from "../../src/index";
+import { compileContract, type CalleeIdl, type CompileOptions } from "../../src/index";
 
 const VALID_SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -11,7 +11,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Ping, 1); }
 };`;
 
-const BASE: CompileOpts = {
+const BASE: CompileOptions = {
   source: VALID_SOURCE,
   name: "OptionProbe",
   slot: 27,
@@ -25,7 +25,7 @@ const CALLEE: CalleeIdl = {
   procedures: {},
 };
 
-async function expectRejected(overrides: Partial<CompileOpts>): Promise<void> {
+async function expectRejected(overrides: Partial<CompileOptions>): Promise<void> {
   const result = await compileContract({ ...BASE, ...overrides });
   const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
 

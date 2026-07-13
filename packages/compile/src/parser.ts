@@ -79,27 +79,27 @@ export class Parser {
     (this.lex as any).index = 0;
     // Ensure there's an eof token
     if (tokens.length === 0 || tokens[tokens.length - 1].kind !== "eof") {
-      tokens.push({ kind: "eof", text: "", span: { start: 0, end: 0, line: 0, col: 0 } });
+      tokens.push({ kind: "eof", text: "", span: { start: 0, end: 0, line: 0, column: 0 } });
     }
   }
 
   parseTranslationUnit(): TranslationUnit {
     const start = this.peek().span;
-    const decls: Declaration[] = [];
+    const declarations: Declaration[] = [];
 
     while (!this.eof()) {
       const before = (this.lex as any).index;
       const errsBefore = this.diagnostics.length;
-      const decl = this.parseDeclaration();
-      if (decl && decl.kind !== "empty") decls.push(decl);
-      while (this.pending.length) decls.push(this.pending.shift()!);
+      const declaration = this.parseDeclaration();
+      if (declaration && declaration.kind !== "empty") declarations.push(declaration);
+      while (this.pending.length) declarations.push(this.pending.shift()!);
       this.recover(before, errsBefore);
     }
 
     const end = this.last().span;
     return {
-      declarations: decls,
-      span: { start: start.start, end: end.end, line: start.line, col: start.col },
+      declarations: declarations,
+      span: { start: start.start, end: end.end, line: start.line, column: start.column },
     };
   }
 
@@ -114,17 +114,17 @@ export class Parser {
 
     let depth = 0;
     let closeIdx = -1;
-    for (let i = openIdx; i < toks.length; i++) {
-      const k = toks[i].kind;
-      if (k === "l_brace") {
+    for (let tokIndex = openIdx; tokIndex < toks.length; tokIndex++) {
+      const kind = toks[tokIndex].kind;
+      if (kind === "l_brace") {
         depth++;
-      } else if (k === "r_brace") {
+      } else if (kind === "r_brace") {
         depth--;
         if (depth === 0) {
-          closeIdx = i;
+          closeIdx = tokIndex;
           break;
         }
-      } else if (k === "eof") {
+      } else if (kind === "eof") {
         break;
       }
     }
@@ -139,8 +139,8 @@ export class Parser {
     const sub = new Parser(slice);
     sub.next(); // consume `{`
     const body = sub.parseCompoundStatement();
-    for (const d of sub.diagnostics) this.bodyDiagnostics.push(d);
-    for (const d of sub.bodyDiagnostics) this.bodyDiagnostics.push(d);
+    for (const diagnostic of sub.diagnostics) this.bodyDiagnostics.push(diagnostic);
+    for (const bodyDiagnostic of sub.bodyDiagnostics) this.bodyDiagnostics.push(bodyDiagnostic);
 
     (this.lex as any).index = closeIdx + 1; // resume after the matched `}`
     return body;
@@ -379,7 +379,7 @@ export class Parser {
       while (this.peek().kind === "star" || this.peek().kind === "amp") this.next();
       const first = this.expect("identifier", "struct declarator")?.text ?? "";
       const vars = this.parseDeclaratorList(declType, first, false, false);
-      for (const v of vars) this.pending.push(v);
+      for (const varValue of vars) this.pending.push(varValue);
     } else {
       this.tryConsume("semicolon");
     }
@@ -389,34 +389,34 @@ export class Parser {
 
   // True when a variable declarator (not `;`) follows a record body: an identifier, `*`, `&`, or `[`.
   private declaratorFollows(): boolean {
-    const k = this.peek().kind;
-    return k === "identifier" || k === "star" || k === "amp" || k === "l_bracket";
+    const kind = this.peek().kind;
+    return kind === "identifier" || kind === "star" || kind === "amp" || kind === "l_bracket";
   }
 
   // Parse the `<...>` of a (partial) class specialization head — `struct Foo<ProposalDataYesNo, numOfVotes>`.
   private parseSpecializationArgs(): TypeSpec[] {
     this.next(); // <
-    const args: TypeSpec[] = [];
+    const callArguments: TypeSpec[] = [];
     while (!this.eof() && this.peek().kind !== "r_angle") {
-      const k = this.peek().kind;
+      const kind = this.peek().kind;
       if (
-        k === "int_literal" ||
-        k === "l_paren" ||
-        k === "kw_sizeof" ||
-        k === "char_literal" ||
-        k === "minus" ||
-        k === "tilde" ||
-        k === "kw_true" ||
-        k === "kw_false"
+        kind === "int_literal" ||
+        kind === "l_paren" ||
+        kind === "kw_sizeof" ||
+        kind === "char_literal" ||
+        kind === "minus" ||
+        kind === "tilde" ||
+        kind === "kw_true" ||
+        kind === "kw_false"
       ) {
-        args.push({ kind: "expr_value", expr: this.parseShift(), span: this.peek().span });
+        callArguments.push({ kind: "expr_value", expression: this.parseShift(), span: this.peek().span });
       } else {
-        args.push(this.parseTypeSpec());
+        callArguments.push(this.parseTypeSpec());
       }
       if (!this.tryConsume("comma")) break;
     }
     this.consumeAngleClose();
-    return args;
+    return callArguments;
   }
 
   private parseUnion(): StructDecl {
@@ -451,7 +451,7 @@ export class Parser {
       while (this.peek().kind === "star" || this.peek().kind === "amp") this.next();
       const first = this.expect("identifier", "union declarator")?.text ?? "";
       const vars = this.parseDeclaratorList(declType, first, false, false);
-      for (const v of vars) this.pending.push(v);
+      for (const varValue of vars) this.pending.push(varValue);
     } else {
       this.tryConsume("semicolon");
     }
@@ -570,7 +570,7 @@ export class Parser {
     }
 
     this.expect("l_paren", "function params");
-    const fnParams = this.parseFunctionParams();
+    const functionParameters = this.parseFunctionParams();
     this.expect("r_paren", "function params close");
     this.tryConsumeKw("const");
     this.tryConsumeKw("noexcept");
@@ -586,7 +586,7 @@ export class Parser {
       kind: "function_template",
       name: nameTok,
       params,
-      fnParams,
+      functionParameters,
       returnType: retType,
       body,
       isConstexpr,
@@ -725,7 +725,7 @@ export class Parser {
   private parseStaticAssertDecl(): StaticAssertDecl {
     const start = this.next().span; // static_assert
     this.expect("l_paren", "static_assert");
-    const cond = this.parseExpression();
+    const condition = this.parseExpression();
 
     let message: Expression | undefined;
     if (this.tryConsume("comma")) {
@@ -735,7 +735,7 @@ export class Parser {
     this.expect("r_paren", "static_assert");
     this.expect("semicolon", "static_assert");
 
-    return { kind: "static_assert_decl", cond, message, span: this.makeSpan(start) };
+    return { kind: "static_assert_decl", condition, message, span: this.makeSpan(start) };
   }
 
   private parseExternBlock(): ExternBlockDecl | FunctionDecl {
@@ -763,12 +763,12 @@ export class Parser {
 
   private parseFriend(): FriendDecl {
     const start = this.next().span; // friend
-    const decl = this.parseDeclaration();
+    const declaration = this.parseDeclaration();
 
-    if (!decl) {
+    if (!declaration) {
       return {
         kind: "friend",
-        decl: {
+        declaration: {
           kind: "function",
           name: "",
           returnType: { kind: "void" },
@@ -789,7 +789,7 @@ export class Parser {
 
     return {
       kind: "friend",
-      decl: decl as FunctionDecl | StructDecl | ClassTemplateDecl,
+      declaration: declaration as FunctionDecl | StructDecl | ClassTemplateDecl,
       span: this.makeSpan(start),
     };
   }
@@ -936,11 +936,11 @@ export class Parser {
   ): VariableDecl {
     const start = this.peek().span;
     this.expect("l_paren", "ctor args");
-    const args: Expression[] = [];
+    const callArguments: Expression[] = [];
     if (this.peek().kind !== "r_paren") {
-      args.push(this.parseExpression());
+      callArguments.push(this.parseExpression());
       while (this.tryConsume("comma")) {
-        args.push(this.parseExpression());
+        callArguments.push(this.parseExpression());
       }
     }
     this.expect("r_paren", "ctor args close");
@@ -949,7 +949,7 @@ export class Parser {
       kind: "variable",
       name,
       type,
-      init: { kind: "construct", type, args, span: start },
+      initializer: { kind: "construct", type, callArguments, span: start },
       isConstexpr,
       isStatic,
       isExtern: false,
@@ -1032,7 +1032,7 @@ export class Parser {
   ): Declaration {
     const vars = this.parseDeclaratorList(type, name, isConstexpr, isStatic);
     // First declarator is returned; the rest are queued for the enclosing member/decl loop.
-    for (let i = 1; i < vars.length; i++) this.pending.push(vars[i]);
+    for (let varIndex = 1; varIndex < vars.length; varIndex++) this.pending.push(vars[varIndex]);
     return vars[0] ?? { kind: "empty" };
   }
 
@@ -1061,27 +1061,27 @@ export class Parser {
         }
         this.expect("r_bracket", "array dimension");
       }
-      for (let i = dims.length - 1; i >= 0; i--) {
-        type = { kind: "array", elem: type, size: dims[i], span: start };
+      for (let index = dims.length - 1; index >= 0; index--) {
+        type = { kind: "array", element: type, size: dims[index], span: start };
       }
 
-      let init: Expression | undefined;
+      let initializer: Expression | undefined;
       if (this.tryConsume("eq")) {
-        init = this.parseExpression();
+        initializer = this.parseExpression();
       } else if (this.peek().kind === "l_brace") {
         // Direct-list initialization is executable semantics, not layout trivia. Preserve the
         const list = this.parseExpression();
-        init =
+        initializer =
           type.kind === "array" || list.kind !== "initializer_list"
             ? list
-            : { kind: "construct", type, args: list.exprs, span: list.span };
+            : { kind: "construct", type, callArguments: list.expressions, span: list.span };
       }
 
       out.push({
         kind: "variable",
         name,
         type,
-        init,
+        initializer,
         isConstexpr,
         isStatic,
         isExtern: false,
@@ -1093,8 +1093,8 @@ export class Parser {
       if (this.tryConsume("comma")) {
         // next declarator: optional * / & then a name
         while (this.peek().kind === "star" || this.peek().kind === "amp") this.next();
-        const n = this.peek();
-        if (n.kind === "identifier") {
+        const token = this.peek();
+        if (token.kind === "identifier") {
           name = this.next().text;
           continue;
         }
@@ -1175,7 +1175,7 @@ export class Parser {
       ) {
         // & (but not && or &=)
         this.next();
-        type = { kind: "reference", refereed: type, span: type.span };
+        type = { kind: "reference", referentType: type, span: type.span };
       } else if (this.tryConsumeKw("const")) {
         type = { kind: "const", valueType: type, span: type.span };
       } else {
@@ -1245,36 +1245,36 @@ export class Parser {
     // Check for template arguments: Name<...>
     if (this.peek().kind === "l_angle") {
       this.next(); // <
-      const args: TypeSpec[] = [];
+      const callArguments: TypeSpec[] = [];
 
       while (!this.eof() && this.peek().kind !== "r_angle") {
-        const k = this.peek().kind;
+        const kind = this.peek().kind;
         // Non-type arg that is a value expression (literal, paren, sizeof, `-N`, `~N`) — parse at shift precedence so
         if (
-          k === "int_literal" ||
-          k === "l_paren" ||
-          k === "kw_sizeof" ||
-          k === "char_literal" ||
-          k === "minus" ||
-          k === "tilde" ||
-          k === "kw_true" ||
-          k === "kw_false" ||
+          kind === "int_literal" ||
+          kind === "l_paren" ||
+          kind === "kw_sizeof" ||
+          kind === "char_literal" ||
+          kind === "minus" ||
+          kind === "tilde" ||
+          kind === "kw_true" ||
+          kind === "kw_false" ||
           this.templateArgIsExpr()
         ) {
-          args.push({ kind: "expr_value", expr: this.parseShift(), span: this.peek().span });
+          callArguments.push({ kind: "expr_value", expression: this.parseShift(), span: this.peek().span });
         } else if (
-          k === "d_colon" ||
-          k === "identifier" ||
-          isTypeKeyword(k) ||
-          k === "kw_const" ||
-          k === "kw_struct" ||
-          k === "kw_unsigned" ||
-          k === "kw_signed"
+          kind === "d_colon" ||
+          kind === "identifier" ||
+          isTypeKeyword(kind) ||
+          kind === "kw_const" ||
+          kind === "kw_struct" ||
+          kind === "kw_unsigned" ||
+          kind === "kw_signed"
         ) {
-          args.push(this.parseTypeSpec());
+          callArguments.push(this.parseTypeSpec());
         } else {
           const name = this.parseMaybeQualifiedName() || this.next().text;
-          args.push({ kind: "name", name, span: this.peek().span });
+          callArguments.push({ kind: "name", name, span: this.peek().span });
         }
         if (!this.tryConsume("comma")) {
           break;
@@ -1282,7 +1282,7 @@ export class Parser {
       }
 
       this.consumeAngleClose();
-      const inst: TypeSpec = { kind: "template_instance", name, args, span: tok.span };
+      const inst: TypeSpec = { kind: "template_instance", name, callArguments, span: tok.span };
       // Dependent member type: `Selector<args>::type` — the nested type of a template instance.
       if (this.peek().kind === "d_colon" && this.peek(1).kind === "identifier") {
         this.next(); // ::
@@ -1298,19 +1298,19 @@ export class Parser {
   // A template argument that begins with a (qualified) identifier followed by an arithmetic operator and another operand is
   private templateArgIsExpr(): boolean {
     if (this.peek().kind !== "identifier") return false;
-    let i = 1;
-    while (this.peek(i).kind === "d_colon" && this.peek(i + 1).kind === "identifier") i += 2;
-    const op = this.peek(i).kind;
+    let index = 1;
+    while (this.peek(index).kind === "d_colon" && this.peek(index + 1).kind === "identifier") index += 2;
+    const operator = this.peek(index).kind;
     if (
-      op !== "star" &&
-      op !== "plus" &&
-      op !== "slash" &&
-      op !== "percent" &&
-      op !== "l_shift" &&
-      op !== "r_shift"
+      operator !== "star" &&
+      operator !== "plus" &&
+      operator !== "slash" &&
+      operator !== "percent" &&
+      operator !== "l_shift" &&
+      operator !== "r_shift"
     )
       return false;
-    const after = this.peek(i + 1).kind;
+    const after = this.peek(index + 1).kind;
     return after === "identifier" || after === "int_literal" || after === "l_paren";
   }
 
@@ -1359,27 +1359,27 @@ export class Parser {
       caret_eq: "^=",
     };
 
-    const op = assignOps[tok.kind];
-    if (op) {
+    const operator = assignOps[tok.kind];
+    if (operator) {
       this.next();
       const right = this.parseAssignment();
-      return { kind: "assign", op, left, right, span: left.span };
+      return { kind: "assign", operator, left, right, span: left.span };
     }
 
     return left;
   }
 
   private parseTernary(): Expression {
-    const cond = this.parseLogicalOr();
+    const condition = this.parseLogicalOr();
 
     if (this.tryConsume("question")) {
       const then = this.parseExpression();
       this.expect("colon", "ternary");
       const else_ = this.parseExpression();
-      return { kind: "ternary", cond, then, else_, span: cond.span };
+      return { kind: "ternary", condition, then, else_, span: condition.span };
     }
 
-    return cond;
+    return condition;
   }
 
   private parseLogicalOr(): Expression {
@@ -1387,7 +1387,7 @@ export class Parser {
 
     while (this.tryConsume("pipe_pipe")) {
       const right = this.parseLogicalAnd();
-      left = { kind: "binary_op", op: "||", left, right, span: left.span };
+      left = { kind: "binary_op", operator: "||", left, right, span: left.span };
     }
 
     return left;
@@ -1398,7 +1398,7 @@ export class Parser {
 
     while (this.tryConsume("amp_amp")) {
       const right = this.parseBitwiseOr();
-      left = { kind: "binary_op", op: "&&", left, right, span: left.span };
+      left = { kind: "binary_op", operator: "&&", left, right, span: left.span };
     }
 
     return left;
@@ -1409,7 +1409,7 @@ export class Parser {
 
     while (this.tryConsume("pipe")) {
       const right = this.parseBitwiseXor();
-      left = { kind: "binary_op", op: "|", left, right, span: left.span };
+      left = { kind: "binary_op", operator: "|", left, right, span: left.span };
     }
 
     return left;
@@ -1420,7 +1420,7 @@ export class Parser {
 
     while (this.tryConsume("caret")) {
       const right = this.parseBitwiseAnd();
-      left = { kind: "binary_op", op: "^", left, right, span: left.span };
+      left = { kind: "binary_op", operator: "^", left, right, span: left.span };
     }
 
     return left;
@@ -1431,7 +1431,7 @@ export class Parser {
 
     while (this.tryConsume("amp")) {
       const right = this.parseEquality();
-      left = { kind: "binary_op", op: "&", left, right, span: left.span };
+      left = { kind: "binary_op", operator: "&", left, right, span: left.span };
     }
 
     return left;
@@ -1446,7 +1446,7 @@ export class Parser {
         this.next();
         left = {
           kind: "binary_op",
-          op: "==",
+          operator: "==",
           left,
           right: this.parseComparison(),
           span: left.span,
@@ -1455,7 +1455,7 @@ export class Parser {
         this.next();
         left = {
           kind: "binary_op",
-          op: "!=",
+          operator: "!=",
           left,
           right: this.parseComparison(),
           span: left.span,
@@ -1484,14 +1484,14 @@ export class Parser {
       if (this.gtDisabled > 0 && (tok.kind === "r_angle" || tok.kind === "gt_eq")) {
         break;
       }
-      const op = ops[tok.kind];
-      if (op) {
+      const operator = ops[tok.kind];
+      if (operator) {
         this.next();
-        left = { kind: "binary_op", op, left, right: this.parseShift(), span: left.span };
+        left = { kind: "binary_op", operator, left, right: this.parseShift(), span: left.span };
       } else if (tok.kind === "spaceship") {
         // <=> — treat as comparison
         this.next();
-        left = { kind: "binary_op", op: "<", left, right: this.parseShift(), span: left.span };
+        left = { kind: "binary_op", operator: "<", left, right: this.parseShift(), span: left.span };
       } else {
         break;
       }
@@ -1508,9 +1508,9 @@ export class Parser {
         break; // `>>` closes two nested template lists here, not a shift operator
       }
       if (this.tryConsume("l_shift")) {
-        left = { kind: "binary_op", op: "<<", left, right: this.parseAdditive(), span: left.span };
+        left = { kind: "binary_op", operator: "<<", left, right: this.parseAdditive(), span: left.span };
       } else if (this.tryConsume("r_shift")) {
-        left = { kind: "binary_op", op: ">>", left, right: this.parseAdditive(), span: left.span };
+        left = { kind: "binary_op", operator: ">>", left, right: this.parseAdditive(), span: left.span };
       } else {
         break;
       }
@@ -1526,7 +1526,7 @@ export class Parser {
       if (this.tryConsume("plus")) {
         left = {
           kind: "binary_op",
-          op: "+",
+          operator: "+",
           left,
           right: this.parseMultiplicative(),
           span: left.span,
@@ -1534,7 +1534,7 @@ export class Parser {
       } else if (this.tryConsume("minus")) {
         left = {
           kind: "binary_op",
-          op: "-",
+          operator: "-",
           left,
           right: this.parseMultiplicative(),
           span: left.span,
@@ -1552,11 +1552,11 @@ export class Parser {
 
     while (!this.eof()) {
       if (this.tryConsume("star")) {
-        left = { kind: "binary_op", op: "*", left, right: this.parseUnary(), span: left.span };
+        left = { kind: "binary_op", operator: "*", left, right: this.parseUnary(), span: left.span };
       } else if (this.tryConsume("slash")) {
-        left = { kind: "binary_op", op: "/", left, right: this.parseUnary(), span: left.span };
+        left = { kind: "binary_op", operator: "/", left, right: this.parseUnary(), span: left.span };
       } else if (this.tryConsume("percent")) {
-        left = { kind: "binary_op", op: "%", left, right: this.parseUnary(), span: left.span };
+        left = { kind: "binary_op", operator: "%", left, right: this.parseUnary(), span: left.span };
       } else {
         break;
       }
@@ -1598,20 +1598,20 @@ export class Parser {
         star: "*",
         amp: "&",
       };
-      const op = opMap[tok.kind];
-      if (op) {
+      const operator = opMap[tok.kind];
+      if (operator) {
         this.next();
-        const arg = this.parseUnary();
-        return { kind: "unary_op", op, arg, span: tok.span };
+        const argument = this.parseUnary();
+        return { kind: "unary_op", operator, argument, span: tok.span };
       }
     }
 
     // Prefix ++ / --
     if (tok.kind === "plus_plus" || tok.kind === "minus_minus") {
-      const op = tok.kind === "plus_plus" ? ("++" as const) : ("--" as const);
+      const operator = tok.kind === "plus_plus" ? ("++" as const) : ("--" as const);
       this.next();
-      const arg = this.parseUnary();
-      return { kind: "prefix_op", op, arg, span: tok.span };
+      const argument = this.parseUnary();
+      return { kind: "prefix_op", operator, argument, span: tok.span };
     }
 
     // sizeof
@@ -1628,7 +1628,7 @@ export class Parser {
   }
 
   private parsePostfix(): Expression {
-    let expr = this.parsePrimaryExpression();
+    let expression = this.parsePrimaryExpression();
 
     while (!this.eof()) {
       const tok = this.peek();
@@ -1636,17 +1636,17 @@ export class Parser {
       // Brace-init / aggregate construction: TypeName{ a, b, c } (e.g. Logger{ idx, code, 0 }). Only an
       if (
         tok.kind === "l_brace" &&
-        (expr.kind === "identifier" || expr.kind === "qualified_name")
+        (expression.kind === "identifier" || expression.kind === "qualified_name")
       ) {
-        const name = expr.kind === "identifier" ? expr.name : `${expr.namespace}::${expr.name}`;
+        const name = expression.kind === "identifier" ? expression.name : `${expression.namespace}::${expression.name}`;
         this.next(); // {
-        const args: Expression[] = [];
+        const callArguments: Expression[] = [];
         while (!this.eof() && this.peek().kind !== "r_brace") {
-          args.push(this.parseBraceArg());
+          callArguments.push(this.parseBraceArg());
           if (!this.tryConsume("comma")) break;
         }
         this.expect("r_brace", "brace init");
-        expr = { kind: "construct", type: { kind: "name", name }, args, span: expr.span };
+        expression = { kind: "construct", type: { kind: "name", name }, callArguments, span: expression.span };
         continue;
       }
 
@@ -1656,12 +1656,12 @@ export class Parser {
         this.next();
         const memberTok = this.expect("identifier", "member access");
         if (memberTok) {
-          expr = {
+          expression = {
             kind: "member_access",
-            object: expr,
+            object: expression,
             member: memberTok.text,
             arrow,
-            span: expr.span,
+            span: expression.span,
           };
         }
         continue;
@@ -1672,67 +1672,67 @@ export class Parser {
         this.next();
         const index = this.parseExpression();
         this.expect("r_bracket", "subscript");
-        expr = { kind: "subscript", object: expr, index, span: expr.span };
+        expression = { kind: "subscript", object: expression, index, span: expression.span };
         continue;
       }
 
       // Function call: expr(args)
       if (tok.kind === "l_paren") {
         this.next();
-        const args = this.parseArgList();
+        const callArguments = this.parseArgList();
         this.expect("r_paren", "call args");
-        expr = { kind: "call", callee: expr, args, span: expr.span };
+        expression = { kind: "call", callee: expression, callArguments, span: expression.span };
         continue;
       }
 
       // Template call: expr<T>(args) — only when the lookahead genuinely matches `< types > (`.
       if (tok.kind === "l_angle" && this.looksLikeTemplateArgs()) {
         this.next();
-        const templateArgs: TypeSpec[] = [];
+        const templateArguments: TypeSpec[] = [];
         while (!this.eof() && this.peek().kind !== "r_angle") {
           const argStart = this.peek().span;
-          const k = this.peek().kind;
+          const kind = this.peek().kind;
           // Function-template arguments may be non-type values (`irootK64<2>` and
           // `irootNewtonStep<k>`), just like class-template arguments. Preserve the
           if (
-            k === "int_literal" ||
-            k === "l_paren" ||
-            k === "kw_sizeof" ||
-            k === "char_literal" ||
-            k === "minus" ||
-            k === "tilde" ||
-            k === "kw_true" ||
-            k === "kw_false" ||
+            kind === "int_literal" ||
+            kind === "l_paren" ||
+            kind === "kw_sizeof" ||
+            kind === "char_literal" ||
+            kind === "minus" ||
+            kind === "tilde" ||
+            kind === "kw_true" ||
+            kind === "kw_false" ||
             this.templateArgIsExpr()
           ) {
-            templateArgs.push({ kind: "expr_value", expr: this.parseShift(), span: argStart });
+            templateArguments.push({ kind: "expr_value", expression: this.parseShift(), span: argStart });
           } else {
-            templateArgs.push(this.parseTypeSpec());
+            templateArguments.push(this.parseTypeSpec());
           }
           if (!this.tryConsume("comma")) break;
         }
         this.consumeAngleClose();
 
         this.expect("l_paren", "template call args");
-        const args = this.parseArgList();
+        const callArguments = this.parseArgList();
         this.expect("r_paren", "template call args close");
 
-        expr = { kind: "template_call", callee: expr, templateArgs, args, span: expr.span };
+        expression = { kind: "template_call", callee: expression, templateArguments, callArguments, span: expression.span };
         continue;
       }
 
       // Postfix ++ / --
       if (tok.kind === "plus_plus" || tok.kind === "minus_minus") {
-        const op = tok.kind === "plus_plus" ? ("++" as const) : ("--" as const);
+        const operator = tok.kind === "plus_plus" ? ("++" as const) : ("--" as const);
         this.next();
-        expr = { kind: "postfix_op", op, arg: expr, span: expr.span };
+        expression = { kind: "postfix_op", operator, argument: expression, span: expression.span };
         continue;
       }
 
       break;
     }
 
-    return expr;
+    return expression;
   }
 
   // Disambiguate `<` as template-args vs comparison: scan from the `<` for a matching `>` that is immediately followed
@@ -1743,39 +1743,39 @@ export class Parser {
     let ok = true;
     let guard = 0;
     while (!this.eof() && depth > 0 && guard++ < 200) {
-      const k = this.peek().kind;
-      if (k === "l_angle") {
+      const kind = this.peek().kind;
+      if (kind === "l_angle") {
         depth++;
         this.next();
         continue;
       }
-      if (k === "r_angle") {
+      if (kind === "r_angle") {
         depth--;
         this.next();
         continue;
       }
-      if (k === "r_shift") {
+      if (kind === "r_shift") {
         depth -= 2;
         this.next();
         continue;
       }
       // Tokens that can't appear inside a template-argument list → it's a comparison.
       if (
-        k === "semicolon" ||
-        k === "l_brace" ||
-        k === "r_brace" ||
-        k === "eq" ||
-        k === "plus" ||
-        k === "minus" ||
-        k === "slash" ||
-        k === "percent" ||
-        k === "question" ||
-        k === "amp_amp" ||
-        k === "pipe_pipe" ||
-        k === "eq_eq" ||
-        k === "not_eq" ||
-        k === "l_paren" ||
-        k === "r_paren"
+        kind === "semicolon" ||
+        kind === "l_brace" ||
+        kind === "r_brace" ||
+        kind === "eq" ||
+        kind === "plus" ||
+        kind === "minus" ||
+        kind === "slash" ||
+        kind === "percent" ||
+        kind === "question" ||
+        kind === "amp_amp" ||
+        kind === "pipe_pipe" ||
+        kind === "eq_eq" ||
+        kind === "not_eq" ||
+        kind === "l_paren" ||
+        kind === "r_paren"
       ) {
         ok = false;
         break;
@@ -1791,13 +1791,13 @@ export class Parser {
   private parseBraceArg(): Expression {
     if (this.peek().kind === "l_brace") {
       const start = this.next().span; // {
-      const exprs: Expression[] = [];
+      const expressions: Expression[] = [];
       while (!this.eof() && this.peek().kind !== "r_brace") {
-        exprs.push(this.parseBraceArg());
+        expressions.push(this.parseBraceArg());
         if (!this.tryConsume("comma")) break;
       }
       this.expect("r_brace", "initializer list");
-      return { kind: "initializer_list", exprs, span: start };
+      return { kind: "initializer_list", expressions, span: start };
     }
     return this.parseExpression();
   }
@@ -1809,9 +1809,9 @@ export class Parser {
     if (tok.kind === "int_literal") {
       this.next();
       // Split the u/l suffix off the digits — literal typing (width/signedness) reads it.
-      const m = tok.text.match(/^(.+?)([uUlL]+)$/);
-      if (m) {
-        return { kind: "int_literal", value: m[1], suffix: m[2], span: tok.span };
+      const member = tok.text.match(/^(.+?)([uUlL]+)$/);
+      if (member) {
+        return { kind: "int_literal", value: member[1], suffix: member[2], span: tok.span };
       }
       return { kind: "int_literal", value: tok.text, span: tok.span };
     }
@@ -1862,10 +1862,10 @@ export class Parser {
       this.next();
       const savedGt = this.gtDisabled;
       this.gtDisabled = 0; // a `>` inside parens is a comparison again, even within a template list
-      const expr = this.parseExpression();
+      const expression = this.parseExpression();
       this.gtDisabled = savedGt;
       this.expect("r_paren", "paren expr");
-      return { kind: "paren", expr, span: tok.span };
+      return { kind: "paren", expression, span: tok.span };
     }
 
     // Brace initializer: {a, b, c}
@@ -1873,14 +1873,14 @@ export class Parser {
       this.next();
       const savedGt = this.gtDisabled;
       this.gtDisabled = 0;
-      const exprs: Expression[] = [];
+      const expressions: Expression[] = [];
       while (!this.eof() && this.peek().kind !== "r_brace") {
-        exprs.push(this.parseExpression());
+        expressions.push(this.parseExpression());
         if (!this.tryConsume("comma")) break;
       }
       this.gtDisabled = savedGt;
       this.expect("r_brace", "initializer list");
-      return { kind: "initializer_list", exprs, span: tok.span };
+      return { kind: "initializer_list", expressions, span: tok.span };
     }
 
     // Identifier or qualified name
@@ -1971,12 +1971,12 @@ export class Parser {
   private parseCommaSequence(): Expression {
     const first = this.parseExpression();
     if (this.peek().kind !== "comma") return first;
-    const exprs = [first];
+    const expressions = [first];
     while (this.peek().kind === "comma") {
       this.next();
-      exprs.push(this.parseExpression());
+      expressions.push(this.parseExpression());
     }
-    return { kind: "sequence", exprs, span: first.span };
+    return { kind: "sequence", expressions, span: first.span };
   }
 
   // A local variable declaration at statement start is `Type var`/`Type* var`, not a keyword usage.
@@ -1985,35 +1985,35 @@ export class Parser {
     if (t0 === "kw_const" || t0 === "kw_auto") return true;
     if (t0 !== "identifier") return false;
     // Skip a qualified type name: identifier (:: identifier)* — e.g. QPI::uint64 name.
-    let i = 1;
-    while (this.peek(i).kind === "d_colon" && this.peek(i + 1).kind === "identifier") i += 2;
+    let index = 1;
+    while (this.peek(index).kind === "d_colon" && this.peek(index + 1).kind === "identifier") index += 2;
     // Skip template arguments `<...>` so `ProposalWithAllVoteData<D, N>& p` is recognized as a decl, not read as a `<`
-    if (this.peek(i).kind === "l_angle") {
+    if (this.peek(index).kind === "l_angle") {
       let depth = 0;
-      let j = i;
-      for (; !this.eof(); j++) {
-        const k = this.peek(j).kind;
-        if (k === "l_angle") depth++;
-        else if (k === "r_angle") {
+      let templateEndIndex = index;
+      for (; !this.eof(); templateEndIndex++) {
+        const kind = this.peek(templateEndIndex).kind;
+        if (kind === "l_angle") depth++;
+        else if (kind === "r_angle") {
           if (--depth === 0) {
-            j++;
+            templateEndIndex++;
             break;
           }
-        } else if (k === "r_shift") {
+        } else if (kind === "r_shift") {
           depth -= 2;
           if (depth <= 0) {
-            j++;
+            templateEndIndex++;
             break;
           }
-        } else if (k === "semicolon" || k === "l_brace" || k === "r_brace" || k === "r_paren")
+        } else if (kind === "semicolon" || kind === "l_brace" || kind === "r_brace" || kind === "r_paren")
           return false;
       }
       if (depth > 0) return false;
-      i = j;
+      index = templateEndIndex;
     }
-    const t1 = this.peek(i).kind;
+    const t1 = this.peek(index).kind;
     if (t1 === "identifier") return true;
-    if ((t1 === "star" || t1 === "amp") && this.peek(i + 1).kind === "identifier") return true;
+    if ((t1 === "star" || t1 === "amp") && this.peek(index + 1).kind === "identifier") return true;
     return false;
   }
 
@@ -2024,23 +2024,23 @@ export class Parser {
     let depth = 1,
       guard = 0;
     while (!this.eof() && depth > 0 && guard++ < 500) {
-      const k = this.peek().kind;
-      if (k === "l_angle") {
+      const kind = this.peek().kind;
+      if (kind === "l_angle") {
         depth++;
         this.next();
         continue;
       }
-      if (k === "r_angle") {
+      if (kind === "r_angle") {
         depth--;
         this.next();
         continue;
       }
-      if (k === "r_shift") {
+      if (kind === "r_shift") {
         depth -= 2;
         this.next();
         continue;
       }
-      if (k === "semicolon" || k === "l_brace") return false;
+      if (kind === "semicolon" || kind === "l_brace") return false;
       this.next();
     }
     return depth <= 0;
@@ -2063,15 +2063,15 @@ export class Parser {
     let sawAngle = false;
 
     while (!this.eof()) {
-      const t = this.peek();
+      const token = this.peek();
       // In this subset, C-style casts have no parenthesized nested expressions.
-      if (t.kind === "l_paren") {
+      if (token.kind === "l_paren") {
         depth++;
         sawNestedParen = true;
         this.next();
         continue;
       }
-      if (t.kind === "r_paren") {
+      if (token.kind === "r_paren") {
         if (depth === 0) {
           this.next();
           break;
@@ -2082,42 +2082,42 @@ export class Parser {
       }
       saw = true;
       const ok =
-        isTypeKeyword(t.kind) ||
-        t.kind === "kw_unsigned" ||
-        t.kind === "kw_signed" ||
-        t.kind === "kw_const" ||
-        t.kind === "kw_struct" ||
-        t.kind === "kw_enum" ||
-        t.kind === "kw_class" ||
-        t.kind === "star" ||
-        t.kind === "amp" ||
-        t.kind === "d_colon" ||
-        t.kind === "l_angle" ||
-        t.kind === "r_angle" ||
-        t.kind === "r_shift" ||
-        t.kind === "comma" ||
-        t.kind === "identifier";
+        isTypeKeyword(token.kind) ||
+        token.kind === "kw_unsigned" ||
+        token.kind === "kw_signed" ||
+        token.kind === "kw_const" ||
+        token.kind === "kw_struct" ||
+        token.kind === "kw_enum" ||
+        token.kind === "kw_class" ||
+        token.kind === "star" ||
+        token.kind === "amp" ||
+        token.kind === "d_colon" ||
+        token.kind === "l_angle" ||
+        token.kind === "r_angle" ||
+        token.kind === "r_shift" ||
+        token.kind === "comma" ||
+        token.kind === "identifier";
       // C-style casts here only target scalar type spellings.
-      if (t.kind === "l_angle" && depth === 0) sawAngle = true;
-      if ((t.kind === "r_angle" || t.kind === "r_shift") && angleDepth === 0) pureType = false;
-      if (t.kind === "l_angle") angleDepth++;
-      if (t.kind === "r_angle") angleDepth = Math.max(0, angleDepth - 1);
-      if (t.kind === "r_shift") angleDepth = Math.max(0, angleDepth - 2);
+      if (token.kind === "l_angle" && depth === 0) sawAngle = true;
+      if ((token.kind === "r_angle" || token.kind === "r_shift") && angleDepth === 0) pureType = false;
+      if (token.kind === "l_angle") angleDepth++;
+      if (token.kind === "r_angle") angleDepth = Math.max(0, angleDepth - 1);
+      if (token.kind === "r_shift") angleDepth = Math.max(0, angleDepth - 2);
       // In type-id context, `*`/`&` act as declarator suffixes inside template-free area.
-      if ((t.kind === "star" || t.kind === "amp") && angleDepth === 0) sawPtrRef = true;
+      if ((token.kind === "star" || token.kind === "amp") && angleDepth === 0) sawPtrRef = true;
       if (
         sawPtrRef &&
         angleDepth === 0 &&
-        (t.kind === "identifier" || t.kind === "d_colon" || isTypeKeyword(t.kind))
+        (token.kind === "identifier" || token.kind === "d_colon" || isTypeKeyword(token.kind))
       ) {
         pureType = false;
       }
-      if (isTypeKeyword(t.kind) || t.kind === "identifier") sawTypeToken = true;
+      if (isTypeKeyword(token.kind) || token.kind === "identifier") sawTypeToken = true;
       if (!ok) {
         pureType = false;
       }
       tokenCount++;
-      loneIdent = tokenCount === 1 && t.kind === "identifier" ? t.text : null;
+      loneIdent = tokenCount === 1 && token.kind === "identifier" ? token.text : null;
       this.next();
     }
 
@@ -2162,8 +2162,8 @@ export class Parser {
     this.next(); // (
     const type = this.parseTypeSpec();
     this.expect("r_paren", "cast");
-    const expr = this.parseUnary();
-    return { kind: "c_cast", type, expr, span: expr.span };
+    const expression = this.parseUnary();
+    return { kind: "c_cast", type, expression, span: expression.span };
   }
 
   private parseSizeof(): Expression {
@@ -2186,31 +2186,31 @@ export class Parser {
         return { kind: "sizeof_type", type, span: this.makeSpan(start) };
       }
 
-      const expr = this.parseExpression();
+      const expression = this.parseExpression();
       this.expect("r_paren", "sizeof expr");
-      return { kind: "sizeof_expr", expr, span: this.makeSpan(start) };
+      return { kind: "sizeof_expr", expression, span: this.makeSpan(start) };
     }
 
     // sizeof expr (without parens)
-    const expr = this.parseUnary();
-    return { kind: "sizeof_expr", expr, span: this.makeSpan(start) };
+    const expression = this.parseUnary();
+    return { kind: "sizeof_expr", expression, span: this.makeSpan(start) };
   }
 
   private parseArgList(): Expression[] {
-    const args: Expression[] = [];
+    const callArguments: Expression[] = [];
 
     if (this.peek().kind === "r_paren") {
-      return args;
+      return callArguments;
     }
 
     while (!this.eof()) {
-      args.push(this.parseExpression());
+      callArguments.push(this.parseExpression());
       if (!this.tryConsume("comma")) {
         break;
       }
     }
 
-    return args;
+    return callArguments;
   }
 
   // ---- Statements ----
@@ -2276,7 +2276,7 @@ export class Parser {
     // static_assert
     if (tok.kind === "kw_static_assert") {
       const sa = this.parseStaticAssertDecl();
-      return { kind: "static_assert", cond: sa.cond, message: sa.message, span: sa.span };
+      return { kind: "static_assert", condition: sa.condition, message: sa.message, span: sa.span };
     }
 
     // Declaration (type keyword or modifier)
@@ -2299,23 +2299,23 @@ export class Parser {
       tok.kind === "kw_long" ||
       this.looksLikeLocalDecl()
     ) {
-      const decl = this.parseDeclaration();
-      if (decl) {
+      const declaration = this.parseDeclaration();
+      if (declaration) {
         // Multi-declarator statement (`sint64 a = 0, b = 0;`): parseVariableRest queues the extra declarators on `pending`, which only
         if (this.pending.length) {
-          const stmts: Statement[] = [{ kind: "declaration", decl, span: this.peek().span }];
+          const statements: Statement[] = [{ kind: "declaration", declaration, span: this.peek().span }];
           while (this.pending.length) {
-            const d = this.pending.shift()!;
-            stmts.push({ kind: "declaration", decl: d, span: (d as any).span ?? this.peek().span });
+            const declaration = this.pending.shift()!;
+            statements.push({ kind: "declaration", declaration: declaration, span: (declaration as any).span ?? this.peek().span });
           }
           return {
             kind: "compound",
-            body: stmts,
+            body: statements,
             span: this.peek().span,
             synthetic: true,
           } as Statement;
         }
-        return { kind: "declaration", decl, span: this.peek().span };
+        return { kind: "declaration", declaration, span: this.peek().span };
       }
     }
 
@@ -2325,16 +2325,16 @@ export class Parser {
       return { kind: "empty", span: tok.span };
     }
 
-    const expr = this.parseExpression();
+    const expression = this.parseExpression();
 
     // Label after expression: expr : (unlikely but possible for case-like constructs)
-    if (this.peek().kind === "colon" && expr.kind === "identifier") {
+    if (this.peek().kind === "colon" && expression.kind === "identifier") {
       this.next(); // :
-      return { kind: "label", name: (expr as any).name, span: expr.span };
+      return { kind: "label", name: (expression as any).name, span: expression.span };
     }
 
     this.expect("semicolon", "expression statement");
-    return { kind: "expression", expr, span: expr.span };
+    return { kind: "expression", expression, span: expression.span };
   }
 
   private parseCompoundStatement(): Statement {
@@ -2342,9 +2342,9 @@ export class Parser {
     const body: Statement[] = [];
 
     while (!this.eof() && this.peek().kind !== "r_brace") {
-      const stmt = this.parseStatement();
-      if (stmt) {
-        body.push(stmt);
+      const statement = this.parseStatement();
+      if (statement) {
+        body.push(statement);
       }
     }
 
@@ -2356,7 +2356,7 @@ export class Parser {
   private parseIf(): Statement {
     const start = this.next().span; // if
     this.expect("l_paren", "if cond");
-    const cond = this.parseExpression();
+    const condition = this.parseExpression();
     this.expect("r_paren", "if cond close");
 
     const thenStmt = this.parseStatement();
@@ -2366,36 +2366,36 @@ export class Parser {
       elseStmt = this.parseStatement();
     }
 
-    return { kind: "if", cond, then: thenStmt, else_: elseStmt, span: this.makeSpan(start) };
+    return { kind: "if", condition, then: thenStmt, else_: elseStmt, span: this.makeSpan(start) };
   }
 
   private parseFor(): Statement {
     const start = this.next().span; // for
     this.expect("l_paren", "for");
 
-    let init: Statement | undefined;
-    let cond: Expression | undefined;
+    let initializer: Statement | undefined;
+    let condition: Expression | undefined;
     let update: Expression | undefined;
 
     // for (;;)
     if (this.peek().kind !== "semicolon") {
       // Could be a declaration (`for (sint64 i = 0; ...)`) or an expression init.
       if (isTypeKeyword(this.peek().kind) || this.looksLikeLocalDecl()) {
-        const decl = this.parseDeclaration();
-        if (decl) {
-          init = { kind: "declaration", decl, span: decl.span ?? this.peek().span };
+        const declaration = this.parseDeclaration();
+        if (declaration) {
+          initializer = { kind: "declaration", declaration, span: declaration.span ?? this.peek().span };
         }
       } else {
         // the init clause may be a comma sequence of assignments: for (a = x, b = 0; ...).
-        const expr = this.parseCommaSequence();
-        init = { kind: "expression", expr, span: expr.span };
+        const expression = this.parseCommaSequence();
+        initializer = { kind: "expression", expression, span: expression.span };
       }
     }
     // parseDeclaration may or may not consume the trailing ';'; consume it here if still present.
     if (this.peek().kind === "semicolon") this.next();
 
     if (this.peek().kind !== "semicolon") {
-      cond = this.parseExpression();
+      condition = this.parseExpression();
     }
     this.expect("semicolon", "for cond");
 
@@ -2406,16 +2406,16 @@ export class Parser {
 
     const body = this.parseStatement();
 
-    return { kind: "for", init, cond, update, body, span: this.makeSpan(start) };
+    return { kind: "for", initializer, condition, update, body, span: this.makeSpan(start) };
   }
 
   private parseWhile(): Statement {
     const start = this.next().span; // while
     this.expect("l_paren", "while cond");
-    const cond = this.parseExpression();
+    const condition = this.parseExpression();
     this.expect("r_paren", "while cond close");
     const body = this.parseStatement();
-    return { kind: "while", cond, body, span: this.makeSpan(start) };
+    return { kind: "while", condition, body, span: this.makeSpan(start) };
   }
 
   private parseDoWhile(): Statement {
@@ -2423,19 +2423,19 @@ export class Parser {
     const body = this.parseStatement();
     this.expect("kw_while", "do-while while");
     this.expect("l_paren", "do-while cond");
-    const cond = this.parseExpression();
+    const condition = this.parseExpression();
     this.expect("r_paren", "do-while cond close");
     this.expect("semicolon", "do-while");
-    return { kind: "do_while", body, cond, span: this.makeSpan(start) };
+    return { kind: "do_while", body, condition, span: this.makeSpan(start) };
   }
 
   private parseSwitch(): Statement {
     const start = this.next().span; // switch
     this.expect("l_paren", "switch cond");
-    const cond = this.parseExpression();
+    const condition = this.parseExpression();
     this.expect("r_paren", "switch cond close");
     const body = this.parseStatement();
-    return { kind: "switch", cond, body, span: this.makeSpan(start) };
+    return { kind: "switch", condition, body, span: this.makeSpan(start) };
   }
 
   private parseCase(): Statement {
@@ -2482,26 +2482,26 @@ export class Parser {
     this.next(); // consume the opener
     let depth = 1;
     while (!this.eof() && depth > 0) {
-      const k = this.peek().kind;
-      if (k === open) depth++;
-      else if (k === close) depth--;
+      const kind = this.peek().kind;
+      if (kind === open) depth++;
+      else if (kind === close) depth--;
       this.next();
     }
   }
 
   private parseDeclarationList(): Declaration[] {
-    const decls: Declaration[] = [];
+    const declarations: Declaration[] = [];
 
     while (!this.eof() && this.peek().kind !== "r_brace") {
       const before = (this.lex as any).index;
       const errsBefore = this.diagnostics.length;
-      const decl = this.parseDeclaration();
-      if (decl && decl.kind !== "empty") decls.push(decl);
-      while (this.pending.length) decls.push(this.pending.shift()!);
+      const declaration = this.parseDeclaration();
+      if (declaration && declaration.kind !== "empty") declarations.push(declaration);
+      while (this.pending.length) declarations.push(this.pending.shift()!);
       this.recover(before, errsBefore);
     }
 
-    return decls;
+    return declarations;
   }
 
   private parseClassMembers(): Declaration[] {
@@ -2516,15 +2516,15 @@ export class Parser {
       }
 
       if (tok.kind === "kw_friend") {
-        const f = this.parseFriend();
-        members.push(f);
+        const field = this.parseFriend();
+        members.push(field);
         continue;
       }
 
       const before = (this.lex as any).index;
       const errsBefore = this.diagnostics.length;
-      const decl = this.parseDeclaration();
-      if (decl && decl.kind !== "empty") members.push(decl);
+      const declaration = this.parseDeclaration();
+      if (declaration && declaration.kind !== "empty") members.push(declaration);
       while (this.pending.length) members.push(this.pending.shift()!);
       this.recover(before, errsBefore);
     }
@@ -2550,20 +2550,20 @@ export class Parser {
 
     let depth = 0;
     while (!this.eof()) {
-      const k = this.peek().kind;
-      if (k === "l_brace") {
+      const kind = this.peek().kind;
+      if (kind === "l_brace") {
         depth++;
         this.next();
         continue;
       }
-      if (k === "r_brace") {
+      if (kind === "r_brace") {
         if (depth === 0) return; // class body's own close — let the caller handle it
         depth--;
         this.next();
         if (depth === 0) return; // finished a member's brace body (e.g. a constructor) — member boundary
         continue;
       }
-      if (k === "semicolon" && depth === 0) {
+      if (kind === "semicolon" && depth === 0) {
         this.next();
         return;
       }
@@ -2599,20 +2599,20 @@ export class Parser {
 
   private makeSpan(start: Span): Span {
     const last = this._last?.span ?? this.peek().span;
-    return { start: start.start, end: last.end, line: start.line, col: start.col };
+    return { start: start.start, end: last.end, line: start.line, column: start.column };
   }
 
   // --- IDL extraction ---- Extract contract IDL from parsed AST (input/output types per registered entry)
   extractIdl(
-    tu: TranslationUnit,
+    translationUnit: TranslationUnit,
   ): Record<string, { inputType: number; kind: number; inSize: number; outSize: number }> {
     const idl: Record<
       string,
       { inputType: number; kind: number; inSize: number; outSize: number }
     > = {};
     // This is driven by the REGISTER_USER_FUNCTION/PROCEDURE calls in __registerUserFunctionsAndProcedures.
-    for (const decl of tu.declarations) {
-      this.extractIdlFromNode(decl, idl);
+    for (const declaration of translationUnit.declarations) {
+      this.extractIdlFromNode(declaration, idl);
     }
     return idl;
   }
@@ -2625,26 +2625,26 @@ export class Parser {
       }
     } else if (node.kind === "struct" || node.kind === "class_template") {
       const struct = node as StructDecl | ClassTemplateDecl;
-      for (const m of struct.members) {
-        this.extractIdlFromNode(m, idl);
+      for (const member of struct.members) {
+        this.extractIdlFromNode(member, idl);
       }
     } else if (node.kind === "namespace") {
-      for (const d of (node as NamespaceDecl).body) {
-        this.extractIdlFromNode(d, idl);
+      for (const bodyItem of (node as NamespaceDecl).body) {
+        this.extractIdlFromNode(bodyItem, idl);
       }
     }
   }
 
-  private extractIdlFromStmt(stmt: Statement, idl: Record<string, any>): void {
-    if (stmt.kind === "compound") {
-      for (const s of (stmt as any).body) {
-        this.extractIdlFromStmt(s, idl);
+  private extractIdlFromStmt(statement: Statement, idl: Record<string, any>): void {
+    if (statement.kind === "compound") {
+      for (const bodyItem of (statement as any).body) {
+        this.extractIdlFromStmt(bodyItem, idl);
       }
-    } else if (stmt.kind === "expression") {
-      const expr = stmt as any;
+    } else if (statement.kind === "expression") {
+      const expression = statement as any;
       // Look for: qpi.__registerUserFunction(fn, inputType, sizeof(input), sizeof(output), sizeof(locals))
-      if (expr.expr?.kind === "call") {
-        this.checkRegistrationCall(expr.expr, idl);
+      if (expression.expression?.kind === "call") {
+        this.checkRegistrationCall(expression.expression, idl);
       }
     }
   }
@@ -2657,19 +2657,19 @@ export class Parser {
     ) {
       const kind = call.callee.member === "__registerUserFunction" ? 0 : 1;
       // sizeof(Foo_input) parses as sizeof_type when Foo_input is a known type keyword, but as sizeof_expr when it is a
-      const isSizeof = (a: any) => a?.kind === "sizeof_type" || a?.kind === "sizeof_expr";
+      const isSizeof = (argument: any) => argument?.kind === "sizeof_type" || argument?.kind === "sizeof_expr";
       if (
-        call.args.length >= 5 &&
-        call.args[1]?.kind === "int_literal" &&
-        isSizeof(call.args[2]) &&
-        isSizeof(call.args[3])
+        call.callArguments.length >= 5 &&
+        call.callArguments[1]?.kind === "int_literal" &&
+        isSizeof(call.callArguments[2]) &&
+        isSizeof(call.callArguments[3])
       ) {
-        const inputType = parseInt(call.args[1].value);
+        const inputType = parseInt(call.callArguments[1].value);
         const fnName =
-          call.args[0]?.kind === "identifier"
-            ? call.args[0].name
-            : call.args[0]?.kind === "c_cast"
-              ? call.args[0].expr?.name
+          call.callArguments[0]?.kind === "identifier"
+            ? call.callArguments[0].name
+            : call.callArguments[0]?.kind === "c_cast"
+              ? call.callArguments[0].expression?.name
               : "";
         // inSize/outSize from sizeof — need sema to evaluate
         if (fnName && inputType >= 1 && inputType <= 65535) {

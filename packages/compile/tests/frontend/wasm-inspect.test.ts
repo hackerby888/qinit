@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { emitModule, type ModuleSpec } from "../../src/framework";
+import { emitModule, type ModuleSpecification } from "../../src/framework";
 import {
   inspectLiteWasmModule,
   LHOST_ABI,
@@ -7,7 +7,7 @@ import {
 } from "../../src/compiler/wasm-inspect";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
-const SPEC: ModuleSpec = {
+const SPEC: ModuleSpecification = {
   stateSize: 8,
   arenaSize: 64 * 1024,
   contextLayout: QPI_CONTEXT_LAYOUT,

@@ -19,85 +19,86 @@ export interface ValidateDiagnostic {
 }
 
 interface FnSig {
-  decl: FunctionDecl;
+  declaration: FunctionDecl;
   minArgs: number;
   maxArgs: number;
 }
 
-const NO_SPAN: Span = { start: 0, end: 0, line: 0, col: 0 };
+const NO_SPAN: Span = { start: 0, end: 0, line: 0, column: 0 };
 
-function validateAndDesugarBase(tu: { declarations: Declaration[] }): ValidateDiagnostic[] {
-  const v = new Validator();
-  v.runTopLevel(tu.declarations);
-  return v.diagnostics;
+function validateAndDesugarBase(translationUnit: { declarations: Declaration[] }): ValidateDiagnostic[] {
+  const value = new Validator();
+  value.runTopLevel(translationUnit.declarations);
+  return value.diagnostics;
 }
 
 // Strip const/reference wrappers down to the underlying type.
-function unwrapType(t: TypeSpec): TypeSpec {
-  if (t.kind === "const") {
-    return unwrapType(t.valueType);
+function unwrapType(type: TypeSpec): TypeSpec {
+  if (type.kind === "const") {
+    return unwrapType(type.valueType);
   }
-  if (t.kind === "reference") {
-    return unwrapType(t.refereed);
+  if (type.kind === "reference") {
+    return unwrapType(type.referentType);
   }
-  return t;
+  return type;
 }
 
-function isVoidType(t: TypeSpec): boolean {
-  const u = unwrapType(t);
-  return u.kind === "void" || (u.kind === "name" && u.name === "void");
+function isVoidType(type: TypeSpec): boolean {
+  const unwrappedType = unwrapType(type);
+  return unwrappedType.kind === "void" ||
+    (unwrappedType.kind === "name" && unwrappedType.name === "void");
 }
 
-function isConstType(t: TypeSpec): boolean {
-  if (t.kind === "const") {
+function isConstType(type: TypeSpec): boolean {
+  if (type.kind === "const") {
     return true;
   }
-  if (t.kind === "reference") {
-    return t.refereed.kind === "const";
+  if (type.kind === "reference") {
+    return type.referentType.kind === "const";
   }
   return false;
 }
 
 // Canonical key for a case label / constant operand: numeric literals normalize through BigInt (0x1 and 1 collide),
-function constKey(e: Expression): string | null {
-  if (e.kind === "int_literal") {
+function constKey(expression: Expression): string | null {
+  if (expression.kind === "int_literal") {
     try {
-      return `#${BigInt(e.value.replace(/[uUlL]+$/, ""))}`;
+      return `#${BigInt(expression.value.replace(/[uUlL]+$/, ""))}`;
     } catch {
-      return `#${e.value}`;
+      return `#${expression.value}`;
     }
   }
-  if (e.kind === "char_literal") {
-    return `#${e.value}`;
+  if (expression.kind === "char_literal") {
+    return `#${expression.value}`;
   }
-  if (e.kind === "bool_literal") {
-    return `#${e.value ? 1 : 0}`;
+  if (expression.kind === "bool_literal") {
+    return `#${expression.value ? 1 : 0}`;
   }
-  if (e.kind === "unary_op" && e.op === "-") {
-    const inner = constKey(e.arg);
+  if (expression.kind === "unary_op" && expression.operator === "-") {
+    const inner = constKey(expression.argument);
     return inner?.startsWith("#") ? `#${-BigInt(inner.slice(1))}` : null;
   }
-  if (e.kind === "identifier") {
-    return `id:${e.name}`;
+  if (expression.kind === "identifier") {
+    return `id:${expression.name}`;
   }
-  if (e.kind === "qualified_name") {
-    return `id:${e.namespace}::${e.name}`;
+  if (expression.kind === "qualified_name") {
+    return `id:${expression.namespace}::${expression.name}`;
   }
   return null;
 }
 
 // True when the literal is integer zero (any radix/suffix).
-function isZeroLiteral(e: Expression): boolean {
-  return constKey(e) === "#0";
+function isZeroLiteral(expression: Expression): boolean {
+  return constKey(expression) === "#0";
 }
 
-function isLiteral(e: Expression): boolean {
+function isLiteral(expression: Expression): boolean {
   return (
-    e.kind === "int_literal" ||
-    e.kind === "float_literal" ||
-    e.kind === "bool_literal" ||
-    e.kind === "char_literal" ||
-    e.kind === "string_literal"
+    expression.kind === "int_literal" ||
+    expression.kind === "float_literal" ||
+    expression.kind === "bool_literal" ||
+    expression.kind === "char_literal" ||
+    expression.kind === "string_literal"
   );
 }
 
@@ -122,87 +123,87 @@ const CONST_TYPE_SIZE: Record<string, bigint> = {
 
 // Small, side-effect-free integral constant evaluator used by validation. Unknown identifiers
 function evalIntegralConst(
-  e: Expression,
+  expression: Expression,
   resolve?: (name: string) => bigint | null,
 ): bigint | null {
   try {
-    switch (e.kind) {
+    switch (expression.kind) {
       case "int_literal":
-        return parseIntLiteral(e.value);
+        return parseIntLiteral(expression.value);
       case "bool_literal":
-        return e.value ? 1n : 0n;
+        return expression.value ? 1n : 0n;
       case "char_literal":
-        return BigInt(e.value);
+        return BigInt(expression.value);
       case "identifier":
-        return resolve?.(e.name) ?? null;
+        return resolve?.(expression.name) ?? null;
       case "qualified_name":
-        return resolve?.(`${e.namespace}::${e.name}`) ?? null;
+        return resolve?.(`${expression.namespace}::${expression.name}`) ?? null;
       case "paren":
-        return evalIntegralConst(e.expr, resolve);
+        return evalIntegralConst(expression.expression, resolve);
       case "unary_op": {
-        const a = evalIntegralConst(e.arg, resolve);
-        if (a === null) return null;
-        if (e.op === "-") return -a;
-        if (e.op === "+") return a;
-        if (e.op === "~") return ~a;
-        if (e.op === "!") return a === 0n ? 1n : 0n;
+        const numericValue = evalIntegralConst(expression.argument, resolve);
+        if (numericValue === null) return null;
+        if (expression.operator === "-") return -numericValue;
+        if (expression.operator === "+") return numericValue;
+        if (expression.operator === "~") return ~numericValue;
+        if (expression.operator === "!") return numericValue === 0n ? 1n : 0n;
         return null;
       }
       case "binary_op": {
-        const l = evalIntegralConst(e.left, resolve);
-        const r = evalIntegralConst(e.right, resolve);
-        if (l === null || r === null) return null;
-        switch (e.op) {
+        const leftValue = evalIntegralConst(expression.left, resolve);
+        const rightValue = evalIntegralConst(expression.right, resolve);
+        if (leftValue === null || rightValue === null) return null;
+        switch (expression.operator) {
           case "+":
-            return l + r;
+            return leftValue + rightValue;
           case "-":
-            return l - r;
+            return leftValue - rightValue;
           case "*":
-            return l * r;
+            return leftValue * rightValue;
           case "/":
-            return r === 0n ? null : l / r;
+            return rightValue === 0n ? null : leftValue / rightValue;
           case "%":
-            return r === 0n ? null : l % r;
+            return rightValue === 0n ? null : leftValue % rightValue;
           case "<<":
-            return l << r;
+            return leftValue << rightValue;
           case ">>":
-            return l >> r;
+            return leftValue >> rightValue;
           case "&":
-            return l & r;
+            return leftValue & rightValue;
           case "|":
-            return l | r;
+            return leftValue | rightValue;
           case "^":
-            return l ^ r;
+            return leftValue ^ rightValue;
           case "==":
-            return l === r ? 1n : 0n;
+            return leftValue === rightValue ? 1n : 0n;
           case "!=":
-            return l !== r ? 1n : 0n;
+            return leftValue !== rightValue ? 1n : 0n;
           case "<":
-            return l < r ? 1n : 0n;
+            return leftValue < rightValue ? 1n : 0n;
           case ">":
-            return l > r ? 1n : 0n;
+            return leftValue > rightValue ? 1n : 0n;
           case "<=":
-            return l <= r ? 1n : 0n;
+            return leftValue <= rightValue ? 1n : 0n;
           case ">=":
-            return l >= r ? 1n : 0n;
+            return leftValue >= rightValue ? 1n : 0n;
           case "&&":
-            return l !== 0n && r !== 0n ? 1n : 0n;
+            return leftValue !== 0n && rightValue !== 0n ? 1n : 0n;
           case "||":
-            return l !== 0n || r !== 0n ? 1n : 0n;
+            return leftValue !== 0n || rightValue !== 0n ? 1n : 0n;
           default:
             return null;
         }
       }
       case "ternary": {
-        const c = evalIntegralConst(e.cond, resolve);
-        return c === null ? null : evalIntegralConst(c !== 0n ? e.then : e.else_, resolve);
+        const numericValue = evalIntegralConst(expression.condition, resolve);
+        return numericValue === null ? null : evalIntegralConst(numericValue !== 0n ? expression.then : expression.else_, resolve);
       }
       case "c_cast":
       case "static_cast":
-        return evalIntegralConst(e.expr, resolve);
+        return evalIntegralConst(expression.expression, resolve);
       case "sizeof_type": {
-        const t = unwrapType(e.type);
-        return t.kind === "name" ? (CONST_TYPE_SIZE[t.name] ?? null) : null;
+        const type = unwrapType(expression.type);
+        return type.kind === "name" ? (CONST_TYPE_SIZE[type.name] ?? null) : null;
       }
       default:
         return null;
@@ -213,29 +214,29 @@ function evalIntegralConst(
 }
 
 // Canonical spelling of a type for signature comparison.
-function typeKey(t: TypeSpec): string {
-  switch (t.kind) {
+function typeKey(type: TypeSpec): string {
+  switch (type.kind) {
     case "name":
-      return t.name;
+      return type.name;
     case "const":
-      return `const ${typeKey(t.valueType)}`;
+      return `const ${typeKey(type.valueType)}`;
     case "reference":
-      return `${typeKey(t.refereed)}&`;
+      return `${typeKey(type.referentType)}&`;
     case "pointer":
-      return `${typeKey(t.pointee)}*`;
+      return `${typeKey(type.pointee)}*`;
     case "template_instance":
-      return `${t.name}<${t.args.map(typeKey).join(",")}>`;
+      return `${type.name}<${type.callArguments.map(typeKey).join(",")}>`;
     case "array":
-      return `${typeKey(t.elem)}[]`;
+      return `${typeKey(type.element)}[]`;
     case "void":
       return "void";
     default:
-      return t.kind;
+      return type.kind;
   }
 }
 
 function paramSignature(fn: FunctionDecl): string {
-  return fn.params.map((p) => typeKey(p.type)).join(";");
+  return fn.params.map((parameter) => typeKey(parameter.type)).join(";");
 }
 
 class Validator {
@@ -265,32 +266,32 @@ class Validator {
 
   private currentMemberFns = new Map<string, FnSig>();
 
-  private canonTypeKey(t: TypeSpec): string {
-    const u = unwrapType(t);
+  private canonTypeKey(type: TypeSpec): string {
+    const unwrappedType = unwrapType(type);
 
     // Template value arguments canonicalize to their constant values, so Array<uint8, ALIGNED_A> and Array<uint8, ALIGNED_B> compare equal when both
-    if (u.kind === "template_instance") {
-      const args = u.args.map((a) => {
-        if (a.kind === "name") {
-          const v = this.constants.get(a.name);
-          if (v !== undefined) {
-            return v.toString();
+    if (unwrappedType.kind === "template_instance") {
+      const callArguments = unwrappedType.callArguments.map((argument) => {
+        if (argument.kind === "name") {
+          const numericValue = this.constants.get(argument.name);
+          if (numericValue !== undefined) {
+            return numericValue.toString();
           }
         }
-        return this.canonTypeKey(a);
+        return this.canonTypeKey(argument);
       });
-      return `${u.name}<${args.join(",")}>`;
+      return `${unwrappedType.name}<${callArguments.join(",")}>`;
     }
 
-    let k = typeKey(u);
-    for (let i = 0; i < 8; i++) {
-      const next = this.typeAliases.get(k);
-      if (!next || next === k) {
+    let text = typeKey(unwrappedType);
+    for (let index = 0; index < 8; index++) {
+      const next = this.typeAliases.get(text);
+      if (!next || next === text) {
         break;
       }
-      k = next;
+      text = next;
     }
-    return k;
+    return text;
   }
 
   private error(message: string, span: Span | undefined): void {
@@ -306,88 +307,88 @@ class Validator {
 
   // ---- Top level ----
 
-  runTopLevel(decls: Declaration[]): void {
+  runTopLevel(declarations: Declaration[]): void {
     const typeNames = new Set<string>();
-    for (const d of decls) {
+    for (const declaration of declarations) {
       // A memberless struct is a forward declaration (`struct StateData;`), not a definition.
-      const isForwardDecl = d.kind === "struct" && d.members.length === 0;
+      const isForwardDecl = declaration.kind === "struct" && declaration.members.length === 0;
       if (
-        (d.kind === "struct" ||
-          d.kind === "class_template" ||
-          d.kind === "enum" ||
-          d.kind === "typedef_decl") &&
-        d.name &&
+        (declaration.kind === "struct" ||
+          declaration.kind === "class_template" ||
+          declaration.kind === "enum" ||
+          declaration.kind === "typedef_decl") &&
+        declaration.name &&
         !isForwardDecl
       ) {
-        if (typeNames.has(d.name)) this.error(`duplicate type definition '${d.name}'`, d.span);
-        typeNames.add(d.name);
+        if (typeNames.has(declaration.name)) this.error(`duplicate type definition '${declaration.name}'`, declaration.span);
+        typeNames.add(declaration.name);
       }
-      if (d.kind === "typedef_decl" && d.name) {
-        this.typeAliases.set(d.name, typeKey(unwrapType((d as { type: TypeSpec }).type)));
+      if (declaration.kind === "typedef_decl" && declaration.name) {
+        this.typeAliases.set(declaration.name, typeKey(unwrapType((declaration as { type: TypeSpec }).type)));
       }
-      switch (d.kind) {
+      switch (declaration.kind) {
         case "variable":
-          this.checkGlobalVariable(d);
+          this.checkGlobalVariable(declaration);
           break;
         case "struct":
-          this.checkStruct(d);
+          this.checkStruct(declaration);
           break;
         case "namespace":
-          this.runTopLevel(d.body);
+          this.runTopLevel(declaration.body);
           break;
         case "function":
-          if (d.body) {
-            this.checkFunctionBody(d, new Map());
+          if (declaration.body) {
+            this.checkFunctionBody(declaration, new Map());
           }
           break;
         case "enum":
-          this.collectEnumConstants(d);
+          this.collectEnumConstants(declaration);
           break;
         case "static_assert_decl":
-          this.checkStaticAssert(d.cond, d.message, d.span);
+          this.checkStaticAssert(declaration.condition, declaration.message, declaration.span);
           break;
         case "class_template":
-          this.checkStruct(d as unknown as StructDecl);
+          this.checkStruct(declaration as unknown as StructDecl);
           break;
       }
     }
   }
 
   // Contracts run on consensus state only: a file-scope mutable lives outside the hashed state and silently diverges between
-  private checkGlobalVariable(v: VariableDecl): void {
-    if (v.isConstexpr || v.isExtern || isConstType(v.type)) {
+  private checkGlobalVariable(variableDeclaration: VariableDecl): void {
+    if (variableDeclaration.isConstexpr || variableDeclaration.isExtern || isConstType(variableDeclaration.type)) {
       // File-scope constexpr constants feed template-argument canonicalization (canonTypeKey) and static_assert evaluation.
-      if (v.init) {
-        const value = evalIntegralConst(v.init, (name) => this.constants.get(name) ?? null);
+      if (variableDeclaration.initializer) {
+        const value = evalIntegralConst(variableDeclaration.initializer, (name) => this.constants.get(name) ?? null);
         if (value !== null) {
-          this.constants.set(v.name, value);
+          this.constants.set(variableDeclaration.name, value);
         }
       }
       return;
     }
 
     this.error(
-      `global variable '${v.name}' is not allowed in a contract — state must live in the contract state struct`,
-      v.span,
+      `global variable '${variableDeclaration.name}' is not allowed in a contract — state must live in the contract state struct`,
+      variableDeclaration.span,
     );
   }
 
   // ---- Structs ----
 
-  private checkStruct(s: StructDecl): void {
-    if (s.name) this.aggregateNames.add(s.name);
-    if (s.name)
+  private checkStruct(structDeclaration: StructDecl): void {
+    if (structDeclaration.name) this.aggregateNames.add(structDeclaration.name);
+    if (structDeclaration.name)
       this.aggregateFieldCount.set(
-        s.name,
-        s.members.filter((m) => m.kind === "variable" && !m.isStatic && !m.isConstexpr).length,
+        structDeclaration.name,
+        structDeclaration.members.filter((member) => member.kind === "variable" && !member.isStatic && !member.isConstexpr).length,
       );
-    if (s.name)
+    if (structDeclaration.name)
       this.structFields.set(
-        s.name,
+        structDeclaration.name,
         new Map(
-          s.members
-            .filter((m): m is VariableDecl => m.kind === "variable")
-            .map((m) => [m.name, m.type]),
+          structDeclaration.members
+            .filter((member): member is VariableDecl => member.kind === "variable")
+            .map((variableDeclaration) => [variableDeclaration.name, variableDeclaration.type]),
         ),
       );
     const fieldNames = new Set<string>();
@@ -395,81 +396,81 @@ class Validator {
     const fnBodies = new Map<string, FunctionDecl>();
     const fnSigs = new Map<string, FnSig>();
 
-    for (const m of s.members) {
+    for (const member of structDeclaration.members) {
       // A memberless struct is a forward declaration (`struct StateData;`), not a definition.
-      const isForwardDecl = m.kind === "struct" && m.members.length === 0;
+      const isForwardDecl = member.kind === "struct" && member.members.length === 0;
       if (
-        (m.kind === "struct" ||
-          m.kind === "class_template" ||
-          m.kind === "enum" ||
-          m.kind === "typedef_decl") &&
-        m.name &&
+        (member.kind === "struct" ||
+          member.kind === "class_template" ||
+          member.kind === "enum" ||
+          member.kind === "typedef_decl") &&
+        member.name &&
         !isForwardDecl
       ) {
-        if (typeNames.has(m.name))
-          this.error(`duplicate type definition '${m.name}' in struct '${s.name}'`, m.span);
-        typeNames.add(m.name);
+        if (typeNames.has(member.name))
+          this.error(`duplicate type definition '${member.name}' in struct '${structDeclaration.name}'`, member.span);
+        typeNames.add(member.name);
       }
-      if (m.kind === "typedef_decl" && m.name) {
-        this.typeAliases.set(m.name, typeKey(unwrapType((m as { type: TypeSpec }).type)));
+      if (member.kind === "typedef_decl" && member.name) {
+        this.typeAliases.set(member.name, typeKey(unwrapType((member as { type: TypeSpec }).type)));
       }
-      if (m.kind === "variable") {
+      if (member.kind === "variable") {
         // Anonymous-union alternatives intentionally alias storage; only named duplicates in the same struct are redefinitions.
-        if (fieldNames.has(m.name)) {
-          this.error(`duplicate member '${m.name}' in struct '${s.name}'`, m.span);
+        if (fieldNames.has(member.name)) {
+          this.error(`duplicate member '${member.name}' in struct '${structDeclaration.name}'`, member.span);
         }
-        fieldNames.add(m.name);
-        if (m.init && (m.isConstexpr || isConstType(m.type))) {
-          const value = evalIntegralConst(m.init, (name) => this.constants.get(name) ?? null);
-          if (value !== null) this.constants.set(m.name, value);
+        fieldNames.add(member.name);
+        if (member.initializer && (member.isConstexpr || isConstType(member.type))) {
+          const value = evalIntegralConst(member.initializer, (name) => this.constants.get(name) ?? null);
+          if (value !== null) this.constants.set(member.name, value);
         }
       }
 
-      if (m.kind === "struct") {
-        if (m.name) this.aggregateNames.add(m.name);
-        this.checkStruct(m);
+      if (member.kind === "struct") {
+        if (member.name) this.aggregateNames.add(member.name);
+        this.checkStruct(member);
       }
 
-      if (m.kind === "enum") {
-        this.collectEnumConstants(m);
+      if (member.kind === "enum") {
+        this.collectEnumConstants(member);
       }
 
-      if (m.kind === "static_assert_decl") {
-        this.checkStaticAssert(m.cond, m.message, m.span);
+      if (member.kind === "static_assert_decl") {
+        this.checkStaticAssert(member.condition, member.message, member.span);
       }
 
-      if (m.kind === "function") {
+      if (member.kind === "function") {
         const sig: FnSig = {
-          decl: m,
-          minArgs: m.params.filter((p) => !p.defaultValue).length,
-          maxArgs: m.params.length,
+          declaration: member,
+          minArgs: member.params.filter((parameter) => !parameter.defaultValue).length,
+          maxArgs: member.params.length,
         };
-        if (m.body) {
+        if (member.body) {
           // Two definitions with the same parameter signature are a redefinition. Overloads
-          const prev = fnBodies.get(m.name);
-          if (prev && paramSignature(prev) === paramSignature(m)) {
+          const prev = fnBodies.get(member.name);
+          if (prev && paramSignature(prev) === paramSignature(member)) {
             this.error(
-              `'${m.name}' is already defined in struct '${s.name}' with the same signature`,
-              m.span,
+              `'${member.name}' is already defined in struct '${structDeclaration.name}' with the same signature`,
+              member.span,
             );
           }
           if (!prev) {
-            fnBodies.set(m.name, m);
+            fnBodies.set(member.name, member);
           }
-          if (!fnSigs.has(m.name) || fnSigs.get(m.name)!.decl.body === undefined) {
-            fnSigs.set(m.name, sig);
+          if (!fnSigs.has(member.name) || fnSigs.get(member.name)!.declaration.body === undefined) {
+            fnSigs.set(member.name, sig);
           }
-        } else if (!fnSigs.has(m.name)) {
-          fnSigs.set(m.name, sig);
+        } else if (!fnSigs.has(member.name)) {
+          fnSigs.set(member.name, sig);
         }
       }
     }
 
     // Overloaded names can't be arity-checked or default-desugared without type-based resolution — exclude them from call checks entirely.
     const bodyCount = new Map<string, number>();
-    for (const m of s.members) {
-      if (m.kind === "function" && m.body) {
-        bodyCount.set(m.name, (bodyCount.get(m.name) ?? 0) + 1);
+    for (const memberCandidate of structDeclaration.members) {
+      if (memberCandidate.kind === "function" && memberCandidate.body) {
+        bodyCount.set(memberCandidate.name, (bodyCount.get(memberCandidate.name) ?? 0) + 1);
       }
     }
     for (const [name, n] of bodyCount) {
@@ -482,27 +483,27 @@ class Validator {
       this.checkFunctionBody(fn, fnSigs);
     }
 
-    this.checkRecursion(s, fnBodies);
+    this.checkRecursion(structDeclaration, fnBodies);
   }
 
   // Qubic contracts must have statically bounded stacks: any call cycle among a struct's member functions (direct or mutual)
-  private checkRecursion(s: StructDecl, fnBodies: Map<string, FunctionDecl>): void {
+  private checkRecursion(structDeclaration: StructDecl, fnBodies: Map<string, FunctionDecl>): void {
     const edges = new Map<string, Set<string>>();
     for (const [name, fn] of fnBodies) {
       const callees = new Set<string>();
-      this.walkStatements(fn.body!, (stmt) => {
-        this.walkExpressions(stmt, (e) => {
-          if (e.kind === "call") {
-            if (e.callee.kind === "identifier" && fnBodies.has(e.callee.name)) {
-              callees.add(e.callee.name);
+      this.walkStatements(fn.body!, (statement) => {
+        this.walkExpressions(statement, (expression) => {
+          if (expression.kind === "call") {
+            if (expression.callee.kind === "identifier" && fnBodies.has(expression.callee.name)) {
+              callees.add(expression.callee.name);
             }
             if (
-              e.callee.kind === "member_access" &&
-              e.callee.object.kind === "identifier" &&
-              e.callee.object.name === "this" &&
-              fnBodies.has(e.callee.member)
+              expression.callee.kind === "member_access" &&
+              expression.callee.object.kind === "identifier" &&
+              expression.callee.object.name === "this" &&
+              fnBodies.has(expression.callee.member)
             ) {
-              callees.add(e.callee.member);
+              callees.add(expression.callee.member);
             }
           }
         });
@@ -539,22 +540,22 @@ class Validator {
     this.currentFn = fn;
     this.loopDepth = 0;
     this.currentMemberFns = memberFns;
-    this.currentTypes = new Map(fn.params.map((p) => [p.name, p.type]));
+    this.currentTypes = new Map(fn.params.map((parameter) => [parameter.name, parameter.type]));
 
     // Every local declared anywhere in the function, for classifying bare identifiers: names outside this set belong to members/parameters/constants
     const allLocals = new Set<string>();
-    this.walkStatements(fn.body!, (stmt) => {
-      if (stmt.kind === "declaration" && stmt.decl.kind === "variable" && !stmt.decl.isMember) {
-        allLocals.add(stmt.decl.name);
-        this.currentTypes.set(stmt.decl.name, stmt.decl.type);
+    this.walkStatements(fn.body!, (statement) => {
+      if (statement.kind === "declaration" && statement.declaration.kind === "variable" && !statement.declaration.isMember) {
+        allLocals.add(statement.declaration.name);
+        this.currentTypes.set(statement.declaration.name, statement.declaration.type);
       }
     });
     this.checkReturns(fn);
 
     const constParams = new Set<string>();
-    for (const p of fn.params) {
-      if (isConstType(p.type)) {
-        constParams.add(p.name);
+    for (const parameter of fn.params) {
+      if (isConstType(parameter.type)) {
+        constParams.add(parameter.name);
       }
     }
 
@@ -566,20 +567,20 @@ class Validator {
     const isVoid = isVoidType(fn.returnType);
     let valueReturns = 0;
 
-    this.walkStatements(fn.body!, (stmt) => {
-      if (stmt.kind !== "return") {
+    this.walkStatements(fn.body!, (statement) => {
+      if (statement.kind !== "return") {
         return;
       }
-      if (stmt.value && isVoid) {
-        this.error(`void function '${fn.name}' cannot return a value`, stmt.span);
+      if (statement.value && isVoid) {
+        this.error(`void function '${fn.name}' cannot return a value`, statement.span);
       }
-      if (stmt.value) {
+      if (statement.value) {
         valueReturns++;
-        const actual = this.inferSimpleType(stmt.value);
+        const actual = this.inferSimpleType(statement.value);
         if (this.isAggregateType(fn.returnType) && actual && !this.isAggregateType(actual)) {
           this.error(
             `return type is incompatible: cannot convert scalar expression to aggregate '${typeKey(fn.returnType)}'`,
-            stmt.span,
+            statement.span,
           );
         } else if (
           actual &&
@@ -589,7 +590,7 @@ class Validator {
         ) {
           this.error(
             `return type mismatch: cannot convert '${typeKey(actual)}' to '${typeKey(fn.returnType)}'`,
-            stmt.span,
+            statement.span,
           );
         }
       }
@@ -605,26 +606,26 @@ class Validator {
     }
   }
 
-  private guaranteesReturn(stmt: Statement): boolean {
-    if (stmt.kind === "return") return true;
-    if (stmt.kind === "compound") {
-      for (const child of stmt.body) if (this.guaranteesReturn(child)) return true;
+  private guaranteesReturn(statement: Statement): boolean {
+    if (statement.kind === "return") return true;
+    if (statement.kind === "compound") {
+      for (const child of statement.body) if (this.guaranteesReturn(child)) return true;
       return false;
     }
-    if (stmt.kind === "if")
-      return !!stmt.else_ && this.guaranteesReturn(stmt.then) && this.guaranteesReturn(stmt.else_);
-    if (stmt.kind === "switch") {
+    if (statement.kind === "if")
+      return !!statement.else_ && this.guaranteesReturn(statement.then) && this.guaranteesReturn(statement.else_);
+    if (statement.kind === "switch") {
       // A switch guarantees a return when it has a default label, no arm can break out of it,
-      const body = stmt.body.kind === "compound" ? stmt.body.body : [stmt.body];
-      const breaksOut = (s: Statement): boolean => {
-        if (s.kind === "break") return true;
-        if (s.kind === "compound") return s.body.some(breaksOut);
-        if (s.kind === "if") return breaksOut(s.then) || (!!s.else_ && breaksOut(s.else_));
+      const body = statement.body.kind === "compound" ? statement.body.body : [statement.body];
+      const breaksOut = (statement: Statement): boolean => {
+        if (statement.kind === "break") return true;
+        if (statement.kind === "compound") return statement.body.some(breaksOut);
+        if (statement.kind === "if") return breaksOut(statement.then) || (!!statement.else_ && breaksOut(statement.else_));
         return false;
       };
       const last = body[body.length - 1];
       return (
-        body.some((s) => s.kind === "default") &&
+        body.some((bodyItem) => bodyItem.kind === "default") &&
         !body.some(breaksOut) &&
         !!last &&
         this.guaranteesReturn(last)
@@ -633,10 +634,10 @@ class Validator {
     return false;
   }
 
-  private collectEnumConstants(e: Declaration & { kind: "enum" }): void {
+  private collectEnumConstants(entry: Declaration & { kind: "enum" }): void {
     const names = new Set<string>();
     let next = 0n;
-    for (const member of e.members) {
+    for (const member of entry.members) {
       if (names.has(member.name)) this.error(`duplicate enumerator '${member.name}'`, member.span);
       names.add(member.name);
       const value = member.value
@@ -644,14 +645,14 @@ class Validator {
         : next;
       if (value !== null) {
         this.constants.set(member.name, value);
-        if (e.name) this.constants.set(`${e.name}::${member.name}`, value);
+        if (entry.name) this.constants.set(`${entry.name}::${member.name}`, value);
         next = value + 1n;
       }
     }
   }
 
-  private checkStaticAssert(cond: Expression, message: Expression | undefined, span: Span): void {
-    const value = evalIntegralConst(cond, (name) => this.constants.get(name) ?? null);
+  private checkStaticAssert(condition: Expression, message: Expression | undefined, span: Span): void {
+    const value = evalIntegralConst(condition, (name) => this.constants.get(name) ?? null);
     if (value === 0n) {
       const detail = message?.kind === "string_literal" ? `: ${message.value}` : "";
       this.error(`static assertion failed${detail}`, span);
@@ -660,183 +661,184 @@ class Validator {
 
   // Ordered walk with a scope stack: declarations register in the innermost scope, identifier uses must resolve to an
   private walkScope(
-    stmt: Statement,
+    statement: Statement,
     fn: FunctionDecl,
     memberFns: Map<string, FnSig>,
     allLocals: Set<string>,
     constParams: Set<string>,
     scopes: Array<Map<string, { const: boolean }>>,
   ): void {
-    const recurse = (s: Statement) =>
-      this.walkScope(s, fn, memberFns, allLocals, constParams, scopes);
-    const inOwnScope = (s: Statement, extra?: () => void) => {
+    const recurse = (statement: Statement) =>
+      this.walkScope(statement, fn, memberFns, allLocals, constParams, scopes);
+    const inOwnScope = (statement: Statement, extra?: () => void) => {
       scopes.push(new Map());
       if (extra) {
         extra();
       }
-      recurse(s);
+      recurse(statement);
       scopes.pop();
     };
 
-    switch (stmt.kind) {
+    switch (statement.kind) {
       case "compound":
         // A multi-declarator statement (`uint64 x = 1, y = 3;`) is drained by the parser into a synthetic
-        if ((stmt as any).synthetic) {
-          for (const s of stmt.body) {
-            recurse(s);
+        if ((statement as any).synthetic) {
+          for (const bodyItem of statement.body) {
+            recurse(bodyItem);
           }
           break;
         }
 
         scopes.push(new Map());
-        for (const s of stmt.body) {
-          recurse(s);
+        for (const bodyItem of statement.body) {
+          recurse(bodyItem);
         }
         scopes.pop();
         break;
 
       case "declaration":
-        this.checkDeclarationStatement(stmt, scopes);
-        if (stmt.decl.kind === "variable" && stmt.decl.init) {
-          this.checkExpression(stmt.decl.init, memberFns, allLocals, constParams, scopes);
+        this.checkDeclarationStatement(statement, scopes);
+        if (statement.declaration.kind === "variable" && statement.declaration.initializer) {
+          this.checkExpression(statement.declaration.initializer, memberFns, allLocals, constParams, scopes);
         }
         break;
 
       case "if":
-        this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
-        inOwnScope(stmt.then);
-        if (stmt.else_) {
-          inOwnScope(stmt.else_);
+        this.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
+        inOwnScope(statement.then);
+        if (statement.else_) {
+          inOwnScope(statement.else_);
         }
         break;
 
       case "for":
         scopes.push(new Map());
-        if (stmt.init) {
-          recurse(stmt.init);
+        if (statement.initializer) {
+          recurse(statement.initializer);
         }
-        if (stmt.cond) {
-          this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
+        if (statement.condition) {
+          this.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
         }
-        if (stmt.update) {
-          this.checkExpression(stmt.update, memberFns, allLocals, constParams, scopes);
+        if (statement.update) {
+          this.checkExpression(statement.update, memberFns, allLocals, constParams, scopes);
         }
         this.loopDepth++;
-        inOwnScope(stmt.body);
+        inOwnScope(statement.body);
         this.loopDepth--;
         scopes.pop();
         break;
 
       case "while":
-        this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
+        this.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
         this.loopDepth++;
-        inOwnScope(stmt.body);
+        inOwnScope(statement.body);
         this.loopDepth--;
         break;
 
       case "do_while":
         this.loopDepth++;
-        inOwnScope(stmt.body);
+        inOwnScope(statement.body);
         this.loopDepth--;
-        this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
+        this.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
         break;
 
       case "switch":
-        this.checkExpression(stmt.cond, memberFns, allLocals, constParams, scopes);
-        this.checkSwitchCases(stmt.body, allLocals);
-        inOwnScope(stmt.body);
+        this.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
+        this.checkSwitchCases(statement.body, allLocals);
+        inOwnScope(statement.body);
         break;
 
       case "continue":
-        if (this.loopDepth === 0) this.error(`continue statement is outside a loop`, stmt.span);
+        if (this.loopDepth === 0) this.error(`continue statement is outside a loop`, statement.span);
         break;
 
       case "static_assert":
-        this.checkStaticAssert(stmt.cond, stmt.message, stmt.span);
+        this.checkStaticAssert(statement.condition, statement.message, statement.span);
         break;
 
       case "return":
-        if (stmt.value) {
-          this.checkExpression(stmt.value, memberFns, allLocals, constParams, scopes);
+        if (statement.value) {
+          this.checkExpression(statement.value, memberFns, allLocals, constParams, scopes);
         }
         break;
 
       case "expression":
-        this.checkExpression(stmt.expr, memberFns, allLocals, constParams, scopes);
+        this.checkExpression(statement.expression, memberFns, allLocals, constParams, scopes);
         break;
     }
   }
 
   private checkDeclarationStatement(
-    stmt: Statement & { kind: "declaration" },
+    statement: Statement & { kind: "declaration" },
     scopes: Array<Map<string, { const: boolean }>>,
   ): void {
-    const d = stmt.decl;
+    const decl = statement.declaration;
 
-    if (d.kind === "function") {
-      if (d.body) {
+    if (decl.kind === "function") {
+      if (decl.body) {
         this.error(
-          `function '${d.name}' cannot be defined nested inside another function`,
-          stmt.span,
+          `function '${decl.name}' cannot be defined nested inside another function`,
+          statement.span,
         );
       }
       return;
     }
-    if (d.kind === "struct") {
-      this.checkStruct(d);
+    if (decl.kind === "struct") {
+      this.checkStruct(decl);
       return;
     }
-    if (d.kind !== "variable") {
+    if (decl.kind !== "variable") {
       return;
     }
 
-    if (isVoidType(d.type)) {
-      this.error(`variable '${d.name}' cannot have type void`, stmt.span);
+    if (isVoidType(decl.type)) {
+      this.error(`variable '${decl.name}' cannot have type void`, statement.span);
     }
-    if (d.isStatic && !d.isConstexpr) {
+    if (decl.isStatic && !decl.isConstexpr) {
       this.error(
-        `static local variable '${d.name}' is not allowed in a contract — its lifetime would outlive the call and bypass consensus state`,
-        stmt.span,
+        `static local variable '${decl.name}' is not allowed in a contract — its lifetime would outlive the call and bypass consensus state`,
+        statement.span,
       );
     }
 
-    if (d.init) this.checkInitializerCardinality(d.type, d.init, stmt.span);
+    if (decl.initializer) this.checkInitializerCardinality(decl.type, decl.initializer, statement.span);
 
     const current = scopes[scopes.length - 1];
-    if (current.has(d.name)) {
-      this.error(`'${d.name}' is already declared in this scope`, stmt.span);
-    } else if (d.name !== "interContractCallError") {
+    if (current.has(decl.name)) {
+      this.error(`'${decl.name}' is already declared in this scope`, statement.span);
+    } else if (decl.name !== "interContractCallError") {
       // CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE declare `InterContractCallError interContractCallError;` at the call site, so nested calls shadow by design and each
-      for (let i = scopes.length - 2; i >= 0; i--) {
-        if (scopes[i].has(d.name)) {
+      for (let index = scopes.length - 2; index >= 0; index--) {
+        if (scopes[index].has(decl.name)) {
           this.error(
-            `'${d.name}' shadows a declaration in an enclosing scope — locals share one slot per name, so shadowing is not supported`,
-            stmt.span,
+            `'${decl.name}' shadows a declaration in an enclosing scope — locals share one slot per name, so shadowing is not supported`,
+            statement.span,
           );
           break;
         }
       }
     }
-    current.set(d.name, { const: isConstType(d.type) });
+    current.set(decl.name, { const: isConstType(decl.type) });
   }
 
-  private checkInitializerCardinality(type: TypeSpec, init: Expression, span: Span): void {
-    const args =
-      init.kind === "initializer_list" ? init.exprs : init.kind === "construct" ? init.args : null;
-    if (!args) return;
-    const t = unwrapType(type);
-    if (t.kind === "array") {
-      const size = evalIntegralConst(t.size, (name) => this.constants.get(name) ?? null);
-      if (size !== null && size > 0n && BigInt(args.length) > size) {
+  private checkInitializerCardinality(type: TypeSpec, initializer: Expression, span: Span): void {
+    const callArguments =
+      initializer.kind === "initializer_list" ? initializer.expressions : initializer.kind === "construct" ? initializer.callArguments : null;
+    if (!callArguments) return;
+    const unwrappedType = unwrapType(type);
+    if (unwrappedType.kind === "array") {
+      const size = evalIntegralConst(unwrappedType.size, (name) => this.constants.get(name) ?? null);
+      if (size !== null && size > 0n && BigInt(callArguments.length) > size) {
         this.error(`too many initializers for array bound ${size}`, span);
       }
-      for (const arg of args) this.checkInitializerCardinality(t.elem, arg, arg.span);
+      for (const argument of callArguments)
+        this.checkInitializerCardinality(unwrappedType.element, argument, argument.span);
       return;
     }
-    if (t.kind === "name") {
-      const fields = this.aggregateFieldCount.get(t.name);
-      if (fields !== undefined && args.length > fields) {
-        this.error(`too many initializers for aggregate '${t.name}' (${fields} fields)`, span);
+    if (type.kind === "name") {
+      const fields = this.aggregateFieldCount.get(type.name);
+      if (fields !== undefined && callArguments.length > fields) {
+        this.error(`too many initializers for aggregate '${type.name}' (${fields} fields)`, span);
       }
     }
   }
@@ -845,17 +847,17 @@ class Validator {
     const keys = new Set<string>();
     let defaults = 0;
 
-    const scan = (s: Statement): void => {
-      switch (s.kind) {
+    const scan = (statement: Statement): void => {
+      switch (statement.kind) {
         case "case": {
-          const value = evalIntegralConst(s.value, (name) => this.constants.get(name) ?? null);
+          const value = evalIntegralConst(statement.value, (name) => this.constants.get(name) ?? null);
           const key = value === null ? null : `#${value}`;
-          if (value === null && s.value.kind === "identifier" && allLocals.has(s.value.name)) {
-            this.error(`case label must be an integral constant expression`, s.span);
+          if (value === null && statement.value.kind === "identifier" && allLocals.has(statement.value.name)) {
+            this.error(`case label must be an integral constant expression`, statement.span);
           }
           if (key !== null) {
             if (keys.has(key)) {
-              this.error(`duplicate case label`, s.span);
+              this.error(`duplicate case label`, statement.span);
             }
             keys.add(key);
           }
@@ -863,23 +865,23 @@ class Validator {
         }
         case "default":
           defaults++;
-          if (defaults > 1) this.error(`duplicate default label`, s.span);
+          if (defaults > 1) this.error(`duplicate default label`, statement.span);
           break;
         case "compound":
-          for (const c of s.body) {
-            scan(c);
+          for (const bodyItem of statement.body) {
+            scan(bodyItem);
           }
           break;
         case "if":
-          scan(s.then);
-          if (s.else_) {
-            scan(s.else_);
+          scan(statement.then);
+          if (statement.else_) {
+            scan(statement.else_);
           }
           break;
         case "for":
         case "while":
         case "do_while":
-          scan(s.body);
+          scan(statement.body);
           break;
       }
     };
@@ -896,8 +898,8 @@ class Validator {
     scopes: Array<Map<string, { const: boolean }>>,
   ): void {
     const lookup = (name: string): { const: boolean } | null => {
-      for (let i = scopes.length - 1; i >= 0; i--) {
-        const hit = scopes[i].get(name);
+      for (let index = scopes.length - 1; index >= 0; index--) {
+        const hit = scopes[index].get(name);
         if (hit) {
           return hit;
         }
@@ -905,20 +907,20 @@ class Validator {
       return null;
     };
 
-    const walk = (e: Expression): void => {
-      switch (e.kind) {
+    const walk = (expression: Expression): void => {
+      switch (expression.kind) {
         case "identifier":
-          if (allLocals.has(e.name) && !lookup(e.name)) {
+          if (allLocals.has(expression.name) && !lookup(expression.name)) {
             this.error(
-              `'${e.name}' is used before its declaration (or outside the scope that declares it)`,
-              e.span,
+              `'${expression.name}' is used before its declaration (or outside the scope that declares it)`,
+              expression.span,
             );
           }
           break;
 
         case "assign": {
-          const leftType = this.inferSimpleType(e.left);
-          const rightType = this.inferSimpleType(e.right);
+          const leftType = this.inferSimpleType(expression.left);
+          const rightType = this.inferSimpleType(expression.right);
           if (
             leftType &&
             rightType &&
@@ -928,57 +930,57 @@ class Validator {
           ) {
             this.error(
               `incompatible aggregate assignment from '${typeKey(rightType)}' to '${typeKey(leftType)}'`,
-              e.span,
+              expression.span,
             );
           }
-          this.checkAssignTarget(e.left, constParams, lookup);
-          walk(e.left);
-          walk(e.right);
+          this.checkAssignTarget(expression.left, constParams, lookup);
+          walk(expression.left);
+          walk(expression.right);
           break;
         }
 
         case "prefix_op":
         case "postfix_op":
-          this.checkAssignTarget(e.arg, constParams, lookup);
-          walk(e.arg);
+          this.checkAssignTarget(expression.argument, constParams, lookup);
+          walk(expression.argument);
           break;
 
         case "unary_op":
-          if (e.op === "&" && isLiteral(e.arg)) {
-            this.error(`cannot take the address of a literal`, e.span);
+          if (expression.operator === "&" && isLiteral(expression.argument)) {
+            this.error(`cannot take the address of a literal`, expression.span);
           }
-          walk(e.arg);
+          walk(expression.argument);
           break;
 
         case "binary_op":
-          if ((e.op === "/" || e.op === "%") && isZeroLiteral(e.right)) {
-            this.error(`constant division by zero`, e.span);
+          if ((expression.operator === "/" || expression.operator === "%") && isZeroLiteral(expression.right)) {
+            this.error(`constant division by zero`, expression.span);
           }
-          walk(e.left);
-          walk(e.right);
+          walk(expression.left);
+          walk(expression.right);
           break;
 
         case "call": {
           const name =
-            e.callee.kind === "identifier"
-              ? e.callee.name
-              : e.callee.kind === "member_access" &&
-                  e.callee.object.kind === "identifier" &&
-                  e.callee.object.name === "this"
-                ? e.callee.member
+            expression.callee.kind === "identifier"
+              ? expression.callee.name
+              : expression.callee.kind === "member_access" &&
+                  expression.callee.object.kind === "identifier" &&
+                  expression.callee.object.name === "this"
+                ? expression.callee.member
                 : null;
-          if (e.callee.kind === "member_access") {
-            const method = e.callee.member;
-            const object = e.callee.object;
+          if (expression.callee.kind === "member_access") {
+            const method = expression.callee.member;
+            const object = expression.callee.object;
             const receiverType = this.inferSimpleType(object);
             const receiver = receiverType ? unwrapType(receiverType) : null;
             const isArray = receiver?.kind === "template_instance" && receiver.name === "Array";
-            if (isArray && method === "set" && e.args.length !== 2) {
-              this.error(`container set expects 2 argument(s) but got ${e.args.length}`, e.span);
+            if (isArray && method === "set" && expression.callArguments.length !== 2) {
+              this.error(`container set expects 2 argument(s) but got ${expression.callArguments.length}`, expression.span);
             }
             // state.get() is a zero-argument accessor; a get call with operands is a container get.
-            if (isArray && method === "get" && e.args.length !== 1) {
-              this.error(`container get expects 1 argument but got ${e.args.length}`, e.span);
+            if (isArray && method === "get" && expression.callArguments.length !== 1) {
+              this.error(`container get expects 1 argument but got ${expression.callArguments.length}`, expression.span);
             }
             if (
               this.isPublicFunctionContext() &&
@@ -986,7 +988,7 @@ class Validator {
               object.name === "state" &&
               method === "mut"
             ) {
-              this.error(`public function is read-only and cannot call state.mut()`, e.span);
+              this.error(`public function is read-only and cannot call state.mut()`, expression.span);
             }
           }
           const sig =
@@ -995,25 +997,25 @@ class Validator {
               : undefined;
           if (sig) {
             // Native rejects a bare non-static member call from a static context (every macro-generated entry body is static) —
-            if (this.currentFn?.isStatic && !sig.decl.isStatic) {
+            if (this.currentFn?.isStatic && !sig.declaration.isStatic) {
               this.error(
                 `cannot call non-static member function '${name}' from a static context — declare it static`,
-                e.span,
+                expression.span,
               );
             }
-            if (e.args.length < sig.minArgs || e.args.length > sig.maxArgs) {
+            if (expression.callArguments.length < sig.minArgs || expression.callArguments.length > sig.maxArgs) {
               const want =
                 sig.minArgs === sig.maxArgs ? `${sig.maxArgs}` : `${sig.minArgs}..${sig.maxArgs}`;
-              this.error(`'${name}' expects ${want} argument(s) but got ${e.args.length}`, e.span);
+              this.error(`'${name}' expects ${want} argument(s) but got ${expression.callArguments.length}`, expression.span);
             } else {
               // Desugar defaults: append the declaration's default expressions so codegen emits the full argument list (C++ evaluates defaults at
-              for (let i = e.args.length; i < sig.maxArgs; i++) {
-                e.args.push(sig.decl.params[i].defaultValue!);
+              for (let sigItemIndex = expression.callArguments.length; sigItemIndex < sig.maxArgs; sigItemIndex++) {
+                expression.callArguments.push(sig.declaration.params[sigItemIndex].defaultValue!);
               }
             }
-            for (let i = 0; i < Math.min(e.args.length, sig.decl.params.length); i++) {
-              const paramType = sig.decl.params[i].type;
-              const argType = this.inferSimpleType(e.args[i]);
+            for (let index = 0; index < Math.min(expression.callArguments.length, sig.declaration.params.length); index++) {
+              const paramType = sig.declaration.params[index].type;
+              const argType = this.inferSimpleType(expression.callArguments[index]);
               if (
                 argType &&
                 this.isAggregateType(paramType) &&
@@ -1021,65 +1023,65 @@ class Validator {
                 this.canonTypeKey(paramType) !== this.canonTypeKey(argType)
               ) {
                 this.error(
-                  `argument ${i + 1} to '${name}' has incompatible aggregate type '${typeKey(argType)}'; expected '${typeKey(paramType)}'`,
-                  e.args[i].span,
+                  `argument ${index + 1} to '${name}' has incompatible aggregate type '${typeKey(argType)}'; expected '${typeKey(paramType)}'`,
+                  expression.callArguments[index].span,
                 );
               }
               if (paramType.kind !== "reference" || isConstType(paramType)) continue;
-              const arg = e.args[i];
-              if (!this.isWritableReferenceArgument(arg, constParams, lookup)) {
+              const argument = expression.callArguments[index];
+              if (!this.isWritableReferenceArgument(argument, constParams, lookup)) {
                 this.error(
-                  `argument ${i + 1} to '${name}' cannot bind to a non-const reference`,
-                  arg.span,
+                  `argument ${index + 1} to '${name}' cannot bind to a non-const reference`,
+                  argument.span,
                 );
               }
             }
           }
-          if (e.callee.kind !== "identifier") {
-            walk(e.callee);
+          if (expression.callee.kind !== "identifier") {
+            walk(expression.callee);
           }
-          for (const a of e.args) {
-            walk(a);
+          for (const argument of expression.callArguments) {
+            walk(argument);
           }
           break;
         }
 
         case "template_call":
-          for (const a of e.args) {
-            walk(a);
+          for (const argument of expression.callArguments) {
+            walk(argument);
           }
           break;
 
         case "member_access":
-          walk(e.object);
+          walk(expression.object);
           break;
         case "subscript":
-          walk(e.object);
-          walk(e.index);
+          walk(expression.object);
+          walk(expression.index);
           break;
         case "ternary":
-          walk(e.cond);
-          walk(e.then);
-          walk(e.else_);
+          walk(expression.condition);
+          walk(expression.then);
+          walk(expression.else_);
           break;
         case "sequence":
-          for (const x of e.exprs) {
-            walk(x);
+          for (const sequenceExpression of expression.expressions) {
+            walk(sequenceExpression);
           }
           break;
         case "c_cast":
         case "static_cast":
         case "reinterpret_cast":
-          walk(e.expr);
+          walk(expression.expression);
           break;
         case "construct":
         case "initializer_list":
-          for (const x of (e as any).args ?? (e as any).exprs ?? []) {
-            walk(x);
+          for (const itemItem of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
+            walk(itemItem);
           }
           break;
         case "sizeof_expr":
-          walk(e.expr);
+          walk(expression.expression);
           break;
       }
     };
@@ -1123,24 +1125,24 @@ class Validator {
     if (this.currentFn?.name === "__impl_migrate") return false;
     const first = this.currentFn?.params[0]?.type;
     if (!first) return false;
-    const t = unwrapType(first);
-    return t.kind === "name" && t.name === "QpiContextFunctionCall";
+    const type = unwrapType(first);
+    return type.kind === "name" && type.name === "QpiContextFunctionCall";
   }
 
   private isAggregateType(type: TypeSpec): boolean {
-    const t = unwrapType(type);
+    const unwrappedType = unwrapType(type);
     return (
-      t.kind === "inline_struct" ||
-      t.kind === "array" ||
-      t.kind === "template_instance" ||
-      (t.kind === "name" && this.aggregateNames.has(t.name))
+      unwrappedType.kind === "inline_struct" ||
+      unwrappedType.kind === "array" ||
+      unwrappedType.kind === "template_instance" ||
+      (unwrappedType.kind === "name" && this.aggregateNames.has(unwrappedType.name))
     );
   }
 
-  private inferSimpleType(expr: Expression): TypeSpec | null {
-    switch (expr.kind) {
+  private inferSimpleType(expression: Expression): TypeSpec | null {
+    switch (expression.kind) {
       case "identifier":
-        return this.currentTypes.get(expr.name) ?? null;
+        return this.currentTypes.get(expression.name) ?? null;
       case "int_literal":
         return { kind: "name", name: "uint64" };
       case "bool_literal":
@@ -1148,30 +1150,30 @@ class Validator {
       case "char_literal":
         return { kind: "name", name: "int" };
       case "paren":
-        return this.inferSimpleType(expr.expr);
+        return this.inferSimpleType(expression.expression);
       case "c_cast":
       case "static_cast":
       case "reinterpret_cast":
-        return expr.type;
+        return expression.type;
       case "construct":
-        return expr.type;
+        return expression.type;
       case "call": {
-        const name = expr.callee.kind === "identifier" ? expr.callee.name : null;
+        const name = expression.callee.kind === "identifier" ? expression.callee.name : null;
         if (
-          expr.callee.kind === "member_access" &&
-          expr.callee.object.kind === "identifier" &&
-          expr.callee.object.name === "state" &&
-          (expr.callee.member === "get" || expr.callee.member === "mut")
+          expression.callee.kind === "member_access" &&
+          expression.callee.object.kind === "identifier" &&
+          expression.callee.object.name === "state" &&
+          (expression.callee.member === "get" || expression.callee.member === "mut")
         ) {
           return { kind: "name", name: "StateData" };
         }
-        return name ? (this.currentMemberFns.get(name)?.decl.returnType ?? null) : null;
+        return name ? (this.currentMemberFns.get(name)?.declaration.returnType ?? null) : null;
       }
       case "member_access": {
-        const owner = this.inferSimpleType(expr.object);
+        const owner = this.inferSimpleType(expression.object);
         const concrete = owner ? unwrapType(owner) : null;
         return concrete?.kind === "name"
-          ? (this.structFields.get(concrete.name)?.get(expr.member) ?? null)
+          ? (this.structFields.get(concrete.name)?.get(expression.member) ?? null)
           : null;
       }
       default:
@@ -1179,8 +1181,8 @@ class Validator {
     }
   }
 
-  private isReadonlyStateExpression(expr: Expression): boolean {
-    let root = expr;
+  private isReadonlyStateExpression(expression: Expression): boolean {
+    let root = expression;
     while (root.kind === "member_access" || root.kind === "subscript") root = root.object;
     return (
       root.kind === "call" &&
@@ -1192,147 +1194,147 @@ class Validator {
   }
 
   private isWritableReferenceArgument(
-    arg: Expression,
+    argument: Expression,
     constParams: Set<string>,
     lookup: (name: string) => { const: boolean } | null,
   ): boolean {
-    if (this.isReadonlyStateExpression(arg)) return false;
-    if (arg.kind === "identifier") {
-      const local = lookup(arg.name);
-      if (local?.const || (!local && constParams.has(arg.name))) return false;
+    if (this.isReadonlyStateExpression(argument)) return false;
+    if (argument.kind === "identifier") {
+      const local = lookup(argument.name);
+      if (local?.const || (!local && constParams.has(argument.name))) return false;
       return true;
     }
     return (
-      arg.kind === "member_access" ||
-      arg.kind === "subscript" ||
-      (arg.kind === "unary_op" && arg.op === "*")
+      argument.kind === "member_access" ||
+      argument.kind === "subscript" ||
+      (argument.kind === "unary_op" && argument.operator === "*")
     );
   }
 
   // ---- Generic walkers ----
 
-  private walkStatements(stmt: Statement, visit: (s: Statement) => void): void {
-    visit(stmt);
+  private walkStatements(statement: Statement, visit: (statement: Statement) => void): void {
+    visit(statement);
 
-    switch (stmt.kind) {
+    switch (statement.kind) {
       case "compound":
-        for (const s of stmt.body) {
-          this.walkStatements(s, visit);
+        for (const bodyItem of statement.body) {
+          this.walkStatements(bodyItem, visit);
         }
         break;
       case "if":
-        this.walkStatements(stmt.then, visit);
-        if (stmt.else_) {
-          this.walkStatements(stmt.else_, visit);
+        this.walkStatements(statement.then, visit);
+        if (statement.else_) {
+          this.walkStatements(statement.else_, visit);
         }
         break;
       case "for":
-        if (stmt.init) {
-          this.walkStatements(stmt.init, visit);
+        if (statement.initializer) {
+          this.walkStatements(statement.initializer, visit);
         }
-        this.walkStatements(stmt.body, visit);
+        this.walkStatements(statement.body, visit);
         break;
       case "while":
       case "do_while":
       case "switch":
-        this.walkStatements(stmt.body, visit);
+        this.walkStatements(statement.body, visit);
         break;
     }
   }
 
-  private walkExpressions(stmt: Statement, visit: (e: Expression) => void): void {
-    const walkE = (e: Expression): void => {
-      visit(e);
-      switch (e.kind) {
+  private walkExpressions(statement: Statement, visit: (expression: Expression) => void): void {
+    const walkE = (expression: Expression): void => {
+      visit(expression);
+      switch (expression.kind) {
         case "assign":
         case "binary_op":
-          walkE(e.left);
-          walkE(e.right);
+          walkE(expression.left);
+          walkE(expression.right);
           break;
         case "unary_op":
-          walkE(e.arg);
+          walkE(expression.argument);
           break;
         case "prefix_op":
         case "postfix_op":
-          walkE(e.arg);
+          walkE(expression.argument);
           break;
         case "ternary":
-          walkE(e.cond);
-          walkE(e.then);
-          walkE(e.else_);
+          walkE(expression.condition);
+          walkE(expression.then);
+          walkE(expression.else_);
           break;
         case "member_access":
-          walkE(e.object);
+          walkE(expression.object);
           break;
         case "subscript":
-          walkE(e.object);
-          walkE(e.index);
+          walkE(expression.object);
+          walkE(expression.index);
           break;
         case "call":
-          walkE(e.callee);
-          for (const a of e.args) {
-            walkE(a);
+          walkE(expression.callee);
+          for (const argument of expression.callArguments) {
+            walkE(argument);
           }
           break;
         case "template_call":
-          for (const a of e.args) {
-            walkE(a);
+          for (const argumentCandidate of expression.callArguments) {
+            walkE(argumentCandidate);
           }
           break;
         case "sequence":
-          for (const x of e.exprs) {
-            walkE(x);
+          for (const sequenceExpression of expression.expressions) {
+            walkE(sequenceExpression);
           }
           break;
         case "c_cast":
         case "static_cast":
         case "reinterpret_cast":
-          walkE(e.expr);
+          walkE(expression.expression);
           break;
         case "construct":
         case "initializer_list":
-          for (const x of (e as any).args ?? (e as any).exprs ?? []) {
-            walkE(x);
+          for (const itemItem of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
+            walkE(itemItem);
           }
           break;
         case "sizeof_expr":
-          walkE(e.expr);
+          walkE(expression.expression);
           break;
       }
     };
 
-    switch (stmt.kind) {
+    switch (statement.kind) {
       case "expression":
-        walkE(stmt.expr);
+        walkE(statement.expression);
         break;
       case "declaration":
-        if (stmt.decl.kind === "variable" && stmt.decl.init) {
-          walkE(stmt.decl.init);
+        if (statement.declaration.kind === "variable" && statement.declaration.initializer) {
+          walkE(statement.declaration.initializer);
         }
         break;
       case "if":
-        walkE(stmt.cond);
+        walkE(statement.condition);
         break;
       case "for":
-        if (stmt.cond) {
-          walkE(stmt.cond);
+        if (statement.condition) {
+          walkE(statement.condition);
         }
-        if (stmt.update) {
-          walkE(stmt.update);
+        if (statement.update) {
+          walkE(statement.update);
         }
         break;
       case "while":
       case "do_while":
       case "switch":
-        walkE(stmt.cond);
+        walkE(statement.condition);
         break;
       case "return":
-        if (stmt.value) {
-          walkE(stmt.value);
+        if (statement.value) {
+          walkE(statement.value);
         }
         break;
       case "case":
-        walkE(stmt.value);
+        walkE(statement.value);
         break;
     }
   }
@@ -1351,30 +1353,30 @@ function supplementalDiagnostic(message: string, span: any): ValidateDiagnostic 
   return { severity: "error", message, span };
 }
 
-function isModifiableLvalue(expr: any): boolean {
-  if (!expr) return false;
-  switch (expr.kind) {
+function isModifiableLvalue(expression: any): boolean {
+  if (!expression) return false;
+  switch (expression.kind) {
     case "identifier":
     case "member_access":
     case "subscript":
       return true;
     case "paren":
-      return isModifiableLvalue(expr.expr);
+      return isModifiableLvalue(expression.expression);
     case "unary_op":
-      return expr.op === "*";
+      return expression.operator === "*";
     default:
       return false;
   }
 }
 
 function isMutableReference(type: any): boolean {
-  return type?.kind === "reference" && type.refereed?.kind !== "const";
+  return type?.kind === "reference" && type.referentType?.kind !== "const";
 }
 
-function expressionUsesRuntimeName(expr: any, runtimeNames: Set<string>): boolean {
-  if (!expr || typeof expr !== "object") return false;
-  if (expr.kind === "identifier") return runtimeNames.has(expr.name);
-  for (const [key, value] of Object.entries(expr)) {
+function expressionUsesRuntimeName(expression: any, runtimeNames: Set<string>): boolean {
+  if (!expression || typeof expression !== "object") return false;
+  if (expression.kind === "identifier") return runtimeNames.has(expression.name);
+  for (const [key, value] of Object.entries(expression)) {
     if (key === "span" || key === "kind") continue;
     if (Array.isArray(value)) {
       if (value.some((item) => expressionUsesRuntimeName(item, runtimeNames))) return true;
@@ -1389,29 +1391,29 @@ function expressionUsesRuntimeName(expr: any, runtimeNames: Set<string>): boolea
   return false;
 }
 
-function validateSupplementalExpression(expr: any, diagnostics: ValidateDiagnostic[]): void {
-  if (!expr || typeof expr !== "object") return;
+function validateSupplementalExpression(expression: any, diagnostics: ValidateDiagnostic[]): void {
+  if (!expression || typeof expression !== "object") return;
 
-  if (expr.kind === "assign" || (expr.kind === "binary_op" && expr.op === "=")) {
-    if (!isModifiableLvalue(expr.left)) {
+  if (expression.kind === "assign" || (expression.kind === "binary_op" && expression.operator === "=")) {
+    if (!isModifiableLvalue(expression.left)) {
       diagnostics.push(
         supplementalDiagnostic(
           "assignment target is not a modifiable lvalue",
-          expr.left?.span ?? expr.span,
+          expression.left?.span ?? expression.span,
         ),
       );
     }
   }
-  if ((expr.kind === "prefix_op" || expr.kind === "postfix_op") && !isModifiableLvalue(expr.arg)) {
+  if ((expression.kind === "prefix_op" || expression.kind === "postfix_op") && !isModifiableLvalue(expression.argument)) {
     diagnostics.push(
       supplementalDiagnostic(
-        `operand of '${expr.op}' is not a modifiable lvalue`,
-        expr.arg?.span ?? expr.span,
+        `operand of '${expression.operator}' is not a modifiable lvalue`,
+        expression.argument?.span ?? expression.span,
       ),
     );
   }
 
-  for (const [key, value] of Object.entries(expr)) {
+  for (const [key, value] of Object.entries(expression)) {
     if (key === "span" || key === "kind") continue;
     if (Array.isArray(value)) {
       for (const item of value) validateSupplementalExpression(item, diagnostics);
@@ -1422,7 +1424,7 @@ function validateSupplementalExpression(expr: any, diagnostics: ValidateDiagnost
 }
 
 function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]): void {
-  const params = fn.params ?? fn.fnParams ?? [];
+  const params = fn.params ?? fn.functionParameters ?? [];
   const context: SupplementalFlowContext = {
     loopDepth: 0,
     switchDepth: 0,
@@ -1458,32 +1460,32 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
         return;
       }
       case "declaration": {
-        const declaration = statement.decl;
+        const declaration = statement.declaration;
         if (declaration?.kind === "variable") {
-          if (declaration.init) validateSupplementalExpression(declaration.init, diagnostics);
+          if (declaration.initializer) validateSupplementalExpression(declaration.initializer, diagnostics);
           if (
             isMutableReference(declaration.type) &&
-            declaration.init &&
-            !isModifiableLvalue(declaration.init)
+            declaration.initializer &&
+            !isModifiableLvalue(declaration.initializer)
           ) {
             diagnostics.push(
               supplementalDiagnostic(
                 `mutable reference '${declaration.name}' cannot bind to a temporary`,
-                declaration.init.span ?? declaration.span,
+                declaration.initializer.span ?? declaration.span,
               ),
             );
           }
           if (!declaration.isConstexpr) current.runtimeNames.add(declaration.name);
-          if (declaration.init)
+          if (declaration.initializer)
             current.initialized.add(`${declaration.name}@${declaration.span?.start ?? 0}`);
         }
         return;
       }
       case "expression":
-        validateSupplementalExpression(statement.expr, diagnostics);
+        validateSupplementalExpression(statement.expression, diagnostics);
         return;
       case "if":
-        validateSupplementalExpression(statement.cond, diagnostics);
+        validateSupplementalExpression(statement.condition, diagnostics);
         walk(statement.then, {
           ...current,
           runtimeNames: new Set(current.runtimeNames),
@@ -1503,15 +1505,15 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
           runtimeNames: new Set(current.runtimeNames),
           initialized: new Set(current.initialized),
         };
-        if (statement.init) walk(statement.init, nested);
-        validateSupplementalExpression(statement.cond, diagnostics);
+        if (statement.initializer) walk(statement.initializer, nested);
+        validateSupplementalExpression(statement.condition, diagnostics);
         validateSupplementalExpression(statement.update, diagnostics);
         walk(statement.body, nested);
         return;
       }
       case "while":
       case "do_while":
-        validateSupplementalExpression(statement.cond, diagnostics);
+        validateSupplementalExpression(statement.condition, diagnostics);
         walk(statement.body, {
           ...current,
           loopDepth: current.loopDepth + 1,
@@ -1520,7 +1522,7 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
         });
         return;
       case "switch":
-        validateSupplementalExpression(statement.cond, diagnostics);
+        validateSupplementalExpression(statement.condition, diagnostics);
         walk(statement.body, {
           ...current,
           switchDepth: current.switchDepth + 1,
@@ -1615,15 +1617,15 @@ function validateSupplementalDeclarations(
       validateSupplementalDeclarations(declaration.members, diagnostics);
     } else if (declaration.kind === "namespace" || declaration.kind === "extern_block") {
       validateSupplementalDeclarations(declaration.body, diagnostics);
-    } else if (declaration.kind === "friend" && declaration.decl) {
-      validateSupplementalDeclarations([declaration.decl], diagnostics);
+    } else if (declaration.kind === "friend" && declaration.declaration) {
+      validateSupplementalDeclarations([declaration.declaration], diagnostics);
     }
   }
 }
 
-export function validateAndDesugar(tu: { declarations: Declaration[] }): ValidateDiagnostic[] {
-  const diagnostics = validateAndDesugarBase(tu);
-  validateSupplementalDeclarations(tu.declarations, diagnostics);
+export function validateAndDesugar(translationUnit: { declarations: Declaration[] }): ValidateDiagnostic[] {
+  const diagnostics = validateAndDesugarBase(translationUnit);
+  validateSupplementalDeclarations(translationUnit.declarations, diagnostics);
 
   const seen = new Set<string>();
   return diagnostics.filter((diagnostic) => {

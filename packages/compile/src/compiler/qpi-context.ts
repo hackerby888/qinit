@@ -1,12 +1,12 @@
 import { Lexer } from "../lexer";
 import { Parser } from "../parser";
 import { Preprocessor, type MacroDef } from "../preprocess";
-import { collectLibraryTypes, type LibTypes } from "../codegen";
+import { indexLibraryDeclarations, type LibrarySymbolIndex } from "../codegen";
 import { embeddedLiteAbi, IMPL_BOUNDARY } from "../qpi-snapshot-format";
 
 export interface QpiContext {
   macros: Map<string, MacroDef>;
-  lib: LibTypes;
+  lib: LibrarySymbolIndex;
 }
 
 const qpiCache = new Map<string, QpiContext>();
@@ -40,7 +40,7 @@ export function getQpiContext(headers: string): QpiContext {
   const [mainHeaders, ...implChunks] = headers.split(IMPL_BOUNDARY);
   const { text: libText, macros } = getQpiPrelude(mainHeaders);
   const coreHeaderTu = new Parser(new Lexer(libText).tokenize()).parseTranslationUnit();
-  const coreLibrary = collectLibraryTypes(coreHeaderTu.declarations);
+  const coreLibrary = indexLibraryDeclarations(coreHeaderTu.declarations);
   const liteAbi = embeddedLiteAbi(headers);
   coreLibrary.liteAbi = liteAbi;
 
@@ -53,7 +53,7 @@ export function getQpiContext(headers: string): QpiContext {
       seedMacros: macros,
     });
     const implHeaderTu = new Parser(new Lexer(implText).tokenize()).parseTranslationUnit();
-    const implLibrary = collectLibraryTypes(implHeaderTu.declarations, coreLibrary.namespaceUsings);
+    const implLibrary = indexLibraryDeclarations(implHeaderTu.declarations, coreLibrary.namespaceUsings);
     const hasSourceBackedHostWrappers = implLibrary.importedFunctions.size > 0;
     for (const [name, definition] of implLibrary.globalStructs)
       if (!coreLibrary.globalStructs.has(name)) coreLibrary.globalStructs.set(name, definition);
@@ -83,13 +83,13 @@ export function getQpiContext(headers: string): QpiContext {
               (member) =>
                 member.kind === "function" &&
                 member.name === baseName &&
-                member.params.length === (definition.fnParams ?? []).length,
+                member.params.length === (definition.functionParameters ?? []).length,
             );
           const merged =
             declared?.kind === "function"
             ? {
                   ...definition,
-                  fnParams: (definition.fnParams ?? []).map((param, index) => ({
+                  functionParameters: (definition.functionParameters ?? []).map((param, index) => ({
                     ...param,
                     defaultValue: param.defaultValue ?? declared.params[index]?.defaultValue,
                   })),

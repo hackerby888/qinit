@@ -9,7 +9,7 @@ export const CONTAINER_SLOT = 27;
 export const CONTAINER_ARENA_SIZE = 4 * 1024 * 1024;
 
 export interface ContainerOperation {
-  op: bigint;
+  operator: bigint;
   a?: bigint;
   b?: bigint;
   c?: bigint;
@@ -37,7 +37,7 @@ export interface OperationResult {
 
 export function encodeContainerOperation(operation: ContainerOperation): Uint8Array {
   const values = [
-    operation.op,
+    operation.operator,
     operation.a ?? 0n,
     operation.b ?? 0n,
     operation.c ?? 0n,
@@ -244,14 +244,14 @@ export function seededOperations(
   if (!opcodeCount) throw new Error(`unknown container family ${family}`);
   return Array.from({ length: count }, () => {
     const operation: ContainerOperation = {
-      op: BigInt(next() % opcodeCount),
+      operator: BigInt(next() % opcodeCount),
       a: BigInt(next()),
       b: BigInt(next()),
       c: BigInt(next()),
       d: BigInt(next()),
       e: BigInt(next()),
     };
-    const opcode = Number(operation.op);
+    const opcode = Number(operation.operator);
     // Random scripts stay inside each method's documented preconditions. Dedicated boundary scripts
     // carry the invalid-index/range cases, so stress runs do not turn native undefined behavior into
     // a false compiler differential or accidentally create billion-iteration Array::setRange calls.

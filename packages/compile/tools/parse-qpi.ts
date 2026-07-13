@@ -30,11 +30,11 @@ const pre = pp.preprocess({ source: "", qpiHeader: raw, contractName: "X", contr
 const lex = new Lexer(pre);
 const toks = lex.tokenize();
 const parser = new Parser(toks);
-const tu = parser.parseTranslationUnit();
+const translationUnit = parser.parseTranslationUnit();
 const diags = parser.getDiagnostics();
 
-console.log(`tokens: ${toks.length}, top-level decls: ${tu.declarations.length}, parse errors: ${diags.length}`);
-for (const d of tu.declarations) {
+console.log(`tokens: ${toks.length}, top-level decls: ${translationUnit.declarations.length}, parse errors: ${diags.length}`);
+for (const d of translationUnit.declarations) {
   const nm = (d as any).name ?? "";
   const cnt = (d as any).body?.length ?? (d as any).members?.length ?? "";
   console.log(`  top: ${d.kind} ${nm} (${cnt})`);
@@ -52,7 +52,7 @@ for (const d of diags.slice(0, first)) {
 }
 
 // Check key templates captured with members
-const qpiNs = tu.declarations.find((d) => d.kind === "namespace" && (d as any).name === "QPI") as any;
+const qpiNs = translationUnit.declarations.find((d) => d.kind === "namespace" && (d as any).name === "QPI") as any;
 const captured = new Map<string, number>();
 for (const m of qpiNs?.body ?? []) {
   if (m.kind === "class_template" || m.kind === "struct") captured.set(m.name, m.members?.length ?? 0);

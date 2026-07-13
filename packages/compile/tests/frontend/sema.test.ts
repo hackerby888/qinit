@@ -3,7 +3,7 @@ import { describe, test, expect } from "bun:test";
 import { Sema } from "../../src/sema";
 import type { Expression, TypeSpec, Span, BinaryOp, UnaryOp } from "../../src/ast";
 
-const NO_SPAN: Span = { start: 0, end: 0, line: 1, col: 1 };
+const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };
 
 // --- AST helpers for tests ---- Cast through `any` so test builders stay concise while matching the discriminated-union
 
@@ -17,20 +17,20 @@ const cLit = (value: number): Expression =>
   ({ kind: "char_literal", value, span: NO_SPAN }) as Expression;
 const ident = (name: string): Expression =>
   ({ kind: "identifier", name, span: NO_SPAN }) as Expression;
-const par = (expr: Expression): Expression =>
-  ({ kind: "paren", expr, span: NO_SPAN }) as Expression;
-const un = (op: UnaryOp, arg: Expression): Expression =>
-  ({ kind: "unary_op", op, arg, span: NO_SPAN }) as Expression;
-const bin = (left: Expression, op: BinaryOp, right: Expression): Expression =>
-  ({ kind: "binary_op", op, left, right, span: NO_SPAN }) as Expression;
-const ter = (cond: Expression, then: Expression, else_: Expression): Expression =>
-  ({ kind: "ternary", cond, then, else_, span: NO_SPAN }) as Expression;
-const cast = (type: TypeSpec, expr: Expression): Expression =>
-  ({ kind: "c_cast", type, expr, span: NO_SPAN }) as Expression;
-const callx = (callee: Expression, args: Expression[]): Expression =>
-  ({ kind: "call", callee, args, span: NO_SPAN }) as Expression;
+const par = (expression: Expression): Expression =>
+  ({ kind: "paren", expression, span: NO_SPAN }) as Expression;
+const un = (operator: UnaryOp, argument: Expression): Expression =>
+  ({ kind: "unary_op", operator, argument, span: NO_SPAN }) as Expression;
+const bin = (left: Expression, operator: BinaryOp, right: Expression): Expression =>
+  ({ kind: "binary_op", operator, left, right, span: NO_SPAN }) as Expression;
+const ter = (condition: Expression, then: Expression, else_: Expression): Expression =>
+  ({ kind: "ternary", condition, then, else_, span: NO_SPAN }) as Expression;
+const cast = (type: TypeSpec, expression: Expression): Expression =>
+  ({ kind: "c_cast", type, expression, span: NO_SPAN }) as Expression;
+const callx = (callee: Expression, callArguments: Expression[]): Expression =>
+  ({ kind: "call", callee, callArguments, span: NO_SPAN }) as Expression;
 
-const ceval = (sema: Sema, expr: Expression): bigint | null => sema.evaluateConstexpr(expr);
+const ceval = (sema: Sema, expression: Expression): bigint | null => sema.evaluateConstexpr(expression);
 
 const makeSema = () => new Sema();
 
@@ -158,8 +158,8 @@ describe("Sema — constexpr evaluation", () => {
 
     test("precedence: 2 + 3 * 4 = 14 (not 20)", () => {
       const s = makeSema();
-      const expr = bin(iLit("2"), "+", bin(iLit("3"), "*", iLit("4")));
-      expect(ceval(s, expr)).toBe(14n);
+      const expression = bin(iLit("2"), "+", bin(iLit("3"), "*", iLit("4")));
+      expect(ceval(s, expression)).toBe(14n);
     });
   });
 
@@ -177,8 +177,8 @@ describe("Sema — constexpr evaluation", () => {
 
     test("ternary with condition expression", () => {
       const s = makeSema();
-      const cond = bin(iLit("5"), ">", iLit("3"));
-      expect(ceval(s, ter(cond, iLit("10"), iLit("20")))).toBe(10n);
+      const condition = bin(iLit("5"), ">", iLit("3"));
+      expect(ceval(s, ter(condition, iLit("10"), iLit("20")))).toBe(10n);
     });
   });
 
@@ -191,13 +191,13 @@ describe("Sema — constexpr evaluation", () => {
 
     test("static_cast evaluates inner expression", () => {
       const s = makeSema();
-      const expr: Expression = {
+      const expression: Expression = {
         kind: "static_cast",
         type: n("uint32"),
-        expr: iLit("99"),
+        expression: iLit("99"),
         span: NO_SPAN,
       } as Expression;
-      expect(ceval(s, expr)).toBe(99n);
+      expect(ceval(s, expression)).toBe(99n);
     });
   });
 
@@ -248,12 +248,12 @@ describe("Sema — constexpr evaluation", () => {
 
     test("sizeof returns null (resolved by codegen's type layout)", () => {
       const s = makeSema();
-      const expr: Expression = {
+      const expression: Expression = {
         kind: "sizeof_type",
         type: n("uint64"),
         span: NO_SPAN,
       } as Expression;
-      expect(ceval(s, expr)).toBeNull();
+      expect(ceval(s, expression)).toBeNull();
     });
   });
 
@@ -261,24 +261,24 @@ describe("Sema — constexpr evaluation", () => {
   describe("complex constexpr expressions", () => {
     test("chained operations: ((2+3)*4 - 5)/3 = 5", () => {
       const s = makeSema();
-      const expr = bin(
+      const expression = bin(
         bin(bin(bin(iLit("2"), "+", iLit("3")), "*", iLit("4")), "-", iLit("5")),
         "/",
         iLit("3"),
       );
-      expect(ceval(s, expr)).toBe(5n);
+      expect(ceval(s, expression)).toBe(5n);
     });
 
     test("bitwise patterns", () => {
       const s = makeSema();
-      const expr = bin(bin(iLit("0xFF"), "&", iLit("0xF0")), ">>", iLit("4"));
-      expect(ceval(s, expr)).toBe(15n);
+      const expression = bin(bin(iLit("0xFF"), "&", iLit("0xF0")), ">>", iLit("4"));
+      expect(ceval(s, expression)).toBe(15n);
     });
 
     test("ternary with logical condition", () => {
       const s = makeSema();
-      const cond = bin(bin(iLit("5"), ">", iLit("3")), "&&", bin(iLit("2"), "<", iLit("4")));
-      expect(ceval(s, ter(cond, iLit("100"), iLit("200")))).toBe(100n);
+      const condition = bin(bin(iLit("5"), ">", iLit("3")), "&&", bin(iLit("2"), "<", iLit("4")));
+      expect(ceval(s, ter(condition, iLit("100"), iLit("200")))).toBe(100n);
     });
 
     test("negated conditional", () => {

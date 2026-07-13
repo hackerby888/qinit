@@ -249,7 +249,7 @@ export class Lexer {
   private src: string;
   private pos: number = 0;
   private line: number = 1;
-  private col: number = 1;
+  private column: number = 1;
   private tokens: Token[] = [];
   private index: number = 0;
 
@@ -285,11 +285,11 @@ export class Lexer {
 
   // Streaming interface
   peek(offset: number = 0): Token {
-    const i = this.index + offset;
-    if (i >= this.tokens.length) {
+    const index = this.index + offset;
+    if (index >= this.tokens.length) {
       return this.tokens[this.tokens.length - 1]; // eof
     }
-    return this.tokens[i];
+    return this.tokens[index];
   }
 
   next(): Token {
@@ -303,19 +303,19 @@ export class Lexer {
   }
 
   private span(): Span {
-    return { start: this.pos, end: this.pos, line: this.line, col: this.col };
+    return { start: this.pos, end: this.pos, line: this.line, column: this.column };
   }
 
   private makeSpan(start: number, startLine: number, startCol: number): Span {
-    return { start, end: this.pos, line: startLine, col: startCol };
+    return { start, end: this.pos, line: startLine, column: startCol };
   }
 
   private peekChar(offset: number = 0): string {
-    const i = this.pos + offset;
-    if (i >= this.src.length) {
+    const index = this.pos + offset;
+    if (index >= this.src.length) {
       return "\0";
     }
-    return this.src[i];
+    return this.src[index];
   }
 
   private advance(): string {
@@ -323,9 +323,9 @@ export class Lexer {
     this.pos++;
     if (ch === "\n") {
       this.line++;
-      this.col = 1;
+      this.column = 1;
     } else {
-      this.col++;
+      this.column++;
     }
     return ch;
   }
@@ -358,7 +358,7 @@ export class Lexer {
 
     const start = this.pos;
     const startLine = this.line;
-    const startCol = this.col;
+    const startCol = this.column;
     const ch = this.peekChar();
 
     // Identifiers and keywords
@@ -488,9 +488,9 @@ export class Lexer {
     return "";
   }
 
-  private advanceN(n: number): string {
+  private advanceN(count: number): string {
     let text = "";
-    for (let i = 0; i < n && !this.eof(); i++) {
+    for (let index = 0; index < count && !this.eof(); index++) {
       text += this.advance();
     }
     return text;
@@ -742,26 +742,26 @@ export class Lexer {
   // Collapse multi-word type keywords like "signed long long" → "kw_signed_long_long"
   private collapseTypeKeywords(): void {
     const result: Token[] = [];
-    let i = 0;
+    let index = 0;
 
-    while (i < this.tokens.length) {
+    while (index < this.tokens.length) {
       let collapsed = false;
 
       for (const [seq, compound] of TYPE_COMPOUNDS) {
         let match = true;
-        for (let j = 0; j < seq.length; j++) {
-          if (i + j >= this.tokens.length || this.tokens[i + j].kind !== seq[j]) {
+        for (let seqItemIndex = 0; seqItemIndex < seq.length; seqItemIndex++) {
+          if (index + seqItemIndex >= this.tokens.length || this.tokens[index + seqItemIndex].kind !== seq[seqItemIndex]) {
             match = false;
             break;
           }
         }
 
         if (match) {
-          const startTok = this.tokens[i];
-          const endTok = this.tokens[i + seq.length - 1];
+          const startTok = this.tokens[index];
+          const endTok = this.tokens[index + seq.length - 1];
           const text = this.tokens
-            .slice(i, i + seq.length)
-            .map((t) => t.text)
+            .slice(index, index + seq.length)
+            .map((token) => token.text)
             .join(" ");
           result.push({
             kind: compound,
@@ -770,18 +770,18 @@ export class Lexer {
               start: startTok.span.start,
               end: endTok.span.end,
               line: startTok.span.line,
-              col: startTok.span.col,
+              column: startTok.span.column,
             },
           });
-          i += seq.length;
+          index += seq.length;
           collapsed = true;
           break;
         }
       }
 
       if (!collapsed) {
-        result.push(this.tokens[i]);
-        i++;
+        result.push(this.tokens[index]);
+        index++;
       }
     }
 
@@ -791,27 +791,27 @@ export class Lexer {
 }
 
 // Parse an integer literal value (handles 0x, 0b, 0 prefixes and suffixes)
-export function parseIntLiteral(text: string): bigint {
-  let s = text.toLowerCase();
+export function parseIntLiteral(literalText: string): bigint {
+  let normalizedText = literalText.toLowerCase();
   let base: number;
 
   // Strip suffix and C++14 digit separators
-  s = s.replace(/(ull?|ll?u?|u|l)$/, "").replace(/'/g, "");
+  normalizedText = normalizedText.replace(/(ull?|ll?u?|u|l)$/, "").replace(/'/g, "");
 
-  if (s.startsWith("0x")) {
+  if (normalizedText.startsWith("0x")) {
     base = 16;
-    s = s.slice(2);
-  } else if (s.startsWith("0b")) {
+    normalizedText = normalizedText.slice(2);
+  } else if (normalizedText.startsWith("0b")) {
     base = 2;
-    s = s.slice(2);
-  } else if (s.startsWith("0") && s.length > 1 && !s.includes(".")) {
+    normalizedText = normalizedText.slice(2);
+  } else if (normalizedText.startsWith("0") && normalizedText.length > 1 && !normalizedText.includes(".")) {
     base = 8;
-    s = s.slice(1);
+    normalizedText = normalizedText.slice(1);
   } else {
     base = 10;
   }
 
   // Convert with the detected base. Earlier this reparsed `s` as decimal regardless of base, so
   const prefix = base === 16 ? "0x" : base === 2 ? "0b" : base === 8 ? "0o" : "";
-  return BigInt(prefix + (s || "0"));
+  return BigInt(prefix + (normalizedText || "0"));
 }

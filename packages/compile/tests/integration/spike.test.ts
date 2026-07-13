@@ -7,7 +7,7 @@ import { execSync } from "node:child_process";
 import { Sim } from "@qinit/engine";
 import { initK12, deriveKeysSync } from "@qinit/core";
 import { emitFramework } from "../../src/framework";
-import type { UserEntry, SysProcInfo } from "../../src/framework";
+import type { UserEntry, SystemProcedureInfo } from "../../src/framework";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const FIXTURE = resolve(import.meta.dir, "../../../engine/tests/fixtures/Counter.wasm");

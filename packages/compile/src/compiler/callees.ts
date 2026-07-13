@@ -3,7 +3,7 @@ import { Parser, type Diagnostic as ParserDiagnostic } from "../parser";
 import { Preprocessor } from "../preprocess";
 import { SCAFFOLD_MACROS } from "../qpi-scaffold";
 import type { Declaration, StructDecl } from "../ast";
-import type { CompileOpts } from "./types";
+import type { CompileOptions } from "./types";
 import type { QpiContext } from "./qpi-context";
 import {
   makeUserDiagnosticRemapper,
@@ -18,12 +18,12 @@ export interface CalleeContext {
   diagnostics: ParserDiagnostic[];
 }
 
-export function collectCalleeContext(opts: CompileOpts, qpi: QpiContext): CalleeContext {
+export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): CalleeContext {
   const contractStructs = new Map<string, StructDecl>();
   const calleeTranslationUnits: Array<{ contractName: string; declarations: Declaration[] }> = [];
   const diagnostics: ParserDiagnostic[] = [];
 
-  for (const callee of opts.calleeSources ?? []) {
+  for (const callee of options.calleeSources ?? []) {
     const early = scanUnterminatedSource(callee.source).map((diagnostic) => ({
       ...diagnostic,
       message: `Callee '${callee.name}': ${diagnostic.message}`,

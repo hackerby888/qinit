@@ -1,17 +1,17 @@
-import { emitValue } from "../value";
+import { emitValue } from "../expression-lowering";
 import {
   argAddr,
-  resolveAddr,
-  loadAt,
-  emitAddr,
+  resolveExpressionAddress,
+  emitScalarLoad,
+  emitAddress,
   addrIr,
   setLocal,
-  allocSlotIr,
+  allocateScratchSlotNode,
   isSignedScalarType,
-} from "../addr";
-import { collectLocals, emitStmt, newTmp } from "../stmt";
-import { Bindings, CompiledMethod, FieldLayout, FnCtx } from "../types";
-import { Codegen } from "../cg";
+} from "../address-resolution";
+import { collectFunctionLocals, emitStatement, allocateTemporaryLocalName } from "../statement-emitter";
+import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext } from "../types";
+import { CodeGenerationContext } from "../code-generation-context";
 import type {
   TypeSpec,
   Expression,
@@ -24,16 +24,16 @@ import type {
   TemplateParam,
   ParamDecl,
 } from "../../ast";
-import * as ir from "../../ir";
+import * as watIr from "../../wat-ir";
 import { materializeAssetAddress, materializeSelect } from "./qpi";
 
 // ---- compiling instantiated container methods from the real qpi.h bodies ----
 
 // A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32), scalars pass by value (i64).
 export function classifyMethodParam(
-  cg: Codegen,
-  p: ParamDecl,
-  bind: Bindings,
+  codeGenerationContext: CodeGenerationContext,
+  parameter: ParamDecl,
+  bind: TemplateBindings,
 ): {
   name: string;
   wasmType: "i32" | "i64";
@@ -43,26 +43,26 @@ export function classifyMethodParam(
   defaultValue?: Expression;
   readOnlyRef?: boolean;
 } {
-  const t = p.type;
-  const isPtrOrRef = t.kind === "reference" || t.kind === "pointer";
-  const readOnlyRef = t.kind === "reference" && t.refereed.kind === "const";
-  const deref = cg.derefType(t);
-  const concrete = cg.substInBindings(deref, bind);
-  const isAddr = isPtrOrRef || cg.isAggregateType(concrete);
+  const type = parameter.type;
+  const isPtrOrRef = type.kind === "reference" || type.kind === "pointer";
+  const readOnlyRef = type.kind === "reference" && type.referentType.kind === "const";
+  const deref = codeGenerationContext.derefType(type);
+  const concrete = codeGenerationContext.substInBindings(deref, bind);
+  const isAddr = isPtrOrRef || codeGenerationContext.isAggregateType(concrete);
   return {
-    name: p.name,
+    name: parameter.name,
     wasmType: isAddr ? "i32" : "i64",
     isAddr,
-    type: t,
+    type: type,
     concreteType: concrete,
-    defaultValue: p.defaultValue,
+    defaultValue: parameter.defaultValue,
     readOnlyRef,
   };
 }
 
 // Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm function. Returns
 export function compileContainerMethod(
-  cg: Codegen,
+  codeGenerationContext: CodeGenerationContext,
   type: TypeSpec & { kind: "template_instance" },
   methodName: string,
   argCount?: number,
@@ -70,21 +70,21 @@ export function compileContainerMethod(
   methodArgTypes?: () => Array<TypeSpec | null>,
   explicitTemplateArgs: TypeSpec[] = [],
 ): CompiledMethod | null {
-  const explicitKey = explicitTemplateArgs.map((arg) => cg.typeKeyOf(arg)).join(",");
-  const baseCacheKey = `${type.name}<${type.args.map((a) => cg.typeKeyOf(a)).join(",")}>::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}${explicitKey ? `<${explicitKey}>` : ""}`;
-  const baseCached = cg.compiledMethods.get(baseCacheKey);
+  const explicitKey = explicitTemplateArgs.map((argument) => codeGenerationContext.typeKeyOf(argument)).join(",");
+  const baseCacheKey = `${type.name}<${type.callArguments.map((argument) => codeGenerationContext.typeKeyOf(argument)).join(",")}>::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}${explicitKey ? `<${explicitKey}>` : ""}`;
+  const baseCached = codeGenerationContext.compiledMethods.get(baseCacheKey);
   if (baseCached) return baseCached;
 
   // Specialization-aware: the body + its binding come from the matched template instance (primary OR partial specialization), so a
-  const mt = cg.methodTemplate(type.name, type.args, methodName, argCount, paramTypeKey);
+  const mt = codeGenerationContext.methodTemplate(type.name, type.callArguments, methodName, argCount, paramTypeKey);
   if (!mt || !mt.def.body) return null;
   const def = mt.def;
   const resolvedMethodArgTypes = mt.memberTemplate ? (methodArgTypes?.() ?? []) : [];
   const methodTypeKey = mt.memberTemplate
-    ? resolvedMethodArgTypes.map((arg) => (arg ? cg.typeKeyOf(arg) : "?")).join(",")
+    ? resolvedMethodArgTypes.map((argument) => (argument ? codeGenerationContext.typeKeyOf(argument) : "?")).join(",")
     : "";
   const cacheKey = `${baseCacheKey}${methodTypeKey ? `#${methodTypeKey}` : ""}`;
-  const cached = cg.compiledMethods.get(cacheKey);
+  const cached = codeGenerationContext.compiledMethods.get(cacheKey);
   if (cached) return cached;
   let bind = mt.bind;
   if (explicitTemplateArgs.length) {
@@ -94,7 +94,7 @@ export function compileContainerMethod(
       const argument = explicitTemplateArgs[index];
       if (!argument) return;
       if (parameter.kind === "type") types.set(parameter.name, argument);
-      else values.set(parameter.name, cg.valueOfTypeArg(argument, bind));
+      else values.set(parameter.name, codeGenerationContext.valueOfTypeArg(argument, bind));
     });
     bind = { ...bind, types, values };
   }
@@ -106,8 +106,8 @@ export function compileContainerMethod(
     const templateTypeNames = new Set(
       def.params.filter((param) => param.kind === "type").map((param) => param.name),
     );
-    for (let index = 0; index < (def.fnParams ?? []).length; index++) {
-      const declared = cg.derefType(def.fnParams![index].type);
+    for (let index = 0; index < (def.functionParameters ?? []).length; index++) {
+      const declared = codeGenerationContext.derefType(def.functionParameters![index].type);
       const actual = resolvedMethodArgTypes[index];
       if (declared.kind === "name" && templateTypeNames.has(declared.name) && actual) {
         types.set(declared.name, actual);
@@ -115,63 +115,63 @@ export function compileContainerMethod(
     }
     bind = { ...bind, types };
   }
-  const fnParams = (def.fnParams ?? []).map((p) => classifyMethodParam(cg, p, bind));
-  const retType = cg.substInBindings(cg.derefType(def.returnType), bind);
+  const functionParameters = (def.functionParameters ?? []).map((parameter) => classifyMethodParam(codeGenerationContext, parameter, bind));
+  const retType = codeGenerationContext.substInBindings(codeGenerationContext.derefType(def.returnType), bind);
   const returnsAddr = def.returnType.kind === "reference" || def.returnType.kind === "pointer";
   const returnsAggregate =
-    !returnsAddr && !cg.isVoidType(def.returnType) && cg.isAggregateType(retType);
+    !returnsAddr && !codeGenerationContext.isVoidType(def.returnType) && codeGenerationContext.isAggregateType(retType);
   const retKind: "i32" | "i64" | "void" = returnsAddr
     ? "i32"
-    : cg.isVoidType(def.returnType) || returnsAggregate
+    : codeGenerationContext.isVoidType(def.returnType) || returnsAggregate
       ? "void"
       : "i64";
-  const retAgg = returnsAggregate ? cg.sizeOfType(retType, bind) : undefined;
+  const retAgg = returnsAggregate ? codeGenerationContext.sizeOfType(retType, bind) : undefined;
 
   const safeMethodName = methodName.replace(/[^a-zA-Z0-9_]/g, "_");
   const cm: CompiledMethod = {
-    label: `$T${cg.compiledMethods.size}_${type.name}_${safeMethodName}`,
-    fnParams,
+    label: `$T${codeGenerationContext.compiledMethods.size}_${type.name}_${safeMethodName}`,
+    functionParameters,
     retKind,
     retAgg,
     retType,
   };
-  cg.compiledMethods.set(cacheKey, cm); // register before emitting so recursive/sibling calls resolve
+  codeGenerationContext.compiledMethods.set(cacheKey, cm); // register before emitting so recursive/sibling calls resolve
 
   try {
-    const warningBase = cg.warnings.length;
-    const errorBase = cg.errors.length;
-    const wat = emitTemplateMethod(cg, cm, def, type, bind);
-    if (cg.warnings.length !== warningBase || cg.errors.length !== errorBase) {
+    const warningBase = codeGenerationContext.warnings.length;
+    const errorBase = codeGenerationContext.errors.length;
+    const wat = emitTemplateMethod(codeGenerationContext, cm, def, type, bind);
+    if (codeGenerationContext.warnings.length !== warningBase || codeGenerationContext.errors.length !== errorBase) {
       const diagnostic =
-        cg.errors[errorBase]?.message ??
-        cg.warnings[warningBase]?.message ??
+        codeGenerationContext.errors[errorBase]?.message ??
+        codeGenerationContext.warnings[warningBase]?.message ??
         "unknown lowering diagnostic";
       throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
     }
-    cg.emittedMethodOrder.push(wat);
-  } catch (e: any) {
-    cg.warn(`failed to compile ${cacheKey}: ${e.message}`, def.span?.line ?? 0);
-    cg.compiledMethods.delete(cacheKey);
+    codeGenerationContext.emittedMethodOrder.push(wat);
+  } catch (entry: any) {
+    codeGenerationContext.warn(`failed to compile ${cacheKey}: ${entry.message}`, def.span?.line ?? 0);
+    codeGenerationContext.compiledMethods.delete(cacheKey);
     // Once an authoritative method body has been selected, a lowering failure is a
     // compiler error. Returning null here used to let callers substitute handwritten
-    throw e;
+    throw entry;
   }
   return cm;
 }
 
 // Emit the wasm function for an instantiated container method: param $this + the method's own params, body lowered
 export function emitTemplateMethod(
-  cg: Codegen,
+  codeGenerationContext: CodeGenerationContext,
   cm: CompiledMethod,
   def: FunctionTemplateDecl,
   type: TypeSpec & { kind: "template_instance" },
-  bind: Bindings,
+  bind: TemplateBindings,
 ): string {
-  const thisLayout = cg.containerLayout(type.name, type.args);
+  const thisLayout = codeGenerationContext.containerLayout(type.name, type.callArguments);
   const empty = { size: 0, align: 1, fields: new Map<string, FieldLayout>() };
-  const lookup = cg.namespaceContextOf(def);
-  const ctx: FnCtx = {
-    cg,
+  const lookup = codeGenerationContext.namespaceContextOf(def);
+  const context: FunctionEmissionContext = {
+    codeGenerationContext,
     state: empty,
     in: empty,
     out: empty,
@@ -187,35 +187,35 @@ export function emitTemplateMethod(
     thisLayout,
     thisType: type,
     thisBind: bind,
-    staticConsts: cg.staticConstsOf(type.name, bind),
+    staticConsts: codeGenerationContext.staticConstsOf(type.name, bind),
     sourceNamespace: lookup.sourceNamespace,
     usingNamespaces: lookup.usingNamespaces,
   };
   if (cm.retAgg) {
-    ctx.retAddr = "(local.get $__qinit_ret)";
-    ctx.retAggSize = cm.retAgg;
-    ctx.retType = cm.retType;
+    context.retAddr = "(local.get $__qinit_ret)";
+    context.retAggSize = cm.retAgg;
+    context.retType = cm.retType;
   }
   // Register params with their CONCRETE types (ValueT → uint64): a scalar ref-param read sizes and signs its load
-  for (const p of cm.fnParams)
-    ctx.params!.set(p.name, {
-      wasmType: p.wasmType,
-      isAddr: p.isAddr,
-      type: p.concreteType ?? cg.substInBindings(cg.derefType(p.type), bind),
+  for (const fnParam of cm.functionParameters)
+    context.params!.set(fnParam.name, {
+      wasmType: fnParam.wasmType,
+      isAddr: fnParam.isAddr,
+      type: fnParam.concreteType ?? codeGenerationContext.substInBindings(codeGenerationContext.derefType(fnParam.type), bind),
     });
 
-  if (def.body) collectLocals(def.body, ctx);
-  if (def.body) emitStmt(ctx, def.body);
+  if (def.body) collectFunctionLocals(def.body, context);
+  if (def.body) emitStatement(context, def.body);
 
   const retParam = cm.retAgg ? "(param $__qinit_ret i32) " : "";
-  const paramDecls = cm.fnParams.map((p) => `(param $${p.name} ${p.wasmType})`).join(" ");
+  const paramDecls = cm.functionParameters.map((fnParam) => `(param $${fnParam.name} ${fnParam.wasmType})`).join(" ");
   const result =
     cm.retKind === "i64" ? " (result i64)" : cm.retKind === "i32" ? " (result i32)" : "";
   const header = `  (func ${cm.label} ${retParam}(param $this i32) ${paramDecls}${result}`.replace(
     /\s+\)/,
     ")",
   );
-  const localDecls = [...ctx.localVars.entries()].map(
+  const localDecls = [...context.localVars.entries()].map(
     ([n, t]) => `    (local $${n} ${t.wasmType})`,
   );
   const tail =
@@ -224,86 +224,86 @@ export function emitTemplateMethod(
       : cm.retKind === "i32"
         ? ["    (i32.const 0)"]
         : [];
-  return [header, ...localDecls, ...ctx.lines, ...tail, "  )"].join("\n");
+  return [header, ...localDecls, ...context.lines, ...tail, "  )"].join("\n");
 }
 
 // Build a call to a container method compiled from its real qpi.h body. Arguments are classified from
 export function callCompiled(
-  ctx: FnCtx,
+  context: FunctionEmissionContext,
   type: TypeSpec & { kind: "template_instance" },
   method: string,
   self: string,
-  args: Expression[],
+  callArguments: Expression[],
   paramTypeKey?: string,
   explicitTemplateArgs: TypeSpec[] = [],
 ): { call: string; cm: CompiledMethod; retDest?: string } | null {
   const methodArgTypes = () =>
-    args.map((arg) => {
-      const node = resolveAddr(ctx, arg);
-      if (node?.type) return ctx.cg.derefType(node.type);
-      if (arg.kind === "construct") return ctx.cg.derefType(arg.type);
-      if (arg.kind === "call" && arg.callee.kind === "identifier") {
-        const type: TypeSpec = { kind: "name", name: arg.callee.name };
-        if (ctx.cg.isAggregateType(type)) return type;
+    callArguments.map((argument) => {
+      const node = resolveExpressionAddress(context, argument);
+      if (node?.type) return context.codeGenerationContext.derefType(node.type);
+      if (argument.kind === "construct") return context.codeGenerationContext.derefType(argument.type);
+      if (argument.kind === "call" && argument.callee.kind === "identifier") {
+        const type: TypeSpec = { kind: "name", name: argument.callee.name };
+        if (context.codeGenerationContext.isAggregateType(type)) return type;
       }
       return null;
     });
   const cm = compileContainerMethod(
-    ctx.cg,
+    context.codeGenerationContext,
     type,
     method,
-    args.length,
+    callArguments.length,
     paramTypeKey,
     methodArgTypes,
     explicitTemplateArgs,
   );
   if (!cm) return null;
-  const minimumArgs = cm.fnParams.findIndex((parameter) => parameter.defaultValue !== undefined);
-  const minimum = minimumArgs < 0 ? cm.fnParams.length : minimumArgs;
-  if (args.length < minimum || args.length > cm.fnParams.length) {
+  const minimumArgs = cm.functionParameters.findIndex((parameter) => parameter.defaultValue !== undefined);
+  const minimum = minimumArgs < 0 ? cm.functionParameters.length : minimumArgs;
+  if (callArguments.length < minimum || callArguments.length > cm.functionParameters.length) {
     const expected =
-      minimum === cm.fnParams.length ? `${minimum}` : `${minimum}..${cm.fnParams.length}`;
-    throw new Error(`${type.name}::${method} expects ${expected} argument(s), got ${args.length}`);
+      minimum === cm.functionParameters.length ? `${minimum}` : `${minimum}..${cm.functionParameters.length}`;
+    throw new Error(`${type.name}::${method} expects ${expected} argument(s), got ${callArguments.length}`);
   }
-  const bind = ctx.cg.bindContainer(type.name, type.args);
-  const ops = cm.fnParams.map((fp, i) => {
-    const arg = args[i] ?? fp.defaultValue;
-    if (!arg) throw new Error(`${type.name}::${method} is missing required argument ${i + 1}`);
-    if (arg.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    const paramType = fp.concreteType ?? ctx.cg.substInBindings(ctx.cg.derefType(fp.type), bind);
-    if (!fp.isAddr) return emitValue(ctx, arg);
+  const bind = context.codeGenerationContext.bindContainer(type.name, type.callArguments);
+  const ops = cm.functionParameters.map((fp, fnParamIndex) => {
+    const argument = callArguments[fnParamIndex] ?? fp.defaultValue;
+    if (!argument) throw new Error(`${type.name}::${method} is missing required argument ${fnParamIndex + 1}`);
+    if (argument.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    const paramType = fp.concreteType ?? context.codeGenerationContext.substInBindings(context.codeGenerationContext.derefType(fp.type), bind);
+    if (!fp.isAddr) return emitValue(context, argument);
     if (
       fp.type.kind === "pointer" &&
-      ctx.cg.isVoidType(fp.type.pointee) &&
-      !resolveAddr(ctx, arg)
+      context.codeGenerationContext.isVoidType(fp.type.pointee) &&
+      !resolveExpressionAddress(context, argument)
     ) {
       return "(i32.const 0)";
     }
-    if (ctx.cg.isAggregateType(paramType)) {
-      if (arg.kind === "initializer_list") {
+    if (context.codeGenerationContext.isAggregateType(paramType)) {
+      if (argument.kind === "initializer_list") {
         return argAddr(
-          ctx,
-          arg,
-          ctx.cg.sizeOfType(paramType, bind),
+          context,
+          argument,
+          context.codeGenerationContext.sizeOfType(paramType, bind),
           paramType,
           fp.readOnlyRef === true,
         );
       }
-      const direct = emitAddr(ctx, arg);
+      const direct = emitAddress(context, argument);
       if (!direct)
-        throw new Error(`${type.name}::${method} aggregate argument ${i + 1} is not addressable`);
+        throw new Error(`${type.name}::${method} aggregate argument ${fnParamIndex + 1} is not addressable`);
       return direct;
     }
     return argAddr(
-      ctx,
-      arg,
-      ctx.cg.sizeOfType(paramType, bind),
+      context,
+      argument,
+      context.codeGenerationContext.sizeOfType(paramType, bind),
       paramType,
       fp.readOnlyRef === true,
     );
   });
   let retDest = "";
-  if (cm.retAgg) retDest = ir.emit(allocSlotIr(ctx, cm.retAgg));
+  if (cm.retAgg) retDest = watIr.serializeWatNode(allocateScratchSlotNode(context, cm.retAgg));
   return {
     call: `(call ${cm.label}${retDest ? " " + retDest : ""} ${self}${ops.length ? " " + ops.join(" ") : ""})`,
     cm,
@@ -312,45 +312,45 @@ export function callCompiled(
 }
 
 export function emitTemplateContainerCall(
-  ctx: FnCtx,
-  expr: Expression & { kind: "template_call" },
+  context: FunctionEmissionContext,
+  expression: Expression & { kind: "template_call" },
   valueWanted: boolean,
 ): string | null {
-  if (expr.callee.kind !== "member_access") return null;
-  const node = resolveAddr(ctx, expr.callee.object);
+  if (expression.callee.kind !== "member_access") return null;
+  const node = resolveExpressionAddress(context, expression.callee.object);
   if (!node?.type) return null;
   let type: TypeSpec = node.type;
   if (
     type.kind === "name" &&
-    (ctx.cg.globalStructs.has(type.name) || ctx.cg.templateMethods.has(type.name))
+    (context.codeGenerationContext.globalStructs.has(type.name) || context.codeGenerationContext.templateMethods.has(type.name))
   ) {
-    type = { kind: "template_instance", name: type.name, args: [] };
+    type = { kind: "template_instance", name: type.name, callArguments: [] };
   }
   if (type.kind !== "template_instance") return null;
   const compiled = callCompiled(
-    ctx,
+    context,
     type,
-    expr.callee.member,
+    expression.callee.member,
     node.addr,
-    expr.args,
+    expression.callArguments,
     undefined,
-    expr.templateArgs ?? [],
+    expression.templateArguments ?? [],
   );
   if (!compiled) return null;
   if (valueWanted) {
     if (compiled.retDest || compiled.cm.retKind === "void")
       throw new Error(
-        `aggregate or void method ${type.name}::${expr.callee.member} used as a scalar`,
+        `aggregate or void method ${type.name}::${expression.callee.member} used as a scalar`,
       );
     if (compiled.cm.retKind === "i32")
-      return loadAt(
+      return emitScalarLoad(
         compiled.call,
-        ctx.cg.sizeOfType(compiled.cm.retType!),
-        isSignedScalarType(compiled.cm.retType!, ctx.cg),
+        context.codeGenerationContext.sizeOfType(compiled.cm.retType!),
+        isSignedScalarType(compiled.cm.retType!, context.codeGenerationContext),
       );
     return compiled.call;
   }
-  ctx.lines.push(
+  context.lines.push(
     compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`,
   );
   return "";
@@ -358,18 +358,18 @@ export function emitTemplateContainerCall(
 
 // Lower a container method call on a HashMap/HashSet/Array state/locals field. When valueWanted, returns
 export function emitContainerCall(
-  ctx: FnCtx,
-  expr: Expression & { kind: "call" },
+  context: FunctionEmissionContext,
+  expression: Expression & { kind: "call" },
   valueWanted: boolean,
 ): string | null {
-  if (expr.callee.kind !== "member_access") return null;
-  const node = resolveAddr(ctx, expr.callee.object);
+  if (expression.callee.kind !== "member_access") return null;
+  const node = resolveExpressionAddress(context, expression.callee.object);
   if (!node || !node.type) return null;
   // follow typedefs to the concrete container instance (e.g. bit_4096 → BitArray<4096>). Resolve through the
   let ct: TypeSpec | null = node.type;
-  for (let i = 0; i < 8 && ct?.kind === "name"; i++) {
+  for (let index = 0; index < 8 && ct?.kind === "name"; index++) {
     const next: TypeSpec | undefined =
-      ctx.thisBind?.types.get(ct.name) ?? ctx.cg.typedefs.get(ct.name);
+      context.thisBind?.types.get(ct.name) ?? context.codeGenerationContext.typedefs.get(ct.name);
     if (!next) break;
     ct = next;
   }
@@ -377,51 +377,51 @@ export function emitContainerCall(
   if (
     ct?.kind === "inline_struct" &&
     ct.struct.name &&
-    ctx.cg.templateMethods.get(ct.struct.name)?.has(expr.callee.member)
+    context.codeGenerationContext.templateMethods.get(ct.struct.name)?.has(expression.callee.member)
   ) {
-    ct = { kind: "template_instance", name: ct.struct.name, args: [] } as TypeSpec;
+    ct = { kind: "template_instance", name: ct.struct.name, callArguments: [] } as TypeSpec;
   }
   if (
     ct?.kind === "name" &&
-    (ctx.cg.globalStructs.has(ct.name) || ctx.cg.templateMethods.has(ct.name))
+    (context.codeGenerationContext.globalStructs.has(ct.name) || context.codeGenerationContext.templateMethods.has(ct.name))
   ) {
-    ct = { kind: "template_instance", name: ct.name, args: [] } as TypeSpec;
+    ct = { kind: "template_instance", name: ct.name, callArguments: [] } as TypeSpec;
   }
   if (!ct || ct.kind !== "template_instance") return null;
   // A namespace-qualified spelling (QPI::HashMap<sint64,uint32,16> local) dispatches by its base name — the layout side already strips the qualifier
-  if (ct.name.includes("::") && !ctx.cg.templates.has(ct.name)) {
+  if (ct.name.includes("::") && !context.codeGenerationContext.templates.has(ct.name)) {
     ct = { ...ct, name: ct.name.slice(ct.name.lastIndexOf("::") + 2) };
   }
   node.type = ct;
 
   const map = node.addr;
-  const member = expr.callee.member;
+  const member = expression.callee.member;
   // Any captured instance method goes through the same source-instantiation path.
   // Container family and method names do not carry semantics here: the selected
-  const compiled = callCompiled(ctx, node.type, member, map, expr.args);
+  const compiled = callCompiled(context, node.type, member, map, expression.callArguments);
   if (!compiled) return null;
 
   if (valueWanted) {
     if (compiled.retDest) {
-      ctx.lines.push(`    ${compiled.call}`);
+      context.lines.push(`    ${compiled.call}`);
       return `(i64.load ${compiled.retDest})`;
     }
     if (compiled.cm.retKind === "void")
       throw new Error(`void method ${node.type.name}::${member} used as a scalar`);
     if (compiled.cm.retKind === "i32") {
-      if (!compiled.cm.retType || ctx.cg.isAggregateType(compiled.cm.retType)) {
+      if (!compiled.cm.retType || context.codeGenerationContext.isAggregateType(compiled.cm.retType)) {
         throw new Error(`aggregate reference ${node.type.name}::${member} used as a scalar`);
       }
-      return loadAt(
+      return emitScalarLoad(
         compiled.call,
-        ctx.cg.sizeOfType(compiled.cm.retType, ctx.thisBind),
-        isSignedScalarType(compiled.cm.retType, ctx.cg),
+        context.codeGenerationContext.sizeOfType(compiled.cm.retType, context.thisBind),
+        isSignedScalarType(compiled.cm.retType, context.codeGenerationContext),
       );
     }
     return compiled.call;
   }
 
-  ctx.lines.push(
+  context.lines.push(
     compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`,
   );
   return "";
@@ -429,45 +429,45 @@ export function emitContainerCall(
 
 // Inside a compiled container method: a call to a sibling method of *this (getElementIndex(key)) or the hash functor
 export function emitAssetIter(
-  ctx: FnCtx,
-  expr: Expression & { kind: "call" },
+  context: FunctionEmissionContext,
+  expression: Expression & { kind: "call" },
   mode: "stmt" | "value" | "addr",
 ): string | null {
-  if (expr.callee.kind !== "member_access") return null;
-  const node = resolveAddr(ctx, expr.callee.object);
+  if (expression.callee.kind !== "member_access") return null;
+  const node = resolveExpressionAddress(context, expression.callee.object);
   const tn = node?.type?.kind === "name" ? (node.type as any).name : null;
   if (!node || (tn !== "AssetOwnershipIterator" && tn !== "AssetPossessionIterator")) return null;
-  const method = expr.callee.member;
-  const it = newTmp(ctx);
-  ctx.lines.push(`    ${setLocal(ctx, it, addrIr(node.addr))}`);
-  const itN = ir.getL(it, "i32");
-  const iter = ir.emit(itN);
-  const cursorN = ir.loadRaw("i32.load", null, ir.addr0(itN, 4));
+  const method = expression.callee.member;
+  const it = allocateTemporaryLocalName(context);
+  context.lines.push(`    ${setLocal(context, it, addrIr(node.addr))}`);
+  const itN = watIr.localGet(it, "i32");
+  const iter = watIr.serializeWatNode(itN);
+  const cursorN = watIr.rawLoad("i32.load", null, watIr.addressWithOffset(itN, 4));
   const count = `(i32.load ${iter})`;
-  const cursor = ir.emit(cursorN);
-  const record = ctx.cg.assetEnumerationRecord;
+  const cursor = watIr.serializeWatNode(cursorN);
+  const record = context.codeGenerationContext.assetEnumerationRecord;
   const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const ${record.size})))`;
 
   if (method === "begin") {
-    const selN = ir.raw(materializeSelect(ctx, undefined), "i32");
-    const asset = materializeAssetAddress(ctx, expr.args[0], `${tn}.begin`);
+    const selN = watIr.rawWatNode(materializeSelect(context, undefined), "i32");
+    const asset = materializeAssetAddress(context, expression.callArguments[0], `${tn}.begin`);
     const kind = tn === "AssetPossessionIterator" ? 1 : 0;
-    const enumerate = ir.call(
+    const enumerate = watIr.functionCall(
       "$lh_assetEnumerate",
-      ir.i32c(kind),
+      watIr.i32Constant(kind),
       addrIr(asset),
       selN,
       selN,
-      ir.raw("(global.get $assetIterBase)", "i32"),
-      ir.i32c(record.capacity),
+      watIr.rawWatNode("(global.get $assetIterBase)", "i32"),
+      watIr.i32Constant(record.capacity),
     );
-    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store", null, itN, enumerate))}`);
-    ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store", null, ir.addr0(itN, 4), ir.i32c(0)))}`);
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, itN, enumerate))}`);
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, watIr.addressWithOffset(itN, 4), watIr.i32Constant(0)))}`);
     return "";
   }
   if (method === "next") {
-    ctx.lines.push(
-      `    ${ir.emit(ir.storeRaw("i32.store", null, ir.addr0(itN, 4), ir.op("i32.add", cursorN, ir.i32c(1))))}`,
+    context.lines.push(
+      `    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, watIr.addressWithOffset(itN, 4), watIr.operation("i32.add", cursorN, watIr.i32Constant(1))))}`,
     );
     return "";
   }

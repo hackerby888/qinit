@@ -16,7 +16,7 @@ import { extractIdl } from "./idl";
 import { validateCompileOpts } from "./options";
 import { getQpiContext } from "./qpi-context";
 import { inspectLiteWasmModule } from "./wasm-inspect";
-import type { CompileOpts, CompileResult } from "./types";
+import type { CompileOptions, CompileResult } from "./types";
 import type { GtestCompileResult } from "./types";
 import { compileCoreGtest } from "./gtest";
 
@@ -24,7 +24,7 @@ export { parseToAst } from "./parse-ast";
 export type { ParseAstResult } from "./parse-ast";
 
 function emptyResult(
-  opts: CompileOpts,
+  options: CompileOptions,
   diagnostics: ParserDiagnostic[],
   timings?: Record<string, number>,
 ): CompileResult {
@@ -32,8 +32,8 @@ function emptyResult(
     wasm: new Uint8Array(0),
     diagnostics,
     idl: {
-      name: opts.name,
-      slot: opts.slot,
+      name: options.name,
+      slot: options.slot,
       functions: [],
       procedures: [],
       stateSize: 0,
@@ -43,12 +43,12 @@ function emptyResult(
   };
 }
 
-export async function compileContract(opts: CompileOpts): Promise<CompileResult> {
+export async function compileContract(options: CompileOptions): Promise<CompileResult> {
   const diagnostics: ParserDiagnostic[] = [
-    ...validateCompileOpts(opts),
-    ...(typeof opts.source === "string" ? scanUnterminatedSource(opts.source) : []),
+    ...validateCompileOpts(options),
+    ...(typeof options.source === "string" ? scanUnterminatedSource(options.source) : []),
   ];
-  if (diagnostics.length > 0) return emptyResult(opts, diagnostics);
+  if (diagnostics.length > 0) return emptyResult(options, diagnostics);
 
   const timings: Record<string, number> = {};
   const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -57,8 +57,8 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   const phase = async (name: string): Promise<void> => {
     const time = now();
     if (lastName) timings[lastName] = time - lastStart;
-    if (opts.onPhase) {
-      await opts.onPhase(name);
+    if (options.onPhase) {
+      await options.onPhase(name);
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     lastName = name;
@@ -70,22 +70,22 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   };
 
   await phase("loading qpi.h");
-  if (opts.qpiHeader === undefined)
+  if (options.qpiHeader === undefined)
     throw new Error("internal compiler requires a QPI header snapshot");
-  const qpi = getQpiContext(opts.qpiHeader);
+  const qpi = getQpiContext(options.qpiHeader);
 
   await phase("preprocessing");
-  const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(opts.source)}`;
+  const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(options.source)}`;
   const text = new Preprocessor().preprocess({
     source,
     qpiHeader: "",
-    contractName: opts.name,
-    contractIndex: opts.slot,
+    contractName: options.name,
+    contractIndex: options.slot,
     seedMacros: qpi.macros,
   });
   const boundaryIndex = text.indexOf(USER_BOUNDARY);
   const boundaryLine = boundaryIndex >= 0 ? text.slice(0, boundaryIndex).split("\n").length : 0;
-  const remap = makeUserDiagnosticRemapper(opts.source, text, boundaryLine);
+  const remap = makeUserDiagnosticRemapper(options.source, text, boundaryLine);
 
   await phase("parsing");
   const parser = new Parser(new Lexer(text).tokenize());
@@ -97,7 +97,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
       .map(remap),
   );
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error"))
-    return emptyResult(opts, diagnostics);
+    return emptyResult(options, diagnostics);
 
   await phase("validating");
   diagnostics.push(
@@ -106,15 +106,15 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
       .map(remap),
   );
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error"))
-    return emptyResult(opts, diagnostics);
+    return emptyResult(options, diagnostics);
 
   await phase("analyzing");
   const sema = new Sema();
-  const calleeContext = collectCalleeContext(opts, qpi);
+  const calleeContext = collectCalleeContext(options, qpi);
   diagnostics.push(...calleeContext.diagnostics);
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     closePhase();
-    return emptyResult(opts, diagnostics, timings);
+    return emptyResult(options, diagnostics, timings);
   }
 
   await phase("generating wasm");
@@ -124,23 +124,23 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     wat = generateWasmModule(
       unit,
       sema,
-      opts.name,
-      opts.slot,
-      opts.arenaSz ?? 1024 * 1024 * 1024,
+      options.name,
+      options.slot,
+      options.arenaSz ?? 1024 * 1024 * 1024,
       qpi.lib,
-      opts.callees,
+      options.callees,
       calleeContext.contractStructs,
       calleeContext.calleeTranslationUnits,
-      opts.sharedMemBase,
+      options.sharedMemBase,
       metadata,
     );
   } catch (error: any) {
     diagnostics.push({
       severity: "error",
       message: `Codegen failed: ${error.message}`,
-      span: { start: 0, end: 0, line: 0, col: 0 },
+      span: { start: 0, end: 0, line: 0, column: 0 },
     });
-    return emptyResult(opts, diagnostics);
+    return emptyResult(options, diagnostics);
   }
 
   diagnostics.push(
@@ -154,13 +154,13 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     fs.writeFileSync((globalThis as any).process.env.QINIT_DUMP_WAT, wat);
   }
 
-  if (opts.strict !== false) {
+  if (options.strict !== false) {
     for (const diagnostic of diagnostics)
       if (diagnostic.category === "fidelity") diagnostic.severity = "error";
   }
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     closePhase();
-    return emptyResult(opts, diagnostics, timings);
+    return emptyResult(options, diagnostics, timings);
   }
 
   await phase("assembling wasm");
@@ -175,7 +175,7 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
       throw new Error("generated module failed WebAssembly validation");
     }
     const inspection = inspectLiteWasmModule(wasm, {
-      memoryMode: opts.sharedMemBase === undefined ? "defined" : "imported",
+      memoryMode: options.sharedMemBase === undefined ? "defined" : "imported",
       lhostAbi: metadata.lhostAbi,
     });
     if (!inspection.ok) {
@@ -185,17 +185,17 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     diagnostics.push({
       severity: "error",
       message: `WAT→WASM encode failed: ${error.message}`,
-      span: { start: 0, end: 0, line: 0, col: 0 },
+      span: { start: 0, end: 0, line: 0, column: 0 },
     });
-    return emptyResult(opts, diagnostics);
+    return emptyResult(options, diagnostics);
   }
 
   closePhase();
-  return { wasm, diagnostics, idl: extractIdl(unit, opts, metadata), timings };
+  return { wasm, diagnostics, idl: extractIdl(unit, options, metadata), timings };
 }
 
 export async function compileGtest(
-  opts: CompileOpts & { testSource: string },
+  options: CompileOptions & { testSource: string },
 ): Promise<GtestCompileResult> {
-  return compileCoreGtest(opts);
+  return compileCoreGtest(options);
 }

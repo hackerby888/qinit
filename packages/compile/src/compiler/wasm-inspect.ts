@@ -143,30 +143,30 @@ class Reader {
 
   u32(label = "u32"): number {
     let value = 0;
-    for (let i = 0; i < 5; i++) {
+    for (let index = 0; index < 5; index++) {
       const at = this.pos;
-      const b = this.byte(label);
-      if (i === 4 && (b & 0xf0) !== 0) throw new WasmParseError(`${label} exceeds uint32`, at);
-      value += (b & 0x7f) * 2 ** (i * 7);
-      if ((b & 0x80) === 0) return value >>> 0;
+      const templateBindings = this.byte(label);
+      if (index === 4 && (templateBindings & 0xf0) !== 0) throw new WasmParseError(`${label} exceeds uint32`, at);
+      value += (templateBindings & 0x7f) * 2 ** (index * 7);
+      if ((templateBindings & 0x80) === 0) return value >>> 0;
     }
     throw new WasmParseError(`${label} has an overlong LEB128 encoding`, this.pos);
   }
 
   u64(label = "u64"): bigint {
     let value = 0n;
-    for (let i = 0; i < 10; i++) {
+    for (let index = 0; index < 10; index++) {
       const at = this.pos;
-      const b = this.byte(label);
-      if (i === 9 && (b & 0xfe) !== 0) throw new WasmParseError(`${label} exceeds uint64`, at);
-      value |= BigInt(b & 0x7f) << BigInt(i * 7);
-      if ((b & 0x80) === 0) return value;
+      const templateBindings = this.byte(label);
+      if (index === 9 && (templateBindings & 0xfe) !== 0) throw new WasmParseError(`${label} exceeds uint64`, at);
+      value |= BigInt(templateBindings & 0x7f) << BigInt(index * 7);
+      if ((templateBindings & 0x80) === 0) return value;
     }
     throw new WasmParseError(`${label} has an overlong LEB128 encoding`, this.pos);
   }
 
   signedLeb(maxBytes: number, label: string): void {
-    for (let i = 0; i < maxBytes; i++) {
+    for (let index = 0; index < maxBytes; index++) {
       if ((this.byte(label) & 0x80) === 0) return;
     }
     throw new WasmParseError(`${label} has an overlong LEB128 encoding`, this.pos);
@@ -253,7 +253,7 @@ function readValueTypeVector(
 ): WasmValueType[] {
   const count = reader.u32(`${context} count`);
   const values: WasmValueType[] = [];
-  for (let i = 0; i < count; i++) values.push(readValueType(reader, parsed, context));
+  for (let index = 0; index < count; index++) values.push(readValueType(reader, parsed, context));
   return values;
 }
 
@@ -342,7 +342,7 @@ function readBlockType(reader: Reader, parsed: ParsedModule): void {
   if (first === 0x40 || first === 0x7f || first === 0x7e || first === 0x7d || first === 0x7c)
     return;
   parsed.features.add("multi-value/block-type-index");
-  for (let i = 1; i < 5 && (first & 0x80) !== 0; i++) {
+  for (let index = 1; index < 5 && (first & 0x80) !== 0; index++) {
     if ((reader.byte("block type index") & 0x80) === 0) return;
   }
   if ((first & 0x80) !== 0) throw new WasmParseError("invalid block type index", at);
@@ -378,7 +378,7 @@ function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
       return true;
     case 0x0e: {
       const count = reader.u32("br_table target count");
-      for (let i = 0; i <= count; i++) reader.u32("br_table target");
+      for (let index = 0; index <= count; index++) reader.u32("br_table target");
       return true;
     }
     case 0x11: {
@@ -427,7 +427,7 @@ function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
     case 0x1c: {
       parsed.features.add("typed-select");
       const count = reader.u32("typed select type count");
-      for (let i = 0; i < count; i++) readValueType(reader, parsed, "typed select");
+      for (let index = 0; index < count; index++) readValueType(reader, parsed, "typed select");
       return true;
     }
     case 0xc0:
@@ -514,7 +514,7 @@ function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
 
 function parseTypeSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("type count");
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     const at = reader.pos;
     if (reader.byte("function type form") !== 0x60)
       throw new WasmParseError("type is not a function type", at);
@@ -538,7 +538,7 @@ function typeAt(
 
 function parseImportSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("import count");
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     const module = reader.name("import module");
     const name = reader.name("import name");
     const kindAt = reader.pos;
@@ -583,7 +583,7 @@ function parseImportSection(reader: Reader, parsed: ParsedModule): void {
 function parseFunctionSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("defined function count");
   parsed.definedFunctionCount = count;
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     const at = reader.pos;
     const typeIndex = reader.u32("defined function type index");
     typeAt(parsed, typeIndex, "defined function", at);
@@ -593,7 +593,7 @@ function parseFunctionSection(reader: Reader, parsed: ParsedModule): void {
 
 function parseTableSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("table count");
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     readTableType(reader, parsed);
     parsed.tableCount++;
   }
@@ -602,7 +602,7 @@ function parseTableSection(reader: Reader, parsed: ParsedModule): void {
 
 function parseMemorySection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("memory count");
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     const limits = readLimits(reader, parsed, "memory");
     parsed.memories.push({
       source: "defined",
@@ -617,7 +617,7 @@ function parseMemorySection(reader: Reader, parsed: ParsedModule): void {
 
 function parseGlobalSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("global count");
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     parsed.globals.push(readGlobalType(reader, parsed));
     readConstExpression(reader, parsed);
   }
@@ -625,7 +625,7 @@ function parseGlobalSection(reader: Reader, parsed: ParsedModule): void {
 
 function parseExportSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("export count");
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     const name = reader.name("export name");
     const kindAt = reader.pos;
     const rawKind = reader.byte("export kind");
@@ -646,7 +646,7 @@ function parseExportSection(reader: Reader, parsed: ParsedModule): void {
 
 function parseElementSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("element segment count");
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     const tableOrFlags = reader.u32("element table index/flags");
     if (tableOrFlags !== 0) {
       parsed.features.add("bulk-memory/reference-type-elements");
@@ -655,7 +655,7 @@ function parseElementSection(reader: Reader, parsed: ParsedModule): void {
     }
     readConstExpression(reader, parsed);
     const fnCount = reader.u32("element function count");
-    for (let j = 0; j < fnCount; j++) reader.u32("element function index");
+    for (let nestedIndex = 0; nestedIndex < fnCount; nestedIndex++) reader.u32("element function index");
   }
 }
 
@@ -668,11 +668,11 @@ function parseCodeSection(reader: Reader, parsed: ParsedModule): void {
       `function section declares ${parsed.definedFunctionCount} bodies but code section has ${count}`,
     );
   }
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     const size = reader.u32("function body size");
     const body = reader.subReader(size, "function body");
     const localGroupCount = body.u32("local group count");
-    for (let j = 0; j < localGroupCount; j++) {
+    for (let nestedIndex = 0; nestedIndex < localGroupCount; nestedIndex++) {
       body.u32("local count");
       readValueType(body, parsed, "local");
     }
@@ -689,7 +689,7 @@ function parseCodeSection(reader: Reader, parsed: ParsedModule): void {
       error(
         parsed.diagnostics,
         "malformed-module",
-        `function body ${i} does not end with end`,
+        `function body ${index} does not end with end`,
         body.end - 1,
       );
     }
@@ -698,7 +698,7 @@ function parseCodeSection(reader: Reader, parsed: ParsedModule): void {
 
 function parseDataSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("data segment count");
-  for (let i = 0; i < count; i++) {
+  for (let index = 0; index < count; index++) {
     const memoryOrFlags = reader.u32("data memory index/flags");
     if (memoryOrFlags !== 0) {
       parsed.features.add("bulk-memory/data-segments");
@@ -729,9 +729,9 @@ function emptyParsed(): ParsedModule {
 function parseModule(bytes: Uint8Array, parsed: ParsedModule): ParsedModule {
   const reader = new Reader(bytes);
   const expectedHeader = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
-  for (let i = 0; i < expectedHeader.length; i++) {
-    if (reader.byte("Wasm header") !== expectedHeader[i])
-      throw new WasmParseError("invalid Wasm magic or version", i);
+  for (let expectedHeaderItemIndex = 0; expectedHeaderItemIndex < expectedHeader.length; expectedHeaderItemIndex++) {
+    if (reader.byte("Wasm header") !== expectedHeader[expectedHeaderItemIndex])
+      throw new WasmParseError("invalid Wasm magic or version", expectedHeaderItemIndex);
   }
 
   const seenSections = new Set<number>();
@@ -806,13 +806,13 @@ function parseModule(bytes: Uint8Array, parsed: ParsedModule): ParsedModule {
   return parsed;
 }
 
-function sameSignature(a: WasmFunctionSignature | undefined, b: WasmFunctionSignature): boolean {
+function sameSignature(argument: WasmFunctionSignature | undefined, templateBindings: WasmFunctionSignature): boolean {
   return (
-    !!a &&
-    a.params.length === b.params.length &&
-    a.results.length === b.results.length &&
-    a.params.every((value, i) => value === b.params[i]) &&
-    a.results.every((value, i) => value === b.results[i])
+    !!argument &&
+    argument.params.length === templateBindings.params.length &&
+    argument.results.length === templateBindings.results.length &&
+    argument.params.every((value, parameterIndex) => value === templateBindings.params[parameterIndex]) &&
+    argument.results.every((value, resultIndex) => value === templateBindings.results[resultIndex])
   );
 }
 

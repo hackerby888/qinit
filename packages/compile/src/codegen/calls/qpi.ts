@@ -1,11 +1,11 @@
-import { allocSlotIr, addrIr, emitAddr, resolveAddr } from "../addr";
-import { emitValueIr } from "../value";
-import { NO_BIND, type FnCtx } from "../types";
+import { allocateScratchSlotNode, addrIr, emitAddress, resolveExpressionAddress } from "../address-resolution";
+import { lowerValueExpression } from "../expression-lowering";
+import { EMPTY_TEMPLATE_BINDINGS, type FunctionEmissionContext } from "../types";
 import type { Expression } from "../../ast";
-import * as ir from "../../ir";
+import * as watIr from "../../wat-ir";
 
-function parsedAggregateLayout(ctx: FnCtx, name: string) {
-  const layout = ctx.cg.layoutOfType({ kind: "name", name }, ctx.thisBind ?? NO_BIND);
+function parsedAggregateLayout(context: FunctionEmissionContext, name: string) {
+  const layout = context.codeGenerationContext.layoutOfType({ kind: "name", name }, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
   if (!layout) throw new Error(`core QPI aggregate '${name}' has no parsed layout`);
   const field = (fieldName: string): number => {
     const value = layout.fields.get(fieldName);
@@ -23,19 +23,19 @@ function parsedAggregateLayout(ctx: FnCtx, name: string) {
   return { layout, field, firstField };
 }
 
-export function materializeSelect(ctx: FnCtx, expression: Expression | undefined): string {
-  const parsed = parsedAggregateLayout(ctx, "AssetOwnershipSelect");
-  const slot = allocSlotIr(ctx, parsed.layout.size);
-  ctx.lines.push(
-    `    ${ir.emit(ir.call("$setMem", slot, ir.i32c(parsed.layout.size), ir.i32c(0)))}`,
+export function materializeSelect(context: FunctionEmissionContext, expression: Expression | undefined): string {
+  const parsed = parsedAggregateLayout(context, "AssetOwnershipSelect");
+  const slot = allocateScratchSlotNode(context, parsed.layout.size);
+  context.lines.push(
+    `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", slot, watIr.i32Constant(parsed.layout.size), watIr.i32Constant(0)))}`,
   );
   const flag = (offset: number, value: number) =>
-    ctx.lines.push(
-      `    ${ir.emit(ir.storeRaw("i32.store8", null, ir.addr0(slot, offset), ir.i32c(value)))}`,
+    context.lines.push(
+      `    ${watIr.serializeWatNode(watIr.rawStore("i32.store8", null, watIr.addressWithOffset(slot, offset), watIr.i32Constant(value)))}`,
     );
   const clamp = (value: Expression, mnemonic: string, offset: number, mask: string) =>
-    ctx.lines.push(
-      `    ${ir.emit(ir.storeRaw(mnemonic, null, ir.addr0(slot, offset), ir.op("i32.and", ir.op("i32.wrap_i64", emitValueIr(ctx, value)), ir.i32c(mask))))}`,
+    context.lines.push(
+      `    ${watIr.serializeWatNode(watIr.rawStore(mnemonic, null, watIr.addressWithOffset(slot, offset), watIr.operation("i32.and", watIr.operation("i32.wrap_i64", lowerValueExpression(context, value)), watIr.i32Constant(mask))))}`,
     );
   const callExpression = expression?.kind === "call" ? expression : undefined;
   const staticName = callExpression
@@ -49,86 +49,86 @@ export function materializeSelect(ctx: FnCtx, expression: Expression | undefined
     flag(parsed.firstField("anyOwner", "anyPossessor", "anyId"), 1);
     flag(parsed.field("anyManagingContract"), 1);
   } else if (staticName === "byOwner" || staticName === "byPossessor") {
-    const source = callExpression?.args[0] ? emitAddr(ctx, callExpression.args[0]) : null;
+    const source = callExpression?.callArguments[0] ? emitAddress(context, callExpression.callArguments[0]) : null;
     if (!source) throw new Error(`${staticName} selector id is not addressable`);
-    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", slot, addrIr(source), ir.i32c(32)))}`);
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", slot, addrIr(source), watIr.i32Constant(32)))}`);
     flag(parsed.field("anyManagingContract"), 1);
   } else if (staticName === "byManagingContract") {
-    if (!callExpression?.args[0])
+    if (!callExpression?.callArguments[0])
       throw new Error("byManagingContract selector is missing its contract index");
-    clamp(callExpression.args[0], "i32.store16", parsed.field("managingContract"), "0xffff");
+    clamp(callExpression.callArguments[0], "i32.store16", parsed.field("managingContract"), "0xffff");
     flag(parsed.firstField("anyOwner", "anyPossessor", "anyId"), 1);
   } else if (expression.kind === "initializer_list") {
-    const source = expression.exprs[0] ? emitAddr(ctx, expression.exprs[0]) : null;
+    const source = expression.expressions[0] ? emitAddress(context, expression.expressions[0]) : null;
     if (source)
-      ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", slot, addrIr(source), ir.i32c(32)))}`);
-    else if (expression.exprs[0]) throw new Error("asset selector id is not addressable");
-    if (expression.exprs[1])
-      clamp(expression.exprs[1], "i32.store16", parsed.field("managingContract"), "0xffff");
-    if (expression.exprs[2])
+      context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", slot, addrIr(source), watIr.i32Constant(32)))}`);
+    else if (expression.expressions[0]) throw new Error("asset selector id is not addressable");
+    if (expression.expressions[1])
+      clamp(expression.expressions[1], "i32.store16", parsed.field("managingContract"), "0xffff");
+    if (expression.expressions[2])
       clamp(
-        expression.exprs[2],
+        expression.expressions[2],
         "i32.store8",
         parsed.firstField("anyOwner", "anyPossessor", "anyId"),
         "1",
       );
-    if (expression.exprs[3])
-      clamp(expression.exprs[3], "i32.store8", parsed.field("anyManagingContract"), "1");
+    if (expression.expressions[3])
+      clamp(expression.expressions[3], "i32.store8", parsed.field("anyManagingContract"), "1");
   } else {
-    const source = emitAddr(ctx, expression);
+    const source = emitAddress(context, expression);
     if (!source) throw new Error("asset selector is not addressable");
-    ctx.lines.push(
-      `    ${ir.emit(ir.call("$copyMem", slot, addrIr(source), ir.i32c(parsed.layout.size)))}`,
+    context.lines.push(
+      `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", slot, addrIr(source), watIr.i32Constant(parsed.layout.size)))}`,
     );
   }
-  return ir.emit(slot);
+  return watIr.serializeWatNode(slot);
 }
 
 export function materializeAssetAddress(
-  ctx: FnCtx,
+  context: FunctionEmissionContext,
   expression: Expression | undefined,
   bindingName: string,
 ): string {
   if (expression?.kind === "initializer_list") {
-    const parsed = parsedAggregateLayout(ctx, "Asset");
-    const slot = allocSlotIr(ctx, parsed.layout.size);
-    ctx.lines.push(
-      `    ${ir.emit(ir.call("$setMem", slot, ir.i32c(parsed.layout.size), ir.i32c(0)))}`,
+    const parsed = parsedAggregateLayout(context, "Asset");
+    const slot = allocateScratchSlotNode(context, parsed.layout.size);
+    context.lines.push(
+      `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", slot, watIr.i32Constant(parsed.layout.size), watIr.i32Constant(0)))}`,
     );
-    const issuer = expression.exprs[0] ? emitAddr(ctx, expression.exprs[0]) : null;
+    const issuer = expression.expressions[0] ? emitAddress(context, expression.expressions[0]) : null;
     if (!issuer) throw new Error(`${bindingName} asset issuer is not addressable`);
-    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", slot, addrIr(issuer), ir.i32c(32)))}`);
-    if (!expression.exprs[1]) throw new Error(`${bindingName} asset name is missing`);
-    ctx.lines.push(
-      `    ${ir.emit(ir.storeRaw("i64.store", null, ir.addr0(slot, parsed.field("assetName")), emitValueIr(ctx, expression.exprs[1])))}`,
+    context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", slot, addrIr(issuer), watIr.i32Constant(32)))}`);
+    if (!expression.expressions[1]) throw new Error(`${bindingName} asset name is missing`);
+    context.lines.push(
+      `    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, watIr.addressWithOffset(slot, parsed.field("assetName")), lowerValueExpression(context, expression.expressions[1])))}`,
     );
-    return ir.emit(slot);
+    return watIr.serializeWatNode(slot);
   }
   const address = expression
-    ? (resolveAddr(ctx, expression)?.addr ?? emitAddr(ctx, expression))
+    ? (resolveExpressionAddress(context, expression)?.addr ?? emitAddress(context, expression))
     : null;
   if (!address) throw new Error(`${bindingName} asset argument is missing or not addressable`);
   return address;
 }
 
 /** Fail closed when a qpi method is absent from the parsed context inheritance hierarchy. */
-export function emitQpiCall(ctx: FnCtx, expression: Expression & { kind: "call" }): null {
+export function emitQpiCall(context: FunctionEmissionContext, expression: Expression & { kind: "call" }): null {
   if (!(
     expression.callee.kind === "member_access" &&
     expression.callee.object.kind === "identifier" &&
     expression.callee.object.name === "qpi"
   ))
     return null;
-  const contextType = ctx.params?.get("qpi")?.type;
+  const contextType = context.params?.get("qpi")?.type;
   if (
     contextType?.kind === "name" &&
-    ctx.cg.hasInstanceMethod(contextType.name, expression.callee.member)
+    context.codeGenerationContext.hasInstanceMethod(contextType.name, expression.callee.member)
   )
     return null;
   if (
     contextType?.kind === "name" &&
     /QpiContextFunctionCall$/.test(contextType.name) &&
-    ctx.cg.hasInstanceMethod("QpiContextProcedureCall", expression.callee.member)
+    context.codeGenerationContext.hasInstanceMethod("QpiContextProcedureCall", expression.callee.member)
   ) {
     throw new Error(
       `QPI method '${expression.callee.member}' is unavailable in a function context`,

@@ -51,7 +51,7 @@ describe("edge audit — user-facing diagnostic spans", () => {
       /missingValue|unknown.*identifier/i.test(d.message),
     );
     expect(diagnostic).toBeDefined();
-    expect(diagnostic!.span.col).toBe(ERROR_COLUMN);
+    expect(diagnostic!.span.column).toBe(ERROR_COLUMN);
   });
 
   test("a parse error also reports a line within the original source", async () => {

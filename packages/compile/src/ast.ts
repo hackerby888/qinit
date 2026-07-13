@@ -6,20 +6,20 @@ export interface Span {
   start: number; // UTF-16 code-unit offset in the associated source
   end: number; // exclusive UTF-16 code-unit offset in the associated source
   line: number; // 1-based
-  col: number; // 1-based column at start
+  column: number; // 1-based column at start
 }
 
 // ---- Types ----
 
 export type TypeSpec =
   | { kind: "name"; name: string; span?: Span } // uint64, id, m256i, sint32, etc.
-  | { kind: "template_instance"; name: string; args: TypeSpec[]; span?: Span } // HashMap<id, uint64, 1024>
+  | { kind: "template_instance"; name: string; callArguments: TypeSpec[]; span?: Span } // HashMap<id, uint64, 1024>
   | { kind: "const"; valueType: TypeSpec; span?: Span } // const T
   | { kind: "pointer"; pointee: TypeSpec; span?: Span } // T* (internal use only)
-  | { kind: "reference"; refereed: TypeSpec; span?: Span } // T& (function params)
-  | { kind: "array"; elem: TypeSpec; size: Expression; span?: Span } // T name[N] — C array member
+  | { kind: "reference"; referentType: TypeSpec; span?: Span } // T& (function params)
+  | { kind: "array"; element: TypeSpec; size: Expression; span?: Span } // T name[N] — C array member
   | { kind: "inline_struct"; struct: StructDecl; span?: Span } // struct {...} name; — anonymous/tag struct as a field type
-  | { kind: "expr_value"; expr: Expression; span?: Span } // non-type template arg, e.g. HashMap<id,uint64, 64*1024>
+  | { kind: "expr_value"; expression: Expression; span?: Span } // non-type template arg, e.g. HashMap<id,uint64, 64*1024>
   | { kind: "dependent_member"; base: TypeSpec; member: string; span?: Span } // typename Sel<v>::type — nested type of a template instance
   | { kind: "void"; span?: Span };
 
@@ -80,42 +80,42 @@ export type Expression =
   | { kind: "identifier"; name: string; span: Span }
   | { kind: "qualified_name"; namespace: string; name: string; span: Span } // QPI::foo, NAMESPACE::Type
   // Unary
-  | { kind: "unary_op"; op: UnaryOp; arg: Expression; span: Span }
-  | { kind: "prefix_op"; op: "++" | "--"; arg: Expression; span: Span }
-  | { kind: "postfix_op"; op: "++" | "--"; arg: Expression; span: Span }
+  | { kind: "unary_op"; operator: UnaryOp; argument: Expression; span: Span }
+  | { kind: "prefix_op"; operator: "++" | "--"; argument: Expression; span: Span }
+  | { kind: "postfix_op"; operator: "++" | "--"; argument: Expression; span: Span }
   // Binary
-  | { kind: "binary_op"; op: BinaryOp; left: Expression; right: Expression; span: Span }
+  | { kind: "binary_op"; operator: BinaryOp; left: Expression; right: Expression; span: Span }
   // Ternary
-  | { kind: "ternary"; cond: Expression; then: Expression; else_: Expression; span: Span }
+  | { kind: "ternary"; condition: Expression; then: Expression; else_: Expression; span: Span }
   // Member access
   | { kind: "member_access"; object: Expression; member: string; arrow: boolean; span: Span } // obj.member / ptr->member
   | { kind: "subscript"; object: Expression; index: Expression; span: Span } // obj[index] (internal)
-  | { kind: "sequence"; exprs: Expression[]; span: Span } // a, b (comma operator)
+  | { kind: "sequence"; expressions: Expression[]; span: Span } // a, b (comma operator)
   // Function call
-  | { kind: "call"; callee: Expression; args: Expression[]; span: Span }
+  | { kind: "call"; callee: Expression; callArguments: Expression[]; span: Span }
   | {
       kind: "template_call";
       callee: Expression;
-      templateArgs: TypeSpec[];
-      args: Expression[];
+      templateArguments: TypeSpec[];
+      callArguments: Expression[];
       span: Span;
     } // fn<T>(args)
   // Casts
-  | { kind: "c_cast"; type: TypeSpec; expr: Expression; span: Span } // (type)expr
-  | { kind: "static_cast"; type: TypeSpec; expr: Expression; span: Span }
-  | { kind: "reinterpret_cast"; type: TypeSpec; expr: Expression; span: Span }
+  | { kind: "c_cast"; type: TypeSpec; expression: Expression; span: Span } // (type)expr
+  | { kind: "static_cast"; type: TypeSpec; expression: Expression; span: Span }
+  | { kind: "reinterpret_cast"; type: TypeSpec; expression: Expression; span: Span }
   // sizeof
   | { kind: "sizeof_type"; type: TypeSpec; span: Span } // sizeof(T)
-  | { kind: "sizeof_expr"; expr: Expression; span: Span } // sizeof expr
+  | { kind: "sizeof_expr"; expression: Expression; span: Span } // sizeof expr
   // Assignment (expression-level)
-  | { kind: "assign"; op: AssignOp; left: Expression; right: Expression; span: Span }
+  | { kind: "assign"; operator: AssignOp; left: Expression; right: Expression; span: Span }
   // Constructor call
-  | { kind: "construct"; type: TypeSpec; args: Expression[]; span: Span } // Type{args}
-  | { kind: "initializer_list"; exprs: Expression[]; span: Span } // {a, b, c}
+  | { kind: "construct"; type: TypeSpec; callArguments: Expression[]; span: Span } // Type{args}
+  | { kind: "initializer_list"; expressions: Expression[]; span: Span } // {a, b, c}
   // This
   | { kind: "this"; span: Span }
   // Parens
-  | { kind: "paren"; expr: Expression; span: Span };
+  | { kind: "paren"; expression: Expression; span: Span };
 
 export type UnaryOp = "!" | "~" | "-" | "+" | "*" | "&";
 export type BinaryOp =
@@ -143,20 +143,20 @@ export type AssignOp = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "<<=" | ">>=" | 
 // ---- Statements ----
 
 export type Statement =
-  | { kind: "expression"; expr: Expression; span: Span }
+  | { kind: "expression"; expression: Expression; span: Span }
   | { kind: "compound"; body: Statement[]; span: Span } // { ... }
-  | { kind: "if"; cond: Expression; then: Statement; else_?: Statement; span: Span }
+  | { kind: "if"; condition: Expression; then: Statement; else_?: Statement; span: Span }
   | {
       kind: "for";
-      init?: Statement;
-      cond?: Expression;
+      initializer?: Statement;
+      condition?: Expression;
       update?: Expression;
       body: Statement;
       span: Span;
     }
-  | { kind: "while"; cond: Expression; body: Statement; span: Span }
-  | { kind: "do_while"; body: Statement; cond: Expression; span: Span }
-  | { kind: "switch"; cond: Expression; body: Statement; span: Span }
+  | { kind: "while"; condition: Expression; body: Statement; span: Span }
+  | { kind: "do_while"; body: Statement; condition: Expression; span: Span }
+  | { kind: "switch"; condition: Expression; body: Statement; span: Span }
   | { kind: "case"; value: Expression; span: Span } // case VALUE:
   | { kind: "default"; span: Span } // default:
   | { kind: "break"; span: Span }
@@ -164,8 +164,8 @@ export type Statement =
   | { kind: "return"; value?: Expression; span: Span }
   | { kind: "goto"; label: string; span: Span }
   | { kind: "label"; name: string; span: Span } // label:
-  | { kind: "declaration"; decl: Declaration; span: Span }
-  | { kind: "static_assert"; cond: Expression; message?: Expression; span: Span }
+  | { kind: "declaration"; declaration: Declaration; span: Span }
+  | { kind: "static_assert"; condition: Expression; message?: Expression; span: Span }
   | { kind: "pragma"; text: string; span: Span } // #pragma once, etc.
   | { kind: "empty"; span: Span };
 
@@ -219,7 +219,7 @@ export interface FunctionTemplateDecl {
   kind: "function_template";
   name: string;
   params: TemplateParam[]; // template parameters (KeyT, ValueT, L, ...)
-  fnParams?: ParamDecl[]; // the function's own parameters (key, value, ...)
+  functionParameters?: ParamDecl[]; // the function's own parameters (key, value, ...)
   returnType: TypeSpec;
   body?: Statement;
   isConstexpr: boolean;
@@ -255,7 +255,7 @@ export interface VariableDecl {
   kind: "variable";
   name: string;
   type: TypeSpec;
-  init?: Expression;
+  initializer?: Expression;
   isConstexpr: boolean;
   isStatic: boolean;
   isExtern: boolean;
@@ -295,7 +295,7 @@ export interface NamespaceDecl {
 
 export interface StaticAssertDecl {
   kind: "static_assert_decl";
-  cond: Expression;
+  condition: Expression;
   message?: Expression;
   span: Span;
 }
@@ -309,7 +309,7 @@ export interface ExternBlockDecl {
 
 export interface FriendDecl {
   kind: "friend";
-  decl: FunctionDecl | StructDecl | ClassTemplateDecl;
+  declaration: FunctionDecl | StructDecl | ClassTemplateDecl;
   span: Span;
 }
 
@@ -333,38 +333,38 @@ export function nameType(name: string): TypeSpec {
   return { kind: "name", name };
 }
 
-export function templateInstance(name: string, args: TypeSpec[]): TypeSpec {
-  return { kind: "template_instance", name, args };
+export function templateInstance(name: string, callArguments: TypeSpec[]): TypeSpec {
+  return { kind: "template_instance", name, callArguments };
 }
 
 export function id(name: string, span?: Span): Expression {
-  return { kind: "identifier", name, span: span ?? { start: 0, end: 0, line: 0, col: 0 } };
+  return { kind: "identifier", name, span: span ?? { start: 0, end: 0, line: 0, column: 0 } };
 }
 
 export function member(obj: Expression, memberName: string, arrow?: boolean): Expression {
   return { kind: "member_access", object: obj, member: memberName, arrow: !!arrow, span: obj.span };
 }
 
-export function call(callee: Expression, args: Expression[]): Expression {
-  return { kind: "call", callee, args, span: callee.span ?? { start: 0, end: 0, line: 0, col: 0 } };
+export function call(callee: Expression, callArguments: Expression[]): Expression {
+  return { kind: "call", callee, callArguments, span: callee.span ?? { start: 0, end: 0, line: 0, column: 0 } };
 }
 
 export function intLit(value: string, suffix?: string): Expression {
-  return { kind: "int_literal", value, suffix, span: { start: 0, end: 0, line: 0, col: 0 } };
+  return { kind: "int_literal", value, suffix, span: { start: 0, end: 0, line: 0, column: 0 } };
 }
 
-export function binary(left: Expression, op: BinaryOp, right: Expression): Expression {
-  return { kind: "binary_op", op, left, right, span: left.span };
+export function binary(left: Expression, operator: BinaryOp, right: Expression): Expression {
+  return { kind: "binary_op", operator, left, right, span: left.span };
 }
 
 export function retStmt(value?: Expression): Statement {
-  return { kind: "return", value, span: { start: 0, end: 0, line: 0, col: 0 } };
+  return { kind: "return", value, span: { start: 0, end: 0, line: 0, column: 0 } };
 }
 
-export function exprStmt(expr: Expression): Statement {
-  return { kind: "expression", expr, span: expr.span };
+export function exprStmt(expression: Expression): Statement {
+  return { kind: "expression", expression, span: expression.span };
 }
 
-export function declStmt(decl: Declaration): Statement {
-  return { kind: "declaration", decl, span: decl.span ?? { start: 0, end: 0, line: 0, col: 0 } };
+export function declStmt(declaration: Declaration): Statement {
+  return { kind: "declaration", declaration, span: declaration.span ?? { start: 0, end: 0, line: 0, column: 0 } };
 }

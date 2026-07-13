@@ -1,17 +1,17 @@
 import type { TranslationUnit } from "../ast";
 import { Parser } from "../parser";
 import type { GeneratedContractMetadata } from "../codegen";
-import type { CompileOpts, ContractIdl } from "./types";
+import type { CompileOptions, ContractIdl } from "./types";
 
 export function extractIdl(
   unit: TranslationUnit,
-  opts: CompileOpts,
+  options: CompileOptions,
   generated?: GeneratedContractMetadata,
 ): ContractIdl {
   if (generated) {
     return {
-      name: opts.name,
-      slot: opts.slot,
+      name: options.name,
+      slot: options.slot,
       functions: generated.entries
         .filter((entry) => entry.kind === 0)
         .map(({ name, inputType, inSize, outSize }) => ({ name, inputType, inSize, outSize })),
@@ -31,5 +31,5 @@ export function extractIdl(
     if (info.kind === 0) functions.push(entry);
     else procedures.push(entry);
   }
-  return { name: opts.name, slot: opts.slot, functions, procedures, stateSize: 0, sysprocMask: 0 };
+  return { name: options.name, slot: options.slot, functions, procedures, stateSize: 0, sysprocMask: 0 };
 }

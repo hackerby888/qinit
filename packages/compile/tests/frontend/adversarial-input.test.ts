@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 interface ChildResult {
   count: number;
-  diagnostics: Array<{ severity: string; message: string; line: number; col: number }>;
+  diagnostics: Array<{ severity: string; message: string; line: number; column: number }>;
   declarations: number;
 }
 

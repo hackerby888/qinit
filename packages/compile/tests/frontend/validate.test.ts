@@ -12,7 +12,7 @@ import type {
   Span,
 } from "../../src/ast";
 
-const NO_SPAN: Span = { start: 0, end: 0, line: 1, col: 1 };
+const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };
 
 // --- AST builder helpers ---- Cast through `any` so test builders stay concise. Every helper produces objects whose
 
@@ -25,41 +25,41 @@ const ident = (name: string): Expression =>
   ({ kind: "identifier", name, span: NO_SPAN }) as Expression;
 const iLit = (value: string): Expression =>
   ({ kind: "int_literal", value, span: NO_SPAN }) as Expression;
-const bin = (left: Expression, op: string, right: Expression): Expression =>
-  ({ kind: "binary_op", op, left, right, span: NO_SPAN }) as Expression;
-const callx = (callee: Expression, args: Expression[]): Expression =>
-  ({ kind: "call", callee, args, span: NO_SPAN }) as Expression;
+const bin = (left: Expression, operator: string, right: Expression): Expression =>
+  ({ kind: "binary_op", operator, left, right, span: NO_SPAN }) as Expression;
+const callx = (callee: Expression, callArguments: Expression[]): Expression =>
+  ({ kind: "call", callee, callArguments, span: NO_SPAN }) as Expression;
 const assign = (target: Expression, value: Expression): Expression =>
-  ({ kind: "assign", op: "=", left: target, right: value, span: NO_SPAN }) as Expression;
-const unary = (op: string, arg: Expression): Expression =>
-  ({ kind: "unary_op", op, arg, span: NO_SPAN }) as Expression;
+  ({ kind: "assign", operator: "=", left: target, right: value, span: NO_SPAN }) as Expression;
+const unary = (operator: string, argument: Expression): Expression =>
+  ({ kind: "unary_op", operator, argument, span: NO_SPAN }) as Expression;
 
-const eStmt = (expr: Expression): Statement =>
-  ({ kind: "expression", expr, span: NO_SPAN }) as Statement;
+const eStmt = (expression: Expression): Statement =>
+  ({ kind: "expression", expression, span: NO_SPAN }) as Statement;
 const retStmt = (value?: Expression): Statement =>
   ({ kind: "return", value, span: NO_SPAN }) as Statement;
 const compStmt = (body: Statement[]): Statement =>
   ({ kind: "compound", body, span: NO_SPAN }) as Statement;
-const declStmt = (decl: Declaration): Statement =>
-  ({ kind: "declaration", decl, span: NO_SPAN }) as Statement;
-const ifStmt = (cond: Expression, then: Statement, else_?: Statement): Statement =>
-  ({ kind: "if", cond, then, else_, span: NO_SPAN }) as Statement;
+const declStmt = (declaration: Declaration): Statement =>
+  ({ kind: "declaration", declaration, span: NO_SPAN }) as Statement;
+const ifStmt = (condition: Expression, then: Statement, else_?: Statement): Statement =>
+  ({ kind: "if", condition, then, else_, span: NO_SPAN }) as Statement;
 const forStmt = (
-  init: Statement | undefined,
-  cond: Expression | undefined,
+  initializer: Statement | undefined,
+  condition: Expression | undefined,
   update: Expression | undefined,
   body: Statement,
-): Statement => ({ kind: "for", init, cond, update, body, span: NO_SPAN }) as Statement;
-const swStmt = (cond: Expression, body: Statement): Statement =>
-  ({ kind: "switch", cond, body, span: NO_SPAN }) as Statement;
+): Statement => ({ kind: "for", initializer, condition, update, body, span: NO_SPAN }) as Statement;
+const swStmt = (condition: Expression, body: Statement): Statement =>
+  ({ kind: "switch", condition, body, span: NO_SPAN }) as Statement;
 const caseStmt = (value: Expression, body: Statement[]): Statement =>
   ({ kind: "case", value, body, span: NO_SPAN }) as Statement;
 const breakStmt = (): Statement => ({ kind: "break", span: NO_SPAN }) as Statement;
-const ppOp = (arg: Expression, prefix: boolean): Expression =>
+const ppOp = (argument: Expression, prefix: boolean): Expression =>
   ({
     kind: prefix ? "prefix_op" : "postfix_op",
-    op: "++",
-    arg,
+    operator: "++",
+    argument,
     span: NO_SPAN,
     prefix,
   }) as Expression;
@@ -67,8 +67,8 @@ const ppOp = (arg: Expression, prefix: boolean): Expression =>
 const varDecl = (
   name: string,
   type: TypeSpec,
-  opts?: {
-    init?: Expression;
+  options?: {
+    initializer?: Expression;
     isConstexpr?: boolean;
     isStatic?: boolean;
     isExtern?: boolean;
@@ -79,12 +79,12 @@ const varDecl = (
     kind: "variable",
     name,
     type,
-    init: opts?.init,
-    isConstexpr: opts?.isConstexpr ?? false,
-    isStatic: opts?.isStatic ?? false,
-    isExtern: opts?.isExtern ?? false,
+    initializer: options?.initializer,
+    isConstexpr: options?.isConstexpr ?? false,
+    isStatic: options?.isStatic ?? false,
+    isExtern: options?.isExtern ?? false,
     isMember: false,
-    access: opts?.access ?? "public",
+    access: options?.access ?? "public",
     span: NO_SPAN,
   }) as VariableDecl;
 
@@ -93,7 +93,7 @@ const funcDecl = (
   params: { name: string; type: TypeSpec; defaultValue?: Expression }[],
   returnType: TypeSpec,
   body: Statement[],
-  opts?: { isStatic?: boolean; noBody?: boolean },
+  options?: { isStatic?: boolean; noBody?: boolean },
 ): FunctionDecl =>
   ({
     kind: "function",
@@ -106,9 +106,9 @@ const funcDecl = (
       defaultValue: p.defaultValue,
     })),
     returnType,
-    body: opts?.noBody ? undefined : compStmt(body),
+    body: options?.noBody ? undefined : compStmt(body),
     isConstexpr: false,
-    isStatic: opts?.isStatic ?? false,
+    isStatic: options?.isStatic ?? false,
     isInline: false,
     isExternC: false,
     isVirtual: false,
@@ -124,9 +124,9 @@ const structDecl = (name: string, members: Declaration[], bases: TypeSpec[] = []
 const nsDecl = (name: string, body: Declaration[]): Declaration =>
   ({ kind: "namespace", name, body, span: NO_SPAN }) as Declaration;
 
-const tu = (decls: Declaration[]): { declarations: Declaration[] } => ({ declarations: decls });
+const translationUnit = (declarations: Declaration[]): { declarations: Declaration[] } => ({ declarations: declarations });
 
-const validate = (decls: Declaration[]) => validateAndDesugar(tu(decls));
+const validate = (declarations: Declaration[]) => validateAndDesugar(translationUnit(declarations));
 const hasError = (diags: ReturnType<typeof validateAndDesugar>, pattern: RegExp): boolean =>
   diags.some((d) => pattern.test(d.message));
 
@@ -134,17 +134,17 @@ const hasError = (diags: ReturnType<typeof validateAndDesugar>, pattern: RegExp)
 
 describe("validateAndDesugar — rejection rules", () => {
   test("rejects global mutable variable", () => {
-    const diags = validate([varDecl("g_bad", nt("uint64"), { init: iLit("0") })]);
+    const diags = validate([varDecl("g_bad", nt("uint64"), { initializer: iLit("0") })]);
     expect(hasError(diags, /global/i)).toBe(true);
   });
 
   test("allows global constexpr variable", () => {
-    const diags = validate([varDecl("G_OK", nt("uint64"), { isConstexpr: true, init: iLit("7") })]);
+    const diags = validate([varDecl("G_OK", nt("uint64"), { isConstexpr: true, initializer: iLit("7") })]);
     expect(hasError(diags, /global/i)).toBe(false);
   });
 
   test("allows global const variable", () => {
-    const diags = validate([varDecl("G_CONST", cnst(nt("uint64")), { init: iLit("7") })]);
+    const diags = validate([varDecl("G_CONST", cnst(nt("uint64")), { initializer: iLit("7") })]);
     expect(hasError(diags, /global/i)).toBe(false);
   });
 
@@ -297,7 +297,7 @@ describe("validateAndDesugar — rejection rules", () => {
   test("rejects const assignment", () => {
     const s = structDecl("S", [
       funcDecl("f", [], vd(), [
-        declStmt(varDecl("c", cnst(nt("uint64")), { init: iLit("5") })),
+        declStmt(varDecl("c", cnst(nt("uint64")), { initializer: iLit("5") })),
         eStmt(assign(ident("c"), iLit("6"))),
         retStmt(),
       ]),
@@ -309,8 +309,8 @@ describe("validateAndDesugar — rejection rules", () => {
   test("rejects shadowing: inner scope reuses outer name", () => {
     const s = structDecl("S", [
       funcDecl("f", [], vd(), [
-        declStmt(varDecl("v", nt("uint64"), { init: iLit("1") })),
-        compStmt([declStmt(varDecl("v", nt("uint64"), { init: iLit("2") })), eStmt(ident("v"))]),
+        declStmt(varDecl("v", nt("uint64"), { initializer: iLit("1") })),
+        compStmt([declStmt(varDecl("v", nt("uint64"), { initializer: iLit("2") })), eStmt(ident("v"))]),
         retStmt(),
       ]),
     ]);
@@ -333,7 +333,7 @@ describe("validateAndDesugar — rejection rules", () => {
   test("rejects use-after-scope-exit", () => {
     const s = structDecl("S", [
       funcDecl("f", [], vd(), [
-        compStmt([declStmt(varDecl("v", nt("uint64"), { init: iLit("1") }))]),
+        compStmt([declStmt(varDecl("v", nt("uint64"), { initializer: iLit("1") }))]),
         eStmt(ident("v")),
         retStmt(),
       ]),
@@ -383,7 +383,7 @@ describe("validateAndDesugar — rejection rules", () => {
   test("rejects static local variable", () => {
     const s = structDecl("S", [
       funcDecl("f", [], vd(), [
-        declStmt(varDecl("s", nt("uint64"), { isStatic: true, init: iLit("0") })),
+        declStmt(varDecl("s", nt("uint64"), { isStatic: true, initializer: iLit("0") })),
         retStmt(),
       ]),
     ]);
@@ -452,14 +452,14 @@ describe("validateAndDesugar — default argument desugaring", () => {
 
     const callExpr = (caller.body! as { kind: "compound"; body: Statement[] }).body[0] as {
       kind: "expression";
-      expr: Expression;
+      expression: Expression;
     };
-    const callNode = (callExpr.expr as { kind: "binary_op"; left: Expression; right: Expression })
-      .right as { kind: "call"; args: Expression[] };
+    const callNode = (callExpr.expression as { kind: "binary_op"; left: Expression; right: Expression })
+      .right as { kind: "call"; callArguments: Expression[] };
     expect(callNode.kind).toBe("call");
-    expect(callNode.args).toHaveLength(2);
-    expect(callNode.args[1].kind).toBe("int_literal");
-    expect((callNode.args[1] as { value: string }).value).toBe("2");
+    expect(callNode.callArguments).toHaveLength(2);
+    expect(callNode.callArguments[1].kind).toBe("int_literal");
+    expect((callNode.callArguments[1] as { value: string }).value).toBe("2");
   });
 
   test("does not add defaults when full args provided", () => {
@@ -482,12 +482,12 @@ describe("validateAndDesugar — default argument desugaring", () => {
 
     const callExpr = (caller.body! as { kind: "compound"; body: Statement[] }).body[0] as {
       kind: "expression";
-      expr: Expression;
+      expression: Expression;
     };
-    const callNode = callExpr.expr as { kind: "call"; args: Expression[] };
+    const callNode = callExpr.expression as { kind: "call"; callArguments: Expression[] };
     expect(callNode.kind).toBe("call");
-    expect(callNode.args).toHaveLength(2);
-    expect((callNode.args[1] as { value: string }).value).toBe("7");
+    expect(callNode.callArguments).toHaveLength(2);
+    expect((callNode.callArguments[1] as { value: string }).value).toBe("7");
   });
 });
 
@@ -498,13 +498,13 @@ describe("validateAndDesugar — scope rules", () => {
     const s = structDecl("S", [
       funcDecl("f", [], vd(), [
         forStmt(
-          declStmt(varDecl("i", nt("uint64"), { init: iLit("0") })),
+          declStmt(varDecl("i", nt("uint64"), { initializer: iLit("0") })),
           bin(ident("i"), "<", iLit("3")),
           ppOp(ident("i"), false),
           compStmt([eStmt(ident("i"))]),
         ),
         forStmt(
-          declStmt(varDecl("i", nt("uint64"), { init: iLit("0") })),
+          declStmt(varDecl("i", nt("uint64"), { initializer: iLit("0") })),
           bin(ident("i"), "<", iLit("3")),
           ppOp(ident("i"), false),
           compStmt([eStmt(ident("i"))]),
@@ -519,8 +519,8 @@ describe("validateAndDesugar — scope rules", () => {
   test("multi-declarator statement works", () => {
     const s = structDecl("S", [
       funcDecl("f", [], vd(), [
-        declStmt(varDecl("x", nt("uint64"), { init: iLit("1") })),
-        declStmt(varDecl("y", nt("uint64"), { init: iLit("2") })),
+        declStmt(varDecl("x", nt("uint64"), { initializer: iLit("1") })),
+        declStmt(varDecl("y", nt("uint64"), { initializer: iLit("2") })),
         retStmt(),
       ]),
     ]);

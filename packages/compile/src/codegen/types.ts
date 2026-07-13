@@ -1,4 +1,4 @@
-import type { Codegen } from "./cg";
+import type { CodeGenerationContext } from "./code-generation-context";
 import type {
   TypeSpec,
   Expression,
@@ -18,10 +18,10 @@ export interface ClassTemplate {
   bases?: TypeSpec[];
 }
 
-export interface CodegenWarning {
+export interface CodeGenerationWarning {
   message: string;
   line: number;
-  col: number;
+  column: number;
 }
 
 export interface FieldLayout {
@@ -37,13 +37,13 @@ export interface StructLayout {
   fields: Map<string, FieldLayout>;
 }
 
-export interface Bindings {
+export interface TemplateBindings {
   types: Map<string, TypeSpec>;
   values: Map<string, bigint>;
   structs: Map<string, StructDecl>; // nested structs visible in the current layout scope (e.g. HashMap::Element)
 }
 
-export const NO_BIND: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
+export const EMPTY_TEMPLATE_BINDINGS: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
 
 export interface NamespaceLookupContext {
   sourceNamespace?: string;
@@ -58,7 +58,7 @@ export interface CalleeIdl {
   procedures: Record<string, { inputType: number; inSize: number; outSize: number }>;
 }
 
-export interface HelperInfo {
+export interface CompiledHelperMetadata {
   label: string; // WAT function name ($h_<name>)
   params: {
     name: string;
@@ -75,14 +75,14 @@ export interface HelperInfo {
   usingNamespaces?: string[]; // using-directives visible at the helper definition
 }
 
-export interface PrivateInfo {
+export interface PrivateFunctionMetadata {
   label: string; // WAT function name ($priv_<name>)
   localsSize: number; // sizeof(<name>_locals)
 }
 
 export interface CompiledMethod {
   label: string; // WAT function name ($T<n>_<Class>_<method>)
-  fnParams: {
+  functionParameters: {
     name: string;
     wasmType: "i32" | "i64";
     isAddr: boolean;
@@ -96,7 +96,7 @@ export interface CompiledMethod {
   retType?: TypeSpec; // concrete return/referent type
 }
 
-export interface ContainerInfo {
+export interface ContainerLayoutMetadata {
   kind: "HashMap" | "Array";
   L: number;
   elemSize: number;
@@ -110,8 +110,8 @@ export interface ContainerInfo {
   elemType?: TypeSpec;
 }
 
-export interface FnCtx {
-  cg: Codegen;
+export interface FunctionEmissionContext {
+  codeGenerationContext: CodeGenerationContext;
   hasStateParam?: boolean; // this wasm function declares (param $state i32) — entry/private fns
   state: StructLayout;
   in: StructLayout;
@@ -134,7 +134,7 @@ export interface FnCtx {
   retAggSize?: number; // size of that aggregate return
   thisLayout?: StructLayout; // when compiling a container method: layout of *this
   thisType?: TypeSpec; // the container template_instance (HashMap<id,uint64,1024>)
-  thisBind?: Bindings; // template-param bindings (KeyT→id, L→1024, ...) for the body
+  thisBind?: TemplateBindings; // template-param bindings (KeyT→id, L→1024, ...) for the body
   staticConsts?: Map<string, bigint>; // the container's static constexpr members (_nEncodedFlags, ...)
   gotoLabels?: Map<string, { label: string; scratchDepth: number }>; // C++ label → wasm block + RAII unwind depth
   refLocals?: Map<string, TypeSpec>; // reference/pointer locals: name → referent type (holds an address)
@@ -144,21 +144,21 @@ export interface FnCtx {
   inlineMethod?: boolean; // emitting a struct method inline into the caller — `return` is suppressed (the value flows via thisAddr)
   inlineReturnLabel?: string; // block used to implement return from an inlined ordinary struct method
   inlineValueLocal?: string; // scalar return destination for an inlined method
-  materializedCalls?: WeakMap<object, AddrNode>; // side-effecting aggregate calls are evaluated once per AST expression
+  materializedCalls?: WeakMap<object, ResolvedAddress>; // side-effecting aggregate calls are evaluated once per AST expression
   proxyClass?: string; // emitting a ProposalVoting proxy method (qpi(pv).m()): the proxy class for sibling resolution
   sourceNamespace?: string; // lexical namespace/owner for unqualified free/static helper calls
   usingNamespaces?: string[]; // using-directives visible at the current function definition
   qpiContext?: "function" | "procedure"; // ambient entry context for QPI binding permission checks
 }
 
-export interface Lvalue {
+export interface ResolvedLvalue {
   addr: string; // WAT producing the i32 byte address
   size: number; // field size in bytes
   type?: TypeSpec | null; // pointee type when known — drives signed sub-64-bit load extension
 }
 
 // A resolved memory location: its address, the pointee type (null at a struct root), the byte size, and
-export interface AddrNode {
+export interface ResolvedAddress {
   addr: string;
   type: TypeSpec | null;
   size: number;

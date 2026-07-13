@@ -3,24 +3,24 @@ import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  emit,
-  assertTy,
-  op,
-  call,
-  callSig,
-  raw,
-  i32c,
-  i64c,
-  getL,
-  setL,
-  addr0,
-  loadRaw,
-  storeRaw,
+  serializeWatNode as emit,
+  assertWatType as assertTy,
+  operation as operator,
+  functionCall as call,
+  functionCallWithSignature as callSig,
+  rawWatNode as raw,
+  i32Constant as i32c,
+  i64Constant as i64c,
+  localGet as getL,
+  localSet as setL,
+  addressWithOffset as addr0,
+  rawLoad as loadRaw,
+  rawStore as storeRaw,
   loadScalar,
   storeScalar,
   CALL_SIG,
   OP_SIG,
-} from "../../src/ir";
+} from "../../src/wat-ir";
 import { emitModule } from "../../src/framework";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
@@ -57,9 +57,9 @@ describe("emit format parity", () => {
   });
 
   test("generic op", () => {
-    expect(emit(op("i64.add", v, i64c(1)))).toBe("(i64.add (local.get $v) (i64.const 1))");
-    expect(emit(op("i64.eqz", v))).toBe("(i64.eqz (local.get $v))");
-    expect(emit(op("i64.ne", i64c(0), v))).toBe("(i64.ne (i64.const 0) (local.get $v))");
+    expect(emit(operator("i64.add", v, i64c(1)))).toBe("(i64.add (local.get $v) (i64.const 1))");
+    expect(emit(operator("i64.eqz", v))).toBe("(i64.eqz (local.get $v))");
+    expect(emit(operator("i64.ne", i64c(0), v))).toBe("(i64.ne (i64.const 0) (local.get $v))");
   });
 
   test("call: zero-arg has no trailing space", () => {
@@ -114,9 +114,9 @@ describe("leaf-helper shapes (loadAt/storeAt/addrOf parity)", () => {
   });
 
   test("narrowCast shapes", () => {
-    expect(emit(op("i64.and", v, i64c("0xff")))).toBe("(i64.and (local.get $v) (i64.const 0xff))");
-    expect(emit(op("i64.extend16_s", v))).toBe("(i64.extend16_s (local.get $v))");
-    expect(emit(op("i64.extend_i32_u", op("i64.ne", i64c(0), v)))).toBe(
+    expect(emit(operator("i64.and", v, i64c("0xff")))).toBe("(i64.and (local.get $v) (i64.const 0xff))");
+    expect(emit(operator("i64.extend16_s", v))).toBe("(i64.extend16_s (local.get $v))");
+    expect(emit(operator("i64.extend_i32_u", operator("i64.ne", i64c(0), v)))).toBe(
       "(i64.extend_i32_u (i64.ne (i64.const 0) (local.get $v)))",
     );
   });
@@ -133,17 +133,17 @@ describe("leaf-helper shapes (loadAt/storeAt/addrOf parity)", () => {
 
 describe("type assertions catch the silent-divergence class", () => {
   test("wrong operand width throws with the offending WAT", () => {
-    expect(() => op("i64.add", v, i32c(1))).toThrow(/expected i64, got i32.*\(i32\.const 1\)/);
-    expect(() => op("i32.add", p, v)).toThrow(/expected i32, got i64/);
+    expect(() => operator("i64.add", v, i32c(1))).toThrow(/expected i64, got i32.*\(i32\.const 1\)/);
+    expect(() => operator("i32.add", p, v)).toThrow(/expected i32, got i64/);
   });
 
   test("wrong arity throws", () => {
-    expect(() => op("i64.add", v)).toThrow(/expects 2 operand/);
-    expect(() => op("i64.eqz", v, v)).toThrow(/expects 1 operand/);
+    expect(() => operator("i64.add", v)).toThrow(/expects 2 operand/);
+    expect(() => operator("i64.eqz", v, v)).toThrow(/expects 1 operand/);
   });
 
   test("unknown opcode / call target throws", () => {
-    expect(() => op("i64.bogus", v)).toThrow(/unknown opcode/);
+    expect(() => operator("i64.bogus", v)).toThrow(/unknown opcode/);
     expect(() => call("$no_such_helper")).toThrow(/unknown call target/);
   });
 
@@ -180,15 +180,15 @@ describe("type assertions catch the silent-divergence class", () => {
   });
 
   test("drop accepts either value type, rejects void", () => {
-    expect(emit(op("drop", v))).toBe("(drop (local.get $v))");
-    expect(emit(op("drop", p))).toBe("(drop (local.get $p))");
-    expect(() => op("drop", call("$copyMem", p, p, i32c(1)))).toThrow(/expected val, got void/);
+    expect(emit(operator("drop", v))).toBe("(drop (local.get $v))");
+    expect(emit(operator("drop", p))).toBe("(drop (local.get $p))");
+    expect(() => operator("drop", call("$copyMem", p, p, i32c(1)))).toThrow(/expected val, got void/);
   });
 
   test("raw's declared type is trusted", () => {
     const r = raw("(call $mystery)", "i64");
     expect(assertTy(r, "i64")).toBe(r);
-    expect(emit(op("i64.add", r, v))).toBe("(i64.add (call $mystery) (local.get $v))");
+    expect(emit(operator("i64.add", r, v))).toBe("(i64.add (call $mystery) (local.get $v))");
   });
 });
 

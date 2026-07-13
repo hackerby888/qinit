@@ -1,6 +1,6 @@
 // C preprocessor for QPI subset. Operates on text, not tokens.
 
-export interface PreprocessOpts {
+export interface PreprocessOptions {
   source: string; // contract source
   qpiHeader: string; // preprocessed qpi.h content (all #includes resolved)
   contractName: string;
@@ -32,8 +32,8 @@ export class Preprocessor {
   }
 
   private condActive(): boolean {
-    for (const f of this.condStack) {
-      if (!f.active) return false;
+    for (const condStackItem of this.condStack) {
+      if (!condStackItem.active) return false;
     }
     return true;
   }
@@ -43,12 +43,12 @@ export class Preprocessor {
     return new Map(this.defines);
   }
 
-  preprocess(opts: PreprocessOpts): string {
+  preprocess(options: PreprocessOptions): string {
     this.defines.clear();
     this.condStack = [];
 
-    if (opts.seedMacros) {
-      for (const [k, v] of opts.seedMacros) this.defines.set(k, v);
+    if (options.seedMacros) {
+      for (const [k, v] of options.seedMacros) this.defines.set(k, v);
     }
 
     // Built-in defines
@@ -57,17 +57,17 @@ export class Preprocessor {
     this.define("LITEDYN_CONTRACT_TU", "");
 
     // Contract-specific defines
-    this.define("CONTRACT_INDEX", String(opts.contractIndex));
-    this.define(`${opts.contractName}_CONTRACT_INDEX`, String(opts.contractIndex));
-    this.define("CONTRACT_STATE_TYPE", opts.contractName);
-    this.define("CONTRACT_STATE2_TYPE", `${opts.contractName}2`);
+    this.define("CONTRACT_INDEX", String(options.contractIndex));
+    this.define(`${options.contractName}_CONTRACT_INDEX`, String(options.contractIndex));
+    this.define("CONTRACT_STATE_TYPE", options.contractName);
+    this.define("CONTRACT_STATE2_TYPE", `${options.contractName}2`);
 
     // Assemble full input: qpi.h + callee prelude + contract source
-    let fullSource = opts.qpiHeader;
-    if (opts.calleePrelude) {
-      fullSource += "\n" + opts.calleePrelude + "\n";
+    let fullSource = options.qpiHeader;
+    if (options.calleePrelude) {
+      fullSource += "\n" + options.calleePrelude + "\n";
     }
-    fullSource += "\n" + opts.source;
+    fullSource += "\n" + options.source;
 
     // Build line offset map
     this.buildLineMap(fullSource);
@@ -77,11 +77,11 @@ export class Preprocessor {
 
   define(name: string, body: string): void {
     // Parse function-like: NAME(args) body
-    const m = name.match(/^(\w+)\(([^)]*)\)$/);
-    if (m) {
-      const macroName = m[1];
-      const paramStr = m[2].trim();
-      const params = paramStr ? paramStr.split(",").map((s) => s.trim()) : [];
+    const member = name.match(/^(\w+)\(([^)]*)\)$/);
+    if (member) {
+      const macroName = member[1];
+      const paramStr = member[2].trim();
+      const params = paramStr ? paramStr.split(",").map((text) => text.trim()) : [];
       const isVarArgs = paramStr.endsWith("...");
       this.defines.set(macroName, { name: macroName, params, body, isVarArgs });
       return;
@@ -91,9 +91,9 @@ export class Preprocessor {
 
   private buildLineMap(src: string): void {
     this.srcLine = [0];
-    for (let i = 0; i < src.length; i++) {
-      if (src[i] === "\n") {
-        this.srcLine.push(i + 1);
+    for (let srcItemIndex = 0; srcItemIndex < src.length; srcItemIndex++) {
+      if (src[srcItemIndex] === "\n") {
+        this.srcLine.push(srcItemIndex + 1);
       }
     }
   }
@@ -198,11 +198,11 @@ export class Preprocessor {
         return;
       }
       case "elif": {
-        const cond =
+        const condition =
           this.condStack.length > 0 && !this.condStack[this.condStack.length - 1].taken
             ? this.evalIfCondition()
             : (this.skipToNewline(), false);
-        this.applyElif(cond);
+        this.applyElif(condition);
         return;
       }
       case "else":
@@ -245,31 +245,31 @@ export class Preprocessor {
 
   // ---- conditional stack ----
 
-  private pushCond(cond: boolean): void {
+  private pushCond(condition: boolean): void {
     const parentActive = this.condActive();
     this.condStack.push({
-      active: parentActive && cond,
-      taken: parentActive && cond,
+      active: parentActive && condition,
+      taken: parentActive && condition,
       parentActive,
     });
   }
 
-  private applyElif(cond: boolean): void {
-    const f = this.condStack[this.condStack.length - 1];
-    if (!f) return;
-    if (f.taken) {
-      f.active = false;
+  private applyElif(condition: boolean): void {
+    const condStackItem = this.condStack[this.condStack.length - 1];
+    if (!condStackItem) return;
+    if (condStackItem.taken) {
+      condStackItem.active = false;
     } else {
-      f.active = f.parentActive && cond;
-      if (f.active) f.taken = true;
+      condStackItem.active = condStackItem.parentActive && condition;
+      if (condStackItem.active) condStackItem.taken = true;
     }
   }
 
   private applyElse(): void {
-    const f = this.condStack[this.condStack.length - 1];
-    if (!f) return;
-    f.active = f.parentActive && !f.taken;
-    f.taken = true;
+    const condStackItem = this.condStack[this.condStack.length - 1];
+    if (!condStackItem) return;
+    condStackItem.active = condStackItem.parentActive && !condStackItem.taken;
+    condStackItem.taken = true;
   }
 
   private readDirectiveWord(): string {
@@ -284,14 +284,14 @@ export class Preprocessor {
   }
 
   // Evaluate a preprocessor constant expression: defined(X), !, &&, ||, comparisons, integer literals.
-  private evalConstCondition(expr: string): bigint {
+  private evalConstCondition(expression: string): bigint {
     // Replace defined(X) / defined X → 1/0
-    let s = expr.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, n) =>
-      this.defines.has(n) ? "1" : "0",
+    let text = expression.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, exprItemIndex) =>
+      this.defines.has(exprItemIndex) ? "1" : "0",
     );
-    s = s.replace(/defined\s+(\w+)/g, (_m, n) => (this.defines.has(n) ? "1" : "0"));
+    text = text.replace(/defined\s+(\w+)/g, (_m, sItemIndex) => (this.defines.has(sItemIndex) ? "1" : "0"));
     // Expand remaining identifiers: a defined macro's body if numeric, else 0.
-    s = s.replace(/\b([A-Za-z_]\w*)\b/g, (_m, id) => {
+    text = text.replace(/\b([A-Za-z_]\w*)\b/g, (_m, id) => {
       if (id === "true") return "1";
       if (id === "false") return "0";
       const def = this.defines.get(id);
@@ -299,29 +299,29 @@ export class Preprocessor {
       return "0";
     });
     try {
-      return this.evalArith(s);
+      return this.evalArith(text);
     } catch {
       return 0n;
     }
   }
 
   // Tiny arithmetic/logic evaluator over a string of integers and operators.
-  private evalArith(s: string): bigint {
-    const toks = s.match(/\d+|&&|\|\||==|!=|<=|>=|<<|>>|[()+\-*/%<>!&|^]/g) ?? [];
-    let i = 0;
-    const peek = () => toks[i];
-    const next = () => toks[i++];
+  private evalArith(text: string): bigint {
+    const toks = text.match(/\d+|&&|\|\||==|!=|<=|>=|<<|>>|[()+\-*/%<>!&|^]/g) ?? [];
+    let index = 0;
+    const peek = () => toks[index];
+    const next = () => toks[index++];
     const parsePrimary = (): bigint => {
-      const t = next();
-      if (t === "(") {
-        const v = parseExpr(0);
+      const text = next();
+      if (text === "(") {
+        const numericValue = parseExpr(0);
         next();
-        return v;
+        return numericValue;
       }
-      if (t === "!") return parsePrimary() === 0n ? 1n : 0n;
-      if (t === "-") return -parsePrimary();
-      if (t === "+") return parsePrimary();
-      return BigInt(t ?? "0");
+      if (text === "!") return parsePrimary() === 0n ? 1n : 0n;
+      if (text === "-") return -parsePrimary();
+      if (text === "+") return parsePrimary();
+      return BigInt(text ?? "0");
     };
     const prec: Record<string, number> = {
       "||": 1,
@@ -343,44 +343,44 @@ export class Preprocessor {
       "/": 10,
       "%": 10,
     };
-    const apply = (a: bigint, op: string, b: bigint): bigint => {
-      switch (op) {
+    const apply = (numericValue: bigint, operator: string, numericValueCandidate: bigint): bigint => {
+      switch (operator) {
         case "||":
-          return a !== 0n || b !== 0n ? 1n : 0n;
+          return numericValue !== 0n || numericValueCandidate !== 0n ? 1n : 0n;
         case "&&":
-          return a !== 0n && b !== 0n ? 1n : 0n;
+          return numericValue !== 0n && numericValueCandidate !== 0n ? 1n : 0n;
         case "|":
-          return a | b;
+          return numericValue | numericValueCandidate;
         case "^":
-          return a ^ b;
+          return numericValue ^ numericValueCandidate;
         case "&":
-          return a & b;
+          return numericValue & numericValueCandidate;
         case "==":
-          return a === b ? 1n : 0n;
+          return numericValue === numericValueCandidate ? 1n : 0n;
         case "!=":
-          return a !== b ? 1n : 0n;
+          return numericValue !== numericValueCandidate ? 1n : 0n;
         case "<":
-          return a < b ? 1n : 0n;
+          return numericValue < numericValueCandidate ? 1n : 0n;
         case ">":
-          return a > b ? 1n : 0n;
+          return numericValue > numericValueCandidate ? 1n : 0n;
         case "<=":
-          return a <= b ? 1n : 0n;
+          return numericValue <= numericValueCandidate ? 1n : 0n;
         case ">=":
-          return a >= b ? 1n : 0n;
+          return numericValue >= numericValueCandidate ? 1n : 0n;
         case "<<":
-          return a << b;
+          return numericValue << numericValueCandidate;
         case ">>":
-          return a >> b;
+          return numericValue >> numericValueCandidate;
         case "+":
-          return a + b;
+          return numericValue + numericValueCandidate;
         case "-":
-          return a - b;
+          return numericValue - numericValueCandidate;
         case "*":
-          return a * b;
+          return numericValue * numericValueCandidate;
         case "/":
-          return b === 0n ? 0n : a / b;
+          return numericValueCandidate === 0n ? 0n : numericValue / numericValueCandidate;
         case "%":
-          return b === 0n ? 0n : a % b;
+          return numericValueCandidate === 0n ? 0n : numericValue % numericValueCandidate;
         default:
           return 0n;
       }
@@ -388,9 +388,9 @@ export class Preprocessor {
     const parseExpr = (minPrec: number): bigint => {
       let left = parsePrimary();
       while (peek() && prec[peek()] !== undefined && prec[peek()] >= minPrec) {
-        const op = next();
-        const right = parseExpr(prec[op] + 1);
-        left = apply(left, op, right);
+        const operator = next();
+        const right = parseExpr(prec[operator] + 1);
+        left = apply(left, operator, right);
       }
       return left;
     };
@@ -464,11 +464,11 @@ export class Preprocessor {
         params = paramStr
           .replace("...", "")
           .split(",")
-          .map((s) => s.trim())
+          .map((text) => text.trim())
           .filter(Boolean);
         isVarArgs = true;
       } else if (paramStr.trim()) {
-        params = paramStr.split(",").map((s) => s.trim());
+        params = paramStr.split(",").map((text) => text.trim());
       } else {
         params = [];
       }
@@ -539,8 +539,8 @@ export class Preprocessor {
     this.pos++; // skip (
 
     // Read arguments
-    const args: string[] = [];
-    let arg = "";
+    const callArguments: string[] = [];
+    let argument = "";
     let depth = 1;
 
     while (this.pos < this.input.length && depth > 0) {
@@ -548,27 +548,27 @@ export class Preprocessor {
 
       if (ch === "(") {
         depth++;
-        arg += ch;
+        argument += ch;
         this.pos++;
       } else if (ch === ")") {
         depth--;
         if (depth === 0) {
-          args.push(arg.trim());
+          callArguments.push(argument.trim());
           this.pos++; // skip )
           break;
         }
-        arg += ch;
+        argument += ch;
         this.pos++;
       } else if (ch === "," && depth === 1) {
-        args.push(arg.trim());
-        arg = "";
+        callArguments.push(argument.trim());
+        argument = "";
         this.pos++;
       } else if (ch === "\n") {
         this.line++;
-        arg += ch;
+        argument += ch;
         this.pos++;
       } else {
-        arg += ch;
+        argument += ch;
         this.pos++;
       }
     }
@@ -577,10 +577,10 @@ export class Preprocessor {
       return name; // recursion guard
     }
 
-    return this.expandBody(def, args);
+    return this.expandBody(def, callArguments);
   }
 
-  private expandBody(def: MacroDef, args: string[]): string {
+  private expandBody(def: MacroDef, callArguments: string[]): string {
     const macroName = def.name;
     this.expanding.add(macroName);
 
@@ -588,17 +588,17 @@ export class Preprocessor {
 
     // Handle # (stringify) FIRST — operates on the original parameter name
     if (def.params && def.params.length > 0) {
-      result = this.processStringify(result, args, def);
+      result = this.processStringify(result, callArguments, def);
     }
 
     // Substitute parameters BEFORE ## pasting — so p##_input with p=Inc becomes Inc##_input, then paste → Inc_input
     if (def.params) {
-      for (let i = 0; i < def.params.length && i < args.length; i++) {
-        const param = def.params[i];
-        result = this.replaceParamInBody(result, param, args[i]);
+      for (let index = 0; index < def.params.length && index < callArguments.length; index++) {
+        const param = def.params[index];
+        result = this.replaceParamInBody(result, param, callArguments[index]);
       }
       if (def.isVarArgs) {
-        const extraArgs = args.slice(def.params.length);
+        const extraArgs = callArguments.slice(def.params.length);
         result = result.replace(/__VA_ARGS__/g, extraArgs.join(", "));
       }
     }
@@ -629,34 +629,34 @@ export class Preprocessor {
   private processTokenPaste(body: string): string {
     // Replace `a ## b` with `ab` (remove whitespace + ##)
     let result = "";
-    let i = 0;
+    let index = 0;
 
-    while (i < body.length) {
-      if (body[i] === "#" && body[i + 1] === "#") {
+    while (index < body.length) {
+      if (body[index] === "#" && body[index + 1] === "#") {
         // Found ## — trim trailing whitespace from result and skip leading whitespace after ##
         result = result.replace(/\s+$/, "");
-        i += 2;
-        while (i < body.length && (body[i] === " " || body[i] === "\t")) {
-          i++;
+        index += 2;
+        while (index < body.length && (body[index] === " " || body[index] === "\t")) {
+          index++;
         }
         continue;
       }
-      result += body[i];
-      i++;
+      result += body[index];
+      index++;
     }
 
     return result;
   }
 
-  private processStringify(body: string, args: string[], def: MacroDef): string {
+  private processStringify(body: string, callArguments: string[], def: MacroDef): string {
     let result = body;
     if (def.params) {
-      for (let i = 0; i < def.params.length && i < args.length; i++) {
-        const param = def.params[i];
+      for (let index = 0; index < def.params.length && index < callArguments.length; index++) {
+        const param = def.params[index];
         // #param but not ##param
         result = result.replace(
           new RegExp(`(?<!#)#${this.escapeRegex(param)}\\b`, "g"),
-          `"${args[i].replace(/"/g, '\\"')}"`,
+          `"${callArguments[index].replace(/"/g, '\\"')}"`,
         );
       }
     }
@@ -673,32 +673,32 @@ export class Preprocessor {
   private readArgsFromString(
     text: string,
     openIdx: number,
-  ): { args: string[]; end: number } | null {
+  ): { callArguments: string[]; end: number } | null {
     if (text[openIdx] !== "(") return null;
 
-    const args: string[] = [];
-    let arg = "";
+    const callArguments: string[] = [];
+    let argument = "";
     let depth = 0;
 
-    for (let i = openIdx; i < text.length; i++) {
-      const ch = text[i];
+    for (let textItemIndex = openIdx; textItemIndex < text.length; textItemIndex++) {
+      const ch = text[textItemIndex];
 
       if (ch === "(") {
         depth++;
         if (depth === 1) continue;
-        arg += ch;
+        argument += ch;
       } else if (ch === ")") {
         depth--;
         if (depth === 0) {
-          args.push(arg.trim());
-          return { args, end: i + 1 };
+          callArguments.push(argument.trim());
+          return { callArguments, end: textItemIndex + 1 };
         }
-        arg += ch;
+        argument += ch;
       } else if (ch === "," && depth === 1) {
-        args.push(arg.trim());
-        arg = "";
+        callArguments.push(argument.trim());
+        argument = "";
       } else {
-        arg += ch;
+        argument += ch;
       }
     }
 
@@ -713,40 +713,40 @@ export class Preprocessor {
       let expanded = "";
 
       // Simple identifier scanning within the result text
-      for (let i = 0; i < result.length; i++) {
-        const ch = result[i];
+      for (let resultItemIndex = 0; resultItemIndex < result.length; resultItemIndex++) {
+        const ch = result[resultItemIndex];
         if (this.isIdStart(ch)) {
-          const ident = this.readIdentAt(result, i);
+          const ident = this.readIdentAt(result, resultItemIndex);
           const def = this.defines.get(ident);
           if (def && def.params === null && !this.expanding.has(ident)) {
             // Object-like macro
             this.expanding.add(ident);
             expanded += this.expandBody(def, []);
             this.expanding.delete(ident);
-            i += ident.length - 1;
+            resultItemIndex += ident.length - 1;
             changed = true;
           } else if (def && def.params !== null && !this.expanding.has(ident)) {
             // Function-like macro — expand only if actually invoked (an open paren follows). A macro body
-            let j = i + ident.length;
+            let nestedIndex = resultItemIndex + ident.length;
             while (
-              j < result.length &&
-              (result[j] === " " || result[j] === "\t" || result[j] === "\n")
+              nestedIndex < result.length &&
+              (result[nestedIndex] === " " || result[nestedIndex] === "\t" || result[nestedIndex] === "\n")
             )
-              j++;
-            const parsed = result[j] === "(" ? this.readArgsFromString(result, j) : null;
+              nestedIndex++;
+            const parsed = result[nestedIndex] === "(" ? this.readArgsFromString(result, nestedIndex) : null;
             if (parsed) {
               this.expanding.add(ident);
-              expanded += this.expandBody(def, parsed.args);
+              expanded += this.expandBody(def, parsed.callArguments);
               this.expanding.delete(ident);
-              i = parsed.end - 1;
+              resultItemIndex = parsed.end - 1;
               changed = true;
             } else {
               expanded += ident;
-              i += ident.length - 1;
+              resultItemIndex += ident.length - 1;
             }
           } else {
             expanded += ident;
-            i += ident.length - 1;
+            resultItemIndex += ident.length - 1;
           }
         } else {
           expanded += ch;
@@ -764,13 +764,14 @@ export class Preprocessor {
 
   private readIdentAt(text: string, start: number): string {
     let ident = "";
-    let i = start;
+    let cursor = start;
     while (
-      i < text.length &&
-      (this.isIdStart(text[i]) || (i > start && text[i] >= "0" && text[i] <= "9"))
+      cursor < text.length &&
+      (this.isIdStart(text[cursor]) ||
+        (cursor > start && text[cursor] >= "0" && text[cursor] <= "9"))
     ) {
-      ident += text[i];
-      i++;
+      ident += text[cursor];
+      cursor++;
     }
     return ident;
   }
@@ -795,11 +796,11 @@ export class Preprocessor {
   }
 
   private peek(offset: number): string {
-    const i = this.pos + offset;
-    if (i >= this.input.length) {
+    const index = this.pos + offset;
+    if (index >= this.input.length) {
       return "\0";
     }
-    return this.input[i];
+    return this.input[index];
   }
 
   private skipWhitespace(): void {
@@ -891,8 +892,8 @@ export class Preprocessor {
     }
   }
 
-  private escapeRegex(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  private escapeRegex(text: string): string {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 }
 

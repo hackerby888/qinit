@@ -21,7 +21,7 @@ describe("compiler diagnostics - source locations", () => {
 
     expect(diagnostic.span.start).toBe(badToken);
     expect(diagnostic.span.end).toBeGreaterThan(diagnostic.span.start);
-    expect(diagnostic.span.col).toBe(badToken + 1);
+    expect(diagnostic.span.column).toBe(badToken + 1);
   });
 
   test("maps a multiline parse error without exposing scaffold lines", () => {
@@ -40,7 +40,7 @@ describe("compiler diagnostics - source locations", () => {
     const badToken = source.indexOf(";");
 
     expect(diagnostic.span.start).toBe(badToken);
-    expect(diagnostic.span.col).toBe(17);
+    expect(diagnostic.span.column).toBe(17);
   });
 
   test("keeps offsets sliceable after non-ASCII source text", () => {

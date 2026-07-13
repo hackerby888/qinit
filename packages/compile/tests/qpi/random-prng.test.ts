@@ -211,7 +211,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect((instance.exports.state_addr as CallableFunction)()).toBeGreaterThan(0);
 
     const framework = readFileSync(new URL("../../src/framework.ts", import.meta.url), "utf8");
-    const addr = readFileSync(new URL("../../src/codegen/addr.ts", import.meta.url), "utf8");
+    const addr = readFileSync(
+      new URL("../../src/codegen/address-resolution.ts", import.meta.url),
+      "utf8",
+    );
     expect(framework).not.toContain('"qtest" "randomId"');
     expect(framework).not.toContain("$qt_random_id");
     expect(addr).not.toMatch(/calleeName\s*===\s*["'](?:QPI::)?id::randomValue["']/);

@@ -503,25 +503,25 @@ describe("multi-word type keyword collapsing", () => {
 describe("spans", () => {
   test("tokens carry correct span: start, end, line, col", () => {
     const toks = new Lexer("abc").tokenize();
-    expect(toks[0].span).toEqual({ start: 0, end: 3, line: 1, col: 1 });
+    expect(toks[0].span).toEqual({ start: 0, end: 3, line: 1, column: 1 });
   });
 
   test("line tracking across newlines", () => {
     const toks = new Lexer("x\ny").tokenize();
     // x on line 1
     expect(toks[0].span.line).toBe(1);
-    expect(toks[0].span.col).toBe(1);
+    expect(toks[0].span.column).toBe(1);
     // y on line 2
     expect(toks[1].span.line).toBe(2);
-    expect(toks[1].span.col).toBe(1);
+    expect(toks[1].span.column).toBe(1);
   });
 
   test("col tracking after whitespace", () => {
     const toks = new Lexer("x   y").tokenize();
     // x at col 1
-    expect(toks[0].span.col).toBe(1);
+    expect(toks[0].span.column).toBe(1);
     // y at col 5 (3 spaces after x)
-    expect(toks[1].span.col).toBe(5);
+    expect(toks[1].span.column).toBe(5);
   });
 
   test("multi-line source span correctness", () => {

@@ -1,5 +1,5 @@
 import type { Diagnostic as ParserDiagnostic } from "../parser";
-import type { CompileOpts } from "./types";
+import type { CompileOptions } from "./types";
 
 const UINT32_MAX = 0xffff_ffff;
 const WASM32_SIZE = 0x1_0000_0000;
@@ -10,7 +10,7 @@ function optionDiagnostic(message: string): ParserDiagnostic {
   return {
     severity: "error",
     message: `Invalid compiler option: ${message}`,
-    span: { start: 0, end: 0, line: 0, col: 0 },
+    span: { start: 0, end: 0, line: 0, column: 0 },
   };
 }
 
@@ -18,7 +18,7 @@ function validCompilerName(name: string): boolean {
   return name.length > 0 && name.length <= MAX_COMPILER_NAME_LENGTH && COMPILER_NAME.test(name);
 }
 
-export function validateCompileOpts(opts: CompileOpts): ParserDiagnostic[] {
+export function validateCompileOpts(options: CompileOptions): ParserDiagnostic[] {
   const diagnostics: ParserDiagnostic[] = [];
   const reject = (message: string) => diagnostics.push(optionDiagnostic(message));
   const validUint32 = (value: number) =>
@@ -26,21 +26,21 @@ export function validateCompileOpts(opts: CompileOpts): ParserDiagnostic[] {
   const validSize = (value: number) =>
     Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
 
-  if (typeof opts.source !== "string") reject("source must be a string");
-  if (!validCompilerName(opts.name)) {
+  if (typeof options.source !== "string") reject("source must be a string");
+  if (!validCompilerName(options.name)) {
     reject(`name must be a C++ identifier of at most ${MAX_COMPILER_NAME_LENGTH} characters`);
   }
-  if (!validUint32(opts.slot)) reject("slot must be a uint32 integer");
+  if (!validUint32(options.slot)) reject("slot must be a uint32 integer");
 
-  const arenaSz = opts.arenaSz ?? 1024 * 1024 * 1024;
+  const arenaSz = options.arenaSz ?? 1024 * 1024 * 1024;
   if (!validSize(arenaSz) || arenaSz === 0) reject("arenaSz must be a positive wasm32 byte size");
 
-  if (opts.sharedMemBase !== undefined) {
-    if (!validSize(opts.sharedMemBase)) {
+  if (options.sharedMemBase !== undefined) {
+    if (!validSize(options.sharedMemBase)) {
       reject("sharedMemBase must be a wasm32 byte offset");
     } else {
-      if ((opts.sharedMemBase & 7) !== 0) reject("sharedMemBase must be 8-byte aligned");
-      if (validSize(arenaSz) && opts.sharedMemBase + arenaSz > WASM32_SIZE) {
+      if ((options.sharedMemBase & 7) !== 0) reject("sharedMemBase must be 8-byte aligned");
+      if (validSize(arenaSz) && options.sharedMemBase + arenaSz > WASM32_SIZE) {
         reject("sharedMemBase plus arenaSz exceeds wasm32 address space");
       }
     }
@@ -48,7 +48,7 @@ export function validateCompileOpts(opts: CompileOpts): ParserDiagnostic[] {
 
   const calleeNames = new Set<string>();
   const calleeIndices = new Set<number>();
-  for (const callee of opts.callees ?? []) {
+  for (const callee of options.callees ?? []) {
     if (!validCompilerName(callee.name)) reject(`callee name '${callee.name}' is invalid`);
     if (!validUint32(callee.index))
       reject(`callee '${callee.name}' index must be a uint32 integer`);
@@ -79,7 +79,7 @@ export function validateCompileOpts(opts: CompileOpts): ParserDiagnostic[] {
   }
 
   const sourceNames = new Set<string>();
-  for (const calleeSource of opts.calleeSources ?? []) {
+  for (const calleeSource of options.calleeSources ?? []) {
     if (!validCompilerName(calleeSource.name))
       reject(`callee source name '${calleeSource.name}' is invalid`);
     if (sourceNames.has(calleeSource.name))
