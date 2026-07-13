@@ -416,17 +416,19 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
     }
     case "prefix_op": {
       // ++x / --x as a value: apply in place (as a side-effect line), then yield the new value.
-      const text = emitIncrementOrDecrement(context, expression);
-      if (text) context.lines.push(`    ${text}`);
+      const emittedText = emitIncrementOrDecrement(context, expression);
+      if (emittedText) context.lines.push(`    ${emittedText}`);
       return lowerValueExpression(context, expression.argument);
     }
     case "postfix_op": {
       // x++ / x-- as a value: capture the old value, then apply — the expression evaluates to the old.
-      const text = newValueTmp(context);
-      context.lines.push(`    ${watIr.serializeWatNode(watIr.localSet(text, lowerValueExpression(context, expression.argument)))}`);
-      const textCandidate = emitIncrementOrDecrement(context, expression);
-      if (textCandidate) context.lines.push(`    ${textCandidate}`);
-      return watIr.localGet(text, "i64");
+      const oldValueLocal = newValueTmp(context);
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.localSet(oldValueLocal, lowerValueExpression(context, expression.argument)))}`,
+      );
+      const stepExpression = emitIncrementOrDecrement(context, expression);
+      if (stepExpression) context.lines.push(`    ${stepExpression}`);
+      return watIr.localGet(oldValueLocal, "i64");
     }
     case "ternary": {
       // C++ evaluates the condition, then exactly ONE arm. wasm select is eager, so it is only safe
@@ -449,13 +451,13 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
       ) {
         return narrowCastIr(watIr.selectValue(thenV, elseV, watIr.operation("i64.ne", watIr.i64Constant(0), condition)), cvName);
       }
-      const text = newValueTmp(context);
-      const thenB = [...thenLines, `      ${setLocal(context, text, thenV)}`].join("\n");
-      const elseB = [...elseLines, `      ${setLocal(context, text, elseV)}`].join("\n");
+      const branchResultLocal = newValueTmp(context);
+      const thenB = [...thenLines, `      ${setLocal(context, branchResultLocal, thenV)}`].join("\n");
+      const elseB = [...elseLines, `      ${setLocal(context, branchResultLocal, elseV)}`].join("\n");
       context.lines.push(
         `    (if (i64.ne (i64.const 0) ${watIr.serializeWatNode(condition)}) (then\n${thenB}\n    ) (else\n${elseB}\n    ))`,
       );
-      return narrowCastIr(watIr.localGet(text, "i64"), cvName);
+      return narrowCastIr(watIr.localGet(branchResultLocal, "i64"), cvName);
     }
     case "c_cast":
     case "static_cast":
@@ -890,8 +892,8 @@ export function scalarTypeInfo(
       return scalarTypeInfo(context, expression.expression);
     case "c_cast":
     case "static_cast": {
-      const text = expression.type?.kind === "name" ? expression.type.name : null;
-      const byteWidth = text ? SCALAR_SIZE[text] : undefined;
+      const castTypeName = expression.type?.kind === "name" ? expression.type.name : null;
+      const byteWidth = castTypeName ? SCALAR_SIZE[castTypeName] : undefined;
       return byteWidth ? { width: byteWidth, unsigned: unsignedScalar(expression.type) } : null;
     }
     case "int_literal": {
@@ -1054,16 +1056,18 @@ export function lowerBinaryExpression(context: FunctionEmissionContext, expressi
     const la = aggOperand(context, expression.left);
     const ra = aggOperand(context, expression.right);
     if (la && ra && la.size === 32 && ra.size === 32) {
-      const lt = (text: { addr: string }, textCandidate: { addr: string }) =>
+      const leftAddressAndSize = (left: { addr: string }, right: { addr: string }) =>
         watIr.functionCall(
           "$m256_lt",
-          watIr.rawWatNode(text.addr, "i32", "lvalue address channel"),
-          watIr.rawWatNode(textCandidate.addr, "i32", "lvalue address channel"),
+          watIr.rawWatNode(left.addr, "i32", "lvalue address channel"),
+          watIr.rawWatNode(right.addr, "i32", "lvalue address channel"),
         );
-      if (expression.operator === "<") return watIr.operation("i64.extend_i32_u", lt(la, ra));
-      if (expression.operator === ">") return watIr.operation("i64.extend_i32_u", lt(ra, la));
-      if (expression.operator === "<=") return watIr.operation("i64.extend_i32_u", watIr.operation("i32.eqz", lt(ra, la)));
-      return watIr.operation("i64.extend_i32_u", watIr.operation("i32.eqz", lt(la, ra)));
+      if (expression.operator === "<") return watIr.operation("i64.extend_i32_u", leftAddressAndSize(la, ra));
+      if (expression.operator === ">") return watIr.operation("i64.extend_i32_u", leftAddressAndSize(ra, la));
+      if (expression.operator === "<=") {
+        return watIr.operation("i64.extend_i32_u", watIr.operation("i32.eqz", leftAddressAndSize(ra, la)));
+      }
+      return watIr.operation("i64.extend_i32_u", watIr.operation("i32.eqz", leftAddressAndSize(la, ra)));
     }
   }
 

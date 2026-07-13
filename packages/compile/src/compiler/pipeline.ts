@@ -76,19 +76,19 @@ export async function compileContract(options: CompileOptions): Promise<CompileR
 
   await phase("preprocessing");
   const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(options.source)}`;
-  const text = new Preprocessor().preprocess({
+  const preprocessedSource = new Preprocessor().preprocess({
     source,
     qpiHeader: "",
     contractName: options.name,
     contractIndex: options.slot,
     seedMacros: qpi.macros,
   });
-  const boundaryIndex = text.indexOf(USER_BOUNDARY);
-  const boundaryLine = boundaryIndex >= 0 ? text.slice(0, boundaryIndex).split("\n").length : 0;
-  const remap = makeUserDiagnosticRemapper(options.source, text, boundaryLine);
+  const boundaryIndex = preprocessedSource.indexOf(USER_BOUNDARY);
+  const boundaryLine = boundaryIndex >= 0 ? preprocessedSource.slice(0, boundaryIndex).split("\n").length : 0;
+  const remap = makeUserDiagnosticRemapper(options.source, preprocessedSource, boundaryLine);
 
   await phase("parsing");
-  const parser = new Parser(new Lexer(text).tokenize());
+  const parser = new Parser(new Lexer(preprocessedSource).tokenize());
   const unit = parser.parseTranslationUnit();
   diagnostics.push(
     ...parser

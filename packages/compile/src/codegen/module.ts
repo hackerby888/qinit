@@ -65,25 +65,30 @@ export interface GeneratedContractMetadata {
 
 function registerLibraryMetadata(codeGenerationContext: CodeGenerationContext, libraryTypes: LibrarySymbolIndex): LhostAbiSpec {
   if (libraryTypes.liteAbi) codeGenerationContext.assetEnumerationRecord = libraryTypes.liteAbi.records.LiteAssetEntry;
-  for (const [k, v] of libraryTypes.templates) codeGenerationContext.templates.set(k, v);
-  for (const [k, v] of libraryTypes.specializations) codeGenerationContext.specializations.set(k, [...v]);
-  for (const [k, v] of libraryTypes.libFns) codeGenerationContext.libFns.set(k, v);
-  for (const [k, v] of libraryTypes.libFnOverloads) codeGenerationContext.libFnOverloads.set(k, [...v]);
-  for (const [k, v] of libraryTypes.libFnTemplates) codeGenerationContext.libFnTemplates.set(k, v);
-  for (const [k, v] of libraryTypes.globalStructs) codeGenerationContext.globalStructs.set(k, v);
-  for (const [k, v] of libraryTypes.typedefs) codeGenerationContext.typedefs.set(k, v);
-  for (const [k, v] of libraryTypes.constexprInit) codeGenerationContext.constexprInit.set(k, v);
-  for (const [k, v] of libraryTypes.constexprType) codeGenerationContext.constexprType.set(k, v);
-  for (const [k, v] of libraryTypes.enumConst) codeGenerationContext.enumConst.set(k, v);
-  for (const [k, v] of libraryTypes.enumSize) codeGenerationContext.enumSize.set(k, v);
-  for (const [k, v] of libraryTypes.enumUnderlying) codeGenerationContext.enumUnderlying.set(k, v);
-  for (const [k, v] of libraryTypes.enumConstType) codeGenerationContext.enumConstType.set(k, v);
+  for (const [templateName, templateDeclaration] of libraryTypes.templates)
+    codeGenerationContext.templates.set(templateName, templateDeclaration);
+  for (const [templateName, templateSpecializations] of libraryTypes.specializations)
+    codeGenerationContext.specializations.set(templateName, [...templateSpecializations]);
+  for (const [functionName, functionDeclaration] of libraryTypes.libFns) codeGenerationContext.libFns.set(functionName, functionDeclaration);
+  for (const [functionName, overloads] of libraryTypes.libFnOverloads)
+    codeGenerationContext.libFnOverloads.set(functionName, [...overloads]);
+  for (const [templateName, templateDecl] of libraryTypes.libFnTemplates) codeGenerationContext.libFnTemplates.set(templateName, templateDecl);
+  for (const [structName, structDeclaration] of libraryTypes.globalStructs)
+    codeGenerationContext.globalStructs.set(structName, structDeclaration);
+  for (const [typeName, typeDeclaration] of libraryTypes.typedefs) codeGenerationContext.typedefs.set(typeName, typeDeclaration);
+  for (const [typeName, expression] of libraryTypes.constexprInit) codeGenerationContext.constexprInit.set(typeName, expression);
+  for (const [typeName, typeSpec] of libraryTypes.constexprType) codeGenerationContext.constexprType.set(typeName, typeSpec);
+  for (const [enumName, enumValue] of libraryTypes.enumConst) codeGenerationContext.enumConst.set(enumName, enumValue);
+  for (const [typeName, enumStorageSize] of libraryTypes.enumSize) codeGenerationContext.enumSize.set(typeName, enumStorageSize);
+  for (const [typeName, enumUnderlyingType] of libraryTypes.enumUnderlying) codeGenerationContext.enumUnderlying.set(typeName, enumUnderlyingType);
+  for (const [typeName, enumValueType] of libraryTypes.enumConstType) codeGenerationContext.enumConstType.set(typeName, enumValueType);
   for (const enumName of libraryTypes.enumNames) codeGenerationContext.enumNames.add(enumName);
-  for (const [k, v] of libraryTypes.templateMethods) codeGenerationContext.templateMethods.set(k, new Map(v));
+  for (const [className, methodsByName] of libraryTypes.templateMethods)
+    codeGenerationContext.templateMethods.set(className, new Map(methodsByName));
   for (const [scope, namespaces] of libraryTypes.namespaceUsings)
     codeGenerationContext.namespaceUsings.set(scope, [...namespaces]);
-  for (const [declaration, context] of libraryTypes.namespaceContexts)
-    codeGenerationContext.namespaceContexts.set(declaration, context);
+  for (const [declaration, namespaceContext] of libraryTypes.namespaceContexts)
+    codeGenerationContext.namespaceContexts.set(declaration, namespaceContext);
   const lhostAbi: Record<
     string,
     { params: readonly ("i32" | "i64")[]; results: readonly ("i32" | "i64")[] }
@@ -243,9 +248,9 @@ export function generateWasmModule(
 ): string {
   const codeGenerationContext = new CodeGenerationContext(sema);
   codeGenerationContext.gtestMode = gtestMode;
-  for (const itemItem of callees ?? []) codeGenerationContext.callees.set(itemItem.name, itemItem);
+  for (const calleeItem of callees ?? []) codeGenerationContext.callees.set(calleeItem.name, calleeItem);
   // Callee struct layouts, keyed by their qualified name (`QX::Fees_output`), so a caller reading a callee's output type —
-  if (calleeStructs) for (const [k, v] of calleeStructs) codeGenerationContext.globalStructs.set(k, v);
+  if (calleeStructs) for (const [structName, structDeclaration] of calleeStructs) codeGenerationContext.globalStructs.set(structName, structDeclaration);
 
   // Register qpi.h library declarations (templates / structs / typedefs) once, then add the user contract's declarations.
   const lhostAbi = lib ? registerLibraryMetadata(codeGenerationContext, lib) : undefined;

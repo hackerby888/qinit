@@ -81,17 +81,26 @@ export function emitProposalProxyAddr(
   if (!cm || !cm.retAgg) return null;
 
   const bind = context.codeGenerationContext.bindContainer(target.pvType.name, target.pvType.callArguments);
-  const ops = cm.functionParameters.map((fp, fnParamIndex) => {
-    const argument = expression.callArguments[fnParamIndex];
-    if (!argument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    const paramType = context.codeGenerationContext.substInBindings(context.codeGenerationContext.derefType(fp.type), bind);
-    return fp.isAddr
-      ? argAddr(context, argument, context.codeGenerationContext.sizeOfType(paramType, bind), paramType, fp.readOnlyRef === true)
-      : emitValue(context, argument);
+  const methodArgumentOperands = cm.functionParameters.map((methodParameter, methodParameterIndex) => {
+    const callArgument = expression.callArguments[methodParameterIndex];
+    if (!callArgument) return methodParameter.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    const paramType = context.codeGenerationContext.substInBindings(
+      context.codeGenerationContext.derefType(methodParameter.type),
+      bind,
+    );
+    return methodParameter.isAddr
+      ? argAddr(
+          context,
+          callArgument,
+          context.codeGenerationContext.sizeOfType(paramType, bind),
+          paramType,
+          methodParameter.readOnlyRef === true,
+        )
+      : emitValue(context, callArgument);
   });
   const scratchAddress = allocateScratchSlot(context, cm.retAgg!);
   context.lines.push(
-    `    (call ${cm.label} ${scratchAddress} ${target.addr} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`,
+    `    (call ${cm.label} ${scratchAddress} ${target.addr} (i32.const 0)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`,
   );
   return scratchAddress;
 }
@@ -125,26 +134,35 @@ export function callProxy(
   valueWanted: boolean,
 ): string {
   const bind = context.codeGenerationContext.bindContainer(pvType.name, pvType.callArguments);
-  const ops = cm.functionParameters.map((fp, fnParamIndex) => {
-    const argument = callArguments[fnParamIndex];
-    if (!argument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    const paramType = context.codeGenerationContext.substInBindings(context.codeGenerationContext.derefType(fp.type), bind);
-    return fp.isAddr
-      ? argAddr(context, argument, context.codeGenerationContext.sizeOfType(paramType, bind), paramType, fp.readOnlyRef === true)
-      : emitValue(context, argument);
+  const methodArgumentOperands = cm.functionParameters.map((methodParameter, methodParameterIndex) => {
+    const callArgument = callArguments[methodParameterIndex];
+    if (!callArgument) return methodParameter.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    const paramType = context.codeGenerationContext.substInBindings(
+      context.codeGenerationContext.derefType(methodParameter.type),
+      bind,
+    );
+    return methodParameter.isAddr
+      ? argAddr(
+          context,
+          callArgument,
+          context.codeGenerationContext.sizeOfType(paramType, bind),
+          paramType,
+          methodParameter.readOnlyRef === true,
+        )
+      : emitValue(context, callArgument);
   });
 
   // An aggregate-returning proxy method (proposerId → id) writes through a leading $ret slot. The
   if (cm.retAgg) {
     const scratchAddress = allocateScratchSlot(context, cm.retAgg);
     context.lines.push(
-      `    (call ${cm.label} ${scratchAddress} ${self} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`,
+      `    (call ${cm.label} ${scratchAddress} ${self} (i32.const 0)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`,
     );
     if (!valueWanted) return "";
     throw new Error("aggregate proposal method return used as a scalar");
   }
 
-  const call = `(call ${cm.label} ${self} (i32.const 0)${ops.length ? " " + ops.join(" ") : ""})`;
+  const call = `(call ${cm.label} ${self} (i32.const 0)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`;
   if (valueWanted) {
     if (cm.retKind !== "i64") throw new Error("void proposal method used as a value");
     return call;
@@ -168,16 +186,15 @@ export function compileProxyMethod(
   if (!def) def = codeGenerationContext.templateMethods.get("QpiContextProposalFunctionCall")?.get(method); // FunctionCall base
   if (!def || !def.body) return null;
 
-  const argument = pvType.callArguments[0],
-    argumentCandidate = pvType.callArguments[1];
-  const cacheKey = `proxy:${proxyClass}<${codeGenerationContext.typeKeyOf(argument)},${codeGenerationContext.typeKeyOf(argumentCandidate)}>::${method}`;
+  const [proposalHandlingType, proposalDataType] = pvType.callArguments;
+  const cacheKey = `proxy:${proxyClass}<${codeGenerationContext.typeKeyOf(proposalHandlingType)},${codeGenerationContext.typeKeyOf(proposalDataType)}>::${method}`;
   const cached = codeGenerationContext.compiledMethods.get(cacheKey);
   if (cached) return cached;
 
   const bind: TemplateBindings = {
     types: new Map([
-      ["ProposerAndVoterHandlingType", argument],
-      ["ProposalDataType", argumentCandidate],
+      ["ProposerAndVoterHandlingType", proposalHandlingType],
+      ["ProposalDataType", proposalDataType],
     ]),
     values: new Map(),
     structs: new Map(),
@@ -265,7 +282,7 @@ export function emitProxyMethodFn(
       ")",
     );
   const localDecls = [...context.localVars.entries()].map(
-    ([n, t]) => `    (local $${n} ${t.wasmType})`,
+    ([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`,
   );
   const tail = cm.retKind === "i64" ? ["    (i64.const 0)"] : [];
   return [header, ...localDecls, ...context.lines, ...tail, "  )"].join("\n");

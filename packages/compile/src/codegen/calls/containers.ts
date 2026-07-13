@@ -70,20 +70,22 @@ export function compileContainerMethod(
   methodArgTypes?: () => Array<TypeSpec | null>,
   explicitTemplateArgs: TypeSpec[] = [],
 ): CompiledMethod | null {
-  const explicitKey = explicitTemplateArgs.map((argument) => codeGenerationContext.typeKeyOf(argument)).join(",");
-  const baseCacheKey = `${type.name}<${type.callArguments.map((argument) => codeGenerationContext.typeKeyOf(argument)).join(",")}>::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}${explicitKey ? `<${explicitKey}>` : ""}`;
-  const baseCached = codeGenerationContext.compiledMethods.get(baseCacheKey);
-  if (baseCached) return baseCached;
+  const explicitTemplateKey = explicitTemplateArgs.map((argument) => codeGenerationContext.typeKeyOf(argument)).join(",");
+  const baseInstanceKey = methodTypeKey(type, codeGenerationContext);
+  const explicitTemplateSuffix = explicitTemplateKey ? `<${explicitTemplateKey}>` : "";
+  const baseCacheKey = `${baseInstanceKey}::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}${explicitTemplateSuffix}`;
+  const cachedTemplateMethod = codeGenerationContext.compiledMethods.get(baseCacheKey);
+  if (cachedTemplateMethod) return cachedTemplateMethod;
 
-  // Specialization-aware: the body + its binding come from the matched template instance (primary OR partial specialization), so a
+  // Specialization-aware: body + bindings come from matched template instance (primary or partial specialization)
   const mt = codeGenerationContext.methodTemplate(type.name, type.callArguments, methodName, argCount, paramTypeKey);
   if (!mt || !mt.def.body) return null;
   const def = mt.def;
   const resolvedMethodArgTypes = mt.memberTemplate ? (methodArgTypes?.() ?? []) : [];
-  const methodTypeKey = mt.memberTemplate
-    ? resolvedMethodArgTypes.map((argument) => (argument ? codeGenerationContext.typeKeyOf(argument) : "?")).join(",")
+  const memberTemplateTypeKey = mt.memberTemplate
+    ? resolvedMethodArgTypes.map((argumentType) => (argumentType ? codeGenerationContext.typeKeyOf(argumentType) : "?")).join(",")
     : "";
-  const cacheKey = `${baseCacheKey}${methodTypeKey ? `#${methodTypeKey}` : ""}`;
+  const cacheKey = `${baseCacheKey}${memberTemplateTypeKey ? `#${memberTemplateTypeKey}` : ""}`;
   const cached = codeGenerationContext.compiledMethods.get(cacheKey);
   if (cached) return cached;
   let bind = mt.bind;
@@ -115,7 +117,9 @@ export function compileContainerMethod(
     }
     bind = { ...bind, types };
   }
-  const functionParameters = (def.functionParameters ?? []).map((parameter) => classifyMethodParam(codeGenerationContext, parameter, bind));
+  const functionParameters = (def.functionParameters ?? []).map((parameter) =>
+    classifyMethodParam(codeGenerationContext, parameter, bind),
+  );
   const retType = codeGenerationContext.substInBindings(codeGenerationContext.derefType(def.returnType), bind);
   const returnsAddr = def.returnType.kind === "reference" || def.returnType.kind === "pointer";
   const returnsAggregate =
@@ -157,6 +161,11 @@ export function compileContainerMethod(
     throw entry;
   }
   return cm;
+}
+
+function methodTypeKey(type: TypeSpec & { kind: "template_instance" }, context: CodeGenerationContext): string {
+  const argumentKeys = type.callArguments.map((argument) => context.typeKeyOf(argument)).join(",");
+  return `${type.name}<${argumentKeys}>`;
 }
 
 // Emit the wasm function for an instantiated container method: param $this + the method's own params, body lowered
@@ -216,7 +225,7 @@ export function emitTemplateMethod(
     ")",
   );
   const localDecls = [...context.localVars.entries()].map(
-    ([n, t]) => `    (local $${n} ${t.wasmType})`,
+    ([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`,
   );
   const tail =
     cm.retKind === "i64"
@@ -266,46 +275,51 @@ export function callCompiled(
     throw new Error(`${type.name}::${method} expects ${expected} argument(s), got ${callArguments.length}`);
   }
   const bind = context.codeGenerationContext.bindContainer(type.name, type.callArguments);
-  const ops = cm.functionParameters.map((fp, fnParamIndex) => {
-    const argument = callArguments[fnParamIndex] ?? fp.defaultValue;
-    if (!argument) throw new Error(`${type.name}::${method} is missing required argument ${fnParamIndex + 1}`);
-    if (argument.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    const paramType = fp.concreteType ?? context.codeGenerationContext.substInBindings(context.codeGenerationContext.derefType(fp.type), bind);
-    if (!fp.isAddr) return emitValue(context, argument);
+  const methodArgumentOperands = cm.functionParameters.map((methodParameter, methodParameterIndex) => {
+    const callArgument = callArguments[methodParameterIndex] ?? methodParameter.defaultValue;
+    if (!callArgument) {
+      throw new Error(`${type.name}::${method} is missing required argument ${methodParameterIndex + 1}`);
+    }
+    if (callArgument.kind === "nullptr_literal") {
+      return methodParameter.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    }
+    const paramType = methodParameter.concreteType ??
+      context.codeGenerationContext.substInBindings(context.codeGenerationContext.derefType(methodParameter.type), bind);
+    if (!methodParameter.isAddr) return emitValue(context, callArgument);
     if (
-      fp.type.kind === "pointer" &&
-      context.codeGenerationContext.isVoidType(fp.type.pointee) &&
-      !resolveExpressionAddress(context, argument)
+      methodParameter.type.kind === "pointer" &&
+      context.codeGenerationContext.isVoidType(methodParameter.type.pointee) &&
+      !resolveExpressionAddress(context, callArgument)
     ) {
       return "(i32.const 0)";
     }
     if (context.codeGenerationContext.isAggregateType(paramType)) {
-      if (argument.kind === "initializer_list") {
+      if (callArgument.kind === "initializer_list") {
         return argAddr(
           context,
-          argument,
+          callArgument,
           context.codeGenerationContext.sizeOfType(paramType, bind),
           paramType,
-          fp.readOnlyRef === true,
+          methodParameter.readOnlyRef === true,
         );
       }
-      const direct = emitAddress(context, argument);
+      const direct = emitAddress(context, callArgument);
       if (!direct)
-        throw new Error(`${type.name}::${method} aggregate argument ${fnParamIndex + 1} is not addressable`);
+        throw new Error(`${type.name}::${method} aggregate argument ${methodParameterIndex + 1} is not addressable`);
       return direct;
     }
     return argAddr(
       context,
-      argument,
+      callArgument,
       context.codeGenerationContext.sizeOfType(paramType, bind),
       paramType,
-      fp.readOnlyRef === true,
+      methodParameter.readOnlyRef === true,
     );
   });
   let retDest = "";
   if (cm.retAgg) retDest = watIr.serializeWatNode(allocateScratchSlotNode(context, cm.retAgg));
   return {
-    call: `(call ${cm.label}${retDest ? " " + retDest : ""} ${self}${ops.length ? " " + ops.join(" ") : ""})`,
+    call: `(call ${cm.label}${retDest ? " " + retDest : ""} ${self}${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`,
     cm,
     ...(retDest ? { retDest } : {}),
   };

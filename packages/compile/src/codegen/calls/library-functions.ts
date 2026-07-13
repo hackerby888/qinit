@@ -358,8 +358,8 @@ export function emitAggHelperCall(
   info: CompiledHelperMetadata,
 ): string {
   const scratchAddress = allocateScratchSlot(context, info.retAgg!);
-  const ops = helperCallOps(context, info, expression.callArguments);
-  context.lines.push(`    (call ${info.label} ${scratchAddress}${ops ? " " + ops : ""})`);
+  const helperArgumentOperands = helperCallOps(context, info, expression.callArguments);
+  context.lines.push(`    (call ${info.label} ${scratchAddress}${helperArgumentOperands ? " " + helperArgumentOperands : ""})`);
   return scratchAddress;
 }
 
@@ -520,8 +520,8 @@ export function emitHelperCall(
     return valueWanted ? "(i64.const 0)" : (void addr, "");
   }
 
-  const ops = helperCallOps(context, info, expression.callArguments);
-  const call = `(call ${info.label}${ops ? " " + ops : ""})`;
+  const helperArgumentOperands = helperCallOps(context, info, expression.callArguments);
+  const call = `(call ${info.label}${helperArgumentOperands ? " " + helperArgumentOperands : ""})`;
 
   if (valueWanted) {
     if (!info.retIsValue) return "(i64.const 0)";

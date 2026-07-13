@@ -32,17 +32,17 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
     if (early.some((diagnostic) => diagnostic.severity === "error")) continue;
 
     const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(callee.source)}`;
-    const text = new Preprocessor().preprocess({
+    const preprocessedSource = new Preprocessor().preprocess({
       source,
       qpiHeader: "",
       contractName: callee.name,
       contractIndex: 0,
       seedMacros: qpi.macros,
     });
-    const boundaryIndex = text.indexOf(USER_BOUNDARY);
-    const boundaryLine = boundaryIndex >= 0 ? text.slice(0, boundaryIndex).split("\n").length : 0;
-    const remap = makeUserDiagnosticRemapper(callee.source, text, boundaryLine);
-    const parser = new Parser(new Lexer(text).tokenize());
+    const boundaryIndex = preprocessedSource.indexOf(USER_BOUNDARY);
+    const boundaryLine = boundaryIndex >= 0 ? preprocessedSource.slice(0, boundaryIndex).split("\n").length : 0;
+    const remap = makeUserDiagnosticRemapper(callee.source, preprocessedSource, boundaryLine);
+    const parser = new Parser(new Lexer(preprocessedSource).tokenize());
     const unit = parser.parseTranslationUnit();
     const parsed = parser
       .getDiagnostics()

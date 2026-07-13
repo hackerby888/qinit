@@ -10,21 +10,21 @@ export interface QpiContext {
 }
 
 const qpiCache = new Map<string, QpiContext>();
-const qpiPreludeCache = new Map<string, { text: string; macros: Map<string, MacroDef> }>();
+const qpiPreludeCache = new Map<string, { preprocessedSource: string; macros: Map<string, MacroDef> }>();
 
-function getQpiPrelude(headers: string): { text: string; macros: Map<string, MacroDef> } {
+function getQpiPrelude(headers: string): { preprocessedSource: string; macros: Map<string, MacroDef> } {
   const [mainHeaders] = headers.split(IMPL_BOUNDARY);
   const cached = qpiPreludeCache.get(mainHeaders);
   if (cached) return cached;
 
   const pp = new Preprocessor();
-  const text = pp.preprocess({
+  const preprocessedSource = pp.preprocess({
     source: "",
     qpiHeader: mainHeaders,
     contractName: "__lib__",
     contractIndex: 0,
   });
-  const prelude = { text, macros: pp.getDefines() };
+  const prelude = { preprocessedSource, macros: pp.getDefines() };
   qpiPreludeCache.set(mainHeaders, prelude);
   return prelude;
 }
@@ -38,15 +38,15 @@ export function getQpiContext(headers: string): QpiContext {
   if (cached) return cached;
 
   const [mainHeaders, ...implChunks] = headers.split(IMPL_BOUNDARY);
-  const { text: libText, macros } = getQpiPrelude(mainHeaders);
-  const coreHeaderTu = new Parser(new Lexer(libText).tokenize()).parseTranslationUnit();
+  const { preprocessedSource: libSource, macros } = getQpiPrelude(mainHeaders);
+  const coreHeaderTu = new Parser(new Lexer(libSource).tokenize()).parseTranslationUnit();
   const coreLibrary = indexLibraryDeclarations(coreHeaderTu.declarations);
   const liteAbi = embeddedLiteAbi(headers);
   coreLibrary.liteAbi = liteAbi;
 
-  for (const chunk of implChunks) {
+  for (const implChunk of implChunks) {
     const implText = new Preprocessor().preprocess({
-      source: chunk,
+      source: implChunk,
       qpiHeader: "",
       contractName: "__impl__",
       contractIndex: 0,

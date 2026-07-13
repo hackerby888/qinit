@@ -70,11 +70,11 @@ function emitArrayInitializer(
 
 // A scratch i32 local (holds an address). Declared lazily; emitted in the function's local list.
 export function allocateTemporaryLocalName(context: FunctionEmissionContext): string {
-  let text: string;
-  do text = `__qinit_tmp${context.tmpCount++}`;
-  while (context.localVars.has(text) || context.params?.has(text));
-  context.localVars.set(text, { wasmType: "i32" });
-  return text;
+  let temporaryName: string;
+  do temporaryName = `__qinit_tmp${context.tmpCount++}`;
+  while (context.localVars.has(temporaryName) || context.params?.has(temporaryName));
+  context.localVars.set(temporaryName, { wasmType: "i32" });
+  return temporaryName;
 }
 
 export function emitFunction(
@@ -131,7 +131,7 @@ export function emitFunction(
 
   // Build local decls AFTER emit so scratch temps created during lowering are included.
   const localDecls = [...context.localVars.entries()].map(
-    ([n, t]) => `    (local $${n} ${t.wasmType})`,
+    ([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`,
   );
 
   return [header, ...localDecls, ...context.lines, "  )"].join("\n");
@@ -199,7 +199,7 @@ export function emitHelperFunction(
   if (fn.body) emitStatement(context, fn.body);
 
   const localDecls = [...context.localVars.entries()].map(
-    ([n, t]) => `    (local $${n} ${t.wasmType})`,
+    ([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`,
   );
   // A value helper needs a fallthrough result for control paths that do not hit a return.
   const tail = info.retIsValue ? ["    (i64.const 0)"] : [];
@@ -416,8 +416,8 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
     for (const bodyItem of body) emitStatement(context, bodyItem);
   } else {
     if (!context.gotoLabels) context.gotoLabels = new Map();
-    for (const [g, wl] of wasmLabel) {
-      context.gotoLabels.set(g, { label: wl, scratchDepth: scratchDepthAt(labelChild.get(g) ?? 0) });
+    for (const [labelName, blockLabel] of wasmLabel) {
+      context.gotoLabels.set(labelName, { label: blockLabel, scratchDepth: scratchDepthAt(labelChild.get(labelName) ?? 0) });
     }
 
     // WASM blocks must nest (LIFO). With multiple labels whose [firstGoto..closeAt] ranges OVERLAP without
@@ -442,7 +442,7 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
       closeStack.pop();
     }
 
-    for (const itemItem of wasmLabel.keys()) context.gotoLabels!.delete(itemItem);
+    for (const labelName of wasmLabel.keys()) context.gotoLabels!.delete(labelName);
   }
 
   // Scope exit: run __ScopedScratchpad destructors declared in this compound (RAII, LIFO). Without the
@@ -456,8 +456,8 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
       break;
 
     case "expression": {
-      const text = emitDiscardedExpression(context, statement.expression);
-      if (text) context.lines.push(`    ${text}`);
+      const discardedText = emitDiscardedExpression(context, statement.expression);
+      if (discardedText) context.lines.push(`    ${discardedText}`);
       break;
     }
 
@@ -651,8 +651,8 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
       context.loops.pop();
       context.lines.push(`      )`);
       if (statement.update) {
-        const text = emitDiscardedExpression(context, statement.update);
-        if (text) context.lines.push(`      ${text}`);
+        const discardedText = emitDiscardedExpression(context, statement.update);
+        if (discardedText) context.lines.push(`      ${discardedText}`);
       }
       context.lines.push(`      (br ${loop})))`);
       break;
@@ -882,8 +882,8 @@ export function emitDiscardedExpression(context: FunctionEmissionContext, expres
   // comma sequence (for-update `i++, flags >>= 2`): emit each side effect in order.
   if (expression.kind === "sequence") {
     for (const sequenceExpression of expression.expressions) {
-      const text = emitDiscardedExpression(context, sequenceExpression);
-      if (text) context.lines.push(`    ${text}`);
+      const discardedText = emitDiscardedExpression(context, sequenceExpression);
+      if (discardedText) context.lines.push(`    ${discardedText}`);
     }
     return "";
   }

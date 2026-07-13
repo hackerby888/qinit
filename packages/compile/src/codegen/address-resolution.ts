@@ -392,8 +392,8 @@ export function resolveInParentStruct(context: FunctionEmissionContext, type: Ty
         : undefined;
   if (!declaration) return type;
 
-  const nestedOf = (text: string): TypeSpec | null => {
-    const structDeclaration = declaration.members.find((member) => member.kind === "struct" && (member as StructDecl).name === text) as
+  const nestedOf = (typeName: string): TypeSpec | null => {
+    const structDeclaration = declaration.members.find((member) => member.kind === "struct" && (member as StructDecl).name === typeName) as
       StructDecl | undefined;
     return structDeclaration ? { kind: "inline_struct", struct: structDeclaration } : null;
   };
@@ -585,11 +585,11 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
     const ta = resolveExpressionAddress(context, expression.then)?.addr ?? emitAddress(context, expression.then);
     const ea = ta ? (resolveExpressionAddress(context, expression.else_)?.addr ?? emitAddress(context, expression.else_)) : null;
     if (ta && ea) {
-      const text = allocateTemporaryLocalName(context);
+      const branchAddress = allocateTemporaryLocalName(context);
       context.lines.push(
-        `    ${setLocal(context, text, watIr.selectValue(addrIr(ta), addrIr(ea), watIr.operation("i64.ne", watIr.i64Constant(0), lowerValueExpression(context, expression.condition))))}`,
+        `    ${setLocal(context, branchAddress, watIr.selectValue(addrIr(ta), addrIr(ea), watIr.operation("i64.ne", watIr.i64Constant(0), lowerValueExpression(context, expression.condition))))}`,
       );
-      return `(local.get $${text})`;
+      return `(local.get $${branchAddress})`;
     }
   }
 
@@ -605,14 +605,14 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
       const la = aggOperand(context, expression.callArguments[0]);
       const ra = la ? aggOperand(context, expression.callArguments[1]) : null;
       if (la && ra && la.size === 32 && ra.size === 32) {
-        const text = allocateTemporaryLocalName(context);
+        const selectedAddress = allocateTemporaryLocalName(context);
         const cmp = watIr.functionCall("$m256_lt", addrIr(la.addr), addrIr(ra.addr));
         const pick =
           base === "min"
             ? watIr.selectValue(addrIr(la.addr), addrIr(ra.addr), cmp)
             : watIr.selectValue(addrIr(ra.addr), addrIr(la.addr), cmp);
-        context.lines.push(`    ${setLocal(context, text, pick)}`);
-        return `(local.get $${text})`;
+        context.lines.push(`    ${setLocal(context, selectedAddress, pick)}`);
+        return `(local.get $${selectedAddress})`;
       }
     }
   }
@@ -992,24 +992,28 @@ export function emitConstruct(
   const layout = context.codeGenerationContext.layoutOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
   if (!layout) return false;
   const fields = [...layout.fields.values()];
-  const text = allocateTemporaryLocalName(context);
-  context.lines.push(`    ${setLocal(context, text, addrIr(dstAddr))}`);
+  const destinationBase = allocateTemporaryLocalName(context);
+  context.lines.push(`    ${setLocal(context, destinationBase, addrIr(dstAddr))}`);
   context.lines.push(
-    `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(text, "i32"), watIr.i32Constant(layout.size), watIr.i32Constant(0)))}`,
+    `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(destinationBase, "i32"), watIr.i32Constant(layout.size), watIr.i32Constant(0)))}`,
   );
   for (let index = 0; index < callArguments.length && index < fields.length; index++) {
     const field = fields[index];
-    const fAddr = watIr.addressWithOffset(watIr.localGet(text, "i32"), field.offset);
+    const fieldDestination = watIr.addressWithOffset(watIr.localGet(destinationBase, "i32"), field.offset);
     if (isAggregate(context, field.type, field.size)) {
       const argument = callArguments[index];
       const nestedArgs =
         argument.kind === "initializer_list" ? argument.expressions : argument.kind === "construct" ? argument.callArguments : null;
-      if (nestedArgs && emitConstruct(context, watIr.serializeWatNode(fAddr), field.type, nestedArgs)) continue;
+      if (nestedArgs && emitConstruct(context, watIr.serializeWatNode(fieldDestination), field.type, nestedArgs)) continue;
       const src = emitAddress(context, argument);
       if (src)
-        context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", fAddr, addrIr(src), watIr.i32Constant(field.size)))}`);
+        context.lines.push(
+          `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", fieldDestination, addrIr(src), watIr.i32Constant(field.size)))}`,
+        );
     } else {
-      context.lines.push(`    ${watIr.serializeWatNode(watIr.storeScalar(fAddr, field.size, lowerValueExpression(context, callArguments[index])))}`);
+      context.lines.push(
+        `    ${watIr.serializeWatNode(watIr.storeScalar(fieldDestination, field.size, lowerValueExpression(context, callArguments[index])))}`,
+      );
     }
   }
   return true;
@@ -1046,9 +1050,11 @@ export function setLocal(context: FunctionEmissionContext, name: string, value: 
 
 // Allocate a fresh scratch block, stash its address in a temporary local, and return its local.get node.
 export function allocateScratchSlotNode(context: FunctionEmissionContext, size: number): watIr.WatNode {
-  const text = allocateTemporaryLocalName(context);
-  context.lines.push(`    ${watIr.serializeWatNode(watIr.localSet(text, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(size))))}`);
-  return watIr.localGet(text, "i32");
+  const temporaryAddress = allocateTemporaryLocalName(context);
+  context.lines.push(
+    `    ${watIr.serializeWatNode(watIr.localSet(temporaryAddress, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(size))))}`,
+  );
+  return watIr.localGet(temporaryAddress, "i32");
 }
 
 export function allocateScratchSlot(context: FunctionEmissionContext, size: number): string {
@@ -1112,8 +1118,8 @@ export function lowerScalarLoad(addr: string, size: number, signed = false): wat
 }
 
 // Wrap a string-typed address (the resolveAddr/emitAddr channel) as a typed i32 node.
-export function addrIr(text: string): watIr.WatNode {
-  return watIr.rawWatNode(text, "i32", "lvalue address channel");
+export function addrIr(addressText: string): watIr.WatNode {
+  return watIr.rawWatNode(addressText, "i32", "lvalue address channel");
 }
 
 export const SIGNED_SCALARS = new Set([

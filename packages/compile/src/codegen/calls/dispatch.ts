@@ -41,19 +41,19 @@ export function emitThisCall(
     expression.callee.kind !== "identifier"
   )
     return null;
-  const name = expression.callee.name;
+  const methodName = expression.callee.name;
 
   // memory builtins used by container bodies: reset → setMem(this, ...); removeByIndex → setMem(&elem, ...).
-  if ((name === "setMem" || name === "copyMem") && !valueWanted) {
-    const dst = emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)";
-    if (name === "copyMem") {
+  if ((methodName === "setMem" || methodName === "copyMem") && !valueWanted) {
+    const destination = emitAddress(context, expression.callArguments[0]) ?? "(i32.const 0)";
+    if (methodName === "copyMem") {
       const src = emitAddress(context, expression.callArguments[1]) ?? "(i32.const 0)";
       context.lines.push(
-        `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(dst), addrIr(src), watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[2]))))}`,
+        `    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(destination), addrIr(src), watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[2]))))}`,
       );
     } else {
       context.lines.push(
-        `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", addrIr(dst), watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[1])), watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[2]))))}`,
+        `    ${watIr.serializeWatNode(watIr.functionCall("$setMem", addrIr(destination), watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[1])), watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.callArguments[2]))))}`,
       );
     }
     return "";
@@ -61,65 +61,68 @@ export function emitThisCall(
 
   // Resolve the dependent static call through the actual HashFunc template binding. This is important
   // both for the default HashFunction<KeyT> body and for contract-provided custom hashers.
-  if (name.endsWith("::hash")) {
-    const bound = context.thisBind?.types.get(name.slice(0, name.lastIndexOf("::")));
+  if (methodName.endsWith("::hash")) {
+    const targetName = methodName.slice(0, methodName.lastIndexOf("::"));
+    const bound = context.thisBind?.types.get(targetName);
     const target: (TypeSpec & { kind: "template_instance" }) | null =
       bound?.kind === "template_instance"
         ? bound
         : bound?.kind === "name"
           ? { kind: "template_instance", name: bound.name, callArguments: [] }
           : null;
-    if (!target) throw new Error(`dependent hash target '${name}' is not bound`);
+    if (!target) throw new Error(`dependent hash target '${methodName}' is not bound`);
     const cm = compileContainerMethod(context.codeGenerationContext, target, "hash", expression.callArguments.length);
     if (!cm || cm.retKind !== "i64") {
       throw new Error(`authoritative QPI method ${target.name}::hash could not be lowered`);
     }
-    const ops = cm.functionParameters.map((fp, index) => {
-      const argument = expression.callArguments[index] ?? fp.defaultValue;
-      if (!argument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-      if (!fp.isAddr) return emitValue(context, argument);
-      const direct = emitAddress(context, argument);
+    const methodArgumentOperands = cm.functionParameters.map((fp, index) => {
+      const methodArgument = expression.callArguments[index] ?? fp.defaultValue;
+      if (!methodArgument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+      if (!fp.isAddr) return emitValue(context, methodArgument);
+      const direct = emitAddress(context, methodArgument);
       if (direct) return direct;
       const spill = allocateScratchSlotNode(
         context,
         Math.max(8, context.codeGenerationContext.sizeOfType(context.codeGenerationContext.derefType(fp.type), context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)),
       );
       context.lines.push(
-        `    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, spill, lowerValueExpression(context, argument)))}`,
+        `    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, spill, lowerValueExpression(context, methodArgument)))}`,
       );
       return watIr.serializeWatNode(spill);
     });
-    return `(call ${cm.label} (local.get $this)${ops.length ? " " + ops.join(" ") : ""})`;
+    return `(call ${cm.label} (local.get $this)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`;
   }
 
   // a sibling method of this container instance — compile it and call with $this + args. An
-  const mname = name.startsWith(`${context.thisType.name}::`)
-    ? name.slice(context.thisType.name.length + 2)
-    : name;
-  const cm = compileContainerMethod(context.codeGenerationContext, context.thisType, mname, expression.callArguments.length);
+  const methodNameOnly = methodName.startsWith(`${context.thisType.name}::`)
+    ? methodName.slice(context.thisType.name.length + 2)
+    : methodName;
+  const cm = compileContainerMethod(context.codeGenerationContext, context.thisType, methodNameOnly, expression.callArguments.length);
   if (!cm) return null;
   // A reference-scalar argument that is a plain wasm local (addAndComputeCarry(newMicrosec, carry, ...)) has no address: spill it to
   const writeBacks: string[] = [];
-  const ops = cm.functionParameters.map((fp, fnParamIndex) => {
-    const argument = expression.callArguments[fnParamIndex] ?? fp.defaultValue;
-    if (!argument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    if (argument.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
-    if (!fp.isAddr) return emitValue(context, argument);
-    const emittedAddress = emitAddress(context, argument);
+  const methodArgumentOperands = cm.functionParameters.map((fp, fnParamIndex) => {
+    const methodArgument = expression.callArguments[fnParamIndex] ?? fp.defaultValue;
+    if (!methodArgument) return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    if (methodArgument.kind === "nullptr_literal") return fp.isAddr ? "(i32.const 0)" : "(i64.const 0)";
+    if (!fp.isAddr) return emitValue(context, methodArgument);
+    const emittedAddress = emitAddress(context, methodArgument);
     if (emittedAddress) return emittedAddress;
     // `&x` (pointer out-param) and parens unwrap to the same scalar-local spill as a bare `x`.
-    let root: Expression = argument;
-    while (root.kind === "paren" || (root.kind === "unary_op" && root.operator === "&")) {
-      root = root.kind === "paren" ? root.expression : root.argument;
+    let argSource: Expression = methodArgument;
+    while (argSource.kind === "paren" || (argSource.kind === "unary_op" && argSource.operator === "&")) {
+      argSource = argSource.kind === "paren" ? argSource.expression : argSource.argument;
     }
     const size = allocateScratchSlotNode(context, 8);
-    context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, size, lowerValueExpression(context, root)))}`);
-    if (root.kind === "identifier" && context.localVars.get(root.name)?.wasmType === "i64") {
-      writeBacks.push(`    ${setLocal(context, root.name, watIr.rawLoad("i64.load", null, size))}`);
+    context.lines.push(
+      `    ${watIr.serializeWatNode(watIr.rawStore("i64.store", null, size, lowerValueExpression(context, argSource)))}`,
+    );
+    if (argSource.kind === "identifier" && context.localVars.get(argSource.name)?.wasmType === "i64") {
+      writeBacks.push(`    ${setLocal(context, argSource.name, watIr.rawLoad("i64.load", null, size))}`);
     }
     return watIr.serializeWatNode(size);
   });
-  const call = `(call ${cm.label} (local.get $this) ${ops.join(" ")})`;
+  const call = `(call ${cm.label} (local.get $this) ${methodArgumentOperands.join(" ")})`;
   if (valueWanted) {
     if (cm.retKind !== "i64") {
       context.lines.push(`    ${call}`);
@@ -127,13 +130,13 @@ export function emitThisCall(
       return "(i64.const 0)";
     }
     if (!writeBacks.length) return call;
-    const text = `tmp${context.tmpCount++}`;
-    context.localVars.set(text, { wasmType: "i64" });
+    const returnScratch = `tmp${context.tmpCount++}`;
+    context.localVars.set(returnScratch, { wasmType: "i64" });
     context.lines.push(
-      `    ${setLocal(context, text, watIr.rawWatNode(call, "i64", "unconverted: container method call"))}`,
+      `    ${setLocal(context, returnScratch, watIr.rawWatNode(call, "i64", "unconverted: container method call"))}`,
     );
     context.lines.push(...writeBacks);
-    return `(local.get $${text})`;
+    return `(local.get $${returnScratch})`;
   }
   context.lines.push(
     cm.retKind === "i64"
@@ -220,11 +223,11 @@ export function emitCallValueIr(context: FunctionEmissionContext, expression: Ex
     if (sib !== null) return watIr.rawWatNode(sib, "i64", "unconverted: proxy sibling call");
   }
   {
-    const text = qpiWrapperMethod(expression);
-    if (text) {
-      const real = emitProposalProxyCall(context, expression, true);
-      if (real !== null) return watIr.rawWatNode(real, "i64", "unconverted: proposal proxy call");
-      throw new Error(`authoritative proposal method '${text}' could not be lowered`);
+  const wrapperMethod = qpiWrapperMethod(expression);
+  if (wrapperMethod) {
+    const real = emitProposalProxyCall(context, expression, true);
+    if (real !== null) return watIr.rawWatNode(real, "i64", "unconverted: proposal proxy call");
+    throw new Error(`authoritative proposal method '${wrapperMethod}' could not be lowered`);
     }
   }
 
@@ -249,8 +252,8 @@ export function emitCallValueIr(context: FunctionEmissionContext, expression: Ex
   const tc = emitThisCall(context, expression, true);
   if (tc !== null) return watIr.rawWatNode(tc, "i64", "unconverted: this-call");
 
-  const text = emitHelperCall(context, expression, true);
-  if (text !== null) return watIr.rawWatNode(text, "i64", "unconverted: helper call");
+  const helperCallText = emitHelperCall(context, expression, true);
+  if (helperCallText !== null) return watIr.rawWatNode(helperCallText, "i64", "unconverted: helper call");
 
   if (expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name") {
     const name = expression.callee.kind === "identifier" ? expression.callee.name : expression.callee.name;
@@ -260,8 +263,8 @@ export function emitCallValueIr(context: FunctionEmissionContext, expression: Ex
     }
   }
 
-  const textCandidate = emitContainerCall(context, expression, true);
-  if (textCandidate !== null) return watIr.rawWatNode(textCandidate, "i64", "source-compiled instance method");
+  const containerCallText = emitContainerCall(context, expression, true);
+  if (containerCallText !== null) return watIr.rawWatNode(containerCallText, "i64", "source-compiled instance method");
 
   emitQpiCall(context, expression);
 
@@ -305,16 +308,16 @@ export function emitInterContract(
   expression: Expression & { kind: "call" },
   isInvoke: boolean,
 ): string | null {
-  const cArg = expression.callArguments[0],
-    fArg = expression.callArguments[1];
-  if (cArg?.kind !== "identifier" || fArg?.kind !== "identifier") return null;
-  const callee = context.codeGenerationContext.callees.get(cArg.name);
+  const calleeArg = expression.callArguments[0];
+  const functionArg = expression.callArguments[1];
+  if (calleeArg?.kind !== "identifier" || functionArg?.kind !== "identifier") return null;
+  const callee = context.codeGenerationContext.callees.get(calleeArg.name);
   let idx: number | null = callee?.index ?? null;
   if (idx === null) {
-    const resolvedConstant = context.codeGenerationContext.resolveConst(`${cArg.name}_CONTRACT_INDEX`);
+    const resolvedConstant = context.codeGenerationContext.resolveConst(`${calleeArg.name}_CONTRACT_INDEX`);
     if (resolvedConstant !== null) idx = Number(resolvedConstant);
   }
-  const entry = isInvoke ? callee?.procedures[fArg.name] : callee?.functions[fArg.name];
+  const entry = isInvoke ? callee?.procedures[functionArg.name] : callee?.functions[functionArg.name];
   if (idx === null || !entry) return null;
 
   if (!expression.callArguments[2] || !expression.callArguments[3])
@@ -677,11 +680,11 @@ export function emitCall(context: FunctionEmissionContext, expression: Expressio
   const tc = emitThisCall(context, expression, false);
   if (tc !== null) return;
 
-  const text = emitHelperCall(context, expression, false);
-  if (text !== null) return;
+  const helperCallText = emitHelperCall(context, expression, false);
+  if (helperCallText !== null) return;
 
-  const textCandidate = emitContainerCall(context, expression, false);
-  if (textCandidate !== null) return;
+  const containerCallText = emitContainerCall(context, expression, false);
+  if (containerCallText !== null) return;
 
   emitQpiCall(context, expression);
 

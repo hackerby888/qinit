@@ -170,38 +170,39 @@ export class CodeGenerationContext {
         // Inline member methods defined with a body in the class itself (e.g. capacity()) are captured.
         // A member may itself be a function template (Array::setMem<AT>); keep that body on the
         // owning class as well so call-site argument types can complete its bindings lazily.
-        for (const itemItem of ct.specializationArgs ? [] : ct.members) {
+        for (const classMember of ct.specializationArgs ? [] : ct.members) {
           if (
-            (itemItem.kind !== "function" && itemItem.kind !== "function_template") ||
-            !(itemItem as FunctionDecl | FunctionTemplateDecl).body
+            (classMember.kind !== "function" && classMember.kind !== "function_template") ||
+            !(classMember as FunctionDecl | FunctionTemplateDecl).body
           )
             continue;
-          const fn = itemItem as FunctionDecl | FunctionTemplateDecl;
+          const memberDeclaration = classMember as FunctionDecl | FunctionTemplateDecl;
           if (!this.templateMethods.has(ct.name)) this.templateMethods.set(ct.name, new Map());
           const into = this.templateMethods.get(ct.name)!;
           const def: FunctionTemplateDecl =
-            itemItem.kind === "function_template"
-              ? (itemItem as FunctionTemplateDecl)
+            classMember.kind === "function_template"
+              ? (classMember as FunctionTemplateDecl)
               : {
                   kind: "function_template",
-                  name: fn.name,
+                  name: memberDeclaration.name,
                   params: ct.params,
-                  functionParameters: (fn as FunctionDecl).params,
-                  returnType: fn.returnType,
-                  body: fn.body,
-                  isConstexpr: fn.isConstexpr,
-                  span: fn.span,
+                  functionParameters: (memberDeclaration as FunctionDecl).params,
+                  returnType: memberDeclaration.returnType,
+                  body: (memberDeclaration as FunctionDecl).body,
+                  isConstexpr: memberDeclaration.isConstexpr,
+                  span: memberDeclaration.span,
                 };
           this.namespaceContexts.set(def, lookupContext);
           const functionParameters =
-            itemItem.kind === "function_template"
-              ? ((itemItem as FunctionTemplateDecl).functionParameters ?? [])
-              : (itemItem as FunctionDecl).params;
-          const akey = `${fn.name}/${functionParameters.length}`;
+            classMember.kind === "function_template"
+              ? ((classMember as FunctionTemplateDecl).functionParameters ?? [])
+              : (classMember as FunctionDecl).params;
+          const functionName = memberDeclaration.name;
+          const akey = `${functionName}/${functionParameters.length}`;
           if (functionParameters[0])
             into.set(`${akey}@${this.typeKey(this.derefType(functionParameters[0].type))}`, def);
           if (!into.has(akey)) into.set(akey, def);
-          if (!into.has(fn.name)) into.set(fn.name, def);
+          if (!into.has(functionName)) into.set(functionName, def);
         }
       } else if (declaration.kind === "function_template" || declaration.kind === "function") {
         // out-of-class template method definition: HashMap::set, Collection::add, ...
@@ -546,66 +547,105 @@ export class CodeGenerationContext {
     callArguments: TypeSpec[],
     parent: TemplateBindings,
   ): { templateDeclaration: ClassTemplate; b: TemplateBindings } | null {
-    const resolved = callArguments.map((argument) => this.resolveType(argument, parent));
+    const resolvedArguments = callArguments.map((argument) => this.resolveType(argument, parent));
+    const templateDeclaration = this.templates.get(name) ??
+      (name.includes("::") ? this.templates.get(name.slice(name.lastIndexOf("::") + 2)) : undefined);
 
-    const specs = this.specializations.get(name);
-    if (specs) {
-      for (const spec of specs) {
-        if (spec.specArgs.length !== resolved.length) continue;
-        const paramByName = new Map(spec.templateDeclaration.params.map((parameter) => [parameter.name, parameter] as const));
-        const templateBindings: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
-        let match = true;
-        for (let specArgIndex = 0; specArgIndex < spec.specArgs.length; specArgIndex++) {
-          const sa = spec.specArgs[specArgIndex];
-          const param = sa.kind === "name" ? paramByName.get(sa.name) : undefined;
-          if (param) {
+    if (!templateDeclaration) return null;
+
+    const specialization = this.matchTemplateSpecialization(name, resolvedArguments, parent);
+    if (specialization) return specialization;
+
+    const templateBindings = this.instantiateTemplateBindings(templateDeclaration, resolvedArguments, parent);
+    return {
+      templateDeclaration,
+      b: this.withStaticConsts(templateDeclaration, templateBindings),
+    };
+  }
+
+  private matchTemplateSpecialization(
+    name: string,
+    resolvedArguments: TypeSpec[],
+    parent: TemplateBindings,
+  ): { templateDeclaration: ClassTemplate; b: TemplateBindings } | null {
+    const specializations = this.specializations.get(name);
+    if (!specializations) return null;
+
+    for (const specialization of specializations) {
+      if (specialization.specArgs.length !== resolvedArguments.length) continue;
+
+      const paramByName = new Map(specialization.templateDeclaration.params.map((parameter) => [parameter.name, parameter] as const));
+      const templateBindings: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
+      let match = true;
+
+      for (let specArgIndex = 0; specArgIndex < specialization.specArgs.length; specArgIndex++) {
+        const specializationArg = specialization.specArgs[specArgIndex];
+        const specializedParameter = specializationArg.kind === "name" ? paramByName.get(specializationArg.name) : undefined;
+        const instantiationArg = resolvedArguments[specArgIndex];
+
+        if (specializedParameter) {
+          if (specializedParameter.kind === "type") {
             // pattern variable — bind this specialization parameter to the instantiation argument
-            if (param.kind === "type") templateBindings.types.set(param.name, resolved[specArgIndex]);
-            else templateBindings.values.set(param.name, this.evalConstFromType(resolved[specArgIndex], parent));
-          } else if (sa.kind === "name") {
-            // concrete type to match: the argument must resolve to the same named type
-            const ia = resolved[specArgIndex];
-            const iaName =
-              ia.kind === "name" ? ia.name : ia.kind === "template_instance" ? ia.name : "";
-            if (iaName !== sa.name) {
-              match = false;
-              break;
-            }
-          } else {
-            if (
-              this.evalConstFromType(resolved[specArgIndex], parent) !== this.evalConstFromType(sa, parent)
-            ) {
-              match = false;
-              break;
-            }
+            templateBindings.types.set(specializedParameter.name, instantiationArg);
+            continue;
           }
+          templateBindings.values.set(specializedParameter.name, this.evalConstFromType(instantiationArg, parent));
+          continue;
         }
-        if (match) return { templateDeclaration: spec.templateDeclaration, b: this.withStaticConsts(spec.templateDeclaration, templateBindings) };
+
+        if (specializationArg.kind === "name") {
+          const normalizedName =
+            instantiationArg.kind === "name"
+              ? instantiationArg.name
+              : instantiationArg.kind === "template_instance"
+                ? instantiationArg.name
+                : "";
+          if (normalizedName !== specializationArg.name) {
+            match = false;
+            break;
+          }
+          continue;
+        }
+
+        if (this.evalConstFromType(instantiationArg, parent) !== this.evalConstFromType(specializationArg, parent)) {
+          match = false;
+          break;
+        }
       }
+
+      if (match) return { templateDeclaration: specialization.templateDeclaration, b: this.withStaticConsts(specialization.templateDeclaration, templateBindings) };
     }
 
-    // Templates register unqualified; a namespace-qualified spelling (QPI::ContractState<...>) must still hit them.
-    const templateDeclaration =
-      this.templates.get(name) ??
-      (name.includes("::")
-        ? this.templates.get(name.slice(name.lastIndexOf("::") + 2))
-        : undefined);
-    if (!templateDeclaration) return null;
-    const templateBindings: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
+    return null;
+  }
+
+  private instantiateTemplateBindings(
+    templateDeclaration: ClassTemplate,
+    resolvedArguments: TypeSpec[],
+    parent: TemplateBindings,
+  ): TemplateBindings {
+    const templateBindings: TemplateBindings = {
+      types: new Map(),
+      values: new Map(),
+      structs: new Map(),
+    };
+
     for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
-      const parameter = templateDeclaration.params[parameterIndex];
+      const templateParam = templateDeclaration.params[parameterIndex];
       const argument =
-        resolved[parameterIndex] ??
-        (parameter.kind === "type" && parameter.default
-          ? this.substInBindings(parameter.default, templateBindings)
-          : parameter.kind === "non_type_default"
-            ? ({ kind: "expr_value", expression: parameter.default } as TypeSpec)
+        resolvedArguments[parameterIndex] ??
+        (templateParam.kind === "type" && templateParam.default
+          ? this.substInBindings(templateParam.default, templateBindings)
+          : templateParam.kind === "non_type_default"
+            ? ({ kind: "expr_value", expression: templateParam.default } as TypeSpec)
             : undefined);
       if (!argument) continue;
-      if (parameter.kind === "type") templateBindings.types.set(parameter.name, argument);
-      else templateBindings.values.set(parameter.name, this.evalConstFromType(argument, parent));
+
+      if (templateParam.kind === "type") templateBindings.types.set(templateParam.name, argument);
+      else templateBindings.values.set(templateParam.name, this.evalConstFromType(argument, parent));
     }
-    return { templateDeclaration, b: this.withStaticConsts(templateDeclaration, templateBindings) };
+
+    return templateBindings;
   }
 
   // Evaluate a template's own static constexpr members into the bindings (BitArray::_elements = (L+63)/64, ProposalWithAllVoteData::supportScalarVotes), so a member array
@@ -710,49 +750,76 @@ export class CodeGenerationContext {
     depth: number,
   ): TypeSpec {
     if (depth > 24) return type;
-    if (type.kind === "const")
+    if (type.kind === "const") {
       return {
         kind: "const",
         valueType: this.resolveInScope(type.valueType, scope, nested, depth + 1),
       };
-    if (type.kind === "array")
+    }
+
+    if (type.kind === "array") {
       return {
         kind: "array",
         element: this.resolveInScope(type.element, scope, nested, depth + 1),
         size: type.size,
       };
+    }
+
     if (type.kind === "name") {
-      const bound = scope.types.get(type.name);
-      if (bound && !(bound.kind === "name" && bound.name === type.name))
-        return this.resolveInScope(bound, scope, nested, depth + 1);
-      const nt = nested.get(type.name);
-      if (nt && !(nt.kind === "name" && nt.name === type.name))
-        return this.resolveInScope(nt, scope, nested, depth + 1);
-      const td = this.typedefs.get(type.name);
-      if (td && !(td.kind === "name" && td.name === type.name))
-        return this.resolveInScope(td, scope, nested, depth + 1);
-      const qn = this.qualifiedNestedType(type.name, scope);
-      if (qn) return qn;
-      return type;
+      return this.resolveNamedTypeInScope(type, scope, nested, depth);
     }
+
     if (type.kind === "template_instance") {
-      const callArguments = type.callArguments.map((argument) => {
-        // a non-type arg given as a name that resolves to a member constexpr / param value → its literal
-        if (argument.kind === "name" && scope.values.has(argument.name)) {
-          return {
-            kind: "expr_value",
-            expression: {
-              kind: "int_literal",
-              value: scope.values.get(argument.name)!.toString(),
-              span: { start: 0, end: 0, line: 0, column: 0 },
-            },
-          } as TypeSpec;
-        }
-        return this.resolveInScope(argument, scope, nested, depth + 1);
-      });
-      return { kind: "template_instance", name: type.name, callArguments };
+      const resolvedCallArguments = this.resolveTemplateInstanceArguments(type, scope, nested, depth);
+      return { kind: "template_instance", name: type.name, callArguments: resolvedCallArguments };
     }
+
     return type;
+  }
+
+  private resolveNamedTypeInScope(
+    type: Extract<TypeSpec, { kind: "name" }>,
+    scope: TemplateBindings,
+    nested: Map<string, TypeSpec>,
+    depth: number,
+  ): TypeSpec {
+    const boundType = scope.types.get(type.name);
+    if (boundType && !(boundType.kind === "name" && boundType.name === type.name))
+      return this.resolveInScope(boundType, scope, nested, depth + 1);
+
+    const nestedType = nested.get(type.name);
+    if (nestedType && !(nestedType.kind === "name" && nestedType.name === type.name))
+      return this.resolveInScope(nestedType, scope, nested, depth + 1);
+
+    const typedefType = this.typedefs.get(type.name);
+    if (typedefType && !(typedefType.kind === "name" && typedefType.name === type.name))
+      return this.resolveInScope(typedefType, scope, nested, depth + 1);
+
+    const qualifiedType = this.qualifiedNestedType(type.name, scope);
+    if (qualifiedType) return qualifiedType;
+
+    return type;
+  }
+
+  private resolveTemplateInstanceArguments(
+    type: Extract<TypeSpec, { kind: "template_instance" }>,
+    scope: TemplateBindings,
+    nested: Map<string, TypeSpec>,
+    depth: number,
+  ): TypeSpec[] {
+    return type.callArguments.map((argument) => {
+      if (argument.kind === "name" && scope.values.has(argument.name)) {
+        return {
+          kind: "expr_value",
+          expression: {
+            kind: "int_literal",
+            value: scope.values.get(argument.name)!.toString(),
+            span: { start: 0, end: 0, line: 0, column: 0 },
+          },
+        } as TypeSpec;
+      }
+      return this.resolveInScope(argument, scope, nested, depth + 1);
+    });
   }
 
   // Public: substitute a type through bindings (T→sint64, L→4) — turns a template free fn's param type `Array<T,L>` into
@@ -924,12 +991,12 @@ export class CodeGenerationContext {
   private structKeys = new WeakMap<StructDecl, string>();
   private structKeyCounter = 0;
   private structCacheKey(struct: StructDecl): string {
-    let text = this.structKeys.get(struct);
-    if (text === undefined) {
-      text = `${struct.name}#${this.structKeyCounter++}`;
-      this.structKeys.set(struct, text);
+    let cacheKey = this.structKeys.get(struct);
+    if (cacheKey === undefined) {
+      cacheKey = `${struct.name}#${this.structKeyCounter++}`;
+      this.structKeys.set(struct, cacheKey);
     }
-    return text;
+    return cacheKey;
   }
 
   private layoutOfStruct(struct: StructDecl, templateBindings: TemplateBindings): StructLayout {
@@ -946,9 +1013,9 @@ export class CodeGenerationContext {
 
   private bindingSig(templateBindings: TemplateBindings): string {
     if (templateBindings.types.size + templateBindings.values.size === 0) return "";
-    const ts = [...templateBindings.types].map(([k, v]) => `${k}=${this.typeKey(v)}`).join(",");
-    const vs = [...templateBindings.values].map(([k, v]) => `${k}=${v}`).join(",");
-    return `|${ts}|${vs}`;
+    const typeBindingSignature = [...templateBindings.types].map(([name, type]) => `${name}=${this.typeKey(type)}`).join(",");
+    const valueBindingSignature = [...templateBindings.values].map(([name, value]) => `${name}=${value}`).join(",");
+    return `|${typeBindingSignature}|${valueBindingSignature}`;
   }
 
   private layoutOfMembers(
@@ -981,7 +1048,7 @@ export class CodeGenerationContext {
             const variableDeclaration = member as VariableDecl;
             if (variableDeclaration.isStatic || variableDeclaration.isConstexpr) continue;
             const byteSize = this.sizeOfType(variableDeclaration.type, templateBindings);
-            const al = this.alignOfTypeB(variableDeclaration.type, templateBindings);
+            const align = this.alignOfTypeB(variableDeclaration.type, templateBindings);
             fields.set(variableDeclaration.name, {
               name: variableDeclaration.name,
               offset: 0,
@@ -989,7 +1056,7 @@ export class CodeGenerationContext {
               type: this.inlineNestedStruct(variableDeclaration.type, templateBindings),
             });
             if (byteSize > max) max = byteSize;
-            if (al > maxAlign) maxAlign = al;
+            if (align > maxAlign) maxAlign = align;
           }
         }
         const layout = { size: max, align: maxAlign, fields };
@@ -1000,22 +1067,23 @@ export class CodeGenerationContext {
       // Base classes occupy the start of the object: each base's fields are placed at the current offset and
       let memberVals = templateBindings.values;
       for (const baseType of bases) {
-        const bc = this.baseContribution(baseType, templateBindings);
-        if (!bc) continue;
-        offset = this.alignUp(offset, bc.layout.align);
-        for (const bf of bc.layout.fields.values()) {
-          fields.set(bf.name, {
-            name: bf.name,
-            offset: offset + bf.offset,
-            size: bf.size,
-            type: bf.type,
+        const baseContribution = this.baseContribution(baseType, templateBindings);
+        if (!baseContribution) continue;
+        offset = this.alignUp(offset, baseContribution.layout.align);
+        for (const baseField of baseContribution.layout.fields.values()) {
+          fields.set(baseField.name, {
+            name: baseField.name,
+            offset: offset + baseField.offset,
+            size: baseField.size,
+            type: baseField.type,
           });
         }
-        offset += bc.layout.size;
-        if (bc.layout.align > maxAlign) maxAlign = bc.layout.align;
-        if (bc.consts.size) {
+        offset += baseContribution.layout.size;
+        if (baseContribution.layout.align > maxAlign) maxAlign = baseContribution.layout.align;
+        if (baseContribution.consts.size) {
           if (memberVals === templateBindings.values) memberVals = new Map(templateBindings.values);
-          for (const [k, v] of bc.consts) if (!memberVals.has(k)) memberVals.set(k, v);
+          for (const [baseConstName, baseConstValue] of baseContribution.consts)
+            if (!memberVals.has(baseConstName)) memberVals.set(baseConstName, baseConstValue);
         }
       }
 
@@ -1032,24 +1100,24 @@ export class CodeGenerationContext {
           ? templateBindings
           : { types: memberTypes, values: memberVals, structs: templateBindings.structs };
 
-      for (const memberCandidate of members) {
+      for (const memberDeclaration of members) {
         // An anonymous struct/union (no name, no declarator) promotes its members into this struct at the current offset (`union
-        if (memberCandidate.kind === "struct" && !(memberCandidate as StructDecl).name) {
-          const sub = this.layoutOfStruct(memberCandidate as StructDecl, bMem);
+        if (memberDeclaration.kind === "struct" && !(memberDeclaration as StructDecl).name) {
+          const sub = this.layoutOfStruct(memberDeclaration as StructDecl, bMem);
           offset = this.alignUp(offset, sub.align);
-          for (const itemItem of sub.fields.values())
-            fields.set(itemItem.name, {
-              name: itemItem.name,
-              offset: offset + itemItem.offset,
-              size: itemItem.size,
-              type: itemItem.type,
+          for (const inheritedField of sub.fields.values())
+            fields.set(inheritedField.name, {
+              name: inheritedField.name,
+              offset: offset + inheritedField.offset,
+              size: inheritedField.size,
+              type: inheritedField.type,
             });
           offset += sub.size;
           if (sub.align > maxAlign) maxAlign = sub.align;
           continue;
         }
-        if (memberCandidate.kind !== "variable") continue;
-        const variableDeclaration = memberCandidate as VariableDecl;
+        if (memberDeclaration.kind !== "variable") continue;
+        const variableDeclaration = memberDeclaration as VariableDecl;
         if (variableDeclaration.isStatic || variableDeclaration.isConstexpr) continue;
         const byteSize = this.sizeOfType(variableDeclaration.type, bMem);
         const align = Math.min(this.alignOfTypeB(variableDeclaration.type, bMem), 8);
@@ -1077,33 +1145,48 @@ export class CodeGenerationContext {
     if (type.kind === "const") return this.alignOfTypeB(type.valueType, templateBindings);
     if (type.kind === "reference" || type.kind === "pointer") return 4;
     if (type.kind === "array") return this.alignOfTypeB(type.element, templateBindings);
-    // For aggregates, reuse the (cached) layout's computed alignment — avoids a second, uncached recursive walk that blows up
-    if (type.kind === "inline_struct") return this.layoutOfStruct(type.struct, templateBindings).align;
-    if (type.kind === "name") {
-      const bound = templateBindings.types.get(type.name);
-      if (bound) return this.alignOfTypeB(bound, templateBindings);
-      const SCALAR_SIZEItem = SCALAR_SIZE[type.name];
-      if (SCALAR_SIZEItem !== undefined) return Math.min(SCALAR_SIZEItem, 8);
-      const td = this.typedefs.get(type.name);
-      if (td) return this.alignOfTypeB(td, templateBindings);
-      const struct = this.structByName(type.name, templateBindings);
-      if (struct) return this.layoutOfStruct(struct, templateBindings).align;
-      const es = this.enumSize.get(type.name) ?? this.enumSize.get(type.name.split("::").pop()!);
-      if (es !== undefined) return es;
-      return 4;
+
+    if (type.kind === "inline_struct") {
+      // For aggregates, reuse the (cached) layout's computed alignment — avoids a second, uncached recursive walk that blows up
+      return this.layoutOfStruct(type.struct, templateBindings).align;
     }
+
+    if (type.kind === "name") {
+      return this.alignOfNameType(type.name, templateBindings);
+    }
+
     if (type.kind === "template_instance") {
+      if (type.name === "Array") {
+        const elementType = type.callArguments[0];
+        return Math.min(this.alignOfTypeB(elementType, templateBindings), 8);
+      }
       if (this.templates.get(type.name)) return this.layoutOfTemplate(type.name, type.callArguments, templateBindings).align;
-      if (type.name === "Array") return Math.min(this.alignOfTypeB(type.callArguments[0], templateBindings), 8);
       return 8;
     }
+
     if (type.kind === "dependent_member") {
       const resolvedMember = this.resolveDependentMember(type, templateBindings);
-      if (resolvedMember)
-        return this.alignOfTypeB(resolvedMember.type, resolvedMember.bindings);
-      return 1;
+      return resolvedMember ? this.alignOfTypeB(resolvedMember.type, resolvedMember.bindings) : 1;
     }
+
     return 8;
+  }
+
+  private alignOfNameType(typeName: string, templateBindings: TemplateBindings): number {
+    const boundType = templateBindings.types.get(typeName);
+    if (boundType) return this.alignOfTypeB(boundType, templateBindings);
+
+    const scalarSize = SCALAR_SIZE[typeName];
+    if (scalarSize !== undefined) return Math.min(scalarSize, 8);
+
+    const typedefType = this.typedefs.get(typeName);
+    if (typedefType) return this.alignOfTypeB(typedefType, templateBindings);
+
+    const resolvedStruct = this.structByName(typeName, templateBindings);
+    if (resolvedStruct) return this.layoutOfStruct(resolvedStruct, templateBindings).align;
+
+    const enumAlignment = this.enumSize.get(typeName) ?? this.enumSize.get(typeName.split("::").pop()!);
+    return enumAlignment ?? 4;
   }
 
   private typeKey(type: TypeSpec): string {
@@ -1414,8 +1497,12 @@ export class CodeGenerationContext {
     if (hit) return hit;
     const index = name.lastIndexOf("::");
     if (index >= 0) {
-      const text = name.slice(index + 2);
-      return templateBindings.structs.get(text) ?? this.nested.get(text) ?? this.globalStructs.get(text);
+      const unqualifiedName = name.slice(index + 2);
+      return (
+        templateBindings.structs.get(unqualifiedName) ??
+        this.nested.get(unqualifiedName) ??
+        this.globalStructs.get(unqualifiedName)
+      );
     }
     return undefined;
   }
@@ -1562,16 +1649,15 @@ export class CodeGenerationContext {
     const resolved = callArguments.map((argument) => this.resolveType(argument, templateBindings));
     for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
       const parameter = templateDeclaration.params[parameterIndex];
-      const argument =
-        resolved[parameterIndex] ??
+      const parameterArgument = resolved[parameterIndex] ??
         (parameter.kind === "type" && parameter.default
           ? this.substInBindings(parameter.default, out)
           : parameter.kind === "non_type_default"
             ? ({ kind: "expr_value", expression: parameter.default } as TypeSpec)
             : undefined);
-      if (!argument) continue;
-      if (parameter.kind === "type") out.types.set(parameter.name, argument);
-      else out.values.set(parameter.name, this.evalConstFromType(argument, templateBindings));
+      if (!parameterArgument) continue;
+      if (parameter.kind === "type") out.types.set(parameter.name, parameterArgument);
+      else out.values.set(parameter.name, this.evalConstFromType(parameterArgument, templateBindings));
     }
     for (const member of templateDeclaration.members) {
       if (member.kind === "struct" && (member as StructDecl).name)
@@ -1580,9 +1666,9 @@ export class CodeGenerationContext {
         out.types.set((member as any).name, (member as any).type);
     }
     // Static constexpr members (supportScalarVotes, maxVotes, ...). Without these a method body that sizes a
-    for (const memberCandidate of templateDeclaration.members) {
-      if (memberCandidate.kind !== "variable") continue;
-      const variableDeclaration = memberCandidate as VariableDecl;
+    for (const templateMember of templateDeclaration.members) {
+      if (templateMember.kind !== "variable") continue;
+      const variableDeclaration = templateMember as VariableDecl;
       if ((variableDeclaration.isStatic || variableDeclaration.isConstexpr) && variableDeclaration.initializer && !out.values.has(variableDeclaration.name)) {
         try {
           out.values.set(variableDeclaration.name, this.evalConstBig(variableDeclaration.initializer, out));
@@ -1613,25 +1699,24 @@ export class CodeGenerationContext {
   }
 
   private methodOwnerNames(name: string, seen = new Set<string>()): string[] {
-    const bare =
-      name.includes("::") && !this.globalStructs.has(name)
-        ? name.slice(name.lastIndexOf("::") + 2)
-        : name;
+    const bare = name.includes("::") && !this.globalStructs.has(name) ? name.slice(name.lastIndexOf("::") + 2) : name;
     if (seen.has(bare)) return [];
     seen.add(bare);
     const out = [bare];
     const struct = this.globalStructs.get(bare) ?? this.nested.get(bare);
-    for (const base of struct?.bases ?? []) {
-      const resolved = this.resolveType(base, EMPTY_TEMPLATE_BINDINGS);
-      const baseName =
-        resolved.kind === "name"
-          ? resolved.name
-          : resolved.kind === "template_instance"
-            ? resolved.name
-            : null;
+    const directBases = struct?.bases ?? [];
+    for (const baseType of directBases) {
+      const resolvedBase = this.resolveType(baseType, EMPTY_TEMPLATE_BINDINGS);
+      const baseName = this.baseTemplateName(resolvedBase);
       if (baseName) out.push(...this.methodOwnerNames(baseName, seen));
     }
     return out;
+  }
+
+  private baseTemplateName(type: TypeSpec): string | null {
+    if (type.kind === "name") return type.name;
+    if (type.kind === "template_instance") return type.name;
+    return null;
   }
 
   hasInstanceMethod(name: string, methodName: string): boolean {
@@ -1657,58 +1742,52 @@ export class CodeGenerationContext {
     const inst = this.instantiateTemplate(name, callArguments, EMPTY_TEMPLATE_BINDINGS);
     if (inst) {
       // Overload selection by arity (DateAndTime::isValid() vs the static isValid(y,m,d,...)): prefer an exact parameter-count match, then one whose extra
-      const cands = inst.templateDeclaration.members.filter(
+      const matchingMembers = inst.templateDeclaration.members.filter(
         (mm) =>
           (mm.kind === "function" || mm.kind === "function_template") &&
           (mm as FunctionDecl | FunctionTemplateDecl).name === methodName &&
           (mm as FunctionDecl | FunctionTemplateDecl).body,
       ) as Array<FunctionDecl | FunctionTemplateDecl>;
-      const paramsOf = (candidate: FunctionDecl | FunctionTemplateDecl) =>
-        candidate.kind === "function_template" ? (candidate.functionParameters ?? []) : candidate.params;
-      let candidate: FunctionDecl | FunctionTemplateDecl | undefined = cands[0];
-      if (argCount !== undefined && cands.length > 1) {
-        candidate =
-          cands.find((candidate) => paramsOf(candidate).length === argCount) ??
-          cands.find(
-            (candidate) =>
-              paramsOf(candidate).length > argCount &&
-              paramsOf(candidate)
+      const methodParameterList = (member: FunctionDecl | FunctionTemplateDecl) =>
+        member.kind === "function_template" ? (member.functionParameters ?? []) : member.params;
+      let selectedMember: FunctionDecl | FunctionTemplateDecl | undefined = matchingMembers[0];
+      if (argCount !== undefined && matchingMembers.length > 1) {
+        selectedMember =
+          matchingMembers.find((member) => methodParameterList(member).length === argCount) ??
+          matchingMembers.find(
+            (member) =>
+              methodParameterList(member).length > argCount &&
+              methodParameterList(member)
                 .slice(argCount)
                 .every((parameter) => parameter.defaultValue !== undefined),
           ) ??
-          cands[0];
+          matchingMembers[0];
       }
-      if (candidate) {
-        const fn = candidate;
+      if (selectedMember) {
+        const functionDecl = selectedMember;
         const def: FunctionTemplateDecl =
-          fn.kind === "function_template"
-            ? fn
+          functionDecl.kind === "function_template"
+            ? functionDecl
             : {
                 kind: "function_template",
-                name: fn.name,
+                name: functionDecl.name,
                 params: inst.templateDeclaration.params,
-                functionParameters: fn.params,
-                returnType: fn.returnType,
-                body: fn.body,
-                isConstexpr: fn.isConstexpr,
-                span: fn.span,
+                functionParameters: functionDecl.params,
+                returnType: functionDecl.returnType,
+                body: functionDecl.body,
+                isConstexpr: functionDecl.isConstexpr,
+                span: functionDecl.span,
               };
-        this.namespaceContexts.set(def, this.namespaceContextOf(fn));
+        this.namespaceContexts.set(def, this.namespaceContextOf(functionDecl));
         return {
           def,
           bind,
-          memberTemplate: fn.kind === "function_template",
+          memberTemplate: functionDecl.kind === "function_template",
         };
       }
     }
-    const specializationKey =
-      argCount !== undefined && callArguments[0]
-        ? `${methodName}/${argCount}@${this.typeKey(this.resolveType(callArguments[0], bind))}`
-        : undefined;
-    const overloadKey =
-      argCount !== undefined && paramTypeKey
-        ? `${methodName}/${argCount}@${paramTypeKey}`
-        : undefined;
+    const specializationKey = this.buildMethodSpecializationKey(methodName, argCount, callArguments, bind);
+    const overloadKey = this.buildMethodOverloadKey(methodName, argCount, paramTypeKey);
     let def: FunctionTemplateDecl | undefined;
     for (const owner of this.methodOwnerNames(name)) {
       const byName = this.templateMethods.get(owner);
@@ -1723,12 +1802,11 @@ export class CodeGenerationContext {
 
     // Out-of-class definitions do not repeat default arguments. Preserve defaults from the authoritative
     // class declaration so a source-compiled call such as needsCleanup() still passes its declared 50%.
-    const declared = inst?.templateDeclaration.members.find(
-      (member): member is FunctionDecl =>
-        member.kind === "function" &&
-        member.name === methodName &&
-        member.params.length === (def.functionParameters ?? []).length,
-    );
+    const declared = inst?.templateDeclaration.members.find((member): member is FunctionDecl => {
+      if (member.kind !== "function") return false;
+      if (member.name !== methodName) return false;
+      return member.params.length === (def.functionParameters ?? []).length;
+    });
     const memberTemplate = !this.templates.has(name) && def.params.length > 0;
     if (!declared) return { def, bind, memberTemplate };
     const mergedDef: FunctionTemplateDecl = {
@@ -1744,6 +1822,22 @@ export class CodeGenerationContext {
       bind,
       memberTemplate,
     };
+  }
+
+  private buildMethodSpecializationKey(
+    methodName: string,
+    argCount: number | undefined,
+    callArguments: TypeSpec[],
+    bind: TemplateBindings,
+  ): string | undefined {
+    if (argCount === undefined || !callArguments[0]) return undefined;
+    const firstArg = this.typeKey(this.resolveType(callArguments[0], bind));
+    return `${methodName}/${argCount}@${firstArg}`;
+  }
+
+  private buildMethodOverloadKey(methodName: string, argCount: number | undefined, paramTypeKey: string | undefined): string | undefined {
+    if (argCount === undefined || !paramTypeKey) return undefined;
+    return `${methodName}/${argCount}@${paramTypeKey}`;
   }
 
   // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they track the real field
