@@ -17,7 +17,9 @@ async function wasm(name: string): Promise<Uint8Array> {
 }
 
 // Start an EngineServer on an ephemeral port over a freshly-configured engine; returns its base URL + a stop fn.
-async function serve(setup?: (e: VirtualNode) => void | Promise<void>): Promise<{ base: string; stop: () => void; engine: VirtualNode }> {
+async function serve(
+  setup?: (e: VirtualNode) => void | Promise<void>,
+): Promise<{ base: string; stop: () => void; engine: VirtualNode }> {
   const engine = new VirtualNode();
   if (setup) {
     await setup(engine);

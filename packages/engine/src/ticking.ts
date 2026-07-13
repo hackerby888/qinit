@@ -1,6 +1,14 @@
 // Tick consensus — N computors, quorum votes, the per-tick TickData + vote record. The TS model of core-lite
 // ticking/ + vote_counter.h + the qubic.cpp tick processor (the leader packs the tick's tx digests into a signed
-import { Committee, type CommitteeOpts, type TickStateDigests, buildTickVote, buildTickData, voteIsAligned, DEFAULT_NUMBER_OF_COMPUTORS } from "./consensus";
+import {
+  Committee,
+  type CommitteeOpts,
+  type TickStateDigests,
+  buildTickVote,
+  buildTickData,
+  voteIsAligned,
+  DEFAULT_NUMBER_OF_COMPUTORS,
+} from "./consensus";
 import { k12Bytes } from "./k12";
 import type { Tick, TickData } from "./wire";
 
@@ -35,7 +43,11 @@ export class TickConsensus {
   private readonly lite: boolean; // skip the per-tick quorum (votes/TickData) for EMPTY ticks — see finalizeTick
   private committee: Committee | null = null; // derived lazily on first finalize (needs initK12 resolved)
   private ticks = new Map<number, TickRecord>(); // per-tick quorum record: votes + aligned count + digests
-  private lastDigests: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } = { spectrum: ZERO32, universe: ZERO32, computer: ZERO32 }; // previous tick's committed roots
+  private lastDigests: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } = {
+    spectrum: ZERO32,
+    universe: ZERO32,
+    computer: ZERO32,
+  }; // previous tick's committed roots
 
   constructor(host: ConsensusHost, opts: CommitteeOpts, lite = false) {
     this.host = host;
@@ -45,7 +57,9 @@ export class TickConsensus {
 
   // The configured committee size, available without deriving keys (used for dividend payout + quorum sizing).
   committeeSize(): number {
-    return this.opts.computorSeeds?.length ?? this.opts.numberOfComputors ?? DEFAULT_NUMBER_OF_COMPUTORS;
+    return (
+      this.opts.computorSeeds?.length ?? this.opts.numberOfComputors ?? DEFAULT_NUMBER_OF_COMPUTORS
+    );
   }
 
   // The committee, derived (sync FourQ) on first use — requires initK12() to have resolved the crypto module.
@@ -93,7 +107,14 @@ export class TickConsensus {
     }
 
     const committee = this.getCommittee();
-    const tickData = buildTickData(committee, epoch, tick, txDigests, { spectrum, universe, computer }, this.host.nowMs());
+    const tickData = buildTickData(
+      committee,
+      epoch,
+      tick,
+      txDigests,
+      { spectrum, universe, computer },
+      this.host.nowMs(),
+    );
 
     const digests: TickStateDigests = {
       spectrum,

@@ -38,7 +38,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-const CALC_GTEST = coreGtest("Calc", `TEST(Calc, SafeDivMod) {
+const CALC_GTEST = coreGtest(
+  "Calc",
+  `TEST(Calc, SafeDivMod) {
   ContractTestingHarness t;
   Calc::Div_input a{}; a.a = 10ull; a.b = 3ull;
   auto r = t.call<Calc::Div_output>(1, a);
@@ -56,7 +58,8 @@ TEST(Calc, LoopSumWithBreakCap) {
   s.n = 200ull;
   EXPECT_EQ(t.call<Calc::SumTo_output>(2, s).s, 5050ull);
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -87,13 +90,24 @@ describe("differential gtest — Calc (safe math, loops, break, constants)", () 
     const testPath = join(dir, "Calc.test.cpp");
     writeFileSync(testPath, CALC_GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Calc", stateType: "Calc", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "Calc",
+      stateType: "Calc",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: CALC, name: "Calc", slot: 28, qpiHeader: HEADERS, arenaSz: 64 * 1024 });
+    const mine = await compileContract({
+      source: CALC,
+      name: "Calc",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 64 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });

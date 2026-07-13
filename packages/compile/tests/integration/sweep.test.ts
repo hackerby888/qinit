@@ -5,7 +5,12 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader, type CalleeIdl, type CompileResult } from "../../src/index";
+import {
+  compileContract,
+  loadQpiHeader,
+  type CalleeIdl,
+  type CompileResult,
+} from "../../src/index";
 
 const QPI = loadQpiHeader(CORE_PATH);
 
@@ -14,15 +19,48 @@ const SYSTEM = CORE_PATH + "/src/contracts";
 
 // system contract files (exclude headers/templates/old/test variants)
 const SYSTEM_FILES = [
-  "Qx.h", "Quottery.h", "Random.h", "QUtil.h", "QEARN=Qearn.h", "QVAULT.h", "MsVault.h",
-  "GGWP.h", "QIP.h", "QBond.h", "QDuel.h", "Qbay.h", "Qdraw.h", "Qswap.h", "QThirtyFour.h",
-  "Qusino.h", "qRWA.h", "QReservePool.h", "RandomLottery.h", "Pulse.h", "Escrow.h",
-  "Nostromo.h", "QRaffle.h", "MyLastMatch.h", "SupplyWatcher.h", "VottunBridge.h",
-  "ComputorControlledFund.h", "GeneralQuorumProposal.h",
+  "Qx.h",
+  "Quottery.h",
+  "Random.h",
+  "QUtil.h",
+  "QEARN=Qearn.h",
+  "QVAULT.h",
+  "MsVault.h",
+  "GGWP.h",
+  "QIP.h",
+  "QBond.h",
+  "QDuel.h",
+  "Qbay.h",
+  "Qdraw.h",
+  "Qswap.h",
+  "QThirtyFour.h",
+  "Qusino.h",
+  "qRWA.h",
+  "QReservePool.h",
+  "RandomLottery.h",
+  "Pulse.h",
+  "Escrow.h",
+  "Nostromo.h",
+  "QRaffle.h",
+  "MyLastMatch.h",
+  "SupplyWatcher.h",
+  "VottunBridge.h",
+  "ComputorControlledFund.h",
+  "GeneralQuorumProposal.h",
 ];
 
 // simple user-level fixtures
-const FIXTURE_FILES = ["Counter.h", "Counter5.h", "Bank.h", "Token.h", "Vault.h", "Dividend.h", "Proxy.h", "DigestProbe.h", "BigState.h"];
+const FIXTURE_FILES = [
+  "Counter.h",
+  "Counter5.h",
+  "Bank.h",
+  "Token.h",
+  "Vault.h",
+  "Dividend.h",
+  "Proxy.h",
+  "DigestProbe.h",
+  "BigState.h",
+];
 
 interface DependencySpec {
   name: string;
@@ -71,12 +109,26 @@ interface Row {
 }
 
 function calleeIdlFrom(name: string, index: number, result: CompileResult): CalleeIdl {
-  const functions = Object.fromEntries(result.idl.functions.map((entry) => [entry.name, {
-    inputType: entry.inputType, inSize: entry.inSize, outSize: entry.outSize,
-  }]));
-  const procedures = Object.fromEntries(result.idl.procedures.map((entry) => [entry.name, {
-    inputType: entry.inputType, inSize: entry.inSize, outSize: entry.outSize,
-  }]));
+  const functions = Object.fromEntries(
+    result.idl.functions.map((entry) => [
+      entry.name,
+      {
+        inputType: entry.inputType,
+        inSize: entry.inSize,
+        outSize: entry.outSize,
+      },
+    ]),
+  );
+  const procedures = Object.fromEntries(
+    result.idl.procedures.map((entry) => [
+      entry.name,
+      {
+        inputType: entry.inputType,
+        inSize: entry.inSize,
+        outSize: entry.outSize,
+      },
+    ]),
+  );
   return { name, index, functions, procedures };
 }
 
@@ -107,14 +159,21 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
         return { name: prior.name, source: readFileSync(prior.path, "utf8") };
       });
       const dependencyResult = await compileContract({
-        source: readFileSync(dependency.path, "utf8"), name: dependency.name, slot: dependency.slot,
-        qpiHeader: QPI, arenaSz: 64 * 1024,
+        source: readFileSync(dependency.path, "utf8"),
+        name: dependency.name,
+        slot: dependency.slot,
+        qpiHeader: QPI,
+        arenaSz: 64 * 1024,
         callees: priorIdl.length ? priorIdl : undefined,
         calleeSources: priorSources.length ? priorSources : undefined,
       });
-      const dependencyErrors = dependencyResult.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+      const dependencyErrors = dependencyResult.diagnostics.filter(
+        (diagnostic) => diagnostic.severity === "error",
+      );
       if (dependencyErrors.length) {
-        throw new Error(`${dependency.name}: ${dependencyErrors.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`).join("; ")}`);
+        throw new Error(
+          `${dependency.name}: ${dependencyErrors.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`).join("; ")}`,
+        );
       }
       dependencyResults.push(dependencyResult);
     }
@@ -127,7 +186,11 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
       return { name: dependency.name, source: readFileSync(dependency.path, "utf8") };
     });
     r = await compileContract({
-      source: src, name, slot: 28, qpiHeader: QPI, arenaSz: 64 * 1024,
+      source: src,
+      name,
+      slot: 28,
+      qpiHeader: QPI,
+      arenaSz: 64 * 1024,
       callees: callees.length ? callees : undefined,
       calleeSources: calleeSources.length ? calleeSources : undefined,
     });
@@ -165,10 +228,16 @@ test("conformance sweep — fixtures + system contracts", async () => {
 
   const declaredTargets = new Set([
     ...FIXTURE_FILES.map((file) => file.replace(".h", "")),
-    ...SYSTEM_FILES.map((spec) => spec.includes("=") ? spec.split("=")[0] : spec.replace(".h", "")),
+    ...SYSTEM_FILES.map((spec) =>
+      spec.includes("=") ? spec.split("=")[0] : spec.replace(".h", ""),
+    ),
   ]);
   expect(Object.keys(LINKED_DEPENDENCIES).filter((name) => !declaredTargets.has(name))).toEqual([]);
-  expect(Object.values(LINKED_DEPENDENCIES).flat().filter((name) => !(name in DEPENDENCIES))).toEqual([]);
+  expect(
+    Object.values(LINKED_DEPENDENCIES)
+      .flat()
+      .filter((name) => !(name in DEPENDENCIES)),
+  ).toEqual([]);
 
   for (const f of FIXTURE_FILES) {
     rows.push(await sweepOne(join(FIXTURES, f), f.replace(".h", "")));
@@ -181,7 +250,9 @@ test("conformance sweep — fixtures + system contracts", async () => {
 
   // Print the table
   const pad = (s: string, n: number) => s.padEnd(n);
-  console.log("\n" + pad("CONTRACT", 22) + pad("PARSE", 10) + pad("WASM", 10) + pad("LOAD", 8) + "STATE");
+  console.log(
+    "\n" + pad("CONTRACT", 22) + pad("PARSE", 10) + pad("WASM", 10) + pad("LOAD", 8) + "STATE",
+  );
   console.log("-".repeat(62));
   for (const r of rows) {
     console.log(pad(r.name, 22) + pad(r.parse, 10) + pad(r.wasm, 10) + pad(r.load, 8) + r.state);
@@ -191,12 +262,25 @@ test("conformance sweep — fixtures + system contracts", async () => {
   const parsed = real.filter((r) => r.parse === "ok").length;
   const wasmd = real.filter((r) => r.wasm.endsWith("b")).length;
   const loaded = real.filter((r) => r.load === "ok").length;
-  const failures = real.filter((row) => row.parse !== "ok" || !row.wasm.endsWith("b") || row.load !== "ok");
-  const failureReport = failures.map((row) => `${row.name}: ${row.errors.join("; ") || `${row.parse}/${row.wasm}/${row.load}`}`).join("\n");
+  const failures = real.filter(
+    (row) => row.parse !== "ok" || !row.wasm.endsWith("b") || row.load !== "ok",
+  );
+  const failureReport = failures
+    .map((row) => `${row.name}: ${row.errors.join("; ") || `${row.parse}/${row.wasm}/${row.load}`}`)
+    .join("\n");
   console.log("-".repeat(62));
-  console.log(`TOTAL ${real.length}  ·  parsed ${parsed}  ·  wasm ${wasmd}  ·  engine-loaded ${loaded}\n`);
+  console.log(
+    `TOTAL ${real.length}  ·  parsed ${parsed}  ·  wasm ${wasmd}  ·  engine-loaded ${loaded}\n`,
+  );
 
   // Dependency-aware coverage is deterministic, so drift is now a gating failure rather than a table-only measurement.
-  expect(failures.map((row) => row.name), failureReport).toEqual([]);
-  expect({ parsed, wasmd, loaded }).toEqual({ parsed: real.length, wasmd: real.length, loaded: real.length });
+  expect(
+    failures.map((row) => row.name),
+    failureReport,
+  ).toEqual([]);
+  expect({ parsed, wasmd, loaded }).toEqual({
+    parsed: real.length,
+    wasmd: real.length,
+    loaded: real.length,
+  });
 }, 30_000);

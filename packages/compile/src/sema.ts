@@ -51,10 +51,14 @@ export class Sema {
         const ue = expr as { kind: "unary_op"; op: string; arg: Expression; span: Span };
         const arg = this.evalExpr(ue.arg);
         switch (ue.op) {
-          case "!": return arg === 0n ? 1n : 0n;
-          case "~": return ~arg;
-          case "-": return -arg;
-          case "+": return arg;
+          case "!":
+            return arg === 0n ? 1n : 0n;
+          case "~":
+            return ~arg;
+          case "-":
+            return -arg;
+          case "+":
+            return arg;
         }
         throw new Error(`unknown unary op: ${expr.op}`);
       }
@@ -62,29 +66,50 @@ export class Sema {
         const left = this.evalExpr(expr.left);
         const right = this.evalExpr(expr.right);
         switch (expr.op) {
-          case "+": return left + right;
-          case "-": return left - right;
-          case "*": return left * right;
-          case "/": return right !== 0n ? left / right : 0n;
-          case "%": return right !== 0n ? left % right : 0n;
-          case "<<": return left << BigInt(Number(right));
-          case ">>": return left >> BigInt(Number(right));
-          case "&": return left & right;
-          case "|": return left | right;
-          case "^": return left ^ right;
-          case "==": return left === right ? 1n : 0n;
-          case "!=": return left !== right ? 1n : 0n;
-          case "<": return left < right ? 1n : 0n;
-          case ">": return left > right ? 1n : 0n;
-          case "<=": return left <= right ? 1n : 0n;
-          case ">=": return left >= right ? 1n : 0n;
-          case "&&": return (left !== 0n && right !== 0n) ? 1n : 0n;
-          case "||": return (left !== 0n || right !== 0n) ? 1n : 0n;
-          default: throw new Error(`unknown binary op: ${expr.op}`);
+          case "+":
+            return left + right;
+          case "-":
+            return left - right;
+          case "*":
+            return left * right;
+          case "/":
+            return right !== 0n ? left / right : 0n;
+          case "%":
+            return right !== 0n ? left % right : 0n;
+          case "<<":
+            return left << BigInt(Number(right));
+          case ">>":
+            return left >> BigInt(Number(right));
+          case "&":
+            return left & right;
+          case "|":
+            return left | right;
+          case "^":
+            return left ^ right;
+          case "==":
+            return left === right ? 1n : 0n;
+          case "!=":
+            return left !== right ? 1n : 0n;
+          case "<":
+            return left < right ? 1n : 0n;
+          case ">":
+            return left > right ? 1n : 0n;
+          case "<=":
+            return left <= right ? 1n : 0n;
+          case ">=":
+            return left >= right ? 1n : 0n;
+          case "&&":
+            return left !== 0n && right !== 0n ? 1n : 0n;
+          case "||":
+            return left !== 0n || right !== 0n ? 1n : 0n;
+          default:
+            throw new Error(`unknown binary op: ${expr.op}`);
         }
       }
       case "ternary":
-        return this.evalExpr(expr.cond) !== 0n ? this.evalExpr(expr.then) : this.evalExpr(expr.else_);
+        return this.evalExpr(expr.cond) !== 0n
+          ? this.evalExpr(expr.then)
+          : this.evalExpr(expr.else_);
       case "c_cast":
       case "static_cast":
         return this.evalExpr(expr.expr);
@@ -92,15 +117,25 @@ export class Sema {
       case "template_call": {
         // QPI safe-math helpers used in constexpr contexts, e.g. div<uint32>(REGISTER_AMOUNT, 20).
         const c = expr.callee;
-        const fn = c.kind === "identifier" ? c.name : c.kind === "qualified_name" ? (c as { name: string }).name : null;
+        const fn =
+          c.kind === "identifier"
+            ? c.name
+            : c.kind === "qualified_name"
+              ? (c as { name: string }).name
+              : null;
         if (fn) {
           const a = expr.args.map((x) => this.evalExpr(x));
           switch (fn) {
-            case "div": return a[1] === 0n ? 0n : a[0] / a[1];
-            case "mod": return a[1] === 0n ? 0n : a[0] % a[1];
-            case "min": return a[0] <= a[1] ? a[0] : a[1];
-            case "max": return a[0] >= a[1] ? a[0] : a[1];
-            case "abs": return a[0] < 0n ? -a[0] : a[0];
+            case "div":
+              return a[1] === 0n ? 0n : a[0] / a[1];
+            case "mod":
+              return a[1] === 0n ? 0n : a[0] % a[1];
+            case "min":
+              return a[0] <= a[1] ? a[0] : a[1];
+            case "max":
+              return a[0] >= a[1] ? a[0] : a[1];
+            case "abs":
+              return a[0] < 0n ? -a[0] : a[0];
           }
         }
         throw new Error(`constexpr eval not supported for call to ${fn ?? "?"}`);

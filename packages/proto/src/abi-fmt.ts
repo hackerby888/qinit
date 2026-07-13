@@ -3,10 +3,15 @@
 import { bytesToIdentity, identityToBytes, roundUp } from "@qinit/core";
 
 const SCALAR_SIZE: Record<string, number> = {
-  uint8: 1, sint8: 1, bit: 1,
-  uint16: 2, sint16: 2,
-  uint32: 4, sint32: 4,
-  uint64: 8, sint64: 8,
+  uint8: 1,
+  sint8: 1,
+  bit: 1,
+  uint16: 2,
+  sint16: 2,
+  uint32: 4,
+  sint32: 4,
+  uint64: 8,
+  sint64: 8,
 };
 
 export type TypeNode =
@@ -19,23 +24,41 @@ export type TypeNode =
 
 function alignOf(n: TypeNode): number {
   switch (n.kind) {
-    case "scalar": return n.size;     // 1/2/4/8
-    case "uint128": return 8;         // uint128_t = { uint64 low; uint64 high; }
-    case "id": return 8;              // m256i = 4x uint64 -> align 8
-    case "bytes": return n.size >= 8 ? 8 : 1; // bytes32 (m256i) -> align 8
-    case "array": return alignOf(n.elem);
-    case "struct": return n.fields.length ? Math.max(...n.fields.map(alignOf)) : 1;
+    case "scalar":
+      return n.size; // 1/2/4/8
+    case "uint128":
+      return 8; // uint128_t = { uint64 low; uint64 high; }
+    case "id":
+      return 8; // m256i = 4x uint64 -> align 8
+    case "bytes":
+      return n.size >= 8 ? 8 : 1; // bytes32 (m256i) -> align 8
+    case "array":
+      return alignOf(n.elem);
+    case "struct":
+      return n.fields.length ? Math.max(...n.fields.map(alignOf)) : 1;
   }
 }
 
 function sizeOf(n: TypeNode): number {
   switch (n.kind) {
-    case "scalar": return n.size;
-    case "uint128": return 16;
-    case "id": return 32;             // identity = 32 bytes on the wire
-    case "bytes": return n.size;
-    case "array": return n.count * roundUp(sizeOf(n.elem), alignOf(n.elem)); // padded element stride
-    case "struct": { let o = 0; for (const f of n.fields) { o = roundUp(o, alignOf(f)); o += sizeOf(f); } return roundUp(o, alignOf(n)); }
+    case "scalar":
+      return n.size;
+    case "uint128":
+      return 16;
+    case "id":
+      return 32; // identity = 32 bytes on the wire
+    case "bytes":
+      return n.size;
+    case "array":
+      return n.count * roundUp(sizeOf(n.elem), alignOf(n.elem)); // padded element stride
+    case "struct": {
+      let o = 0;
+      for (const f of n.fields) {
+        o = roundUp(o, alignOf(f));
+        o += sizeOf(f);
+      }
+      return roundUp(o, alignOf(n));
+    }
   }
 }
 
@@ -44,8 +67,13 @@ function sizeOf(n: TypeNode): number {
 export function structFieldOffsets(fmt: string): { off: number; size: number }[] {
   const node = parseLayout(fmt);
   const fields = node.kind === "struct" ? node.fields : [node];
-  const out: { off: number; size: number }[] = []; let off = 0;
-  for (const f of fields) { off = roundUp(off, alignOf(f)); out.push({ off, size: sizeOf(f) }); off += sizeOf(f); }
+  const out: { off: number; size: number }[] = [];
+  let off = 0;
+  for (const f of fields) {
+    off = roundUp(off, alignOf(f));
+    out.push({ off, size: sizeOf(f) });
+    off += sizeOf(f);
+  }
   return out;
 }
 
@@ -63,8 +91,13 @@ function parseType(s: string, i: number): [TypeNode, number] {
     const fields: TypeNode[] = [];
     while (true) {
       while (i < s.length && /[\s,]/.test(s[i])) i++;
-      if (s[i] === "}") { i++; break; }
-      const [node, ni] = parseType(s, i); fields.push(node); i = ni;
+      if (s[i] === "}") {
+        i++;
+        break;
+      }
+      const [node, ni] = parseType(s, i);
+      fields.push(node);
+      i = ni;
     }
     return [{ kind: "struct", fields }, i];
   }
@@ -120,18 +153,32 @@ async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[an
     }
     case "bytes": {
       let h = "";
-      for (let k = 0; k < node.size; k++) h += v.getUint8(off + k).toString(16).padStart(2, "0");
+      for (let k = 0; k < node.size; k++)
+        h += v
+          .getUint8(off + k)
+          .toString(16)
+          .padStart(2, "0");
       return [h, off + node.size];
     }
     case "array": {
       const arr: any[] = [];
       const ea = alignOf(node.elem);
-      for (let k = 0; k < node.count; k++) { off = roundUp(off, ea); const [val, no] = await decodeNode(v, off, node.elem); arr.push(val); off = no; }
+      for (let k = 0; k < node.count; k++) {
+        off = roundUp(off, ea);
+        const [val, no] = await decodeNode(v, off, node.elem);
+        arr.push(val);
+        off = no;
+      }
       return [arr, off];
     }
     case "struct": {
       const obj: any[] = [];
-      for (const f of node.fields) { off = roundUp(off, alignOf(f)); const [val, no] = await decodeNode(v, off, f); obj.push(val); off = no; }
+      for (const f of node.fields) {
+        off = roundUp(off, alignOf(f));
+        const [val, no] = await decodeNode(v, off, f);
+        obj.push(val);
+        off = no;
+      }
       return [obj, roundUp(off, alignOf(node))];
     }
   }
@@ -139,7 +186,11 @@ async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[an
 
 export async function decodeOutput(bytes: Uint8Array, fmt: string): Promise<any> {
   const node = parseLayout(fmt);
-  const [val] = await decodeNode(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), 0, node);
+  const [val] = await decodeNode(
+    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+    0,
+    node,
+  );
   return val;
 }
 
@@ -155,12 +206,15 @@ function hexToBytes(hex: string): Uint8Array {
 // Split by top-level commas, respecting [] and {} nesting.
 function splitTop(s: string): string[] {
   const parts: string[] = [];
-  let depth = 0, cur = "";
+  let depth = 0,
+    cur = "";
   for (const ch of s) {
     if (ch === "[" || ch === "{") depth++;
     else if (ch === "]" || ch === "}") depth--;
-    if (ch === "," && depth === 0) { parts.push(cur); cur = ""; }
-    else cur += ch;
+    if (ch === "," && depth === 0) {
+      parts.push(cur);
+      cur = "";
+    } else cur += ch;
   }
   parts.push(cur);
   return parts.map((x) => x.trim()).filter((x) => x.length);
@@ -173,25 +227,38 @@ function expandReps(parts: string[]): string[] {
   const out: string[] = [];
   for (const p of parts) {
     const m = p.match(REPEAT_RE);
-    if (m) { const tok = m[1].trim(); const n = parseInt(m[2], 10); for (let k = 0; k < n; k++) out.push(tok); }
-    else out.push(p);
+    if (m) {
+      const tok = m[1].trim();
+      const n = parseInt(m[2], 10);
+      for (let k = 0; k < n; k++) out.push(tok);
+    } else out.push(p);
   }
   return out;
 }
 
 // Alignment of a value token (mirrors alignOf on the type the value carries).
 function tokenAlign(tok: string): number {
-  tok = tok.trim().replace(REPEAT_RE, "$1").trim();   // a "tok ×N" repeat aligns as the base token
+  tok = tok.trim().replace(REPEAT_RE, "$1").trim(); // a "tok ×N" repeat aligns as the base token
 
-  if (tok[0] === "{") { const p = splitTop(tok.slice(1, tok.lastIndexOf("}"))); return p.length ? Math.max(...p.map(tokenAlign)) : 1; }
-  if (tok[0] === "[") { const inner = tok.slice(1, tok.lastIndexOf("]")); const semi = inner.indexOf(";"); const p = splitTop(semi >= 0 ? inner.slice(semi + 1) : inner); return p.length ? tokenAlign(p[0]) : 1; }
+  if (tok[0] === "{") {
+    const p = splitTop(tok.slice(1, tok.lastIndexOf("}")));
+    return p.length ? Math.max(...p.map(tokenAlign)) : 1;
+  }
+  if (tok[0] === "[") {
+    const inner = tok.slice(1, tok.lastIndexOf("]"));
+    const semi = inner.indexOf(";");
+    const p = splitTop(semi >= 0 ? inner.slice(semi + 1) : inner);
+    return p.length ? tokenAlign(p[0]) : 1;
+  }
   if (tok.endsWith("id")) return 8;
   if (tok.endsWith("m256i")) return 8;
   if (tok.endsWith("uint128")) return 8;
   const m = tok.match(/^-?\d+([a-z0-9]+)$/);
   return m ? (SCALAR_SIZE[m[1]] ?? 1) : 1;
 }
-const padTo = (out: number[], align: number) => { while (align > 1 && out.length % align) out.push(0); };
+const padTo = (out: number[], align: number) => {
+  while (align > 1 && out.length % align) out.push(0);
+};
 
 // Encode one value token at the current (aligned) offset = out.length.
 async function encodeToken(tok: string, out: number[]): Promise<void> {
@@ -225,17 +292,20 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
   }
   if (tok.endsWith("m256i")) {
     const v = tok.slice(0, -5).trim().replace(/^0x/, "");
-    if (!/^[0-9a-fA-F]{64}$/.test(v)) throw new Error(`m256i must be 64 hex chars (32 bytes), got '${v}'`);
+    if (!/^[0-9a-fA-F]{64}$/.test(v))
+      throw new Error(`m256i must be 64 hex chars (32 bytes), got '${v}'`);
     padTo(out, 8);
     for (const x of hexToBytes(v)) out.push(x);
     return;
   }
   if (tok.endsWith("uint128")) {
     const numStr = tok.slice(0, -7).trim();
-    if (!/^-?\d+$/.test(numStr)) throw new Error(`uint128 must be an unsigned integer, got '${numStr}'`);
+    if (!/^-?\d+$/.test(numStr))
+      throw new Error(`uint128 must be an unsigned integer, got '${numStr}'`);
     const val = BigInt(numStr);
     const max = (1n << 128n) - 1n;
-    if (val < 0n || val > max) throw new Error(`uint128 out of range: ${numStr} (allowed 0..${max})`);
+    if (val < 0n || val > max)
+      throw new Error(`uint128 out of range: ${numStr} (allowed 0..${max})`);
     padTo(out, 8);
     const buf = new Uint8Array(16);
     const dv = new DataView(buf.buffer);
@@ -245,7 +315,8 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     return;
   }
   const m = tok.match(/^(-?\d+)([a-z0-9]+)$/);
-  if (!m) throw new Error(`cannot parse value token '${tok}' (expected <number><type>, e.g. 5uint64)`);
+  if (!m)
+    throw new Error(`cannot parse value token '${tok}' (expected <number><type>, e.g. 5uint64)`);
   const [, numStr, type] = m;
   const size = SCALAR_SIZE[type];
   if (!size) throw new Error(`unknown type '${type}' in '${tok}'`);
@@ -257,12 +328,14 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     const bits = BigInt(size * 8);
     const min = signed ? -(1n << (bits - 1n)) : 0n;
     const max = signed ? (1n << (bits - 1n)) - 1n : (1n << bits) - 1n;
-    if (val < min || val > max) throw new Error(`${type} out of range: ${numStr} (allowed ${min}..${max})`);
+    if (val < min || val > max)
+      throw new Error(`${type} out of range: ${numStr} (allowed ${min}..${max})`);
   }
   padTo(out, size);
   const buf = new Uint8Array(size);
   const dv = new DataView(buf.buffer);
-  if (size === 8) dv.setBigUint64(0, val & ((1n << 64n) - 1n), true); // mask -> two's complement
+  if (size === 8)
+    dv.setBigUint64(0, val & ((1n << 64n) - 1n), true); // mask -> two's complement
   else if (size === 4) dv.setUint32(0, Number(val) >>> 0, true);
   else if (size === 2) dv.setUint16(0, Number(val) & 0xffff, true);
   else dv.setUint8(0, Number(val) & 0xff);
@@ -275,8 +348,12 @@ function jsonValueToFmt(typeTok: string, value: any): string {
   typeTok = typeTok.trim();
   if (typeTok[0] === "{") {
     const parts = splitTop(typeTok.slice(1, typeTok.lastIndexOf("}")));
-    if (!Array.isArray(value)) throw new Error(`nested struct '${typeTok}' needs a positional JSON array, got ${JSON.stringify(value)}`);
-    if (value.length !== parts.length) throw new Error(`struct '${typeTok}' expects ${parts.length} values, got ${value.length}`);
+    if (!Array.isArray(value))
+      throw new Error(
+        `nested struct '${typeTok}' needs a positional JSON array, got ${JSON.stringify(value)}`,
+      );
+    if (value.length !== parts.length)
+      throw new Error(`struct '${typeTok}' expects ${parts.length} values, got ${value.length}`);
     return `{ ${parts.map((p, i) => jsonValueToFmt(p, value[i])).join(", ")} }`;
   }
   if (typeTok[0] === "[") {
@@ -284,27 +361,35 @@ function jsonValueToFmt(typeTok: string, value: any): string {
     const semi = inner.indexOf(";");
     const n = parseInt(inner.slice(0, semi), 10);
     const elem = inner.slice(semi + 1).trim();
-    if (!Array.isArray(value)) throw new Error(`array '${typeTok}' needs a JSON array, got ${JSON.stringify(value)}`);
-    if (value.length !== n) throw new Error(`array '${typeTok}' expects ${n} elements, got ${value.length}`);
+    if (!Array.isArray(value))
+      throw new Error(`array '${typeTok}' needs a JSON array, got ${JSON.stringify(value)}`);
+    if (value.length !== n)
+      throw new Error(`array '${typeTok}' expects ${n} elements, got ${value.length}`);
     return `[${n}; ${value.map((v) => jsonValueToFmt(elem, v)).join(", ")}]`;
   }
   if (typeTok === "id" || typeTok === "m256i") {
     const s = String(value).replace(/^0x/, "");
-    return `${s}${typeTok}`;   // encodeToken validates the identity/hex shape
+    return `${s}${typeTok}`; // encodeToken validates the identity/hex shape
   }
   if (typeof value === "boolean") return `${value ? 1 : 0}${typeTok}`;
   if (value === undefined || value === null) throw new Error(`missing value for '${typeTok}'`);
-  return `${BigInt(value)}${typeTok}`;  // number / bigint / numeric-string; rejects floats
+  return `${BigInt(value)}${typeTok}`; // number / bigint / numeric-string; rejects floats
 }
 
 export function jsonToInputFmt(fields: { name: string; type: string }[], json: any): string {
   const arr = Array.isArray(json)
     ? json
-    : fields.map((f) => { if (json == null || !(f.name in json)) throw new Error(`missing input field '${f.name}'`); return json[f.name]; });
+    : fields.map((f) => {
+        if (json == null || !(f.name in json)) throw new Error(`missing input field '${f.name}'`);
+        return json[f.name];
+      });
   return fields.map((f, i) => jsonValueToFmt(f.type, arr[i])).join(", ");
 }
 
-export async function encodeInputJson(fields: { name: string; type: string }[], json: any): Promise<Uint8Array> {
+export async function encodeInputJson(
+  fields: { name: string; type: string }[],
+  json: any,
+): Promise<Uint8Array> {
   return encodeInput(jsonToInputFmt(fields, json));
 }
 
@@ -313,12 +398,19 @@ export async function encodeInputJson(fields: { name: string; type: string }[], 
 export function zeroInputFmt(fmt: string): string {
   const emit = (n: TypeNode): string => {
     switch (n.kind) {
-      case "scalar": return `0${n.type}`;
-      case "uint128": return "0uint128";
-      case "id": return `${"0".repeat(64)}id`;
-      case "bytes": if (n.size === 32) return `${"0".repeat(64)}m256i`; throw new Error(`no input token for ${n.size}-byte field`);
-      case "array": return `[${n.count}; ${emit(n.elem)} ×${n.count}]`;
-      case "struct": return `{ ${n.fields.map(emit).join(", ")} }`;
+      case "scalar":
+        return `0${n.type}`;
+      case "uint128":
+        return "0uint128";
+      case "id":
+        return `${"0".repeat(64)}id`;
+      case "bytes":
+        if (n.size === 32) return `${"0".repeat(64)}m256i`;
+        throw new Error(`no input token for ${n.size}-byte field`);
+      case "array":
+        return `[${n.count}; ${emit(n.elem)} ×${n.count}]`;
+      case "struct":
+        return `{ ${n.fields.map(emit).join(", ")} }`;
     }
   };
   const node = parseLayout(fmt);

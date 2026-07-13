@@ -56,7 +56,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-const REGISTRY_GTEST = coreGtest("Registry", `TEST(Registry, HashSetAddContainsRemovePopulation) {
+const REGISTRY_GTEST = coreGtest(
+  "Registry",
+  `TEST(Registry, HashSetAddContainsRemovePopulation) {
   ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   QPI::id u2 = t.idFromSeed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
@@ -105,7 +107,8 @@ TEST(Registry, HashMapReuseRemovedSlot) {
   Registry::SumAll_input s{};                          // marked for removal and takes goto reuse_slot
   EXPECT_EQ(t.call<Registry::SumAll_output>(3, s).sum, 200ull);
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -136,13 +139,24 @@ describe("differential gtest — Registry (HashSet + HashMap iteration/remove)",
     const testPath = join(dir, "Registry.test.cpp");
     writeFileSync(testPath, REGISTRY_GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Registry", stateType: "Registry", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "Registry",
+      stateType: "Registry",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: REGISTRY, name: "Registry", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const mine = await compileContract({
+      source: REGISTRY,
+      name: "Registry",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });

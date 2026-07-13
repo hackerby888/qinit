@@ -44,33 +44,42 @@ describe("edge audit — hygienic generated names", () => {
   });
 
   test("switch selector temporary does not overwrite user local sw0", async () => {
-    const source = wrap("", `
+    const source = wrap(
+      "",
+      `
       uint64 sw0 = 99;
       uint64 selector = 1;
       switch (selector) { case 1: break; default: break; }
       state.mut().result = sw0;
-    `);
+    `,
+    );
     expect(await compileAndRun(source)).toBe(99n);
   });
 
   test("postfix temporary does not overwrite user local tmp0", async () => {
-    const source = wrap("", `
+    const source = wrap(
+      "",
+      `
       uint64 tmp0 = 77;
       uint64 value = 5;
       uint64 old = value++;
       state.mut().result = tmp0 + old * 0 + value * 0;
-    `);
+    `,
+    );
     expect(await compileAndRun(source)).toBe(77n);
   });
 
   test("ternary result temporary does not overwrite user local tmp0", async () => {
-    const source = wrap("", `
+    const source = wrap(
+      "",
+      `
       uint64 tmp0 = 77;
       uint64 a = 0;
       uint64 b = 0;
       uint64 selected = true ? (a = 1) : (b = 2);
       state.mut().result = tmp0 + selected * 0;
-    `);
+    `,
+    );
     expect(await compileAndRun(source)).toBe(77n);
   });
 

@@ -1,7 +1,12 @@
 // Browser-safe entry for @qinit/core. The package index re-exports ./fetch, ./project, ./backtrace, which
 // pull node:fs / child_process; this entry exposes only browser-safe identity, tx signing, and signing helpers.
 export * from "./struct"; // zero-copy struct-view kit — node-free, safe in the browser bundle
-export { LHOST_ABI, ASSET_ENUMERATION_RECORD, LITE_ABI_VERSION, SYSTEM_PROCEDURES } from "./lhost-abi";
+export {
+  LHOST_ABI,
+  ASSET_ENUMERATION_RECORD,
+  LITE_ABI_VERSION,
+  SYSTEM_PROCEDURES,
+} from "./lhost-abi";
 export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./lhost-abi";
 export { deriveIdentity, bytesToIdentity, identityToBytes, cryptoSmoke } from "./qubic";
 export type { IdentityResult, CryptoSmokeResult } from "./qubic";
@@ -11,8 +16,15 @@ export type { SignedTx, TxInput } from "./tx";
 
 export { LiteRpc } from "./rpc";
 export type {
-  TickInfo, DynRegistry, DynContract, DynEntry, DynUpload,
-  DebugTrace, DebugEntry, DebugHostCall, DebugStateRegion,
+  TickInfo,
+  DynRegistry,
+  DynContract,
+  DynEntry,
+  DynUpload,
+  DebugTrace,
+  DebugEntry,
+  DebugHostCall,
+  DebugStateRegion,
 } from "./rpc";
 
 export { broadcastTx, broadcastTxs, fetchT, readBody } from "./net";
@@ -69,7 +81,11 @@ export function deriveKeysSync(seed: string): KeyPair {
   return { privateKey, publicKey };
 }
 
-export function signSync(privateKey: Uint8Array, publicKey: Uint8Array, digest: Uint8Array): Uint8Array {
+export function signSync(
+  privateKey: Uint8Array,
+  publicKey: Uint8Array,
+  digest: Uint8Array,
+): Uint8Array {
   if (!_schnorrq) {
     throw new Error("crypto not initialised — await initK12() first");
   }
@@ -77,7 +93,11 @@ export function signSync(privateKey: Uint8Array, publicKey: Uint8Array, digest: 
   return _schnorrq.sign(privateKey, publicKey, digest);
 }
 
-export function verifySync(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean {
+export function verifySync(
+  publicKey: Uint8Array,
+  message: Uint8Array,
+  signature: Uint8Array,
+): boolean {
   if (!_schnorrq) {
     throw new Error("crypto not initialised — await initK12() first");
   }

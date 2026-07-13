@@ -27,7 +27,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 `;
 
 // Core-lite-style gtest cases — the same assertions a native build validates.
-const COUNTER_GTEST = coreGtest("Counter", `TEST(Counter, StartsAtZero) {
+const COUNTER_GTEST = coreGtest(
+  "Counter",
+  `TEST(Counter, StartsAtZero) {
   ContractTestingHarness t;
   Counter::Get_input in{};
   EXPECT_EQ(t.call<Counter::Get_output>(1, in).value, 0ull);
@@ -46,7 +48,8 @@ TEST(Counter, EachTestStartsFresh) {
   Counter::Get_input g{};
   EXPECT_EQ(t.call<Counter::Get_output>(1, g).value, 0ull);
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -79,14 +82,25 @@ describe("differential gtest — my contract vs native test logic", () => {
     const testPath = join(dir, "Counter.test.cpp");
     writeFileSync(testPath, COUNTER_GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Counter", stateType: "Counter", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "Counter",
+      stateType: "Counter",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok, built.stderr).toBe(true);
     const runnerWasm = new Uint8Array(await (await import("node:fs/promises")).readFile(built.so!));
 
     // 2. My TS compiler builds the contract under test.
-    const mine = await compileContract({ source: COUNTER, name: "Counter", slot: 28, qpiHeader: HEADERS, arenaSz: 64 * 1024 });
+    const mine = await compileContract({
+      source: COUNTER,
+      name: "Counter",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 64 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     // 3. Drive MY contract with the NATIVE test logic.

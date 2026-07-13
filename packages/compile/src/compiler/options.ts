@@ -15,16 +15,16 @@ function optionDiagnostic(message: string): ParserDiagnostic {
 }
 
 function validCompilerName(name: string): boolean {
-  return name.length > 0
-    && name.length <= MAX_COMPILER_NAME_LENGTH
-    && COMPILER_NAME.test(name);
+  return name.length > 0 && name.length <= MAX_COMPILER_NAME_LENGTH && COMPILER_NAME.test(name);
 }
 
 export function validateCompileOpts(opts: CompileOpts): ParserDiagnostic[] {
   const diagnostics: ParserDiagnostic[] = [];
   const reject = (message: string) => diagnostics.push(optionDiagnostic(message));
-  const validUint32 = (value: number) => Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
-  const validSize = (value: number) => Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
+  const validUint32 = (value: number) =>
+    Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
+  const validSize = (value: number) =>
+    Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
 
   if (typeof opts.source !== "string") reject("source must be a string");
   if (!validCompilerName(opts.name)) {
@@ -50,7 +50,8 @@ export function validateCompileOpts(opts: CompileOpts): ParserDiagnostic[] {
   const calleeIndices = new Set<number>();
   for (const callee of opts.callees ?? []) {
     if (!validCompilerName(callee.name)) reject(`callee name '${callee.name}' is invalid`);
-    if (!validUint32(callee.index)) reject(`callee '${callee.name}' index must be a uint32 integer`);
+    if (!validUint32(callee.index))
+      reject(`callee '${callee.name}' index must be a uint32 integer`);
     if (calleeNames.has(callee.name)) reject(`duplicate callee name '${callee.name}'`);
     if (calleeIndices.has(callee.index)) reject(`duplicate callee index ${callee.index}`);
     calleeNames.add(callee.name);
@@ -62,23 +63,32 @@ export function validateCompileOpts(opts: CompileOpts): ParserDiagnostic[] {
       ["procedure", callee.procedures],
     ] as const) {
       for (const [entryName, entry] of Object.entries(entries)) {
-        if (!validCompilerName(entryName)) reject(`${kind} name '${callee.name}::${entryName}' is invalid`);
-        if (entryNames.has(entryName)) reject(`duplicate callee entry '${callee.name}::${entryName}'`);
+        if (!validCompilerName(entryName))
+          reject(`${kind} name '${callee.name}::${entryName}' is invalid`);
+        if (entryNames.has(entryName))
+          reject(`duplicate callee entry '${callee.name}::${entryName}'`);
         entryNames.add(entryName);
-        if (!validUint32(entry.inputType)) reject(`${kind} '${callee.name}::${entryName}' inputType must be a uint32 integer`);
-        if (!validSize(entry.inSize)) reject(`${kind} '${callee.name}::${entryName}' inSize must be a uint32 integer`);
-        if (!validSize(entry.outSize)) reject(`${kind} '${callee.name}::${entryName}' outSize must be a uint32 integer`);
+        if (!validUint32(entry.inputType))
+          reject(`${kind} '${callee.name}::${entryName}' inputType must be a uint32 integer`);
+        if (!validSize(entry.inSize))
+          reject(`${kind} '${callee.name}::${entryName}' inSize must be a uint32 integer`);
+        if (!validSize(entry.outSize))
+          reject(`${kind} '${callee.name}::${entryName}' outSize must be a uint32 integer`);
       }
     }
   }
 
   const sourceNames = new Set<string>();
   for (const calleeSource of opts.calleeSources ?? []) {
-    if (!validCompilerName(calleeSource.name)) reject(`callee source name '${calleeSource.name}' is invalid`);
-    if (sourceNames.has(calleeSource.name)) reject(`duplicate callee source '${calleeSource.name}'`);
+    if (!validCompilerName(calleeSource.name))
+      reject(`callee source name '${calleeSource.name}' is invalid`);
+    if (sourceNames.has(calleeSource.name))
+      reject(`duplicate callee source '${calleeSource.name}'`);
     sourceNames.add(calleeSource.name);
-    if (!calleeNames.has(calleeSource.name)) reject(`callee source '${calleeSource.name}' has no matching callee IDL`);
-    if (typeof calleeSource.source !== "string") reject(`callee source '${calleeSource.name}' must be a string`);
+    if (!calleeNames.has(calleeSource.name))
+      reject(`callee source '${calleeSource.name}' has no matching callee IDL`);
+    if (typeof calleeSource.source !== "string")
+      reject(`callee source '${calleeSource.name}' must be a string`);
   }
 
   return diagnostics;

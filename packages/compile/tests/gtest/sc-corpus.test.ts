@@ -1,12 +1,24 @@
 // Dual-backend corpus verification: native clang + TS compiler.
 import { describe, test, expect, beforeAll } from "bun:test";
-import { readFileSync, writeFileSync, appendFileSync, mkdtempSync, rmSync, existsSync } from "node:fs";
+import {
+  readFileSync,
+  writeFileSync,
+  appendFileSync,
+  mkdtempSync,
+  rmSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initK12 } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";
 import { buildContract, buildCorpusRunner } from "@qinit/build";
-import { compileContract, loadQpiHeader, type CompileResult, type CalleeIdl } from "../../src/index";
+import {
+  compileContract,
+  loadQpiHeader,
+  type CompileResult,
+  type CalleeIdl,
+} from "../../src/index";
 import { CORE, wasiAvailable } from "../support/qutil-bridge";
 
 interface CalleeSpec {
@@ -152,10 +164,16 @@ const SPECS: Spec[] = [
 
 function calleeIdlFrom(name: string, index: number, r: CompileResult): CalleeIdl {
   const fns = Object.fromEntries(
-    r.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }])
+    r.idl.functions.map((f) => [
+      f.name,
+      { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize },
+    ]),
   );
   const procs = Object.fromEntries(
-    r.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }])
+    r.idl.procedures.map((p) => [
+      p.name,
+      { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize },
+    ]),
   );
   return { name, index, functions: fns, procedures: procs };
 }
@@ -173,7 +191,9 @@ async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {
   });
 
   if (!r.ok || !r.so) {
-    const lines = (r.stderr ?? "").split("\n").filter((l) => /error:|undefined|cannot|fatal/i.test(l));
+    const lines = (r.stderr ?? "")
+      .split("\n")
+      .filter((l) => /error:|undefined|cannot|fatal/i.test(l));
     throw new Error(`runner build failed: ${lines.slice(0, 6).join(" | ")}`);
   }
 
@@ -188,16 +208,27 @@ async function buildOurs(spec: Spec): Promise<Record<number, Uint8Array>> {
   for (const callee of spec.callees) {
     const src = readFileSync(`${CORE}/src/contracts/${callee.header}`, "utf8");
     const prior = spec.callees.slice(0, calleeResults.length);
-    const priorIdl = prior.map((item, index) => calleeIdlFrom(item.name, item.slot, calleeResults[index]));
-    const priorSources = prior.map((item) => ({ name: item.name, source: readFileSync(`${CORE}/src/contracts/${item.header}`, "utf8") }));
+    const priorIdl = prior.map((item, index) =>
+      calleeIdlFrom(item.name, item.slot, calleeResults[index]),
+    );
+    const priorSources = prior.map((item) => ({
+      name: item.name,
+      source: readFileSync(`${CORE}/src/contracts/${item.header}`, "utf8"),
+    }));
     const r = await compileContract({
-      source: src, name: callee.name, slot: callee.slot, qpiHeader: headers, arenaSz: ARENA,
+      source: src,
+      name: callee.name,
+      slot: callee.slot,
+      qpiHeader: headers,
+      arenaSz: ARENA,
       callees: priorIdl.length ? priorIdl : undefined,
       calleeSources: priorSources.length ? priorSources : undefined,
     });
     const errs = r.diagnostics.filter((d) => d.severity === "error");
     if (errs.length) {
-      throw new Error(`ours ${callee.name}: ${errs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`);
+      throw new Error(
+        `ours ${callee.name}: ${errs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,
+      );
     }
     calleeResults.push(r);
     out[callee.slot] = r.wasm;
@@ -205,12 +236,25 @@ async function buildOurs(spec: Spec): Promise<Record<number, Uint8Array>> {
 
   const mainSrc = readFileSync(`${CORE}/src/contracts/${spec.header}`, "utf8");
   const callees = spec.callees.map((c, i) => calleeIdlFrom(c.name, c.slot, calleeResults[i]));
-  const calleeSources = spec.callees.map((c) => ({ name: c.name, source: readFileSync(`${CORE}/src/contracts/${c.header}`, "utf8") }));
+  const calleeSources = spec.callees.map((c) => ({
+    name: c.name,
+    source: readFileSync(`${CORE}/src/contracts/${c.header}`, "utf8"),
+  }));
 
-  const mainR = await compileContract({ source: mainSrc, name: spec.name, slot: spec.slot, qpiHeader: headers, arenaSz: ARENA, callees, calleeSources });
+  const mainR = await compileContract({
+    source: mainSrc,
+    name: spec.name,
+    slot: spec.slot,
+    qpiHeader: headers,
+    arenaSz: ARENA,
+    callees,
+    calleeSources,
+  });
   const mainErrs = mainR.diagnostics.filter((d) => d.severity === "error");
   if (mainErrs.length) {
-    throw new Error(`ours ${spec.name}: ${mainErrs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`);
+    throw new Error(
+      `ours ${spec.name}: ${mainErrs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,
+    );
   }
   out[spec.slot] = mainR.wasm;
 
@@ -232,7 +276,9 @@ async function buildNative(spec: Spec, outDir: string): Promise<Record<number, U
       skipVerify: true,
     });
     if (!r.ok || !r.so) {
-      throw new Error(`native ${callee.name}: ${(r.stderr ?? "").split("\n").slice(-3).join(" | ")}`);
+      throw new Error(
+        `native ${callee.name}: ${(r.stderr ?? "").split("\n").slice(-3).join(" | ")}`,
+      );
     }
     out[callee.slot] = new Uint8Array(readFileSync(r.so));
   }
@@ -248,7 +294,9 @@ async function buildNative(spec: Spec, outDir: string): Promise<Record<number, U
     skipVerify: true,
   });
   if (!mainR.ok || !mainR.so) {
-    throw new Error(`native ${spec.name}: ${(mainR.stderr ?? "").split("\n").slice(-3).join(" | ")}`);
+    throw new Error(
+      `native ${spec.name}: ${(mainR.stderr ?? "").split("\n").slice(-3).join(" | ")}`,
+    );
   }
   out[spec.slot] = new Uint8Array(readFileSync(mainR.so));
 
@@ -279,13 +327,18 @@ async function runSingleCell(): Promise<void> {
     const passed = results.filter((r) => r.passed).length;
     appendFileSync(outPath, `SCORE ${passed}/${results.length}\n`);
     for (const result of results.filter((item) => !item.passed)) {
-      appendFileSync(outPath, `FAIL ${result.name} — ${result.message.replace(/\s+/g, " ").slice(0, 300)}\n`);
+      appendFileSync(
+        outPath,
+        `FAIL ${result.name} — ${result.message.replace(/\s+/g, " ").slice(0, 300)}\n`,
+      );
     }
   } catch (e: any) {
     if (!runnerOk) {
       appendFileSync(outPath, "RUNNER err\n");
     }
-    const msg = String(e?.message ?? e).split("\n")[0].slice(0, 200);
+    const msg = String(e?.message ?? e)
+      .split("\n")[0]
+      .slice(0, 200);
     appendFileSync(outPath, `ERR ${msg}\n`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -409,11 +462,15 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
     const rows: Row[] = [];
 
     const selectedNames = new Set((process.env.SC_SWEEP_FILTER ?? "").split(",").filter(Boolean));
-    const selected = selectedNames.size ? SPECS.filter((spec) => selectedNames.has(spec.name)) : SPECS;
+    const selected = selectedNames.size
+      ? SPECS.filter((spec) => selectedNames.has(spec.name))
+      : SPECS;
     const oursOnly = !!process.env.SC_OURS_ONLY;
 
     for (const spec of selected) {
-      const native = oursOnly ? { runner: "-", score: "skip" } : await spawnCell(spec.name, "native", CELL_TIMEOUT);
+      const native = oursOnly
+        ? { runner: "-", score: "skip" }
+        : await spawnCell(spec.name, "native", CELL_TIMEOUT);
       const ours = await spawnCell(spec.name, "ours", CELL_TIMEOUT);
 
       const runner = native.runner === "ok" || ours.runner === "ok" ? "ok" : "err";
@@ -427,14 +484,18 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
 
     const tableLines = [sep, header, sep];
     for (const row of rows) {
-      tableLines.push(`${col(row.name, 16)} ${col(row.runner, 8)} ${col(row.native, 10)} ${col(row.ours, 10)}`);
+      tableLines.push(
+        `${col(row.name, 16)} ${col(row.runner, 8)} ${col(row.native, 10)} ${col(row.ours, 10)}`,
+      );
     }
     tableLines.push(sep);
 
     const scored = (v: string) => /^\d+\/\d+$/.test(v);
     const nativeScored = rows.filter((r) => scored(r.native)).length;
     const oursScored = rows.filter((r) => scored(r.ours)).length;
-    tableLines.push(`  ${rows.length} specs · native scored ${nativeScored}/${rows.length} · ours scored ${oursScored}/${rows.length}`);
+    tableLines.push(
+      `  ${rows.length} specs · native scored ${nativeScored}/${rows.length} · ours scored ${oursScored}/${rows.length}`,
+    );
 
     console.log("\n" + tableLines.join("\n"));
 

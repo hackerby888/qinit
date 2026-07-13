@@ -8,7 +8,9 @@ test("system gtest corpora are discovered from core and split into light and hea
   expect(corpora.length).toBeGreaterThan(0);
   expect(corpora.some((entry) => entry.tier === "light")).toBe(true);
   expect(corpora.some((entry) => entry.tier === "heavy")).toBe(true);
-  expect(corpora.every((entry) => existsSync(entry.contractPath) && existsSync(entry.corpusPath))).toBe(true);
+  expect(
+    corpora.every((entry) => existsSync(entry.contractPath) && existsSync(entry.corpusPath)),
+  ).toBe(true);
   expect(new Set(corpora.map((entry) => entry.name)).size).toBe(corpora.length);
 });
 

@@ -7,7 +7,7 @@ import { extractIdl, type ContractIdl } from "@qinit/build";
 
 export interface LocalBuildResult {
   ok: boolean;
-  so?: string;      // path to the emitted .wasm
+  so?: string; // path to the emitted .wasm
   size?: number;
   idl?: ContractIdl; // rich idl (build's extractIdl) for downstream tooling
   stderr?: string;
@@ -29,7 +29,10 @@ export async function compileLocal(o: {
 }): Promise<LocalBuildResult> {
   const qpiHeader = loadQpiHeader(o.core);
   if (!qpiHeader) {
-    return { ok: false, stderr: "cannot load qpi.h — set QINIT_CORE or pass --core <core-lite checkout>" };
+    return {
+      ok: false,
+      stderr: "cannot load qpi.h — set QINIT_CORE or pass --core <core-lite checkout>",
+    };
   }
   const source = readFileSync(o.contractPath, "utf8");
 
@@ -45,15 +48,29 @@ export async function compileLocal(o: {
       return { ok: false, stderr: `callee ${cname}: ` + derr.map((d) => d.message).join("; ") };
     }
     callees.push({
-      name: cname, index,
-      functions: Object.fromEntries(dr.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }])),
-      procedures: Object.fromEntries(dr.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }])),
+      name: cname,
+      index,
+      functions: Object.fromEntries(
+        dr.idl.functions.map((f) => [
+          f.name,
+          { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize },
+        ]),
+      ),
+      procedures: Object.fromEntries(
+        dr.idl.procedures.map((p) => [
+          p.name,
+          { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize },
+        ]),
+      ),
     });
     calleeSources.push({ name: cname, source: dsrc });
   }
 
   const r = await compileContract({
-    source, name: o.name, slot: o.slot, qpiHeader,
+    source,
+    name: o.name,
+    slot: o.slot,
+    qpiHeader,
     callees: callees.length ? callees : undefined,
     calleeSources: calleeSources.length ? calleeSources : undefined,
   });
@@ -69,7 +86,10 @@ export async function compileLocal(o: {
   const so = join(o.outDir, `${o.name}.wasm`);
   writeFileSync(so, Buffer.from(r.wasm));
   return {
-    ok: true, so, size: statSync(so).size, idl: extractIdl(source, o.name),
+    ok: true,
+    so,
+    size: statSync(so).size,
+    idl: extractIdl(source, o.name),
     stderr: warns.length ? warns.map((d) => `warning: ${d.message}`).join("\n") : undefined,
   };
 }

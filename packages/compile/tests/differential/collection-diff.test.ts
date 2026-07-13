@@ -43,7 +43,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-const ORDERS_GTEST = coreGtest("Orders", `TEST(Coll, AddIterateRemove) {
+const ORDERS_GTEST = coreGtest(
+  "Orders",
+  `TEST(Coll, AddIterateRemove) {
   ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   QPI::id u2 = t.idFromSeed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
@@ -69,7 +71,8 @@ const ORDERS_GTEST = coreGtest("Orders", `TEST(Coll, AddIterateRemove) {
   EXPECT_EQ(r2.tag, 5ull);    // 7 - 2
   EXPECT_EQ(r2.pop, 3ull);
 }
-`);
+`,
+);
 
 const wasi = wasiToolchain();
 
@@ -78,31 +81,49 @@ describe("differential gtest — Collection (BST add/iterate/remove)", () => {
     await initK12();
   });
 
-  toolchainTest("my Collection contract passes the native Collection gtest", wasi, async () => {
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "collection-diff-"));
-    const contractPath = join(dir, "Orders.h");
-    writeFileSync(contractPath, ORDERS);
+  toolchainTest(
+    "my Collection contract passes the native Collection gtest",
+    wasi,
+    async () => {
+      const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const dir = mkdtempSync(join(tmpdir(), "collection-diff-"));
+      const contractPath = join(dir, "Orders.h");
+      writeFileSync(contractPath, ORDERS);
 
-    const testPath = join(dir, "Orders.test.cpp");
-    writeFileSync(testPath, ORDERS_GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Orders", stateType: "Orders", slot: 28,
-      corePath: CORE, outDir: dir,
-    });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
+      const testPath = join(dir, "Orders.test.cpp");
+      writeFileSync(testPath, ORDERS_GTEST);
+      const built = await buildCorpusRunner({
+        corpusPath: testPath,
+        contractPath,
+        name: "Orders",
+        stateType: "Orders",
+        slot: 28,
+        corePath: CORE,
+        outDir: dir,
+      });
+      expect(built.ok).toBe(true);
+      const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: ORDERS, name: "Orders", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
-    expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+      const mine = await compileContract({
+        source: ORDERS,
+        name: "Orders",
+        slot: 28,
+        qpiHeader: HEADERS,
+        arenaSz: 1024 * 1024,
+      });
+      expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+      const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+      for (const r of results) {
+        console.log(
+          `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+        );
+      }
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.every((r) => r.passed)).toBe(true);
+    },
+    120000,
+  );
 });

@@ -13,13 +13,15 @@ function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
   const o: Record<string, string> = {};
   const pos: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith("--")) o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
+    if (args[i].startsWith("--"))
+      o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
     else pos.push(args[i]);
   }
   return { o, pos };
 }
 
-type State = { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate; notes?: string[] };
+type State =
+  { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate; notes?: string[] };
 
 export function Build({ args }: { args: string[] }) {
   const { exit } = useApp();
@@ -47,19 +49,45 @@ export function Build({ args }: { args: string[] }) {
         // local: in-process TS compiler (no clang). Emits the same rich idl for the client/state tooling.
         if (compiler === "local") {
           const r = await compileLocal({ contractPath, name, slot, core, outDir, dynCallees });
-          if (!r.ok) { setS({ phase: "done", r: { ok: false, stderr: r.stderr } }); return; }
-          if (r.idl) try { writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2)); } catch {}
-          setS({ phase: "done", r: { ok: true, so: r.so, size: r.size, hash: "", idl: r.idl as any } });
+          if (!r.ok) {
+            setS({ phase: "done", r: { ok: false, stderr: r.stderr } });
+            return;
+          }
+          if (r.idl)
+            try {
+              writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
+            } catch {}
+          setS({
+            phase: "done",
+            r: { ok: true, so: r.so, size: r.size, hash: "", idl: r.idl as any },
+          });
           return;
         }
 
         // Backend-clang build path
         const notes: string[] = [];
         const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";
-        const callees = await resolveNodeCallees(new LiteRpc(rpcBase), readFileSync(contractPath, "utf8"), dynCallees, (n) => notes.push(n), 2500);
+        const callees = await resolveNodeCallees(
+          new LiteRpc(rpcBase),
+          readFileSync(contractPath, "utf8"),
+          dynCallees,
+          (n) => notes.push(n),
+          2500,
+        );
         const vu = await autoUpdateVerifyTool();
-        const r = await buildContract({ contractPath, name, slot, corePath: core, outDir, dynCallees: callees, skipVerify: "skip-verify" in o });
-        if (r.ok && r.idl) try { writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2)); } catch {}
+        const r = await buildContract({
+          contractPath,
+          name,
+          slot,
+          corePath: core,
+          outDir,
+          dynCallees: callees,
+          skipVerify: "skip-verify" in o,
+        });
+        if (r.ok && r.idl)
+          try {
+            writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
+          } catch {}
         setS({ phase: "done", r, vu, notes });
       } catch (e: any) {
         setS({ phase: "done", r: { ok: false, stderr: String(e?.message ?? e) } });
@@ -68,12 +96,23 @@ export function Build({ args }: { args: string[] }) {
   }, []);
 
   useEffect(() => {
-    if (s.phase === "done") { process.exitCode = s.r.ok ? 0 : 1; exit(); }
+    if (s.phase === "done") {
+      process.exitCode = s.r.ok ? 0 : 1;
+      exit();
+    }
   }, [s, exit]);
 
   if (s.phase === "run") {
-    const label = compiler === "local" ? "compiling contract to wasm (local TS compiler)" : "compiling contract to wasm";
-    return <Box flexDirection="column"><Header cmd="build" /><Spinner label={label} /></Box>;
+    const label =
+      compiler === "local"
+        ? "compiling contract to wasm (local TS compiler)"
+        : "compiling contract to wasm";
+    return (
+      <Box flexDirection="column">
+        <Header cmd="build" />
+        <Spinner label={label} />
+      </Box>
+    );
   }
 
   const { r } = s;
@@ -92,15 +131,22 @@ export function Build({ args }: { args: string[] }) {
     <Box flexDirection="column">
       <Header cmd="build" />
       <Panel title={"built ✓" + (compiler === "local" ? " (local)" : "")} color={theme.ok}>
-        <KV rows={[
-          ["wasm", String(r.so)],
-          ["size", `${r.size} bytes`],
-          ["k12 ", r.hash || "(pending)"],
-        ]} />
+        <KV
+          rows={[
+            ["wasm", String(r.so)],
+            ["size", `${r.size} bytes`],
+            ["k12 ", r.hash || "(pending)"],
+          ]}
+        />
       </Panel>
       {compiler === "local" ? null : (
         <Box marginTop={1}>
-          <Status ok={true} label="protocol rules" detail="passed — complies with qpi.h restrictions" pad={16} />
+          <Status
+            ok={true}
+            label="protocol rules"
+            detail="passed — complies with qpi.h restrictions"
+            pad={16}
+          />
         </Box>
       )}
     </Box>

@@ -19,14 +19,19 @@ async function wasm(name: string): Promise<Uint8Array> {
 
 // Run the CLI against `port` and return its stdout.
 async function runCli(port: number, args: string[]): Promise<string> {
-  const proc = Bun.spawn([CLI, "-nodeip", "127.0.0.1", "-nodeport", String(port), ...args], { stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn([CLI, "-nodeip", "127.0.0.1", "-nodeport", String(port), ...args], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const out = await new Response(proc.stdout).text();
   await proc.exited;
   return out;
 }
 
 // Start a PeerServer on an ephemeral port over a configured engine; returns the port + a stop fn.
-async function serve(setup?: (e: VirtualNode) => void | Promise<void>): Promise<{ port: number; stop: () => void }> {
+async function serve(
+  setup?: (e: VirtualNode) => void | Promise<void>,
+): Promise<{ port: number; stop: () => void }> {
   await initK12();
   const engine = new VirtualNode({ mempool: true, verifySigs: true });
   if (setup) {
@@ -54,7 +59,9 @@ beforeAll(async () => {
   }
 
   if (!arbitratorTrusted) {
-    console.warn("[cli-e2e] binary ARBITRATOR != engine dev arbitrator — tick signature-verify assertions skipped (build qubic-cli with the dev arbitrator to exercise them)");
+    console.warn(
+      "[cli-e2e] binary ARBITRATOR != engine dev arbitrator — tick signature-verify assertions skipped (build qubic-cli with the dev arbitrator to exercise them)",
+    );
   }
 });
 
@@ -221,7 +228,16 @@ it("-sendcustomtransaction runs a contract procedure over the wire, and -gettxin
   try {
     const id = await bytesToIdentity(contractId(28));
     // inputType 1 = Counter Inc; amount 0; no extra data
-    const sent = await runCli(port, ["-seed", "a".repeat(55), "-sendcustomtransaction", id, "1", "0", "0", ""]);
+    const sent = await runCli(port, [
+      "-seed",
+      "a".repeat(55),
+      "-sendcustomtransaction",
+      id,
+      "1",
+      "0",
+      "0",
+      "",
+    ]);
     const hint = sent.match(/-checktxontick (\d+) ([a-z]+)/);
     expect(hint).not.toBeNull();
     const txTick = Number(hint![1]);

@@ -36,7 +36,9 @@ function fmtTimings(t?: Record<string, number>): string | undefined {
     ["generating wasm", "codegen"],
     ["assembling wasm", "wabt"],
   ];
-  const parts = order.filter(([k]) => t[k] != null).map(([k, lbl]) => `${lbl} ${Math.round(t[k])}ms`);
+  const parts = order
+    .filter(([k]) => t[k] != null)
+    .map(([k, lbl]) => `${lbl} ${Math.round(t[k])}ms`);
   if (!parts.length) return undefined;
   const total = Math.round(Object.values(t).reduce((a, b) => a + b, 0));
   return `${parts.join(" · ")} · total ${total}ms`;
@@ -49,10 +51,13 @@ interface Line {
 }
 // Everything permanent (header, build status, each finished test) is an append-only Static item so it
 // commits to the terminal top-to-bottom and survives a suite taller than the viewport; only the spinner
-type Item = { kind: "header" } | { kind: "line"; line: Line } | { kind: "test"; t: TestResult } | { kind: "note"; text: string };
+type Item =
+  | { kind: "header" }
+  | { kind: "line"; line: Line }
+  | { kind: "test"; t: TestResult }
+  | { kind: "note"; text: string };
 type Tail =
-  | { phase: "work"; spin: string }
-  | { phase: "done"; ok: boolean; rows: [string, string][] };
+  { phase: "work"; spin: string } | { phase: "done"; ok: boolean; rows: [string, string][] };
 
 export function Gtest({ args }: { args: string[] }) {
   const { exit } = useApp();
@@ -62,12 +67,14 @@ export function Gtest({ args }: { args: string[] }) {
   const [s, setS] = useState<Tail>({ phase: "work", spin: "starting" });
 
   useEffect(() => {
-    const add = (label: string, ok?: boolean | null, detail?: string) => setItems((it) => [...it, { kind: "line", line: { label, ok, detail } }]);
+    const add = (label: string, ok?: boolean | null, detail?: string) =>
+      setItems((it) => [...it, { kind: "line", line: { label, ok, detail } }]);
     const note = (text: string) => setItems((it) => [...it, { kind: "note", text }]); // full-width, wraps (no truncation)
     const spin = (t: string) => setS({ phase: "work", spin: t });
     const done = (ok: boolean, rows: [string, string][]) => setS({ phase: "done", ok, rows });
 
-    const matches = (name: string) => !o.filter || name.toLowerCase().includes(o.filter.toLowerCase());
+    const matches = (name: string) =>
+      !o.filter || name.toLowerCase().includes(o.filter.toLowerCase());
     let ran = 0;
     // Stream each finished test the moment the engine reports it (engine yields a macrotask per test so
     // this paints). Filtered-out tests still execute engine-side; we just don't surface them.
@@ -93,7 +100,11 @@ export function Gtest({ args }: { args: string[] }) {
           const backend = "local" in o ? "local" : "native";
           spin(`building the real gtest for ${scName} (${backend})`);
           const run = await runCorpus({
-            name: scName, core, backend, scratch: join(tmpdir(), "qinit-corpus"), onResult,
+            name: scName,
+            core,
+            backend,
+            scratch: join(tmpdir(), "qinit-corpus"),
+            onResult,
             onPhase: backend === "local" ? (label) => spin(label) : undefined,
           });
           if (!run.found) {
@@ -123,7 +134,9 @@ export function Gtest({ args }: { args: string[] }) {
         }
 
         // One accepted source format: core-lite contract_testing.h / ContractTesting.
-        const contractPath = resolve(o.contract ?? cfg.contract ?? "contracts/" + (cfg.name ?? "") + ".h");
+        const contractPath = resolve(
+          o.contract ?? cfg.contract ?? "contracts/" + (cfg.name ?? "") + ".h",
+        );
         if (!existsSync(contractPath)) {
           add("contract", false, contractPath + " not found");
           return done(false, []);
@@ -145,9 +158,17 @@ export function Gtest({ args }: { args: string[] }) {
         const backend = "local" in o ? "local" : "native";
         spin(`building the gtest for ${name} (${backend})`);
         const run = await runStdGtest({
-          contractPath, testPath, name, stateType, slot, core, backend,
-          shared: "shared-mem" in o, scratch: join(tmpdir(), "qinit-corpus"),
-          onResult, onPhase: backend === "local" ? (label) => spin(label) : undefined,
+          contractPath,
+          testPath,
+          name,
+          stateType,
+          slot,
+          core,
+          backend,
+          shared: "shared-mem" in o,
+          scratch: join(tmpdir(), "qinit-corpus"),
+          onResult,
+          onPhase: backend === "local" ? (label) => spin(label) : undefined,
         });
         if (!run.runnerOk) {
           add("build", false, "test-wasm build failed");
@@ -186,9 +207,17 @@ export function Gtest({ args }: { args: string[] }) {
           it.kind === "header" ? (
             <Header key={i} cmd="gtest" />
           ) : it.kind === "line" ? (
-            <Status key={i} ok={it.line.ok} label={it.line.label} detail={it.line.detail} pad={10} />
+            <Status
+              key={i}
+              ok={it.line.ok}
+              label={it.line.label}
+              detail={it.line.detail}
+              pad={10}
+            />
           ) : it.kind === "note" ? (
-            <Text key={i} dimColor>{it.text}</Text>
+            <Text key={i} dimColor>
+              {it.text}
+            </Text>
           ) : (
             <Box key={i} flexDirection="column">
               <Text color={it.t.passed ? theme.ok : theme.err}>

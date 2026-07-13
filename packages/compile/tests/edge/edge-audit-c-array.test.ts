@@ -17,7 +17,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function compile(source: string) {
-  return compileContract({ source, name: "CArrayEdge", slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+  return compileContract({
+    source,
+    name: "CArrayEdge",
+    slot: 27,
+    qpiHeader: HEADERS,
+    arenaSz: 1 << 20,
+  });
 }
 
 async function run(stateFields: string, body: string): Promise<bigint> {
@@ -47,7 +53,9 @@ describe("edge audit — fixed C arrays", () => {
   });
 
   test("missing local initializers zero-fill the remaining elements", async () => {
-    expect(await run("", `uint64 xs[3] = {7}; state.mut().result = xs[0] + xs[1] + xs[2];`)).toBe(7n);
+    expect(await run("", `uint64 xs[3] = {7}; state.mut().result = xs[0] + xs[1] + xs[2];`)).toBe(
+      7n,
+    );
   });
 
   test("multidimensional state arrays preserve row-major indexing", async () => {
@@ -58,13 +66,20 @@ describe("edge audit — fixed C arrays", () => {
   });
 
   test("nested initializer lists populate a multidimensional local array", async () => {
-    expect(await run("", `uint64 xs[2][2] = {{1, 2}, {3, 4}}; state.mut().result = xs[0][1] + xs[1][1];`)).toBe(6n);
+    expect(
+      await run(
+        "",
+        `uint64 xs[2][2] = {{1, 2}, {3, 4}}; state.mut().result = xs[0][1] + xs[1][1];`,
+      ),
+    ).toBe(6n);
   });
 
   test("too many local array initializers are rejected", async () => {
     const result = await compile(wrap("", `uint64 xs[2] = {1, 2, 3}; state.mut().result = xs[0];`));
     const errors = result.diagnostics.filter((d) => d.severity === "error");
-    expect(errors.some((d) => /initializer|too many|array.*bound|array.*size/i.test(d.message))).toBe(true);
+    expect(
+      errors.some((d) => /initializer|too many|array.*bound|array.*size/i.test(d.message)),
+    ).toBe(true);
     expect(result.wasm).toHaveLength(0);
   });
 });

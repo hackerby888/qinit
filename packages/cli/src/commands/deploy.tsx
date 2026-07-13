@@ -8,13 +8,20 @@ import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
 import { output } from "../args";
 
-interface SS { state: StepState; detail?: string; pct?: number; startedAt?: number; elapsedMs?: number }
+interface SS {
+  state: StepState;
+  detail?: string;
+  pct?: number;
+  startedAt?: number;
+  elapsedMs?: number;
+}
 
 function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
   const o: Record<string, string> = {};
   const pos: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith("--")) o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
+    if (args[i].startsWith("--"))
+      o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
     else pos.push(args[i]);
   }
   return { o, pos };
@@ -34,7 +41,10 @@ export function Deploy({ args }: { args: string[] }) {
       try {
         const cfg = loadConfig();
         const cpath = o.contract ?? pos[0] ?? cfg.contract;
-        if (!cpath) throw new Error("no contract: pass `qinit deploy <file.h>` (or --contract <file.h>, or set contract in qinit.json)");
+        if (!cpath)
+          throw new Error(
+            "no contract: pass `qinit deploy <file.h>` (or --contract <file.h>, or set contract in qinit.json)",
+          );
         const contractPath = resolve(cpath);
         const nm = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
         setName(nm);
@@ -46,22 +56,48 @@ export function Deploy({ args }: { args: string[] }) {
         }
         const sv = o.slot ?? cfg.slot;
         const emit = (e: Ev) => {
-          if ("note" in e) { setNotes((n) => [...n, e.note]); return; }
+          if ("note" in e) {
+            setNotes((n) => [...n, e.note]);
+            return;
+          }
           setSteps((s) => {
-            const prev = s[e.step] ?? {} as SS;
+            const prev = s[e.step] ?? ({} as SS);
             const startedAt = e.state === "active" && !prev.startedAt ? Date.now() : prev.startedAt;
-            const elapsedMs = (e.state === "ok" || e.state === "fail") && startedAt ? Date.now() - startedAt : prev.elapsedMs;
-            return { ...s, [e.step]: { state: e.state, detail: e.detail ?? prev.detail, pct: e.pct ?? prev.pct, startedAt, elapsedMs } };
+            const elapsedMs =
+              (e.state === "ok" || e.state === "fail") && startedAt
+                ? Date.now() - startedAt
+                : prev.elapsedMs;
+            return {
+              ...s,
+              [e.step]: {
+                state: e.state,
+                detail: e.detail ?? prev.detail,
+                pct: e.pct ?? prev.pct,
+                startedAt,
+                elapsedMs,
+              },
+            };
           });
         };
-        const r = await deployContract({
-          contractPath, name: nm, core: resolveCore(o.core, cfg.core),
-          rpcBase: o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841", seed: o.seed, dynCallees,
-          slotOverride: sv !== undefined && sv !== "" ? Number(sv) : undefined,
-          skipVerify: "skip-verify" in o, // parity with `qinit test --skip-verify` (deployContract already supports it)
-          compiler: resolveCompiler(o),
-        }, emit);
-        if (r.ok && r.slot != null) { try { setAddr(await bytesToIdentity(contractAddress(r.slot))); } catch {} }
+        const r = await deployContract(
+          {
+            contractPath,
+            name: nm,
+            core: resolveCore(o.core, cfg.core),
+            rpcBase: o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841",
+            seed: o.seed,
+            dynCallees,
+            slotOverride: sv !== undefined && sv !== "" ? Number(sv) : undefined,
+            skipVerify: "skip-verify" in o, // parity with `qinit test --skip-verify` (deployContract already supports it)
+            compiler: resolveCompiler(o),
+          },
+          emit,
+        );
+        if (r.ok && r.slot != null) {
+          try {
+            setAddr(await bytesToIdentity(contractAddress(r.slot)));
+          } catch {}
+        }
         setResult(r);
       } catch (e: any) {
         setNotes((n) => [...n, "ERROR: " + String(e?.message ?? e).slice(0, 300)]);
@@ -69,10 +105,25 @@ export function Deploy({ args }: { args: string[] }) {
       }
     })();
   }, []);
-  useEffect(() => { if (result) {
-    if (output.json) process.stdout.write(JSON.stringify({ ok: result.ok, contract: name, slot: result.slot ?? null, address: addr || null, tx: result.txId ?? null, codeHash: result.hash ?? null, error: result.ok ? null : (result.reason ?? result.error ?? null) }) + "\n");
-    process.exitCode = result.ok ? 0 : 1; const t = setTimeout(() => exit(), 60); return () => clearTimeout(t);
-  } }, [result]);
+  useEffect(() => {
+    if (result) {
+      if (output.json)
+        process.stdout.write(
+          JSON.stringify({
+            ok: result.ok,
+            contract: name,
+            slot: result.slot ?? null,
+            address: addr || null,
+            tx: result.txId ?? null,
+            codeHash: result.hash ?? null,
+            error: result.ok ? null : (result.reason ?? result.error ?? null),
+          }) + "\n",
+        );
+      process.exitCode = result.ok ? 0 : 1;
+      const t = setTimeout(() => exit(), 60);
+      return () => clearTimeout(t);
+    }
+  }, [result]);
 
   if (output.json) return null;
   return (
@@ -81,31 +132,77 @@ export function Deploy({ args }: { args: string[] }) {
       <Box flexDirection="column">
         {STEPS.map(({ key, label }) => {
           const s = steps[key] ?? { state: "pending" as StepState };
-          return <StepRow key={key} state={s.state} label={label} detail={s.detail} pct={s.pct} elapsedMs={s.elapsedMs} />;
+          return (
+            <StepRow
+              key={key}
+              state={s.state}
+              label={label}
+              detail={s.detail}
+              pct={s.pct}
+              elapsedMs={s.elapsedMs}
+            />
+          );
         })}
       </Box>
       {notes.length > 0 && (
         <Box marginTop={1} flexDirection="column">
-          {notes.map((n, i) => <Text key={i} color={n.startsWith("✗") || n.startsWith("ERROR") ? theme.err : n.startsWith("⚠") ? theme.warn : undefined} dimColor={!/^[✗⚠E]/.test(n)}>{n}</Text>)}
+          {notes.map((n, i) => (
+            <Text
+              key={i}
+              color={
+                n.startsWith("✗") || n.startsWith("ERROR")
+                  ? theme.err
+                  : n.startsWith("⚠")
+                    ? theme.warn
+                    : undefined
+              }
+              dimColor={!/^[✗⚠E]/.test(n)}
+            >
+              {n}
+            </Text>
+          ))}
         </Box>
       )}
       {result?.ok && (
         <Box marginTop={1}>
           <Panel title="deployed ✓" color={theme.ok}>
-            <KV full rows={[
-              ["contract", name],
-              ["slot", String(result.slot)],
-              ["address", addr || `id(${result.slot},0,0,0)`],
-              ["tx", result.txId ?? "—"],
-              ["codeHash", result.hash ?? "—"],
-              ["fns/procs", result.idl ? `${Object.keys(result.idl.functions).length} / ${Object.keys(result.idl.procedures).length}` : "—"],
-            ]} />
-            <Box marginTop={1}><Text dimColor>next: </Text><Text bold color={theme.accent}>qinit call</Text></Box>
+            <KV
+              full
+              rows={[
+                ["contract", name],
+                ["slot", String(result.slot)],
+                ["address", addr || `id(${result.slot},0,0,0)`],
+                ["tx", result.txId ?? "—"],
+                ["codeHash", result.hash ?? "—"],
+                [
+                  "fns/procs",
+                  result.idl
+                    ? `${Object.keys(result.idl.functions).length} / ${Object.keys(result.idl.procedures).length}`
+                    : "—",
+                ],
+              ]}
+            />
+            <Box marginTop={1}>
+              <Text dimColor>next: </Text>
+              <Text bold color={theme.accent}>
+                qinit call
+              </Text>
+            </Box>
           </Panel>
         </Box>
       )}
-      {result && !result.ok && <Box marginTop={1}><Panel title="deploy failed" color={theme.err}><Text>{result.reason ?? result.error ?? "see steps above"}</Text></Panel></Box>}
-      {!result && <Box marginTop={1}><Text dimColor>…</Text></Box>}
+      {result && !result.ok && (
+        <Box marginTop={1}>
+          <Panel title="deploy failed" color={theme.err}>
+            <Text>{result.reason ?? result.error ?? "see steps above"}</Text>
+          </Panel>
+        </Box>
+      )}
+      {!result && (
+        <Box marginTop={1}>
+          <Text dimColor>…</Text>
+        </Box>
+      )}
     </Box>
   );
 }

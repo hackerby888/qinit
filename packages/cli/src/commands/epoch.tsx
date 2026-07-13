@@ -10,7 +10,11 @@ import { Header, Spinner, Bar, KV, theme } from "../ui";
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = { sub: "" };
   const pos: string[] = [];
-  for (let i = 0; i < args.length; i++) { const a = args[i]; if (a === "--rpc") o.rpc = args[++i] ?? ""; else if (!a.startsWith("--")) pos.push(a); }
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === "--rpc") o.rpc = args[++i] ?? "";
+    else if (!a.startsWith("--")) pos.push(a);
+  }
   o.sub = pos[0] ?? "";
   return o;
 }
@@ -37,29 +41,64 @@ export function Epoch({ args }: { args: string[] }) {
           setProg(null);
           setBusy("transitioning to the next epoch");
           let r = await rpc.advanceEpoch();
-          for (let i = 0; i < 3 && !r.switched; i++) r = await rpc.advanceEpoch();   // a few nudges if the boundary needs more ticks
-          if (!r.switched) throw new Error(`epoch did not switch (still ${r.toEpoch}, tick ${r.tick}) — node may have timed out`);
-          setRows([["epoch", `${r.fromEpoch} → ${r.toEpoch}`], ["tick", `${e.tick} → ${r.tick}`], ["new epoch start tick", String(r.initialTick)]]);
+          for (let i = 0; i < 3 && !r.switched; i++) r = await rpc.advanceEpoch(); // a few nudges if the boundary needs more ticks
+          if (!r.switched)
+            throw new Error(
+              `epoch did not switch (still ${r.toEpoch}, tick ${r.tick}) — node may have timed out`,
+            );
+          setRows([
+            ["epoch", `${r.fromEpoch} → ${r.toEpoch}`],
+            ["tick", `${e.tick} → ${r.tick}`],
+            ["new epoch start tick", String(r.initialTick)],
+          ]);
         } else if (o.sub) {
           throw new Error(`unknown subcommand '${o.sub}' (use: advance)`);
         } else {
-          setRows([["epoch", String(e.epoch)], ["tick", String(e.tick)], ["epoch last tick", String(e.epochLastTick)],
-            ["ticks left", String(e.ticksLeft)], ["epoch length", `${e.duration} ticks`]]);
+          setRows([
+            ["epoch", String(e.epoch)],
+            ["tick", String(e.tick)],
+            ["epoch last tick", String(e.epochLastTick)],
+            ["ticks left", String(e.ticksLeft)],
+            ["epoch length", `${e.duration} ticks`],
+          ]);
         }
-      } catch (e: any) { setErr(String(e?.message ?? e)); }
-      setProg(null); setBusy("");
+      } catch (e: any) {
+        setErr(String(e?.message ?? e));
+      }
+      setProg(null);
+      setBusy("");
     })();
   }, []);
-  useEffect(() => { if (rows || err) { const t = setTimeout(() => exit(), 30); return () => clearTimeout(t); } }, [rows, err]);
+  useEffect(() => {
+    if (rows || err) {
+      const t = setTimeout(() => exit(), 30);
+      return () => clearTimeout(t);
+    }
+  }, [rows, err]);
 
-  const pct = prog && prog.target > prog.from ? (prog.cur - prog.from) / (prog.target - prog.from) : 1;
+  const pct =
+    prog && prog.target > prog.from ? (prog.cur - prog.from) / (prog.target - prog.from) : 1;
   return (
     <Box flexDirection="column">
       <Header cmd="epoch" />
-      {prog && <Box flexDirection="column"><Text dimColor>fast-ticking to the epoch boundary</Text><Text><Bar pct={pct} /> <Text dimColor>tick {prog.cur} / {prog.target}</Text></Text></Box>}
+      {prog && (
+        <Box flexDirection="column">
+          <Text dimColor>fast-ticking to the epoch boundary</Text>
+          <Text>
+            <Bar pct={pct} />{" "}
+            <Text dimColor>
+              tick {prog.cur} / {prog.target}
+            </Text>
+          </Text>
+        </Box>
+      )}
       {busy && !prog && <Spinner label={busy} />}
       {err && <Text color={theme.err}>ERROR: {err}</Text>}
-      {rows && <Box marginTop={1}><KV rows={rows} /></Box>}
+      {rows && (
+        <Box marginTop={1}>
+          <KV rows={rows} />
+        </Box>
+      )}
     </Box>
   );
 }

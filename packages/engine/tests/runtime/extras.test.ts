@@ -21,7 +21,9 @@ test("nextId / prevId iterate the occupied spectrum entities", async () => {
   await initK12();
 
   const sim = new Sim();
-  const A = ID(0x11), B = ID(0x22), C = ID(0x33);
+  const A = ID(0x11),
+    B = ID(0x22),
+    C = ID(0x33);
   sim.fund(A, 1n);
   sim.fund(B, 1n);
   sim.fund(C, 1n);
@@ -38,7 +40,8 @@ test("nextId via the wasm host import (Token.NextId)", async () => {
 
   const sim = new Sim();
   sim.deploy(28, await wasm("Token"));
-  const A = ID(0x44), B = ID(0x55);
+  const A = ID(0x44),
+    B = ID(0x55);
   sim.fund(A, 1n);
   sim.fund(B, 1n);
 

@@ -55,13 +55,29 @@ function reference(x: bigint, k: bigint, ahi: bigint, alo: bigint, bhi: bigint, 
     s8: U64(BigInt.asIntN(8, U64(x))),
     s16: U64(BigInt.asIntN(16, U64(x))),
     cmp: (U64(x) & 0xffn) === U64(k) ? 1n : 0n,
-    andlo: lo(a & b), andhi: hi(a & b),
-    orlo: lo(a | b), orhi: hi(a | b),
-    xorlo: lo(a ^ b), xorhi: hi(a ^ b),
+    andlo: lo(a & b),
+    andhi: hi(a & b),
+    orlo: lo(a | b),
+    orhi: hi(a | b),
+    xorlo: lo(a ^ b),
+    xorhi: hi(a ^ b),
   };
 }
 
-const OUT_FIELDS = ["m8", "m16", "m32", "s8", "s16", "cmp", "andlo", "andhi", "orlo", "orhi", "xorlo", "xorhi"] as const;
+const OUT_FIELDS = [
+  "m8",
+  "m16",
+  "m32",
+  "s8",
+  "s16",
+  "cmp",
+  "andlo",
+  "andhi",
+  "orlo",
+  "orhi",
+  "xorlo",
+  "xorhi",
+] as const;
 
 describe("tier-1: uint128 bitwise & narrowing casts", () => {
   beforeAll(async () => {
@@ -69,12 +85,24 @@ describe("tier-1: uint128 bitwise & narrowing casts", () => {
   });
 
   test("compiles clean under the strict fidelity gate", async () => {
-    const r = await compileContract({ source: SRC, name: "T1", slot: 6, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const r = await compileContract({
+      source: SRC,
+      name: "T1",
+      slot: 6,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   });
 
   test("engine output matches the C++-semantics reference", async () => {
-    const mine = await compileContract({ source: SRC, name: "T1", slot: 6, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const mine = await compileContract({
+      source: SRC,
+      name: "T1",
+      slot: 6,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
@@ -83,7 +111,9 @@ describe("tier-1: uint128 bitwise & narrowing casts", () => {
     const run = (x: bigint, k: bigint, ahi: bigint, alo: bigint, bhi: bigint, blo: bigint) => {
       const inp = new Uint8Array(48);
       const dv = new DataView(inp.buffer);
-      [x, k, ahi, alo, bhi, blo].forEach((v, i) => dv.setBigInt64(i * 8, BigInt.asIntN(64, v), true));
+      [x, k, ahi, alo, bhi, blo].forEach((v, i) =>
+        dv.setBigInt64(i * 8, BigInt.asIntN(64, v), true),
+      );
       const out = sim.query(6, 1, inp);
       const odv = new DataView(out.buffer, out.byteOffset, out.byteLength);
       const got: Record<string, bigint> = {};
@@ -95,7 +125,14 @@ describe("tier-1: uint128 bitwise & narrowing casts", () => {
       // x picks a full 64-bit pattern; k = low byte of x so the in-register compare must narrow to match.
       [0x1234_5678_9abc_def0n, 0xf0n, 0xf0f0n, 0x00ff_00ffn, 0x0ff0n, 0xff00_ff00n],
       // high limbs differ in the top nibble → a truncate-to-low impl gets every *hi wrong.
-      [0x0000_0000_0000_0100n, 0x00n, 0xdead_0000_0000_beefn, 0x1111_2222_3333_4444n, 0xf0f0_ffff_0000_0f0fn, 0xaaaa_5555_cccc_3333n],
+      [
+        0x0000_0000_0000_0100n,
+        0x00n,
+        0xdead_0000_0000_beefn,
+        0x1111_2222_3333_4444n,
+        0xf0f0_ffff_0000_0f0fn,
+        0xaaaa_5555_cccc_3333n,
+      ],
       [0xffn, 0xffn, 0x0n, 0x0n, 0x0n, 0x0n],
       [0x0n, 0x1n, 0x8000_0000_0000_0000n, 0x1n, 0x8000_0000_0000_0001n, 0x2n],
     ];

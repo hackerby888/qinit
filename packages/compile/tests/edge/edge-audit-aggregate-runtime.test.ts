@@ -19,7 +19,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function run(members: string, body: string): Promise<bigint> {
-  const result = await compileContract({ source: wrap(members, body), name: "AggregateRuntimeEdge", slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+  const result = await compileContract({
+    source: wrap(members, body),
+    name: "AggregateRuntimeEdge",
+    slot: 27,
+    qpiHeader: HEADERS,
+    arenaSz: 1 << 20,
+  });
   expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   expect(WebAssembly.validate(result.wasm)).toBe(true);
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });

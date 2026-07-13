@@ -81,7 +81,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-const QUEUE_GTEST = coreGtest("Queue", `TEST(LinkedList, AddInsertTraverseRemove) {
+const QUEUE_GTEST = coreGtest(
+  "Queue",
+  `TEST(LinkedList, AddInsertTraverseRemove) {
   ContractTestingHarness t;
   QPI::id u1 = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u1, 1000000000ll);
@@ -160,7 +162,8 @@ TEST(LinkedList, ResetAndReuse) {
   EXPECT_EQ(r2.pop, 1ull);
   EXPECT_EQ(r2.fwdTagChain, 3ull);
 }
-`);
+`,
+);
 
 const wasi = wasiToolchain();
 
@@ -169,31 +172,49 @@ describe("differential gtest — LinkedList (add/insert/traverse/remove/reset)",
     await initK12();
   });
 
-  toolchainTest("my LinkedList contract passes the native LinkedList gtest", wasi, async () => {
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "linkedlist-diff-"));
-    const contractPath = join(dir, "Queue.h");
-    writeFileSync(contractPath, QUEUE);
+  toolchainTest(
+    "my LinkedList contract passes the native LinkedList gtest",
+    wasi,
+    async () => {
+      const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const dir = mkdtempSync(join(tmpdir(), "linkedlist-diff-"));
+      const contractPath = join(dir, "Queue.h");
+      writeFileSync(contractPath, QUEUE);
 
-    const testPath = join(dir, "Queue.test.cpp");
-    writeFileSync(testPath, QUEUE_GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Queue", stateType: "Queue", slot: 28,
-      corePath: CORE, outDir: dir,
-    });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
+      const testPath = join(dir, "Queue.test.cpp");
+      writeFileSync(testPath, QUEUE_GTEST);
+      const built = await buildCorpusRunner({
+        corpusPath: testPath,
+        contractPath,
+        name: "Queue",
+        stateType: "Queue",
+        slot: 28,
+        corePath: CORE,
+        outDir: dir,
+      });
+      expect(built.ok).toBe(true);
+      const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: QUEUE, name: "Queue", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
-    expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+      const mine = await compileContract({
+        source: QUEUE,
+        name: "Queue",
+        slot: 28,
+        qpiHeader: HEADERS,
+        arenaSz: 1024 * 1024,
+      });
+      expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
-    for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`);
-    }
-    expect(results.length).toBeGreaterThan(0);
-    expect(results.every((r) => r.passed)).toBe(true);
-  }, 120000);
+      const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
+      for (const r of results) {
+        console.log(
+          `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message}`,
+        );
+      }
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.every((r) => r.passed)).toBe(true);
+    },
+    120000,
+  );
 });

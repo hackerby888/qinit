@@ -1,15 +1,27 @@
 // Browser entry for @qinit/compile.
-import type { CompileOpts, CompileResult, ContractIdl, CalleeIdl, GtestCompileResult } from "./compiler/types";
-import { compileContract as compileWithHeader, compileGtest as compileGtestWithHeader } from "./compiler/pipeline";
+import type {
+  CompileOpts,
+  CompileResult,
+  ContractIdl,
+  CalleeIdl,
+  GtestCompileResult,
+} from "./compiler/types";
+import {
+  compileContract as compileWithHeader,
+  compileGtest as compileGtestWithHeader,
+} from "./compiler/pipeline";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "./generated/qpi-snapshot";
 
-export type { CompileOpts, CompileResult, ContractIdl, CalleeIdl, GtestCompileResult, GtestProgram } from "./compiler/types";
+export type {
+  CompileOpts,
+  CompileResult,
+  ContractIdl,
+  CalleeIdl,
+  GtestCompileResult,
+  GtestProgram,
+} from "./compiler/types";
 export type { Diagnostic as CompileDiagnostic } from "./parser";
-export {
-  inspectLiteWasmModule,
-  LHOST_ABI,
-  LITE_WASM_FUNCTION_ABI,
-} from "./compiler/wasm-inspect";
+export { inspectLiteWasmModule, LHOST_ABI, LITE_WASM_FUNCTION_ABI } from "./compiler/wasm-inspect";
 export type {
   LiteWasmInspection,
   LiteWasmInspectionOptions,
@@ -43,6 +55,8 @@ export async function compileContract(opts: BrowserCompileOpts): Promise<Compile
   return compileWithHeader({ ...opts, qpiHeader: opts.qpiHeader ?? QPI_SNAPSHOT });
 }
 
-export async function compileGtest(opts: BrowserCompileOpts & { testSource: string }): Promise<GtestCompileResult> {
+export async function compileGtest(
+  opts: BrowserCompileOpts & { testSource: string },
+): Promise<GtestCompileResult> {
   return compileGtestWithHeader({ ...opts, qpiHeader: opts.qpiHeader ?? QPI_SNAPSHOT });
 }

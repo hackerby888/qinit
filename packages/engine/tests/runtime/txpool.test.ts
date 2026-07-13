@@ -4,11 +4,28 @@ import { test, expect } from "bun:test";
 import { TxPool, type TxRecord, type QueuedTx } from "../../src/txs";
 
 function rec(txId: string, tick: number): TxRecord {
-  return { txId, tick, source: "aa", dest: "bb", amount: 5n, inputType: 0, moneyFlew: true, digest: new Uint8Array(32) };
+  return {
+    txId,
+    tick,
+    source: "aa",
+    dest: "bb",
+    amount: 5n,
+    inputType: 0,
+    moneyFlew: true,
+    digest: new Uint8Array(32),
+  };
 }
 
 function qtx(txId: string): QueuedTx {
-  return { source: new Uint8Array(32), dest: new Uint8Array(32), amount: 1n, inputType: 0, payload: new Uint8Array(0), txId, digest: new Uint8Array(32) };
+  return {
+    source: new Uint8Array(32),
+    dest: new Uint8Array(32),
+    amount: 1n,
+    inputType: 0,
+    payload: new Uint8Array(0),
+    txId,
+    digest: new Uint8Array(32),
+  };
 }
 
 test("record indexes a tx under its tick and by id; size counts unique txs", () => {

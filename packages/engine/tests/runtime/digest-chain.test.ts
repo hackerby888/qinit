@@ -17,12 +17,19 @@ beforeAll(async () => {
 });
 
 async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${import.meta.dir}/../fixtures/${name}.wasm`).arrayBuffer());
+  return new Uint8Array(
+    await Bun.file(`${import.meta.dir}/../fixtures/${name}.wasm`).arrayBuffer(),
+  );
 }
 
 // Count the votes that (a) carry a valid signature from their computor and (b) commit `expected` at the named
 // prev*Digest field — the generalized form of verifyEntityProof's spectrum check, for any of the three roots.
-function signedVotesCommitting(votes: Tick[], committee: ReturnType<Sim["getCommittee"]>, field: "prevSpectrumDigest" | "prevUniverseDigest" | "prevComputerDigest", expected: Uint8Array): number {
+function signedVotesCommitting(
+  votes: Tick[],
+  committee: ReturnType<Sim["getCommittee"]>,
+  field: "prevSpectrumDigest" | "prevUniverseDigest" | "prevComputerDigest",
+  expected: Uint8Array,
+): number {
   let n = 0;
   for (const vote of votes) {
     const c = committee.computors[vote.computorIndex];
@@ -64,7 +71,9 @@ test("the spectrum root: proof reconstruction == spectrumDigest == a quorum of s
   const proof = sim.spectrumProof(A);
   const root = rootFromSiblings(proof.record, proof.index, proof.siblings);
   expect(toHex(root)).toBe(toHex(sim.spectrumDigest()));
-  expect(signedVotesCommitting(rec.votes, committee, "prevSpectrumDigest", root)).toBeGreaterThanOrEqual(committee.quorum);
+  expect(
+    signedVotesCommitting(rec.votes, committee, "prevSpectrumDigest", root),
+  ).toBeGreaterThanOrEqual(committee.quorum);
 });
 
 test("the universe root: an asset holding proof == universeDigest == a quorum of signed votes", async () => {
@@ -77,7 +86,9 @@ test("the universe root: an asset holding proof == universeDigest == a quorum of
   const proof = owned[0];
   const root = rootFromSiblings(proof.record, proof.index, proof.siblings);
   expect(toHex(root)).toBe(toHex(sim.universeDigest()));
-  expect(signedVotesCommitting(rec.votes, committee, "prevUniverseDigest", root)).toBeGreaterThanOrEqual(committee.quorum);
+  expect(
+    signedVotesCommitting(rec.votes, committee, "prevUniverseDigest", root),
+  ).toBeGreaterThanOrEqual(committee.quorum);
 });
 
 test("the computer root: computerDigest is committed by a quorum of signed votes", async () => {
@@ -86,7 +97,9 @@ test("the computer root: computerDigest is committed by a quorum of signed votes
   const rec = sim.tickRecord(sim.tickN)!;
 
   const root = sim.computerDigest();
-  expect(signedVotesCommitting(rec.votes, committee, "prevComputerDigest", root)).toBeGreaterThanOrEqual(committee.quorum);
+  expect(
+    signedVotesCommitting(rec.votes, committee, "prevComputerDigest", root),
+  ).toBeGreaterThanOrEqual(committee.quorum);
 });
 
 test("a tampered asset record fails the universe digest chain (no votes commit the forged root)", async () => {

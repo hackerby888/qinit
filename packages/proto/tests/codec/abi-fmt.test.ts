@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { encodeInput, decodeOutput, structFieldOffsets, layoutOf, parseLayout, zeroInputFmt } from "../../src/abi-fmt";
+import {
+  encodeInput,
+  decodeOutput,
+  structFieldOffsets,
+  layoutOf,
+  parseLayout,
+  zeroInputFmt,
+} from "../../src/abi-fmt";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 const bytes = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16)));
@@ -57,7 +64,10 @@ test("array round-trip", async () => {
 
 test("nested: array of structs", async () => {
   const b = await encodeInput("[2; { 1uint32, 2uint32 }, { 3uint32, 4uint32 }]");
-  expect(await decodeOutput(b, "[2; { uint32, uint32 }]")).toEqual([[1, 2], [3, 4]]);
+  expect(await decodeOutput(b, "[2; { uint32, uint32 }]")).toEqual([
+    [1, 2],
+    [3, 4],
+  ]);
 });
 
 test("id round-trip (32-byte pubkey <-> 60-char identity)", async () => {
@@ -79,13 +89,20 @@ test("m256i (digest) round-trips as hex, not an identity", async () => {
 });
 
 test("deep nested: array of structs with an inner array", async () => {
-  const b = await encodeInput("[2; { 1uint32, [2; 2uint16, 3uint16] }, { 4uint32, [2; 5uint16, 6uint16] }]");
-  expect(await decodeOutput(b, "[2; { uint32, [2; uint16] }]")).toEqual([[1, [2, 3]], [4, [5, 6]]]);
+  const b = await encodeInput(
+    "[2; { 1uint32, [2; 2uint16, 3uint16] }, { 4uint32, [2; 5uint16, 6uint16] }]",
+  );
+  expect(await decodeOutput(b, "[2; { uint32, [2; uint16] }]")).toEqual([
+    [1, [2, 3]],
+    [4, [5, 6]],
+  ]);
 });
 
 test("rejects a malformed id (not 60-char identity nor 64-hex)", async () => {
   await expect(encodeInput("abcid")).rejects.toThrow(/id must be/);
-  await expect(encodeInput("notavalidlowercaseidentitynotavalidlowercaseidentitynotavaid")).rejects.toThrow(/id must be/);
+  await expect(
+    encodeInput("notavalidlowercaseidentitynotavalidlowercaseidentitynotavaid"),
+  ).rejects.toThrow(/id must be/);
 });
 
 test("rejects a malformed m256i (not 64 hex)", async () => {
@@ -107,21 +124,30 @@ test("bit round-trips 0/1", async () => {
 
 // ---- structFieldOffsets / layoutOf / parseLayout: the alignment math decode-log + state-diff rely on ----
 test("structFieldOffsets: internal padding (uint8 then uint64 lands at 8)", () => {
-  expect(structFieldOffsets("uint8, uint64")).toEqual([{ off: 0, size: 1 }, { off: 8, size: 8 }]);
-  expect(structFieldOffsets("uint64, uint8")).toEqual([{ off: 0, size: 8 }, { off: 8, size: 1 }]);
+  expect(structFieldOffsets("uint8, uint64")).toEqual([
+    { off: 0, size: 1 },
+    { off: 8, size: 8 },
+  ]);
+  expect(structFieldOffsets("uint64, uint8")).toEqual([
+    { off: 0, size: 8 },
+    { off: 8, size: 1 },
+  ]);
 });
 
 test("structFieldOffsets: a nested struct field is aligned + sized as a unit", () => {
   // uint32@0(4), then {uint8,uint64} (align 8, size 16) @8
-  expect(structFieldOffsets("uint32, { uint8, uint64 }")).toEqual([{ off: 0, size: 4 }, { off: 8, size: 16 }]);
+  expect(structFieldOffsets("uint32, { uint8, uint64 }")).toEqual([
+    { off: 0, size: 4 },
+    { off: 8, size: 16 },
+  ]);
 });
 
 test("layoutOf: TAIL padding included (sizeof != end-of-last-field)", () => {
-  expect(layoutOf("{ uint64, uint8 }")).toEqual({ size: 16, align: 8 });  // 9 bytes used -> padded to 16
+  expect(layoutOf("{ uint64, uint8 }")).toEqual({ size: 16, align: 8 }); // 9 bytes used -> padded to 16
   expect(layoutOf("uint8")).toEqual({ size: 1, align: 1 });
   expect(layoutOf("m256i")).toEqual({ size: 32, align: 8 });
   expect(layoutOf("uint128")).toEqual({ size: 16, align: 8 });
-  expect(layoutOf("[3;uint16]")).toEqual({ size: 6, align: 2 });          // 3 * stride(2)
+  expect(layoutOf("[3;uint16]")).toEqual({ size: 6, align: 2 }); // 3 * stride(2)
 });
 
 test("layoutOf: HashMap<id,uint64,1024> expansion sizeof = 41232 (matches C++ StateData)", () => {
@@ -135,7 +161,7 @@ test("parseLayout: empty -> empty struct; unknown type throws", () => {
 });
 
 test("decodeOutput on a truncated buffer throws (out-of-bounds read)", async () => {
-  await expect(decodeOutput(new Uint8Array(4), "uint64")).rejects.toThrow();  // needs 8 bytes
+  await expect(decodeOutput(new Uint8Array(4), "uint64")).rejects.toThrow(); // needs 8 bytes
 });
 
 test("repeat shorthand: ×N expands to N copies (array, byte-exact + == hand-expanded)", async () => {
@@ -148,33 +174,43 @@ test("repeat shorthand: ×N expands to N copies (array, byte-exact + == hand-exp
 
 test("repeat shorthand: x and * variants, spaces optional (9uint32x32 valid)", async () => {
   const ref = await encodeInput("[3; 7uint64, 7uint64, 7uint64]");
-  expect(hex(await encodeInput("[3; 7uint64x3]"))).toBe(hex(ref));       // bare x, no space
-  expect(hex(await encodeInput("[3; 7uint64 * 3]"))).toBe(hex(ref));     // * with spaces
-  expect(hex(await encodeInput("[3; 7uint64×3]"))).toBe(hex(ref));       // × no space
-  expect((await encodeInput("[64; 0uint64 ×64]")).length).toBe(64 * 8);  // the RANDOM reveal case
+  expect(hex(await encodeInput("[3; 7uint64x3]"))).toBe(hex(ref)); // bare x, no space
+  expect(hex(await encodeInput("[3; 7uint64 * 3]"))).toBe(hex(ref)); // * with spaces
+  expect(hex(await encodeInput("[3; 7uint64×3]"))).toBe(hex(ref)); // × no space
+  expect((await encodeInput("[64; 0uint64 ×64]")).length).toBe(64 * 8); // the RANDOM reveal case
 });
 
 test("repeat shorthand: struct + top-level reps; non-repeat tokens untouched", async () => {
   const ref = await encodeInput("{1uint32, 2uint32}, {1uint32, 2uint32}, 5uint64");
-  expect(hex(await encodeInput("{1uint32, 2uint32} ×2, 5uint64"))).toBe(hex(ref));   // struct repeat
-  expect(hex(await encodeInput("5uint64 ×3"))).toBe(hex(await encodeInput("5uint64, 5uint64, 5uint64")));
-  expect((await encodeInput("ee".repeat(32) + "id")).length).toBe(32);  // 64-hex id (no x): unaffected
+  expect(hex(await encodeInput("{1uint32, 2uint32} ×2, 5uint64"))).toBe(hex(ref)); // struct repeat
+  expect(hex(await encodeInput("5uint64 ×3"))).toBe(
+    hex(await encodeInput("5uint64, 5uint64, 5uint64")),
+  );
+  expect((await encodeInput("ee".repeat(32) + "id")).length).toBe(32); // 64-hex id (no x): unaffected
 });
 
 test("zeroInputFmt: builds a schema-matched all-zero sample (scalar/id/array/struct)", async () => {
   expect(zeroInputFmt("uint64")).toBe("0uint64");
   expect(zeroInputFmt("[64; uint64], id")).toBe(`[64; 0uint64 ×64], ${"0".repeat(64)}id`);
-  expect(zeroInputFmt("{ uint32, id }")).toBe(`0uint32, ${"0".repeat(64)}id`);   // top-level struct -> implicit field list (no braces, encodeInput-consistent)
+  expect(zeroInputFmt("{ uint32, id }")).toBe(`0uint32, ${"0".repeat(64)}id`); // top-level struct -> implicit field list (no braces, encodeInput-consistent)
   expect(zeroInputFmt("uint16, uint32")).toBe("0uint16, 0uint32");
   expect(zeroInputFmt("m256i")).toBe(`${"0".repeat(64)}m256i`);
   expect(zeroInputFmt("uint128")).toBe("0uint128");
 });
 
 test("zeroInputFmt: the sample is valid input — encodes to exactly the layout size", async () => {
-  for (const fmt of ["uint64", "uint128", "[64; uint64], id", "{ uint32, id }", "uint16, uint32", "m256i", "[3; { uint8, uint64 }]"]) {
+  for (const fmt of [
+    "uint64",
+    "uint128",
+    "[64; uint64], id",
+    "{ uint32, id }",
+    "uint16, uint32",
+    "m256i",
+    "[3; { uint8, uint64 }]",
+  ]) {
     const sample = zeroInputFmt(fmt);
     const b = await encodeInput(sample);
-    expect(hex(b)).toBe("00".repeat(b.length));            // all zero
-    expect(b.length).toBe(layoutOf(fmt).size);             // matches the entry's input scheme byte-for-byte
+    expect(hex(b)).toBe("00".repeat(b.length)); // all zero
+    expect(b.length).toBe(layoutOf(fmt).size); // matches the entry's input scheme byte-for-byte
   }
 });

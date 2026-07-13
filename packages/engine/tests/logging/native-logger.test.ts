@@ -23,7 +23,9 @@ describe("native logging store", () => {
     expect(view.getBigUint64(10, true)).toBe(0n);
     const stamped = record.slice(LOG_HEADER_SIZE);
     expect(new DataView(stamped.buffer).getUint32(0, true)).toBe(28);
-    expect(view.getBigUint64(18, true)).toBe(new DataView(k12Bytes(stamped).buffer).getBigUint64(0, true));
+    expect(view.getBigUint64(18, true)).toBe(
+      new DataView(k12Bytes(stamped).buffer).getBigUint64(0, true),
+    );
     expect(logger.digest(12)?.some((x) => x !== 0)).toBe(true);
   });
 

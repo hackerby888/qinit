@@ -106,19 +106,36 @@ describe("32-bit width fidelity vs native", () => {
   });
 
   for (const [name, c] of Object.entries(CASES)) {
-    test(name, async () => {
-      const src = wrap(c.body);
-      const ours = await compileContract({ source: src, name: "W32", slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
-      expect(ours.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
-      expect(run(ours.wasm)).toBe(c.expect);
+    test(
+      name,
+      async () => {
+        const src = wrap(c.body);
+        const ours = await compileContract({
+          source: src,
+          name: "W32",
+          slot: 27,
+          qpiHeader: HEADERS,
+          arenaSz: 1 << 20,
+        });
+        expect(ours.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+        expect(run(ours.wasm)).toBe(c.expect);
 
-      if (wasiOk) {
-        const dir = mkdtempSync(join(tmpdir(), "w32-"));
-        writeFileSync(join(dir, "W32.h"), src);
-        const built = await buildContract({ contractPath: join(dir, "W32.h"), name: "W32", slot: 27, corePath: CORE, outDir: dir, skipVerify: true });
-        expect(built.ok).toBe(true);
-        expect(run(new Uint8Array(readFileSync(built.so!)))).toBe(c.expect);
-      }
-    }, 180000);
+        if (wasiOk) {
+          const dir = mkdtempSync(join(tmpdir(), "w32-"));
+          writeFileSync(join(dir, "W32.h"), src);
+          const built = await buildContract({
+            contractPath: join(dir, "W32.h"),
+            name: "W32",
+            slot: 27,
+            corePath: CORE,
+            outDir: dir,
+            skipVerify: true,
+          });
+          expect(built.ok).toBe(true);
+          expect(run(new Uint8Array(readFileSync(built.so!)))).toBe(c.expect);
+        }
+      },
+      180000,
+    );
   }
 });

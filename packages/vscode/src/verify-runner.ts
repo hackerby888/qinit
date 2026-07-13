@@ -23,17 +23,27 @@ export class VerifyRunner implements vscode.Disposable {
       (_err, stdout) => {
         // qinit verify exits 1 on violations (execFile yields an error) — read stdout regardless.
         const errs = verifyErrors(parseVerifyJson(String(stdout)));
-        if (!errs.length) { this.coll.delete(uri); return; }
+        if (!errs.length) {
+          this.coll.delete(uri);
+          return;
+        }
         const at = new vscode.Range(0, 0, 0, 1);
-        this.coll.set(uri, errs.map((m) => {
-          const d = new vscode.Diagnostic(at, m, vscode.DiagnosticSeverity.Error);
-          d.source = "contractverify";
-          return d;
-        }));
+        this.coll.set(
+          uri,
+          errs.map((m) => {
+            const d = new vscode.Diagnostic(at, m, vscode.DiagnosticSeverity.Error);
+            d.source = "contractverify";
+            return d;
+          }),
+        );
       },
     );
   }
 
-  clear(uri: vscode.Uri): void { this.coll.delete(uri); }
-  dispose(): void { this.coll.dispose(); }
+  clear(uri: vscode.Uri): void {
+    this.coll.delete(uri);
+  }
+  dispose(): void {
+    this.coll.dispose();
+  }
 }

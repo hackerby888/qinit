@@ -148,7 +148,9 @@ describe("authoritative QPI capability matrix", () => {
         arenaSz: 1 << 20,
         qpiHeader: await header(),
       });
-      expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+      expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual(
+        [],
+      );
       expect(result.wasm.byteLength).toBeGreaterThan(0);
       expect(inspectLiteWasmModule(result.wasm).ok).toBe(true);
     }, 60_000);
@@ -173,7 +175,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   PUBLIC_FUNCTION(Read) { output.first = state.get().first; output.second = state.get().second; }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Fill, 1); REGISTER_USER_FUNCTION(Read, 1); }
 };`;
-    const result = await compileContract({ source, name: "CustomHash", slot: 27, arenaSz: 1 << 20, qpiHeader: loadQpiHeader(CORE) });
+    const result = await compileContract({
+      source,
+      name: "CustomHash",
+      slot: 27,
+      arenaSz: 1 << 20,
+      qpiHeader: loadQpiHeader(CORE),
+    });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });

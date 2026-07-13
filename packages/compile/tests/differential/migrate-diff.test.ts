@@ -94,12 +94,25 @@ describe("differential — MIGRATE() redeploy state parity", () => {
     const buildNative = async (name: string, src: string) => {
       const contractPath = join(dir, `${name}.h`);
       writeFileSync(contractPath, src);
-      const built = await buildContract({ contractPath, name, slot: 26, corePath: CORE, outDir: dir, skipVerify: true });
+      const built = await buildContract({
+        contractPath,
+        name,
+        slot: 26,
+        corePath: CORE,
+        outDir: dir,
+        skipVerify: true,
+      });
       expect(built.ok).toBe(true);
       return new Uint8Array(readFileSync(built.so!));
     };
     const buildOurs = async (name: string, src: string) => {
-      const mine = await compileContract({ source: src, name, slot: 26, qpiHeader: HEADERS, arenaSz: 4 * 1024 * 1024 });
+      const mine = await compileContract({
+        source: src,
+        name,
+        slot: 26,
+        qpiHeader: HEADERS,
+        arenaSz: 4 * 1024 * 1024,
+      });
       expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
       return mine.wasm;
     };
@@ -136,7 +149,9 @@ describe("differential — MIGRATE() redeploy state parity", () => {
       expect(b.length).toBe(a.length);
       const firstDiff = a.findIndex((v, i) => b[i] !== v);
       if (firstDiff >= 0) {
-        console.log(`  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`);
+        console.log(
+          `  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
+        );
       }
       expect(firstDiff).toBe(-1);
     }
@@ -144,7 +159,7 @@ describe("differential — MIGRATE() redeploy state parity", () => {
     // Anchor against the intended transform (guards against both sides skipping the migration the same way): v1 ran Bump
     const dv = new DataView(nat.final.buffer, nat.final.byteOffset);
     expect(dv.getBigUint64(0, true)).toBe(1030n); // total
-    expect(dv.getBigUint64(8, true)).toBe(3n);    // counter
-    expect(dv.getBigUint64(16, true)).toBe(4n);   // migratedFrom
+    expect(dv.getBigUint64(8, true)).toBe(3n); // counter
+    expect(dv.getBigUint64(16, true)).toBe(4n); // migratedFrom
   }, 180000);
 });

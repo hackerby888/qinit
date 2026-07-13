@@ -1,14 +1,43 @@
 import { resolveAddr, emitAddr, allocSlot, narrowCast, argAddr } from "../addr";
 import { emitHelperFunction } from "../stmt";
 import { Codegen } from "../cg";
-import { emitValueIr, isUnsignedExpr, emitValue, promoteInfo, scalarTypeInfo, unsignedScalar, isU128Expr } from "../value";
+import {
+  emitValueIr,
+  isUnsignedExpr,
+  emitValue,
+  promoteInfo,
+  scalarTypeInfo,
+  unsignedScalar,
+  isU128Expr,
+} from "../value";
 import { FnCtx, HelperInfo, Bindings, NO_BIND } from "../types";
-import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, isAuthoritativeSymbol, symbolBaseName } from "../tables";
-import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
+import {
+  MATH_INTRINSIC_NAMES,
+  SCALAR_SIZE,
+  isAuthoritativeSymbol,
+  symbolBaseName,
+} from "../tables";
+import type {
+  TypeSpec,
+  Expression,
+  Statement,
+  Declaration,
+  StructDecl,
+  FunctionDecl,
+  FunctionTemplateDecl,
+  VariableDecl,
+  TemplateParam,
+  ParamDecl,
+} from "../../ast";
 import * as ir from "../../ir";
 
 // Call to a contract value helper (toReturnCode(...)): scalar args by value, aggregate args by address. valueWanted → returns
-export function compileLibFn(cg: Codegen, name: string, definition?: FunctionDecl, cacheKey = name): HelperInfo | null {
+export function compileLibFn(
+  cg: Codegen,
+  name: string,
+  definition?: FunctionDecl,
+  cacheKey = name,
+): HelperInfo | null {
   const cached = cg.helpers.get(cacheKey);
   if (cached) return cached;
   // Resolve via namespace candidates (using-directives + lexical source). libFns are keyed by full namespace path.
@@ -31,9 +60,18 @@ export function compileLibFn(cg: Codegen, name: string, definition?: FunctionDec
     const isPtrRef = (p.type.kind === "reference" && !isConstRef) || p.type.kind === "pointer";
     const isAddr = isPtrRef || cg.isAggregateType(p.type);
     const byValAgg = isAddr && p.type.kind !== "reference" && p.type.kind !== "pointer";
-    return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: cg.derefType(p.type), byValAgg };
+    return {
+      name: p.name,
+      wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64",
+      isAddr,
+      type: cg.derefType(p.type),
+      byValAgg,
+    };
   });
-  const retAgg = !cg.isVoidType(fn.returnType) && cg.isAggregateType(fn.returnType) ? cg.sizeOfType(fn.returnType) : undefined;
+  const retAgg =
+    !cg.isVoidType(fn.returnType) && cg.isAggregateType(fn.returnType)
+      ? cg.sizeOfType(fn.returnType)
+      : undefined;
   const retIsValue = !cg.isVoidType(fn.returnType) && !retAgg;
   const nameSep = resolvedKey.lastIndexOf("::");
   const authoritative = isAuthoritativeSymbol(resolvedKey);
@@ -47,14 +85,16 @@ export function compileLibFn(cg: Codegen, name: string, definition?: FunctionDec
     sourceNamespace: nameSep >= 0 ? resolvedKey.slice(0, nameSep) : undefined,
     usingNamespaces: lookup.usingNamespaces,
   };
-  cg.helpers.set(cacheKey, info);   // register before emit so recursion/sibling calls resolve
+  cg.helpers.set(cacheKey, info); // register before emit so recursion/sibling calls resolve
   try {
     const warningBase = cg.warnings.length;
     const errorBase = cg.errors.length;
     const wat = emitHelperFunction(cg, info, fn, { size: 0, align: 1, fields: new Map() });
-    if (authoritative &&
-        (cg.warnings.length !== warningBase || cg.errors.length !== errorBase)) {
-      const diagnostic = cg.errors[errorBase]?.message ?? cg.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
+    if (authoritative && (cg.warnings.length !== warningBase || cg.errors.length !== errorBase)) {
+      const diagnostic =
+        cg.errors[errorBase]?.message ??
+        cg.warnings[warningBase]?.message ??
+        "unknown lowering diagnostic";
       throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
     }
     cg.emittedMethodOrder.push(wat);
@@ -68,7 +108,12 @@ export function compileLibFn(cg: Codegen, name: string, definition?: FunctionDec
 }
 
 // Deduce template bindings (T→sint64, L→4) for a free function template from the concrete types of its call-site arguments:
-export function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args: Expression[], explicit: TypeSpec[] = []): Bindings {
+export function deduceLibFnBindings(
+  ctx: FnCtx,
+  def: FunctionTemplateDecl,
+  args: Expression[],
+  explicit: TypeSpec[] = [],
+): Bindings {
   const types = new Map<string, TypeSpec>();
   const values = new Map<string, bigint>();
   const typeParams = new Set(def.params.filter((p) => p.kind === "type").map((p) => p.name));
@@ -93,9 +138,14 @@ export function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args:
       if (isU128Expr(ctx, a)) return { kind: "name", name: "uint128_t" };
       const scalar = scalarTypeInfo(ctx, a);
       if (!scalar) return null;
-      const name = scalar.width <= 4
-        ? (scalar.unsigned ? "uint32" : "sint32")
-        : (scalar.unsigned ? "uint64" : "sint64");
+      const name =
+        scalar.width <= 4
+          ? scalar.unsigned
+            ? "uint32"
+            : "sint32"
+          : scalar.unsigned
+            ? "uint64"
+            : "sint64";
       return { kind: "name", name };
     }
     t = ctx.cg.derefType(t);
@@ -120,7 +170,8 @@ export function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args:
         const pa = pt.args[j];
         if (pa.kind !== "name") continue;
         if (typeParams.has(pa.name) && !types.has(pa.name)) types.set(pa.name, at.args[j]);
-        else if (valueParams.has(pa.name) && !values.has(pa.name)) values.set(pa.name, ctx.cg.valueOfTypeArg(at.args[j]));
+        else if (valueParams.has(pa.name) && !values.has(pa.name))
+          values.set(pa.name, ctx.cg.valueOfTypeArg(at.args[j]));
       }
     } else if (pt.kind === "name" && typeParams.has(pt.name) && !types.has(pt.name)) {
       const at = argType(arg);
@@ -131,7 +182,11 @@ export function deduceLibFnBindings(ctx: FnCtx, def: FunctionTemplateDecl, args:
 }
 
 // Pick the overload whose parameter patterns best match the concrete argument types. A concrete name
-export function pickLibFnOverload(ctx: FnCtx, defs: FunctionTemplateDecl[], args: Expression[]): FunctionTemplateDecl {
+export function pickLibFnOverload(
+  ctx: FnCtx,
+  defs: FunctionTemplateDecl[],
+  args: Expression[],
+): FunctionTemplateDecl {
   if (defs.length === 1) return defs[0];
 
   const argTypeOf = (a: Expression): TypeSpec | null => {
@@ -201,7 +256,11 @@ export function compileLibFnInstance(
   const cg = ctx.cg;
   const bind = deduceLibFnBindings(ctx, def, args, explicit);
   const keyArgs = def.params
-    .map((p) => (p.kind === "type" ? cg.typeKeyOf(bind.types.get(p.name) ?? { kind: "name", name: p.name }) : (bind.values.get(p.name)?.toString() ?? p.name)))
+    .map((p) =>
+      p.kind === "type"
+        ? cg.typeKeyOf(bind.types.get(p.name) ?? { kind: "name", name: p.name })
+        : (bind.values.get(p.name)?.toString() ?? p.name),
+    )
     .join(",");
   // The overload's source line disambiguates same-name defs whose deduced args coincide.
   const key = `${def.name}@${def.span?.line ?? 0}<${keyArgs}>`;
@@ -211,14 +270,24 @@ export function compileLibFnInstance(
   const params = (def.fnParams ?? []).map((p) => {
     const concrete = cg.substInBindings(cg.derefType(p.type), bind);
     const aggregate = cg.isAggregateType(concrete);
-    const constScalarRef = p.type.kind === "reference" && p.type.refereed.kind === "const" && !aggregate;
+    const constScalarRef =
+      p.type.kind === "reference" && p.type.refereed.kind === "const" && !aggregate;
     const isPtrRef = p.type.kind === "pointer" || (p.type.kind === "reference" && !constScalarRef);
     const isAddr = isPtrRef || aggregate;
     const byValAgg = isAddr && !isPtrRef && aggregate;
-    return { name: p.name, wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64", isAddr, type: concrete, byValAgg };
+    return {
+      name: p.name,
+      wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64",
+      isAddr,
+      type: concrete,
+      byValAgg,
+    };
   });
   const retT = cg.substInBindings(cg.derefType(def.returnType), bind);
-  const retAgg = !cg.isVoidType(def.returnType) && cg.isAggregateType(retT) ? cg.sizeOfType(retT, bind) : undefined;
+  const retAgg =
+    !cg.isVoidType(def.returnType) && cg.isAggregateType(retT)
+      ? cg.sizeOfType(retT, bind)
+      : undefined;
   const retIsValue = !cg.isVoidType(def.returnType) && !retAgg;
   const sourceSep = sourceKey.lastIndexOf("::");
   const lookup = cg.namespaceContextOf(def);
@@ -231,13 +300,16 @@ export function compileLibFnInstance(
     sourceNamespace: sourceSep >= 0 ? sourceKey.slice(0, sourceSep) : undefined,
     usingNamespaces: lookup.usingNamespaces,
   };
-  cg.helpers.set(key, info);   // register before emit so recursive/sibling calls resolve
+  cg.helpers.set(key, info); // register before emit so recursive/sibling calls resolve
   try {
     const warningBase = cg.warnings.length;
     const errorBase = cg.errors.length;
     const wat = emitHelperFunction(cg, info, def, { size: 0, align: 1, fields: new Map() }, bind);
     if (authoritative && (cg.warnings.length !== warningBase || cg.errors.length !== errorBase)) {
-      const diagnostic = cg.errors[errorBase]?.message ?? cg.warnings[warningBase]?.message ?? "unknown lowering diagnostic";
+      const diagnostic =
+        cg.errors[errorBase]?.message ??
+        cg.warnings[warningBase]?.message ??
+        "unknown lowering diagnostic";
       throw new Error(`authoritative body emitted a diagnostic: ${diagnostic}`);
     }
     cg.emittedMethodOrder.push(wat);
@@ -250,23 +322,41 @@ export function compileLibFnInstance(
   return info;
 }
 
-
 // Build the args for a helper call (scalar args by value, reference/aggregate args by address).
 export function helperCallOps(ctx: FnCtx, info: HelperInfo, args: Expression[]): string {
-  return info.params.map((p, i) => {
-    const arg = args[i];
-    if (!arg) throw new Error(`${info.sourceNamespace ?? info.label} is missing required argument ${i + 1}`);
-    if (p.isAddr) {
-      return argAddr(ctx, arg, ctx.cg.sizeOfType(p.type, ctx.thisBind ?? NO_BIND), p.type, false, true);
-    }
-    const declared = ctx.cg.derefType(p.type);
-    const value = narrowCast(emitValue(ctx, arg), declared.kind === "name" ? declared.name : undefined);
-    return p.wasmType === "i32" ? `(i32.wrap_i64 ${value})` : value;
-  }).join(" ");
+  return info.params
+    .map((p, i) => {
+      const arg = args[i];
+      if (!arg)
+        throw new Error(
+          `${info.sourceNamespace ?? info.label} is missing required argument ${i + 1}`,
+        );
+      if (p.isAddr) {
+        return argAddr(
+          ctx,
+          arg,
+          ctx.cg.sizeOfType(p.type, ctx.thisBind ?? NO_BIND),
+          p.type,
+          false,
+          true,
+        );
+      }
+      const declared = ctx.cg.derefType(p.type);
+      const value = narrowCast(
+        emitValue(ctx, arg),
+        declared.kind === "name" ? declared.name : undefined,
+      );
+      return p.wasmType === "i32" ? `(i32.wrap_i64 ${value})` : value;
+    })
+    .join(" ");
 }
 
 // Aggregate-returning helpers allocate destination first, then pass it as the leading $ret arg.
-export function emitAggHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, info: HelperInfo): string {
+export function emitAggHelperCall(
+  ctx: FnCtx,
+  expr: Expression & { kind: "call" },
+  info: HelperInfo,
+): string {
   const s = allocSlot(ctx, info.retAgg!);
   const ops = helperCallOps(ctx, info, expr.args);
   ctx.lines.push(`    (call ${info.label} ${s}${ops ? " " + ops : ""})`);
@@ -276,12 +366,20 @@ export function emitAggHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" 
 // Scalar width/signedness of a declared parameter or return type, or null for aggregates/unknowns.
 function scalarDeclInfo(ctx: FnCtx, t: TypeSpec): { width: number; unsigned: boolean } | null {
   const c = ctx.cg.derefType(t);
-  const name = c.kind === "name" && c.name.includes("::") ? c.name.slice(c.name.lastIndexOf("::") + 2) : c.kind === "name" ? c.name : "";
+  const name =
+    c.kind === "name" && c.name.includes("::")
+      ? c.name.slice(c.name.lastIndexOf("::") + 2)
+      : c.kind === "name"
+        ? c.name
+        : "";
   // The parser keeps a plain C `int` as `int`, while QPI's corresponding
   // typedef is spelled `sint32`. Treat the C spelling as its canonical signed
-  const canonical = name === "int" || name === "signed" ? "signed int"
-    : name === "unsigned" ? "unsigned int"
-    : name;
+  const canonical =
+    name === "int" || name === "signed"
+      ? "signed int"
+      : name === "unsigned"
+        ? "unsigned int"
+        : name;
   const normalized: TypeSpec = c.kind === "name" ? { ...c, name: canonical } : c;
   const sz = normalized.kind === "name" ? SCALAR_SIZE[normalized.name] : undefined;
   if (sz === undefined || sz > 8) return null;
@@ -334,7 +432,14 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
       const defs = ctx.cg.libFnOverloads.get(sourceKey);
       if (!defs?.length) continue;
       const compiled = defs
-        .map((definition, index) => compileLibFn(ctx.cg, sourceKey, definition, `${sourceKey}@${definition.span?.line ?? index}`))
+        .map((definition, index) =>
+          compileLibFn(
+            ctx.cg,
+            sourceKey,
+            definition,
+            `${sourceKey}@${definition.span?.line ?? index}`,
+          ),
+        )
         .filter((candidate): candidate is HelperInfo => candidate !== null);
       if (compiled.length) info = pickHelperOverload(ctx, compiled, expr.args);
       if (info) break;
@@ -347,40 +452,53 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
     // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call, picking the overload whose parameter patterns match the
     const templateKey = sourceKeys.find((key) => ctx.cg.libFnTemplates.has(key));
     const tdefs = templateKey ? ctx.cg.libFnTemplates.get(templateKey) : undefined;
-    if (tdefs?.length) info = compileLibFnInstance(
-      ctx,
-      pickLibFnOverload(ctx, tdefs, expr.args),
-      expr.args,
-      (expr as Expression & { templateArgs?: TypeSpec[] }).templateArgs ?? [],
-      isAuthoritativeSymbol(templateKey!),
-      templateKey!,
-    );
+    if (tdefs?.length)
+      info = compileLibFnInstance(
+        ctx,
+        pickLibFnOverload(ctx, tdefs, expr.args),
+        expr.args,
+        (expr as Expression & { templateArgs?: TypeSpec[] }).templateArgs ?? [],
+        isAuthoritativeSymbol(templateKey!),
+        templateKey!,
+      );
   }
   if (!info && name.includes("::")) {
     // Qualified static member calls resolve by flattened namespace members; structByName strips qualifiers.
     const segs = name.split("::");
     const method = segs[segs.length - 1];
     const ownerName = segs.slice(0, -1).join("::");
-    const boundOwner = ctx.thisBind?.types.get(ownerName) ?? ctx.thisBind?.types.get(ownerName.split("::").pop()!);
+    const boundOwner =
+      ctx.thisBind?.types.get(ownerName) ?? ctx.thisBind?.types.get(ownerName.split("::").pop()!);
     const sd = boundOwner
-      ? ctx.cg.structOf(boundOwner, ctx.thisBind ?? NO_BIND) ?? undefined
+      ? (ctx.cg.structOf(boundOwner, ctx.thisBind ?? NO_BIND) ?? undefined)
       : ctx.cg.structByName(ownerName, ctx.thisBind ?? NO_BIND);
     const fn = sd?.members.find(
-      (m): m is Declaration & { kind: "function" } => m.kind === "function" && m.name === method && m.isStatic && !!m.body,
+      (m): m is Declaration & { kind: "function" } =>
+        m.kind === "function" && m.name === method && m.isStatic && !!m.body,
     );
     if (sd && fn) {
       // Param/return types spelled in the owner's scope (const OracleReply&) name its nested structs — substitute them inline so
-      const nestedOf = new Map(sd.members.filter((m): m is StructDecl => m.kind === "struct" && !!m.name).map((m) => [m.name, m]));
+      const nestedOf = new Map(
+        sd.members
+          .filter((m): m is StructDecl => m.kind === "struct" && !!m.name)
+          .map((m) => [m.name, m]),
+      );
       const qual = (tp: TypeSpec): TypeSpec => {
         if (tp.kind === "const") return { ...tp, valueType: qual(tp.valueType) };
         if (tp.kind === "reference") return { ...tp, refereed: qual(tp.refereed) };
-        if (tp.kind === "name" && nestedOf.has(tp.name)) return { kind: "inline_struct", struct: nestedOf.get(tp.name)!, span: tp.span };
+        if (tp.kind === "name" && nestedOf.has(tp.name))
+          return { kind: "inline_struct", struct: nestedOf.get(tp.name)!, span: tp.span };
         return tp;
       };
       const def: FunctionTemplateDecl = {
-        kind: "function_template", name: `${sd.name}::${method}`, params: [],
+        kind: "function_template",
+        name: `${sd.name}::${method}`,
+        params: [],
         fnParams: fn.params.map((p) => ({ ...p, type: qual(p.type) })),
-        returnType: qual(fn.returnType), body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+        returnType: qual(fn.returnType),
+        body: fn.body,
+        isConstexpr: fn.isConstexpr,
+        span: fn.span,
       };
       info = compileLibFnInstance(ctx, def, expr.args);
     }
@@ -388,7 +506,11 @@ export function lookupHelper(ctx: FnCtx, expr: Expression & { kind: "call" }): H
   return info ?? null;
 }
 
-export function emitHelperCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
+export function emitHelperCall(
+  ctx: FnCtx,
+  expr: Expression & { kind: "call" },
+  valueWanted: boolean,
+): string | null {
   const info = lookupHelper(ctx, expr);
   if (!info) return null;
 

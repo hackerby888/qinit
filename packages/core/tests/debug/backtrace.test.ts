@@ -26,9 +26,9 @@ test("parse frames + decode cause (no line map)", () => {
 test("line map -> 100% function + line resolution", () => {
   const bt = resolveTrapBacktrace(LOG, { lineMapPath: LINEMAP })!;
   expect(bt.frames[0].func).toBe("do_div");
-  expect(bt.frames[0].line).toBe(8);    // the divide (return a / b)
+  expect(bt.frames[0].line).toBe(8); // the divide (return a / b)
   expect(bt.frames[1].func).toBe("dispatch");
-  expect(bt.frames[1].line).toBe(12);   // the call site (do_div(7, it))
+  expect(bt.frames[1].line).toBe(12); // the call site (do_div(7, it))
   const out = formatTrapBacktrace(bt);
   expect(out).toContain("do_div");
   expect(out).toContain(":8");

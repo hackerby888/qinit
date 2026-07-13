@@ -8,7 +8,9 @@ const PUB = "1f590d03e613bdded38b4c0820ac44615f91af12435980b3ede3c08c315a2544"; 
 
 test("k12Hex: KangarooTwelve KT128 known-answer for empty input", async () => {
   // published K12(M="", C="", 32) vector — a true correctness check, not just regression
-  expect(await k12Hex(new Uint8Array(0))).toBe("1ac2d450fc3b4205d19da7bfca1b37513c0803577ac7167f06fe2ce1f0ef39e5");
+  expect(await k12Hex(new Uint8Array(0))).toBe(
+    "1ac2d450fc3b4205d19da7bfca1b37513c0803577ac7167f06fe2ce1f0ef39e5",
+  );
 });
 
 test("k12Hex: golden for 'abc' + deterministic", async () => {
@@ -19,7 +21,7 @@ test("k12Hex: golden for 'abc' + deterministic", async () => {
 
 test("deriveIdentity: golden FourQ pubkey for seed a*55 + valid identity, deterministic", async () => {
   const id = await deriveIdentity("a".repeat(55));
-  expect(id.publicKeyHex).toBe(PUB);                          // locks K12-subseed + FourQ against a lib bump
+  expect(id.publicKeyHex).toBe(PUB); // locks K12-subseed + FourQ against a lib bump
   expect(id.identity).toMatch(/^[A-Z]{60}$/);
   expect((await deriveIdentity("a".repeat(55))).identity).toBe(id.identity);
 });
@@ -27,6 +29,6 @@ test("deriveIdentity: golden FourQ pubkey for seed a*55 + valid identity, determ
 test("identity codec: pubkey <-> 60-char identity round-trips", async () => {
   const idn = await bytesToIdentity(bytes(PUB));
   expect(idn).toMatch(/^[A-Z]{60}$/);
-  expect(hx(identityToBytes(idn))).toBe(PUB);                 // 32B -> 60-char -> 32B identity
+  expect(hx(identityToBytes(idn))).toBe(PUB); // 32B -> 60-char -> 32B identity
   expect(identityToBytes(idn).length).toBe(32);
 });

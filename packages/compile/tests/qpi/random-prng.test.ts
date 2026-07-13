@@ -62,7 +62,13 @@ function same(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 async function compile(source = SOURCE) {
-  const result = await compileContract({ source, name: "RandomProbe", slot: SLOT, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+  const result = await compileContract({
+    source,
+    name: "RandomProbe",
+    slot: SLOT,
+    qpiHeader: HEADERS,
+    arenaSz: 1 << 20,
+  });
   expect(result.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
   expect(result.wasm.byteLength).toBeGreaterThan(0);
   return result;
@@ -72,7 +78,8 @@ function run(wasm: Uint8Array, tick: number, nonce: bigint, initialSeed?: bigint
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
   sim.tickN = tick;
   sim.deploy(SLOT, wasm);
-  if (initialSeed !== undefined) sim.procedure(SLOT, 1, u64(initialSeed), { invocator: USER, originator: USER });
+  if (initialSeed !== undefined)
+    sim.procedure(SLOT, 1, u64(initialSeed), { invocator: USER, originator: USER });
   sim.procedure(SLOT, 2, u64(nonce), { invocator: USER, originator: USER, reward: 17n });
   return sim.contracts.get(SLOT)!.state();
 }
@@ -101,7 +108,13 @@ describe("chain-seeded source-compiled random values", () => {
     expect(view.getUint16(0, true)).not.toBe(0);
     expect(view.getUint32(4, true)).not.toBe(0);
     expect(view.getBigUint64(16, true)).not.toBe(0n);
-    expect(new Set([view.getUint16(0, true).toString(), view.getUint32(4, true).toString(), view.getBigUint64(16, true).toString()]).size).toBeGreaterThan(1);
+    expect(
+      new Set([
+        view.getUint16(0, true).toString(),
+        view.getUint32(4, true).toString(),
+        view.getBigUint64(16, true).toString(),
+      ]).size,
+    ).toBeGreaterThan(1);
   });
 
   test("authoritative static and instance methods fill distinct 256-bit values", async () => {
@@ -113,7 +126,12 @@ describe("chain-seeded source-compiled random values", () => {
     for (const value of [first, second, third]) {
       expect(value.some((byte) => byte !== 0)).toBe(true);
       for (let limb = 0; limb < 4; limb++) {
-        expect(new DataView(value.buffer, value.byteOffset, value.byteLength).getBigUint64(limb * 8, true)).not.toBe(0n);
+        expect(
+          new DataView(value.buffer, value.byteOffset, value.byteLength).getBigUint64(
+            limb * 8,
+            true,
+          ),
+        ).not.toBe(0n);
       }
     }
     expect(same(first, second)).toBe(false);
@@ -143,8 +161,20 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Run, 1); }
 };`;
-    const plain = await compileContract({ source: source(false), name: "NestedRandom", slot: SLOT, qpiHeader: HEADERS, arenaSz: 1 << 20 });
-    const reentrant = await compileContract({ source: source(true), name: "NestedRandom", slot: SLOT, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+    const plain = await compileContract({
+      source: source(false),
+      name: "NestedRandom",
+      slot: SLOT,
+      qpiHeader: HEADERS,
+      arenaSz: 1 << 20,
+    });
+    const reentrant = await compileContract({
+      source: source(true),
+      name: "NestedRandom",
+      slot: SLOT,
+      qpiHeader: HEADERS,
+      arenaSz: 1 << 20,
+    });
     expect(plain.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
     expect(reentrant.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
     expect(plain.wasm.byteLength, JSON.stringify(plain.diagnostics)).toBeGreaterThan(0);

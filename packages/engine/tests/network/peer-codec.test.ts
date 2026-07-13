@@ -47,14 +47,19 @@ test("decodeContractFunction reads contractIndex/inputType/input", () => {
 
 test("encodeRespondEntity places balance fields at the EntityRecord offsets", () => {
   const id = new Uint8Array(32).fill(0x11);
-  const enc = codec.encodeRespondEntity(id, {
-    incomingAmount: 1000n,
-    outgoingAmount: 250n,
-    numberOfIncomingTransfers: 3,
-    numberOfOutgoingTransfers: 1,
-    latestIncomingTransferTick: 7,
-    latestOutgoingTransferTick: 5,
-  }, 42, 0);
+  const enc = codec.encodeRespondEntity(
+    id,
+    {
+      incomingAmount: 1000n,
+      outgoingAmount: 250n,
+      numberOfIncomingTransfers: 3,
+      numberOfOutgoingTransfers: 1,
+      latestIncomingTransferTick: 7,
+      latestOutgoingTransferTick: 5,
+    },
+    42,
+    0,
+  );
 
   expect(enc.length).toBe(64 + 4 + 4 + codec.SPECTRUM_DEPTH * 32);
   const d = dv(enc);
@@ -68,9 +73,20 @@ test("encodeRespondEntity places balance fields at the EntityRecord offsets", ()
 test("encodeRespondEntity writes the merkle-proof siblings at the spectrum offset", () => {
   const id = new Uint8Array(32).fill(0x11);
   const sib = Array.from({ length: 24 }, (_, i) => new Uint8Array(32).fill(i + 1));
-  const enc = codec.encodeRespondEntity(id, {
-    incomingAmount: 1n, outgoingAmount: 0n, numberOfIncomingTransfers: 1, numberOfOutgoingTransfers: 0, latestIncomingTransferTick: 0, latestOutgoingTransferTick: 0,
-  }, 1, 7, sib);
+  const enc = codec.encodeRespondEntity(
+    id,
+    {
+      incomingAmount: 1n,
+      outgoingAmount: 0n,
+      numberOfIncomingTransfers: 1,
+      numberOfOutgoingTransfers: 0,
+      latestIncomingTransferTick: 0,
+      latestOutgoingTransferTick: 0,
+    },
+    1,
+    7,
+    sib,
+  );
 
   expect(dv(enc).getInt32(68, true)).toBe(7); // spectrumIndex
   expect(enc.subarray(72, 104)).toEqual(sib[0]); // first sibling @72
@@ -79,7 +95,12 @@ test("encodeRespondEntity writes the merkle-proof siblings at the spectrum offse
 
 test("encodeCurrentTickInfo lays out tick/epoch/alignedVotes", () => {
   const enc = codec.encodeCurrentTickInfo({
-    tickDuration: 1000, epoch: 2, tick: 123, numberOfAlignedVotes: 6, numberOfMisalignedVotes: 0, initialTick: 100,
+    tickDuration: 1000,
+    epoch: 2,
+    tick: 123,
+    numberOfAlignedVotes: 6,
+    numberOfMisalignedVotes: 0,
+    initialTick: 100,
   });
   const d = dv(enc);
   expect(enc.length).toBe(16);
@@ -93,7 +114,14 @@ test("encodeCurrentTickInfo lays out tick/epoch/alignedVotes", () => {
 test("encodeRespondOwnedAssets lays out the ownership + issuance records", () => {
   const owner = new Uint8Array(32).fill(0x22);
   const issuer = new Uint8Array(32).fill(0x33);
-  const enc = codec.encodeRespondOwnedAssets({ owner, issuer, name: "QTOKEN", decimals: 2, shares: 5000n, managingContractIndex: 29 });
+  const enc = codec.encodeRespondOwnedAssets({
+    owner,
+    issuer,
+    name: "QTOKEN",
+    decimals: 2,
+    shares: 5000n,
+    managingContractIndex: 29,
+  });
   const d = dv(enc);
 
   expect(enc.length).toBe(48 + 48 + 4 + 4 + 24 * 32); // records + tick + universeIndex + ASSETS_DEPTH siblings
@@ -113,7 +141,16 @@ test("encodeRespondPossessedAssets lays out possession + ownership + issuance re
   const possessor = new Uint8Array(32).fill(0x22);
   const owner = new Uint8Array(32).fill(0x33);
   const issuer = new Uint8Array(32).fill(0x44);
-  const enc = codec.encodeRespondPossessedAssets({ possessor, owner, issuer, name: "QTOKEN", decimals: 2, shares: 700n, possessionManagingContract: 30, ownershipManagingContract: 28 });
+  const enc = codec.encodeRespondPossessedAssets({
+    possessor,
+    owner,
+    issuer,
+    name: "QTOKEN",
+    decimals: 2,
+    shares: 700n,
+    possessionManagingContract: 30,
+    ownershipManagingContract: 28,
+  });
   const d = dv(enc);
 
   expect(enc.length).toBe(48 + 48 + 48 + 4 + 4 + 24 * 32); // records + tick + universeIndex + ASSETS_DEPTH siblings

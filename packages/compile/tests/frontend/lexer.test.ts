@@ -3,8 +3,7 @@ import { describe, test, expect } from "bun:test";
 import { Lexer, isTypeKeyword, parseIntLiteral } from "../../src/lexer";
 import type { TokenKind } from "../../src/lexer";
 
-const kinds = (src: string): TokenKind[] =>
-  new Lexer(src).tokenize().map((t) => t.kind);
+const kinds = (src: string): TokenKind[] => new Lexer(src).tokenize().map((t) => t.kind);
 
 // ---- keywords ----
 
@@ -13,16 +12,60 @@ describe("keywords", () => {
     const src =
       "asm auto bool break case char class const constexpr continue default delete do double else enum extern false float for friend goto if inline int long namespace noexcept nullptr operator override private protected public return short signed sizeof static static_assert struct switch template this true typedef typename union unsigned using virtual void volatile while";
     const expected: TokenKind[] = [
-      "kw_asm", "kw_auto", "kw_bool", "kw_break", "kw_case", "kw_char",
-      "kw_class", "kw_const", "kw_constexpr", "kw_continue", "kw_default",
-      "kw_delete", "kw_do", "kw_double", "kw_else", "kw_enum", "kw_extern",
-      "kw_false", "kw_float", "kw_for", "kw_friend", "kw_goto", "kw_if",
-      "kw_inline", "kw_int", "kw_long", "kw_namespace", "kw_noexcept",
-      "kw_nullptr", "kw_operator", "kw_override", "kw_private", "kw_protected",
-      "kw_public", "kw_return", "kw_short", "kw_signed", "kw_sizeof", "kw_static",
-      "kw_static_assert", "kw_struct", "kw_switch", "kw_template", "kw_this",
-      "kw_true", "kw_typedef", "kw_typename", "kw_union", "kw_unsigned",
-      "kw_using", "kw_virtual", "kw_void", "kw_volatile", "kw_while",
+      "kw_asm",
+      "kw_auto",
+      "kw_bool",
+      "kw_break",
+      "kw_case",
+      "kw_char",
+      "kw_class",
+      "kw_const",
+      "kw_constexpr",
+      "kw_continue",
+      "kw_default",
+      "kw_delete",
+      "kw_do",
+      "kw_double",
+      "kw_else",
+      "kw_enum",
+      "kw_extern",
+      "kw_false",
+      "kw_float",
+      "kw_for",
+      "kw_friend",
+      "kw_goto",
+      "kw_if",
+      "kw_inline",
+      "kw_int",
+      "kw_long",
+      "kw_namespace",
+      "kw_noexcept",
+      "kw_nullptr",
+      "kw_operator",
+      "kw_override",
+      "kw_private",
+      "kw_protected",
+      "kw_public",
+      "kw_return",
+      "kw_short",
+      "kw_signed",
+      "kw_sizeof",
+      "kw_static",
+      "kw_static_assert",
+      "kw_struct",
+      "kw_switch",
+      "kw_template",
+      "kw_this",
+      "kw_true",
+      "kw_typedef",
+      "kw_typename",
+      "kw_union",
+      "kw_unsigned",
+      "kw_using",
+      "kw_virtual",
+      "kw_void",
+      "kw_volatile",
+      "kw_while",
       "eof",
     ];
     expect(kinds(src)).toEqual(expected);
@@ -45,8 +88,17 @@ describe("operators and punctuators", () => {
   test("all single-char punctuators", () => {
     const src = "{ } ( ) [ ] ; : , ? ~";
     const expected: TokenKind[] = [
-      "l_brace", "r_brace", "l_paren", "r_paren", "l_bracket", "r_bracket",
-      "semicolon", "colon", "comma", "question", "tilde",
+      "l_brace",
+      "r_brace",
+      "l_paren",
+      "r_paren",
+      "l_bracket",
+      "r_bracket",
+      "semicolon",
+      "colon",
+      "comma",
+      "question",
+      "tilde",
       "eof",
     ];
     expect(kinds(src)).toEqual(expected);
@@ -55,10 +107,22 @@ describe("operators and punctuators", () => {
   test("all multi-char operators", () => {
     const src = ">>= <<= ->* <=> :: -> ++ -- == != <= >= << >> && ||";
     const expected: TokenKind[] = [
-      "r_shift_eq", "l_shift_eq", "arrow_star", "spaceship",
-      "d_colon", "arrow", "plus_plus", "minus_minus",
-      "eq_eq", "not_eq", "lt_eq", "gt_eq", "l_shift", "r_shift",
-      "amp_amp", "pipe_pipe",
+      "r_shift_eq",
+      "l_shift_eq",
+      "arrow_star",
+      "spaceship",
+      "d_colon",
+      "arrow",
+      "plus_plus",
+      "minus_minus",
+      "eq_eq",
+      "not_eq",
+      "lt_eq",
+      "gt_eq",
+      "l_shift",
+      "r_shift",
+      "amp_amp",
+      "pipe_pipe",
       "eof",
     ];
     expect(kinds(src)).toEqual(expected);
@@ -76,8 +140,16 @@ describe("operators and punctuators", () => {
   test("compound assignment operators", () => {
     const src = "+= -= *= /= %= <<= >>= &= |= ^=";
     const expected: TokenKind[] = [
-      "plus_eq", "minus_eq", "star_eq", "slash_eq", "percent_eq",
-      "l_shift_eq", "r_shift_eq", "amp_eq", "pipe_eq", "caret_eq",
+      "plus_eq",
+      "minus_eq",
+      "star_eq",
+      "slash_eq",
+      "percent_eq",
+      "l_shift_eq",
+      "r_shift_eq",
+      "amp_eq",
+      "pipe_eq",
+      "caret_eq",
       "eof",
     ];
     expect(kinds(src)).toEqual(expected);
@@ -92,8 +164,12 @@ describe("operators and punctuators", () => {
   test("& vs && vs &=, | vs || vs |=", () => {
     const src = "& && &= | || |=";
     const expected: TokenKind[] = [
-      "amp", "amp_amp", "amp_eq",
-      "pipe", "pipe_pipe", "pipe_eq",
+      "amp",
+      "amp_amp",
+      "amp_eq",
+      "pipe",
+      "pipe_pipe",
+      "pipe_eq",
       "eof",
     ];
     expect(kinds(src)).toEqual(expected);
@@ -273,7 +349,7 @@ describe("parseIntLiteral", () => {
   });
 
   test("large values", () => {
-    expect(parseIntLiteral("0xFFFFFFFF")).toBe(0xFFFFFFFFn);
+    expect(parseIntLiteral("0xFFFFFFFF")).toBe(0xffffffffn);
     expect(parseIntLiteral("18446744073709551615")).toBe(18446744073709551615n);
   });
 });
@@ -530,15 +606,25 @@ describe("identifiers", () => {
 describe("isTypeKeyword", () => {
   test("returns true for builtin type keywords", () => {
     const types: TokenKind[] = [
-      "kw_void", "kw_bool", "kw_char",
-      "kw_short", "kw_int", "kw_long",
-      "kw_signed", "kw_unsigned",
-      "kw_signed_char", "kw_unsigned_char",
-      "kw_signed_short", "kw_unsigned_short",
-      "kw_signed_int", "kw_unsigned_int",
-      "kw_signed_long_long", "kw_unsigned_long_long",
+      "kw_void",
+      "kw_bool",
+      "kw_char",
+      "kw_short",
+      "kw_int",
+      "kw_long",
+      "kw_signed",
+      "kw_unsigned",
+      "kw_signed_char",
+      "kw_unsigned_char",
+      "kw_signed_short",
+      "kw_unsigned_short",
+      "kw_signed_int",
+      "kw_unsigned_int",
+      "kw_signed_long_long",
+      "kw_unsigned_long_long",
       "kw_long_long",
-      "kw_double", "kw_float",
+      "kw_double",
+      "kw_float",
     ];
     for (const t of types) {
       expect(isTypeKeyword(t)).toBe(true);

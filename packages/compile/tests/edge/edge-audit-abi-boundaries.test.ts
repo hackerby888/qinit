@@ -34,7 +34,13 @@ let entries: Array<{ it: number; kind: number; inSize: number; outSize: number }
 describe("edge audit — inclusive QPI ABI boundaries", () => {
   beforeAll(async () => {
     await initK12();
-    const result = await compileContract({ source: SOURCE, name: "AbiBoundaryEdge", slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+    const result = await compileContract({
+      source: SOURCE,
+      name: "AbiBoundaryEdge",
+      slot: 27,
+      qpiHeader: HEADERS,
+      arenaSz: 1 << 20,
+    });
     expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });

@@ -9,7 +9,8 @@ const TEXT_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".json", ".md", "
 function sourceFiles(directory: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (["node_modules", "dist", ".git"].includes(entry.name) || entry.name.startsWith("build-")) continue;
+    if (["node_modules", "dist", ".git"].includes(entry.name) || entry.name.startsWith("build-"))
+      continue;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push(...sourceFiles(path));
     else if (TEXT_EXTENSIONS.has(extname(entry.name))) files.push(path);
@@ -18,7 +19,8 @@ function sourceFiles(directory: string): string[] {
 }
 
 test("source and test paths are checkout-relative or environment-provided", () => {
-  const developerPath = /(?:\/home\/[^/]+\/Projects\/|\/Users\/[^/]+\/Projects\/|[A-Za-z]:\\Users\\[^\\]+\\Projects\\)/;
+  const developerPath =
+    /(?:\/home\/[^/]+\/Projects\/|\/Users\/[^/]+\/Projects\/|[A-Za-z]:\\Users\\[^\\]+\\Projects\\)/;
   const offenders = SEARCH_ROOTS.flatMap((directory) => sourceFiles(join(ROOT, directory)))
     .filter((path) => developerPath.test(readFileSync(path, "utf8")))
     .map((path) => path.slice(ROOT.length + 1));

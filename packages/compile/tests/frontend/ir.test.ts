@@ -3,10 +3,23 @@ import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
-  emit, assertTy, op, call, callSig, raw,
-  i32c, i64c, getL, setL,
-  addr0, loadRaw, storeRaw, loadScalar, storeScalar,
-  CALL_SIG, OP_SIG,
+  emit,
+  assertTy,
+  op,
+  call,
+  callSig,
+  raw,
+  i32c,
+  i64c,
+  getL,
+  setL,
+  addr0,
+  loadRaw,
+  storeRaw,
+  loadScalar,
+  storeScalar,
+  CALL_SIG,
+  OP_SIG,
 } from "../../src/ir";
 import { emitModule } from "../../src/framework";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
@@ -35,8 +48,12 @@ describe("emit format parity", () => {
   });
 
   test("store offset: null omits, 8 prints", () => {
-    expect(emit(storeRaw("i64.store", null, p, v))).toBe("(i64.store (local.get $p) (local.get $v))");
-    expect(emit(storeRaw("i64.store", 8, p, v))).toBe("(i64.store offset=8 (local.get $p) (local.get $v))");
+    expect(emit(storeRaw("i64.store", null, p, v))).toBe(
+      "(i64.store (local.get $p) (local.get $v))",
+    );
+    expect(emit(storeRaw("i64.store", 8, p, v))).toBe(
+      "(i64.store offset=8 (local.get $p) (local.get $v))",
+    );
   });
 
   test("generic op", () => {
@@ -47,12 +64,20 @@ describe("emit format parity", () => {
 
   test("call: zero-arg has no trailing space", () => {
     expect(emit(call("$self_id"))).toBe("(call $self_id)");
-    expect(emit(call("$copyMem", p, getL("q", "i32"), i32c(16))))
-      .toBe("(call $copyMem (local.get $p) (local.get $q) (i32.const 16))");
+    expect(emit(call("$copyMem", p, getL("q", "i32"), i32c(16)))).toBe(
+      "(call $copyMem (local.get $p) (local.get $q) (i32.const 16))",
+    );
   });
 
   test("raw is verbatim", () => {
-    expect(emit(raw("(i64.extend_i32_u (if (result i32) X (then (i32.const 1)) (else Y)))", "i64", "short-circuit"))
+    expect(
+      emit(
+        raw(
+          "(i64.extend_i32_u (if (result i32) X (then (i32.const 1)) (else Y)))",
+          "i64",
+          "short-circuit",
+        ),
+      ),
     ).toBe("(i64.extend_i32_u (if (result i32) X (then (i32.const 1)) (else Y)))");
   });
 });
@@ -71,9 +96,15 @@ describe("leaf-helper shapes (loadAt/storeAt/addrOf parity)", () => {
 
   test("storeScalar mirrors storeAt for every width", () => {
     expect(emit(storeScalar(p, 8, v))).toBe("(i64.store (local.get $p) (local.get $v))");
-    expect(emit(storeScalar(p, 4, v))).toBe("(i32.store (local.get $p) (i32.wrap_i64 (local.get $v)))");
-    expect(emit(storeScalar(p, 2, v))).toBe("(i32.store16 (local.get $p) (i32.wrap_i64 (local.get $v)))");
-    expect(emit(storeScalar(p, 1, v))).toBe("(i32.store8 (local.get $p) (i32.wrap_i64 (local.get $v)))");
+    expect(emit(storeScalar(p, 4, v))).toBe(
+      "(i32.store (local.get $p) (i32.wrap_i64 (local.get $v)))",
+    );
+    expect(emit(storeScalar(p, 2, v))).toBe(
+      "(i32.store16 (local.get $p) (i32.wrap_i64 (local.get $v)))",
+    );
+    expect(emit(storeScalar(p, 1, v))).toBe(
+      "(i32.store8 (local.get $p) (i32.wrap_i64 (local.get $v)))",
+    );
     expect(emit(storeScalar(p, 16, v))).toBe("(i64.store (local.get $p) (local.get $v))");
   });
 
@@ -85,15 +116,18 @@ describe("leaf-helper shapes (loadAt/storeAt/addrOf parity)", () => {
   test("narrowCast shapes", () => {
     expect(emit(op("i64.and", v, i64c("0xff")))).toBe("(i64.and (local.get $v) (i64.const 0xff))");
     expect(emit(op("i64.extend16_s", v))).toBe("(i64.extend16_s (local.get $v))");
-    expect(emit(op("i64.extend_i32_u", op("i64.ne", i64c(0), v))))
-      .toBe("(i64.extend_i32_u (i64.ne (i64.const 0) (local.get $v)))");
+    expect(emit(op("i64.extend_i32_u", op("i64.ne", i64c(0), v)))).toBe(
+      "(i64.extend_i32_u (i64.ne (i64.const 0) (local.get $v)))",
+    );
   });
 
   test("compiler target primitive call shapes", () => {
-    expect(emit(call("$intr_mulhi_u", v, i64c(3))))
-      .toBe("(call $intr_mulhi_u (local.get $v) (i64.const 3))");
-    expect(emit(call("$intr_mulhi_s", v, i64c(-3))))
-      .toBe("(call $intr_mulhi_s (local.get $v) (i64.const -3))");
+    expect(emit(call("$intr_mulhi_u", v, i64c(3)))).toBe(
+      "(call $intr_mulhi_u (local.get $v) (i64.const 3))",
+    );
+    expect(emit(call("$intr_mulhi_s", v, i64c(-3)))).toBe(
+      "(call $intr_mulhi_s (local.get $v) (i64.const -3))",
+    );
   });
 });
 
@@ -120,14 +154,18 @@ describe("type assertions catch the silent-divergence class", () => {
   });
 
   test("call arg width checked against the registry", () => {
-    expect(() => call("$intr_mulhi_u", v, p)).toThrow(/call \$intr_mulhi_u arg 1.*expected i64, got i32/);
+    expect(() => call("$intr_mulhi_u", v, p)).toThrow(
+      /call \$intr_mulhi_u arg 1.*expected i64, got i32/,
+    );
     expect(() => call("$copyMem", p, p)).toThrow(/expects 3 arg/);
   });
 
   test("callSig covers dynamic targets", () => {
     const helper = callSig({ params: ["i32", "i64"], res: "i64" }, "$lib0_probe", p, v);
     expect(emit(helper)).toBe("(call $lib0_probe (local.get $p) (local.get $v))");
-    expect(() => callSig({ params: ["i32"], res: "void" }, "$fn_x", v)).toThrow(/expected i32, got i64/);
+    expect(() => callSig({ params: ["i32"], res: "void" }, "$fn_x", v)).toThrow(
+      /expected i32, got i64/,
+    );
   });
 
   test("address positions must be i32", () => {
@@ -180,13 +218,15 @@ describe("CALL_SIG agrees with framework.ts", () => {
     const files: string[] = [];
     for (const root of roots) {
       if (root.endsWith(".ts")) files.push(root);
-      else for (const file of readdirSync(root, { recursive: true }) as string[]) {
-        if (file.endsWith(".ts")) files.push(join(root, file));
-      }
+      else
+        for (const file of readdirSync(root, { recursive: true }) as string[]) {
+          if (file.endsWith(".ts")) files.push(join(root, file));
+        }
     }
     const forbidden = /\$(?:hm|coll|m|u128)_[a-zA-Z0-9_]+/g;
     const hits = files.flatMap((file) =>
-      [...readFileSync(file, "utf8").matchAll(forbidden)].map((match) => `${file}:${match[0]}`));
+      [...readFileSync(file, "utf8").matchAll(forbidden)].map((match) => `${file}:${match[0]}`),
+    );
     expect(hits).toEqual([]);
   });
 
@@ -201,7 +241,8 @@ describe("CALL_SIG agrees with framework.ts", () => {
       gtest: true,
     });
     const defined = new Map<string, { params: string[]; res: string }>();
-    const re = /\(func (\$[a-zA-Z0-9_]+)((?:\s*\(param(?:\s+\$[a-zA-Z0-9_.]+)?(?:\s+(?:i32|i64))+\))*)\s*(?:\(result (i32|i64)\))?/g;
+    const re =
+      /\(func (\$[a-zA-Z0-9_]+)((?:\s*\(param(?:\s+\$[a-zA-Z0-9_.]+)?(?:\s+(?:i32|i64))+\))*)\s*(?:\(result (i32|i64)\))?/g;
     for (const m of framework.matchAll(re)) {
       const params: string[] = [];
       for (const pm of m[2].matchAll(/\(param(?:\s+\$[a-zA-Z0-9_.]+)?((?:\s+(?:i32|i64))+)\)/g)) {
@@ -229,7 +270,15 @@ describe("CALL_SIG agrees with framework.ts", () => {
   });
 
   test("registry covers the helpers codegen emits calls to", () => {
-    for (const t of ["$copyMem", "$setMem", "$qpiAllocLocals", "$intr_mulhi_u", "$intr_mulhi_s", "$memeq", "$self_id"]) {
+    for (const t of [
+      "$copyMem",
+      "$setMem",
+      "$qpiAllocLocals",
+      "$intr_mulhi_u",
+      "$intr_mulhi_s",
+      "$memeq",
+      "$self_id",
+    ]) {
       expect(CALL_SIG[t]).toBeDefined();
     }
     expect(OP_SIG["i64.extend_i32_u"]).toBeDefined();

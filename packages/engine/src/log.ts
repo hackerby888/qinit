@@ -4,8 +4,8 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 
 export interface EngineLogEvent {
   level: LogLevel;
-  tick: number;   // the chain tick the event happened on
-  cat: string;    // category — e.g. "tick" | "epoch" | "deploy" | "tx" | "fee" | "digest" | "mempool"
+  tick: number; // the chain tick the event happened on
+  cat: string; // category — e.g. "tick" | "epoch" | "deploy" | "tx" | "fee" | "digest" | "mempool"
   msg: string;
 }
 

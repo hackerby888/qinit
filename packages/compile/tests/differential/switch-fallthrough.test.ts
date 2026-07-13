@@ -46,7 +46,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 test("compile succeeds with switch fallthrough", async () => {
   const result = await compileContract({
-    source: SRC, name: "SwitchBug", slot: 50, qpiHeader: HEADERS, arenaSz: 1024 * 1024,
+    source: SRC,
+    name: "SwitchBug",
+    slot: 50,
+    qpiHeader: HEADERS,
+    arenaSz: 1024 * 1024,
   });
   const errs = result.diagnostics.filter((d) => d.severity === "error");
   if (errs.length) console.log("  COMPILE ERRORS:", errs.map((e) => e.message).join("\n"));
@@ -62,7 +66,11 @@ test("WAT uses nested dispatch+bodies pattern (no unconditional break between ca
 
   process.env.QINIT_DUMP_WAT = watPath;
   await compileContract({
-    source: SRC, name: "SwitchBug", slot: 50, qpiHeader: HEADERS, arenaSz: 1024 * 1024,
+    source: SRC,
+    name: "SwitchBug",
+    slot: 50,
+    qpiHeader: HEADERS,
+    arenaSz: 1024 * 1024,
   });
   delete process.env.QINIT_DUMP_WAT;
 

@@ -12,7 +12,10 @@ const CAP = 1 << 24; // ASSETS_CAPACITY (2^ASSETS_DEPTH) — also the universe m
 const MASK = CAP - 1;
 const NO_IDX = -1; // NO_ASSET_INDEX
 
-const EMPTY = 0, ISSUANCE = 1, OWNERSHIP = 2, POSSESSION = 3;
+const EMPTY = 0,
+  ISSUANCE = 1,
+  OWNERSHIP = 2,
+  POSSESSION = 3;
 
 interface Rec {
   type: number;
@@ -28,7 +31,13 @@ interface Rec {
 }
 
 // One enumerated asset record returned to the contract-side iterator (assetEnumerate).
-export interface AssetEntry { owner: Uint8Array; possessor: Uint8Array; shares: bigint; ownMgmt: number; posMgmt: number }
+export interface AssetEntry {
+  owner: Uint8Array;
+  possessor: Uint8Array;
+  shares: bigint;
+  ownMgmt: number;
+  posMgmt: number;
+}
 
 // A JSON-able view of one asset + its holdings, for inspection tools (the IDE assets panel).
 export interface AssetSnapshot {
@@ -37,7 +46,13 @@ export interface AssetSnapshot {
   decimals: number;
   unit: string;
   totalShares: string;
-  holdings: { owner: string; possessor: string; ownMgmt: number; posMgmt: number; shares: string }[];
+  holdings: {
+    owner: string;
+    possessor: string;
+    ownMgmt: number;
+    posMgmt: number;
+    shares: string;
+  }[];
 }
 
 // The proof rows returned for an owner's / possessor's holdings.
@@ -87,7 +102,12 @@ function assetNameToString(name: bigint): string {
 }
 
 // The parsed ownership/possession selects (AssetOwnershipSelect / AssetPossessionSelect).
-interface Select { id: Uint8Array; mgmt: number; anyId: boolean; anyMgmt: boolean }
+interface Select {
+  id: Uint8Array;
+  mgmt: number;
+  anyId: boolean;
+  anyMgmt: boolean;
+}
 
 function parseSelect(b: Uint8Array): Select {
   const s = AssetSelect.wrap(b);
@@ -181,12 +201,22 @@ export class AssetLedger {
       for (;;) {
         const r = this.rec(idx);
         if (!r) break;
-        if (r.type === OWNERSHIP && r.crossRef === issuanceIdx && this.idEq(r.publicKey, sel.id) && (sel.anyMgmt || r.mgmt === sel.mgmt)) out.push(idx);
+        if (
+          r.type === OWNERSHIP &&
+          r.crossRef === issuanceIdx &&
+          this.idEq(r.publicKey, sel.id) &&
+          (sel.anyMgmt || r.mgmt === sel.mgmt)
+        )
+          out.push(idx);
         idx = (idx + 1) & MASK;
       }
       return out;
     }
-    for (let idx = this.opFirst.get(issuanceIdx) ?? NO_IDX; idx !== NO_IDX; idx = this.nextIdx.get(idx) ?? NO_IDX) {
+    for (
+      let idx = this.opFirst.get(issuanceIdx) ?? NO_IDX;
+      idx !== NO_IDX;
+      idx = this.nextIdx.get(idx) ?? NO_IDX
+    ) {
       const r = this.rec(idx)!;
       if (sel.anyMgmt || r.mgmt === sel.mgmt) out.push(idx);
     }
@@ -200,12 +230,22 @@ export class AssetLedger {
       for (;;) {
         const r = this.rec(idx);
         if (!r) break;
-        if (r.type === POSSESSION && r.crossRef === ownershipIdx && this.idEq(r.publicKey, sel.id) && (sel.anyMgmt || r.mgmt === sel.mgmt)) out.push(idx);
+        if (
+          r.type === POSSESSION &&
+          r.crossRef === ownershipIdx &&
+          this.idEq(r.publicKey, sel.id) &&
+          (sel.anyMgmt || r.mgmt === sel.mgmt)
+        )
+          out.push(idx);
         idx = (idx + 1) & MASK;
       }
       return out;
     }
-    for (let idx = this.opFirst.get(ownershipIdx) ?? NO_IDX; idx !== NO_IDX; idx = this.nextIdx.get(idx) ?? NO_IDX) {
+    for (
+      let idx = this.opFirst.get(ownershipIdx) ?? NO_IDX;
+      idx !== NO_IDX;
+      idx = this.nextIdx.get(idx) ?? NO_IDX
+    ) {
       const r = this.rec(idx)!;
       if (sel.anyMgmt || r.mgmt === sel.mgmt) out.push(idx);
     }
@@ -214,7 +254,14 @@ export class AssetLedger {
 
   // ---- issueAsset (assets.h asset layer): 3 records at consecutive probe chains; 0 if already issued ----
 
-  issueAssetRaw(issuer: Uint8Array, name: bigint, decimals: number, unit: bigint, shares: bigint, mgmt: number): bigint {
+  issueAssetRaw(
+    issuer: Uint8Array,
+    name: bigint,
+    decimals: number,
+    unit: bigint,
+    shares: bigint,
+    mgmt: number,
+  ): bigint {
     let issuanceIdx = this.startOf(issuer);
     for (;;) {
       const r = this.rec(issuanceIdx);
@@ -222,15 +269,42 @@ export class AssetLedger {
       if (r.type === ISSUANCE && r.name === name && this.idEq(r.publicKey, issuer)) return 0n; // already issued
       issuanceIdx = (issuanceIdx + 1) & MASK;
     }
-    this.place(issuanceIdx, { type: ISSUANCE, publicKey: issuer.slice(0, 32), name, decimals, unit, mgmt: 0, crossRef: 0, shares: 0n });
+    this.place(issuanceIdx, {
+      type: ISSUANCE,
+      publicKey: issuer.slice(0, 32),
+      name,
+      decimals,
+      unit,
+      mgmt: 0,
+      crossRef: 0,
+      shares: 0n,
+    });
 
     let ownershipIdx = (issuanceIdx + 1) & MASK;
     while (this.rec(ownershipIdx)) ownershipIdx = (ownershipIdx + 1) & MASK;
-    this.place(ownershipIdx, { type: OWNERSHIP, publicKey: issuer.slice(0, 32), name: 0n, decimals: 0, unit: 0n, mgmt, crossRef: issuanceIdx, shares });
+    this.place(ownershipIdx, {
+      type: OWNERSHIP,
+      publicKey: issuer.slice(0, 32),
+      name: 0n,
+      decimals: 0,
+      unit: 0n,
+      mgmt,
+      crossRef: issuanceIdx,
+      shares,
+    });
 
     let possessionIdx = (ownershipIdx + 1) & MASK;
     while (this.rec(possessionIdx)) possessionIdx = (possessionIdx + 1) & MASK;
-    this.place(possessionIdx, { type: POSSESSION, publicKey: issuer.slice(0, 32), name: 0n, decimals: 0, unit: 0n, mgmt, crossRef: ownershipIdx, shares });
+    this.place(possessionIdx, {
+      type: POSSESSION,
+      publicKey: issuer.slice(0, 32),
+      name: 0n,
+      decimals: 0,
+      unit: 0n,
+      mgmt,
+      crossRef: ownershipIdx,
+      shares,
+    });
 
     this.addIssuance(issuanceIdx);
     this.addOwnership(issuanceIdx, ownershipIdx);
@@ -240,7 +314,15 @@ export class AssetLedger {
   }
 
   // qpi.issueAsset (qpi_asset_impl.h wrapper): full name/issuer/shares/unit validation, then the asset layer.
-  issueAsset(slot: number, name: bigint, issuer: Uint8Array, decimals: number, shares: bigint, unit: bigint, invocator: Uint8Array): bigint {
+  issueAsset(
+    slot: number,
+    name: bigint,
+    issuer: Uint8Array,
+    decimals: number,
+    shares: bigint,
+    unit: bigint,
+    invocator: Uint8Array,
+  ): bigint {
     const first = Number(name & 0xffn);
     if (first < 0x41 || first > 0x5a || name > 0xffffffffffffffn) return 0n;
     // no character may follow the first zero byte
@@ -258,7 +340,11 @@ export class AssetLedger {
       if (c === 0 || (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a)) continue;
       return 0n;
     }
-    if (this.isZeroId(issuer) || (!this.idEq(issuer, this.host.contractId(slot)) && !this.idEq(issuer, invocator))) return 0n;
+    if (
+      this.isZeroId(issuer) ||
+      (!this.idEq(issuer, this.host.contractId(slot)) && !this.idEq(issuer, invocator))
+    )
+      return 0n;
     if (shares <= 0n || shares > MAX_AMOUNT) return 0n;
     if (unit > 0xffffffffffffffn) return 0n;
 
@@ -297,7 +383,12 @@ export class AssetLedger {
 
   // Enumerate records for the contract-side AssetOwnership/PossessionIterator (assetEnumerate host import).
   // kind 0 = ownership records, kind 1 = possession records — in the node's iteration order (LIFO index
-  enumerate(assetB: Uint8Array, ownSelB: Uint8Array, posSelB: Uint8Array, kind: number): AssetEntry[] {
+  enumerate(
+    assetB: Uint8Array,
+    ownSelB: Uint8Array,
+    posSelB: Uint8Array,
+    kind: number,
+  ): AssetEntry[] {
     const a = Asset.wrap(assetB);
     const own = parseSelect(ownSelB);
     const pos = parseSelect(posSelB);
@@ -308,12 +399,24 @@ export class AssetLedger {
     for (const oi of this.ownershipIndices(issuanceIdx, own)) {
       const o = this.rec(oi)!;
       if (kind === 0) {
-        out.push({ owner: o.publicKey, possessor: o.publicKey, shares: o.shares, ownMgmt: o.mgmt, posMgmt: 0 });
+        out.push({
+          owner: o.publicKey,
+          possessor: o.publicKey,
+          shares: o.shares,
+          ownMgmt: o.mgmt,
+          posMgmt: 0,
+        });
         continue;
       }
       for (const pi of this.possessionIndices(oi, pos)) {
         const p = this.rec(pi)!;
-        out.push({ owner: o.publicKey, possessor: p.publicKey, shares: p.shares, ownMgmt: o.mgmt, posMgmt: p.mgmt });
+        out.push({
+          owner: o.publicKey,
+          possessor: p.publicKey,
+          shares: p.shares,
+          ownMgmt: o.mgmt,
+          posMgmt: p.mgmt,
+        });
       }
     }
     return out;
@@ -329,7 +432,13 @@ export class AssetLedger {
       const o = this.rec(oi)!;
       for (const pi of this.possessionIndices(oi, ANY_SELECT)) {
         const p = this.rec(pi)!;
-        out.push({ owner: o.publicKey, possessor: p.publicKey, shares: p.shares, ownMgmt: o.mgmt, posMgmt: p.mgmt });
+        out.push({
+          owner: o.publicKey,
+          possessor: p.publicKey,
+          shares: p.shares,
+          ownMgmt: o.mgmt,
+          posMgmt: p.mgmt,
+        });
       }
     }
     return out;
@@ -337,7 +446,14 @@ export class AssetLedger {
 
   // numberOfPossessedShares (assets.h): exact-match drill-down issuance -> ownership (mgmt must equal) ->
   // possession (mgmt must equal); 0 if any level probes to an EMPTY slot first.
-  numberOfPossessedShares(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, ownMgmt: number, posMgmt: number): bigint {
+  numberOfPossessedShares(
+    name: bigint,
+    issuer: Uint8Array,
+    owner: Uint8Array,
+    possessor: Uint8Array,
+    ownMgmt: number,
+    posMgmt: number,
+  ): bigint {
     const issuanceIdx = this.issuanceIndex(issuer, name & 0xffffffffffffffn);
     if (issuanceIdx === NO_IDX) return 0n;
 
@@ -345,7 +461,13 @@ export class AssetLedger {
     for (;;) {
       const r = this.rec(ownershipIdx);
       if (!r) return 0n;
-      if (r.type === OWNERSHIP && r.crossRef === issuanceIdx && this.idEq(r.publicKey, owner) && r.mgmt === ownMgmt) break;
+      if (
+        r.type === OWNERSHIP &&
+        r.crossRef === issuanceIdx &&
+        this.idEq(r.publicKey, owner) &&
+        r.mgmt === ownMgmt
+      )
+        break;
       ownershipIdx = (ownershipIdx + 1) & MASK;
     }
 
@@ -353,7 +475,13 @@ export class AssetLedger {
     for (;;) {
       const r = this.rec(possessionIdx);
       if (!r) return 0n;
-      if (r.type === POSSESSION && r.crossRef === ownershipIdx && this.idEq(r.publicKey, possessor) && r.mgmt === posMgmt) return r.shares;
+      if (
+        r.type === POSSESSION &&
+        r.crossRef === ownershipIdx &&
+        this.idEq(r.publicKey, possessor) &&
+        r.mgmt === posMgmt
+      )
+        return r.shares;
       possessionIdx = (possessionIdx + 1) & MASK;
     }
   }
@@ -362,12 +490,26 @@ export class AssetLedger {
 
   // Asset layer (assets.h): move `shares` from the source ownership+possession pair to destinationPublicKey,
   // preserving each record's managingContractIndex. A zero destination burns (refused for contract shares).
-  private transferOwnershipAndPossessionIdx(sourceOwnershipIdx: number, sourcePossessionIdx: number, destination: Uint8Array, shares: bigint): boolean {
+  private transferOwnershipAndPossessionIdx(
+    sourceOwnershipIdx: number,
+    sourcePossessionIdx: number,
+    destination: Uint8Array,
+    shares: bigint,
+  ): boolean {
     if (shares <= 0n) return false;
 
     const so = this.rec(sourceOwnershipIdx);
     const sp = this.rec(sourcePossessionIdx);
-    if (!so || so.type !== OWNERSHIP || so.shares < shares || !sp || sp.type !== POSSESSION || sp.shares < shares || sp.crossRef !== sourceOwnershipIdx) return false;
+    if (
+      !so ||
+      so.type !== OWNERSHIP ||
+      so.shares < shares ||
+      !sp ||
+      sp.type !== POSSESSION ||
+      sp.shares < shares ||
+      sp.crossRef !== sourceOwnershipIdx
+    )
+      return false;
 
     if (this.isZeroId(destination)) {
       // burn — refused for contract shares (zero-id issuer)
@@ -383,13 +525,29 @@ export class AssetLedger {
     let destOwnershipIdx = this.startOf(destination);
     for (;;) {
       const r = this.rec(destOwnershipIdx);
-      if (!r || (r.type === OWNERSHIP && r.mgmt === so.mgmt && r.crossRef === so.crossRef && this.idEq(r.publicKey, destination))) break;
+      if (
+        !r ||
+        (r.type === OWNERSHIP &&
+          r.mgmt === so.mgmt &&
+          r.crossRef === so.crossRef &&
+          this.idEq(r.publicKey, destination))
+      )
+        break;
       destOwnershipIdx = (destOwnershipIdx + 1) & MASK;
     }
     so.shares -= shares;
     const dOwn = this.rec(destOwnershipIdx);
     if (!dOwn) {
-      this.place(destOwnershipIdx, { type: OWNERSHIP, publicKey: destination.slice(0, 32), name: 0n, decimals: 0, unit: 0n, mgmt: so.mgmt, crossRef: so.crossRef, shares });
+      this.place(destOwnershipIdx, {
+        type: OWNERSHIP,
+        publicKey: destination.slice(0, 32),
+        name: 0n,
+        decimals: 0,
+        unit: 0n,
+        mgmt: so.mgmt,
+        crossRef: so.crossRef,
+        shares,
+      });
       this.addOwnership(so.crossRef, destOwnershipIdx);
     } else {
       dOwn.shares += shares;
@@ -398,13 +556,29 @@ export class AssetLedger {
     let destPossessionIdx = this.startOf(destination);
     for (;;) {
       const r = this.rec(destPossessionIdx);
-      if (!r || (r.type === POSSESSION && r.mgmt === sp.mgmt && r.crossRef === destOwnershipIdx && this.idEq(r.publicKey, destination))) break;
+      if (
+        !r ||
+        (r.type === POSSESSION &&
+          r.mgmt === sp.mgmt &&
+          r.crossRef === destOwnershipIdx &&
+          this.idEq(r.publicKey, destination))
+      )
+        break;
       destPossessionIdx = (destPossessionIdx + 1) & MASK;
     }
     sp.shares -= shares;
     const dPos = this.rec(destPossessionIdx);
     if (!dPos) {
-      this.place(destPossessionIdx, { type: POSSESSION, publicKey: destination.slice(0, 32), name: 0n, decimals: 0, unit: 0n, mgmt: sp.mgmt, crossRef: destOwnershipIdx, shares });
+      this.place(destPossessionIdx, {
+        type: POSSESSION,
+        publicKey: destination.slice(0, 32),
+        name: 0n,
+        decimals: 0,
+        unit: 0n,
+        mgmt: sp.mgmt,
+        crossRef: destOwnershipIdx,
+        shares,
+      });
       this.addPossession(destOwnershipIdx, destPossessionIdx);
     } else {
       dPos.shares += shares;
@@ -419,7 +593,15 @@ export class AssetLedger {
 
   // qpi.transferShareOwnershipAndPossession (qpi_asset_impl.h wrapper): drill down requiring BOTH the
   // ownership and the possession record to be managed by the calling contract. Return codes mirror the node:
-  transferShareOwnershipAndPossession(slot: number, name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, shares: bigint, newOwner: Uint8Array): bigint {
+  transferShareOwnershipAndPossession(
+    slot: number,
+    name: bigint,
+    issuer: Uint8Array,
+    owner: Uint8Array,
+    possessor: Uint8Array,
+    shares: bigint,
+    newOwner: Uint8Array,
+  ): bigint {
     if (shares <= 0n || shares > MAX_AMOUNT) return -(MAX_AMOUNT + 1n);
 
     const issuanceIdx = this.issuanceIndex(issuer, name & 0xffffffffffffffn);
@@ -429,7 +611,13 @@ export class AssetLedger {
     for (;;) {
       const r = this.rec(ownershipIdx);
       if (!r) return -shares;
-      if (r.type === OWNERSHIP && r.crossRef === issuanceIdx && this.idEq(r.publicKey, owner) && r.mgmt === slot) break;
+      if (
+        r.type === OWNERSHIP &&
+        r.crossRef === issuanceIdx &&
+        this.idEq(r.publicKey, owner) &&
+        r.mgmt === slot
+      )
+        break;
       ownershipIdx = (ownershipIdx + 1) & MASK;
     }
 
@@ -437,10 +625,15 @@ export class AssetLedger {
     for (;;) {
       const r = this.rec(possessionIdx);
       if (!r) return -shares;
-      if (r.type === POSSESSION && r.crossRef === ownershipIdx && this.idEq(r.publicKey, possessor)) {
+      if (
+        r.type === POSSESSION &&
+        r.crossRef === ownershipIdx &&
+        this.idEq(r.publicKey, possessor)
+      ) {
         if (r.mgmt !== slot) return -shares;
         if (r.shares < shares) return r.shares - shares;
-        if (!this.transferOwnershipAndPossessionIdx(ownershipIdx, possessionIdx, newOwner, shares)) return INVALID_AMOUNT;
+        if (!this.transferOwnershipAndPossessionIdx(ownershipIdx, possessionIdx, newOwner, shares))
+          return INVALID_AMOUNT;
         return r.shares;
       }
       possessionIdx = (possessionIdx + 1) & MASK;
@@ -449,21 +642,52 @@ export class AssetLedger {
 
   // ---- transferShareManagementRights (assets.h): only managingContractIndex changes; identities stay ----
 
-  private transferManagementRightsIdx(sourceOwnershipIdx: number, sourcePossessionIdx: number, dstOwnMgmt: number, dstPosMgmt: number, shares: bigint): boolean {
+  private transferManagementRightsIdx(
+    sourceOwnershipIdx: number,
+    sourcePossessionIdx: number,
+    dstOwnMgmt: number,
+    dstPosMgmt: number,
+    shares: bigint,
+  ): boolean {
     const so = this.rec(sourceOwnershipIdx);
     const sp = this.rec(sourcePossessionIdx);
-    if (!so || so.type !== OWNERSHIP || so.shares < shares || !sp || sp.type !== POSSESSION || sp.shares < shares || sp.crossRef !== sourceOwnershipIdx) return false;
+    if (
+      !so ||
+      so.type !== OWNERSHIP ||
+      so.shares < shares ||
+      !sp ||
+      sp.type !== POSSESSION ||
+      sp.shares < shares ||
+      sp.crossRef !== sourceOwnershipIdx
+    )
+      return false;
 
     let destOwnershipIdx = this.startOf(so.publicKey);
     for (;;) {
       const r = this.rec(destOwnershipIdx);
-      if (!r || (r.type === OWNERSHIP && r.mgmt === dstOwnMgmt && r.crossRef === so.crossRef && this.idEq(r.publicKey, so.publicKey))) break;
+      if (
+        !r ||
+        (r.type === OWNERSHIP &&
+          r.mgmt === dstOwnMgmt &&
+          r.crossRef === so.crossRef &&
+          this.idEq(r.publicKey, so.publicKey))
+      )
+        break;
       destOwnershipIdx = (destOwnershipIdx + 1) & MASK;
     }
     so.shares -= shares;
     const dOwn = this.rec(destOwnershipIdx);
     if (!dOwn) {
-      this.place(destOwnershipIdx, { type: OWNERSHIP, publicKey: so.publicKey.slice(0, 32), name: 0n, decimals: 0, unit: 0n, mgmt: dstOwnMgmt, crossRef: so.crossRef, shares });
+      this.place(destOwnershipIdx, {
+        type: OWNERSHIP,
+        publicKey: so.publicKey.slice(0, 32),
+        name: 0n,
+        decimals: 0,
+        unit: 0n,
+        mgmt: dstOwnMgmt,
+        crossRef: so.crossRef,
+        shares,
+      });
       this.addOwnership(so.crossRef, destOwnershipIdx);
     } else {
       dOwn.shares += shares;
@@ -472,13 +696,29 @@ export class AssetLedger {
     let destPossessionIdx = this.startOf(sp.publicKey);
     for (;;) {
       const r = this.rec(destPossessionIdx);
-      if (!r || (r.type === POSSESSION && r.mgmt === dstPosMgmt && r.crossRef === destOwnershipIdx && this.idEq(r.publicKey, sp.publicKey))) break;
+      if (
+        !r ||
+        (r.type === POSSESSION &&
+          r.mgmt === dstPosMgmt &&
+          r.crossRef === destOwnershipIdx &&
+          this.idEq(r.publicKey, sp.publicKey))
+      )
+        break;
       destPossessionIdx = (destPossessionIdx + 1) & MASK;
     }
     sp.shares -= shares;
     const dPos = this.rec(destPossessionIdx);
     if (!dPos) {
-      this.place(destPossessionIdx, { type: POSSESSION, publicKey: sp.publicKey.slice(0, 32), name: 0n, decimals: 0, unit: 0n, mgmt: dstPosMgmt, crossRef: destOwnershipIdx, shares });
+      this.place(destPossessionIdx, {
+        type: POSSESSION,
+        publicKey: sp.publicKey.slice(0, 32),
+        name: 0n,
+        decimals: 0,
+        unit: 0n,
+        mgmt: dstPosMgmt,
+        crossRef: destOwnershipIdx,
+        shares,
+      });
       this.addPossession(destOwnershipIdx, destPossessionIdx);
     } else {
       dPos.shares += shares;
@@ -493,14 +733,32 @@ export class AssetLedger {
 
   // Name-based façade used by Sim's acquire/release wrappers (owner == possessor and equal managing pairs at
   // the qpi level — the node rejects split custody there too). Resolves the caller-managed record pair, then
-  transferShareManagementRights(name: bigint, issuer: Uint8Array, owner: Uint8Array, possessor: Uint8Array, srcMgmt: number, dstMgmt: number, shares: bigint): boolean {
+  transferShareManagementRights(
+    name: bigint,
+    issuer: Uint8Array,
+    owner: Uint8Array,
+    possessor: Uint8Array,
+    srcMgmt: number,
+    dstMgmt: number,
+    shares: bigint,
+  ): boolean {
     if (shares <= 0n) return false;
 
     const issuanceIdx = this.issuanceIndex(issuer, name & 0xffffffffffffffn);
     if (issuanceIdx === NO_IDX) return false;
 
-    for (const oi of this.ownershipIndices(issuanceIdx, { id: owner, mgmt: srcMgmt, anyId: false, anyMgmt: false })) {
-      for (const pi of this.possessionIndices(oi, { id: possessor, mgmt: srcMgmt, anyId: false, anyMgmt: false })) {
+    for (const oi of this.ownershipIndices(issuanceIdx, {
+      id: owner,
+      mgmt: srcMgmt,
+      anyId: false,
+      anyMgmt: false,
+    })) {
+      for (const pi of this.possessionIndices(oi, {
+        id: possessor,
+        mgmt: srcMgmt,
+        anyId: false,
+        anyMgmt: false,
+      })) {
         return this.transferManagementRightsIdx(oi, pi, dstMgmt, dstMgmt, shares);
       }
     }
@@ -520,10 +778,23 @@ export class AssetLedger {
         total += o.shares;
         for (const pi of this.possessionIndices(oi, ANY_SELECT)) {
           const p = this.rec(pi)!;
-          holdings.push({ owner: toHex(o.publicKey), possessor: toHex(p.publicKey), ownMgmt: o.mgmt, posMgmt: p.mgmt, shares: p.shares.toString() });
+          holdings.push({
+            owner: toHex(o.publicKey),
+            possessor: toHex(p.publicKey),
+            ownMgmt: o.mgmt,
+            posMgmt: p.mgmt,
+            shares: p.shares.toString(),
+          });
         }
       }
-      out.push({ issuer: toHex(iss.publicKey), name: assetNameToString(iss.name), decimals: iss.decimals, unit: iss.unit.toString(), totalShares: total.toString(), holdings });
+      out.push({
+        issuer: toHex(iss.publicKey),
+        name: assetNameToString(iss.name),
+        decimals: iss.decimals,
+        unit: iss.unit.toString(),
+        totalShares: total.toString(),
+        holdings,
+      });
     }
     return out;
   }
@@ -583,7 +854,16 @@ export class AssetLedger {
       for (const oi of this.ownershipIndices(ii, ANY_SELECT)) {
         const o = this.rec(oi)!;
         if (!this.idEq(o.publicKey, ownerId)) continue;
-        out.push({ record: this.recordBytes(oi), issuer: iss.publicKey, name: iss.name, decimals: iss.decimals, managingContractIndex: o.mgmt, shares: o.shares, index: oi, siblings: this.tree!.siblings(oi) });
+        out.push({
+          record: this.recordBytes(oi),
+          issuer: iss.publicKey,
+          name: iss.name,
+          decimals: iss.decimals,
+          managingContractIndex: o.mgmt,
+          shares: o.shares,
+          index: oi,
+          siblings: this.tree!.siblings(oi),
+        });
       }
     }
     return out;
@@ -600,7 +880,17 @@ export class AssetLedger {
         for (const pi of this.possessionIndices(oi, ANY_SELECT)) {
           const p = this.rec(pi)!;
           if (!this.idEq(p.publicKey, possessorId)) continue;
-          out.push({ record: this.recordBytes(pi), owner: o.publicKey, issuer: iss.publicKey, name: iss.name, decimals: iss.decimals, managingContractIndex: p.mgmt, shares: p.shares, index: pi, siblings: this.tree!.siblings(pi) });
+          out.push({
+            record: this.recordBytes(pi),
+            owner: o.publicKey,
+            issuer: iss.publicKey,
+            name: iss.name,
+            decimals: iss.decimals,
+            managingContractIndex: p.mgmt,
+            shares: p.shares,
+            index: pi,
+            siblings: this.tree!.siblings(pi),
+          });
         }
       }
     }

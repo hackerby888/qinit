@@ -34,10 +34,17 @@ constexpr uint64 B = mod(N, 3);`;
 });
 
 const QTF = CORE_PATH + "/src/contracts/QThirtyFour.h";
-test.skipIf(!existsSync(QTF))("real QThirtyFour: BuyTicketsBatch array size resolves (was a leaked const name)", () => {
-  const idl = extractIdl(readFileSync(QTF, "utf8"), "QThirtyFour", { prelude: qpiPrelude(CORE_PATH) });
-  const e = Object.values({ ...idl.functions, ...idl.procedures }).find((x) => x.name === "BuyTicketsBatch")!;
-  // QTF_BATCH_TICKET_VALUES_COUNT = div(QTF_MAX_NUMBER_OF_PLAYERS=1024, 4) * QTF_RANDOM_VALUES_COUNT=4 = 1024
-  expect(e.in).toBe("[1024;uint8]");
-  expect(e.in).not.toContain("QTF_"); // no constant name leaked
-});
+test.skipIf(!existsSync(QTF))(
+  "real QThirtyFour: BuyTicketsBatch array size resolves (was a leaked const name)",
+  () => {
+    const idl = extractIdl(readFileSync(QTF, "utf8"), "QThirtyFour", {
+      prelude: qpiPrelude(CORE_PATH),
+    });
+    const e = Object.values({ ...idl.functions, ...idl.procedures }).find(
+      (x) => x.name === "BuyTicketsBatch",
+    )!;
+    // QTF_BATCH_TICKET_VALUES_COUNT = div(QTF_MAX_NUMBER_OF_PLAYERS=1024, 4) * QTF_RANDOM_VALUES_COUNT=4 = 1024
+    expect(e.in).toBe("[1024;uint8]");
+    expect(e.in).not.toContain("QTF_"); // no constant name leaked
+  },
+);

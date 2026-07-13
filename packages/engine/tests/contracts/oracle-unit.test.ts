@@ -10,7 +10,11 @@ interface Notification {
 }
 
 // A fake host: per-slot balances, a debit log, captured notifications, and a settable clock.
-function fakeHost(): OracleHost & { balances: Map<number, bigint>; notifications: Notification[]; clock: number } {
+function fakeHost(): OracleHost & {
+  balances: Map<number, bigint>;
+  notifications: Notification[];
+  clock: number;
+} {
   const balances = new Map<number, bigint>();
   const notifications: Notification[] = [];
   const h = {
@@ -18,8 +22,10 @@ function fakeHost(): OracleHost & { balances: Map<number, bigint>; notifications
     notifications,
     clock: 0,
     contractBalance: (slot: number) => balances.get(slot) ?? 0n,
-    debitContract: (slot: number, amount: bigint) => balances.set(slot, (balances.get(slot) ?? 0n) - amount),
-    notify: (slot: number, procId: number, input: Uint8Array) => notifications.push({ slot, procId, input: input.slice() }),
+    debitContract: (slot: number, amount: bigint) =>
+      balances.set(slot, (balances.get(slot) ?? 0n) - amount),
+    notify: (slot: number, procId: number, input: Uint8Array) =>
+      notifications.push({ slot, procId, input: input.slice() }),
     nowMs: () => h.clock,
   };
   return h;

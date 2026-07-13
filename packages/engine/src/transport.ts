@@ -1,10 +1,27 @@
 // Layer 3 — NodeTransport adapter. The VirtualNode implements the qinit RPC surface (@qinit/core NodeTransport)
 // on top of the in-process chain (Sim + Contract), so qinit's deploy/test/call flows can target the TS engine
 import type {
-  NodeTransport, TxStatus, StateRead, TickInfo, DynRegistry, DynContract, DynEntry, DynUpload, DebugTrace, BroadcastResult, EntityInfo, TxInfo,
+  NodeTransport,
+  TxStatus,
+  StateRead,
+  TickInfo,
+  DynRegistry,
+  DynContract,
+  DynEntry,
+  DynUpload,
+  DebugTrace,
+  BroadcastResult,
+  EntityInfo,
+  TxInfo,
 } from "@qinit/core";
 import { bytesToIdentity, identityToBytes } from "@qinit/core";
-import { LITE_TX, CHUNK_DATA_MAX, UploadBegin, UploadChunkHeader, DeployMessage } from "@qinit/proto";
+import {
+  LITE_TX,
+  CHUNK_DATA_MAX,
+  UploadBegin,
+  UploadChunkHeader,
+  DeployMessage,
+} from "@qinit/proto";
 import { Sim, type AssetSnapshot, type FeeMode, type ProcedureOpts } from "./sim";
 import type { LogSink } from "./log";
 import type { CommitteeOpts } from "./consensus";
@@ -13,10 +30,30 @@ import { k12Bytes, toHex, verifySync, deriveKeysSync, initK12 } from "./k12";
 import { Transaction } from "./wire";
 import { NativeLogger } from "./native-logger";
 
-interface SlotMeta { name: string; codeHash: string; version: number; }
-interface UploadSession { sessionId: bigint; totalSize: number; chunkCount: number; buf: Uint8Array; received: Set<number>; finalHash: string; }
+interface SlotMeta {
+  name: string;
+  codeHash: string;
+  version: number;
+}
+interface UploadSession {
+  sessionId: bigint;
+  totalSize: number;
+  chunkCount: number;
+  buf: Uint8Array;
+  received: Set<number>;
+  finalHash: string;
+}
 
-export interface EngineOpts { slotBase?: number; slotCount?: number; consensus?: CommitteeOpts; mempool?: boolean; verifySigs?: boolean; fees?: FeeMode; defaultReserve?: bigint; liteTicking?: boolean }
+export interface EngineOpts {
+  slotBase?: number;
+  slotCount?: number;
+  consensus?: CommitteeOpts;
+  mempool?: boolean;
+  verifySigs?: boolean;
+  fees?: FeeMode;
+  defaultReserve?: bigint;
+  liteTicking?: boolean;
+}
 
 export class VirtualNode implements NodeTransport {
   readonly sim: Sim;
@@ -53,7 +90,14 @@ export class VirtualNode implements NodeTransport {
   // metered execution fees are all ON — so a bare engine mirrors a real node. Opt out per flag for the sim
   constructor(opts: EngineOpts = {}) {
     this.logger = new NativeLogger();
-    this.sim = new Sim({ consensus: opts.consensus, mempool: opts.mempool ?? true, fees: opts.fees ?? "metered", defaultReserve: opts.defaultReserve, liteTicking: opts.liteTicking, nativeLogger: this.logger });
+    this.sim = new Sim({
+      consensus: opts.consensus,
+      mempool: opts.mempool ?? true,
+      fees: opts.fees ?? "metered",
+      defaultReserve: opts.defaultReserve,
+      liteTicking: opts.liteTicking,
+      nativeLogger: this.logger,
+    });
     this.slotBase = opts.slotBase ?? 28;
     this.slotCount = opts.slotCount ?? 4;
     this.verifySigs = opts.verifySigs ?? true;
@@ -74,9 +118,17 @@ export class VirtualNode implements NodeTransport {
 
   // Direct deploy (IDE / tests): bypass the chunk protocol — load wasm into the slot + construct (INITIALIZE).
   // Two forms:
-  deploy(wasm: Uint8Array, opts?: { name?: string; slot?: number; deployer?: Uint8Array }): Contract;
+  deploy(
+    wasm: Uint8Array,
+    opts?: { name?: string; slot?: number; deployer?: Uint8Array },
+  ): Contract;
   deploy(slot: number, wasm: Uint8Array, name?: string, deployer?: Uint8Array): Contract;
-  deploy(a: number | Uint8Array, b?: Uint8Array | { name?: string; slot?: number; deployer?: Uint8Array }, c?: string, d?: Uint8Array): Contract {
+  deploy(
+    a: number | Uint8Array,
+    b?: Uint8Array | { name?: string; slot?: number; deployer?: Uint8Array },
+    c?: string,
+    d?: Uint8Array,
+  ): Contract {
     let wasm: Uint8Array;
     let name: string | undefined;
     let explicitSlot: number | undefined;
@@ -99,12 +151,24 @@ export class VirtualNode implements NodeTransport {
     if (name !== undefined) {
       this.byName.set(name, slot);
     }
-    this.meta.set(slot, { name: name ?? "Contract", codeHash: toHex(k12Bytes(wasm)), version: (this.meta.get(slot)?.version ?? 0) + 1 });
+    this.meta.set(slot, {
+      name: name ?? "Contract",
+      codeHash: toHex(k12Bytes(wasm)),
+      version: (this.meta.get(slot)?.version ?? 0) + 1,
+    });
 
     // Post-IPO invariant: a contract's 676 shares always exist in the universe (distributeDividends pays
     // their possessors). The dev engine has no IPO, so mint them at deploy — to the deploying identity when
-    const ticker = (name ?? "Contract").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 7) || "C";
-    this.sim.mintDeployShares(slot, ticker, deployer ?? this.sim.getCommittee().arbitrator.publicKey);
+    const ticker =
+      (name ?? "Contract")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "")
+        .slice(0, 7) || "C";
+    this.sim.mintDeployShares(
+      slot,
+      ticker,
+      deployer ?? this.sim.getCommittee().arbitrator.publicKey,
+    );
 
     return contract;
   }
@@ -144,26 +208,60 @@ export class VirtualNode implements NodeTransport {
 
   // Current-epoch tick window (the node's /live/v1/dev/epoch-info). Sim switches epoch when (tickN+1) crosses a
   // multiple of epochLength, so epoch k spans ticks [k·L, (k+1)·L − 1].
-  epochInfo(): { epoch: number; tick: number; initialTick: number; epochLastTick: number; ticksLeft: number; duration: number } {
+  epochInfo(): {
+    epoch: number;
+    tick: number;
+    initialTick: number;
+    epochLastTick: number;
+    ticksLeft: number;
+    duration: number;
+  } {
     const L = this.sim.epochLength;
     const tick = this.sim.tickN;
     const epoch = this.sim.epochN;
     const initialTick = L > 0 ? epoch * L : 0;
     const epochLastTick = L > 0 ? (epoch + 1) * L - 1 : tick;
-    return { epoch, tick, initialTick, epochLastTick, ticksLeft: Math.max(0, epochLastTick - tick), duration: L };
+    return {
+      epoch,
+      tick,
+      initialTick,
+      epochLastTick,
+      ticksLeft: Math.max(0, epochLastTick - tick),
+      duration: L,
+    };
   }
 
   // Advance up to n ticks, capped at the epoch's last tick (tick-advance never crosses an epoch; use advanceEpoch).
-  advanceTickN(n: number): { from: number; requested: number; target: number; reached: number; epochLastTick: number; cappedAtEpochEnd: boolean } {
+  advanceTickN(n: number): {
+    from: number;
+    requested: number;
+    target: number;
+    reached: number;
+    epochLastTick: number;
+    cappedAtEpochEnd: boolean;
+  } {
     const from = this.sim.tickN;
     const epochLastTick = this.epochInfo().epochLastTick;
     const target = Math.min(from + Math.max(0, n), epochLastTick);
     this.advanceTick(Math.max(0, target - from));
-    return { from, requested: n, target, reached: this.sim.tickN, epochLastTick, cappedAtEpochEnd: from + n > epochLastTick };
+    return {
+      from,
+      requested: n,
+      target,
+      reached: this.sim.tickN,
+      epochLastTick,
+      cappedAtEpochEnd: from + n > epochLastTick,
+    };
   }
 
   // Advance to (epochLastTick − gap) — the pre-transition resting point.
-  advanceToLast(gap = 3): { from: number; target: number; reached: number; epochLastTick: number; epoch: number } {
+  advanceToLast(gap = 3): {
+    from: number;
+    target: number;
+    reached: number;
+    epochLastTick: number;
+    epoch: number;
+  } {
     const from = this.sim.tickN;
     const epochLastTick = this.epochInfo().epochLastTick;
     const target = Math.max(from, epochLastTick - Math.max(0, gap));
@@ -172,7 +270,14 @@ export class VirtualNode implements NodeTransport {
   }
 
   // Cross into the next epoch: advance to the boundary tick, which triggers endEpoch/epochN++/beginEpoch.
-  advanceEpoch(): { fromEpoch: number; toEpoch: number; fromTick: number; tick: number; initialTick: number; switched: boolean } {
+  advanceEpoch(): {
+    fromEpoch: number;
+    toEpoch: number;
+    fromTick: number;
+    tick: number;
+    initialTick: number;
+    switched: boolean;
+  } {
     const fromEpoch = this.sim.epochN;
     const fromTick = this.sim.tickN;
     const L = this.sim.epochLength;
@@ -182,7 +287,14 @@ export class VirtualNode implements NodeTransport {
       this.advanceTick((Math.floor(fromTick / L) + 1) * L - fromTick);
     }
     const toEpoch = this.sim.epochN;
-    return { fromEpoch, toEpoch, fromTick, tick: this.sim.tickN, initialTick: L > 0 ? toEpoch * L : 0, switched: toEpoch > fromEpoch };
+    return {
+      fromEpoch,
+      toEpoch,
+      fromTick,
+      tick: this.sim.tickN,
+      initialTick: L > 0 ? toEpoch * L : 0,
+      switched: toEpoch > fromEpoch,
+    };
   }
 
   async tickInfo(): Promise<TickInfo> {
@@ -193,14 +305,35 @@ export class VirtualNode implements NodeTransport {
     const contracts: DynContract[] = [];
     const armed = (s: number, c: Contract, m: SlotMeta): DynContract => {
       const pick = (kind: number): DynEntry[] =>
-        c.entries.filter((e) => e.kind === kind).map((e) => ({ inputType: e.it, inputSize: e.inSize, outputSize: e.outSize }));
-      return { index: s, armed: true, constructed: true, version: m.version, name: m.name, codeHash: m.codeHash, functions: pick(KIND.FUNCTION), procedures: pick(KIND.PROCEDURE), source: this.sources.get(s) };
+        c.entries
+          .filter((e) => e.kind === kind)
+          .map((e) => ({ inputType: e.it, inputSize: e.inSize, outputSize: e.outSize }));
+      return {
+        index: s,
+        armed: true,
+        constructed: true,
+        version: m.version,
+        name: m.name,
+        codeHash: m.codeHash,
+        functions: pick(KIND.FUNCTION),
+        procedures: pick(KIND.PROCEDURE),
+        source: this.sources.get(s),
+      };
     };
     for (let s = this.slotBase; s < this.slotBase + this.slotCount; s++) {
       const c = this.sim.contracts.get(s);
       const m = this.meta.get(s);
       if (!c || !m) {
-        contracts.push({ index: s, armed: false, constructed: false, version: 0, name: "", codeHash: "", functions: [], procedures: [] });
+        contracts.push({
+          index: s,
+          armed: false,
+          constructed: false,
+          version: 0,
+          name: "",
+          codeHash: "",
+          functions: [],
+          procedures: [],
+        });
         continue;
       }
       contracts.push(armed(s, c, m));
@@ -230,13 +363,35 @@ export class VirtualNode implements NodeTransport {
   async dynUpload(): Promise<DynUpload> {
     const u = this.upload;
     if (!u) {
-      return { active: false, sessionId: "0", totalSize: 0, chunkSize: CHUNK_DATA_MAX, chunkCount: 0, receivedCount: 0, complete: false, finalHash: "", missing: [], missingCount: 0 };
+      return {
+        active: false,
+        sessionId: "0",
+        totalSize: 0,
+        chunkSize: CHUNK_DATA_MAX,
+        chunkCount: 0,
+        receivedCount: 0,
+        complete: false,
+        finalHash: "",
+        missing: [],
+        missingCount: 0,
+      };
     }
     const missing: number[] = [];
     for (let i = 0; i < u.chunkCount; i++) {
       if (!u.received.has(i)) missing.push(i);
     }
-    return { active: true, sessionId: u.sessionId.toString(), totalSize: u.totalSize, chunkSize: CHUNK_DATA_MAX, chunkCount: u.chunkCount, receivedCount: u.received.size, complete: missing.length === 0, finalHash: u.finalHash, missing, missingCount: missing.length };
+    return {
+      active: true,
+      sessionId: u.sessionId.toString(),
+      totalSize: u.totalSize,
+      chunkSize: CHUNK_DATA_MAX,
+      chunkCount: u.chunkCount,
+      receivedCount: u.received.size,
+      complete: missing.length === 0,
+      finalHash: u.finalHash,
+      missing,
+      missingCount: missing.length,
+    };
   }
 
   async txStatus(tick: number, txId: string): Promise<TxStatus> {
@@ -244,10 +399,21 @@ export class VirtualNode implements NodeTransport {
     // when the ticker reaches T — so `processed` must wait for the chain to advance PAST T, else a confirm()
     const r = this.sim.txByHash(txId);
     const processed = this.sim.tickN > tick;
-    return { tick, currentTick: this.sim.tickN, txId, found: true, moneyFlew: r?.moneyFlew ?? true, processed };
+    return {
+      tick,
+      currentTick: this.sim.tickN,
+      txId,
+      found: true,
+      moneyFlew: r?.moneyFlew ?? true,
+      processed,
+    };
   }
 
-  async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
+  async querySmartContract(
+    contractIndex: number,
+    inputType: number,
+    input: Uint8Array,
+  ): Promise<Uint8Array> {
     return this.sim.query(contractIndex, inputType, input); // function call (kind=0)
   }
 
@@ -310,7 +476,16 @@ export class VirtualNode implements NodeTransport {
       this.rawTxs.set(toHex(k12Bytes(body)), txBytes);
       this.rawTxs.set(toHex(fullDigest), txBytes);
       this.rawTxs.set(txId, txBytes);
-      const { moneyFlew, queued } = this.sim.enqueueTx(txTick, source, destBytes, amount, inputType, payload, txId, fullDigest);
+      const { moneyFlew, queued } = this.sim.enqueueTx(
+        txTick,
+        source,
+        destBytes,
+        amount,
+        inputType,
+        payload,
+        txId,
+        fullDigest,
+      );
       return { ok: true, transactionId: txId, moneyFlew, queued };
     } catch (e: any) {
       return { ok: false, message: String(e?.message ?? e) };
@@ -329,12 +504,22 @@ export class VirtualNode implements NodeTransport {
     if (inputType === LITE_TX.UPLOAD_BEGIN) {
       const m = UploadBegin.wrap(p);
       const totalSize = m.totalSize;
-      this.upload = { sessionId: m.sessionId, totalSize, chunkCount: m.chunkCount, buf: new Uint8Array(totalSize), received: new Set(), finalHash: toHex(m.finalHash) };
+      this.upload = {
+        sessionId: m.sessionId,
+        totalSize,
+        chunkCount: m.chunkCount,
+        buf: new Uint8Array(totalSize),
+        received: new Set(),
+        finalHash: toHex(m.finalHash),
+      };
     } else if (inputType === LITE_TX.UPLOAD_CHUNK) {
       const u = this.upload;
       if (!u) throw new Error("upload chunk without an active session");
       const m = UploadChunkHeader.wrap(p);
-      u.buf.set(p.subarray(UploadChunkHeader.SIZE, UploadChunkHeader.SIZE + m.len), m.seq * CHUNK_DATA_MAX);
+      u.buf.set(
+        p.subarray(UploadChunkHeader.SIZE, UploadChunkHeader.SIZE + m.len),
+        m.seq * CHUNK_DATA_MAX,
+      );
       u.received.add(m.seq);
     } else if (inputType === LITE_TX.DEPLOY) {
       const u = this.upload;
@@ -365,11 +550,17 @@ export class VirtualNode implements NodeTransport {
 
   // Oracle dev/test seam (no real oracle machines on the virtual node): list PENDING queries, then inject a reply
   // — which fires the contract's notification procedure, exactly as a committed real reply would.
-  async oraclePending(): Promise<{ queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[]> {
+  async oraclePending(): Promise<
+    { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[]
+  > {
     return this.sim.pendingOracleQueries();
   }
 
-  async oracleResolve(queryId: bigint, reply: Uint8Array, status?: number): Promise<{ ok: boolean }> {
+  async oracleResolve(
+    queryId: bigint,
+    reply: Uint8Array,
+    status?: number,
+  ): Promise<{ ok: boolean }> {
     return { ok: this.sim.resolveOracle(queryId, reply, status) };
   }
 
@@ -388,7 +579,10 @@ export class VirtualNode implements NodeTransport {
     const enc = new TextEncoder();
     const seeds = ["a".repeat(55)];
     for (let i = 1; i < VirtualNode.POOL_SIZE; i++) {
-      const bytes = [...k12Bytes(enc.encode("qinit/funded-seed/" + i)), ...k12Bytes(enc.encode("qinit/funded-seed/" + i + "#"))];
+      const bytes = [
+        ...k12Bytes(enc.encode("qinit/funded-seed/" + i)),
+        ...k12Bytes(enc.encode("qinit/funded-seed/" + i + "#")),
+      ];
       let s = "";
       for (let j = 0; j < 55; j++) {
         s += String.fromCharCode(97 + (bytes[j] % 26)); // map each byte into a-z -> a valid 55-letter seed

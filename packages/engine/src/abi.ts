@@ -44,14 +44,18 @@ export const PreManagementRightsTransferInput = defineStruct("PreManagementRight
   offeredFee: i64, // @112
   otherContractIndex: u16, // @120 the counterpart contract index
 });
-export type PreManagementRightsTransferInput = InstanceType<typeof PreManagementRightsTransferInput>;
+export type PreManagementRightsTransferInput = InstanceType<
+  typeof PreManagementRightsTransferInput
+>;
 
 // ---- PreManagementRightsTransfer_output (qpi.h): the 16-byte reply (bool allow padded to the sint64 fee). ----
 export const PreManagementRightsTransferOutput = defineStruct("PreManagementRightsTransferOutput", {
   allowTransfer: u8, // @0
   requestedFee: i64, // @8  (natural pad after the bool)
 });
-export type PreManagementRightsTransferOutput = InstanceType<typeof PreManagementRightsTransferOutput>;
+export type PreManagementRightsTransferOutput = InstanceType<
+  typeof PreManagementRightsTransferOutput
+>;
 
 // ---- PostIncomingTransfer_input (qpi.h): the 48-byte notification the system fires into a contract's
 // POST_INCOMING_TRANSFER callback after it receives qu. ----

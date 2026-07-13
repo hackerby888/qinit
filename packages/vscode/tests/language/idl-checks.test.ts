@@ -4,12 +4,16 @@ import { resolve, join } from "node:path";
 import { idlChecks } from "../../src/lint/idl-checks";
 
 test("duplicate function index is flagged", () => {
-  const rules = idlChecks("REGISTER_USER_FUNCTION(getA, 1); REGISTER_USER_FUNCTION(getB, 1);").map((f) => f.rule);
+  const rules = idlChecks("REGISTER_USER_FUNCTION(getA, 1); REGISTER_USER_FUNCTION(getB, 1);").map(
+    (f) => f.rule,
+  );
   expect(rules).toContain("qpi/dup-fn-index");
 });
 
 test("a function and a procedure may share an index (separate index spaces)", () => {
-  expect(idlChecks("REGISTER_USER_FUNCTION(getA, 1); REGISTER_USER_PROCEDURE(doB, 1);")).toEqual([]);
+  expect(idlChecks("REGISTER_USER_FUNCTION(getA, 1); REGISTER_USER_PROCEDURE(doB, 1);")).toEqual(
+    [],
+  );
 });
 
 test("unregistered PUBLIC_* is flagged; registered is not", () => {
@@ -24,7 +28,11 @@ test("unregistered PUBLIC_* is flagged; registered is not", () => {
 });
 
 test("commented-out macros are ignored", () => {
-  expect(idlChecks("// PUBLIC_FUNCTION(ghost) {}\n/* REGISTER_USER_FUNCTION(x,1); REGISTER_USER_FUNCTION(y,1); */")).toEqual([]);
+  expect(
+    idlChecks(
+      "// PUBLIC_FUNCTION(ghost) {}\n/* REGISTER_USER_FUNCTION(x,1); REGISTER_USER_FUNCTION(y,1); */",
+    ),
+  ).toEqual([]);
 });
 
 test("complex types in the PUBLIC interface are flagged; allowed types are not", () => {
@@ -34,7 +42,11 @@ test("complex types in the PUBLIC interface are flagged; allowed types are not",
     struct getList_output { Collection<id, 1024> items; };
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES { REGISTER_USER_FUNCTION(getList, 1); }
   `;
-  expect(idlChecks(bad).some((x) => x.rule === "qpi/public-complex-type" && x.message.includes("Collection"))).toBe(true);
+  expect(
+    idlChecks(bad).some(
+      (x) => x.rule === "qpi/public-complex-type" && x.message.includes("Collection"),
+    ),
+  ).toBe(true);
 
   const ok = `
     PUBLIC_FUNCTION(getOk) {}

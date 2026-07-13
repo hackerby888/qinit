@@ -6,7 +6,14 @@ import { VirtualNode } from "../../src/transport";
 import { PeerServer } from "../../src/peer-server";
 import * as codec from "../../src/peer-codec";
 import { MSG } from "../../src/peer-codec";
-import { TICKDATA_SIZE, TICK_SIZE, tickDataMessage, tickDataSignature, tickVoteMessage, tickVoteSignature } from "../../src/consensus";
+import {
+  TICKDATA_SIZE,
+  TICK_SIZE,
+  tickDataMessage,
+  tickDataSignature,
+  tickVoteMessage,
+  tickVoteSignature,
+} from "../../src/consensus";
 import { rootFromSiblings } from "../../src/merkle";
 
 const FIX = import.meta.dir + "/../fixtures";
@@ -77,7 +84,10 @@ test("handshake + current-tick-info returns the live tick with aligned votes", a
   try {
     engine.advanceTick(3); // a few finalized ticks so the response carries a real tick + quorum record
 
-    const frames = await exchange(port, codec.frame(MSG.REQUEST_CURRENT_TICK_INFO, new Uint8Array(0), 1));
+    const frames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_CURRENT_TICK_INFO, new Uint8Array(0), 1),
+    );
     expect(frames.some((f) => f.type === MSG.EXCHANGE_PUBLIC_PEERS)).toBe(true); // handshake
 
     const tickFrame = frames.find((f) => f.type === MSG.RESPOND_CURRENT_TICK_INFO)!;
@@ -99,13 +109,21 @@ test("native logging messages expose core-lite records and tick ranges", async (
   try {
     const tick = engine.sim.tickN;
     engine.logger.begin(tick, 2);
-    engine.logger.log(28, 6, Uint8Array.of(0, 0, 0, 0, 9, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0), engine.sim.epochN);
+    engine.logger.log(
+      28,
+      6,
+      Uint8Array.of(0, 0, 0, 0, 9, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0),
+      engine.sim.epochN,
+    );
     engine.logger.end();
     engine.logger.finalizeTick(tick);
 
     const allReq = new Uint8Array(36);
     dv(allReq).setUint32(32, tick, true);
-    const rangeFrames = await exchange(port, codec.frame(MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX, allReq, 90));
+    const rangeFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX, allReq, 90),
+    );
     const ranges = rangeFrames.find((f) => f.type === MSG.RESPOND_ALL_LOG_ID_RANGES_FROM_TX)!;
     expect(ranges).toBeDefined();
     expect(dv(ranges.payload).getBigInt64(2 * 8, true)).toBe(0n);
@@ -124,8 +142,13 @@ test("native logging messages expose core-lite records and tick ranges", async (
 
     const digestReq = new Uint8Array(36);
     dv(digestReq).setUint32(32, tick, true);
-    const digestFrames = await exchange(port, codec.frame(MSG.REQUEST_LOG_STATE_DIGEST, digestReq, 92));
-    expect(digestFrames.find((f) => f.type === MSG.RESPOND_LOG_STATE_DIGEST)?.payload.length).toBe(32);
+    const digestFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_LOG_STATE_DIGEST, digestReq, 92),
+    );
+    expect(digestFrames.find((f) => f.type === MSG.RESPOND_LOG_STATE_DIGEST)?.payload.length).toBe(
+      32,
+    );
   } finally {
     stop();
   }
@@ -176,7 +199,9 @@ test("entity request serves a merkle proof that recomputes the spectrum root", a
     }
 
     // record + index + siblings -> the committed spectrum root (the check a client / the cli performs)
-    expect(toHex(rootFromSiblings(record, index, siblings))).toBe(toHex(engine.sim.spectrumDigest()));
+    expect(toHex(rootFromSiblings(record, index, siblings))).toBe(
+      toHex(engine.sim.spectrumDigest()),
+    );
   } finally {
     stop();
   }
@@ -210,7 +235,9 @@ test("owned-assets request serves a merkle proof that recomputes the universe ro
       siblings.push(f.payload.subarray(104 + i * 32, 104 + i * 32 + 32));
     }
 
-    expect(toHex(rootFromSiblings(record, index, siblings))).toBe(toHex(engine.sim.universeDigest()));
+    expect(toHex(rootFromSiblings(record, index, siblings))).toBe(
+      toHex(engine.sim.universeDigest()),
+    );
   } finally {
     stop();
   }
@@ -277,7 +304,9 @@ test("tick-data request returns the signed TickData and its leader signature ver
     const leaderIndex = dv(f.payload).getUint16(0, true);
     expect(leaderIndex).toBe(tick % 8); // default committee size
     const leader = engine.sim.getCommittee().computors[leaderIndex];
-    expect(verifySync(leader.publicKey, tickDataMessage(f.payload), tickDataSignature(f.payload))).toBe(true);
+    expect(
+      verifySync(leader.publicKey, tickDataMessage(f.payload), tickDataSignature(f.payload)),
+    ).toBe(true);
   } finally {
     stop();
   }
@@ -303,7 +332,13 @@ test("quorum-tick request streams the committee's verifiable Tick votes", async 
     for (const v of votes) {
       expect(v.payload.length).toBe(TICK_SIZE); // 352
       const idx = dv(v.payload).getUint16(0, true);
-      expect(verifySync(committee.computors[idx].publicKey, tickVoteMessage(v.payload), tickVoteSignature(v.payload))).toBe(true);
+      expect(
+        verifySync(
+          committee.computors[idx].publicKey,
+          tickVoteMessage(v.payload),
+          tickVoteSignature(v.payload),
+        ),
+      ).toBe(true);
     }
   } finally {
     stop();

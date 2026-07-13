@@ -74,7 +74,10 @@ export class Committee {
     }
 
     const digest = k12Bytes(buf.subarray(0, size - SIG_SIZE));
-    buf.set(signSync(this.arbitrator.privateKey, this.arbitrator.publicKey, digest), size - SIG_SIZE);
+    buf.set(
+      signSync(this.arbitrator.privateKey, this.arbitrator.publicKey, digest),
+      size - SIG_SIZE,
+    );
     return buf;
   }
 }
@@ -121,7 +124,13 @@ function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
 
 // Build + sign one computor's 352-byte Tick vote (network_messages/tick.h). The three m256i state digests are
 // committed as prev*Digest and as salted*Digest = K12(pubKey ‖ prevDigest). Time fields and the u32
-export function buildTickVote(c: Computor, epoch: number, tick: number, d: TickStateDigests, timeMs: number): Tick {
+export function buildTickVote(
+  c: Computor,
+  epoch: number,
+  tick: number,
+  d: TickStateDigests,
+  timeMs: number,
+): Tick {
   const v = Tick.alloc();
   v.computorIndex = c.index;
   v.epoch = epoch;
@@ -173,7 +182,11 @@ export function tickVoteSignature(vote: Uint8Array): Uint8Array {
 const TICKDATA_TYPE = 8; // BROADCAST_FUTURE_TICK_DATA — XORed into computorIndex for the signature domain
 
 // timelock = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) — the tick's committed state roots.
-function tickDataTimelock(spectrum: Uint8Array, universe: Uint8Array, computer: Uint8Array): Uint8Array {
+function tickDataTimelock(
+  spectrum: Uint8Array,
+  universe: Uint8Array,
+  computer: Uint8Array,
+): Uint8Array {
   const buf = new Uint8Array(3 * DIGEST_SIZE);
   buf.set(spectrum.subarray(0, DIGEST_SIZE), 0);
   buf.set(universe.subarray(0, DIGEST_SIZE), DIGEST_SIZE);
@@ -183,7 +196,14 @@ function tickDataTimelock(spectrum: Uint8Array, universe: Uint8Array, computer: 
 
 // Build + sign the tick's TickData. The leader (computor[tick % N]) commits the tick's per-tx digests (each =
 // K12(full signed tx), in order, zero-padded to the capacity) and the state roots; contractFees stay zero.
-export function buildTickData(committee: Committee, epoch: number, tick: number, txDigests: Uint8Array[], roots: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array }, timeMs: number): TickData {
+export function buildTickData(
+  committee: Committee,
+  epoch: number,
+  tick: number,
+  txDigests: Uint8Array[],
+  roots: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array },
+  timeMs: number,
+): TickData {
   const leaderIndex = tick % committee.size;
   const leader = committee.computors[leaderIndex];
 
@@ -233,15 +253,23 @@ export function tickDataMessage(td: Uint8Array): Uint8Array {
 
 // Does a vote commit to the etalon (canonical) state digests? The aligned-vote count for quorum.
 export function voteIsAligned(vote: Tick, d: TickStateDigests): boolean {
-  return vote.prevSpectrumDigest.equals(d.spectrum)
-    && vote.prevUniverseDigest.equals(d.universe)
-    && vote.prevComputerDigest.equals(d.computer)
-    && vote.transactionDigest.equals(d.transaction);
+  return (
+    vote.prevSpectrumDigest.equals(d.spectrum) &&
+    vote.prevUniverseDigest.equals(d.universe) &&
+    vote.prevComputerDigest.equals(d.computer) &&
+    vote.transactionDigest.equals(d.transaction)
+  );
 }
 
 // A light-client check: is `record` (an EntityRecord) provably part of the state that >= QUORUM computors
 // signed? Recompute the spectrum root from the merkle proof, then count the tick votes that (a) carry a valid
-export function verifyEntityProof(record: Uint8Array, index: number, siblings: Uint8Array[], votes: Tick[], committee: Committee): boolean {
+export function verifyEntityProof(
+  record: Uint8Array,
+  index: number,
+  siblings: Uint8Array[],
+  votes: Tick[],
+  committee: Committee,
+): boolean {
   if (index < 0) {
     return false;
   }

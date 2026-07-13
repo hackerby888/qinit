@@ -4,9 +4,20 @@ import { decodeOutput, structFieldOffsets, layoutOf } from "./abi-fmt";
 import { flagWordCount, hashMapElemFmt, collectionElemFmt, COLLECTION_POV_FMT } from "./qpi-layout";
 import { roundUp } from "@qinit/core";
 
-export interface MapEntry { slot: number; key: unknown; value: unknown; }
-export interface SetEntry { slot: number; key: unknown; }
-export interface CollEntry { pov: unknown; value: unknown; priority: bigint; }
+export interface MapEntry {
+  slot: number;
+  key: unknown;
+  value: unknown;
+}
+export interface SetEntry {
+  slot: number;
+  key: unknown;
+}
+export interface CollEntry {
+  pov: unknown;
+  value: unknown;
+  priority: bigint;
+}
 
 const NULL_INDEX = -1n;
 // 2-bit occupation flag for slot i (read the containing little-endian uint64).
@@ -21,10 +32,16 @@ function sint64At(buf: Uint8Array, off: number): bigint {
   return new DataView(buf.buffer, buf.byteOffset + off, 8).getBigInt64(0, true);
 }
 
-export async function decodeHashMap(buf: Uint8Array, keyFmt: string, valFmt: string, capacity: number): Promise<MapEntry[]> {
+export async function decodeHashMap(
+  buf: Uint8Array,
+  keyFmt: string,
+  valFmt: string,
+  capacity: number,
+): Promise<MapEntry[]> {
   const elemFmt = hashMapElemFmt(keyFmt, valFmt);
-  const el = layoutOf(elemFmt); const stride = roundUp(el.size, el.align);
-  const [kf, vf] = structFieldOffsets(elemFmt);            // {off,size} of key, value within the element
+  const el = layoutOf(elemFmt);
+  const stride = roundUp(el.size, el.align);
+  const [kf, vf] = structFieldOffsets(elemFmt); // {off,size} of key, value within the element
   const flagsOff = capacity * stride;
   const out: MapEntry[] = [];
   for (let i = 0; i < capacity; i++) {
@@ -39,28 +56,40 @@ export async function decodeHashMap(buf: Uint8Array, keyFmt: string, valFmt: str
   return out;
 }
 
-export async function decodeHashSet(buf: Uint8Array, keyFmt: string, capacity: number): Promise<SetEntry[]> {
-  const kl = layoutOf(keyFmt); const stride = roundUp(kl.size, kl.align);
+export async function decodeHashSet(
+  buf: Uint8Array,
+  keyFmt: string,
+  capacity: number,
+): Promise<SetEntry[]> {
+  const kl = layoutOf(keyFmt);
+  const stride = roundUp(kl.size, kl.align);
   const flagsOff = capacity * stride;
   const out: SetEntry[] = [];
   for (let i = 0; i < capacity; i++) {
     if (flagAt(buf, flagsOff, i) !== 1) continue;
-    out.push({ slot: i, key: await decodeOutput(buf.slice(i * stride, i * stride + kl.size), keyFmt) });
+    out.push({
+      slot: i,
+      key: await decodeOutput(buf.slice(i * stride, i * stride + kl.size), keyFmt),
+    });
   }
   return out;
 }
 
 // Collection<T,L>: PoV{ id value; uint64 population; sint64 head, tail, bstRoot } _povs[L] + 2-bit pov flags +
 // Element{ T value; sint64 priority, povIndex, bstParent, bstLeft, bstRight } _elements[L] + 2 counters.
-export async function decodeCollection(buf: Uint8Array, valFmt: string, capacity: number): Promise<CollEntry[]> {
+export async function decodeCollection(
+  buf: Uint8Array,
+  valFmt: string,
+  capacity: number,
+): Promise<CollEntry[]> {
   const povFmt = COLLECTION_POV_FMT;
   const elemFmt = collectionElemFmt(valFmt);
-  const povStride = roundUp(layoutOf(povFmt).size, layoutOf(povFmt).align);     // 64
+  const povStride = roundUp(layoutOf(povFmt).size, layoutOf(povFmt).align); // 64
   const elemStride = roundUp(layoutOf(elemFmt).size, layoutOf(elemFmt).align);
   const flagsOff = capacity * povStride;
   const elemsOff = flagsOff + flagWordCount(capacity) * 8;
-  const pf = structFieldOffsets(povFmt);    // [id, population, head, tail, bstRoot]
-  const ef = structFieldOffsets(elemFmt);   // [value, priority, povIndex, bstParent, bstLeft, bstRight]
+  const pf = structFieldOffsets(povFmt); // [id, population, head, tail, bstRoot]
+  const ef = structFieldOffsets(elemFmt); // [value, priority, povIndex, bstParent, bstLeft, bstRight]
   const cap = BigInt(capacity);
   const valid = (x: bigint) => x >= 0n && x < cap;
   const out: CollEntry[] = [];
@@ -68,14 +97,23 @@ export async function decodeCollection(buf: Uint8Array, valFmt: string, capacity
     if (flagAt(buf, flagsOff, i) !== 1) continue;
     const povBase = i * povStride;
     const pov = await decodeOutput(buf.slice(povBase, povBase + pf[0].size), "id");
-    let cur = sint64At(buf, povBase + pf[4].off);          // bstRootIndex
-    const stack: number[] = []; let guard = 0;
+    let cur = sint64At(buf, povBase + pf[4].off); // bstRootIndex
+    const stack: number[] = [];
+    let guard = 0;
     while ((valid(cur) || stack.length) && guard++ < capacity * 2 + 4) {
-      while (valid(cur) && guard++ < capacity * 2 + 4) { stack.push(Number(cur)); cur = sint64At(buf, elemsOff + Number(cur) * elemStride + ef[4].off); } // go left
+      while (valid(cur) && guard++ < capacity * 2 + 4) {
+        stack.push(Number(cur));
+        cur = sint64At(buf, elemsOff + Number(cur) * elemStride + ef[4].off);
+      } // go left
       if (!stack.length) break;
-      const idx = stack.pop()!; const eb = elemsOff + idx * elemStride;
-      out.push({ pov, value: await decodeOutput(buf.slice(eb + ef[0].off, eb + ef[0].off + ef[0].size), valFmt), priority: sint64At(buf, eb + ef[1].off) });
-      cur = sint64At(buf, eb + ef[5].off);                 // go right
+      const idx = stack.pop()!;
+      const eb = elemsOff + idx * elemStride;
+      out.push({
+        pov,
+        value: await decodeOutput(buf.slice(eb + ef[0].off, eb + ef[0].off + ef[0].size), valFmt),
+        priority: sint64At(buf, eb + ef[1].off),
+      });
+      cur = sint64At(buf, eb + ef[5].off); // go right
     }
   }
   return out;

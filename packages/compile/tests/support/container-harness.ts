@@ -36,7 +36,14 @@ export interface OperationResult {
 }
 
 export function encodeContainerOperation(operation: ContainerOperation): Uint8Array {
-  const values = [operation.op, operation.a ?? 0n, operation.b ?? 0n, operation.c ?? 0n, operation.d ?? 0n, operation.e ?? 0n];
+  const values = [
+    operation.op,
+    operation.a ?? 0n,
+    operation.b ?? 0n,
+    operation.c ?? 0n,
+    operation.d ?? 0n,
+    operation.e ?? 0n,
+  ];
   const bytes = new Uint8Array(values.length * 8);
   const view = new DataView(bytes.buffer);
   values.forEach((value, index) => view.setBigUint64(index * 8, BigInt.asUintN(64, value), true));
@@ -45,10 +52,15 @@ export function encodeContainerOperation(operation: ContainerOperation): Uint8Ar
 
 export function decodeWords(bytes: Uint8Array): bigint[] {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  return Array.from({ length: Math.floor(bytes.byteLength / 8) }, (_, index) => view.getBigUint64(index * 8, true));
+  return Array.from({ length: Math.floor(bytes.byteLength / 8) }, (_, index) =>
+    view.getBigUint64(index * 8, true),
+  );
 }
 
-export function executeContainerScript(wasm: Uint8Array, operations: readonly ContainerOperation[]): ExecutionResult {
+export function executeContainerScript(
+  wasm: Uint8Array,
+  operations: readonly ContainerOperation[],
+): ExecutionResult {
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
@@ -58,12 +70,9 @@ export function executeContainerScript(wasm: Uint8Array, operations: readonly Co
     try {
       results.push({
         status: "ok",
-        output: sim.procedure(
-          CONTAINER_SLOT,
-          1,
-          encodeContainerOperation(operation),
-          { invocator: user },
-        ).slice(),
+        output: sim
+          .procedure(CONTAINER_SLOT, 1, encodeContainerOperation(operation), { invocator: user })
+          .slice(),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -71,10 +80,17 @@ export function executeContainerScript(wasm: Uint8Array, operations: readonly Co
       break;
     }
   }
-  return { operations: results, outputs: results.flatMap((result) => result.output ? [result.output] : []), state: contract.state().slice() };
+  return {
+    operations: results,
+    outputs: results.flatMap((result) => (result.output ? [result.output] : [])),
+    state: contract.state().slice(),
+  };
 }
 
-export async function compileTsFixture(fixture: ContainerFixture, qpiHeader: string): Promise<Uint8Array> {
+export async function compileTsFixture(
+  fixture: ContainerFixture,
+  qpiHeader: string,
+): Promise<Uint8Array> {
   const result = await compileContract({
     source: fixture.source,
     name: fixture.name,
@@ -84,12 +100,17 @@ export async function compileTsFixture(fixture: ContainerFixture, qpiHeader: str
   });
   const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   if (errors.length || !result.wasm.byteLength) {
-    throw new Error(`${fixture.family} TS compile failed: ${errors.map((error) => error.message).join(" | ") || "empty artifact"}`);
+    throw new Error(
+      `${fixture.family} TS compile failed: ${errors.map((error) => error.message).join(" | ") || "empty artifact"}`,
+    );
   }
   return result.wasm;
 }
 
-export async function compileNativeFixture(fixture: ContainerFixture, corePath: string): Promise<{ wasm: Uint8Array; dispose: () => void }> {
+export async function compileNativeFixture(
+  fixture: ContainerFixture,
+  corePath: string,
+): Promise<{ wasm: Uint8Array; dispose: () => void }> {
   const dir = mkdtempSync(join(tmpdir(), `qinit-container-${fixture.family.toLowerCase()}-`));
   const contractPath = join(dir, `${fixture.name}.h`);
   writeFileSync(contractPath, fixture.source);
@@ -104,7 +125,9 @@ export async function compileNativeFixture(fixture: ContainerFixture, corePath: 
   });
   if (!result.ok || !result.so) {
     rmSync(dir, { recursive: true, force: true });
-    throw new Error(`${fixture.family} native WASI compile failed: ${result.stderr ?? "no artifact"}`);
+    throw new Error(
+      `${fixture.family} native WASI compile failed: ${result.stderr ?? "no artifact"}`,
+    );
   }
   return {
     wasm: new Uint8Array(readFileSync(result.so)),
@@ -113,14 +136,18 @@ export async function compileNativeFixture(fixture: ContainerFixture, corePath: 
 }
 
 export function compareExecutions(left: ExecutionResult, right: ExecutionResult): string | null {
-  if (left.operations.length !== right.operations.length) return `operation count ${left.operations.length} != ${right.operations.length}`;
+  if (left.operations.length !== right.operations.length)
+    return `operation count ${left.operations.length} != ${right.operations.length}`;
   for (let index = 0; index < left.operations.length; index++) {
     const leftOperation = left.operations[index];
     const rightOperation = right.operations[index];
     if (leftOperation.status !== rightOperation.status) {
       return `operation ${index} status differs: ${leftOperation.status} != ${rightOperation.status}`;
     }
-    if (leftOperation.status === "ok" && !Buffer.from(leftOperation.output!).equals(Buffer.from(rightOperation.output!))) {
+    if (
+      leftOperation.status === "ok" &&
+      !Buffer.from(leftOperation.output!).equals(Buffer.from(rightOperation.output!))
+    ) {
       return `operation ${index} output differs: ${Buffer.from(leftOperation.output!).toString("hex")} != ${Buffer.from(rightOperation.output!).toString("hex")}`;
     }
   }
@@ -132,39 +159,60 @@ export function compareExecutions(left: ExecutionResult, right: ExecutionResult)
 }
 
 export function wamrScript(operations: readonly ContainerOperation[]): string {
-  return operations.map((operation) => `1:${Buffer.from(encodeContainerOperation(operation)).toString("hex")}`).join(";");
+  return operations
+    .map((operation) => `1:${Buffer.from(encodeContainerOperation(operation)).toString("hex")}`)
+    .join(";");
 }
 
-export function executeWamr(gtestPath: string, wasm: Uint8Array, operations: readonly ContainerOperation[]): ExecutionResult {
+export function executeWamr(
+  gtestPath: string,
+  wasm: Uint8Array,
+  operations: readonly ContainerOperation[],
+): ExecutionResult {
   const dir = mkdtempSync(join(tmpdir(), "qinit-container-wamr-"));
   const artifact = join(dir, "fixture.wasm");
   try {
     writeFileSync(artifact, wasm);
-    const process = Bun.spawnSync([gtestPath, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"], {
-      env: { ...globalThis.process.env, QINIT_WASM: artifact, QINIT_SCRIPT: wamrScript(operations) },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const process = Bun.spawnSync(
+      [gtestPath, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"],
+      {
+        env: {
+          ...globalThis.process.env,
+          QINIT_WASM: artifact,
+          QINIT_SCRIPT: wamrScript(operations),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
     const stdout = process.stdout.toString();
     const stderr = process.stderr.toString();
-    if (process.exitCode !== 0) throw new Error(`WAMR gtest exited ${process.exitCode}:\n${stdout}\n${stderr}`);
+    if (process.exitCode !== 0)
+      throw new Error(`WAMR gtest exited ${process.exitCode}:\n${stdout}\n${stderr}`);
     const stateMatch = stdout.match(/CROSSHOST_STATE=([0-9a-f]+)/);
     if (!stateMatch) throw new Error(`WAMR gtest emitted no state:\n${stdout}\n${stderr}`);
     const operationResults: OperationResult[] = [];
-    for (const match of stdout.matchAll(/CROSSHOST_OP=(\d+):(ok|trap|rejected)(?::([0-9a-f]*))?/g)) {
+    for (const match of stdout.matchAll(
+      /CROSSHOST_OP=(\d+):(ok|trap|rejected)(?::([0-9a-f]*))?/g,
+    )) {
       const index = Number(match[1]);
-      if (index !== operationResults.length) throw new Error(`WAMR gtest emitted out-of-order operation ${index}`);
+      if (index !== operationResults.length)
+        throw new Error(`WAMR gtest emitted out-of-order operation ${index}`);
       operationResults.push({
         status: match[2] as OperationResult["status"],
-        ...(match[2] === "ok" ? { output: new Uint8Array(Buffer.from(match[3] ?? "", "hex")) } : {}),
+        ...(match[2] === "ok"
+          ? { output: new Uint8Array(Buffer.from(match[3] ?? "", "hex")) }
+          : {}),
       });
     }
     if (operationResults.length !== operations.length && operationResults.at(-1)?.status === "ok") {
-      throw new Error(`WAMR gtest emitted ${operationResults.length}/${operations.length} operation results:\n${stdout}`);
+      throw new Error(
+        `WAMR gtest emitted ${operationResults.length}/${operations.length} operation results:\n${stdout}`,
+      );
     }
     return {
       operations: operationResults,
-      outputs: operationResults.flatMap((result) => result.output ? [result.output] : []),
+      outputs: operationResults.flatMap((result) => (result.output ? [result.output] : [])),
       state: new Uint8Array(Buffer.from(stateMatch[1], "hex")),
     };
   } finally {
@@ -172,7 +220,11 @@ export function executeWamr(gtestPath: string, wasm: Uint8Array, operations: rea
   }
 }
 
-export function seededOperations(family: string, seed: number, count: number): ContainerOperation[] {
+export function seededOperations(
+  family: string,
+  seed: number,
+  count: number,
+): ContainerOperation[] {
   let state = (seed ^ 0x9e3779b9) >>> 0;
   const next = () => {
     state ^= state << 13;
@@ -180,7 +232,14 @@ export function seededOperations(family: string, seed: number, count: number): C
     state ^= state << 5;
     return state >>> 0;
   };
-  const opcodeCounts: Record<string, number> = { Array: 8, BitArray: 8, HashMap: 13, HashSet: 12, Collection: 13, LinkedList: 10 };
+  const opcodeCounts: Record<string, number> = {
+    Array: 8,
+    BitArray: 8,
+    HashMap: 13,
+    HashSet: 12,
+    Collection: 13,
+    LinkedList: 10,
+  };
   const opcodeCount = opcodeCounts[family];
   if (!opcodeCount) throw new Error(`unknown container family ${family}`);
   return Array.from({ length: count }, () => {

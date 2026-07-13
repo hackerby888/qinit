@@ -9,7 +9,8 @@ import { blankCommentsAndStrings } from "./lint/qpi-rules";
 export function findCalleeRefs(source: string): { name: string; offset: number; length: number }[] {
   const src = blankCommentsAndStrings(source);
   const out: { name: string; offset: number; length: number }[] = [];
-  const re = /(?:CALL_OTHER_CONTRACT_FUNCTION|INVOKE_OTHER_CONTRACT_PROCEDURE)(?:_E)?\s*\(\s*(\w+)\s*,/gd;
+  const re =
+    /(?:CALL_OTHER_CONTRACT_FUNCTION|INVOKE_OTHER_CONTRACT_PROCEDURE)(?:_E)?\s*\(\s*(\w+)\s*,/dg;
   for (const m of src.matchAll(re)) {
     const [s, e] = m.indices![1];
     out.push({ name: m[1], offset: s, length: e - s });
@@ -19,7 +20,10 @@ export function findCalleeRefs(source: string): { name: string; offset: number; 
 
 // Callee references that resolve to NEITHER an in-core contract (contract_def.h) nor a known dynamic
 // (node-deployed) callee — they'll have no declarations in the editor TU, so clangd shows raw
-export function unresolvedCalleeRefs(source: string, known: Set<string>): { name: string; offset: number; length: number }[] {
+export function unresolvedCalleeRefs(
+  source: string,
+  known: Set<string>,
+): { name: string; offset: number; length: number }[] {
   return findCalleeRefs(source).filter((r) => !known.has(r.name));
 }
 
@@ -28,7 +32,11 @@ export function unresolvedCalleeRefs(source: string, known: Set<string>): { name
 
 // Build the DynCallees map for the other-contract names `source` references from the node's registry
 // contracts, writing each matched callee's stored .h to <calleeDir>/<Name>.h. Network-free (the caller
-export function calleesFromRegistry(source: string, contracts: DynContract[], calleeDir: string): DynCallees {
+export function calleesFromRegistry(
+  source: string,
+  contracts: DynContract[],
+  calleeDir: string,
+): DynCallees {
   const wanted = scanCallees(source);
   if (wanted.size === 0) return {};
   const out: DynCallees = {};
@@ -48,7 +56,9 @@ async function fetchRegistry(rpcBase: string, timeoutMs = 1500): Promise<DynCont
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(`${rpcBase.replace(/\/+$/, "")}/live/v1/dyn-registry`, { signal: ctrl.signal });
+    const r = await fetch(`${rpcBase.replace(/\/+$/, "")}/live/v1/dyn-registry`, {
+      signal: ctrl.signal,
+    });
     if (!r.ok) return [];
     return ((await r.json()) as DynRegistry)?.contracts ?? [];
   } catch {
@@ -60,7 +70,11 @@ async function fetchRegistry(rpcBase: string, timeoutMs = 1500): Promise<DynCont
 
 // Best-effort: if this contract calls others, resolve those callees from the running node's stored
 // sources. {} when there are no callees (no network touched) or the node is unreachable (no error).
-export async function dynCalleesFromNode(rpcBase: string, source: string, calleeDir: string): Promise<DynCallees> {
+export async function dynCalleesFromNode(
+  rpcBase: string,
+  source: string,
+  calleeDir: string,
+): Promise<DynCallees> {
   if (scanCallees(source).size === 0) return {};
   return calleesFromRegistry(source, await fetchRegistry(rpcBase), calleeDir);
 }

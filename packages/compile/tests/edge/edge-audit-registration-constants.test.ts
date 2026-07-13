@@ -18,7 +18,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function compile(source: string) {
-  return compileContract({ source, name: "RegistrationConstantEdge", slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+  return compileContract({
+    source,
+    name: "RegistrationConstantEdge",
+    slot: 27,
+    qpiHeader: HEADERS,
+    arenaSz: 1 << 20,
+  });
 }
 
 async function registeredInputType(source: string): Promise<number | undefined> {
@@ -33,7 +39,9 @@ async function registeredInputType(source: string): Promise<number | undefined> 
 async function expectRangeRejection(source: string) {
   const result = await compile(source);
   const errors = result.diagnostics.filter((d) => d.severity === "error");
-  expect(errors.some((d) => /input.?type.*range|1.*65535|registration.*constant/i.test(d.message))).toBe(true);
+  expect(
+    errors.some((d) => /input.?type.*range|1.*65535|registration.*constant/i.test(d.message)),
+  ).toBe(true);
   expect(result.wasm).toHaveLength(0);
 }
 

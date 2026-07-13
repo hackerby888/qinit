@@ -21,7 +21,9 @@ describe("runContractTesting — generic engine binding (QUTIL regression)", () 
 
     const passed = results.filter((r) => r.passed).length;
     const failed = results.length - passed;
-    console.log(`\n  [engine] contract_qutil.cpp: ${passed} PASS · ${failed} FAIL (of ${results.length})`);
+    console.log(
+      `\n  [engine] contract_qutil.cpp: ${passed} PASS · ${failed} FAIL (of ${results.length})`,
+    );
     for (const r of results.filter((r) => !r.passed).slice(0, 12)) {
       console.log(`  FAIL  ${r.name || ""} — ${r.message.replace(/\n/g, " ").slice(0, 110)}`);
     }

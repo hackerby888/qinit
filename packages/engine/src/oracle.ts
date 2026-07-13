@@ -2,7 +2,14 @@
 // recurring subscriptions + contract notification are interface-agnostic: query/reply are opaque bytes.
 
 // network_messages/common_def.h ORACLE_QUERY_STATUS_* — the contract-observable lifecycle of an oracle query.
-export const ORACLE_STATUS = { UNKNOWN: 0, PENDING: 1, COMMITTED: 2, SUCCESS: 3, TIMEOUT: 4, UNRESOLVABLE: 5 };
+export const ORACLE_STATUS = {
+  UNKNOWN: 0,
+  PENDING: 1,
+  COMMITTED: 2,
+  SUCCESS: 3,
+  TIMEOUT: 4,
+  UNRESOLVABLE: 5,
+};
 const ORACLE_NOTIFY_HEADER = 16; // OracleNotificationInput: queryId(8) subscriptionId(4) status(1) pad(3), then reply
 
 interface OracleQueryRec {
@@ -44,7 +51,8 @@ export class OracleManager {
   private subs = new Map<number, OracleSubRec>(); // subscriptionId -> recurring subscription
   private nextQueryId = 1n;
   private nextSubId = 0;
-  private provider: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null = null;
+  private provider: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null =
+    null;
 
   constructor(host: OracleHost) {
     this.host = host;
@@ -52,20 +60,56 @@ export class OracleManager {
 
   // Start a one-time query (__qpiQueryOracle): burn the fee, record it PENDING, return the queryId. A provider
   // (if set) resolves it on the next pump(); otherwise resolve() supplies the reply.
-  query(slot: number, interfaceIndex: number, query: Uint8Array, notificationProcId: number, _timeoutMillisec: number, fee: bigint, subscriptionId: number): bigint {
+  query(
+    slot: number,
+    interfaceIndex: number,
+    query: Uint8Array,
+    notificationProcId: number,
+    _timeoutMillisec: number,
+    fee: bigint,
+    subscriptionId: number,
+  ): bigint {
     if (!this.chargeFee(slot, fee)) {
       return -1n;
     }
 
     const id = this.nextQueryId++;
-    this.queries.set(id, { id, slot, interfaceIndex, query: query.slice(), status: ORACLE_STATUS.PENDING, reply: null, notificationProcId, subscriptionId });
+    this.queries.set(id, {
+      id,
+      slot,
+      interfaceIndex,
+      query: query.slice(),
+      status: ORACLE_STATUS.PENDING,
+      reply: null,
+      notificationProcId,
+      subscriptionId,
+    });
     return id;
   }
 
   // Start a recurring subscription (__qpiSubscribeOracle): emit the first query now, then re-emit each periodMs.
-  subscribe(slot: number, interfaceIndex: number, query: Uint8Array, notificationProcId: number, periodMillisec: number, notifyPrev: boolean, fee: bigint): number {
+  subscribe(
+    slot: number,
+    interfaceIndex: number,
+    query: Uint8Array,
+    notificationProcId: number,
+    periodMillisec: number,
+    notifyPrev: boolean,
+    fee: bigint,
+  ): number {
     const id = this.nextSubId++;
-    const sub: OracleSubRec = { id, slot, interfaceIndex, query: query.slice(), periodMs: periodMillisec, notificationProcId, notifyPrev, lastReply: null, fee, nextDueMs: this.host.nowMs() + periodMillisec };
+    const sub: OracleSubRec = {
+      id,
+      slot,
+      interfaceIndex,
+      query: query.slice(),
+      periodMs: periodMillisec,
+      notificationProcId,
+      notifyPrev,
+      lastReply: null,
+      fee,
+      nextDueMs: this.host.nowMs() + periodMillisec,
+    };
     this.subs.set(id, sub);
     this.emitSubscriptionQuery(sub);
     return id;
@@ -91,7 +135,15 @@ export class OracleManager {
   }
 
   private emitSubscriptionQuery(sub: OracleSubRec): bigint {
-    const id = this.query(sub.slot, sub.interfaceIndex, sub.query, sub.notificationProcId, 0, sub.fee, sub.id);
+    const id = this.query(
+      sub.slot,
+      sub.interfaceIndex,
+      sub.query,
+      sub.notificationProcId,
+      0,
+      sub.fee,
+      sub.id,
+    );
     if (id >= 0n && sub.notifyPrev && sub.lastReply) {
       this.fireNotification(this.queries.get(id)!, sub.lastReply, ORACLE_STATUS.SUCCESS);
     }
@@ -175,7 +227,8 @@ export class OracleManager {
   pending(): { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[] {
     const out: { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[] = [];
     for (const q of this.queries.values()) {
-      if (q.status === ORACLE_STATUS.PENDING) out.push({ queryId: q.id, slot: q.slot, interfaceIndex: q.interfaceIndex, query: q.query });
+      if (q.status === ORACLE_STATUS.PENDING)
+        out.push({ queryId: q.id, slot: q.slot, interfaceIndex: q.interfaceIndex, query: q.query });
     }
     return out;
   }

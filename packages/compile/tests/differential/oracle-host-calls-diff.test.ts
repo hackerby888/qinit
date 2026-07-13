@@ -107,12 +107,23 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
     writeFileSync(contractPath, SRC);
 
     const built = await buildContract({
-      contractPath, name: "OrcP", slot: 27, corePath: CORE, outDir: dir, skipVerify: true,
+      contractPath,
+      name: "OrcP",
+      slot: 27,
+      corePath: CORE,
+      outDir: dir,
+      skipVerify: true,
     });
     expect(built.ok).toBe(true);
     const nativeWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: SRC, name: "OrcP", slot: 27, qpiHeader: HEADERS, arenaSz: 4 * 1024 * 1024 });
+    const mine = await compileContract({
+      source: SRC,
+      name: "OrcP",
+      slot: 27,
+      qpiHeader: HEADERS,
+      arenaSz: 4 * 1024 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     // Mock reply for query value 42: echoedValue=42, doubledValue=84 (16 bytes LE).
@@ -149,15 +160,17 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
       const b = ours[phase];
       const firstDiff = a.findIndex((v, i) => b[i] !== v);
       if (firstDiff >= 0) {
-        console.log(`  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`);
+        console.log(
+          `  ${phase} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
+        );
       }
       expect(firstDiff).toBe(-1);
     }
 
     // Sanity on the resolved phase against known host behavior (guards against both sides being identically wrong): query found
     const dv = new DataView(nat.resolvedState.buffer, nat.resolvedState.byteOffset);
-    expect(dv.getBigInt64(0, true)).toBe(1n);   // queryId
-    expect(dv.getBigUint64(8, true)).toBe(1n);  // notified
+    expect(dv.getBigInt64(0, true)).toBe(1n); // queryId
+    expect(dv.getBigUint64(8, true)).toBe(1n); // notified
     expect(dv.getBigUint64(16, true)).toBe(1n); // qFound
     expect(dv.getBigUint64(24, true)).toBe(42n); // qValue
     expect(dv.getBigUint64(32, true)).toBe(1n); // rFound

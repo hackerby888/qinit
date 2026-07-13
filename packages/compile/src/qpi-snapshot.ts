@@ -3,7 +3,12 @@ import { QPI_PRELUDE } from "./qpi-prelude";
 import { parseLiteAbiSource } from "@qinit/core/lite-abi-source";
 import { GENERATOR_VERSION, IMPL_BOUNDARY, LITE_ABI_MARKER } from "./qpi-snapshot-format";
 
-export { embeddedLiteAbi, GENERATOR_VERSION, IMPL_BOUNDARY, LITE_ABI_MARKER } from "./qpi-snapshot-format";
+export {
+  embeddedLiteAbi,
+  GENERATOR_VERSION,
+  IMPL_BOUNDARY,
+  LITE_ABI_MARKER,
+} from "./qpi-snapshot-format";
 
 // Core snapshot inputs are resolved relative to `<core>/src`.
 const HEADER_FILES = [
@@ -76,10 +81,13 @@ export function assembleQpiHeader(corePath: string): string {
     let text = readFileSync(fp, "utf8");
     // The oracle def header pulls each interface (OI::Price, …) in via #include, which the preprocessor treats as a
     if (f.endsWith("oracle_interfaces_def.h")) {
-      text = text.replace(/^[ \t]*#include[ \t]+"(oracle_interfaces\/\w+\.h)"[ \t]*$/gm, (line, rel) => {
-        const ip = `${base}/${rel}`;
-        return existsSync(ip) ? readFileSync(ip, "utf8") : line;
-      });
+      text = text.replace(
+        /^[ \t]*#include[ \t]+"(oracle_interfaces\/\w+\.h)"[ \t]*$/gm,
+        (line, rel) => {
+          const ip = `${base}/${rel}`;
+          return existsSync(ip) ? readFileSync(ip, "utf8") : line;
+        },
+      );
     }
     content += text + "\n";
   }
@@ -93,7 +101,11 @@ export function assembleQpiHeader(corePath: string): string {
   for (const f of IMPL_FILES) {
     const fp = `${base}/${f}`;
     // Strip #include lines — impl chunks are parsed standalone for their method/free-fn bodies; the headers they pull in
-    if (existsSync(fp)) content += `\n${IMPL_BOUNDARY}\n` + readFileSync(fp, "utf8").replace(/^[ \t]*#include[ \t].*$/gm, "") + "\n";
+    if (existsSync(fp))
+      content +=
+        `\n${IMPL_BOUNDARY}\n` +
+        readFileSync(fp, "utf8").replace(/^[ \t]*#include[ \t].*$/gm, "") +
+        "\n";
   }
 
   // Parse the real contract-side import declarations and QPI wrapper bodies. Normalize imported symbol
@@ -111,7 +123,9 @@ export function assembleQpiHeader(corePath: string): string {
   const wrapperBody = wasmTu.slice(wrapperStart, wrapperEnd);
   const importedSymbols = new Map<string, string>();
   const declarations = new Map<string, string>();
-  for (const match of importSource.matchAll(/LH_IMPORT\((\w+)\)\s+[^;\n]*?\b(\w+)\s*\([^;\n]*\)\s*;/g)) {
+  for (const match of importSource.matchAll(
+    /LH_IMPORT\((\w+)\)\s+[^;\n]*?\b(\w+)\s*\([^;\n]*\)\s*;/g,
+  )) {
     importedSymbols.set(match[2], match[1]);
     declarations.set(match[1], match[0]);
   }
@@ -120,7 +134,9 @@ export function assembleQpiHeader(corePath: string): string {
   const missing = canonicalNames.filter((name) => !declarations.has(name));
   const extra = [...declarations.keys()].filter((name) => !canonicalNames.includes(name));
   if (missing.length || extra.length) {
-    throw new Error(`${wasmTuPath} LH_IMPORT declarations differ from canonical metadata (missing: ${missing.join(", ") || "none"}; extra: ${extra.join(", ") || "none"})`);
+    throw new Error(
+      `${wasmTuPath} LH_IMPORT declarations differ from canonical metadata (missing: ${missing.join(", ") || "none"}; extra: ${extra.join(", ") || "none"})`,
+    );
   }
   const normalizeSymbols = (source: string): string => {
     let normalized = source.replace(/LH_IMPORT\(\w+\)\s*/g, "");
@@ -129,7 +145,9 @@ export function assembleQpiHeader(corePath: string): string {
     }
     return normalized;
   };
-  const orderedImports = canonicalNames.map((name) => normalizeSymbols(declarations.get(name)!)).join("\n");
+  const orderedImports = canonicalNames
+    .map((name) => normalizeSymbols(declarations.get(name)!))
+    .join("\n");
   const wrapperSource = `extern "C" {\n${orderedImports}\n} // extern "C"\n${normalizeSymbols(wrapperBody)}`;
   content += `\n${IMPL_BOUNDARY}\n${wrapperSource}\n`;
 

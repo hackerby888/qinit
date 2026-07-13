@@ -24,7 +24,9 @@ test("an entity proof verifies against the quorum-signed spectrum root", async (
   const proof = sim.spectrumProof(A);
 
   // the balance is provably part of the state a supermajority of the committee signed
-  expect(verifyEntityProof(proof.record, proof.index, proof.siblings, rec.votes, sim.getCommittee())).toBe(true);
+  expect(
+    verifyEntityProof(proof.record, proof.index, proof.siblings, rec.votes, sim.getCommittee()),
+  ).toBe(true);
 });
 
 test("a tampered balance record fails light-client verification", async () => {
@@ -34,7 +36,9 @@ test("a tampered balance record fails light-client verification", async () => {
 
   const forged = proof.record.slice();
   new DataView(forged.buffer).setBigInt64(32, 999999n, true); // claim a bigger incomingAmount
-  expect(verifyEntityProof(forged, proof.index, proof.siblings, rec.votes, sim.getCommittee())).toBe(false);
+  expect(
+    verifyEntityProof(forged, proof.index, proof.siblings, rec.votes, sim.getCommittee()),
+  ).toBe(false);
 });
 
 test("another entity's index + siblings fail (the proof is bound to the leaf)", async () => {
@@ -44,5 +48,7 @@ test("another entity's index + siblings fail (the proof is bound to the leaf)", 
   const pb = sim.spectrumProof(B);
 
   // A's record under B's path recomputes a different root that no signed vote commits to
-  expect(verifyEntityProof(pa.record, pb.index, pb.siblings, rec.votes, sim.getCommittee())).toBe(false);
+  expect(verifyEntityProof(pa.record, pb.index, pb.siblings, rec.votes, sim.getCommittee())).toBe(
+    false,
+  );
 });

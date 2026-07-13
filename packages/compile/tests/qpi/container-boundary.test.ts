@@ -3,14 +3,19 @@ import { initK12 } from "@qinit/core";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { loadQpiHeader } from "../../src/index";
 import { CONTAINER_FIXTURES } from "../support/container-fixtures";
-import { compileTsFixture, decodeWords, executeContainerScript } from "../support/container-harness";
+import {
+  compileTsFixture,
+  decodeWords,
+  executeContainerScript,
+} from "../support/container-harness";
 
 const compiled = new Map<string, Uint8Array>();
 
 beforeAll(async () => {
   await initK12();
   const header = loadQpiHeader(CORE_PATH);
-  for (const fixture of CONTAINER_FIXTURES) compiled.set(fixture.family, await compileTsFixture(fixture, header));
+  for (const fixture of CONTAINER_FIXTURES)
+    compiled.set(fixture.family, await compileTsFixture(fixture, header));
 });
 
 const U64_NEGATIVE_ONE = 0xffff_ffff_ffff_ffffn;
@@ -29,7 +34,9 @@ describe("deterministic QPI container boundary matrix", () => {
 
   test("Array covers capacity, wrapping, ranges, memory copy, aggregates, and assignment", () => {
     const fixture = CONTAINER_FIXTURES.find((item) => item.family === "Array")!;
-    const output = executeContainerScript(compiled.get("Array")!, fixture.boundary).outputs.map(decodeWords);
+    const output = executeContainerScript(compiled.get("Array")!, fixture.boundary).outputs.map(
+      decodeWords,
+    );
     expect(output[0]).toEqual([8n, 9n, 9n, 0n]);
     expect(output[1].slice(0, 2)).toEqual([17n, 17n]);
     expect(output[2].slice(0, 2)).toEqual([23n, 23n]);
@@ -43,7 +50,9 @@ describe("deterministic QPI container boundary matrix", () => {
 
   test("BitArray covers all capacities, word edges, wrapping, fills, setMem, and equality", () => {
     const fixture = CONTAINER_FIXTURES.find((item) => item.family === "BitArray")!;
-    const output = executeContainerScript(compiled.get("BitArray")!, fixture.boundary).outputs.map(decodeWords);
+    const output = executeContainerScript(compiled.get("BitArray")!, fixture.boundary).outputs.map(
+      decodeWords,
+    );
     expect(output[0].slice(0, 2)).toEqual([1n, 2n]);
     expect(output[2].slice(0, 2)).toEqual([1n, 64n]);
     expect(output[4].slice(0, 2)).toEqual([1n, 128n]);
@@ -57,8 +66,12 @@ describe("deterministic QPI container boundary matrix", () => {
   test("HashMap and HashSet cover collisions, overwrite/duplicate, full capacity, removal, cleanup, and reset", () => {
     const mapFixture = CONTAINER_FIXTURES.find((item) => item.family === "HashMap")!;
     const setFixture = CONTAINER_FIXTURES.find((item) => item.family === "HashSet")!;
-    const map = executeContainerScript(compiled.get("HashMap")!, mapFixture.boundary).outputs.map(decodeWords);
-    const set = executeContainerScript(compiled.get("HashSet")!, setFixture.boundary).outputs.map(decodeWords);
+    const map = executeContainerScript(compiled.get("HashMap")!, mapFixture.boundary).outputs.map(
+      decodeWords,
+    );
+    const set = executeContainerScript(compiled.get("HashSet")!, setFixture.boundary).outputs.map(
+      decodeWords,
+    );
     expect(map[0][0]).toBe(16n);
     expect(map[5][1]).toBe(3n);
     expect(map[6].slice(0, 3)).toEqual([1n, 22n, 1n]);
@@ -73,7 +86,10 @@ describe("deterministic QPI container boundary matrix", () => {
 
   test("Collection covers colliding PoVs, filtered traversal, invalid operations, full capacity, cleanup, rebuild, and reset", () => {
     const fixture = CONTAINER_FIXTURES.find((item) => item.family === "Collection")!;
-    const output = executeContainerScript(compiled.get("Collection")!, fixture.boundary).outputs.map(decodeWords);
+    const output = executeContainerScript(
+      compiled.get("Collection")!,
+      fixture.boundary,
+    ).outputs.map(decodeWords);
     expect(output[0].slice(0, 2)).toEqual([0n, 16n]);
     expect(output[6]).toEqual([0n, 0n, 2n, 1n]);
     expect(output[7][0]).toBe(3n);
@@ -87,7 +103,10 @@ describe("deterministic QPI container boundary matrix", () => {
 
   test("LinkedList covers empty/singleton, insertion, traversal, invalid operations, full capacity, reuse, and reset", () => {
     const fixture = CONTAINER_FIXTURES.find((item) => item.family === "LinkedList")!;
-    const output = executeContainerScript(compiled.get("LinkedList")!, fixture.boundary).outputs.map(decodeWords);
+    const output = executeContainerScript(
+      compiled.get("LinkedList")!,
+      fixture.boundary,
+    ).outputs.map(decodeWords);
     expect(output[0].slice(0, 3)).toEqual([0n, U64_NEGATIVE_ONE, U64_NEGATIVE_ONE]);
     expect(output[1]).toEqual([1n, U64_NEGATIVE_ONE, U64_NEGATIVE_ONE, 8n]);
     expect(output[6][0]).toBe(U64_NEGATIVE_ONE);

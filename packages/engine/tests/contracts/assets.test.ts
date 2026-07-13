@@ -127,7 +127,14 @@ function sharesByMgmt(sim: Sim, mgmt: number): bigint {
 }
 
 // ShareManager Acquire/Release input: { uint64 name; id issuer; id holder; sint64 shares; uint16 mgmt; sint64 fee }
-function mgmtIn(name: bigint, issuer: Uint8Array, holder: Uint8Array, shares: bigint, mgmt: number, fee: bigint): Uint8Array {
+function mgmtIn(
+  name: bigint,
+  issuer: Uint8Array,
+  holder: Uint8Array,
+  shares: bigint,
+  mgmt: number,
+  fee: bigint,
+): Uint8Array {
   const b = new Uint8Array(96);
   const d = new DataView(b.buffer);
   d.setBigUint64(0, name, true);
@@ -280,7 +287,9 @@ test("newly-exposed qpi wasm imports resolve: dayOfWeek + signatureValidity real
 
   // Probe = dayOfWeek(2024-01-01) + ipoBidPrice(0,0)=1,000,000 + getOracleQueryStatus(stub 0)
   const p = new Uint8Array(24); // { uint8 year; uint8 month; uint8 day; ...; }
-  p[0] = 24; p[1] = 1; p[2] = 1;
+  p[0] = 24;
+  p[1] = 1;
+  p[2] = 1;
   const dow = (new Date(Date.UTC(2024, 0, 1)).getUTCDay() + 4) % 7; // qubic dayOfWeek (0 = Wednesday)
   expect(i64(sim.query(29, 1, p))).toBe(BigInt(dow) + 1000000n); // dayOfWeek + the default IPO share price
 

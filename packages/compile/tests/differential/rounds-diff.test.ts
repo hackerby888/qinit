@@ -37,7 +37,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-const ROUNDS_GTEST = coreGtest("Rounds", `TEST(Rounds, SetStructThenReadFieldChain) {
+const ROUNDS_GTEST = coreGtest(
+  "Rounds",
+  `TEST(Rounds, SetStructThenReadFieldChain) {
   ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000ll);
@@ -54,7 +56,8 @@ const ROUNDS_GTEST = coreGtest("Rounds", `TEST(Rounds, SetStructThenReadFieldCha
   gl.i = 7ull;
   EXPECT_EQ(t.call<Rounds::GetLocked_output>(2, gl).locked, 0ull);
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -85,13 +88,24 @@ describe("differential gtest — Rounds (chain through Array element)", () => {
     const testPath = join(dir, "Rounds.test.cpp");
     writeFileSync(testPath, ROUNDS_GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Rounds", stateType: "Rounds", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "Rounds",
+      stateType: "Rounds",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: ROUNDS, name: "Rounds", slot: 28, qpiHeader: HEADERS, arenaSz: 256 * 1024 });
+    const mine = await compileContract({
+      source: ROUNDS,
+      name: "Rounds",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 256 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });

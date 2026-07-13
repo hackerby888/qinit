@@ -63,7 +63,7 @@ describe("adversarial compiler input", () => {
     ["mutually recursive macros", "#define A B\n#define B A\nA"],
     ["unterminated conditional", "#if 1\nstruct A {};"],
     ["unterminated block comment", "struct A {}; /* never closed"],
-    ["unterminated string", "static_assert(false, \"never closed);"],
+    ["unterminated string", 'static_assert(false, "never closed);'],
     ["unterminated character literal", "uint64 f() { return 'x; }"],
     ["embedded NUL", "struct A {};\0struct B {};"],
     ["long invalid token stream", `${"@ ".repeat(2_000)}struct Tail {};`],

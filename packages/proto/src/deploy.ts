@@ -14,19 +14,27 @@ export const UploadBegin = defineStruct("UploadBegin", {
   chunkCount: u32, // @12
   finalHash: blob(32), // @16  (48 bytes total)
 });
-export const UploadChunkHeader = defineStruct("UploadChunkHeader", {
-  sessionId: u64, // @0
-  seq: u32, // @8
-  len: u16, // @12  (14-byte header; the chunk payload follows at SIZE)
-}, { packed: true });
-export const DeployMessage = defineStruct("DeployMessage", {
-  sessionId: u64, // @0
-  targetSlot: u32, // @8
-  finalHash: blob(32), // @12
-  abiVersion: u32, // @44
-  stateLayoutVersion: u32, // @48
-  name: blob(32), // @52  null-padded contract name (84 bytes total)
-}, { packed: true });
+export const UploadChunkHeader = defineStruct(
+  "UploadChunkHeader",
+  {
+    sessionId: u64, // @0
+    seq: u32, // @8
+    len: u16, // @12  (14-byte header; the chunk payload follows at SIZE)
+  },
+  { packed: true },
+);
+export const DeployMessage = defineStruct(
+  "DeployMessage",
+  {
+    sessionId: u64, // @0
+    targetSlot: u32, // @8
+    finalHash: blob(32), // @12
+    abiVersion: u32, // @44
+    stateLayoutVersion: u32, // @48
+    name: blob(32), // @52  null-padded contract name (84 bytes total)
+  },
+  { packed: true },
+);
 
 function hexToBytes(hex: string, len: number): Uint8Array {
   if (hex.length !== len * 2) throw new Error(`expected ${len}-byte hex, got ${hex.length / 2}`);

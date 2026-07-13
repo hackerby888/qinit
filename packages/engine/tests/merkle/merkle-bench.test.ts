@@ -36,7 +36,10 @@ test("SparseMerkle: the root is order-independent and overwrites collapse to the
   const r = rng(0xa11ce);
   const leaves = new Map<number, Uint8Array>();
   for (let i = 0; i < 64; i++) {
-    leaves.set(Math.floor(r() * LEAF_SPACE), k12Bytes(Uint8Array.of(i, (i * 31) & 0xff, (i * 7) & 0xff)));
+    leaves.set(
+      Math.floor(r() * LEAF_SPACE),
+      k12Bytes(Uint8Array.of(i, (i * 31) & 0xff, (i * 7) & 0xff)),
+    );
   }
 
   const forward = new SparseMerkle(empty);
@@ -132,7 +135,15 @@ test("AssetLedger: a universe digest taken after every issuance equals the one-s
 
   const incremental = new AssetLedger({ contractId });
   for (const it of issues) {
-    incremental.issueAsset(it.slot, it.name, contractId(it.slot), 2, 1000n, 0n, contractId(it.slot));
+    incremental.issueAsset(
+      it.slot,
+      it.name,
+      contractId(it.slot),
+      2,
+      1000n,
+      0n,
+      contractId(it.slot),
+    );
     incremental.getUniverseDigest();
   }
 

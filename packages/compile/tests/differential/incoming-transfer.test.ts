@@ -40,7 +40,13 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
   });
 
   test("a reward-bearing procedure fires PIT with the right amount + type", async () => {
-    const sink = await compileContract({ source: SINK, name: "Sink", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const sink = await compileContract({
+      source: SINK,
+      name: "Sink",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(sink.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
@@ -48,9 +54,9 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
 
     // No transfer yet — PIT never fired.
     let g = sim.query(28, 1);
-    expect(u64(g, 0)).toBe(0n);   // amount
-    expect(u64(g, 8)).toBe(0n);   // type
-    expect(u64(g, 16)).toBe(0n);  // count
+    expect(u64(g, 0)).toBe(0n); // amount
+    expect(u64(g, 8)).toBe(0n); // type
+    expect(u64(g, 16)).toBe(0n); // count
 
     // Touch (proc 1) with a reward: engine credits the contract then fires PIT (procedureTransaction = 1) before the
     const user = new Uint8Array(32).fill(7);
@@ -59,8 +65,8 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
 
     g = sim.query(28, 1);
     expect(u64(g, 0)).toBe(500n); // amount captured from input.amount
-    expect(u64(g, 8)).toBe(1n);   // type == procedureTransaction
-    expect(u64(g, 16)).toBe(1n);  // fired exactly once
+    expect(u64(g, 8)).toBe(1n); // type == procedureTransaction
+    expect(u64(g, 16)).toBe(1n); // fired exactly once
 
     // A second reward-bearing call fires it again, accumulating count.
     sim.procedure(28, 1, undefined, { reward: 250n, invocator: user });

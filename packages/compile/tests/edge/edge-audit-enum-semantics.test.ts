@@ -73,11 +73,7 @@ describe("edge audit — enum underlying types", () => {
   });
 
   test("implicit enumerator values advance after explicit values", async () => {
-    const source = wrap(
-      `enum E { A = 4, B, C = 9, D };`,
-      "",
-      `state.mut().result = B * 100 + D;`,
-    );
+    const source = wrap(`enum E { A = 4, B, C = 9, D };`, "", `state.mut().result = B * 100 + D;`);
     expect((await run(source)).value).toBe(510n);
   });
 });

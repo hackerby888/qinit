@@ -32,17 +32,36 @@ export class QpiDiagnostics implements vscode.Disposable {
     const key = doc.uri.toString();
     const prev = this.timers.get(key);
     if (prev) clearTimeout(prev);
-    this.timers.set(key, setTimeout(() => { this.timers.delete(key); this.refresh(doc); }, delay));
+    this.timers.set(
+      key,
+      setTimeout(() => {
+        this.timers.delete(key);
+        this.refresh(doc);
+      }, delay),
+    );
   }
 
   refresh(doc: vscode.TextDocument): void {
-    if (!this.applies(doc)) { this.coll.delete(doc.uri); return; }
+    if (!this.applies(doc)) {
+      this.coll.delete(doc.uri);
+      return;
+    }
     const text = doc.getText();
-    const findings = [...scanQpi(text), ...scanLocals(text), ...scanLocalsForm(text), ...idlChecks(text)];
-    this.coll.set(doc.uri, findings.map((f) => toDiagnostic(doc, f)));
+    const findings = [
+      ...scanQpi(text),
+      ...scanLocals(text),
+      ...scanLocalsForm(text),
+      ...idlChecks(text),
+    ];
+    this.coll.set(
+      doc.uri,
+      findings.map((f) => toDiagnostic(doc, f)),
+    );
   }
 
-  clear(uri: vscode.Uri): void { this.coll.delete(uri); }
+  clear(uri: vscode.Uri): void {
+    this.coll.delete(uri);
+  }
 
   dispose(): void {
     for (const t of this.timers.values()) clearTimeout(t);

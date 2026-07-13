@@ -23,12 +23,15 @@ test("genWrapper defaults stateType to name (user contracts where they match)", 
 });
 
 const CORE = CORE_PATH;
-test.skipIf(!existsSync(`${CORE}/src/contract_core/contract_def.h`))("system catalog records the struct type distinct from the ticker", () => {
-  const cat = systemContracts(CORE);
-  const qtry = cat.find((c) => c.name === "QTRY");
-  expect(qtry).toBeTruthy();
-  expect(qtry!.stateType).toBe("QUOTTERY"); // ticker QTRY, struct QUOTTERY
-  // contracts whose ticker == struct type still carry a matching stateType
-  const qx = cat.find((c) => c.name === "QX");
-  expect(qx?.stateType).toBe("QX");
-});
+test.skipIf(!existsSync(`${CORE}/src/contract_core/contract_def.h`))(
+  "system catalog records the struct type distinct from the ticker",
+  () => {
+    const cat = systemContracts(CORE);
+    const qtry = cat.find((c) => c.name === "QTRY");
+    expect(qtry).toBeTruthy();
+    expect(qtry!.stateType).toBe("QUOTTERY"); // ticker QTRY, struct QUOTTERY
+    // contracts whose ticker == struct type still carry a matching stateType
+    const qx = cat.find((c) => c.name === "QX");
+    expect(qx?.stateType).toBe("QX");
+  },
+);

@@ -45,7 +45,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Probe, 1); }
 };`;
 
-const GTEST = coreGtest("UnaryP", `TEST(UnaryType, Promotion) {
+const GTEST = coreGtest(
+  "UnaryP",
+  `TEST(UnaryType, Promotion) {
   ContractTestingHarness t;
   CONTRACT_STATE_TYPE::Probe_input in{};
   auto r = t.call<CONTRACT_STATE_TYPE::Probe_output>(1, in);
@@ -56,7 +58,8 @@ const GTEST = coreGtest("UnaryP", `TEST(UnaryType, Promotion) {
   EXPECT_EQ(r.mixEq, 1ull);            // sint32(-1) converts to 4294967295u
   EXPECT_EQ(r.mixLt, 0ull);            // sint32(-2) converts to 4294967294u, not < 1
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -87,18 +90,31 @@ describe("differential gtest — unary type propagation", () => {
     const testPath = join(dir, "UnaryP.test.cpp");
     writeFileSync(testPath, GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "UnaryP", stateType: "UnaryP", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "UnaryP",
+      stateType: "UnaryP",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: SRC, name: "UnaryP", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const mine = await compileContract({
+      source: SRC,
+      name: "UnaryP",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`);
+      console.log(
+        `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
+      );
     }
     expect(results.length).toBeGreaterThan(0);
     expect(results.every((r) => r.passed)).toBe(true);

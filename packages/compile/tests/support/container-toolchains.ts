@@ -13,7 +13,12 @@ export interface ToolchainStatus {
 export function wasiToolchain(): ToolchainStatus {
   const configuredClang = process.env.WASM_CLANG?.trim();
   const configuredSysroot = process.env.WASI_SYSROOT?.trim();
-  if (configuredClang && configuredSysroot && existsSync(configuredClang) && existsSync(configuredSysroot)) {
+  if (
+    configuredClang &&
+    configuredSysroot &&
+    existsSync(configuredClang) &&
+    existsSync(configuredSysroot)
+  ) {
     return { available: true, detail: configuredClang, path: configuredClang };
   }
   try {
@@ -48,10 +53,16 @@ export function toolchainTest(
   timeout = 180_000,
 ): void {
   const run = status.available || REQUIRE_CONTAINER_TOOLCHAINS ? test : test.skip;
-  run(name, async () => {
-    if (!status.available) {
-      throw new Error(`${status.detail}; QINIT_REQUIRE_CONTAINER_TOOLCHAINS=1 forbids skipping container parity`);
-    }
-    await body();
-  }, timeout);
+  run(
+    name,
+    async () => {
+      if (!status.available) {
+        throw new Error(
+          `${status.detail}; QINIT_REQUIRE_CONTAINER_TOOLCHAINS=1 forbids skipping container parity`,
+        );
+      }
+      await body();
+    },
+    timeout,
+  );
 }

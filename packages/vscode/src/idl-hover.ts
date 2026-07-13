@@ -18,7 +18,11 @@ export class IdlHover implements vscode.HoverProvider {
     const cfg = loadConfig(join(root, QINIT_JSON));
     const name = cfg.name ?? basename(doc.fileName).replace(/\.[^.]+$/, "");
     let idl;
-    try { idl = extractIdl(doc.getText(), name); } catch { return undefined; }
+    try {
+      idl = extractIdl(doc.getText(), name);
+    } catch {
+      return undefined;
+    }
 
     const slot = cfg.slot ?? 28;
     const fn = Object.entries(idl.functions).find(([, e]) => e.name === word);
@@ -29,11 +33,17 @@ export class IdlHover implements vscode.HoverProvider {
   }
 }
 
-function hoverFor(kind: "function" | "procedure", index: string, e: IdlEntry, slot: number): vscode.Hover {
+function hoverFor(
+  kind: "function" | "procedure",
+  index: string,
+  e: IdlEntry,
+  slot: number,
+): vscode.Hover {
   const md = new vscode.MarkdownString();
   md.appendMarkdown(`**QPI ${kind}** \`${e.name}\` · index **${index}**\n\n`);
   md.appendCodeblock(
-    `input  : ${e.in || "(empty)"}` + (kind === "function" ? `\noutput : ${e.out || "(empty)"}` : ""),
+    `input  : ${e.in || "(empty)"}` +
+      (kind === "function" ? `\noutput : ${e.out || "(empty)"}` : ""),
     "text",
   );
   md.appendMarkdown(`\ncall: \`qinit call ${e.name}\` · contract \`id(${slot},0,0,0)\``);

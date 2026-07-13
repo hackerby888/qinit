@@ -4,7 +4,7 @@ import { toHex } from "./k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
 
 export const TRACE_STATE_CAP = 256 * 1024; // bound the per-entry state scan (node caps too)
-const ENTRY_CAP = 4096;       // ring-buffer the entries so a long session can't grow unbounded
+const ENTRY_CAP = 4096; // ring-buffer the entries so a long session can't grow unbounded
 
 // Contiguous changed-byte runs between two equal-length state snapshots -> DebugStateRegion[].
 export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRegion[] {
@@ -20,7 +20,11 @@ export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRe
     while (i < n && before[i] !== after[i]) {
       i++;
     }
-    out.push({ off: start, before: toHex(before.slice(start, i)), after: toHex(after.slice(start, i)) });
+    out.push({
+      off: start,
+      before: toHex(before.slice(start, i)),
+      after: toHex(after.slice(start, i)),
+    });
   }
   return out;
 }

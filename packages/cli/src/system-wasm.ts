@@ -16,11 +16,16 @@ function cacheDir(): string {
 
 // Compiled wasm for a named system contract — loaded from cache when present, else compiled (skipVerify) and
 // cached. Returns the bytes + the contract's canonical slot index.
-export async function systemWasm(name: string, core = resolveCore()): Promise<{ index: number; name: string; wasm: Uint8Array }> {
+export async function systemWasm(
+  name: string,
+  core = resolveCore(),
+): Promise<{ index: number; name: string; wasm: Uint8Array }> {
   const catalog = systemContracts(core);
   const c = catalog.find((x) => x.name.toLowerCase() === name.toLowerCase());
   if (!c) {
-    throw new Error(`unknown system contract '${name}' — have: ${catalog.map((x) => x.name).join(", ")}`);
+    throw new Error(
+      `unknown system contract '${name}' — have: ${catalog.map((x) => x.name).join(", ")}`,
+    );
   }
 
   const dir = cacheDir();

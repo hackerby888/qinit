@@ -11,7 +11,13 @@ test("the embedded test runtime is generated from the canonical source", async (
 
 test("the bundled runtime is portable: only @qubic-lib external, no node-only refs", async () => {
   const src = await generateRuntime();
-  const externals = [...new Set([...src.matchAll(/from\s*"([^"]+)"|require\("([^"]+)"\)/g)].map((m) => m[1] || m[2]).filter((x) => x && !x.startsWith(".") && !x.startsWith("/")))];
+  const externals = [
+    ...new Set(
+      [...src.matchAll(/from\s*"([^"]+)"|require\("([^"]+)"\)/g)]
+        .map((m) => m[1] || m[2])
+        .filter((x) => x && !x.startsWith(".") && !x.startsWith("/")),
+    ),
+  ];
   expect(externals.every((x) => x.startsWith("@qubic-lib"))).toBe(true);
   expect(/\bnode:|child_process|require\("fs"\)/.test(src)).toBe(false);
 });

@@ -4,13 +4,28 @@ import { test, expect } from "bun:test";
 import { resolveContract, systemAsDyn, type ContractSets } from "../../src/contracts";
 
 const user = (over: any = {}) => ({
-  index: 100, name: "MyToken", armed: true, constructed: true, version: 0, codeHash: "", source: "USER_SRC", ...over,
+  index: 100,
+  name: "MyToken",
+  armed: true,
+  constructed: true,
+  version: 0,
+  codeHash: "",
+  source: "USER_SRC",
+  ...over,
 });
 const sys = (over: any = {}) => ({
-  index: 1, name: "QX", file: "QX.h", source: "SYS_SRC",
-  idl: { name: "QX", functions: {}, procedures: {} } as any, ...over,
+  index: 1,
+  name: "QX",
+  file: "QX.h",
+  source: "SYS_SRC",
+  idl: { name: "QX", functions: {}, procedures: {} } as any,
+  ...over,
 });
-const sets = (over: Partial<ContractSets> = {}): ContractSets => ({ user: [], system: [], ...over });
+const sets = (over: Partial<ContractSets> = {}): ContractSets => ({
+  user: [],
+  system: [],
+  ...over,
+});
 
 test("resolveContract: matches a user contract by case-insensitive name", () => {
   const r = resolveContract("mytoken", sets({ user: [user()] as any }));
@@ -26,7 +41,10 @@ test("resolveContract: matches by numeric index", () => {
 });
 
 test("resolveContract: user contracts shadow system on an index/name collision", () => {
-  const r = resolveContract("1", sets({ user: [user({ index: 1, name: "Mine" })] as any, system: [sys()] as any }));
+  const r = resolveContract(
+    "1",
+    sets({ user: [user({ index: 1, name: "Mine" })] as any, system: [sys()] as any }),
+  );
 
   expect(r?.kind).toBe("user");
   expect(r?.name).toBe("Mine");
@@ -46,7 +64,9 @@ test("resolveContract: trims surrounding whitespace before matching", () => {
 });
 
 test("resolveContract: an unmatched target resolves to null", () => {
-  expect(resolveContract("ghost", sets({ user: [user()] as any, system: [sys()] as any }))).toBeNull();
+  expect(
+    resolveContract("ghost", sets({ user: [user()] as any, system: [sys()] as any })),
+  ).toBeNull();
 });
 
 test("resolveContract: a non-numeric target never matches an index by accident", () => {
@@ -62,7 +82,13 @@ test("resolveContract: an unnamed user contract reports its index as the name", 
 });
 
 test("systemAsDyn: presents a system contract as an armed, constructed DynContract", () => {
-  const c = sys({ idl: { name: "QX", functions: { "1": { name: "Get", in: "", out: "uint64" } }, procedures: { "2": { name: "Set", in: "uint64", out: "" } } } });
+  const c = sys({
+    idl: {
+      name: "QX",
+      functions: { "1": { name: "Get", in: "", out: "uint64" } },
+      procedures: { "2": { name: "Set", in: "uint64", out: "" } },
+    },
+  });
   const d = systemAsDyn(c as any);
 
   expect(d.index).toBe(1);

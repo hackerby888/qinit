@@ -70,10 +70,7 @@ namespace Utils {
   });
 
   test("QPI math still resolves under using namespace QPI", async () => {
-    const source = contractShell(
-      `using namespace QPI;`,
-      `output.r = (uint64)div(input.v, 2ull);`,
-    );
+    const source = contractShell(`using namespace QPI;`, `output.r = (uint64)div(input.v, 2ull);`);
     const r = await compile(source);
     expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
@@ -151,10 +148,7 @@ using namespace Extra;
 namespace Wrap {
   inline uint64 wrapped(uint64 v) { return plusSeven(v); }
 }`;
-    const source = contractShell(
-      `using namespace QPI;`,
-      `output.r = Wrap::wrapped(input.v);`,
-    );
+    const source = contractShell(`using namespace QPI;`, `output.r = Wrap::wrapped(input.v);`);
     const r = await compileContract({ source, name: "NsProbe", slot: 28, qpiHeader });
     expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(r.diagnostics.some((d) => /plusSeven|unsupported call/i.test(d.message))).toBe(false);

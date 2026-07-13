@@ -68,7 +68,8 @@ export { LHOST_ABI } from "@qinit/core";
 const signature = (
   params: readonly WasmValueType[] = [],
   results: readonly WasmValueType[] = [],
-): WasmFunctionSignature => Object.freeze({ params: Object.freeze([...params]), results: Object.freeze([...results]) });
+): WasmFunctionSignature =>
+  Object.freeze({ params: Object.freeze([...params]), results: Object.freeze([...results]) });
 
 const I32 = "i32" as const;
 const I64 = "i64" as const;
@@ -78,27 +79,31 @@ const I64 = "i64" as const;
 const PORTABLE_FEATURES = new Set(["sign-extension-operators"]);
 
 /** Function exports consumed by the Qinit engine and core-lite dynamic loader. */
-export const LITE_WASM_FUNCTION_ABI: Readonly<Record<string, WasmFunctionSignature>> = Object.freeze({
-  state_addr: signature([], [I32]),
-  state_size: signature([], [I32]),
-  io_base: signature([], [I32]),
-  io_size: signature([], [I32]),
-  ctx_addr: signature([], [I32]),
-  reg_count: signature([], [I32]),
-  reg_info: signature([I32, I32]),
-  reg_sysproc_mask: signature([], [I32]),
-  sysproc_locals_size: signature([I32], [I32]),
-  sysproc_in_size: signature([I32], [I32]),
-  sysproc_out_size: signature([I32], [I32]),
-  has_migrate: signature([], [I32]),
-  migrate_old_state_size: signature([], [I32]),
-  migrate_locals_size: signature([], [I32]),
-  dispatch: signature([I32, I32, I32, I32, I32]),
-  _initialize: signature(),
-});
+export const LITE_WASM_FUNCTION_ABI: Readonly<Record<string, WasmFunctionSignature>> =
+  Object.freeze({
+    state_addr: signature([], [I32]),
+    state_size: signature([], [I32]),
+    io_base: signature([], [I32]),
+    io_size: signature([], [I32]),
+    ctx_addr: signature([], [I32]),
+    reg_count: signature([], [I32]),
+    reg_info: signature([I32, I32]),
+    reg_sysproc_mask: signature([], [I32]),
+    sysproc_locals_size: signature([I32], [I32]),
+    sysproc_in_size: signature([I32], [I32]),
+    sysproc_out_size: signature([I32], [I32]),
+    has_migrate: signature([], [I32]),
+    migrate_old_state_size: signature([], [I32]),
+    migrate_locals_size: signature([], [I32]),
+    dispatch: signature([I32, I32, I32, I32, I32]),
+    _initialize: signature(),
+  });
 
 class WasmParseError extends Error {
-  constructor(message: string, readonly offset: number) {
+  constructor(
+    message: string,
+    readonly offset: number,
+  ) {
     super(message);
   }
 }
@@ -112,14 +117,20 @@ class Reader {
     readonly end = bytes.byteLength,
   ) {
     this.pos = start;
-    if (start < 0 || end < start || end > bytes.byteLength) throw new WasmParseError("invalid reader bounds", start);
+    if (start < 0 || end < start || end > bytes.byteLength)
+      throw new WasmParseError("invalid reader bounds", start);
   }
 
-  get done(): boolean { return this.pos === this.end; }
-  get remaining(): number { return this.end - this.pos; }
+  get done(): boolean {
+    return this.pos === this.end;
+  }
+  get remaining(): number {
+    return this.end - this.pos;
+  }
 
   byte(label = "byte"): number {
-    if (this.pos >= this.end) throw new WasmParseError(`unexpected end while reading ${label}`, this.pos);
+    if (this.pos >= this.end)
+      throw new WasmParseError(`unexpected end while reading ${label}`, this.pos);
     return this.bytes[this.pos++];
   }
 
@@ -166,7 +177,9 @@ class Reader {
     const start = this.pos;
     this.skip(length, label);
     try {
-      return new TextDecoder("utf-8", { fatal: true }).decode(this.bytes.subarray(start, start + length));
+      return new TextDecoder("utf-8", { fatal: true }).decode(
+        this.bytes.subarray(start, start + length),
+      );
     } catch {
       throw new WasmParseError(`${label} is not valid UTF-8`, start);
     }
@@ -203,18 +216,24 @@ function error(
   message: string,
   offset?: number,
 ): void {
-  diagnostics.push(offset === undefined
-    ? { severity: "error", code, message }
-    : { severity: "error", code, message, offset });
+  diagnostics.push(
+    offset === undefined
+      ? { severity: "error", code, message }
+      : { severity: "error", code, message, offset },
+  );
 }
 
 function readValueType(reader: Reader, parsed: ParsedModule, context: string): WasmValueType {
   const at = reader.pos;
   switch (reader.byte(`${context} value type`)) {
-    case 0x7f: return "i32";
-    case 0x7e: return "i64";
-    case 0x7d: return "f32";
-    case 0x7c: return "f64";
+    case 0x7f:
+      return "i32";
+    case 0x7e:
+      return "i64";
+    case 0x7d:
+      return "f32";
+    case 0x7c:
+      return "f64";
     case 0x7b:
       parsed.features.add("simd");
       throw new WasmParseError(`${context} uses v128`, at);
@@ -227,14 +246,22 @@ function readValueType(reader: Reader, parsed: ParsedModule, context: string): W
   }
 }
 
-function readValueTypeVector(reader: Reader, parsed: ParsedModule, context: string): WasmValueType[] {
+function readValueTypeVector(
+  reader: Reader,
+  parsed: ParsedModule,
+  context: string,
+): WasmValueType[] {
   const count = reader.u32(`${context} count`);
   const values: WasmValueType[] = [];
   for (let i = 0; i < count; i++) values.push(readValueType(reader, parsed, context));
   return values;
 }
 
-function readLimits(reader: Reader, parsed: ParsedModule, context: "memory" | "table"): {
+function readLimits(
+  reader: Reader,
+  parsed: ParsedModule,
+  context: "memory" | "table",
+): {
   minimum: bigint;
   maximum?: bigint;
   shared: boolean;
@@ -248,8 +275,10 @@ function readLimits(reader: Reader, parsed: ParsedModule, context: "memory" | "t
   if (shared) parsed.features.add("threads/shared-memory");
   if (memory64) parsed.features.add("memory64");
   const known = context === "memory" ? 0x07 : 0x01;
-  if ((flags & ~known) !== 0) throw new WasmParseError(`${context} has unsupported limits flags 0x${flags.toString(16)}`, at);
-  const readLimit = () => memory64 ? reader.u64(`${context} limit`) : BigInt(reader.u32(`${context} limit`));
+  if ((flags & ~known) !== 0)
+    throw new WasmParseError(`${context} has unsupported limits flags 0x${flags.toString(16)}`, at);
+  const readLimit = () =>
+    memory64 ? reader.u64(`${context} limit`) : BigInt(reader.u32(`${context} limit`));
   const minimum = readLimit();
   const maximum = hasMaximum ? readLimit() : undefined;
   return { minimum, maximum, shared, memory64 };
@@ -270,18 +299,29 @@ function readGlobalType(reader: Reader, parsed: ParsedModule): InternalGlobal {
   const type = readValueType(reader, parsed, "global");
   const at = reader.pos;
   const mutable = reader.byte("global mutability");
-  if (mutable !== 0 && mutable !== 1) throw new WasmParseError("global mutability must be 0 or 1", at);
+  if (mutable !== 0 && mutable !== 1)
+    throw new WasmParseError("global mutability must be 0 or 1", at);
   return { type, mutable: mutable === 1 };
 }
 
 function readConstExpression(reader: Reader, parsed: ParsedModule): void {
   const opcodeAt = reader.pos;
   switch (reader.byte("constant-expression opcode")) {
-    case 0x23: reader.u32("global.get index"); break;
-    case 0x41: reader.signedLeb(5, "i32.const"); break;
-    case 0x42: reader.signedLeb(10, "i64.const"); break;
-    case 0x43: reader.skip(4, "f32.const"); break;
-    case 0x44: reader.skip(8, "f64.const"); break;
+    case 0x23:
+      reader.u32("global.get index");
+      break;
+    case 0x41:
+      reader.signedLeb(5, "i32.const");
+      break;
+    case 0x42:
+      reader.signedLeb(10, "i64.const");
+      break;
+    case 0x43:
+      reader.skip(4, "f32.const");
+      break;
+    case 0x44:
+      reader.skip(8, "f64.const");
+      break;
     case 0xd0:
     case 0xd2:
       parsed.features.add("reference-types");
@@ -299,7 +339,8 @@ function readConstExpression(reader: Reader, parsed: ParsedModule): void {
 function readBlockType(reader: Reader, parsed: ParsedModule): void {
   const at = reader.pos;
   const first = reader.byte("block type");
-  if (first === 0x40 || first === 0x7f || first === 0x7e || first === 0x7d || first === 0x7c) return;
+  if (first === 0x40 || first === 0x7f || first === 0x7e || first === 0x7d || first === 0x7c)
+    return;
   parsed.features.add("multi-value/block-type-index");
   for (let i = 1; i < 5 && (first & 0x80) !== 0; i++) {
     if ((reader.byte("block type index") & 0x80) === 0) return;
@@ -312,13 +353,27 @@ function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
   const at = reader.pos;
   const opcode = reader.byte("opcode");
   switch (opcode) {
-    case 0x00: case 0x01: case 0x05: case 0x0b: case 0x0f: case 0x1a: case 0x1b:
+    case 0x00:
+    case 0x01:
+    case 0x05:
+    case 0x0b:
+    case 0x0f:
+    case 0x1a:
+    case 0x1b:
       return true;
-    case 0x02: case 0x03: case 0x04:
+    case 0x02:
+    case 0x03:
+    case 0x04:
       readBlockType(reader, parsed);
       return true;
-    case 0x0c: case 0x0d: case 0x10:
-    case 0x20: case 0x21: case 0x22: case 0x23: case 0x24:
+    case 0x0c:
+    case 0x0d:
+    case 0x10:
+    case 0x20:
+    case 0x21:
+    case 0x22:
+    case 0x23:
+    case 0x24:
       reader.u32("instruction index");
       return true;
     case 0x0e: {
@@ -332,19 +387,29 @@ function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
       if (table !== 0) parsed.features.add("multiple-tables");
       return true;
     }
-    case 0x25: case 0x26:
+    case 0x25:
+    case 0x26:
       parsed.features.add("reference-types/table-instructions");
       reader.u32("table index");
       return true;
-    case 0x3f: case 0x40: {
+    case 0x3f:
+    case 0x40: {
       const memory = reader.u32("memory index");
       if (memory !== 0) parsed.features.add("multiple-memories");
       return true;
     }
-    case 0x41: reader.signedLeb(5, "i32.const"); return true;
-    case 0x42: reader.signedLeb(10, "i64.const"); return true;
-    case 0x43: reader.skip(4, "f32.const"); return true;
-    case 0x44: reader.skip(8, "f64.const"); return true;
+    case 0x41:
+      reader.signedLeb(5, "i32.const");
+      return true;
+    case 0x42:
+      reader.signedLeb(10, "i64.const");
+      return true;
+    case 0x43:
+      reader.skip(4, "f32.const");
+      return true;
+    case 0x44:
+      reader.skip(8, "f64.const");
+      return true;
     case 0x12:
       parsed.features.add("tail-calls");
       reader.u32("return_call function index");
@@ -354,7 +419,8 @@ function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
       reader.u32("return_call_indirect type index");
       reader.u32("return_call_indirect table index");
       return true;
-    case 0x14: case 0x15:
+    case 0x14:
+    case 0x15:
       parsed.features.add("typed-function-references/tail-calls");
       reader.u32("call_ref type index");
       return true;
@@ -364,7 +430,11 @@ function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
       for (let i = 0; i < count; i++) readValueType(reader, parsed, "typed select");
       return true;
     }
-    case 0xc0: case 0xc1: case 0xc2: case 0xc3: case 0xc4:
+    case 0xc0:
+    case 0xc1:
+    case 0xc2:
+    case 0xc3:
+    case 0xc4:
       parsed.features.add("sign-extension-operators");
       return true;
     case 0xd0:
@@ -382,13 +452,33 @@ function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
       parsed.features.add("bulk-memory/nontrapping-conversions");
       const sub = reader.u32("0xfc subopcode");
       if (sub <= 7) return true;
-      if (sub === 8) { reader.u32("data index"); reader.u32("memory index"); return true; }
-      if (sub === 9 || (sub >= 15 && sub <= 17)) { reader.u32("segment/table index"); return true; }
-      if (sub === 10 || sub === 12 || sub === 14) { reader.u32("first index"); reader.u32("second index"); return true; }
-      if (sub === 11 || sub === 13) { reader.u32("memory/element index"); return true; }
+      if (sub === 8) {
+        reader.u32("data index");
+        reader.u32("memory index");
+        return true;
+      }
+      if (sub === 9 || (sub >= 15 && sub <= 17)) {
+        reader.u32("segment/table index");
+        return true;
+      }
+      if (sub === 10 || sub === 12 || sub === 14) {
+        reader.u32("first index");
+        reader.u32("second index");
+        return true;
+      }
+      if (sub === 11 || sub === 13) {
+        reader.u32("memory/element index");
+        return true;
+      }
       return false;
     }
-    case 0x06: case 0x07: case 0x08: case 0x09: case 0x18: case 0x19: case 0x1f:
+    case 0x06:
+    case 0x07:
+    case 0x08:
+    case 0x09:
+    case 0x18:
+    case 0x19:
+    case 0x1f:
       parsed.features.add("exception-handling");
       return false;
     case 0xfb:
@@ -412,7 +502,12 @@ function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
       }
       if (opcode >= 0x45 && opcode <= 0xbf) return true;
       parsed.features.add(`unknown-opcode-0x${opcode.toString(16).padStart(2, "0")}`);
-      error(parsed.diagnostics, "unsupported-opcode", `opcode 0x${opcode.toString(16).padStart(2, "0")} is outside the portable MVP profile`, at);
+      error(
+        parsed.diagnostics,
+        "unsupported-opcode",
+        `opcode 0x${opcode.toString(16).padStart(2, "0")} is outside the portable MVP profile`,
+        at,
+      );
       return false;
   }
 }
@@ -421,7 +516,8 @@ function parseTypeSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("type count");
   for (let i = 0; i < count; i++) {
     const at = reader.pos;
-    if (reader.byte("function type form") !== 0x60) throw new WasmParseError("type is not a function type", at);
+    if (reader.byte("function type form") !== 0x60)
+      throw new WasmParseError("type is not a function type", at);
     const params = readValueTypeVector(reader, parsed, "parameter");
     const results = readValueTypeVector(reader, parsed, "result");
     if (results.length > 1) parsed.features.add("multi-value-results");
@@ -429,7 +525,12 @@ function parseTypeSection(reader: Reader, parsed: ParsedModule): void {
   }
 }
 
-function typeAt(parsed: ParsedModule, index: number, context: string, offset: number): WasmFunctionSignature {
+function typeAt(
+  parsed: ParsedModule,
+  index: number,
+  context: string,
+  offset: number,
+): WasmFunctionSignature {
   const type = parsed.types[index];
   if (!type) throw new WasmParseError(`${context} refers to missing type ${index}`, offset);
   return type;
@@ -456,9 +557,13 @@ function parseImportSection(reader: Reader, parsed: ParsedModule): void {
     } else if (kind === 2) {
       const limits = readLimits(reader, parsed, "memory");
       parsed.memories.push({
-        source: "imported", module, name,
-        minimumPages: limits.minimum, maximumPages: limits.maximum,
-        shared: limits.shared, memory64: limits.memory64,
+        source: "imported",
+        module,
+        name,
+        minimumPages: limits.minimum,
+        maximumPages: limits.maximum,
+        shared: limits.shared,
+        memory64: limits.memory64,
       });
       parsed.imports.push({ module, name, kind: "memory" });
     } else if (kind === 3) {
@@ -501,8 +606,10 @@ function parseMemorySection(reader: Reader, parsed: ParsedModule): void {
     const limits = readLimits(reader, parsed, "memory");
     parsed.memories.push({
       source: "defined",
-      minimumPages: limits.minimum, maximumPages: limits.maximum,
-      shared: limits.shared, memory64: limits.memory64,
+      minimumPages: limits.minimum,
+      maximumPages: limits.maximum,
+      shared: limits.shared,
+      memory64: limits.memory64,
     });
   }
   if (parsed.memories.length > 1) parsed.features.add("multiple-memories");
@@ -555,7 +662,11 @@ function parseElementSection(reader: Reader, parsed: ParsedModule): void {
 function parseCodeSection(reader: Reader, parsed: ParsedModule): void {
   const count = reader.u32("code body count");
   if (count !== parsed.definedFunctionCount) {
-    error(parsed.diagnostics, "malformed-module", `function section declares ${parsed.definedFunctionCount} bodies but code section has ${count}`);
+    error(
+      parsed.diagnostics,
+      "malformed-module",
+      `function section declares ${parsed.definedFunctionCount} bodies but code section has ${count}`,
+    );
   }
   for (let i = 0; i < count; i++) {
     const size = reader.u32("function body size");
@@ -575,7 +686,12 @@ function parseCodeSection(reader: Reader, parsed: ParsedModule): void {
       }
     }
     if (!opaque && lastOpcode !== 0x0b) {
-      error(parsed.diagnostics, "malformed-module", `function body ${i} does not end with end`, body.end - 1);
+      error(
+        parsed.diagnostics,
+        "malformed-module",
+        `function body ${i} does not end with end`,
+        body.end - 1,
+      );
     }
   }
 }
@@ -597,8 +713,16 @@ function parseDataSection(reader: Reader, parsed: ParsedModule): void {
 
 function emptyParsed(): ParsedModule {
   return {
-    types: [], functionTypeIndices: [], globals: [], imports: [], exports: [], memories: [],
-    features: new Set(), diagnostics: [], definedFunctionCount: 0, tableCount: 0,
+    types: [],
+    functionTypeIndices: [],
+    globals: [],
+    imports: [],
+    exports: [],
+    memories: [],
+    features: new Set(),
+    diagnostics: [],
+    definedFunctionCount: 0,
+    tableCount: 0,
   };
 }
 
@@ -606,7 +730,8 @@ function parseModule(bytes: Uint8Array, parsed: ParsedModule): ParsedModule {
   const reader = new Reader(bytes);
   const expectedHeader = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
   for (let i = 0; i < expectedHeader.length; i++) {
-    if (reader.byte("Wasm header") !== expectedHeader[i]) throw new WasmParseError("invalid Wasm magic or version", i);
+    if (reader.byte("Wasm header") !== expectedHeader[i])
+      throw new WasmParseError("invalid Wasm magic or version", i);
   }
 
   const seenSections = new Set<number>();
@@ -620,18 +745,42 @@ function parseModule(bytes: Uint8Array, parsed: ParsedModule): ParsedModule {
       seenSections.add(id);
     }
     switch (id) {
-      case 0: section.skip(section.remaining, "custom section"); break;
-      case 1: parseTypeSection(section, parsed); break;
-      case 2: parseImportSection(section, parsed); break;
-      case 3: parseFunctionSection(section, parsed); break;
-      case 4: parseTableSection(section, parsed); break;
-      case 5: parseMemorySection(section, parsed); break;
-      case 6: parseGlobalSection(section, parsed); break;
-      case 7: parseExportSection(section, parsed); break;
-      case 8: section.u32("start function index"); break;
-      case 9: parseElementSection(section, parsed); break;
-      case 10: parseCodeSection(section, parsed); break;
-      case 11: parseDataSection(section, parsed); break;
+      case 0:
+        section.skip(section.remaining, "custom section");
+        break;
+      case 1:
+        parseTypeSection(section, parsed);
+        break;
+      case 2:
+        parseImportSection(section, parsed);
+        break;
+      case 3:
+        parseFunctionSection(section, parsed);
+        break;
+      case 4:
+        parseTableSection(section, parsed);
+        break;
+      case 5:
+        parseMemorySection(section, parsed);
+        break;
+      case 6:
+        parseGlobalSection(section, parsed);
+        break;
+      case 7:
+        parseExportSection(section, parsed);
+        break;
+      case 8:
+        section.u32("start function index");
+        break;
+      case 9:
+        parseElementSection(section, parsed);
+        break;
+      case 10:
+        parseCodeSection(section, parsed);
+        break;
+      case 11:
+        parseDataSection(section, parsed);
+        break;
       case 12:
         parsed.features.add("bulk-memory/data-count");
         section.u32("data count");
@@ -642,21 +791,29 @@ function parseModule(bytes: Uint8Array, parsed: ParsedModule): ParsedModule {
         break;
       default:
         parsed.features.add(`unknown-section-${id}`);
-        error(parsed.diagnostics, "unsupported-section", `section ${id} is outside the portable MVP profile`, sectionAt);
+        error(
+          parsed.diagnostics,
+          "unsupported-section",
+          `section ${id} is outside the portable MVP profile`,
+          sectionAt,
+        );
         section.skip(section.remaining, "unknown section");
         break;
     }
-    if (!section.done) throw new WasmParseError(`section ${id} has ${section.remaining} unread bytes`, section.pos);
+    if (!section.done)
+      throw new WasmParseError(`section ${id} has ${section.remaining} unread bytes`, section.pos);
   }
   return parsed;
 }
 
 function sameSignature(a: WasmFunctionSignature | undefined, b: WasmFunctionSignature): boolean {
-  return !!a
-    && a.params.length === b.params.length
-    && a.results.length === b.results.length
-    && a.params.every((value, i) => value === b.params[i])
-    && a.results.every((value, i) => value === b.results[i]);
+  return (
+    !!a &&
+    a.params.length === b.params.length &&
+    a.results.length === b.results.length &&
+    a.params.every((value, i) => value === b.params[i]) &&
+    a.results.every((value, i) => value === b.results[i])
+  );
 }
 
 function formatSignature(value: WasmFunctionSignature | undefined): string {
@@ -671,7 +828,10 @@ function classifyMemory(memories: readonly InspectedWasmMemory[]): InspectedMemo
   return imported && defined ? "mixed" : imported ? "imported" : "defined";
 }
 
-function validateImports(parsed: ParsedModule, lhostAbi: Readonly<Record<string, WasmFunctionSignature>>): void {
+function validateImports(
+  parsed: ParsedModule,
+  lhostAbi: Readonly<Record<string, WasmFunctionSignature>>,
+): void {
   for (const imported of parsed.imports) {
     if (imported.module === "lhost" && imported.kind === "function") {
       const expected = lhostAbi[imported.name];
@@ -686,8 +846,13 @@ function validateImports(parsed: ParsedModule, lhostAbi: Readonly<Record<string,
       }
       continue;
     }
-    if (imported.module === "env" && imported.name === "memory" && imported.kind === "memory") continue;
-    error(parsed.diagnostics, "unknown-import", `unsupported import '${imported.module}.${imported.name}' (${imported.kind})`);
+    if (imported.module === "env" && imported.name === "memory" && imported.kind === "memory")
+      continue;
+    error(
+      parsed.diagnostics,
+      "unknown-import",
+      `unsupported import '${imported.module}.${imported.name}' (${imported.kind})`,
+    );
   }
 }
 
@@ -699,14 +864,23 @@ function validateExports(parsed: ParsedModule, mode: InspectedMemoryMode): void 
     byName.set(exported.name, values);
   }
   for (const [name, values] of byName) {
-    if (values.length > 1) error(parsed.diagnostics, "duplicate-export", `export '${name}' appears ${values.length} times`);
+    if (values.length > 1)
+      error(
+        parsed.diagnostics,
+        "duplicate-export",
+        `export '${name}' appears ${values.length} times`,
+      );
   }
   for (const [name, expected] of Object.entries(LITE_WASM_FUNCTION_ABI)) {
     const exported = byName.get(name)?.[0];
     if (!exported) {
       error(parsed.diagnostics, "missing-export", `missing required function export '${name}'`);
     } else if (exported.kind !== "function") {
-      error(parsed.diagnostics, "export-kind", `export '${name}' is ${exported.kind}; expected function`);
+      error(
+        parsed.diagnostics,
+        "export-kind",
+        `export '${name}' is ${exported.kind}; expected function`,
+      );
     } else if (!sameSignature(exported.signature, expected)) {
       error(
         parsed.diagnostics,
@@ -718,13 +892,25 @@ function validateExports(parsed: ParsedModule, mode: InspectedMemoryMode): void 
 
   const arena = byName.get("arena_top")?.[0];
   if (!arena) {
-    error(parsed.diagnostics, "missing-export", "missing required mutable i32 global export 'arena_top'");
+    error(
+      parsed.diagnostics,
+      "missing-export",
+      "missing required mutable i32 global export 'arena_top'",
+    );
   } else if (arena.kind !== "global") {
-    error(parsed.diagnostics, "export-kind", `export 'arena_top' is ${arena.kind}; expected global`);
+    error(
+      parsed.diagnostics,
+      "export-kind",
+      `export 'arena_top' is ${arena.kind}; expected global`,
+    );
   } else {
     const global = parsed.globals[arena.index];
     if (!global || global.type !== "i32" || !global.mutable) {
-      error(parsed.diagnostics, "export-signature", "export 'arena_top' must be a mutable i32 global");
+      error(
+        parsed.diagnostics,
+        "export-signature",
+        "export 'arena_top' must be a mutable i32 global",
+      );
     }
   }
 
@@ -733,9 +919,17 @@ function validateExports(parsed: ParsedModule, mode: InspectedMemoryMode): void 
     if (!memory) {
       error(parsed.diagnostics, "missing-export", "defined-memory contracts must export 'memory'");
     } else if (memory.kind !== "memory") {
-      error(parsed.diagnostics, "export-kind", `export 'memory' is ${memory.kind}; expected memory`);
+      error(
+        parsed.diagnostics,
+        "export-kind",
+        `export 'memory' is ${memory.kind}; expected memory`,
+      );
     } else if (parsed.memories[memory.index]?.source !== "defined") {
-      error(parsed.diagnostics, "memory-export", "export 'memory' does not refer to the defined contract memory");
+      error(
+        parsed.diagnostics,
+        "memory-export",
+        "export 'memory' does not refer to the defined contract memory",
+      );
     }
   }
 }
@@ -775,21 +969,40 @@ export function inspectLiteWasmModule(
 
   // JS validation catches index/type/control-flow errors outside this structural parser.
   try {
-    if (typeof WebAssembly !== "undefined" && !WebAssembly.validate(bytes as unknown as BufferSource)) {
-      error(parsed.diagnostics, "js-validation", "JavaScript WebAssembly.validate rejected the module");
+    if (
+      typeof WebAssembly !== "undefined" &&
+      !WebAssembly.validate(bytes as unknown as BufferSource)
+    ) {
+      error(
+        parsed.diagnostics,
+        "js-validation",
+        "JavaScript WebAssembly.validate rejected the module",
+      );
     }
   } catch (caught) {
-    error(parsed.diagnostics, "js-validation", `JavaScript Wasm validation failed: ${caught instanceof Error ? caught.message : String(caught)}`);
+    error(
+      parsed.diagnostics,
+      "js-validation",
+      `JavaScript Wasm validation failed: ${caught instanceof Error ? caught.message : String(caught)}`,
+    );
   }
 
   validateImports(parsed, options.lhostAbi ?? LHOST_ABI);
   const memoryMode = classifyMemory(parsed.memories);
   if (parsed.memories.length !== 1) {
-    error(parsed.diagnostics, "memory-count", `expected exactly one wasm32 memory; found ${parsed.memories.length}`);
+    error(
+      parsed.diagnostics,
+      "memory-count",
+      `expected exactly one wasm32 memory; found ${parsed.memories.length}`,
+    );
   }
   const expectedMode = options.memoryMode ?? "defined";
   if (expectedMode !== "either" && memoryMode !== expectedMode) {
-    error(parsed.diagnostics, "memory-mode", `expected ${expectedMode} memory; module uses ${memoryMode} memory`);
+    error(
+      parsed.diagnostics,
+      "memory-mode",
+      `expected ${expectedMode} memory; module uses ${memoryMode} memory`,
+    );
   }
   validateExports(parsed, memoryMode);
 

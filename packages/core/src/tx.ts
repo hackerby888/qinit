@@ -30,13 +30,15 @@ export interface TxInput {
 // A Qubic seed is exactly 55 lowercase letters (a-z). Reject anything else loudly — signing with a malformed
 // seed otherwise silently produces a wrong identity / unspendable tx.
 export function assertSeed(seed: string): void {
-  if (!/^[a-z]{55}$/.test(seed)) throw new Error(`invalid seed: must be 55 lowercase letters a-z (got ${seed.length} char(s))`);
+  if (!/^[a-z]{55}$/.test(seed))
+    throw new Error(`invalid seed: must be 55 lowercase letters a-z (got ${seed.length} char(s))`);
 }
 
 export async function buildSignedTx(seed: string, t: TxInput): Promise<SignedTx> {
   assertSeed(seed);
   if (!Number.isInteger(t.tick) || t.tick <= 0) throw new Error(`invalid tick: ${t.tick}`);
-  if (t.amount != null && (!Number.isFinite(t.amount) || t.amount < 0)) throw new Error(`invalid amount: ${t.amount} (must be ≥ 0)`);
+  if (t.amount != null && (!Number.isFinite(t.amount) || t.amount < 0))
+    throw new Error(`invalid amount: ${t.amount} (must be ≥ 0)`);
   const { identity } = await deriveIdentity(seed);
   const dyn = new DynamicPayload(Math.max(1, t.payload.length));
   dyn.setPayload(t.payload);

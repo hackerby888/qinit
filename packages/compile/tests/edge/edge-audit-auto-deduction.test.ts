@@ -18,7 +18,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function run(members: string, body: string): Promise<bigint> {
-  const result = await compileContract({ source: wrap(members, body), name: "AutoEdge", slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+  const result = await compileContract({
+    source: wrap(members, body),
+    name: "AutoEdge",
+    slot: 27,
+    qpiHeader: HEADERS,
+    arenaSz: 1 << 20,
+  });
   expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
@@ -35,22 +41,44 @@ describe("edge audit — auto type deduction", () => {
   });
 
   test("auto deduced from uint32 retains 32-bit arithmetic", async () => {
-    expect(await run("", `uint32 source = 4294967295u; auto value = source; state.mut().result = value + 1u;`)).toBe(0n);
+    expect(
+      await run(
+        "",
+        `uint32 source = 4294967295u; auto value = source; state.mut().result = value + 1u;`,
+      ),
+    ).toBe(0n);
   });
 
   test("auto deduced from a uint32 helper return retains 32-bit arithmetic", async () => {
-    expect(await run(`static uint32 source() { return 4294967295u; }`, `auto value = source(); state.mut().result = value + 1u;`)).toBe(0n);
+    expect(
+      await run(
+        `static uint32 source() { return 4294967295u; }`,
+        `auto value = source(); state.mut().result = value + 1u;`,
+      ),
+    ).toBe(0n);
   });
 
   test("auto deduced from uint16 wraps on postfix increment", async () => {
-    expect(await run("", `uint16 source = 65535; auto value = source; value++; state.mut().result = value;`)).toBe(0n);
+    expect(
+      await run(
+        "",
+        `uint16 source = 65535; auto value = source; value++; state.mut().result = value;`,
+      ),
+    ).toBe(0n);
   });
 
   test("auto deduced from sint8 preserves signed comparisons", async () => {
-    expect(await run("", `sint8 source = -1; auto value = source; state.mut().result = value < 0 ? 1 : 0;`)).toBe(1n);
+    expect(
+      await run(
+        "",
+        `sint8 source = -1; auto value = source; state.mut().result = value < 0 ? 1 : 0;`,
+      ),
+    ).toBe(1n);
   });
 
   test("auto deduced from an explicit uint32 cast retains the cast type", async () => {
-    expect(await run("", `auto value = (uint32)4294967295u; state.mut().result = value + 1u;`)).toBe(0n);
+    expect(
+      await run("", `auto value = (uint32)4294967295u; state.mut().result = value + 1u;`),
+    ).toBe(0n);
   });
 });

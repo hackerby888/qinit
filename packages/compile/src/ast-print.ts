@@ -15,7 +15,13 @@ export function formatAst(tu: TranslationUnit): string {
   return lines.join("\n");
 }
 
-function renderNode(label: string, value: unknown, prefix: string, isLast: boolean, lines: string[]): void {
+function renderNode(
+  label: string,
+  value: unknown,
+  prefix: string,
+  isLast: boolean,
+  lines: string[],
+): void {
   const branch = isLast ? "└─ " : "├─ ";
   const childPrefix = prefix + (isLast ? "   " : "│  ");
 

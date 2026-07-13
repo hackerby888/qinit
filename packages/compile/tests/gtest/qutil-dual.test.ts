@@ -1,7 +1,15 @@
 // Dev-only differential: run contract_qutil.cpp against BOTH backends (ours = @qinit/compile, native = clang) through the same runner, and
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { CORE, wasiAvailable, buildRunner, buildContractsOurs, buildContractsNative, runUpstream, type TR } from "../support/qutil-bridge";
+import {
+  CORE,
+  wasiAvailable,
+  buildRunner,
+  buildContractsOurs,
+  buildContractsNative,
+  runUpstream,
+  type TR,
+} from "../support/qutil-bridge";
 
 function classify(ours: TR | undefined, native: TR | undefined): string {
   const o = ours?.passed ?? false;
@@ -47,7 +55,9 @@ describe("dual-backend differential — ours vs native", () => {
       buckets[classify(on.get(name), nn.get(name))].push(name);
     }
 
-    console.log(`\n  dual: ${buckets.ok.length} ok · ${buckets.COMPILER.length} COMPILER-BUG · ${buckets.BRIDGE.length} BRIDGE-BUG · ${buckets.SUSPECT.length} SUSPECT (of ${names.length})`);
+    console.log(
+      `\n  dual: ${buckets.ok.length} ok · ${buckets.COMPILER.length} COMPILER-BUG · ${buckets.BRIDGE.length} BRIDGE-BUG · ${buckets.SUSPECT.length} SUSPECT (of ${names.length})`,
+    );
     for (const name of buckets.COMPILER) {
       console.log(`  COMPILER  ${name} — ours fails, native passes (fix codegen)`);
     }
@@ -55,7 +65,9 @@ describe("dual-backend differential — ours vs native", () => {
       console.log(`  BRIDGE    ${name} — native fails (fix ContractTesting bridge/Sim)`);
     }
     for (const name of buckets.SUSPECT) {
-      console.log(`  SUSPECT   ${name} — ours passes, native fails (oracle says fail — investigate)`);
+      console.log(
+        `  SUSPECT   ${name} — ours passes, native fails (oracle says fail — investigate)`,
+      );
     }
 
     const oursVec = names.map((n) => `${n}:${on.get(n)?.passed ? 1 : 0}`);

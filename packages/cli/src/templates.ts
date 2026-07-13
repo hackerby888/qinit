@@ -205,7 +205,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
 const BODIES: Record<TemplateKind, string> = { counter, hashmap, asset, intercontract };
 export const TEMPLATE_NOTE: Partial<Record<TemplateKind, string>> = {
-  intercontract: "Counter callee scaffolded + auto-deployed on `qinit test`; for `qinit deploy`, deploy Counter first (or it resolves from the node registry)",
+  intercontract:
+    "Counter callee scaffolded + auto-deployed on `qinit test`; for `qinit deploy`, deploy Counter first (or it resolves from the node registry)",
 };
 
-export function templateSource(kind: TemplateKind): string { return HEAD + BODIES[kind]; }
+export function templateSource(kind: TemplateKind): string {
+  return HEAD + BODIES[kind];
+}

@@ -44,19 +44,25 @@ describe("edge audit — valid expression lowering", () => {
   });
 
   test("sizeof(postfix expression) uses the operand type without evaluating it", async () => {
-    const source = wrap("", `
+    const source = wrap(
+      "",
+      `
       uint32 value = 5;
       uint64 size = sizeof(value++);
       state.mut().result = size + value * 10;
-    `);
+    `,
+    );
     expect(await compileAndRun(source)).toBe(54n);
   });
 
   test("sizeof(arithmetic expression) uses the promoted result type", async () => {
-    const source = wrap("", `
+    const source = wrap(
+      "",
+      `
       uint16 value = 5;
       state.mut().result = sizeof(value + 1);
-    `);
+    `,
+    );
     expect(await compileAndRun(source)).toBe(4n);
   });
 

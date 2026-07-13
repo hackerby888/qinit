@@ -2,7 +2,11 @@
 // (qubic-cli, built against qubic/core) parses by fixed struct sizes. These constants are hand-mirrored with no
 import { test, expect } from "bun:test";
 import { TICKDATA_SIZE, TXS_PER_TICK, TICK_SIZE } from "../../src/consensus";
-import { TXS_PER_TICK as CODEC_TXS_PER_TICK, CLI_NUMBER_OF_COMPUTORS, SPECTRUM_DEPTH } from "../../src/peer-codec";
+import {
+  TXS_PER_TICK as CODEC_TXS_PER_TICK,
+  CLI_NUMBER_OF_COMPUTORS,
+  SPECTRUM_DEPTH,
+} from "../../src/peer-codec";
 
 const DIGEST_SIZE = 32;
 const SIG_SIZE = 64;
@@ -15,7 +19,8 @@ test("NUMBER_OF_TRANSACTIONS_PER_TICK is 4096 across consensus + codec", () => {
 });
 
 test("TickData is exactly 139376 bytes (the client's sizeof(TickData))", () => {
-  const computed = TICKDATA_HEADER + TXS_PER_TICK * DIGEST_SIZE + CONTRACT_FEES_COUNT * 8 + SIG_SIZE;
+  const computed =
+    TICKDATA_HEADER + TXS_PER_TICK * DIGEST_SIZE + CONTRACT_FEES_COUNT * 8 + SIG_SIZE;
   expect(computed).toBe(139376);
   expect(TICKDATA_SIZE).toBe(139376);
   expect(TICKDATA_SIZE).toBe(computed);

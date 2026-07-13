@@ -53,42 +53,46 @@ TEST(Counter, ReportsFailures) {
 }
 `;
 
-test.skipIf(!have)("a core-lite-style gtest runs in the engine (pass, isolation, captured failure)", async () => {
-  const outDir = "/tmp/qinit-gtest-test";
-  const testPath = `${outDir}/Counter.test.cpp`;
-  mkdirSync(outDir, { recursive: true });
-  writeFileSync(testPath, TEST_SOURCE);
+test.skipIf(!have)(
+  "a core-lite-style gtest runs in the engine (pass, isolation, captured failure)",
+  async () => {
+    const outDir = "/tmp/qinit-gtest-test";
+    const testPath = `${outDir}/Counter.test.cpp`;
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(testPath, TEST_SOURCE);
 
-  const runner = await buildCorpusRunner({
-    corpusPath: testPath,
-    contractPath: CONTRACT,
-    name: "Counter",
-    stateType: "Counter",
-    slot: 1,
-    corePath: CORE,
-    outDir: `${outDir}/runner`,
-    arenaSz: 64 * 1024 * 1024,
-  });
-  expect(runner.ok, runner.stderr).toBe(true);
+    const runner = await buildCorpusRunner({
+      corpusPath: testPath,
+      contractPath: CONTRACT,
+      name: "Counter",
+      stateType: "Counter",
+      slot: 1,
+      corePath: CORE,
+      outDir: `${outDir}/runner`,
+      arenaSz: 64 * 1024 * 1024,
+    });
+    expect(runner.ok, runner.stderr).toBe(true);
 
-  const contract = await buildContract({
-    contractPath: CONTRACT,
-    name: "Counter",
-    slot: 1,
-    corePath: CORE,
-    outDir: `${outDir}/contract`,
-    skipVerify: true,
-    arenaSz: 64 * 1024 * 1024,
-  });
-  expect(contract.ok, contract.stderr).toBe(true);
+    const contract = await buildContract({
+      contractPath: CONTRACT,
+      name: "Counter",
+      slot: 1,
+      corePath: CORE,
+      outDir: `${outDir}/contract`,
+      skipVerify: true,
+      arenaSz: 64 * 1024 * 1024,
+    });
+    expect(contract.ok, contract.stderr).toBe(true);
 
-  const results = await runContractTesting(
-    new Uint8Array(await Bun.file(runner.so!).arrayBuffer()),
-    { 1: new Uint8Array(await Bun.file(contract.so!).arrayBuffer()) },
-  );
-  const by = Object.fromEntries(results.map((result) => [result.name, result]));
-  expect(by["Counter.IncrementsTwice"]?.passed).toBe(true);
-  expect(by["Counter.FreshStatePerTest"]?.passed).toBe(true);
-  expect(by["Counter.ReportsFailures"]?.passed).toBe(false);
-  expect(by["Counter.ReportsFailures"]?.message).toContain("EXPECT_EQ");
-}, 120_000);
+    const results = await runContractTesting(
+      new Uint8Array(await Bun.file(runner.so!).arrayBuffer()),
+      { 1: new Uint8Array(await Bun.file(contract.so!).arrayBuffer()) },
+    );
+    const by = Object.fromEntries(results.map((result) => [result.name, result]));
+    expect(by["Counter.IncrementsTwice"]?.passed).toBe(true);
+    expect(by["Counter.FreshStatePerTest"]?.passed).toBe(true);
+    expect(by["Counter.ReportsFailures"]?.passed).toBe(false);
+    expect(by["Counter.ReportsFailures"]?.message).toContain("EXPECT_EQ");
+  },
+  120_000,
+);

@@ -28,7 +28,14 @@ export class SpectrumLedger {
   }
 
   private emptyEntity(): Entity {
-    return { incomingAmount: 0n, outgoingAmount: 0n, numberOfIncomingTransfers: 0, numberOfOutgoingTransfers: 0, latestIncomingTransferTick: 0, latestOutgoingTransferTick: 0 };
+    return {
+      incomingAmount: 0n,
+      outgoingAmount: 0n,
+      numberOfIncomingTransfers: 0,
+      numberOfOutgoingTransfers: 0,
+      latestIncomingTransferTick: 0,
+      latestOutgoingTransferTick: 0,
+    };
   }
 
   entityOf(id: Uint8Array): Entity | null {

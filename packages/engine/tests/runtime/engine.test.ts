@@ -48,7 +48,8 @@ test("applyTx isolates a faulting procedure — no throw, the node survives, the
   sim.deploy(28, await wasm("Trap"));
   const dest = contractId(28);
   const src = new Uint8Array(32).fill(0x11);
-  const BUMP = 1, DIV = 2; // Trap: REGISTER_USER_PROCEDURE(Bump,1) / (Div,2)
+  const BUMP = 1,
+    DIV = 2; // Trap: REGISTER_USER_PROCEDURE(Bump,1) / (Div,2)
 
   sim.applyTx(src, dest, 0n, BUMP, new Uint8Array(0), "t1"); // n -> 1
   expect(u64(sim.query(28, GET))).toBe(1n);

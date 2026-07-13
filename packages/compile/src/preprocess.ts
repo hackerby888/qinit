@@ -1,17 +1,17 @@
 // C preprocessor for QPI subset. Operates on text, not tokens.
 
 export interface PreprocessOpts {
-  source: string;                     // contract source
-  qpiHeader: string;                  // preprocessed qpi.h content (all #includes resolved)
+  source: string; // contract source
+  qpiHeader: string; // preprocessed qpi.h content (all #includes resolved)
   contractName: string;
   contractIndex: number;
-  calleePrelude?: string;             // inter-contract callee type headers
+  calleePrelude?: string; // inter-contract callee type headers
   seedMacros?: Map<string, MacroDef>; // pre-built macro table (from qpi.h) to start from
 }
 
 export interface MacroDef {
   name: string;
-  params: string[] | null;            // null = object-like, [] = function-like with no params
+  params: string[] | null; // null = object-like, [] = function-like with no params
   body: string;
   isVarArgs: boolean;
 }
@@ -23,7 +23,7 @@ export class Preprocessor {
   private result: string = "";
   private input: string = "";
   private pos: number = 0;
-  private srcLine: number[];          // line → byte offset map
+  private srcLine: number[]; // line → byte offset map
   // Conditional-compilation stack. Each frame: whether this branch is emitting, and whether any
   private condStack: { active: boolean; taken: boolean; parentActive: boolean }[] = [];
 
@@ -198,9 +198,10 @@ export class Preprocessor {
         return;
       }
       case "elif": {
-        const cond = this.condStack.length > 0 && !this.condStack[this.condStack.length - 1].taken
-          ? this.evalIfCondition()
-          : (this.skipToNewline(), false);
+        const cond =
+          this.condStack.length > 0 && !this.condStack[this.condStack.length - 1].taken
+            ? this.evalIfCondition()
+            : (this.skipToNewline(), false);
         this.applyElif(cond);
         return;
       }
@@ -246,7 +247,11 @@ export class Preprocessor {
 
   private pushCond(cond: boolean): void {
     const parentActive = this.condActive();
-    this.condStack.push({ active: parentActive && cond, taken: parentActive && cond, parentActive });
+    this.condStack.push({
+      active: parentActive && cond,
+      taken: parentActive && cond,
+      parentActive,
+    });
   }
 
   private applyElif(cond: boolean): void {
@@ -281,7 +286,9 @@ export class Preprocessor {
   // Evaluate a preprocessor constant expression: defined(X), !, &&, ||, comparisons, integer literals.
   private evalConstCondition(expr: string): bigint {
     // Replace defined(X) / defined X → 1/0
-    let s = expr.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, n) => (this.defines.has(n) ? "1" : "0"));
+    let s = expr.replace(/defined\s*\(\s*(\w+)\s*\)/g, (_m, n) =>
+      this.defines.has(n) ? "1" : "0",
+    );
     s = s.replace(/defined\s+(\w+)/g, (_m, n) => (this.defines.has(n) ? "1" : "0"));
     // Expand remaining identifiers: a defined macro's body if numeric, else 0.
     s = s.replace(/\b([A-Za-z_]\w*)\b/g, (_m, id) => {
@@ -306,25 +313,76 @@ export class Preprocessor {
     const next = () => toks[i++];
     const parsePrimary = (): bigint => {
       const t = next();
-      if (t === "(") { const v = parseExpr(0); next(); return v; }
+      if (t === "(") {
+        const v = parseExpr(0);
+        next();
+        return v;
+      }
       if (t === "!") return parsePrimary() === 0n ? 1n : 0n;
       if (t === "-") return -parsePrimary();
       if (t === "+") return parsePrimary();
       return BigInt(t ?? "0");
     };
-    const prec: Record<string, number> = { "||": 1, "&&": 2, "|": 3, "^": 4, "&": 5, "==": 6, "!=": 6, "<": 7, ">": 7, "<=": 7, ">=": 7, "<<": 8, ">>": 8, "+": 9, "-": 9, "*": 10, "/": 10, "%": 10 };
+    const prec: Record<string, number> = {
+      "||": 1,
+      "&&": 2,
+      "|": 3,
+      "^": 4,
+      "&": 5,
+      "==": 6,
+      "!=": 6,
+      "<": 7,
+      ">": 7,
+      "<=": 7,
+      ">=": 7,
+      "<<": 8,
+      ">>": 8,
+      "+": 9,
+      "-": 9,
+      "*": 10,
+      "/": 10,
+      "%": 10,
+    };
     const apply = (a: bigint, op: string, b: bigint): bigint => {
       switch (op) {
-        case "||": return (a !== 0n || b !== 0n) ? 1n : 0n;
-        case "&&": return (a !== 0n && b !== 0n) ? 1n : 0n;
-        case "|": return a | b; case "^": return a ^ b; case "&": return a & b;
-        case "==": return a === b ? 1n : 0n; case "!=": return a !== b ? 1n : 0n;
-        case "<": return a < b ? 1n : 0n; case ">": return a > b ? 1n : 0n;
-        case "<=": return a <= b ? 1n : 0n; case ">=": return a >= b ? 1n : 0n;
-        case "<<": return a << b; case ">>": return a >> b;
-        case "+": return a + b; case "-": return a - b;
-        case "*": return a * b; case "/": return b === 0n ? 0n : a / b; case "%": return b === 0n ? 0n : a % b;
-        default: return 0n;
+        case "||":
+          return a !== 0n || b !== 0n ? 1n : 0n;
+        case "&&":
+          return a !== 0n && b !== 0n ? 1n : 0n;
+        case "|":
+          return a | b;
+        case "^":
+          return a ^ b;
+        case "&":
+          return a & b;
+        case "==":
+          return a === b ? 1n : 0n;
+        case "!=":
+          return a !== b ? 1n : 0n;
+        case "<":
+          return a < b ? 1n : 0n;
+        case ">":
+          return a > b ? 1n : 0n;
+        case "<=":
+          return a <= b ? 1n : 0n;
+        case ">=":
+          return a >= b ? 1n : 0n;
+        case "<<":
+          return a << b;
+        case ">>":
+          return a >> b;
+        case "+":
+          return a + b;
+        case "-":
+          return a - b;
+        case "*":
+          return a * b;
+        case "/":
+          return b === 0n ? 0n : a / b;
+        case "%":
+          return b === 0n ? 0n : a % b;
+        default:
+          return 0n;
       }
     };
     const parseExpr = (minPrec: number): bigint => {
@@ -344,19 +402,27 @@ export class Preprocessor {
     const ch = this.input[this.pos];
 
     let filename = "";
-    if (ch === "\"") {
+    if (ch === '"') {
       this.pos++; // skip opening "
-      while (this.pos < this.input.length && this.input[this.pos] !== "\"" && this.input[this.pos] !== "\n") {
+      while (
+        this.pos < this.input.length &&
+        this.input[this.pos] !== '"' &&
+        this.input[this.pos] !== "\n"
+      ) {
         filename += this.input[this.pos];
         this.pos++;
       }
-      if (this.input[this.pos] === "\"") {
+      if (this.input[this.pos] === '"') {
         this.pos++; // skip closing "
       }
       this.skipToNewline();
     } else if (ch === "<") {
       this.pos++; // skip opening <
-      while (this.pos < this.input.length && this.input[this.pos] !== ">" && this.input[this.pos] !== "\n") {
+      while (
+        this.pos < this.input.length &&
+        this.input[this.pos] !== ">" &&
+        this.input[this.pos] !== "\n"
+      ) {
         filename += this.input[this.pos];
         this.pos++;
       }
@@ -395,7 +461,11 @@ export class Preprocessor {
         params = [];
         isVarArgs = true;
       } else if (paramStr.endsWith("...")) {
-        params = paramStr.replace("...", "").split(",").map((s) => s.trim()).filter(Boolean);
+        params = paramStr
+          .replace("...", "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
         isVarArgs = true;
       } else if (paramStr.trim()) {
         params = paramStr.split(",").map((s) => s.trim());
@@ -600,7 +670,10 @@ export class Preprocessor {
   }
 
   // Read a function-like macro's argument list from a STRING (not the main input stream) starting at the open
-  private readArgsFromString(text: string, openIdx: number): { args: string[]; end: number } | null {
+  private readArgsFromString(
+    text: string,
+    openIdx: number,
+  ): { args: string[]; end: number } | null {
     if (text[openIdx] !== "(") return null;
 
     const args: string[] = [];
@@ -655,7 +728,11 @@ export class Preprocessor {
           } else if (def && def.params !== null && !this.expanding.has(ident)) {
             // Function-like macro — expand only if actually invoked (an open paren follows). A macro body
             let j = i + ident.length;
-            while (j < result.length && (result[j] === " " || result[j] === "\t" || result[j] === "\n")) j++;
+            while (
+              j < result.length &&
+              (result[j] === " " || result[j] === "\t" || result[j] === "\n")
+            )
+              j++;
             const parsed = result[j] === "(" ? this.readArgsFromString(result, j) : null;
             if (parsed) {
               this.expanding.add(ident);
@@ -688,7 +765,10 @@ export class Preprocessor {
   private readIdentAt(text: string, start: number): string {
     let ident = "";
     let i = start;
-    while (i < text.length && (this.isIdStart(text[i]) || (i > start && text[i] >= "0" && text[i] <= "9"))) {
+    while (
+      i < text.length &&
+      (this.isIdStart(text[i]) || (i > start && text[i] >= "0" && text[i] <= "9"))
+    ) {
       ident += text[i];
       i++;
     }
@@ -723,13 +803,22 @@ export class Preprocessor {
   }
 
   private skipWhitespace(): void {
-    while (this.pos < this.input.length && (this.input[this.pos] === " " || this.input[this.pos] === "\t")) {
+    while (
+      this.pos < this.input.length &&
+      (this.input[this.pos] === " " || this.input[this.pos] === "\t")
+    ) {
       this.pos++;
     }
   }
 
   private skipWhitespaceAndNewlines(): void {
-    while (this.pos < this.input.length && (this.input[this.pos] === " " || this.input[this.pos] === "\t" || this.input[this.pos] === "\n" || this.input[this.pos] === "\r")) {
+    while (
+      this.pos < this.input.length &&
+      (this.input[this.pos] === " " ||
+        this.input[this.pos] === "\t" ||
+        this.input[this.pos] === "\n" ||
+        this.input[this.pos] === "\r")
+    ) {
       if (this.input[this.pos] === "\n") {
         this.line++;
         this.result += "\n";
@@ -769,7 +858,11 @@ export class Preprocessor {
 
   private readUntil(stop: string): string {
     let text = "";
-    while (this.pos < this.input.length && this.input[this.pos] !== stop && this.input[this.pos] !== "\n") {
+    while (
+      this.pos < this.input.length &&
+      this.input[this.pos] !== stop &&
+      this.input[this.pos] !== "\n"
+    ) {
       text += this.input[this.pos];
       this.pos++;
     }

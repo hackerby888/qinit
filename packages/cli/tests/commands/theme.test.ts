@@ -6,10 +6,10 @@ test("applyTheme switches the live palette; unknown falls back to default", () =
   expect(theme.brand).toBe(THEMES.amber.brand);
   expect(theme.gradFrom).toBe(THEMES.amber.gradFrom);
 
-  expect(applyTheme("nope")).toBe("default");      // unknown -> default
+  expect(applyTheme("nope")).toBe("default"); // unknown -> default
   expect(theme.brand).toBe(THEMES.default.brand);
 
-  expect(applyTheme(undefined)).toBe("default");   // unset -> default
+  expect(applyTheme(undefined)).toBe("default"); // unset -> default
   expect(theme.brand).toBe(THEMES.default.brand);
 });
 

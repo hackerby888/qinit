@@ -2,11 +2,30 @@
 // natural-alignment rules, so these tests pin three things: (1) every auto-computed SIZE/offset equals the C++
 import { test, expect } from "bun:test";
 import {
-  M256i, RequestResponseHeader, EntityRecord, AssetRecord, Tick, TickData, Transaction,
-  ASSET_TYPE, TICKDATA_SIZE, ASSET_RECORD_SIZE, SPECTRUM_DEPTH, ASSETS_DEPTH, SIG_SIZE, DIGEST_SIZE,
-  TXS_PER_TICK, CONTRACT_FEES_COUNT,
-  RequestTickData, RequestContractFunction, RespondCurrentTickInfo, RespondSystemInfo,
-  RespondEntity, RespondOwnedAssets, RespondPossessedAssets, RespondTxStatusHeader,
+  M256i,
+  RequestResponseHeader,
+  EntityRecord,
+  AssetRecord,
+  Tick,
+  TickData,
+  Transaction,
+  ASSET_TYPE,
+  TICKDATA_SIZE,
+  ASSET_RECORD_SIZE,
+  SPECTRUM_DEPTH,
+  ASSETS_DEPTH,
+  SIG_SIZE,
+  DIGEST_SIZE,
+  TXS_PER_TICK,
+  CONTRACT_FEES_COUNT,
+  RequestTickData,
+  RequestContractFunction,
+  RespondCurrentTickInfo,
+  RespondSystemInfo,
+  RespondEntity,
+  RespondOwnedAssets,
+  RespondPossessedAssets,
+  RespondTxStatusHeader,
 } from "../../src/wire";
 
 // A DataView over a view's own window — used to read fields at their raw offset, independent of the getters.
@@ -26,18 +45,35 @@ test("SIZE equals the C++ sizeof (auto-summed with alignment padding)", () => {
 test("derived OFFSETS match the C++ field offsets", () => {
   expect(RequestResponseHeader.OFFSETS).toMatchObject({ size: 0, type: 3, dejavu: 4 });
   expect(EntityRecord.OFFSETS).toMatchObject({
-    publicKey: 0, incomingAmount: 32, outgoingAmount: 40,
-    numberOfIncomingTransfers: 48, numberOfOutgoingTransfers: 52,
-    latestIncomingTransferTick: 56, latestOutgoingTransferTick: 60,
+    publicKey: 0,
+    incomingAmount: 32,
+    outgoingAmount: 40,
+    numberOfIncomingTransfers: 48,
+    numberOfOutgoingTransfers: 52,
+    latestIncomingTransferTick: 56,
+    latestOutgoingTransferTick: 60,
   });
   expect(Tick.OFFSETS).toMatchObject({
-    prevResourceTestingDigest: 16, saltedResourceTestingDigest: 20,
-    prevTransactionBodyDigest: 24, saltedTransactionBodyDigest: 28,
-    prevSpectrumDigest: 32, prevUniverseDigest: 64, prevComputerDigest: 96,
-    saltedSpectrumDigest: 128, saltedUniverseDigest: 160, saltedComputerDigest: 192,
-    transactionDigest: 224, expectedNextTickTransactionDigest: 256, signature: 288,
+    prevResourceTestingDigest: 16,
+    saltedResourceTestingDigest: 20,
+    prevTransactionBodyDigest: 24,
+    saltedTransactionBodyDigest: 28,
+    prevSpectrumDigest: 32,
+    prevUniverseDigest: 64,
+    prevComputerDigest: 96,
+    saltedSpectrumDigest: 128,
+    saltedUniverseDigest: 160,
+    saltedComputerDigest: 192,
+    transactionDigest: 224,
+    expectedNextTickTransactionDigest: 256,
+    signature: 288,
   });
-  expect(TickData.OFFSETS).toMatchObject({ timelock: 16, txDigests: 48, contractFees: 131120, signature: 139312 });
+  expect(TickData.OFFSETS).toMatchObject({
+    timelock: 16,
+    txDigests: 48,
+    contractFees: 131120,
+    signature: 139312,
+  });
   expect(TickData.SIG_OFFSET).toBe(139312);
 });
 
@@ -190,7 +226,9 @@ test("Tick: date fields, the 4 testing-digests, the m256 digests, signature", ()
   t.day = 28;
   t.month = 12;
   t.year = 26;
-  expect([t.millisecond, t.second, t.minute, t.hour, t.day, t.month, t.year]).toEqual([999, 58, 59, 23, 28, 12, 26]);
+  expect([t.millisecond, t.second, t.minute, t.hour, t.day, t.month, t.year]).toEqual([
+    999, 58, 59, 23, 28, 12, 26,
+  ]);
 
   t.prevResourceTestingDigest = 0x11111111;
   t.saltedResourceTestingDigest = 0x22222222;
@@ -203,9 +241,14 @@ test("Tick: date fields, the 4 testing-digests, the m256 digests, signature", ()
   expect(dv.getUint32(28, true)).toBe(0x44444444);
 
   const slots: [keyof typeof Tick.OFFSETS, number][] = [
-    ["prevSpectrumDigest", 0xa0], ["prevUniverseDigest", 0xa1], ["prevComputerDigest", 0xa2],
-    ["saltedSpectrumDigest", 0xa3], ["saltedUniverseDigest", 0xa4], ["saltedComputerDigest", 0xa5],
-    ["transactionDigest", 0xa6], ["expectedNextTickTransactionDigest", 0xa7],
+    ["prevSpectrumDigest", 0xa0],
+    ["prevUniverseDigest", 0xa1],
+    ["prevComputerDigest", 0xa2],
+    ["saltedSpectrumDigest", 0xa3],
+    ["saltedUniverseDigest", 0xa4],
+    ["saltedComputerDigest", 0xa5],
+    ["transactionDigest", 0xa6],
+    ["expectedNextTickTransactionDigest", 0xa7],
   ];
   for (const [field, fill] of slots) {
     (t as any)[field] = M256i.from(new Uint8Array(32).fill(fill));
@@ -292,10 +335,19 @@ test("RespondSystemInfo is packed: no alignment padding (u64 at the unaligned @6
   // Under natural alignment the i32 solutionThreshold @64 would force 4 bytes of pad before the u64; #pragma
   // pack(1) places it at @68 instead. The derived offsets must reproduce that.
   expect(RespondSystemInfo.OFFSETS).toMatchObject({
-    version: 0, epoch: 2, tick: 4, initialTick: 8, latestCreatedTick: 12,
-    numberOfEntities: 24, numberOfTransactions: 28, randomMiningSeed: 32,
-    solutionThreshold: 64, totalSpectrumAmount: 68, targetTickVoteSignature: 84,
-    computorPacketSignature: 88, _reserve4: 120,
+    version: 0,
+    epoch: 2,
+    tick: 4,
+    initialTick: 8,
+    latestCreatedTick: 12,
+    numberOfEntities: 24,
+    numberOfTransactions: 28,
+    randomMiningSeed: 32,
+    solutionThreshold: 64,
+    totalSpectrumAmount: 68,
+    targetTickVoteSignature: 84,
+    computorPacketSignature: 88,
+    _reserve4: 120,
   });
 
   const s = RespondSystemInfo.alloc();

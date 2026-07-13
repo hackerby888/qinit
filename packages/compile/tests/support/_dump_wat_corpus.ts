@@ -15,13 +15,46 @@ const QPI = loadQpiHeader(CORE_PATH);
 const FIXTURES = QINIT_ROOT + "/fixtures";
 const SYSTEM = CORE_PATH + "/src/contracts";
 
-const FIXTURE_FILES = ["Counter.h", "Counter5.h", "Bank.h", "Token.h", "Vault.h", "Dividend.h", "Proxy.h", "DigestProbe.h", "BigState.h"];
+const FIXTURE_FILES = [
+  "Counter.h",
+  "Counter5.h",
+  "Bank.h",
+  "Token.h",
+  "Vault.h",
+  "Dividend.h",
+  "Proxy.h",
+  "DigestProbe.h",
+  "BigState.h",
+];
 const SYSTEM_FILES = [
-  "Qx.h", "Quottery.h", "Random.h", "QUtil.h", "QEARN=Qearn.h", "QVAULT.h", "MsVault.h",
-  "GGWP.h", "QIP.h", "QBond.h", "QDuel.h", "Qbay.h", "Qdraw.h", "Qswap.h", "QThirtyFour.h",
-  "Qusino.h", "qRWA.h", "QReservePool.h", "RandomLottery.h", "Pulse.h", "Escrow.h",
-  "Nostromo.h", "QRaffle.h", "MyLastMatch.h", "SupplyWatcher.h", "VottunBridge.h",
-  "ComputorControlledFund.h", "GeneralQuorumProposal.h",
+  "Qx.h",
+  "Quottery.h",
+  "Random.h",
+  "QUtil.h",
+  "QEARN=Qearn.h",
+  "QVAULT.h",
+  "MsVault.h",
+  "GGWP.h",
+  "QIP.h",
+  "QBond.h",
+  "QDuel.h",
+  "Qbay.h",
+  "Qdraw.h",
+  "Qswap.h",
+  "QThirtyFour.h",
+  "Qusino.h",
+  "qRWA.h",
+  "QReservePool.h",
+  "RandomLottery.h",
+  "Pulse.h",
+  "Escrow.h",
+  "Nostromo.h",
+  "QRaffle.h",
+  "MyLastMatch.h",
+  "SupplyWatcher.h",
+  "VottunBridge.h",
+  "ComputorControlledFund.h",
+  "GeneralQuorumProposal.h",
 ];
 
 // Inline fixtures covering codegen shapes the file corpus underexercises: uint128 ops, narrowing casts, short-circuit && / ||, ternary,
@@ -78,11 +111,22 @@ function structName(src: string): string {
   return m ? m[1] : "Contract";
 }
 
-async function dumpOne(displayName: string, src: string, name: string, slot: number): Promise<string> {
+async function dumpOne(
+  displayName: string,
+  src: string,
+  name: string,
+  slot: number,
+): Promise<string> {
   const watPath = join(OUT, `${displayName}.wat`);
   process.env.QINIT_DUMP_WAT = watPath;
   try {
-    const r = await compileContract({ source: src, name, slot, qpiHeader: QPI, arenaSz: 64 * 1024 });
+    const r = await compileContract({
+      source: src,
+      name,
+      slot,
+      qpiHeader: QPI,
+      arenaSz: 64 * 1024,
+    });
     const errs = r.diagnostics.filter((d) => d.severity === "error").length;
     const dumped = existsSync(watPath);
     return `${displayName}: ${dumped ? "wat" : "NO-WAT"} · ${errs} err`;

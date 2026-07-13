@@ -1,21 +1,63 @@
 import { emitCall } from "./calls/dispatch";
 import { callCompiled, emitAssetIter } from "./calls/containers";
 import { SCALAR_SIZE, C_SCALAR_NAMES } from "./tables";
-import { isAutoType, resolveAliasType, emitValueIr, narrowLocalIr, emitValue, emitAssign, emitU128Ir } from "./value";
-import { setLocal, castInfo, resolveAddr, emitAddr, addrIr, emitConstruct, emitInlineStructMethod, tryLvalueAddr, isUint128, allocSlotIr, loadAt, isSignedScalarType, storeAt, narrowCast } from "./addr";
+import {
+  isAutoType,
+  resolveAliasType,
+  emitValueIr,
+  narrowLocalIr,
+  emitValue,
+  emitAssign,
+  emitU128Ir,
+} from "./value";
+import {
+  setLocal,
+  castInfo,
+  resolveAddr,
+  emitAddr,
+  addrIr,
+  emitConstruct,
+  emitInlineStructMethod,
+  tryLvalueAddr,
+  isUint128,
+  allocSlotIr,
+  loadAt,
+  isSignedScalarType,
+  storeAt,
+  narrowCast,
+} from "./addr";
 import { Codegen } from "./cg";
 import { FnCtx, StructLayout, HelperInfo, Bindings, NO_BIND } from "./types";
-import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../ast";
+import type {
+  TypeSpec,
+  Expression,
+  Statement,
+  Declaration,
+  StructDecl,
+  FunctionDecl,
+  FunctionTemplateDecl,
+  VariableDecl,
+  TemplateParam,
+  ParamDecl,
+} from "../ast";
 import * as ir from "../ir";
 
-function emitArrayInitializer(ctx: FnCtx, base: ir.Ir, type: TypeSpec & { kind: "array" }, init: Expression & { kind: "initializer_list" }): void {
+function emitArrayInitializer(
+  ctx: FnCtx,
+  base: ir.Ir,
+  type: TypeSpec & { kind: "array" },
+  init: Expression & { kind: "initializer_list" },
+): void {
   const b = ctx.thisBind ?? NO_BIND;
   const elemSize = ctx.cg.sizeOfType(type.elem, b);
   init.exprs.forEach((expr, index) => {
     const dst = ir.addr0(base, index * elemSize);
     if (type.elem.kind === "array" && expr.kind === "initializer_list") {
       emitArrayInitializer(ctx, dst, type.elem, expr);
-    } else if (ctx.cg.isAggregateType(type.elem) && (expr.kind === "initializer_list" || expr.kind === "construct")) {
+    } else if (
+      ctx.cg.isAggregateType(type.elem) &&
+      (expr.kind === "initializer_list" || expr.kind === "construct")
+    ) {
       const args = expr.kind === "initializer_list" ? expr.exprs : expr.args;
       emitConstruct(ctx, ir.emit(dst), type.elem, args);
     } else {
@@ -43,21 +85,39 @@ export function emitFunction(
   inL: StructLayout,
   outL: StructLayout,
   localsL: StructLayout,
-  paramAliases?: Map<string, { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }>,
+  paramAliases?: Map<
+    string,
+    { wasmType: "i32" | "i64"; isAddr: boolean; type: TypeSpec; local?: string }
+  >,
 ): string {
   const contextType = fn?.params[0] ? cg.derefType(fn.params[0].type) : null;
-  const qpiContext = contextType?.kind === "name" && contextType.name === "QpiContextProcedureCall" ? "procedure"
-    : contextType?.kind === "name" && contextType.name === "QpiContextFunctionCall" ? "function"
-    : undefined;
+  const qpiContext =
+    contextType?.kind === "name" && contextType.name === "QpiContextProcedureCall"
+      ? "procedure"
+      : contextType?.kind === "name" && contextType.name === "QpiContextFunctionCall"
+        ? "function"
+        : undefined;
   const params = new Map(paramAliases ?? []);
   if (fn?.params[0]?.name === "qpi" && contextType && qpiContext) {
     params.set("qpi", { wasmType: "i32", isAddr: true, type: contextType, local: "__qinit_ctx" });
   }
   const lookup = cg.namespaceContextOf(fn);
   const ctx: FnCtx = {
-    cg, state, in: inL, out: outL, locals: localsL, localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
-    hasStateParam: true, params, qpiContext,
-    sourceNamespace: lookup.sourceNamespace, usingNamespaces: lookup.usingNamespaces,
+    cg,
+    state,
+    in: inL,
+    out: outL,
+    locals: localsL,
+    localVars: new Map(),
+    lines: [],
+    tmpCount: 0,
+    loops: [],
+    loopCount: 0,
+    hasStateParam: true,
+    params,
+    qpiContext,
+    sourceNamespace: lookup.sourceNamespace,
+    usingNamespaces: lookup.usingNamespaces,
   };
 
   // Pre-scan for local variable declarations (must be declared at function top in WAT)
@@ -70,18 +130,35 @@ export function emitFunction(
   }
 
   // Build local decls AFTER emit so scratch temps created during lowering are included.
-  const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
+  const localDecls = [...ctx.localVars.entries()].map(
+    ([n, t]) => `    (local $${n} ${t.wasmType})`,
+  );
 
   return [header, ...localDecls, ...ctx.lines, "  )"].join("\n");
 }
 
 // Emit a value-helper (e.g. toReturnCode) as a wasm function with its own scalar/address parameters
-export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: Statement }, stateLayout: StructLayout, bind?: Bindings): string {
+export function emitHelperFunction(
+  cg: Codegen,
+  info: HelperInfo,
+  fn: { body?: Statement },
+  stateLayout: StructLayout,
+  bind?: Bindings,
+): string {
   const empty = { size: 0, align: 1, fields: new Map() };
   const ctx: FnCtx = {
-    cg, state: stateLayout, in: empty, out: empty, locals: empty,
-    localVars: new Map(), lines: [], tmpCount: 0, loops: [], loopCount: 0,
-    params: new Map(), retIsValue: info.retIsValue,
+    cg,
+    state: stateLayout,
+    in: empty,
+    out: empty,
+    locals: empty,
+    localVars: new Map(),
+    lines: [],
+    tmpCount: 0,
+    loops: [],
+    loopCount: 0,
+    params: new Map(),
+    retIsValue: info.retIsValue,
     retTypeName: info.retType?.kind === "name" ? info.retType.name : undefined,
     // For an instantiated template free fn the body resolves T/L through these bindings (e.g. `L`→4).
     thisBind: bind,
@@ -94,7 +171,8 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
     ctx.retAggSize = info.retAgg;
     ctx.retType = info.retType;
   }
-  for (const p of info.params) ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: p.type });
+  for (const p of info.params)
+    ctx.params!.set(p.name, { wasmType: p.wasmType, isAddr: p.isAddr, type: p.type });
 
   if (fn.body) collectLocals(fn.body, ctx);
 
@@ -107,7 +185,9 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
     while (ctx.localVars.has(cp) || ctx.params?.has(cp)) cp += "_";
     ctx.localVars.set(cp, { wasmType: "i32" });
     ctx.lines.push(`    ${setLocal(ctx, cp, ir.call("$qpiAllocLocals", ir.i32c(size)))}`);
-    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(cp, "i32"), ir.getL(p.name, "i32"), ir.i32c(size)))}`);
+    ctx.lines.push(
+      `    ${ir.emit(ir.call("$copyMem", ir.getL(cp, "i32"), ir.getL(p.name, "i32"), ir.i32c(size)))}`,
+    );
     ctx.params!.get(p.name)!.local = cp;
   }
 
@@ -118,7 +198,9 @@ export function emitHelperFunction(cg: Codegen, info: HelperInfo, fn: { body?: S
 
   if (fn.body) emitStmt(ctx, fn.body);
 
-  const localDecls = [...ctx.localVars.entries()].map(([n, t]) => `    (local $${n} ${t.wasmType})`);
+  const localDecls = [...ctx.localVars.entries()].map(
+    ([n, t]) => `    (local $${n} ${t.wasmType})`,
+  );
   // A value helper needs a fallthrough result for control paths that do not hit a return.
   const tail = info.retIsValue ? ["    (i64.const 0)"] : [];
   return [header, ...localDecls, ...ctx.lines, ...tail, "  )"].join("\n");
@@ -162,7 +244,8 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
       if (stmt.decl.kind === "variable") {
         const v = stmt.decl as VariableDecl;
         // reference/pointer locals hold an address (i32); scalars use the i64 value model. A __ScopedScratchpad
-        const holdsAddr = v.type.kind === "name" && /(ScopedScratchpad|Iterator)$/.test(v.type.name);
+        const holdsAddr =
+          v.type.kind === "name" && /(ScopedScratchpad|Iterator)$/.test(v.type.name);
         const b = ctx.thisBind ?? NO_BIND;
 
         // `auto` locals take their shape from the initializer; casts supply full type (e.g., auto* queue = reinterpret_cast<sint64_4*>(...)).
@@ -172,18 +255,24 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
           if (ci) {
             dType = ci.type;
           } else if (v.init.kind === "identifier") {
-            dType = ctx.localVars.get(v.init.name)?.type ?? ctx.params?.get(v.init.name)?.type ?? dType;
+            dType =
+              ctx.localVars.get(v.init.name)?.type ?? ctx.params?.get(v.init.name)?.type ?? dType;
           } else if (v.init.kind === "call" && v.init.callee.kind === "identifier") {
             dType = ctx.cg.helpers.get(v.init.callee.name)?.retType ?? dType;
-          } else if (v.init.kind === "call" && v.init.callee.kind === "member_access"
-              && v.init.callee.object.kind === "identifier") {
+          } else if (
+            v.init.kind === "call" &&
+            v.init.callee.kind === "member_access" &&
+            v.init.callee.object.kind === "identifier"
+          ) {
             const callee = v.init.callee;
             const objectName = v.init.callee.object.name;
-            const objectType = ctx.localVars.get(objectName)?.type
-              ?? ctx.params?.get(objectName)?.type;
+            const objectType =
+              ctx.localVars.get(objectName)?.type ?? ctx.params?.get(objectName)?.type;
             const objectStruct = objectType ? ctx.cg.structOf(objectType, b) : null;
-            const named = objectStruct?.members.find((member) => member.kind === "function"
-              && (member as FunctionDecl).name === callee.member) as FunctionDecl | undefined;
+            const named = objectStruct?.members.find(
+              (member) =>
+                member.kind === "function" && (member as FunctionDecl).name === callee.member,
+            ) as FunctionDecl | undefined;
             dType = named?.returnType ?? dType;
           } else if (v.init.kind === "subscript" && v.init.object.kind === "identifier") {
             const ot = ctx.localVars.get(v.init.object.name)?.type;
@@ -195,16 +284,31 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
         }
 
         // A local of an unresolvable named type would silently corrupt the locals layout (size 0, scalar fallback) —
-        if (dType.kind === "name" && !isAutoType(dType) && SCALAR_SIZE[dType.name] === undefined &&
-            !C_SCALAR_NAMES.has(dType.name) && !dType.name.includes("::") &&
-            !b.types.has(dType.name) && !ctx.cg.typedefs.has(dType.name) && !ctx.cg.enumNames.has(dType.name) &&
-            !ctx.cg.structByName(dType.name, b)) {
-          ctx.cg.error(`unknown type '${dType.name}' in declaration of '${v.name}'`, stmt.span.line);
+        if (
+          dType.kind === "name" &&
+          !isAutoType(dType) &&
+          SCALAR_SIZE[dType.name] === undefined &&
+          !C_SCALAR_NAMES.has(dType.name) &&
+          !dType.name.includes("::") &&
+          !b.types.has(dType.name) &&
+          !ctx.cg.typedefs.has(dType.name) &&
+          !ctx.cg.enumNames.has(dType.name) &&
+          !ctx.cg.structByName(dType.name, b)
+        ) {
+          ctx.cg.error(
+            `unknown type '${dType.name}' in declaration of '${v.name}'`,
+            stmt.span.line,
+          );
         }
 
         // A struct-typed local (DateAndTime begin = *this) lives in an allocated slot; its wasm local holds the slot
-        const concrete = dType.kind === "name" && b.types.has(dType.name) ? b.types.get(dType.name)! : dType;
-        const isAgg = !holdsAddr && dType.kind !== "reference" && dType.kind !== "pointer" && ctx.cg.isAggregateType(concrete);
+        const concrete =
+          dType.kind === "name" && b.types.has(dType.name) ? b.types.get(dType.name)! : dType;
+        const isAgg =
+          !holdsAddr &&
+          dType.kind !== "reference" &&
+          dType.kind !== "pointer" &&
+          ctx.cg.isAggregateType(concrete);
         const isRef = dType.kind === "reference" || dType.kind === "pointer" || holdsAddr || isAgg;
         // In a ProposalVoting proxy method the `pv`/`qpi` aliases (`ProposalVotingType& pv = this->pv`) are bound as the function's own
         if (ctx.proxyClass && isRef && (v.name === "pv" || v.name === "qpi")) break;
@@ -221,27 +325,53 @@ export function collectLocals(stmt: Statement, ctx: FnCtx): void {
 // Collect goto-target label names appearing anywhere in a statement subtree.
 export function collectGotosIn(stmt: Statement, out: Set<string>): void {
   switch (stmt.kind) {
-    case "goto": out.add(stmt.label); break;
-    case "compound": for (const s of stmt.body) collectGotosIn(s, out); break;
-    case "if": collectGotosIn(stmt.then, out); if (stmt.else_) collectGotosIn(stmt.else_, out); break;
-    case "for": case "while": case "do_while": case "switch": collectGotosIn(stmt.body, out); break;
+    case "goto":
+      out.add(stmt.label);
+      break;
+    case "compound":
+      for (const s of stmt.body) collectGotosIn(s, out);
+      break;
+    case "if":
+      collectGotosIn(stmt.then, out);
+      if (stmt.else_) collectGotosIn(stmt.else_, out);
+      break;
+    case "for":
+    case "while":
+    case "do_while":
+    case "switch":
+      collectGotosIn(stmt.body, out);
+      break;
   }
 }
 
 // Collect label names defined anywhere in a statement subtree.
 export function collectLabelsIn(stmt: Statement, out: Set<string>): void {
   switch (stmt.kind) {
-    case "label": out.add(stmt.name); break;
-    case "compound": for (const s of stmt.body) collectLabelsIn(s, out); break;
-    case "if": collectLabelsIn(stmt.then, out); if (stmt.else_) collectLabelsIn(stmt.else_, out); break;
-    case "for": case "while": case "do_while": case "switch": collectLabelsIn(stmt.body, out); break;
+    case "label":
+      out.add(stmt.name);
+      break;
+    case "compound":
+      for (const s of stmt.body) collectLabelsIn(s, out);
+      break;
+    case "if":
+      collectLabelsIn(stmt.then, out);
+      if (stmt.else_) collectLabelsIn(stmt.else_, out);
+      break;
+    case "for":
+    case "while":
+    case "do_while":
+    case "switch":
+      collectLabelsIn(stmt.body, out);
+      break;
   }
 }
 
 function emitScratchpadReleases(ctx: FnCtx, from: number, consume: boolean): void {
   if (!ctx.scratchpadScope || ctx.scratchpadScope.length <= from) return;
   for (let i = ctx.scratchpadScope.length - 1; i >= from; i--) {
-    ctx.lines.push(`    ${ir.emit(ir.call("$releaseScratchpad", ir.getL(ctx.scratchpadScope[i], "i32")))}`);
+    ctx.lines.push(
+      `    ${ir.emit(ir.call("$releaseScratchpad", ir.getL(ctx.scratchpadScope[i], "i32")))}`,
+    );
   }
   if (consume) ctx.scratchpadScope.length = from;
 }
@@ -338,10 +468,15 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         const declared = ctx.localVars.get(v.name)?.type ?? v.type;
         // __ScopedScratchpad scratchpad(size, initZero): bump a scratch buffer off the arena; the local holds its base address, read back
         if (v.type.kind === "name" && /ScopedScratchpad$/.test(v.type.name)) {
-          const args = v.init && (v.init.kind === "construct" || v.init.kind === "call") ? v.init.args : [];
+          const args =
+            v.init && (v.init.kind === "construct" || v.init.kind === "call") ? v.init.args : [];
           const size = args[0] ? emitValueIr(ctx, args[0]) : ir.i64c(0);
-          const initZero = args[1] ? ir.op("i64.ne", ir.i64c(0), emitValueIr(ctx, args[1])) : ir.i32c(0);
-          ctx.lines.push(`    ${setLocal(ctx, v.name, ir.call("$acquireScratchpad", size, initZero))}`);
+          const initZero = args[1]
+            ? ir.op("i64.ne", ir.i64c(0), emitValueIr(ctx, args[1]))
+            : ir.i32c(0);
+          ctx.lines.push(
+            `    ${setLocal(ctx, v.name, ir.call("$acquireScratchpad", size, initZero))}`,
+          );
           (ctx.scratchpadLocals ??= new Set()).add(v.name);
           (ctx.scratchpadScope ??= []).push(v.name);
           break;
@@ -350,12 +485,26 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         if (v.type.kind === "name" && /Asset(Ownership|Possession)Iterator$/.test(v.type.name)) {
           ctx.lines.push(`    ${setLocal(ctx, v.name, ir.call("$qpiAllocLocals", ir.i32c(8)))}`);
           (ctx.refLocals ??= new Map()).set(v.name, v.type);
-          const arg = v.init && (v.init.kind === "construct" || v.init.kind === "call") ? v.init.args[0] : undefined;
+          const arg =
+            v.init && (v.init.kind === "construct" || v.init.kind === "call")
+              ? v.init.args[0]
+              : undefined;
           if (arg) {
-            emitAssetIter(ctx, {
-              kind: "call", span: stmt.span, args: [arg],
-              callee: { kind: "member_access", span: stmt.span, object: { kind: "identifier", name: v.name, span: stmt.span }, member: "begin" },
-            } as Expression & { kind: "call" }, "stmt");
+            emitAssetIter(
+              ctx,
+              {
+                kind: "call",
+                span: stmt.span,
+                args: [arg],
+                callee: {
+                  kind: "member_access",
+                  span: stmt.span,
+                  object: { kind: "identifier", name: v.name, span: stmt.span },
+                  member: "begin",
+                },
+              } as Expression & { kind: "call" },
+              "stmt",
+            );
           }
           break;
         }
@@ -370,7 +519,8 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
             if (addr) {
               if (!ctx.refLocals) ctx.refLocals = new Map();
               // A pointer local keeps its pointer type so resolveAddr's subscript path fires (`shareholders[i]`); a reference binds to its
-              const refType = declared.kind === "pointer" ? declared : (node?.type ?? declared.refereed);
+              const refType =
+                declared.kind === "pointer" ? declared : (node?.type ?? declared.refereed);
               ctx.refLocals.set(v.name, refType);
               ctx.lines.push(`    ${setLocal(ctx, v.name, addrIr(addr))}`);
             } else {
@@ -382,12 +532,15 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         // struct-typed local (DateAndTime begin = *this): allocate a slot the wasm local points at, so member reads and
         {
           const db = ctx.thisBind ?? NO_BIND;
-          const concrete = declared.kind === "name" && db.types.has(declared.name) ? db.types.get(declared.name)! : declared;
+          const concrete =
+            declared.kind === "name" && db.types.has(declared.name)
+              ? db.types.get(declared.name)!
+              : declared;
           if (ctx.cg.isAggregateType(concrete)) {
             // matches collectLocals' aggregate predicate: the wasm local is i32 (slot address), so this branch must consume the declaration
             let aggSz = ctx.cg.sizeOfType(concrete, db);
             if (concrete.kind === "array" && aggSz <= 0 && v.init?.kind === "initializer_list") {
-              aggSz = ctx.cg.sizeOfType(concrete.elem, db) * (((v.init as any).exprs ?? []).length);
+              aggSz = ctx.cg.sizeOfType(concrete.elem, db) * ((v.init as any).exprs ?? []).length;
             }
             const sz = Math.max(aggSz, 8);
             ctx.lines.push(`    ${setLocal(ctx, v.name, ir.call("$qpiAllocLocals", ir.i32c(sz)))}`);
@@ -395,48 +548,75 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
             // uint128_t is a class, not a pair of fields to initialize positionally: its two-argument
             // constructor accepts (high, low), while the resident layout is (low, high). Route every
             if (v.init && isUint128(ctx.cg, concrete)) {
-              ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), emitU128Ir(ctx, v.init), ir.i32c(16)))}`);
+              ctx.lines.push(
+                `    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), emitU128Ir(ctx, v.init), ir.i32c(16)))}`,
+              );
               break;
             }
-            const ctorArgs = v.init && (v.init.kind === "construct" || (v.init.kind === "call" && v.init.callee.kind === "identifier" && (v.init.callee as any).name === (v.type.kind === "name" ? v.type.name : ""))) ? (v.init as any).args : null;
+            const ctorArgs =
+              v.init &&
+              (v.init.kind === "construct" ||
+                (v.init.kind === "call" &&
+                  v.init.callee.kind === "identifier" &&
+                  (v.init.callee as any).name === (v.type.kind === "name" ? v.type.name : "")))
+                ? (v.init as any).args
+                : null;
             if (ctorArgs && emitConstruct(ctx, `(local.get $${v.name})`, concrete, ctorArgs)) {
               break;
             }
             // brace-init: array locals (const int daysInMonth[] = {0, 31, ...}) store element-wise; struct locals go field-wise through emitConstruct.
             if (v.init?.kind === "initializer_list") {
               if (concrete.kind === "array") {
-                ctx.lines.push(`    ${ir.emit(ir.call("$setMem", ir.getL(v.name, "i32"), ir.i32c(sz), ir.i32c(0)))}`);
+                ctx.lines.push(
+                  `    ${ir.emit(ir.call("$setMem", ir.getL(v.name, "i32"), ir.i32c(sz), ir.i32c(0)))}`,
+                );
                 emitArrayInitializer(ctx, ir.getL(v.name, "i32"), concrete, v.init);
                 break;
               }
-              if (emitConstruct(ctx, `(local.get $${v.name})`, concrete, (v.init as any).exprs ?? [])) {
+              if (
+                emitConstruct(ctx, `(local.get $${v.name})`, concrete, (v.init as any).exprs ?? [])
+              ) {
                 break;
               }
             }
             if (v.init) {
               const src = resolveAddr(ctx, v.init)?.addr ?? emitAddr(ctx, v.init);
               if (src) {
-                ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), addrIr(src), ir.i32c(sz)))}`);
+                ctx.lines.push(
+                  `    ${ir.emit(ir.call("$copyMem", ir.getL(v.name, "i32"), addrIr(src), ir.i32c(sz)))}`,
+                );
                 break;
               }
               ctx.cg.warn(`unsupported struct-local initializer for '${v.name}'`, stmt.span.line);
             }
-            ctx.lines.push(`    ${ir.emit(ir.call("$setMem", ir.getL(v.name, "i32"), ir.i32c(sz), ir.i32c(0)))}`);
+            ctx.lines.push(
+              `    ${ir.emit(ir.call("$setMem", ir.getL(v.name, "i32"), ir.i32c(sz), ir.i32c(0)))}`,
+            );
             if (ctx.cg.gtestMode && !v.init && concrete.kind === "name") {
               const struct = ctx.cg.structOf(concrete, db);
               const constructor = struct?.members.find(
-                (member) => member.kind === "function" && (member as FunctionDecl).name === concrete.name && (member as FunctionDecl).body,
+                (member) =>
+                  member.kind === "function" &&
+                  (member as FunctionDecl).name === concrete.name &&
+                  (member as FunctionDecl).body,
               ) as FunctionDecl | undefined;
               const layout = ctx.cg.layoutOfType(concrete, db);
               if (constructor && layout) {
-                emitInlineStructMethod(ctx, { addr: `(local.get $${v.name})`, type: concrete, size: sz, layout }, constructor, []);
+                emitInlineStructMethod(
+                  ctx,
+                  { addr: `(local.get $${v.name})`, type: concrete, size: sz, layout },
+                  constructor,
+                  [],
+                );
               }
             }
             break;
           }
         }
         if (v.init) {
-          ctx.lines.push(`    ${setLocal(ctx, v.name, narrowLocalIr(ctx, v.name, emitValueIr(ctx, v.init)))}`);
+          ctx.lines.push(
+            `    ${setLocal(ctx, v.name, narrowLocalIr(ctx, v.name, emitValueIr(ctx, v.init)))}`,
+          );
         }
       }
       break;
@@ -457,7 +637,9 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
     case "for": {
       if (stmt.init) emitStmt(ctx, stmt.init);
       const n = ctx.loopCount++;
-      const brk = `$brk${n}`, loop = `$loop${n}`, cont = `$cont${n}`;
+      const brk = `$brk${n}`,
+        loop = `$loop${n}`,
+        cont = `$cont${n}`;
       ctx.lines.push(`    (block ${brk} (loop ${loop}`);
       if (stmt.cond) {
         ctx.lines.push(`      (br_if ${brk} (i64.eqz ${emitValue(ctx, stmt.cond)}))`);
@@ -478,7 +660,9 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
 
     case "while": {
       const n = ctx.loopCount++;
-      const brk = `$brk${n}`, loop = `$loop${n}`, cont = `$cont${n}`;
+      const brk = `$brk${n}`,
+        loop = `$loop${n}`,
+        cont = `$cont${n}`;
       ctx.lines.push(`    (block ${brk} (loop ${loop}`);
       ctx.lines.push(`      (br_if ${brk} (i64.eqz ${emitValue(ctx, stmt.cond)}))`);
       ctx.lines.push(`      (block ${cont}`);
@@ -492,7 +676,9 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
 
     case "do_while": {
       const n = ctx.loopCount++;
-      const brk = `$brk${n}`, loop = `$loop${n}`, cont = `$cont${n}`;
+      const brk = `$brk${n}`,
+        loop = `$loop${n}`,
+        cont = `$cont${n}`;
       ctx.lines.push(`    (block ${brk} (loop ${loop}`);
       ctx.lines.push(`      (block ${cont}`);
       ctx.loops.push({ brk, cont, scratchDepth: ctx.scratchpadScope?.length ?? 0 });
@@ -567,8 +753,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         const loop = ctx.loops[ctx.loops.length - 1];
         emitScratchpadReleases(ctx, loop.scratchDepth, false);
         ctx.lines.push(`    (br ${loop.brk})`);
-      }
-      else ctx.cg.warn(`break outside loop`, stmt.span.line);
+      } else ctx.cg.warn(`break outside loop`, stmt.span.line);
       break;
 
     case "continue":
@@ -576,8 +761,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         const loop = ctx.loops[ctx.loops.length - 1];
         emitScratchpadReleases(ctx, loop.scratchDepth, false);
         ctx.lines.push(`    (br ${loop.cont})`);
-      }
-      else ctx.cg.warn(`continue outside loop`, stmt.span.line);
+      } else ctx.cg.warn(`continue outside loop`, stmt.span.line);
       break;
 
     case "return":
@@ -585,9 +769,15 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         if (stmt.value && ctx.retAddr) {
           const src = emitAddr(ctx, stmt.value);
           if (src) {
-            ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr), addrIr(src), ir.i32c(ctx.retAggSize ?? 0)))}`);
-          } else if (ctx.retType && (stmt.value.kind === "initializer_list" || stmt.value.kind === "construct")) {
-            const args = stmt.value.kind === "initializer_list" ? stmt.value.exprs : stmt.value.args;
+            ctx.lines.push(
+              `    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr), addrIr(src), ir.i32c(ctx.retAggSize ?? 0)))}`,
+            );
+          } else if (
+            ctx.retType &&
+            (stmt.value.kind === "initializer_list" || stmt.value.kind === "construct")
+          ) {
+            const args =
+              stmt.value.kind === "initializer_list" ? stmt.value.exprs : stmt.value.args;
             if (!emitConstruct(ctx, ctx.retAddr, ctx.retType, args)) {
               throw new Error("aggregate return initializer could not be constructed");
             }
@@ -595,7 +785,9 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
             throw new Error("aggregate return expression from inline method is not addressable");
           }
         } else if (stmt.value && ctx.inlineValueLocal) {
-          ctx.lines.push(`    ${setLocal(ctx, ctx.inlineValueLocal, narrowLocalIr(ctx, ctx.inlineValueLocal, emitValueIr(ctx, stmt.value)))}`);
+          ctx.lines.push(
+            `    ${setLocal(ctx, ctx.inlineValueLocal, narrowLocalIr(ctx, ctx.inlineValueLocal, emitValueIr(ctx, stmt.value)))}`,
+          );
         }
         ctx.lines.push(`    (br ${ctx.inlineReturnLabel})`);
         break;
@@ -606,8 +798,13 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
         // aggregate-returning helper: copy the returned value into the caller-supplied dest, then return
         const src = emitAddr(ctx, stmt.value);
         if (src) {
-          ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr!), addrIr(src), ir.i32c(ctx.retAggSize!)))}`);
-        } else if (ctx.retType && (stmt.value.kind === "initializer_list" || stmt.value.kind === "construct")) {
+          ctx.lines.push(
+            `    ${ir.emit(ir.call("$copyMem", addrIr(ctx.retAddr!), addrIr(src), ir.i32c(ctx.retAggSize!)))}`,
+          );
+        } else if (
+          ctx.retType &&
+          (stmt.value.kind === "initializer_list" || stmt.value.kind === "construct")
+        ) {
           const args = stmt.value.kind === "initializer_list" ? stmt.value.exprs : stmt.value.args;
           if (!emitConstruct(ctx, ctx.retAddr, ctx.retType, args)) {
             throw new Error("aggregate return initializer could not be constructed");
@@ -664,8 +861,7 @@ export function emitStmt(ctx: FnCtx, stmt: Statement): void {
       if (target) {
         emitScratchpadReleases(ctx, target.scratchDepth, false);
         ctx.lines.push(`    (br ${target.label})`);
-      }
-      else ctx.cg.warn(`unsupported goto '${stmt.label}'`, stmt.span.line);
+      } else ctx.cg.warn(`unsupported goto '${stmt.label}'`, stmt.span.line);
       break;
     }
 
@@ -715,12 +911,19 @@ export function emitIncDec(ctx: FnCtx, expr: Expression): string {
     // uint128 increment/decrement uses the source-compiled arithmetic operator.
     if (isUint128(ctx.cg, addr.type ?? null)) {
       if ((expr as any).op === "++") {
-        const type = { kind: "template_instance", name: "uint128_t", args: [] } as TypeSpec & { kind: "template_instance" };
+        const type = { kind: "template_instance", name: "uint128_t", args: [] } as TypeSpec & {
+          kind: "template_instance";
+        };
         const compiled = callCompiled(ctx, type, "operator++", addr.addr, []);
         if (!compiled || compiled.cm.retKind !== "i32") {
           throw new Error("authoritative uint128_t::operator++ could not be lowered");
         }
-        return ir.emit(ir.op("drop", ir.callSig({ params: ["i32"], res: "i32" }, compiled.cm.label, addrIr(addr.addr))));
+        return ir.emit(
+          ir.op(
+            "drop",
+            ir.callSig({ params: ["i32"], res: "i32" }, compiled.cm.label, addrIr(addr.addr)),
+          ),
+        );
       }
       const one: Expression = { kind: "int_literal", value: "1", span: (expr as any).span };
       const res = emitU128Ir(ctx, {

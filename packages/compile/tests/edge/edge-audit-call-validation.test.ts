@@ -15,7 +15,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-interface RejectCase { source: string; diagnostic: RegExp }
+interface RejectCase {
+  source: string;
+  diagnostic: RegExp;
+}
 
 const CASES: Record<string, RejectCase> = {
   "qpi host call is missing an argument": {

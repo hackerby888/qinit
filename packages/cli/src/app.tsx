@@ -37,13 +37,25 @@ import { META, COMMANDS } from "./meta";
 // Catch a render-time throw in any command so the CLI shows one clean line + exits 1, never a raw React crash.
 function Crash({ err }: { err: Error }) {
   const { exit } = useApp();
-  useEffect(() => { process.exitCode = 1; const t = setTimeout(() => exit(), 30); return () => clearTimeout(t); }, []);
-  return <Box><Text color="red">✗ qinit crashed: {err.message}</Text></Box>;
+  useEffect(() => {
+    process.exitCode = 1;
+    const t = setTimeout(() => exit(), 30);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <Box>
+      <Text color="red">✗ qinit crashed: {err.message}</Text>
+    </Box>
+  );
 }
 class ErrorBoundary extends Component<{ children: ReactNode }, { err?: Error }> {
   state: { err?: Error } = {};
-  static getDerivedStateFromError(err: Error) { return { err }; }
-  render() { return this.state.err ? <Crash err={this.state.err} /> : this.props.children; }
+  static getDerivedStateFromError(err: Error) {
+    return { err };
+  }
+  render() {
+    return this.state.err ? <Crash err={this.state.err} /> : this.props.children;
+  }
 }
 
 export function App({ command, args }: { command: string; args: string[] }) {
@@ -55,9 +67,14 @@ const REMOVED: Record<string, string> = { up: "node run" };
 
 function route(command: string, args: string[]): ReactNode {
   // Per-command help: `qinit <cmd> --help` / `-h` shows that command's usage + flags.
-  const canon = command === "cheat" || command === "--cheat-sheet" ? "cheat-sheet"
-    : command === "--version" || command === "-v" ? "version" : command;
-  if ((args.includes("--help") || args.includes("-h")) && canon in META) return <Usage cmd={canon} />;
+  const canon =
+    command === "cheat" || command === "--cheat-sheet"
+      ? "cheat-sheet"
+      : command === "--version" || command === "-v"
+        ? "version"
+        : command;
+  if ((args.includes("--help") || args.includes("-h")) && canon in META)
+    return <Usage cmd={canon} />;
   switch (command) {
     case "new":
       return <New args={args} />;
@@ -124,6 +141,12 @@ function route(command: string, args: string[]): ReactNode {
     case "-h":
       return <Help />;
     default:
-      return <Help unknown={!command.startsWith("-")} command={command} suggestion={REMOVED[command] ?? nearest(command, COMMANDS)} />;
+      return (
+        <Help
+          unknown={!command.startsWith("-")}
+          command={command}
+          suggestion={REMOVED[command] ?? nearest(command, COMMANDS)}
+        />
+      );
   }
 }

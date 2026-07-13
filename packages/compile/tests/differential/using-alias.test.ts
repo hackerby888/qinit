@@ -54,7 +54,13 @@ describe("using type aliases", () => {
   });
 
   test("struct-scope and function-scope aliases compile and resolve", async () => {
-    const r = await compileContract({ source: SRC, name: "Alias", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const r = await compileContract({
+      source: SRC,
+      name: "Alias",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     const errs = r.diagnostics.filter((d) => d.severity === "error");
     if (errs.length) console.log("  COMPILE ERRORS:", errs.map((e) => e.message).join("\n"));
     expect(errs).toHaveLength(0);
@@ -70,8 +76,8 @@ describe("using type aliases", () => {
     sim.procedure(28, 1, inBytes, { invocator: user });
 
     const g = sim.query(28, 1);
-    expect(i64(g, 0)).toBe(42n);   // total: 21 * 2 through Local + Amount aliases
-    expect(i64(g, 8)).toBe(1n);    // hits through Counter32 alias
-    expect(i64(g, 16)).toBe(42n);  // byUser through Registry alias (HashMap of aliased value type)
+    expect(i64(g, 0)).toBe(42n); // total: 21 * 2 through Local + Amount aliases
+    expect(i64(g, 8)).toBe(1n); // hits through Counter32 alias
+    expect(i64(g, 16)).toBe(42n); // byUser through Registry alias (HashMap of aliased value type)
   });
 });

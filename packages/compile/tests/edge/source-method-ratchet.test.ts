@@ -72,16 +72,30 @@ describe("source-method lowering ratchet", () => {
   });
 
   test("name-specific semantic fallbacks cannot return", () => {
-    const containers = readFileSync(new URL("../../src/codegen/calls/containers.ts", import.meta.url), "utf8");
+    const containers = readFileSync(
+      new URL("../../src/codegen/calls/containers.ts", import.meta.url),
+      "utf8",
+    );
     const addr = readFileSync(new URL("../../src/codegen/addr.ts", import.meta.url), "utf8");
-    const dispatch = readFileSync(new URL("../../src/codegen/calls/dispatch.ts", import.meta.url), "utf8");
+    const dispatch = readFileSync(
+      new URL("../../src/codegen/calls/dispatch.ts", import.meta.url),
+      "utf8",
+    );
     const qpi = readFileSync(new URL("../../src/codegen/calls/qpi.ts", import.meta.url), "utf8");
     const framework = readFileSync(new URL("../../src/framework.ts", import.meta.url), "utf8");
-    const qpiContext = readFileSync(new URL("../../src/compiler/qpi-context.ts", import.meta.url), "utf8");
-    const pipeline = readFileSync(new URL("../../src/compiler/pipeline.ts", import.meta.url), "utf8");
+    const qpiContext = readFileSync(
+      new URL("../../src/compiler/qpi-context.ts", import.meta.url),
+      "utf8",
+    );
+    const pipeline = readFileSync(
+      new URL("../../src/compiler/pipeline.ts", import.meta.url),
+      "utf8",
+    );
     expect(containers).not.toContain('node.type.name === "Array"');
     expect(addr).not.toMatch(/\^\(AssetOwnershipSelect\|AssetPossessionSelect\)::/);
-    expect(dispatch).not.toContain('if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex")');
+    expect(dispatch).not.toContain(
+      'if (m === "nextProposalIndex" || m === "nextFinishedProposalIndex")',
+    );
     expect(qpi).not.toContain('invocationReward: Object.freeze({ fwd: "$qpi_invocationReward"');
     expect(qpi).not.toContain('"invocator", "originator"');
     expect(addr).not.toContain('invocator: "$qpi_invocator"');

@@ -24,7 +24,15 @@ test("mempool mode: a tx applies + is recorded at its scheduled tick, not before
   sim.deploy(28, await wasm("Counter"));
 
   const scheduled = sim.tickN + 3;
-  sim.enqueueTx(scheduled, new Uint8Array(32).fill(0x11), contractId(28), 0n, INC, EMPTY, "tx-sched");
+  sim.enqueueTx(
+    scheduled,
+    new Uint8Array(32).fill(0x11),
+    contractId(28),
+    0n,
+    INC,
+    EMPTY,
+    "tx-sched",
+  );
 
   // deferred: not applied, not recorded yet
   expect(u64(sim.query(28, GET))).toBe(0n);

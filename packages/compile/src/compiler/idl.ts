@@ -12,9 +12,11 @@ export function extractIdl(
     return {
       name: opts.name,
       slot: opts.slot,
-      functions: generated.entries.filter((entry) => entry.kind === 0)
+      functions: generated.entries
+        .filter((entry) => entry.kind === 0)
         .map(({ name, inputType, inSize, outSize }) => ({ name, inputType, inSize, outSize })),
-      procedures: generated.entries.filter((entry) => entry.kind !== 0)
+      procedures: generated.entries
+        .filter((entry) => entry.kind !== 0)
         .map(({ name, inputType, inSize, outSize }) => ({ name, inputType, inSize, outSize })),
       stateSize: generated.stateSize,
       sysprocMask: generated.sysprocMask,

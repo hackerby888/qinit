@@ -101,7 +101,10 @@ function stripAssertionStreams(source: string): string {
       }
       if (ch === '"' || ch === "'") quote = ch;
       else if (ch === "(") depth++;
-      else if (ch === ")" && --depth === 0) { close = i; break; }
+      else if (ch === ")" && --depth === 0) {
+        close = i;
+        break;
+      }
     }
     if (close < 0) continue;
     let tail = close + 1;
@@ -127,7 +130,9 @@ function assertionMacros(): string {
   const lines: string[] = ["#define INIT_CONTRACT(x) __qtest_noop()", "#define INITIALIZE 0"];
   for (const family of ["EXPECT", "ASSERT"] as const) {
     for (const op of ["EQ", "NE", "LT", "LE", "GT", "GE"] as const) {
-      lines.push(`#define ${family}_${op}(a,b) __qtest_${family.toLowerCase()}_${op.toLowerCase()}((a),(b))`);
+      lines.push(
+        `#define ${family}_${op}(a,b) __qtest_${family.toLowerCase()}_${op.toLowerCase()}((a),(b))`,
+      );
     }
     lines.push(`#define ${family}_TRUE(a) __qtest_${family.toLowerCase()}_true((a))`);
     lines.push(`#define ${family}_FALSE(a) __qtest_${family.toLowerCase()}_false((a))`);
@@ -135,24 +140,34 @@ function assertionMacros(): string {
   return lines.join("\n");
 }
 
-function testSourceForCompiler(opts: CompileOpts & { testSource: string }, tests: TestBlock[], stateSize: number): string {
+function testSourceForCompiler(
+  opts: CompileOpts & { testSource: string },
+  tests: TestBlock[],
+  stateSize: number,
+): string {
   const escapedName = opts.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const transform = (source: string) => stripAssertionStreams(source)
-    .replace(new RegExp(`\\b${escapedName}_CONTRACT_INDEX\\b`, "g"), String(opts.slot))
-    .replace(/contractStates\s*\[([^\]]+)\]/g, `__qtest_state($1, ${stateSize})`);
-  const support = withoutTests(opts.testSource, tests)
-    .replace(/^\s*#\s*include[^\n]*$/gm, "")
+  const transform = (source: string) =>
+    stripAssertionStreams(source)
+      .replace(new RegExp(`\\b${escapedName}_CONTRACT_INDEX\\b`, "g"), String(opts.slot))
+      .replace(/contractStates\s*\[([^\]]+)\]/g, `__qtest_state($1, ${stateSize})`);
+  const support = withoutTests(opts.testSource, tests).replace(/^\s*#\s*include[^\n]*$/gm, "");
   const transformedSupport = transform(support);
-  const members = tests.map((test, index) => {
-    const method = sanitize(test.name, index);
-    return `
+  const members = tests
+    .map((test, index) => {
+      const method = sanitize(test.name, index);
+      return `
   struct ${method}_input {};
   struct ${method}_output {};
   PUBLIC_PROCEDURE(${method}) {
 ${transform(test.body)}
   }`;
-  }).join("\n");
-  const registrations = tests.map((test, index) => `    REGISTER_USER_PROCEDURE(${sanitize(test.name, index)}, ${index + 1});`).join("\n");
+    })
+    .join("\n");
+  const registrations = tests
+    .map(
+      (test, index) => `    REGISTER_USER_PROCEDURE(${sanitize(test.name, index)}, ${index + 1});`,
+    )
+    .join("\n");
 
   return `${assertionMacros()}
 class ContractTesting {};
@@ -173,19 +188,28 @@ async function assemble(wat: string): Promise<Uint8Array> {
   const parsed = module.parseWat("gtest.wat", wat);
   parsed.validate();
   const wasm = new Uint8Array(parsed.toBinary({}).buffer);
-  if (!WebAssembly.validate(wasm)) throw new Error("generated gtest module failed WebAssembly validation");
+  if (!WebAssembly.validate(wasm))
+    throw new Error("generated gtest module failed WebAssembly validation");
   return wasm;
 }
 
-export async function compileCoreGtest(opts: CompileOpts & { testSource: string }): Promise<GtestCompileResult> {
+export async function compileCoreGtest(
+  opts: CompileOpts & { testSource: string },
+): Promise<GtestCompileResult> {
   const diagnostics: GtestDiagnostic[] = [];
   const idl = EMPTY_IDL(opts);
   if (/\bContractTest\b|lite_test\.h/.test(opts.testSource)) {
-    diagnostics.push(diagnostic("legacy ContractTest/lite_test.h tests are not supported; use core-lite contract_testing.h and ContractTesting"));
+    diagnostics.push(
+      diagnostic(
+        "legacy ContractTest/lite_test.h tests are not supported; use core-lite contract_testing.h and ContractTesting",
+      ),
+    );
     return { diagnostics, idl };
   }
   if (!/contract_testing\.h|\bContractTesting\b/.test(opts.testSource)) {
-    diagnostics.push(diagnostic("gtest source must use core-lite contract_testing.h / ContractTesting"));
+    diagnostics.push(
+      diagnostic("gtest source must use core-lite contract_testing.h / ContractTesting"),
+    );
     return { diagnostics, idl };
   }
 
@@ -195,7 +219,8 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
     return { diagnostics, idl };
   }
 
-  if (opts.qpiHeader === undefined) throw new Error("internal gtest compiler requires a QPI header snapshot");
+  if (opts.qpiHeader === undefined)
+    throw new Error("internal gtest compiler requires a QPI header snapshot");
   const qpiHeader = opts.qpiHeader;
   const target = parseToAst({ source: opts.source, qpiHeader, name: opts.name, slot: opts.slot });
   diagnostics.push(...target.diagnostics);
@@ -203,9 +228,25 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
   const targetSema = new Sema();
   const targetMetadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
   try {
-    generateWasmModule(target.ast, targetSema, opts.name, opts.slot, opts.arenaSz ?? 16 * 1024 * 1024, qpi.lib, undefined, undefined, undefined, undefined, targetMetadata);
+    generateWasmModule(
+      target.ast,
+      targetSema,
+      opts.name,
+      opts.slot,
+      opts.arenaSz ?? 16 * 1024 * 1024,
+      qpi.lib,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      targetMetadata,
+    );
   } catch (error) {
-    diagnostics.push(diagnostic(`Contract codegen failed while compiling gtest: ${error instanceof Error ? error.message : String(error)}`));
+    diagnostics.push(
+      diagnostic(
+        `Contract codegen failed while compiling gtest: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
   }
   diagnostics.push(...targetSema.getDiagnostics());
   const runnerName = "QinitGtestRunner";
@@ -214,7 +255,12 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
     const fs = await import("node:fs");
     fs.writeFileSync((globalThis as any).process.env.QINIT_DUMP_GTEST_SOURCE, runnerSource);
   }
-  const runner = parseToAst({ source: runnerSource, qpiHeader, name: runnerName, slot: RUNNER_SLOT });
+  const runner = parseToAst({
+    source: runnerSource,
+    qpiHeader,
+    name: runnerName,
+    slot: RUNNER_SLOT,
+  });
   diagnostics.push(...runner.diagnostics);
   if (diagnostics.some((item) => item.severity === "error")) return { diagnostics, idl };
 
@@ -224,7 +270,8 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
   const targetStruct = findContractStruct(target.ast);
   const targetTypes = new Map<string, StructDecl>();
   for (const member of targetStruct?.members ?? []) {
-    if (member.kind === "struct") targetTypes.set(`${opts.name}::${member.name}`, member as StructDecl);
+    if (member.kind === "struct")
+      targetTypes.set(`${opts.name}::${member.name}`, member as StructDecl);
   }
   const sema = new Sema();
   const metadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
@@ -245,7 +292,9 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
       true,
     );
   } catch (error) {
-    diagnostics.push(diagnostic(`Gtest codegen failed: ${error instanceof Error ? error.message : String(error)}`));
+    diagnostics.push(
+      diagnostic(`Gtest codegen failed: ${error instanceof Error ? error.message : String(error)}`),
+    );
     return { diagnostics, idl };
   }
 
@@ -272,7 +321,11 @@ export async function compileCoreGtest(opts: CompileOpts & { testSource: string 
     };
     return { wasm, program, diagnostics, idl };
   } catch (error) {
-    diagnostics.push(diagnostic(`Gtest WAT assembly failed: ${error instanceof Error ? error.message : String(error)}`));
+    diagnostics.push(
+      diagnostic(
+        `Gtest WAT assembly failed: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
     return { diagnostics, idl };
   }
 }

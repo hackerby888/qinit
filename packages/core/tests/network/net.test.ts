@@ -4,8 +4,12 @@ import { test, expect, afterEach } from "bun:test";
 import { broadcastTx, readBody } from "../../src/net";
 
 const realFetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = realFetch; });
-const mock = (o: unknown, status = 200) => { globalThis.fetch = (async () => new Response(JSON.stringify(o), { status })) as any; };
+afterEach(() => {
+  globalThis.fetch = realFetch;
+});
+const mock = (o: unknown, status = 200) => {
+  globalThis.fetch = (async () => new Response(JSON.stringify(o), { status })) as any;
+};
 const tx = new Uint8Array([1, 2, 3]);
 
 test("broadcastTx: ok only when peersBroadcasted >= 1 and no error code", async () => {
@@ -21,12 +25,18 @@ test("broadcastTx: not ok on an error code or zero peers", async () => {
 });
 
 test("broadcastTx: a fetch failure throws 'node unreachable'", async () => {
-  globalThis.fetch = (async () => { throw new Error("ECONNREFUSED"); }) as any;
+  globalThis.fetch = (async () => {
+    throw new Error("ECONNREFUSED");
+  }) as any;
   await expect(broadcastTx(tx, "http://127.0.0.1:1")).rejects.toThrow(/node unreachable/);
 });
 
 test("readBody: a stalled body stream aborts via the inactivity watchdog", async () => {
-  const never = new ReadableStream<Uint8Array>({ start() {/* never enqueue, never close */} });
+  const never = new ReadableStream<Uint8Array>({
+    start() {
+      /* never enqueue, never close */
+    },
+  });
   await expect(readBody(new Response(never), 100)).rejects.toThrow(/stalled/);
 });
 

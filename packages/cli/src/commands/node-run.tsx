@@ -2,8 +2,26 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { loadManifest, fetchVerify, extractTarGz, cacheHeaders, readCurrent, updateCurrent, fetchWasiSdk, haveWasiSdkCache } from "@qinit/core";
-import { fetchNodeBin, cachedNode, nodeStatus, nodeContracts, killNode, launchNode, launchVirtualNode, waitTicking } from "../node-ops";
+import {
+  loadManifest,
+  fetchVerify,
+  extractTarGz,
+  cacheHeaders,
+  readCurrent,
+  updateCurrent,
+  fetchWasiSdk,
+  haveWasiSdkCache,
+} from "@qinit/core";
+import {
+  fetchNodeBin,
+  cachedNode,
+  nodeStatus,
+  nodeContracts,
+  killNode,
+  launchNode,
+  launchVirtualNode,
+  waitTicking,
+} from "../node-ops";
 import { savedMode, loadConfig } from "../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 import { parseArgs, output } from "../args";
@@ -11,9 +29,12 @@ import { parseArgs, output } from "../args";
 // qinit node run [--ref <tag>] [--restart] [--offline] [--bin <path>] [--tick-ms <n>] [--keep] [--rpc] [--wait]
 // One command bring-up: sync headers + fetch the wasm compiler + get the node + run it. Reuses a node that's
 function parse(args: string[]): Record<string, string> {
-  const a = parseArgs(args, { booleans: ["restart", "offline", "keep", "real", "realnode", "virtual"] });
+  const a = parseArgs(args, {
+    booleans: ["restart", "offline", "keep", "real", "realnode", "virtual"],
+  });
   const o: Record<string, string> = { ...a.flags };
-  for (const b of ["restart", "offline", "keep", "real", "realnode", "virtual"]) if (a.has(b)) o[b] = "1";
+  for (const b of ["restart", "offline", "keep", "real", "realnode", "virtual"])
+    if (a.has(b)) o[b] = "1";
   return o;
 }
 
@@ -27,16 +48,23 @@ export function NodeRun({ args }: { args: string[] }) {
   const ref = o.ref || "latest";
   // `qinit mode` chooses the backend; an explicit --real/--realnode or --virtual flag overrides it for this run
   // (parity with `qinit test`), so `qinit node run --real` isn't silently ignored.
-  const virtual = "virtual" in o ? true : ("real" in o || "realnode" in o) ? false : savedMode() === "virtualnode";
+  const virtual =
+    "virtual" in o ? true : "real" in o || "realnode" in o ? false : savedMode() === "virtualnode";
   const [steps, setSteps] = useState<Phase[]>([
     { key: "headers", label: "core headers", state: "pending" },
     { key: "node", label: "node binary", state: "pending" },
     { key: "wasi-sdk", label: "wasm compiler", state: "pending" },
     { key: "run", label: "node running", state: "pending" },
   ]);
-  const [done, setDone] = useState<{ title: string; color: string; rows: [string, string][] } | null>(null);
+  const [done, setDone] = useState<{
+    title: string;
+    color: string;
+    rows: [string, string][];
+  } | null>(null);
   const set = (key: string, state: StepState, detail?: string) =>
-    setSteps((ps) => ps.map((p) => (p.key === key ? { ...p, state, detail: detail ?? p.detail } : p)));
+    setSteps((ps) =>
+      ps.map((p) => (p.key === key ? { ...p, state, detail: detail ?? p.detail } : p)),
+    );
 
   useEffect(() => {
     (async () => {
@@ -45,17 +73,23 @@ export function NodeRun({ args }: { args: string[] }) {
         let version: string, headersAsset: any, nodeAsset: any;
         if (o.offline) {
           const cur = readCurrent();
-          if (!cur?.coreHeaders || !existsSync(cur.coreHeaders)) throw new Error("offline: no synced headers — run `qinit node run` online first");
+          if (!cur?.coreHeaders || !existsSync(cur.coreHeaders))
+            throw new Error("offline: no synced headers — run `qinit node run` online first");
           version = cur.headersVersion ?? "cached";
         } else {
           try {
             const m = await loadManifest(ref);
-            version = m.version; headersAsset = m.headers; nodeAsset = m.node;
+            version = m.version;
+            headersAsset = m.headers;
+            nodeAsset = m.node;
           } catch (e) {
             // The virtual backend needs no node release; if the manifest is unreachable, run on cached headers.
             if (!virtual) throw e;
             const cur = readCurrent();
-            if (!cur?.coreHeaders || !existsSync(cur.coreHeaders)) throw new Error("no cached headers — run `qinit node run` online once to sync headers + wasi-sdk");
+            if (!cur?.coreHeaders || !existsSync(cur.coreHeaders))
+              throw new Error(
+                "no cached headers — run `qinit node run` online once to sync headers + wasi-sdk",
+              );
             version = cur.headersVersion ?? "cached";
           }
         }
@@ -64,7 +98,12 @@ export function NodeRun({ args }: { args: string[] }) {
         set("headers", "active");
         const cur0 = readCurrent();
         if (o.offline) set("headers", "ok", `reuse ${version}`);
-        else if (cur0?.headersVersion === version && cur0.coreHeaders && existsSync(cur0.coreHeaders)) set("headers", "ok", `cached ${version}`);
+        else if (
+          cur0?.headersVersion === version &&
+          cur0.coreHeaders &&
+          existsSync(cur0.coreHeaders)
+        )
+          set("headers", "ok", `cached ${version}`);
         else {
           if (!headersAsset) throw new Error(`manifest ${version} has no headers asset`);
           const root = cacheHeaders(version);
@@ -86,65 +125,127 @@ export function NodeRun({ args }: { args: string[] }) {
         } else if (o.offline) {
           const c = cachedNode();
           if (!c) throw new Error("offline: no cached node — run `qinit node run` online first");
-          bin = c; set("node", "ok", "reuse cached");
-        } else { bin = (await fetchNodeBin(ref)).bin; set("node", "ok", `ready ${version}`); }
+          bin = c;
+          set("node", "ok", "reuse cached");
+        } else {
+          bin = (await fetchNodeBin(ref)).bin;
+          set("node", "ok", `ready ${version}`);
+        }
 
         // wasm compiler: fetch the host's wasi-sdk (clang + wasi-sysroot) so `qinit build` needs zero
         // native deps. Best-effort — WASM_CLANG/WASI_SYSROOT or a clang on PATH still work.
         set("wasi-sdk", "active");
         try {
           if (o.offline) set("wasi-sdk", "ok", haveWasiSdkCache() ? "cached" : "offline — skipped");
-          else { const s = await fetchWasiSdk((rc, tt) => set("wasi-sdk", "active", tt ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `${(rc / 1e6) | 0} MB`)); set("wasi-sdk", "ok", s.cached ? "cached" : "fetched"); }
-        } catch { set("wasi-sdk", "ok", "unavailable — set WASM_CLANG/WASI_SYSROOT"); }
+          else {
+            const s = await fetchWasiSdk((rc, tt) =>
+              set(
+                "wasi-sdk",
+                "active",
+                tt ? `${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `${(rc / 1e6) | 0} MB`,
+              ),
+            );
+            set("wasi-sdk", "ok", s.cached ? "cached" : "fetched");
+          }
+        } catch {
+          set("wasi-sdk", "ok", "unavailable — set WASM_CLANG/WASI_SYSROOT");
+        }
 
         // Run: reuse a node that's already ticking (keeps deployed state); else (re)launch.
         set("run", "active", "checking");
         const st = await nodeStatus(rpcBase);
-        let scratch = "", ok: boolean, tick: number;
+        let scratch = "",
+          ok: boolean,
+          tick: number;
         if (st.up && st.ticking && !o.restart) {
-          ok = true; tick = st.tick;
+          ok = true;
+          tick = st.tick;
           set("run", "ok", `reused, ticking at ${tick}`);
         } else {
           const why = !st.up ? "no node" : st.ticking ? "--restart" : "node idle";
           set("run", "active", `${why} → launching${virtual ? " virtual engine" : ""}`);
           await killNode(o.dir);
           const l = virtual
-            ? launchVirtualNode({ dir: o.dir, rpcBase, peerPort, keep: o.keep !== undefined, tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined, system: loadConfig().system })
-            : launchNode({ bin, dir: o.dir, mode: o["node-mode"], peers: o.peers, keep: o.keep !== undefined });
+            ? launchVirtualNode({
+                dir: o.dir,
+                rpcBase,
+                peerPort,
+                keep: o.keep !== undefined,
+                tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined,
+                system: loadConfig().system,
+              })
+            : launchNode({
+                bin,
+                dir: o.dir,
+                mode: o["node-mode"],
+                peers: o.peers,
+                keep: o.keep !== undefined,
+              });
           scratch = l.scratch;
           const w = await waitTicking(rpcBase, Number(o.wait || 90));
-          ok = w.ticking; tick = w.tick;
+          ok = w.ticking;
+          tick = w.tick;
           if (w.ticking) set("run", "ok", `launched pid ${l.pid}, ticking at ${tick}`);
-          else set("run", "fail", w.exited ? "exited early — see node.log" : "not ticking — see node.log");
+          else
+            set(
+              "run",
+              "fail",
+              w.exited ? "exited early — see node.log" : "not ticking — see node.log",
+            );
         }
 
         // Trust the run verdict above; just read contracts once (no extra tick sampling).
         const contracts = await nodeContracts(rpcBase);
         const rows: [string, string][] = [
           ["backend", virtual ? "virtualnode (in-process engine)" : "realnode"],
-          ["version", version], ["rpc", rpcBase], ["tick", String(tick)],
+          ["version", version],
+          ["rpc", rpcBase],
+          ["tick", String(tick)],
           ["contracts", contracts.length ? contracts.join(", ") : "(none)"],
         ];
         if (virtual) rows.splice(3, 0, ["peer", `127.0.0.1:${peerPort}`]);
         if (scratch) rows.push(["scratch", scratch]);
-        setDone({ title: ok ? "node up ✓" : "node not ticking", color: ok ? theme.ok : theme.warn, rows });
+        setDone({
+          title: ok ? "node up ✓" : "node not ticking",
+          color: ok ? theme.ok : theme.warn,
+          rows,
+        });
       } catch (e: any) {
         setSteps((ps) => ps.map((p) => (p.state === "active" ? { ...p, state: "fail" } : p)));
-        setDone({ title: "node run failed", color: theme.err, rows: [["error", String(e?.message ?? e)]] });
+        setDone({
+          title: "node run failed",
+          color: theme.err,
+          rows: [["error", String(e?.message ?? e)]],
+        });
       }
     })();
   }, []);
-  useEffect(() => { if (done) {
-    if (output.json) process.stdout.write(JSON.stringify({ ok: done.color !== theme.err, ...Object.fromEntries(done.rows) }) + "\n");
-    process.exitCode = done.color === theme.err ? 1 : 0; const t = setTimeout(() => exit(), 50); return () => clearTimeout(t);
-  } }, [done]);
+  useEffect(() => {
+    if (done) {
+      if (output.json)
+        process.stdout.write(
+          JSON.stringify({ ok: done.color !== theme.err, ...Object.fromEntries(done.rows) }) + "\n",
+        );
+      process.exitCode = done.color === theme.err ? 1 : 0;
+      const t = setTimeout(() => exit(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [done]);
 
   if (output.json) return null;
   return (
     <Box flexDirection="column">
       <Header cmd="node run" />
-      {steps.map((p) => <Step key={p.key} state={p.state} label={p.label} detail={p.detail} />)}
-      {done && <Box marginTop={1}><Panel title={done.title} color={done.color}><KV rows={done.rows} /></Panel></Box>}
+      {steps.map((p) => (
+        <Step key={p.key} state={p.state} label={p.label} detail={p.detail} />
+      ))}
+      {done && (
+        <Box marginTop={1}>
+          <Panel title={done.title} color={done.color}>
+            <KV rows={done.rows} />
+          </Panel>
+        </Box>
+      )}
     </Box>
   );
 }

@@ -9,7 +9,11 @@ export class QpiCodeActions implements vscode.CodeActionProvider {
     providedCodeActionKinds: [vscode.CodeActionKind.QuickFix],
   };
 
-  provideCodeActions(doc: vscode.TextDocument, _range: vscode.Range, ctx: vscode.CodeActionContext): vscode.CodeAction[] {
+  provideCodeActions(
+    doc: vscode.TextDocument,
+    _range: vscode.Range,
+    ctx: vscode.CodeActionContext,
+  ): vscode.CodeAction[] {
     if (!isContractDoc(doc)) return [];
     const actions: vscode.CodeAction[] = [];
     for (const d of ctx.diagnostics) {
@@ -19,19 +23,37 @@ export class QpiCodeActions implements vscode.CodeActionProvider {
 
       if (d.code === "qpi/no-brackets") {
         const fixed = arrayFixForLine(line);
-        if (fixed && fixed !== line) actions.push(replaceAction(doc, d, doc.lineAt(lineNum).range, fixed, "Convert to Array<T, N>"));
+        if (fixed && fixed !== line)
+          actions.push(
+            replaceAction(doc, d, doc.lineAt(lineNum).range, fixed, "Convert to Array<T, N>"),
+          );
       } else if (d.code === "qpi/no-division" || d.code === "qpi/no-modulo") {
         const op = d.code === "qpi/no-division" ? "/" : "%";
         const fix = divModFixForLine(line, d.range.start.character, op);
         if (fix) {
           const range = new vscode.Range(lineNum, fix.start, lineNum, fix.end);
-          actions.push(replaceAction(doc, d, range, fix.text, `Convert to ${op === "/" ? "div" : "mod"}(a, b)`));
+          actions.push(
+            replaceAction(
+              doc,
+              d,
+              range,
+              fix.text,
+              `Convert to ${op === "/" ? "div" : "mod"}(a, b)`,
+            ),
+          );
         }
       } else if (d.code === "qpi/stack-local") {
         const nameOffset = doc.offsetAt(d.range.start);
-        const edits = moveLocalToWithLocalsEdits(doc.getText(), nameOffset, doc.offsetAt(d.range.end) - nameOffset);
+        const edits = moveLocalToWithLocalsEdits(
+          doc.getText(),
+          nameOffset,
+          doc.offsetAt(d.range.end) - nameOffset,
+        );
         if (edits && edits.length) {
-          const a = new vscode.CodeAction("Move into <fn>_locals struct (use *_WITH_LOCALS)", vscode.CodeActionKind.QuickFix);
+          const a = new vscode.CodeAction(
+            "Move into <fn>_locals struct (use *_WITH_LOCALS)",
+            vscode.CodeActionKind.QuickFix,
+          );
           a.edit = new vscode.WorkspaceEdit();
           for (const e of edits) {
             const pos = doc.positionAt(e.start);
@@ -47,7 +69,13 @@ export class QpiCodeActions implements vscode.CodeActionProvider {
   }
 }
 
-function replaceAction(doc: vscode.TextDocument, d: vscode.Diagnostic, range: vscode.Range, newText: string, title: string): vscode.CodeAction {
+function replaceAction(
+  doc: vscode.TextDocument,
+  d: vscode.Diagnostic,
+  range: vscode.Range,
+  newText: string,
+  title: string,
+): vscode.CodeAction {
   const a = new vscode.CodeAction(title, vscode.CodeActionKind.QuickFix);
   a.edit = new vscode.WorkspaceEdit();
   a.edit.replace(doc.uri, range, newText);

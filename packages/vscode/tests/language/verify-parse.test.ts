@@ -2,8 +2,16 @@ import { test, expect } from "bun:test";
 import { parseVerifyJson, verifyErrors } from "../../src/verify-parse";
 
 test("parseVerifyJson reads the last JSON line", () => {
-  expect(parseVerifyJson('{"ok":true,"available":false,"errors":[]}')).toEqual({ ok: true, available: false, errors: [] });
-  expect(parseVerifyJson('noise line\n{"ok":false,"available":true,"errors":["x"]}\n')).toEqual({ ok: false, available: true, errors: ["x"] });
+  expect(parseVerifyJson('{"ok":true,"available":false,"errors":[]}')).toEqual({
+    ok: true,
+    available: false,
+    errors: [],
+  });
+  expect(parseVerifyJson('noise line\n{"ok":false,"available":true,"errors":["x"]}\n')).toEqual({
+    ok: false,
+    available: true,
+    errors: ["x"],
+  });
   expect(parseVerifyJson("not json")).toBeNull();
   expect(parseVerifyJson("")).toBeNull();
 });

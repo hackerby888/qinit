@@ -3,11 +3,27 @@ import { jsonToInputFmt, encodeInputJson, encodeInput, decodeOutput } from "../.
 
 test("jsonToInputFmt: flat scalars by field name", () => {
   expect(jsonToInputFmt([{ name: "value", type: "uint64" }], { value: 3 })).toBe("3uint64");
-  expect(jsonToInputFmt([{ name: "a", type: "uint32" }, { name: "b", type: "sint64" }], { a: 5, b: -7 })).toBe("5uint32, -7sint64");
+  expect(
+    jsonToInputFmt(
+      [
+        { name: "a", type: "uint32" },
+        { name: "b", type: "sint64" },
+      ],
+      { a: 5, b: -7 },
+    ),
+  ).toBe("5uint32, -7sint64");
 });
 
 test("jsonToInputFmt: positional array form (order = field order)", () => {
-  expect(jsonToInputFmt([{ name: "a", type: "uint8" }, { name: "b", type: "uint16" }], [1, 2])).toBe("1uint8, 2uint16");
+  expect(
+    jsonToInputFmt(
+      [
+        { name: "a", type: "uint8" },
+        { name: "b", type: "uint16" },
+      ],
+      [1, 2],
+    ),
+  ).toBe("1uint8, 2uint16");
 });
 
 test("jsonToInputFmt: id field passes the identity through", () => {
@@ -21,26 +37,40 @@ test("encodeInputJson: the 60-A zero identity hint encodes to the zero id", asyn
 });
 
 test("jsonToInputFmt: nested struct (positional) + fixed array", () => {
-  expect(jsonToInputFmt([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1, 2] })).toBe("{ 1uint64, 2uint32 }");
-  expect(jsonToInputFmt([{ name: "xs", type: "[3;uint64]" }], { xs: [1, 2, 3] })).toBe("[3; 1uint64, 2uint64, 3uint64]");
+  expect(jsonToInputFmt([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1, 2] })).toBe(
+    "{ 1uint64, 2uint32 }",
+  );
+  expect(jsonToInputFmt([{ name: "xs", type: "[3;uint64]" }], { xs: [1, 2, 3] })).toBe(
+    "[3; 1uint64, 2uint64, 3uint64]",
+  );
 });
 
 test("jsonToInputFmt: bool -> bit, big numeric string preserved", () => {
   expect(jsonToInputFmt([{ name: "f", type: "bit" }], { f: true })).toBe("1bit");
-  expect(jsonToInputFmt([{ name: "n", type: "uint64" }], { n: "18446744073709551615" })).toBe("18446744073709551615uint64");
+  expect(jsonToInputFmt([{ name: "n", type: "uint64" }], { n: "18446744073709551615" })).toBe(
+    "18446744073709551615uint64",
+  );
 });
 
 test("jsonToInputFmt: uint128 decimal string remains lossless", async () => {
   const max = (1n << 128n) - 1n;
-  expect(jsonToInputFmt([{ name: "n", type: "uint128" }], { n: max.toString() })).toBe(`${max}uint128`);
+  expect(jsonToInputFmt([{ name: "n", type: "uint128" }], { n: max.toString() })).toBe(
+    `${max}uint128`,
+  );
   const b = await encodeInputJson([{ name: "n", type: "uint128" }], { n: max.toString() });
   expect(await decodeOutput(b, "uint128")).toBe(max);
 });
 
 test("jsonToInputFmt: missing field + arity mismatch throw", () => {
-  expect(() => jsonToInputFmt([{ name: "value", type: "uint64" }], {})).toThrow(/missing input field 'value'/);
-  expect(() => jsonToInputFmt([{ name: "xs", type: "[2;uint64]" }], { xs: [1] })).toThrow(/expects 2 elements/);
-  expect(() => jsonToInputFmt([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1] })).toThrow(/expects 2 values/);
+  expect(() => jsonToInputFmt([{ name: "value", type: "uint64" }], {})).toThrow(
+    /missing input field 'value'/,
+  );
+  expect(() => jsonToInputFmt([{ name: "xs", type: "[2;uint64]" }], { xs: [1] })).toThrow(
+    /expects 2 elements/,
+  );
+  expect(() => jsonToInputFmt([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1] })).toThrow(
+    /expects 2 values/,
+  );
 });
 
 test("encodeInputJson === encodeInput of the equivalent fmt (incl alignment)", async () => {
@@ -57,7 +87,9 @@ test("jsonToInputFmt: float value is rejected (BigInt refuses non-integers)", ()
 });
 
 test("jsonToInputFmt: null/undefined value throws", () => {
-  expect(() => jsonToInputFmt([{ name: "v", type: "uint64" }], { v: null })).toThrow(/missing value/);
+  expect(() => jsonToInputFmt([{ name: "v", type: "uint64" }], { v: null })).toThrow(
+    /missing value/,
+  );
 });
 
 test("jsonToInputFmt: extra JSON keys are ignored (only declared fields used)", () => {
@@ -65,7 +97,9 @@ test("jsonToInputFmt: extra JSON keys are ignored (only declared fields used)", 
 });
 
 test("encodeInputJson: a bad id surfaces the encode-time validation error", async () => {
-  await expect(encodeInputJson([{ name: "dst", type: "id" }], { dst: "tooshort" })).rejects.toThrow(/id must be/);
+  await expect(encodeInputJson([{ name: "dst", type: "id" }], { dst: "tooshort" })).rejects.toThrow(
+    /id must be/,
+  );
 });
 
 test("encodeInputJson: m256i field round-trips (64-hex -> 32 bytes)", async () => {
@@ -77,6 +111,14 @@ test("encodeInputJson: m256i field round-trips (64-hex -> 32 bytes)", async () =
 
 test("encodeInputJson: deep nested array-of-structs (positional) round-trips", async () => {
   const fields = [{ name: "xs", type: "[2;{ uint32, uint32 }]" }];
-  const b = await encodeInputJson(fields, { xs: [[1, 2], [3, 4]] });
-  expect(await decodeOutput(b, "[2;{ uint32, uint32 }]")).toEqual([[1, 2], [3, 4]]);
+  const b = await encodeInputJson(fields, {
+    xs: [
+      [1, 2],
+      [3, 4],
+    ],
+  });
+  expect(await decodeOutput(b, "[2;{ uint32, uint32 }]")).toEqual([
+    [1, 2],
+    [3, 4],
+  ]);
 });

@@ -16,13 +16,21 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 async function compile(source: string) {
-  return compileContract({ source, name: "StaticAssertEdge", slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+  return compileContract({
+    source,
+    name: "StaticAssertEdge",
+    slot: 27,
+    qpiHeader: HEADERS,
+    arenaSz: 1 << 20,
+  });
 }
 
 async function expectFalseAssertionRejected(source: string) {
   const result = await compile(source);
   const errors = result.diagnostics.filter((d) => d.severity === "error");
-  expect(errors.some((d) => /static.?assert|static assertion|edge assertion failed/i.test(d.message))).toBe(true);
+  expect(
+    errors.some((d) => /static.?assert|static assertion|edge assertion failed/i.test(d.message)),
+  ).toBe(true);
   expect(result.wasm).toHaveLength(0);
 }
 

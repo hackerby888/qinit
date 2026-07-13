@@ -101,12 +101,25 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
     const buildNative = async (name: string, src: string, slot: number) => {
       const contractPath = join(dir, `${name}.h`);
       writeFileSync(contractPath, src);
-      const built = await buildContract({ contractPath, name, slot, corePath: CORE, outDir: dir, skipVerify: true });
+      const built = await buildContract({
+        contractPath,
+        name,
+        slot,
+        corePath: CORE,
+        outDir: dir,
+        skipVerify: true,
+      });
       expect(built.ok).toBe(true);
       return new Uint8Array(readFileSync(built.so!));
     };
     const buildOurs = async (name: string, src: string, slot: number) => {
-      const mine = await compileContract({ source: src, name, slot, qpiHeader: HEADERS, arenaSz: 4 * 1024 * 1024 });
+      const mine = await compileContract({
+        source: src,
+        name,
+        slot,
+        qpiHeader: HEADERS,
+        arenaSz: 4 * 1024 * 1024,
+      });
       expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
       return mine.wasm;
     };
@@ -137,19 +150,21 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
       const b = ours[side];
       const firstDiff = a.findIndex((v, i) => b[i] !== v);
       if (firstDiff >= 0) {
-        console.log(`  ${side} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`);
+        console.log(
+          `  ${side} DIVERGENCE at byte ${firstDiff}: native=${a[firstDiff]} ours=${b[firstDiff]}`,
+        );
       }
       expect(firstDiff).toBe(-1);
     }
 
     // Anchors: callee saw one proposal (first byte 42) and one vote (index 5); the caller received the callee's
     const callee = new DataView(nat.callee.buffer, nat.callee.byteOffset);
-    expect(callee.getBigUint64(0, true)).toBe(1n);  // gotProposal
+    expect(callee.getBigUint64(0, true)).toBe(1n); // gotProposal
     expect(callee.getBigUint64(8, true)).toBe(42n); // firstByte
     expect(callee.getBigUint64(16, true)).toBe(1n); // gotVotes
     expect(callee.getBigUint64(24, true)).toBe(5n); // votedIndex
     const caller = new DataView(nat.caller.buffer, nat.caller.byteOffset);
-    expect(caller.getBigUint64(0, true)).toBe(7n);  // propIdx
-    expect(caller.getBigUint64(8, true)).toBe(1n);  // voteOk
+    expect(caller.getBigUint64(0, true)).toBe(7n); // propIdx
+    expect(caller.getBigUint64(8, true)).toBe(1n); // voteOk
   }, 180000);
 });

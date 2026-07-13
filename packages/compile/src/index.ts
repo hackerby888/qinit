@@ -1,6 +1,10 @@
 // Stable public surface for @qinit/compile. Compiler implementation lives under ./compiler.
 
-import { compileContract as compileContractWithHeader, compileGtest as compileGtestWithHeader, parseToAst as parseToAstWithHeader } from "./compiler/pipeline";
+import {
+  compileContract as compileContractWithHeader,
+  compileGtest as compileGtestWithHeader,
+  parseToAst as parseToAstWithHeader,
+} from "./compiler/pipeline";
 import { loadQpiHeader } from "./compiler/header";
 import type { CompileOpts, CompileResult, GtestCompileResult } from "./compiler/types";
 
@@ -21,18 +25,18 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   return compileContractWithHeader({ ...opts, qpiHeader: opts.qpiHeader ?? loadQpiHeader() });
 }
 
-export async function compileGtest(opts: CompileOpts & { testSource: string }): Promise<GtestCompileResult> {
+export async function compileGtest(
+  opts: CompileOpts & { testSource: string },
+): Promise<GtestCompileResult> {
   return compileGtestWithHeader({ ...opts, qpiHeader: opts.qpiHeader ?? loadQpiHeader() });
 }
 
-export function parseToAst(opts: Parameters<typeof parseToAstWithHeader>[0]): ReturnType<typeof parseToAstWithHeader> {
+export function parseToAst(
+  opts: Parameters<typeof parseToAstWithHeader>[0],
+): ReturnType<typeof parseToAstWithHeader> {
   return parseToAstWithHeader({ ...opts, qpiHeader: opts.qpiHeader ?? loadQpiHeader() });
 }
-export {
-  inspectLiteWasmModule,
-  LHOST_ABI,
-  LITE_WASM_FUNCTION_ABI,
-} from "./compiler/wasm-inspect";
+export { inspectLiteWasmModule, LHOST_ABI, LITE_WASM_FUNCTION_ABI } from "./compiler/wasm-inspect";
 export type {
   InspectedMemoryMode,
   InspectedWasmExport,

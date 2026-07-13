@@ -58,14 +58,18 @@ test("burn: zero destination subtracts from the source; contract shares (zero-id
   const iss = contractId(1);
   a.issueAsset(1, NAME, iss, 0, 1000n, 0n, iss);
 
-  expect(a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, 300n, new Uint8Array(32))).toBe(700n);
+  expect(
+    a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, 300n, new Uint8Array(32)),
+  ).toBe(700n);
   expect(a.numberOfShares(assetBytes(iss, NAME), anySelect(), anySelect())).toBe(700n);
 
   // contract shares: issuer is the zero id — burning them fails at the asset layer (INVALID_AMOUNT)
   const CS = packAssetName("CTR");
   a.mintContractShares(1, CS, 676n);
   const zero = new Uint8Array(32);
-  expect(a.transferShareOwnershipAndPossession(1, CS, zero, zero, zero, 10n, new Uint8Array(32))).toBe(INVALID_AMOUNT);
+  expect(
+    a.transferShareOwnershipAndPossession(1, CS, zero, zero, zero, 10n, new Uint8Array(32)),
+  ).toBe(INVALID_AMOUNT);
   expect(a.numberOfShares(assetBytes(zero, CS), anySelect(), anySelect())).toBe(676n);
 });
 
@@ -75,12 +79,20 @@ test("qpi transfer return codes: range, missing records, foreign management, ins
   const bob = userId(0xbb);
   a.issueAsset(1, NAME, iss, 0, 1000n, 0n, iss);
 
-  expect(a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, 0n, bob)).toBe(-(MAX_AMOUNT + 1n));
-  expect(a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, MAX_AMOUNT + 1n, bob)).toBe(-(MAX_AMOUNT + 1n));
-  expect(a.transferShareOwnershipAndPossession(1, packAssetName("NOPE"), iss, iss, iss, 5n, bob)).toBe(-5n); // no issuance
+  expect(a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, 0n, bob)).toBe(
+    -(MAX_AMOUNT + 1n),
+  );
+  expect(a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, MAX_AMOUNT + 1n, bob)).toBe(
+    -(MAX_AMOUNT + 1n),
+  );
+  expect(
+    a.transferShareOwnershipAndPossession(1, packAssetName("NOPE"), iss, iss, iss, 5n, bob),
+  ).toBe(-5n); // no issuance
   expect(a.transferShareOwnershipAndPossession(1, NAME, iss, bob, bob, 5n, iss)).toBe(-5n); // owner has no record
   expect(a.transferShareOwnershipAndPossession(2, NAME, iss, iss, iss, 5n, bob)).toBe(-5n); // managed by 1, caller 2
-  expect(a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, 1500n, bob)).toBe(1000n - 1500n); // insufficient
+  expect(a.transferShareOwnershipAndPossession(1, NAME, iss, iss, iss, 1500n, bob)).toBe(
+    1000n - 1500n,
+  ); // insufficient
 });
 
 test("management-rights move preserves identities and splits records by managing contract", () => {

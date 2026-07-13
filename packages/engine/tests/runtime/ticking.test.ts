@@ -96,7 +96,7 @@ test("lite ticking: an EMPTY tick skips the quorum record but still advances the
   h.txs = []; // empty tick
   tc.finalizeTick();
 
-  expect(tc.tickRecord(5)).toBeUndefined();  // no quorum record built (the costly FourQ votes are skipped)
+  expect(tc.tickRecord(5)).toBeUndefined(); // no quorum record built (the costly FourQ votes are skipped)
   expect(tc.alignedVotes(5)).toBe(0);
   expect(tc.tickData(5)).toBeUndefined();
   expect(toHex(tc.prevSpectrumDigest())).toBe("11".repeat(32)); // digest chain still advanced

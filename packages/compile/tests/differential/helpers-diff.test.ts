@@ -56,7 +56,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-const HELPERS_GTEST = coreGtest("Helpers", `TEST(Helpers, ValueHelperReturn) {
+const HELPERS_GTEST = coreGtest(
+  "Helpers",
+  `TEST(Helpers, ValueHelperReturn) {
   ContractTestingHarness t;
   Helpers::Apply_input a{}; a.x = 5ull;
   EXPECT_EQ(t.call<Helpers::Apply_output>(1, a).y, 15ull);
@@ -81,7 +83,8 @@ TEST(Helpers, PrivateCallMutatesStateViaCallerLvalues) {
   Helpers::Total_input ti{};
   EXPECT_EQ(t.call<Helpers::Total_output>(2, ti).total, 17ull);
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -112,13 +115,24 @@ describe("differential gtest — Helpers (value helpers + PRIVATE_ via CALL)", (
     const testPath = join(dir, "Helpers.test.cpp");
     writeFileSync(testPath, HELPERS_GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Helpers", stateType: "Helpers", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "Helpers",
+      stateType: "Helpers",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: HELPERS, name: "Helpers", slot: 28, qpiHeader: HEADERS, arenaSz: 64 * 1024 });
+    const mine = await compileContract({
+      source: HELPERS,
+      name: "Helpers",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 64 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });

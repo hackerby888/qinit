@@ -11,30 +11,81 @@ export interface TickInfo {
   [k: string]: unknown;
 }
 
-export interface DynEntry { inputType: number; inputSize: number; outputSize: number; }
-export interface DynContract {
-  index: number; armed: boolean; constructed: boolean; version: number; name: string; codeHash: string;
-  functions: DynEntry[]; procedures: DynEntry[]; source?: string; lastError?: string;
+export interface DynEntry {
+  inputType: number;
+  inputSize: number;
+  outputSize: number;
 }
-export interface DynRegistry { contracts: DynContract[]; slotBase: number; slotCount: number; }
+export interface DynContract {
+  index: number;
+  armed: boolean;
+  constructed: boolean;
+  version: number;
+  name: string;
+  codeHash: string;
+  functions: DynEntry[];
+  procedures: DynEntry[];
+  source?: string;
+  lastError?: string;
+}
+export interface DynRegistry {
+  contracts: DynContract[];
+  slotBase: number;
+  slotCount: number;
+}
 
 export interface DynUpload {
-  active: boolean; sessionId: string; totalSize: number; chunkSize: number;
-  chunkCount: number; receivedCount: number; complete: boolean; finalHash: string;
-  missing: number[]; missingCount: number;
+  active: boolean;
+  sessionId: string;
+  totalSize: number;
+  chunkSize: number;
+  chunkCount: number;
+  receivedCount: number;
+  complete: boolean;
+  finalHash: string;
+  missing: number[];
+  missingCount: number;
 }
 
-export interface DebugHostCall { name: string; detail: string; }
-export interface DebugStateRegion { off: number; before: string; after: string; }  // changed byte run (hex)
-export interface DebugLog { type: number; size: number; hex: string; }              // a LOG_* call (numeric struct bytes)
-export interface DebugEntry {
-  seq: number; tick: number; index: number; entry: number; kind: number; ok: boolean;
-  execNs: number; inSize: number; outSize: number; stateSize: number; stateTruncated: boolean;
-  invocator: string; invocationReward: number;
-  inHex: string; outHex: string; stateDiff: DebugStateRegion[];
-  trap?: string; hostCalls: DebugHostCall[]; logs: DebugLog[];
+export interface DebugHostCall {
+  name: string;
+  detail: string;
 }
-export interface DebugTrace { enabled: boolean; entries: DebugEntry[]; }
+export interface DebugStateRegion {
+  off: number;
+  before: string;
+  after: string;
+} // changed byte run (hex)
+export interface DebugLog {
+  type: number;
+  size: number;
+  hex: string;
+} // a LOG_* call (numeric struct bytes)
+export interface DebugEntry {
+  seq: number;
+  tick: number;
+  index: number;
+  entry: number;
+  kind: number;
+  ok: boolean;
+  execNs: number;
+  inSize: number;
+  outSize: number;
+  stateSize: number;
+  stateTruncated: boolean;
+  invocator: string;
+  invocationReward: number;
+  inHex: string;
+  outHex: string;
+  stateDiff: DebugStateRegion[];
+  trap?: string;
+  hostCalls: DebugHostCall[];
+  logs: DebugLog[];
+}
+export interface DebugTrace {
+  enabled: boolean;
+  entries: DebugEntry[];
+}
 
 export class LiteRpc implements NodeTransport {
   constructor(private base = "http://127.0.0.1:41841") {}
@@ -44,14 +95,23 @@ export class LiteRpc implements NodeTransport {
   private async get<T = unknown>(path: string, tries = 3): Promise<T> {
     for (let a = 0; ; a++) {
       let r: Response;
-      try { r = await fetchT(this.base + path, undefined, 10000); }
-      catch (e: any) {
-        if (a < tries - 1) { await sleep(200 * (a + 1)); continue; }
-        throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`);
+      try {
+        r = await fetchT(this.base + path, undefined, 10000);
+      } catch (e: any) {
+        if (a < tries - 1) {
+          await sleep(200 * (a + 1));
+          continue;
+        }
+        throw new Error(
+          `node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`,
+        );
       }
       if (!r.ok) throw new Error(`RPC GET ${path} → HTTP ${r.status}`);
-      try { return (await r.json()) as T; }
-      catch { throw new Error(`RPC GET ${path}: malformed JSON response from the node`); }
+      try {
+        return (await r.json()) as T;
+      } catch {
+        throw new Error(`RPC GET ${path}: malformed JSON response from the node`);
+      }
     }
   }
 
@@ -81,7 +141,14 @@ export class LiteRpc implements NodeTransport {
   /** Exact tx confirmation (GET /live/v1/tx-status/{tick}/{txId}) — needs the tx-status addon.
    * found => included; processed => node ticked past {tick} (verdict final). */
   txStatus(tick: number, txId: string) {
-    return this.get<{ tick: number; currentTick: number; txId: string; found: boolean; moneyFlew: boolean; processed: boolean }>(`/live/v1/tx-status/${tick}/${txId}`);
+    return this.get<{
+      tick: number;
+      currentTick: number;
+      txId: string;
+      found: boolean;
+      moneyFlew: boolean;
+      processed: boolean;
+    }>(`/live/v1/tx-status/${tick}/${txId}`);
   }
 
   /** Recent wasm contract-call traces (GET /live/v1/debug-trace?since&limit) — the `qinit debug` data source. */
@@ -94,17 +161,24 @@ export class LiteRpc implements NodeTransport {
   }
   /** Read current contract state bytes (GET /live/v1/dev/state-read) — for the debugger's container decode. */
   stateRead(slot: number, off: number, len: number) {
-    return this.get<{ off: number; len: number; stateSize: number; hex: string }>(`/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`);
+    return this.get<{ off: number; len: number; stateSize: number; hex: string }>(
+      `/live/v1/dev/state-read?slot=${slot}&off=${off}&len=${len}`,
+    );
   }
   /** K12 digest of the full effective resident state, as computed by the node. */
   contractDigest(slot: number) {
-    return this.get<{ slot: number; stateSize: number; digest: string }>(`/live/v1/dev/contract-digest?slot=${slot}`);
+    return this.get<{ slot: number; stateSize: number; digest: string }>(
+      `/live/v1/dev/contract-digest?slot=${slot}`,
+    );
   }
 
   /** Testnet-only funded seed for signing txs when none is given (GET /live/v1/dev/funded-seed). */
   async fundedSeed(): Promise<string | undefined> {
-    try { return (await this.get<{ seed?: string }>("/live/v1/dev/funded-seed")).seed; }
-    catch { return undefined; }
+    try {
+      return (await this.get<{ seed?: string }>("/live/v1/dev/funded-seed")).seed;
+    } catch {
+      return undefined;
+    }
   }
   /** Testnet-only funded-seed list (GET /live/v1/dev/funded-seeds?limit) — for `qinit seed` to pick from. */
   fundedSeeds(limit = 32) {
@@ -113,19 +187,46 @@ export class LiteRpc implements NodeTransport {
 
   /** Testnet-only current-epoch tick window (GET /live/v1/dev/epoch-info). */
   epochInfo() {
-    return this.get<{ epoch: number; tick: number; initialTick: number; epochLastTick: number; ticksLeft: number; duration: number }>("/live/v1/dev/epoch-info");
+    return this.get<{
+      epoch: number;
+      tick: number;
+      initialTick: number;
+      epochLastTick: number;
+      ticksLeft: number;
+      duration: number;
+    }>("/live/v1/dev/epoch-info");
   }
   /** Testnet-only: advance the chain by n ticks (GET /live/v1/dev/advance-tick?n). Capped at the epoch's last tick. */
   advanceTick(n: number) {
-    return this.get<{ from: number; requested: number; target: number; reached: number; epochLastTick: number; cappedAtEpochEnd: boolean }>(`/live/v1/dev/advance-tick?n=${n}`);
+    return this.get<{
+      from: number;
+      requested: number;
+      target: number;
+      reached: number;
+      epochLastTick: number;
+      cappedAtEpochEnd: boolean;
+    }>(`/live/v1/dev/advance-tick?n=${n}`);
   }
   /** Testnet-only: advance to epochLastTick - gap (GET /live/v1/dev/advance-to-last?gap), default gap 3. */
   advanceToLast(gap = 3) {
-    return this.get<{ from: number; target: number; reached: number; epochLastTick: number; epoch: number }>(`/live/v1/dev/advance-to-last?gap=${gap}`);
+    return this.get<{
+      from: number;
+      target: number;
+      reached: number;
+      epochLastTick: number;
+      epoch: number;
+    }>(`/live/v1/dev/advance-to-last?gap=${gap}`);
   }
   /** Testnet-only: advance to the next epoch via the node's seamless transition (GET /live/v1/dev/advance-epoch). */
   advanceEpoch() {
-    return this.get<{ fromEpoch: number; toEpoch: number; fromTick: number; tick: number; initialTick: number; switched: boolean }>("/live/v1/dev/advance-epoch");
+    return this.get<{
+      fromEpoch: number;
+      toEpoch: number;
+      fromTick: number;
+      tick: number;
+      initialTick: number;
+      switched: boolean;
+    }>("/live/v1/dev/advance-epoch");
   }
   /** Set the tick interval on a running virtual node, no respawn (GET /live/v1/dev/tick-ms?ms=N). */
   setTickMs(ms: number) {
@@ -138,20 +239,35 @@ export class LiteRpc implements NodeTransport {
   }
 
   /** Call a contract function (read-only) via POST /live/v1/querySmartContract. */
-  async querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array> {
+  async querySmartContract(
+    contractIndex: number,
+    inputType: number,
+    input: Uint8Array,
+  ): Promise<Uint8Array> {
     let r: Response;
     try {
-      r = await fetchT(this.base + "/live/v1/querySmartContract", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          contractIndex, inputType, inputSize: input.length,
-          requestData: Buffer.from(input).toString("base64"),
-        }),
-      }, 15000);
-    } catch (e: any) { throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`); }
+      r = await fetchT(
+        this.base + "/live/v1/querySmartContract",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            contractIndex,
+            inputType,
+            inputSize: input.length,
+            requestData: Buffer.from(input).toString("base64"),
+          }),
+        },
+        15000,
+      );
+    } catch (e: any) {
+      throw new Error(
+        `node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`,
+      );
+    }
     const j: any = await r.json().catch(() => ({}));
-    if (typeof j.responseData !== "string") throw new Error(`querySmartContract: code=${j.code} ${j.message ?? r.status}`);
+    if (typeof j.responseData !== "string")
+      throw new Error(`querySmartContract: code=${j.code} ${j.message ?? r.status}`);
     return new Uint8Array(Buffer.from(j.responseData, "base64"));
   }
 
@@ -159,23 +275,44 @@ export class LiteRpc implements NodeTransport {
    *  body = raw source) so inter-contract callers can resolve callees from the registry without --callee. */
   async putContractSource(slot: number, source: string): Promise<boolean> {
     try {
-      const r = await fetchT(this.base + `/live/v1/dev/contract-source?slot=${slot}`, {
-        method: "POST", headers: { "content-type": "text/plain" }, body: source,
-      }, 15000);
+      const r = await fetchT(
+        this.base + `/live/v1/dev/contract-source?slot=${slot}`,
+        {
+          method: "POST",
+          headers: { "content-type": "text/plain" },
+          body: source,
+        },
+        15000,
+      );
       return r.ok;
-    } catch { return false; }
+    } catch {
+      return false;
+    }
   }
 
   /** Single-authority direct deploy (POST /live/v1/dev/deploy) — no chunk-upload. Returns null when the route is
    *  absent (a real node 404s), so callers can fall back to the chunked path. */
-  async directDeploy(slot: number, wasm: Uint8Array, name: string): Promise<{ ok: boolean; slot: number; digest: string } | null> {
+  async directDeploy(
+    slot: number,
+    wasm: Uint8Array,
+    name: string,
+  ): Promise<{ ok: boolean; slot: number; digest: string } | null> {
     let r: Response;
     try {
-      r = await fetchT(this.base + "/live/v1/dev/deploy", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ slot, name, wasm: Buffer.from(wasm).toString("base64") }),
-      }, 30000);
-    } catch (e: any) { throw new Error(`node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`); }
+      r = await fetchT(
+        this.base + "/live/v1/dev/deploy",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ slot, name, wasm: Buffer.from(wasm).toString("base64") }),
+        },
+        30000,
+      );
+    } catch (e: any) {
+      throw new Error(
+        `node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`,
+      );
+    }
     if (r.status === 404) return null;
     const j: any = await r.json().catch(() => ({}));
     if (!j.ok) throw new Error(`direct-deploy failed: ${j.message ?? r.status}`);
@@ -184,7 +321,11 @@ export class LiteRpc implements NodeTransport {
 
   /** Remove a deployed contract (POST /live/v1/dev/undeploy?slot=N) — virtualnode-only (real node 404s). */
   async undeploy(slot: number): Promise<boolean> {
-    const r = await fetchT(this.base + `/live/v1/dev/undeploy?slot=${slot}`, { method: "POST" }, 15000);
+    const r = await fetchT(
+      this.base + `/live/v1/dev/undeploy?slot=${slot}`,
+      { method: "POST" },
+      15000,
+    );
     if (r.status === 404) throw new Error("undeploy is virtualnode-only");
     const j: any = await r.json().catch(() => ({}));
     return !!j.ok;
@@ -209,9 +350,15 @@ export class LiteRpc implements NodeTransport {
   /** Transactions in a tick (POST /query/v1/getTransactionsForTick) — lite tickdata. */
   async tickTransactions(tick: number): Promise<TxInfo[]> {
     try {
-      const r = await fetchT(this.base + "/query/v1/getTransactionsForTick", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ tickNumber: tick }),
-      }, 10000);
+      const r = await fetchT(
+        this.base + "/query/v1/getTransactionsForTick",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tickNumber: tick }),
+        },
+        10000,
+      );
       const j = (await r.json().catch(() => ({}))) as { transactions?: Record<string, unknown>[] };
       const txs = Array.isArray(j.transactions) ? j.transactions : [];
       return txs.map((t) => ({

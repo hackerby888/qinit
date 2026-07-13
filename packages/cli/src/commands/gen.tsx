@@ -12,13 +12,17 @@ function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
   const o: Record<string, string> = {};
   const pos: string[] = [];
   for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith("--")) o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
+    if (args[i].startsWith("--"))
+      o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
     else pos.push(args[i]);
   }
   return { o, pos };
 }
 
-type State = { ok: true; file: string; name: string; slot: number; fns: number; procs: number } | { ok: false; err: string } | null;
+type State =
+  | { ok: true; file: string; name: string; slot: number; fns: number; procs: number }
+  | { ok: false; err: string }
+  | null;
 
 export function Gen({ args }: { args: string[] }) {
   const { exit } = useApp();
@@ -32,7 +36,11 @@ export function Gen({ args }: { args: string[] }) {
       const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
       const slot = Number(o.slot ?? cfg.slot ?? 28);
       let prelude: string | undefined;
-      try { prelude = qpiPrelude(resolveCore(o.core, cfg.core)); } catch { prelude = undefined; } // resolve qpi library types; degrade if core unavailable
+      try {
+        prelude = qpiPrelude(resolveCore(o.core, cfg.core));
+      } catch {
+        prelude = undefined;
+      } // resolve qpi library types; degrade if core unavailable
       const idl = extractIdl(readFileSync(contractPath, "utf8"), name, { prelude });
       // Emit a SELF-CONTAINED client: the client pulls LiteRpc/codec from a sibling runtime.ts (only needs the
       // public @qubic-lib), not from the unpublished @qinit/* monorepo packages — so the output works outside it.
@@ -42,21 +50,50 @@ export function Gen({ args }: { args: string[] }) {
       writeFileSync(join(outDir, "runtime.ts"), testRuntimeSource);
       const file = join(outDir, `${name}.ts`);
       writeFileSync(file, ts);
-      setS({ ok: true, file, name, slot, fns: Object.keys(idl.functions).length, procs: Object.keys(idl.procedures).length });
-    } catch (e: any) { setS({ ok: false, err: String(e?.message ?? e) }); }
+      setS({
+        ok: true,
+        file,
+        name,
+        slot,
+        fns: Object.keys(idl.functions).length,
+        procs: Object.keys(idl.procedures).length,
+      });
+    } catch (e: any) {
+      setS({ ok: false, err: String(e?.message ?? e) });
+    }
   }, []);
-  useEffect(() => { if (s) { process.exitCode = s.ok ? 0 : 1; exit(); } }, [s, exit]);
+  useEffect(() => {
+    if (s) {
+      process.exitCode = s.ok ? 0 : 1;
+      exit();
+    }
+  }, [s, exit]);
 
   return (
     <Box flexDirection="column">
       <Header cmd="gen" />
       {s?.ok && (
         <Panel title="client generated ✓" color={theme.ok}>
-          <KV rows={[["contract", s.name], ["slot", String(s.slot)], ["fns/procs", `${s.fns} / ${s.procs}`], ["file", s.file]]} />
-          <Box marginTop={1}><Text dimColor>import {`{ ${s.name} }`} from "{s.file.replace(/\.ts$/, "")}"</Text></Box>
+          <KV
+            rows={[
+              ["contract", s.name],
+              ["slot", String(s.slot)],
+              ["fns/procs", `${s.fns} / ${s.procs}`],
+              ["file", s.file],
+            ]}
+          />
+          <Box marginTop={1}>
+            <Text dimColor>
+              import {`{ ${s.name} }`} from "{s.file.replace(/\.ts$/, "")}"
+            </Text>
+          </Box>
         </Panel>
       )}
-      {s && !s.ok && <Panel title="gen failed" color={theme.err}><Text dimColor>{s.err}</Text></Panel>}
+      {s && !s.ok && (
+        <Panel title="gen failed" color={theme.err}>
+          <Text dimColor>{s.err}</Text>
+        </Panel>
+      )}
     </Box>
   );
 }

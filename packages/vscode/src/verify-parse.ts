@@ -1,7 +1,12 @@
 // Pure parsing/decision logic for Tier-B (contractverify) — kept vscode-free so it's unit-testable
 // under `bun test`. The vscode-facing spawner lives in verify-runner.ts.
 
-export interface VerifyJson { ok?: boolean; available?: boolean; oracle?: boolean; errors?: string[] }
+export interface VerifyJson {
+  ok?: boolean;
+  available?: boolean;
+  oracle?: boolean;
+  errors?: string[];
+}
 
 // `qinit verify --json` writes one JSON line to stdout; read the last non-empty line. null if unparseable.
 export function parseVerifyJson(stdout: string): VerifyJson | null {

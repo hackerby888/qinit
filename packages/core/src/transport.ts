@@ -4,9 +4,19 @@ import type { TickInfo, DynRegistry, DynUpload, DebugTrace } from "./rpc";
 import type { BroadcastResult } from "./net";
 
 export interface TxStatus {
-  tick: number; currentTick: number; txId: string; found: boolean; moneyFlew: boolean; processed: boolean;
+  tick: number;
+  currentTick: number;
+  txId: string;
+  found: boolean;
+  moneyFlew: boolean;
+  processed: boolean;
 }
-export interface StateRead { off: number; len: number; stateSize: number; hex: string; }
+export interface StateRead {
+  off: number;
+  len: number;
+  stateSize: number;
+  hex: string;
+}
 
 // Spectrum entity (balances). Amounts are strings (i64 may exceed JS number / cross JSON).
 export interface EntityInfo {
@@ -36,7 +46,11 @@ export interface NodeTransport {
   dynRegistry(): Promise<DynRegistry>;
   dynUpload(): Promise<DynUpload>;
   txStatus(tick: number, txId: string): Promise<TxStatus>;
-  querySmartContract(contractIndex: number, inputType: number, input: Uint8Array): Promise<Uint8Array>;
+  querySmartContract(
+    contractIndex: number,
+    inputType: number,
+    input: Uint8Array,
+  ): Promise<Uint8Array>;
   broadcastTx(txBytes: Uint8Array): Promise<BroadcastResult>;
   debugTrace(since?: number, limit?: number): Promise<DebugTrace>;
   setDebug(on: boolean): Promise<{ enabled: boolean }>;

@@ -17,20 +17,20 @@ export interface QpiContextLayout {
 }
 
 export interface UserEntry {
-  inputType: number;       // user-assigned [1..65535]
-  kind: number;            // 0 = function, 1 = procedure
+  inputType: number; // user-assigned [1..65535]
+  kind: number; // 0 = function, 1 = procedure
   inSize: number;
   outSize: number;
   localsSize: number;
-  label: string;           // WAT function name, e.g. "$user_0"
+  label: string; // WAT function name, e.g. "$user_0"
 }
 
 export interface SysProcInfo {
-  id: number;              // LITE_SP_* id (0..11)
+  id: number; // LITE_SP_* id (0..11)
   localsSize: number;
   inSize: number;
   outSize: number;
-  label: string;           // WAT function name, e.g. "$sys_0"
+  label: string; // WAT function name, e.g. "$sys_0"
 }
 
 export interface ModuleSpec {
@@ -39,13 +39,13 @@ export interface ModuleSpec {
   contextLayout: QpiContextLayout;
   entries: UserEntry[];
   sysprocs: SysProcInfo[];
-  userFunctionsWat: string;   // the $user_N / $sys_N function definitions
-  migrate?: { label: string; oldStateSize: number; localsSize: number };  // MIGRATE() metadata + dispatch target
-  memBase?: number;           // shared-memory gtest mode: import env.memory and place the whole layout at
-                              // this byte offset inside the provider's (corpus runner's) memory. Every
-  gtest?: boolean;            // TS-compiled test runner: include the private qtest host ABI
+  userFunctionsWat: string; // the $user_N / $sys_N function definitions
+  migrate?: { label: string; oldStateSize: number; localsSize: number }; // MIGRATE() metadata + dispatch target
+  memBase?: number; // shared-memory gtest mode: import env.memory and place the whole layout at
+  // this byte offset inside the provider's (corpus runner's) memory. Every
+  gtest?: boolean; // TS-compiled test runner: include the private qtest host ABI
   capabilities?: readonly PlatformCapability[];
-  lhostAbi?: LhostAbiSpec;      // parsed live-core imports; browser/direct callers use the generated default
+  lhostAbi?: LhostAbiSpec; // parsed live-core imports; browser/direct callers use the generated default
   assetEnumerationRecord?: { readonly size: number; readonly capacity: number };
 }
 
@@ -94,7 +94,20 @@ function computeLayout(
   const iterBufBase = align(arenaEnd, 16);
   const iterBufSize = assetRecord.size * assetRecord.capacity;
   const pages = Math.ceil((iterBufBase + iterBufSize) / 65536) + 1;
-  return { stateBase, stateSize, ctxBase, ioBase, inBase, outBase, localsBase, arenaBase, arenaEnd, ioSize, pages, iterBufBase };
+  return {
+    stateBase,
+    stateSize,
+    ctxBase,
+    ioBase,
+    inBase,
+    outBase,
+    localsBase,
+    arenaBase,
+    arenaEnd,
+    ioSize,
+    pages,
+    iterBufBase,
+  };
 }
 
 // ---- The complete module assembler ----
@@ -106,7 +119,13 @@ export function emitModule(spec: ModuleSpec): string {
   const usesPrng = spec.capabilities?.includes("chain-prng") ?? false;
   // WAMR's app-to-native adapter treats linear-memory offset 0 as nullptr.
   // Random-capable modules pass resident state to lhost.k12 when seeding for deterministic behavior.
-  const L = computeLayout(spec.stateSize, spec.arenaSize, spec.contextLayout.size, spec.memBase ?? (usesPrng ? 8 : 0), spec.assetEnumerationRecord);
+  const L = computeLayout(
+    spec.stateSize,
+    spec.arenaSize,
+    spec.contextLayout.size,
+    spec.memBase ?? (usesPrng ? 8 : 0),
+    spec.assetEnumerationRecord,
+  );
   const sysprocMask = spec.sysprocs.reduce((m, sp) => m | (1 << sp.id), 0);
 
   return [
@@ -145,7 +164,9 @@ export function emitFramework(opts: FrameworkOpts): string {
 function emitImports(gtest = false, lhostAbi?: LhostAbiSpec): string {
   return `  ;; ---- lhost imports ----
 ${emitLhostImports(lhostAbi)}
-${gtest ? `  ;; ---- private TS gtest host imports ----
+${
+  gtest
+    ? `  ;; ---- private TS gtest host imports ----
   (import "qtest" "invoke" (func $qt_invoke (param i32 i32 i32 i32 i32 i64 i32) (result i32)))
   (import "qtest" "query" (func $qt_query (param i32 i32 i32 i32 i32 i32) (result i32)))
   (import "qtest" "fund" (func $qt_fund (param i32 i64)))
@@ -155,7 +176,9 @@ ${gtest ? `  ;; ---- private TS gtest host imports ----
   (import "qtest" "setEpoch" (func $qt_set_epoch (param i32)))
   (import "qtest" "setTick" (func $qt_set_tick (param i32)))
   (import "qtest" "constructionEpoch" (func $qt_construction_epoch (param i32) (result i32)))
-  (import "qtest" "fail" (func $qt_fail (param i32 i32)))` : ""}`;
+  (import "qtest" "fail" (func $qt_fail (param i32 i32)))`
+    : ""
+}`;
 }
 
 function emitGlobals(L: Layout): string {
@@ -293,13 +316,19 @@ function emitForwarders(contextLayout: QpiContextLayout): string {
 function emitIntrinsics(L: Layout, spec: ModuleSpec): string {
   const inputSizeCases: string[] = [];
   for (const entry of spec.entries) {
-    inputSizeCases.push(`    (if (i32.and (i32.eq (local.get $kind) (i32.const ${entry.kind})) (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${entry.inputType}))) (then (return (i32.const ${entry.inSize}))))`);
+    inputSizeCases.push(
+      `    (if (i32.and (i32.eq (local.get $kind) (i32.const ${entry.kind})) (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${entry.inputType}))) (then (return (i32.const ${entry.inSize}))))`,
+    );
   }
   for (const sysproc of spec.sysprocs) {
-    inputSizeCases.push(`    (if (i32.and (i32.eq (local.get $kind) (i32.const 2)) (i32.eq (local.get $it) (i32.const ${sysproc.id}))) (then (return (i32.const ${sysproc.inSize}))))`);
+    inputSizeCases.push(
+      `    (if (i32.and (i32.eq (local.get $kind) (i32.const 2)) (i32.eq (local.get $it) (i32.const ${sysproc.id}))) (then (return (i32.const ${sysproc.inSize}))))`,
+    );
   }
   if (spec.migrate) {
-    inputSizeCases.push(`    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return (i32.const ${spec.migrate.oldStateSize}))))`);
+    inputSizeCases.push(
+      `    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return (i32.const ${spec.migrate.oldStateSize}))))`,
+    );
   }
   // Container + helper intrinsics the codegen targets. HashMap helpers reproduce the real qpi.h
   return `  ;; ---- intrinsics ----
@@ -407,7 +436,9 @@ function emitMetadata(L: Layout, spec: ModuleSpec, sysprocMask: number): string 
     lines.push(`      (i32.store (local.get $o) (i32.const ${e.inputType}))`);
     lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 4)) (i32.const ${e.kind}))`);
     lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 8)) (i32.const ${e.inSize}))`);
-    lines.push(`      (i32.store (i32.add (local.get $o) (i32.const 12)) (i32.const ${e.outSize}))`);
+    lines.push(
+      `      (i32.store (i32.add (local.get $o) (i32.const 12)) (i32.const ${e.outSize}))`,
+    );
     lines.push(`      (return)))`);
   }
   lines.push(`    (i32.store (local.get $o) (i32.const 0))`);
@@ -430,8 +461,12 @@ function emitMetadata(L: Layout, spec: ModuleSpec, sysprocMask: number): string 
   lines.push(`    (i32.const 0))`);
 
   lines.push(`  (func $has_migrate (result i32) (i32.const ${spec.migrate ? 1 : 0}))`);
-  lines.push(`  (func $migrate_old_state_size (result i32) (i32.const ${spec.migrate?.oldStateSize ?? 0}))`);
-  lines.push(`  (func $migrate_locals_size (result i32) (i32.const ${spec.migrate?.localsSize ?? 0}))`);
+  lines.push(
+    `  (func $migrate_old_state_size (result i32) (i32.const ${spec.migrate?.oldStateSize ?? 0}))`,
+  );
+  lines.push(
+    `  (func $migrate_locals_size (result i32) (i32.const ${spec.migrate?.localsSize ?? 0}))`,
+  );
 
   return lines.join("\n");
 }
@@ -439,7 +474,9 @@ function emitMetadata(L: Layout, spec: ModuleSpec, sysprocMask: number): string 
 function emitSysSwitch(sysprocs: SysProcInfo[], val: (sp: SysProcInfo) => number): string {
   const lines: string[] = [];
   for (const sp of sysprocs) {
-    lines.push(`    (if (i32.eq (local.get $sp) (i32.const ${sp.id})) (then (return (i32.const ${val(sp)}))))`);
+    lines.push(
+      `    (if (i32.eq (local.get $sp) (i32.const ${sp.id})) (then (return (i32.const ${val(sp)}))))`,
+    );
   }
   return lines.join("\n");
 }
@@ -447,21 +484,33 @@ function emitSysSwitch(sysprocs: SysProcInfo[], val: (sp: SysProcInfo) => number
 function emitDispatch(spec: ModuleSpec, usesPrng: boolean): string {
   const lines: string[] = [];
   lines.push("  ;; ---- dispatch ----");
-  lines.push("  (func $dispatch (param $kind i32) (param $it i32) (param $inOff i32) (param $outOff i32) (param $localsOff i32)");
+  lines.push(
+    "  (func $dispatch (param $kind i32) (param $it i32) (param $inOff i32) (param $outOff i32) (param $localsOff i32)",
+  );
   if (usesPrng) {
     // The wrapper is the PRNG frame boundary. Wasm locals survive a synchronous
     // reentrant host call, so they hold the caller stream while the nested dispatch
-    lines.push("    (local $saved0 i64) (local $saved1 i64) (local $saved2 i64) (local $saved3 i64) (local $savedCounter i64) (local $nested i32)");
+    lines.push(
+      "    (local $saved0 i64) (local $saved1 i64) (local $saved2 i64) (local $saved3 i64) (local $savedCounter i64) (local $nested i32)",
+    );
     lines.push("    (local.set $saved0 (global.get $prngSeed0))");
     lines.push("    (local.set $saved1 (global.get $prngSeed1))");
     lines.push("    (local.set $saved2 (global.get $prngSeed2))");
     lines.push("    (local.set $saved3 (global.get $prngSeed3))");
     lines.push("    (local.set $savedCounter (global.get $prngCounter))");
     lines.push("    (local.set $nested (global.get $dispatchDepth))");
-    lines.push("    (global.set $dispatchDepth (i32.add (global.get $dispatchDepth) (i32.const 1)))");
-    lines.push("    (call $prng_seed_dispatch (local.get $kind) (local.get $it) (local.get $inOff))");
-    lines.push("    (call $dispatch_body (local.get $kind) (local.get $it) (local.get $inOff) (local.get $outOff) (local.get $localsOff))");
-    lines.push("    (global.set $dispatchDepth (i32.sub (global.get $dispatchDepth) (i32.const 1)))");
+    lines.push(
+      "    (global.set $dispatchDepth (i32.add (global.get $dispatchDepth) (i32.const 1)))",
+    );
+    lines.push(
+      "    (call $prng_seed_dispatch (local.get $kind) (local.get $it) (local.get $inOff))",
+    );
+    lines.push(
+      "    (call $dispatch_body (local.get $kind) (local.get $it) (local.get $inOff) (local.get $outOff) (local.get $localsOff))",
+    );
+    lines.push(
+      "    (global.set $dispatchDepth (i32.sub (global.get $dispatchDepth) (i32.const 1)))",
+    );
     lines.push("    (if (local.get $nested) (then");
     lines.push("      (global.set $prngSeed0 (local.get $saved0))");
     lines.push("      (global.set $prngSeed1 (local.get $saved1))");
@@ -469,19 +518,25 @@ function emitDispatch(spec: ModuleSpec, usesPrng: boolean): string {
     lines.push("      (global.set $prngSeed3 (local.get $saved3))");
     lines.push("      (global.set $prngCounter (local.get $savedCounter))))");
   } else {
-    lines.push("    (call $dispatch_body (local.get $kind) (local.get $it) (local.get $inOff) (local.get $outOff) (local.get $localsOff))");
+    lines.push(
+      "    (call $dispatch_body (local.get $kind) (local.get $it) (local.get $inOff) (local.get $outOff) (local.get $localsOff))",
+    );
   }
   lines.push("  )");
 
   // No arena reset here: a reentrant dispatch must allocate above the live outer frames.
-  lines.push("  (func $dispatch_body (param $kind i32) (param $it i32) (param $inOff i32) (param $outOff i32) (param $localsOff i32)");
+  lines.push(
+    "  (func $dispatch_body (param $kind i32) (param $it i32) (param $inOff i32) (param $outOff i32) (param $localsOff i32)",
+  );
 
   // kind == 2: system procedure
   if (spec.sysprocs.length > 0) {
     lines.push("    (if (i32.eq (local.get $kind) (i32.const 2)) (then");
     for (const sp of spec.sysprocs) {
       lines.push(`      (if (i32.eq (local.get $it) (i32.const ${sp.id})) (then`);
-      lines.push(`        (call ${sp.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`);
+      lines.push(
+        `        (call ${sp.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`,
+      );
       lines.push(`        (return)))`);
     }
     lines.push("      (return)))");
@@ -492,7 +547,9 @@ function emitDispatch(spec: ModuleSpec, usesPrng: boolean): string {
   // kind == 3: MIGRATE — inOff carries the old-state blob, outOff is unused (lite_wasm_tu.h dispatch)
   if (spec.migrate) {
     lines.push("    (if (i32.eq (local.get $kind) (i32.const 3)) (then");
-    lines.push(`      (call ${spec.migrate.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`);
+    lines.push(
+      `      (call ${spec.migrate.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`,
+    );
     lines.push("      (return)))");
   } else {
     lines.push("    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return)))");
@@ -500,8 +557,12 @@ function emitDispatch(spec: ModuleSpec, usesPrng: boolean): string {
 
   // kind 0/1: user functions/procedures. The incoming it is masked to 16 bits like the native dispatch
   for (const e of spec.entries) {
-    lines.push(`    (if (i32.and (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${e.inputType})) (i32.eq (local.get $kind) (i32.const ${e.kind}))) (then`);
-    lines.push(`      (call ${e.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`);
+    lines.push(
+      `    (if (i32.and (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${e.inputType})) (i32.eq (local.get $kind) (i32.const ${e.kind}))) (then`,
+    );
+    lines.push(
+      `      (call ${e.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`,
+    );
     lines.push(`      (return)))`);
   }
 

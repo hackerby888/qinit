@@ -62,28 +62,36 @@ export function ModeCmd({ args }: { args: string[] }) {
     }
   }, [phase]);
 
-  useInput((input, key) => {
-    if (phase !== "pick") {
-      return;
-    }
-    if (input === "q" || key.escape) {
-      exit();
-    } else if (key.upArrow) {
-      move(-1);
-    } else if (key.downArrow) {
-      move(1);
-    } else if (key.return) {
-      const name = NODE_MODES[sel.current];
-      setSavedMode(name);
-      add(`✓ mode saved: ${name}`);
-      setPhase("done");
-    }
-  }, { isActive: Boolean(process.stdin.isTTY) });
+  useInput(
+    (input, key) => {
+      if (phase !== "pick") {
+        return;
+      }
+      if (input === "q" || key.escape) {
+        exit();
+      } else if (key.upArrow) {
+        move(-1);
+      } else if (key.downArrow) {
+        move(1);
+      } else if (key.return) {
+        const name = NODE_MODES[sel.current];
+        setSavedMode(name);
+        add(`✓ mode saved: ${name}`);
+        setPhase("done");
+      }
+    },
+    { isActive: Boolean(process.stdin.isTTY) },
+  );
 
   return (
     <Box flexDirection="column">
       <Header cmd="mode" />
-      {phase === "done" && msg.map((m, k) => <Text key={k} color={m.startsWith("✗") ? theme.err : theme.ok}>{m}</Text>)}
+      {phase === "done" &&
+        msg.map((m, k) => (
+          <Text key={k} color={m.startsWith("✗") ? theme.err : theme.ok}>
+            {m}
+          </Text>
+        ))}
       {phase === "pick" && (
         <Box flexDirection="column">
           <Text dimColor>↑/↓ select · ↵ save · q cancel</Text>
@@ -92,7 +100,14 @@ export function ModeCmd({ args }: { args: string[] }) {
               const sel = idx === i;
               return (
                 <Text key={name}>
-                  {sel ? <GradLine text={"▸ " + name.padEnd(12)} /> : <Text>{"  "}<Text color={theme.brand}>{name.padEnd(12)}</Text></Text>}
+                  {sel ? (
+                    <GradLine text={"▸ " + name.padEnd(12)} />
+                  ) : (
+                    <Text>
+                      {"  "}
+                      <Text color={theme.brand}>{name.padEnd(12)}</Text>
+                    </Text>
+                  )}
                   <Text dimColor> {DESC[name]}</Text>
                   {name === cur ? <Text color={theme.ok}> ✓ current</Text> : null}
                 </Text>

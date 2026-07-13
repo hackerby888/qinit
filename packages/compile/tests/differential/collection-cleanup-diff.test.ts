@@ -68,50 +68,68 @@ describe("differential — Collection needsCleanup/cleanup state parity", () => 
     await initK12();
   });
 
-  toolchainTest("state bytes after remove/mark/cleanup match native exactly", wasi, async () => {
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "coll-cleanup-"));
-    const contractPath = join(dir, "ClnP.h");
-    writeFileSync(contractPath, SRC);
+  toolchainTest(
+    "state bytes after remove/mark/cleanup match native exactly",
+    wasi,
+    async () => {
+      const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const dir = mkdtempSync(join(tmpdir(), "coll-cleanup-"));
+      const contractPath = join(dir, "ClnP.h");
+      writeFileSync(contractPath, SRC);
 
-    const built = await buildContract({
-      contractPath, name: "ClnP", slot: 29, corePath: CORE, outDir: dir, skipVerify: true,
-    });
-    expect(built.ok).toBe(true);
-    const nativeWasm = new Uint8Array(readFileSync(built.so!));
+      const built = await buildContract({
+        contractPath,
+        name: "ClnP",
+        slot: 29,
+        corePath: CORE,
+        outDir: dir,
+        skipVerify: true,
+      });
+      expect(built.ok).toBe(true);
+      const nativeWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: SRC, name: "ClnP", slot: 29, qpiHeader: HEADERS, arenaSz: 4 * 1024 * 1024 });
-    expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+      const mine = await compileContract({
+        source: SRC,
+        name: "ClnP",
+        slot: 29,
+        qpiHeader: HEADERS,
+        arenaSz: 4 * 1024 * 1024,
+      });
+      expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
-    const run = (wasm: Uint8Array) => {
-      const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
-      sim.deploy(29, wasm);
-      const user = new Uint8Array(32).fill(9);
-      sim.fund(user, 1_000_000n);
-      sim.procedure(29, 1, undefined, { invocator: user });
-      return sim.contracts.get(29)!.state().slice();
-    };
+      const run = (wasm: Uint8Array) => {
+        const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+        sim.deploy(29, wasm);
+        const user = new Uint8Array(32).fill(9);
+        sim.fund(user, 1_000_000n);
+        sim.procedure(29, 1, undefined, { invocator: user });
+        return sim.contracts.get(29)!.state().slice();
+      };
 
-    const nat = run(nativeWasm);
-    const ours = run(mine.wasm);
+      const nat = run(nativeWasm);
+      const ours = run(mine.wasm);
 
-    const firstDiff = nat.findIndex((b, i) => ours[i] !== b);
-    if (firstDiff >= 0) {
-      let diffs = 0;
-      for (let i = 0; i < nat.length; i++) {
-        if (nat[i] !== ours[i]) diffs++;
+      const firstDiff = nat.findIndex((b, i) => ours[i] !== b);
+      if (firstDiff >= 0) {
+        let diffs = 0;
+        for (let i = 0; i < nat.length; i++) {
+          if (nat[i] !== ours[i]) diffs++;
+        }
+        console.log(
+          `  STATE DIVERGENCE at byte ${firstDiff}: native=${nat[firstDiff]} ours=${ours[firstDiff]} (${diffs} of ${nat.length} differ)`,
+        );
       }
-      console.log(`  STATE DIVERGENCE at byte ${firstDiff}: native=${nat[firstDiff]} ours=${ours[firstDiff]} (${diffs} of ${nat.length} differ)`);
-    }
-    expect(firstDiff).toBe(-1);
+      expect(firstDiff).toBe(-1);
 
-    // Anchor against known semantics so both sides being identically wrong can't pass: mrc=1 of 16 slots means needsCleanup()
-    const tinyOff = 1816; // Collection<uint64,16>: povs 1024 + flags 8 + elements 768 + pop/mrc 16
-    const dv = new DataView(nat.buffer, nat.byteOffset);
-    const scalarBase = tinyOff + 4 * 64 + 8 + 4 * 48 + 16;
-    expect(dv.getBigUint64(scalarBase + 16, true)).toBe(0n); // needs50
-    expect(dv.getBigUint64(scalarBase + 24, true)).toBe(1n); // needs5
-  }, 180000);
+      // Anchor against known semantics so both sides being identically wrong can't pass: mrc=1 of 16 slots means needsCleanup()
+      const tinyOff = 1816; // Collection<uint64,16>: povs 1024 + flags 8 + elements 768 + pop/mrc 16
+      const dv = new DataView(nat.buffer, nat.byteOffset);
+      const scalarBase = tinyOff + 4 * 64 + 8 + 4 * 48 + 16;
+      expect(dv.getBigUint64(scalarBase + 16, true)).toBe(0n); // needs50
+      expect(dv.getBigUint64(scalarBase + 24, true)).toBe(1n); // needs5
+    },
+    180000,
+  );
 });

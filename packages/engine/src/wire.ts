@@ -1,7 +1,23 @@
 // Typed views over the Qubic wire structures — the TS mirror of core-lite src/network_messages/* (+ the m256i
 // from platform/m256.h). Layout is not hand-written: a struct is declared as a list of primitive codecs and
 import { toHex } from "./k12";
-import { type Codec, u8, u16, u24, u32, i16, i32, i64, u64, blob, array, sub, roundUp, View, defineStruct } from "@qinit/core";
+import {
+  type Codec,
+  u8,
+  u16,
+  u24,
+  u32,
+  i16,
+  i32,
+  i64,
+  u64,
+  blob,
+  array,
+  sub,
+  roundUp,
+  View,
+  defineStruct,
+} from "@qinit/core";
 
 export const DIGEST_SIZE = 32; // m256i
 export const SIG_SIZE = 64; // signature
@@ -48,11 +64,18 @@ export class M256i {
 
   // the four 64-bit lanes (e.g. lane 0 holds a contract id / the spectrum-index low word)
   u64(lane: number): bigint {
-    return new DataView(this.bytes.buffer, this.bytes.byteOffset, DIGEST_SIZE).getBigUint64(lane * 8, true);
+    return new DataView(this.bytes.buffer, this.bytes.byteOffset, DIGEST_SIZE).getBigUint64(
+      lane * 8,
+      true,
+    );
   }
 
   setU64(lane: number, v: bigint): void {
-    new DataView(this.bytes.buffer, this.bytes.byteOffset, DIGEST_SIZE).setBigUint64(lane * 8, v, true);
+    new DataView(this.bytes.buffer, this.bytes.byteOffset, DIGEST_SIZE).setBigUint64(
+      lane * 8,
+      v,
+      true,
+    );
   }
 
   set(v: M256i | Uint8Array): void {
@@ -269,7 +292,10 @@ export class AssetRecord extends View {
     return new M256i(this.bytes, assetOwnership.off.publicKey);
   }
   set publicKey(v: M256i | Uint8Array) {
-    this.bytes.set((v instanceof M256i ? v.bytes : v).subarray(0, DIGEST_SIZE), assetOwnership.off.publicKey);
+    this.bytes.set(
+      (v instanceof M256i ? v.bytes : v).subarray(0, DIGEST_SIZE),
+      assetOwnership.off.publicKey,
+    );
   }
   get type(): number {
     return this.dv.getUint8(assetOwnership.off.type);
@@ -306,7 +332,10 @@ export class AssetRecord extends View {
     this.dv.setUint8(assetIssuance.off.numberOfDecimalPlaces, v & 0xff);
   }
   get unitOfMeasurement(): Uint8Array {
-    return this.bytes.subarray(assetIssuance.off.unitOfMeasurement, assetIssuance.off.unitOfMeasurement + 7);
+    return this.bytes.subarray(
+      assetIssuance.off.unitOfMeasurement,
+      assetIssuance.off.unitOfMeasurement + 7,
+    );
   }
 
   // ownership / possession variants

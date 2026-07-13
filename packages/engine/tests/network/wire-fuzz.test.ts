@@ -2,10 +2,27 @@
 // known offsets by hand; this sweeps every defineStruct field with random values to catch any getter/setter
 import { test, expect } from "bun:test";
 import {
-  M256i, RequestResponseHeader, EntityRecord, Tick, TickData, Transaction, AssetRecord,
-  RequestTickData, RequestContractFunction, RespondCurrentTickInfo, RespondSystemInfo,
-  RespondEntity, RespondOwnedAssets, RespondPossessedAssets, RespondTxStatusHeader,
-  DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, CONTRACT_FEES_COUNT, SPECTRUM_DEPTH, ASSETS_DEPTH,
+  M256i,
+  RequestResponseHeader,
+  EntityRecord,
+  Tick,
+  TickData,
+  Transaction,
+  AssetRecord,
+  RequestTickData,
+  RequestContractFunction,
+  RespondCurrentTickInfo,
+  RespondSystemInfo,
+  RespondEntity,
+  RespondOwnedAssets,
+  RespondPossessedAssets,
+  RespondTxStatusHeader,
+  DIGEST_SIZE,
+  SIG_SIZE,
+  TXS_PER_TICK,
+  CONTRACT_FEES_COUNT,
+  SPECTRUM_DEPTH,
+  ASSETS_DEPTH,
 } from "../../src/wire";
 import { bytesEqual } from "../../src/bytes";
 
@@ -53,14 +70,32 @@ interface SubClass {
 }
 
 type Kind =
-  | "u8" | "u16" | "u24" | "u32" | "i16" | "i32" | "i64" | "u64" | "m256"
+  | "u8"
+  | "u16"
+  | "u24"
+  | "u32"
+  | "i16"
+  | "i32"
+  | "i64"
+  | "u64"
+  | "m256"
   | { blob: number }
   | { arr: "m256" | "i64"; n: number }
   | { sub: SubClass };
 
 function sizeOf(k: Kind): number {
   if (typeof k === "string") {
-    const sizes: Record<string, number> = { u8: 1, u16: 2, u24: 3, u32: 4, i16: 2, i32: 4, i64: 8, u64: 8, m256: 32 };
+    const sizes: Record<string, number> = {
+      u8: 1,
+      u16: 2,
+      u24: 3,
+      u32: 4,
+      i16: 2,
+      i32: 4,
+      i64: 8,
+      u64: 8,
+      m256: 32,
+    };
     return sizes[k];
   }
   if ("blob" in k) {
@@ -74,7 +109,17 @@ function sizeOf(k: Kind): number {
 
 function alignOf(k: Kind): number {
   if (typeof k === "string") {
-    const aligns: Record<string, number> = { u8: 1, u16: 2, u24: 1, u32: 4, i16: 2, i32: 4, i64: 8, u64: 8, m256: 8 };
+    const aligns: Record<string, number> = {
+      u8: 1,
+      u16: 2,
+      u24: 1,
+      u32: 4,
+      i16: 2,
+      i32: 4,
+      i64: 8,
+      u64: 8,
+      m256: 8,
+    };
     return aligns[k];
   }
   if ("blob" in k) {
@@ -97,7 +142,12 @@ function sampleIndices(n: number, r: () => number): number[] {
 }
 
 // Write a random value into `view[name]` and return a checker that asserts a re-wrapped view reads it back.
-function fuzzField(view: Record<string, unknown>, name: string, k: Kind, r: () => number): (v2: Record<string, unknown>) => void {
+function fuzzField(
+  view: Record<string, unknown>,
+  name: string,
+  k: Kind,
+  r: () => number,
+): (v2: Record<string, unknown>) => void {
   if (k === "u8" || k === "u16" || k === "u24" || k === "u32") {
     const span = { u8: 0x100, u16: 0x10000, u24: 0x1000000, u32: 0x100000000 }[k];
     const x = Math.floor(r() * span);
@@ -204,7 +254,12 @@ function saturate(view: Record<string, unknown>, name: string, k: Kind): void {
 // ---- the defineStruct inventory: each field's kind, declared here independently of wire.ts ----
 interface StructSpec {
   name: string;
-  klass: { SIZE: number; OFFSETS: Record<string, number>; alloc(): { bytes: Uint8Array }; wrap(buf: Uint8Array, off?: number): Record<string, unknown> };
+  klass: {
+    SIZE: number;
+    OFFSETS: Record<string, number>;
+    alloc(): { bytes: Uint8Array };
+    wrap(buf: Uint8Array, off?: number): Record<string, unknown>;
+  };
   fields: Record<string, Kind>;
   packed?: boolean;
 }
@@ -219,22 +274,41 @@ const STRUCTS: StructSpec[] = [
     name: "EntityRecord",
     klass: EntityRecord as never,
     fields: {
-      publicKey: "m256", incomingAmount: "i64", outgoingAmount: "i64",
-      numberOfIncomingTransfers: "u32", numberOfOutgoingTransfers: "u32",
-      latestIncomingTransferTick: "u32", latestOutgoingTransferTick: "u32",
+      publicKey: "m256",
+      incomingAmount: "i64",
+      outgoingAmount: "i64",
+      numberOfIncomingTransfers: "u32",
+      numberOfOutgoingTransfers: "u32",
+      latestIncomingTransferTick: "u32",
+      latestOutgoingTransferTick: "u32",
     },
   },
   {
     name: "Tick",
     klass: Tick as never,
     fields: {
-      computorIndex: "u16", epoch: "u16", tick: "u32", millisecond: "u16",
-      second: "u8", minute: "u8", hour: "u8", day: "u8", month: "u8", year: "u8",
-      prevResourceTestingDigest: "u32", saltedResourceTestingDigest: "u32",
-      prevTransactionBodyDigest: "u32", saltedTransactionBodyDigest: "u32",
-      prevSpectrumDigest: "m256", prevUniverseDigest: "m256", prevComputerDigest: "m256",
-      saltedSpectrumDigest: "m256", saltedUniverseDigest: "m256", saltedComputerDigest: "m256",
-      transactionDigest: "m256", expectedNextTickTransactionDigest: "m256",
+      computorIndex: "u16",
+      epoch: "u16",
+      tick: "u32",
+      millisecond: "u16",
+      second: "u8",
+      minute: "u8",
+      hour: "u8",
+      day: "u8",
+      month: "u8",
+      year: "u8",
+      prevResourceTestingDigest: "u32",
+      saltedResourceTestingDigest: "u32",
+      prevTransactionBodyDigest: "u32",
+      saltedTransactionBodyDigest: "u32",
+      prevSpectrumDigest: "m256",
+      prevUniverseDigest: "m256",
+      prevComputerDigest: "m256",
+      saltedSpectrumDigest: "m256",
+      saltedUniverseDigest: "m256",
+      saltedComputerDigest: "m256",
+      transactionDigest: "m256",
+      expectedNextTickTransactionDigest: "m256",
       signature: { blob: SIG_SIZE },
     },
   },
@@ -242,8 +316,16 @@ const STRUCTS: StructSpec[] = [
     name: "TickData",
     klass: TickData as never,
     fields: {
-      computorIndex: "u16", epoch: "u16", tick: "u32", millisecond: "u16",
-      second: "u8", minute: "u8", hour: "u8", day: "u8", month: "u8", year: "u8",
+      computorIndex: "u16",
+      epoch: "u16",
+      tick: "u32",
+      millisecond: "u16",
+      second: "u8",
+      minute: "u8",
+      hour: "u8",
+      day: "u8",
+      month: "u8",
+      year: "u8",
       timelock: "m256",
       txDigests: { arr: "m256", n: TXS_PER_TICK },
       contractFees: { arr: "i64", n: CONTRACT_FEES_COUNT },
@@ -264,8 +346,12 @@ const STRUCTS: StructSpec[] = [
     name: "RespondCurrentTickInfo",
     klass: RespondCurrentTickInfo as never,
     fields: {
-      tickDuration: "u16", epoch: "u16", tick: "u32",
-      numberOfAlignedVotes: "u16", numberOfMisalignedVotes: "u16", initialTick: "u32",
+      tickDuration: "u16",
+      epoch: "u16",
+      tick: "u32",
+      numberOfAlignedVotes: "u16",
+      numberOfMisalignedVotes: "u16",
+      initialTick: "u32",
     },
   },
   {
@@ -273,20 +359,39 @@ const STRUCTS: StructSpec[] = [
     klass: RespondSystemInfo as never,
     packed: true,
     fields: {
-      version: "i16", epoch: "u16", tick: "u32", initialTick: "u32", latestCreatedTick: "u32",
-      initialMillisecond: "u16", initialSecond: "u8", initialMinute: "u8", initialHour: "u8",
-      initialDay: "u8", initialMonth: "u8", initialYear: "u8",
-      numberOfEntities: "u32", numberOfTransactions: "u32", randomMiningSeed: "m256",
-      solutionThreshold: "i32", totalSpectrumAmount: "u64", currentEntityBalanceDustThreshold: "u64",
-      targetTickVoteSignature: "u32", computorPacketSignature: "u64", solutionAdditionalThreshold: "u64",
-      _reserve2: "u64", _reserve3: "u64", _reserve4: "u64",
+      version: "i16",
+      epoch: "u16",
+      tick: "u32",
+      initialTick: "u32",
+      latestCreatedTick: "u32",
+      initialMillisecond: "u16",
+      initialSecond: "u8",
+      initialMinute: "u8",
+      initialHour: "u8",
+      initialDay: "u8",
+      initialMonth: "u8",
+      initialYear: "u8",
+      numberOfEntities: "u32",
+      numberOfTransactions: "u32",
+      randomMiningSeed: "m256",
+      solutionThreshold: "i32",
+      totalSpectrumAmount: "u64",
+      currentEntityBalanceDustThreshold: "u64",
+      targetTickVoteSignature: "u32",
+      computorPacketSignature: "u64",
+      solutionAdditionalThreshold: "u64",
+      _reserve2: "u64",
+      _reserve3: "u64",
+      _reserve4: "u64",
     },
   },
   {
     name: "RespondEntity",
     klass: RespondEntity as never,
     fields: {
-      entity: { sub: EntityRecord as never }, tick: "u32", spectrumIndex: "i32",
+      entity: { sub: EntityRecord as never },
+      tick: "u32",
+      spectrumIndex: "i32",
       siblings: { arr: "m256", n: SPECTRUM_DEPTH },
     },
   },
@@ -294,16 +399,22 @@ const STRUCTS: StructSpec[] = [
     name: "RespondOwnedAssets",
     klass: RespondOwnedAssets as never,
     fields: {
-      asset: { sub: AssetRecord as never }, issuanceAsset: { sub: AssetRecord as never },
-      tick: "u32", universeIndex: "u32", siblings: { arr: "m256", n: ASSETS_DEPTH },
+      asset: { sub: AssetRecord as never },
+      issuanceAsset: { sub: AssetRecord as never },
+      tick: "u32",
+      universeIndex: "u32",
+      siblings: { arr: "m256", n: ASSETS_DEPTH },
     },
   },
   {
     name: "RespondPossessedAssets",
     klass: RespondPossessedAssets as never,
     fields: {
-      asset: { sub: AssetRecord as never }, ownershipAsset: { sub: AssetRecord as never },
-      issuanceAsset: { sub: AssetRecord as never }, tick: "u32", universeIndex: "u32",
+      asset: { sub: AssetRecord as never },
+      ownershipAsset: { sub: AssetRecord as never },
+      issuanceAsset: { sub: AssetRecord as never },
+      tick: "u32",
+      universeIndex: "u32",
       siblings: { arr: "m256", n: ASSETS_DEPTH },
     },
   },

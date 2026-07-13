@@ -198,7 +198,8 @@ export type StructFields<S> = { [K in keyof S]: FieldType<S[K]> };
 
 // A live struct view: every wire field as a read/write property (writes go straight through to `.bytes`), plus
 // `.clone()` for a detached copy you can mutate without touching the original buffer.
-export type StructInstance<S extends Record<string, Codec<any>>> = View & StructFields<S> & { clone(): StructInstance<S> };
+export type StructInstance<S extends Record<string, Codec<any>>> = View &
+  StructFields<S> & { clone(): StructInstance<S> };
 
 export interface StructClass<S extends Record<string, Codec<any>>> {
   new (buf: Uint8Array, off?: number): StructInstance<S>;

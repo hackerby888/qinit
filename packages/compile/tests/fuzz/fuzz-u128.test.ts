@@ -66,7 +66,13 @@ describe("fuzz pinned uint128 seeds", () => {
     const seed = Number(seedStr);
     test(`seed ${seed}`, async () => {
       const c = generate(seed);
-      const ours = await compileContract({ source: c.source, name: `U${seed}`, slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+      const ours = await compileContract({
+        source: c.source,
+        name: `U${seed}`,
+        slot: 27,
+        qpiHeader: HEADERS,
+        arenaSz: 1 << 20,
+      });
       expect(ours.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
       expect(runState(ours.wasm, c.inputs)).toBe(expected);
 
@@ -74,7 +80,14 @@ describe("fuzz pinned uint128 seeds", () => {
         const dir = mkdtempSync(join(tmpdir(), `fuzzpin128-${seed}-`));
         try {
           writeFileSync(join(dir, "U.h"), c.source);
-          const built = await buildContract({ contractPath: join(dir, "U.h"), name: "U", slot: 27, corePath: CORE, outDir: dir, skipVerify: true });
+          const built = await buildContract({
+            contractPath: join(dir, "U.h"),
+            name: "U",
+            slot: 27,
+            corePath: CORE,
+            outDir: dir,
+            skipVerify: true,
+          });
           expect(built.ok).toBe(true);
           expect(runState(new Uint8Array(readFileSync(built.so!)), c.inputs)).toBe(expected);
         } finally {

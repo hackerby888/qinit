@@ -4,15 +4,33 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { cacheRoot, cacheDir, cacheHeaders, currentPath, toolsDir, cachedVerifyToolPath, wasiSdkDir, wasiSdkPaths, verifyPlatformKey, cliAssetName, cliReleaseUrls } from "../../src/fetch";
+import {
+  cacheRoot,
+  cacheDir,
+  cacheHeaders,
+  currentPath,
+  toolsDir,
+  cachedVerifyToolPath,
+  wasiSdkDir,
+  wasiSdkPaths,
+  verifyPlatformKey,
+  cliAssetName,
+  cliReleaseUrls,
+} from "../../src/fetch";
 
 const prev = process.env.QINIT_CACHE;
 const dirs: string[] = [];
 afterEach(() => {
-  if (prev === undefined) delete process.env.QINIT_CACHE; else process.env.QINIT_CACHE = prev;
+  if (prev === undefined) delete process.env.QINIT_CACHE;
+  else process.env.QINIT_CACHE = prev;
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
-function isolate() { const x = mkdtempSync(join(tmpdir(), "qinit-paths-")); dirs.push(x); process.env.QINIT_CACHE = x; return x; }
+function isolate() {
+  const x = mkdtempSync(join(tmpdir(), "qinit-paths-"));
+  dirs.push(x);
+  process.env.QINIT_CACHE = x;
+  return x;
+}
 
 test("cache paths compose under QINIT_CACHE", () => {
   const x = isolate();
@@ -26,17 +44,22 @@ test("cache paths compose under QINIT_CACHE", () => {
 
 test("cachedVerifyToolPath: .exe on windows, bare elsewhere; under tools/", () => {
   const x = isolate();
-  const want = join(x, "tools", process.platform === "win32" ? "contractverify.exe" : "contractverify");
+  const want = join(
+    x,
+    "tools",
+    process.platform === "win32" ? "contractverify.exe" : "contractverify",
+  );
   expect(cachedVerifyToolPath()).toBe(want);
 });
 
 test("wasiSdkPaths() -> null when the sdk dir is absent", () => {
-  isolate();   // fresh empty cache
+  isolate(); // fresh empty cache
   expect(wasiSdkPaths()).toBeNull();
 });
 
 test("verifyPlatformKey is <os>-<arch> for this host", () => {
-  const os = process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "windows" : "linux";
+  const os =
+    process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "windows" : "linux";
   const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : process.arch;
   expect(verifyPlatformKey()).toBe(`${os}-${arch}`);
 });

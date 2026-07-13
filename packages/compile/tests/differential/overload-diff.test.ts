@@ -47,7 +47,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 // native-verified: f0 = pick(uint64)(5)+2000, f1 = pick(uint32)(6)+1000, f2 = sgn(sint32)(-2) = -1, f3 = sgn(uint32) = 7
-const EXPECTED = "d507000000000000ee03000000000000ffffffffffffffff07000000000000000000000000000000000000000000000000000000000000000000000000000000";
+const EXPECTED =
+  "d507000000000000ee03000000000000ffffffffffffffff07000000000000000000000000000000000000000000000000000000000000000000000000000000";
 const INPUT = [5n, 6n, 0xfffffffen, 3n];
 
 const TERNARY_SOURCE = `using namespace QPI;
@@ -70,7 +71,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 // native-verified: each ternary takes the sint16 -1 arm, converted to uint32 0xFFFFFFFF; f2 = sadd(0xFFFFFFFF, 1000)
-const TERNARY_EXPECTED = "ffffffff00000000ffffffff00000000e70300000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+const TERNARY_EXPECTED =
+  "ffffffff00000000ffffffff00000000e70300000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 
 const runState = (wasm: Uint8Array): string => {
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
@@ -95,7 +97,13 @@ const wasiOk = (() => {
 })();
 
 const checkBothSides = async (source: string, name: string, expected: string): Promise<void> => {
-  const ours = await compileContract({ source, name, slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+  const ours = await compileContract({
+    source,
+    name,
+    slot: 27,
+    qpiHeader: HEADERS,
+    arenaSz: 1 << 20,
+  });
   expect(ours.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
   expect(runState(ours.wasm)).toBe(expected);
 
@@ -103,7 +111,14 @@ const checkBothSides = async (source: string, name: string, expected: string): P
     const dir = mkdtempSync(join(tmpdir(), `${name}-`));
     try {
       writeFileSync(join(dir, `${name}.h`), source);
-      const built = await buildContract({ contractPath: join(dir, `${name}.h`), name, slot: 27, corePath: CORE, outDir: dir, skipVerify: true });
+      const built = await buildContract({
+        contractPath: join(dir, `${name}.h`),
+        name,
+        slot: 27,
+        corePath: CORE,
+        outDir: dir,
+        skipVerify: true,
+      });
       expect(built.ok).toBe(true);
       expect(runState(new Uint8Array(readFileSync(built.so!)))).toBe(expected);
     } finally {

@@ -6,7 +6,11 @@ import { compileContract, loadQpiHeader } from "../../src/index";
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 
-const wrap = (members: string, body: string, registration = "REGISTER_USER_PROCEDURE(Go, 1);") => `using namespace QPI;
+const wrap = (
+  members: string,
+  body: string,
+  registration = "REGISTER_USER_PROCEDURE(Go, 1);",
+) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData { uint64 a; };
@@ -68,10 +72,7 @@ const CASES: Record<string, RejectCase> = {
     diagnostic: /return.*type|incompatible|cannot.*convert|conversion/i,
   },
   "non-void helper has a reachable fallthrough path": {
-    source: wrap(
-      `static uint64 maybe(uint64 x) { if (x) return 7; }`,
-      `state.mut().a = maybe(0);`,
-    ),
+    source: wrap(`static uint64 maybe(uint64 x) { if (x) return 7; }`, `state.mut().a = maybe(0);`),
     diagnostic: /return|fall.*through/i,
   },
   "registered procedure has no implementation body": {

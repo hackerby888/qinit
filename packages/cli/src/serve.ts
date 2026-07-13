@@ -16,7 +16,9 @@ async function seedSystemContracts(srv: EngineServer, names: string[]): Promise<
       const w = await systemWasm(name);
       srv.engine.deploy(w.index, w.wasm, w.name);
     } catch (e: any) {
-      process.stderr.write(`qinit __serve: system contract '${name}' not seeded: ${String(e?.message ?? e)}\n`);
+      process.stderr.write(
+        `qinit __serve: system contract '${name}' not seeded: ${String(e?.message ?? e)}\n`,
+      );
     }
   }
 }
@@ -25,7 +27,12 @@ async function seedSystemContracts(srv: EngineServer, names: string[]): Promise<
 // caller can lower it (down to 0 = as fast as the event loop allows) via `qinit node run --tick-ms`.
 export const DEFAULT_TICK_MS = 1000;
 
-export async function serveEngine(rpcBase: string, tickMs?: number, system: string[] = [], peerPort = 21841): Promise<never> {
+export async function serveEngine(
+  rpcBase: string,
+  tickMs?: number,
+  system: string[] = [],
+  peerPort = 21841,
+): Promise<never> {
   const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
   const srv = new EngineServer();
   await srv.start(portFromRpc(rpcBase), ms, peerPort);

@@ -38,11 +38,13 @@ test("trace metadata keeps the full state size while snapshots stay capped", () 
   const trace = recorder.trace().entries[0];
   expect(trace.stateSize).toBe(stateSize);
   expect(trace.stateTruncated).toBe(true);
-  expect(trace.stateDiff).toEqual([{
-    off: TRACE_STATE_CAP - 1,
-    before: "00",
-    after: "01",
-  }]);
+  expect(trace.stateDiff).toEqual([
+    {
+      off: TRACE_STATE_CAP - 1,
+      before: "00",
+      after: "01",
+    },
+  ]);
 });
 
 test("unmetered runtime tracing snapshots only the trace window", async () => {

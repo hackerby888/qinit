@@ -23,11 +23,22 @@ import { compileCoreGtest } from "./gtest";
 export { parseToAst } from "./parse-ast";
 export type { ParseAstResult } from "./parse-ast";
 
-function emptyResult(opts: CompileOpts, diagnostics: ParserDiagnostic[], timings?: Record<string, number>): CompileResult {
+function emptyResult(
+  opts: CompileOpts,
+  diagnostics: ParserDiagnostic[],
+  timings?: Record<string, number>,
+): CompileResult {
   return {
     wasm: new Uint8Array(0),
     diagnostics,
-    idl: { name: opts.name, slot: opts.slot, functions: [], procedures: [], stateSize: 0, sysprocMask: 0 },
+    idl: {
+      name: opts.name,
+      slot: opts.slot,
+      functions: [],
+      procedures: [],
+      stateSize: 0,
+      sysprocMask: 0,
+    },
     ...(timings ? { timings } : {}),
   };
 }
@@ -59,7 +70,8 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   };
 
   await phase("loading qpi.h");
-  if (opts.qpiHeader === undefined) throw new Error("internal compiler requires a QPI header snapshot");
+  if (opts.qpiHeader === undefined)
+    throw new Error("internal compiler requires a QPI header snapshot");
   const qpi = getQpiContext(opts.qpiHeader);
 
   await phase("preprocessing");
@@ -78,12 +90,23 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   await phase("parsing");
   const parser = new Parser(new Lexer(text).tokenize());
   const unit = parser.parseTranslationUnit();
-  diagnostics.push(...parser.getDiagnostics().filter((diagnostic) => diagnostic.span.line > boundaryLine).map(remap));
-  if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) return emptyResult(opts, diagnostics);
+  diagnostics.push(
+    ...parser
+      .getDiagnostics()
+      .filter((diagnostic) => diagnostic.span.line > boundaryLine)
+      .map(remap),
+  );
+  if (diagnostics.some((diagnostic) => diagnostic.severity === "error"))
+    return emptyResult(opts, diagnostics);
 
   await phase("validating");
-  diagnostics.push(...validateAndDesugar(unit).filter((diagnostic) => diagnostic.span.line > boundaryLine).map(remap));
-  if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) return emptyResult(opts, diagnostics);
+  diagnostics.push(
+    ...validateAndDesugar(unit)
+      .filter((diagnostic) => diagnostic.span.line > boundaryLine)
+      .map(remap),
+  );
+  if (diagnostics.some((diagnostic) => diagnostic.severity === "error"))
+    return emptyResult(opts, diagnostics);
 
   await phase("analyzing");
   const sema = new Sema();
@@ -120,7 +143,11 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
     return emptyResult(opts, diagnostics);
   }
 
-  diagnostics.push(...sema.getDiagnostics().map((diagnostic) => diagnostic.span.line > boundaryLine ? remap(diagnostic) : diagnostic));
+  diagnostics.push(
+    ...sema
+      .getDiagnostics()
+      .map((diagnostic) => (diagnostic.span.line > boundaryLine ? remap(diagnostic) : diagnostic)),
+  );
 
   if ((globalThis as any).process?.env?.QINIT_DUMP_WAT) {
     const fs = await import("node:fs");
@@ -128,7 +155,8 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   }
 
   if (opts.strict !== false) {
-    for (const diagnostic of diagnostics) if (diagnostic.category === "fidelity") diagnostic.severity = "error";
+    for (const diagnostic of diagnostics)
+      if (diagnostic.category === "fidelity") diagnostic.severity = "error";
   }
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     closePhase();
@@ -166,6 +194,8 @@ export async function compileContract(opts: CompileOpts): Promise<CompileResult>
   return { wasm, diagnostics, idl: extractIdl(unit, opts, metadata), timings };
 }
 
-export async function compileGtest(opts: CompileOpts & { testSource: string }): Promise<GtestCompileResult> {
+export async function compileGtest(
+  opts: CompileOpts & { testSource: string },
+): Promise<GtestCompileResult> {
   return compileCoreGtest(opts);
 }

@@ -3,7 +3,12 @@ import { Lexer } from "../lexer";
 import { Parser, type Diagnostic as ParserDiagnostic } from "../parser";
 import { Preprocessor } from "../preprocess";
 import { SCAFFOLD_MACROS } from "../qpi-scaffold";
-import { makeUserDiagnosticRemapper, scanUnterminatedSource, sourceWithoutLeadingBom, USER_BOUNDARY } from "./diagnostics";
+import {
+  makeUserDiagnosticRemapper,
+  scanUnterminatedSource,
+  sourceWithoutLeadingBom,
+  USER_BOUNDARY,
+} from "./diagnostics";
 import { getQpiMacros } from "./qpi-context";
 
 export interface ParseAstResult {
@@ -11,8 +16,14 @@ export interface ParseAstResult {
   diagnostics: ParserDiagnostic[];
 }
 
-export function parseToAst(opts: { source: string; qpiHeader?: string; name?: string; slot?: number }): ParseAstResult {
-  if (opts.qpiHeader === undefined) throw new Error("internal parser requires a QPI header snapshot");
+export function parseToAst(opts: {
+  source: string;
+  qpiHeader?: string;
+  name?: string;
+  slot?: number;
+}): ParseAstResult {
+  if (opts.qpiHeader === undefined)
+    throw new Error("internal parser requires a QPI header snapshot");
   const macros = getQpiMacros(opts.qpiHeader);
   const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(opts.source)}`;
   const text = new Preprocessor().preprocess({
@@ -28,11 +39,16 @@ export function parseToAst(opts: { source: string; qpiHeader?: string; name?: st
   const parser = new Parser(new Lexer(text).tokenize());
   const unit = parser.parseTranslationUnit();
   const declarations = unit.declarations.filter(
-    (declaration) => (declaration.span?.line ?? 0) > boundaryLine && (declaration as { name?: string }).name !== USER_BOUNDARY,
+    (declaration) =>
+      (declaration.span?.line ?? 0) > boundaryLine &&
+      (declaration as { name?: string }).name !== USER_BOUNDARY,
   );
   const diagnostics = [
     ...scanUnterminatedSource(opts.source),
-    ...parser.getDiagnostics().filter((diagnostic) => diagnostic.span.line > boundaryLine).map(remap),
+    ...parser
+      .getDiagnostics()
+      .filter((diagnostic) => diagnostic.span.line > boundaryLine)
+      .map(remap),
   ].sort((a, b) => a.span.start - b.span.start || a.span.end - b.span.end);
   return { ast: { ...unit, declarations }, diagnostics };
 }

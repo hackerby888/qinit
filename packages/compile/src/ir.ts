@@ -36,7 +36,9 @@ export function emit(n: Ir): string {
     case "op":
       return n.args.length === 0 ? `(${n.op})` : `(${n.op} ${n.args.map(emit).join(" ")})`;
     case "call":
-      return n.args.length === 0 ? `(call ${n.target})` : `(call ${n.target} ${n.args.map(emit).join(" ")})`;
+      return n.args.length === 0
+        ? `(call ${n.target})`
+        : `(call ${n.target} ${n.args.map(emit).join(" ")})`;
     case "raw":
       return n.text;
   }
@@ -65,7 +67,23 @@ interface OpSig {
 
 function binops(prefix: Val): Record<string, OpSig> {
   const t: Record<string, OpSig> = {};
-  for (const m of ["add", "sub", "mul", "div_s", "div_u", "rem_s", "rem_u", "and", "or", "xor", "shl", "shr_s", "shr_u", "rotl", "rotr"]) {
+  for (const m of [
+    "add",
+    "sub",
+    "mul",
+    "div_s",
+    "div_u",
+    "rem_s",
+    "rem_u",
+    "and",
+    "or",
+    "xor",
+    "shl",
+    "shr_s",
+    "shr_u",
+    "rotl",
+    "rotr",
+  ]) {
     t[`${prefix}.${m}`] = { res: prefix, ops: [prefix, prefix] };
   }
   for (const m of ["eq", "ne", "lt_s", "lt_u", "gt_s", "gt_u", "le_s", "le_u", "ge_s", "ge_u"]) {
@@ -157,7 +175,8 @@ export function registerCallSig(target: string, signature: CallSig): void {
 }
 
 export function resetLhostCallSigs(): void {
-  for (const target of Object.keys(CALL_SIG)) if (target.startsWith("$lh_")) delete CALL_SIG[target];
+  for (const target of Object.keys(CALL_SIG))
+    if (target.startsWith("$lh_")) delete CALL_SIG[target];
   Object.assign(CALL_SIG, LHOST_CALL_SIG);
 }
 
@@ -224,8 +243,16 @@ export function pureIr(n: Ir): boolean {
     case "load":
       return pureIr(n.addr);
     case "op":
-      if (n.op === "i64.div_s" || n.op === "i64.div_u" || n.op === "i64.rem_s" || n.op === "i64.rem_u"
-        || n.op === "i32.div_s" || n.op === "i32.div_u" || n.op === "i32.rem_s" || n.op === "i32.rem_u") {
+      if (
+        n.op === "i64.div_s" ||
+        n.op === "i64.div_u" ||
+        n.op === "i64.rem_s" ||
+        n.op === "i64.rem_u" ||
+        n.op === "i32.div_s" ||
+        n.op === "i32.div_u" ||
+        n.op === "i32.rem_s" ||
+        n.op === "i32.rem_u"
+      ) {
         return false;
       }
       return n.args.every(pureIr);
@@ -275,9 +302,15 @@ export function loadScalar(addr: Ir, size: number, signed = false): Ir {
     case 4:
       return op(signed ? "i64.extend_i32_s" : "i64.extend_i32_u", loadRaw("i32.load", null, addr));
     case 2:
-      return op(signed ? "i64.extend_i32_s" : "i64.extend_i32_u", loadRaw(signed ? "i32.load16_s" : "i32.load16_u", null, addr));
+      return op(
+        signed ? "i64.extend_i32_s" : "i64.extend_i32_u",
+        loadRaw(signed ? "i32.load16_s" : "i32.load16_u", null, addr),
+      );
     case 1:
-      return op(signed ? "i64.extend_i32_s" : "i64.extend_i32_u", loadRaw(signed ? "i32.load8_s" : "i32.load8_u", null, addr));
+      return op(
+        signed ? "i64.extend_i32_s" : "i64.extend_i32_u",
+        loadRaw(signed ? "i32.load8_s" : "i32.load8_u", null, addr),
+      );
     default:
       return loadRaw("i64.load", null, addr);
   }

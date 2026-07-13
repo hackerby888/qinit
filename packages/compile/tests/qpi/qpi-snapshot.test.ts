@@ -10,7 +10,9 @@ import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapsho
 
 const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "contracts", "qpi.h"));
-const manifest = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "core-snapshot.json"), "utf8"));
+const manifest = JSON.parse(
+  readFileSync(join(import.meta.dir, "..", "..", "core-snapshot.json"), "utf8"),
+);
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -54,8 +56,15 @@ describe("tracked snapshot + browser entry", () => {
 
   test("browser entry compiles without a caller-provided qpiHeader", async () => {
     const browser = await import(browserModule);
-    const res = await browser.compileContract({ source: SOURCE, name: "SNAP", slot: 27, arenaSz: 1 << 20 });
-    expect(res.diagnostics.filter((d: { severity: string }) => d.severity === "error")).toHaveLength(0);
+    const res = await browser.compileContract({
+      source: SOURCE,
+      name: "SNAP",
+      slot: 27,
+      arenaSz: 1 << 20,
+    });
+    expect(
+      res.diagnostics.filter((d: { severity: string }) => d.severity === "error"),
+    ).toHaveLength(0);
     expect(res.wasm.byteLength).toBeGreaterThan(0);
     expect(res.idl.procedures.map((p: { name: string }) => p.name)).toContain("Bump");
 

@@ -9,7 +9,9 @@ export function loadQpiHeader(corePath?: string): string {
     }
     return assembleQpiHeader(configured);
   }
-  throw new Error("cannot load live qpi.h in a browser; use @qinit/compile/browser so the generated core snapshot is supplied");
+  throw new Error(
+    "cannot load live qpi.h in a browser; use @qinit/compile/browser so the generated core snapshot is supplied",
+  );
 }
 
 export function withPrelude(headers: string): string {

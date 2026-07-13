@@ -1,46 +1,75 @@
 import { SCALAR_SIZE } from "./tables";
-import { ClassTemplate, CompiledMethod, HelperInfo, PrivateInfo, CalleeIdl, StructLayout, CodegenWarning, NO_BIND, Bindings, FieldLayout, ContainerInfo, NamespaceLookupContext } from "./types";
-import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl, Span } from "../ast";
+import {
+  ClassTemplate,
+  CompiledMethod,
+  HelperInfo,
+  PrivateInfo,
+  CalleeIdl,
+  StructLayout,
+  CodegenWarning,
+  NO_BIND,
+  Bindings,
+  FieldLayout,
+  ContainerInfo,
+  NamespaceLookupContext,
+} from "./types";
+import type {
+  TypeSpec,
+  Expression,
+  Statement,
+  Declaration,
+  StructDecl,
+  FunctionDecl,
+  FunctionTemplateDecl,
+  VariableDecl,
+  TemplateParam,
+  ParamDecl,
+  Span,
+} from "../ast";
 import type { Sema } from "../sema";
 import { parseIntLiteral as lexParseIntLiteral } from "../lexer";
 import type { PlatformCapability } from "./platform-primitives";
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
 
 export class Codegen {
-  assetEnumerationRecord: { size: number; capacity: number; fields: Record<string, { offset: number; size: number }> } = ASSET_ENUMERATION_RECORD;
+  assetEnumerationRecord: {
+    size: number;
+    capacity: number;
+    fields: Record<string, { offset: number; size: number }>;
+  } = ASSET_ENUMERATION_RECORD;
   private sema: Sema;
-  private nested: Map<string, StructDecl> = new Map();          // contract-local nested structs
-  templates: Map<string, ClassTemplate> = new Map();            // qpi.h templates (HashMap, Array, ...)
+  private nested: Map<string, StructDecl> = new Map(); // contract-local nested structs
+  templates: Map<string, ClassTemplate> = new Map(); // qpi.h templates (HashMap, Array, ...)
   specializations: Map<string, { specArgs: TypeSpec[]; tmpl: ClassTemplate }[]> = new Map(); // partial/explicit specializations keyed by template name
-  globalStructs: Map<string, StructDecl> = new Map();           // qpi.h global/namespace structs
-  typedefs: Map<string, TypeSpec> = new Map();                  // typedef aliases
-  constexprInit: Map<string, Expression> = new Map();           // named constexpr → its init expression
-  constexprType: Map<string, TypeSpec> = new Map();             // named constexpr → declared scalar type
-  enumConst: Map<string, bigint> = new Map();                   // enum constant (NAME and Type::NAME) → value
-  enumSize: Map<string, number> = new Map();                    // enum type name → storage size from its underlying type (enum class X : uint8 → 1)
-  enumUnderlying: Map<string, TypeSpec> = new Map();             // enum type name → declared underlying scalar type
-  enumConstType: Map<string, TypeSpec> = new Map();              // enumerator name → its enum/underlying scalar type
-  enumNames: Set<string> = new Set();                           // every named enum type, for type-name resolution checks
-  templateMethods: Map<string, Map<string, FunctionTemplateDecl>> = new Map();  // Class → method → out-of-class def
-  compiledMethods: Map<string, CompiledMethod> = new Map();     // instantiation cache key → compiled method
-  emittedMethodOrder: string[] = [];                            // emitted WAT, in emission order (appended to module)
+  globalStructs: Map<string, StructDecl> = new Map(); // qpi.h global/namespace structs
+  typedefs: Map<string, TypeSpec> = new Map(); // typedef aliases
+  constexprInit: Map<string, Expression> = new Map(); // named constexpr → its init expression
+  constexprType: Map<string, TypeSpec> = new Map(); // named constexpr → declared scalar type
+  enumConst: Map<string, bigint> = new Map(); // enum constant (NAME and Type::NAME) → value
+  enumSize: Map<string, number> = new Map(); // enum type name → storage size from its underlying type (enum class X : uint8 → 1)
+  enumUnderlying: Map<string, TypeSpec> = new Map(); // enum type name → declared underlying scalar type
+  enumConstType: Map<string, TypeSpec> = new Map(); // enumerator name → its enum/underlying scalar type
+  enumNames: Set<string> = new Set(); // every named enum type, for type-name resolution checks
+  templateMethods: Map<string, Map<string, FunctionTemplateDecl>> = new Map(); // Class → method → out-of-class def
+  compiledMethods: Map<string, CompiledMethod> = new Map(); // instantiation cache key → compiled method
+  emittedMethodOrder: string[] = []; // emitted WAT, in emission order (appended to module)
   private constCache: Map<string, bigint> = new Map();
   private constInProgress = new Set<string>();
-  helpers: Map<string, HelperInfo> = new Map();    // value helpers: toReturnCode(...) etc.
-  helperOverloads: Map<string, HelperInfo[]> = new Map();   // member value helpers, ALL overloads per name in declaration order; call sites rank by argument signature
-  libFns: Map<string, FunctionDecl> = new Map();   // qpi.h namespace free functions (ProposalTypes::cls), keyed by qualified name; compiled lazily
-  libFnOverloads: Map<string, FunctionDecl[]> = new Map();   // all non-template overloads, in source order
-  libFnTemplates: Map<string, FunctionTemplateDecl[]> = new Map();   // qpi.h namespace free function TEMPLATES (isArraySortedWithoutDuplicates<T,L>), all overloads kept, instantiated per call-site arg types
+  helpers: Map<string, HelperInfo> = new Map(); // value helpers: toReturnCode(...) etc.
+  helperOverloads: Map<string, HelperInfo[]> = new Map(); // member value helpers, ALL overloads per name in declaration order; call sites rank by argument signature
+  libFns: Map<string, FunctionDecl> = new Map(); // qpi.h namespace free functions (ProposalTypes::cls), keyed by qualified name; compiled lazily
+  libFnOverloads: Map<string, FunctionDecl[]> = new Map(); // all non-template overloads, in source order
+  libFnTemplates: Map<string, FunctionTemplateDecl[]> = new Map(); // qpi.h namespace free function TEMPLATES (isArraySortedWithoutDuplicates<T,L>), all overloads kept, instantiated per call-site arg types
   namespaceUsings: Map<string, string[]> = new Map(); // namespace scope -> directives visible to later declarations in that scope
   namespaceContexts: Map<object, NamespaceLookupContext> = new Map(); // declaration -> namespace lookup state at its definition
-  privates: Map<string, PrivateInfo> = new Map();   // PRIVATE_FUNCTION/PROCEDURE called via CALL()
+  privates: Map<string, PrivateInfo> = new Map(); // PRIVATE_FUNCTION/PROCEDURE called via CALL()
   registered: Map<string, PrivateInfo> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
-  callees: Map<string, CalleeIdl> = new Map();      // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
+  callees: Map<string, CalleeIdl> = new Map(); // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
   private layoutCache: Map<string, StructLayout> = new Map();
-  contractStateLayout: StructLayout = { size: 0, align: 1, fields: new Map() };  // the contract's StateData (a ContractState& param in any function resolves through it)
-  slot = 0;                                          // contract slot; oracle notification ids embed it ((slot << 22) | defLine)
-  gtestMode = false;                                  // test-runner module: enable qtest host intrinsics
-  memberFnLine: Map<string, number> = new Map();     // contract member function name → definition line (__id_<proc> resolution)
+  contractStateLayout: StructLayout = { size: 0, align: 1, fields: new Map() }; // the contract's StateData (a ContractState& param in any function resolves through it)
+  slot = 0; // contract slot; oracle notification ids embed it ((slot << 22) | defLine)
+  gtestMode = false; // test-runner module: enable qtest host intrinsics
+  memberFnLine: Map<string, number> = new Map(); // contract member function name → definition line (__id_<proc> resolution)
   warnings: CodegenWarning[] = [];
   errors: CodegenWarning[] = [];
   capabilities: Set<PlatformCapability> = new Set();
@@ -57,14 +86,18 @@ export class Codegen {
     const activeUsing = [...new Set([...inheritedUsing, ...scopeUsing])];
     const sourceNamespace = nsPrefix.endsWith("::") ? nsPrefix.slice(0, -2) : nsPrefix || undefined;
     for (const d of decls) {
-      const td = d.kind === "typedef_decl" ? d as any : null;
-      const usingMatch = typeof td?.name === "string" ? /^using namespace (.+)$/.exec(td.name) : null;
+      const td = d.kind === "typedef_decl" ? (d as any) : null;
+      const usingMatch =
+        typeof td?.name === "string" ? /^using namespace (.+)$/.exec(td.name) : null;
       if (usingMatch) {
         if (!scopeUsing.includes(usingMatch[1])) scopeUsing.push(usingMatch[1]);
         if (!activeUsing.includes(usingMatch[1])) activeUsing.push(usingMatch[1]);
         continue;
       }
-      const lookupContext: NamespaceLookupContext = { sourceNamespace, usingNamespaces: [...activeUsing] };
+      const lookupContext: NamespaceLookupContext = {
+        sourceNamespace,
+        usingNamespaces: [...activeUsing],
+      };
       this.namespaceContexts.set(d, lookupContext);
       if (d.kind === "namespace") {
         this.collectTU((d as any).body, `${nsPrefix}${(d as any).name}::`, activeUsing);
@@ -83,13 +116,20 @@ export class Codegen {
             if (!this.templateMethods.has(s.name)) this.templateMethods.set(s.name, new Map());
             const into = this.templateMethods.get(s.name)!;
             const def: FunctionTemplateDecl = {
-              kind: "function_template", name: fn.name, params: [], fnParams: fn.params,
-              returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+              kind: "function_template",
+              name: fn.name,
+              params: [],
+              fnParams: fn.params,
+              returnType: fn.returnType,
+              body: fn.body,
+              isConstexpr: fn.isConstexpr,
+              span: fn.span,
             };
             this.namespaceContexts.set(def, lookupContext);
             // overloads (isValid() vs static isValid(y,m,d,...)) are additionally keyed by arity so an arity-aware lookup picks the right one;
             const akey = `${fn.name}/${(fn.params ?? []).length}`;
-            if (fn.params[0]) into.set(`${akey}@${this.typeKey(this.derefType(fn.params[0].type))}`, def);
+            if (fn.params[0])
+              into.set(`${akey}@${this.typeKey(this.derefType(fn.params[0].type))}`, def);
             if (!into.has(akey)) into.set(akey, def);
             const firstDefault = fn.params.findIndex((param) => param.defaultValue !== undefined);
             if (firstDefault >= 0) {
@@ -116,33 +156,46 @@ export class Codegen {
         } else {
           const existing = this.templates.get(ct.name);
           if (!existing || (ct.members?.length ?? 0) >= existing.members.length) {
-            this.templates.set(ct.name, { params: ct.params, members: ct.members, bases: ct.bases });
+            this.templates.set(ct.name, {
+              params: ct.params,
+              members: ct.members,
+              bases: ct.bases,
+            });
           }
         }
         // Inline member methods defined with a body in the class itself (e.g. capacity()) are captured.
         // A member may itself be a function template (Array::setMem<AT>); keep that body on the
         // owning class as well so call-site argument types can complete its bindings lazily.
         for (const m of ct.specializationArgs ? [] : ct.members) {
-          if ((m.kind !== "function" && m.kind !== "function_template") || !(m as FunctionDecl | FunctionTemplateDecl).body) continue;
+          if (
+            (m.kind !== "function" && m.kind !== "function_template") ||
+            !(m as FunctionDecl | FunctionTemplateDecl).body
+          )
+            continue;
           const fn = m as FunctionDecl | FunctionTemplateDecl;
           if (!this.templateMethods.has(ct.name)) this.templateMethods.set(ct.name, new Map());
           const into = this.templateMethods.get(ct.name)!;
-          const def: FunctionTemplateDecl = m.kind === "function_template"
-            ? m as FunctionTemplateDecl
-            : {
-                kind: "function_template",
-                name: fn.name,
-                params: ct.params,
-                fnParams: (fn as FunctionDecl).params,
-                returnType: fn.returnType,
-                body: fn.body,
-                isConstexpr: fn.isConstexpr,
-                span: fn.span,
-              };
+          const def: FunctionTemplateDecl =
+            m.kind === "function_template"
+              ? (m as FunctionTemplateDecl)
+              : {
+                  kind: "function_template",
+                  name: fn.name,
+                  params: ct.params,
+                  fnParams: (fn as FunctionDecl).params,
+                  returnType: fn.returnType,
+                  body: fn.body,
+                  isConstexpr: fn.isConstexpr,
+                  span: fn.span,
+                };
           this.namespaceContexts.set(def, lookupContext);
-          const fnParams = m.kind === "function_template" ? (m as FunctionTemplateDecl).fnParams ?? [] : (m as FunctionDecl).params;
+          const fnParams =
+            m.kind === "function_template"
+              ? ((m as FunctionTemplateDecl).fnParams ?? [])
+              : (m as FunctionDecl).params;
           const akey = `${fn.name}/${fnParams.length}`;
-          if (fnParams[0]) into.set(`${akey}@${this.typeKey(this.derefType(fnParams[0].type))}`, def);
+          if (fnParams[0])
+            into.set(`${akey}@${this.typeKey(this.derefType(fnParams[0].type))}`, def);
           if (!into.has(akey)) into.set(akey, def);
           if (!into.has(fn.name)) into.set(fn.name, def);
         }
@@ -153,10 +206,13 @@ export class Codegen {
         // Single-level NS::fn free function (not Class::method): owner is neither a known template nor struct.
         const owner = sep > 0 ? fn.name.slice(0, sep) : "";
         const ownerBase = owner.includes("::") ? owner.slice(owner.lastIndexOf("::") + 2) : owner;
-        const freeQualified = sep > 0 && fn.body && d.kind === "function"
-          && !owner.includes("::")
-          && !this.templates.has(ownerBase)
-          && !this.globalStructs.has(ownerBase);
+        const freeQualified =
+          sep > 0 &&
+          fn.body &&
+          d.kind === "function" &&
+          !owner.includes("::") &&
+          !this.templates.has(ownerBase) &&
+          !this.globalStructs.has(ownerBase);
         if (freeQualified) {
           const key = fn.name;
           const overloads = this.libFnOverloads.get(key);
@@ -166,12 +222,19 @@ export class Codegen {
         } else if (sep > 0 && fn.body) {
           const cls = ownerBase;
           const method = fn.name.slice(sep + 2);
-          const methodDefinition: FunctionTemplateDecl = d.kind === "function_template"
-            ? fn
-            : {
-                kind: "function_template", name: method, params: [], fnParams: (d as FunctionDecl).params,
-                returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
-              };
+          const methodDefinition: FunctionTemplateDecl =
+            d.kind === "function_template"
+              ? fn
+              : {
+                  kind: "function_template",
+                  name: method,
+                  params: [],
+                  fnParams: (d as FunctionDecl).params,
+                  returnType: fn.returnType,
+                  body: fn.body,
+                  isConstexpr: fn.isConstexpr,
+                  span: fn.span,
+                };
           this.namespaceContexts.set(methodDefinition, lookupContext);
           if (!this.templateMethods.has(cls)) this.templateMethods.set(cls, new Map());
           // first definition wins (skip explicit specializations like HashFunction<m256i>)
@@ -210,7 +273,10 @@ export class Codegen {
     }
   }
 
-  private captureMemberNamespaceContexts(members: Declaration[], context: NamespaceLookupContext): void {
+  private captureMemberNamespaceContexts(
+    members: Declaration[],
+    context: NamespaceLookupContext,
+  ): void {
     for (const member of members) {
       this.namespaceContexts.set(member, context);
       if (member.kind === "struct" || member.kind === "class_template") {
@@ -220,7 +286,9 @@ export class Codegen {
   }
 
   namespaceContextOf(declaration?: object | null): NamespaceLookupContext {
-    return declaration ? this.namespaceContexts.get(declaration) ?? { usingNamespaces: [] } : { usingNamespaces: [] };
+    return declaration
+      ? (this.namespaceContexts.get(declaration) ?? { usingNamespaces: [] })
+      : { usingNamespaces: [] };
   }
 
   /**
@@ -231,7 +299,11 @@ export class Codegen {
    * 4. bare/unqualified name (global), only when name is unqualified
    * First hit wins; no hardcoded QPI:: fallback.
    */
-  namespaceCandidates(name: string, sourceNamespace?: string, usingNamespaces: string[] = []): string[] {
+  namespaceCandidates(
+    name: string,
+    sourceNamespace?: string,
+    usingNamespaces: string[] = [],
+  ): string[] {
     const hasNamespace = name.includes("::");
     const keys: string[] = [];
     const add = (key: string) => {
@@ -270,7 +342,11 @@ export class Codegen {
     }
   }
 
-  private collectEnum(e: { name?: string; underlyingType?: TypeSpec; members: { name: string; value?: Expression }[] }): void {
+  private collectEnum(e: {
+    name?: string;
+    underlyingType?: TypeSpec;
+    members: { name: string; value?: Expression }[];
+  }): void {
     if (e.name) {
       this.enumNames.add(e.name);
     }
@@ -298,8 +374,11 @@ export class Codegen {
   }
 
   typeOfConstant(name: string): TypeSpec | null {
-    return this.constexprType.get(name) ?? this.enumConstType.get(name) ??
-      (name.includes("::") ? this.typeOfConstant(name.slice(name.lastIndexOf("::") + 2)) : null);
+    return (
+      this.constexprType.get(name) ??
+      this.enumConstType.get(name) ??
+      (name.includes("::") ? this.typeOfConstant(name.slice(name.lastIndexOf("::") + 2)) : null)
+    );
   }
 
   scalarStorageType(type: TypeSpec): TypeSpec {
@@ -341,16 +420,22 @@ export class Codegen {
       const ci = name.match(/^(\w+)_CONTRACT_INDEX$/);
       if (ci) {
         const c = this.callees.get(ci[1]);
-        if (c !== undefined) { this.constCache.set(name, BigInt(c.index)); return BigInt(c.index); }
+        if (c !== undefined) {
+          this.constCache.set(name, BigInt(c.index));
+          return BigInt(c.index);
+        }
       }
       // namespace-qualified constant (ProposalTypes::Class::GeneralOptions): constants are collected by their unqualified name, so fall back to the tail after the
       const i = name.lastIndexOf("::");
       return i >= 0 ? this.resolveConst(name.slice(i + 2)) : null;
     }
-    if (this.constInProgress.has(name)) return null;   // cyclic constexpr — give up
+    if (this.constInProgress.has(name)) return null; // cyclic constexpr — give up
     this.constInProgress.add(name);
     try {
-      const v = this.normalizeConst(this.evalConstBig(init, NO_BIND), this.constexprType.get(name) ?? { kind: "name", name: "sint64" });
+      const v = this.normalizeConst(
+        this.evalConstBig(init, NO_BIND),
+        this.constexprType.get(name) ?? { kind: "name", name: "sint64" },
+      );
       this.constCache.set(name, v);
       return v;
     } finally {
@@ -433,7 +518,10 @@ export class Codegen {
   }
 
   // Resolve a dependent member type `Selector<args>::member` (e.g. ProposalVoting's
-  private resolveDependentMember(t: Extract<TypeSpec, { kind: "dependent_member" }>, b: Bindings): { type: TypeSpec; bindings: Bindings } | null {
+  private resolveDependentMember(
+    t: Extract<TypeSpec, { kind: "dependent_member" }>,
+    b: Bindings,
+  ): { type: TypeSpec; bindings: Bindings } | null {
     const base = t.base;
     if (base.kind !== "template_instance") return null;
     const inst = this.instantiateTemplate(base.name, base.args, b);
@@ -448,7 +536,11 @@ export class Codegen {
   }
 
   // Select the template definition for `name<args>` and build its parameter bindings. A partial/explicit
-  private instantiateTemplate(name: string, args: TypeSpec[], parent: Bindings): { tmpl: ClassTemplate; b: Bindings } | null {
+  private instantiateTemplate(
+    name: string,
+    args: TypeSpec[],
+    parent: Bindings,
+  ): { tmpl: ClassTemplate; b: Bindings } | null {
     const resolved = args.map((a) => this.resolveType(a, parent));
 
     const specs = this.specializations.get(name);
@@ -468,10 +560,19 @@ export class Codegen {
           } else if (sa.kind === "name") {
             // concrete type to match: the argument must resolve to the same named type
             const ia = resolved[i];
-            const iaName = ia.kind === "name" ? ia.name : ia.kind === "template_instance" ? ia.name : "";
-            if (iaName !== sa.name) { match = false; break; }
+            const iaName =
+              ia.kind === "name" ? ia.name : ia.kind === "template_instance" ? ia.name : "";
+            if (iaName !== sa.name) {
+              match = false;
+              break;
+            }
           } else {
-            if (this.evalConstFromType(resolved[i], parent) !== this.evalConstFromType(sa, parent)) { match = false; break; }
+            if (
+              this.evalConstFromType(resolved[i], parent) !== this.evalConstFromType(sa, parent)
+            ) {
+              match = false;
+              break;
+            }
           }
         }
         if (match) return { tmpl: spec.tmpl, b: this.withStaticConsts(spec.tmpl, b) };
@@ -479,16 +580,22 @@ export class Codegen {
     }
 
     // Templates register unqualified; a namespace-qualified spelling (QPI::ContractState<...>) must still hit them.
-    const tmpl = this.templates.get(name) ?? (name.includes("::") ? this.templates.get(name.slice(name.lastIndexOf("::") + 2)) : undefined);
+    const tmpl =
+      this.templates.get(name) ??
+      (name.includes("::")
+        ? this.templates.get(name.slice(name.lastIndexOf("::") + 2))
+        : undefined);
     if (!tmpl) return null;
     const b: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
     for (let i = 0; i < tmpl.params.length; i++) {
       const p = tmpl.params[i];
-      const arg = resolved[i] ?? (p.kind === "type" && p.default
-        ? this.substInBindings(p.default, b)
-        : p.kind === "non_type_default"
-          ? ({ kind: "expr_value", expr: p.default } as TypeSpec)
-          : undefined);
+      const arg =
+        resolved[i] ??
+        (p.kind === "type" && p.default
+          ? this.substInBindings(p.default, b)
+          : p.kind === "non_type_default"
+            ? ({ kind: "expr_value", expr: p.default } as TypeSpec)
+            : undefined);
       if (!arg) continue;
       if (p.kind === "type") b.types.set(p.name, arg);
       else b.values.set(p.name, this.evalConstFromType(arg, parent));
@@ -504,7 +611,9 @@ export class Codegen {
       if ((v.isStatic || v.isConstexpr) && v.init && !b.values.has(v.name)) {
         try {
           b.values.set(v.name, this.evalConstBig(v.init, b));
-        } catch { /* non-integer constexpr (e.g. a typedef selector flag) — not a dimension */ }
+        } catch {
+          /* non-integer constexpr (e.g. a typedef selector flag) — not a dimension */
+        }
       }
     }
     return b;
@@ -517,7 +626,13 @@ export class Codegen {
     if (!inst) {
       return this.fallbackTemplateLayout(name, resolved, parent);
     }
-    return this.layoutOfMembers(inst.tmpl.members, inst.b, `${name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`, false, inst.tmpl.bases);
+    return this.layoutOfMembers(
+      inst.tmpl.members,
+      inst.b,
+      `${name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`,
+      false,
+      inst.tmpl.bases,
+    );
   }
 
   // Add the struct declarations among `members` to a child binding scope so field types that reference a sibling
@@ -547,7 +662,9 @@ export class Codegen {
 
   private fallbackTemplateLayout(name: string, args: TypeSpec[], b: Bindings): StructLayout {
     const rendered = args.map((arg) => this.typeKey(arg)).join(", ");
-    throw new Error(`template '${name}<${rendered}>' was not captured from core source; refusing an approximate layout`);
+    throw new Error(
+      `template '${name}<${rendered}>' was not captured from core source; refusing an approximate layout`,
+    );
   }
 
   // Resolve a type name to its concrete type, chasing both template-parameter bindings and contract/qpi typedefs (e.g. ProposalVotingT ->
@@ -567,7 +684,11 @@ export class Codegen {
   }
 
   // Resolve a member/element type that is written in terms of a parent template instance's own parameters and nested
-  concreteMemberType(t: TypeSpec, parent: TypeSpec & { kind: "template_instance" }, depth = 0): TypeSpec {
+  concreteMemberType(
+    t: TypeSpec,
+    parent: TypeSpec & { kind: "template_instance" },
+    depth = 0,
+  ): TypeSpec {
     const inst = this.instantiateTemplate(parent.name, parent.args, NO_BIND);
     if (!inst) return t;
     const nested = new Map<string, TypeSpec>();
@@ -577,17 +698,34 @@ export class Codegen {
     return this.resolveInScope(t, inst.b, nested, depth);
   }
 
-  private resolveInScope(t: TypeSpec, scope: Bindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
+  private resolveInScope(
+    t: TypeSpec,
+    scope: Bindings,
+    nested: Map<string, TypeSpec>,
+    depth: number,
+  ): TypeSpec {
     if (depth > 24) return t;
-    if (t.kind === "const") return { kind: "const", valueType: this.resolveInScope(t.valueType, scope, nested, depth + 1) };
-    if (t.kind === "array") return { kind: "array", elem: this.resolveInScope(t.elem, scope, nested, depth + 1), size: t.size };
+    if (t.kind === "const")
+      return {
+        kind: "const",
+        valueType: this.resolveInScope(t.valueType, scope, nested, depth + 1),
+      };
+    if (t.kind === "array")
+      return {
+        kind: "array",
+        elem: this.resolveInScope(t.elem, scope, nested, depth + 1),
+        size: t.size,
+      };
     if (t.kind === "name") {
       const bound = scope.types.get(t.name);
-      if (bound && !(bound.kind === "name" && bound.name === t.name)) return this.resolveInScope(bound, scope, nested, depth + 1);
+      if (bound && !(bound.kind === "name" && bound.name === t.name))
+        return this.resolveInScope(bound, scope, nested, depth + 1);
       const nt = nested.get(t.name);
-      if (nt && !(nt.kind === "name" && nt.name === t.name)) return this.resolveInScope(nt, scope, nested, depth + 1);
+      if (nt && !(nt.kind === "name" && nt.name === t.name))
+        return this.resolveInScope(nt, scope, nested, depth + 1);
       const td = this.typedefs.get(t.name);
-      if (td && !(td.kind === "name" && td.name === t.name)) return this.resolveInScope(td, scope, nested, depth + 1);
+      if (td && !(td.kind === "name" && td.name === t.name))
+        return this.resolveInScope(td, scope, nested, depth + 1);
       const qn = this.qualifiedNestedType(t.name, scope);
       if (qn) return qn;
       return t;
@@ -596,7 +734,14 @@ export class Codegen {
       const args = t.args.map((a) => {
         // a non-type arg given as a name that resolves to a member constexpr / param value → its literal
         if (a.kind === "name" && scope.values.has(a.name)) {
-          return { kind: "expr_value", expr: { kind: "int_literal", value: scope.values.get(a.name)!.toString(), span: { start: 0, end: 0, line: 0, col: 0 } } } as TypeSpec;
+          return {
+            kind: "expr_value",
+            expr: {
+              kind: "int_literal",
+              value: scope.values.get(a.name)!.toString(),
+              span: { start: 0, end: 0, line: 0, col: 0 },
+            },
+          } as TypeSpec;
         }
         return this.resolveInScope(a, scope, nested, depth + 1);
       });
@@ -635,7 +780,10 @@ export class Codegen {
   }
 
   // A base class contributes its fields (laid out at the start of the derived object) and its static
-  private baseContribution(baseType: TypeSpec, parentB: Bindings): { layout: StructLayout; consts: Map<string, bigint> } | null {
+  private baseContribution(
+    baseType: TypeSpec,
+    parentB: Bindings,
+  ): { layout: StructLayout; consts: Map<string, bigint> } | null {
     let t: TypeSpec = baseType;
     if (t.kind === "name") {
       const bound = parentB.types.get(t.name);
@@ -648,7 +796,8 @@ export class Codegen {
 
     if (t.kind === "template_instance") {
       const tmpl = this.templates.get(t.name);
-      if (!tmpl) return { layout: this.layoutOfTemplate(t.name, t.args, parentB), consts: new Map() };
+      if (!tmpl)
+        return { layout: this.layoutOfTemplate(t.name, t.args, parentB), consts: new Map() };
       const b: Bindings = { types: new Map(), values: new Map(), structs: new Map() };
       const resolved = t.args.map((a) => this.resolveType(a, parentB));
       for (let i = 0; i < tmpl.params.length; i++) {
@@ -667,10 +816,18 @@ export class Codegen {
             const val = this.evalConstBig(v.init, b);
             b.values.set(v.name, val);
             consts.set(v.name, val);
-          } catch { /* a non-integer static constexpr (e.g. a bool selector) — not a dimension */ }
+          } catch {
+            /* a non-integer static constexpr (e.g. a bool selector) — not a dimension */
+          }
         }
       }
-      const layout = this.layoutOfMembers(tmpl.members, b, `${t.name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`, false, tmpl.bases);
+      const layout = this.layoutOfMembers(
+        tmpl.members,
+        b,
+        `${t.name}<${resolved.map((r) => this.typeKey(r)).join(",")}>`,
+        false,
+        tmpl.bases,
+      );
       return { layout, consts };
     }
 
@@ -682,10 +839,20 @@ export class Codegen {
           if (m.kind !== "variable") continue;
           const v = m as VariableDecl;
           if ((v.isStatic || v.isConstexpr) && v.init) {
-            try { consts.set(v.name, this.evalConstBig(v.init, parentB)); } catch { /* not a dimension */ }
+            try {
+              consts.set(v.name, this.evalConstBig(v.init, parentB));
+            } catch {
+              /* not a dimension */
+            }
           }
         }
-        const layout = this.layoutOfMembers(struct.members, parentB, this.structCacheKey(struct), struct.isUnion, struct.bases);
+        const layout = this.layoutOfMembers(
+          struct.members,
+          parentB,
+          this.structCacheKey(struct),
+          struct.isUnion,
+          struct.bases,
+        );
         return { layout, consts };
       }
     }
@@ -697,9 +864,15 @@ export class Codegen {
     let t: TypeSpec = { kind: "name", name: typeName };
     for (let i = 0; i < 8 && t.kind === "name"; i++) {
       const bound = b.types.get(t.name);
-      if (bound) { t = bound; continue; }
+      if (bound) {
+        t = bound;
+        continue;
+      }
       const td = this.typedefs.get(t.name);
-      if (td) { t = td; continue; }
+      if (td) {
+        t = td;
+        continue;
+      }
       break;
     }
 
@@ -729,7 +902,11 @@ export class Codegen {
       if (m.kind !== "variable") continue;
       const v = m as VariableDecl;
       if (v.name === member && v.init) {
-        try { return this.evalConstBig(v.init, tb); } catch { return null; }
+        try {
+          return this.evalConstBig(v.init, tb);
+        } catch {
+          return null;
+        }
       }
     }
     return null;
@@ -748,7 +925,13 @@ export class Codegen {
   }
 
   private layoutOfStruct(struct: StructDecl, b: Bindings): StructLayout {
-    return this.layoutOfMembers(struct.members, b, this.structCacheKey(struct), struct.isUnion, struct.bases);
+    return this.layoutOfMembers(
+      struct.members,
+      b,
+      this.structCacheKey(struct),
+      struct.isUnion,
+      struct.bases,
+    );
   }
 
   private inProgress = new Set<string>();
@@ -760,7 +943,13 @@ export class Codegen {
     return `|${ts}|${vs}`;
   }
 
-  private layoutOfMembers(members: Declaration[], bIn: Bindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {
+  private layoutOfMembers(
+    members: Declaration[],
+    bIn: Bindings,
+    cacheKey: string,
+    isUnion = false,
+    bases: TypeSpec[] = [],
+  ): StructLayout {
     // Cache by a binding-aware key so each concrete instantiation is computed once (avoids the exponential blowup of deeply
     const key = cacheKey ? cacheKey + this.bindingSig(bIn) : "";
     if (key) {
@@ -785,7 +974,12 @@ export class Codegen {
             if (v.isStatic || v.isConstexpr) continue;
             const sz = this.sizeOfType(v.type, b);
             const al = this.alignOfTypeB(v.type, b);
-            fields.set(v.name, { name: v.name, offset: 0, size: sz, type: this.inlineNestedStruct(v.type, b) });
+            fields.set(v.name, {
+              name: v.name,
+              offset: 0,
+              size: sz,
+              type: this.inlineNestedStruct(v.type, b),
+            });
             if (sz > max) max = sz;
             if (al > maxAlign) maxAlign = al;
           }
@@ -802,7 +996,12 @@ export class Codegen {
         if (!bc) continue;
         offset = this.alignUp(offset, bc.layout.align);
         for (const bf of bc.layout.fields.values()) {
-          fields.set(bf.name, { name: bf.name, offset: offset + bf.offset, size: bf.size, type: bf.type });
+          fields.set(bf.name, {
+            name: bf.name,
+            offset: offset + bf.offset,
+            size: bf.size,
+            type: bf.type,
+          });
         }
         offset += bc.layout.size;
         if (bc.layout.align > maxAlign) maxAlign = bc.layout.align;
@@ -820,14 +1019,23 @@ export class Codegen {
         if (memberTypes === b.types) memberTypes = new Map(b.types);
         if (!memberTypes.has(td.name)) memberTypes.set(td.name, td.type);
       }
-      const bMem = (memberVals === b.values && memberTypes === b.types) ? b : { types: memberTypes, values: memberVals, structs: b.structs };
+      const bMem =
+        memberVals === b.values && memberTypes === b.types
+          ? b
+          : { types: memberTypes, values: memberVals, structs: b.structs };
 
       for (const m of members) {
         // An anonymous struct/union (no name, no declarator) promotes its members into this struct at the current offset (`union
         if (m.kind === "struct" && !(m as StructDecl).name) {
           const sub = this.layoutOfStruct(m as StructDecl, bMem);
           offset = this.alignUp(offset, sub.align);
-          for (const f of sub.fields.values()) fields.set(f.name, { name: f.name, offset: offset + f.offset, size: f.size, type: f.type });
+          for (const f of sub.fields.values())
+            fields.set(f.name, {
+              name: f.name,
+              offset: offset + f.offset,
+              size: f.size,
+              type: f.type,
+            });
           offset += sub.size;
           if (sub.align > maxAlign) maxAlign = sub.align;
           continue;
@@ -838,7 +1046,12 @@ export class Codegen {
         const sz = this.sizeOfType(v.type, bMem);
         const align = Math.min(this.alignOfTypeB(v.type, bMem), 8);
         offset = this.alignUp(offset, align);
-        fields.set(v.name, { name: v.name, offset, size: sz, type: this.inlineNestedStruct(v.type, bMem) });
+        fields.set(v.name, {
+          name: v.name,
+          offset,
+          size: sz,
+          type: this.inlineNestedStruct(v.type, bMem),
+        });
         offset += sz;
         if (align > maxAlign) maxAlign = align;
       }
@@ -886,14 +1099,18 @@ export class Codegen {
 
   private typeKey(t: TypeSpec): string {
     if (t.kind === "name") return t.name;
-    if (t.kind === "template_instance") return `${t.name}<${t.args.map((a) => this.typeKey(a)).join(",")}>`;
+    if (t.kind === "template_instance")
+      return `${t.name}<${t.args.map((a) => this.typeKey(a)).join(",")}>`;
     if (t.kind === "const") return "c" + this.typeKey(t.valueType);
     if (t.kind === "array") return `${this.typeKey(t.elem)}[]`;
     if (t.kind === "pointer") return "*";
     if (t.kind === "expr_value") return `#${this.evalConst(t.expr)}`;
     // inline-carried struct as a template arg (Array<Order,256> resolved through its declaring scope): key by tag + field names
     if (t.kind === "inline_struct") {
-      const fields = t.struct.members.filter((m) => m.kind === "variable").map((m) => (m as VariableDecl).name).join(",");
+      const fields = t.struct.members
+        .filter((m) => m.kind === "variable")
+        .map((m) => (m as VariableDecl).name)
+        .join(",");
       return `s:${t.struct.name || "anon"}{${fields}}`;
     }
     return "?";
@@ -907,7 +1124,11 @@ export class Codegen {
     try {
       let a = 1;
       for (const m of members) {
-        if (m.kind === "variable" && !(m as VariableDecl).isStatic && !(m as VariableDecl).isConstexpr) {
+        if (
+          m.kind === "variable" &&
+          !(m as VariableDecl).isStatic &&
+          !(m as VariableDecl).isConstexpr
+        ) {
           a = Math.max(a, this.alignOfTypeB((m as VariableDecl).type, b));
         }
       }
@@ -935,9 +1156,12 @@ export class Codegen {
     switch (expr.kind) {
       case "int_literal":
         return this.parseIntLiteral(expr.value);
-      case "bool_literal": return expr.value ? 1n : 0n;
-      case "char_literal": return BigInt(expr.value);
-      case "paren": return this.evalConstBig(expr.expr, b);
+      case "bool_literal":
+        return expr.value ? 1n : 0n;
+      case "char_literal":
+        return BigInt(expr.value);
+      case "paren":
+        return this.evalConstBig(expr.expr, b);
       case "identifier": {
         const v = b.values.get(expr.name);
         if (v !== undefined) return v;
@@ -962,18 +1186,46 @@ export class Codegen {
         const l = this.evalConstBig(expr.left, b);
         const r = this.evalConstBig(expr.right, b);
         switch (expr.op) {
-          case "+": return l + r; case "-": return l - r; case "*": return l * r;
-          case "/": return r === 0n ? 0n : l / r; case "%": return r === 0n ? 0n : l % r;
-          case "<<": return l << r; case ">>": return l >> r;
-          case "&": return l & r; case "|": return l | r; case "^": return l ^ r;
-          case "<": return l < r ? 1n : 0n; case ">": return l > r ? 1n : 0n;
-          case "<=": return l <= r ? 1n : 0n; case ">=": return l >= r ? 1n : 0n;
-          case "==": return l === r ? 1n : 0n; case "!=": return l !== r ? 1n : 0n;
-          default: return 0n;
+          case "+":
+            return l + r;
+          case "-":
+            return l - r;
+          case "*":
+            return l * r;
+          case "/":
+            return r === 0n ? 0n : l / r;
+          case "%":
+            return r === 0n ? 0n : l % r;
+          case "<<":
+            return l << r;
+          case ">>":
+            return l >> r;
+          case "&":
+            return l & r;
+          case "|":
+            return l | r;
+          case "^":
+            return l ^ r;
+          case "<":
+            return l < r ? 1n : 0n;
+          case ">":
+            return l > r ? 1n : 0n;
+          case "<=":
+            return l <= r ? 1n : 0n;
+          case ">=":
+            return l >= r ? 1n : 0n;
+          case "==":
+            return l === r ? 1n : 0n;
+          case "!=":
+            return l !== r ? 1n : 0n;
+          default:
+            return 0n;
         }
       }
       case "ternary":
-        return this.evalConstBig(expr.cond, b) !== 0n ? this.evalConstBig(expr.then, b) : this.evalConstBig(expr.else_, b);
+        return this.evalConstBig(expr.cond, b) !== 0n
+          ? this.evalConstBig(expr.then, b)
+          : this.evalConstBig(expr.else_, b);
       case "sizeof_type":
         return BigInt(this.sizeOfType(expr.type, b));
       case "c_cast":
@@ -983,15 +1235,25 @@ export class Codegen {
       case "template_call": {
         // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4)).
         const callee = expr.callee;
-        const fn = callee.kind === "identifier" ? callee.name : callee.kind === "qualified_name" ? callee.name : null;
+        const fn =
+          callee.kind === "identifier"
+            ? callee.name
+            : callee.kind === "qualified_name"
+              ? callee.name
+              : null;
         if (fn) {
           const a = expr.args.map((x) => this.evalConstBig(x, b));
           switch (fn) {
-            case "div": return a[1] === 0n ? 0n : a[0] / a[1];
-            case "mod": return a[1] === 0n ? 0n : a[0] % a[1];
-            case "min": return a[0] <= a[1] ? a[0] : a[1];
-            case "max": return a[0] >= a[1] ? a[0] : a[1];
-            case "abs": return a[0] < 0n ? -a[0] : a[0];
+            case "div":
+              return a[1] === 0n ? 0n : a[0] / a[1];
+            case "mod":
+              return a[1] === 0n ? 0n : a[0] % a[1];
+            case "min":
+              return a[0] <= a[1] ? a[0] : a[1];
+            case "max":
+              return a[0] >= a[1] ? a[0] : a[1];
+            case "abs":
+              return a[0] < 0n ? -a[0] : a[0];
           }
         }
         return 0n;
@@ -1027,15 +1289,22 @@ export class Codegen {
         // contract-nested template struct (PULSE's HashMapConverter<Key,T,L>): register like a file-scope template — the layout table AND its inline methods
         const ct = m as any;
         const prev = this.templates.get(ct.name);
-        if (!prev || (prev.members?.length ?? 0) < (ct.members?.length ?? 0)) this.templates.set(ct.name, ct);
+        if (!prev || (prev.members?.length ?? 0) < (ct.members?.length ?? 0))
+          this.templates.set(ct.name, ct);
         for (const mm of ct.specializationArgs ? [] : ct.members) {
           if (mm.kind !== "function" || !(mm as FunctionDecl).body) continue;
           const fn = mm as FunctionDecl;
           if (!this.templateMethods.has(ct.name)) this.templateMethods.set(ct.name, new Map());
           const into = this.templateMethods.get(ct.name)!;
           const def: FunctionTemplateDecl = {
-            kind: "function_template", name: fn.name, params: ct.params, fnParams: fn.params,
-            returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+            kind: "function_template",
+            name: fn.name,
+            params: ct.params,
+            fnParams: fn.params,
+            returnType: fn.returnType,
+            body: fn.body,
+            isConstexpr: fn.isConstexpr,
+            span: fn.span,
           };
           const akey = `${fn.name}/${(fn.params ?? []).length}`;
           if (!into.has(akey)) into.set(akey, def);
@@ -1091,8 +1360,14 @@ export class Codegen {
       const fn = mm as FunctionDecl;
       if (fn.name.startsWith("~")) continue;
       const def: FunctionTemplateDecl = {
-        kind: "function_template", name: fn.name, params: [], fnParams: fn.params,
-        returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
+        kind: "function_template",
+        name: fn.name,
+        params: [],
+        fnParams: fn.params,
+        returnType: fn.returnType,
+        body: fn.body,
+        isConstexpr: fn.isConstexpr,
+        span: fn.span,
       };
       for (const cls of names) {
         if (!this.templateMethods.has(cls)) this.templateMethods.set(cls, new Map());
@@ -1141,7 +1416,7 @@ export class Codegen {
     for (let sep = name.indexOf("::"); sep > 0; sep = name.indexOf("::", sep + 2)) {
       const head = name.slice(0, sep);
       const headT = b.types.get(head) ?? this.typedefs.get(head);
-      let sd = headT ? this.structOf(headT, b) : this.structByName(head, b) ?? null;
+      let sd = headT ? this.structOf(headT, b) : (this.structByName(head, b) ?? null);
       if (!sd) continue;
 
       const segs = name.slice(sep + 2).split("::");
@@ -1162,7 +1437,9 @@ export class Codegen {
         sd = ms;
         continue;
       }
-      const mt = sd.members.find((m) => m.kind === "typedef_decl" && (m as any).name === seg) as any;
+      const mt = sd.members.find(
+        (m) => m.kind === "typedef_decl" && (m as any).name === seg,
+      ) as any;
       if (!mt) return null;
       if (last) return mt.type;
       sd = this.structOf(mt.type, b);
@@ -1187,10 +1464,18 @@ export class Codegen {
   isAggregateType(t: TypeSpec): boolean {
     if (t.kind === "const") return this.isAggregateType(t.valueType);
     if (t.kind === "reference") return this.isAggregateType(t.refereed);
-    if (t.kind === "array" || t.kind === "inline_struct" || t.kind === "template_instance") return true;
+    if (t.kind === "array" || t.kind === "inline_struct" || t.kind === "template_instance")
+      return true;
     if (t.kind === "name") {
       const baseName = t.name.includes("::") ? t.name.slice(t.name.lastIndexOf("::") + 2) : t.name;
-      if (baseName === "id" || baseName === "m256i" || baseName === "__m256i" || baseName === "uint128" || baseName === "uint128_t") return true;
+      if (
+        baseName === "id" ||
+        baseName === "m256i" ||
+        baseName === "__m256i" ||
+        baseName === "uint128" ||
+        baseName === "uint128_t"
+      )
+        return true;
       if (SCALAR_SIZE[t.name] !== undefined || SCALAR_SIZE[baseName] !== undefined) return false;
       return this.layoutOfType(t) !== null;
     }
@@ -1240,7 +1525,7 @@ export class Codegen {
   // Look up a field within a struct-ish type, returning its offset/size/type.
   fieldOf(t: TypeSpec, member: string, b: Bindings = NO_BIND): FieldLayout | null {
     const layout = this.layoutOfType(t, b);
-    return layout ? layout.fields.get(member) ?? null : null;
+    return layout ? (layout.fields.get(member) ?? null) : null;
   }
 
   // ---- public helpers for compiling instantiated container methods ----
@@ -1268,18 +1553,22 @@ export class Codegen {
     const resolved = args.map((a) => this.resolveType(a, b));
     for (let i = 0; i < tmpl.params.length; i++) {
       const p = tmpl.params[i];
-      const arg = resolved[i] ?? (p.kind === "type" && p.default
-        ? this.substInBindings(p.default, out)
-        : p.kind === "non_type_default"
-          ? ({ kind: "expr_value", expr: p.default } as TypeSpec)
-          : undefined);
+      const arg =
+        resolved[i] ??
+        (p.kind === "type" && p.default
+          ? this.substInBindings(p.default, out)
+          : p.kind === "non_type_default"
+            ? ({ kind: "expr_value", expr: p.default } as TypeSpec)
+            : undefined);
       if (!arg) continue;
       if (p.kind === "type") out.types.set(p.name, arg);
       else out.values.set(p.name, this.evalConstFromType(arg, b));
     }
     for (const m of tmpl.members) {
-      if (m.kind === "struct" && (m as StructDecl).name) out.structs.set((m as StructDecl).name, m as StructDecl);
-      else if (m.kind === "typedef_decl" && !out.types.has((m as any).name)) out.types.set((m as any).name, (m as any).type);
+      if (m.kind === "struct" && (m as StructDecl).name)
+        out.structs.set((m as StructDecl).name, m as StructDecl);
+      else if (m.kind === "typedef_decl" && !out.types.has((m as any).name))
+        out.types.set((m as any).name, (m as any).type);
     }
     // Static constexpr members (supportScalarVotes, maxVotes, ...). Without these a method body that sizes a
     for (const m of tmpl.members) {
@@ -1315,16 +1604,22 @@ export class Codegen {
   }
 
   private methodOwnerNames(name: string, seen = new Set<string>()): string[] {
-    const bare = name.includes("::") && !this.globalStructs.has(name) ? name.slice(name.lastIndexOf("::") + 2) : name;
+    const bare =
+      name.includes("::") && !this.globalStructs.has(name)
+        ? name.slice(name.lastIndexOf("::") + 2)
+        : name;
     if (seen.has(bare)) return [];
     seen.add(bare);
     const out = [bare];
     const struct = this.globalStructs.get(bare) ?? this.nested.get(bare);
     for (const base of struct?.bases ?? []) {
       const resolved = this.resolveType(base, NO_BIND);
-      const baseName = resolved.kind === "name" ? resolved.name
-        : resolved.kind === "template_instance" ? resolved.name
-        : null;
+      const baseName =
+        resolved.kind === "name"
+          ? resolved.name
+          : resolved.kind === "template_instance"
+            ? resolved.name
+            : null;
       if (baseName) out.push(...this.methodOwnerNames(baseName, seen));
     }
     return out;
@@ -1333,37 +1628,62 @@ export class Codegen {
   hasInstanceMethod(name: string, methodName: string): boolean {
     return this.methodOwnerNames(name).some((owner) => {
       const methods = this.templateMethods.get(owner);
-      return methods?.has(methodName) || [...(methods?.keys() ?? [])].some((key) => key.startsWith(`${methodName}/`));
+      return (
+        methods?.has(methodName) ||
+        [...(methods?.keys() ?? [])].some((key) => key.startsWith(`${methodName}/`))
+      );
     });
   }
 
   // Public: resolve a container/struct method to its body + the binding for the matched template instance, HONORING PARTIAL
-  methodTemplate(name: string, args: TypeSpec[], methodName: string, argCount?: number, paramTypeKey?: string): { def: FunctionTemplateDecl; bind: Bindings; memberTemplate?: boolean } | null {
+  methodTemplate(
+    name: string,
+    args: TypeSpec[],
+    methodName: string,
+    argCount?: number,
+    paramTypeKey?: string,
+  ): { def: FunctionTemplateDecl; bind: Bindings; memberTemplate?: boolean } | null {
     // bindContainer carries the full method-scope binding (params + nested typedefs like VoteStorageType + static constexprs); instantiateTemplate's binding omits
     const bind = this.bindContainer(name, args);
     const inst = this.instantiateTemplate(name, args, NO_BIND);
     if (inst) {
       // Overload selection by arity (DateAndTime::isValid() vs the static isValid(y,m,d,...)): prefer an exact parameter-count match, then one whose extra
       const cands = inst.tmpl.members.filter(
-        (mm) => (mm.kind === "function" || mm.kind === "function_template") &&
+        (mm) =>
+          (mm.kind === "function" || mm.kind === "function_template") &&
           (mm as FunctionDecl | FunctionTemplateDecl).name === methodName &&
           (mm as FunctionDecl | FunctionTemplateDecl).body,
       ) as Array<FunctionDecl | FunctionTemplateDecl>;
-      const paramsOf = (candidate: FunctionDecl | FunctionTemplateDecl) => candidate.kind === "function_template" ? candidate.fnParams ?? [] : candidate.params;
+      const paramsOf = (candidate: FunctionDecl | FunctionTemplateDecl) =>
+        candidate.kind === "function_template" ? (candidate.fnParams ?? []) : candidate.params;
       let m: FunctionDecl | FunctionTemplateDecl | undefined = cands[0];
       if (argCount !== undefined && cands.length > 1) {
-        m = cands.find((f) => paramsOf(f).length === argCount)
-          ?? cands.find((f) => paramsOf(f).length > argCount && paramsOf(f).slice(argCount).every((p) => p.defaultValue !== undefined))
-          ?? cands[0];
+        m =
+          cands.find((f) => paramsOf(f).length === argCount) ??
+          cands.find(
+            (f) =>
+              paramsOf(f).length > argCount &&
+              paramsOf(f)
+                .slice(argCount)
+                .every((p) => p.defaultValue !== undefined),
+          ) ??
+          cands[0];
       }
       if (m) {
         const fn = m;
-        const def: FunctionTemplateDecl = fn.kind === "function_template"
-          ? fn
-          : {
-              kind: "function_template", name: fn.name, params: inst.tmpl.params, fnParams: fn.params,
-              returnType: fn.returnType, body: fn.body, isConstexpr: fn.isConstexpr, span: fn.span,
-            };
+        const def: FunctionTemplateDecl =
+          fn.kind === "function_template"
+            ? fn
+            : {
+                kind: "function_template",
+                name: fn.name,
+                params: inst.tmpl.params,
+                fnParams: fn.params,
+                returnType: fn.returnType,
+                body: fn.body,
+                isConstexpr: fn.isConstexpr,
+                span: fn.span,
+              };
         this.namespaceContexts.set(def, this.namespaceContextOf(fn));
         return {
           def,
@@ -1372,26 +1692,33 @@ export class Codegen {
         };
       }
     }
-    const specializationKey = argCount !== undefined && args[0]
-      ? `${methodName}/${argCount}@${this.typeKey(this.resolveType(args[0], bind))}`
-      : undefined;
-    const overloadKey = argCount !== undefined && paramTypeKey ? `${methodName}/${argCount}@${paramTypeKey}` : undefined;
+    const specializationKey =
+      argCount !== undefined && args[0]
+        ? `${methodName}/${argCount}@${this.typeKey(this.resolveType(args[0], bind))}`
+        : undefined;
+    const overloadKey =
+      argCount !== undefined && paramTypeKey
+        ? `${methodName}/${argCount}@${paramTypeKey}`
+        : undefined;
     let def: FunctionTemplateDecl | undefined;
     for (const owner of this.methodOwnerNames(name)) {
       const byName = this.templateMethods.get(owner);
-      def = (overloadKey ? byName?.get(overloadKey) : undefined)
-        ?? (specializationKey ? byName?.get(specializationKey) : undefined)
-        ?? (argCount !== undefined ? byName?.get(`${methodName}/${argCount}`) : undefined)
-        ?? byName?.get(methodName);
+      def =
+        (overloadKey ? byName?.get(overloadKey) : undefined) ??
+        (specializationKey ? byName?.get(specializationKey) : undefined) ??
+        (argCount !== undefined ? byName?.get(`${methodName}/${argCount}`) : undefined) ??
+        byName?.get(methodName);
       if (def) break;
     }
     if (!def?.body) return null;
 
     // Out-of-class definitions do not repeat default arguments. Preserve defaults from the authoritative
     // class declaration so a source-compiled call such as needsCleanup() still passes its declared 50%.
-    const declared = inst?.tmpl.members.find((member): member is FunctionDecl =>
-      member.kind === "function" && member.name === methodName &&
-      member.params.length === (def.fnParams ?? []).length,
+    const declared = inst?.tmpl.members.find(
+      (member): member is FunctionDecl =>
+        member.kind === "function" &&
+        member.name === methodName &&
+        member.params.length === (def.fnParams ?? []).length,
     );
     const memberTemplate = !this.templates.has(name) && def.params.length > 0;
     if (!declared) return { def, bind, memberTemplate };
@@ -1411,14 +1738,24 @@ export class Codegen {
   }
 
   // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they track the real field
-  private hashContainerOffsets(name: string, args: TypeSpec[], b: Bindings, L: number): { elemSize: number; occBase: number; popOff: number; totalSize: number } | null {
+  private hashContainerOffsets(
+    name: string,
+    args: TypeSpec[],
+    b: Bindings,
+    L: number,
+  ): { elemSize: number; occBase: number; popOff: number; totalSize: number } | null {
     if (!this.templates.has(name) || !L) return null;
     const lt = this.layoutOfTemplate(name, args, b);
-    const el = lt.fields.get("_elements") ?? lt.fields.get("_keys");   // HashMap: _elements; HashSet: _keys
+    const el = lt.fields.get("_elements") ?? lt.fields.get("_keys"); // HashMap: _elements; HashSet: _keys
     const occ = lt.fields.get("_occupationFlags");
     const pop = lt.fields.get("_population");
     if (!el || !occ || !pop) return null;
-    return { elemSize: Math.floor(el.size / L), occBase: occ.offset, popOff: pop.offset, totalSize: lt.size };
+    return {
+      elemSize: Math.floor(el.size / L),
+      occBase: occ.offset,
+      popOff: pop.offset,
+      totalSize: lt.size,
+    };
   }
 
   // Concrete offsets/sizes for HashMap<K,V,L>. Key/value sizing follows standard C struct layout of
@@ -1437,7 +1774,18 @@ export class Codegen {
     const popOff = parsed?.popOff ?? occBase + Math.floor((L * 2 + 63) / 64) * 8;
     const totalSize = parsed?.totalSize ?? popOff + 16;
     const hashMode = keySize === 32 ? 0 : 1;
-    return { kind: "HashMap", L, elemSize, keySize, valOff, valSize, occBase, popOff, totalSize, hashMode };
+    return {
+      kind: "HashMap",
+      L,
+      elemSize,
+      keySize,
+      valOff,
+      valSize,
+      occBase,
+      popOff,
+      totalSize,
+      hashMode,
+    };
   }
 
   // HashSet<K,L>: keys-only — same probing/occupancy as HashMap with a zero-width value.
@@ -1453,7 +1801,18 @@ export class Codegen {
     const popOff = parsed?.popOff ?? occBase + Math.floor((L * 2 + 63) / 64) * 8;
     const totalSize = parsed?.totalSize ?? popOff + 16;
     const hashMode = keySize === 32 ? 0 : 1;
-    return { kind: "HashMap", L, elemSize, keySize, valOff: 0, valSize: 0, occBase, popOff, totalSize, hashMode };
+    return {
+      kind: "HashMap",
+      L,
+      elemSize,
+      keySize,
+      valOff: 0,
+      valSize: 0,
+      occBase,
+      popOff,
+      totalSize,
+      hashMode,
+    };
   }
 
   arrayInfo(args: TypeSpec[], b: Bindings = NO_BIND): ContainerInfo | null {
@@ -1465,7 +1824,16 @@ export class Codegen {
   }
 
   // Backing-store geometry for Collection<T, L>.element(i) = _elements[i & (L-1)].value — all offsets read from the parsed layout (the
-  collectionInfo(args: TypeSpec[], b: Bindings = NO_BIND): { L: number; elementsOff: number; stride: number; valueOff: number; elemType: TypeSpec } | null {
+  collectionInfo(
+    args: TypeSpec[],
+    b: Bindings = NO_BIND,
+  ): {
+    L: number;
+    elementsOff: number;
+    stride: number;
+    valueOff: number;
+    elemType: TypeSpec;
+  } | null {
     if (args.length < 2) return null;
     const L = Number(this.evalConstFromType(args[1], b));
     if (!L) return null;
@@ -1474,11 +1842,20 @@ export class Codegen {
     const elemLayout = this.layoutOfType({ kind: "name", name: "Element" }, bind);
     const valueF = elemLayout?.fields.get("value");
     if (!elementsF || !elemLayout || !valueF) return null;
-    return { L, elementsOff: elementsF.offset, stride: elemLayout.size, valueOff: valueF.offset, elemType: args[0] };
+    return {
+      L,
+      elementsOff: elementsF.offset,
+      stride: elemLayout.size,
+      valueOff: valueF.offset,
+      elemType: args[0],
+    };
   }
 
   // Backing-store geometry for LinkedList<T, L>.element(i) = _nodes[i & (L-1)].value — offsets from the parsed layout (the Node record
-  linkedListInfo(args: TypeSpec[], b: Bindings = NO_BIND): { L: number; nodesOff: number; stride: number; valueOff: number; elemType: TypeSpec } | null {
+  linkedListInfo(
+    args: TypeSpec[],
+    b: Bindings = NO_BIND,
+  ): { L: number; nodesOff: number; stride: number; valueOff: number; elemType: TypeSpec } | null {
     if (args.length < 2) return null;
     const L = Number(this.evalConstFromType(args[1], b));
     if (!L) return null;
@@ -1487,11 +1864,20 @@ export class Codegen {
     const nodeLayout = this.layoutOfType({ kind: "name", name: "Node" }, bind);
     const valueF = nodeLayout?.fields.get("value");
     if (!nodesF || !nodeLayout || !valueF) return null;
-    return { L, nodesOff: nodesF.offset, stride: nodeLayout.size, valueOff: valueF.offset, elemType: args[0] };
+    return {
+      L,
+      nodesOff: nodesF.offset,
+      stride: nodeLayout.size,
+      valueOff: valueF.offset,
+      elemType: args[0],
+    };
   }
 
   warn(message: string, at: number | Span): void {
-    if ((globalThis as any).process?.env?.QINIT_WARN_TRACE && message.includes((globalThis as any).process.env.QINIT_WARN_TRACE) ) {
+    if (
+      (globalThis as any).process?.env?.QINIT_WARN_TRACE &&
+      message.includes((globalThis as any).process.env.QINIT_WARN_TRACE)
+    ) {
       console.error(new Error(`TRACE: ${message}`).stack);
     }
     const line = typeof at === "number" ? at : at.line;

@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  compileContract,
-  type CalleeIdl,
-  type CompileOpts,
-} from "../../src/index";
+import { compileContract, type CalleeIdl, type CompileOpts } from "../../src/index";
 
 const VALID_SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -91,41 +87,55 @@ describe("compiler option validation", () => {
     test(`rejects ${label} shared memory base`, () => expectRejected({ sharedMemBase }));
   }
 
-  test("rejects duplicate callee names", () => expectRejected({
-    callees: [CALLEE, { ...CALLEE, index: 29 }],
-  }));
+  test("rejects duplicate callee names", () =>
+    expectRejected({
+      callees: [CALLEE, { ...CALLEE, index: 29 }],
+    }));
 
-  test("rejects duplicate callee indices", () => expectRejected({
-    callees: [CALLEE, { ...CALLEE, name: "Another" }],
-  }));
+  test("rejects duplicate callee indices", () =>
+    expectRejected({
+      callees: [CALLEE, { ...CALLEE, name: "Another" }],
+    }));
 
-  test("rejects negative callee ABI sizes", () => expectRejected({
-    callees: [{
-      ...CALLEE,
-      functions: { Ping: { inputType: 1, inSize: -1, outSize: 8 } },
-    }],
-  }));
+  test("rejects negative callee ABI sizes", () =>
+    expectRejected({
+      callees: [
+        {
+          ...CALLEE,
+          functions: { Ping: { inputType: 1, inSize: -1, outSize: 8 } },
+        },
+      ],
+    }));
 
-  test("rejects fractional callee ABI sizes", () => expectRejected({
-    callees: [{
-      ...CALLEE,
-      functions: { Ping: { inputType: 1, inSize: 0, outSize: 1.5 } },
-    }],
-  }));
+  test("rejects fractional callee ABI sizes", () =>
+    expectRejected({
+      callees: [
+        {
+          ...CALLEE,
+          functions: { Ping: { inputType: 1, inSize: 0, outSize: 1.5 } },
+        },
+      ],
+    }));
 
-  test("surfaces parser errors from callee source", () => expectRejected({
-    callees: [CALLEE],
-    calleeSources: [{
-      name: "Other",
-      source: "struct Other : public ContractBase { struct Broken { uint64 value = ; }; };",
-    }],
-  }));
+  test("surfaces parser errors from callee source", () =>
+    expectRejected({
+      callees: [CALLEE],
+      calleeSources: [
+        {
+          name: "Other",
+          source: "struct Other : public ContractBase { struct Broken { uint64 value = ; }; };",
+        },
+      ],
+    }));
 
-  test("rejects callee IDL and source name mismatches", () => expectRejected({
-    callees: [CALLEE],
-    calleeSources: [{
-      name: "Different",
-      source: "struct Different : public ContractBase {};",
-    }],
-  }));
+  test("rejects callee IDL and source name mismatches", () =>
+    expectRejected({
+      callees: [CALLEE],
+      calleeSources: [
+        {
+          name: "Different",
+          source: "struct Different : public ContractBase {};",
+        },
+      ],
+    }));
 });

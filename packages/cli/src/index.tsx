@@ -8,11 +8,14 @@ import { initOutput } from "./args";
 
 // Safety net for async throws that escape a command's try/catch — print one clean line + exit 1
 // (instead of a raw stack dump that can also leave the terminal in Ink raw-mode).
-const die = (label: string, e: unknown) => { process.stderr.write(`\nqinit: ${label}: ${e instanceof Error ? e.message : String(e)}\n`); process.exit(1); };
+const die = (label: string, e: unknown) => {
+  process.stderr.write(`\nqinit: ${label}: ${e instanceof Error ? e.message : String(e)}\n`);
+  process.exit(1);
+};
 process.on("unhandledRejection", (e) => die("unhandled error", e));
 process.on("uncaughtException", (e) => die("fatal error", e));
 
-applyTheme(savedTheme());   // apply the saved color variant before anything renders
+applyTheme(savedTheme()); // apply the saved color variant before anything renders
 
 const [, , command = "help", ...args] = process.argv;
 
@@ -25,9 +28,14 @@ if (command === "__serve") {
   const sys = args.indexOf("--system");
   const pp = args.indexOf("--peer-port");
   const system = sys >= 0 && args[sys + 1] ? args[sys + 1].split(",").filter(Boolean) : [];
-  await serveEngine(rpc, tm >= 0 ? Number(args[tm + 1]) : undefined, system, pp >= 0 ? Number(args[pp + 1]) : 21841);
+  await serveEngine(
+    rpc,
+    tm >= 0 ? Number(args[tm + 1]) : undefined,
+    system,
+    pp >= 0 ? Number(args[pp + 1]) : 21841,
+  );
 }
 
-initOutput(args);   // detect --json / --plain (and auto-plain when piped / NO_COLOR) before rendering
+initOutput(args); // detect --json / --plain (and auto-plain when piped / NO_COLOR) before rendering
 const { waitUntilExit } = render(<App command={command} args={args} />);
 await waitUntilExit();

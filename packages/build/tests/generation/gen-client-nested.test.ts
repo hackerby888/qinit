@@ -56,7 +56,9 @@ test("nested-with-id input keeps the id token inside the brace", () => {
 
 test("recursive output mapper turns the decoder's positional arrays into named objects", () => {
   incl("return { p: ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(r as unknown[]) };");
-  incl("return { pts: (r as unknown[][]).map((e) => ({ x: e[0] as bigint, y: e[1] as bigint })) };");
+  incl(
+    "return { pts: (r as unknown[][]).map((e) => ({ x: e[0] as bigint, y: e[1] as bigint })) };",
+  );
 });
 
 test("array INPUT still falls back to a raw inFmt param (fixed-N can't be value-templated)", () => {
@@ -71,14 +73,19 @@ test.skipIf(!have("Qx"))("real QX/Quottery clients transpile cleanly (valid TS s
   }
 });
 
-test.skipIf(!have("Qx"))("real QX: nested order row + Asset input are fully typed (no `unknown`)", () => {
-  const qx = generateClient(extractIdl(srcOf("Qx"), "Qx"), 1);
-  // entity order book row carries all four named fields (the scoped-resolution fix)
-  expect(qx).toContain("issuer: string; assetName: bigint; price: bigint; numberOfShares: bigint }[]");
-  // share-management procedure takes typed args, not a hand-written format string
-  expect(qx).toContain("asset: { issuer: string; assetName: bigint }");
-  expect(qx).not.toContain("async TransferShareManagementRights(inFmt: string");
-});
+test.skipIf(!have("Qx"))(
+  "real QX: nested order row + Asset input are fully typed (no `unknown`)",
+  () => {
+    const qx = generateClient(extractIdl(srcOf("Qx"), "Qx"), 1);
+    // entity order book row carries all four named fields (the scoped-resolution fix)
+    expect(qx).toContain(
+      "issuer: string; assetName: bigint; price: bigint; numberOfShares: bigint }[]",
+    );
+    // share-management procedure takes typed args, not a hand-written format string
+    expect(qx).toContain("asset: { issuer: string; assetName: bigint }");
+    expect(qx).not.toContain("async TransferShareManagementRights(inFmt: string");
+  },
+);
 
 // ---- run the generated client against a fake RPC (byte-exact encode + typed decode) ----
 
@@ -89,10 +96,16 @@ async function loadGenerated(code: string, tag: string): Promise<any> {
   tmp.push(path);
   return import(path);
 }
-afterAll(() => { for (const p of tmp) try { unlinkSync(p); } catch {} });
+afterAll(() => {
+  for (const p of tmp)
+    try {
+      unlinkSync(p);
+    } catch {}
+});
 
 const sint64 = (...vs: bigint[]) => {
-  const b = new Uint8Array(vs.length * 8); const dv = new DataView(b.buffer);
+  const b = new Uint8Array(vs.length * 8);
+  const dv = new DataView(b.buffer);
   vs.forEach((v, i) => dv.setBigInt64(i * 8, v, true));
   return b;
 };
@@ -101,14 +114,20 @@ test("RUN: nested + array-of-struct outputs decode into typed named objects", as
   const mod = await loadGenerated(geoClient, "out");
   const rpc = {
     async querySmartContract(_idx: number, fnId: number): Promise<Uint8Array> {
-      if (fnId === 1) return sint64(5n, 7n);                       // GetPt -> Pt{5,7}
-      if (fnId === 2) return sint64(1n, 2n, 3n, 4n, 5n, 6n);       // ListPts -> 3 Pts
+      if (fnId === 1) return sint64(5n, 7n); // GetPt -> Pt{5,7}
+      if (fnId === 2) return sint64(1n, 2n, 3n, 4n, 5n, 6n); // ListPts -> 3 Pts
       throw new Error("unexpected fn " + fnId);
     },
   };
   const c = new mod.Geo({ rpc, index: 5 });
   expect(await c.GetPt()).toEqual({ p: { x: 5n, y: 7n } });
-  expect(await c.ListPts()).toEqual({ pts: [{ x: 1n, y: 2n }, { x: 3n, y: 4n }, { x: 5n, y: 6n }] });
+  expect(await c.ListPts()).toEqual({
+    pts: [
+      { x: 1n, y: 2n },
+      { x: 3n, y: 4n },
+      { x: 5n, y: 6n },
+    ],
+  });
 });
 
 test("RUN: nested struct input is byte-exact encoded (alignment incl. trailing pad)", async () => {

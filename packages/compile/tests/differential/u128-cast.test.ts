@@ -42,7 +42,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 // native-verified with a=2, b=5: f0/f1 = 2-5 wrapped in uint64 (high stays 0 — no 128-bit borrow), f2/f3
-const EXPECTED = "fdffffffffffffff00000000000000000a000000000000000000000000000000fdffffffffffffff000000000000000033333333333333330000000000000000";
+const EXPECTED =
+  "fdffffffffffffff00000000000000000a000000000000000000000000000000fdffffffffffffff000000000000000033333333333333330000000000000000";
 const INPUT = [2n, 5n, 0n, 0n];
 
 const runState = (wasm: Uint8Array): string => {
@@ -73,7 +74,13 @@ describe("uint128 casts of scalar expressions", () => {
   });
 
   test("scalar-domain evaluation and computed decl-inits", async () => {
-    const ours = await compileContract({ source: SOURCE, name: "UC", slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+    const ours = await compileContract({
+      source: SOURCE,
+      name: "UC",
+      slot: 27,
+      qpiHeader: HEADERS,
+      arenaSz: 1 << 20,
+    });
     expect(ours.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
     expect(runState(ours.wasm)).toBe(EXPECTED);
 
@@ -81,7 +88,14 @@ describe("uint128 casts of scalar expressions", () => {
       const dir = mkdtempSync(join(tmpdir(), "u128cast-"));
       try {
         writeFileSync(join(dir, "UC.h"), SOURCE);
-        const built = await buildContract({ contractPath: join(dir, "UC.h"), name: "UC", slot: 27, corePath: CORE, outDir: dir, skipVerify: true });
+        const built = await buildContract({
+          contractPath: join(dir, "UC.h"),
+          name: "UC",
+          slot: 27,
+          corePath: CORE,
+          outDir: dir,
+          skipVerify: true,
+        });
         expect(built.ok).toBe(true);
         expect(runState(new Uint8Array(readFileSync(built.so!)))).toBe(EXPECTED);
       } finally {

@@ -3,13 +3,31 @@
 import type { Token, TokenKind } from "./lexer";
 import { Lexer, isTypeKeyword } from "./lexer";
 import type {
-  Span, TypeSpec, Expression, Statement, Declaration,
-  StructDecl, ClassTemplateDecl, FunctionTemplateDecl, FunctionDecl,
-  VariableDecl, EnumDecl, EnumeratorDecl,
-  TypedefDeclNode, NamespaceDecl, StaticAssertDecl,
-  ExternBlockDecl, FriendDecl, EmptyDecl,
-  TemplateParam, ParamDecl, AccessSpec,
-  TranslationUnit, UnaryOp, BinaryOp, AssignOp,
+  Span,
+  TypeSpec,
+  Expression,
+  Statement,
+  Declaration,
+  StructDecl,
+  ClassTemplateDecl,
+  FunctionTemplateDecl,
+  FunctionDecl,
+  VariableDecl,
+  EnumDecl,
+  EnumeratorDecl,
+  TypedefDeclNode,
+  NamespaceDecl,
+  StaticAssertDecl,
+  ExternBlockDecl,
+  FriendDecl,
+  EmptyDecl,
+  TemplateParam,
+  ParamDecl,
+  AccessSpec,
+  TranslationUnit,
+  UnaryOp,
+  BinaryOp,
+  AssignOp,
 } from "./ast";
 
 export interface Diagnostic {
@@ -22,9 +40,26 @@ export interface Diagnostic {
 
 // Scalar typedef spellings that remain casts even in the `(name) & x` binary-ambiguous position.
 const SCALAR_CAST_NAMES = new Set([
-  "sint8", "uint8", "sint16", "uint16", "sint32", "uint32", "sint64", "uint64",
-  "bit", "uint128", "uint128_t", "size_t",
-  "int8_t", "uint8_t", "int16_t", "uint16_t", "int32_t", "uint32_t", "int64_t", "uint64_t",
+  "sint8",
+  "uint8",
+  "sint16",
+  "uint16",
+  "sint32",
+  "uint32",
+  "sint64",
+  "uint64",
+  "bit",
+  "uint128",
+  "uint128_t",
+  "size_t",
+  "int8_t",
+  "uint8_t",
+  "int16_t",
+  "uint16_t",
+  "int32_t",
+  "uint32_t",
+  "int64_t",
+  "uint64_t",
 ]);
 
 export class Parser {
@@ -257,7 +292,15 @@ export class Parser {
         this.next();
         const targetType = this.parseTypeSpec();
         const targetName = targetType.kind === "name" ? targetType.name : "?";
-        return this.parseFunctionRest(`operator ${targetName}`, targetType, false, false, false, false, false);
+        return this.parseFunctionRest(
+          `operator ${targetName}`,
+          targetType,
+          false,
+          false,
+          false,
+          false,
+          false,
+        );
       }
       default:
         // Skip unknown token — qpi.h has constructs our subset parser doesn't handle. Recorded as a
@@ -356,8 +399,16 @@ export class Parser {
     const args: TypeSpec[] = [];
     while (!this.eof() && this.peek().kind !== "r_angle") {
       const k = this.peek().kind;
-      if (k === "int_literal" || k === "l_paren" || k === "kw_sizeof" || k === "char_literal" ||
-        k === "minus" || k === "tilde" || k === "kw_true" || k === "kw_false") {
+      if (
+        k === "int_literal" ||
+        k === "l_paren" ||
+        k === "kw_sizeof" ||
+        k === "char_literal" ||
+        k === "minus" ||
+        k === "tilde" ||
+        k === "kw_true" ||
+        k === "kw_false"
+      ) {
         args.push({ kind: "expr_value", expr: this.parseShift(), span: this.peek().span });
       } else {
         args.push(this.parseTypeSpec());
@@ -489,17 +540,33 @@ export class Parser {
     // Storage-class / qualifier specifiers before the return type (static constexpr inline ...).
     let isConstexpr = false;
     while (true) {
-      if (this.tryConsumeKw("static")) { continue; }
-      if (this.tryConsumeKw("inline")) { continue; }
-      if (this.tryConsumeKw("constexpr")) { isConstexpr = true; continue; }
-      if (this.tryConsumeKw("friend")) { continue; }
+      if (this.tryConsumeKw("static")) {
+        continue;
+      }
+      if (this.tryConsumeKw("inline")) {
+        continue;
+      }
+      if (this.tryConsumeKw("constexpr")) {
+        isConstexpr = true;
+        continue;
+      }
+      if (this.tryConsumeKw("friend")) {
+        continue;
+      }
       break;
     }
 
     const retType = this.parseTypeSpec();
     const nameTok = this.parseMaybeQualifiedName();
     if (!nameTok) {
-      return { kind: "function_template", name: "", params, returnType: retType, isConstexpr, span: this.peek().span };
+      return {
+        kind: "function_template",
+        name: "",
+        params,
+        returnType: retType,
+        isConstexpr,
+        span: this.peek().span,
+      };
     }
 
     this.expect("l_paren", "function params");
@@ -604,7 +671,12 @@ export class Parser {
 
       this.expect("semicolon", "typedef");
       // Return a simplified typedef — the exact signature doesn't matter for our subset
-      return { kind: "typedef_decl", name: nameTok?.text ?? "fn_ptr", type: { kind: "pointer", pointee: { kind: "void" } }, span: this.makeSpan(start) };
+      return {
+        kind: "typedef_decl",
+        name: nameTok?.text ?? "fn_ptr",
+        type: { kind: "pointer", pointee: { kind: "void" } },
+        span: this.makeSpan(start),
+      };
     }
 
     const nameTok = this.expect("identifier", "typedef name");
@@ -694,10 +766,32 @@ export class Parser {
     const decl = this.parseDeclaration();
 
     if (!decl) {
-      return { kind: "friend", decl: { kind: "function", name: "", returnType: { kind: "void" }, params: [], isConstexpr: false, isStatic: false, isInline: false, isExternC: false, isVirtual: false, isOverride: false, isDeleted: false, isDefault: false, span: start }, span: start };
+      return {
+        kind: "friend",
+        decl: {
+          kind: "function",
+          name: "",
+          returnType: { kind: "void" },
+          params: [],
+          isConstexpr: false,
+          isStatic: false,
+          isInline: false,
+          isExternC: false,
+          isVirtual: false,
+          isOverride: false,
+          isDeleted: false,
+          isDefault: false,
+          span: start,
+        },
+        span: start,
+      };
     }
 
-    return { kind: "friend", decl: decl as FunctionDecl | StructDecl | ClassTemplateDecl, span: this.makeSpan(start) };
+    return {
+      kind: "friend",
+      decl: decl as FunctionDecl | StructDecl | ClassTemplateDecl,
+      span: this.makeSpan(start),
+    };
   }
 
   private parseAccessSpec(): EmptyDecl {
@@ -717,12 +811,19 @@ export class Parser {
 
     // Consume modifiers
     while (!this.eof()) {
-      if (this.tryConsumeKw("constexpr")) { isConstexpr = true; }
-      else if (this.tryConsumeKw("static")) { isStatic = true; }
-      else if (this.tryConsumeKw("inline")) { isInline = true; }
-      else if (this.tryConsumeKw("virtual")) { isVirtual = true; }
-      else if (this.tryConsumeKw("extern")) { isExtern = true; }
-      else { break; }
+      if (this.tryConsumeKw("constexpr")) {
+        isConstexpr = true;
+      } else if (this.tryConsumeKw("static")) {
+        isStatic = true;
+      } else if (this.tryConsumeKw("inline")) {
+        isInline = true;
+      } else if (this.tryConsumeKw("virtual")) {
+        isVirtual = true;
+      } else if (this.tryConsumeKw("extern")) {
+        isExtern = true;
+      } else {
+        break;
+      }
     }
 
     return this.parseAfterModifiers(isConstexpr, isStatic, isInline, isVirtual, isExtern);
@@ -757,8 +858,11 @@ export class Parser {
   }
 
   private parseAfterModifiers(
-    isConstexpr: boolean, isStatic: boolean, isInline: boolean,
-    isVirtual: boolean, isExtern: boolean,
+    isConstexpr: boolean,
+    isStatic: boolean,
+    isInline: boolean,
+    isVirtual: boolean,
+    isExtern: boolean,
   ): Declaration {
     // Parse return type (or variable type)
     const type = this.parseTypeSpec();
@@ -769,7 +873,15 @@ export class Parser {
     if (!name) {
       // Constructor / destructor: `ClassName(...) {...}` or `~ClassName() {...}` — no return type. Parse
       if (this.peek().kind === "l_paren" && type.kind === "name") {
-        return this.parseFunctionRest(type.name, { kind: "void" }, isConstexpr, isStatic, isInline, isVirtual, isExtern);
+        return this.parseFunctionRest(
+          type.name,
+          { kind: "void" },
+          isConstexpr,
+          isStatic,
+          isInline,
+          isVirtual,
+          isExtern,
+        );
       }
       // Just a type with no name — semicolon
       this.expect("semicolon", "declaration");
@@ -781,7 +893,15 @@ export class Parser {
       if (this.looksLikeDirectInit()) {
         return this.parseDirectInitVar(name, type, isConstexpr, isStatic);
       }
-      return this.parseFunctionRest(name, type, isConstexpr, isStatic, isInline, isVirtual, isExtern);
+      return this.parseFunctionRest(
+        name,
+        type,
+        isConstexpr,
+        isStatic,
+        isInline,
+        isVirtual,
+        isExtern,
+      );
     }
 
     // Variable: name; or name = init;
@@ -792,15 +912,28 @@ export class Parser {
   private looksLikeDirectInit(): boolean {
     const after = this.peek(1).kind;
     return (
-      after === "kw_sizeof" || after === "int_literal" || after === "float_literal" ||
-      after === "string_literal" || after === "char_literal" || after === "kw_true" ||
-      after === "kw_false" || after === "kw_nullptr" || after === "minus" ||
+      after === "kw_sizeof" ||
+      after === "int_literal" ||
+      after === "float_literal" ||
+      after === "string_literal" ||
+      after === "char_literal" ||
+      after === "kw_true" ||
+      after === "kw_false" ||
+      after === "kw_nullptr" ||
+      after === "minus" ||
       // A `{` after `(` is a braced-init constructor argument (`AssetPossessionIterator iter({NULL_ID, name})`) a parameter list can't open with
-      after === "bang" || after === "tilde" || after === "l_brace"
+      after === "bang" ||
+      after === "tilde" ||
+      after === "l_brace"
     );
   }
 
-  private parseDirectInitVar(name: string, type: TypeSpec, isConstexpr: boolean, isStatic: boolean): VariableDecl {
+  private parseDirectInitVar(
+    name: string,
+    type: TypeSpec,
+    isConstexpr: boolean,
+    isStatic: boolean,
+  ): VariableDecl {
     const start = this.peek().span;
     this.expect("l_paren", "ctor args");
     const args: Expression[] = [];
@@ -813,9 +946,15 @@ export class Parser {
     this.expect("r_paren", "ctor args close");
     this.expect("semicolon", "direct-init declaration");
     return {
-      kind: "variable", name, type,
+      kind: "variable",
+      name,
+      type,
       init: { kind: "construct", type, args, span: start },
-      isConstexpr, isStatic, isExtern: false, isMember: false, access: "public",
+      isConstexpr,
+      isStatic,
+      isExtern: false,
+      isMember: false,
+      access: "public",
       span: this.makeSpan(start),
     };
   }
@@ -827,9 +966,13 @@ export class Parser {
   }
 
   private parseFunctionRest(
-    name: string, retType: TypeSpec,
-    isConstexpr: boolean, isStatic: boolean, isInline: boolean,
-    isVirtual: boolean, isExternC: boolean,
+    name: string,
+    retType: TypeSpec,
+    isConstexpr: boolean,
+    isStatic: boolean,
+    isInline: boolean,
+    isVirtual: boolean,
+    isExternC: boolean,
   ): FunctionDecl {
     const start = this.peek(-1)?.span || this.peek().span;
 
@@ -881,7 +1024,12 @@ export class Parser {
     };
   }
 
-  private parseVariableRest(name: string, type: TypeSpec, isConstexpr: boolean, isStatic: boolean): Declaration {
+  private parseVariableRest(
+    name: string,
+    type: TypeSpec,
+    isConstexpr: boolean,
+    isStatic: boolean,
+  ): Declaration {
     const vars = this.parseDeclaratorList(type, name, isConstexpr, isStatic);
     // First declarator is returned; the rest are queued for the enclosing member/decl loop.
     for (let i = 1; i < vars.length; i++) this.pending.push(vars[i]);
@@ -889,7 +1037,12 @@ export class Parser {
   }
 
   // Parse one or more declarators sharing a base type: `name[dim]...`, `name = init`, `, name2, ...`, terminated by
-  private parseDeclaratorList(baseType: TypeSpec, firstName: string, isConstexpr: boolean, isStatic: boolean): VariableDecl[] {
+  private parseDeclaratorList(
+    baseType: TypeSpec,
+    firstName: string,
+    isConstexpr: boolean,
+    isStatic: boolean,
+  ): VariableDecl[] {
     const out: VariableDecl[] = [];
     let name = firstName;
 
@@ -918,14 +1071,22 @@ export class Parser {
       } else if (this.peek().kind === "l_brace") {
         // Direct-list initialization is executable semantics, not layout trivia. Preserve the
         const list = this.parseExpression();
-        init = type.kind === "array" || list.kind !== "initializer_list"
-          ? list
-          : { kind: "construct", type, args: list.exprs, span: list.span };
+        init =
+          type.kind === "array" || list.kind !== "initializer_list"
+            ? list
+            : { kind: "construct", type, args: list.exprs, span: list.span };
       }
 
       out.push({
-        kind: "variable", name, type, init,
-        isConstexpr, isStatic, isExtern: false, isMember: false, access: "public",
+        kind: "variable",
+        name,
+        type,
+        init,
+        isConstexpr,
+        isStatic,
+        isExtern: false,
+        isMember: false,
+        access: "public",
         span: this.makeSpan(start),
       });
 
@@ -933,7 +1094,10 @@ export class Parser {
         // next declarator: optional * / & then a name
         while (this.peek().kind === "star" || this.peek().kind === "amp") this.next();
         const n = this.peek();
-        if (n.kind === "identifier") { name = this.next().text; continue; }
+        if (n.kind === "identifier") {
+          name = this.next().text;
+          continue;
+        }
       }
       break;
     }
@@ -1004,7 +1168,11 @@ export class Parser {
     while (!this.eof()) {
       if (this.tryConsume("star")) {
         type = { kind: "pointer", pointee: type, span: type.span };
-      } else if (this.peek().kind === "amp" && this.peek(1).kind !== "amp" && this.peek(1).kind !== "eq") {
+      } else if (
+        this.peek().kind === "amp" &&
+        this.peek(1).kind !== "amp" &&
+        this.peek(1).kind !== "eq"
+      ) {
         // & (but not && or &=)
         this.next();
         type = { kind: "reference", refereed: type, span: type.span };
@@ -1046,7 +1214,12 @@ export class Parser {
     }
 
     // struct / enum / class / union prefix
-    if (tok.kind === "kw_struct" || tok.kind === "kw_enum" || tok.kind === "kw_class" || tok.kind === "kw_union") {
+    if (
+      tok.kind === "kw_struct" ||
+      tok.kind === "kw_enum" ||
+      tok.kind === "kw_class" ||
+      tok.kind === "kw_union"
+    ) {
       this.next();
       const name = this.next().text;
       return { kind: "name", name, span: tok.span };
@@ -1077,11 +1250,27 @@ export class Parser {
       while (!this.eof() && this.peek().kind !== "r_angle") {
         const k = this.peek().kind;
         // Non-type arg that is a value expression (literal, paren, sizeof, `-N`, `~N`) — parse at shift precedence so
-        if (k === "int_literal" || k === "l_paren" || k === "kw_sizeof" || k === "char_literal" ||
-          k === "minus" || k === "tilde" || k === "kw_true" || k === "kw_false" || this.templateArgIsExpr()) {
+        if (
+          k === "int_literal" ||
+          k === "l_paren" ||
+          k === "kw_sizeof" ||
+          k === "char_literal" ||
+          k === "minus" ||
+          k === "tilde" ||
+          k === "kw_true" ||
+          k === "kw_false" ||
+          this.templateArgIsExpr()
+        ) {
           args.push({ kind: "expr_value", expr: this.parseShift(), span: this.peek().span });
-        } else if (k === "d_colon" || k === "identifier" || isTypeKeyword(k) || k === "kw_const" ||
-          k === "kw_struct" || k === "kw_unsigned" || k === "kw_signed") {
+        } else if (
+          k === "d_colon" ||
+          k === "identifier" ||
+          isTypeKeyword(k) ||
+          k === "kw_const" ||
+          k === "kw_struct" ||
+          k === "kw_unsigned" ||
+          k === "kw_signed"
+        ) {
           args.push(this.parseTypeSpec());
         } else {
           const name = this.parseMaybeQualifiedName() || this.next().text;
@@ -1112,7 +1301,15 @@ export class Parser {
     let i = 1;
     while (this.peek(i).kind === "d_colon" && this.peek(i + 1).kind === "identifier") i += 2;
     const op = this.peek(i).kind;
-    if (op !== "star" && op !== "plus" && op !== "slash" && op !== "percent" && op !== "l_shift" && op !== "r_shift") return false;
+    if (
+      op !== "star" &&
+      op !== "plus" &&
+      op !== "slash" &&
+      op !== "percent" &&
+      op !== "l_shift" &&
+      op !== "r_shift"
+    )
+      return false;
     const after = this.peek(i + 1).kind;
     return after === "identifier" || after === "int_literal" || after === "l_paren";
   }
@@ -1149,9 +1346,17 @@ export class Parser {
 
     const tok = this.peek();
     const assignOps: Record<string, AssignOp> = {
-      "eq": "=", "plus_eq": "+=", "minus_eq": "-=", "star_eq": "*=",
-      "slash_eq": "/=", "percent_eq": "%=", "l_shift_eq": "<<=",
-      "r_shift_eq": ">>=", "amp_eq": "&=", "pipe_eq": "|=", "caret_eq": "^=",
+      eq: "=",
+      plus_eq: "+=",
+      minus_eq: "-=",
+      star_eq: "*=",
+      slash_eq: "/=",
+      percent_eq: "%=",
+      l_shift_eq: "<<=",
+      r_shift_eq: ">>=",
+      amp_eq: "&=",
+      pipe_eq: "|=",
+      caret_eq: "^=",
     };
 
     const op = assignOps[tok.kind];
@@ -1239,10 +1444,22 @@ export class Parser {
       const tok = this.peek();
       if (tok.kind === "eq_eq") {
         this.next();
-        left = { kind: "binary_op", op: "==", left, right: this.parseComparison(), span: left.span };
+        left = {
+          kind: "binary_op",
+          op: "==",
+          left,
+          right: this.parseComparison(),
+          span: left.span,
+        };
       } else if (tok.kind === "not_eq") {
         this.next();
-        left = { kind: "binary_op", op: "!=", left, right: this.parseComparison(), span: left.span };
+        left = {
+          kind: "binary_op",
+          op: "!=",
+          left,
+          right: this.parseComparison(),
+          span: left.span,
+        };
       } else {
         break;
       }
@@ -1258,7 +1475,10 @@ export class Parser {
       const tok = this.peek();
       // `<` / `>` lex as l_angle / r_angle (shared with template brackets). At this precedence level
       const ops: Record<string, BinaryOp> = {
-        "l_angle": "<", "r_angle": ">", "lt_eq": "<=", "gt_eq": ">=",
+        l_angle: "<",
+        r_angle: ">",
+        lt_eq: "<=",
+        gt_eq: ">=",
       };
       // Inside a template arg/param list a top-level `>` / `>=` closes the list, not a comparison.
       if (this.gtDisabled > 0 && (tok.kind === "r_angle" || tok.kind === "gt_eq")) {
@@ -1304,9 +1524,21 @@ export class Parser {
 
     while (!this.eof()) {
       if (this.tryConsume("plus")) {
-        left = { kind: "binary_op", op: "+", left, right: this.parseMultiplicative(), span: left.span };
+        left = {
+          kind: "binary_op",
+          op: "+",
+          left,
+          right: this.parseMultiplicative(),
+          span: left.span,
+        };
       } else if (this.tryConsume("minus")) {
-        left = { kind: "binary_op", op: "-", left, right: this.parseMultiplicative(), span: left.span };
+        left = {
+          kind: "binary_op",
+          op: "-",
+          left,
+          right: this.parseMultiplicative(),
+          span: left.span,
+        };
       } else {
         break;
       }
@@ -1350,9 +1582,21 @@ export class Parser {
     }
 
     // Prefix operators
-    if (tok.kind === "bang" || tok.kind === "tilde" || tok.kind === "minus" || tok.kind === "plus" || tok.kind === "star" || tok.kind === "amp") {
+    if (
+      tok.kind === "bang" ||
+      tok.kind === "tilde" ||
+      tok.kind === "minus" ||
+      tok.kind === "plus" ||
+      tok.kind === "star" ||
+      tok.kind === "amp"
+    ) {
       const opMap: Record<string, UnaryOp> = {
-        "bang": "!", "tilde": "~", "minus": "-", "plus": "+", "star": "*", "amp": "&",
+        bang: "!",
+        tilde: "~",
+        minus: "-",
+        plus: "+",
+        star: "*",
+        amp: "&",
       };
       const op = opMap[tok.kind];
       if (op) {
@@ -1364,7 +1608,7 @@ export class Parser {
 
     // Prefix ++ / --
     if (tok.kind === "plus_plus" || tok.kind === "minus_minus") {
-      const op = tok.kind === "plus_plus" ? "++" as const : "--" as const;
+      const op = tok.kind === "plus_plus" ? ("++" as const) : ("--" as const);
       this.next();
       const arg = this.parseUnary();
       return { kind: "prefix_op", op, arg, span: tok.span };
@@ -1390,7 +1634,10 @@ export class Parser {
       const tok = this.peek();
 
       // Brace-init / aggregate construction: TypeName{ a, b, c } (e.g. Logger{ idx, code, 0 }). Only an
-      if (tok.kind === "l_brace" && (expr.kind === "identifier" || expr.kind === "qualified_name")) {
+      if (
+        tok.kind === "l_brace" &&
+        (expr.kind === "identifier" || expr.kind === "qualified_name")
+      ) {
         const name = expr.kind === "identifier" ? expr.name : `${expr.namespace}::${expr.name}`;
         this.next(); // {
         const args: Expression[] = [];
@@ -1409,7 +1656,13 @@ export class Parser {
         this.next();
         const memberTok = this.expect("identifier", "member access");
         if (memberTok) {
-          expr = { kind: "member_access", object: expr, member: memberTok.text, arrow, span: expr.span };
+          expr = {
+            kind: "member_access",
+            object: expr,
+            member: memberTok.text,
+            arrow,
+            span: expr.span,
+          };
         }
         continue;
       }
@@ -1441,8 +1694,17 @@ export class Parser {
           const k = this.peek().kind;
           // Function-template arguments may be non-type values (`irootK64<2>` and
           // `irootNewtonStep<k>`), just like class-template arguments. Preserve the
-          if (k === "int_literal" || k === "l_paren" || k === "kw_sizeof" || k === "char_literal" ||
-            k === "minus" || k === "tilde" || k === "kw_true" || k === "kw_false" || this.templateArgIsExpr()) {
+          if (
+            k === "int_literal" ||
+            k === "l_paren" ||
+            k === "kw_sizeof" ||
+            k === "char_literal" ||
+            k === "minus" ||
+            k === "tilde" ||
+            k === "kw_true" ||
+            k === "kw_false" ||
+            this.templateArgIsExpr()
+          ) {
             templateArgs.push({ kind: "expr_value", expr: this.parseShift(), span: argStart });
           } else {
             templateArgs.push(this.parseTypeSpec());
@@ -1461,7 +1723,7 @@ export class Parser {
 
       // Postfix ++ / --
       if (tok.kind === "plus_plus" || tok.kind === "minus_minus") {
-        const op = tok.kind === "plus_plus" ? "++" as const : "--" as const;
+        const op = tok.kind === "plus_plus" ? ("++" as const) : ("--" as const);
         this.next();
         expr = { kind: "postfix_op", op, arg: expr, span: expr.span };
         continue;
@@ -1482,14 +1744,39 @@ export class Parser {
     let guard = 0;
     while (!this.eof() && depth > 0 && guard++ < 200) {
       const k = this.peek().kind;
-      if (k === "l_angle") { depth++; this.next(); continue; }
-      if (k === "r_angle") { depth--; this.next(); continue; }
-      if (k === "r_shift") { depth -= 2; this.next(); continue; }
+      if (k === "l_angle") {
+        depth++;
+        this.next();
+        continue;
+      }
+      if (k === "r_angle") {
+        depth--;
+        this.next();
+        continue;
+      }
+      if (k === "r_shift") {
+        depth -= 2;
+        this.next();
+        continue;
+      }
       // Tokens that can't appear inside a template-argument list → it's a comparison.
-      if (k === "semicolon" || k === "l_brace" || k === "r_brace" || k === "eq" ||
-        k === "plus" || k === "minus" || k === "slash" || k === "percent" || k === "question" ||
-        k === "amp_amp" || k === "pipe_pipe" || k === "eq_eq" || k === "not_eq" ||
-        k === "l_paren" || k === "r_paren") {
+      if (
+        k === "semicolon" ||
+        k === "l_brace" ||
+        k === "r_brace" ||
+        k === "eq" ||
+        k === "plus" ||
+        k === "minus" ||
+        k === "slash" ||
+        k === "percent" ||
+        k === "question" ||
+        k === "amp_amp" ||
+        k === "pipe_pipe" ||
+        k === "eq_eq" ||
+        k === "not_eq" ||
+        k === "l_paren" ||
+        k === "r_paren"
+      ) {
         ok = false;
         break;
       }
@@ -1627,10 +1914,18 @@ export class Parser {
         this.next();
         const opTok = this.peek();
         if (opTok.kind === "l_paren" && this.peek(1).kind === "r_paren") {
-          this.next(); this.next(); parts.push("operator()");
+          this.next();
+          this.next();
+          parts.push("operator()");
         } else if (opTok.kind === "l_bracket" && this.peek(1).kind === "r_bracket") {
-          this.next(); this.next(); parts.push("operator[]");
-        } else if (opTok.kind === "identifier" || isTypeKeyword(opTok.kind) || opTok.kind === "kw_bool") {
+          this.next();
+          this.next();
+          parts.push("operator[]");
+        } else if (
+          opTok.kind === "identifier" ||
+          isTypeKeyword(opTok.kind) ||
+          opTok.kind === "kw_bool"
+        ) {
           // conversion operator: operator bool() / operator T()
           parts.push("operator " + this.next().text);
         } else {
@@ -1699,9 +1994,19 @@ export class Parser {
       for (; !this.eof(); j++) {
         const k = this.peek(j).kind;
         if (k === "l_angle") depth++;
-        else if (k === "r_angle") { if (--depth === 0) { j++; break; } }
-        else if (k === "r_shift") { depth -= 2; if (depth <= 0) { j++; break; } }
-        else if (k === "semicolon" || k === "l_brace" || k === "r_brace" || k === "r_paren") return false;
+        else if (k === "r_angle") {
+          if (--depth === 0) {
+            j++;
+            break;
+          }
+        } else if (k === "r_shift") {
+          depth -= 2;
+          if (depth <= 0) {
+            j++;
+            break;
+          }
+        } else if (k === "semicolon" || k === "l_brace" || k === "r_brace" || k === "r_paren")
+          return false;
       }
       if (depth > 0) return false;
       i = j;
@@ -1716,12 +2021,25 @@ export class Parser {
   private skipAngleArgs(): boolean {
     if (this.peek().kind !== "l_angle") return false;
     this.next(); // <
-    let depth = 1, guard = 0;
+    let depth = 1,
+      guard = 0;
     while (!this.eof() && depth > 0 && guard++ < 500) {
       const k = this.peek().kind;
-      if (k === "l_angle") { depth++; this.next(); continue; }
-      if (k === "r_angle") { depth--; this.next(); continue; }
-      if (k === "r_shift") { depth -= 2; this.next(); continue; }
+      if (k === "l_angle") {
+        depth++;
+        this.next();
+        continue;
+      }
+      if (k === "r_angle") {
+        depth--;
+        this.next();
+        continue;
+      }
+      if (k === "r_shift") {
+        depth -= 2;
+        this.next();
+        continue;
+      }
       if (k === "semicolon" || k === "l_brace") return false;
       this.next();
     }
@@ -1747,16 +2065,37 @@ export class Parser {
     while (!this.eof()) {
       const t = this.peek();
       // In this subset, C-style casts have no parenthesized nested expressions.
-      if (t.kind === "l_paren") { depth++; sawNestedParen = true; this.next(); continue; }
+      if (t.kind === "l_paren") {
+        depth++;
+        sawNestedParen = true;
+        this.next();
+        continue;
+      }
       if (t.kind === "r_paren") {
-        if (depth === 0) { this.next(); break; }
-        depth--; this.next(); continue;
+        if (depth === 0) {
+          this.next();
+          break;
+        }
+        depth--;
+        this.next();
+        continue;
       }
       saw = true;
-      const ok = isTypeKeyword(t.kind) || t.kind === "kw_unsigned" || t.kind === "kw_signed" ||
-        t.kind === "kw_const" || t.kind === "kw_struct" || t.kind === "kw_enum" || t.kind === "kw_class" ||
-        t.kind === "star" || t.kind === "amp" || t.kind === "d_colon" ||
-        t.kind === "l_angle" || t.kind === "r_angle" || t.kind === "r_shift" || t.kind === "comma" ||
+      const ok =
+        isTypeKeyword(t.kind) ||
+        t.kind === "kw_unsigned" ||
+        t.kind === "kw_signed" ||
+        t.kind === "kw_const" ||
+        t.kind === "kw_struct" ||
+        t.kind === "kw_enum" ||
+        t.kind === "kw_class" ||
+        t.kind === "star" ||
+        t.kind === "amp" ||
+        t.kind === "d_colon" ||
+        t.kind === "l_angle" ||
+        t.kind === "r_angle" ||
+        t.kind === "r_shift" ||
+        t.kind === "comma" ||
         t.kind === "identifier";
       // C-style casts here only target scalar type spellings.
       if (t.kind === "l_angle" && depth === 0) sawAngle = true;
@@ -1766,10 +2105,17 @@ export class Parser {
       if (t.kind === "r_shift") angleDepth = Math.max(0, angleDepth - 2);
       // In type-id context, `*`/`&` act as declarator suffixes inside template-free area.
       if ((t.kind === "star" || t.kind === "amp") && angleDepth === 0) sawPtrRef = true;
-      if (sawPtrRef && angleDepth === 0 &&
-        (t.kind === "identifier" || t.kind === "d_colon" || isTypeKeyword(t.kind))) { pureType = false; }
-      if (isTypeKeyword(t.kind) || (t.kind === "identifier")) sawTypeToken = true;
-      if (!ok) { pureType = false; }
+      if (
+        sawPtrRef &&
+        angleDepth === 0 &&
+        (t.kind === "identifier" || t.kind === "d_colon" || isTypeKeyword(t.kind))
+      ) {
+        pureType = false;
+      }
+      if (isTypeKeyword(t.kind) || t.kind === "identifier") sawTypeToken = true;
+      if (!ok) {
+        pureType = false;
+      }
       tokenCount++;
       loneIdent = tokenCount === 1 && t.kind === "identifier" ? t.text : null;
       this.next();
@@ -1777,17 +2123,34 @@ export class Parser {
 
     // After the `)`, a cast must be followed by an operand (so `(id) + 5` is NOT a cast).
     const after = this.peek();
-    const operandFollows = after.kind === "identifier" || after.kind === "int_literal" ||
-      after.kind === "l_paren" || after.kind === "bang" || after.kind === "tilde" ||
-      after.kind === "minus" || after.kind === "plus" || after.kind === "amp" || after.kind === "star" ||
-      after.kind === "kw_true" || after.kind === "kw_false" || after.kind === "char_literal" ||
-      after.kind === "string_literal" || after.kind === "kw_this" || after.kind === "kw_sizeof";
+    const operandFollows =
+      after.kind === "identifier" ||
+      after.kind === "int_literal" ||
+      after.kind === "l_paren" ||
+      after.kind === "bang" ||
+      after.kind === "tilde" ||
+      after.kind === "minus" ||
+      after.kind === "plus" ||
+      after.kind === "amp" ||
+      after.kind === "star" ||
+      after.kind === "kw_true" ||
+      after.kind === "kw_false" ||
+      after.kind === "char_literal" ||
+      after.kind === "string_literal" ||
+      after.kind === "kw_this" ||
+      after.kind === "kw_sizeof";
 
     (this.lex as any).index = save;
 
     // `(name) & x` / `(name) * x` / `(name) + x` / `(name) - x`: C++ resolves this
-    if (loneIdent && !SCALAR_CAST_NAMES.has(loneIdent) &&
-      (after.kind === "amp" || after.kind === "star" || after.kind === "plus" || after.kind === "minus")) {
+    if (
+      loneIdent &&
+      !SCALAR_CAST_NAMES.has(loneIdent) &&
+      (after.kind === "amp" ||
+        after.kind === "star" ||
+        after.kind === "plus" ||
+        after.kind === "minus")
+    ) {
       return false;
     }
 
@@ -1809,8 +2172,15 @@ export class Parser {
     if (this.tryConsume("l_paren")) {
       // sizeof(T) or sizeof(expr) Check if it's a type
       const tok = this.peek();
-      if (isTypeKeyword(tok.kind) || tok.kind === "kw_unsigned" || tok.kind === "kw_signed" ||
-        tok.kind === "kw_struct" || tok.kind === "kw_enum" || tok.kind === "kw_const" || tok.kind === "kw_typename") {
+      if (
+        isTypeKeyword(tok.kind) ||
+        tok.kind === "kw_unsigned" ||
+        tok.kind === "kw_signed" ||
+        tok.kind === "kw_struct" ||
+        tok.kind === "kw_enum" ||
+        tok.kind === "kw_const" ||
+        tok.kind === "kw_typename"
+      ) {
         const type = this.parseTypeSpec();
         this.expect("r_paren", "sizeof type");
         return { kind: "sizeof_type", type, span: this.makeSpan(start) };
@@ -1855,17 +2225,46 @@ export class Parser {
     }
 
     // Control flow
-    if (tok.kind === "kw_if") { return this.parseIf(); }
-    if (tok.kind === "kw_for") { return this.parseFor(); }
-    if (tok.kind === "kw_while") { return this.parseWhile(); }
-    if (tok.kind === "kw_do") { return this.parseDoWhile(); }
-    if (tok.kind === "kw_switch") { return this.parseSwitch(); }
-    if (tok.kind === "kw_case") { return this.parseCase(); }
-    if (tok.kind === "kw_default") { return this.parseDefault(); }
-    if (tok.kind === "kw_break") { this.next(); this.expect("semicolon", "break"); return { kind: "break", span: tok.span }; }
-    if (tok.kind === "kw_continue") { this.next(); this.expect("semicolon", "continue"); return { kind: "continue", span: tok.span }; }
-    if (tok.kind === "kw_return") { return this.parseReturn(); }
-    if (tok.kind === "kw_goto") { this.next(); const labelTok = this.expect("identifier", "goto label"); this.expect("semicolon", "goto"); return { kind: "goto", label: labelTok?.text ?? "", span: tok.span }; }
+    if (tok.kind === "kw_if") {
+      return this.parseIf();
+    }
+    if (tok.kind === "kw_for") {
+      return this.parseFor();
+    }
+    if (tok.kind === "kw_while") {
+      return this.parseWhile();
+    }
+    if (tok.kind === "kw_do") {
+      return this.parseDoWhile();
+    }
+    if (tok.kind === "kw_switch") {
+      return this.parseSwitch();
+    }
+    if (tok.kind === "kw_case") {
+      return this.parseCase();
+    }
+    if (tok.kind === "kw_default") {
+      return this.parseDefault();
+    }
+    if (tok.kind === "kw_break") {
+      this.next();
+      this.expect("semicolon", "break");
+      return { kind: "break", span: tok.span };
+    }
+    if (tok.kind === "kw_continue") {
+      this.next();
+      this.expect("semicolon", "continue");
+      return { kind: "continue", span: tok.span };
+    }
+    if (tok.kind === "kw_return") {
+      return this.parseReturn();
+    }
+    if (tok.kind === "kw_goto") {
+      this.next();
+      const labelTok = this.expect("identifier", "goto label");
+      this.expect("semicolon", "goto");
+      return { kind: "goto", label: labelTok?.text ?? "", span: tok.span };
+    }
 
     // Label: identifier :
     if (tok.kind === "identifier" && this.peek(1).kind === "colon") {
@@ -1881,12 +2280,25 @@ export class Parser {
     }
 
     // Declaration (type keyword or modifier)
-    if (isTypeKeyword(tok.kind) || tok.kind === "kw_constexpr" || tok.kind === "kw_static" ||
-      tok.kind === "kw_inline" || tok.kind === "kw_typedef" || tok.kind === "kw_using" ||
-      tok.kind === "kw_enum" || tok.kind === "kw_struct" || tok.kind === "kw_class" ||
-      tok.kind === "kw_union" || tok.kind === "kw_namespace" || tok.kind === "kw_template" ||
-      tok.kind === "kw_extern" || tok.kind === "kw_unsigned" || tok.kind === "kw_signed" ||
-      tok.kind === "kw_long" || this.looksLikeLocalDecl()) {
+    if (
+      isTypeKeyword(tok.kind) ||
+      tok.kind === "kw_constexpr" ||
+      tok.kind === "kw_static" ||
+      tok.kind === "kw_inline" ||
+      tok.kind === "kw_typedef" ||
+      tok.kind === "kw_using" ||
+      tok.kind === "kw_enum" ||
+      tok.kind === "kw_struct" ||
+      tok.kind === "kw_class" ||
+      tok.kind === "kw_union" ||
+      tok.kind === "kw_namespace" ||
+      tok.kind === "kw_template" ||
+      tok.kind === "kw_extern" ||
+      tok.kind === "kw_unsigned" ||
+      tok.kind === "kw_signed" ||
+      tok.kind === "kw_long" ||
+      this.looksLikeLocalDecl()
+    ) {
       const decl = this.parseDeclaration();
       if (decl) {
         // Multi-declarator statement (`sint64 a = 0, b = 0;`): parseVariableRest queues the extra declarators on `pending`, which only
@@ -1896,7 +2308,12 @@ export class Parser {
             const d = this.pending.shift()!;
             stmts.push({ kind: "declaration", decl: d, span: (d as any).span ?? this.peek().span });
           }
-          return { kind: "compound", body: stmts, span: this.peek().span, synthetic: true } as Statement;
+          return {
+            kind: "compound",
+            body: stmts,
+            span: this.peek().span,
+            synthetic: true,
+          } as Statement;
         }
         return { kind: "declaration", decl, span: this.peek().span };
       }
@@ -1911,7 +2328,7 @@ export class Parser {
     const expr = this.parseExpression();
 
     // Label after expression: expr : (unlikely but possible for case-like constructs)
-    if (this.peek().kind === "colon" && (expr.kind === "identifier")) {
+    if (this.peek().kind === "colon" && expr.kind === "identifier") {
       this.next(); // :
       return { kind: "label", name: (expr as any).name, span: expr.span };
     }
@@ -2051,8 +2468,7 @@ export class Parser {
   private parsePreprocessorLine(): Declaration {
     // Skip # line directive remnants
     this.next();
-    while (!this.eof() && this.peek().kind !== "eof" &&
-      this.peek().text !== "\n") {
+    while (!this.eof() && this.peek().kind !== "eof" && this.peek().text !== "\n") {
       this.next();
     }
     return { kind: "empty" };
@@ -2135,14 +2551,22 @@ export class Parser {
     let depth = 0;
     while (!this.eof()) {
       const k = this.peek().kind;
-      if (k === "l_brace") { depth++; this.next(); continue; }
+      if (k === "l_brace") {
+        depth++;
+        this.next();
+        continue;
+      }
       if (k === "r_brace") {
         if (depth === 0) return; // class body's own close — let the caller handle it
-        depth--; this.next();
+        depth--;
+        this.next();
         if (depth === 0) return; // finished a member's brace body (e.g. a constructor) — member boundary
         continue;
       }
-      if (k === "semicolon" && depth === 0) { this.next(); return; }
+      if (k === "semicolon" && depth === 0) {
+        this.next();
+        return;
+      }
       this.next();
     }
   }
@@ -2152,13 +2576,20 @@ export class Parser {
     const inner = text.replace(/^'|'$/g, "");
     if (inner.startsWith("\\")) {
       switch (inner[1]) {
-        case "n": return 10;
-        case "t": return 9;
-        case "r": return 13;
-        case "0": return 0;
-        case "\\": return 92;
-        case "'": return 39;
-        default: return inner.charCodeAt(1);
+        case "n":
+          return 10;
+        case "t":
+          return 9;
+        case "r":
+          return 13;
+        case "0":
+          return 0;
+        case "\\":
+          return 92;
+        case "'":
+          return 39;
+        default:
+          return inner.charCodeAt(1);
       }
     }
     return inner.charCodeAt(0);
@@ -2172,8 +2603,13 @@ export class Parser {
   }
 
   // --- IDL extraction ---- Extract contract IDL from parsed AST (input/output types per registered entry)
-  extractIdl(tu: TranslationUnit): Record<string, { inputType: number; kind: number; inSize: number; outSize: number }> {
-    const idl: Record<string, { inputType: number; kind: number; inSize: number; outSize: number }> = {};
+  extractIdl(
+    tu: TranslationUnit,
+  ): Record<string, { inputType: number; kind: number; inSize: number; outSize: number }> {
+    const idl: Record<
+      string,
+      { inputType: number; kind: number; inSize: number; outSize: number }
+    > = {};
     // This is driven by the REGISTER_USER_FUNCTION/PROCEDURE calls in __registerUserFunctionsAndProcedures.
     for (const decl of tu.declarations) {
       this.extractIdlFromNode(decl, idl);
@@ -2214,18 +2650,27 @@ export class Parser {
   }
 
   private checkRegistrationCall(call: any, idl: Record<string, any>): void {
-    if (call.callee?.kind === "member_access" &&
-      (call.callee.member === "__registerUserFunction" || call.callee.member === "__registerUserProcedure")) {
+    if (
+      call.callee?.kind === "member_access" &&
+      (call.callee.member === "__registerUserFunction" ||
+        call.callee.member === "__registerUserProcedure")
+    ) {
       const kind = call.callee.member === "__registerUserFunction" ? 0 : 1;
       // sizeof(Foo_input) parses as sizeof_type when Foo_input is a known type keyword, but as sizeof_expr when it is a
       const isSizeof = (a: any) => a?.kind === "sizeof_type" || a?.kind === "sizeof_expr";
-      if (call.args.length >= 5 &&
+      if (
+        call.args.length >= 5 &&
         call.args[1]?.kind === "int_literal" &&
         isSizeof(call.args[2]) &&
-        isSizeof(call.args[3])) {
+        isSizeof(call.args[3])
+      ) {
         const inputType = parseInt(call.args[1].value);
-        const fnName = call.args[0]?.kind === "identifier" ? call.args[0].name :
-          call.args[0]?.kind === "c_cast" ? call.args[0].expr?.name : "";
+        const fnName =
+          call.args[0]?.kind === "identifier"
+            ? call.args[0].name
+            : call.args[0]?.kind === "c_cast"
+              ? call.args[0].expr?.name
+              : "";
         // inSize/outSize from sizeof — need sema to evaluate
         if (fnName && inputType >= 1 && inputType <= 65535) {
           idl[fnName] = { inputType, kind, inSize: 0, outSize: 0 };

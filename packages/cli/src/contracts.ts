@@ -5,7 +5,13 @@ import { systemContracts, type SystemContract } from "@qinit/build";
 import { layoutOf } from "@qinit/proto";
 import { resolveCore } from "./config";
 
-const fmtSize = (fmt?: string): number => { try { return fmt ? layoutOf(fmt).size : 0; } catch { return 0; } };
+const fmtSize = (fmt?: string): number => {
+  try {
+    return fmt ? layoutOf(fmt).size : 0;
+  } catch {
+    return 0;
+  }
+};
 
 export type ContractSets = { user: DynContract[]; system: SystemContract[] };
 
@@ -13,13 +19,26 @@ export type ContractSets = { user: DynContract[]; system: SystemContract[] };
 // resolve); a snapshot that's present but fails to parse is a real issue -> debug-log the cause, not silent.
 export function loadSystem(): SystemContract[] {
   let core: string;
-  try { core = resolveCore(); } catch { return []; }   // no snapshot yet
-  try { return systemContracts(core); } catch (e: any) { debug("loadSystem: system catalog parse failed", e); return []; }
+  try {
+    core = resolveCore();
+  } catch {
+    return [];
+  } // no snapshot yet
+  try {
+    return systemContracts(core);
+  } catch (e: any) {
+    debug("loadSystem: system catalog parse failed", e);
+    return [];
+  }
 }
 
 export async function loadContracts(rpc: LiteRpc): Promise<ContractSets> {
   let user: DynContract[] = [];
-  try { user = ((await rpc.dynRegistry()).contracts ?? []).filter((c) => c.armed); } catch { /* node down -> system only */ }
+  try {
+    user = ((await rpc.dynRegistry()).contracts ?? []).filter((c) => c.armed);
+  } catch {
+    /* node down -> system only */
+  }
   return { user, system: loadSystem() };
 }
 
@@ -27,17 +46,29 @@ export async function loadContracts(rpc: LiteRpc): Promise<ContractSets> {
 // c.procedures + extractIdl(c.source)) works unchanged. Sizes are cosmetic for system entries (0).
 export function systemAsDyn(c: SystemContract): DynContract {
   const entries = (tbl: Record<string, { in?: string; out?: string }>) =>
-    Object.entries(tbl).map(([it, e]) => ({ inputType: Number(it), inputSize: fmtSize(e.in), outputSize: fmtSize(e.out) }));
+    Object.entries(tbl).map(([it, e]) => ({
+      inputType: Number(it),
+      inputSize: fmtSize(e.in),
+      outputSize: fmtSize(e.out),
+    }));
   return {
-    index: c.index, name: c.name, armed: true, constructed: true, version: 0, codeHash: "",
-    functions: entries(c.idl.functions as any), procedures: entries(c.idl.procedures as any), source: c.source,
+    index: c.index,
+    name: c.name,
+    armed: true,
+    constructed: true,
+    version: 0,
+    codeHash: "",
+    functions: entries(c.idl.functions as any),
+    procedures: entries(c.idl.procedures as any),
+    source: c.source,
   };
 }
 
 export type Resolved = { index: number; name: string; kind: "user" | "system"; source?: string };
 // Resolve a name-or-index across user (first) then system.
 export function resolveContract(target: string, sets: ContractSets): Resolved | null {
-  const low = target.trim().toLowerCase(); const asNum = Number(target);
+  const low = target.trim().toLowerCase();
+  const asNum = Number(target);
   const u = sets.user.find((c) => c.index === asNum || (c.name || "").toLowerCase() === low);
   if (u) return { index: u.index, name: u.name || String(u.index), kind: "user", source: u.source };
   const s = sets.system.find((c) => c.index === asNum || c.name.toLowerCase() === low);

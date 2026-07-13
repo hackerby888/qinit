@@ -13,7 +13,9 @@ const HEADERS = loadQpiHeader(CORE);
 const BANK = readFileSync(QINIT_ROOT + "/fixtures/Bank.h", "utf8");
 
 // Two distinct funded ids; Set is a procedure (it=1), BalanceOf func it=1, Stats func it=2.
-const BANK_GTEST = coreGtest("Bank", `TEST(Bank, SetThenBalanceOf) {
+const BANK_GTEST = coreGtest(
+  "Bank",
+  `TEST(Bank, SetThenBalanceOf) {
   ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000);
@@ -62,7 +64,8 @@ TEST(Bank, TwoKeysPopulationTwo) {
   EXPECT_EQ(st.total, 150ull);
   EXPECT_EQ(st.population, 2ull);
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -93,13 +96,24 @@ describe("differential gtest — Bank (HashMap + Array)", () => {
     const testPath = join(dir, "Bank.test.cpp");
     writeFileSync(testPath, BANK_GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Bank", stateType: "Bank", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "Bank",
+      stateType: "Bank",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: BANK, name: "Bank", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const mine = await compileContract({
+      source: BANK,
+      name: "Bank",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });

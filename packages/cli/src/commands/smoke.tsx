@@ -3,7 +3,8 @@ import { Box, Text, useApp } from "ink";
 import { cryptoSmoke, type CryptoSmokeResult } from "@qinit/core";
 import { Header, Spinner, Panel, Status, KV, theme } from "../ui";
 
-type State = { phase: "run" } | { phase: "ok"; r: CryptoSmokeResult } | { phase: "err"; msg: string };
+type State =
+  { phase: "run" } | { phase: "ok"; r: CryptoSmokeResult } | { phase: "err"; msg: string };
 
 export function Smoke() {
   const { exit } = useApp();
@@ -35,7 +36,13 @@ export function Smoke() {
         <Panel title="crypto smoke" color={s.r.ok ? theme.ok : theme.err}>
           <Status ok={s.r.ok} label={s.r.note} pad={0} />
           <Box marginTop={1}>
-            <KV full rows={[["identity ", s.r.identity], ["publicKey", s.r.publicKeyHex]]} />
+            <KV
+              full
+              rows={[
+                ["identity ", s.r.identity],
+                ["publicKey", s.r.publicKeyHex],
+              ]}
+            />
           </Box>
         </Panel>
       )}

@@ -28,7 +28,11 @@ async function seedPubkey(): Promise<Uint8Array> {
 function vaultGet(sim: Sim, slot: number) {
   const b = sim.query(slot, 1);
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  return { totalReceived: dv.getBigUint64(0, true), incomingCount: dv.getBigUint64(8, true), lastIncoming: dv.getBigInt64(16, true) };
+  return {
+    totalReceived: dv.getBigUint64(0, true),
+    incomingCount: dv.getBigUint64(8, true),
+    lastIncoming: dv.getBigInt64(16, true),
+  };
 }
 
 test("regular transfer moves spectrum balance + lands in the tick", async () => {
@@ -74,7 +78,13 @@ test("contract procedure tx (real signed): source debited, procedure runs with i
   const seed = await seedPubkey();
   const before = eng.sim.balance(seed);
 
-  const tx = await buildSignedTx(SEED, { destination: contractAddress(28), amount: 100, tick: 10, inputType: 1, payload: await encodeInput("") });
+  const tx = await buildSignedTx(SEED, {
+    destination: contractAddress(28),
+    amount: 100,
+    tick: 10,
+    inputType: 1,
+    payload: await encodeInput(""),
+  });
   expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 
   const g = vaultGet(eng.sim, 28);
@@ -91,7 +101,13 @@ test("plain transfer to a contract (inputType 0): POST_INCOMING_TRANSFER fires, 
   await eng.seedFaucet();
   eng.deploy(28, await wasm("Vault"), "Vault");
 
-  const tx = await buildSignedTx(SEED, { destination: contractAddress(28), amount: 50, tick: 10, inputType: 0, payload: new Uint8Array(0) });
+  const tx = await buildSignedTx(SEED, {
+    destination: contractAddress(28),
+    amount: 50,
+    tick: 10,
+    inputType: 0,
+    payload: new Uint8Array(0),
+  });
   expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 
   const g = vaultGet(eng.sim, 28);

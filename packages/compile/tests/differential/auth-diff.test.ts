@@ -41,7 +41,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-const AUTH_GTEST = coreGtest("Auth", `TEST(Auth, InvocatorCapturedAndCompared) {
+const AUTH_GTEST = coreGtest(
+  "Auth",
+  `TEST(Auth, InvocatorCapturedAndCompared) {
   ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   QPI::id other = t.idFromSeed("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
@@ -57,7 +59,8 @@ const AUTH_GTEST = coreGtest("Auth", `TEST(Auth, InvocatorCapturedAndCompared) {
   Auth::Count_input ci{};
   EXPECT_EQ(t.call<Auth::Count_output>(3, ci).n, 1ull);
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -88,13 +91,24 @@ describe("differential gtest — Auth (qpi.invocator + id compare)", () => {
     const testPath = join(dir, "Auth.test.cpp");
     writeFileSync(testPath, AUTH_GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Auth", stateType: "Auth", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "Auth",
+      stateType: "Auth",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: AUTH, name: "Auth", slot: 28, qpiHeader: HEADERS, arenaSz: 64 * 1024 });
+    const mine = await compileContract({
+      source: AUTH,
+      name: "Auth",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 64 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });

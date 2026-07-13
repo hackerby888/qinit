@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { arrayFixForLine, divModFixForLine, moveLocalToWithLocalsEdits, type SourceEdit } from "../../src/codefix";
+import {
+  arrayFixForLine,
+  divModFixForLine,
+  moveLocalToWithLocalsEdits,
+  type SourceEdit,
+} from "../../src/codefix";
 import { scanLocals, scanLocalsForm } from "../../src/lint/qpi-rules";
 
 // apply the fix at the first occurrence of `op` and return the rewritten line (or null to decline)
@@ -10,7 +15,8 @@ function applyDivMod(line: string, op: "/" | "%"): string | null {
 
 function applyEdits(src: string, edits: SourceEdit[]): string {
   let out = src;
-  for (const e of [...edits].sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.newText + out.slice(e.end);
+  for (const e of [...edits].sort((a, b) => b.start - a.start))
+    out = out.slice(0, e.start) + e.newText + out.slice(e.end);
   return out;
 }
 // move the first stack local scanLocals reports
@@ -39,7 +45,7 @@ test("preserves a trailing comment", () => {
 });
 
 test("bails on shapes it can't safely rewrite", () => {
-  expect(arrayFixForLine("uint64 a, b[4];")).toBeNull();   // multi-var
+  expect(arrayFixForLine("uint64 a, b[4];")).toBeNull(); // multi-var
   expect(arrayFixForLine("doSomething(arr[i]);")).toBeNull(); // not a declaration
   expect(arrayFixForLine("Array<uint64, 8> ok;")).toBeNull(); // already fine
 });
@@ -48,7 +54,9 @@ test("rewrites simple division/modulo to div()/mod()", () => {
   expect(applyDivMod("locals.r = a / b;", "/")).toBe("locals.r = div(a, b);");
   expect(applyDivMod("output.x = total % 10;", "%")).toBe("output.x = mod(total, 10);");
   expect(applyDivMod("locals.v = input.amt / 100;", "/")).toBe("locals.v = div(input.amt, 100);");
-  expect(applyDivMod("locals.v = locals.x / locals.y;", "/")).toBe("locals.v = div(locals.x, locals.y);");
+  expect(applyDivMod("locals.v = locals.x / locals.y;", "/")).toBe(
+    "locals.v = div(locals.x, locals.y);",
+  );
 });
 
 test("div/mod fix preserves precedence — rewrites only the immediate operands", () => {
@@ -58,14 +66,16 @@ test("div/mod fix preserves precedence — rewrites only the immediate operands"
 
 test("div/mod fix declines unsafe shapes (null = no action offered)", () => {
   const at = (l: string, op: "/" | "%") => divModFixForLine(l, l.indexOf(op), op);
-  expect(at("a /= b;", "/")).toBeNull();                  // compound assignment
-  expect(at("x = f(y) / 2;", "/")).toBeNull();            // left operand is a call result
-  expect(at("x = a / g(z);", "/")).toBeNull();            // right operand continues into a call
-  expect(at("x = state.get().n / 2;", "/")).toBeNull();   // left is a member-chain tail
+  expect(at("a /= b;", "/")).toBeNull(); // compound assignment
+  expect(at("x = f(y) / 2;", "/")).toBeNull(); // left operand is a call result
+  expect(at("x = a / g(z);", "/")).toBeNull(); // right operand continues into a call
+  expect(at("x = state.get().n / 2;", "/")).toBeNull(); // left is a member-chain tail
 });
 
 test("move-to-_WITH_LOCALS: rewrites the macro, creates the struct, moves the decl + uses", () => {
-  const out = moveFirstLocal(wrap("        uint64 x;\n        x = input.amount;\n        state.mut().total += x;"))!;
+  const out = moveFirstLocal(
+    wrap("        uint64 x;\n        x = input.amount;\n        state.mut().total += x;"),
+  )!;
   expect(out).toContain("PUBLIC_PROCEDURE_WITH_LOCALS(Inc)");
   expect(out).not.toContain("PUBLIC_PROCEDURE(Inc)");
   expect(out).toContain("struct Inc_locals { uint64 x; };");
@@ -77,7 +87,9 @@ test("move-to-_WITH_LOCALS: rewrites the macro, creates the struct, moves the de
 });
 
 test("move-to-_WITH_LOCALS: keeps an initializer as `locals.<v> = …`", () => {
-  const out = moveFirstLocal(wrap("        uint64 sum = input.amount;\n        state.mut().total = sum;"))!;
+  const out = moveFirstLocal(
+    wrap("        uint64 sum = input.amount;\n        state.mut().total = sum;"),
+  )!;
   expect(out).toContain("struct Inc_locals { uint64 sum; };");
   expect(out).toContain("locals.sum = input.amount;");
   expect(out).toContain("state.mut().total = locals.sum;");
@@ -85,10 +97,14 @@ test("move-to-_WITH_LOCALS: keeps an initializer as `locals.<v> = …`", () => {
 });
 
 test("move-to-_WITH_LOCALS: extends an existing <fn>_locals struct; no double _WITH_LOCALS", () => {
-  const src = wrap("        uint64 x;\n        x = 1;\n        locals.y = x;", "PUBLIC_PROCEDURE_WITH_LOCALS(Inc)", "    struct Inc_locals { uint64 y; };\n");
+  const src = wrap(
+    "        uint64 x;\n        x = 1;\n        locals.y = x;",
+    "PUBLIC_PROCEDURE_WITH_LOCALS(Inc)",
+    "    struct Inc_locals { uint64 y; };\n",
+  );
   const out = moveFirstLocal(src)!;
-  expect(out).toContain("uint64 x;");  // added to the struct
-  expect(out).toContain("uint64 y;");  // kept
+  expect(out).toContain("uint64 x;"); // added to the struct
+  expect(out).toContain("uint64 y;"); // kept
   expect(out).not.toContain("_WITH_LOCALS_WITH_LOCALS");
   expect(out).toContain("locals.x = 1;");
   expect(out).toContain("locals.y = locals.x;");

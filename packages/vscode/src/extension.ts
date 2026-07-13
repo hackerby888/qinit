@@ -15,12 +15,19 @@ import { QpiCodeActions } from "./codeactions";
 let warnedAt = 0;
 function warnOncePerMinute(msg: string): void {
   const now = Date.now();
-  if (now - warnedAt > 60_000) { warnedAt = now; vscode.window.showWarningMessage(msg); }
+  if (now - warnedAt > 60_000) {
+    warnedAt = now;
+    vscode.window.showWarningMessage(msg);
+  }
 }
 
 // (Re)generate the clangd compile DB for a contract document (M1). Silent for non-contracts and
 // non-projects; warns (at most once a minute) when the toolchain isn't synced. Async because it
-async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChannel, calleeDiags: vscode.DiagnosticCollection): Promise<void> {
+async function regenerateClangd(
+  doc: vscode.TextDocument,
+  out: vscode.OutputChannel,
+  calleeDiags: vscode.DiagnosticCollection,
+): Promise<void> {
   if (!isContractDoc(doc)) return;
   const root = findProjectRoot(doc.fileName);
   if (!root) return;
@@ -33,13 +40,17 @@ async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChan
     core = resolveCore(settingCore, cfg.core);
   } catch (e: any) {
     out.appendLine("resolveCore: " + String(e?.message ?? e));
-    warnOncePerMinute("Qubic QPI: core headers not found — run `qinit node run`, or set the `qpi.core` setting / QINIT_CORE.");
+    warnOncePerMinute(
+      "Qubic QPI: core headers not found — run `qinit node run`, or set the `qpi.core` setting / QINIT_CORE.",
+    );
     return;
   }
 
   const wasi = wasiSdkPaths();
   if (!wasi) {
-    warnOncePerMinute("Qubic QPI: the wasm compiler (wasi-sdk) isn't synced — run `qinit node run`.");
+    warnOncePerMinute(
+      "Qubic QPI: the wasm compiler (wasi-sdk) isn't synced — run `qinit node run`.",
+    );
     return;
   }
 
@@ -47,8 +58,15 @@ async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChan
   // {} if this contract calls nobody, or the node is down). In-core callees resolve via contract_def.h.
   let dynCallees: DynCallees = {};
   try {
-    const rpcBase = vscode.workspace.getConfiguration("qpi").get<string>("rpc") || cfg.rpc || "http://127.0.0.1:41841";
-    dynCallees = await dynCalleesFromNode(rpcBase, doc.getText(), join(root, ".qinit", "clangd", "callees"));
+    const rpcBase =
+      vscode.workspace.getConfiguration("qpi").get<string>("rpc") ||
+      cfg.rpc ||
+      "http://127.0.0.1:41841";
+    dynCallees = await dynCalleesFromNode(
+      rpcBase,
+      doc.getText(),
+      join(root, ".qinit", "clangd", "callees"),
+    );
   } catch (e: any) {
     out.appendLine("dynCallees: " + String(e?.message ?? e));
   }
@@ -57,16 +75,19 @@ async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChan
   // turns clangd's raw "undeclared identifier <Callee>" into an actionable hint at the call site.
   try {
     const known = new Set<string>([...parseContractDef(core).keys(), ...Object.keys(dynCallees)]);
-    calleeDiags.set(doc.uri, unresolvedCalleeRefs(doc.getText(), known).map((r) => {
-      const d = new vscode.Diagnostic(
-        new vscode.Range(doc.positionAt(r.offset), doc.positionAt(r.offset + r.length)),
-        `Callee \`${r.name}\` isn't a known contract — deploy it (\`qinit deploy\`) or run \`qinit node run\`, otherwise its CALL_OTHER_CONTRACT_* references can't resolve.`,
-        vscode.DiagnosticSeverity.Warning,
-      );
-      d.source = "qpi";
-      d.code = "qpi/unknown-callee";
-      return d;
-    }));
+    calleeDiags.set(
+      doc.uri,
+      unresolvedCalleeRefs(doc.getText(), known).map((r) => {
+        const d = new vscode.Diagnostic(
+          new vscode.Range(doc.positionAt(r.offset), doc.positionAt(r.offset + r.length)),
+          `Callee \`${r.name}\` isn't a known contract — deploy it (\`qinit deploy\`) or run \`qinit node run\`, otherwise its CALL_OTHER_CONTRACT_* references can't resolve.`,
+          vscode.DiagnosticSeverity.Warning,
+        );
+        d.source = "qpi";
+        d.code = "qpi/unknown-callee";
+        return d;
+      }),
+    );
   } catch {
     calleeDiags.delete(doc.uri); // no core / unreadable contract_def.h — don't assert anything
   }
@@ -86,7 +107,9 @@ async function regenerateClangd(doc: vscode.TextDocument, out: vscode.OutputChan
       dynCallees,
     });
     const n = Object.keys(dynCallees).length;
-    out.appendLine(`clangd config ready: ${r.name} (slot ${r.slot})${n ? `, ${n} callee(s) from node` : ""} -> ${r.prefixPath}`);
+    out.appendLine(
+      `clangd config ready: ${r.name} (slot ${r.slot})${n ? `, ${n} callee(s) from node` : ""} -> ${r.prefixPath}`,
+    );
   } catch (e: any) {
     out.appendLine("generate failed: " + String(e?.message ?? e));
   }
@@ -116,7 +139,9 @@ function regenerateTestClangd(doc: vscode.TextDocument, out: vscode.OutputChanne
 
   const wasi = wasiSdkPaths();
   if (!wasi) {
-    warnOncePerMinute("Qubic QPI: the wasm compiler (wasi-sdk) isn't synced — run `qinit node run`.");
+    warnOncePerMinute(
+      "Qubic QPI: the wasm compiler (wasi-sdk) isn't synced — run `qinit node run`.",
+    );
     return;
   }
 
@@ -158,12 +183,26 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.onDidOpenTextDocument(onDoc),
     vscode.workspace.onDidSaveTextDocument(onDoc),
     vscode.workspace.onDidChangeTextDocument((e) => diags.schedule(e.document)),
-    vscode.workspace.onDidCloseTextDocument((d) => { diags.clear(d.uri); verify.clear(d.uri); calleeDiags.delete(d.uri); }),
-    vscode.languages.registerHoverProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new IdlHover()),
-    vscode.languages.registerCodeActionsProvider({ scheme: "file", pattern: "**/*.{h,hpp,cpp}" }, new QpiCodeActions(), QpiCodeActions.metadata),
+    vscode.workspace.onDidCloseTextDocument((d) => {
+      diags.clear(d.uri);
+      verify.clear(d.uri);
+      calleeDiags.delete(d.uri);
+    }),
+    vscode.languages.registerHoverProvider(
+      { scheme: "file", pattern: "**/*.{h,hpp,cpp}" },
+      new IdlHover(),
+    ),
+    vscode.languages.registerCodeActionsProvider(
+      { scheme: "file", pattern: "**/*.{h,hpp,cpp}" },
+      new QpiCodeActions(),
+      QpiCodeActions.metadata,
+    ),
     vscode.commands.registerCommand("qpi.regenerateConfig", async () => {
       const doc = vscode.window.activeTextEditor?.document;
-      if (!doc) { vscode.window.showInformationMessage("Qubic QPI: open a contract header first."); return; }
+      if (!doc) {
+        vscode.window.showInformationMessage("Qubic QPI: open a contract header first.");
+        return;
+      }
       await regenerateClangd(doc, out, calleeDiags);
       diags.refresh(doc);
       vscode.window.showInformationMessage("Qubic QPI: clangd config regenerated.");
@@ -173,4 +212,6 @@ export function activate(context: vscode.ExtensionContext): void {
   onDoc(vscode.window.activeTextEditor?.document); // handle the already-open editor on activation
 }
 
-export function deactivate(): void { /* subscriptions are disposed by VS Code */ }
+export function deactivate(): void {
+  /* subscriptions are disposed by VS Code */
+}

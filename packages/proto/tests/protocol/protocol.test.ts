@@ -1,5 +1,11 @@
 import { test, expect } from "bun:test";
-import { LITE_TX, LOG_SEVERITY, CHUNK_DATA_MAX, MAX_INPUT_SIZE, CHUNK_HEADER_SIZE } from "../../src/protocol";
+import {
+  LITE_TX,
+  LOG_SEVERITY,
+  CHUNK_DATA_MAX,
+  MAX_INPUT_SIZE,
+  CHUNK_HEADER_SIZE,
+} from "../../src/protocol";
 
 // These lock the qinit side; scripts/check-protocol-drift.ts locks them against core in CI.
 test("LITE_TX deploy inputTypes", () => {
@@ -12,5 +18,5 @@ test("LOG_SEVERITY codes 4-7", () => {
 
 test("CHUNK_DATA_MAX is the proven 1008, within core's MAX_INPUT_SIZE - header", () => {
   expect(CHUNK_DATA_MAX).toBe(1008);
-  expect(CHUNK_DATA_MAX).toBeLessThanOrEqual(MAX_INPUT_SIZE - CHUNK_HEADER_SIZE);   // conservative (1008 < 1010)
+  expect(CHUNK_DATA_MAX).toBeLessThanOrEqual(MAX_INPUT_SIZE - CHUNK_HEADER_SIZE); // conservative (1008 < 1010)
 });

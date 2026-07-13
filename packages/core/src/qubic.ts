@@ -4,13 +4,13 @@ import { QubicHelper } from "@qubic-lib/qubic-ts-library/dist/qubicHelper.js";
 import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper.js";
 
 export interface IdentityResult {
-  identity: string;       // 60 uppercase letters
+  identity: string; // 60 uppercase letters
   publicKeyHex: string;
 }
 
 export interface KeyPair {
   privateKey: Uint8Array; // 32 bytes
-  publicKey: Uint8Array;  // 32 bytes (FourQ)
+  publicKey: Uint8Array; // 32 bytes (FourQ)
 }
 
 export interface CryptoSmokeResult {
@@ -43,7 +43,11 @@ export async function k12Hex(bytes: Uint8Array): Promise<string> {
 let _k12Sync: ((input: Uint8Array, out: Uint8Array, outLen: number) => void) | null = null;
 // The resolved FourQ/SchnorrQ object from the SAME crypto module — captured once so signing/verification run
 // synchronously after initK12() (mirrors k12Sync). Used by the engine's tick-consensus (computor vote signing).
-let _schnorrq: { generatePublicKey(privateKey: Uint8Array): Uint8Array; sign(privateKey: Uint8Array, publicKey: Uint8Array, message: Uint8Array): Uint8Array; verify(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): number } | null = null;
+let _schnorrq: {
+  generatePublicKey(privateKey: Uint8Array): Uint8Array;
+  sign(privateKey: Uint8Array, publicKey: Uint8Array, message: Uint8Array): Uint8Array;
+  verify(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): number;
+} | null = null;
 const _keyHelper = new KeyHelper();
 
 export async function initK12(): Promise<void> {
@@ -74,7 +78,11 @@ export function deriveKeysSync(seed: string): KeyPair {
   return { privateKey, publicKey };
 }
 
-export function signSync(privateKey: Uint8Array, publicKey: Uint8Array, digest: Uint8Array): Uint8Array {
+export function signSync(
+  privateKey: Uint8Array,
+  publicKey: Uint8Array,
+  digest: Uint8Array,
+): Uint8Array {
   if (!_schnorrq) {
     throw new Error("crypto not initialized — await initK12() first");
   }
@@ -82,7 +90,11 @@ export function signSync(privateKey: Uint8Array, publicKey: Uint8Array, digest: 
   return _schnorrq.sign(privateKey, publicKey, digest);
 }
 
-export function verifySync(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): boolean {
+export function verifySync(
+  publicKey: Uint8Array,
+  message: Uint8Array,
+  signature: Uint8Array,
+): boolean {
   if (!_schnorrq) {
     throw new Error("crypto not initialized — await initK12() first");
   }

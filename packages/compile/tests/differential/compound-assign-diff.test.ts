@@ -54,7 +54,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Probe, 1); }
 };`;
 
-const GTEST = coreGtest("CompoundP", `TEST(CompoundAssign, Signedness) {
+const GTEST = coreGtest(
+  "CompoundP",
+  `TEST(CompoundAssign, Signedness) {
   ContractTestingHarness t;
   CONTRACT_STATE_TYPE::Probe_input in{};
   in.sa = -8ll; in.ua = 0x8000000000000001ull;
@@ -67,7 +69,8 @@ const GTEST = coreGtest("CompoundP", `TEST(CompoundAssign, Signedness) {
   EXPECT_EQ(r.wrapAdd, 0ull);                        // uint32 += wraps at 32 bits
   EXPECT_EQ(r.shrULocal, 0x4000000000000000ull);     // logical shift on unsigned
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -98,18 +101,31 @@ describe("differential gtest — compound assignment signedness", () => {
     const testPath = join(dir, "CompoundP.test.cpp");
     writeFileSync(testPath, GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "CompoundP", stateType: "CompoundP", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "CompoundP",
+      stateType: "CompoundP",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: SRC, name: "CompoundP", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const mine = await compileContract({
+      source: SRC,
+      name: "CompoundP",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`);
+      console.log(
+        `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
+      );
     }
     expect(results.length).toBeGreaterThan(0);
     expect(results.every((r) => r.passed)).toBe(true);

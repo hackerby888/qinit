@@ -4,19 +4,33 @@
 export type QpiSeverity = "warn" | "info";
 
 export interface QpiFinding {
-  rule: string;       // stable id, e.g. "qpi/no-division"
+  rule: string; // stable id, e.g. "qpi/no-division"
   message: string;
-  offset: number;     // 0-based offset into the source
+  offset: number; // 0-based offset into the source
   length: number;
   severity: QpiSeverity;
 }
 
 const KEYWORDS: Record<string, { rule: string; message: string }> = {
-  float: { rule: "qpi/no-float", message: "Floating-point types (`float`/`double`) are forbidden — their arithmetic isn't deterministic." },
-  double: { rule: "qpi/no-float", message: "Floating-point types (`float`/`double`) are forbidden — their arithmetic isn't deterministic." },
-  union: { rule: "qpi/no-union", message: "`union` is forbidden in QPI (it obscures code audits)." },
+  float: {
+    rule: "qpi/no-float",
+    message:
+      "Floating-point types (`float`/`double`) are forbidden — their arithmetic isn't deterministic.",
+  },
+  double: {
+    rule: "qpi/no-float",
+    message:
+      "Floating-point types (`float`/`double`) are forbidden — their arithmetic isn't deterministic.",
+  },
+  union: {
+    rule: "qpi/no-union",
+    message: "`union` is forbidden in QPI (it obscures code audits).",
+  },
   const_cast: { rule: "qpi/no-const-cast", message: "`const_cast` is forbidden in QPI." },
-  QpiContext: { rule: "qpi/no-qpicontext", message: "`QpiContext` may not be used directly in a contract." },
+  QpiContext: {
+    rule: "qpi/no-qpicontext",
+    message: "`QpiContext` may not be used directly in a contract.",
+  },
 };
 
 const isIdStart = (c: string) => /[A-Za-z_]/.test(c);
@@ -26,8 +40,13 @@ const isIdChar = (c: string) => /[A-Za-z0-9_]/.test(c);
 // qpi.h (the extension supplies IntelliSense instead), so a `#` is flagged as a leftover dev include.
 export function scanQpi(src: string): QpiFinding[] {
   const out: QpiFinding[] = [];
-  const push = (rule: string, message: string, offset: number, length: number, severity: QpiSeverity = "warn") =>
-    out.push({ rule, message, offset, length, severity });
+  const push = (
+    rule: string,
+    message: string,
+    offset: number,
+    length: number,
+    severity: QpiSeverity = "warn",
+  ) => out.push({ rule, message, offset, length, severity });
 
   let i = 0;
   let brace = 0; // scope depth (0 = global) — for typedef/using rules
@@ -38,8 +57,17 @@ export function scanQpi(src: string): QpiFinding[] {
     const c2 = src[i + 1];
 
     // --- comments: skip entirely (their contents are not contract code) ---
-    if (c === "/" && c2 === "/") { i += 2; while (i < n && src[i] !== "\n") i++; continue; }
-    if (c === "/" && c2 === "*") { i += 2; while (i < n && !(src[i] === "*" && src[i + 1] === "/")) i++; i += 2; continue; }
+    if (c === "/" && c2 === "/") {
+      i += 2;
+      while (i < n && src[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && c2 === "*") {
+      i += 2;
+      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
 
     // C++14 digit separator (1'000'000, 0xFFFF'FFFF): a `'` flanked by hex-word chars is part of a numeric
     // literal, not a char literal — skip it so it isn't mis-flagged as qpi/no-char.
@@ -57,8 +85,20 @@ export function scanQpi(src: string): QpiFinding[] {
       while (i < n && src[i] !== quote) i += src[i] === "\\" ? 2 : 1;
       if (i < n) i++; // consume the closing quote if present
       if (i > n) i = n; // clamp: an unterminated literal / trailing backslash must not overshoot the source
-      if (quote === '"') push("qpi/no-string", "String literals (`\"`) are forbidden in QPI — they can address arbitrary memory.", start, Math.max(1, i - start));
-      else push("qpi/no-char", "Character literals (`'`) are forbidden in QPI.", start, Math.max(1, i - start));
+      if (quote === '"')
+        push(
+          "qpi/no-string",
+          'String literals (`"`) are forbidden in QPI — they can address arbitrary memory.',
+          start,
+          Math.max(1, i - start),
+        );
+      else
+        push(
+          "qpi/no-char",
+          "Character literals (`'`) are forbidden in QPI.",
+          start,
+          Math.max(1, i - start),
+        );
       continue;
     }
 
@@ -70,26 +110,73 @@ export function scanQpi(src: string): QpiFinding[] {
       // The qpi.h dev-include is the sanctioned IntelliSense workaround (doc/contracts.md) and this
       // extension makes it harmless — treat it as an exception (no diagnostic). Every OTHER preprocessor
       if (!/^#\s*include\s*[<"][^>"]*qpi\.h[>"]/.test(directive)) {
-        push("qpi/no-preprocessor", "Preprocessor directives (`#`) are forbidden in QPI (remove before deploying).", i, 1, "info");
+        push(
+          "qpi/no-preprocessor",
+          "Preprocessor directives (`#`) are forbidden in QPI (remove before deploying).",
+          i,
+          1,
+          "info",
+        );
       }
       i = j;
       continue;
     }
-    if (c === "/") { // not a comment (handled above) -> division (or /=)
-      push("qpi/no-division", "The `/` operator is forbidden (division by zero is undefined). Use `div(a, b)`.", i, c2 === "=" ? 2 : 1);
-      i += c2 === "=" ? 2 : 1; continue;
+    if (c === "/") {
+      // not a comment (handled above) -> division (or /=)
+      push(
+        "qpi/no-division",
+        "The `/` operator is forbidden (division by zero is undefined). Use `div(a, b)`.",
+        i,
+        c2 === "=" ? 2 : 1,
+      );
+      i += c2 === "=" ? 2 : 1;
+      continue;
     }
     if (c === "%") {
-      push("qpi/no-modulo", "The `%` operator is forbidden. Use `mod(a, b)`.", i, c2 === "=" ? 2 : 1);
-      i += c2 === "=" ? 2 : 1; continue;
+      push(
+        "qpi/no-modulo",
+        "The `%` operator is forbidden. Use `mod(a, b)`.",
+        i,
+        c2 === "=" ? 2 : 1,
+      );
+      i += c2 === "=" ? 2 : 1;
+      continue;
     }
-    if (c === "[") { push("qpi/no-brackets", "`[` is forbidden (no low-level arrays / unchecked buffers). Use `Array<T, N>`.", i, 1); i++; continue; }
-    if (c === "]") { push("qpi/no-brackets", "`]` is forbidden (no low-level arrays / unchecked buffers). Use `Array<T, N>`.", i, 1); i++; continue; }
+    if (c === "[") {
+      push(
+        "qpi/no-brackets",
+        "`[` is forbidden (no low-level arrays / unchecked buffers). Use `Array<T, N>`.",
+        i,
+        1,
+      );
+      i++;
+      continue;
+    }
+    if (c === "]") {
+      push(
+        "qpi/no-brackets",
+        "`]` is forbidden (no low-level arrays / unchecked buffers). Use `Array<T, N>`.",
+        i,
+        1,
+      );
+      i++;
+      continue;
+    }
     if (c === "." && c2 === "." && src[i + 2] === ".") {
-      push("qpi/no-varargs", "Variadic arguments / parameter packs (`...`) are forbidden.", i, 3); i += 3; continue;
+      push("qpi/no-varargs", "Variadic arguments / parameter packs (`...`) are forbidden.", i, 3);
+      i += 3;
+      continue;
     }
-    if (c === "{") { brace++; i++; continue; }
-    if (c === "}") { brace = Math.max(0, brace - 1); i++; continue; }
+    if (c === "{") {
+      brace++;
+      i++;
+      continue;
+    }
+    if (c === "}") {
+      brace = Math.max(0, brace - 1);
+      i++;
+      continue;
+    }
 
     // --- identifiers / keywords ---
     if (isIdStart(c)) {
@@ -107,9 +194,21 @@ export function scanQpi(src: string): QpiFinding[] {
           let depth = 0;
           for (; j < n; j++) {
             const ch = src[j];
-            if (ch === '"' || ch === "'") { const q = ch; j++; while (j < n && src[j] !== q) { if (src[j] === "\\") j++; j++; } }
-            else if (ch === "(") depth++;
-            else if (ch === ")") { depth--; if (depth === 0) { j++; break; } }
+            if (ch === '"' || ch === "'") {
+              const q = ch;
+              j++;
+              while (j < n && src[j] !== q) {
+                if (src[j] === "\\") j++;
+                j++;
+              }
+            } else if (ch === "(") depth++;
+            else if (ch === ")") {
+              depth--;
+              if (depth === 0) {
+                j++;
+                break;
+              }
+            }
           }
           i = j;
           continue;
@@ -117,14 +216,27 @@ export function scanQpi(src: string): QpiFinding[] {
       }
 
       if (word.includes("__")) {
-        push("qpi/no-dunder", "Double underscores (`__`) are reserved for internal use and forbidden in contracts.", start, word.length);
+        push(
+          "qpi/no-dunder",
+          "Double underscores (`__`) are reserved for internal use and forbidden in contracts.",
+          start,
+          word.length,
+        );
         continue;
       }
       const kw = KEYWORDS[word];
-      if (kw) { push(kw.rule, kw.message, start, word.length); continue; }
+      if (kw) {
+        push(kw.rule, kw.message, start, word.length);
+        continue;
+      }
 
       if (brace === 0 && word === "typedef") {
-        push("qpi/no-global-typedef", "`typedef` is only allowed in local scope (inside a struct or function).", start, word.length);
+        push(
+          "qpi/no-global-typedef",
+          "`typedef` is only allowed in local scope (inside a struct or function).",
+          start,
+          word.length,
+        );
         continue;
       }
       if (brace === 0 && word === "using") {
@@ -133,7 +245,13 @@ export function scanQpi(src: string): QpiFinding[] {
         while (j < n && /\s/.test(src[j])) j++;
         const rest = src.slice(j, j + 9);
         const allowed = rest.startsWith("namespace") && /\s/.test(src[j + 9] ?? " ");
-        if (!allowed) push("qpi/no-global-using", "`using` at global scope is forbidden, except `using namespace QPI`.", start, word.length);
+        if (!allowed)
+          push(
+            "qpi/no-global-using",
+            "`using` at global scope is forbidden, except `using namespace QPI`.",
+            start,
+            word.length,
+          );
         continue;
       }
       continue;
@@ -152,31 +270,58 @@ export function blankCommentsAndStrings(src: string): string {
   let i = 0;
   const n = src.length;
   while (i < n) {
-    const c = src[i], c2 = src[i + 1];
-    if (c === "/" && c2 === "/") { while (i < n && src[i] !== "\n") { out += " "; i++; } continue; }
+    const c = src[i],
+      c2 = src[i + 1];
+    if (c === "/" && c2 === "/") {
+      while (i < n && src[i] !== "\n") {
+        out += " ";
+        i++;
+      }
+      continue;
+    }
     if (c === "/" && c2 === "*") {
-      out += "  "; i += 2;
-      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) { out += src[i] === "\n" ? "\n" : " "; i++; }
-      if (i < n) { out += "  "; i += 2; }
+      out += "  ";
+      i += 2;
+      while (i < n && !(src[i] === "*" && src[i + 1] === "/")) {
+        out += src[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < n) {
+        out += "  ";
+        i += 2;
+      }
       continue;
     }
     if (c === '"' || c === "'") {
-      const q = c; out += " "; i++;
+      const q = c;
+      out += " ";
+      i++;
       while (i < n && src[i] !== q) {
-        if (src[i] === "\\" && i + 1 < n) { out += "  "; i += 2; } // escape: 2 source chars -> 2 spaces
-        else { out += " "; i++; }
+        if (src[i] === "\\" && i + 1 < n) {
+          out += "  ";
+          i += 2;
+        } // escape: 2 source chars -> 2 spaces
+        else {
+          out += " ";
+          i++;
+        }
       }
-      if (i < n) { out += " "; i++; }
+      if (i < n) {
+        out += " ";
+        i++;
+      }
       continue;
     }
-    out += c; i++;
+    out += c;
+    i++;
   }
   return out;
 }
 
 // The contract "functions" whose bodies hold user code (where stack locals are forbidden). Lifecycle
 // hooks + PUBLIC/PRIVATE functions/procedures (incl. _WITH_LOCALS — you still can't declare a raw local
-const LIFECYCLE = "INITIALIZE|BEGIN_EPOCH|END_EPOCH|BEGIN_TICK|END_TICK|POST_INCOMING_TRANSFER|PRE_ACQUIRE_SHARES|POST_ACQUIRE_SHARES|PRE_RELEASE_SHARES|POST_RELEASE_SHARES|EXPAND";
+const LIFECYCLE =
+  "INITIALIZE|BEGIN_EPOCH|END_EPOCH|BEGIN_TICK|END_TICK|POST_INCOMING_TRANSFER|PRE_ACQUIRE_SHARES|POST_ACQUIRE_SHARES|PRE_RELEASE_SHARES|POST_RELEASE_SHARES|EXPAND";
 const FN_MACRO = new RegExp(
   `\\b(?:PUBLIC|PRIVATE)_(?:FUNCTION|PROCEDURE)(?:_WITH_LOCALS)?\\s*\\([^)]*\\)|\\b(?:${LIFECYCLE})(?:_WITH_LOCALS)?\\s*\\(\\s*\\)`,
   "g",
@@ -191,10 +336,17 @@ function functionBodies(src: string): Array<[number, number]> {
     let k = m.index + m[0].length;
     while (k < src.length && src[k] !== "{" && src[k] !== ";") k++;
     if (src[k] !== "{") continue; // no body
-    let depth = 0, i = k;
+    let depth = 0,
+      i = k;
     for (; i < src.length; i++) {
       if (src[i] === "{") depth++;
-      else if (src[i] === "}") { depth--; if (depth === 0) { i++; break; } }
+      else if (src[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          i++;
+          break;
+        }
+      }
     }
     ranges.push([k, i]);
   }
@@ -202,10 +354,12 @@ function functionBodies(src: string): Array<[number, number]> {
 }
 
 export interface EnclosingFn {
-  name: string | null;   // the function/hook name (Inc, INITIALIZE); base for the `<name>_locals` struct
-  withLocals: boolean;   // already in the *_WITH_LOCALS form?
-  macroStart: number; macroEnd: number;  // the macro invocation span, e.g. `PUBLIC_PROCEDURE(Inc)`
-  bodyStart: number; bodyEnd: number;     // [ `{` , just-past-`}` ) of the body
+  name: string | null; // the function/hook name (Inc, INITIALIZE); base for the `<name>_locals` struct
+  withLocals: boolean; // already in the *_WITH_LOCALS form?
+  macroStart: number;
+  macroEnd: number; // the macro invocation span, e.g. `PUBLIC_PROCEDURE(Inc)`
+  bodyStart: number;
+  bodyEnd: number; // [ `{` , just-past-`}` ) of the body
 }
 
 // The contract function whose body contains `offset` (the FN_MACRO + its braces). null if `offset` is
@@ -218,15 +372,30 @@ export function enclosingFunction(source: string, offset: number): EnclosingFn |
     let k = m.index + m[0].length;
     while (k < src.length && src[k] !== "{" && src[k] !== ";") k++;
     if (src[k] !== "{") continue;
-    let depth = 0, i = k;
-    for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}") { depth--; if (!depth) { i++; break; } } }
+    let depth = 0,
+      i = k;
+    for (; i < src.length; i++) {
+      if (src[i] === "{") depth++;
+      else if (src[i] === "}") {
+        depth--;
+        if (!depth) {
+          i++;
+          break;
+        }
+      }
+    }
     if (offset >= k && offset < i) {
-      const named = m[0].match(/(?:PUBLIC|PRIVATE)_(?:FUNCTION|PROCEDURE)(_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/);
+      const named = m[0].match(
+        /(?:PUBLIC|PRIVATE)_(?:FUNCTION|PROCEDURE)(_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/,
+      );
       const life = m[0].match(new RegExp(`(${LIFECYCLE})(_WITH_LOCALS)?\\s*\\(\\s*\\)`));
       return {
         name: named ? named[2] : life ? life[1] : null,
         withLocals: named ? !!named[1] : life ? !!life[2] : false,
-        macroStart: m.index, macroEnd: m.index + m[0].length, bodyStart: k, bodyEnd: i,
+        macroStart: m.index,
+        macroEnd: m.index + m[0].length,
+        bodyStart: k,
+        bodyEnd: i,
       };
     }
   }
@@ -234,9 +403,36 @@ export function enclosingFunction(source: string, offset: number): EnclosingFn |
 }
 
 const STMT_KEYWORDS = new Set([
-  "return", "if", "else", "for", "while", "do", "switch", "case", "break", "continue", "default", "goto",
-  "const", "static", "constexpr", "struct", "class", "enum", "union", "typedef", "using", "sizeof", "new",
-  "delete", "this", "true", "false", "nullptr", "operator", "template",
+  "return",
+  "if",
+  "else",
+  "for",
+  "while",
+  "do",
+  "switch",
+  "case",
+  "break",
+  "continue",
+  "default",
+  "goto",
+  "const",
+  "static",
+  "constexpr",
+  "struct",
+  "class",
+  "enum",
+  "union",
+  "typedef",
+  "using",
+  "sizeof",
+  "new",
+  "delete",
+  "this",
+  "true",
+  "false",
+  "nullptr",
+  "operator",
+  "template",
 ]);
 
 // Detect a function/procedure that needs the `_WITH_LOCALS` form but uses the plain one: it either
@@ -250,13 +446,29 @@ export function scanLocalsForm(source: string): QpiFinding[] {
 
   // For one plain (non-_WITH_LOCALS) function/hook: flag it if its body uses `locals.` or a
   // `<name>_locals` struct exists — both mean the author needs the _WITH_LOCALS form.
-  const check = (name: string, plainForm: string, withForm: string, afterMacro: number, span: [number, number]) => {
+  const check = (
+    name: string,
+    plainForm: string,
+    withForm: string,
+    afterMacro: number,
+    span: [number, number],
+  ) => {
     let usesLocals = false;
     let k = afterMacro;
     while (k < src.length && src[k] !== "{" && src[k] !== ";") k++;
     if (src[k] === "{") {
-      let depth = 0, i = k;
-      for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}") { depth--; if (!depth) { i++; break; } } }
+      let depth = 0,
+        i = k;
+      for (; i < src.length; i++) {
+        if (src[i] === "{") depth++;
+        else if (src[i] === "}") {
+          depth--;
+          if (!depth) {
+            i++;
+            break;
+          }
+        }
+      }
       usesLocals = /\blocals\s*\./.test(src.slice(k, i));
     }
     if (!usesLocals && !userLocals.has(name)) return;
@@ -273,11 +485,17 @@ export function scanLocalsForm(source: string): QpiFinding[] {
 
   let m: RegExpExecArray | null;
   // Named user functions/procedures: PUBLIC/PRIVATE_FUNCTION/PROCEDURE(Name).
-  const namedRe = /\b(PUBLIC|PRIVATE)_(FUNCTION|PROCEDURE)(_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/gd;
+  const namedRe = /\b(PUBLIC|PRIVATE)_(FUNCTION|PROCEDURE)(_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/dg;
   while ((m = namedRe.exec(src))) {
     if (m[3]) continue; // already _WITH_LOCALS
     const form = `${m[1]}_${m[2]}`;
-    check(m[4], `${form}(${m[4]})`, `${form}_WITH_LOCALS(${m[4]})`, m.index + m[0].length, m.indices![0]);
+    check(
+      m[4],
+      `${form}(${m[4]})`,
+      `${form}_WITH_LOCALS(${m[4]})`,
+      m.index + m[0].length,
+      m.indices![0],
+    );
   }
   // Lifecycle hooks: INITIALIZE() etc. — the hook name itself is the `<name>_locals` base.
   const lifeRe = new RegExp(`\\b(${LIFECYCLE})(_WITH_LOCALS)?\\s*\\(\\s*\\)`, "gd");

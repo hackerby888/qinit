@@ -9,7 +9,9 @@ import { compileContract, loadQpiHeader } from "../../src/index";
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 const APPROVER_SRC = readFileSync(QINIT_ROOT + "/fixtures/ShareApprover.h", "utf8");
-const SHARE_MANAGER = new Uint8Array(readFileSync(QINIT_ROOT + "/packages/engine/tests/fixtures/ShareManager.wasm"));
+const SHARE_MANAGER = new Uint8Array(
+  readFileSync(QINIT_ROOT + "/packages/engine/tests/fixtures/ShareManager.wasm"),
+);
 
 const TOKEN = 0x4e454b4f54n; // "TOKEN"
 
@@ -51,7 +53,14 @@ function issueIn(name: bigint, shares: bigint): Uint8Array {
   return b;
 }
 // ShareManager Acquire input: { uint64 name; id issuer; id holder; sint64 shares; uint16 srcMgmt; sint64 fee }
-function acqIn(name: bigint, issuer: Uint8Array, holder: Uint8Array, shares: bigint, srcMgmt: number, fee: bigint): Uint8Array {
+function acqIn(
+  name: bigint,
+  issuer: Uint8Array,
+  holder: Uint8Array,
+  shares: bigint,
+  srcMgmt: number,
+  fee: bigint,
+): Uint8Array {
   const b = new Uint8Array(96);
   const d = new DataView(b.buffer);
   d.setBigUint64(0, name, true);
@@ -78,7 +87,13 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
   });
 
   test("my approver's PRE_RELEASE_SHARES lets the acquirer take rights (allowTransfer read back)", async () => {
-    const approver = await compileContract({ source: APPROVER_SRC, name: "ShareApprover", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const approver = await compileContract({
+      source: APPROVER_SRC,
+      name: "ShareApprover",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(approver.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const sim = new Sim();
@@ -92,13 +107,19 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     // ShareManager(29).Acquire 400 from srcMgmt 28: fires my PRE_RELEASE_SHARES on 28 → allowTransfer=true.
     sim.procedure(29, 2, acqIn(TOKEN, A, A, 400n, 28, 0n));
 
-    expect(i64(sim.query(29, 1))).toBe(0n);     // acquireShares returned the paid fee (0) on success
-    expect(sharesByMgmt(sim, 29)).toBe(400n);    // 400 now managed by the acquirer
-    expect(sharesByMgmt(sim, 28)).toBe(600n);    // 600 still managed by the approver
+    expect(i64(sim.query(29, 1))).toBe(0n); // acquireShares returned the paid fee (0) on success
+    expect(sharesByMgmt(sim, 29)).toBe(400n); // 400 now managed by the acquirer
+    expect(sharesByMgmt(sim, 28)).toBe(600n); // 600 still managed by the approver
   });
 
   test("PRE_RELEASE_SHARES.requestedFee (output struct) is honoured: approver charges, acquirer pays", async () => {
-    const approver = await compileContract({ source: APPROVER_SRC, name: "ShareApprover", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const approver = await compileContract({
+      source: APPROVER_SRC,
+      name: "ShareApprover",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     const sim = new Sim();
     sim.deploy(28, approver.wasm);
     sim.deploy(29, SHARE_MANAGER);
@@ -113,14 +134,20 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     sim.fund(cid(29), 100n); // the acquirer needs balance to pay the fee
 
     sim.procedure(29, 2, acqIn(TOKEN, A, A, 400n, 28, 10n)); // Acquire offering fee 10
-    expect(i64(sim.query(29, 1))).toBe(10n);     // acquireShares returned the fee the approver requested
-    expect(sim.balanceOf(28)).toBe(10n);          // the approver received it
-    expect(sim.balanceOf(29)).toBe(90n);          // the acquirer paid it
+    expect(i64(sim.query(29, 1))).toBe(10n); // acquireShares returned the fee the approver requested
+    expect(sim.balanceOf(28)).toBe(10n); // the approver received it
+    expect(sim.balanceOf(29)).toBe(90n); // the acquirer paid it
     expect(sharesByMgmt(sim, 29)).toBe(400n);
   });
 
   test("my approver's PRE_ACQUIRE_SHARES lets the acquirer release rights back", async () => {
-    const approver = await compileContract({ source: APPROVER_SRC, name: "ShareApprover", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const approver = await compileContract({
+      source: APPROVER_SRC,
+      name: "ShareApprover",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     const sim = new Sim();
     sim.deploy(28, approver.wasm);
     sim.deploy(29, SHARE_MANAGER);
@@ -133,12 +160,18 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     // ShareManager(29).Release (proc 3) back to 28: fires my PRE_ACQUIRE_SHARES on 28 → allowTransfer=true.
     sim.procedure(29, 3, acqIn(TOKEN, A, A, 400n, 28, 0n));
     expect(i64(sim.query(29, 1))).toBe(0n);
-    expect(sharesByMgmt(sim, 29)).toBe(0n);       // released
-    expect(sharesByMgmt(sim, 28)).toBe(1000n);    // all back to the approver
+    expect(sharesByMgmt(sim, 29)).toBe(0n); // released
+    expect(sharesByMgmt(sim, 28)).toBe(1000n); // all back to the approver
   });
 
   test("POST_RELEASE_SHARES (sysproc 7) fires with the right numberOfShares + receivedFee", async () => {
-    const rec = await compileContract({ source: POST_REC, name: "PostRec", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const rec = await compileContract({
+      source: POST_REC,
+      name: "PostRec",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(rec.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const sim = new Sim();
@@ -155,8 +188,8 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     // Acquirer takes 400: PRE_RELEASE_SHARES approves, then POST_RELEASE_SHARES fires on 28.
     sim.procedure(29, 2, acqIn(TOKEN, A, A, 400n, 28, 0n));
     g = sim.query(28, 1);
-    expect(i64(g.subarray(0, 8))).toBe(400n);  // numberOfShares from PostManagementRightsTransfer_input
-    expect(i64(g.subarray(8, 16))).toBe(0n);   // receivedFee (0 offered)
-    expect(i64(g.subarray(16, 24))).toBe(1n);  // fired once
+    expect(i64(g.subarray(0, 8))).toBe(400n); // numberOfShares from PostManagementRightsTransfer_input
+    expect(i64(g.subarray(8, 16))).toBe(0n); // receivedFee (0 offered)
+    expect(i64(g.subarray(16, 24))).toBe(1n); // fired once
   });
 });

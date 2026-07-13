@@ -61,7 +61,15 @@ test("invokeProcedure signs + broadcasts Inc; it processes and state advances", 
     const ti = await rpc.tickInfo();
     const tick = ((ti.tick ?? 0) as number) + TX_TICK_OFFSET;
     const r = await invokeProcedure({
-      seed: SEED, rpcBase, contractIndex: SLOT, procId: INC, amount: 0, inFmt: "", tick, confirm: true, rpc,
+      seed: SEED,
+      rpcBase,
+      contractIndex: SLOT,
+      procId: INC,
+      amount: 0,
+      inFmt: "",
+      tick,
+      confirm: true,
+      rpc,
     });
     expect(r.ok).toBe(true);
     expect(r.confirmed).toBe(true);
@@ -89,7 +97,17 @@ test("confirm waits for execution: a read right after confirm sees the mutation 
   try {
     const ti = await rpc.tickInfo();
     const tick = ((ti.tick ?? 0) as number) + TX_TICK_OFFSET;
-    const r = await invokeProcedure({ seed: SEED, rpcBase, contractIndex: SLOT, procId: INC, amount: 0, inFmt: "", tick, confirm: true, rpc });
+    const r = await invokeProcedure({
+      seed: SEED,
+      rpcBase,
+      contractIndex: SLOT,
+      procId: INC,
+      amount: 0,
+      inFmt: "",
+      tick,
+      confirm: true,
+      rpc,
+    });
     expect(r.confirmed).toBe(true);
     // no poll loop: confirm must not resolve until the tx's tick executed, so the Inc is already visible
     expect(BigInt(await callFunction(rpc, SLOT, GET, "", "uint64"))).toBe(1n);

@@ -27,8 +27,18 @@ export function wasiAvailable(): boolean {
 }
 
 function calleeIdlFrom(name: string, index: number, r: CompileResult) {
-  const fns = Object.fromEntries(r.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }]));
-  const procs = Object.fromEntries(r.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }]));
+  const fns = Object.fromEntries(
+    r.idl.functions.map((f) => [
+      f.name,
+      { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize },
+    ]),
+  );
+  const procs = Object.fromEntries(
+    r.idl.procedures.map((p) => [
+      p.name,
+      { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize },
+    ]),
+  );
   return { name, index, functions: fns, procedures: procs };
 }
 
@@ -59,16 +69,36 @@ export async function buildContractsOurs(core: string): Promise<Record<number, U
   const qutilSrc = readFileSync(`${core}/src/contracts/QUtil.h`, "utf8");
   const qxSrc = readFileSync(`${core}/src/contracts/Qx.h`, "utf8");
 
-  const mineQx = await compileContract({ source: qxSrc, name: "QX", slot: QX_IDX, qpiHeader: headers, arenaSz: 8 * 1024 * 1024 });
+  const mineQx = await compileContract({
+    source: qxSrc,
+    name: "QX",
+    slot: QX_IDX,
+    qpiHeader: headers,
+    arenaSz: 8 * 1024 * 1024,
+  });
   const callees = [calleeIdlFrom("QX", QX_IDX, mineQx)];
   const calleeSources = [{ name: "QX", source: qxSrc }];
-  const mineQutil = await compileContract({ source: qutilSrc, name: "QUTIL", slot: QUTIL_IDX, qpiHeader: headers, arenaSz: 8 * 1024 * 1024, callees, calleeSources });
+  const mineQutil = await compileContract({
+    source: qutilSrc,
+    name: "QUTIL",
+    slot: QUTIL_IDX,
+    qpiHeader: headers,
+    arenaSz: 8 * 1024 * 1024,
+    callees,
+    calleeSources,
+  });
 
   const qxErrs = mineQx.diagnostics.filter((d) => d.severity === "error");
   const qutilErrs = mineQutil.diagnostics.filter((d) => d.severity === "error");
   if (qxErrs.length || qutilErrs.length) {
-    const fmt = (label: string, ds: typeof qxErrs) => ds.map((d) => `  ${label} L${d.span.line}: ${d.message}`).join("\n");
-    throw new Error("ours compile errors:\n" + fmt("QX", qxErrs) + (qxErrs.length && qutilErrs.length ? "\n" : "") + fmt("QUTIL", qutilErrs));
+    const fmt = (label: string, ds: typeof qxErrs) =>
+      ds.map((d) => `  ${label} L${d.span.line}: ${d.message}`).join("\n");
+    throw new Error(
+      "ours compile errors:\n" +
+        fmt("QX", qxErrs) +
+        (qxErrs.length && qutilErrs.length ? "\n" : "") +
+        fmt("QUTIL", qutilErrs),
+    );
   }
   return { [QUTIL_IDX]: mineQutil.wasm, [QX_IDX]: mineQx.wasm };
 }
@@ -79,19 +109,35 @@ export async function buildContractsNative(core: string): Promise<Record<number,
 
   try {
     const qx = await buildContract({
-      contractPath: `${core}/src/contracts/Qx.h`, name: "QX", stateType: "QX", slot: QX_IDX,
-      corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
+      contractPath: `${core}/src/contracts/Qx.h`,
+      name: "QX",
+      stateType: "QX",
+      slot: QX_IDX,
+      corePath: core,
+      outDir: dir,
+      arenaSz: 8 * 1024 * 1024,
+      skipVerify: true,
     });
     if (!qx.ok) {
-      throw new Error("native QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"));
+      throw new Error(
+        "native QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"),
+      );
     }
 
     const qutil = await buildContract({
-      contractPath: `${core}/src/contracts/QUtil.h`, name: "QUTIL", stateType: "QUTIL", slot: QUTIL_IDX,
-      corePath: core, outDir: dir, arenaSz: 8 * 1024 * 1024, skipVerify: true,
+      contractPath: `${core}/src/contracts/QUtil.h`,
+      name: "QUTIL",
+      stateType: "QUTIL",
+      slot: QUTIL_IDX,
+      corePath: core,
+      outDir: dir,
+      arenaSz: 8 * 1024 * 1024,
+      skipVerify: true,
     });
     if (!qutil.ok) {
-      throw new Error("native QUTIL build failed:\n" + (qutil.stderr ?? "").split("\n").slice(-15).join("\n"));
+      throw new Error(
+        "native QUTIL build failed:\n" + (qutil.stderr ?? "").split("\n").slice(-15).join("\n"),
+      );
     }
 
     const qxBytes = new Uint8Array(readFileSync(qx.so!));
@@ -103,6 +149,9 @@ export async function buildContractsNative(core: string): Promise<Record<number,
 }
 
 // Instantiate the runner wasm, bind the thost table to a fresh Sim with the contracts deployed, drive each test.
-export async function runUpstream(runnerWasm: Uint8Array, contracts: Record<number, Uint8Array>): Promise<TR[]> {
+export async function runUpstream(
+  runnerWasm: Uint8Array,
+  contracts: Record<number, Uint8Array>,
+): Promise<TR[]> {
   return runContractTesting(runnerWasm, contracts);
 }

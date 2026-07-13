@@ -12,7 +12,7 @@ export interface QinitConfig {
   rpc?: string;
   system?: string[]; // built-in system contracts to seed onto the virtual node (`qinit system`)
   callees?: { name: string; contract: string }[]; // inter-contract callees to deploy before the main contract
-                                                   // (so its CALL_OTHER_CONTRACT names resolve from the registry)
+  // (so its CALL_OTHER_CONTRACT names resolve from the registry)
 }
 
 // Per-project config (qinit.json). Precedence at the call site: CLI flag > qinit.json > default.
@@ -30,7 +30,9 @@ export function resolveCore(cliCore?: string, cfgCore?: string): string {
   if (explicit) return resolve(explicit);
   const cur = readCurrent();
   if (cur?.coreHeaders && existsSync(cur.coreHeaders)) return cur.coreHeaders;
-  throw new Error("no core headers: run `qinit node run` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>");
+  throw new Error(
+    "no core headers: run `qinit node run` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>",
+  );
 }
 
 // Lean, Bun-free re-exports of the toolchain readers, so a consumer can import everything

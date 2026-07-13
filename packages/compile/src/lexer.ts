@@ -2,61 +2,145 @@
 
 export type TokenKind =
   // Keywords
-  | "kw_asm" | "kw_auto" | "kw_bool" | "kw_break" | "kw_case" | "kw_char" | "kw_class"
-  | "kw_const" | "kw_constexpr" | "kw_continue" | "kw_default" | "kw_delete" | "kw_do"
-  | "kw_double" | "kw_else" | "kw_enum" | "kw_extern" | "kw_false" | "kw_float" | "kw_for"
-  | "kw_friend" | "kw_goto" | "kw_if" | "kw_inline" | "kw_int" | "kw_long" | "kw_namespace"
-  | "kw_noexcept" | "kw_nullptr" | "kw_operator" | "kw_override" | "kw_private"
-  | "kw_protected" | "kw_public" | "kw_return" | "kw_short" | "kw_signed" | "kw_sizeof"
-  | "kw_static" | "kw_static_assert" | "kw_struct" | "kw_switch" | "kw_template"
-  | "kw_this" | "kw_true" | "kw_typedef" | "kw_typename" | "kw_union" | "kw_unsigned"
-  | "kw_using" | "kw_virtual" | "kw_void" | "kw_volatile" | "kw_while"
+  | "kw_asm"
+  | "kw_auto"
+  | "kw_bool"
+  | "kw_break"
+  | "kw_case"
+  | "kw_char"
+  | "kw_class"
+  | "kw_const"
+  | "kw_constexpr"
+  | "kw_continue"
+  | "kw_default"
+  | "kw_delete"
+  | "kw_do"
+  | "kw_double"
+  | "kw_else"
+  | "kw_enum"
+  | "kw_extern"
+  | "kw_false"
+  | "kw_float"
+  | "kw_for"
+  | "kw_friend"
+  | "kw_goto"
+  | "kw_if"
+  | "kw_inline"
+  | "kw_int"
+  | "kw_long"
+  | "kw_namespace"
+  | "kw_noexcept"
+  | "kw_nullptr"
+  | "kw_operator"
+  | "kw_override"
+  | "kw_private"
+  | "kw_protected"
+  | "kw_public"
+  | "kw_return"
+  | "kw_short"
+  | "kw_signed"
+  | "kw_sizeof"
+  | "kw_static"
+  | "kw_static_assert"
+  | "kw_struct"
+  | "kw_switch"
+  | "kw_template"
+  | "kw_this"
+  | "kw_true"
+  | "kw_typedef"
+  | "kw_typename"
+  | "kw_union"
+  | "kw_unsigned"
+  | "kw_using"
+  | "kw_virtual"
+  | "kw_void"
+  | "kw_volatile"
+  | "kw_while"
   // Compound type keywords (multi-word)
-  | "kw_signed_char" | "kw_unsigned_char"
-  | "kw_signed_short" | "kw_unsigned_short"
-  | "kw_signed_int" | "kw_unsigned_int"
-  | "kw_signed_long_long" | "kw_unsigned_long_long"
+  | "kw_signed_char"
+  | "kw_unsigned_char"
+  | "kw_signed_short"
+  | "kw_unsigned_short"
+  | "kw_signed_int"
+  | "kw_unsigned_int"
+  | "kw_signed_long_long"
+  | "kw_unsigned_long_long"
   | "kw_long_long"
   // Literals
-  | "int_literal" | "float_literal" | "char_literal" | "string_literal"
+  | "int_literal"
+  | "float_literal"
+  | "char_literal"
+  | "string_literal"
   // Identifiers
   | "identifier"
   // Operators and punctuators
-  | "l_brace" | "r_brace"        // { }
-  | "l_paren" | "r_paren"        // ( )
-  | "l_bracket" | "r_bracket"    // [ ]
-  | "l_angle" | "r_angle"        // < > (also template angle brackets)
-  | "semicolon"                   // ;
-  | "colon" | "d_colon"          // : ::
-  | "comma"                       // ,
-  | "dot" | "dot_star"           // . .*
-  | "arrow" | "arrow_star"       // -> ->*
-  | "ellipsis"                    // ...
-  | "hash" | "d_hash"            // # ##
+  | "l_brace"
+  | "r_brace" // { }
+  | "l_paren"
+  | "r_paren" // ( )
+  | "l_bracket"
+  | "r_bracket" // [ ]
+  | "l_angle"
+  | "r_angle" // < > (also template angle brackets)
+  | "semicolon" // ;
+  | "colon"
+  | "d_colon" // : ::
+  | "comma" // ,
+  | "dot"
+  | "dot_star" // . .*
+  | "arrow"
+  | "arrow_star" // -> ->*
+  | "ellipsis" // ...
+  | "hash"
+  | "d_hash" // # ##
   // Assignment
-  | "eq"                          // =
-  | "plus_eq" | "minus_eq" | "star_eq" | "slash_eq" | "percent_eq"
-  | "l_shift_eq" | "r_shift_eq" | "amp_eq" | "pipe_eq" | "caret_eq"
+  | "eq" // =
+  | "plus_eq"
+  | "minus_eq"
+  | "star_eq"
+  | "slash_eq"
+  | "percent_eq"
+  | "l_shift_eq"
+  | "r_shift_eq"
+  | "amp_eq"
+  | "pipe_eq"
+  | "caret_eq"
   // Arithmetic
-  | "plus" | "minus" | "star" | "slash" | "percent"
+  | "plus"
+  | "minus"
+  | "star"
+  | "slash"
+  | "percent"
   // Increment/decrement
-  | "plus_plus" | "minus_minus"
+  | "plus_plus"
+  | "minus_minus"
   // Comparison
-  | "eq_eq" | "not_eq" | "lt" | "gt" | "lt_eq" | "gt_eq"
-  | "spaceship"                   // <=>
+  | "eq_eq"
+  | "not_eq"
+  | "lt"
+  | "gt"
+  | "lt_eq"
+  | "gt_eq"
+  | "spaceship" // <=>
   // Logical
-  | "amp_amp" | "pipe_pipe" | "bang"
+  | "amp_amp"
+  | "pipe_pipe"
+  | "bang"
   // Bitwise
-  | "amp" | "pipe" | "caret" | "tilde"
+  | "amp"
+  | "pipe"
+  | "caret"
+  | "tilde"
   // Shift
-  | "l_shift" | "r_shift"
+  | "l_shift"
+  | "r_shift"
   // Other
-  | "question"                    // ?
+  | "question" // ?
   | "eof";
 
 export interface Token {
   kind: TokenKind;
-  text: string;                  // raw source text
+  text: string; // raw source text
   span: Span;
 }
 
@@ -66,60 +150,60 @@ import type { Span } from "./ast";
 // ---- Keyword map ----
 
 const KEYWORDS: Record<string, TokenKind> = {
-  "asm": "kw_asm",
-  "auto": "kw_auto",
-  "bool": "kw_bool",
-  "break": "kw_break",
-  "case": "kw_case",
-  "char": "kw_char",
-  "class": "kw_class",
-  "const": "kw_const",
-  "constexpr": "kw_constexpr",
-  "continue": "kw_continue",
-  "default": "kw_default",
-  "delete": "kw_delete",
-  "do": "kw_do",
-  "double": "kw_double",
-  "else": "kw_else",
-  "enum": "kw_enum",
-  "extern": "kw_extern",
-  "false": "kw_false",
-  "float": "kw_float",
-  "for": "kw_for",
-  "friend": "kw_friend",
-  "goto": "kw_goto",
-  "if": "kw_if",
-  "inline": "kw_inline",
-  "int": "kw_int",
-  "long": "kw_long",
-  "namespace": "kw_namespace",
-  "noexcept": "kw_noexcept",
-  "nullptr": "kw_nullptr",
-  "operator": "kw_operator",
-  "override": "kw_override",
-  "private": "kw_private",
-  "protected": "kw_protected",
-  "public": "kw_public",
-  "return": "kw_return",
-  "short": "kw_short",
-  "signed": "kw_signed",
-  "sizeof": "kw_sizeof",
-  "static": "kw_static",
-  "static_assert": "kw_static_assert",
-  "struct": "kw_struct",
-  "switch": "kw_switch",
-  "template": "kw_template",
-  "this": "kw_this",
-  "true": "kw_true",
-  "typedef": "kw_typedef",
-  "typename": "kw_typename",
-  "union": "kw_union",
-  "unsigned": "kw_unsigned",
-  "using": "kw_using",
-  "virtual": "kw_virtual",
-  "void": "kw_void",
-  "volatile": "kw_volatile",
-  "while": "kw_while",
+  asm: "kw_asm",
+  auto: "kw_auto",
+  bool: "kw_bool",
+  break: "kw_break",
+  case: "kw_case",
+  char: "kw_char",
+  class: "kw_class",
+  const: "kw_const",
+  constexpr: "kw_constexpr",
+  continue: "kw_continue",
+  default: "kw_default",
+  delete: "kw_delete",
+  do: "kw_do",
+  double: "kw_double",
+  else: "kw_else",
+  enum: "kw_enum",
+  extern: "kw_extern",
+  false: "kw_false",
+  float: "kw_float",
+  for: "kw_for",
+  friend: "kw_friend",
+  goto: "kw_goto",
+  if: "kw_if",
+  inline: "kw_inline",
+  int: "kw_int",
+  long: "kw_long",
+  namespace: "kw_namespace",
+  noexcept: "kw_noexcept",
+  nullptr: "kw_nullptr",
+  operator: "kw_operator",
+  override: "kw_override",
+  private: "kw_private",
+  protected: "kw_protected",
+  public: "kw_public",
+  return: "kw_return",
+  short: "kw_short",
+  signed: "kw_signed",
+  sizeof: "kw_sizeof",
+  static: "kw_static",
+  static_assert: "kw_static_assert",
+  struct: "kw_struct",
+  switch: "kw_switch",
+  template: "kw_template",
+  this: "kw_this",
+  true: "kw_true",
+  typedef: "kw_typedef",
+  typename: "kw_typename",
+  union: "kw_union",
+  unsigned: "kw_unsigned",
+  using: "kw_using",
+  virtual: "kw_virtual",
+  void: "kw_void",
+  volatile: "kw_volatile",
+  while: "kw_while",
 };
 
 // Multi-word type keywords formed by consecutive single keywords
@@ -136,15 +220,27 @@ const TYPE_COMPOUNDS: [TokenKind[], TokenKind][] = [
 ];
 
 export function isTypeKeyword(kind: TokenKind): boolean {
-  return kind === "kw_void" || kind === "kw_bool" || kind === "kw_char"
-    || kind === "kw_short" || kind === "kw_int" || kind === "kw_long"
-    || kind === "kw_signed" || kind === "kw_unsigned"
-    || kind === "kw_signed_char" || kind === "kw_unsigned_char"
-    || kind === "kw_signed_short" || kind === "kw_unsigned_short"
-    || kind === "kw_signed_int" || kind === "kw_unsigned_int"
-    || kind === "kw_signed_long_long" || kind === "kw_unsigned_long_long"
-    || kind === "kw_long_long"
-    || kind === "kw_double" || kind === "kw_float";
+  return (
+    kind === "kw_void" ||
+    kind === "kw_bool" ||
+    kind === "kw_char" ||
+    kind === "kw_short" ||
+    kind === "kw_int" ||
+    kind === "kw_long" ||
+    kind === "kw_signed" ||
+    kind === "kw_unsigned" ||
+    kind === "kw_signed_char" ||
+    kind === "kw_unsigned_char" ||
+    kind === "kw_signed_short" ||
+    kind === "kw_unsigned_short" ||
+    kind === "kw_signed_int" ||
+    kind === "kw_unsigned_int" ||
+    kind === "kw_signed_long_long" ||
+    kind === "kw_unsigned_long_long" ||
+    kind === "kw_long_long" ||
+    kind === "kw_double" ||
+    kind === "kw_float"
+  );
 }
 
 // ---- Lexer ----
@@ -281,7 +377,7 @@ export class Lexer {
     }
 
     // String literal
-    if (ch === "\"") {
+    if (ch === '"') {
       return this.lexStringLiteral(start, startLine, startCol);
     }
 
@@ -327,7 +423,10 @@ export class Lexer {
       }
       if (next === "b") {
         text += this.advance();
-        while (!this.eof() && (this.peekChar() === "0" || this.peekChar() === "1" || this.peekChar() === "'")) {
+        while (
+          !this.eof() &&
+          (this.peekChar() === "0" || this.peekChar() === "1" || this.peekChar() === "'")
+        ) {
           text += this.advance();
         }
         text += this.peekSuffix();
@@ -366,14 +465,26 @@ export class Lexer {
   private peekSuffix(): string {
     const rest = this.src.slice(this.pos, this.pos + 4).toLowerCase();
     // ull, llu
-    if (rest.startsWith("ull")) { return this.advanceN(3); }
-    if (rest.startsWith("llu")) { return this.advanceN(3); }
+    if (rest.startsWith("ull")) {
+      return this.advanceN(3);
+    }
+    if (rest.startsWith("llu")) {
+      return this.advanceN(3);
+    }
     // ul, lu, ll
-    if (rest.startsWith("ul")) { return this.advanceN(2); }
-    if (rest.startsWith("lu")) { return this.advanceN(2); }
-    if (rest.startsWith("ll")) { return this.advanceN(2); }
+    if (rest.startsWith("ul")) {
+      return this.advanceN(2);
+    }
+    if (rest.startsWith("lu")) {
+      return this.advanceN(2);
+    }
+    if (rest.startsWith("ll")) {
+      return this.advanceN(2);
+    }
     // u, l
-    if (rest[0] === "u" || rest[0] === "l") { return this.advanceN(1); }
+    if (rest[0] === "u" || rest[0] === "l") {
+      return this.advanceN(1);
+    }
     return "";
   }
 
@@ -424,7 +535,7 @@ export class Lexer {
         if (!this.eof()) {
           text += this.advance();
         }
-      } else if (ch === "\"") {
+      } else if (ch === '"') {
         text += this.advance();
         break;
       } else if (ch === "\n") {
@@ -441,7 +552,11 @@ export class Lexer {
     const ch = this.advance();
     const next = this.peekChar();
 
-    const mk = (kind: TokenKind): Token => ({ kind, text: ch, span: this.makeSpan(start, startLine, startCol) });
+    const mk = (kind: TokenKind): Token => ({
+      kind,
+      text: ch,
+      span: this.makeSpan(start, startLine, startCol),
+    });
     const mk2 = (kind: TokenKind, ch2: string): Token => {
       this.advance();
       return { kind, text: ch + ch2, span: this.makeSpan(start, startLine, startCol) };
@@ -453,17 +568,28 @@ export class Lexer {
     };
 
     switch (ch) {
-      case "{": return mk("l_brace");
-      case "}": return mk("r_brace");
-      case "(": return mk("l_paren");
-      case ")": return mk("r_paren");
-      case "[": return mk("l_bracket");
-      case "]": return mk("r_bracket");
-      case ";": return mk("semicolon");
-      case ":": return next === ":" ? mk2("d_colon", ":") : mk("colon");
-      case ",": return mk("comma");
-      case "?": return mk("question");
-      case "~": return mk("tilde");
+      case "{":
+        return mk("l_brace");
+      case "}":
+        return mk("r_brace");
+      case "(":
+        return mk("l_paren");
+      case ")":
+        return mk("r_paren");
+      case "[":
+        return mk("l_bracket");
+      case "]":
+        return mk("r_bracket");
+      case ";":
+        return mk("semicolon");
+      case ":":
+        return next === ":" ? mk2("d_colon", ":") : mk("colon");
+      case ",":
+        return mk("comma");
+      case "?":
+        return mk("question");
+      case "~":
+        return mk("tilde");
 
       case ".":
         if (next === "*") {
@@ -475,78 +601,118 @@ export class Lexer {
         return mk("dot");
 
       case "+":
-        if (next === "=") { return mk2("plus_eq", "="); }
-        if (next === "+") { return mk2("plus_plus", "+"); }
+        if (next === "=") {
+          return mk2("plus_eq", "=");
+        }
+        if (next === "+") {
+          return mk2("plus_plus", "+");
+        }
         return mk("plus");
 
       case "-":
-        if (next === "=") { return mk2("minus_eq", "="); }
-        if (next === "-") { return mk2("minus_minus", "-"); }
+        if (next === "=") {
+          return mk2("minus_eq", "=");
+        }
+        if (next === "-") {
+          return mk2("minus_minus", "-");
+        }
         if (next === ">") {
           const after = this.peekChar(1);
-          if (after === "*") { return mk3("arrow_star", ">", "*"); }
+          if (after === "*") {
+            return mk3("arrow_star", ">", "*");
+          }
           return mk2("arrow", ">");
         }
         return mk("minus");
 
       case "*":
-        if (next === "=") { return mk2("star_eq", "="); }
+        if (next === "=") {
+          return mk2("star_eq", "=");
+        }
         return mk("star");
 
       case "/":
-        if (next === "=") { return mk2("slash_eq", "="); }
+        if (next === "=") {
+          return mk2("slash_eq", "=");
+        }
         return mk("slash");
 
       case "%":
-        if (next === "=") { return mk2("percent_eq", "="); }
+        if (next === "=") {
+          return mk2("percent_eq", "=");
+        }
         return mk("percent");
 
       case "=":
-        if (next === "=") { return mk2("eq_eq", "="); }
+        if (next === "=") {
+          return mk2("eq_eq", "=");
+        }
         return mk("eq");
 
       case "!":
-        if (next === "=") { return mk2("not_eq", "="); }
+        if (next === "=") {
+          return mk2("not_eq", "=");
+        }
         return mk("bang");
 
       case "<":
         if (next === "=") {
           const after = this.peekChar(1);
-          if (after === ">") { return mk3("spaceship", "=", ">"); }
+          if (after === ">") {
+            return mk3("spaceship", "=", ">");
+          }
           return mk2("lt_eq", "=");
         }
         if (next === "<") {
           const after = this.peekChar(1);
-          if (after === "=") { return mk3("l_shift_eq", "<", "="); }
+          if (after === "=") {
+            return mk3("l_shift_eq", "<", "=");
+          }
           return mk2("l_shift", "<");
         }
         return mk("l_angle");
 
       case ">":
-        if (next === "=") { return mk2("gt_eq", "="); }
+        if (next === "=") {
+          return mk2("gt_eq", "=");
+        }
         if (next === ">") {
           const after = this.peekChar(1);
-          if (after === "=") { return mk3("r_shift_eq", ">", "="); }
+          if (after === "=") {
+            return mk3("r_shift_eq", ">", "=");
+          }
           return mk2("r_shift", ">");
         }
         return mk("r_angle");
 
       case "&":
-        if (next === "=") { return mk2("amp_eq", "="); }
-        if (next === "&") { return mk2("amp_amp", "&"); }
+        if (next === "=") {
+          return mk2("amp_eq", "=");
+        }
+        if (next === "&") {
+          return mk2("amp_amp", "&");
+        }
         return mk("amp");
 
       case "|":
-        if (next === "=") { return mk2("pipe_eq", "="); }
-        if (next === "|") { return mk2("pipe_pipe", "|"); }
+        if (next === "=") {
+          return mk2("pipe_eq", "=");
+        }
+        if (next === "|") {
+          return mk2("pipe_pipe", "|");
+        }
         return mk("pipe");
 
       case "^":
-        if (next === "=") { return mk2("caret_eq", "="); }
+        if (next === "=") {
+          return mk2("caret_eq", "=");
+        }
         return mk("caret");
 
       case "#":
-        if (next === "#") { return mk2("d_hash", "#"); }
+        if (next === "#") {
+          return mk2("d_hash", "#");
+        }
         return mk("hash");
 
       default:
@@ -593,11 +759,19 @@ export class Lexer {
         if (match) {
           const startTok = this.tokens[i];
           const endTok = this.tokens[i + seq.length - 1];
-          const text = this.tokens.slice(i, i + seq.length).map((t) => t.text).join(" ");
+          const text = this.tokens
+            .slice(i, i + seq.length)
+            .map((t) => t.text)
+            .join(" ");
           result.push({
             kind: compound,
             text,
-            span: { start: startTok.span.start, end: endTok.span.end, line: startTok.span.line, col: startTok.span.col },
+            span: {
+              start: startTok.span.start,
+              end: endTok.span.end,
+              line: startTok.span.line,
+              col: startTok.span.col,
+            },
           });
           i += seq.length;
           collapsed = true;

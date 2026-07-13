@@ -33,20 +33,29 @@ function lineText(source: string, starts: number[], index: number): string {
 function mapGeneratedColumn(original: string, generated: string, column: number): number {
   const generatedColumn = Math.max(0, Math.min(column, generated.length));
   let prefix = 0;
-  while (prefix < original.length && prefix < generated.length && original[prefix] === generated[prefix]) prefix++;
+  while (
+    prefix < original.length &&
+    prefix < generated.length &&
+    original[prefix] === generated[prefix]
+  )
+    prefix++;
 
   let suffix = 0;
   while (
-    suffix < original.length - prefix
-    && suffix < generated.length - prefix
-    && original[original.length - 1 - suffix] === generated[generated.length - 1 - suffix]
-  ) suffix++;
+    suffix < original.length - prefix &&
+    suffix < generated.length - prefix &&
+    original[original.length - 1 - suffix] === generated[generated.length - 1 - suffix]
+  )
+    suffix++;
 
   if (generatedColumn <= prefix) return generatedColumn;
   const generatedMiddleEnd = generated.length - suffix;
   const originalMiddleEnd = original.length - suffix;
   if (generatedColumn >= generatedMiddleEnd) {
-    return Math.max(prefix, Math.min(original.length, originalMiddleEnd + generatedColumn - generatedMiddleEnd));
+    return Math.max(
+      prefix,
+      Math.min(original.length, originalMiddleEnd + generatedColumn - generatedMiddleEnd),
+    );
   }
   return prefix;
 }
@@ -87,13 +96,22 @@ export function makeUserDiagnosticRemapper(
   return (diagnostic: ParserDiagnostic): ParserDiagnostic => {
     if (diagnostic.span.line <= 0) return diagnostic;
     const hasOffsets = diagnostic.span.start !== 0 || diagnostic.span.end !== 0;
-    const generatedLineIndex = Math.max(0, Math.min(diagnostic.span.line - 1, generatedStarts.length - 1));
-    const lineOnlyOffset = generatedStarts[generatedLineIndex] + Math.max(0, diagnostic.span.col - 1);
+    const generatedLineIndex = Math.max(
+      0,
+      Math.min(diagnostic.span.line - 1, generatedStarts.length - 1),
+    );
+    const lineOnlyOffset =
+      generatedStarts[generatedLineIndex] + Math.max(0, diagnostic.span.col - 1);
     const start = mapOffset(hasOffsets ? diagnostic.span.start : lineOnlyOffset);
     const end = mapOffset(hasOffsets ? diagnostic.span.end : lineOnlyOffset);
     return {
       ...diagnostic,
-      span: { start: start.offset, end: Math.max(start.offset, end.offset), line: start.line, col: start.col },
+      span: {
+        start: start.offset,
+        end: Math.max(start.offset, end.offset),
+        line: start.line,
+        col: start.col,
+      },
     };
   };
 }
@@ -116,7 +134,12 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
     diagnostics.push({
       severity: "error",
       message,
-      span: { start: safeStart, end: safeEnd, line: lineIndex + 1, col: safeStart - starts[lineIndex] + 1 },
+      span: {
+        start: safeStart,
+        end: safeEnd,
+        line: lineIndex + 1,
+        col: safeStart - starts[lineIndex] + 1,
+      },
     });
   };
 
@@ -124,46 +147,89 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
     const ch = source[i];
     const next = source[i + 1];
     if (state === "line_comment") {
-      if (ch === "\n") { state = "normal"; lineHasOnlyWhitespace = true; }
+      if (ch === "\n") {
+        state = "normal";
+        lineHasOnlyWhitespace = true;
+      }
       continue;
     }
     if (state === "block_comment") {
-      if (ch === "*" && next === "/") { state = "normal"; i++; }
-      else if (ch === "\n") lineHasOnlyWhitespace = true;
+      if (ch === "*" && next === "/") {
+        state = "normal";
+        i++;
+      } else if (ch === "\n") lineHasOnlyWhitespace = true;
       continue;
     }
     if (state === "string" || state === "char") {
       if (escaped) escaped = false;
       else if (ch === "\\") escaped = true;
-      else if ((state === "string" && ch === "\"") || (state === "char" && ch === "'")) state = "normal";
-      else if (ch === "\n") { state = "normal"; lineHasOnlyWhitespace = true; }
+      else if ((state === "string" && ch === '"') || (state === "char" && ch === "'"))
+        state = "normal";
+      else if (ch === "\n") {
+        state = "normal";
+        lineHasOnlyWhitespace = true;
+      }
       continue;
     }
-    if (ch === "\n") { lineHasOnlyWhitespace = true; continue; }
+    if (ch === "\n") {
+      lineHasOnlyWhitespace = true;
+      continue;
+    }
     if (ch === " " || ch === "\t" || ch === "\r" || ch === "\f" || ch === "\v") continue;
-    if (ch === "/" && next === "/") { state = "line_comment"; i++; continue; }
-    if (ch === "/" && next === "*") { state = "block_comment"; blockCommentStart = i; i++; continue; }
-    if (ch === "\"") { state = "string"; escaped = false; lineHasOnlyWhitespace = false; continue; }
-    if (ch === "'") { state = "char"; escaped = false; lineHasOnlyWhitespace = false; continue; }
+    if (ch === "/" && next === "/") {
+      state = "line_comment";
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      state = "block_comment";
+      blockCommentStart = i;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      state = "string";
+      escaped = false;
+      lineHasOnlyWhitespace = false;
+      continue;
+    }
+    if (ch === "'") {
+      state = "char";
+      escaped = false;
+      lineHasOnlyWhitespace = false;
+      continue;
+    }
     if (ch === "#" && lineHasOnlyWhitespace) {
       const lineEnd = source.indexOf("\n", i);
-      const match = /^#[ \t]*([A-Za-z_][A-Za-z0-9_]*)/.exec(source.slice(i, lineEnd < 0 ? source.length : lineEnd));
+      const match = /^#[ \t]*([A-Za-z_][A-Za-z0-9_]*)/.exec(
+        source.slice(i, lineEnd < 0 ? source.length : lineEnd),
+      );
       if (match) directives.push({ name: match[1], start: i, end: i + match[0].length });
     }
     lineHasOnlyWhitespace = false;
   }
 
-  if (state === "block_comment") addDiagnostic("unterminated block comment", blockCommentStart, Math.min(source.length, blockCommentStart + 2));
+  if (state === "block_comment")
+    addDiagnostic(
+      "unterminated block comment",
+      blockCommentStart,
+      Math.min(source.length, blockCommentStart + 2),
+    );
   for (const directive of directives) {
     if (directive.name === "if" || directive.name === "ifdef" || directive.name === "ifndef") {
       conditionalStack.push(directive);
     } else if (directive.name === "endif") {
-      if (conditionalStack.length === 0) addDiagnostic("unmatched #endif", directive.start, directive.end);
+      if (conditionalStack.length === 0)
+        addDiagnostic("unmatched #endif", directive.start, directive.end);
       else conditionalStack.pop();
-    } else if ((directive.name === "else" || directive.name === "elif") && conditionalStack.length === 0) {
+    } else if (
+      (directive.name === "else" || directive.name === "elif") &&
+      conditionalStack.length === 0
+    ) {
       addDiagnostic(`unmatched #${directive.name}`, directive.start, directive.end);
     }
   }
-  for (const directive of conditionalStack) addDiagnostic(`unterminated #${directive.name} directive`, directive.start, directive.end);
+  for (const directive of conditionalStack)
+    addDiagnostic(`unterminated #${directive.name} directive`, directive.start, directive.end);
   return diagnostics.sort((a, b) => a.span.start - b.span.start || a.span.end - b.span.end);
 }

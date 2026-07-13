@@ -25,7 +25,10 @@ const out = generateClient(extractIdl(SRC, "Demo"), 28);
 
 const has = (s: string) => expect(out.includes(s)).toBe(true);
 
-test("class + index default", () => { has("export class Demo {"); has("this.index = o.index ?? 28;"); });
+test("class + index default", () => {
+  has("export class Demo {");
+  has("this.index = o.index ?? 28;");
+});
 
 test("runtimeImport emits a self-contained client (./runtime, no unpublished @qinit/* imports)", () => {
   // `qinit gen` / `qinit test` pass runtimeImport so the output works outside the monorepo (the @qinit/*
@@ -38,7 +41,7 @@ test("runtimeImport emits a self-contained client (./runtime, no unpublished @qi
 
 test("no-input function: no args param, single-output map", () => {
   has("async Get(): Promise<Get_output>");
-  has(", 1, \"\", \"uint64\")");        // fnId 1, empty in fmt, uint64 out fmt
+  has(', 1, "", "uint64")'); // fnId 1, empty in fmt, uint64 out fmt
   has("return { value: r as bigint };");
 });
 
@@ -57,10 +60,10 @@ test("array/struct input falls back to a raw inFmt param", () => {
 });
 
 test("procedure wiring: tick+8, confirm-by-default, typed return", () => {
-  has("async Inc(opts:");                        // no-input proc: only opts
+  has("async Inc(opts:"); // no-input proc: only opts
   has("procId: 1,");
   has("tick: (ti.tick ?? 0) + 8");
   has("confirm: opts.confirm !== false");
-  has("async Put(args: Put_input, opts:");       // flat-input proc: typed args + opts
+  has("async Put(args: Put_input, opts:"); // flat-input proc: typed args + opts
   has("${args.k}id, ${args.v}uint64");
 });

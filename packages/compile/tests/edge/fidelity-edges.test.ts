@@ -52,7 +52,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Probe, 1); }
 };`;
 
-const GTEST = coreGtest("Edge", `TEST(Fidelity, SemanticEdges) {
+const GTEST = coreGtest(
+  "Edge",
+  `TEST(Fidelity, SemanticEdges) {
   ContractTestingHarness t;
   CONTRACT_STATE_TYPE::Probe_input in{};
   in.sa = -8ll; in.sb = 2ll; in.ua = 9223372036854775818ull; in.ub = 3ull;
@@ -80,7 +82,8 @@ TEST(Fidelity, TernaryIsLazy) {
   EXPECT_EQ(r.lazyTern, -7ll);   // untaken arm divides by zero — must never evaluate
   EXPECT_EQ(r.rawDivU, 7ull);
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -111,18 +114,31 @@ describe("differential gtest — semantic fidelity edges", () => {
     const testPath = join(dir, "Edge.test.cpp");
     writeFileSync(testPath, GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Edge", stateType: "Edge", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "Edge",
+      stateType: "Edge",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: SRC, name: "Edge", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const mine = await compileContract({
+      source: SRC,
+      name: "Edge",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`);
+      console.log(
+        `  ${r.passed ? "PASS" : "FAIL"}  ${r.name}${r.passed ? "" : " — " + r.message.split("\\n")[0]}`,
+      );
     }
     expect(results.length).toBeGreaterThan(0);
     expect(results.every((r) => r.passed)).toBe(true);

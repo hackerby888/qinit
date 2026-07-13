@@ -41,8 +41,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 function calleeIdlFrom(name: string, index: number, r: CompileResult) {
-  const fns = Object.fromEntries(r.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }]));
-  const procs = Object.fromEntries(r.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }]));
+  const fns = Object.fromEntries(
+    r.idl.functions.map((f) => [
+      f.name,
+      { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize },
+    ]),
+  );
+  const procs = Object.fromEntries(
+    r.idl.procedures.map((p) => [
+      p.name,
+      { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize },
+    ]),
+  );
   return { name, index, functions: fns, procedures: procs };
 }
 
@@ -56,11 +66,24 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
   });
 
   test("CALL_OTHER reads the callee, INVOKE_OTHER mutates it across the boundary", async () => {
-    const counter = await compileContract({ source: COUNTER, name: "Counter", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const counter = await compileContract({
+      source: COUNTER,
+      name: "Counter",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     expect(counter.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const callees = [calleeIdlFrom("Counter", 28, counter)];
-    const caller = await compileContract({ source: CALLER, name: "Caller", slot: 29, qpiHeader: HEADERS, arenaSz: 1024 * 1024, callees });
+    const caller = await compileContract({
+      source: CALLER,
+      name: "Caller",
+      slot: 29,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+      callees,
+    });
     expect(caller.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
@@ -73,8 +96,8 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
 
     // Caller.BumpCounter (proc 1) → Counter.Inc.
     sim.procedure(29, 1);
-    expect(u64(sim.query(28, 1))).toBe(1n);   // Counter incremented through the caller
-    expect(u64(sim.query(29, 1))).toBe(1n);   // caller reads Counter == 1 via CALL_OTHER
+    expect(u64(sim.query(28, 1))).toBe(1n); // Counter incremented through the caller
+    expect(u64(sim.query(29, 1))).toBe(1n); // caller reads Counter == 1 via CALL_OTHER
 
     sim.procedure(29, 1);
     expect(u64(sim.query(28, 1))).toBe(2n);

@@ -5,14 +5,42 @@ import { emitProxySiblingCall, emitProposalProxyCall } from "./proxy";
 import { newTmp } from "../stmt";
 import { compileContainerMethod, emitAssetIter, emitContainerCall } from "./containers";
 import { emitValueIr, emitValue } from "../value";
-import { emitAddr, emitInlineStructStatement, addrIr, allocSlotIr, setLocal, narrowCastIr, resolveAddr } from "../addr";
+import {
+  emitAddr,
+  emitInlineStructStatement,
+  addrIr,
+  allocSlotIr,
+  setLocal,
+  narrowCastIr,
+  resolveAddr,
+} from "../addr";
 import { FnCtx, NO_BIND } from "../types";
-import type { TypeSpec, Expression, Statement, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, TemplateParam, ParamDecl } from "../../ast";
+import type {
+  TypeSpec,
+  Expression,
+  Statement,
+  Declaration,
+  StructDecl,
+  FunctionDecl,
+  FunctionTemplateDecl,
+  VariableDecl,
+  TemplateParam,
+  ParamDecl,
+} from "../../ast";
 import * as ir from "../../ir";
 import { platformPrimitive } from "../platform-primitives";
 
-export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, valueWanted: boolean): string | null {
-  if (!ctx.thisType || ctx.thisType.kind !== "template_instance" || expr.callee.kind !== "identifier") return null;
+export function emitThisCall(
+  ctx: FnCtx,
+  expr: Expression & { kind: "call" },
+  valueWanted: boolean,
+): string | null {
+  if (
+    !ctx.thisType ||
+    ctx.thisType.kind !== "template_instance" ||
+    expr.callee.kind !== "identifier"
+  )
+    return null;
   const name = expr.callee.name;
 
   // memory builtins used by container bodies: reset → setMem(this, ...); removeByIndex → setMem(&elem, ...).
@@ -20,9 +48,13 @@ export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, va
     const dst = emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)";
     if (name === "copyMem") {
       const src = emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)";
-      ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(dst), addrIr(src), ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[2]))))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.call("$copyMem", addrIr(dst), addrIr(src), ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[2]))))}`,
+      );
     } else {
-      ctx.lines.push(`    ${ir.emit(ir.call("$setMem", addrIr(dst), ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1])), ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[2]))))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.call("$setMem", addrIr(dst), ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1])), ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[2]))))}`,
+      );
     }
     return "";
   }
@@ -31,11 +63,12 @@ export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, va
   // both for the default HashFunction<KeyT> body and for contract-provided custom hashers.
   if (name.endsWith("::hash")) {
     const bound = ctx.thisBind?.types.get(name.slice(0, name.lastIndexOf("::")));
-    const target: (TypeSpec & { kind: "template_instance" }) | null = bound?.kind === "template_instance"
-      ? bound
-      : bound?.kind === "name"
-        ? { kind: "template_instance", name: bound.name, args: [] }
-        : null;
+    const target: (TypeSpec & { kind: "template_instance" }) | null =
+      bound?.kind === "template_instance"
+        ? bound
+        : bound?.kind === "name"
+          ? { kind: "template_instance", name: bound.name, args: [] }
+          : null;
     if (!target) throw new Error(`dependent hash target '${name}' is not bound`);
     const cm = compileContainerMethod(ctx.cg, target, "hash", expr.args.length);
     if (!cm || cm.retKind !== "i64") {
@@ -47,15 +80,22 @@ export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, va
       if (!fp.isAddr) return emitValue(ctx, arg);
       const direct = emitAddr(ctx, arg);
       if (direct) return direct;
-      const spill = allocSlotIr(ctx, Math.max(8, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), ctx.thisBind ?? NO_BIND)));
-      ctx.lines.push(`    ${ir.emit(ir.storeRaw("i64.store", null, spill, emitValueIr(ctx, arg)))}`);
+      const spill = allocSlotIr(
+        ctx,
+        Math.max(8, ctx.cg.sizeOfType(ctx.cg.derefType(fp.type), ctx.thisBind ?? NO_BIND)),
+      );
+      ctx.lines.push(
+        `    ${ir.emit(ir.storeRaw("i64.store", null, spill, emitValueIr(ctx, arg)))}`,
+      );
       return ir.emit(spill);
     });
     return `(call ${cm.label} (local.get $this)${ops.length ? " " + ops.join(" ") : ""})`;
   }
 
   // a sibling method of this container instance — compile it and call with $this + args. An
-  const mname = name.startsWith(`${ctx.thisType.name}::`) ? name.slice(ctx.thisType.name.length + 2) : name;
+  const mname = name.startsWith(`${ctx.thisType.name}::`)
+    ? name.slice(ctx.thisType.name.length + 2)
+    : name;
   const cm = compileContainerMethod(ctx.cg, ctx.thisType, mname, expr.args.length);
   if (!cm) return null;
   // A reference-scalar argument that is a plain wasm local (addAndComputeCarry(newMicrosec, carry, ...)) has no address: spill it to
@@ -89,11 +129,17 @@ export function emitThisCall(ctx: FnCtx, expr: Expression & { kind: "call" }, va
     if (!writeBacks.length) return call;
     const r = `tmp${ctx.tmpCount++}`;
     ctx.localVars.set(r, { wasmType: "i64" });
-    ctx.lines.push(`    ${setLocal(ctx, r, ir.raw(call, "i64", "unconverted: container method call"))}`);
+    ctx.lines.push(
+      `    ${setLocal(ctx, r, ir.raw(call, "i64", "unconverted: container method call"))}`,
+    );
     ctx.lines.push(...writeBacks);
     return `(local.get $${r})`;
   }
-  ctx.lines.push(cm.retKind === "i64" ? `    ${ir.emit(ir.op("drop", ir.raw(call, "i64", "unconverted: container method call")))}` : `    ${call}`);
+  ctx.lines.push(
+    cm.retKind === "i64"
+      ? `    ${ir.emit(ir.op("drop", ir.raw(call, "i64", "unconverted: container method call")))}`
+      : `    ${call}`,
+  );
   ctx.lines.push(...writeBacks);
   return "";
 }
@@ -105,13 +151,16 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
     if (!who) throw new Error("gtest getBalance account must be addressable");
     return ir.call("$qt_balance", addrIr(who));
   }
-  const primitive = (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")
-    ? platformPrimitive(expr.callee.name)
-    : undefined;
+  const primitive =
+    expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name"
+      ? platformPrimitive(expr.callee.name)
+      : undefined;
   if (primitive) {
     for (const capability of primitive.capabilities ?? []) ctx.cg.capabilities.add(capability);
     if (expr.args.length !== primitive.operands.length) {
-      throw new Error(`${primitive.name} expects ${primitive.operands.length} argument(s), got ${expr.args.length}`);
+      throw new Error(
+        `${primitive.name} expects ${primitive.operands.length} argument(s), got ${expr.args.length}`,
+      );
     }
   }
 
@@ -180,10 +229,17 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
   }
 
   // Inter-contract call in value context — the _E forms capture the InterContractCallError into a variable (`InterContractCallError err =
-  if (expr.callee.kind === "identifier" && (expr.callee.name === "__qpi_call_other" || expr.callee.name === "__qpi_invoke_other")) {
+  if (
+    expr.callee.kind === "identifier" &&
+    (expr.callee.name === "__qpi_call_other" || expr.callee.name === "__qpi_invoke_other")
+  ) {
     const wat = emitInterContract(ctx, expr, expr.callee.name === "__qpi_invoke_other");
-    if (wat) return ir.op("i64.extend_i32_s", ir.raw(wat, "i32", "unconverted: inter-contract call"));
-    ctx.cg.warn(`unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`, expr.span.line);
+    if (wat)
+      return ir.op("i64.extend_i32_s", ir.raw(wat, "i32", "unconverted: inter-contract call"));
+    ctx.cg.warn(
+      `unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`,
+      expr.span.line,
+    );
     return ir.i64c(0);
   }
 
@@ -210,7 +266,11 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
   emitQpiCall(ctx, expr);
 
   // Functional-style scalar cast: uint64(x) / sint64(x) / uint8(x) / bit(x) ... — narrowed to the target
-  if (expr.callee.kind === "identifier" && SCALAR_SIZE[expr.callee.name] !== undefined && expr.args.length === 1) {
+  if (
+    expr.callee.kind === "identifier" &&
+    SCALAR_SIZE[expr.callee.name] !== undefined &&
+    expr.args.length === 1
+  ) {
     return narrowCastIr(emitValueIr(ctx, expr.args[0]), expr.callee.name);
   }
 
@@ -223,7 +283,11 @@ export function emitCallValueIr(ctx: FnCtx, expr: Expression & { kind: "call" })
   }
 
   // uint128(i_high, i_low) two-arg constructor as a scalar value: the i64-collapsed model carries the low 64 bits, so the
-  if (expr.callee.kind === "identifier" && (expr.callee.name === "uint128" || expr.callee.name === "uint128_t") && expr.args.length === 2) {
+  if (
+    expr.callee.kind === "identifier" &&
+    (expr.callee.name === "uint128" || expr.callee.name === "uint128_t") &&
+    expr.args.length === 2
+  ) {
     return emitValueIr(ctx, expr.args[1]);
   }
 
@@ -236,8 +300,13 @@ export function emitCallValue(ctx: FnCtx, expr: Expression & { kind: "call" }): 
 }
 
 // statement call: a container mutation or a side-effecting qpi host call.
-export function emitInterContract(ctx: FnCtx, expr: Expression & { kind: "call" }, isInvoke: boolean): string | null {
-  const cArg = expr.args[0], fArg = expr.args[1];
+export function emitInterContract(
+  ctx: FnCtx,
+  expr: Expression & { kind: "call" },
+  isInvoke: boolean,
+): string | null {
+  const cArg = expr.args[0],
+    fArg = expr.args[1];
   if (cArg?.kind !== "identifier" || fArg?.kind !== "identifier") return null;
   const callee = ctx.cg.callees.get(cArg.name);
   let idx: number | null = callee?.index ?? null;
@@ -248,12 +317,15 @@ export function emitInterContract(ctx: FnCtx, expr: Expression & { kind: "call" 
   const entry = isInvoke ? callee?.procedures[fArg.name] : callee?.functions[fArg.name];
   if (idx === null || !entry) return null;
 
-  if (!expr.args[2] || !expr.args[3]) throw new Error(`${isInvoke ? "INVOKE" : "CALL"}_OTHER requires input and output buffers`);
+  if (!expr.args[2] || !expr.args[3])
+    throw new Error(`${isInvoke ? "INVOKE" : "CALL"}_OTHER requires input and output buffers`);
   const inAddr = emitAddr(ctx, expr.args[2]);
   const outAddr = emitAddr(ctx, expr.args[3]);
-  if (!inAddr || !outAddr) throw new Error(`${isInvoke ? "INVOKE" : "CALL"}_OTHER input and output must be addressable`);
+  if (!inAddr || !outAddr)
+    throw new Error(`${isInvoke ? "INVOKE" : "CALL"}_OTHER input and output must be addressable`);
   const inSize = (expr.args[2] ? resolveAddr(ctx, expr.args[2])?.size : undefined) ?? entry.inSize;
-  const outSize = (expr.args[3] ? resolveAddr(ctx, expr.args[3])?.size : undefined) ?? entry.outSize;
+  const outSize =
+    (expr.args[3] ? resolveAddr(ctx, expr.args[3])?.size : undefined) ?? entry.outSize;
   const dims = `(i32.const ${idx}) (i32.const ${entry.inputType}) ${inAddr} (i32.const ${inSize}) ${outAddr} (i32.const ${outSize})`;
   // Returns the bare i32 call expression (the InterContractCallError). The statement caller drops it; the
   if (isInvoke) {
@@ -268,7 +340,8 @@ export function qpiWrapperMethod(expr: Expression & { kind: "call" }): string | 
   const c = expr.callee;
   if (c.kind !== "member_access") return null;
   const o = c.object;
-  if (o.kind === "call" && o.callee.kind === "identifier" && o.callee.name === "qpi") return c.member;
+  if (o.kind === "call" && o.callee.kind === "identifier" && o.callee.name === "qpi")
+    return c.member;
   return null;
 }
 
@@ -281,21 +354,24 @@ export function describeShape(e: Expression): string {
   return e.kind;
 }
 
-
 export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void {
   if (ctx.cg.gtestMode && expr.callee.kind === "identifier") {
     const name = expr.callee.name;
-    if (name === "__qtest_noop" || name === "initEmptySpectrum" || name === "initEmptyUniverse") return;
+    if (name === "__qtest_noop" || name === "initEmptySpectrum" || name === "initEmptyUniverse")
+      return;
 
     if (name === "invokeUserProcedure") {
       const input = expr.args[2] ? resolveAddr(ctx, expr.args[2]) : null;
       const output = expr.args[3] ? resolveAddr(ctx, expr.args[3]) : null;
       const origin = expr.args[4] ? emitAddr(ctx, expr.args[4]) : null;
-      if (!input || !output || !origin) throw new Error("gtest invokeUserProcedure requires addressable input, output, and origin");
+      if (!input || !output || !origin)
+        throw new Error("gtest invokeUserProcedure requires addressable input, output, and origin");
       const slot = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[0]));
       const inputType = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1]));
       const amount = expr.args[5] ? emitValueIr(ctx, expr.args[5]) : ir.i64c(0);
-      ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.call("$qt_invoke", slot, inputType, addrIr(input.addr), ir.i32c(input.size), addrIr(output.addr), amount, addrIr(origin))))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.op("drop", ir.call("$qt_invoke", slot, inputType, addrIr(input.addr), ir.i32c(input.size), addrIr(output.addr), amount, addrIr(origin))))}`,
+      );
       return;
     }
     if (name === "callFunction") {
@@ -303,30 +379,46 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
       const output = expr.args[3] ? resolveAddr(ctx, expr.args[3]) : null;
       if (!input && expr.args[2]) {
         const addr = emitAddr(ctx, expr.args[2]);
-        const callee = expr.args[2].kind === "call" && (expr.args[2].callee.kind === "identifier" || expr.args[2].callee.kind === "qualified_name")
-          ? expr.args[2].callee.name
-          : null;
+        const callee =
+          expr.args[2].kind === "call" &&
+          (expr.args[2].callee.kind === "identifier" ||
+            expr.args[2].callee.kind === "qualified_name")
+            ? expr.args[2].callee.name
+            : null;
         const type: TypeSpec | null = callee ? { kind: "name", name: callee } : null;
         const size = type ? ctx.cg.sizeOfType(type, ctx.thisBind ?? NO_BIND) : 0;
-        if (addr && type) input = { addr, type, size, layout: ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND) };
+        if (addr && type)
+          input = { addr, type, size, layout: ctx.cg.layoutOfType(type, ctx.thisBind ?? NO_BIND) };
       }
       if (!input || !output) {
-        throw new Error(`gtest callFunction requires addressable input and output (${describeShape(expr.args[2])}, ${describeShape(expr.args[3])})`);
+        throw new Error(
+          `gtest callFunction requires addressable input and output (${describeShape(expr.args[2])}, ${describeShape(expr.args[3])})`,
+        );
       }
       const slot = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[0]));
       const inputType = ir.op("i32.wrap_i64", emitValueIr(ctx, expr.args[1]));
-      ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.call("$qt_query", slot, inputType, addrIr(input.addr), ir.i32c(input.size), addrIr(output.addr), ir.i32c(output.size))))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.op("drop", ir.call("$qt_query", slot, inputType, addrIr(input.addr), ir.i32c(input.size), addrIr(output.addr), ir.i32c(output.size))))}`,
+      );
       return;
     }
     if (name === "increaseEnergy") {
       const who = expr.args[0] ? emitAddr(ctx, expr.args[0]) : null;
       if (!who) throw new Error("gtest increaseEnergy account must be addressable");
-      ctx.lines.push(`    ${ir.emit(ir.call("$qt_fund", addrIr(who), expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0)))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.call("$qt_fund", addrIr(who), expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0)))}`,
+      );
       return;
     }
     if (name === "callSystemProcedure") {
-      const slot = ir.op("i32.wrap_i64", expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0));
-      const procedure = ir.op("i32.wrap_i64", expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0));
+      const slot = ir.op(
+        "i32.wrap_i64",
+        expr.args[0] ? emitValueIr(ctx, expr.args[0]) : ir.i64c(0),
+      );
+      const procedure = ir.op(
+        "i32.wrap_i64",
+        expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0),
+      );
       ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.call("$qt_system", slot, procedure)))}`);
       return;
     }
@@ -335,15 +427,30 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
     if (assertion) {
       const fatal = assertion[1] === "assert";
       const operation = assertion[2];
-      const left = expr.args[0] ?? ({ kind: "int_literal", value: "0", span: expr.span } as Expression);
-      const right = operation === "true" || operation === "false"
-        ? ({ kind: "int_literal", value: operation === "true" ? "0" : "0", span: expr.span } as Expression)
-        : (expr.args[1] ?? ({ kind: "int_literal", value: "0", span: expr.span } as Expression));
-      const op = operation === "true" ? "!=" : operation === "false" ? "==" : ({ eq: "==", ne: "!=", lt: "<", le: "<=", gt: ">", ge: ">=" } as const)[operation as "eq" | "ne" | "lt" | "le" | "gt" | "ge"];
+      const left =
+        expr.args[0] ?? ({ kind: "int_literal", value: "0", span: expr.span } as Expression);
+      const right =
+        operation === "true" || operation === "false"
+          ? ({
+              kind: "int_literal",
+              value: operation === "true" ? "0" : "0",
+              span: expr.span,
+            } as Expression)
+          : (expr.args[1] ?? ({ kind: "int_literal", value: "0", span: expr.span } as Expression));
+      const op =
+        operation === "true"
+          ? "!="
+          : operation === "false"
+            ? "=="
+            : ({ eq: "==", ne: "!=", lt: "<", le: "<=", gt: ">", ge: ">=" } as const)[
+                operation as "eq" | "ne" | "lt" | "le" | "gt" | "ge"
+              ];
       const comparison = emitValueIr(ctx, { kind: "binary_op", op, left, right, span: expr.span });
       const code = ["eq", "ne", "lt", "le", "gt", "ge", "true", "false"].indexOf(operation);
       ctx.lines.push(`    (if (i64.eqz ${ir.emit(comparison)}) (then`);
-      ctx.lines.push(`      ${ir.emit(ir.call("$qt_fail", ir.i32c(code), ir.i32c(fatal ? 1 : 0)))}`);
+      ctx.lines.push(
+        `      ${ir.emit(ir.call("$qt_fail", ir.i32c(code), ir.i32c(fatal ? 1 : 0)))}`,
+      );
       if (fatal) ctx.lines.push("      (return)");
       ctx.lines.push("    ))");
       return;
@@ -356,7 +463,9 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
     const input = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
     const inputSize = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);
     const digest = allocSlotIr(ctx, 32);
-    ctx.lines.push(`    ${ir.emit(ir.call("$lh_k12", addrIr(input), ir.op("i32.wrap_i64", inputSize), digest))}`);
+    ctx.lines.push(
+      `    ${ir.emit(ir.call("$lh_k12", addrIr(input), ir.op("i32.wrap_i64", inputSize), digest))}`,
+    );
 
     let output: Expression | undefined = expr.args[2];
     while (output?.kind === "paren" || (output?.kind === "unary_op" && output.op === "&")) {
@@ -368,7 +477,9 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
       const outAddr = expr.args[2] ? emitAddr(ctx, expr.args[2]) : null;
       if (!outAddr) throw new Error("KangarooTwelve output is not addressable");
       const outputSize = expr.args[3] ? emitValueIr(ctx, expr.args[3]) : ir.i64c(32);
-      ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(outAddr), digest, ir.op("i32.wrap_i64", outputSize)))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.call("$copyMem", addrIr(outAddr), digest, ir.op("i32.wrap_i64", outputSize)))}`,
+      );
     }
     return;
   }
@@ -386,10 +497,14 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
       if (!payload) throw new Error(`${expr.callee.name} payload must be an addressable aggregate`);
       if (!payload.layout) throw new Error(`${expr.callee.name} payload must be a struct`);
       const terminator = payload.layout.fields.get("_terminator");
-      if (!terminator) throw new Error(`${expr.callee.name} payload struct must contain _terminator`);
-      if (terminator.offset < 8) throw new Error(`${expr.callee.name} payload _terminator offset must be at least 8 bytes`);
+      if (!terminator)
+        throw new Error(`${expr.callee.name} payload struct must contain _terminator`);
+      if (terminator.offset < 8)
+        throw new Error(`${expr.callee.name} payload _terminator offset must be at least 8 bytes`);
       const address = addrIr(payload.addr);
-      ctx.lines.push(`    ${ir.emit(ir.call("$qpi_logBytes", ir.i32c(ctx.cg.slot), ir.i32c(level), address, ir.i32c(terminator.offset)))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.call("$qpi_logBytes", ir.i32c(ctx.cg.slot), ir.i32c(level), address, ir.i32c(terminator.offset)))}`,
+      );
       // Native qpi.h restores the host-stamped contract index so logging cannot alter contract state.
       ctx.lines.push(`    ${ir.emit(ir.storeRaw("i32.store", null, address, ir.i32c(0)))}`);
       return;
@@ -408,14 +523,17 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
   // ASSERT is ((void)0) in release builds (platform/assert.h) — the argument is not even evaluated, so dropping the statement
   if (expr.callee.kind === "identifier" && expr.callee.name === "ASSERT") return;
 
-  const primitive = (expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name")
-    ? platformPrimitive(expr.callee.name)
-    : undefined;
+  const primitive =
+    expr.callee.kind === "identifier" || expr.callee.kind === "qualified_name"
+      ? platformPrimitive(expr.callee.name)
+      : undefined;
   if (primitive?.kind === "memory-store") {
     const destination = emitAddr(ctx, expr.args[0]);
     const source = emitAddr(ctx, expr.args[1]);
     if (!destination || !source) throw new Error(`${primitive.name} operands must be addressable`);
-    ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(destination), addrIr(source), ir.i32c(32)))}`);
+    ctx.lines.push(
+      `    ${ir.emit(ir.call("$copyMem", addrIr(destination), addrIr(source), ir.i32c(32)))}`,
+    );
     return;
   }
 
@@ -442,50 +560,93 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
   // CALL(fn, in, out) → __qpi_call_self(fn, in, out): invoke a PRIVATE_ function of this contract, passing the caller's in/out
   if (expr.callee.kind === "identifier" && expr.callee.name === "__qpi_call_self") {
     const fnArg = expr.args[0];
-    const info = fnArg?.kind === "identifier" ? (ctx.cg.privates.get(fnArg.name) ?? ctx.cg.registered.get(fnArg.name)) : undefined;
+    const info =
+      fnArg?.kind === "identifier"
+        ? (ctx.cg.privates.get(fnArg.name) ?? ctx.cg.registered.get(fnArg.name))
+        : undefined;
     if (info) {
-      const inAddr = expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)";
-      const outAddr = expr.args[2] ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)") : "(i32.const 0)";
+      const inAddr = expr.args[1]
+        ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)")
+        : "(i32.const 0)";
+      const outAddr = expr.args[2]
+        ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)")
+        : "(i32.const 0)";
       const locals = `(call $qpiAllocLocals (i32.const ${info.localsSize}))`;
-      ctx.lines.push(`    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${locals})`);
+      ctx.lines.push(
+        `    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${locals})`,
+      );
       return;
     }
   }
 
   // Direct PRIVATE_ function call: `priv(qpi, state, in, out, locals)` — QUtil calls its helpers this way (get_voter_balance/get_qubic_balance) instead
-  if (expr.callee.kind === "identifier" && expr.args[0]?.kind === "identifier" && expr.args[0].name === "qpi") {
+  if (
+    expr.callee.kind === "identifier" &&
+    expr.args[0]?.kind === "identifier" &&
+    expr.args[0].name === "qpi"
+  ) {
     // Registered PUBLIC entries are callable the same way (MsVault's isShareHolder(qpi, state, ...)).
     const info = ctx.cg.privates.get(expr.callee.name) ?? ctx.cg.registered.get(expr.callee.name);
     if (info) {
-      const inAddr = expr.args[2] ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)") : "(i32.const 0)";
-      const outAddr = expr.args[3] ? (emitAddr(ctx, expr.args[3]) ?? "(i32.const 0)") : "(i32.const 0)";
-      const localsAddr = expr.args[4] ? (emitAddr(ctx, expr.args[4]) ?? `(call $qpiAllocLocals (i32.const ${info.localsSize}))`) : `(call $qpiAllocLocals (i32.const ${info.localsSize}))`;
-      ctx.lines.push(`    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${localsAddr})`);
+      const inAddr = expr.args[2]
+        ? (emitAddr(ctx, expr.args[2]) ?? "(i32.const 0)")
+        : "(i32.const 0)";
+      const outAddr = expr.args[3]
+        ? (emitAddr(ctx, expr.args[3]) ?? "(i32.const 0)")
+        : "(i32.const 0)";
+      const localsAddr = expr.args[4]
+        ? (emitAddr(ctx, expr.args[4]) ?? `(call $qpiAllocLocals (i32.const ${info.localsSize}))`)
+        : `(call $qpiAllocLocals (i32.const ${info.localsSize}))`;
+      ctx.lines.push(
+        `    (call ${info.label} (global.get $ctxBase) (global.get $stateBase) ${inAddr} ${outAddr} ${localsAddr})`,
+      );
       return;
     }
   }
 
   // CALL_OTHER_CONTRACT_FUNCTION(C,f,in,out) / INVOKE_OTHER_CONTRACT_PROCEDURE(C,p,in,out,reward) → a host-mediated call into the contract at C's index. Needs C's callee IDL (index
-  if (expr.callee.kind === "identifier" && (expr.callee.name === "__qpi_call_other" || expr.callee.name === "__qpi_invoke_other")) {
+  if (
+    expr.callee.kind === "identifier" &&
+    (expr.callee.name === "__qpi_call_other" || expr.callee.name === "__qpi_invoke_other")
+  ) {
     const wat = emitInterContract(ctx, expr, expr.callee.name === "__qpi_invoke_other");
-    if (wat) ctx.lines.push(`    ${ir.emit(ir.op("drop", ir.raw(wat, "i32", "unconverted: inter-contract call")))}`);
-    else ctx.cg.warn(`unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`, expr.span.line);
+    if (wat)
+      ctx.lines.push(
+        `    ${ir.emit(ir.op("drop", ir.raw(wat, "i32", "unconverted: inter-contract call")))}`,
+      );
+    else
+      ctx.cg.warn(
+        `unsupported inter-contract call to '${expr.args[0]?.kind === "identifier" ? expr.args[0].name : "?"}' (no callee IDL)`,
+        expr.span.line,
+      );
     return;
   }
 
   // QPI memory wrappers: setMemory(dst,val) / copyMemory(dst,src) / copyFromBuffer(dst,src) / copyToBuffer(dst,src,tailZero). Lowered at the call site so the byte
-  if (expr.callee.kind === "identifier" && (expr.callee.name === "setMemory" || expr.callee.name === "copyMemory" || expr.callee.name === "copyFromBuffer" || expr.callee.name === "copyToBuffer")) {
+  if (
+    expr.callee.kind === "identifier" &&
+    (expr.callee.name === "setMemory" ||
+      expr.callee.name === "copyMemory" ||
+      expr.callee.name === "copyFromBuffer" ||
+      expr.callee.name === "copyToBuffer")
+  ) {
     const name = expr.callee.name;
     const dstNode = expr.args[0] ? resolveAddr(ctx, expr.args[0]) : null;
-    const dst = dstNode?.addr ?? (expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)");
+    const dst =
+      dstNode?.addr ??
+      (expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)");
     if (name === "setMemory") {
       const val = expr.args[1] ? emitValueIr(ctx, expr.args[1]) : ir.i64c(0);
       // $setMem is (dst, size, val).
-      ctx.lines.push(`    ${ir.emit(ir.call("$setMem", addrIr(dst), ir.i32c(dstNode?.size ?? 0), ir.op("i32.wrap_i64", val)))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.call("$setMem", addrIr(dst), ir.i32c(dstNode?.size ?? 0), ir.op("i32.wrap_i64", val)))}`,
+      );
       return;
     }
     const srcNode = expr.args[1] ? resolveAddr(ctx, expr.args[1]) : null;
-    const src = srcNode?.addr ?? (expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)");
+    const src =
+      srcNode?.addr ??
+      (expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)");
     // copyToBuffer copies sizeof(src) (the smaller object into a larger buffer); the others copy sizeof(dst).
     const size = name === "copyToBuffer" ? (srcNode?.size ?? 0) : (dstNode?.size ?? 0);
     ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(dst), addrIr(src), ir.i32c(size)))}`);
@@ -493,14 +654,22 @@ export function emitCall(ctx: FnCtx, expr: Expression & { kind: "call" }): void 
   }
 
   // Low-level memory intrinsics copyMem(dst,src,n) / setMem(dst,val,n). Handled here (not only in
-  if (expr.callee.kind === "identifier" && (expr.callee.name === "copyMem" || expr.callee.name === "setMem")) {
+  if (
+    expr.callee.kind === "identifier" &&
+    (expr.callee.name === "copyMem" || expr.callee.name === "setMem")
+  ) {
     const dst = expr.args[0] ? (emitAddr(ctx, expr.args[0]) ?? "(i32.const 0)") : "(i32.const 0)";
-    const wrapArg = (e: Expression | undefined) => ir.op("i32.wrap_i64", e ? emitValueIr(ctx, e) : ir.i64c(0));
+    const wrapArg = (e: Expression | undefined) =>
+      ir.op("i32.wrap_i64", e ? emitValueIr(ctx, e) : ir.i64c(0));
     if (expr.callee.name === "copyMem") {
       const src = expr.args[1] ? (emitAddr(ctx, expr.args[1]) ?? "(i32.const 0)") : "(i32.const 0)";
-      ctx.lines.push(`    ${ir.emit(ir.call("$copyMem", addrIr(dst), addrIr(src), wrapArg(expr.args[2])))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.call("$copyMem", addrIr(dst), addrIr(src), wrapArg(expr.args[2])))}`,
+      );
     } else {
-      ctx.lines.push(`    ${ir.emit(ir.call("$setMem", addrIr(dst), wrapArg(expr.args[1]), wrapArg(expr.args[2])))}`);
+      ctx.lines.push(
+        `    ${ir.emit(ir.call("$setMem", addrIr(dst), wrapArg(expr.args[1]), wrapArg(expr.args[2])))}`,
+      );
     }
     return;
   }

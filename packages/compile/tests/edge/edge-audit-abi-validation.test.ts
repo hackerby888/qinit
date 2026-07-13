@@ -5,7 +5,10 @@ import { compileContract, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
-interface RejectCase { source: string; diagnostic: RegExp }
+interface RejectCase {
+  source: string;
+  diagnostic: RegExp;
+}
 
 const contract = (members: string, registration: string) => `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};

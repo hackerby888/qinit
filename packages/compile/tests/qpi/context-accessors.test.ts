@@ -34,13 +34,17 @@ describe("source-backed QPI context accessors", () => {
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     const invocator = new Uint8Array(32).map((_, index) => index + 1);
     const originator = new Uint8Array(32).map((_, index) => 255 - index);
-    const output = sim.deploy(27, result.wasm) && sim.procedure(27, 1, undefined, {
-      invocator,
-      originator,
-      reward: 123456789n,
-    });
+    const output =
+      sim.deploy(27, result.wasm) &&
+      sim.procedure(27, 1, undefined, {
+        invocator,
+        originator,
+        reward: 123456789n,
+      });
 
-    expect(new DataView(output.buffer, output.byteOffset, output.byteLength).getBigInt64(0, true)).toBe(123456789n);
+    expect(
+      new DataView(output.buffer, output.byteOffset, output.byteLength).getBigInt64(0, true),
+    ).toBe(123456789n);
     expect(output.slice(8, 40)).toEqual(invocator);
     expect(output.slice(40, 72)).toEqual(originator);
   });

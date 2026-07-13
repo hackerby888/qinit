@@ -22,7 +22,8 @@ function u64(b: Uint8Array): bigint {
 // Hooks Get_output: { ticks, endticks, epochs, endepochs } as four uint64 LE.
 function hookCounters(sim: Sim): [bigint, bigint, bigint, bigint] {
   const s = sim.query(28, GET);
-  const f = (i: number) => new DataView(s.buffer, s.byteOffset, s.byteLength).getBigUint64(i * 8, true);
+  const f = (i: number) =>
+    new DataView(s.buffer, s.byteOffset, s.byteLength).getBigUint64(i * 8, true);
   return [f(0), f(1), f(2), f(3)];
 }
 

@@ -13,7 +13,9 @@ const HEADERS = loadQpiHeader(CORE);
 const TOKEN = readFileSync(QINIT_ROOT + "/fixtures/Token.h", "utf8");
 
 // Issue = procedure it=1, Issued = func it=2, NextId = func it=4, Last = func it=5.
-const TOKEN_GTEST = coreGtest("Token", `TEST(Token, IssueResultFlowsToStateAndOutput) {
+const TOKEN_GTEST = coreGtest(
+  "Token",
+  `TEST(Token, IssueResultFlowsToStateAndOutput) {
   ContractTestingHarness t;
   QPI::id u = t.idFromSeed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   t.fund(u, 1000000000000ll);
@@ -36,7 +38,8 @@ TEST(Token, NextIdIsDeterministic) {
   EXPECT_TRUE(a.next == b.next);
   EXPECT_FALSE(a.next == u);
 }
-`);
+`,
+);
 
 function wasiAvailable(): boolean {
   try {
@@ -67,13 +70,24 @@ describe("differential gtest — Token (qpi host calls)", () => {
     const testPath = join(dir, "Token.test.cpp");
     writeFileSync(testPath, TOKEN_GTEST);
     const built = await buildCorpusRunner({
-      corpusPath: testPath, contractPath, name: "Token", stateType: "Token", slot: 28,
-      corePath: CORE, outDir: dir,
+      corpusPath: testPath,
+      contractPath,
+      name: "Token",
+      stateType: "Token",
+      slot: 28,
+      corePath: CORE,
+      outDir: dir,
     });
     expect(built.ok).toBe(true);
     const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
-    const mine = await compileContract({ source: TOKEN, name: "Token", slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
+    const mine = await compileContract({
+      source: TOKEN,
+      name: "Token",
+      slot: 28,
+      qpiHeader: HEADERS,
+      arenaSz: 1024 * 1024,
+    });
     // numberOfShares (Select args) is a known gap — only errors should block; warnings are fine.
     expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
 

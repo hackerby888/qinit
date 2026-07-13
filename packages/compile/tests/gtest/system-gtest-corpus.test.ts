@@ -80,7 +80,10 @@ describe("core-lite system gtest corpus", () => {
       const contract = systemContracts(CORE).find((item) => item.name === entry.contract);
       expect(contract).toBeDefined();
       expect(contract!.constructionEpoch).toBe(entry.constructionEpoch);
-      const testSource = isolatedTestSource(readFileSync(join(CORE, "test", entry.file), "utf8"), entry.test);
+      const testSource = isolatedTestSource(
+        readFileSync(join(CORE, "test", entry.file), "utf8"),
+        entry.test,
+      );
 
       const runner = await compileGtest({
         source: contract!.source,
@@ -101,8 +104,11 @@ describe("core-lite system gtest corpus", () => {
         arenaSz: 16 * 1024 * 1024,
       });
       expect(compiledContract.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
-      expect(await runCompiledGtest(runner.program!, runner.wasm!, { [contract!.index]: compiledContract.wasm }))
-        .toEqual([{ name: entry.test, passed: true, message: "" }]);
+      expect(
+        await runCompiledGtest(runner.program!, runner.wasm!, {
+          [contract!.index]: compiledContract.wasm,
+        }),
+      ).toEqual([{ name: entry.test, passed: true, message: "" }]);
     }, 120000);
   }
 });

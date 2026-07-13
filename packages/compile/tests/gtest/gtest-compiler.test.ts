@@ -77,13 +77,27 @@ describe("core-lite-style gtest compiler", () => {
   beforeAll(async () => initK12());
 
   test("compiles and executes a standard ContractTesting test without clang", async () => {
-    const compiled = await compileGtest({ source: CONTRACT, testSource: STANDARD_GTEST, name: "Counter", slot: 28, qpiHeader: QPI });
+    const compiled = await compileGtest({
+      source: CONTRACT,
+      testSource: STANDARD_GTEST,
+      name: "Counter",
+      slot: 28,
+      qpiHeader: QPI,
+    });
     expect(compiled.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
     expect(compiled.program?.tests.map((item) => item.name)).toEqual(["Counter.Increment"]);
 
-    const contract = await compileContract({ source: CONTRACT, name: "Counter", slot: 28, qpiHeader: QPI, arenaSz: 64 * 1024 });
+    const contract = await compileContract({
+      source: CONTRACT,
+      name: "Counter",
+      slot: 28,
+      qpiHeader: QPI,
+      arenaSz: 64 * 1024,
+    });
     expect(contract.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
-    const results = await runCompiledGtest(compiled.program!, compiled.wasm!, { 28: contract.wasm });
+    const results = await runCompiledGtest(compiled.program!, compiled.wasm!, {
+      28: contract.wasm,
+    });
     expect(results).toEqual([{ name: "Counter.Increment", passed: true, message: "" }]);
   }, 120000);
 
@@ -102,7 +116,10 @@ describe("core-lite-style gtest compiler", () => {
   test("compiles loops through the normal frontend", async () => {
     const compiled = await compileGtest({
       source: CONTRACT,
-      testSource: STANDARD_GTEST.replace("Counter::Inc_output out = t.inc(user);", "for (int i = 0; i < 3; ++i) { t.inc(user); }"),
+      testSource: STANDARD_GTEST.replace(
+        "Counter::Inc_output out = t.inc(user);",
+        "for (int i = 0; i < 3; ++i) { t.inc(user); }",
+      ),
       name: "Counter",
       slot: 28,
       qpiHeader: QPI,
@@ -114,13 +131,24 @@ describe("core-lite-style gtest compiler", () => {
   test("reports a failed compiler-backed assertion", async () => {
     const compiled = await compileGtest({
       source: CONTRACT,
-      testSource: STANDARD_GTEST.replace("EXPECT_EQ(t.get().value, 7ull);", "EXPECT_EQ(t.get().value, 8ull);"),
+      testSource: STANDARD_GTEST.replace(
+        "EXPECT_EQ(t.get().value, 7ull);",
+        "EXPECT_EQ(t.get().value, 8ull);",
+      ),
       name: "Counter",
       slot: 28,
       qpiHeader: QPI,
     });
-    const contract = await compileContract({ source: CONTRACT, name: "Counter", slot: 28, qpiHeader: QPI, arenaSz: 64 * 1024 });
-    const [result] = await runCompiledGtest(compiled.program!, compiled.wasm!, { 28: contract.wasm });
+    const contract = await compileContract({
+      source: CONTRACT,
+      name: "Counter",
+      slot: 28,
+      qpiHeader: QPI,
+      arenaSz: 64 * 1024,
+    });
+    const [result] = await runCompiledGtest(compiled.program!, compiled.wasm!, {
+      28: contract.wasm,
+    });
     expect(result.passed).toBe(false);
     expect(result.message).toContain("EXPECT_EQ failed");
   });

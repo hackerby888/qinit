@@ -11,34 +11,58 @@ const canPoll = ["bash", "curl", "jq"].every((c) => !!Bun.which(c));
 // async Bun.spawn (NOT spawnSync): a sync spawn blocks the event loop, so the in-process Bun.serve
 // could not answer the script's curl. Awaiting lets the server respond while bash runs.
 async function runPoll(url: string, filter: string, tries = "3", nap = "1") {
-  const p = Bun.spawn(["bash", "scripts/poll-node-json.sh", url, filter, tries, nap], { cwd: repoRoot, stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawn(["bash", "scripts/poll-node-json.sh", url, filter, tries, nap], {
+    cwd: repoRoot,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const out = (await new Response(p.stdout).text()).trim();
   await p.exited;
   return { out, code: p.exitCode };
 }
 
 test.skipIf(!canPoll)("poll-node-json.sh echoes the field and exits 0 when present", async () => {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response(JSON.stringify({ digest: "deadbeef" })) });
+  const srv = Bun.serve({
+    port: 0,
+    fetch: () => new Response(JSON.stringify({ digest: "deadbeef" })),
+  });
   try {
     const { out, code } = await runPoll(`http://127.0.0.1:${srv.port}/x`, ".digest // empty");
     expect(out).toBe("deadbeef");
     expect(code).toBe(0);
-  } finally { srv.stop(true); }
+  } finally {
+    srv.stop(true);
+  }
 });
 
-test.skipIf(!canPoll)("poll-node-json.sh retries then exits 1 when the value never appears", async () => {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response("{}") });
-  try {
-    const { out, code } = await runPoll(`http://127.0.0.1:${srv.port}/x`, ".digest // empty", "2", "1");
-    expect(out).toBe("");
-    expect(code).toBe(1);
-  } finally { srv.stop(true); }
-});
+test.skipIf(!canPoll)(
+  "poll-node-json.sh retries then exits 1 when the value never appears",
+  async () => {
+    const srv = Bun.serve({ port: 0, fetch: () => new Response("{}") });
+    try {
+      const { out, code } = await runPoll(
+        `http://127.0.0.1:${srv.port}/x`,
+        ".digest // empty",
+        "2",
+        "1",
+      );
+      expect(out).toBe("");
+      expect(code).toBe(1);
+    } finally {
+      srv.stop(true);
+    }
+  },
+);
 
-test.skipIf(!canPoll)("poll-node-json.sh treats 0 as not-ready (so a tick poll waits past tick 0)", async () => {
-  const srv = Bun.serve({ port: 0, fetch: () => new Response(JSON.stringify({ tick: 0 })) });
-  try {
-    const { code } = await runPoll(`http://127.0.0.1:${srv.port}/x`, ".tick // 0", "2", "1");
-    expect(code).toBe(1);
-  } finally { srv.stop(true); }
-});
+test.skipIf(!canPoll)(
+  "poll-node-json.sh treats 0 as not-ready (so a tick poll waits past tick 0)",
+  async () => {
+    const srv = Bun.serve({ port: 0, fetch: () => new Response(JSON.stringify({ tick: 0 })) });
+    try {
+      const { code } = await runPoll(`http://127.0.0.1:${srv.port}/x`, ".tick // 0", "2", "1");
+      expect(code).toBe(1);
+    } finally {
+      srv.stop(true);
+    }
+  },
+);

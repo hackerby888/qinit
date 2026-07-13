@@ -5,29 +5,45 @@ import { join } from "node:path";
 import { cacheRoot } from "@qinit/core";
 import { killNode, nodeAlive } from "./node-ops";
 
-export interface CacheItem { name: string; sz: number }
-export interface CacheInfo { root: string; exists: boolean; items: CacheItem[]; total: number }
+export interface CacheItem {
+  name: string;
+  sz: number;
+}
+export interface CacheInfo {
+  root: string;
+  exists: boolean;
+  items: CacheItem[];
+  total: number;
+}
 
 export function dirSize(p: string): number {
   let s = 0;
   for (const e of readdirSync(p, { withFileTypes: true })) {
     const fp = join(p, e.name);
-    try { s += e.isDirectory() ? dirSize(fp) : statSync(fp).size; } catch {}
+    try {
+      s += e.isDirectory() ? dirSize(fp) : statSync(fp).size;
+    } catch {}
   }
   return s;
 }
 
-export const human = (n: number) => (n < 1024 ? n + "B" : n < 1048576 ? Math.round(n / 1024) + "KB" : (n / 1048576).toFixed(1) + "MB");
+export const human = (n: number) =>
+  n < 1024 ? n + "B" : n < 1048576 ? Math.round(n / 1024) + "KB" : (n / 1048576).toFixed(1) + "MB";
 
 // Scan the cache: per-entry sizes (sorted desc) + total. exists=false when there's no cache dir.
 export function cacheInfo(): CacheInfo {
   const root = cacheRoot();
   if (!existsSync(root)) return { root, exists: false, items: [], total: 0 };
-  const items = readdirSync(root).map((name) => {
-    const p = join(root, name);
-    let sz = 0; try { sz = statSync(p).isDirectory() ? dirSize(p) : statSync(p).size; } catch {}
-    return { name, sz };
-  }).sort((a, b) => b.sz - a.sz);
+  const items = readdirSync(root)
+    .map((name) => {
+      const p = join(root, name);
+      let sz = 0;
+      try {
+        sz = statSync(p).isDirectory() ? dirSize(p) : statSync(p).size;
+      } catch {}
+      return { name, sz };
+    })
+    .sort((a, b) => b.sz - a.sz);
   return { root, exists: true, items, total: items.reduce((a, e) => a + e.sz, 0) };
 }
 
@@ -35,7 +51,10 @@ export function cacheInfo(): CacheInfo {
 export async function wipeCache(): Promise<CacheInfo & { killed: boolean }> {
   const info = cacheInfo();
   let killed = false;
-  if (nodeAlive()) { await killNode(); killed = true; }
+  if (nodeAlive()) {
+    await killNode();
+    killed = true;
+  }
   if (info.exists) rmSync(info.root, { recursive: true, force: true });
   return { ...info, killed };
 }

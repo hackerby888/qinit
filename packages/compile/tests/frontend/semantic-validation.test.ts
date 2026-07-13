@@ -21,7 +21,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
 
 const compile = async (source: string) => {
-  const r = await compileContract({ source, name: "T", slot: 27, qpiHeader: HEADERS, arenaSz: 1 << 20 });
+  const r = await compileContract({
+    source,
+    name: "T",
+    slot: 27,
+    qpiHeader: HEADERS,
+    arenaSz: 1 << 20,
+  });
   return { wasm: r.wasm, errors: r.diagnostics.filter((d) => d.severity === "error") };
 };
 
@@ -82,7 +88,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     msg: /void/i,
   },
   "missing return in non-void function": {
-    src: wrap(`state.mut().a = h();`, `static uint64 h() { return_nothing(); } static void return_nothing() { }`),
+    src: wrap(
+      `state.mut().a = h();`,
+      `static uint64 h() { return_nothing(); } static void return_nothing() { }`,
+    ),
     msg: /must return/i,
   },
   "non-static member call from static context": {
@@ -136,15 +145,24 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     msg: /argument/i,
   },
   "call with too many arguments": {
-    src: wrap(`state.mut().a = add(1, 2, 3);`, `static uint64 add(uint64 x, uint64 y) { return x + y; }`),
+    src: wrap(
+      `state.mut().a = add(1, 2, 3);`,
+      `static uint64 add(uint64 x, uint64 y) { return x + y; }`,
+    ),
     msg: /argument/i,
   },
   "direct recursion": {
-    src: wrap(`state.mut().a = fib(5);`, `static uint64 fib(uint64 n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }`),
+    src: wrap(
+      `state.mut().a = fib(5);`,
+      `static uint64 fib(uint64 n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }`,
+    ),
     msg: /recursi/i,
   },
   "mutual recursion": {
-    src: wrap(`state.mut().a = pingf(3);`, `static uint64 pongf(uint64 n) { return n == 0 ? 0 : pingf(n - 1); } static uint64 pingf(uint64 n) { return n == 0 ? 1 : pongf(n - 1); }`),
+    src: wrap(
+      `state.mut().a = pingf(3);`,
+      `static uint64 pongf(uint64 n) { return n == 0 ? 0 : pingf(n - 1); } static uint64 pingf(uint64 n) { return n == 0 ? 1 : pongf(n - 1); }`,
+    ),
     msg: /recursi/i,
   },
   "new expression": {
@@ -176,7 +194,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 const ACCEPTS: Record<string, string> = {
   "sibling scopes reuse a name": wrap(
-    `uint64 t = 0; for (uint64 i = 0; i < 3; i++) { t = t + i; } for (uint64 i = 0; i < 2; i++) { t = t + i; } state.mut().a = t;`),
+    `uint64 t = 0; for (uint64 i = 0; i < 3; i++) { t = t + i; } for (uint64 i = 0; i < 2; i++) { t = t + i; } state.mut().a = t;`,
+  ),
   "multi-declarator statement": wrap(`uint64 x = 1, y = 3; state.mut().a = x + y;`),
   "static constexpr local": wrap(`static constexpr uint64 K = 5; state.mut().a = K;`),
   "file-scope constexpr": `using namespace QPI;
@@ -189,7 +208,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`,
   "block-scope function prototype": wrap(`uint64 h(uint64 x); state.mut().a = 1;`),
-  "default argument call": wrap(`state.mut().a = add(5);`, `static uint64 add(uint64 x, uint64 y = 2) { return x + y; }`),
+  "default argument call": wrap(
+    `state.mut().a = add(5);`,
+    `static uint64 add(uint64 x, uint64 y = 2) { return x + y; }`,
+  ),
 };
 
 describe("semantic validation — invalid source must fail loudly", () => {
@@ -240,7 +262,14 @@ describe("semantic validation — invalid source must fail loudly", () => {
     const src = ACCEPTS["default argument call"];
     const dir = mkdtempSync(join(tmpdir(), "defarg-"));
     writeFileSync(join(dir, "DefArg.h"), src);
-    const built = await buildContract({ contractPath: join(dir, "DefArg.h"), name: "DefArg", slot: 27, corePath: CORE, outDir: dir, skipVerify: true });
+    const built = await buildContract({
+      contractPath: join(dir, "DefArg.h"),
+      name: "DefArg",
+      slot: 27,
+      corePath: CORE,
+      outDir: dir,
+      skipVerify: true,
+    });
     expect(built.ok).toBe(true);
     const ours = await compile(src);
     expect(ours.errors).toHaveLength(0);

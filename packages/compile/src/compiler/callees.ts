@@ -43,9 +43,13 @@ export function buildCalleeContext(opts: CompileOpts, qpi: QpiContext): CalleeCo
     const remap = makeUserDiagnosticRemapper(callee.source, text, boundaryLine);
     const parser = new Parser(new Lexer(text).tokenize());
     const unit = parser.parseTranslationUnit();
-    const parsed = parser.getDiagnostics()
+    const parsed = parser
+      .getDiagnostics()
       .filter((diagnostic) => diagnostic.span.line > boundaryLine)
-      .map((diagnostic) => ({ ...remap(diagnostic), message: `Callee '${callee.name}': ${diagnostic.message}` }));
+      .map((diagnostic) => ({
+        ...remap(diagnostic),
+        message: `Callee '${callee.name}': ${diagnostic.message}`,
+      }));
     diagnostics.push(...parsed);
     if (parsed.some((diagnostic) => diagnostic.severity === "error")) continue;
 
@@ -53,11 +57,13 @@ export function buildCalleeContext(opts: CompileOpts, qpi: QpiContext): CalleeCo
     for (const declaration of unit.declarations) {
       if (declaration.kind !== "struct") continue;
       const struct = declaration as any;
-      const isContract = struct.bases?.some((base: any) => base.kind === "name" && base.name === "ContractBase")
-        || struct.name === "CONTRACT_STATE_TYPE";
+      const isContract =
+        struct.bases?.some((base: any) => base.kind === "name" && base.name === "ContractBase") ||
+        struct.name === "CONTRACT_STATE_TYPE";
       if (!isContract) continue;
       for (const member of struct.members ?? []) {
-        if (member.kind === "struct" && member.name) structs.set(`${callee.name}::${member.name}`, member);
+        if (member.kind === "struct" && member.name)
+          structs.set(`${callee.name}::${member.name}`, member);
       }
     }
   }

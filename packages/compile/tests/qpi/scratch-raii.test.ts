@@ -92,7 +92,9 @@ describe("scratchpad RAII and pointer lowering", () => {
     sim.deploy(27, result.wasm);
     sim.procedure(27, 1, new Uint8Array(0), { invocator: user });
     const bytes = sim.contracts.get(27)!.state();
-    state = new BigUint64Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+    state = new BigUint64Array(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    );
   });
 
   test("normal scope, continue, break, goto, and return restore the same bump mark", () => {

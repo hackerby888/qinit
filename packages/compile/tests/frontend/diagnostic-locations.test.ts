@@ -2,8 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { compileContract, parseToAst } from "../../src/index";
 
 function errorsFor(source: string, qpiHeader?: string) {
-  return parseToAst({ source, qpiHeader, name: "DiagProbe", slot: 27 }).diagnostics
-    .filter((diagnostic) => diagnostic.severity === "error");
+  return parseToAst({ source, qpiHeader, name: "DiagProbe", slot: 27 }).diagnostics.filter(
+    (diagnostic) => diagnostic.severity === "error",
+  );
 }
 
 function diagnosticOnLine(source: string, line: number) {
@@ -24,12 +25,7 @@ describe("compiler diagnostics - source locations", () => {
   });
 
   test("maps a multiline parse error without exposing scaffold lines", () => {
-    const source = [
-      "struct Broken {",
-      "  uint64 good;",
-      "  uint64 bad = ;",
-      "};",
-    ].join("\n");
+    const source = ["struct Broken {", "  uint64 good;", "  uint64 bad = ;", "};"].join("\n");
     const diagnostic = diagnosticOnLine(source, 3);
     const badToken = source.indexOf(";", source.indexOf("bad"));
 
@@ -77,31 +73,32 @@ describe("compiler diagnostics - source locations", () => {
   });
 
   test("still requires embedded ABI metadata for full compilation", async () => {
-    await expect(compileContract({
-      source: "struct UserSource {};",
-      name: "DiagProbe",
-      slot: 27,
-      qpiHeader: "struct HeaderOnly {};",
-    })).rejects.toThrow("QPI headers are missing embedded core ABI metadata");
+    await expect(
+      compileContract({
+        source: "struct UserSource {};",
+        name: "DiagProbe",
+        slot: 27,
+        qpiHeader: "struct HeaderOnly {};",
+      }),
+    ).rejects.toThrow("QPI headers are missing embedded core ABI metadata");
   });
 
   test("orders and deduplicates recovered diagnostics deterministically", () => {
-    const source = [
-      "struct Broken {",
-      "  uint64 first = ;",
-      "  uint64 second = ;",
-      "};",
-    ].join("\n");
-    const signature = () => errorsFor(source).map((diagnostic) =>
-      `${diagnostic.span.start}:${diagnostic.span.end}:${diagnostic.message}`
+    const source = ["struct Broken {", "  uint64 first = ;", "  uint64 second = ;", "};"].join(
+      "\n",
     );
+    const signature = () =>
+      errorsFor(source).map(
+        (diagnostic) => `${diagnostic.span.start}:${diagnostic.span.end}:${diagnostic.message}`,
+      );
     const first = signature();
     const second = signature();
 
     expect(first).toEqual(second);
     expect(new Set(first).size).toBe(first.length);
-    expect(errorsFor(source).map((diagnostic) => diagnostic.span.start))
-      .toEqual([...errorsFor(source).map((diagnostic) => diagnostic.span.start)].sort((a, b) => a - b));
+    expect(errorsFor(source).map((diagnostic) => diagnostic.span.start)).toEqual(
+      [...errorsFor(source).map((diagnostic) => diagnostic.span.start)].sort((a, b) => a - b),
+    );
   });
 
   test("strict mode upgrades a source-mapped floating-point fidelity warning", async () => {
@@ -120,7 +117,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     const lax = await compileContract({ source, name: "DiagSize", slot: 27, strict: false });
     const strict = await compileContract({ source, name: "DiagSize", slot: 27, strict: true });
     const laxFidelity = lax.diagnostics.find((diagnostic) => diagnostic.category === "fidelity");
-    const strictFidelity = strict.diagnostics.find((diagnostic) => diagnostic.category === "fidelity");
+    const strictFidelity = strict.diagnostics.find(
+      (diagnostic) => diagnostic.category === "fidelity",
+    );
 
     expect(laxFidelity?.severity).toBe("warning");
     expect(lax.wasm.byteLength).toBeGreaterThan(0);

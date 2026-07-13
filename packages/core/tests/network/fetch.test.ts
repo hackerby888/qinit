@@ -4,7 +4,14 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { atomicWrite, extractTarGz, readBody, sha256Hex, cacheRoot, cacheDir } from "../../src/index";
+import {
+  atomicWrite,
+  extractTarGz,
+  readBody,
+  sha256Hex,
+  cacheRoot,
+  cacheDir,
+} from "../../src/index";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "qinit-test-"));
 
@@ -37,7 +44,9 @@ test("readBody reads a full response body", async () => {
 });
 
 test("sha256Hex matches the empty-input vector", () => {
-  expect(sha256Hex(new Uint8Array())).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  expect(sha256Hex(new Uint8Array())).toBe(
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  );
 });
 
 test("cacheRoot honors QINIT_CACHE; cacheDir composes under it", () => {

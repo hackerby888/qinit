@@ -32,7 +32,9 @@ type Line = { t: string; ok?: boolean | null };
 // Persist the selection into qinit.json (kept minimal — preserves the rest of the config).
 function saveSelection(system: string[]): void {
   const path = "qinit.json";
-  const cfg: Record<string, unknown> = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {};
+  const cfg: Record<string, unknown> = existsSync(path)
+    ? JSON.parse(readFileSync(path, "utf8"))
+    : {};
   cfg.system = system;
   writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
 }
@@ -73,7 +75,10 @@ export function System({ args }: { args: string[] }) {
                 setBusy(`deploying ${c.name}`);
                 const r = await rpc.directDeploy(w.index, w.wasm, w.name);
                 if (!r) {
-                  add(`${c.name}: virtualnode-only — a real node already embeds system contracts`, false);
+                  add(
+                    `${c.name}: virtualnode-only — a real node already embeds system contracts`,
+                    false,
+                  );
                   continue;
                 }
                 selected.add(c.name);
@@ -96,12 +101,23 @@ export function System({ args }: { args: string[] }) {
         setBusy("reading node");
         let live = new Set<number>();
         try {
-          live = new Set(((await rpc.dynRegistry()).contracts ?? []).filter((c) => c.armed).map((c) => c.index));
-        } catch { /* node down -> show catalog + selection only */ }
+          live = new Set(
+            ((await rpc.dynRegistry()).contracts ?? []).filter((c) => c.armed).map((c) => c.index),
+          );
+        } catch {
+          /* node down -> show catalog + selection only */
+        }
         const selected = new Set(cfg.system ?? []);
         for (const c of catalog) {
-          const state = live.has(c.index) ? "live" : selected.has(c.name) ? "selected" : "available";
-          add(`${String(c.index).padStart(2)}  ${c.name.padEnd(12)} ${state}`, live.has(c.index) ? true : null);
+          const state = live.has(c.index)
+            ? "live"
+            : selected.has(c.name)
+              ? "selected"
+              : "available";
+          add(
+            `${String(c.index).padStart(2)}  ${c.name.padEnd(12)} ${state}`,
+            live.has(c.index) ? true : null,
+          );
         }
         setDone(true);
       } catch (e: any) {
@@ -125,7 +141,9 @@ export function System({ args }: { args: string[] }) {
       {o.sub !== "add" && o.sub !== "rm" && done && lines.length > 0 && (
         <Text dimColor>{"slot  contract     state   (add: qinit system add <name…>)"}</Text>
       )}
-      {lines.map((l, i) => <Status key={i} ok={l.ok} label={l.t} pad={0} />)}
+      {lines.map((l, i) => (
+        <Status key={i} ok={l.ok} label={l.t} pad={0} />
+      ))}
     </Box>
   );
 }

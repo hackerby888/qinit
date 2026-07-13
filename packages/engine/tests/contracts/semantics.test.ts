@@ -19,7 +19,12 @@ function cid(slot: number): Uint8Array {
 function get(sim: Sim, slot: number) {
   const b = sim.query(slot, 1);
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-  return { totalReceived: dv.getBigUint64(0, true), incomingCount: dv.getBigUint64(8, true), lastIncoming: dv.getBigInt64(16, true), tickCount: dv.getBigUint64(24, true) };
+  return {
+    totalReceived: dv.getBigUint64(0, true),
+    incomingCount: dv.getBigUint64(8, true),
+    lastIncoming: dv.getBigInt64(16, true),
+    tickCount: dv.getBigUint64(24, true),
+  };
 }
 function sendInput(dest: Uint8Array, amount: bigint): Uint8Array {
   const b = new Uint8Array(40); // Send_input { id dest(32); sint64 amount(8) }
@@ -67,7 +72,10 @@ test("transfer host events show eight chars from both ends of a Qubic identity",
   expect(send(sim, 28, USER, 30n)).toBe(70n);
 
   const identity = await bytesToIdentity(USER);
-  const call = sim.getTrace().entries.at(-1)?.hostCalls.find((host) => host.name === "transfer");
+  const call = sim
+    .getTrace()
+    .entries.at(-1)
+    ?.hostCalls.find((host) => host.name === "transfer");
   expect(call?.detail).toBe(`→ ${identity.slice(0, 8)}…${identity.slice(-8)} 30`);
 });
 

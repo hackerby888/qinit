@@ -4,7 +4,15 @@ import { Preprocessor } from "../../src/preprocess";
 import type { MacroDef } from "../../src/preprocess";
 
 /** Shortcut: preprocess with minimal opts (no qpiHeader so source controls everything). */
-const pp = (source: string, opts?: { contractName?: string; contractIndex?: number; seedMacros?: Map<string, MacroDef>; qpiHeader?: string }) => {
+const pp = (
+  source: string,
+  opts?: {
+    contractName?: string;
+    contractIndex?: number;
+    seedMacros?: Map<string, MacroDef>;
+    qpiHeader?: string;
+  },
+) => {
   const p = new Preprocessor();
   return p.preprocess({
     source,
@@ -115,12 +123,12 @@ describe("token paste (##)", () => {
 
 describe("stringification (#)", () => {
   test("simple stringification", () => {
-    const out = pp('#define STR(x) #x\nSTR(hello)');
+    const out = pp("#define STR(x) #x\nSTR(hello)");
     expect(out).toContain('"hello"');
   });
 
   test("stringify with spaces in argument", () => {
-    const out = pp('#define STR(x) #x\nSTR(hello world)');
+    const out = pp("#define STR(x) #x\nSTR(hello world)");
     expect(out).toContain('"hello world"');
   });
 
@@ -208,7 +216,9 @@ describe("#ifdef / #ifndef / #else / #endif", () => {
   });
 
   test("nested conditionals with nested truth", () => {
-    const out = pp("#define A\n#ifdef A\n  #ifdef B\n  lone_b\n  #else\n  not_b\n  #endif\n#else\n  not_a\n#endif");
+    const out = pp(
+      "#define A\n#ifdef A\n  #ifdef B\n  lone_b\n  #else\n  not_b\n  #endif\n#else\n  not_a\n#endif",
+    );
     // A defined, B not → else branch: "not_b", not "lone_b"
     expect(out).toContain("not_b");
     expect(out).not.toContain("lone_b");
@@ -251,7 +261,9 @@ describe("#elif", () => {
   });
 
   test("multiple #elif chain picks first match", () => {
-    const out = pp("#define VER 3\n#if VER == 1\none\n#elif VER == 2\ntwo\n#elif VER == 3\nthree\n#else\nother\n#endif");
+    const out = pp(
+      "#define VER 3\n#if VER == 1\none\n#elif VER == 2\ntwo\n#elif VER == 3\nthree\n#else\nother\n#endif",
+    );
     expect(out).toContain("three");
     expect(out).not.toContain("one");
     expect(out).not.toContain("two");
@@ -393,7 +405,7 @@ describe("#undef", () => {
 
 describe("variadic macros (...)", () => {
   test("varargs macro with __VA_ARGS__", () => {
-    const out = pp("#define LOG(fmt,...) fmt(__VA_ARGS__)\nLOG(printf,\"%d\",42)");
+    const out = pp('#define LOG(fmt,...) fmt(__VA_ARGS__)\nLOG(printf,"%d",42)');
     // __VA_ARGS__ joins extra args with ", " (comma-space)
     expect(out).toContain('printf("%d", 42)');
   });
@@ -409,7 +421,7 @@ describe("variadic macros (...)", () => {
   });
 
   test("named varargs __VA_ARGS__ with named prefix", () => {
-    const out = pp("#define FMT(fmt,...) printf(fmt, __VA_ARGS__)\nFMT(\"%d %s\", 42, \"hi\")");
+    const out = pp('#define FMT(fmt,...) printf(fmt, __VA_ARGS__)\nFMT("%d %s", 42, "hi")');
     expect(out).toContain('printf("%d %s", 42, "hi")');
   });
 });
