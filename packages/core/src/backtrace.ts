@@ -1,5 +1,5 @@
-// Source-mapped trap backtrace resolver (#2 part C). A contract trap on the dev node (built with
-// -DLITE_WASM_TRAP_BACKTRACE=ON: classic interp + DUMP_CALL_STACK) makes WAMR auto-print a backtrace to
+// Core-lite's classic interpreter and call-stack capture print a contract trap backtrace to
+// the node log; this resolver maps its Wasm offsets through Qinit's DWARF sidecar.
 
 import { existsSync, readFileSync } from "node:fs";
 

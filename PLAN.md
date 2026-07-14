@@ -23,7 +23,7 @@ typed client, in one polished CLI.
   palette; works both interactively and as one-shot commands/CI.
 
 **Non-goals (now)**
-- Mainnet deploy. Qinit targets testnet+`LITE_DYNAMIC_CONTRACTS` only (the core firewall stands).
+- Mainnet deploy. Qinit targets testnet-lite-RAM + `LITE_WASM_SC` only (the core firewall stands).
 - Reimplementing the C++ contract compiler — we shell out to `clang-18`.
 - A general Qubic wallet; only the keys needed to sign deploy/test txs.
 
@@ -150,7 +150,7 @@ layers them on top of its tx-building primitives.
 ```
 clang++-18 -fPIC -shared -O2 -std=c++20 \
   -I <core>/src -I <core>/src/contracts \
-  -DLITE_DYNAMIC_CONTRACTS -DCONTRACT_INDEX=<slot> -DCONTRACT_STATE_TYPE=... \
+  -DLITE_DYN_SO_BUILD -DCONTRACT_INDEX=<slot> -DCONTRACT_STATE_TYPE=... \
   -include qpi.h -include extensions/wasm/lite_dyn_abi.h \
   contract.cpp -o build/<name>.so          # NEVER include contract_exec.h
 ```
@@ -180,7 +180,7 @@ Then:
 
 ## 9. Test harness (`packages/testkit`)
 
-- `node up` builds/launches `qubic-core-lite` (TESTNET + LITE_DYNAMIC_CONTRACTS), MAIN mode, waits
+- `node up` builds/launches `qubic-core-lite` (TESTNET + TESTNET_LITE_RAM + LITE_WASM_SC), MAIN mode, waits
   for ticking; `down` kills it (honor "pkill Qubic before restart").
 - Helpers: `deploy(soPath)`, `program(idl)`, tick/await utilities, balance/state assertions.
 - `bun test` specs use the typed client. This is also our **acceptance test for the core feature** —

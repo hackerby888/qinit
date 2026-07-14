@@ -28,7 +28,7 @@ function cmakeProof(): void {
     CMAKE_BUILD_TYPE: "RelWithDebInfo",
     BUILD_BINARY: "ON", BUILD_TESTS: "OFF", ENABLE_AVX512: "OFF", USE_SANITIZER: "OFF",
     TESTNET: "ON", TESTNET_LITE_RAM: "ON", TESTNET_PREFILL_QUS: "ON",
-    LITE_DYNAMIC_CONTRACTS: "ON", LITE_WASM_CONTRACTS: "ON", CMAKE_NO_USE_SWAP: "ON",
+    LITE_WASM_SC: "ON", CMAKE_NO_USE_SWAP: "ON",
     ADDON_TX_STATUS_REQUEST: "ON", ONLY_LOGGING: "OFF",
   };
   for (const [key, want] of Object.entries(expected)) {

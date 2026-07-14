@@ -184,8 +184,9 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect(() =>
       parseLiteAbiSource(
         metadata,
-        shared.replace(
-          "struct LiteAssetEntry {",
+        replaceRequired(
+          shared,
+          /struct LiteAssetEntry\s*\{/,
           "struct LiteAssetEntry {\n    float unsupported;",
         ),
       ),

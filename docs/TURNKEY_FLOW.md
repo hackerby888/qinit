@@ -17,7 +17,7 @@ Dev installs: the `qinit` binary + system `clang-18`. Nothing else.
   (callee types + index map). → snapshot ≈ a few curated subtrees, ~2.5 MB raw, tiny zstd.
 - Core repo = `github.com/hackerby888/core-lite`, has `release.yml` + `linux-build.yml` to model on.
 - All node toggles are CMake `-D` (verified): `TESTNET`, `TESTNET_LITE_RAM`, `TESTNET_PREFILL_QUS`,
-  `LITE_DYNAMIC_CONTRACTS`, `CMAKE_NO_USE_SWAP`, `ONLY_LOGGING` → CI builds the node **without editing
+  `LITE_WASM_SC`, `CMAKE_NO_USE_SWAP`, `ONLY_LOGGING` → CI builds the node **without editing
   qubic.cpp**.
 
 ## Release target
@@ -58,7 +58,7 @@ extract), `loadManifest(ref) -> Manifest`, `cacheDir(ver)`. `--offline` = cache-
 
 ### Core-side work #2 needs (new)
 1. **CI job to publish the prebuilt node** (extend `release.yml`): cmake with
-   `-DTESTNET=ON -DTESTNET_LITE_RAM=ON -DTESTNET_PREFILL_QUS=ON -DLITE_DYNAMIC_CONTRACTS=ON
+   `-DTESTNET=ON -DTESTNET_LITE_RAM=ON -DTESTNET_PREFILL_QUS=ON -DLITE_WASM_SC=ON
    -DCMAKE_NO_USE_SWAP=ON -DONLY_LOGGING=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo` → upload `Qubic` + sha.
    **Also required (see memory):** logging event ON — do **not** pass `-DNO_ENABLE_QUBIC_LOGGING_EVENT`
    (`getEventLogs` readback); TX-status addon ON — `#define ADDON_TX_STATUS_REQUEST` in `public_settings.h`
