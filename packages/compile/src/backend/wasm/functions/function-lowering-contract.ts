@@ -11,7 +11,7 @@ export interface FunctionLoweringServices {
   emitAggHelperCall: typeof import("../calls/library-call").emitAggHelperCall;
   emitArrayInitializer: typeof import("./function-emitter").emitArrayInitializer;
   emitAssetIter: typeof import("../calls/containers").emitAssetIter;
-  emitAssign: typeof import("../expressions/assignment").emitAssign;
+  emitAssignment: typeof import("../expressions/assignment").emitAssignment;
   emitCallStatement: typeof import("../calls/statement-call").emitCallStatement;
   emitCallValueIr: typeof import("../calls/value-call").emitCallValueIr;
   emitCompound: typeof import("../statements/compound-emitter").emitCompound;

@@ -5,8 +5,10 @@ import type { TypeSpec, Expression } from "../../../ast";
 import * as watIr from "../../../wat-ir";
 // Emit an expression used as a statement (side effects only). Calls/assignments push their own
 export function emitDiscardedExpression(context: FunctionEmissionContext, expression: Expression): string {
-    if (expression.kind === "assign")
-        return context.lowering.emitAssign(context, expression);
+    if (expression.kind === "assign") {
+        context.lowering.emitAssignment(context, expression);
+        return "";
+    }
     if (expression.kind === "call") {
         context.lowering.emitCallStatement(context, expression);
         return "";

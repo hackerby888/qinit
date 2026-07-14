@@ -284,7 +284,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
         }
         case "assign": {
             // assignment used as a value — `while ((i = next()) >= 0)`, `a = b = 0`. Perform
-            context.lowering.emitAssign(context, expression);
+            context.lowering.emitAssignment(context, expression);
             return lowerValueExpression(context, expression.left);
         }
         default:

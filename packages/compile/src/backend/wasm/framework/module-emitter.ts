@@ -10,12 +10,8 @@ import { emitDispatch, emitInitialize } from "./dispatch";
 
 // ---- The complete module assembler ----
 export function emitModule(spec: ModuleSpecification): string {
-    // Live-core signatures are needed while lowering user/wrapper bodies. Module assembly is the
-    // terminal phase, so restore the generated baseline and avoid leaking a mutated checkout into later compilations.
     resetLhostCallSigs();
     const usesPrng = spec.capabilities?.includes("chain-prng") ?? false;
-    // WAMR's app-to-native adapter treats linear-memory offset 0 as nullptr.
-    // Random-capable modules pass resident state to lhost.k12 when seeding for deterministic behavior.
     const capacity = computeLayout(spec.stateSize, spec.arenaSize, spec.contextLayout.size, spec.memBase ?? (usesPrng ? 8 : 0), spec.assetEnumerationRecord);
     const sysprocMask = spec.sysprocs.reduce((sysproc, sp) => sysproc | (1 << sp.id), 0);
     return [

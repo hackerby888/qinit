@@ -9,6 +9,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             context.lowering.emitCompound(context, statement.body);
             break;
         case "expression": {
+            // “Discarded” means the expression's result is not used - e.g., transfer(...); // return value discarded
             const discardedText = context.lowering.emitDiscardedExpression(context, statement.expression);
             if (discardedText)
                 context.lines.push(`    ${discardedText}`);
@@ -335,7 +336,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 // expression (`return *this += rhs`). Perform the write, then return the
                 let addr: string | null;
                 if (statement.value.kind === "assign") {
-                    context.lowering.emitAssign(context, statement.value);
+                    context.lowering.emitAssignment(context, statement.value);
                     addr = context.lowering.emitAddress(context, statement.value.left);
                 }
                 else {
