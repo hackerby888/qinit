@@ -1,5 +1,5 @@
 // Layer 1 — wasm-host-runtime. The TypeScript port of the node's WASM host shim
-// (core-lite: src/extensions/lite_wasm_contracts.h + lite_wasm_imports.h), driving the browser/Bun
+// (core-lite: src/extensions/wasm/lite_wasm_contracts.h + lite_wasm_imports.h), driving the browser/Bun
 import { ASSET_ENUMERATION_RECORD, LHOST_ABI, SYSTEM_PROCEDURES } from "@qinit/core";
 import { k12Bytes, toHex } from "./k12";
 import { bytesEqual } from "./bytes";
@@ -25,11 +25,11 @@ export function envImportStub(name: string): Function {
 
 export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2, MIGRATE: 3 } as const;
 
-// System-procedure ids — LiteSysProcId order (core-lite: src/extensions/lite_dyn_abi.h).
+// System-procedure ids — LiteSysProcId order (core-lite: src/extensions/wasm/lite_dyn_abi.h).
 export const SP = SYSTEM_PROCEDURES;
 
 // IO carve inside the contract's io_base region: [in 64K | out 64K | locals 32K | arena].
-// MUST match LITE_WASM_*_SZ in core-lite src/extensions/lite_wasm_contracts.h.
+// MUST match LITE_WASM_*_SZ in core-lite src/extensions/wasm/lite_wasm_contracts.h.
 const IN_SZ = 64 * 1024,
   OUT_SZ = 64 * 1024,
   LOCALS_SZ = 32 * 1024;
@@ -648,7 +648,7 @@ export class Contract {
     }
   }
 
-  // The "lhost" import table (core-lite src/extensions/lite_wasm_imports.h LHOST_TABLE) + WASI stubs.
+  // The "lhost" import table (core-lite src/extensions/wasm/lite_wasm_imports.h LHOST_TABLE) + WASI stubs.
   // The contract wires only the subset it declares; extras are ignored. Effectful ledger/asset/inter-contract
   private imports(mod?: WebAssembly.Module): WebAssembly.Imports {
     const u8 = () => this.u8();

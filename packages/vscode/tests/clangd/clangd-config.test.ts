@@ -78,7 +78,7 @@ test.if(hasFixture)(
       expect(prefix).toContain(`#define CONTRACT_INDEX ${DEFAULT_SLOT}`);
       expect(prefix).toContain('#include "contracts/qpi.h"');
       expect(prefix).not.toContain("#define LITE_DYN_SO_BUILD");
-      expect(prefix).not.toContain('#include "extensions/lite_wasm_tu.h"'); // impl tail excluded
+      expect(prefix).not.toContain('#include "extensions/wasm/lite_wasm_tu.h"'); // impl tail excluded
       expect(prefix).not.toContain('#include "' + COUNTER.replace(/\\/g, "/") + '"'); // contract include excluded
 
       // --- compile_commands.json: `file` IS the contract, parsed with `-include <prefix> -x c++` ---

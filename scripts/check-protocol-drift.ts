@@ -24,7 +24,7 @@ const cexpr = (file: string, name: string): number | null => {
 };
 const eq = (label: string, got: number | null, want: number) => { if (got !== want) fails.push(`${label}: core=${got} qinit=${want}`); };
 
-const DYN = "src/extensions/lite_dynamic_contracts.h";
+const DYN = "src/extensions/wasm/lite_dynamic_contracts.h";
 const LOG = "src/logging/logging.h";
 const NET = "src/network_messages/common_def.h";
 

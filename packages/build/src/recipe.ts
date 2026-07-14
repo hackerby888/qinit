@@ -73,7 +73,7 @@ export function genWrapper(o: BuildOpts): string {
 #define CONTRACT_STATE2_TYPE ${T}2
 // Late-bind CALL/INVOKE_OTHER_CONTRACT to the callee's deployed code via the host (needs the callee
 // __contract_index + <Type>_<fn>_inputType consts from the prelude + CONTRACT_INDEX above).
-#include "extensions/lite_contract_calls.h"
+#include "extensions/wasm/lite_contract_calls.h"
 #include "${o.contractPath}"
 // QPI data-structure impls operate on contract-local memory -> .so-safe. CAUTION: after the contract.
 // Collection + LinkedList are clean (only qpi.h + memory).
@@ -86,7 +86,7 @@ export function genWrapper(o: BuildOpts): string {
 #include "contract_core/qpi_hash_map_impl.h"
 #undef __acquireScratchpad
 #undef __releaseScratchpad
-#include "extensions/lite_dyn_abi.h"
+#include "extensions/wasm/lite_dyn_abi.h"
 `;
 }
 
@@ -96,8 +96,8 @@ export function genWrapper(o: BuildOpts): string {
 export function genWrapperWasm(o: BuildOpts): string {
   const wrapper = genWrapper(o)
     .replace("#define LITE_DYN_SO_BUILD", "#define LITE_WASM_TU_BUILD")
-    .replace(`#include "${o.contractPath}"`, `#include "extensions/lite_wasm_target.h"\n#include "${o.contractPath}"`)
-    .replace('#include "extensions/lite_dyn_abi.h"', '#include "extensions/lite_wasm_tu.h"');
+    .replace(`#include "${o.contractPath}"`, `#include "extensions/wasm/lite_wasm_target.h"\n#include "${o.contractPath}"`)
+    .replace('#include "extensions/wasm/lite_dyn_abi.h"', '#include "extensions/wasm/lite_wasm_tu.h"');
   if (!o.testSource) {
     return wrapper;
   }
@@ -186,7 +186,7 @@ export async function compileWasmContract(
   const sdk = wasiSdkPaths();   // auto-fetched by `qinit node run`; cached under ~/.cache/qinit/wasi-sdk
   const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
   const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
-  const shim = join(src, "extensions", "lite_wasm_intrinsics.h"); // wasm32 shims for the x86 platform intrinsics
+  const shim = join(src, "extensions", "wasm", "lite_wasm_intrinsics.h"); // wasm32 shims for the x86 platform intrinsics
   // -DLITEDYN_CONTRACT_TU gates the node-only throw in utils.h; -fno-exceptions/-fno-rtti keep the module lean;
   // reactor + --no-entry => a library wasm (no _start); --allow-undefined leaves the lhost imports unresolved
   const compileFlags = [

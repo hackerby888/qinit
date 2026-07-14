@@ -151,7 +151,7 @@ layers them on top of its tx-building primitives.
 clang++-18 -fPIC -shared -O2 -std=c++20 \
   -I <core>/src -I <core>/src/contracts \
   -DLITE_DYNAMIC_CONTRACTS -DCONTRACT_INDEX=<slot> -DCONTRACT_STATE_TYPE=... \
-  -include qpi.h -include extensions/lite_dyn_abi.h \
+  -include qpi.h -include extensions/wasm/lite_dyn_abi.h \
   contract.cpp -o build/<name>.so          # NEVER include contract_exec.h
 ```
 Then:

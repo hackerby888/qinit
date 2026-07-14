@@ -109,6 +109,6 @@ export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: D
   for (const c of all)
     for (const r of parseRegisters(c.src))
       s += `static constexpr unsigned short ${c.type}_${r.fn}_inputType = ${r.n};\n`;
-  s += `#include "extensions/lite_contract_calls.h"\n`;
+  s += `#include "extensions/wasm/lite_contract_calls.h"\n`;
   return indexBlock + s;
 }

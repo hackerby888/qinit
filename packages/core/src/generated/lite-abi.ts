@@ -1,4 +1,4 @@
-// Generated from core-lite src/extensions/lite_abi_metadata.h and lite_dyn_abi.h. Do not edit.
+// Generated from core-lite src/extensions/wasm/lite_abi_metadata.h and lite_dyn_abi.h. Do not edit.
 export const LITE_ABI_METADATA = {
   abiVersion: 1,
   lhost: [

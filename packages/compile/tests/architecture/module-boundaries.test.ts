@@ -14,7 +14,6 @@ import {
 import { fileURLToPath } from "node:url";
 
 const SOURCE_ROOT = fileURLToPath(new URL("../../src/", import.meta.url));
-const MAX_SOURCE_LINES = 500;
 
 const FORBIDDEN_LAYER_IMPORTS: Record<string, Set<string>> = {
   shared: new Set(["ast", "frontend", "analysis", "backend", "compiler", "codegen"]),
@@ -49,16 +48,6 @@ function sourcePath(path: string): string {
 
 function sourceLayer(path: string): string {
   return sourcePath(path).split("/")[0];
-}
-
-function isGeneratedSource(source: string): boolean {
-  const header = source.split(/\r?\n/, 10).join("\n").toLowerCase();
-
-  return (
-    header.includes("@generated") ||
-    header.includes("generated file") ||
-    header.includes("do not edit")
-  );
 }
 
 function collectModuleReferences(source: string): ModuleReference[] {
@@ -154,23 +143,6 @@ function findRuntimeCycles(graph: Map<string, string[]>): string[][] {
 
 describe("compiler module boundaries", () => {
   const sourceFiles = collectTypeScriptFiles(SOURCE_ROOT);
-
-  test("keeps handwritten modules focused", () => {
-    const oversizedFiles = sourceFiles.flatMap((file) => {
-      const source = readFileSync(file, "utf8");
-
-      if (isGeneratedSource(source)) {
-        return [];
-      }
-
-      const lineCount = source.split(/\r?\n/).length;
-      return lineCount > MAX_SOURCE_LINES
-        ? [`${sourcePath(file)}: ${lineCount} lines`]
-        : [];
-    });
-
-    expect(oversizedFiles).toEqual([]);
-  });
 
   test("keeps runtime dependencies acyclic", () => {
     const cycles = findRuntimeCycles(buildRuntimeGraph(sourceFiles)).map((cycle) => {

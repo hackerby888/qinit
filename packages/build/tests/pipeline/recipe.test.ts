@@ -76,12 +76,12 @@ test("genWrapper: includes in recipe order — calls, contract, impls, abi bindi
   const w = genWrapper(opts());
 
   const order = [
-    "extensions/lite_contract_calls.h",
+    "extensions/wasm/lite_contract_calls.h",
     "/abs/Counter.h",
     "contract_core/qpi_collection_impl.h",
     "contract_core/qpi_linked_list_impl.h",
     "contract_core/qpi_hash_map_impl.h",
-    "extensions/lite_dyn_abi.h",
+    "extensions/wasm/lite_dyn_abi.h",
   ].map((s) => w.indexOf(s));
 
   expect(order.every((i) => i >= 0)).toBe(true);
@@ -126,14 +126,14 @@ test("genWrapperWasm: swaps the build define + ABI header and includes core's Wa
   expect(wasm).not.toContain("LITE_DYN_SO_BUILD");
   expect(wasm).toContain("#define LITE_WASM_TU_BUILD");
   expect(wasm).not.toContain("lite_dyn_abi.h");
-  expect(wasm).toContain('#include "extensions/lite_wasm_tu.h"');
-  expect(wasm).toContain('#include "extensions/lite_wasm_target.h"');
+  expect(wasm).toContain('#include "extensions/wasm/lite_wasm_tu.h"');
+  expect(wasm).toContain('#include "extensions/wasm/lite_wasm_target.h"');
 
   // Qinit carries no helper implementation. Core's target header is included immediately before the contract
   // so its template bodies precede instantiation.
   expect(dyn).not.toContain("qinit wasm QPI shim");
   expect(wasm).not.toContain("qinit wasm QPI shim");
-  expect(wasm.indexOf('#include "extensions/lite_wasm_target.h"')).toBeLessThan(
+  expect(wasm.indexOf('#include "extensions/wasm/lite_wasm_target.h"')).toBeLessThan(
     wasm.indexOf(`#include "${o.contractPath}"`),
   );
 
@@ -141,9 +141,9 @@ test("genWrapperWasm: swaps the build define + ABI header and includes core's Wa
     .replace("#define LITE_DYN_SO_BUILD", "#define LITE_WASM_TU_BUILD")
     .replace(
       `#include "${o.contractPath}"`,
-      `#include "extensions/lite_wasm_target.h"\n#include "${o.contractPath}"`,
+      `#include "extensions/wasm/lite_wasm_target.h"\n#include "${o.contractPath}"`,
     )
-    .replace('#include "extensions/lite_dyn_abi.h"', '#include "extensions/lite_wasm_tu.h"');
+    .replace('#include "extensions/wasm/lite_dyn_abi.h"', '#include "extensions/wasm/lite_wasm_tu.h"');
   expect(built).toBe(wasm);
 });
 

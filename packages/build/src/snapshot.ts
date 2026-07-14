@@ -31,7 +31,7 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   const wrapper = join(tmp, "Stub.wrapper.cpp");
   writeFileSync(wrapper, genWrapper({ contractPath: stubH, name: "Stub", slot: 28, corePath, outDir: tmp }));
   // wasm wrapper swaps lite_dyn_abi.h -> lite_wasm_tu.h; the wasm compile also force-includes the intrinsics shim.
-  const shim = join(corePath, "src", "extensions", "lite_wasm_intrinsics.h");
+  const shim = join(corePath, "src", "extensions", "wasm", "lite_wasm_intrinsics.h");
   const wasmWrapper = join(tmp, "Stub.wasm.wrapper.cpp");
   writeFileSync(wasmWrapper, genWrapperWasm({ contractPath: stubH, name: "Stub", slot: 28, corePath, outDir: tmp }));
 
@@ -56,10 +56,10 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   const contractsDir = join(corePath, "src", "contracts");
   const extra = readdirSync(contractsDir).filter((f) => f.endsWith(".h")).map((f) => join(contractsDir, f));
   extra.push(join(corePath, "src", "contract_core", "contract_def.h"));
-  extra.push(join(corePath, "src", "extensions", "lite_contract_calls.h"));
-  extra.push(join(corePath, "src", "extensions", "lite_wasm_intrinsics.h"));   // -include'd by the wasm compile
-  extra.push(join(corePath, "src", "extensions", "lite_wasm_tu.h"));           // wasm TU binding (swapped in)
-  extra.push(join(corePath, "src", "extensions", "lite_wasm_target.h"));       // core-owned contract target helpers
+  extra.push(join(corePath, "src", "extensions", "wasm", "lite_contract_calls.h"));
+  extra.push(join(corePath, "src", "extensions", "wasm", "lite_wasm_intrinsics.h"));   // -include'd by the wasm compile
+  extra.push(join(corePath, "src", "extensions", "wasm", "lite_wasm_tu.h"));           // wasm TU binding (swapped in)
+  extra.push(join(corePath, "src", "extensions", "wasm", "lite_wasm_target.h"));       // core-owned contract target helpers
 
   const root = join(outRoot, "core-headers");
   rmSync(root, { recursive: true, force: true });

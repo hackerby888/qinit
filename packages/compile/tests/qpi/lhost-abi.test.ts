@@ -8,7 +8,7 @@ import { inspectLiteWasmModule } from "../../src/compiler/wasm-inspect";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const CORE = CORE_PATH;
-const metadataHeader = join(CORE, "src/extensions/lite_abi_metadata.h");
+const metadataHeader = join(CORE, "src/extensions/wasm/lite_abi_metadata.h");
 
 describe("shared lhost ABI", () => {
   test.if(existsSync(metadataHeader))("matches core-lite's generated canonical metadata", () => {

@@ -48,7 +48,7 @@ export interface ClangdConfig {
 // `-mexec-model=reactor`, `-o`). The caller appends `-include <prefix> -x c++ <contract>`.
 function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: string }): string[] {
   const core = fwd(o.corePath);
-  const shim = fwd(join(o.corePath, "src", "extensions", "lite_wasm_intrinsics.h"));
+  const shim = fwd(join(o.corePath, "src", "extensions", "wasm", "lite_wasm_intrinsics.h"));
   return [
     fwd(o.wasiClang), // argv[0]: the real driver, so --query-driver matches it
     "--target=wasm32-wasi",

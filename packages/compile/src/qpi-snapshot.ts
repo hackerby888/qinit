@@ -60,8 +60,8 @@ function requireCoreSourceDirectory(corePath: string, fileSystem: NodeFileSystem
 
 function readLiteAbi(fileSystem: NodeFileSystem, sourceDirectory: string): LiteAbi {
   return parseLiteAbiSource(
-    fileSystem.readFileSync(`${sourceDirectory}/extensions/lite_abi_metadata.h`, "utf8"),
-    fileSystem.readFileSync(`${sourceDirectory}/extensions/lite_dyn_abi.h`, "utf8"),
+    fileSystem.readFileSync(`${sourceDirectory}/extensions/wasm/lite_abi_metadata.h`, "utf8"),
+    fileSystem.readFileSync(`${sourceDirectory}/extensions/wasm/lite_dyn_abi.h`, "utf8"),
   );
 }
 
@@ -134,7 +134,7 @@ function readWasmTranslationUnit(
   fileSystem: NodeFileSystem,
   sourceDirectory: string,
 ): { path: string; source: string } {
-  const path = `${sourceDirectory}/extensions/lite_wasm_tu.h`;
+  const path = `${sourceDirectory}/extensions/wasm/lite_wasm_tu.h`;
   const source = fileSystem.existsSync(path) ? fileSystem.readFileSync(path, "utf8") : "";
 
   return { path, source };
@@ -299,10 +299,10 @@ export function snapshotInputFiles(corePath: string): string[] {
   const base = `${corePath}/src`;
   const files = [
     `${base}/contract_core/contract_def.h`,
-    `${base}/extensions/lite_wasm_tu.h`,
-    `${base}/extensions/lite_wasm_target.h`,
-    `${base}/extensions/lite_abi_metadata.h`,
-    `${base}/extensions/lite_dyn_abi.h`,
+    `${base}/extensions/wasm/lite_wasm_tu.h`,
+    `${base}/extensions/wasm/lite_wasm_target.h`,
+    `${base}/extensions/wasm/lite_abi_metadata.h`,
+    `${base}/extensions/wasm/lite_dyn_abi.h`,
     ...HEADER_FILES.map((HEADER_FILESItem) => `${base}/${HEADER_FILESItem}`),
     ...IMPL_FILES.map((IMPL_FILESItem) => `${base}/${IMPL_FILESItem}`),
   ];

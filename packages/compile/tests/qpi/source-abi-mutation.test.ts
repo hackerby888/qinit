@@ -8,8 +8,8 @@ import { inspectLiteWasmModule } from "../../src/compiler/wasm-inspect";
 import { IMPL_BOUNDARY, LITE_ABI_MARKER } from "../../src/qpi-snapshot";
 
 const HEADER = loadQpiHeader(CORE_PATH);
-const metadata = readFileSync(`${CORE_PATH}/src/extensions/lite_abi_metadata.h`, "utf8");
-const shared = readFileSync(`${CORE_PATH}/src/extensions/lite_dyn_abi.h`, "utf8");
+const metadata = readFileSync(`${CORE_PATH}/src/extensions/wasm/lite_abi_metadata.h`, "utf8");
+const shared = readFileSync(`${CORE_PATH}/src/extensions/wasm/lite_dyn_abi.h`, "utf8");
 
 function addFunctionContextDeclaration(header: string, declaration: string): string {
   const marker = /struct QpiContextFunctionCall : public QpiContext\r?\n\s*\{/;
