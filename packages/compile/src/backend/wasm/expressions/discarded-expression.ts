@@ -8,7 +8,7 @@ export function emitDiscardedExpression(context: FunctionEmissionContext, expres
     if (expression.kind === "assign")
         return context.lowering.emitAssign(context, expression);
     if (expression.kind === "call") {
-        context.lowering.emitCall(context, expression);
+        context.lowering.emitCallStatement(context, expression);
         return "";
     }
     if (expression.kind === "postfix_op" || expression.kind === "prefix_op")

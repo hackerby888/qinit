@@ -22,7 +22,7 @@ import { compileLibraryFunctionInstance, selectLibraryFunctionOverload } from ".
 import { emitDiscardedExpression, emitIncrementOrDecrement, isScalarLocal } from "../expressions/discarded-expression";
 import { lowerBinaryExpression } from "../expressions/binary-expression";
 import { emitAssign, narrowLocalValue, newValueTmp } from "../expressions/assignment";
-import { emitCall } from "../calls/dispatcher";
+import { emitCallStatement } from "../calls/statement-call";
 import { emitCompound, emitScratchpadReleases } from "../statements/compound-emitter";
 
 export const FUNCTION_LOWERING_SERVICES: FunctionLoweringServices = {
@@ -39,7 +39,7 @@ export const FUNCTION_LOWERING_SERVICES: FunctionLoweringServices = {
   emitArrayInitializer,
   emitAssetIter,
   emitAssign,
-  emitCall,
+  emitCallStatement,
   emitCallValueIr,
   emitCompound,
   emitConstruct,

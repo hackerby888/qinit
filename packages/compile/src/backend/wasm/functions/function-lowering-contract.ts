@@ -12,7 +12,7 @@ export interface FunctionLoweringServices {
   emitArrayInitializer: typeof import("./function-emitter").emitArrayInitializer;
   emitAssetIter: typeof import("../calls/containers").emitAssetIter;
   emitAssign: typeof import("../expressions/assignment").emitAssign;
-  emitCall: typeof import("../calls/dispatcher").emitCall;
+  emitCallStatement: typeof import("../calls/statement-call").emitCallStatement;
   emitCallValueIr: typeof import("../calls/value-call").emitCallValueIr;
   emitCompound: typeof import("../statements/compound-emitter").emitCompound;
   emitConstruct: typeof import("../memory/construction").emitConstruct;
