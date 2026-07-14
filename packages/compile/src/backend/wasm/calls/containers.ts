@@ -34,67 +34,75 @@ export function classifyMethodParam(programAnalysis: ProgramAnalysis, parameter:
 // Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm function. Returns
 export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: TypeSpec & {
     kind: "template_instance";
-}, methodName: string, argCount?: number, paramTypeKey?: string, methodArgTypes?: () => Array<TypeSpec | null>, explicitTemplateArgs: TypeSpec[] = []): CompiledMethod | null {
+}, methodName: string, methodArgumentCount?: number, parameterTypeDiscriminator?: string, resolveMethodArgumentTypes?: () => Array<TypeSpec | null>, explicitTemplateArgs: TypeSpec[] = []): CompiledMethod | null {
     const explicitTemplateKey = explicitTemplateArgs.map((argument) => programAnalysis.typeKeyOf(argument)).join(",");
     const baseInstanceKey = methodTypeKey(type, programAnalysis);
     const explicitTemplateSuffix = explicitTemplateKey ? `<${explicitTemplateKey}>` : "";
-    const baseCacheKey = `${baseInstanceKey}::${methodName}/${argCount ?? "?"}${paramTypeKey ? `@${paramTypeKey}` : ""}${explicitTemplateSuffix}`;
+    const baseCacheKey = `${baseInstanceKey}::${methodName}/${methodArgumentCount ?? "?"}${parameterTypeDiscriminator ? `@${parameterTypeDiscriminator}` : ""}${explicitTemplateSuffix}`;
     const cachedTemplateMethod = programAnalysis.compiledMethods.get(baseCacheKey);
     if (cachedTemplateMethod)
         return cachedTemplateMethod;
     // Specialization-aware: body + bindings come from matched template instance (primary or partial specialization)
-    const mt = programAnalysis.methodTemplate(type.name, type.callArguments, methodName, argCount, paramTypeKey);
-    if (!mt || !mt.def.body)
+    const resolvedMethod = programAnalysis.resolveSourceMethodDefinition(
+        type.name,
+        type.callArguments,
+        methodName,
+        methodArgumentCount,
+        parameterTypeDiscriminator,
+    );
+    if (!resolvedMethod || !resolvedMethod.definition.body)
         return null;
-    const def = mt.def;
-    const resolvedMethodArgTypes = mt.memberTemplate ? (methodArgTypes?.() ?? []) : [];
-    const memberTemplateTypeKey = mt.memberTemplate
-        ? resolvedMethodArgTypes.map((argumentType) => (argumentType ? programAnalysis.typeKeyOf(argumentType) : "?")).join(",")
+    const definition = resolvedMethod.definition;
+    const resolvedMethodArgumentTypes = resolvedMethod.requiresMethodTemplateInference
+        ? (resolveMethodArgumentTypes?.() ?? [])
+        : [];
+    const methodTemplateTypeKey = resolvedMethod.requiresMethodTemplateInference
+        ? resolvedMethodArgumentTypes.map((argumentType) => (argumentType ? programAnalysis.typeKeyOf(argumentType) : "?")).join(",")
         : "";
-    const cacheKey = `${baseCacheKey}${memberTemplateTypeKey ? `#${memberTemplateTypeKey}` : ""}`;
+    const cacheKey = `${baseCacheKey}${methodTemplateTypeKey ? `#${methodTemplateTypeKey}` : ""}`;
     const cached = programAnalysis.compiledMethods.get(cacheKey);
     if (cached)
         return cached;
-    let bind = mt.bind;
+    let ownerBindings = resolvedMethod.ownerBindings;
     if (explicitTemplateArgs.length) {
-        const types = new Map(bind.types);
-        const values = new Map(bind.values);
-        def.params.forEach((parameter, index) => {
+        const types = new Map(ownerBindings.types);
+        const values = new Map(ownerBindings.values);
+        definition.params.forEach((parameter, index) => {
             const argument = explicitTemplateArgs[index];
             if (!argument)
                 return;
             if (parameter.kind === "type")
                 types.set(parameter.name, argument);
             else
-                values.set(parameter.name, programAnalysis.valueOfTypeArg(argument, bind));
+                values.set(parameter.name, programAnalysis.valueOfTypeArg(argument, ownerBindings));
         });
-        bind = { ...bind, types, values };
+        ownerBindings = { ...ownerBindings, types, values };
     }
     // Infer a member-function template's type parameters from its concrete call arguments. This is
     // deliberately structural: any authoritative `const T&`/`T&` member-template parameter benefits,
     // rather than assigning semantics to Array::setMem or any other method name.
-    if (mt.memberTemplate && def.params.some((param) => param.kind === "type")) {
-        const types = new Map(bind.types);
-        const templateTypeNames = new Set(def.params.filter((param) => param.kind === "type").map((param) => param.name));
-        for (let index = 0; index < (def.functionParameters ?? []).length; index++) {
-            const declared = programAnalysis.derefType(def.functionParameters![index].type);
-            const actual = resolvedMethodArgTypes[index];
+    if (resolvedMethod.requiresMethodTemplateInference && definition.params.some((param) => param.kind === "type")) {
+        const types = new Map(ownerBindings.types);
+        const templateTypeNames = new Set(definition.params.filter((param) => param.kind === "type").map((param) => param.name));
+        for (let index = 0; index < (definition.functionParameters ?? []).length; index++) {
+            const declared = programAnalysis.derefType(definition.functionParameters![index].type);
+            const actual = resolvedMethodArgumentTypes[index];
             if (declared.kind === "name" && templateTypeNames.has(declared.name) && actual) {
                 types.set(declared.name, actual);
             }
         }
-        bind = { ...bind, types };
+        ownerBindings = { ...ownerBindings, types };
     }
-    const functionParameters = (def.functionParameters ?? []).map((parameter) => classifyMethodParam(programAnalysis, parameter, bind));
-    const retType = programAnalysis.substInBindings(programAnalysis.derefType(def.returnType), bind);
-    const returnsAddr = def.returnType.kind === "reference" || def.returnType.kind === "pointer";
-    const returnsAggregate = !returnsAddr && !programAnalysis.isVoidType(def.returnType) && programAnalysis.isAggregateType(retType);
+    const functionParameters = (definition.functionParameters ?? []).map((parameter) => classifyMethodParam(programAnalysis, parameter, ownerBindings));
+    const retType = programAnalysis.substInBindings(programAnalysis.derefType(definition.returnType), ownerBindings);
+    const returnsAddr = definition.returnType.kind === "reference" || definition.returnType.kind === "pointer";
+    const returnsAggregate = !returnsAddr && !programAnalysis.isVoidType(definition.returnType) && programAnalysis.isAggregateType(retType);
     const retKind: "i32" | "i64" | "void" = returnsAddr
         ? "i32"
-        : programAnalysis.isVoidType(def.returnType) || returnsAggregate
+        : programAnalysis.isVoidType(definition.returnType) || returnsAggregate
             ? "void"
             : "i64";
-    const retAgg = returnsAggregate ? programAnalysis.sizeOfType(retType, bind) : undefined;
+    const retAgg = returnsAggregate ? programAnalysis.sizeOfType(retType, ownerBindings) : undefined;
     const safeMethodName = methodName.replace(/[^a-zA-Z0-9_]/g, "_");
     const cm: CompiledMethod = {
         label: `$T${programAnalysis.compiledMethods.size}_${type.name}_${safeMethodName}`,
@@ -107,7 +115,7 @@ export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: T
     try {
         const warningBase = programAnalysis.warnings.length;
         const errorBase = programAnalysis.errors.length;
-        const wat = emitTemplateMethod(programAnalysis, cm, def, type, bind);
+        const wat = emitTemplateMethod(programAnalysis, cm, definition, type, ownerBindings);
         if (programAnalysis.warnings.length !== warningBase || programAnalysis.errors.length !== errorBase) {
             const diagnostic = programAnalysis.errors[errorBase]?.message ??
                 programAnalysis.warnings[warningBase]?.message ??
@@ -117,7 +125,7 @@ export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: T
         programAnalysis.emittedMethodOrder.push(wat);
     }
     catch (entry: any) {
-        programAnalysis.warn(`failed to compile ${cacheKey}: ${entry.message}`, def.span?.line ?? 0);
+        programAnalysis.warn(`failed to compile ${cacheKey}: ${entry.message}`, definition.span?.line ?? 0);
         programAnalysis.compiledMethods.delete(cacheKey);
         // Once an authoritative method body has been selected, a lowering failure is a
         // compiler error. Returning null here used to let callers substitute handwritten
@@ -191,7 +199,7 @@ export function emitTemplateMethod(programAnalysis: ProgramAnalysis, cm: Compile
 // Build a call to a container method compiled from its real qpi.h body. Arguments are classified from
 export function callCompiled(context: FunctionEmissionContext, type: TypeSpec & {
     kind: "template_instance";
-}, method: string, self: string, callArguments: Expression[], paramTypeKey?: string, explicitTemplateArgs: TypeSpec[] = []): {
+}, method: string, self: string, callArguments: Expression[], parameterTypeDiscriminator?: string, explicitTemplateArgs: TypeSpec[] = []): {
     call: string;
     cm: CompiledMethod;
     retDest?: string;
@@ -209,7 +217,7 @@ export function callCompiled(context: FunctionEmissionContext, type: TypeSpec & 
         }
         return null;
     });
-    const cm = compileContainerMethod(context.programAnalysis, type, method, callArguments.length, paramTypeKey, methodArgTypes, explicitTemplateArgs);
+    const cm = compileContainerMethod(context.programAnalysis, type, method, callArguments.length, parameterTypeDiscriminator, methodArgTypes, explicitTemplateArgs);
     if (!cm)
         return null;
     const minimumArgs = cm.functionParameters.findIndex((parameter) => parameter.defaultValue !== undefined);

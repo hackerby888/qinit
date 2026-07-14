@@ -1,5 +1,12 @@
 import type { ProgramAnalysis } from "./program-analysis";
-import type { TypeSpec, Expression, Declaration, StructDecl, TemplateParam } from "../ast";
+import type {
+    TypeSpec,
+    Expression,
+    Declaration,
+    StructDecl,
+    TemplateParam,
+    FunctionTemplateDecl,
+} from "../ast";
 
 export interface ClassTemplate {
     params: TemplateParam[];
@@ -30,6 +37,12 @@ export interface TemplateBindings {
     types: Map<string, TypeSpec>;
     values: Map<string, bigint>;
     structs: Map<string, StructDecl>; // nested structs visible in the current layout scope (e.g. HashMap::Element)
+}
+
+export interface ResolvedSourceMethod {
+    definition: FunctionTemplateDecl;
+    ownerBindings: TemplateBindings;
+    requiresMethodTemplateInference: boolean;
 }
 
 export const EMPTY_TEMPLATE_BINDINGS: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };

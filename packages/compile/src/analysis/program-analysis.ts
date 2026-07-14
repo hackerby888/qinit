@@ -1,4 +1,4 @@
-import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, CalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext } from "./types";
+import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, CalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
 import type { Sema } from "../sema";
 import type { PlatformCapability } from "../shared/platform-capabilities";
@@ -346,19 +346,47 @@ export class ProgramAnalysis {
     hasInstanceMethod(name: string, methodName: string): boolean {
         return analysisPart7.hasInstanceMethod(this as unknown as ProgramAnalysisInternals, name, methodName);
     }
-    // Public: resolve a container/struct method to its body + the binding for the matched template instance, HONORING PARTIAL
-    methodTemplate(name: string, callArguments: TypeSpec[], methodName: string, argCount?: number, paramTypeKey?: string): {
-        def: FunctionTemplateDecl;
-        bind: TemplateBindings;
-        memberTemplate?: boolean;
-    } | null {
-        return analysisPart7.methodTemplate(this as unknown as ProgramAnalysisInternals, name, callArguments, methodName, argCount, paramTypeKey);
+    resolveSourceMethodDefinition(
+        ownerTypeName: string,
+        ownerTemplateArguments: TypeSpec[],
+        methodName: string,
+        methodArgumentCount?: number,
+        parameterTypeDiscriminator?: string,
+    ): ResolvedSourceMethod | null {
+        return analysisPart7.resolveSourceMethodDefinition(
+            this as unknown as ProgramAnalysisInternals,
+            ownerTypeName,
+            ownerTemplateArguments,
+            methodName,
+            methodArgumentCount,
+            parameterTypeDiscriminator,
+        );
     }
-    private buildMethodSpecializationKey(methodName: string, argCount: number | undefined, callArguments: TypeSpec[], bind: TemplateBindings): string | undefined {
-        return analysisPart7.buildMethodSpecializationKey(this as unknown as ProgramAnalysisInternals, methodName, argCount, callArguments, bind);
+    private buildMethodSpecializationKey(
+        methodName: string,
+        methodArgumentCount: number | undefined,
+        ownerTemplateArguments: TypeSpec[],
+        ownerBindings: TemplateBindings,
+    ): string | undefined {
+        return analysisPart7.buildMethodSpecializationKey(
+            this as unknown as ProgramAnalysisInternals,
+            methodName,
+            methodArgumentCount,
+            ownerTemplateArguments,
+            ownerBindings,
+        );
     }
-    private buildMethodOverloadKey(methodName: string, argCount: number | undefined, paramTypeKey: string | undefined): string | undefined {
-        return analysisPart7.buildMethodOverloadKey(this as unknown as ProgramAnalysisInternals, methodName, argCount, paramTypeKey);
+    private buildMethodOverloadKey(
+        methodName: string,
+        methodArgumentCount: number | undefined,
+        parameterTypeDiscriminator: string | undefined,
+    ): string | undefined {
+        return analysisPart7.buildMethodOverloadKey(
+            this as unknown as ProgramAnalysisInternals,
+            methodName,
+            methodArgumentCount,
+            parameterTypeDiscriminator,
+        );
     }
     // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they track the real field
     private hashContainerOffsets(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings, capacity: number): {

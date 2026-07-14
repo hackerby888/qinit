@@ -66,9 +66,9 @@ export function isU128Expr(context: FunctionEmissionContext, expression: Express
             ot = next;
         }
         if (ot?.kind === "template_instance") {
-            const mt = context.programAnalysis.methodTemplate(ot.name, ot.callArguments, expression.callee.member, expression.callArguments.length);
-            if (mt?.def.returnType) {
-                return isUint128(context.programAnalysis, context.programAnalysis.substInBindings(context.programAnalysis.derefType(mt.def.returnType), mt.bind));
+            const resolvedMethod = context.programAnalysis.resolveSourceMethodDefinition(ot.name, ot.callArguments, expression.callee.member, expression.callArguments.length);
+            if (resolvedMethod?.definition.returnType) {
+                return isUint128(context.programAnalysis, context.programAnalysis.substInBindings(context.programAnalysis.derefType(resolvedMethod.definition.returnType), resolvedMethod.ownerBindings));
             }
         }
         const struct = ot ? context.programAnalysis.structOf(ot, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS) : null;

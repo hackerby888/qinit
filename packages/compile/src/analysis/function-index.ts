@@ -1,4 +1,4 @@
-import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
+import { EMPTY_TEMPLATE_BINDINGS, ResolvedSourceMethod, TemplateBindings } from "./types";
 import type { TypeSpec, FunctionDecl, FunctionTemplateDecl } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
 
@@ -35,103 +35,174 @@ export function hasInstanceMethod(context: ProgramAnalysisInternals, name: strin
     });
 }
 
-export function methodTemplate(context: ProgramAnalysisInternals, name: string, callArguments: TypeSpec[], methodName: string, argCount?: number, paramTypeKey?: string): {
-    def: FunctionTemplateDecl;
-    bind: TemplateBindings;
-    memberTemplate?: boolean;
-} | null {
-    // bindContainer carries the full method-scope binding (params + nested typedefs like VoteStorageType + static constexprs); instantiateTemplate's binding omits
-    const bind = context.bindContainer(name, callArguments);
-    const inst = context.instantiateTemplate(name, callArguments, EMPTY_TEMPLATE_BINDINGS);
-    if (inst) {
-        // Overload selection by arity (DateAndTime::isValid() vs the static isValid(y,m,d,...)): prefer an exact parameter-count match, then one whose extra
-        const matchingMembers = inst.templateDeclaration.members.filter((mm) => (mm.kind === "function" || mm.kind === "function_template") &&
-            (mm as FunctionDecl | FunctionTemplateDecl).name === methodName &&
-            (mm as FunctionDecl | FunctionTemplateDecl).body) as Array<FunctionDecl | FunctionTemplateDecl>;
-        const methodParameterList = (member: FunctionDecl | FunctionTemplateDecl) => member.kind === "function_template" ? (member.functionParameters ?? []) : member.params;
-        let selectedMember: FunctionDecl | FunctionTemplateDecl | undefined = matchingMembers[0];
-        if (argCount !== undefined && matchingMembers.length > 1) {
-            selectedMember =
-                matchingMembers.find((member) => methodParameterList(member).length === argCount) ??
-                    matchingMembers.find((member) => methodParameterList(member).length > argCount &&
-                        methodParameterList(member)
-                            .slice(argCount)
-                            .every((parameter) => parameter.defaultValue !== undefined)) ??
-                    matchingMembers[0];
+export function resolveSourceMethodDefinition(
+    context: ProgramAnalysisInternals,
+    ownerTypeName: string,
+    ownerTemplateArguments: TypeSpec[],
+    methodName: string,
+    methodArgumentCount?: number,
+    parameterTypeDiscriminator?: string,
+): ResolvedSourceMethod | null {
+    const ownerBindings = context.bindContainer(ownerTypeName, ownerTemplateArguments);
+    const templateInstance = context.instantiateTemplate(
+        ownerTypeName,
+        ownerTemplateArguments,
+        EMPTY_TEMPLATE_BINDINGS,
+    );
+
+    if (templateInstance) {
+        const inlineMethodCandidates = templateInstance.templateDeclaration.members.filter(
+            (member) =>
+                (member.kind === "function" || member.kind === "function_template") &&
+                (member as FunctionDecl | FunctionTemplateDecl).name === methodName &&
+                (member as FunctionDecl | FunctionTemplateDecl).body,
+        ) as Array<FunctionDecl | FunctionTemplateDecl>;
+        const parametersOf = (method: FunctionDecl | FunctionTemplateDecl) =>
+            method.kind === "function_template"
+                ? (method.functionParameters ?? [])
+                : method.params;
+
+        let selectedInlineMethod = inlineMethodCandidates[0];
+
+        if (methodArgumentCount !== undefined && inlineMethodCandidates.length > 1) {
+            selectedInlineMethod =
+                inlineMethodCandidates.find(
+                    (method) => parametersOf(method).length === methodArgumentCount,
+                ) ??
+                inlineMethodCandidates.find(
+                    (method) =>
+                        parametersOf(method).length > methodArgumentCount &&
+                        parametersOf(method)
+                            .slice(methodArgumentCount)
+                            .every((parameter) => parameter.defaultValue !== undefined),
+                ) ??
+                inlineMethodCandidates[0];
         }
-        if (selectedMember) {
-            const functionDecl = selectedMember;
-            const def: FunctionTemplateDecl = functionDecl.kind === "function_template"
-                ? functionDecl
-                : {
-                    kind: "function_template",
-                    name: functionDecl.name,
-                    params: inst.templateDeclaration.params,
-                    functionParameters: functionDecl.params,
-                    returnType: functionDecl.returnType,
-                    body: functionDecl.body,
-                    isConstexpr: functionDecl.isConstexpr,
-                    span: functionDecl.span,
-                };
-            context.namespaceContexts.set(def, context.namespaceContextOf(functionDecl));
+
+        if (selectedInlineMethod) {
+            const definition: FunctionTemplateDecl =
+                selectedInlineMethod.kind === "function_template"
+                    ? selectedInlineMethod
+                    : {
+                        kind: "function_template",
+                        name: selectedInlineMethod.name,
+                        params: templateInstance.templateDeclaration.params,
+                        functionParameters: selectedInlineMethod.params,
+                        returnType: selectedInlineMethod.returnType,
+                        body: selectedInlineMethod.body,
+                        isConstexpr: selectedInlineMethod.isConstexpr,
+                        span: selectedInlineMethod.span,
+                    };
+
+            context.namespaceContexts.set(
+                definition,
+                context.namespaceContextOf(selectedInlineMethod),
+            );
+
             return {
-                def,
-                bind,
-                memberTemplate: functionDecl.kind === "function_template",
+                definition,
+                ownerBindings,
+                requiresMethodTemplateInference:
+                    selectedInlineMethod.kind === "function_template",
             };
         }
     }
-    const specializationKey = context.buildMethodSpecializationKey(methodName, argCount, callArguments, bind);
-    const overloadKey = context.buildMethodOverloadKey(methodName, argCount, paramTypeKey);
-    let def: FunctionTemplateDecl | undefined;
-    for (const owner of context.methodOwnerNames(name)) {
-        const byName = context.templateMethods.get(owner);
-        def =
-            (overloadKey ? byName?.get(overloadKey) : undefined) ??
-                (specializationKey ? byName?.get(specializationKey) : undefined) ??
-                (argCount !== undefined ? byName?.get(`${methodName}/${argCount}`) : undefined) ??
-                byName?.get(methodName);
-        if (def)
+
+    const specializationKey = context.buildMethodSpecializationKey(
+        methodName,
+        methodArgumentCount,
+        ownerTemplateArguments,
+        ownerBindings,
+    );
+    const overloadKey = context.buildMethodOverloadKey(
+        methodName,
+        methodArgumentCount,
+        parameterTypeDiscriminator,
+    );
+    let definition: FunctionTemplateDecl | undefined;
+
+    for (const ownerName of context.methodOwnerNames(ownerTypeName)) {
+        const methodsByName = context.templateMethods.get(ownerName);
+        definition =
+            (overloadKey ? methodsByName?.get(overloadKey) : undefined) ??
+            (specializationKey ? methodsByName?.get(specializationKey) : undefined) ??
+            (methodArgumentCount !== undefined
+                ? methodsByName?.get(`${methodName}/${methodArgumentCount}`)
+                : undefined) ??
+            methodsByName?.get(methodName);
+
+        if (definition) {
             break;
+        }
     }
-    if (!def?.body)
+
+    if (!definition?.body) {
         return null;
-    // Out-of-class definitions do not repeat default arguments. Preserve defaults from the authoritative
-    // class declaration so a source-compiled call such as needsCleanup() still passes its declared 50%.
-    const declared = inst?.templateDeclaration.members.find((member): member is FunctionDecl => {
-        if (member.kind !== "function")
-            return false;
-        if (member.name !== methodName)
-            return false;
-        return member.params.length === (def.functionParameters ?? []).length;
-    });
-    const memberTemplate = !context.templates.has(name) && def.params.length > 0;
-    if (!declared)
-        return { def, bind, memberTemplate };
-    const mergedDef: FunctionTemplateDecl = {
-        ...def,
-        functionParameters: (def.functionParameters ?? []).map((param, index) => ({
-            ...param,
-            defaultValue: param.defaultValue ?? declared.params[index]?.defaultValue,
+    }
+
+    const methodDeclaration = templateInstance?.templateDeclaration.members.find(
+        (member): member is FunctionDecl => {
+            if (member.kind !== "function" || member.name !== methodName) {
+                return false;
+            }
+
+            return member.params.length === (definition!.functionParameters ?? []).length;
+        },
+    );
+    const requiresMethodTemplateInference =
+        !context.templates.has(ownerTypeName) && definition.params.length > 0;
+
+    if (!methodDeclaration) {
+        return {
+            definition,
+            ownerBindings,
+            requiresMethodTemplateInference,
+        };
+    }
+
+    const definitionWithDefaults: FunctionTemplateDecl = {
+        ...definition,
+        functionParameters: (definition.functionParameters ?? []).map((parameter, index) => ({
+            ...parameter,
+            defaultValue:
+                parameter.defaultValue ?? methodDeclaration.params[index]?.defaultValue,
         })),
     };
-    context.namespaceContexts.set(mergedDef, context.namespaceContextOf(def));
+
+    context.namespaceContexts.set(
+        definitionWithDefaults,
+        context.namespaceContextOf(definition),
+    );
+
     return {
-        def: mergedDef,
-        bind,
-        memberTemplate,
+        definition: definitionWithDefaults,
+        ownerBindings,
+        requiresMethodTemplateInference,
     };
 }
 
-export function buildMethodSpecializationKey(context: ProgramAnalysisInternals, methodName: string, argCount: number | undefined, callArguments: TypeSpec[], bind: TemplateBindings): string | undefined {
-    if (argCount === undefined || !callArguments[0])
+export function buildMethodSpecializationKey(
+    context: ProgramAnalysisInternals,
+    methodName: string,
+    methodArgumentCount: number | undefined,
+    ownerTemplateArguments: TypeSpec[],
+    ownerBindings: TemplateBindings,
+): string | undefined {
+    if (methodArgumentCount === undefined || !ownerTemplateArguments[0])
         return undefined;
-    const firstArg = context.typeKey(context.resolveType(callArguments[0], bind));
-    return `${methodName}/${argCount}@${firstArg}`;
+    const firstTemplateArgument = context.typeKey(
+        context.resolveType(ownerTemplateArguments[0], ownerBindings),
+    );
+    return `${methodName}/${methodArgumentCount}@${firstTemplateArgument}`;
 }
 
-export function buildMethodOverloadKey(context: ProgramAnalysisInternals, methodName: string, argCount: number | undefined, paramTypeKey: string | undefined): string | undefined {
-    if (argCount === undefined || !paramTypeKey)
+export function buildMethodOverloadKey(
+    context: ProgramAnalysisInternals,
+    methodName: string,
+    methodArgumentCount: number | undefined,
+    parameterTypeDiscriminator: string | undefined,
+): string | undefined {
+    if (methodArgumentCount === undefined || !parameterTypeDiscriminator)
         return undefined;
-    return `${methodName}/${argCount}@${paramTypeKey}`;
+    return `${methodName}/${methodArgumentCount}@${parameterTypeDiscriminator}`;
 }

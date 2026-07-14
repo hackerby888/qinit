@@ -87,10 +87,10 @@ export function isUnsignedExpr(context: FunctionEmissionContext, expression: Exp
                     : null;
             if (!owner)
                 return false;
-            const method = context.programAnalysis.methodTemplate(owner, calleeObjectType?.kind === "template_instance" ? calleeObjectType.callArguments : [], expression.callee.member, expression.callArguments.length);
-            if (!method)
+            const resolvedMethod = context.programAnalysis.resolveSourceMethodDefinition(owner, calleeObjectType?.kind === "template_instance" ? calleeObjectType.callArguments : [], expression.callee.member, expression.callArguments.length);
+            if (!resolvedMethod)
                 return false;
-            const result = context.programAnalysis.substInBindings(context.programAnalysis.derefType(method.def.returnType), method.bind);
+            const result = context.programAnalysis.substInBindings(context.programAnalysis.derefType(resolvedMethod.definition.returnType), resolvedMethod.ownerBindings);
             return context.programAnalysis.isAggregateType(result) || unsignedScalar(context.programAnalysis.scalarStorageType(result));
         }
         case "binary_op":

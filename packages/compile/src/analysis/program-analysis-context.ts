@@ -1,4 +1,4 @@
-import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, CalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext } from "./types";
+import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, CalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
 import type { Sema } from "../sema";
 import type { PlatformCapability } from "../shared/platform-capabilities";
@@ -152,13 +152,9 @@ export interface ProgramAnalysisInternals {
   methodOwnerNames(name: string, seen?: Set<string>): string[];
   baseTemplateName(type: TypeSpec): string | null;
   hasInstanceMethod(name: string, methodName: string): boolean;
-  methodTemplate(name: string, callArguments: TypeSpec[], methodName: string, argCount?: number, paramTypeKey?: string): {
-        def: FunctionTemplateDecl;
-        bind: TemplateBindings;
-        memberTemplate?: boolean;
-    } | null;
-  buildMethodSpecializationKey(methodName: string, argCount: number | undefined, callArguments: TypeSpec[], bind: TemplateBindings): string | undefined;
-  buildMethodOverloadKey(methodName: string, argCount: number | undefined, paramTypeKey: string | undefined): string | undefined;
+  resolveSourceMethodDefinition(ownerTypeName: string, ownerTemplateArguments: TypeSpec[], methodName: string, methodArgumentCount?: number, parameterTypeDiscriminator?: string): ResolvedSourceMethod | null;
+  buildMethodSpecializationKey(methodName: string, methodArgumentCount: number | undefined, ownerTemplateArguments: TypeSpec[], ownerBindings: TemplateBindings): string | undefined;
+  buildMethodOverloadKey(methodName: string, methodArgumentCount: number | undefined, parameterTypeDiscriminator: string | undefined): string | undefined;
   hashContainerOffsets(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings, capacity: number): {
         elemSize: number;
         occBase: number;
