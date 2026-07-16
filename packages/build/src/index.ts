@@ -4,9 +4,12 @@ import { statSync, readFileSync } from "node:fs";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
-import { compileWasmContract, type BuildOpts } from "./recipe";
+import {
+  compileWasmContract,
+  WASM_CONTRACT_TESTING_HEADER,
+  type BuildOpts,
+} from "./recipe";
 // Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
-import WASM_CONTRACT_TESTING_H from "./assets/wasm_contract_testing.h" with { type: "text" };
 import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
 import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
@@ -97,7 +100,7 @@ export async function buildCorpusRunner(o: {
 
   await mkdir(o.outDir, { recursive: true });
 
-  await writeFile(join(o.outDir, "wasm_contract_testing.h"), WASM_CONTRACT_TESTING_H);
+  await writeFile(join(o.outDir, "wasm_contract_testing.h"), WASM_CONTRACT_TESTING_HEADER);
   // Some corpora also `#include "test_util.h"` (asset-name helpers etc.); provide the wasm-mode stub.
   await writeFile(join(o.outDir, "test_util.h"), TEST_UTIL_H);
 

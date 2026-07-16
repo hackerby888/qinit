@@ -1,5 +1,5 @@
 // Layer 1 — wasm-host-runtime. The TypeScript port of the node's WASM host shim
-// (core-lite: src/extensions/wasm/lite_wasm_contracts.h + lite_wasm_imports.h), driving the browser/Bun
+// (core-lite: src/extensions/wasm/runtime/engine.h + host_services.h), driving the browser/Bun
 import { ASSET_ENUMERATION_RECORD, LHOST_ABI, SYSTEM_PROCEDURES } from "@qinit/core";
 import { k12Bytes, toHex } from "./k12";
 import { bytesEqual } from "./bytes";
@@ -25,11 +25,11 @@ export function envImportStub(name: string): Function {
 
 export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2, MIGRATE: 3 } as const;
 
-// System-procedure ids — LiteSysProcId order (core-lite: src/extensions/wasm/lite_dyn_abi.h).
+// System-procedure ids — Wasm::SystemProcedureId order (core-lite: shared/abi_types.h).
 export const SP = SYSTEM_PROCEDURES;
 
 // IO carve inside the contract's io_base region: [in 64K | out 64K | locals 32K | arena].
-// MUST match LITE_WASM_*_SZ in core-lite src/extensions/wasm/lite_wasm_contracts.h.
+// MUST match the runtime storage sizes in core-lite runtime/contract_slots.h.
 const IN_SZ = 64 * 1024,
   OUT_SZ = 64 * 1024,
   LOCALS_SZ = 32 * 1024;
@@ -397,7 +397,7 @@ export class Contract {
     const scratch = this.ioBase; // reuse the input region as a scratch out-param
     for (let i = 0; i < n; i++) {
       this.ex.reg_info(i >>> 0, scratch >>> 0);
-      const dv = this.dv(); // LiteWasmTuInfo { u32 inputType, kind, inSize, outSize }
+      const dv = this.dv(); // Wasm dispatch info: u32 inputType, kind, inSize, outSize
       const it = dv.getUint32(scratch, true);
       const kind = dv.getUint32(scratch + 4, true);
       const inSize = dv.getUint32(scratch + 8, true);
@@ -431,7 +431,7 @@ export class Contract {
   }
 
   // Copy bytes into the resident state region (truncated to stateSize). Preserves overlapping state across a
-  // non-migrating redeploy — parity with core's raw-restore (lite_wasm_contracts.h).
+  // non-migrating redeploy — parity with core's raw restore in runtime/deployment.h.
   writeState(bytes: Uint8Array): void {
     const n = Math.min(bytes.length, this.stateSize);
     if (n) this.u8().set(bytes.subarray(0, n), this.stateAddr);
@@ -451,7 +451,7 @@ export class Contract {
     view.entryPoint = ctx.entryPoint ?? 0;
   }
 
-  // Marshal one call through the instance (mirrors liteWasmDispatch): write ctx header + input, zero output,
+  // Marshal one call through the instance (mirrors the SDK dispatch): write ctx header + input, zero output,
   // call dispatch(kind,it,inOff,outOff,localsOff), copy the output back out.
   invoke(
     kind: number,
@@ -568,7 +568,7 @@ export class Contract {
   }
 
   // Run the contract's __migrate(newState, oldState, locals) to convert the old state into the new layout.
-  // Mirrors the core host path (lite_wasm_contracts.h kind=3): copy old bytes into the arena, zero the new
+  // Mirrors the core migration dispatch path (kind=3): copy old bytes into the arena, zero the new
   migrate(oldState: Uint8Array): void {
     const localsOff = this.ioBase + IN_SZ + OUT_SZ;
     const oldOff = this.arenaBase;
@@ -648,7 +648,7 @@ export class Contract {
     }
   }
 
-  // The "lhost" import table (core-lite src/extensions/wasm/lite_wasm_imports.h LHOST_TABLE) + WASI stubs.
+  // The "lhost" import table (core-lite shared/abi_metadata.h WASM_LHOST_ABI_ROWS) + WASI stubs.
   // The contract wires only the subset it declares; extras are ignored. Effectful ledger/asset/inter-contract
   private imports(mod?: WebAssembly.Module): WebAssembly.Imports {
     const u8 = () => this.u8();

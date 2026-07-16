@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { initK12, k12Hex, LiteRpc } from "../packages/core/src/index";
-import { compileContract, inspectLiteWasmModule, loadQpiHeader } from "../packages/compile/src/index";
+import { compileContract, inspectWasmModule, loadQpiHeader } from "../packages/compile/src/index";
 import { Sim } from "../packages/engine/src/index";
 import { deployContract } from "../packages/cli/src/deploy-ops";
 import { invokeProcedure, resolveSlot } from "../packages/proto/src/index";
@@ -78,7 +78,7 @@ const { slot } = await resolveSlot(rpc, "QpiDual");
 const qpiHeader = loadQpiHeader(core);
 verifyPinnedHeader(qpiHeader);
 const compiled = await compileContract({
-  // Must match LITE_WASM_ARENA_SZ in the release node. A smaller module can run
+  // Must match WASM_ARENA_SIZE in the release node. A smaller module can run
   // in Sim but is correctly rejected by core's production IO-carve check.
   source, name: "QpiDual", slot, qpiHeader, arenaSz: 1024 * 1024 * 1024,
 });
@@ -86,7 +86,7 @@ const errors = compiled.diagnostics.filter((diagnostic) => diagnostic.severity =
 if (errors.length) fail(errors.map((diagnostic) => diagnostic.message).join("; "));
 if (!compiled.wasm.byteLength) fail("compiler returned an empty artifact");
 
-const inspection = inspectLiteWasmModule(compiled.wasm);
+const inspection = inspectWasmModule(compiled.wasm);
 if (!inspection.ok) fail(inspection.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
 const hash = await k12Hex(compiled.wasm);
 console.log(`compiled once: ${compiled.wasm.byteLength}B · k12 ${hash} · features [${inspection.features.join(",")}]`);

@@ -1,5 +1,5 @@
 import type { GeneratedContractMetadata } from "../codegen";
-import { inspectLiteWasmModule } from "./wasm-inspect";
+import { inspectWasmModule } from "./wasm-inspect";
 import type { CompileOptions } from "./types";
 
 export async function encodeAndInspectWat(
@@ -19,7 +19,7 @@ export async function encodeAndInspectWat(
         throw new Error("generated module failed WebAssembly validation");
     }
 
-    const inspection = inspectLiteWasmModule(wasm, {
+    const inspection = inspectWasmModule(wasm, {
         memoryMode: options.sharedMemBase === undefined ? "defined" : "imported",
         lhostAbi: metadata.lhostAbi,
     });

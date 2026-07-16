@@ -498,7 +498,7 @@ export class VirtualNode implements NodeTransport {
     return bytesToIdentity(k12Bytes(body));
   }
 
-  // UPLOAD_BEGIN / UPLOAD_CHUNK / DEPLOY — mirrors core-lite lite_dynamic_contracts.h LE decode + the proto
+  // UPLOAD_BEGIN / UPLOAD_CHUNK / DEPLOY — mirrors core-lite runtime/deployment_protocol.h LE decode + the proto
   // encoders (packages/proto/src/deploy.ts).
   private handleDeployTx(inputType: number, p: Uint8Array, source?: Uint8Array): void {
     if (inputType === LITE_TX.UPLOAD_BEGIN) {

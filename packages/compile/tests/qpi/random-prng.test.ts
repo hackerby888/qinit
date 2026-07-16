@@ -2,7 +2,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
-import { compileContract, inspectLiteWasmModule, loadQpiHeader } from "../../src";
+import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src";
 import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;
@@ -194,7 +194,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   test("keeps the production import surface and has no random-method fallback", async () => {
     const { wasm } = await compile();
-    const inspection = inspectLiteWasmModule(wasm);
+    const inspection = inspectWasmModule(wasm);
     expect(inspection.ok, inspection.diagnostics.map((item) => item.message).join("; ")).toBe(true);
     expect(inspection.imports.every((item) => item.module === "lhost")).toBe(true);
     expect(inspection.features).toEqual([]);

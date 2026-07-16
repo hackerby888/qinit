@@ -9,6 +9,7 @@ import {
   type BuildOpts,
 } from "@qinit/build/recipe";
 import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 
 export const DEFAULT_SLOT = 28; // mirrors packages/cli/src/commands/build.tsx (`cfg.slot ?? 28`)
 
@@ -48,7 +49,7 @@ export interface ClangdConfig {
 // `-mexec-model=reactor`, `-o`). The caller appends `-include <prefix> -x c++ <contract>`.
 function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: string }): string[] {
   const core = fwd(o.corePath);
-  const shim = fwd(join(o.corePath, "src", "extensions", "wasm", "lite_wasm_intrinsics.h"));
+  const shim = fwd(join(o.corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics));
   return [
     fwd(o.wasiClang), // argv[0]: the real driver, so --query-driver matches it
     "--target=wasm32-wasi",

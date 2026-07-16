@@ -1,5 +1,5 @@
 import type { InspectedMemoryMode, InspectedWasmExport, InspectedWasmMemory, WasmFunctionSignature } from "./inspection-types";
-import { LITE_WASM_FUNCTION_ABI, signature } from "./inspection-types";
+import { WASM_MODULE_EXPORT_ABI, signature } from "./inspection-types";
 import type { ParsedModule } from "./parsed-module";
 import { error } from "./binary-reader";
 
@@ -54,7 +54,7 @@ export function validateExports(parsed: ParsedModule, mode: InspectedMemoryMode)
         if (values.length > 1)
             error(parsed.diagnostics, "duplicate-export", `export '${name}' appears ${values.length} times`);
     }
-    for (const [name, expected] of Object.entries(LITE_WASM_FUNCTION_ABI)) {
+    for (const [name, expected] of Object.entries(WASM_MODULE_EXPORT_ABI)) {
         const exported = byName.get(name)?.[0];
         if (!exported) {
             error(parsed.diagnostics, "missing-export", `missing required function export '${name}'`);

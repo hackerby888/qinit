@@ -6,10 +6,16 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { wasiSdkPaths } from "@qinit/core/project";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import { writeLineMap } from "./linemap";
 import WASM_GTEST_H from "./assets/wasm_gtest.h" with { type: "text" };
-import WASM_CONTRACT_TESTING_H from "./assets/wasm_contract_testing.h" with { type: "text" };
+import WASM_CONTRACT_TESTING_H_TEMPLATE from "./assets/wasm_contract_testing.h" with { type: "text" };
 import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
+
+const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace(
+  "__QINIT_CORE_WASM_ABI_METADATA__",
+  CORE_WASM_HEADERS.shared.abiMetadata,
+);
 
 export const WASM_CONTRACT_TESTING_HEADER = WASM_CONTRACT_TESTING_H;
 export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
@@ -26,8 +32,8 @@ export interface BuildOpts {
   dynCallees?: Record<string, { header: string; index: number }>; // dynamic (Qinit-deployed) callees
   wasmClang?: string;   // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
   wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
-  skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some lite macros)
-  arenaSz?: number;     // contract-side arena size (LITE_WASM_ARENA_SZ), default 1GB; shrink for browser IDE builds
+  skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)
+  arenaSz?: number;     // contract-side arena size (WASM_ARENA_SIZE), default 1GB; shrink for browser IDE builds
   testSource?: string;  // core-lite contract_testing.h-style source compiled into a private Wasm runner
   testPath?: string;    // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
   extraCompileFlags?: string[]; // appended to the consuming compile only (not the PCH); used by the gtest
@@ -60,44 +66,55 @@ const PREAMBLE_CORE = `#include "contract_core/pre_qpi_def.h"
 
 // The full preamble for a build type — exactly what the wrapper emits before any per-contract content, so a
 // PCH built from this is a valid prefix of the wrapper TU.
-export function buildPreamble(buildDefine: "LITE_DYN_SO_BUILD" | "LITE_WASM_TU_BUILD"): string {
+export function buildPreamble(buildDefine: "WASM_NATIVE_TU_BUILD" | "LITE_WASM_TU_BUILD"): string {
   return `${PREAMBLE_STD}#define ${buildDefine}\n${PREAMBLE_CORE}`;
 }
 
-export function genWrapper(o: BuildOpts): string {
+type WrapperTarget = "native" | "wasm";
+
+function genWrapperForTarget(o: BuildOpts, target: WrapperTarget): string {
   const T = o.stateType ?? o.name; // the C++ struct type the contract declares
-  return `${buildPreamble("LITE_DYN_SO_BUILD")}${o.calleePrelude ?? ""}
+  const buildDefine = target === "wasm" ? "LITE_WASM_TU_BUILD" : "WASM_NATIVE_TU_BUILD";
+  const targetSupport =
+    target === "wasm" ? `#include "${CORE_WASM_HEADERS.sdk.qpiSupport}"\n` : "";
+  const runtimeInclude =
+    target === "wasm"
+      ? CORE_WASM_HEADERS.sdk.moduleRuntime
+      : CORE_WASM_HEADERS.shared.abiTypes;
+
+  return `${buildPreamble(buildDefine)}${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
 #define ${T}_CONTRACT_INDEX ${o.slot}
 #define CONTRACT_STATE_TYPE ${T}
 #define CONTRACT_STATE2_TYPE ${T}2
 // Late-bind CALL/INVOKE_OTHER_CONTRACT to the callee's deployed code via the host (needs the callee
 // __contract_index + <Type>_<fn>_inputType consts from the prelude + CONTRACT_INDEX above).
-#include "extensions/wasm/lite_contract_calls.h"
-#include "${o.contractPath}"
+// Target-specific wrappers are emitted directly; no include-string rewriting is used.
+#include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"
+${targetSupport}#include "${o.contractPath}"
 // QPI data-structure impls operate on contract-local memory -> .so-safe. CAUTION: after the contract.
 // Collection + LinkedList are clean (only qpi.h + memory).
 #include "contract_core/qpi_collection_impl.h"
 #include "contract_core/qpi_linked_list_impl.h"
 // HashMap's impl pulls common_buffers.h, whose __acquire/releaseScratchpad use the host-initialized
 // commonBuffers global (absent in the .so). Rename those defs to dead symbols; the .so forwards
-#define __acquireScratchpad __lite_cb_acquireScratchpad_unused
-#define __releaseScratchpad __lite_cb_releaseScratchpad_unused
+#define __acquireScratchpad __wasm_native_cb_acquireScratchpad_unused
+#define __releaseScratchpad __wasm_native_cb_releaseScratchpad_unused
 #include "contract_core/qpi_hash_map_impl.h"
 #undef __acquireScratchpad
 #undef __releaseScratchpad
-#include "extensions/wasm/lite_dyn_abi.h"
+#include "${runtimeInclude}"
 `;
+}
+
+export function genWrapper(o: BuildOpts): string {
+  return genWrapperForTarget(o, "native");
 }
 
 
 // --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
-// Same TU as the .so, but binds to lite_wasm_tu.h (qpi.h calls -> "lhost" wasm imports + dispatch/reg/state
 export function genWrapperWasm(o: BuildOpts): string {
-  const wrapper = genWrapper(o)
-    .replace("#define LITE_DYN_SO_BUILD", "#define LITE_WASM_TU_BUILD")
-    .replace(`#include "${o.contractPath}"`, `#include "extensions/wasm/lite_wasm_target.h"\n#include "${o.contractPath}"`)
-    .replace('#include "extensions/wasm/lite_dyn_abi.h"', '#include "extensions/wasm/lite_wasm_tu.h"');
+  const wrapper = genWrapperForTarget(o, "wasm");
   if (!o.testSource) {
     return wrapper;
   }
@@ -186,13 +203,13 @@ export async function compileWasmContract(
   const sdk = wasiSdkPaths();   // auto-fetched by `qinit node run`; cached under ~/.cache/qinit/wasi-sdk
   const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
   const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
-  const shim = join(src, "extensions", "wasm", "lite_wasm_intrinsics.h"); // wasm32 shims for the x86 platform intrinsics
+  const shim = join(src, CORE_WASM_HEADERS.sdk.platformIntrinsics);
   // -DLITEDYN_CONTRACT_TU gates the node-only throw in utils.h; -fno-exceptions/-fno-rtti keep the module lean;
   // reactor + --no-entry => a library wasm (no _start); --allow-undefined leaves the lhost imports unresolved
   const compileFlags = [
     "--target=wasm32-wasi", "-std=c++20", "-O0", "-g", "-fno-rtti", "-fno-exceptions",
     "-DLITEDYN_CONTRACT_TU",
-    ...(o.arenaSz ? [`-DLITE_WASM_ARENA_SZ=${o.arenaSz}`] : []),
+    ...(o.arenaSz ? [`-DWASM_ARENA_SIZE=${o.arenaSz}`] : []),
     ...(sysroot ? [`--sysroot=${sysroot}`] : []),
     `-I${o.corePath}`, `-I${src}`,
   ];

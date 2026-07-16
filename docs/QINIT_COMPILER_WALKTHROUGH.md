@@ -204,24 +204,24 @@ Qinit reads those rows and converts them into a TypeScript object:
 Then `assembleQpiHeader()` inserts a generated comment into its returned string:
 
 ```text
-//__QINIT_LITE_ABI__{"abiVersion":1,...}
+//__QINIT_WASM_ABI__{"abiVersion":1,...}
 ```
 
 That JSON exists only in Qinit's assembled in-memory header snapshot. It is not expected to exist in core's physical header files.
 
-`embeddedLiteAbi()` reads it back:
+`embeddedWasmAbi()` reads it back:
 
 ```ts
-export function embeddedLiteAbi(headers: string): LiteAbiSource {
+export function embeddedWasmAbi(headers: string): WasmAbiSource {
   const line = headers
     .split(/\r?\n/)
-    .find((value) => value.startsWith(LITE_ABI_MARKER));
+    .find((value) => value.startsWith(WASM_ABI_MARKER));
 
   if (!line) {
     throw new Error("QPI headers are missing embedded core ABI metadata");
   }
 
-  return JSON.parse(line.slice(LITE_ABI_MARKER.length)) as LiteAbiSource;
+  return JSON.parse(line.slice(WASM_ABI_MARKER.length)) as WasmAbiSource;
 }
 ```
 
@@ -1402,7 +1402,7 @@ Then Qinit runs:
 
 ```ts
 WebAssembly.validate(wasm);
-inspectLiteWasmModule(wasm, ...);
+inspectWasmModule(wasm, ...);
 ```
 
 These checks detect:

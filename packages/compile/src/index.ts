@@ -31,15 +31,15 @@ export function parseToAst(
 ): ReturnType<typeof parseToAstWithHeader> {
   return parseToAstWithHeader({ ...options, qpiHeader: options.qpiHeader ?? loadQpiHeader() });
 }
-export { inspectLiteWasmModule, LHOST_ABI, LITE_WASM_FUNCTION_ABI } from "./compiler/wasm-inspect";
+export { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "./compiler/wasm-inspect";
 export type {
   InspectedMemoryMode,
   InspectedWasmExport,
   InspectedWasmImport,
   InspectedWasmMemory,
-  LiteWasmInspection,
-  LiteWasmInspectionOptions,
-  LiteWasmMemoryMode,
+  WasmModuleInspection,
+  WasmModuleInspectionOptions,
+  WasmModuleMemoryMode,
   WasmExternalKind,
   WasmFunctionSignature,
   WasmInspectionDiagnostic,

@@ -1,7 +1,7 @@
 // Cross-boundary protocol constants that MIRROR core-lite. The drift guard (scripts/check-protocol-drift.ts)
 // asserts these equal the core values in CI — change here AND in core together, never one side alone.
 
-// Lite deploy transaction inputTypes — core src/extensions/wasm/lite_dynamic_contracts.h LITE_TX_*.
+// Lite deploy transaction inputTypes — core runtime/deployment_protocol.h WASM_DEPLOYMENT_*.
 export const LITE_TX = { UPLOAD_BEGIN: 240, UPLOAD_CHUNK: 241, DEPLOY: 242 } as const;
 
 // Contract LOG_* severity codes — core src/logging/logging.h CONTRACT_{ERROR,WARNING,INFORMATION,DEBUG}_MESSAGE.

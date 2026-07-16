@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { initK12, k12Hex, LiteRpc } from "../packages/core/src/index";
-import { compileContract, inspectLiteWasmModule, loadQpiHeader } from "../packages/compile/src/index";
+import { compileContract, inspectWasmModule, loadQpiHeader } from "../packages/compile/src/index";
 import { Sim } from "../packages/engine/src/index";
 import { deployContract } from "../packages/cli/src/deploy-ops";
 import { invokeProcedure, resolveSlot } from "../packages/proto/src/index";
@@ -24,7 +24,7 @@ const { slot } = await resolveSlot(rpc, "LoggerDual");
 const compiled = await compileContract({ source, name: "LoggerDual", slot, qpiHeader: loadQpiHeader(core), arenaSz: 1024 * 1024 * 1024 });
 const errors = compiled.diagnostics.filter((d) => d.severity === "error");
 if (errors.length) throw new Error(errors.map((d) => d.message).join("; "));
-const inspection = inspectLiteWasmModule(compiled.wasm);
+const inspection = inspectWasmModule(compiled.wasm);
 if (!inspection.ok) throw new Error(inspection.diagnostics.map((d) => d.message).join("; "));
 
 const sim = new Sim({ mempool: false, fees: "off" });

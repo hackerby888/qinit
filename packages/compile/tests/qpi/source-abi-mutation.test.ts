@@ -1,15 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { CORE_PATH } from "../../../../test-utils/paths";
-import { parseLiteAbiSource } from "@qinit/core";
+import { CORE_WASM_HEADERS, parseWasmAbiSource } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
-import { inspectLiteWasmModule } from "../../src/compiler/wasm-inspect";
-import { IMPL_BOUNDARY, LITE_ABI_MARKER } from "../../src/qpi-snapshot";
+import { inspectWasmModule } from "../../src/compiler/wasm-inspect";
+import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/qpi-snapshot";
 
 const HEADER = loadQpiHeader(CORE_PATH);
-const metadata = readFileSync(`${CORE_PATH}/src/extensions/wasm/lite_abi_metadata.h`, "utf8");
-const shared = readFileSync(`${CORE_PATH}/src/extensions/wasm/lite_dyn_abi.h`, "utf8");
+const metadata = readFileSync(
+  `${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiMetadata}`,
+  "utf8",
+);
+const shared = readFileSync(`${CORE_PATH}/src/${CORE_WASM_HEADERS.shared.abiTypes}`, "utf8");
 
 function addFunctionContextDeclaration(header: string, declaration: string): string {
   const marker = /struct QpiContextFunctionCall : public QpiContext\r?\n\s*\{/;
@@ -19,14 +22,14 @@ function addFunctionContextDeclaration(header: string, declaration: string): str
 
 function mutateEmbeddedAbi(
   header: string,
-  mutate: (abi: ReturnType<typeof parseLiteAbiSource>) => void,
+  mutate: (abi: ReturnType<typeof parseWasmAbiSource>) => void,
 ): string {
-  const pattern = new RegExp(`^${LITE_ABI_MARKER}(.+)$`, "m");
+  const pattern = new RegExp(`^${WASM_ABI_MARKER}(.+)$`, "m");
   const match = pattern.exec(header);
   if (!match) throw new Error("embedded ABI marker not found");
-  const abi = JSON.parse(match[1]) as ReturnType<typeof parseLiteAbiSource>;
+  const abi = JSON.parse(match[1]) as ReturnType<typeof parseWasmAbiSource>;
   mutate(abi);
-  return header.replace(pattern, `${LITE_ABI_MARKER}${JSON.stringify(abi)}`);
+  return header.replace(pattern, `${WASM_ABI_MARKER}${JSON.stringify(abi)}`);
 }
 
 function replaceRequired(source: string, pattern: RegExp, replacement: string): string {
@@ -88,7 +91,7 @@ describe("source-backed ABI mutations", () => {
       `GI("newScalar", newScalar, "()i") \\
     GI("beginFn",`,
     );
-    const parsed = parseLiteAbiSource(inserted, shared);
+    const parsed = parseWasmAbiSource(inserted, shared);
     expect(parsed.lhost[0]).toEqual({ name: "newScalar", params: [], results: ["i32"] });
     expect(parsed.lhost[1].name).toBe("beginFn");
   });
@@ -100,10 +103,10 @@ describe("source-backed ABI mutations", () => {
         "unsigned char possessor[32];\n    unsigned char owner[32];",
       )
       .replace(
-        "#define LITE_ASSET_ENTRY_CAPACITY 1024u",
-        "#define LITE_ASSET_ENTRY_CAPACITY 2048u",
+        "#define WASM_ASSET_ENTRY_CAPACITY 1024u",
+        "#define WASM_ASSET_ENTRY_CAPACITY 2048u",
       );
-    const record = parseLiteAbiSource(metadata, reordered).records.LiteAssetEntry;
+    const record = parseWasmAbiSource(metadata, reordered).records.AssetEntry;
     expect(record.fields.possessor.offset).toBe(0);
     expect(record.fields.owner.offset).toBe(32);
     expect(record.capacity).toBe(2048);
@@ -122,7 +125,7 @@ describe("source-backed ABI mutations", () => {
       arenaSz: 1 << 20,
     });
     const changedHeader = mutateEmbeddedAbi(HEADER, (abi) => {
-      abi.records.LiteAssetEntry = record;
+      abi.records.AssetEntry = record;
     });
     const changed = await compileContract({
       source: iteratorContract,
@@ -132,8 +135,8 @@ describe("source-backed ABI mutations", () => {
       arenaSz: 1 << 20,
     });
     expect(changed.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
-    expect(inspectLiteWasmModule(changed.wasm).memories[0].minimumPages).toBeGreaterThan(
-      inspectLiteWasmModule(baseline.wasm).memories[0].minimumPages,
+    expect(inspectWasmModule(changed.wasm).memories[0].minimumPages).toBeGreaterThan(
+      inspectWasmModule(baseline.wasm).memories[0].minimumPages,
     );
   });
 
@@ -148,7 +151,7 @@ describe("source-backed ABI mutations", () => {
       /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/,
       "X(INITIALIZE, 1, initialize, __initializeEmpty)",
     );
-    expect(parseLiteAbiSource(changed, shared).systemProcedures.slice(0, 2)).toEqual([
+    expect(parseWasmAbiSource(changed, shared).systemProcedures.slice(0, 2)).toEqual([
       { name: "BEGIN_EPOCH", id: 0, method: "beginEpoch" },
       { name: "INITIALIZE", id: 1, method: "initialize" },
     ]);
@@ -179,20 +182,20 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   test("unsupported or ambiguous core metadata fails generation", () => {
     expect(() =>
-      parseLiteAbiSource(metadata.replace('GI("endFn"', 'GI("beginFn"'), shared),
+      parseWasmAbiSource(metadata.replace('GI("endFn"', 'GI("beginFn"'), shared),
     ).toThrow(/duplicate LHOST import/);
     expect(() =>
-      parseLiteAbiSource(
+      parseWasmAbiSource(
         metadata,
         replaceRequired(
           shared,
-          /struct LiteAssetEntry\s*\{/,
-          "struct LiteAssetEntry {\n    float unsupported;",
+          /struct AssetEntry\s*\{/,
+          "struct AssetEntry {\n    float unsupported;",
         ),
       ),
-    ).toThrow(/unsupported LiteAssetEntry field/);
+    ).toThrow(/unsupported AssetEntry field/);
     expect(() =>
-      parseLiteAbiSource(
+      parseWasmAbiSource(
         replaceRequired(
           metadata,
           /X\(BEGIN_EPOCH,\s*1,\s*beginEpoch,\s*__beginEpochEmpty\)/,

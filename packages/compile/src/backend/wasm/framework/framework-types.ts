@@ -27,7 +27,7 @@ export interface UserEntry {
 }
 
 export interface SystemProcedureInfo {
-    id: number; // LITE_SP_* id (0..11)
+    id: number; // Wasm system-procedure id (0..11)
     localsSize: number;
     inSize: number;
     outSize: number;

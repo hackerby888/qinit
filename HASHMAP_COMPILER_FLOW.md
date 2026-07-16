@@ -1245,7 +1245,7 @@ User contract:
     -> calls generated concrete methods
 
 Host ABI:
-    core lite ABI metadata + lite_wasm_tu.h
+    core Wasm ABI metadata + sdk/module_runtime.h
     -> compiler import declarations
     -> WAT "lhost" imports
     -> VirtualEngine JavaScript functions

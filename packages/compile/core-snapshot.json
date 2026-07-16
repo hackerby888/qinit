@@ -1,8 +1,8 @@
 {
   "core": {
     "repository": "https://github.com/hackerby888/core-lite.git",
-    "commit": "9d910d8cf6661d68df2f52c4c8d491340583eaba"
+    "commit": "d9898b8e6a1e40269ac2d188c27d98c90b67a5df"
   },
-  "generatorVersion": 6,
-  "snapshotHash": "sha256:397e849eb49863adfa64dc31a7e27d50c0287098ba55ad9daa1286fb713d0f1a"
+  "generatorVersion": 7,
+  "snapshotHash": "sha256:f087c4736d520354cb1e534ed9031edceb3e9e3c33f4e8084d8247a4f1019d95"
 }

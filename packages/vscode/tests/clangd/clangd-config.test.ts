@@ -10,6 +10,7 @@ import {
   detectStateType,
 } from "../../src/clangd-config";
 import { writeFileSync } from "node:fs";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 
 const COUNTER = resolve("fixtures", "Counter.h");
 const hasFixture = existsSync(COUNTER);
@@ -77,8 +78,8 @@ test.if(hasFixture)(
       expect(prefix).toContain("#define CONTRACT_STATE2_TYPE Counter2");
       expect(prefix).toContain(`#define CONTRACT_INDEX ${DEFAULT_SLOT}`);
       expect(prefix).toContain('#include "contracts/qpi.h"');
-      expect(prefix).not.toContain("#define LITE_DYN_SO_BUILD");
-      expect(prefix).not.toContain('#include "extensions/wasm/lite_wasm_tu.h"'); // impl tail excluded
+      expect(prefix).not.toContain("#define WASM_NATIVE_TU_BUILD");
+      expect(prefix).not.toContain(`#include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"`); // impl tail excluded
       expect(prefix).not.toContain('#include "' + COUNTER.replace(/\\/g, "/") + '"'); // contract include excluded
 
       // --- compile_commands.json: `file` IS the contract, parsed with `-include <prefix> -x c++` ---

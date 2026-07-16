@@ -4,10 +4,12 @@ export * from "./struct"; // zero-copy struct-view kit — node-free, safe in th
 export {
   LHOST_ABI,
   ASSET_ENUMERATION_RECORD,
-  LITE_ABI_VERSION,
+  WASM_ABI_VERSION,
   SYSTEM_PROCEDURES,
 } from "./lhost-abi";
 export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./lhost-abi";
+export { CORE_WASM_HEADERS } from "./wasm-headers";
+export type { CoreWasmHeaderLayout } from "./wasm-headers";
 export { deriveIdentity, bytesToIdentity, identityToBytes, cryptoSmoke } from "./qubic";
 export type { IdentityResult, CryptoSmokeResult } from "./qubic";
 

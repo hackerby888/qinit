@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { emitModule, type ModuleSpecification } from "../../src/framework";
 import {
-  inspectLiteWasmModule,
+  inspectWasmModule,
   LHOST_ABI,
-  LITE_WASM_FUNCTION_ABI,
+  WASM_MODULE_EXPORT_ABI,
 } from "../../src/compiler/wasm-inspect";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
@@ -43,13 +43,13 @@ function addDefinition(wat: string, field: string): string {
   return wat.replace('  (memory (export "memory")', `${field}\n  (memory (export "memory")`);
 }
 
-function codes(result: ReturnType<typeof inspectLiteWasmModule>): string[] {
+function codes(result: ReturnType<typeof inspectWasmModule>): string[] {
   return result.diagnostics.map((diagnostic) => diagnostic.code);
 }
 
-describe("Lite Wasm module inspection", () => {
+describe("Wasm module inspection", () => {
   test("accepts and describes the production generated ABI", async () => {
-    const result = inspectLiteWasmModule(await assemble(emitModule(SPEC)));
+    const result = inspectWasmModule(await assemble(emitModule(SPEC)));
 
     expect(result.ok).toBe(true);
     expect(result.diagnostics).toEqual([]);
@@ -72,13 +72,13 @@ describe("Lite Wasm module inspection", () => {
       results: ["i32"],
     });
     expect(result.exports.find((exported) => exported.name === "dispatch")?.signature).toEqual(
-      LITE_WASM_FUNCTION_ABI.dispatch,
+      WASM_MODULE_EXPORT_ABI.dispatch,
     );
   });
 
   test("accepts the established imported-memory mode only when requested", async () => {
     const wasm = await assemble(emitModule({ ...SPEC, memBase: 64 * 1024 }));
-    const shared = inspectLiteWasmModule(wasm, { memoryMode: "imported" });
+    const shared = inspectWasmModule(wasm, { memoryMode: "imported" });
 
     expect(shared.ok).toBe(true);
     expect(shared.memoryMode).toBe("imported");
@@ -91,7 +91,7 @@ describe("Lite Wasm module inspection", () => {
     });
     expect(shared.exports.some((exported) => exported.name === "memory")).toBe(false);
 
-    const production = inspectLiteWasmModule(wasm);
+    const production = inspectWasmModule(wasm);
     expect(production.ok).toBe(false);
     expect(codes(production)).toContain("memory-mode");
   });
@@ -104,7 +104,7 @@ describe("Lite Wasm module inspection", () => {
   (import "lhost" "notInCoreTable" (func))
   (import "lhost" "epoch" (func (param i64)))`,
     );
-    const result = inspectLiteWasmModule(await assemble(wat));
+    const result = inspectWasmModule(await assemble(wat));
 
     expect(result.ok).toBe(false);
     expect(
@@ -133,7 +133,7 @@ describe("Lite Wasm module inspection", () => {
       '  (export "dispatch" (func $dispatch))\n',
       "",
     );
-    const missing = inspectLiteWasmModule(await assemble(missingDispatch));
+    const missing = inspectWasmModule(await assemble(missingDispatch));
     expect(
       missing.diagnostics.some(
         (diagnostic) =>
@@ -145,7 +145,7 @@ describe("Lite Wasm module inspection", () => {
       "  (func $state_addr (result i32) (i32.const 0))",
       "  (func $state_addr (result i64) (i64.const 0))",
     );
-    const wrong = inspectLiteWasmModule(await assemble(wrongStateAddr));
+    const wrong = inspectWasmModule(await assemble(wrongStateAddr));
     expect(
       wrong.diagnostics.some(
         (diagnostic) =>
@@ -174,7 +174,7 @@ describe("Lite Wasm module inspection", () => {
 
   for (const [label, field] of unsupported) {
     test(`rejects ${label}`, async () => {
-      const result = inspectLiteWasmModule(await assemble(addDefinition(emitModule(SPEC), field)));
+      const result = inspectWasmModule(await assemble(addDefinition(emitModule(SPEC), field)));
 
       expect(result.ok).toBe(false);
       expect(codes(result)).toContain("unsupported-feature");
@@ -184,13 +184,13 @@ describe("Lite Wasm module inspection", () => {
 
   test("accepts sign-extension operators supported by release WAMR", async () => {
     const field = `  (func $portable (drop (i32.extend8_s (i32.const 255))))`;
-    const result = inspectLiteWasmModule(await assemble(addDefinition(emitModule(SPEC), field)));
+    const result = inspectWasmModule(await assemble(addDefinition(emitModule(SPEC), field)));
     expect(result.ok).toBe(true);
     expect(result.features).toContain("sign-extension-operators");
   });
 
   test("fails closed on malformed binaries", () => {
-    const result = inspectLiteWasmModule(new Uint8Array([0, 97, 115, 109]));
+    const result = inspectWasmModule(new Uint8Array([0, 97, 115, 109]));
 
     expect(result.ok).toBe(false);
     expect(codes(result)).toContain("malformed-module");

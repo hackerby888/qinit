@@ -5,7 +5,7 @@ import type { Sema } from "../../../sema";
 import { type QpiContextLayout } from "../../../framework";
 import type { LhostAbiSpec } from "../../../lhost";
 import { registerCallSig } from "../../../wat-ir";
-import type { LiteAbiSource } from "@qinit/core/lite-abi-source";
+import type { WasmAbiSource } from "@qinit/core/wasm-abi-source";
 // ---- entry point ----
 export interface LibrarySymbolIndex {
     templates: Map<string, ClassTemplate>;
@@ -29,7 +29,7 @@ export interface LibrarySymbolIndex {
     namespaceUsings: Map<string, string[]>;
     namespaceContexts: Map<object, NamespaceLookupContext>;
     importedFunctions: Map<string, FunctionDecl>;
-    liteAbi?: LiteAbiSource;
+    wasmAbi?: WasmAbiSource;
 }
 export interface GeneratedContractMetadata {
     stateSize: number;
@@ -44,8 +44,8 @@ export interface GeneratedContractMetadata {
     lhostAbi?: LhostAbiSpec;
 }
 export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, libraryTypes: LibrarySymbolIndex): LhostAbiSpec {
-    if (libraryTypes.liteAbi)
-        programAnalysis.assetEnumerationRecord = libraryTypes.liteAbi.records.LiteAssetEntry;
+    if (libraryTypes.wasmAbi)
+        programAnalysis.assetEnumerationRecord = libraryTypes.wasmAbi.records.AssetEntry;
     for (const [templateName, templateDeclaration] of libraryTypes.templates)
         programAnalysis.templates.set(templateName, templateDeclaration);
     for (const [templateName, templateSpecializations] of libraryTypes.specializations)
@@ -127,7 +127,7 @@ export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, librar
         lhostAbi[importName] = { params: abiParams, results };
         registerCallSig(helper.label, { params: abiParams, res: helper.retWasmType ?? "void" });
     }
-    for (const row of libraryTypes.liteAbi?.lhost ?? []) {
+    for (const row of libraryTypes.wasmAbi?.lhost ?? []) {
         const derived = lhostAbi[row.name];
         if (!derived ||
             derived.params.join(",") !== row.params.join(",") ||
@@ -205,6 +205,6 @@ export function indexLibraryDeclarations(declarations: Declaration[], inheritedN
         namespaceUsings: programAnalysis.namespaceUsings,
         namespaceContexts: programAnalysis.namespaceContexts,
         importedFunctions,
-        liteAbi: undefined,
+        wasmAbi: undefined,
     };
 }

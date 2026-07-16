@@ -2,17 +2,22 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { ASSET_ENUMERATION_RECORD, LHOST_ABI, loadLiteAbiSource } from "@qinit/core";
+import {
+  ASSET_ENUMERATION_RECORD,
+  CORE_WASM_HEADERS,
+  LHOST_ABI,
+  loadWasmAbiSource,
+} from "@qinit/core";
 import { emitModule } from "../../src/framework";
-import { inspectLiteWasmModule } from "../../src/compiler/wasm-inspect";
+import { inspectWasmModule } from "../../src/compiler/wasm-inspect";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const CORE = CORE_PATH;
-const metadataHeader = join(CORE, "src/extensions/wasm/lite_abi_metadata.h");
+const metadataHeader = join(CORE, "src", CORE_WASM_HEADERS.shared.abiMetadata);
 
 describe("shared lhost ABI", () => {
   test.if(existsSync(metadataHeader))("matches core-lite's generated canonical metadata", () => {
-    const rows = loadLiteAbiSource(CORE).lhost;
+    const rows = loadWasmAbiSource(CORE).lhost;
     expect(rows.map(({ name }) => name)).toEqual(Object.keys(LHOST_ABI));
     const manifest = Object.fromEntries(
       Object.entries(LHOST_ABI).map(([name, abi]) => [
@@ -42,7 +47,7 @@ describe("shared lhost ABI", () => {
     const parsed = api.parseWat("lhost-abi.test.wat", wat);
     try {
       const wasm = new Uint8Array(parsed.toBinary({}).buffer);
-      const imports = inspectLiteWasmModule(wasm).imports.filter(
+      const imports = inspectWasmModule(wasm).imports.filter(
         (entry) => entry.module === "lhost",
       );
       expect(imports.map((entry) => entry.name)).toEqual(Object.keys(LHOST_ABI));
@@ -57,7 +62,7 @@ describe("shared lhost ABI", () => {
   test.if(existsSync(metadataHeader))(
     "asset enumeration layout comes from core-lite's named exchange record",
     () => {
-      const source = loadLiteAbiSource(CORE).records.LiteAssetEntry;
+      const source = loadWasmAbiSource(CORE).records.AssetEntry;
       expect(source.size).toBe(ASSET_ENUMERATION_RECORD.size);
       expect(source.capacity).toBe(ASSET_ENUMERATION_RECORD.capacity);
       expect(ASSET_ENUMERATION_RECORD).toMatchObject({

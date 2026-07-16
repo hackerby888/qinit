@@ -1,5 +1,5 @@
 
-// Static inspection for the Lite dynamic-contract Wasm ABI.
+// Static inspection for the dynamic-contract Wasm ABI.
 // Parse bytes without instantiation so signature checks stay stable across engines.
 export type WasmValueType = "i32" | "i64" | "f32" | "f64";
 
@@ -34,7 +34,7 @@ export interface InspectedWasmMemory {
     readonly memory64: boolean;
 }
 
-export type LiteWasmMemoryMode = "defined" | "imported" | "either";
+export type WasmModuleMemoryMode = "defined" | "imported" | "either";
 
 export type InspectedMemoryMode = "none" | "defined" | "imported" | "mixed";
 
@@ -45,14 +45,14 @@ export interface WasmInspectionDiagnostic {
     readonly offset?: number;
 }
 
-export interface LiteWasmInspectionOptions {
+export interface WasmModuleInspectionOptions {
     /** Production contracts define memory; shared-memory gtests import env.memory. */
-    readonly memoryMode?: LiteWasmMemoryMode;
+    readonly memoryMode?: WasmModuleMemoryMode;
     /** Parsed live-core imports used by Node compilation; defaults to the generated browser ABI. */
     readonly lhostAbi?: Readonly<Record<string, WasmFunctionSignature>>;
 }
 
-export interface LiteWasmInspection {
+export interface WasmModuleInspection {
     readonly ok: boolean;
     readonly diagnostics: readonly WasmInspectionDiagnostic[];
     readonly imports: readonly InspectedWasmImport[];
@@ -73,7 +73,7 @@ export const I64 = "i64" as const;
 export const PORTABLE_FEATURES = new Set(["sign-extension-operators"]);
 
 /** Function exports consumed by the Qinit engine and core-lite dynamic loader. */
-export const LITE_WASM_FUNCTION_ABI: Readonly<Record<string, WasmFunctionSignature>> = Object.freeze({
+export const WASM_MODULE_EXPORT_ABI: Readonly<Record<string, WasmFunctionSignature>> = Object.freeze({
     state_addr: signature([], [I32]),
     state_size: signature([], [I32]),
     io_base: signature([], [I32]),

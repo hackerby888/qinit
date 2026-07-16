@@ -4,8 +4,9 @@ import { describe, test, expect } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import { loadQpiHeader } from "../../src/index";
-import { assembleQpiHeader, GENERATOR_VERSION } from "../../src/qpi-snapshot";
+import { assembleQpiHeader, GENERATOR_VERSION, snapshotInputFiles } from "../../src/qpi-snapshot";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapshot";
 
 const CORE = CORE_PATH;
@@ -34,6 +35,25 @@ describe.if(coreOk)("qpi snapshot assembly", () => {
 
   test("assembly is deterministic", () => {
     expect(assembleQpiHeader(CORE)).toBe(assembleQpiHeader(CORE));
+  });
+
+  test("input tracking follows the canonical split SDK layout", () => {
+    const inputs = snapshotInputFiles(CORE);
+    const wasmInputs = [
+      CORE_WASM_HEADERS.shared.abiMetadata,
+      CORE_WASM_HEADERS.shared.abiTypes,
+      CORE_WASM_HEADERS.sdk.lhostImports,
+      CORE_WASM_HEADERS.sdk.qpiForwarders,
+      CORE_WASM_HEADERS.sdk.moduleStorage,
+    ];
+    for (const relativePath of wasmInputs) {
+      expect(inputs).toContain(join(CORE, "src", relativePath));
+    }
+    expect(
+      inputs
+        .filter((path) => path.startsWith(join(CORE, "src", CORE_WASM_HEADERS.root)))
+        .sort(),
+    ).toEqual(wasmInputs.map((path) => join(CORE, "src", path)).sort());
   });
 
   test("non-core path throws instead of returning a stub", () => {

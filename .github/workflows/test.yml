@@ -47,7 +47,7 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install
       - name: Verify generated core ABI
-        run: bun packages/core/tools/gen-lite-abi.ts --core "$QINIT_CORE" --check
+        run: bun packages/core/tools/gen-wasm-abi.ts --core "$QINIT_CORE" --check
       - name: Verify bundled browser snapshot
         run: bun packages/compile/tools/gen-qpi-snapshot.ts --core "$QINIT_CORE" --verify --check
       - name: Typecheck

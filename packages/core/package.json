@@ -14,7 +14,8 @@
       }
     },
     "./browser": "./src/browser.ts",
-    "./lite-abi-source": "./src/lite-abi-source.ts",
+    "./wasm-abi-source": "./src/wasm-abi-source.ts",
+    "./wasm-headers": "./src/wasm-headers.ts",
     "./project": "./src/project.ts",
     "./rpc": "./src/rpc.ts"
   },

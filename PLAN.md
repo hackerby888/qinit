@@ -151,7 +151,7 @@ layers them on top of its tx-building primitives.
 clang++-18 -fPIC -shared -O2 -std=c++20 \
   -I <core>/src -I <core>/src/contracts \
   -DLITE_DYN_SO_BUILD -DCONTRACT_INDEX=<slot> -DCONTRACT_STATE_TYPE=... \
-  -include qpi.h -include extensions/wasm/lite_dyn_abi.h \
+  -include qpi.h -include extensions/wasm/shared/abi_types.h \
   contract.cpp -o build/<name>.so          # NEVER include contract_exec.h
 ```
 Then:
@@ -238,7 +238,7 @@ Embedded template: `MyContract.h` (qpi.h-constrained, with INITIALIZE + a sample
   `react-devtools-core`; under `--compile` it must resolve, so we ship a tiny stub at
   `stubs/react-devtools-core` wired as a `file:` dep (`--external` does NOT work with `--compile`).
 - **M1 — build. ✅ DONE (build core).** `qinit build`: `.h` → `.so` against `qpi.h` +
-  `lite_dyn_abi.h`. Validated on `fixtures/Counter.h` → `Counter.so` (16.5 KB), exports
+  `shared/abi_types.h`. Validated on `fixtures/Counter.h` → `Counter.so` (16.5 KB), exports
   `liteContractRegister` + `liteSetHostServices`, **0 unresolved QPI symbols** (minimal ABI
   satisfies it). Recipe (in `packages/build`): clang ≥18 (any clang, not gcc), `-std=c++20 -O2 -fPIC
   -shared -fno-rtti -mavx2` (m256i AVX ABI must match host), `-I<core>` (repo root, for `lib/...`) +
@@ -252,7 +252,7 @@ Embedded template: `MyContract.h` (qpi.h-constrained, with INITIALIZE + a sample
   inputTypes 240/241/242 to the system dest). Encodings + signing unit-validated.
   Remaining: tx **broadcast** (QubicConnector P2P — built-in RPC is GET-read-only), `qinit deploy`
   orchestration (chunk → upload → ARQ → deploy → activation poll), and the **core host-side**
-  (`lite_dynamic_contracts.h` + `processTickTransaction` hook + blob store/registry + B' construction)
+  (`runtime/deployment.h` + `processTickTransaction` hook + blob store/registry + B' construction)
   — required before deploy runs end-to-end against a node. Also: fix binary-K12, live lite-testnet test.
 - **M3 — IDL + client + call.** IDL emit, codegen, `qinit call`.
 - **M4 — testkit.** `qinit node` + `qinit test`; the typed client drives deployed contracts.

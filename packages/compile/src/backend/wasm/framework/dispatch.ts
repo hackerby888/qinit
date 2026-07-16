@@ -52,7 +52,7 @@ export function emitDispatch(spec: ModuleSpecification, usesPrng: boolean): stri
     else {
         lines.push("    (if (i32.eq (local.get $kind) (i32.const 2)) (then (return)))");
     }
-    // kind == 3: MIGRATE — inOff carries the old-state blob, outOff is unused (lite_wasm_tu.h dispatch)
+    // kind == 3: MIGRATE — inOff carries the old-state blob, outOff is unused (sdk/dispatch.h)
     if (spec.migrate) {
         lines.push("    (if (i32.eq (local.get $kind) (i32.const 3)) (then");
         lines.push(`      (call ${spec.migrate.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`);

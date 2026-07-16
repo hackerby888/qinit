@@ -12,10 +12,10 @@ export type {
   GtestProgram,
 } from "./compiler/types";
 export type { Diagnostic as CompileDiagnostic } from "./parser";
-export { inspectLiteWasmModule, LHOST_ABI, LITE_WASM_FUNCTION_ABI } from "./compiler/wasm-inspect";
+export { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "./compiler/wasm-inspect";
 export type {
-  LiteWasmInspection,
-  LiteWasmInspectionOptions,
+  WasmModuleInspection,
+  WasmModuleInspectionOptions,
   WasmInspectionDiagnostic,
 } from "./compiler/wasm-inspect";
 

@@ -2,6 +2,7 @@
 // core-lite. These are hand-mirrored across two repos with no compile-time link, so a core change can silently
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import { LITE_TX, LOG_SEVERITY, MAX_INPUT_SIZE, CHUNK_DATA_MAX } from "../packages/proto/src/protocol";
 
 const core = process.env.QINIT_CORE;
@@ -24,14 +25,26 @@ const cexpr = (file: string, name: string): number | null => {
 };
 const eq = (label: string, got: number | null, want: number) => { if (got !== want) fails.push(`${label}: core=${got} qinit=${want}`); };
 
-const DYN = "src/extensions/wasm/lite_dynamic_contracts.h";
+const DEPLOYMENT_PROTOCOL = join("src", CORE_WASM_HEADERS.runtime.deploymentProtocol);
 const LOG = "src/logging/logging.h";
 const NET = "src/network_messages/common_def.h";
 
 // LITE_TX deploy inputTypes
-eq("LITE_TX_UPLOAD_BEGIN", def(DYN, "LITE_TX_UPLOAD_BEGIN"), LITE_TX.UPLOAD_BEGIN);
-eq("LITE_TX_UPLOAD_CHUNK", def(DYN, "LITE_TX_UPLOAD_CHUNK"), LITE_TX.UPLOAD_CHUNK);
-eq("LITE_TX_DEPLOY", def(DYN, "LITE_TX_DEPLOY"), LITE_TX.DEPLOY);
+eq(
+  "LITE_TX_UPLOAD_BEGIN",
+  def(DEPLOYMENT_PROTOCOL, "WASM_DEPLOYMENT_UPLOAD_BEGIN_INPUT_TYPE"),
+  LITE_TX.UPLOAD_BEGIN,
+);
+eq(
+  "LITE_TX_UPLOAD_CHUNK",
+  def(DEPLOYMENT_PROTOCOL, "WASM_DEPLOYMENT_UPLOAD_CHUNK_INPUT_TYPE"),
+  LITE_TX.UPLOAD_CHUNK,
+);
+eq(
+  "LITE_TX_DEPLOY",
+  def(DEPLOYMENT_PROTOCOL, "WASM_DEPLOYMENT_DEPLOY_INPUT_TYPE"),
+  LITE_TX.DEPLOY,
+);
 
 // contract LOG_* severity codes (core define value must equal the qinit map key, and the name be present)
 for (const [code, sym, name] of [[4, "CONTRACT_ERROR_MESSAGE", "ERROR"], [5, "CONTRACT_WARNING_MESSAGE", "WARN"], [6, "CONTRACT_INFORMATION_MESSAGE", "INFO"], [7, "CONTRACT_DEBUG_MESSAGE", "DEBUG"]] as const) {

@@ -2,7 +2,7 @@ import { Lexer } from "../lexer";
 import { Parser } from "../parser";
 import { Preprocessor, type MacroDef } from "../preprocess";
 import { indexLibraryDeclarations, type LibrarySymbolIndex } from "../codegen";
-import { embeddedLiteAbi, IMPL_BOUNDARY } from "../qpi-snapshot-format";
+import { embeddedWasmAbi, IMPL_BOUNDARY } from "../qpi-snapshot-format";
 
 export interface QpiContext {
   macros: Map<string, MacroDef>;
@@ -41,8 +41,8 @@ export function getQpiContext(headers: string): QpiContext {
   const { preprocessedSource: libSource, macros } = getQpiPrelude(mainHeaders);
   const coreHeaderTu = new Parser(new Lexer(libSource).tokenize()).parseTranslationUnit();
   const coreLibrary = indexLibraryDeclarations(coreHeaderTu.declarations);
-  const liteAbi = embeddedLiteAbi(headers);
-  coreLibrary.liteAbi = liteAbi;
+  const wasmAbi = embeddedWasmAbi(headers);
+  coreLibrary.wasmAbi = wasmAbi;
 
   for (const implChunk of implChunks) {
     const implText = new Preprocessor().preprocess({
@@ -130,7 +130,7 @@ export function getQpiContext(headers: string): QpiContext {
     string,
     typeof coreLibrary.importedFunctions extends Map<string, infer V> ? V : never
   >();
-  for (const row of liteAbi.lhost) {
+  for (const row of wasmAbi.lhost) {
     const symbol = `__lhost_${row.name}`;
     const declaration = coreLibrary.importedFunctions.get(symbol);
     if (!declaration)

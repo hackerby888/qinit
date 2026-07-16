@@ -1,5 +1,5 @@
 // Minimal dynamic-contract fixture for `qinit build`. Compiled to a .so against
-// qpi.h + lite_dyn_abi.h. Exercises: state.mut/get, register, INITIALIZE.
+// qpi.h + the Wasm SDK ABI headers. Exercises: state.mut/get, register, INITIALIZE.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

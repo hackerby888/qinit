@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";
-import { compileContract, inspectLiteWasmModule, loadQpiHeader } from "../../src/index";
+import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src/index";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
 const CORE = CORE_PATH;
@@ -152,7 +152,7 @@ describe("authoritative QPI capability matrix", () => {
         [],
       );
       expect(result.wasm.byteLength).toBeGreaterThan(0);
-      expect(inspectLiteWasmModule(result.wasm).ok).toBe(true);
+      expect(inspectWasmModule(result.wasm).ok).toBe(true);
     }, 60_000);
   }
 

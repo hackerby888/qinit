@@ -1,5 +1,5 @@
 import { LHOST_ABI } from "@qinit/core";
-import type { LiteWasmInspection, LiteWasmInspectionOptions } from "./inspection-types";
+import type { WasmModuleInspection, WasmModuleInspectionOptions } from "./inspection-types";
 import { PORTABLE_FEATURES } from "./inspection-types";
 import { emptyParsed } from "./parsed-module";
 import { parseModule } from "./module-parser";
@@ -10,9 +10,9 @@ export function asUint8Array(bytes: Uint8Array | ArrayBuffer): Uint8Array {
     return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
 }
 
-// Inspect a module against the production Lite Wasm ABI and JS+WAMR portability profile.
+// Inspect a module against the production Wasm module ABI and JS+WAMR portability profile.
 // No imports are invoked and the module is never instantiated.
-export function inspectLiteWasmModule(input: Uint8Array | ArrayBuffer, options: LiteWasmInspectionOptions = {}): LiteWasmInspection {
+export function inspectWasmModule(input: Uint8Array | ArrayBuffer, options: WasmModuleInspectionOptions = {}): WasmModuleInspection {
     const bytes = asUint8Array(input);
     const parsed = emptyParsed();
     try {

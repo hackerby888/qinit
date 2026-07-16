@@ -2,6 +2,7 @@
 // CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE macros (portable to mainnet); for the
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 
 export interface CalleeDef { type: string; index: number; include: string } // include = path used in #include
 
@@ -101,7 +102,7 @@ export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: D
     s += `#undef CONTRACT_INDEX\n#undef CONTRACT_STATE_TYPE\n#undef CONTRACT_STATE2_TYPE\n`;
   }
   // Callee CONTRACT_INDEX constants. The full build gets these from contract_def.h, but the
-  // single-contract TU (qinit lite build + the editor) doesn't include it — so a contract that uses a
+  // single-contract TU (Qinit native/Wasm build + the editor) doesn't include it — so a contract that uses a
   s += "// ---- callee <Type>_CONTRACT_INDEX constants ----\n";
   for (const c of all)
     s += `#ifndef ${c.type}_CONTRACT_INDEX\n#define ${c.type}_CONTRACT_INDEX ${c.index}\n#endif\n`;
@@ -109,6 +110,6 @@ export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: D
   for (const c of all)
     for (const r of parseRegisters(c.src))
       s += `static constexpr unsigned short ${c.type}_${r.fn}_inputType = ${r.n};\n`;
-  s += `#include "extensions/wasm/lite_contract_calls.h"\n`;
+  s += `#include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"\n`;
   return indexBlock + s;
 }

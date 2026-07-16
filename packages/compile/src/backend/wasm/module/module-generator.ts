@@ -100,7 +100,7 @@ function generateContractModule(request: ModuleGenerationRequest): string {
         ? registerLibraryMetadata(programAnalysis, request.libraryIndex)
         : undefined;
     const systemProcedureIndex = indexSystemProcedures(
-        request.libraryIndex?.liteAbi?.systemProcedures ?? [],
+        request.libraryIndex?.wasmAbi?.systemProcedures ?? [],
     );
     const contextLayout = contextLayoutFromCodegen(programAnalysis);
 

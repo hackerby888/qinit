@@ -1,9 +1,9 @@
-// Core-header snapshot: clang -M closure ∪ all contracts ∪ contract_def.h ∪ lite_contract_calls.h.
+// Core-header snapshot: compiler closures plus contracts and the canonical Wasm SDK layout.
 // Self-updating; mirrors core layout so -I resolves 1:1 with a real checkout.
 import { mkdirSync, copyFileSync, readdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { genWrapper, genWrapperWasm, resolveClang } from "./recipe";
-import { wasiSdkPaths } from "@qinit/core";
+import { CORE_WASM_HEADERS, wasiSdkPaths } from "@qinit/core";
 
 const STUB = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -30,8 +30,7 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   writeFileSync(stubH, STUB);
   const wrapper = join(tmp, "Stub.wrapper.cpp");
   writeFileSync(wrapper, genWrapper({ contractPath: stubH, name: "Stub", slot: 28, corePath, outDir: tmp }));
-  // wasm wrapper swaps lite_dyn_abi.h -> lite_wasm_tu.h; the wasm compile also force-includes the intrinsics shim.
-  const shim = join(corePath, "src", "extensions", "wasm", "lite_wasm_intrinsics.h");
+  const shim = join(corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics);
   const wasmWrapper = join(tmp, "Stub.wasm.wrapper.cpp");
   writeFileSync(wasmWrapper, genWrapperWasm({ contractPath: stubH, name: "Stub", slot: 28, corePath, outDir: tmp }));
 
@@ -41,7 +40,7 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   const rn = Bun.spawnSync([clang, "-std=c++20", "-fPIC", "-mavx2", `-I${corePath}`, `-I${join(corePath, "src")}`, "-M", wrapper]);
   if (rn.exitCode !== 0) throw new Error("clang -M failed:\n" + new TextDecoder().decode(rn.stderr));
   // WASM closure — computed with the actual wasm target+sysroot so it matches what compileWasmContract pulls
-  // (lite_wasm_tu.h, the -include'd intrinsics shim, AND the simde m256i headers the wasm path takes — none of
+  // (SDK module runtime, force-included intrinsics, and the simde m256i headers used by the Wasm target).
   const sdk = wasiSdkPaths();
   const wasmClang = process.env.WASM_CLANG ?? sdk?.clang;
   const sysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
@@ -51,15 +50,16 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   if (rw.exitCode !== 0) throw new Error("wasm clang -M failed:\n" + new TextDecoder().decode(rw.stderr));
   const deps = [...flatten(new TextDecoder().decode(rn.stdout)), ...flatten(new TextDecoder().decode(rw.stdout))];
 
-  // Inter-contract additions not in a no-callee closure: every contract header + the index map +
-  // the lite call-macro header (only pulled when a contract has callees).
+  // Inter-contract additions not in a no-callee closure: every contract header, index map, and SDK headers.
   const contractsDir = join(corePath, "src", "contracts");
   const extra = readdirSync(contractsDir).filter((f) => f.endsWith(".h")).map((f) => join(contractsDir, f));
   extra.push(join(corePath, "src", "contract_core", "contract_def.h"));
-  extra.push(join(corePath, "src", "extensions", "wasm", "lite_contract_calls.h"));
-  extra.push(join(corePath, "src", "extensions", "wasm", "lite_wasm_intrinsics.h"));   // -include'd by the wasm compile
-  extra.push(join(corePath, "src", "extensions", "wasm", "lite_wasm_tu.h"));           // wasm TU binding (swapped in)
-  extra.push(join(corePath, "src", "extensions", "wasm", "lite_wasm_target.h"));       // core-owned contract target helpers
+  for (const sdkHeader of Object.values(CORE_WASM_HEADERS.sdk)) {
+    extra.push(join(corePath, "src", sdkHeader));
+  }
+  for (const sharedHeader of Object.values(CORE_WASM_HEADERS.shared)) {
+    extra.push(join(corePath, "src", sharedHeader));
+  }
 
   const root = join(outRoot, "core-headers");
   rmSync(root, { recursive: true, force: true });

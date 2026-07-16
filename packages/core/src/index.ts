@@ -3,13 +3,15 @@ export * from "./struct"; // zero-copy struct-view kit (defineStruct + codecs), 
 export {
   LHOST_ABI,
   ASSET_ENUMERATION_RECORD,
-  LITE_ABI_VERSION,
+  WASM_ABI_VERSION,
   SYSTEM_PROCEDURES,
 } from "./lhost-abi";
 export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./lhost-abi";
-export { loadLiteAbiSource } from "./lite-abi-node";
-export { parseLiteAbiSource } from "./lite-abi-source";
-export type { LiteAbiSource, LiteAbiValueType } from "./lite-abi-source";
+export { CORE_WASM_HEADERS } from "./wasm-headers";
+export type { CoreWasmHeaderLayout } from "./wasm-headers";
+export { loadWasmAbiSource } from "./wasm-abi-node";
+export { parseWasmAbiSource } from "./wasm-abi-source";
+export type { WasmAbiSource, WasmAbiValueType } from "./wasm-abi-source";
 export {
   deriveIdentity,
   cryptoSmoke,

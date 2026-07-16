@@ -87,7 +87,7 @@ extract), `loadManifest(ref) -> Manifest`, `cacheDir(ver)`. `--offline` = cache-
 ## Staging (de-risk order)
 1. **[DONE]** Cache/fetch infra + manifest schema + `qinit sync`. `packages/core/src/fetch.ts`
    (cache/sha/manifest/current.json), `packages/build/src/snapshot.ts` (clang -M closure ∪ contracts ∪
-   contract_def.h ∪ lite_contract_calls.h), `qinit sync --from <core>` (local) / `--ref` (release),
+   contract_def.h ∪ `src/extensions/wasm/sdk/intercontract_calls.h`), `qinit sync --from <core>` (local) / `--ref` (release),
    `resolveCore()` (cli > env > cache). Proven: all 8 fixtures + inter-contract build from cache, byte-
    identical to a checkout. `--ref` path coded, untested until Stage 2 publishes assets.
 2. **[WRITTEN]** Core CI: `.github/workflows/qinit-release.yml` + `scripts/qinit-header-snapshot.sh`

@@ -1,13 +1,14 @@
 // Assembles the exact header text consumed by compiler pipeline.
 import { QPI_PRELUDE } from "./qpi-prelude";
-import { parseLiteAbiSource } from "@qinit/core/lite-abi-source";
-import { GENERATOR_VERSION, IMPL_BOUNDARY, LITE_ABI_MARKER } from "./qpi-snapshot-format";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import { parseWasmAbiSource } from "@qinit/core/wasm-abi-source";
+import { GENERATOR_VERSION, IMPL_BOUNDARY, WASM_ABI_MARKER } from "./qpi-snapshot-format";
 
 export {
-  embeddedLiteAbi,
+  embeddedWasmAbi,
   GENERATOR_VERSION,
   IMPL_BOUNDARY,
-  LITE_ABI_MARKER,
+  WASM_ABI_MARKER,
 } from "./qpi-snapshot-format";
 
 // Core snapshot inputs are resolved relative to `<core>/src`.
@@ -31,12 +32,7 @@ const IMPL_FILES = [
 ];
 
 type NodeFileSystem = typeof import("node:fs");
-type LiteAbi = ReturnType<typeof parseLiteAbiSource>;
-
-interface WasmSourceSections {
-  importDeclarations: string;
-  contextWrappers: string;
-}
+type WasmAbi = ReturnType<typeof parseWasmAbiSource>;
 
 interface HostImportDeclarations {
   symbolsBySourceName: Map<string, string>;
@@ -58,15 +54,18 @@ function requireCoreSourceDirectory(corePath: string, fileSystem: NodeFileSystem
   return sourceDirectory;
 }
 
-function readLiteAbi(fileSystem: NodeFileSystem, sourceDirectory: string): LiteAbi {
-  return parseLiteAbiSource(
-    fileSystem.readFileSync(`${sourceDirectory}/extensions/wasm/lite_abi_metadata.h`, "utf8"),
-    fileSystem.readFileSync(`${sourceDirectory}/extensions/wasm/lite_dyn_abi.h`, "utf8"),
+function readWasmAbi(fileSystem: NodeFileSystem, sourceDirectory: string): WasmAbi {
+  return parseWasmAbiSource(
+    fileSystem.readFileSync(
+      `${sourceDirectory}/${CORE_WASM_HEADERS.shared.abiMetadata}`,
+      "utf8",
+    ),
+    fileSystem.readFileSync(`${sourceDirectory}/${CORE_WASM_HEADERS.shared.abiTypes}`, "utf8"),
   );
 }
 
-function serializeLiteAbi(liteAbi: LiteAbi): string {
-  return `${LITE_ABI_MARKER}${JSON.stringify(liteAbi)}\n`;
+function serializeWasmAbi(wasmAbi: WasmAbi): string {
+  return `${WASM_ABI_MARKER}${JSON.stringify(wasmAbi)}\n`;
 }
 
 function assembleContractIndexDefinitions(
@@ -130,21 +129,24 @@ function inlineOracleInterfaceHeaders(
   );
 }
 
-function readWasmTranslationUnit(
+function readWasmSdkHeader(
   fileSystem: NodeFileSystem,
   sourceDirectory: string,
+  relativePath: string,
 ): { path: string; source: string } {
-  const path = `${sourceDirectory}/extensions/wasm/lite_wasm_tu.h`;
-  const source = fileSystem.existsSync(path) ? fileSystem.readFileSync(path, "utf8") : "";
+  const path = `${sourceDirectory}/${relativePath}`;
+  if (!fileSystem.existsSync(path)) {
+    throw new Error(`${path} not found`);
+  }
 
-  return { path, source };
+  return { path, source: fileSystem.readFileSync(path, "utf8") };
 }
 
-function assembleContextBufferDeclaration(wasmSource: string, wasmSourcePath: string): string {
-  const contextBuffer = /\bg_wasmCtxBuf\s*\[\s*(\d+)\s*\]/.exec(wasmSource);
+function assembleContextBufferDeclaration(moduleStorageSource: string, sourcePath: string): string {
+  const contextBuffer = /\bmoduleContextStorage\s*\[\s*(\d+)\s*\]/.exec(moduleStorageSource);
 
   if (!contextBuffer) {
-    throw new Error(`${wasmSourcePath} does not declare g_wasmCtxBuf capacity`);
+    throw new Error(`${sourcePath} does not declare moduleContextStorage capacity`);
   }
 
   return `\nstatic constexpr unsigned long long __qinit_qpi_context_buffer_size = ${contextBuffer[1]};\n`;
@@ -171,34 +173,6 @@ function assembleImplementationChunks(
   }
 
   return implementationChunks;
-}
-
-function extractWasmSourceSections(
-  wasmSource: string,
-  wasmSourcePath: string,
-): WasmSourceSections {
-  const importBlockStart = wasmSource.indexOf('extern "C" {');
-  const importBlockEndMarker = '} // extern "C"';
-  const importBlockEnd = wasmSource.indexOf(importBlockEndMarker, importBlockStart);
-  const wrapperBlockStart = wasmSource.indexOf("// ---- QpiContext method forwarders");
-  const wrapperBlockEnd = wasmSource.indexOf("// ---- registration capture", wrapperBlockStart);
-
-  if (
-    importBlockStart < 0 ||
-    importBlockEnd < 0 ||
-    wrapperBlockStart < 0 ||
-    wrapperBlockEnd < 0
-  ) {
-    throw new Error(`${wasmSourcePath} does not expose the expected import/wrapper source boundaries`);
-  }
-
-  return {
-    importDeclarations: wasmSource.slice(
-      importBlockStart,
-      importBlockEnd + importBlockEndMarker.length,
-    ),
-    contextWrappers: wasmSource.slice(wrapperBlockStart, wrapperBlockEnd),
-  };
 }
 
 function parseHostImportDeclarations(importSource: string): HostImportDeclarations {
@@ -261,18 +235,27 @@ function normalizeImportedSymbolNames(
   return normalizedSource;
 }
 
-function assembleHostWrapperChunk(
-  wasmSource: string,
-  wasmSourcePath: string,
-  liteAbi: LiteAbi,
-): string {
-  const sections = extractWasmSourceSections(wasmSource, wasmSourcePath);
-  const { symbolsBySourceName, declarationsByHostName } = parseHostImportDeclarations(
-    sections.importDeclarations,
-  );
-  const canonicalHostNames = liteAbi.lhost.map((row) => row.name);
+function stripSdkHeaderScaffolding(source: string): string {
+  return source
+    .replace(/^[ \t]*#pragma once[ \t]*\r?\n/gm, "")
+    .replace(/^[ \t]*#include[ \t]+.*\r?\n/gm, "")
+    .replace(/^[ \t]*#ifdef[ \t]+LITE_WASM_TU_BUILD[ \t]*\r?\n/gm, "")
+    .replace(/^[ \t]*#endif[ \t]*(?:\/\/.*)?\r?\n?/gm, "")
+    .trim();
+}
 
-  validateHostImportDeclarations(declarationsByHostName, canonicalHostNames, wasmSourcePath);
+function assembleHostWrapperChunk(
+  importSource: string,
+  importSourcePath: string,
+  forwarderSource: string,
+  wasmAbi: WasmAbi,
+): string {
+  const { symbolsBySourceName, declarationsByHostName } = parseHostImportDeclarations(
+    importSource,
+  );
+  const canonicalHostNames = wasmAbi.lhost.map((row) => row.name);
+
+  validateHostImportDeclarations(declarationsByHostName, canonicalHostNames, importSourcePath);
 
   const orderedImportDeclarations = canonicalHostNames
     .map((hostName) => {
@@ -283,7 +266,7 @@ function assembleHostWrapperChunk(
     })
     .join("\n");
   const normalizedContextWrappers = normalizeImportedSymbolNames(
-    sections.contextWrappers,
+    stripSdkHeaderScaffolding(forwarderSource),
     symbolsBySourceName,
   );
   const wrapperSource =
@@ -299,10 +282,11 @@ export function snapshotInputFiles(corePath: string): string[] {
   const base = `${corePath}/src`;
   const files = [
     `${base}/contract_core/contract_def.h`,
-    `${base}/extensions/wasm/lite_wasm_tu.h`,
-    `${base}/extensions/wasm/lite_wasm_target.h`,
-    `${base}/extensions/wasm/lite_abi_metadata.h`,
-    `${base}/extensions/wasm/lite_dyn_abi.h`,
+    `${base}/${CORE_WASM_HEADERS.shared.abiMetadata}`,
+    `${base}/${CORE_WASM_HEADERS.shared.abiTypes}`,
+    `${base}/${CORE_WASM_HEADERS.sdk.lhostImports}`,
+    `${base}/${CORE_WASM_HEADERS.sdk.qpiForwarders}`,
+    `${base}/${CORE_WASM_HEADERS.sdk.moduleStorage}`,
     ...HEADER_FILES.map((HEADER_FILESItem) => `${base}/${HEADER_FILESItem}`),
     ...IMPL_FILES.map((IMPL_FILESItem) => `${base}/${IMPL_FILESItem}`),
   ];
@@ -318,24 +302,39 @@ export function snapshotInputFiles(corePath: string): string[] {
 export function assembleQpiHeader(corePath: string): string {
   const fileSystem = loadNodeFileSystem();
   const sourceDirectory = requireCoreSourceDirectory(corePath, fileSystem);
-  const liteAbi = readLiteAbi(fileSystem, sourceDirectory);
+  const wasmAbi = readWasmAbi(fileSystem, sourceDirectory);
   const contractIndexDefinitions = assembleContractIndexDefinitions(fileSystem, sourceDirectory);
   const headerDeclarations = assembleHeaderDeclarations(fileSystem, sourceDirectory);
-  const wasmTranslationUnit = readWasmTranslationUnit(fileSystem, sourceDirectory);
+  const lhostImports = readWasmSdkHeader(
+    fileSystem,
+    sourceDirectory,
+    CORE_WASM_HEADERS.sdk.lhostImports,
+  );
+  const qpiForwarders = readWasmSdkHeader(
+    fileSystem,
+    sourceDirectory,
+    CORE_WASM_HEADERS.sdk.qpiForwarders,
+  );
+  const moduleStorage = readWasmSdkHeader(
+    fileSystem,
+    sourceDirectory,
+    CORE_WASM_HEADERS.sdk.moduleStorage,
+  );
   const contextBufferDeclaration = assembleContextBufferDeclaration(
-    wasmTranslationUnit.source,
-    wasmTranslationUnit.path,
+    moduleStorage.source,
+    moduleStorage.path,
   );
   const implementationChunks = assembleImplementationChunks(fileSystem, sourceDirectory);
   const hostWrapperChunk = assembleHostWrapperChunk(
-    wasmTranslationUnit.source,
-    wasmTranslationUnit.path,
-    liteAbi,
+    lhostImports.source,
+    lhostImports.path,
+    qpiForwarders.source,
+    wasmAbi,
   );
 
   return [
     `${QPI_PRELUDE}\n`,
-    serializeLiteAbi(liteAbi),
+    serializeWasmAbi(wasmAbi),
     contractIndexDefinitions,
     headerDeclarations,
     contextBufferDeclaration,

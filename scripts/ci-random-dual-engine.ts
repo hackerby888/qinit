@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { initK12, k12Hex, LiteRpc } from "../packages/core/src/index";
-import { compileContract, inspectLiteWasmModule, loadQpiHeader } from "../packages/compile/src/index";
+import { compileContract, inspectWasmModule, loadQpiHeader } from "../packages/compile/src/index";
 import { Sim } from "../packages/engine/src/index";
 import { deployContract } from "../packages/cli/src/deploy-ops";
 import { invokeProcedure, resolveSlot } from "../packages/proto/src/index";
@@ -61,7 +61,7 @@ const compiled = await compileContract({
 });
 const errors = compiled.diagnostics.filter((item) => item.severity === "error");
 if (errors.length || !compiled.wasm.length) fail(errors.map((item) => item.message).join("; ") || "empty artifact");
-const inspection = inspectLiteWasmModule(compiled.wasm);
+const inspection = inspectWasmModule(compiled.wasm);
 if (!inspection.ok) fail(inspection.diagnostics.map((item) => item.message).join("; "));
 if (inspection.imports.some((item) => item.module !== "lhost")) fail("artifact has a non-lhost import");
 
