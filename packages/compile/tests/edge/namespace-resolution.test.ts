@@ -111,6 +111,31 @@ using namespace Utils;`,
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });
 
+  test("a callee static helper resolves its unqualified sibling", async () => {
+    const calleeSource = `using namespace QPI;
+struct HelperCallee : public ContractBase {
+  struct StateData {};
+  static void derive(const uint64& value, uint64& result) { mix(value, result); }
+  static void mix(const uint64& value, uint64& result) { result = value + 1ull; }
+};`;
+    const source = contractShell(
+      `using namespace QPI;`,
+      `HelperCallee::derive(input.v, output.r);`,
+    );
+    const r = await compileContract({
+      source,
+      name: "NsProbe",
+      slot: 28,
+      qpiHeader: HEADERS,
+      callees: [
+        { name: "HelperCallee", index: 27, functions: {}, procedures: {} },
+      ],
+      calleeSources: [{ name: "HelperCallee", source: calleeSource }],
+    });
+    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.wasm.byteLength).toBeGreaterThan(100);
+  });
+
   test("using namespace inside a nested namespace does not leak outside", async () => {
     const source = contractShell(
       `using namespace QPI;

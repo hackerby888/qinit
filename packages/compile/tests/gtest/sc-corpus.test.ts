@@ -54,7 +54,10 @@ const SPECS: Spec[] = [
     name: "QRP",
     stateType: "QRP",
     slot: 21,
-    callees: [{ name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 }],
+    callees: [
+      { name: "RANDOM", header: "Random.h", stateType: "RANDOM", slot: 3 },
+      { name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 },
+    ],
   },
   {
     corpus: "contract_vottunbridge.cpp",
@@ -118,7 +121,10 @@ const SPECS: Spec[] = [
     name: "QDUEL",
     stateType: "QDUEL",
     slot: 23,
-    callees: [{ name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 }],
+    callees: [
+      { name: "RANDOM", header: "Random.h", stateType: "RANDOM", slot: 3 },
+      { name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 },
+    ],
   },
   {
     corpus: "contract_rl.cpp",
@@ -126,7 +132,7 @@ const SPECS: Spec[] = [
     name: "RL",
     stateType: "RL",
     slot: 16,
-    callees: [],
+    callees: [{ name: "RANDOM", header: "Random.h", stateType: "RANDOM", slot: 3 }],
   },
   {
     corpus: "contract_ggwp.cpp",
@@ -143,6 +149,7 @@ const SPECS: Spec[] = [
     stateType: "QTF",
     slot: 22,
     callees: [
+      { name: "RANDOM", header: "Random.h", stateType: "RANDOM", slot: 3 },
       { name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 },
       { name: "QRP", header: "QReservePool.h", stateType: "QRP", slot: 21 },
     ],
@@ -154,6 +161,7 @@ const SPECS: Spec[] = [
     stateType: "PULSE",
     slot: 24,
     callees: [
+      { name: "RANDOM", header: "Random.h", stateType: "RANDOM", slot: 3 },
       { name: "RL", header: "RandomLottery.h", stateType: "RL", slot: 16 },
       { name: "QRP", header: "QReservePool.h", stateType: "QRP", slot: 21 },
       { name: "QTF", header: "QThirtyFour.h", stateType: "QTF", slot: 22 },

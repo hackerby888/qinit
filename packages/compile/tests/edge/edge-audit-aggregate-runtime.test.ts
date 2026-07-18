@@ -66,6 +66,14 @@ describe("edge audit — aggregate runtime semantics", () => {
     expect(await run(helper, `state.mut().result = sum(Pair{3, 4});`)).toBe(7n);
   });
 
+  test("a file-scope aggregate constant can flow through an Array reference", async () => {
+    const body = `Array<bit_4096, 2> values;
+      values.set(0, BIT4096_ZERO);
+      bit_4096 copy = values.get(0);
+      state.mut().result = copy == BIT4096_ZERO;`;
+    expect(await run("", body)).toBe(1n);
+  });
+
   test("union scalar members alias the same storage", async () => {
     const helper = `union Bits { uint64 wide; uint32 low; };`;
     const body = `Bits bits; bits.wide = 4294967296ull; bits.low = 1; state.mut().result = bits.wide;`;

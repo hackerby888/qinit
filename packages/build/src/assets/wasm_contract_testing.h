@@ -430,6 +430,11 @@ static const QbContractDescription contractDescriptions[] = {
 static const unsigned int contractCount =
     sizeof(contractDescriptions) / sizeof(contractDescriptions[0]);
 
+static inline bool isPublicKeyOfContract(const m256i& publicKey) {
+    return !publicKey.u64._3 && !publicKey.u64._2 && !publicKey.u64._1 &&
+           publicKey.u64._0 < contractCount;
+}
+
 // ---- broadcastedComputors: layout-compatible stub of core-lite's global ----
 // GQMPROP/CCF corpora seed committee identities via `broadcastedComputors.computors.publicKeys[i] = id`.
 

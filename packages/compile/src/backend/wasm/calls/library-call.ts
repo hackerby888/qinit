@@ -114,7 +114,11 @@ export function lookupHelper(context: FunctionEmissionContext, expression: Expre
         }
     }
     if (!info && !MATH_INTRINSIC_NAMES.has(base)) {
-        info = compileLibraryFunction(context.programAnalysis, expression.callee.name);
+        for (const sourceKey of sourceKeys) {
+            info = compileLibraryFunction(context.programAnalysis, sourceKey);
+            if (info)
+                break;
+        }
     }
     if (!info) {
         // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call, picking the overload whose parameter patterns match the

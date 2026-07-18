@@ -14,6 +14,70 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         if (type && type.isAddr)
             return `(local.get $${type.local ?? expression.name})`;
     }
+    if (expression.kind === "identifier") {
+        const initializer = context.programAnalysis.constexprInit.get(expression.name);
+        const declaredType = context.programAnalysis.typeOfConstant(expression.name);
+        const type = declaredType
+            ? context.programAnalysis.derefType(declaredType)
+            : null;
+        if (initializer && type && context.programAnalysis.isAggregateType(type)) {
+            const size = context.programAnalysis.sizeOfType(
+                type,
+                context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
+            );
+            const destination = context.lowering.allocateScratchSlotNode(context, size);
+            const address = watIr.serializeWatNode(destination);
+            let initialized = false;
+
+            if (initializer.kind === "initializer_list") {
+                initialized = context.lowering.emitConstruct(
+                    context,
+                    address,
+                    type,
+                    initializer.expressions,
+                );
+            } else if (initializer.kind === "construct") {
+                initialized = context.lowering.emitConstruct(
+                    context,
+                    address,
+                    type,
+                    initializer.callArguments,
+                );
+            } else {
+                const source = emitAddress(context, initializer);
+                if (source) {
+                    context.lines.push(
+                        `    ${watIr.serializeWatNode(
+                            watIr.functionCall(
+                                "$copyMem",
+                                destination,
+                                addrIr(source),
+                                watIr.i32Constant(size),
+                            ),
+                        )}`,
+                    );
+                    initialized = true;
+                }
+            }
+
+            if (!initialized) {
+                throw new Error(
+                    `aggregate constant '${expression.name}' is not materializable`,
+                );
+            }
+
+            (context.materializedCalls ??= new WeakMap()).set(expression, {
+                addr: address,
+                type,
+                size,
+                layout: context.programAnalysis.layoutOfType(
+                    type,
+                    context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
+                ),
+            });
+            return address;
+        }
+    }
     if (expression.kind === "paren")
         return emitAddress(context, expression.expression);
     if (expression.kind === "call") {

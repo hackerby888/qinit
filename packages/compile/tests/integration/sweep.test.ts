@@ -71,6 +71,7 @@ interface DependencySpec {
 const DEPENDENCIES: Record<string, DependencySpec> = {
   Counter: { name: "Counter", path: join(FIXTURES, "Counter.h"), slot: 28 },
   QX: { name: "QX", path: join(SYSTEM, "Qx.h"), slot: 1 },
+  RANDOM: { name: "RANDOM", path: join(SYSTEM, "Random.h"), slot: 3 },
   QEARN: { name: "QEARN", path: join(SYSTEM, "Qearn.h"), slot: 9 },
   RL: { name: "RL", path: join(SYSTEM, "RandomLottery.h"), slot: 16 },
   QRP: { name: "QRP", path: join(SYSTEM, "QReservePool.h"), slot: 21 },
@@ -85,12 +86,13 @@ const LINKED_DEPENDENCIES: Record<string, string[]> = {
   QVAULT: ["QX", "QEARN"],
   MsVault: ["QX"],
   QBond: ["QEARN"],
-  QDuel: ["RL"],
+  QDuel: ["RANDOM", "RL"],
   Qbay: ["QX"],
   Qswap: ["QX"],
-  QThirtyFour: ["RL", "QRP"],
-  QReservePool: ["RL"],
-  Pulse: ["RL", "QRP", "QTF", "QX"],
+  QThirtyFour: ["RANDOM", "RL", "QRP"],
+  QReservePool: ["RANDOM", "RL"],
+  RandomLottery: ["RANDOM"],
+  Pulse: ["RANDOM", "RL", "QRP", "QTF", "QX"],
   Nostromo: ["QX"],
 };
 
