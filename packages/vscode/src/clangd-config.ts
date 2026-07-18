@@ -10,8 +10,9 @@ import {
 } from "@qinit/build/recipe";
 import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
 
-export const DEFAULT_SLOT = 28; // mirrors packages/cli/src/commands/build.tsx (`cfg.slot ?? 28`)
+export const DEFAULT_SLOT = DEFAULT_WASM_SLOT_LAYOUT.slotBase;
 
 // clangd requires forward slashes in compile_commands.json and in #include literals, even on Windows.
 const fwd = (p: string) => p.replace(/\\/g, "/");

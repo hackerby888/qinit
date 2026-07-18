@@ -6,6 +6,7 @@ import { bytesEqual } from "./bytes";
 import { TRACE_STATE_CAP, type TraceRecorder } from "./trace";
 import { QpiContext } from "./abi";
 import { EntityRecord, M256i } from "./wire";
+import { validateContractIndexSignature } from "./wasm-contract-index";
 
 const EMPTY = new Uint8Array(0);
 
@@ -349,6 +350,16 @@ export class Contract {
     }
     this.inst = new WebAssembly.Instance(mod, this.imports(mod));
     this.ex = this.inst.exports;
+    let compiledSlot: number;
+    try {
+      compiledSlot = this.ex.contract_index() >>> 0;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`contract_index() failed for target ${slot}: ${detail}`);
+    }
+    if (compiledSlot !== slot) {
+      throw new Error(`artifact slot mismatch: compiled ${compiledSlot}, target ${slot}`);
+    }
     this.mem = (this.ex.memory as WebAssembly.Memory) ?? extMem;
     // Exported layout getters return addresses of statics — safe to read before _initialize.
     this.ioBase = this.ex.io_base() >>> 0;
@@ -373,6 +384,7 @@ export class Contract {
     extMem?: WebAssembly.Memory,
     extraImports?: WebAssembly.Imports,
   ): Contract {
+    validateContractIndexSignature(bytes);
     return new Contract(
       slot,
       host,

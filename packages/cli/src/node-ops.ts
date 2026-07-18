@@ -172,6 +172,8 @@ export function launchVirtualNode(o: {
   keep?: boolean;
   tickMs?: number;
   system?: string[];
+  slotBase?: number;
+  slotCount?: number;
 }): { pid: number; scratch: string; log: string } {
   const scratch = resolve(o.dir || scratchDir());
   if (!o.keep) rmSync(scratch, { recursive: true, force: true });
@@ -188,6 +190,8 @@ export function launchVirtualNode(o: {
     rpcBase,
     "--peer-port",
     String(o.peerPort ?? 21841),
+    ...(o.slotBase !== undefined ? ["--slot-base", String(o.slotBase)] : []),
+    ...(o.slotCount !== undefined ? ["--slot-count", String(o.slotCount)] : []),
     ...(o.tickMs !== undefined ? ["--tick-ms", String(o.tickMs)] : []),
     ...(o.system?.length ? ["--system", o.system.join(",")] : []),
   ];

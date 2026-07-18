@@ -37,6 +37,7 @@ export function emitGlobals(capacity: Layout): string {
 
 export function emitExportList(): string {
     return `  ;; ---- exports ----
+  (export "contract_index" (func $contract_index))
   (export "state_addr" (func $state_addr))
   (export "state_size" (func $state_size))
   (export "io_base" (func $io_base))

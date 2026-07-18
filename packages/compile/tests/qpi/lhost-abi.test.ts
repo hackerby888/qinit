@@ -35,6 +35,7 @@ describe("shared lhost ABI", () => {
 
   test("framework imports cover the manifest exactly", async () => {
     const wat = emitModule({
+      contractSlot: 29,
       stateSize: 0,
       arenaSize: 64 * 1024,
       contextLayout: QPI_CONTEXT_LAYOUT,

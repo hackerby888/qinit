@@ -68,7 +68,7 @@ test("encodeDeploy: 84 bytes, offsets, version defaults", () => {
   expect(u64le(b, 0)).toBe(9n);
   expect(u32le(b, 8)).toBe(28);
   expect(hx(b.slice(12, 44))).toBe(HASH32);
-  expect(u32le(b, 44)).toBe(1); // abiVersion default
+  expect(u32le(b, 44)).toBe(2); // abiVersion default
   expect(u32le(b, 48)).toBe(0); // stateLayoutVersion default
 });
 

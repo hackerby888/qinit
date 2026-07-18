@@ -173,7 +173,7 @@ test("advance-epoch crosses into the next epoch (qinit epoch advance)", async ()
 });
 
 test("directDeploy arms an arbitrary (system-index) slot, runs, surfaces in registry, undeploys", async () => {
-  const wasm = new Uint8Array(await Bun.file(`${FIX}/Counter.wasm`).arrayBuffer());
+  const wasm = new Uint8Array(await Bun.file(`${FIX}/Counter1.wasm`).arrayBuffer());
   const srv = new EngineServer();
   const h = await srv.start(0);
   const rpc = new LiteRpc(h.rpcBase);

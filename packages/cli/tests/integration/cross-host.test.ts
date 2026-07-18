@@ -114,7 +114,12 @@ for (const c of CASES) {
       const proc = Bun.spawnSync(
         [GTEST, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"],
         {
-          env: { ...process.env, QINIT_WASM: r.so!, QINIT_SCRIPT: script },
+          env: {
+            ...process.env,
+            QINIT_WASM: r.so!,
+            QINIT_SCRIPT: script,
+            QINIT_EXPECTED_SLOT: String(c.slot),
+          },
         },
       );
       const m = proc.stdout.toString().match(/CROSSHOST_STATE=([0-9a-f]+)/);

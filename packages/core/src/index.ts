@@ -12,6 +12,10 @@ export type { CoreWasmHeaderLayout } from "./wasm-headers";
 export { loadWasmAbiSource } from "./wasm-abi-node";
 export { parseWasmAbiSource } from "./wasm-abi-source";
 export type { WasmAbiSource, WasmAbiValueType } from "./wasm-abi-source";
+export { DEFAULT_WASM_SLOT_LAYOUT } from "./wasm-slot-layout";
+export type { WasmSlotLayout } from "./wasm-slot-layout";
+export { loadCoreWasmSlotLayout } from "./wasm-slot-layout-node";
+export { parseWasmSlotLayoutSource } from "./wasm-slot-layout-source";
 export {
   deriveIdentity,
   cryptoSmoke,

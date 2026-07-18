@@ -10,6 +10,9 @@ export {
 export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./lhost-abi";
 export { CORE_WASM_HEADERS } from "./wasm-headers";
 export type { CoreWasmHeaderLayout } from "./wasm-headers";
+export { DEFAULT_WASM_SLOT_LAYOUT } from "./wasm-slot-layout";
+export type { WasmSlotLayout } from "./wasm-slot-layout";
+export { parseWasmSlotLayoutSource } from "./wasm-slot-layout-source";
 export { deriveIdentity, bytesToIdentity, identityToBytes, cryptoSmoke } from "./qubic";
 export type { IdentityResult, CryptoSmokeResult } from "./qubic";
 

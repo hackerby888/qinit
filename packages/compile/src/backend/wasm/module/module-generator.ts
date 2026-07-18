@@ -114,6 +114,7 @@ function generateContractModule(request: ModuleGenerationRequest): string {
 
     if (!contract) {
         return emitModule({
+            contractSlot: request.contractSlot,
             stateSize: 0,
             arenaSize: request.arenaSize,
             contextLayout,
@@ -209,6 +210,7 @@ function generateContractModule(request: ModuleGenerationRequest): string {
     userFunctions.push(...programAnalysis.emittedMethodOrder);
 
     const moduleSpecification: ModuleSpecification = {
+        contractSlot: request.contractSlot,
         stateSize: stateLayout.size,
         arenaSize: request.arenaSize,
         contextLayout,

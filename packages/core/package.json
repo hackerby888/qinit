@@ -15,6 +15,8 @@
     },
     "./browser": "./src/browser.ts",
     "./wasm-abi-source": "./src/wasm-abi-source.ts",
+    "./wasm-slot-layout": "./src/wasm-slot-layout.ts",
+    "./wasm-slot-layout-source": "./src/wasm-slot-layout-source.ts",
     "./wasm-headers": "./src/wasm-headers.ts",
     "./project": "./src/project.ts",
     "./rpc": "./src/rpc.ts"

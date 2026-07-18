@@ -3,12 +3,27 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
+import { loadCoreWasmSlotLayout } from "../packages/core/src/wasm-slot-layout-node";
 import { LITE_TX, LOG_SEVERITY, MAX_INPUT_SIZE, CHUNK_DATA_MAX } from "../packages/proto/src/protocol";
 
 const core = process.env.QINIT_CORE;
 if (!core) { console.error("QINIT_CORE not set"); process.exit(2); }
 
 const fails: string[] = [];
+try {
+  const coreLayout = loadCoreWasmSlotLayout(core);
+  if (
+    coreLayout.slotBase !== DEFAULT_WASM_SLOT_LAYOUT.slotBase ||
+    coreLayout.slotCount !== DEFAULT_WASM_SLOT_LAYOUT.slotCount
+  ) {
+    fails.push(
+      `Wasm slot layout: core=${JSON.stringify(coreLayout)} qinit=${JSON.stringify(DEFAULT_WASM_SLOT_LAYOUT)}`,
+    );
+  }
+} catch (error) {
+  fails.push(`Wasm slot layout: ${error instanceof Error ? error.message : String(error)}`);
+}
 // read `#define NAME <int>` from a core header (ignores suffixes like ULL)
 const def = (file: string, name: string): number | null => {
   try {
@@ -62,4 +77,4 @@ for (const [name, val] of [["ORACLE_QUERY_STATUS_UNKNOWN", 0], ["ORACLE_QUERY_ST
 }
 
 if (fails.length) { console.error("PROTOCOL DRIFT vs core-lite:\n  " + fails.join("\n  ")); process.exit(1); }
-console.log("protocol-drift OK — LITE_TX, log severity, MAX_INPUT_SIZE, ORACLE_QUERY_STATUS match core");
+console.log("protocol-drift OK — Wasm slots, LITE_TX, log severity, MAX_INPUT_SIZE, ORACLE_QUERY_STATUS match core");

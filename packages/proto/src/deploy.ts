@@ -3,7 +3,7 @@
 
 // Lite transaction inputTypes + chunk sizing live in ./protocol (mirrored against core by the drift guard).
 import { LITE_TX, CHUNK_DATA_MAX } from "./protocol";
-import { defineStruct, u16, u32, u64, blob } from "@qinit/core";
+import { WASM_ABI_VERSION, defineStruct, u16, u32, u64, blob } from "@qinit/core";
 export { LITE_TX, CHUNK_DATA_MAX };
 
 // The on-wire message layouts, as zero-copy struct views. ONE definition: proto encodes them here and the
@@ -90,7 +90,7 @@ export function encodeDeploy(p: DeployParams): Uint8Array {
   m.sessionId = p.sessionId;
   m.targetSlot = p.targetSlot;
   m.finalHash = hexToBytes(p.finalHashHex, 32);
-  m.abiVersion = p.abiVersion ?? 1;
+  m.abiVersion = p.abiVersion ?? WASM_ABI_VERSION;
   m.stateLayoutVersion = p.stateLayoutVersion ?? 0;
   const nm = (p.name ?? "").slice(0, 31);
   const name = new Uint8Array(32);

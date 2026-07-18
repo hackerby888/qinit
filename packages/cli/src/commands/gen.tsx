@@ -3,6 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { extractIdl, generateClient, qpiPrelude, testRuntimeSource } from "@qinit/build";
+import { DEFAULT_WASM_SLOT_LAYOUT, loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCore } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
 
@@ -34,10 +35,19 @@ export function Gen({ args }: { args: string[] }) {
       const cfg = loadConfig();
       const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
       const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
-      const slot = Number(o.slot ?? cfg.slot ?? 28);
+      let core: string | undefined;
+      try {
+        core = resolveCore(o.core, cfg.core);
+      } catch {
+        core = undefined;
+      }
+      const defaultSlot = core
+        ? loadCoreWasmSlotLayout(core).slotBase
+        : DEFAULT_WASM_SLOT_LAYOUT.slotBase;
+      const slot = Number(o.slot ?? cfg.slot ?? defaultSlot);
       let prelude: string | undefined;
       try {
-        prelude = qpiPrelude(resolveCore(o.core, cfg.core));
+        prelude = core ? qpiPrelude(core) : undefined;
       } catch {
         prelude = undefined;
       } // resolve qpi library types; degrade if core unavailable

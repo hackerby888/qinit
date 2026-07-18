@@ -20,6 +20,7 @@ function loadWasm(path: string): Uint8Array {
 // Generate the Counter-specific WAT using the framework
 function generateCounterWat(): string {
   const framework = emitFramework({
+    contractSlot: 28,
     stateSize: 8,
     arenaSize: 64 * 1024,
     contextLayout: QPI_CONTEXT_LAYOUT,

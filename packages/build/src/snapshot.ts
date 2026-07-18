@@ -3,7 +3,7 @@
 import { mkdirSync, copyFileSync, readdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { genWrapper, genWrapperWasm, resolveClang } from "./recipe";
-import { CORE_WASM_HEADERS, wasiSdkPaths } from "@qinit/core";
+import { CORE_WASM_HEADERS, loadCoreWasmSlotLayout, wasiSdkPaths } from "@qinit/core";
 
 const STUB = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -28,11 +28,12 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   mkdirSync(tmp, { recursive: true });
   const stubH = join(tmp, "Stub.h");
   writeFileSync(stubH, STUB);
+  const slot = loadCoreWasmSlotLayout(corePath).slotBase;
   const wrapper = join(tmp, "Stub.wrapper.cpp");
-  writeFileSync(wrapper, genWrapper({ contractPath: stubH, name: "Stub", slot: 28, corePath, outDir: tmp }));
+  writeFileSync(wrapper, genWrapper({ contractPath: stubH, name: "Stub", slot, corePath, outDir: tmp }));
   const shim = join(corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics);
   const wasmWrapper = join(tmp, "Stub.wasm.wrapper.cpp");
-  writeFileSync(wasmWrapper, genWrapperWasm({ contractPath: stubH, name: "Stub", slot: 28, corePath, outDir: tmp }));
+  writeFileSync(wasmWrapper, genWrapperWasm({ contractPath: stubH, name: "Stub", slot, corePath, outDir: tmp }));
 
   const flatten = (out: string) => out.replace(/\\\n/g, " ").split(/\s+/).filter((s) => s.startsWith(corePath));
   // native (.so) closure — general headers under the real-intrinsics path.

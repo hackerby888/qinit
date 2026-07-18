@@ -4,6 +4,7 @@ import { emitSysSwitch } from "./dispatch";
 export function emitMetadata(capacity: Layout, spec: ModuleSpecification, sysprocMask: number): string {
     const lines: string[] = [];
     lines.push("  ;; ---- metadata exports ----");
+    lines.push(`  (func $contract_index (result i32) (i32.const ${spec.contractSlot}))`);
     lines.push(`  (func $state_addr (result i32) (i32.const ${capacity.stateBase}))`);
     lines.push(`  (func $state_size (result i32) (i32.const ${capacity.stateSize}))`);
     lines.push(`  (func $io_base (result i32) (i32.const ${capacity.ioBase}))`);

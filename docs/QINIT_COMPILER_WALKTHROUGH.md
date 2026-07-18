@@ -186,7 +186,7 @@ Qinit reads those rows and converts them into a TypeScript object:
 
 ```ts
 {
-  abiVersion: 1,
+  abiVersion: 2,
   lhost: [
     { name: "tick", params: [], results: ["i32"] },
     {
@@ -204,7 +204,7 @@ Qinit reads those rows and converts them into a TypeScript object:
 Then `assembleQpiHeader()` inserts a generated comment into its returned string:
 
 ```text
-//__QINIT_WASM_ABI__{"abiVersion":1,...}
+//__QINIT_WASM_ABI__{"abiVersion":2,...}
 ```
 
 That JSON exists only in Qinit's assembled in-memory header snapshot. It is not expected to exist in core's physical header files.

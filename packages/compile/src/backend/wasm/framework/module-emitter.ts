@@ -38,6 +38,7 @@ export function emitModule(spec: ModuleSpecification): string {
 // Back-compat wrapper (string-only, no user functions) used by the spike test.
 export function emitFramework(options: FrameworkOptions): string {
     return emitModule({
+        contractSlot: options.contractSlot,
         stateSize: options.stateSize,
         arenaSize: options.arenaSize,
         contextLayout: options.contextLayout,

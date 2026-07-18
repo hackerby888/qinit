@@ -168,6 +168,7 @@ export function executeWamr(
   gtestPath: string,
   wasm: Uint8Array,
   operations: readonly ContainerOperation[],
+  expectedSlot = CONTAINER_SLOT,
 ): ExecutionResult {
   const dir = mkdtempSync(join(tmpdir(), "qinit-container-wamr-"));
   const artifact = join(dir, "fixture.wasm");
@@ -180,6 +181,7 @@ export function executeWamr(
           ...globalThis.process.env,
           QINIT_WASM: artifact,
           QINIT_SCRIPT: wamrScript(operations),
+          QINIT_EXPECTED_SLOT: String(expectedSlot),
         },
         stdout: "pipe",
         stderr: "pipe",

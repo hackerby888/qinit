@@ -11,6 +11,7 @@ import {
   updateCurrent,
   fetchWasiSdk,
   haveWasiSdkCache,
+  loadCoreWasmSlotLayout,
 } from "@qinit/core";
 import {
   fetchNodeBin,
@@ -112,6 +113,13 @@ export function NodeRun({ args }: { args: string[] }) {
           set("headers", "ok", `fetched ${version}`);
         }
 
+        const currentHeaders = readCurrent()?.coreHeaders;
+        const slotLayout =
+          virtual && currentHeaders ? loadCoreWasmSlotLayout(currentHeaders) : undefined;
+        if (virtual && !slotLayout) {
+          throw new Error("virtual node requires synced core headers for its Wasm slot layout");
+        }
+
         // Node binary: not needed for the virtual backend (the in-process engine replaces it); otherwise
         // reuse cached, else fetch (fetchNodeBin skips download if already cached).
         set("node", "active");
@@ -173,6 +181,8 @@ export function NodeRun({ args }: { args: string[] }) {
                 keep: o.keep !== undefined,
                 tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined,
                 system: loadConfig().system,
+                slotBase: slotLayout!.slotBase,
+                slotCount: slotLayout!.slotCount,
               })
             : launchNode({
                 bin,

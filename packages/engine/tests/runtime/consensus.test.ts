@@ -101,7 +101,7 @@ test("computerDigest is the faithful K12 merkle over the 1024 contract leaves", 
   await initK12();
   const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
   sim.deploy(28, await wasm("Counter"));
-  sim.deploy(29, await wasm("Counter"));
+  sim.deploy(29, await wasm("Counter29"));
   sim.procedure(28, INC);
 
   const leaves = new Map<number, Uint8Array>();

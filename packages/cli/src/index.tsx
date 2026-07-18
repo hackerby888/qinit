@@ -27,12 +27,17 @@ if (command === "__serve") {
   const tm = args.indexOf("--tick-ms");
   const sys = args.indexOf("--system");
   const pp = args.indexOf("--peer-port");
+  const sb = args.indexOf("--slot-base");
+  const sc = args.indexOf("--slot-count");
   const system = sys >= 0 && args[sys + 1] ? args[sys + 1].split(",").filter(Boolean) : [];
   await serveEngine(
     rpc,
     tm >= 0 ? Number(args[tm + 1]) : undefined,
     system,
     pp >= 0 ? Number(args[pp + 1]) : 21841,
+    sb >= 0 && sc >= 0
+      ? { slotBase: Number(args[sb + 1]), slotCount: Number(args[sc + 1]) }
+      : undefined,
   );
 }
 

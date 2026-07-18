@@ -74,6 +74,7 @@ export const PORTABLE_FEATURES = new Set(["sign-extension-operators"]);
 
 /** Function exports consumed by the Qinit engine and core-lite dynamic loader. */
 export const WASM_MODULE_EXPORT_ABI: Readonly<Record<string, WasmFunctionSignature>> = Object.freeze({
+    contract_index: signature([], [I32]),
     state_addr: signature([], [I32]),
     state_size: signature([], [I32]),
     io_base: signature([], [I32]),

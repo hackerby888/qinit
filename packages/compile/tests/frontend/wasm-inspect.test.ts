@@ -8,6 +8,7 @@ import {
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const SPEC: ModuleSpecification = {
+  contractSlot: 29,
   stateSize: 8,
   arenaSize: 64 * 1024,
   contextLayout: QPI_CONTEXT_LAYOUT,
@@ -74,6 +75,19 @@ describe("Wasm module inspection", () => {
     expect(result.exports.find((exported) => exported.name === "dispatch")?.signature).toEqual(
       WASM_MODULE_EXPORT_ABI.dispatch,
     );
+    expect(
+      result.exports.find((exported) => exported.name === "contract_index")?.signature,
+    ).toEqual(WASM_MODULE_EXPORT_ABI.contract_index);
+
+    const module = new WebAssembly.Module((await assemble(emitModule(SPEC))) as BufferSource);
+    const lhost = Object.fromEntries(
+      Object.entries(LHOST_ABI).map(([name, signature]) => [
+        name,
+        () => (signature.results[0] === "i64" ? 0n : 0),
+      ]),
+    );
+    const instance = new WebAssembly.Instance(module, { lhost });
+    expect((instance.exports.contract_index as () => number)()).toBe(29);
   });
 
   test("accepts the established imported-memory mode only when requested", async () => {
@@ -129,6 +143,19 @@ describe("Wasm module inspection", () => {
   });
 
   test("rejects missing and incorrectly typed ABI exports", async () => {
+    const wrongContractIndex = emitModule(SPEC).replace(
+      "  (func $contract_index (result i32) (i32.const 29))",
+      "  (func $contract_index (param i32) (result i32) (local.get 0))",
+    );
+    const wrongContract = inspectWasmModule(await assemble(wrongContractIndex));
+    expect(
+      wrongContract.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === "export-signature" &&
+          diagnostic.message.includes("contract_index"),
+      ),
+    ).toBe(true);
+
     const missingDispatch = emitModule(SPEC).replace(
       '  (export "dispatch" (func $dispatch))\n',
       "",

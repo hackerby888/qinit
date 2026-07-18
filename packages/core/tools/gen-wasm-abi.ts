@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { CORE_WASM_HEADERS } from "../src/wasm-headers";
 import { parseWasmAbiSource } from "../src/wasm-abi-source";
+import { parseWasmSlotLayoutSource } from "../src/wasm-slot-layout-source";
 
 const args = process.argv.slice(2);
 const coreIndex = args.indexOf("--core");
@@ -14,17 +15,39 @@ const metadata = parseWasmAbiSource(
   readFileSync(metadataPath, "utf8"),
   readFileSync(sharedPath, "utf8"),
 );
-const out = resolve(import.meta.dir, "..", "src", "generated", "wasm-abi.ts");
-const generated =
+const abiOutput = resolve(import.meta.dir, "..", "src", "generated", "wasm-abi.ts");
+const generatedAbi =
   "// Generated from core-lite Wasm shared ABI headers. Do not edit.\n" +
   `export const WASM_ABI_METADATA = ${JSON.stringify(metadata, null, 2)} as const;\n`;
+const slotLayout = parseWasmSlotLayoutSource(
+  readFileSync(join(core, "src", "contract_core", "contract_def.h"), "utf8"),
+);
+const layoutOutput = resolve(
+  import.meta.dir,
+  "..",
+  "src",
+  "generated",
+  "wasm-slot-layout.ts",
+);
+const generatedLayout =
+  "// Generated from core-lite's standard lite-Wasm contract profile. Do not edit.\n" +
+  `export const WASM_SLOT_LAYOUT = ${JSON.stringify(slotLayout, null, 2)} as const;\n`;
+const outputs = [
+  { path: abiOutput, contents: generatedAbi },
+  { path: layoutOutput, contents: generatedLayout },
+];
 if (args.includes("--check")) {
-  if (!existsSync(out) || readFileSync(out, "utf8") !== generated) {
-    throw new Error(`${out} is stale; regenerate it from ${core}`);
+  const stale = outputs.find(
+    (output) => !existsSync(output.path) || readFileSync(output.path, "utf8") !== output.contents,
+  );
+  if (stale) {
+    throw new Error(`${stale.path} is stale; regenerate it from ${core}`);
   }
-  console.log(`${out} is current`);
+  for (const output of outputs) console.log(`${output.path} is current`);
   process.exit(0);
 }
-mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, generated);
-console.log(out);
+for (const output of outputs) {
+  mkdirSync(dirname(output.path), { recursive: true });
+  writeFileSync(output.path, output.contents);
+  console.log(output.path);
+}

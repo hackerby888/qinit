@@ -1,6 +1,8 @@
 // Headless background entry (the hidden `__serve` subcommand). Runs the in-process TS engine as a persistent
 // node on a fixed RPC port so `qinit mode virtualnode` makes every node command (node run/deploy/call/state/
 import { EngineServer } from "@qinit/engine/server";
+import { VirtualNode } from "@qinit/engine";
+import type { WasmSlotLayout } from "@qinit/core";
 import { systemWasm } from "./system-wasm";
 
 // RPC base -> the port the virtual node binds. Defaults to the standard dev-node port when none is given.
@@ -32,9 +34,10 @@ export async function serveEngine(
   tickMs?: number,
   system: string[] = [],
   peerPort = 21841,
+  slotLayout?: WasmSlotLayout,
 ): Promise<never> {
   const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
-  const srv = new EngineServer();
+  const srv = new EngineServer(new VirtualNode(slotLayout));
   await srv.start(portFromRpc(rpcBase), ms, peerPort);
   process.stdout.write(`qinit virtual node: rpc ${rpcBase} · peer 127.0.0.1:${peerPort}\n`);
   await seedSystemContracts(srv, system);

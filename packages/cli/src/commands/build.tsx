@@ -3,7 +3,12 @@ import { resolve, join, basename } from "node:path";
 import { writeFileSync, readFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { buildContract, type BuildResult } from "@qinit/build";
-import { autoUpdateVerifyTool, LiteRpc, type VerifyUpdate } from "@qinit/core";
+import {
+  autoUpdateVerifyTool,
+  LiteRpc,
+  loadCoreWasmSlotLayout,
+  type VerifyUpdate,
+} from "@qinit/core";
 import { resolveNodeCallees } from "../deploy-ops";
 import { compileLocal } from "../compile-local";
 import { loadConfig, resolveCore, resolveCompiler } from "../config";
@@ -37,7 +42,7 @@ export function Build({ args }: { args: string[] }) {
         const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
         const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
         const outDir = resolve(o.out ?? "dist/contracts");
-        const slot = Number(o.slot ?? cfg.slot ?? 28);
+        const slot = Number(o.slot ?? cfg.slot ?? loadCoreWasmSlotLayout(core).slotBase);
 
         const dynCallees: Record<string, { header: string; index: number }> = {};
         for (let i = 0; i < args.length; i++) {

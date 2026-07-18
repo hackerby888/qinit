@@ -1,7 +1,7 @@
 import type { WasmAbiSource } from "@qinit/core/wasm-abi-source";
 
-// v7 reads the split Wasm SDK headers directly and embeds canonical ABI metadata.
-export const GENERATOR_VERSION = 7;
+// v8 embeds the slot-identifying Wasm ABI v2 metadata.
+export const GENERATOR_VERSION = 8;
 
 export const IMPL_BOUNDARY = "//__QINIT_IMPL_BOUNDARY__";
 export const WASM_ABI_MARKER = "//__QINIT_WASM_ABI__";

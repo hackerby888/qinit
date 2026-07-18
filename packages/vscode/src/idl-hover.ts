@@ -3,6 +3,7 @@
 import * as vscode from "vscode";
 import { extractIdl, type IdlEntry } from "@qinit/build/idl";
 import { loadConfig } from "@qinit/core/project";
+import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
 import { join, basename } from "node:path";
 import { findProjectRoot, isContractDoc, QINIT_JSON } from "./project-util";
 
@@ -24,7 +25,7 @@ export class IdlHover implements vscode.HoverProvider {
       return undefined;
     }
 
-    const slot = cfg.slot ?? 28;
+    const slot = cfg.slot ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;
     const fn = Object.entries(idl.functions).find(([, e]) => e.name === word);
     if (fn) return hoverFor("function", fn[0], fn[1], slot);
     const pr = Object.entries(idl.procedures).find(([, e]) => e.name === word);

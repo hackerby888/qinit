@@ -83,7 +83,7 @@ test("contract-to-contract transfer fires the destination's POST_INCOMING_TRANSF
   await initK12();
   const sim = new Sim();
   sim.deploy(28, await wasm("Vault"));
-  sim.deploy(29, await wasm("Vault"));
+  sim.deploy(29, await wasm("Vault29"));
   sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
   expect(send(sim, 28, cid(29), 50n)).toBe(50n);
   expect(sim.balanceOf(28)).toBe(50n);
@@ -98,7 +98,7 @@ test("BEGIN_TICK lifecycle sweep runs each tick, all contracts", async () => {
   await initK12();
   const sim = new Sim();
   sim.deploy(28, await wasm("Vault"));
-  sim.deploy(29, await wasm("Vault"));
+  sim.deploy(29, await wasm("Vault29"));
   sim.beginTick();
   sim.beginTick();
   sim.beginTick();

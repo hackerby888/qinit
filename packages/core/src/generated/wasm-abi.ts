@@ -1,6 +1,6 @@
 // Generated from core-lite Wasm shared ABI headers. Do not edit.
 export const WASM_ABI_METADATA = {
-  "abiVersion": 1,
+  "abiVersion": 2,
   "lhost": [
     {
       "name": "beginFn",

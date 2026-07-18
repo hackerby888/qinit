@@ -14,7 +14,12 @@ import type {
   EntityInfo,
   TxInfo,
 } from "@qinit/core";
-import { bytesToIdentity, identityToBytes } from "@qinit/core";
+import {
+  bytesToIdentity,
+  identityToBytes,
+  DEFAULT_WASM_SLOT_LAYOUT,
+  WASM_ABI_VERSION,
+} from "@qinit/core";
 import {
   LITE_TX,
   CHUNK_DATA_MAX,
@@ -98,8 +103,8 @@ export class VirtualNode implements NodeTransport {
       liteTicking: opts.liteTicking,
       nativeLogger: this.logger,
     });
-    this.slotBase = opts.slotBase ?? 28;
-    this.slotCount = opts.slotCount ?? 4;
+    this.slotBase = opts.slotBase ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;
+    this.slotCount = opts.slotCount ?? DEFAULT_WASM_SLOT_LAYOUT.slotCount;
     this.verifySigs = opts.verifySigs ?? true;
   }
 
@@ -525,6 +530,11 @@ export class VirtualNode implements NodeTransport {
       const u = this.upload;
       if (!u) throw new Error("deploy without an active session");
       const m = DeployMessage.wrap(p);
+      if (m.abiVersion !== WASM_ABI_VERSION) {
+        throw new Error(
+          `unsupported Wasm ABI version ${m.abiVersion}; expected ${WASM_ABI_VERSION}`,
+        );
+      }
       const raw = p.length >= DeployMessage.SIZE ? new TextDecoder().decode(m.name) : "";
       const name = raw.replace(/[^\x20-\x7e].*$/, "") || "Contract"; // strip the null pad
       this.deploy(m.targetSlot, u.buf, name, source);

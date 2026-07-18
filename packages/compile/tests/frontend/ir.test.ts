@@ -232,6 +232,7 @@ describe("CALL_SIG agrees with framework.ts", () => {
 
   test("every registry entry matches the framework definition", () => {
     const framework = emitModule({
+      contractSlot: 29,
       stateSize: 0,
       arenaSize: 64 * 1024,
       contextLayout: QPI_CONTEXT_LAYOUT,

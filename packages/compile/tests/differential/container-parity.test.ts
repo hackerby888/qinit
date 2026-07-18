@@ -109,4 +109,21 @@ describe.skipIf(!ENABLED)(`container parity (${SEEDS} seeds x ${OPERATIONS} oper
       600_000,
     );
   }
+
+  toolchainTest(
+    "raw WAMR parity rejects an artifact compiled for a different slot",
+    matrix,
+    () => {
+      const fixture = CONTAINER_FIXTURES[0];
+      expect(() =>
+        executeWamr(
+          wamr.path!,
+          TS.get(fixture.family)!,
+          fixture.boundary,
+          28,
+        ),
+      ).toThrow("artifact slot mismatch");
+    },
+    120_000,
+  );
 });
