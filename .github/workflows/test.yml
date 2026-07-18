@@ -69,11 +69,11 @@ jobs:
         with:
           node-version: 20
       - run: bun install
-      - name: Build Node dist (engine, proto, core)
+      - name: Build Node dist (core, proto, engine)
         run: |
-          (cd packages/engine && bun run build)
-          (cd packages/proto && bun run build)
           (cd packages/core && bun run build)
+          (cd packages/proto && bun run build)
+          (cd packages/engine && bun run build)
       - name: Import each dist under plain Node
         run: |
           node --input-type=module -e '
@@ -110,7 +110,8 @@ jobs:
           cmake --build qubic-cli/build -j"$(nproc)"
       - name: Build qlogging
         run: |
-          cmake -S qlogging -B qlogging/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+          cmake -S qlogging -B qlogging/build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_CXX_FLAGS="-Wno-error=unused-variable"
           cmake --build qlogging/build -j"$(nproc)"
       - uses: oven-sh/setup-bun@v2
         with:
@@ -335,24 +336,52 @@ jobs:
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: |
-          mkdir -p run
-          ( cd run && "$GITHUB_WORKSPACE/core/build-node/src/Qubic" \
-              --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000 > node.log 2>&1 & echo $! > node.pid )
-          # Robust boot-wait via the shared poller (retries under set -e; see scripts/poll-node-json.sh).
-          if t=$(bash scripts/poll-node-json.sh http://127.0.0.1:41841/live/v1/tick-info '.tick // 0' 50 3); then
-            echo "node ticking at $t"
-          else
-            echo "node never ticked"; tail -40 run/node.log; exit 1
-          fi
+          node_pid=""
+          active_run_dir=""
+          stop_node() {
+            if [ -n "$node_pid" ]; then
+              kill "$node_pid" 2>/dev/null || true
+              wait "$node_pid" 2>/dev/null || true
+              node_pid=""
+            fi
+          }
+          start_node() {
+            active_run_dir="$1"
+            mkdir -p "$active_run_dir"
+            (
+              cd "$active_run_dir"
+              exec "$GITHUB_WORKSPACE/core/build-node/src/Qubic" \
+                --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000 > node.log 2>&1
+            ) &
+            node_pid=$!
+            if t=$(bash scripts/poll-node-json.sh http://127.0.0.1:41841/live/v1/tick-info '.tick // 0' 50 3); then
+              echo "node ticking at $t"
+            else
+              echo "node never ticked"
+              tail -40 "$active_run_dir/node.log"
+              return 1
+            fi
+          }
+          trap stop_node EXIT
+
+          # The first group intentionally consumes all four dynamic slots.
+          start_node run-basic
           set +e
           bun run scripts/ci-deploy-smoke.ts; c1=$?
           bun run scripts/gauntlet-smoke.ts;  c2=$?   # QPI edge-case gauntlet (div/mod, wrap, K12, HashMap, ...)
           bun run scripts/ci-qpi-dual-engine.ts; c3=$? # one TS artifact, byte-identical Sim + production WAMR state/output/digest
+          set -e
+          stop_node
+          echo "=== run-basic/node.log tail ==="; tail -25 run-basic/node.log
+
+          # Use fresh state so these independent fixtures do not fail from slot exhaustion.
+          start_node run-dual
+          set +e
           bun run scripts/ci-logging-dual-engine.ts; c4=$? # one TS artifact, byte-identical LOG_* payloads in Sim + production WAMR
           bun run scripts/ci-random-dual-engine.ts; c5=$? # chain-seeded PRNG vectors, exact artifact and state in Sim + WAMR
           set -e
-          kill "$(cat run/node.pid)" 2>/dev/null || true
-          echo "=== node.log tail ==="; tail -25 run/node.log
+          stop_node
+          echo "=== run-dual/node.log tail ==="; tail -25 run-dual/node.log
           [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ] && [ $c5 -eq 0 ]
 
   # QPI VS Code extension. Unit tests run in lint-test (bun test); these two prove the parts that need a

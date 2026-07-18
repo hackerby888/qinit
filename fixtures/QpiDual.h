@@ -2,7 +2,7 @@
 // artifact; CI runs those exact bytes in Sim and the release-configured WAMR node.
 using namespace QPI;
 
-struct LowBitHash
+struct QpiDualLowBitHash
 {
     static uint64 hash(const uint64& key)
     {
@@ -16,8 +16,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 {
     struct StateData
     {
-        HashMap<uint64, uint64, 32, LowBitHash> values;
-        HashSet<uint64, 32, LowBitHash> seen;
+        HashMap<uint64, uint64, 32, QpiDualLowBitHash> values;
+        HashSet<uint64, 32, QpiDualLowBitHash> seen;
         Collection<uint64, 32> queue;
         LinkedList<uint64, 16> list;
         uint128 wide;

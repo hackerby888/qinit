@@ -6,7 +6,11 @@
     "emitDeclarationOnly": true,
     "outDir": "dist",
     "rootDir": "src",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "@qinit/core": ["packages/core/dist/browser.d.ts"],
+      "@qinit/proto": ["packages/proto/dist/index.d.ts"]
+    }
   },
   "include": ["src/index.ts", "src/server.ts"]
 }
