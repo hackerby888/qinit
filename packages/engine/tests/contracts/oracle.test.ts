@@ -1,14 +1,9 @@
 // Oracle — a wasm contract queries / subscribes to the Mock interface (value -> {echoed, doubled}); the engine
 // records the query as opaque bytes and, on resolve (manual or via a provider), fires the contract's
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
-
-const FIX = import.meta.dir + "/../fixtures";
-
-async function wasm(n: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${n}.wasm`).arrayBuffer());
-}
 
 function cid(slot: number): Uint8Array {
   const a = new Uint8Array(32);

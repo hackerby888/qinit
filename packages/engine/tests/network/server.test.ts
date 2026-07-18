@@ -1,20 +1,15 @@
 // EngineServer (server.ts) — the HTTP adapter. Spins it up on an ephemeral port over an VirtualNode and
 // drives qubic-core-lite RPC routes: tick info, faucet balance, and contract query over HTTP.
 import { test, expect, beforeAll } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { VirtualNode } from "../../src/transport";
 import { EngineServer } from "../../src/server";
 import { deriveIdentity } from "@qinit/core";
 
-const FIX = import.meta.dir + "/../fixtures";
-
 beforeAll(async () => {
   await initK12();
 });
-
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
 
 // Start an EngineServer on an ephemeral port over a freshly-configured engine; returns its base URL + a stop fn.
 async function serve(

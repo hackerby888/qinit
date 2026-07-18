@@ -1,18 +1,14 @@
 // Mempool mode (opt-in): a broadcast tx is deferred to its scheduled tick — applied + recorded there — instead
 // of immediately. Off by default, so the rest of the engine keeps immediate-apply semantics.
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
 import { contractId } from "../support/helpers";
 
-const FIX = import.meta.dir + "/../fixtures";
 const INC = 1; // Counter Inc procedure
 const GET = 1; // Counter Get function
 const EMPTY = new Uint8Array(0);
-
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
 
 function u64(b: Uint8Array): bigint {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);

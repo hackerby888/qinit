@@ -1,12 +1,7 @@
 import { expect, test } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { Sim } from "../../src/sim";
 import { TRACE_STATE_CAP, TraceRecorder } from "../../src/trace";
-
-const FIX = import.meta.dir + "/../fixtures";
-
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
 
 test("trace metadata keeps the full state size while snapshots stay capped", () => {
   const recorder = new TraceRecorder();

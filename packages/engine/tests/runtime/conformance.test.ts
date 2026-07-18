@@ -1,19 +1,15 @@
 // Execution-fee conformance (core-lite doc/execution_fees.md). Asserts the opt-in fee model: gating at the
 // right entry points, the exemptions (epoch sysprocs + callbacks), reserve depletion/refill, the IPO seed, and
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
 import { contractId } from "../support/helpers";
 
-const FIX = import.meta.dir + "/../fixtures";
 const GET = 1; // Counter/Hooks Get function
 const INC = 1; // Counter Inc procedure
 const ORIG = new Uint8Array(32);
 const EMPTY = new Uint8Array(0);
-
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
 
 function u64(b: Uint8Array): bigint {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);

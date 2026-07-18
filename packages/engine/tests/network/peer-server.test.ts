@@ -1,6 +1,7 @@
 // Peer-protocol server — integration over a real TCP socket. Starts a PeerServer on an ephemeral port, connects
 // with Bun.connect, sends raw request packets, and asserts decoded responses including the handshake.
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, k12Bytes, toHex, verifySync } from "../../src/k12";
 import { VirtualNode } from "../../src/transport";
 import { PeerServer } from "../../src/peer-server";
@@ -15,12 +16,6 @@ import {
   tickVoteSignature,
 } from "../../src/consensus";
 import { rootFromSiblings } from "../../src/merkle";
-
-const FIX = import.meta.dir + "/../fixtures";
-
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
 
 interface Frame {
   type: number;

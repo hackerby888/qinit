@@ -2,20 +2,16 @@
 // state via the K12 digest — the same value the node's /dev/contract-digest returns. Fixtures are the real
 import { test, expect } from "bun:test";
 import { k12Hex } from "@qinit/core";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
 
-const FIX = import.meta.dir + "/../fixtures";
 const GET = 1; // REGISTER_USER_FUNCTION(Get, 1)
 const INC = 1; // REGISTER_USER_PROCEDURE(Inc, 1)
 
 function u64(b: Uint8Array): bigint {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
 }
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
-
 test("Counter: deploy -> Get=0 -> Inc -> Get=1, digest = K12(state)", async () => {
   await initK12();
   const sim = new Sim();

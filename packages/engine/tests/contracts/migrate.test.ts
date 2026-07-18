@@ -1,16 +1,13 @@
 // State migration on redeploy: when the redeployed module declares MIGRATE() and its OldStateData size matches
 // the live state, the engine runs __migrate(newState, oldState) to convert the old state into the new layout —
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
 
-const FIX = import.meta.dir + "/../fixtures";
 const INC = 1; // REGISTER_USER_PROCEDURE(Inc, 1)
 const GET = 1; // REGISTER_USER_FUNCTION(Get, 1)
 
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
 function u64(b: Uint8Array, i = 0): bigint {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(i * 8, true);
 }

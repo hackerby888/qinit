@@ -2,6 +2,7 @@
 // CI and machines without it skip. Each test stands up an in-process PeerServer on an ephemeral port, spawns
 import { test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { VirtualNode } from "../../src/transport";
 import { contractId } from "../support/helpers";
@@ -11,11 +12,6 @@ import { deriveIdentity, bytesToIdentity } from "@qinit/core";
 const CLI = process.env.QUBIC_CLI ?? "";
 const have = CLI !== "" && existsSync(CLI);
 const it = test.skipIf(!have);
-const FIX = import.meta.dir + "/../fixtures";
-
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
 
 // Run the CLI against `port` and return its stdout.
 async function runCli(port: number, args: string[]): Promise<string> {

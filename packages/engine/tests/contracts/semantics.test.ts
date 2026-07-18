@@ -2,15 +2,11 @@
 // trigger (procedureTransaction + contract-to-contract), insufficient-funds, and the BEGIN_TICK lifecycle
 import { test, expect } from "bun:test";
 import { bytesToIdentity } from "@qinit/core";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
 
-const FIX = import.meta.dir + "/../fixtures";
 const USER = new Uint8Array(32).fill(0xab); // a non-contract id (high words != 0)
-
-async function wasm(n: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${n}.wasm`).arrayBuffer());
-}
 function cid(slot: number): Uint8Array {
   const a = new Uint8Array(32);
   new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);

@@ -1,14 +1,9 @@
 // Inter-contract calls — Proxy (slot 29) calls Counter (slot 28, lower index) via liteCallFunction (CALL
 // function) and liteInvokeProcedure (INVOKE procedure). Routing is by contract index to whatever Contract is
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
-
-const FIX = import.meta.dir + "/../fixtures";
-
-async function wasm(n: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${n}.wasm`).arrayBuffer());
-}
 
 function u64(b: Uint8Array): bigint {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);

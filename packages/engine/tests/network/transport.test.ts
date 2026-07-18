@@ -2,6 +2,7 @@
 // qinit's OWN codec (encodeInput/decodeOutput), a REAL @qubic-lib signed tx, and the real deploy wire
 import { test, expect } from "bun:test";
 import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes } from "@qinit/core";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import {
   encodeInput,
   decodeOutput,
@@ -15,12 +16,8 @@ import {
 } from "@qinit/proto";
 import { VirtualNode } from "../../src/transport";
 
-const FIX = import.meta.dir + "/../fixtures";
 const SEED = "a".repeat(55);
 const ORACLE = "4b31b54f2213f1396cec4a1bd633b9409112d5969592c2c5fa66ddc1656f63c9";
-async function wasm(n: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${n}.wasm`).arrayBuffer());
-}
 
 // A tx with the canonical Qubic header but no real signature — the engine ignores it (consensus simplified).
 // Lets the deploy wire path run without a FourQ sign per chunk. The header offsets are validated against real

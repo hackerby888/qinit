@@ -1,6 +1,7 @@
 // Tick consensus — the N-computor quorum is real: each tick every computor signs a Tick vote over the chain's
 // computed state digests (spectrum/universe/computer), and the tick finalizes at aligned votes >= QUORUM. These
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, k12Bytes, toHex, deriveKeysSync, verifySync } from "../../src/k12";
 import { Sim } from "../../src/sim";
 import {
@@ -13,14 +14,9 @@ import {
   voteIsAligned,
 } from "../../src/consensus";
 
-const FIX = import.meta.dir + "/../fixtures";
 const GET = 1; // Counter Get function
 const INC = 1; // Counter Inc procedure
 const SEEDS4 = ["b".repeat(55), "c".repeat(55), "d".repeat(55), "e".repeat(55)];
-
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
 
 function u64(b: Uint8Array): bigint {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);

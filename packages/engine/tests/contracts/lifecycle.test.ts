@@ -1,10 +1,10 @@
 // Lifecycle hooks: BEGIN_TICK/END_TICK fire on every advanced tick, and crossing an epoch boundary (the
 // tick reaching a multiple of epochLength) fires END_EPOCH then BEGIN_EPOCH — core's SystemProcedureID
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
 
-const FIX = import.meta.dir + "/../fixtures";
 const GET = 1; // REGISTER_USER_FUNCTION(Get, 1)
 
 // Get_output is { ticks, endticks, epochs, endepochs } — four uint64 LE, read by field index.
@@ -15,10 +15,6 @@ function counters(sim: Sim): [bigint, bigint, bigint, bigint] {
   const s = sim.query(28, GET);
   return [field(s, 0), field(s, 1), field(s, 2), field(s, 3)];
 }
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${name}.wasm`).arrayBuffer());
-}
-
 test("BEGIN_TICK / END_TICK fire on every advanced tick", async () => {
   await initK12();
   const sim = new Sim();

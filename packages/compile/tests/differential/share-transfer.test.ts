@@ -1,4 +1,5 @@
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
+import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 // Share custody sysproc parity (PRE_*_SHARES).
 import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -9,9 +10,6 @@ import { compileContract, loadQpiHeader } from "../../src/index";
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
 const APPROVER_SRC = readFileSync(QINIT_ROOT + "/fixtures/ShareApprover.h", "utf8");
-const SHARE_MANAGER = new Uint8Array(
-  readFileSync(QINIT_ROOT + "/packages/engine/tests/fixtures/ShareManager.wasm"),
-);
 
 const TOKEN = 0x4e454b4f54n; // "TOKEN"
 
@@ -86,7 +84,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     await initK12();
   });
 
-  test("my approver's PRE_RELEASE_SHARES lets the acquirer take rights (allowTransfer read back)", async () => {
+  test("my approver's PRE_RELEASE_SHARES lets the generated acquirer take rights (allowTransfer read back)", async () => {
     const approver = await compileContract({
       source: APPROVER_SRC,
       name: "ShareApprover",
@@ -98,7 +96,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
 
     const sim = new Sim();
     sim.deploy(28, approver.wasm); // MY compiled approver: issues + approves releases
-    sim.deploy(29, SHARE_MANAGER); // native acquirer
+    sim.deploy(29, await loadWasmFixture("ShareManager"));
     const A = cid(28);
 
     sim.procedure(28, 1, issueIn(TOKEN, 1000n)); // owner = possessor = id(28), managed by contract 28
@@ -122,7 +120,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     });
     const sim = new Sim();
     sim.deploy(28, approver.wasm);
-    sim.deploy(29, SHARE_MANAGER);
+    sim.deploy(29, await loadWasmFixture("ShareManager"));
     const A = cid(28);
 
     sim.procedure(28, 1, issueIn(TOKEN, 1000n));
@@ -150,7 +148,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
     });
     const sim = new Sim();
     sim.deploy(28, approver.wasm);
-    sim.deploy(29, SHARE_MANAGER);
+    sim.deploy(29, await loadWasmFixture("ShareManager"));
     const A = cid(28);
 
     sim.procedure(28, 1, issueIn(TOKEN, 1000n));
@@ -176,7 +174,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
 
     const sim = new Sim();
     sim.deploy(28, rec.wasm);
-    sim.deploy(29, SHARE_MANAGER);
+    sim.deploy(29, await loadWasmFixture("ShareManager"));
     const A = cid(28);
 
     sim.procedure(28, 1, issueIn(TOKEN, 1000n)); // PostRec.Issue (proc 1)

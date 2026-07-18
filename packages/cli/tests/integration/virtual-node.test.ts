@@ -4,9 +4,9 @@ import { test, expect, beforeAll } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
 import { initK12, LiteRpc, deriveIdentity } from "@qinit/core";
 import { callFunction, invokeProcedure, TX_TICK_OFFSET } from "@qinit/proto";
+import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 import { portFromRpc } from "../../src/serve";
 
-const FIX = import.meta.dir + "/../../../engine/tests/fixtures";
 const SEED = "a".repeat(55);
 const SLOT = 28;
 const GET = 1; // Counter function id: Get -> uint64 count
@@ -21,7 +21,7 @@ beforeAll(async () => {
 // Boot the same backend launchVirtualNode spawns (EngineServer over the in-process engine) with Counter armed,
 // on an ephemeral port; hand back the CLI's LiteRpc client + a stop fn.
 async function bootCounter() {
-  const wasm = new Uint8Array(await Bun.file(`${FIX}/Counter.wasm`).arrayBuffer());
+  const wasm = await loadWasmFixture("Counter");
   const srv = new EngineServer();
   srv.engine.deploy(SLOT, wasm);
   const h = await srv.start(0);
@@ -173,7 +173,7 @@ test("advance-epoch crosses into the next epoch (qinit epoch advance)", async ()
 });
 
 test("directDeploy arms an arbitrary (system-index) slot, runs, surfaces in registry, undeploys", async () => {
-  const wasm = new Uint8Array(await Bun.file(`${FIX}/Counter1.wasm`).arrayBuffer());
+  const wasm = await loadWasmFixture("Counter1");
   const srv = new EngineServer();
   const h = await srv.start(0);
   const rpc = new LiteRpc(h.rpcBase);

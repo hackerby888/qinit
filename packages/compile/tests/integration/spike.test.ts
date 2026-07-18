@@ -4,18 +4,14 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { execSync } from "node:child_process";
+import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 import { Sim } from "@qinit/engine";
 import { initK12, deriveKeysSync } from "@qinit/core";
 import { emitFramework } from "../../src/framework";
 import type { UserEntry, SystemProcedureInfo } from "../../src/framework";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
-const FIXTURE = resolve(import.meta.dir, "../../../engine/tests/fixtures/Counter.wasm");
 const SPIKE_WAT = resolve(import.meta.dir, "counter-spike.wat");
-
-function loadWasm(path: string): Uint8Array {
-  return new Uint8Array(readFileSync(path));
-}
 
 // Generate the Counter-specific WAT using the framework
 function generateCounterWat(): string {
@@ -39,8 +35,8 @@ describe("Counter spike", () => {
     sim = new Sim();
   });
 
-  test("loads existing Counter.wasm fixture into engine", () => {
-    const wasm = loadWasm(FIXTURE);
+  test("loads the generated Counter fixture into engine", async () => {
+    const wasm = await loadWasmFixture("Counter");
     expect(wasm.byteLength).toBeGreaterThan(1000);
 
     const contract = sim.deploy(28, wasm);
@@ -59,9 +55,9 @@ describe("Counter spike", () => {
     expect(stateAddr).toBeGreaterThanOrEqual(0);
   });
 
-  test("Counter.Get returns 0 initially", () => {
+  test("Counter.Get returns 0 initially", async () => {
     sim = new Sim();
-    sim.deploy(28, loadWasm(FIXTURE));
+    sim.deploy(28, await loadWasmFixture("Counter"));
 
     const result = sim.query(28, 1);
     expect(result.byteLength).toBe(8);
@@ -69,9 +65,9 @@ describe("Counter spike", () => {
     expect(view.getBigUint64(0, true)).toBe(0n);
   });
 
-  test("Counter.Inc increments state", () => {
+  test("Counter.Inc increments state", async () => {
     sim = new Sim();
-    sim.deploy(28, loadWasm(FIXTURE));
+    sim.deploy(28, await loadWasmFixture("Counter"));
 
     const id = deriveKeysSync("aaaa").publicKey;
     sim.fund(id, 1_000_000_000n);
@@ -83,9 +79,9 @@ describe("Counter spike", () => {
     expect(view.getBigUint64(0, true)).toBe(1n);
   });
 
-  test("Counter.Inc is cumulative across multiple calls", () => {
+  test("Counter.Inc is cumulative across multiple calls", async () => {
     sim = new Sim();
-    sim.deploy(28, loadWasm(FIXTURE));
+    sim.deploy(28, await loadWasmFixture("Counter"));
 
     const id = deriveKeysSync("bbbb").publicKey;
     sim.fund(id, 1_000_000_000n);

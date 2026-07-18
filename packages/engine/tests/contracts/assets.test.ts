@@ -1,15 +1,11 @@
 // Phase 3 — assets/shares: issueAsset, isAssetIssued, numberOfShares, numberOfPossessedShares,
 // transferShareOwnershipAndPossession, and distributeDividends. Driven through the Token + Dividend fixtures
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, deriveKeysSync, signSync, k12Bytes, toHex } from "../../src/k12";
 import { Sim } from "../../src/sim";
 
-const FIX = import.meta.dir + "/../fixtures";
 const TOKEN = 0x4e454b4f54n; // "TOKEN" (bytes T,O,K,E,N)
-
-async function wasm(n: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${n}.wasm`).arrayBuffer());
-}
 
 function cid(slot: number): Uint8Array {
   const a = new Uint8Array(32);

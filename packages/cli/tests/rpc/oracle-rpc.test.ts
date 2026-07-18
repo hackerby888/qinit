@@ -3,8 +3,8 @@
 import { test, expect } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
 import { initK12 } from "@qinit/core";
+import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 
-const FIX = import.meta.dir + "/../../../engine/tests/fixtures";
 const QUERY = 2,
   LAST = 1; // OracleProbe: REGISTER_USER_PROCEDURE(Query,2) / REGISTER_USER_FUNCTION(Last,1)
 const cid = (s: number) => {
@@ -39,7 +39,7 @@ test("oracle RPC seam: discover a pending query, inject the reply, the notificat
   await initK12();
   const SLOT = 29;
   const srv = new EngineServer();
-  srv.engine.deploy(SLOT, new Uint8Array(await Bun.file(`${FIX}/OracleProbe.wasm`).arrayBuffer()));
+  srv.engine.deploy(SLOT, await loadWasmFixture("OracleProbe"));
   srv.engine.sim.fund(cid(SLOT), 1_000_000n); // balance to burn for the query fee
   srv.engine.sim.procedure(SLOT, QUERY, queryIn(21n, 60_000)); // raise a PENDING query (id not visible to a tx sender)
   const h = await srv.start();

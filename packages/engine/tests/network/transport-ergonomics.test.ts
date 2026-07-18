@@ -1,12 +1,8 @@
 // Ergonomics: VirtualNode.create() self-inits crypto (one await, no initK12 ceremony) and deploy()
 // auto-assigns the slot by name (redeploy-by-name reuses it). This file deliberately never imports initK12 —
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { VirtualNode } from "../../src/transport";
-
-const FIX = import.meta.dir + "/../fixtures";
-async function wasm(n: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${n}.wasm`).arrayBuffer());
-}
 
 test("create() self-inits crypto — deploy + advance run with no explicit initK12()", async () => {
   const eng = await VirtualNode.create(); // the one await; no initK12 ceremony

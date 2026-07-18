@@ -43,6 +43,14 @@ typedef signed char int8_t;
 // Oracle query/reply size limits (network_messages/common_def.h: MAX_INPUT_SIZE(1024) - 16), referenced by the oracle interface headers.
 #define MAX_ORACLE_QUERY_SIZE 1008
 #define MAX_ORACLE_REPLY_SIZE 1008
+
+// Oracle query statuses from network_messages/common_def.h.
+constexpr uint8_t ORACLE_QUERY_STATUS_UNKNOWN = 0;
+constexpr uint8_t ORACLE_QUERY_STATUS_PENDING = 1;
+constexpr uint8_t ORACLE_QUERY_STATUS_COMMITTED = 2;
+constexpr uint8_t ORACLE_QUERY_STATUS_SUCCESS = 3;
+constexpr uint8_t ORACLE_QUERY_STATUS_TIMEOUT = 4;
+constexpr uint8_t ORACLE_QUERY_STATUS_UNRESOLVABLE = 5;
 `;
 
 // Defines fed to the preprocessor when parsing the real qpi.h (the lite wasm build profile).

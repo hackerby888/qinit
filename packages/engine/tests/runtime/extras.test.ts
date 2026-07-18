@@ -1,14 +1,9 @@
 // The last host imports: spectrum iteration (nextId/prevId) and shareholder governance
 // (setShareholderProposal -> the callee's SET_SHAREHOLDER_PROPOSAL sysproc).
 import { test, expect } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
-
-const FIX = import.meta.dir + "/../fixtures";
-
-async function wasm(n: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${n}.wasm`).arrayBuffer());
-}
 
 function hex(b: Uint8Array): string {
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");

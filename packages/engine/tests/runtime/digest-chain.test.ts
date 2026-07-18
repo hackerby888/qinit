@@ -1,6 +1,7 @@
 // The digest chain — proof that the three committed state roots a tick vote carries (prevSpectrumDigest,
 // prevUniverseDigest, prevComputerDigest) are the same roots a light client reconstructs from a merkle proof, and
 import { test, expect, beforeAll } from "bun:test";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, toHex, verifySync } from "../../src/k12";
 import { Sim } from "../../src/sim";
 import { rootFromSiblings } from "../../src/merkle";
@@ -15,12 +16,6 @@ const B = new Uint8Array(32).fill(0x44);
 beforeAll(async () => {
   await initK12();
 });
-
-async function wasm(name: string): Promise<Uint8Array> {
-  return new Uint8Array(
-    await Bun.file(`${import.meta.dir}/../fixtures/${name}.wasm`).arrayBuffer(),
-  );
-}
 
 // Count the votes that (a) carry a valid signature from their computor and (b) commit `expected` at the named
 // prev*Digest field — the generalized form of verifyEntityProof's spectrum check, for any of the three roots.

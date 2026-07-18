@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.so
+*.wasm
 *.log
 .DS_Store
 .env

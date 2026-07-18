@@ -3,16 +3,12 @@
 import { test, expect } from "bun:test";
 import { buildSignedTx, deriveIdentity } from "@qinit/core";
 import { contractAddress, encodeInput } from "@qinit/proto";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";
 import { VirtualNode } from "../../src/transport";
 
-const FIX = import.meta.dir + "/../fixtures";
 const SEED = "a".repeat(55);
-
-async function wasm(n: string): Promise<Uint8Array> {
-  return new Uint8Array(await Bun.file(`${FIX}/${n}.wasm`).arrayBuffer());
-}
 
 function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(hex.length / 2);
