@@ -79,6 +79,8 @@ test("contract-digest matches the engine's own digest; an unknown route 404s", a
   try {
     const j = await (await fetch(`${base}/live/v1/dev/contract-digest?slot=28`)).json();
     expect(j.digest).toBe(engine.sim.digest(28));
+    expect(j.slot).toBe(28);
+    expect(j.stateSize).toBe(engine.sim.contracts.get(28)?.stateSize);
 
     const r = await fetch(`${base}/no/such/route`);
     expect(r.status).toBe(404);

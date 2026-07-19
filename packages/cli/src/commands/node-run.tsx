@@ -3,12 +3,6 @@ import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  loadManifest,
-  fetchVerify,
-  extractTarGz,
-  cacheHeaders,
-  readCurrent,
-  updateCurrent,
   fetchWasiSdk,
   haveWasiSdkCache,
   loadCoreWasmSlotLayout,
@@ -26,8 +20,9 @@ import {
 import { savedMode, loadConfig } from "../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 import { parseArgs, output } from "../args";
+import { prepareNodeRunCore } from "../node-run-core";
 
-// qinit node run [--ref <tag>] [--restart] [--offline] [--bin <path>] [--tick-ms <n>] [--keep] [--rpc] [--wait]
+// qinit node run [--ref <tag>] [--core <path>] [--restart] [--offline] [--bin <path>] [--tick-ms <n>] [--keep] [--rpc] [--wait]
 // One command bring-up: sync headers + fetch the wasm compiler + get the node + run it. Reuses a node that's
 function parse(args: string[]): Record<string, string> {
   const a = parseArgs(args, {
@@ -70,52 +65,13 @@ export function NodeRun({ args }: { args: string[] }) {
   useEffect(() => {
     (async () => {
       try {
-        // Resolve the version: online from the manifest, offline from the cache pointer.
-        let version: string, headersAsset: any, nodeAsset: any;
-        if (o.offline) {
-          const cur = readCurrent();
-          if (!cur?.coreHeaders || !existsSync(cur.coreHeaders))
-            throw new Error("offline: no synced headers — run `qinit node run` online first");
-          version = cur.headersVersion ?? "cached";
-        } else {
-          try {
-            const m = await loadManifest(ref);
-            version = m.version;
-            headersAsset = m.headers;
-            nodeAsset = m.node;
-          } catch (e) {
-            // The virtual backend needs no node release; if the manifest is unreachable, run on cached headers.
-            if (!virtual) throw e;
-            const cur = readCurrent();
-            if (!cur?.coreHeaders || !existsSync(cur.coreHeaders))
-              throw new Error(
-                "no cached headers — run `qinit node run` online once to sync headers + wasi-sdk",
-              );
-            version = cur.headersVersion ?? "cached";
-          }
-        }
-
-        // Headers: reuse if already synced for this version, else fetch+extract.
+        // An explicit core checkout bypasses the release manifest. The published/cached path is unchanged
+        // when --core is absent.
         set("headers", "active");
-        const cur0 = readCurrent();
-        if (o.offline) set("headers", "ok", `reuse ${version}`);
-        else if (
-          cur0?.headersVersion === version &&
-          cur0.coreHeaders &&
-          existsSync(cur0.coreHeaders)
-        )
-          set("headers", "ok", `cached ${version}`);
-        else {
-          if (!headersAsset) throw new Error(`manifest ${version} has no headers asset`);
-          const root = cacheHeaders(version);
-          await extractTarGz(await fetchVerify(headersAsset), root);
-          updateCurrent({ headersVersion: version, coreHeaders: root });
-          set("headers", "ok", `fetched ${version}`);
-        }
-
-        const currentHeaders = readCurrent()?.coreHeaders;
-        const slotLayout =
-          virtual && currentHeaders ? loadCoreWasmSlotLayout(currentHeaders) : undefined;
+        const preparedCore = await prepareNodeRunCore(o, virtual);
+        const { version, coreHeaders: currentHeaders } = preparedCore;
+        set("headers", "ok", preparedCore.detail);
+        const slotLayout = virtual ? loadCoreWasmSlotLayout(currentHeaders) : undefined;
         if (virtual && !slotLayout) {
           throw new Error("virtual node requires synced core headers for its Wasm slot layout");
         }

@@ -31,9 +31,11 @@ export const META: Record<string, CommandMeta> = {
     json: true,
     summary:
       "bring up + manage the dev node: run (sync headers+wasm, get node, launch), status, stop, get",
-    usage: "<run|status|stop|get> [--ref <tag>] [--restart] [--offline] [--bin <path>]",
+    usage:
+      "<run|status|stop|get> [--ref <tag>] [--core <path>] [--restart] [--offline] [--bin <path>]",
     flags: [
       ["--ref <tag>", "node/headers release to use (default: latest)"],
+      ["--core <path>", "run against a local core checkout (requires --bin for a real node)"],
       ["--restart", "force a fresh node even if one is ticking"],
       ["--offline", "use only cached node/headers (no network)"],
       ["--bin <path>", "run a local node binary (skip fetch)"],
@@ -107,6 +109,7 @@ export const META: Record<string, CommandMeta> = {
   },
   build: {
     group: "develop",
+    json: true,
     summary: "compile a contract .h -> wasm (+ K12 hash, IDL)",
     usage: "<file.h>",
     flags: [
@@ -198,6 +201,7 @@ export const META: Record<string, CommandMeta> = {
     summary: "decode + print a deployed contract's current state",
     usage: "[<target>]",
     flags: [
+      ["--digest", "print the node's canonical full-state K12 digest"],
       ["--all", "include zero/empty fields"],
       ["--rpc <url>", "node RPC base"],
     ],

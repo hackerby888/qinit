@@ -5,6 +5,7 @@ import { Box, Text, useApp } from "ink";
 import { buildContract, type BuildResult } from "@qinit/build";
 import {
   autoUpdateVerifyTool,
+  k12Hex,
   LiteRpc,
   loadCoreWasmSlotLayout,
   type VerifyUpdate,
@@ -13,6 +14,7 @@ import { resolveNodeCallees } from "../deploy-ops";
 import { compileLocal } from "../compile-local";
 import { loadConfig, resolveCore, resolveCompiler } from "../config";
 import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
+import { output } from "../args";
 
 function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
   const o: Record<string, string> = {};
@@ -27,6 +29,17 @@ function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
 
 type State =
   { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate; notes?: string[] };
+
+export function buildJsonResult(r: BuildResult, compiler: string) {
+  return {
+    ok: r.ok,
+    compiler,
+    artifact: r.so ?? null,
+    size: r.size ?? null,
+    hash: r.hash ?? null,
+    stderr: r.stderr ?? "",
+  };
+}
 
 export function Build({ args }: { args: string[] }) {
   const { exit } = useApp();
@@ -62,9 +75,15 @@ export function Build({ args }: { args: string[] }) {
             try {
               writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
             } catch {}
+          let hash = "";
+          if (output.json && r.so) {
+            try {
+              hash = await k12Hex(new Uint8Array(readFileSync(r.so)));
+            } catch {}
+          }
           setS({
             phase: "done",
-            r: { ok: true, so: r.so, size: r.size, hash: "", idl: r.idl as any },
+            r: { ok: true, so: r.so, size: r.size, hash, idl: r.idl as any, stderr: r.stderr },
           });
           return;
         }
@@ -102,10 +121,15 @@ export function Build({ args }: { args: string[] }) {
 
   useEffect(() => {
     if (s.phase === "done") {
+      if (output.json) {
+        process.stdout.write(JSON.stringify(buildJsonResult(s.r, compiler)) + "\n");
+      }
       process.exitCode = s.r.ok ? 0 : 1;
       exit();
     }
   }, [s, exit]);
+
+  if (output.json) return null;
 
   if (s.phase === "run") {
     const label =

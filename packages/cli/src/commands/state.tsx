@@ -5,22 +5,28 @@ import { readState, type StateDump } from "../trace-format";
 import { StateView } from "../views";
 import { loadConfig } from "../config";
 import { loadContracts, systemAsDyn } from "../contracts";
-import { Header, Spinner, GradLine, theme } from "../ui";
+import { Header, Spinner, GradLine, Panel, KV, theme } from "../ui";
+import { output } from "../args";
+import { readStateDigest, type StateDigestResult } from "../state-digest";
 
-// qinit state [<name|slot>] [--rpc <url>]
+// qinit state [<name|slot>] [--digest] [--json] [--rpc <url>]
 // Decode + print a deployed contract's CURRENT state. No target -> interactive picker of deployed contracts.
-function parse(args: string[]): { target: string; rpc?: string; all: boolean } {
+function parse(args: string[]): { target: string; rpc?: string; all: boolean; digest: boolean } {
   let target = "";
   let rpc: string | undefined;
   let all = false;
+  let digest = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--rpc") rpc = args[++i];
     else if (a === "--all") all = true;
+    else if (a === "--digest") digest = true;
     else if (!a.startsWith("--") && !target) target = a;
   }
-  return { target, rpc, all };
+  return { target, rpc, all, digest };
 }
+
+type DigestOutput = StateDigestResult | { ok: false; error: string };
 
 export function State({ args }: { args: string[] }) {
   const o = parse(args);
@@ -33,6 +39,7 @@ export function State({ args }: { args: string[] }) {
   const [userCount, setUserCount] = useState(0); // contracts[0..userCount) deployed, rest system
   const [i, setI] = useState(0);
   const [phase, setPhase] = useState<"loading" | "pick" | "show" | "done">("loading");
+  const [digest, setDigest] = useState<DigestOutput | null>(null);
   const add = (s: string) => setLines((l) => [...l, s]);
 
   const load = async (c: DynContract) => {
@@ -55,6 +62,10 @@ export function State({ args }: { args: string[] }) {
     (async () => {
       try {
         const rpc = new LiteRpc(rpcBase);
+        if (o.digest) {
+          setDigest(await readStateDigest(o.target, rpc));
+          return;
+        }
         const { user, system } = await loadContracts(rpc); // deployed first, then system (catalog)
         const all = [...user, ...system.map(systemAsDyn)];
         if (o.target) {
@@ -82,18 +93,28 @@ export function State({ args }: { args: string[] }) {
         setUserCount(user.length);
         setPhase("pick");
       } catch (e: any) {
+        if (o.digest) {
+          setDigest({ ok: false, error: String(e?.message ?? e) });
+          return;
+        }
         add("ERROR: " + String(e?.message ?? e));
         setPhase("done");
       }
     })();
   }, []);
   useEffect(() => {
-    if (phase === "show" || phase === "done") {
+    if (digest) {
+      if (output.json) process.stdout.write(JSON.stringify(digest) + "\n");
+      process.exitCode = digest.ok ? 0 : 1;
+      const t = setTimeout(() => exit(), 50);
+      return () => clearTimeout(t);
+    }
+    if (!o.digest && (phase === "show" || phase === "done")) {
       if (lines.some((l) => l.startsWith("ERROR"))) process.exitCode = 1;
       const t = setTimeout(() => exit(), 50);
       return () => clearTimeout(t);
     }
-  }, [phase]);
+  }, [phase, digest]);
 
   useInput(
     (input, key) => {
@@ -105,6 +126,32 @@ export function State({ args }: { args: string[] }) {
     },
     { isActive: Boolean(process.stdin.isTTY) },
   );
+
+  if (o.digest && output.json) return null;
+  if (o.digest) {
+    return (
+      <Box flexDirection="column">
+        <Header cmd="state" />
+        {!digest ? (
+          <Spinner label="reading state digest" />
+        ) : digest.ok ? (
+          <Panel title="state digest ✓" color={theme.ok}>
+            <KV
+              rows={[
+                ["slot", String(digest.slot)],
+                ["state size", String(digest.stateSize)],
+                ["digest", digest.digest],
+              ]}
+            />
+          </Panel>
+        ) : (
+          <Panel title="state digest failed" color={theme.err}>
+            <Text>{digest.error}</Text>
+          </Panel>
+        )}
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column">

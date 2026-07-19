@@ -108,7 +108,16 @@ export class EngineServer {
             );
           }
           if (path === "/live/v1/dev/contract-digest") {
-            return json({ digest: eng.sim.digest(Number(q.get("slot"))) });
+            const slot = Number(q.get("slot"));
+            const contract = eng.sim.contracts.get(slot);
+            if (!contract) {
+              throw new Error(`no contract at slot ${slot}`);
+            }
+            return json({
+              slot,
+              stateSize: contract.stateSize,
+              digest: eng.sim.digest(slot),
+            });
           }
           if (path.startsWith("/live/v1/balances/")) {
             return json({
