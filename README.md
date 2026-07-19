@@ -4,7 +4,7 @@ Framework for **Qubic dynamic contracts** — scaffold → build → deploy → 
 client, shipped as a single standalone binary. Pairs with
 `qubic-core-lite/src/extensions/DYNAMIC_CONTRACTS.md`.
 
-See [PLAN.md](./PLAN.md) for the full design and milestones.
+See the [compiler walkthrough](./docs/QINIT_COMPILER_WALKTHROUGH.md) for the current Wasm pipeline.
 
 ## Install
 
@@ -35,7 +35,7 @@ test that validates the binary path before any real feature code.
 ## Prereqs
 
 - [Bun](https://bun.sh) — `curl -fsSL https://bun.sh/install | bash`
-- `clang-18` (for the future `.so` build pipeline) — already required by qubic-core-lite.
+- wasi-sdk for the Clang-to-Wasm backend (`qinit node run` fetches and caches it automatically).
 
 ## Run
 

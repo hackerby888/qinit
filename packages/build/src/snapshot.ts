@@ -2,7 +2,7 @@
 // Self-updating; mirrors core layout so -I resolves 1:1 with a real checkout.
 import { mkdirSync, copyFileSync, readdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
-import { genWrapper, genWrapperWasm, resolveClang } from "./recipe";
+import { genWrapperWasm } from "./recipe";
 import { CORE_WASM_HEADERS, loadCoreWasmSlotLayout, wasiSdkPaths } from "@qinit/core";
 
 const STUB = `using namespace QPI;
@@ -19,7 +19,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 export interface SnapshotResult { root: string; fileCount: number; }
 
 // Produce <outRoot>/core-headers/ (extracted, ready to use as a corePath).
-export async function buildSnapshot(corePath: string, outRoot: string, clangPref?: string): Promise<SnapshotResult> {
+export async function buildSnapshot(corePath: string, outRoot: string): Promise<SnapshotResult> {
   corePath = resolve(corePath);
   if (!existsSync(join(corePath, "src", "contracts", "qpi.h")))
     throw new Error(`not a core checkout (no src/contracts/qpi.h): ${corePath}`);
@@ -30,26 +30,21 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   writeFileSync(stubH, STUB);
   const slot = loadCoreWasmSlotLayout(corePath).slotBase;
   const wrapper = join(tmp, "Stub.wrapper.cpp");
-  writeFileSync(wrapper, genWrapper({ contractPath: stubH, name: "Stub", slot, corePath, outDir: tmp }));
+  writeFileSync(wrapper, genWrapperWasm({ contractPath: stubH, name: "Stub", slot, corePath, outDir: tmp }));
   const shim = join(corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics);
-  const wasmWrapper = join(tmp, "Stub.wasm.wrapper.cpp");
-  writeFileSync(wasmWrapper, genWrapperWasm({ contractPath: stubH, name: "Stub", slot, corePath, outDir: tmp }));
 
   const flatten = (out: string) => out.replace(/\\\n/g, " ").split(/\s+/).filter((s) => s.startsWith(corePath));
-  // native (.so) closure — general headers under the real-intrinsics path.
-  const clang = resolveClang(clangPref);
-  const rn = Bun.spawnSync([clang, "-std=c++20", "-fPIC", "-mavx2", `-I${corePath}`, `-I${join(corePath, "src")}`, "-M", wrapper]);
-  if (rn.exitCode !== 0) throw new Error("clang -M failed:\n" + new TextDecoder().decode(rn.stderr));
-  // WASM closure — computed with the actual wasm target+sysroot so it matches what compileWasmContract pulls
+  // Compute the closure with the actual Wasm target and sysroot so it matches compileWasmContract.
   // (SDK module runtime, force-included intrinsics, and the simde m256i headers used by the Wasm target).
   const sdk = wasiSdkPaths();
   const wasmClang = process.env.WASM_CLANG ?? sdk?.clang;
   const sysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
-  if (!wasmClang) throw new Error("no wasm clang (WASM_CLANG or a fetched wasi-sdk) — needed to snapshot the wasm header closure");
+  if (!wasmClang || !sysroot) throw new Error("no complete wasi-sdk (WASM_CLANG + WASI_SYSROOT or a fetched SDK) — needed to snapshot the Wasm header closure");
   const rw = Bun.spawnSync([wasmClang, "--target=wasm32-wasi", "-std=c++20", "-fno-exceptions", "-fno-rtti",
-    ...(sysroot ? [`--sysroot=${sysroot}`] : []), "-include", shim, `-I${corePath}`, `-I${join(corePath, "src")}`, "-M", wasmWrapper]);
+    "-DLITEDYN_CONTRACT_TU", `--sysroot=${sysroot}`, "-include", shim,
+    `-I${corePath}`, `-I${join(corePath, "src")}`, "-MM", wrapper]);
   if (rw.exitCode !== 0) throw new Error("wasm clang -M failed:\n" + new TextDecoder().decode(rw.stderr));
-  const deps = [...flatten(new TextDecoder().decode(rn.stdout)), ...flatten(new TextDecoder().decode(rw.stdout))];
+  const deps = flatten(new TextDecoder().decode(rw.stdout));
 
   // Inter-contract additions not in a no-callee closure: every contract header, index map, and SDK headers.
   const contractsDir = join(corePath, "src", "contracts");
@@ -65,7 +60,7 @@ export async function buildSnapshot(corePath: string, outRoot: string, clangPref
   const root = join(outRoot, "core-headers");
   rmSync(root, { recursive: true, force: true });
   let n = 0;
-  for (const f of new Set([...deps, ...extra])) {
+  for (const f of new Set([...deps, ...extra].map((file) => resolve(file)))) {
     const rel = relative(corePath, f);
     if (rel.startsWith("..") || !existsSync(f)) continue;
     const dst = join(root, rel);

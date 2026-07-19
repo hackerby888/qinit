@@ -3,21 +3,21 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // The wrapper must #define CONTRACT_STATE_TYPE to the STRUCT type, not the ticker, or the build fails with
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
-import { genWrapper } from "../../src/recipe";
+import { genWrapperWasm } from "../../src/recipe";
 import { systemContracts } from "../../src/system-contracts";
 
 const base = { contractPath: "/x/Quottery.h", slot: 2, corePath: "/core", outDir: "/out" };
 
-test("genWrapper uses stateType for the C++ struct #defines when it differs from name", () => {
-  const w = genWrapper({ ...base, name: "QTRY", stateType: "QUOTTERY" });
+test("genWrapperWasm uses stateType for the C++ struct #defines when it differs from name", () => {
+  const w = genWrapperWasm({ ...base, name: "QTRY", stateType: "QUOTTERY" });
   expect(w).toContain("#define CONTRACT_STATE_TYPE QUOTTERY");
   expect(w).toContain("#define CONTRACT_STATE2_TYPE QUOTTERY2");
   expect(w).toContain("#define QUOTTERY_CONTRACT_INDEX 2");
   expect(w).not.toContain("#define CONTRACT_STATE_TYPE QTRY"); // the ticker must not be used as the struct type
 });
 
-test("genWrapper defaults stateType to name (user contracts where they match)", () => {
-  const w = genWrapper({ ...base, name: "Counter" });
+test("genWrapperWasm defaults stateType to name (user contracts where they match)", () => {
+  const w = genWrapperWasm({ ...base, name: "Counter" });
   expect(w).toContain("#define CONTRACT_STATE_TYPE Counter");
   expect(w).toContain("#define Counter_CONTRACT_INDEX 2");
 });

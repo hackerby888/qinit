@@ -133,7 +133,7 @@ export class LiteRpc implements NodeTransport {
   }
 
   /** Active upload session — assembled chunk count + which seqs are still missing (GET /live/v1/dyn-upload).
-   * Lets deploy confirm the node assembled the full .so (and resend only missing chunks) before DEPLOY. */
+   * Lets deploy confirm the node assembled the full Wasm module before DEPLOY. */
   dynUpload() {
     return this.get<DynUpload>("/live/v1/dyn-upload");
   }

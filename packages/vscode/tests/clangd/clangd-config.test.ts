@@ -78,7 +78,6 @@ test.if(hasFixture)(
       expect(prefix).toContain("#define CONTRACT_STATE2_TYPE Counter2");
       expect(prefix).toContain(`#define CONTRACT_INDEX ${DEFAULT_SLOT}`);
       expect(prefix).toContain('#include "contracts/qpi.h"');
-      expect(prefix).not.toContain("#define WASM_NATIVE_TU_BUILD");
       expect(prefix).not.toContain(`#include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"`); // impl tail excluded
       expect(prefix).not.toContain('#include "' + COUNTER.replace(/\\/g, "/") + '"'); // contract include excluded
 

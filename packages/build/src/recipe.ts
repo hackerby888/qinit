@@ -64,57 +64,38 @@ const PREAMBLE_CORE = `#include "contract_core/pre_qpi_def.h"
 #include "oracle_core/oracle_interfaces_def.h"
 `;
 
-// The full preamble for a build type — exactly what the wrapper emits before any per-contract content, so a
-// PCH built from this is a valid prefix of the wrapper TU.
-export function buildPreamble(buildDefine: "WASM_NATIVE_TU_BUILD" | "LITE_WASM_TU_BUILD"): string {
-  return `${PREAMBLE_STD}#define ${buildDefine}\n${PREAMBLE_CORE}`;
+// Exactly what the Wasm wrapper emits before any per-contract content, so a PCH built from this is a valid
+// prefix of the wrapper TU.
+export function buildPreamble(): string {
+  return `${PREAMBLE_STD}#define LITE_WASM_TU_BUILD\n${PREAMBLE_CORE}`;
 }
 
-type WrapperTarget = "native" | "wasm";
-
-function genWrapperForTarget(o: BuildOpts, target: WrapperTarget): string {
+// --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
+export function genWrapperWasm(o: BuildOpts): string {
   const T = o.stateType ?? o.name; // the C++ struct type the contract declares
-  const buildDefine = target === "wasm" ? "LITE_WASM_TU_BUILD" : "WASM_NATIVE_TU_BUILD";
-  const targetSupport =
-    target === "wasm" ? `#include "${CORE_WASM_HEADERS.sdk.qpiSupport}"\n` : "";
-  const runtimeInclude =
-    target === "wasm"
-      ? CORE_WASM_HEADERS.sdk.moduleRuntime
-      : CORE_WASM_HEADERS.shared.abiTypes;
-
-  return `${buildPreamble(buildDefine)}${o.calleePrelude ?? ""}
+  const wrapper = `${buildPreamble()}${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
 #define ${T}_CONTRACT_INDEX ${o.slot}
 #define CONTRACT_STATE_TYPE ${T}
 #define CONTRACT_STATE2_TYPE ${T}2
 // Late-bind CALL/INVOKE_OTHER_CONTRACT to the callee's deployed code via the host (needs the callee
 // __contract_index + <Type>_<fn>_inputType consts from the prelude + CONTRACT_INDEX above).
-// Target-specific wrappers are emitted directly; no include-string rewriting is used.
 #include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"
-${targetSupport}#include "${o.contractPath}"
-// QPI data-structure impls operate on contract-local memory -> .so-safe. CAUTION: after the contract.
+#include "${CORE_WASM_HEADERS.sdk.qpiSupport}"
+#include "${o.contractPath}"
+// QPI data-structure impls operate on contract-local memory. CAUTION: after the contract.
 // Collection + LinkedList are clean (only qpi.h + memory).
 #include "contract_core/qpi_collection_impl.h"
 #include "contract_core/qpi_linked_list_impl.h"
 // HashMap's impl pulls common_buffers.h, whose __acquire/releaseScratchpad use the host-initialized
-// commonBuffers global (absent in the .so). Rename those defs to dead symbols; the .so forwards
-#define __acquireScratchpad __wasm_native_cb_acquireScratchpad_unused
-#define __releaseScratchpad __wasm_native_cb_releaseScratchpad_unused
+// commonBuffers global (absent in the Wasm module). Rename those defs to dead symbols; calls use host imports.
+#define __acquireScratchpad __qinit_cb_acquireScratchpad_unused
+#define __releaseScratchpad __qinit_cb_releaseScratchpad_unused
 #include "contract_core/qpi_hash_map_impl.h"
 #undef __acquireScratchpad
 #undef __releaseScratchpad
-#include "${runtimeInclude}"
+#include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"
 `;
-}
-
-export function genWrapper(o: BuildOpts): string {
-  return genWrapperForTarget(o, "native");
-}
-
-
-// --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
-export function genWrapperWasm(o: BuildOpts): string {
-  const wrapper = genWrapperForTarget(o, "wasm");
   if (!o.testSource) {
     return wrapper;
   }
@@ -162,7 +143,7 @@ async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string 
 
   pchInflight = (async () => {
     try {
-      const preamble = buildPreamble("LITE_WASM_TU_BUILD");
+      const preamble = buildPreamble();
       const sig = createHash("sha256").update(clang).update("\0").update(pchFlags.join(" ")).update("\0").update(preamble).digest("hex").slice(0, 24);
       const dir = join(tmpdir(), "qinit-pch");
       mkdirSync(dir, { recursive: true });
@@ -261,23 +242,4 @@ export async function compileWasmContract(
     } catch {}
   }
   return { ok: exitCode === 0, wasm, wrapper, stderr, exitCode, debugWasm, linesJson };
-}
-
-// Any clang >= 18 (clang only — relies on its intrinsics/ABI). Not gcc.
-function clangMajor(bin: string): number | null {
-  try {
-    const r = Bun.spawnSync([bin, "--version"]);
-    if (r.exitCode !== 0) return null;
-    const m = new TextDecoder().decode(r.stdout).match(/clang version (\d+)/);
-    return m ? Number(m[1]) : null;
-  } catch { return null; }
-}
-
-export function resolveClang(pref?: string): string {
-  const cands = [pref, "clang++-18", "clang++-19", "clang++-20", "clang++"].filter(Boolean) as string[];
-  for (const c of cands) {
-    const v = clangMajor(c);
-    if (v !== null && v >= 18) return c;
-  }
-  throw new Error("no clang++ >= 18 found on PATH (clang required, not gcc)");
 }

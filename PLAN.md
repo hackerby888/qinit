@@ -1,5 +1,7 @@
 # Qinit — framework for Qubic dynamic contracts
 
+> Historical plan. The `.so` sections describe the removed host-native prototype; current Qinit compilers emit Wasm only.
+
 **Status:** plan / greenfield.
 **Pairs with:** `qubic-core-lite/src/extensions/DYNAMIC_CONTRACTS.md` — Qinit is the dev-facing
 toolchain (client side) for that on-chain runtime-deploy mechanism, and the vehicle we use to

@@ -1,5 +1,7 @@
 # Plan: #1 `qinit sync` + #2 `qinit node` — works-out-of-the-box flow
 
+> Historical plan. Current Qinit uses `qinit node run` and both compiler backends emit Wasm.
+
 ## Goal
 Remove the two manual setup deps for a contract dev, **keeping native clang** (#7 parked):
 1. **#1** — no local core checkout. Headers come from a pinned snapshot fetched from GitHub releases.
@@ -35,7 +37,7 @@ Manifest + node + header asset URLs all resolve against `hackerby888/core-lite` 
   "node":    { "url": "...Qubic",                 "sha256": "..." },
   "headers": { "url": "...core-headers.tar.zst",  "sha256": "..." } }
 ```
-One version ⇒ node + headers that match (the `.so` compiled vs the snapshot dlopens into that node).
+One version ⇒ node + headers that match, so the compiled Wasm module matches that node's ABI.
 
 New `packages/core/src/fetch.ts`: `fetchAsset(url, sha256) -> path` (download, verify sha, atomic
 extract), `loadManifest(ref) -> Manifest`, `cacheDir(ver)`. `--offline` = cache-only. Used by sync + node.

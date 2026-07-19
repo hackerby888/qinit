@@ -414,7 +414,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   });
 
   // assemble — broadcast-OK ≠ landed in a tick (a chunk tx can be accepted then dropped from the
-  // tick). Confirm the node reassembled the full .so via dyn-upload before DEPLOY, else DEPLOY no-ops
+  // tick). Confirm the node reassembled the full Wasm module before DEPLOY, else DEPLOY no-ops
   let assembled = false;
   await waitTickReach(uploadTick + 1); // let the chunk tick be processed first
   for (let round = 0; round < 4 && !assembled; round++) {
