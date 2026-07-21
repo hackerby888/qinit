@@ -100,8 +100,6 @@ function cmakeProof(): Record<string, string> {
     if (proof[key] !== wanted) fail(`CMake ${key}=${proof[key]}, expected ${wanted}`);
   }
   proof.CMAKE_CACHE = cachePath;
-  proof.CMAKE_C_COMPILER = value("CMAKE_C_COMPILER");
-  proof.CMAKE_CXX_COMPILER = value("CMAKE_CXX_COMPILER");
   return proof;
 }
 
