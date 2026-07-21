@@ -56,7 +56,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         uint128 a;
         uint128 b;
         uint64 i;
-        uint64 scratchAddress;
+        uint64 j;
+        uint64 key;
+        uint64 value;
+        uint64 valid;
+        uint64 rootValue;
+        uint64 root;
+        uint64 rootBit;
         sint64 index;
         CalleeRead_input readInput;
         CalleeRead_output before;
@@ -119,28 +125,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase
             state.mut().flags |= 4;
         }
 
-        {
-            __ScopedScratchpad scratch(65536, true);
-            locals.scratchAddress = (uint64)scratch.ptr;
-            uint64* words = reinterpret_cast<uint64*>(scratch.ptr);
-            if (words[0] == 0 && words[8191] == 0)
-            {
-                state.mut().flags |= 8;
-            }
-            words[0] = input.seed;
-            words[8191] = input.seed + 1;
-        }
-        {
-            __ScopedScratchpad scratch(65536, true);
-            uint64* words = reinterpret_cast<uint64*>(scratch.ptr);
-            if ((uint64)scratch.ptr == locals.scratchAddress
-                && words[0] == 0
-                && words[8191] == 0)
-            {
-                state.mut().flags |= 16;
-            }
-        }
-
         locals.pov = id(input.seed, input.seed + 1, input.seed + 2, input.seed + 3);
         for (locals.i = 0; locals.i < 24; locals.i++)
         {
@@ -166,6 +150,157 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         state.mut().values.cleanupIfNeeded(0);
         state.mut().seen.cleanupIfNeeded(0);
         state.mut().queue.cleanupIfNeeded(0);
+
+        locals.valid = 1;
+        if (state.get().values.population() != 16 || state.get().seen.population() != 16)
+        {
+            locals.valid = 0;
+        }
+        locals.j = 0;
+        locals.index = state.get().values.nextElementIndex(-1);
+        while (locals.index >= 0)
+        {
+            locals.value = state.get().values.key(locals.index);
+            if (locals.value >= 24
+                || (locals.value < 16 && (locals.value & 1) == 0)
+                || state.get().values.value(locals.index) != input.seed + locals.value * 17)
+            {
+                locals.valid = 0;
+            }
+            locals.j++;
+            locals.index = state.get().values.nextElementIndex(locals.index);
+        }
+        if (locals.j != 16)
+        {
+            locals.valid = 0;
+        }
+        locals.j = 0;
+        locals.index = state.get().seen.nextElementIndex(-1);
+        while (locals.index >= 0)
+        {
+            locals.value = state.get().seen.key(locals.index);
+            if (locals.value >= 24 || (locals.value < 16 && (locals.value & 1) == 0))
+            {
+                locals.valid = 0;
+            }
+            locals.j++;
+            locals.index = state.get().seen.nextElementIndex(locals.index);
+        }
+        if (locals.j != 16)
+        {
+            locals.valid = 0;
+        }
+        if (locals.valid)
+        {
+            state.mut().flags |= 8;
+        }
+
+        locals.valid = 1;
+        for (locals.i = 0; locals.i < 128; locals.i++)
+        {
+            locals.key = ((locals.i & 7) << 1) + 1;
+            if (state.mut().values.removeByKey(locals.key) < 0
+                || state.mut().seen.remove(locals.key) < 0)
+            {
+                locals.valid = 0;
+            }
+            if (locals.i & 1)
+            {
+                state.mut().values.cleanup();
+                state.mut().seen.cleanup();
+            }
+            else
+            {
+                state.mut().seen.cleanup();
+                state.mut().values.cleanup();
+            }
+            if (state.get().values.population() != 15 || state.get().seen.population() != 15)
+            {
+                locals.valid = 0;
+            }
+            locals.j = 0;
+            locals.index = state.get().values.nextElementIndex(-1);
+            while (locals.index >= 0)
+            {
+                locals.value = state.get().values.key(locals.index);
+                if (locals.value >= 24
+                    || (locals.value < 16 && (locals.value & 1) == 0)
+                    || locals.value == locals.key
+                    || state.get().values.value(locals.index) != input.seed + locals.value * 17)
+                {
+                    locals.valid = 0;
+                }
+                locals.j++;
+                locals.index = state.get().values.nextElementIndex(locals.index);
+            }
+            if (locals.j != 15)
+            {
+                locals.valid = 0;
+            }
+            locals.j = 0;
+            locals.index = state.get().seen.nextElementIndex(-1);
+            while (locals.index >= 0)
+            {
+                locals.value = state.get().seen.key(locals.index);
+                if (locals.value >= 24
+                    || (locals.value < 16 && (locals.value & 1) == 0)
+                    || locals.value == locals.key)
+                {
+                    locals.valid = 0;
+                }
+                locals.j++;
+                locals.index = state.get().seen.nextElementIndex(locals.index);
+            }
+            if (locals.j != 15)
+            {
+                locals.valid = 0;
+            }
+            if (state.mut().values.set(locals.key, input.seed + locals.key * 17) < 0
+                || state.mut().seen.add(locals.key) < 0
+                || state.get().values.population() != 16
+                || state.get().seen.population() != 16)
+            {
+                locals.valid = 0;
+            }
+            locals.j = 0;
+            locals.index = state.get().values.nextElementIndex(-1);
+            while (locals.index >= 0)
+            {
+                locals.value = state.get().values.key(locals.index);
+                if (locals.value >= 24
+                    || (locals.value < 16 && (locals.value & 1) == 0)
+                    || state.get().values.value(locals.index) != input.seed + locals.value * 17)
+                {
+                    locals.valid = 0;
+                }
+                locals.j++;
+                locals.index = state.get().values.nextElementIndex(locals.index);
+            }
+            if (locals.j != 16)
+            {
+                locals.valid = 0;
+            }
+            locals.j = 0;
+            locals.index = state.get().seen.nextElementIndex(-1);
+            while (locals.index >= 0)
+            {
+                locals.value = state.get().seen.key(locals.index);
+                if (locals.value >= 24 || (locals.value < 16 && (locals.value & 1) == 0))
+                {
+                    locals.valid = 0;
+                }
+                locals.j++;
+                locals.index = state.get().seen.nextElementIndex(locals.index);
+            }
+            if (locals.j != 16)
+            {
+                locals.valid = 0;
+            }
+        }
+        if (locals.valid)
+        {
+            state.mut().flags |= 16;
+        }
 
         locals.index = state.get().list.headIndex();
         if (locals.index >= 0)
@@ -233,12 +368,32 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         state.mut().checksum += state.get().wide.high;
         state.mut().checksum += QPI::smul(input.seed, 33ull);
         state.mut().checksum += QPI::sadd(input.seed, 44ull);
-        state.mut().checksum += math_lib::max(input.seed, 55ull);
-        state.mut().checksum += math_lib::min(input.seed, 66ull);
-        state.mut().checksum += math_lib::irootK64<2>(input.seed * input.seed);
+        state.mut().checksum += input.seed > 55ull ? input.seed : 55ull;
+        state.mut().checksum += input.seed < 66ull ? input.seed : 66ull;
+        locals.rootValue = input.seed * input.seed;
+        locals.root = 0;
+        locals.rootBit = 1ull << 62;
+        while (locals.rootBit > locals.rootValue)
+        {
+            locals.rootBit >>= 2;
+        }
+        while (locals.rootBit != 0)
+        {
+            if (locals.rootValue >= locals.root + locals.rootBit)
+            {
+                locals.rootValue -= locals.root + locals.rootBit;
+                locals.root = (locals.root >> 1) + locals.rootBit;
+            }
+            else
+            {
+                locals.root >>= 1;
+            }
+            locals.rootBit >>= 2;
+        }
+        state.mut().checksum += locals.root;
         state.mut().checksum += state.get().calleeValue;
 
-        qpi.transfer(SELF, 1);
+        qpi.transfer(locals.pov, 1);
         state.mut().runs++;
     }
 

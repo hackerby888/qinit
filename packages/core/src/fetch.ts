@@ -10,7 +10,7 @@ import {
   renameSync,
   rmSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fetchT, readBody } from "./net";
 import { debug } from "./debug";
@@ -294,7 +294,7 @@ export function wasiSdkDir(): string {
   return join(cacheRoot(), "wasi-sdk");
 }
 // Resolve clang++ + wasi-sysroot inside the cached sdk (the tarball keeps a nested top dir, so scan one level).
-export function wasiSdkPaths(): { root: string; clang: string; sysroot: string } | null {
+function wasiSdkCachePaths(): { root: string; clang: string; sysroot: string } | null {
   const base = wasiSdkDir();
   if (!existsSync(base)) return null;
   for (const root of [base, ...readdirSync(base).map((d) => join(base, d))]) {
@@ -304,8 +304,20 @@ export function wasiSdkPaths(): { root: string; clang: string; sysroot: string }
   }
   return null;
 }
+export function wasiSdkPaths(): { root: string; clang: string; sysroot: string } | null {
+  const cached = wasiSdkCachePaths();
+  const configuredClang = process.env.WASM_CLANG?.trim();
+  const configuredSysroot = process.env.WASI_SYSROOT?.trim();
+  const clang = configuredClang || cached?.clang;
+  const sysroot = configuredSysroot || cached?.sysroot;
+  if (!clang || !sysroot || !existsSync(clang) || !existsSync(sysroot)) return null;
+  const root = cached && (!configuredClang || !configuredSysroot)
+    ? cached.root
+    : dirname(dirname(clang));
+  return { root, clang, sysroot };
+}
 export function haveWasiSdkCache(): boolean {
-  return wasiSdkPaths() !== null;
+  return wasiSdkCachePaths() !== null;
 }
 // Fetch+extract the host's wasi-sdk into ~/.cache/qinit/wasi-sdk/. No-op if already cached. Best-effort
 // sha256 (upstream publishes a per-asset .sha256; if absent, rely on https transport integrity).

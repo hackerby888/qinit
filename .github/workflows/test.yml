@@ -47,9 +47,9 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install
       - name: Verify generated core ABI
-        run: bun packages/core/tools/gen-wasm-abi.ts --core "$QINIT_CORE" --check
+        run: bun packages/core/tools/gen-wasm-abi.ts --check
       - name: Verify bundled browser snapshot
-        run: bun packages/compile/tools/gen-qpi-snapshot.ts --core "$QINIT_CORE" --verify --check
+        run: bun packages/compile/tools/gen-qpi-snapshot.ts --verify --check
       - name: Typecheck
         run: bunx tsc --noEmit -p tsconfig.json
       - name: Unit tests
@@ -205,6 +205,13 @@ jobs:
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run scripts/ci-qpi-shared-memory.ts
 
+      - name: CLI Wasm integrations
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+        run: bun test packages/cli/tests/integration/wasm-shim-e2e.test.ts packages/cli/tests/contracts/gtest.test.ts
+
   # Deterministic randomized differential gate for every public QPI container family. Each fixture is
   # compiled once by the TS compiler and native WASI, then reset between seeds. The exact TS artifact
   # is also executed unchanged by the standalone core-lite WAMR gtest.
@@ -217,7 +224,7 @@ jobs:
       QINIT_REQUIRE_CONTAINER_TOOLCHAINS: "1"
       QINIT_CONTAINER_SEEDS: ${{ github.event_name == 'schedule' && '32' || '4' }}
       QINIT_CONTAINER_OPERATIONS: ${{ github.event_name == 'schedule' && '256' || '64' }}
-      QINIT_WAMR_GTEST: ${{ github.workspace }}/core/build-container-parity/test/qubic_core_tests
+      QINIT_WAMR_GTEST: ${{ github.workspace }}/core/build-container-parity/test/qubic_wasm_tests
       WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
       WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
     steps:
@@ -251,8 +258,8 @@ jobs:
             -DBUILD_BINARY=OFF -DBUILD_TESTS=ON -DENABLE_AVX512=OFF -DUSE_SANITIZER=OFF \
             -DTESTNET=ON -DTESTNET_LITE_RAM=ON \
             -DLITE_WASM_SC=ON
-          cmake --build build-container-parity --target qubic_core_tests -- -j$(nproc)
-          test -x build-container-parity/test/qubic_core_tests
+          cmake --build build-container-parity --target qubic_wasm_tests -- -j$(nproc)
+          test -x build-container-parity/test/qubic_wasm_tests
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -307,6 +314,7 @@ jobs:
           cmake -S . -B build-node -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_C_COMPILER=clang-18 -DCMAKE_CXX_COMPILER=clang++-18 \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O2 -g -DNDEBUG -DWASM_ARENA_SIZE=65536" \
             -DBUILD_BINARY=ON -DBUILD_TESTS=OFF -DENABLE_AVX512=OFF -DUSE_SANITIZER=OFF \
             -DTESTNET=ON -DTESTNET_LITE_RAM=ON -DTESTNET_PREFILL_QUS=ON \
             -DLITE_WASM_SC=ON -DCMAKE_NO_USE_SWAP=ON -DADDON_TX_STATUS_REQUEST=ON -DONLY_LOGGING=OFF

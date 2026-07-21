@@ -37,13 +37,13 @@ export function wamrToolchain(corePath: string): ToolchainStatus {
   const configured = process.env.QINIT_WAMR_GTEST?.trim();
   const candidates = [
     configured,
-    join(corePath, "build-wtests", "test", "qubic_core_tests"),
-    join(corePath, "build-container-parity", "test", "qubic_core_tests"),
+    join(corePath, "build-wtests", "test", "qubic_wasm_tests"),
+    join(corePath, "build-container-parity", "test", "qubic_wasm_tests"),
   ].filter((candidate): candidate is string => Boolean(candidate));
   const path = candidates.find((candidate) => existsSync(candidate));
   return path
     ? { available: true, detail: path, path }
-    : { available: false, detail: `WAMR qubic_core_tests not found (${candidates.join(", ")})` };
+    : { available: false, detail: `WAMR qubic_wasm_tests not found (${candidates.join(", ")})` };
 }
 
 export function toolchainTest(

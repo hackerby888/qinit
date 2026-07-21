@@ -9,10 +9,12 @@ await autoUpdateVerifyTool().catch(() => {});   // best-effort: fetch the cached
 
 // Inter-contract fixtures: the tool flags `<Callee>::Type` scope resolution because it can't see the
 // declared callee. Whitelist those prefixes (verifyContract drops exactly those false positives).
-const CALLEES: Record<string, string[]> = { Proxy: ["Counter"] };
+const CALLEES: Record<string, string[]> = {
+  Proxy: ["Counter"],
+  QpiDual: ["QpiDualCallee"],
+};
 // Fixtures that intentionally exercise non-protocol paths, plus known verifier parser limitations.
 const UNVERIFIABLE: Record<string, string> = {
-  QpiDual: "deliberately exercises compiler-supported math_lib scope, which protocol contracts cannot use",
   RandomDual: "deliberately exercises the compiler's pointer-form _rdrand intrinsics, which protocol contracts forbid",
   ShareReceiver: "SET_SHAREHOLDER_PROPOSAL system callback — the verify tool's parser rejects it",
   Trap: "deliberately uses forbidden raw division to exercise Wasm trap isolation",

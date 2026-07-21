@@ -8,9 +8,9 @@ import { Sim, initK12, toHex } from "@qinit/engine";
 
 const CORE = CORE_PATH;
 const GTEST = [
+  process.env.QINIT_WAMR_GTEST?.trim(),
   `${CORE}/build-wtests/test/qubic_wasm_tests`,
-  `${CORE}/build-wtests/test/qubic_core_tests`,
-].find(existsSync) ?? "";
+].filter((candidate): candidate is string => Boolean(candidate)).find(existsSync) ?? "";
 const FIX = `${import.meta.dir}/../../../../fixtures`;
 const haveBoth = GTEST !== "" && existsSync(`${FIX}/DigestProbe.h`);
 

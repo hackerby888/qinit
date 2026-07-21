@@ -4,10 +4,11 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildSystemContract } from "@qinit/build";
+import { wasiSdkPaths } from "@qinit/core/project";
 import { VirtualNode } from "@qinit/engine";
 
 const CORE = CORE_PATH;
-const haveCore = existsSync(`${CORE}/src/contracts/QUtil.h`);
+const haveCore = existsSync(`${CORE}/src/contracts/QUtil.h`) && wasiSdkPaths() !== null;
 const id = (b: number) => new Uint8Array(32).fill(b);
 const i64 = (b: Uint8Array, off = 0) =>
   new DataView(b.buffer, b.byteOffset, b.byteLength).getBigInt64(off, true);

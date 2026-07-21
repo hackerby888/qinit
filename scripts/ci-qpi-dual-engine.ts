@@ -23,8 +23,8 @@ const rpcBase = process.env.QINIT_RPC ?? "http://127.0.0.1:41841";
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE not set");
 
-const ARENA_SIZE = 1024 * 1024 * 1024;
-const USER_SEED = "a".repeat(55);
+const ARENA_SIZE = 64 * 1024;
+const FALLBACK_SEED = "a".repeat(55);
 const driverPath = resolve("fixtures/QpiDual.h");
 const calleePath = resolve("fixtures/QpiDualCallee.h");
 const driverSource = readFileSync(driverPath, "utf8");
@@ -87,6 +87,7 @@ function cmakeProof(): Record<string, string> {
     BUILD_TESTS: "OFF",
     ENABLE_AVX512: "OFF",
     USE_SANITIZER: "OFF",
+    CMAKE_CXX_FLAGS_RELWITHDEBINFO: "-O2 -g -DNDEBUG -DWASM_ARENA_SIZE=65536",
     TESTNET: "ON",
     TESTNET_LITE_RAM: "ON",
     TESTNET_PREFILL_QUS: "ON",
@@ -192,7 +193,6 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
     corePath: core!,
     outDir: join(scratch, "clang-callee"),
     arenaSz: ARENA_SIZE,
-    skipVerify: true,
   });
   if (!callee.ok || !callee.so || !callee.idl) fail(`Clang callee compile: ${callee.stderr ?? "no artifact"}`);
   const driver = await buildContract({
@@ -203,7 +203,6 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
     outDir: join(scratch, "clang-driver"),
     arenaSz: ARENA_SIZE,
     dynCallees: { QpiDualCallee: { header: calleePath, index: calleeSlot } },
-    skipVerify: true,
   });
   if (!driver.ok || !driver.so || !driver.idl) fail(`Clang driver compile: ${driver.stderr ?? "no artifact"}`);
   return [
@@ -218,7 +217,7 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
   ];
 }
 
-async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[]): Promise<void> {
+async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[], seed: string): Promise<void> {
   for (const item of artifacts) {
     const pairCallee = artifacts.find(
       (candidate) => candidate.compiler === item.compiler && candidate.role === "callee",
@@ -230,7 +229,7 @@ async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[]): Pro
         core: core!,
         rpcBase: base,
         rpc,
-        seed: USER_SEED,
+        seed,
         slotOverride: item.slot,
         dynCallees:
           item.role === "driver"
@@ -263,10 +262,10 @@ async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[]): Pro
   }
 }
 
-async function invoke(base: string, rpc: LiteRpc, slot: number, inputSeed: bigint): Promise<void> {
+async function invoke(base: string, rpc: LiteRpc, slot: number, inputSeed: bigint, seed: string): Promise<void> {
   const tick = (await rpc.tickInfo()).tick + 6;
   const result = await invokeProcedure({
-    seed: USER_SEED,
+    seed,
     rpcBase: base,
     rpc,
     contractIndex: slot,
@@ -282,11 +281,38 @@ async function invoke(base: string, rpc: LiteRpc, slot: number, inputSeed: bigin
   }
 }
 
-async function execute(base: string, rpc: LiteRpc, artifacts: Artifact[], compiler: Compiler): Promise<Result> {
+async function plainTransfer(base: string, rpc: LiteRpc, slot: number, seed: string): Promise<void> {
+  const tick = (await rpc.tickInfo()).tick + 6;
+  const result = await invokeProcedure({
+    seed,
+    rpcBase: base,
+    rpc,
+    contractIndex: slot,
+    procId: 0,
+    amount: 1,
+    inFmt: "",
+    tick,
+    confirm: true,
+    confirmTimeoutMs: 60_000,
+  });
+  if (!result.ok || !result.confirmed || !result.included || !result.moneyFlew) {
+    fail(`${base} slot ${slot} incoming transfer was not included: ${JSON.stringify(result)}`);
+  }
+}
+
+async function execute(
+  base: string,
+  rpc: LiteRpc,
+  artifacts: Artifact[],
+  compiler: Compiler,
+  seed: string,
+): Promise<Result> {
   const driver = artifacts.find((item) => item.compiler === compiler && item.role === "driver")!;
   const callee = artifacts.find((item) => item.compiler === compiler && item.role === "callee")!;
-  await invoke(base, rpc, driver.slot, 17n);
-  await invoke(base, rpc, driver.slot, 33n);
+  await invoke(base, rpc, driver.slot, 17n, seed);
+  await invoke(base, rpc, driver.slot, 33n, seed);
+  await plainTransfer(base, rpc, driver.slot, seed);
+  await plainTransfer(base, rpc, driver.slot, seed);
 
   const driverOutput = await rpc.querySmartContract(driver.slot, 1, new Uint8Array(0));
   const calleeOutput = await rpc.querySmartContract(callee.slot, 1, new Uint8Array(0));
@@ -353,16 +379,18 @@ const virtualServer = new EngineServer(
 const virtual = await virtualServer.start(0, 25);
 try {
   const virtualRpc = new LiteRpc(virtual.rpcBase);
-  await deployAll(virtual.rpcBase, virtualRpc, artifacts);
-  await deployAll(rpcBase, coreRpc, artifacts);
+  const virtualSeed = (await virtualRpc.fundedSeed()) ?? FALLBACK_SEED;
+  const coreSeed = (await coreRpc.fundedSeed()) ?? FALLBACK_SEED;
+  await deployAll(virtual.rpcBase, virtualRpc, artifacts, virtualSeed);
+  await deployAll(rpcBase, coreRpc, artifacts, coreSeed);
 
   const results = new Map<string, Result>();
-  for (const [name, base, rpc] of [
-    ["virtual", virtual.rpcBase, virtualRpc],
-    ["core", rpcBase, coreRpc],
+  for (const [name, base, rpc, seed] of [
+    ["virtual", virtual.rpcBase, virtualRpc, virtualSeed],
+    ["core", rpcBase, coreRpc, coreSeed],
   ] as const) {
     for (const compiler of ["TS", "Clang"] as const) {
-      const result = await execute(base, rpc, artifacts, compiler);
+      const result = await execute(base, rpc, artifacts, compiler, seed);
       assertExpected(result, `${compiler}/${name}`);
       results.set(`${compiler}/${name}`, result);
     }

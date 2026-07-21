@@ -4,11 +4,15 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { test, expect } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { buildContract, buildCorpusRunner } from "@qinit/build";
+import { wasiSdkPaths } from "@qinit/core/project";
 import { runContractTesting } from "@qinit/engine";
 
 const CORE = CORE_PATH;
 const CONTRACT = `${import.meta.dir}/../../../../fixtures/Counter.h`;
-const have = existsSync(`${CORE}/test/contract_testing.h`) && existsSync(CONTRACT);
+const have =
+  existsSync(`${CORE}/test/contract_testing.h`) &&
+  existsSync(CONTRACT) &&
+  wasiSdkPaths() !== null;
 
 const TEST_SOURCE = `#define NO_UEFI
 #include "contract_testing.h"

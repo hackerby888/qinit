@@ -4,6 +4,7 @@
 #include <map>
 #include <set>
 #include <vector>
+#include "platform/common_types.h"
 
 // Wasm-mode replacement for core-lite contract_testing.h.
 // Routes ContractTesting / free-helper calls to "thost" imports bound by
@@ -278,7 +279,14 @@ struct QbSystemStruct {
 
 // ---- utcTime / etalonTick / updateTime / updateQpiTime: corpus time control ----
 // The native harness exposes a mutable `etalonTick` (a Tick global) whose date fields ARE the simulated chain
-static EFI_TIME utcTime = { 2024, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
+struct QbEfiTime {
+    unsigned short Year;
+    unsigned char Month, Day, Hour, Minute, Second, Pad1;
+    unsigned int Nanosecond;
+    short TimeZone;
+    unsigned char Daylight, Pad2;
+};
+static QbEfiTime utcTime = { 2024, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 static void qbEtalonSync();  // defined just below etalonTick
 
