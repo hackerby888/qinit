@@ -36,6 +36,9 @@ jobs:
       QINIT_CORE: ${{ github.workspace }}/core
     steps:
       - uses: actions/checkout@v4
+      - name: Preserve core source line endings
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
       - name: Checkout core-lite (${{ env.CORE_REF }})
         uses: actions/checkout@v4
         with:
