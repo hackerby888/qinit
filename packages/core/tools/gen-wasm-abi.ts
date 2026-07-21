@@ -36,9 +36,12 @@ const outputs = [
   { path: abiOutput, contents: generatedAbi },
   { path: layoutOutput, contents: generatedLayout },
 ];
+const normalize = (source: string) => source.replace(/\r\n?/g, "\n");
 if (args.includes("--check")) {
   const stale = outputs.find(
-    (output) => !existsSync(output.path) || readFileSync(output.path, "utf8") !== output.contents,
+    (output) =>
+      !existsSync(output.path) ||
+      normalize(readFileSync(output.path, "utf8")) !== normalize(output.contents),
   );
   if (stale) {
     throw new Error(`${stale.path} is stale; regenerate it from ${core}`);

@@ -16,6 +16,10 @@ const pkgDir = resolve(import.meta.dir, "..");
 const manifestPath = join(pkgDir, "core-snapshot.json");
 const outputPath = join(pkgDir, "src", "generated", "qpi-snapshot.ts");
 const quiet = flag("--quiet");
+const normalize = (source: string) => source.replace(/\r\n?/g, "\n");
+const outputMatches = (contents: string) =>
+  existsSync(outputPath) &&
+  normalize(readFileSync(outputPath, "utf8")) === normalize(contents);
 const log = (msg: string) => {
   if (!quiet) console.log(`[qpi-snapshot] ${msg}`);
 };
@@ -75,12 +79,12 @@ try {
     log(`verified against ${manifestPath}`);
   }
   if (flag("--check")) {
-    if (!existsSync(outputPath) || readFileSync(outputPath, "utf8") !== generated.module) {
+    if (!outputMatches(generated.module)) {
       throw new Error(`${outputPath} is stale; regenerate it from the pinned core checkout`);
     }
     log(`${outputPath} is current`);
   } else {
-    const changed = !existsSync(outputPath) || readFileSync(outputPath, "utf8") !== generated.module;
+    const changed = !outputMatches(generated.module);
     if (changed) {
       mkdirSync(dirname(outputPath), { recursive: true });
       writeFileSync(outputPath, generated.module);
