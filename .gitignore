@@ -11,4 +11,5 @@ contracts_dyn/
 .clangd
 *.vsix
 .vscode-test/
+/.idea/
 .generated/
