@@ -23,7 +23,7 @@ const rpcBase = process.env.QINIT_RPC ?? "http://127.0.0.1:41841";
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE not set");
 
-const ARENA_SIZE = 64 * 1024;
+const ARENA_SIZE = 1024 * 1024 * 1024;
 const FALLBACK_SEED = "a".repeat(55);
 const driverPath = resolve("fixtures/QpiDual.h");
 const calleePath = resolve("fixtures/QpiDualCallee.h");
@@ -87,7 +87,6 @@ function cmakeProof(): Record<string, string> {
     BUILD_TESTS: "OFF",
     ENABLE_AVX512: "OFF",
     USE_SANITIZER: "OFF",
-    CMAKE_CXX_FLAGS_RELWITHDEBINFO: "-O2 -g -DNDEBUG -DWASM_ARENA_SIZE=65536",
     TESTNET: "ON",
     TESTNET_LITE_RAM: "ON",
     TESTNET_PREFILL_QUS: "ON",
