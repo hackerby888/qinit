@@ -229,10 +229,12 @@ export function readInstruction(reader: Reader, parsed: ParsedModule): boolean {
             reader.u32("ref.func function index");
             return true;
         case 0xfc: {
-            parsed.features.add("bulk-memory/nontrapping-conversions");
             const sub = reader.u32("0xfc subopcode");
-            if (sub <= 7)
+            if (sub <= 7) {
+                parsed.features.add("nontrapping-float-to-int");
                 return true;
+            }
+            parsed.features.add("bulk-memory");
             if (sub === 8) {
                 reader.u32("data index");
                 reader.u32("memory index");

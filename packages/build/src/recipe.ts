@@ -84,6 +84,7 @@ export function genWrapperWasm(o: BuildOpts): string {
 #include "${CORE_WASM_HEADERS.sdk.qpiSupport}"
 #include "${o.contractPath}"
 // QPI data-structure impls operate on contract-local memory. CAUTION: after the contract.
+#define printf(...) (__builtin_trap(), 0)
 // Collection + LinkedList are clean (only qpi.h + memory).
 #include "contract_core/qpi_collection_impl.h"
 #include "contract_core/qpi_linked_list_impl.h"
@@ -94,6 +95,7 @@ export function genWrapperWasm(o: BuildOpts): string {
 #include "contract_core/qpi_hash_map_impl.h"
 #undef __acquireScratchpad
 #undef __releaseScratchpad
+#undef printf
 #include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"
 `;
   if (!o.testSource) {
@@ -189,6 +191,7 @@ export async function compileWasmContract(
   // reactor + --no-entry => a library wasm (no _start); --allow-undefined leaves the lhost imports unresolved
   const compileFlags = [
     "--target=wasm32-wasi", "-std=c++20", "-O0", "-g", "-fno-rtti", "-fno-exceptions",
+    "-DNDEBUG",
     "-DLITEDYN_CONTRACT_TU",
     ...(o.arenaSz ? [`-DWASM_ARENA_SIZE=${o.arenaSz}`] : []),
     ...(sysroot ? [`--sysroot=${sysroot}`] : []),

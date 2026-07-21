@@ -70,7 +70,7 @@ export const I64 = "i64" as const;
 
 // Enabled by both JavaScript engines and WAMR's interpreter in the release node.
 // Keep this deliberately narrow; every other detected post-MVP feature fails closed.
-export const PORTABLE_FEATURES = new Set(["sign-extension-operators"]);
+export const PORTABLE_FEATURES = new Set(["bulk-memory", "sign-extension-operators"]);
 
 /** Function exports consumed by the Qinit engine and core-lite dynamic loader. */
 export const WASM_MODULE_EXPORT_ABI: Readonly<Record<string, WasmFunctionSignature>> = Object.freeze({

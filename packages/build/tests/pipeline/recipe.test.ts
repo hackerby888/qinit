@@ -97,6 +97,19 @@ test("genWrapperWasm: the scratchpad rename brackets only the hash_map impl", ()
   expect(iHash).toBeLessThan(iUndef);
 });
 
+test("genWrapperWasm: container diagnostics trap without importing libc printf", () => {
+  const w = genWrapperWasm(opts());
+  const iDefine = w.indexOf("#define printf(...) (__builtin_trap(), 0)");
+  const iCollection = w.indexOf("contract_core/qpi_collection_impl.h");
+  const iHash = w.indexOf("contract_core/qpi_hash_map_impl.h");
+  const iUndef = w.indexOf("#undef printf");
+
+  expect(iDefine).toBeGreaterThanOrEqual(0);
+  expect(iDefine).toBeLessThan(iCollection);
+  expect(iCollection).toBeLessThan(iHash);
+  expect(iHash).toBeLessThan(iUndef);
+});
+
 test("genWrapperWasm: callee prelude is injected between preamble and the contract defines", () => {
   const prelude = "/*__CALLEE_PRELUDE__*/\n";
   const w = genWrapperWasm(opts({ calleePrelude: prelude }));

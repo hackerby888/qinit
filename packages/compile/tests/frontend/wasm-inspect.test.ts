@@ -200,11 +200,6 @@ describe("Wasm module inspection", () => {
 
   const unsupported = [
     [
-      "bulk memory",
-      `  (func $unsupported
-    (i32.const 0) (i32.const 0) (i32.const 0) memory.fill)`,
-    ],
-    [
       "SIMD",
       `  (func $unsupported
     (drop (i8x16.splat (i32.const 0))))`,
@@ -231,6 +226,14 @@ describe("Wasm module inspection", () => {
     const result = inspectWasmModule(await assemble(addDefinition(emitModule(SPEC), field)));
     expect(result.ok).toBe(true);
     expect(result.features).toContain("sign-extension-operators");
+  });
+
+  test("accepts bulk-memory operations supported by release WAMR", async () => {
+    const field = `  (func $portable
+    (i32.const 0) (i32.const 0) (i32.const 0) memory.fill)`;
+    const result = inspectWasmModule(await assemble(addDefinition(emitModule(SPEC), field)));
+    expect(result.ok).toBe(true);
+    expect(result.features).toContain("bulk-memory");
   });
 
   test("fails closed on malformed binaries", () => {

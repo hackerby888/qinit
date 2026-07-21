@@ -364,15 +364,22 @@ jobs:
           }
           trap stop_node EXIT
 
-          # The first group intentionally consumes all four dynamic slots.
+          # Basic deploy coverage fits in three dynamic slots.
           start_node run-basic
           set +e
           bun run scripts/ci-deploy-smoke.ts; c1=$?
           bun run scripts/gauntlet-smoke.ts;  c2=$?   # QPI edge-case gauntlet (div/mod, wrap, K12, HashMap, ...)
-          bun run scripts/ci-qpi-dual-engine.ts; c3=$? # one TS artifact, byte-identical Sim + production WAMR state/output/digest
           set -e
           stop_node
           echo "=== run-basic/node.log tail ==="; tail -25 run-basic/node.log
+
+          # The full TS/Clang x virtual/core matrix owns all four slots.
+          start_node run-matrix
+          set +e
+          bun run scripts/ci-qpi-dual-engine.ts; c3=$?
+          set -e
+          stop_node
+          echo "=== run-matrix/node.log tail ==="; tail -25 run-matrix/node.log
 
           # Use fresh state so these independent fixtures do not fail from slot exhaustion.
           start_node run-dual
