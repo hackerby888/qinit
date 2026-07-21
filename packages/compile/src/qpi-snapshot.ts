@@ -279,21 +279,22 @@ function assembleHostWrapperChunk(
 // Every file assembly may read, for content-hash caching and watch mode. oracle_interfaces/*.h are
 export function snapshotInputFiles(corePath: string): string[] {
   const { existsSync, readdirSync } = loadNodeFileSystem();
-  const base = `${corePath}/src`;
+  const { join } = require("node:path") as typeof import("node:path");
+  const base = join(corePath, "src");
   const files = [
-    `${base}/contract_core/contract_def.h`,
-    `${base}/${CORE_WASM_HEADERS.shared.abiMetadata}`,
-    `${base}/${CORE_WASM_HEADERS.shared.abiTypes}`,
-    `${base}/${CORE_WASM_HEADERS.sdk.lhostImports}`,
-    `${base}/${CORE_WASM_HEADERS.sdk.qpiForwarders}`,
-    `${base}/${CORE_WASM_HEADERS.sdk.moduleStorage}`,
-    ...HEADER_FILES.map((HEADER_FILESItem) => `${base}/${HEADER_FILESItem}`),
-    ...IMPL_FILES.map((IMPL_FILESItem) => `${base}/${IMPL_FILESItem}`),
+    join(base, "contract_core", "contract_def.h"),
+    join(base, CORE_WASM_HEADERS.shared.abiMetadata),
+    join(base, CORE_WASM_HEADERS.shared.abiTypes),
+    join(base, CORE_WASM_HEADERS.sdk.lhostImports),
+    join(base, CORE_WASM_HEADERS.sdk.qpiForwarders),
+    join(base, CORE_WASM_HEADERS.sdk.moduleStorage),
+    ...HEADER_FILES.map((headerFile) => join(base, headerFile)),
+    ...IMPL_FILES.map((implementationFile) => join(base, implementationFile)),
   ];
-  const oracleDir = `${base}/oracle_interfaces`;
+  const oracleDir = join(base, "oracle_interfaces");
   if (existsSync(oracleDir)) {
     for (const entryName of readdirSync(oracleDir)) {
-      if (entryName.endsWith(".h")) files.push(`${oracleDir}/${entryName}`);
+      if (entryName.endsWith(".h")) files.push(join(oracleDir, entryName));
     }
   }
   return files;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, sep } from "node:path";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { CORE_WASM_HEADERS } from "../../src/wasm-headers";
 
@@ -20,7 +20,9 @@ describe.if(coreOk)("canonical core Wasm header layout", () => {
       .flatMap((group) =>
         readdirSync(join(extensionRoot, group), { withFileTypes: true })
           .filter((entry) => entry.isFile())
-          .map((entry) => relative(sourceRoot, join(extensionRoot, group, entry.name))),
+          .map((entry) =>
+            relative(sourceRoot, join(extensionRoot, group, entry.name)).split(sep).join("/"),
+          ),
       )
       .sort();
 
