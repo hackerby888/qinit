@@ -1,5 +1,3 @@
-import type { Layout } from "./framework-types";
-
 export function emitMemOps(): string {
     return `  ;; ---- mem ops ----
   (func $setMem (param $dst i32) (param $size i32) (param $val i32)
@@ -49,33 +47,16 @@ export function emitMemOps(): string {
     (i32.const 0))`;
 }
 
-export function emitAllocators(capacity: Layout): string {
-    // Arena bump allocator. Locals + scratchpad both bump the arena; dispatch resets it per call.
-    return `  ;; ---- allocators (arena bump; reset each dispatch) ----
-  ;; Zeroed like native contract_exec.h's __qpiAllocLocals (setMem after allocate): a nested CALL()'s locals
-  ;; frame (e.g. a HashSet used as a dedup scratch) must start empty. Scalar temps share this allocator and
-  ;; are always fully written before read, so the extra zeroing is only a small constant cost for them.
+export function emitAllocators(): string {
+    return `  ;; ---- allocators (owned by lhost per dispatch frame) ----
   (func $qpiAllocLocals (param $size i32) (result i32)
-    (local $off i32)
-    (local.set $off (global.get $arenaTop))
-    (global.set $arenaTop (i32.and (i32.add (i32.add (local.get $off) (local.get $size)) (i32.const 7)) (i32.const -8)))
-    (call $setMem (local.get $off) (local.get $size) (i32.const 0))
-    (local.get $off))
+    (call $lh_acquireScratch (i64.extend_i32_u (local.get $size)) (i32.const 1)))
 
   (func $qpiFreeLocals nop)
 
   (func $acquireScratchpad (param $size i64) (param $initZero i32) (result i32)
-    (local $offset i32) (local $byteSize i32)
-    (local.set $offset (global.get $arenaTop))
-    (local.set $byteSize (i32.wrap_i64 (local.get $size)))
-    (global.set $arenaTop (i32.and (i32.add (i32.add (local.get $offset) (local.get $byteSize)) (i32.const 7)) (i32.const -8)))
-    (if (local.get $initZero) (then (call $setMem (local.get $offset) (local.get $byteSize) (i32.const 0))))
-    (local.get $offset))
+    (call $lh_acquireScratch (local.get $size) (local.get $initZero)))
 
-  ;; Scoped release (RAII in qpi.h, so releases nest strictly LIFO): pop the bump back to the released
-  ;; block. Enclosing locals frames were allocated below the scratch, so the pop never frees live memory;
-  ;; without it, sequential container cleanups within one dispatch sum their scratch instead of reusing it.
   (func $releaseScratchpad (param $ptr i32)
-    (if (i32.and (i32.ge_u (local.get $ptr) (global.get $arenaBase)) (i32.le_u (local.get $ptr) (global.get $arenaTop)))
-      (then (global.set $arenaTop (local.get $ptr)))))`;
+    (call $lh_releaseScratch (local.get $ptr)))`;
 }

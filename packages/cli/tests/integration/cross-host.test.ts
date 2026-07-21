@@ -7,9 +7,12 @@ import { buildContract } from "@qinit/build";
 import { Sim, initK12, toHex } from "@qinit/engine";
 
 const CORE = CORE_PATH;
-const GTEST = `${CORE}/build-wtests/test/qubic_core_tests`;
+const GTEST = [
+  `${CORE}/build-wtests/test/qubic_wasm_tests`,
+  `${CORE}/build-wtests/test/qubic_core_tests`,
+].find(existsSync) ?? "";
 const FIX = `${import.meta.dir}/../../../../fixtures`;
-const haveBoth = existsSync(GTEST) && existsSync(`${FIX}/DigestProbe.h`);
+const haveBoth = GTEST !== "" && existsSync(`${FIX}/DigestProbe.h`);
 
 const id = (b: number) => new Uint8Array(32).fill(b);
 const u64 = (n: bigint) => {

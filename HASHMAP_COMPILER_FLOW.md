@@ -872,7 +872,8 @@ The final module is approximately organized as:
   (global $stateBase ...)
   (global $ctxBase ...)
   (global $ioBase ...)
-  (global $arenaBase ...)
+
+  ;; temporary allocation is owned by lhost.acquireScratch/releaseScratch
 
   ;; runtime/framework helpers
 

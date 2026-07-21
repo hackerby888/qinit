@@ -24,7 +24,7 @@ export function emitModule(spec: ModuleSpecification): string {
         emitGlobals(capacity),
         emitExportList(),
         emitMemOps(),
-        emitAllocators(capacity),
+        emitAllocators(),
         emitForwarders(spec.contextLayout),
         emitIntrinsics(capacity, spec),
         emitMetadata(capacity, spec, sysprocMask),

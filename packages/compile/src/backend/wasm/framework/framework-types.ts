@@ -76,7 +76,6 @@ export interface Layout {
     inBase: number;
     outBase: number;
     localsBase: number;
-    arenaBase: number;
     arenaEnd: number;
     ioSize: number;
     pages: number;
@@ -109,7 +108,6 @@ export function computeLayout(stateSize: number, arenaSize: number, contextSize:
         inBase,
         outBase,
         localsBase,
-        arenaBase,
         arenaEnd,
         ioSize,
         pages,

@@ -303,7 +303,8 @@ export class Contract {
   stateSize = 0;
   ctxAddr = 0;
   arenaBase = 0;
-  arenaBump = 0;
+  arenaStart = 0;
+  arenaTop = 0;
   arenaEnd = 0;
   sysMask = 0;
   metering = false; // Layer 2 sets this when fee accounting is on; gates the cost meter (off => zero overhead)
@@ -367,7 +368,8 @@ export class Contract {
     this.stateSize = this.ex.state_size() >>> 0;
     this.ctxAddr = this.ex.ctx_addr() >>> 0;
     this.arenaBase = this.ioBase + IN_SZ + OUT_SZ + LOCALS_SZ;
-    this.arenaBump = this.arenaBase;
+    this.arenaStart = this.arenaBase;
+    this.arenaTop = this.arenaBase;
     this.arenaEnd = this.ioBase + (this.ex.io_size() >>> 0);
     // Shared-memory module: the state lives in bss, which emits no data segments — re-instantiating over an
     // imported memory leaves the previous deployment's state bytes in place. Zero it to match a fresh deploy.
@@ -385,10 +387,13 @@ export class Contract {
     extraImports?: WebAssembly.Imports,
   ): Contract {
     validateContractIndexSignature(bytes);
+    const mod = new WebAssembly.Module(bytes as BufferSource);
+    if (WebAssembly.Module.exports(mod).some((entry) => entry.name === "arena_top"))
+      throw new Error("legacy arena_top export is not supported");
     return new Contract(
       slot,
       host,
-      new WebAssembly.Module(bytes as BufferSource),
+      mod,
       extMem,
       extraImports,
     );
@@ -473,34 +478,32 @@ export class Contract {
   ): Uint8Array {
     // Reentrant dispatch (e.g. POST_INCOMING_TRANSFER or a PRE/POST share callback fired by a cross-contract
     // call mid-procedure) must not reuse the fixed io regions or reset the locals arena — both hold the outer
-    const arenaTopG: WebAssembly.Global | undefined = this.ex.arena_top;
     const nested = this.dispatchDepth > 0;
     let inOff: number, outOff: number, localsOff: number;
-    let savedTop = 0;
-    let savedBump = 0;
+    let savedArenaStart = 0;
+    let savedArenaTop = 0;
     let savedCtx: Uint8Array | null = null;
     const pre = this.u8();
     if (nested) {
       // No 32-bit bitwise alignment here: a shared-memory contract's arena can sit beyond 2^31 (large
       // states pack high), where JS bitops go negative — a negative offset makes fill() wrap from the
-      const base = arenaTopG ? (arenaTopG.value as number) >>> 0 : this.arenaBump;
+      const base = this.arenaTop;
       inOff = base + 7 - ((base + 7) % 8);
       outOff = inOff + IN_SZ;
       localsOff = outOff + OUT_SZ;
-      if (arenaTopG) {
-        savedTop = (arenaTopG.value as number) >>> 0;
-        arenaTopG.value = localsOff + LOCALS_SZ;
-      } else {
-        savedBump = this.arenaBump;
-        this.arenaBump = localsOff + LOCALS_SZ;
-      }
+      const frameArenaStart = localsOff + LOCALS_SZ;
+      if (frameArenaStart > this.arenaEnd) throw new Error("nested dispatch frame exceeds arena");
+      savedArenaStart = this.arenaStart;
+      savedArenaTop = this.arenaTop;
+      this.arenaStart = frameArenaStart;
+      this.arenaTop = frameArenaStart;
       savedCtx = pre.slice(this.ctxAddr, this.ctxAddr + 256);
     } else {
       inOff = this.ioBase;
       outOff = this.ioBase + IN_SZ;
       localsOff = this.ioBase + IN_SZ + OUT_SZ;
-      if (arenaTopG) arenaTopG.value = this.arenaBase;
-      this.arenaBump = this.arenaBase;
+      this.arenaStart = this.arenaBase;
+      this.arenaTop = this.arenaBase;
     }
     const outSize = this.outSizeFor(kind, it);
     pre.fill(0, outOff, outOff + OUT_SZ);
@@ -559,8 +562,8 @@ export class Contract {
       if (nested) {
         const m = this.u8(); // fresh view — memory may have grown during dispatch
         if (savedCtx) m.set(savedCtx, this.ctxAddr);
-        if (arenaTopG) arenaTopG.value = savedTop;
-        else this.arenaBump = savedBump;
+        this.arenaStart = savedArenaStart;
+        this.arenaTop = savedArenaTop;
       }
     }
 
@@ -589,9 +592,8 @@ export class Contract {
     u8.fill(0, localsOff, localsOff + LOCALS_SZ);
     u8.set(oldState, oldOff);
     this.writeCtx({}); // NULL_ID / zero ctx (QpiContextMigrateProcedureCall)
-    this.arenaBump = this.arenaBase + ((oldState.length + 15) & ~15); // scratch past the old blob
-    const arenaTopG: WebAssembly.Global | undefined = this.ex.arena_top;
-    if (arenaTopG) arenaTopG.value = this.arenaBump;
+    this.arenaStart = this.arenaBase + ((oldState.length + 15) & ~15); // scratch past the old blob
+    this.arenaTop = this.arenaStart;
     this.ex.dispatch(KIND.MIGRATE >>> 0, 0, oldOff >>> 0, 0, localsOff >>> 0);
     this.host.markDirty(this.slot);
   }
@@ -673,10 +675,13 @@ export class Contract {
       pauseLog: () => this.host.pauseLog(),
       resumeLog: () => this.host.resumeLog(),
       acquireScratch: (size: bigint, initZero: number) => {
+        if (size < 0n || size > 0xfffffff8n)
+          throw new Error("lhost: scratch arena exhausted");
         const n = Number((size + 7n) & ~7n);
-        if (this.arenaBump + n > this.arenaEnd) throw new Error("lhost: scratch arena exhausted");
-        const off = this.arenaBump;
-        this.arenaBump += n;
+        if (this.arenaTop > this.arenaEnd || n > this.arenaEnd - this.arenaTop)
+          throw new Error("lhost: scratch arena exhausted");
+        const off = this.arenaTop;
+        this.arenaTop += n;
         if (initZero) u8().fill(0, off, off + n);
         return off >>> 0; // offset == ptr in wasm32
       },
@@ -684,7 +689,7 @@ export class Contract {
       // bump back to the released block. Without this a dispatch that reorganizes several containers
       releaseScratch: (off: number) => {
         const p = off >>> 0;
-        if (p >= this.arenaBase && p <= this.arenaBump) this.arenaBump = p;
+        if (p >= this.arenaStart && p <= this.arenaTop) this.arenaTop = p;
       },
       logBytes: (_ci: number, level: number, msgOff: number, size: number) =>
         this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size)),

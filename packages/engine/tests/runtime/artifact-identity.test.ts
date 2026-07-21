@@ -6,7 +6,7 @@ import { VirtualNode } from "../../src/transport";
 
 type ContractIndexBody = "missing" | "malformed" | "trapping" | number;
 
-async function artifact(contractIndex: ContractIndexBody): Promise<Uint8Array> {
+async function artifact(contractIndex: ContractIndexBody, legacyArenaTop = false): Promise<Uint8Array> {
   const contractIndexFunction =
     contractIndex === "missing"
       ? ""
@@ -17,7 +17,7 @@ async function artifact(contractIndex: ContractIndexBody): Promise<Uint8Array> {
           : `  (func (export "contract_index") (result i32) (i32.const ${contractIndex}))`;
   const wat = `(module
   (memory (export "memory") 4 4)
-  (global (export "arena_top") (mut i32) (i32.const 229376))
+${legacyArenaTop ? '  (global (export "arena_top") (mut i32) (i32.const 229376))' : ""}
 ${contractIndexFunction}
   (func (export "state_addr") (result i32) (i32.const 0))
   (func (export "state_size") (result i32) (i32.const 8))
@@ -49,6 +49,15 @@ describe("Wasm artifact slot identity", () => {
     const node = await VirtualNode.create({ slotBase: 29, slotCount: 4 });
 
     expect(node.deploy(29, await artifact(29), "Exact").slot).toBe(29);
+  });
+
+  test("rejects the legacy arena_top export", async () => {
+    const node = new VirtualNode({ slotBase: 29, slotCount: 4 });
+    const wasm = await artifact(29, true);
+
+    expect(() => node.deploy(29, wasm, "Legacy")).toThrow(
+      "legacy arena_top export is not supported",
+    );
   });
 
   test.each([

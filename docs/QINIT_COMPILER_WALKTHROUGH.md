@@ -1339,7 +1339,6 @@ The complete generated WAT is approximately:
   ;; Runtime addresses
   (global $stateBase i32 ...)
   (global $ctxBase i32 ...)
-  (global $arenaBase i32 ...)
 
   ;; Runtime exports
   (export "dispatch" (func $dispatch))
@@ -1351,7 +1350,7 @@ The complete generated WAT is approximately:
   ;; Memory/runtime helpers
   (func $setMem ...)
   (func $copyMem ...)
-  (func $qpiAllocLocals ...)
+  (func $qpiAllocLocals ... (call $lh_acquireScratch ...))
 
   ;; QPI forwarders
   (func $qpi_transferTyped ...)

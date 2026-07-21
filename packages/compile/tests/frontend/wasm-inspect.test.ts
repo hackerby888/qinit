@@ -50,7 +50,8 @@ function codes(result: ReturnType<typeof inspectWasmModule>): string[] {
 
 describe("Wasm module inspection", () => {
   test("accepts and describes the production generated ABI", async () => {
-    const result = inspectWasmModule(await assemble(emitModule(SPEC)));
+    const wat = emitModule(SPEC);
+    const result = inspectWasmModule(await assemble(wat));
 
     expect(result.ok).toBe(true);
     expect(result.diagnostics).toEqual([]);
@@ -65,6 +66,11 @@ describe("Wasm module inspection", () => {
       },
     ]);
     expect(result.features).toEqual([]);
+    expect(wat).not.toContain("arena_top");
+    expect(wat).toContain(
+      "(call $lh_acquireScratch (i64.extend_i32_u (local.get $size)) (i32.const 1))",
+    );
+    expect(wat).toContain("(call $lh_releaseScratch (local.get $ptr))");
 
     const lhostImports = result.imports.filter((imported) => imported.module === "lhost");
     expect(lhostImports).toHaveLength(Object.keys(LHOST_ABI).length);
@@ -88,6 +94,17 @@ describe("Wasm module inspection", () => {
     );
     const instance = new WebAssembly.Instance(module, { lhost });
     expect((instance.exports.contract_index as () => number)()).toBe(29);
+  });
+
+  test("rejects the legacy arena_top export", async () => {
+    const wat = addDefinition(
+      emitModule(SPEC),
+      '  (global (export "arena_top") (mut i32) (i32.const 0))',
+    );
+    const result = inspectWasmModule(await assemble(wat));
+
+    expect(result.ok).toBe(false);
+    expect(codes(result)).toContain("legacy-export");
   });
 
   test("accepts the established imported-memory mode only when requested", async () => {

@@ -66,19 +66,8 @@ export function validateExports(parsed: ParsedModule, mode: InspectedMemoryMode)
             error(parsed.diagnostics, "export-signature", `export '${name}' has ${formatSignature(exported.signature)}; expected ${formatSignature(expected)}`);
         }
     }
-    const arena = byName.get("arena_top")?.[0];
-    if (!arena) {
-        error(parsed.diagnostics, "missing-export", "missing required mutable i32 global export 'arena_top'");
-    }
-    else if (arena.kind !== "global") {
-        error(parsed.diagnostics, "export-kind", `export 'arena_top' is ${arena.kind}; expected global`);
-    }
-    else {
-        const global = parsed.globals[arena.index];
-        if (!global || global.type !== "i32" || !global.mutable) {
-            error(parsed.diagnostics, "export-signature", "export 'arena_top' must be a mutable i32 global");
-        }
-    }
+    if (byName.has("arena_top"))
+        error(parsed.diagnostics, "legacy-export", "legacy export 'arena_top' is not supported");
     if (mode === "defined") {
         const memory = byName.get("memory")?.[0];
         if (!memory) {
