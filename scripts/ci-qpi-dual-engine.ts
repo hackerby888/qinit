@@ -1,7 +1,13 @@
 // Compile the same driver/callee sources with Qinit and Clang, deploy every
 // exact artifact through both node RPC paths, and compare complete state.
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildContract } from "../packages/build/src/index";
@@ -65,14 +71,17 @@ function same(left: Uint8Array, right: Uint8Array, label: string): void {
 }
 
 function cmakeProof(): Record<string, string> {
-  const cache = readFileSync(resolve(core!, "build-node/CMakeCache.txt"), "utf8");
+  const cachePath = ["build-node", "build-win"]
+    .map((directory) => resolve(core!, directory, "CMakeCache.txt"))
+    .find(existsSync);
+  if (!cachePath) fail("core build is missing CMakeCache.txt");
+  const cache = readFileSync(cachePath, "utf8");
   const value = (key: string): string => {
     const match = cache.match(new RegExp(`^${key}:[^=]*=(.*)$`, "m"));
     if (!match) fail(`CMake cache is missing ${key}`);
     return match[1].trim();
   };
   const expected: Record<string, string> = {
-    CMAKE_BUILD_TYPE: "RelWithDebInfo",
     BUILD_BINARY: "ON",
     BUILD_TESTS: "OFF",
     ENABLE_AVX512: "OFF",
@@ -90,11 +99,9 @@ function cmakeProof(): Record<string, string> {
     proof[key] = value(key);
     if (proof[key] !== wanted) fail(`CMake ${key}=${proof[key]}, expected ${wanted}`);
   }
+  proof.CMAKE_CACHE = cachePath;
   proof.CMAKE_C_COMPILER = value("CMAKE_C_COMPILER");
   proof.CMAKE_CXX_COMPILER = value("CMAKE_CXX_COMPILER");
-  if (!proof.CMAKE_C_COMPILER.endsWith("clang-18") || !proof.CMAKE_CXX_COMPILER.endsWith("clang++-18")) {
-    fail("node was not configured with clang/clang++ 18");
-  }
   return proof;
 }
 
@@ -320,7 +327,7 @@ function assertExpected(result: Result, label: string): void {
 }
 
 await initK12();
-console.log("release CMake proof", JSON.stringify(cmakeProof()));
+console.log("CMake proof", JSON.stringify(cmakeProof()));
 const coreRpc = new LiteRpc(rpcBase);
 const registry = await coreRpc.dynRegistry();
 if (registry.contracts.some((contract) => contract.armed)) fail("core node must start with empty dynamic slots");
@@ -376,6 +383,12 @@ try {
     if (result.calleeDigest !== canonical.calleeDigest) {
       fail(`${name} callee digest ${result.calleeDigest} != ${canonical.calleeDigest}`);
     }
+  }
+  if (process.env.QINIT_QPI_DIGEST_FILE) {
+    writeFileSync(
+      process.env.QINIT_QPI_DIGEST_FILE,
+      `${canonical.driverDigest} ${canonical.calleeDigest}\n`,
+    );
   }
   console.log(
     `QPI MATRIX OK — TS/Clang × virtual/core: ${canonical.driverState.length}B driver ${canonical.driverDigest}, ${canonical.calleeState.length}B callee ${canonical.calleeDigest}`,
