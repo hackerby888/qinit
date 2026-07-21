@@ -13,6 +13,7 @@ import { join, resolve } from "node:path";
 import { buildContract } from "../packages/build/src/index";
 import { deployContract } from "../packages/cli/src/deploy-ops";
 import { compileContract, inspectWasmModule, loadQpiHeader } from "../packages/compile/src/index";
+import { QPI_SNAPSHOT } from "../packages/compile/src/generated/qpi-snapshot";
 import { initK12, k12Hex, LiteRpc } from "../packages/core/src/index";
 import { VirtualNode } from "../packages/engine/src/index";
 import { EngineServer } from "../packages/engine/src/server";
@@ -105,9 +106,13 @@ function cmakeProof(): Record<string, string> {
 
 function verifyPinnedHeader(header: string): void {
   const manifest = JSON.parse(readFileSync(resolve("packages/compile/core-snapshot.json"), "utf8"));
-  const hash = `sha256:${createHash("sha256").update(header).digest("hex")}`;
-  if (hash !== manifest.snapshotHash) {
-    fail(`core header hash ${hash} does not match pinned ${manifest.snapshotHash}`);
+  const hash = (source: string) => `sha256:${createHash("sha256").update(source).digest("hex")}`;
+  const normalize = (source: string) => source.replace(/\r\n?/g, "\n");
+  if (normalize(header) !== normalize(QPI_SNAPSHOT)) {
+    fail(`core header hash ${hash(header)} does not match pinned ${manifest.snapshotHash}`);
+  }
+  if (hash(QPI_SNAPSHOT) !== manifest.snapshotHash) {
+    fail("generated QPI snapshot does not match its manifest");
   }
 }
 
