@@ -508,6 +508,14 @@ export class VirtualNode implements NodeTransport {
   private handleDeployTx(inputType: number, p: Uint8Array, source?: Uint8Array): void {
     if (inputType === LITE_TX.UPLOAD_BEGIN) {
       const m = UploadBegin.wrap(p);
+      if (this.upload) {
+        if (this.upload.sessionId !== m.sessionId) {
+          throw new Error(
+            `another contract upload is active (session ${this.upload.sessionId}, ${this.upload.received.size}/${this.upload.chunkCount} chunks); wait for it to complete`,
+          );
+        }
+        return; // same-session BEGIN retry: keep its buffer and received progress
+      }
       const totalSize = m.totalSize;
       this.upload = {
         sessionId: m.sessionId,
@@ -521,6 +529,7 @@ export class VirtualNode implements NodeTransport {
       const u = this.upload;
       if (!u) throw new Error("upload chunk without an active session");
       const m = UploadChunkHeader.wrap(p);
+      if (m.sessionId !== u.sessionId) throw new Error("upload chunk for a different session");
       u.buf.set(
         p.subarray(UploadChunkHeader.SIZE, UploadChunkHeader.SIZE + m.len),
         m.seq * CHUNK_DATA_MAX,

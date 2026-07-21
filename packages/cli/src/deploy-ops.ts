@@ -6,7 +6,6 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { buildContract, systemNames, type BuildResult, type ContractIdl } from "@qinit/build";
 import {
   buildSignedTx,
-  broadcastTx,
   LiteRpc,
   k12Hex,
   readCurrent,
@@ -156,8 +155,24 @@ export interface DeployResult {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function activeUploadError(u: { sessionId: string; receivedCount: number; chunkCount: number }): string {
+  return `another contract upload is active (session ${u.sessionId}, ${u.receivedCount}/${u.chunkCount} chunks); wait for it to complete`;
+}
+
 export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Promise<DeployResult> {
   const rpc = o.rpc ?? new LiteRpc(o.rpcBase);
+
+  // Check before tick waiting, slot resolution, or compilation so a busy node fails cheaply.
+  try {
+    const u = await rpc.dynUpload();
+    if (u.active) {
+      const error = activeUploadError(u);
+      emit({ step: "upload", state: "fail", detail: error });
+      return { ok: false, error };
+    }
+  } catch {
+    // Older nodes do not expose dyn-upload; the normal reachability check below remains authoritative.
+  }
 
   // refuse a name that collides with a built-in system contract (QX, QEARN, …) — keeps name resolution unambiguous.
   try {
@@ -349,45 +364,89 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     }
   }
   cur = await curTick(); // refresh: the probe advanced the chain
-  const uploadTick = cur + TX_TICK_OFFSET;
-
   const session = newSessionId();
   const chunks = chunkSo(new Uint8Array(so));
+  const total = chunks.length + 1; // BEGIN + chunks, preserving the existing progress shape
+  const done = new Set<number>();
   const mk = async (it: number, p: Uint8Array, t: number) =>
     (await buildSignedTx(seed!, { tick: t, inputType: it, payload: p })).bytes;
-  const uploads: Uint8Array[] = [];
-  uploads.push(
-    await mk(
-      LITE_TX.UPLOAD_BEGIN,
-      encodeUploadBegin({
-        sessionId: session,
-        totalSize: so.length,
-        chunkCount: chunks.length,
-        finalHashHex: hash,
-      }),
-      uploadTick,
-    ),
-  );
-  for (let i = 0; i < chunks.length; i++)
-    uploads.push(
-      await mk(
-        LITE_TX.UPLOAD_CHUNK,
-        encodeUploadChunk({ sessionId: session, seq: i, bytes: chunks[i] }),
-        uploadTick,
-      ),
-    );
-
-  // upload — live N/total progress, per-chunk retry up to 3 rounds
-  const total = uploads.length;
-  const done = new Set<number>();
   emit({ step: "upload", state: "active", detail: `0/${total}`, pct: 0 });
-  let pend = uploads.map((bts, i) => ({ bts, i }));
+
+  // Claim the single upload slot before sending any chunks. A BEGIN can broadcast successfully but miss its
+  // target tick, so retry it at a fresh tick with the same existing three-retry bound.
+  const claimUpload = async (): Promise<{ owned: boolean; error?: string }> => {
+    for (let attempt = 0; attempt <= 3; attempt++) {
+      const tick = (await curTick()) + TX_TICK_OFFSET;
+      let sent = false;
+      try {
+        sent = (
+          await rpc.broadcastTx(
+            await mk(
+              LITE_TX.UPLOAD_BEGIN,
+              encodeUploadBegin({
+                sessionId: session,
+                totalSize: so.length,
+                chunkCount: chunks.length,
+                finalHashHex: hash,
+              }),
+              tick,
+            ),
+          )
+        ).ok;
+      } catch {}
+      if (sent) {
+        done.add(0);
+        emit({
+          step: "upload",
+          state: "active",
+          detail: `${done.size}/${total}`,
+          pct: done.size / total,
+        });
+        await waitTickReach(tick + 1);
+      }
+      try {
+        const u = await rpc.dynUpload();
+        if (u.active) {
+          if (u.sessionId === String(session)) return { owned: true };
+          return { owned: false, error: activeUploadError(u) };
+        }
+      } catch {}
+      if (attempt < 3) {
+        emit({ note: `retry ${attempt + 1}: UPLOAD_BEGIN not confirmed` });
+        await sleep(600);
+      }
+    }
+    return { owned: false, error: "upload begin not confirmed after retries" };
+  };
+
+  const claim = await claimUpload();
+  if (!claim.owned) {
+    emit({ step: "upload", state: "fail", detail: claim.error });
+    return { ok: false, slot, hash, error: claim.error };
+  }
+
+  // Ownership is now visible through dyn-upload; only this session's chunks may leave the client.
+  const chunkTick = (await curTick()) + TX_TICK_OFFSET;
+  let pend = await Promise.all(
+    chunks.map(async (bytes, seq) => ({
+      bts: await mk(
+        LITE_TX.UPLOAD_CHUNK,
+        encodeUploadChunk({ sessionId: session, seq, bytes }),
+        chunkTick,
+      ),
+      i: seq + 1,
+    })),
+  );
   for (let attempt = 0; attempt <= 3 && pend.length; attempt++) {
     const fail: typeof pend = [];
     for (const u of pend) {
-      const r = await broadcastTx(u.bts, o.rpcBase);
-      if (r.ok) done.add(u.i);
-      else fail.push(u);
+      try {
+        const r = await rpc.broadcastTx(u.bts);
+        if (r.ok) done.add(u.i);
+        else fail.push(u);
+      } catch {
+        fail.push(u);
+      }
       emit({
         step: "upload",
         state: "active",
@@ -416,13 +475,18 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   // assemble — broadcast-OK ≠ landed in a tick (a chunk tx can be accepted then dropped from the
   // tick). Confirm the node reassembled the full Wasm module before DEPLOY, else DEPLOY no-ops
   let assembled = false;
-  await waitTickReach(uploadTick + 1); // let the chunk tick be processed first
+  await waitTickReach(chunkTick + 1); // let the chunk tick be processed first
   for (let round = 0; round < 4 && !assembled; round++) {
     let u: Awaited<ReturnType<typeof rpc.dynUpload>> | null = null;
     try {
       u = await rpc.dynUpload();
     } catch {}
-    if (u && u.active && u.sessionId === String(session)) {
+    if (u?.active && u.sessionId !== String(session)) {
+      const error = activeUploadError(u);
+      emit({ step: "upload", state: "fail", detail: error });
+      return { ok: false, slot, hash, error };
+    }
+    if (u?.active) {
       if (u.complete) {
         assembled = true;
         break;
@@ -434,43 +498,17 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
       } // count lagging — recheck
       const t = (await curTick()) + TX_TICK_OFFSET;
       for (const seq of miss)
-        await broadcastTx(
+        await rpc.broadcastTx(
           await mk(
             LITE_TX.UPLOAD_CHUNK,
             encodeUploadChunk({ sessionId: session, seq, bytes: chunks[seq] }),
             t,
           ),
-          o.rpcBase,
         );
       emit({ note: `assembly: resent ${miss.length} missing chunk(s) [round ${round + 1}]` });
       await waitTickReach(t + 1);
     } else {
-      // session not active on-node (BEGIN dropped/superseded) — resend BEGIN + all chunks at a fresh tick.
-      const t = (await curTick()) + TX_TICK_OFFSET;
-      await broadcastTx(
-        await mk(
-          LITE_TX.UPLOAD_BEGIN,
-          encodeUploadBegin({
-            sessionId: session,
-            totalSize: so.length,
-            chunkCount: chunks.length,
-            finalHashHex: hash,
-          }),
-          t,
-        ),
-        o.rpcBase,
-      );
-      for (let i = 0; i < chunks.length; i++)
-        await broadcastTx(
-          await mk(
-            LITE_TX.UPLOAD_CHUNK,
-            encodeUploadChunk({ sessionId: session, seq: i, bytes: chunks[i] }),
-            t,
-          ),
-          o.rpcBase,
-        );
-      emit({ note: `assembly: re-sent BEGIN + ${chunks.length} chunk(s) [round ${round + 1}]` });
-      await waitTickReach(t + 1);
+      await waitTickReach((await curTick()) + 1);
     }
   }
   emit({
@@ -487,13 +525,12 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   // deploy — at a fresh tick, since the assembly confirm above may have consumed several ticks
   emit({ step: "deploy", state: "active" });
   const deployTick = (await curTick()) + TX_TICK_OFFSET;
-  const dr = await broadcastTx(
+  const dr = await rpc.broadcastTx(
     await mk(
       LITE_TX.DEPLOY,
       encodeDeploy({ sessionId: session, targetSlot: slot, finalHashHex: hash, name: o.name }),
       deployTick,
     ),
-    o.rpcBase,
   );
   if (!dr.ok) {
     emit({ step: "deploy", state: "fail", detail: `code ${dr.code}` });

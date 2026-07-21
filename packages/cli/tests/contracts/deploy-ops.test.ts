@@ -4,6 +4,9 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LITE_TX, UploadBegin } from "@qinit/proto";
+import { VirtualNode } from "@qinit/engine";
+import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { deployContract, tickFailureMessage, classifyConfirm } from "../../src/deploy-ops";
 
 test("tickFailureMessage: unreachable is distinct from not-ticking", () => {
@@ -61,3 +64,124 @@ test("deployContract: an unreachable node yields a loud 'unreachable' error (not
   expect(r.ok).toBe(false);
   expect(r.error).toMatch(/unreachable/);
 }, 25000);
+
+test("deployContract: an active upload fails before tick waiting, slot resolution, or build", async () => {
+  const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+  dirs.push(core);
+  let tickCalls = 0;
+  let registryCalls = 0;
+  const rpc: any = {
+    dynUpload: async () => ({
+      active: true,
+      sessionId: "77",
+      receivedCount: 3,
+      chunkCount: 9,
+    }),
+    tickInfo: async () => {
+      tickCalls++;
+      return { tick: 1 };
+    },
+    dynRegistry: async () => {
+      registryCalls++;
+      return { contracts: [], slotBase: 28, slotCount: 4 };
+    },
+  };
+  const events: any[] = [];
+
+  const r = await deployContract(
+    { contractPath: join(core, "missing.h"), name: "Busy", core, rpcBase: "http://unused", rpc },
+    (event) => events.push(event),
+  );
+
+  const error =
+    "another contract upload is active (session 77, 3/9 chunks); wait for it to complete";
+  expect(r).toEqual({ ok: false, error });
+  expect(tickCalls).toBe(0);
+  expect(registryCalls).toBe(0);
+  expect(events).toContainEqual({ step: "upload", state: "fail", detail: error });
+});
+
+test("deployContract: racing deployments send chunks only for the winner; the loser works after completion", async () => {
+  process.env.QINIT_NO_UPDATE = "1";
+  const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
+  dirs.push(core);
+  const contractPath = join(core, "Race.h");
+  await Bun.write(contractPath, "struct Race {};");
+  const node = await VirtualNode.create({ mempool: false, fees: "off" });
+  let preflights = 0;
+  let releasePreflights!: () => void;
+  const preflightBarrier = new Promise<void>((resolve) => (releasePreflights = resolve));
+  let releaseWinner!: () => void;
+  const loserSawWinner = new Promise<void>((resolve) => (releaseWinner = resolve));
+
+  const createRpc = () => {
+    let tick = 0;
+    const stats = { sessionId: null as bigint | null, chunks: 0 };
+    const rpc: any = {
+      stats,
+      dynUpload: async () => {
+        if (stats.sessionId === null && preflights < 2) {
+          preflights++;
+          if (preflights === 2) releasePreflights();
+          await preflightBarrier;
+        }
+        const state = await node.dynUpload();
+        if (state.active && stats.sessionId !== null && state.sessionId !== String(stats.sessionId))
+          releaseWinner();
+        return state;
+      },
+      tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+      fundedSeed: async () => undefined,
+      dynRegistry: () => node.dynRegistry(),
+      directDeploy: async () => null,
+      putContractSource: (slot: number, source: string) => node.putContractSource(slot, source),
+      broadcastTx: async (bytes: Uint8Array) => {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const inputType = view.getUint16(76, true);
+        const inputSize = view.getUint16(78, true);
+        const payload = bytes.subarray(80, 80 + inputSize);
+        if (inputType === LITE_TX.UPLOAD_BEGIN) {
+          stats.sessionId = UploadBegin.wrap(payload).sessionId;
+        } else if (inputType === LITE_TX.UPLOAD_CHUNK) {
+          stats.chunks++;
+        } else if (inputType === LITE_TX.DEPLOY) {
+          await loserSawWinner;
+        }
+        return node.broadcastTx(bytes);
+      },
+    };
+    return rpc;
+  };
+
+  const artifact = { wasm: await wasm("Counter") };
+  const rpcA = createRpc();
+  const rpcB = createRpc();
+  const opts = (name: string, rpc: any) => ({
+    contractPath,
+    name,
+    core,
+    rpcBase: "http://unused",
+    seed: "a".repeat(55),
+    slotOverride: 28,
+    artifact,
+    rpc,
+  });
+
+  const first = await Promise.all([
+    deployContract(opts("RaceA", rpcA), () => {}),
+    deployContract(opts("RaceB", rpcB), () => {}),
+  ]);
+  const winner = first.findIndex((r) => r.ok);
+  const loser = 1 - winner;
+  expect(winner).toBeGreaterThanOrEqual(0);
+  expect(first[loser].error).toMatch(
+    /^another contract upload is active \(session \d+, \d+\/\d+ chunks\); wait for it to complete$/,
+  );
+  const rpcs = [rpcA, rpcB];
+  expect(rpcs[winner].stats.chunks).toBeGreaterThan(0);
+  expect(rpcs[loser].stats.chunks).toBe(0);
+
+  const retry = await deployContract(opts(loser === 0 ? "RaceA" : "RaceB", rpcs[loser]), () => {});
+  expect(retry.ok).toBe(true);
+  expect(rpcs[loser].stats.chunks).toBeGreaterThan(0);
+}, 20000);

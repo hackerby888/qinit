@@ -115,6 +115,42 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
   expect(eng.sim.digest(29)).toBe(ORACLE);
 });
 
+test("UPLOAD_BEGIN keeps the active session across retries and rejects a different session", async () => {
+  const eng = await VirtualNode.create({ mempool: false });
+  const first = 11n;
+  const begin = (sessionId: bigint, totalSize: number, chunkCount: number, hash: string) =>
+    (eng as any).handleDeployTx(
+      LITE_TX.UPLOAD_BEGIN,
+      encodeUploadBegin({ sessionId, totalSize, chunkCount, finalHashHex: hash }),
+    );
+
+  begin(first, 8, 2, "11".repeat(32));
+  (eng as any).handleDeployTx(
+    LITE_TX.UPLOAD_CHUNK,
+    encodeUploadChunk({ sessionId: first, seq: 0, bytes: new Uint8Array([1, 2, 3]) }),
+  );
+  const active = (eng as any).upload;
+  const buffer = [...active.buf];
+
+  expect(() => begin(first, 4, 1, "22".repeat(32))).not.toThrow();
+  expect((eng as any).upload).toBe(active);
+  expect(await eng.dynUpload()).toMatchObject({
+    sessionId: "11",
+    totalSize: 8,
+    chunkCount: 2,
+    receivedCount: 1,
+    finalHash: "11".repeat(32),
+  });
+  expect([...(eng as any).upload.buf]).toEqual(buffer);
+
+  expect(() => begin(22n, 4, 1, "22".repeat(32))).toThrow(
+    "another contract upload is active (session 11, 1/2 chunks); wait for it to complete",
+  );
+  expect((eng as any).upload).toBe(active);
+  expect([...(eng as any).upload.buf]).toEqual(buffer);
+  expect((await eng.dynUpload()).receivedCount).toBe(1);
+});
+
 test("signature verification (opt-in): valid signed tx accepted, tampered one rejected", async () => {
   const eng = await VirtualNode.create({ verifySigs: true, mempool: false }); // assert apply immediately
   eng.deploy(28, await wasm("Counter"), "Counter");
