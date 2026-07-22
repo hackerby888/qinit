@@ -424,6 +424,31 @@ describe("Codegen — layoutOfType via global structs", () => {
 
     expect(codeGenerationContext.resolveConst("OracleInterface::oracleInterfaceIndex", bindings)).toBe(0n);
   });
+
+  test("qualified constants resolve nested owners before global tail names", () => {
+    const codeGenerationContext = makeCg();
+    codeGenerationContext.globalStructs.set("Outer", sdecl("Outer", [
+      sdecl("Nested", [stat("VALUE", 17)]),
+    ]));
+    codeGenerationContext.globalStructs.set("Nested", sdecl("Nested", [stat("VALUE", 99)]));
+
+    expect(codeGenerationContext.resolveConst("Outer::Nested::VALUE")).toBe(17n);
+  });
+
+  test("qualified constants walk nested owners through template bindings", () => {
+    const codeGenerationContext = makeCg();
+    codeGenerationContext.globalStructs.set("Concrete", sdecl("Concrete", [
+      sdecl("Nested", [stat("VALUE", 23)]),
+    ]));
+    codeGenerationContext.globalStructs.set("Nested", sdecl("Nested", [stat("VALUE", 99)]));
+    const bindings: TemplateBindings = {
+      types: new Map([["T", n("Concrete")]]),
+      values: new Map(),
+      structs: new Map(),
+    };
+
+    expect(codeGenerationContext.resolveConst("T::Nested::VALUE", bindings)).toBe(23n);
+  });
 });
 
 // -------------------------------------------------------------------------- anonymous struct promotion --------------------------------------------------------------------------

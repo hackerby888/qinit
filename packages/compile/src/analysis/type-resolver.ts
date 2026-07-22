@@ -207,7 +207,7 @@ export function evalConstFromType(context: ProgramAnalysisInternals, type: TypeS
         if (!isNaN(count))
             return BigInt(count);
         // a named constant template arg (e.g. Array<RoundInfo, QEARN_MAX_EPOCHS>)
-        const resolvedConstant = context.resolveConst(type.name);
+        const resolvedConstant = context.resolveConst(type.name, templateBindings);
         if (resolvedConstant !== null)
             return resolvedConstant;
     }

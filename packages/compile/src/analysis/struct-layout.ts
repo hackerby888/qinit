@@ -84,39 +84,18 @@ export function baseContribution(context: ProgramAnalysisInternals, baseType: Ty
 }
 
 export function evalQualifiedConst(context: ProgramAnalysisInternals, typeName: string, member: string, templateBindings: TemplateBindings): bigint | null {
-    let type: TypeSpec = { kind: "name", name: typeName };
-    for (let index = 0; index < 8 && type.kind === "name"; index++) {
-        const bound = templateBindings.types.get(type.name);
-        if (bound) {
-            type = bound;
-            continue;
-        }
-        const td = context.typedefs.get(type.name);
-        if (td) {
-            type = td;
-            continue;
-        }
-        break;
-    }
+    const type = context.resolveType({ kind: "name", name: typeName }, templateBindings);
     let members: Declaration[] | null = null;
     let tb: TemplateBindings = templateBindings;
     if (type.kind === "template_instance") {
-        const templateDeclaration = context.templates.get(type.name);
-        if (!templateDeclaration)
+        const inst = context.instantiateTemplate(type.name, type.callArguments, templateBindings);
+        if (!inst)
             return null;
-        members = templateDeclaration.members;
-        tb = { types: new Map(), values: new Map(), structs: new Map() };
-        const resolved = type.callArguments.map((argument) => context.resolveType(argument, templateBindings));
-        for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
-            const parameter = templateDeclaration.params[parameterIndex];
-            const argument = resolved[parameterIndex];
-            if (!argument)
-                continue;
-            if (parameter.kind === "type")
-                tb.types.set(parameter.name, argument);
-            else
-                tb.values.set(parameter.name, context.evalConstFromType(argument, templateBindings));
-        }
+        members = inst.templateDeclaration.members;
+        tb = inst.b;
+    }
+    else if (type.kind === "inline_struct") {
+        members = type.struct.members;
     }
     else if (type.kind === "name") {
         const structDeclaration = context.structByName(type.name, templateBindings);

@@ -115,14 +115,7 @@ export function evalConstBig(context: ProgramAnalysisInternals, expression: Expr
             const numericValue = templateBindings.values.get(expression.name);
             if (numericValue !== undefined)
                 return numericValue;
-            // Qualified static constexpr `T::member` (e.g. ProposalVoting's maxProposals =
-            const sep = expression.name.lastIndexOf("::");
-            if (sep > 0) {
-                const numericValue = context.evalQualifiedConst(expression.name.slice(0, sep), expression.name.slice(sep + 2), templateBindings);
-                if (numericValue !== null)
-                    return numericValue;
-            }
-            const resolvedConstant = context.resolveConst(expression.name);
+            const resolvedConstant = context.resolveConst(expression.name, templateBindings);
             if (resolvedConstant !== null)
                 return resolvedConstant;
             return 0n;
