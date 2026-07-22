@@ -36,13 +36,20 @@ function matchingBrace(source: string, open: number): number {
   for (let sourceItemIndex = open; sourceItemIndex < source.length; sourceItemIndex++) {
     const ch = source[sourceItemIndex];
     if (quote) {
-      if (ch === "\\") sourceItemIndex++;
-      else if (ch === quote) quote = "";
+      if (ch === "\\") {
+        sourceItemIndex++;
+      } else if (ch === quote) {
+        quote = "";
+      }
       continue;
     }
-    if (ch === '"' || ch === "'") quote = ch;
-    else if (ch === "{") depth++;
-    else if (ch === "}" && --depth === 0) return sourceItemIndex;
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}" && --depth === 0) {
+      return sourceItemIndex;
+    }
   }
   return -1;
 }
@@ -55,11 +62,13 @@ function lineAt(source: string, offset: number): number {
 // every statement and expression inside the body is parsed and lowered by the normal compiler frontend.
 function extractTests(source: string): TestBlock[] {
   const tests: TestBlock[] = [];
-  const re = /\bTEST\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)\s*\{/g;
-  for (let match = re.exec(source); match; match = re.exec(source)) {
+  const testPattern = /\bTEST\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)\s*\{/g;
+  for (let match = testPattern.exec(source); match; match = testPattern.exec(source)) {
     const open = source.indexOf("{", match.index);
     const close = matchingBrace(source, open);
-    if (close < 0) break;
+    if (close < 0) {
+      break;
+    }
     tests.push({
       name: `${match[1]}.${match[2]}`,
       body: source.slice(open + 1, close),
@@ -67,7 +76,7 @@ function extractTests(source: string): TestBlock[] {
       end: close + 1,
       line: lineAt(source, match.index),
     });
-    re.lastIndex = close + 1;
+    testPattern.lastIndex = close + 1;
   }
   return tests;
 }
@@ -75,7 +84,11 @@ function extractTests(source: string): TestBlock[] {
 function withoutTests(source: string, tests: TestBlock[]): string {
   const chars = [...source];
   for (const test of tests) {
-    for (let testItemIndex = test.start; testItemIndex < test.end; testItemIndex++) if (chars[testItemIndex] !== "\n") chars[testItemIndex] = " ";
+    for (let testItemIndex = test.start; testItemIndex < test.end; testItemIndex++) {
+      if (chars[testItemIndex] !== "\n") {
+        chars[testItemIndex] = " ";
+      }
+    }
   }
   return chars.join("");
 }
@@ -86,8 +99,12 @@ function sanitize(name: string, index: number): string {
 
 function stripAssertionStreams(source: string): string {
   const chars = [...source];
-  const re = /\b(?:EXPECT|ASSERT)_(?:EQ|NE|LT|LE|GT|GE|TRUE|FALSE)\s*\(/g;
-  for (let match = re.exec(source); match; match = re.exec(source)) {
+  const assertionPattern = /\b(?:EXPECT|ASSERT)_(?:EQ|NE|LT|LE|GT|GE|TRUE|FALSE)\s*\(/g;
+  for (
+    let match = assertionPattern.exec(source);
+    match;
+    match = assertionPattern.exec(source)
+  ) {
     const open = source.indexOf("(", match.index);
     let depth = 0;
     let quote = "";
@@ -95,33 +112,54 @@ function stripAssertionStreams(source: string): string {
     for (let sourceItemIndex = open; sourceItemIndex < source.length; sourceItemIndex++) {
       const ch = source[sourceItemIndex];
       if (quote) {
-        if (ch === "\\") sourceItemIndex++;
-        else if (ch === quote) quote = "";
+        if (ch === "\\") {
+          sourceItemIndex++;
+        } else if (ch === quote) {
+          quote = "";
+        }
         continue;
       }
-      if (ch === '"' || ch === "'") quote = ch;
-      else if (ch === "(") depth++;
-      else if (ch === ")" && --depth === 0) {
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === "(") {
+        depth++;
+      } else if (ch === ")" && --depth === 0) {
         close = sourceItemIndex;
         break;
       }
     }
-    if (close < 0) continue;
+    if (close < 0) {
+      continue;
+    }
     let tail = close + 1;
-    while (/\s/.test(source[tail] ?? "")) tail++;
-    if (source.slice(tail, tail + 2) !== "<<") continue;
+    while (/\s/.test(source[tail] ?? "")) {
+      tail++;
+    }
+    if (source.slice(tail, tail + 2) !== "<<") {
+      continue;
+    }
     let end = tail + 2;
     quote = "";
     for (; end < source.length; end++) {
       const ch = source[end];
       if (quote) {
-        if (ch === "\\") end++;
-        else if (ch === quote) quote = "";
-      } else if (ch === '"' || ch === "'") quote = ch;
-      else if (ch === ";") break;
+        if (ch === "\\") {
+          end++;
+        } else if (ch === quote) {
+          quote = "";
+        }
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === ";") {
+        break;
+      }
     }
-    for (let index = close + 1; index < end; index++) if (chars[index] !== "\n") chars[index] = " ";
-    re.lastIndex = end;
+    for (let index = close + 1; index < end; index++) {
+      if (chars[index] !== "\n") {
+        chars[index] = " ";
+      }
+    }
+    assertionPattern.lastIndex = end;
   }
   return chars.join("");
 }

@@ -1,5 +1,5 @@
-// Qubic peer-protocol TCP server — a Bun.listen server that speaks the Qubic peer protocol and drives an
-// VirtualNode, so an external Qubic client can run against the in-process sim over TCP. On connect it sends
+// Qubic peer-protocol TCP server backed by an in-process VirtualNode.
+// Lets external clients communicate with the simulation over TCP.
 import { VirtualNode } from "./transport";
 import { initK12, toHex } from "./k12";
 import { identityToBytes } from "@qinit/core";
@@ -27,7 +27,8 @@ export class PeerServer {
   }
 
   // Listen on `port` (21841 = the default Qubic node port). Auto-advances one tick every `tickMs` so the current
-  // tick advances + broadcast txs land; `tickMs` is also reported as the chain's tickDuration. Pre-funds the funded seed.
+  // Advance ticks for broadcast transactions and report tickMs as tickDuration.
+  // Pre-fund the development seed.
   async start(port = 21841, tickMs = 50, autoTick = true): Promise<PeerServerHandle> {
     await initK12();
     await this.engine.seedFaucet();

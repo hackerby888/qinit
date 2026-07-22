@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Differential gtest for chaining through a container element: Array<Struct,N>.set(i, s) and the read chain arr.get(i).field (the QEARN _initialRoundInfo.get(Epoch)._epochBonusAmount
+// Checks chained Array<Struct> writes and field reads used by QEARN.
 import { coreGtest } from "../support/core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";

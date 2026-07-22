@@ -1,5 +1,5 @@
 // Qubic QPI extension.
-//   M1 — clangd enablement: on opening/saving a contract header in a qinit project, (re)generate the
+// Regenerate clangd configuration when a Qinit contract opens or saves.
 import * as vscode from "vscode";
 import { join, resolve } from "node:path";
 import { resolveCore, wasiSdkPaths, loadConfig } from "@qinit/core/project";
@@ -21,8 +21,7 @@ function warnOncePerMinute(msg: string): void {
   }
 }
 
-// (Re)generate the clangd compile DB for a contract document (M1). Silent for non-contracts and
-// non-projects; warns (at most once a minute) when the toolchain isn't synced. Async because it
+// Regenerate clangd data for project contracts; rate-limit unsynced-toolchain warnings.
 async function regenerateClangd(
   doc: vscode.TextDocument,
   out: vscode.OutputChannel,
@@ -115,8 +114,7 @@ async function regenerateClangd(
   }
 }
 
-// (Re)generate the clangd compile DB for a gtest TEST file: a combined contract+test TU so clangd resolves
-// TEST / EXPECT_* / ContractTesting and the contract's <Name>::Foo_input types. The test pairs with the
+// Generate a combined contract/test TU so clangd resolves the test API and generated input types.
 function regenerateTestClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): void {
   if (!isTestDoc(doc)) return;
   const root = findProjectRoot(doc.fileName);

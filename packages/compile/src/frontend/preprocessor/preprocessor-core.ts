@@ -64,7 +64,7 @@ export function buildLineMap(context: PreprocessorInternals, src: string): void 
 }
 
 export function process(context: PreprocessorInternals, src: string): string {
-    // Normalize CRLF/CR → LF so backslash line-continuations (`\` + CRLF) in multi-line macro definitions join correctly — core-lite
+    // Normalize line endings before joining backslash continuations.
     context.input = src.replace(/\r\n?/g, "\n");
     context.pos = 0;
     context.line = 1;

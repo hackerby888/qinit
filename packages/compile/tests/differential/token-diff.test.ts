@@ -1,5 +1,5 @@
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
-// Differential gtest for Token.h — exercises qpi host calls (issueAsset / isAssetIssued / nextId) and id construction (SELF)
+// Covers token host calls and id construction against native behavior.
 import { coreGtest } from "../support/core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";

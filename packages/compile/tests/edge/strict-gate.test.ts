@@ -1,11 +1,11 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Strict fidelity gate: a construct the compiler can only lower to a placeholder must fail the build loudly
+// Ensures placeholder lowerings fail strict builds instead of silently diverging.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
 
-// UNKNOWN_FIDELITY_CONST resolves nowhere, so emitValue falls back to (i64.const 0) with a fidelity warning — the exact silent-divergence
+// An unresolved constant exercises the placeholder fallback guarded by strict mode.
 const SRC = `
 using namespace QPI;
 

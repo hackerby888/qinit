@@ -8,16 +8,26 @@ const targets = [
   "bun-windows-x64",
 ];
 
-for (const t of targets) {
-  const suffix = t.replace("bun-", "");
-  const out = `dist/qinit-${suffix}${t.includes("windows") ? ".exe" : ""}`;
-  console.log(`building ${out} …`);
-  const p = Bun.spawn(
-    ["bun", "build", "packages/cli/src/index.tsx", "--compile", "--minify",
-     `--target=${t}`, "--outfile", out],
+for (const target of targets) {
+  const suffix = target.replace("bun-", "");
+  const output = `dist/qinit-${suffix}${target.includes("windows") ? ".exe" : ""}`;
+  console.log(`building ${output} …`);
+  const child = Bun.spawn(
+    [
+      "bun",
+      "build",
+      "packages/cli/src/index.tsx",
+      "--compile",
+      "--minify",
+      `--target=${target}`,
+      "--outfile",
+      output,
+    ],
     { stdout: "inherit", stderr: "inherit" },
   );
-  await p.exited;
-  if (p.exitCode !== 0) process.exit(p.exitCode ?? 1);
+  await child.exited;
+  if (child.exitCode !== 0) {
+    process.exit(child.exitCode ?? 1);
+  }
 }
 console.log("matrix build done");

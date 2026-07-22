@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Differential gtest for Collection<T, L> compiled from the real qpi.h BST body: add (struct element), per-PoV iteration (headIndex
+// Differential coverage for Collection mutation and per-PoV traversal.
 import { coreGtest } from "../support/core-gtest";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";

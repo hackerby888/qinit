@@ -18,9 +18,9 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
         case "declaration": {
             if (statement.declaration.kind === "variable") {
                 const variableDeclaration = statement.declaration as VariableDecl;
-                // The collect pass stored the declared type with `auto` resolved from the initializer; classification here must agree with
+                // Keep initializer classification consistent with the pre-scanned local type.
                 const declared = context.localVars.get(variableDeclaration.name)?.type ?? variableDeclaration.type;
-                // __ScopedScratchpad scratchpad(size, initZero): bump a scratch buffer off the arena; the local holds its base address, read back
+                // Allocate scratchpad storage from the arena and retain its base address.
                 if (variableDeclaration.type.kind === "name" && /ScopedScratchpad$/.test(variableDeclaration.type.name)) {
                     const callArguments = variableDeclaration.initializer && (variableDeclaration.initializer.kind === "construct" || variableDeclaration.initializer.kind === "call") ? variableDeclaration.initializer.callArguments : [];
                     const size = callArguments[0] ? context.lowering.lowerValueExpression(context, callArguments[0]) : watIr.i64Constant(0);
@@ -32,7 +32,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                     (context.scratchpadScope ??= []).push(variableDeclaration.name);
                     break;
                 }
-                // AssetOwnership/PossessionIterator iter(asset): an 8-byte iterator buffer (count@0, cursor@4); the constructor runs the enumerate. Track its type so iter.possessor()/reachedEnd()/next()
+                // Track asset iterators so their methods use the iterator buffer.
                 if (variableDeclaration.type.kind === "name" && /Asset(Ownership|Possession)Iterator$/.test(variableDeclaration.type.name)) {
                     context.lines.push(`    ${context.lowering.setLocal(context, variableDeclaration.name, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(8)))}`);
                     (context.refLocals ??= new Map()).set(variableDeclaration.name, variableDeclaration.type);
@@ -63,12 +63,12 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                         break;
                     if (variableDeclaration.initializer) {
                         const node = context.lowering.resolveExpressionAddress(context, variableDeclaration.initializer);
-                        // Fall back to emitAddr for initializers that aren't plain lvalues but still yield an address — an asset-iterator
+                        // Materialize address-yielding initializers that are not plain lvalues.
                         const addr = node?.addr ?? context.lowering.emitAddress(context, variableDeclaration.initializer);
                         if (addr) {
                             if (!context.refLocals)
                                 context.refLocals = new Map();
-                            // A pointer local keeps its pointer type so resolveAddr's subscript path fires (`shareholders[i]`); a reference binds to its
+                            // Preserve pointer types for indexing; references bind to their referent type.
                             const refType = declared.kind === "pointer" ? declared : (node?.type ?? declared.referentType);
                             context.refLocals.set(variableDeclaration.name, refType);
                             context.lines.push(`    ${context.lowering.setLocal(context, variableDeclaration.name, addrIr(addr))}`);
@@ -79,7 +79,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                     }
                     break;
                 }
-                // struct-typed local (DateAndTime begin = *this): allocate a slot the wasm local points at, so member reads and
+                // Store aggregate locals in slots so member access uses their address.
                 {
                     const db = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
                     const concrete = declared.kind === "name" && db.types.has(declared.name)
@@ -94,8 +94,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                         const byteSize = Math.max(aggSz, 8);
                         context.lines.push(`    ${context.lowering.setLocal(context, variableDeclaration.name, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(byteSize)))}`);
                         (context.refLocals ??= new Map()).set(variableDeclaration.name, concrete);
-                        // uint128_t is a class, not a pair of fields to initialize positionally: its two-argument
-                        // constructor accepts (high, low), while the resident layout is (low, high). Route every
+                        // Route uint128 construction through its high/low-aware constructor.
                         if (variableDeclaration.initializer && isUint128(context.programAnalysis, concrete)) {
                             context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(variableDeclaration.name, "i32"), context.lowering.lowerUint128Expression(context, variableDeclaration.initializer), watIr.i32Constant(16)))}`);
                             break;
@@ -221,7 +220,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             const cont = context.loops.length ? context.loops[context.loops.length - 1].cont : brk;
             context.loops.push({ brk, cont, scratchDepth: context.scratchpadScope?.length ?? 0 });
             const body = statement.body.kind === "compound" ? statement.body.body : [statement.body];
-            // Group statements by case/default markers. Each group gets a block label so
+            // Give each switch group a block label for fallthrough dispatch.
             const groups: {
                 test: string | null;
                 statements: Statement[];
@@ -309,11 +308,11 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 context.lines.push(`    (br ${context.inlineReturnLabel})`);
                 break;
             }
-            // an inlined struct method's `return *this` carries no value out (the object flows via thisAddr); emitting a wasm
+            // Ignore value emission for inline `return *this`; the object flows by address.
             if (context.inlineMethod)
                 break;
             if (statement.value && context.retAddr) {
-                // aggregate-returning helper: copy the returned value into the caller-supplied dest, then return
+                // Copy aggregate returns to the caller destination before returning.
                 const src = context.lowering.emitAddress(context, statement.value);
                 if (src) {
                     context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(context.retAddr!), addrIr(src), watIr.i32Constant(context.retAggSize!)))}`);
@@ -332,8 +331,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 context.lines.push(`    (return)`);
             }
             else if (statement.value && context.retIsAddr) {
-                // Reference-returning compound operators commonly return their assignment
-                // expression (`return *this += rhs`). Perform the write, then return the
+                // Apply reference-returning compound assignments before returning.
                 let addr: string | null;
                 if (statement.value.kind === "assign") {
                     context.lowering.emitAssignment(context, statement.value);

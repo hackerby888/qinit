@@ -55,7 +55,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         locals.a.issuer = input.issuer;
         locals.a.assetName = input.name;
-        output.result = qpi.acquireShares(locals.a, input.holder, input.holder, input.shares, input.srcMgmt, input.srcMgmt, input.fee);
+        output.result = qpi.acquireShares(
+            locals.a,
+            input.holder,
+            input.holder,
+            input.shares,
+            input.srcMgmt,
+            input.srcMgmt,
+            input.fee);
         state.mut().lastResult = output.result;
     }
 
@@ -63,7 +70,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     {
         locals.a.issuer = input.issuer;
         locals.a.assetName = input.name;
-        output.result = qpi.releaseShares(locals.a, input.holder, input.holder, input.shares, input.dstMgmt, input.dstMgmt, input.fee);
+        output.result = qpi.releaseShares(
+            locals.a,
+            input.holder,
+            input.holder,
+            input.shares,
+            input.dstMgmt,
+            input.dstMgmt,
+            input.fee);
         state.mut().lastResult = output.result;
     }
 

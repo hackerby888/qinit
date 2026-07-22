@@ -1,6 +1,5 @@
 #pragma once
-// Qinit-private Wasm test registry and assertion shim. User tests use core-lite's
-// contract_testing.h / ContractTesting source format; this header is injected by
+// Qinit-private Wasm registry for core-lite ContractTesting sources.
 #ifdef QINIT_WASM_GTEST
 
 // The virtual node receives one final result for each registered test.
@@ -124,8 +123,7 @@ inline void failAt(const char* file, int line, const char* what) {
 
 } // namespace qinit_gtest
 
-// Googletest-compatible test environment surface (GGWP and other corpora use ::testing::Environment
-// + AddGlobalTestEnvironment to run setup before the first test). Native gtest is unavailable in
+// Minimal test environment surface for setup hooks; native gtest is unavailable in Wasm.
 namespace testing {
 class Environment {
 public:

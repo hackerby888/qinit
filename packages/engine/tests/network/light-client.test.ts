@@ -1,5 +1,4 @@
-// Light-client verification — the payoff of the merkle proofs. A balance is checked against the spectrum root
-// that >= QUORUM computors signed (the Tick votes), not the server's word. spectrumProof gives the entity's
+// Verifies entity Merkle proofs against spectrum roots signed by a computor quorum.
 import { test, expect } from "bun:test";
 import { initK12 } from "../../src/k12";
 import { Sim } from "../../src/sim";

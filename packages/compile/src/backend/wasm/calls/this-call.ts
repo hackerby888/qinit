@@ -56,14 +56,14 @@ export function emitThisCall(context: FunctionEmissionContext, expression: Expre
         });
         return `(call ${cm.label} (local.get $this)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`;
     }
-    // a sibling method of this container instance — compile it and call with $this + args. An
+    // Compile sibling calls against this container instance.
     const methodNameOnly = methodName.startsWith(`${context.thisType.name}::`)
         ? methodName.slice(context.thisType.name.length + 2)
         : methodName;
     const cm = compileContainerMethod(context.programAnalysis, context.thisType, methodNameOnly, expression.callArguments.length);
     if (!cm)
         return null;
-    // A reference-scalar argument that is a plain wasm local (addAndComputeCarry(newMicrosec, carry, ...)) has no address: spill it to
+    // Spill scalar locals passed by mutable reference, then write them back.
     const writeBacks: string[] = [];
     const methodArgumentOperands = cm.functionParameters.map((fp, fnParamIndex) => {
         const methodArgument = expression.callArguments[fnParamIndex] ?? fp.defaultValue;

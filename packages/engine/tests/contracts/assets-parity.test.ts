@@ -1,5 +1,4 @@
-// Node-parity behaviors of the record-table AssetLedger (assets/assets.h + qpi_asset_impl.h semantics that
-// the flat-holdings model could not express): zero-share record retention, burn-to-zero-id (refused for
+// AssetLedger parity for zero-share retention, burn handling, transfers, and enumeration.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12 } from "../../src/k12";
 import { AssetLedger, packAssetName } from "../../src/assets";

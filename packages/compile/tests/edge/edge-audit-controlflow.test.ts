@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Missing positive coverage for QPI-legal control flow. Unlike the red regression files,
+// Positive coverage for QPI-legal loops, switches, and short-circuit flow.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

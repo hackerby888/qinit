@@ -117,8 +117,7 @@ export function cachedNode(): string | undefined {
   return n && existsSync(n) ? n : undefined;
 }
 
-// Resolve the node binary to run: prefer the latest/pinned release (fetchNodeBin no-op-skips the
-// download when that version is already cached) and fall back to a cached node only when the manifest
+// Prefer the requested release, falling back to a cached node only when its manifest is unavailable.
 export async function ensureNode(
   ref = "latest",
   onProgress?: (recv: number, total: number) => void,
@@ -149,8 +148,7 @@ export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: 
   mkdirSync(scratch, { recursive: true });
   const log = join(scratch, "node.log");
   const fd = openSync(log, "a");
-  // detached + unref so the node OUTLIVES qinit (notably `qinit node run`/`test --keep`). A non-detached child
-  // is killed when the parent process exits on Windows; detached:true gives it its own process group on
+  // Detach so the node outlives qinit, including on Windows.
   const child = spawn(
     o.bin,
     ["--peers", o.peers || "127.0.0.1", "--node-mode", o.mode || "3", "--ticking-delay", "1000"],
@@ -163,8 +161,7 @@ export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: 
   return { pid, scratch, log };
 }
 
-// Launch the in-process TS engine as a detached background node (`qinit mode virtualnode`). Re-invokes this
-// same qinit — the compiled binary, or `bun index.tsx` in dev — as the hidden `__serve` process bound to the
+// Launch the in-process engine through this qinit's hidden `__serve` command.
 export function launchVirtualNode(o: {
   dir?: string;
   rpcBase?: string;

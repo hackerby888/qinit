@@ -1,5 +1,4 @@
-// Imported-memory acceptance for system suites that are invalid in the
-// ordinary shadow-state harness. Each contract body is compiled by the local
+// Run imported-memory suites that cannot use the ordinary shadow-state harness.
 import { rmSync } from "node:fs";
 import { runCorpus } from "../packages/cli/src/corpus-run";
 
@@ -18,8 +17,13 @@ for (const name of ["PULSE", "QEARN"]) {
   });
   const failed = run.results.filter((result) => !result.passed);
   if (!run.found || !run.hasCorpus || !run.runnerOk || !run.heavy || failed.length) {
-    const details = failed.slice(0, 8).map((result) => `${result.name}: ${result.message}`).join("; ");
-    throw new Error(`${name} shared-memory gate failed: ${run.buildError ?? details ?? "invalid corpus result"}`);
+    const details = failed
+      .slice(0, 8)
+      .map((result) => `${result.name}: ${result.message}`)
+      .join("; ");
+    throw new Error(
+      `${name} shared-memory gate failed: ${run.buildError ?? details ?? "invalid corpus result"}`,
+    );
   }
   console.log(`[${name}] SHARED OK — ${run.results.length}/${run.results.length} tests passed`);
 }

@@ -15,7 +15,7 @@ export function isAggregate(context: FunctionEmissionContext, type: TypeSpec | n
         return true;
     return size > 8;
 }
-// Typed local.set line: the value's width is checked against the local's declared wasm type, so an i64 flowing
+// Verify local assignments against their declared Wasm types.
 export function setLocal(context: FunctionEmissionContext, name: string, value: watIr.WatNode): string {
     const lv = context.localVars.get(name) ?? context.params?.get(name);
     if (lv) {
@@ -66,11 +66,11 @@ export function argAddr(context: FunctionEmissionContext, expression: Expression
 export function addressAtOffset(ptr: string, offset: number): string {
     return watIr.serializeWatNode(watIr.addressWithOffset(watIr.rawWatNode(ptr, "i32"), offset));
 }
-// Load a scalar into the i64 value model. Signed sub-64-bit fields MUST sign-extend — else a sint32 holding
+// Sign-extend narrow signed loads into the i64 value model.
 export function emitScalarLoad(addr: string, size: number, signed = false): string {
     return watIr.serializeWatNode(lowerScalarLoad(addr, size, signed));
 }
-// Same load, as a typed node — for value-channel callers holding a string address (resolveAddr/Lvalue stay string-typed until
+// Return a typed scalar load for callers holding string-form addresses.
 export function lowerScalarLoad(addr: string, size: number, signed = false): watIr.WatNode {
     return watIr.loadScalar(addrIr(addr), size, signed);
 }
@@ -106,7 +106,7 @@ export function isSignedScalarType(type: TypeSpec | null | undefined, programAna
 export function emitScalarStore(addr: string, size: number, value: string): string {
     return watIr.serializeWatNode(watIr.storeScalar(watIr.rawWatNode(addr, "i32"), size, watIr.rawWatNode(value, "i64")));
 }
-// Narrow a 64-bit register value to a sub-64-bit scalar type, matching a C++ conversion: unsigned types mask to
+// Narrow i64 values with C++ signed extension or unsigned masking.
 export function narrowCastIr(inner: watIr.WatNode, typeName: string | undefined): watIr.WatNode {
     if (!typeName)
         return inner;
@@ -117,10 +117,18 @@ export function narrowCastIr(inner: watIr.WatNode, typeName: string | undefined)
         return watIr.operation("i64.extend_i32_u", watIr.operation("i64.ne", watIr.i64Constant(0), inner));
     }
     if (typeName.startsWith("sint") || typeName.startsWith("signed")) {
-        const operator = byteWidth === 4 ? "i64.extend32_s" : byteWidth === 2 ? "i64.extend16_s" : "i64.extend8_s";
+        let operator = "i64.extend8_s";
+        if (byteWidth === 4)
+            operator = "i64.extend32_s";
+        else if (byteWidth === 2)
+            operator = "i64.extend16_s";
         return watIr.operation(operator, inner);
     }
-    const mask = byteWidth === 4 ? "0xffffffff" : byteWidth === 2 ? "0xffff" : "0xff";
+    let mask = "0xff";
+    if (byteWidth === 4)
+        mask = "0xffffffff";
+    else if (byteWidth === 2)
+        mask = "0xffff";
     return watIr.operation("i64.and", inner, watIr.i64Constant(mask));
 }
 export function narrowCast(inner: string, typeName: string | undefined): string {

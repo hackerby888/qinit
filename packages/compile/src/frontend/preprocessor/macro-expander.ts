@@ -205,7 +205,7 @@ export function expandRecursive(context: PreprocessorInternals, text: string): s
                     changed = true;
                 }
                 else if (def && def.params !== null && !context.expanding.has(ident)) {
-                    // Function-like macro — expand only if actually invoked (an open paren follows). A macro body
+                    // Expand function-like macros only when an argument list follows.
                     let nestedIndex = resultItemIndex + ident.length;
                     while (nestedIndex < result.length &&
                         (result[nestedIndex] === " " || result[nestedIndex] === "\t" || result[nestedIndex] === "\n"))

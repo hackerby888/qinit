@@ -107,8 +107,7 @@ export function scanQpi(src: string): QpiFinding[] {
       let j = i;
       while (j < n && src[j] !== "\n") j++;
       const directive = src.slice(i, j);
-      // The qpi.h dev-include is the sanctioned IntelliSense workaround (doc/contracts.md) and this
-      // extension makes it harmless — treat it as an exception (no diagnostic). Every OTHER preprocessor
+      // Allow the sanctioned qpi.h development include; diagnose other preprocessor directives.
       if (!/^#\s*include\s*[<"][^>"]*qpi\.h[>"]/.test(directive)) {
         push(
           "qpi/no-preprocessor",
@@ -185,8 +184,7 @@ export function scanQpi(src: string): QpiFinding[] {
       while (i < n && isIdChar(src[i])) i++;
       const word = src.slice(start, i);
 
-      // STATIC_ASSERT(...) / static_assert(...) is a COMPILE-TIME assertion: its message string and
-      // its condition (even `/`, `%`) are not runtime QPI violations. Skip the whole call so we don't
+      // Skip static assertions because their strings and operators are not runtime QPI violations.
       if (word === "STATIC_ASSERT" || word === "static_assert") {
         let j = i;
         while (j < n && /\s/.test(src[j])) j++;
@@ -318,8 +316,7 @@ export function blankCommentsAndStrings(src: string): string {
   return out;
 }
 
-// The contract "functions" whose bodies hold user code (where stack locals are forbidden). Lifecycle
-// hooks + PUBLIC/PRIVATE functions/procedures (incl. _WITH_LOCALS — you still can't declare a raw local
+// Identify lifecycle and user-entry bodies where raw stack locals are forbidden.
 const LIFECYCLE =
   "INITIALIZE|BEGIN_EPOCH|END_EPOCH|BEGIN_TICK|END_TICK|POST_INCOMING_TRANSFER|PRE_ACQUIRE_SHARES|POST_ACQUIRE_SHARES|PRE_RELEASE_SHARES|POST_RELEASE_SHARES|EXPAND";
 const FN_MACRO = new RegExp(
@@ -435,8 +432,7 @@ const STMT_KEYWORDS = new Set([
   "template",
 ]);
 
-// Detect a function/procedure that needs the `_WITH_LOCALS` form but uses the plain one: it either
-// defines a `<Name>_locals` struct (which the plain macro re-typedefs to empty `QPI::NoData` → clang's
+// Detect plain entry macros that define or use function locals and require _WITH_LOCALS.
 export function scanLocalsForm(source: string): QpiFinding[] {
   const src = blankCommentsAndStrings(source);
   const out: QpiFinding[] = [];
@@ -506,8 +502,7 @@ export function scanLocalsForm(source: string): QpiFinding[] {
   return out;
 }
 
-// Detect stack-local variable declarations inside QPI function/procedure bodies (forbidden — use the
-// *_WITH_LOCALS form + a `<fn>_locals` struct, or store state via `state.mut()`). Conservative: only
+// Detect stack-local declarations conservatively; use a locals struct or contract state instead.
 export function scanLocals(source: string): QpiFinding[] {
   const src = blankCommentsAndStrings(source);
   const out: QpiFinding[] = [];

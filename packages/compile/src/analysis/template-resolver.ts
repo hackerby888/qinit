@@ -138,7 +138,7 @@ export function inlineNestedStruct(context: ProgramAnalysisInternals, type: Type
         const structDeclaration = templateBindings.structs.get(bare.name);
         if (structDeclaration)
             return { kind: "inline_struct", struct: structDeclaration };
-        // A dependent spelling through a template parameter (`typename OracleInterface::OracleReply`) only resolves under these bindings — carry the resolved
+        // Resolve dependent nested types under the active template bindings.
         const qn = context.qualifiedNestedType(bare.name, templateBindings);
         if (qn)
             return qn;
@@ -178,7 +178,7 @@ export function bindContainer(context: ProgramAnalysisInternals, name: string, c
         else if (member.kind === "typedef_decl" && !out.types.has((member as any).name))
             out.types.set((member as any).name, (member as any).type);
     }
-    // Static constexpr members (supportScalarVotes, maxVotes, ...). Without these a method body that sizes a
+    // Evaluate static constexpr members needed by dependent array sizes.
     for (const templateMember of templateDeclaration.members) {
         if (templateMember.kind !== "variable")
             continue;

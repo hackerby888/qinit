@@ -1,5 +1,5 @@
-// Tick consensus — core-lite's quorum model ported to the deterministic in-process sim. One process plays all
-// N honest computors: each tick, every computor computes the same chain-state digests, signs a Tick vote, and
+// Deterministic tick-consensus model where one process plays all honest computors.
+// Each computor signs the same state digests and transaction set.
 import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "./k12";
 import { dateFields } from "./runtime";
 import { rootFromSiblings } from "./merkle";
@@ -59,8 +59,8 @@ export class Committee {
     return this.computors.length;
   }
 
-  // The signed Computors wire struct (core-lite computors.h): epoch(2) + publicKeys[slotCount*32] +
-  // arbitrator signature(64) over K12(struct − signature). slotCount defaults to the committee size; the
+  // Build signed Computors wire data: epoch, keys, and arbitrator signature.
+  // slotCount defaults to the committee size.
   signedComputorList(epoch: number, slotCount = this.computors.length): Uint8Array {
     const size = 2 + slotCount * DIGEST_SIZE + SIG_SIZE;
     const buf = new Uint8Array(size);
@@ -82,8 +82,8 @@ export class Committee {
   }
 }
 
-// The chain-state digests a tick vote commits to. spectrum/universe are the roots of the incremental 2^24
-// SparseMerkle trees (SpectrumLedger.getSpectrumDigest / AssetLedger.getUniverseDigest); computer is the
+// State and transaction digests committed by each tick vote.
+// Spectrum and universe are incremental depth-24 Merkle roots.
 export interface TickStateDigests {
   spectrum: Uint8Array;
   universe: Uint8Array;
@@ -122,8 +122,8 @@ function saltedDigest(publicKey: Uint8Array, prev: Uint8Array): Uint8Array {
   return k12Bytes(buf);
 }
 
-// Build + sign one computor's 352-byte Tick vote (network_messages/tick.h). The three m256i state digests are
-// committed as prev*Digest and as salted*Digest = K12(pubKey ‖ prevDigest). Time fields and the u32
+// Build and sign one 352-byte Tick vote.
+// State roots use prev*Digest and K12(publicKey ‖ digest) salted fields.
 export function buildTickVote(
   c: Computor,
   epoch: number,
@@ -177,8 +177,7 @@ export function tickVoteSignature(vote: Uint8Array): Uint8Array {
   return vote.subarray(TICK_SIZE - SIG_SIZE, TICK_SIZE);
 }
 
-// ---- TickData (network_messages/tick.h; BROADCAST_FUTURE_TICK_DATA) ----
-// The leader-proposed transaction set for a tick, in the wire form an external Qubic client reads:
+// Leader-proposed transaction set in the TickData wire format.
 const TICKDATA_TYPE = 8; // BROADCAST_FUTURE_TICK_DATA — XORed into computorIndex for the signature domain
 
 // timelock = K12(spectrumDigest ‖ universeDigest ‖ computerDigest) — the tick's committed state roots.
@@ -261,8 +260,7 @@ export function voteIsAligned(vote: Tick, d: TickStateDigests): boolean {
   );
 }
 
-// A light-client check: is `record` (an EntityRecord) provably part of the state that >= QUORUM computors
-// signed? Recompute the spectrum root from the merkle proof, then count the tick votes that (a) carry a valid
+// Verify an entity Merkle proof against a quorum of valid computor votes.
 export function verifyEntityProof(
   record: Uint8Array,
   index: number,

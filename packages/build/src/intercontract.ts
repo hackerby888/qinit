@@ -1,16 +1,21 @@
-// Inter-contract call auto-derivation. The contract uses the upstream
-// CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE macros (portable to mainnet); for the
+// Derive inter-contract metadata from upstream CALL/INVOKE macros and core contract definitions.
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 
-export interface CalleeDef { type: string; index: number; include: string } // include = path used in #include
+export interface CalleeDef {
+  type: string;
+  index: number;
+  include: string;
+}
 
 // Parse contract_def.h -> STATE_TYPE -> { index, include "contracts/<H>.h" }.
 export function parseContractDef(corePath: string): Map<string, CalleeDef> {
   const src = readFileSync(join(corePath, "src/contract_core/contract_def.h"), "utf8");
   const idx = new Map<string, number>();
-  for (const m of src.matchAll(/#define\s+(\w+)_CONTRACT_INDEX\s+(\d+)/g)) idx.set(m[1], Number(m[2]));
+  for (const m of src.matchAll(/#define\s+(\w+)_CONTRACT_INDEX\s+(\d+)/g)) {
+    idx.set(m[1], Number(m[2]));
+  }
   const out = new Map<string, CalleeDef>();
   // Some contracts guard the include behind `#ifdef OLD_X / #include "..._old.h" / #else / #include "...h" /
   // #endif` (QBAY, QSWAP). Allow that optional prefix and capture the live (#else) include, not the _old one.
@@ -25,24 +30,25 @@ export function parseContractDef(corePath: string): Map<string, CalleeDef> {
 // Callee Type names referenced by CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE.
 export function scanCallees(src: string): Set<string> {
   const s = new Set<string>();
-  for (const m of src.matchAll(/(?:CALL_OTHER_CONTRACT_FUNCTION|INVOKE_OTHER_CONTRACT_PROCEDURE)(?:_E)?\s*\(\s*(\w+)\s*,/g))
+  for (const m of src.matchAll(/(?:CALL_OTHER_CONTRACT_FUNCTION|INVOKE_OTHER_CONTRACT_PROCEDURE)(?:_E)?\s*\(\s*(\w+)\s*,/g)) {
     s.add(m[1]);
+  }
   return s;
 }
 
 // REGISTER_USER_FUNCTION/PROCEDURE(fn, N) -> [{fn, n}].
 export function parseRegisters(src: string): { fn: string; n: number }[] {
   const out: { fn: string; n: number }[] = [];
-  for (const m of src.matchAll(/REGISTER_USER_(?:FUNCTION|PROCEDURE)\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
+  for (const m of src.matchAll(/REGISTER_USER_(?:FUNCTION|PROCEDURE)\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g)) {
     out.push({ fn: m[1], n: Number(m[2]) });
+  }
   return out;
 }
 
 // Dynamic (Qinit-deployed) callees: Type -> { absolute header path, deployed slot index }.
 export type DynCallees = Record<string, { header: string; index: number }>;
 
-// Build the wrapper prelude (empty if the contract makes no inter-contract calls). Resolves the
-// transitive closure of callees, compiles their TYPES at their indices (ascending), emits inputType
+// Return every contract index definition needed by directly included sibling contracts.
 export function contractIndexDefines(corePath: string): string {
   let src: string;
   try {
@@ -58,7 +64,12 @@ export function contractIndexDefines(corePath: string): string {
   return s;
 }
 
-export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: DynCallees = {}, selfType?: string): string {
+export function buildCalleePrelude(
+  corePath: string,
+  contractSrc: string,
+  dyn: DynCallees = {},
+  selfType?: string,
+): string {
   const indexBlock = contractIndexDefines(corePath);
   let defMap: Map<string, CalleeDef>;
   try {
@@ -67,8 +78,7 @@ export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: D
     defMap = new Map(); // no contract_def.h (e.g. a non-core path) — only CALL-macro callees apply
   }
   const wanted = scanCallees(contractSrc);
-  // Also pull siblings referenced by type/static-method/constant (e.g. RL::makeDateStamp, RL_DEFAULT_INIT_TIME,
-  // QTF_RANDOM_LOTTERY_ASSET_NAME) — these have no CALL_OTHER_CONTRACT macro for scanCallees to catch, but the
+  // Include siblings referenced only by type, static method, or constant names.
   for (const type of defMap.keys()) {
     if (type !== selfType && new RegExp(`\\b${type}(?:::|_[A-Z])`).test(contractSrc)) {
       wanted.add(type);
@@ -76,40 +86,57 @@ export function buildCalleePrelude(corePath: string, contractSrc: string, dyn: D
   }
   if (wanted.size === 0) return indexBlock;
 
-  interface R { type: string; index: number; include: string; src: string }
-  const resolved = new Map<string, R>();
+  interface ResolvedCallee {
+    type: string;
+    index: number;
+    include: string;
+    src: string;
+  }
+  const resolved = new Map<string, ResolvedCallee>();
   const resolve = (type: string) => {
     if (resolved.has(type)) return;
-    let r: R;
+    let callee: ResolvedCallee;
     if (dyn[type]) {
-      r = { type, index: dyn[type].index, include: dyn[type].header, src: readFileSync(dyn[type].header, "utf8") };
+      callee = {
+        type,
+        index: dyn[type].index,
+        include: dyn[type].header,
+        src: readFileSync(dyn[type].header, "utf8"),
+      };
     } else if (defMap.has(type)) {
-      const d = defMap.get(type)!;
-      r = { type, index: d.index, include: d.include, src: readFileSync(join(corePath, "src", d.include), "utf8") };
+      const definition = defMap.get(type)!;
+      callee = {
+        type,
+        index: definition.index,
+        include: definition.include,
+        src: readFileSync(join(corePath, "src", definition.include), "utf8"),
+      };
     } else {
       throw new Error(`inter-contract: unknown callee '${type}' (not in contract_def.h, not a declared dynamic callee)`);
     }
-    resolved.set(type, r);
-    for (const t of scanCallees(r.src)) resolve(t); // transitive callees
+    resolved.set(type, callee);
+    for (const calleeType of scanCallees(callee.src)) resolve(calleeType);
   };
-  for (const t of wanted) resolve(t);
+  for (const calleeType of wanted) resolve(calleeType);
 
-  const all = [...resolved.values()].sort((a, b) => a.index - b.index);
+  const callees = [...resolved.values()].sort((a, b) => a.index - b.index);
   let s = "// ---- inter-contract callees (auto-derived from contract_def.h) ----\n";
-  for (const c of all) {
+  for (const c of callees) {
     s += `#define CONTRACT_STATE2_TYPE ${c.type}2\n#define CONTRACT_STATE_TYPE ${c.type}\n#define CONTRACT_INDEX ${c.index}\n`;
     s += `#include "${c.include}"\n`;
     s += `#undef CONTRACT_INDEX\n#undef CONTRACT_STATE_TYPE\n#undef CONTRACT_STATE2_TYPE\n`;
   }
-  // Callee CONTRACT_INDEX constants. The full build gets these from contract_def.h, but the
-  // single-contract TU (Qinit native/Wasm build + the editor) doesn't include it — so a contract that uses a
+  // Single-contract translation units need callee index constants normally supplied by contract_def.h.
   s += "// ---- callee <Type>_CONTRACT_INDEX constants ----\n";
-  for (const c of all)
+  for (const c of callees) {
     s += `#ifndef ${c.type}_CONTRACT_INDEX\n#define ${c.type}_CONTRACT_INDEX ${c.index}\n#endif\n`;
+  }
   s += "// ---- generated <Type>_<fn>_inputType constants ----\n";
-  for (const c of all)
-    for (const r of parseRegisters(c.src))
+  for (const c of callees) {
+    for (const r of parseRegisters(c.src)) {
       s += `static constexpr unsigned short ${c.type}_${r.fn}_inputType = ${r.n};\n`;
+    }
+  }
   s += `#include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"\n`;
   return indexBlock + s;
 }

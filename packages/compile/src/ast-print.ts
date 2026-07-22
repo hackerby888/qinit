@@ -26,8 +26,8 @@ function renderNode(
 
   if (Array.isArray(value)) {
     lines.push(`${prefix}${branch}${label} [${value.length}]`);
-    value.forEach((el, valueItemIndex) => {
-      renderNode("", el, childPrefix, valueItemIndex === value.length - 1, lines);
+    value.forEach((element, valueItemIndex) => {
+      renderNode("", element, childPrefix, valueItemIndex === value.length - 1, lines);
     });
     return;
   }
@@ -37,9 +37,9 @@ function renderNode(
     const head = headText(node);
     lines.push(`${prefix}${branch}${label ? `${label}: ${head}` : head}`);
 
-    const kids = childrenOf(node);
-    kids.forEach((kid, kidIndex) => {
-      renderNode(kid.label, kid.value, childPrefix, kidIndex === kids.length - 1, lines);
+    const children = childrenOf(node);
+    children.forEach((child, childIndex) => {
+      renderNode(child.label, child.value, childPrefix, childIndex === children.length - 1, lines);
     });
     return;
   }
@@ -52,30 +52,42 @@ function headText(node: Record<string, unknown>): string {
   const kind = typeof node.kind === "string" ? node.kind : "node";
   const parts: string[] = [];
 
-  for (const HEAD_KEYSItem of HEAD_KEYS) {
-    const nodeItem = node[HEAD_KEYSItem];
-    if (nodeItem === undefined || nodeItem === null || typeof nodeItem === "object") continue;
-    parts.push(typeof nodeItem === "string" ? `${HEAD_KEYSItem}="${nodeItem}"` : `${HEAD_KEYSItem}=${nodeItem}`);
+  for (const headKey of HEAD_KEYS) {
+    const nodeItem = node[headKey];
+    if (nodeItem === undefined || nodeItem === null || typeof nodeItem === "object") {
+      continue;
+    }
+    parts.push(
+      typeof nodeItem === "string" ? `${headKey}="${nodeItem}"` : `${headKey}=${nodeItem}`,
+    );
   }
 
   return parts.length ? `${kind}  ${parts.join(" ")}` : kind;
 }
 
 function childrenOf(node: Record<string, unknown>): Array<{ label: string; value: unknown }> {
-  const kids: Array<{ label: string; value: unknown }> = [];
+  const children: Array<{ label: string; value: unknown }> = [];
 
-  for (const [k, v] of Object.entries(node)) {
-    if (k === "span" || k === "kind") continue;
-    if (v === undefined || v === null) continue;
-
-    if (typeof v !== "object") {
-      if (!HEAD_KEYS.includes(k)) kids.push({ label: k, value: v });
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "span" || key === "kind") {
+      continue;
+    }
+    if (value === undefined || value === null) {
       continue;
     }
 
-    if (Array.isArray(v) && v.length === 0) continue;
-    kids.push({ label: k, value: v });
+    if (typeof value !== "object") {
+      if (!HEAD_KEYS.includes(key)) {
+        children.push({ label: key, value });
+      }
+      continue;
+    }
+
+    if (Array.isArray(value) && value.length === 0) {
+      continue;
+    }
+    children.push({ label: key, value });
   }
 
-  return kids;
+  return children;
 }

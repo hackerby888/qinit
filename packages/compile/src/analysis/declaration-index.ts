@@ -80,7 +80,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
         else if (declaration.kind === "class_template") {
             const ct = declaration as any;
             context.captureMemberNamespaceContexts(ct.members, lookupContext);
-            // A template may appear several times: a forward declaration (empty body), the primary definition, and partial specializations. Specializations
+            // Keep the primary template and index each partial specialization separately.
             if (ct.specializationArgs) {
                 if (!context.specializations.has(ct.name))
                     context.specializations.set(ct.name, []);
@@ -99,9 +99,8 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                     });
                 }
             }
-            // Inline member methods defined with a body in the class itself (e.g. capacity()) are captured.
-            // A member may itself be a function template (Array::setMem<AT>); keep that body on the
-            // owning class as well so call-site argument types can complete its bindings lazily.
+            // Capture inline methods, including templates, so call-site types can complete their
+            // bindings lazily.
             for (const classMember of ct.specializationArgs ? [] : ct.members) {
                 if ((classMember.kind !== "function" && classMember.kind !== "function_template") ||
                     !(classMember as FunctionDecl | FunctionTemplateDecl).body)
@@ -180,8 +179,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                 // first definition wins (skip explicit specializations like HashFunction<m256i>)
                 const minto = context.templateMethods.get(cls)!;
                 const makey = `${method}/${(fn.functionParameters ?? (fn as any).params ?? []).length}`;
-                // An explicit specialization (`template <> HashFunction<m256i>::hash`) loses the
-                // class argument in the parser's normalized name, but its concrete first parameter
+                // Key explicit specializations by their concrete first parameter.
                 if (methodDefinition.params.length === 0 && methodDefinition.functionParameters?.length) {
                     const concrete = context.derefType(methodDefinition.functionParameters[0].type);
                     minto.set(`${makey}@${context.typeKey(concrete)}`, methodDefinition);
@@ -192,8 +190,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                     minto.set(method, methodDefinition);
             }
             else if (sep < 0 && declaration.kind === "function" && (declaration as FunctionDecl).body) {
-                // A namespace or platform free function (__m256i_convert, ProposalTypes::cls): keyed by its qualified
-                // name and compiled lazily. Platform conversion/equality helpers must remain source-backed so they
+                // Index namespace and platform helpers by qualified name for lazy compilation.
                 const key = `${nsPrefix}${fn.name}`;
                 const overloads = context.libFnOverloads.get(key);
                 if (overloads)
@@ -204,7 +201,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                     context.libFns.set(key, declaration as FunctionDecl);
             }
             else if (sep < 0 && declaration.kind === "function_template" && fn.body) {
-                // a namespace free function TEMPLATE (isArraySortedWithoutDuplicates<T,L>): keyed by qualified name, instantiated per call-site arg types (the call passes
+                // Index namespace function templates by qualified name for call-site instantiation.
                 const key = `${nsPrefix}${fn.name}`;
                 const list = context.libFnTemplates.get(key);
                 if (list)
@@ -285,7 +282,7 @@ export function registerLibFnTemplate(context: ProgramAnalysisInternals, key: st
 
 export function collectConstant(context: ProgramAnalysisInternals, variableDeclaration: VariableDecl): void {
     if (variableDeclaration.initializer && (variableDeclaration.isConstexpr || variableDeclaration.type.kind === "const")) {
-        // User declarations are collected after the seeded qpi.h library and therefore shadow library constants with the same unqualified
+        // User constants shadow seeded qpi.h constants with the same unqualified name.
         context.constexprInit.set(variableDeclaration.name, variableDeclaration.initializer);
         context.constexprType.set(variableDeclaration.name, variableDeclaration.type);
         context.enumConst.delete(variableDeclaration.name);

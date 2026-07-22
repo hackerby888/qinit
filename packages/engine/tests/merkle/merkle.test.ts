@@ -1,5 +1,4 @@
-// Sparse merkle — the incremental 2^24 tree backing spectrum/universe. Asserts the empty-tree root, that a
-// leaf's siblings reproduce the root (the proof a client verifies via getDigestFromSiblings), and that
+// Verifies sparse Merkle empty roots, proof reconstruction, and incremental leaf updates.
 import { test, expect } from "bun:test";
 import { initK12, k12Bytes, toHex } from "../../src/k12";
 import { SparseMerkle, MERKLE_DEPTH, rootFromSiblings } from "../../src/merkle";

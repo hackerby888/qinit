@@ -16,7 +16,11 @@ if (!input) {
 const source = readFileSync(input, "utf8");
 const name = basename(input).replace(/\.[^.]+$/, "");
 
-const { ast, diagnostics } = parseToAst({ source, qpiHeader: loadQpiHeader(CORE), name });
+const { ast, diagnostics } = parseToAst({
+  source,
+  qpiHeader: loadQpiHeader(CORE),
+  name,
+});
 const tree = formatAst(ast);
 
 const outFile = process.argv[3] ?? input.replace(/\.[^.]+$/, "") + ".ast.txt";
@@ -26,8 +30,10 @@ console.log(tree);
 
 if (diagnostics.length) {
   console.error(`\n${diagnostics.length} diagnostic(s):`);
-  for (const d of diagnostics) {
-    console.error(`  ${d.severity} @${d.span.line}: ${d.message}`);
+  for (const diagnostic of diagnostics) {
+    console.error(
+      `  ${diagnostic.severity} @${diagnostic.span.line}: ${diagnostic.message}`,
+    );
   }
 }
 

@@ -1,5 +1,4 @@
-// The digest chain — proof that the three committed state roots a tick vote carries (prevSpectrumDigest,
-// prevUniverseDigest, prevComputerDigest) are the same roots a light client reconstructs from a merkle proof, and
+// Verifies tick votes commit the spectrum, universe, and computer roots reconstructed from proofs.
 import { test, expect, beforeAll } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, toHex, verifySync } from "../../src/k12";

@@ -1,5 +1,4 @@
-// The virtualnode backend that `qinit node run` boots under `qinit mode virtualnode`: an EngineServer the CLI
-// talks to over its OWN client surface — LiteRpc (@qinit/core) + the proto call helpers (callFunction /
+// Exercise the virtual node through the same LiteRpc and protocol helpers used for real nodes.
 import { test, expect, beforeAll } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
 import { initK12, LiteRpc, deriveIdentity } from "@qinit/core";

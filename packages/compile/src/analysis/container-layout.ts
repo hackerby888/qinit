@@ -3,7 +3,7 @@ import type { TypeSpec } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
 
 export function containerLayout(context: ProgramAnalysisInternals, name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): StructLayout {
-    // A plain (non-template) struct dispatched as a zero-arg instance (ProposalDataYesNo, or a contract- nested WinnerData) has no template
+    // Resolve plain zero-argument struct instances without a template definition.
     if (!context.templates.has(name) && !context.specializations.has(name)) {
         const structDeclaration = context.globalStructs.get(name) ?? context.nested.get(name);
         if (structDeclaration)

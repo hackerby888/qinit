@@ -96,7 +96,7 @@ export function computeLayout(stateSize: number, arenaSize: number, contextSize:
     const arenaBase = localsBase + LOCALS_SZ;
     const arenaEnd = arenaBase + arenaSize;
     const ioSize = IN_SZ + OUT_SZ + LOCALS_SZ + arenaSize;
-    // Asset-iterator result buffer (AssetOwnership/PossessionIterator): 1024 records × 80 bytes, written by the assetEnumerate host import at begin() and
+    // Reserve an aligned buffer for asset-iterator enumeration results.
     const iterBufBase = align(arenaEnd, 16);
     const iterBufSize = assetRecord.size * assetRecord.capacity;
     const pages = Math.ceil((iterBufBase + iterBufSize) / 65536) + 1;

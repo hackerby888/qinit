@@ -1,5 +1,4 @@
-// Cross-platform digest-equivalence probe. A mixed-width StateData (uint8/16/32/64 + sint64 + two arrays)
-// set to fixed values in INITIALIZE, so the contract-state digest (K12 of the full effective state) covers a
+// Initializes mixed-width fields and arrays to verify cross-platform state-digest equivalence.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE

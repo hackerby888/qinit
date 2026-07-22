@@ -61,7 +61,7 @@ export function emitDispatch(spec: ModuleSpecification, usesPrng: boolean): stri
     else {
         lines.push("    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return)))");
     }
-    // kind 0/1: user functions/procedures. The incoming it is masked to 16 bits like the native dispatch
+    // Mask user entry IDs to 16 bits like native dispatch.
     for (const entry of spec.entries) {
         lines.push(`    (if (i32.and (i32.eq (i32.and (local.get $it) (i32.const 0xffff)) (i32.const ${entry.inputType})) (i32.eq (local.get $kind) (i32.const ${entry.kind}))) (then`);
         lines.push(`      (call ${entry.label} (global.get $ctxBase) (global.get $stateBase) (local.get $inOff) (local.get $outOff) (local.get $localsOff))`);

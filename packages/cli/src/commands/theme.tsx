@@ -34,8 +34,7 @@ export function ThemeCmd({ args }: { args: string[] }) {
   const { exit } = useApp();
   const cur = savedTheme() && THEMES[savedTheme()!] ? savedTheme()! : "default";
   const [i, setI] = useState(Math.max(0, THEME_NAMES.indexOf(cur)));
-  // Selected index in a ref too: ink only re-subscribes useInput after React commits, so a fast arrow→↵ can
-  // hit the pre-move handler and save the previously-highlighted theme. The ref is updated synchronously in
+  // Mirror selection in a ref so rapid arrow/Enter input uses the latest choice.
   const sel = useRef(i);
   const move = (d: number): void => {
     sel.current = (sel.current + d + THEME_NAMES.length) % THEME_NAMES.length;

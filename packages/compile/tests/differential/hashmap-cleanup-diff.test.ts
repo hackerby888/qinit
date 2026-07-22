@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// HashMap/HashSet maintenance parity: set() must reuse the first marked-for-removal slot (native probe semantics — slot placement is state
+// Checks HashMap/HashSet removal-slot reuse and state layout against native behavior.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { buildContract } from "@qinit/build";

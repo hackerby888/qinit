@@ -16,7 +16,7 @@ import { loadConfig } from "../config";
 import { Header, Table, Spinner, theme, type Column } from "../ui";
 
 // qinit debug [--rpc <url>] [--contract <name|slot>]
-// Live wasm contract-call inspector: enables the node debug toggle, polls the trace ring, shows each
+// Inspect live Wasm calls by enabling and polling the node's debug trace ring.
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
   for (let i = 0; i < args.length; i++) {

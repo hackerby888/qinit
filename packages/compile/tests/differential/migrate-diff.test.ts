@@ -156,7 +156,7 @@ describe("differential — MIGRATE() redeploy state parity", () => {
       expect(firstDiff).toBe(-1);
     }
 
-    // Anchor against the intended transform (guards against both sides skipping the migration the same way): v1 ran Bump
+    // Anchor the intended v1-to-v2 transform so matching no-ops cannot pass.
     const dv = new DataView(nat.final.buffer, nat.final.byteOffset);
     expect(dv.getBigUint64(0, true)).toBe(1030n); // total
     expect(dv.getBigUint64(8, true)).toBe(3n); // counter

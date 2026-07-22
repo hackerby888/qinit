@@ -1,5 +1,4 @@
-// Regular transactions + spectrum + tickdata + getEntity. A SC procedure call is a tx to the contract address
-// with inputType=procId + payload; a plain transfer is a non-procedure inputType or a user destination. Money
+// Covers contract transactions, plain transfers, spectrum balances, TickData, and getEntity.
 import { test, expect } from "bun:test";
 import { buildSignedTx, deriveIdentity } from "@qinit/core";
 import { contractAddress, encodeInput } from "@qinit/proto";

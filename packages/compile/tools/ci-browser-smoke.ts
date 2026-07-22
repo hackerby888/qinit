@@ -1,4 +1,4 @@
-// Release-CI smoke: the BUILT browser bundle (dist/browser.js, snapshot embedded) must compile a representative contract and the wasm must
+// Verifies the built browser bundle can compile and execute without core files.
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 
@@ -16,7 +16,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Bump, 1); }
 };`;
 
-// Computed specifier — the bundle exists only after `bun run build`; a literal import would fail typechecking on
+// Compute the specifier because dist/ is absent before the package build.
 const bundle = "../dist/browser.js";
 const browser = await import(bundle);
 console.log("compilerInfo:", browser.compilerInfo);

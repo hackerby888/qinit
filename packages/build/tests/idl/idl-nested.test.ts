@@ -1,6 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Nested-type IDL extraction: a contract field that is a struct (or Array<struct>) must parse into a named
-// field TREE (Field.struct / .array), not collapse to an opaque format token — and same-name nested structs in
+// Verify named nested-field trees, including arrays and parent-scoped types with the same name.
 import { test, expect } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { extractIdl, type Field } from "../../src/idl";

@@ -1,5 +1,4 @@
-// Shared decode of a contract's state + a debug-trace entry — used by `qinit debug` (TUI), `qinit call --trace`
-// (inline post-call view) and `qinit state` (standalone dump). Keeps the field/container/log decoding in ONE
+// Share state and trace decoding across debug, call --trace, and state commands.
 import {
   decodeOutput,
   layoutOf,

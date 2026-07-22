@@ -130,7 +130,7 @@ export class ExpressionParser {
         let left = this.parser.expressions.parseShift();
         while (!this.parser.state.eof()) {
             const tok = this.parser.state.peek();
-            // `<` / `>` lex as l_angle / r_angle (shared with template brackets). At this precedence level
+            // At comparison precedence, angle-bracket tokens are relational operators.
             const ops: Record<string, BinaryOp> = {
                 l_angle: "<",
                 r_angle: ">",
@@ -226,7 +226,7 @@ export class ExpressionParser {
 
     parseUnary(): Expression {
         const tok = this.parser.state.peek();
-        // new/delete expressions: contracts have no heap. Report once with the real reason, then
+        // Reject heap operations once, then skip the rest of the statement.
         if ((tok.kind === "identifier" && tok.text === "new") || tok.kind === "kw_delete") {
             this.parser.state.diagnostics.push({
                 severity: "error",
@@ -282,7 +282,7 @@ export class ExpressionParser {
         let expression = this.parser.expressions.parsePrimaryExpression();
         while (!this.parser.state.eof()) {
             const tok = this.parser.state.peek();
-            // Brace-init / aggregate construction: TypeName{ a, b, c } (e.g. Logger{ idx, code, 0 }). Only an
+            // Parse brace initialization only when the prefix names a type.
             if (tok.kind === "l_brace" &&
                 (expression.kind === "identifier" || expression.kind === "qualified_name")) {
                 const name = expression.kind === "identifier" ? expression.name : `${expression.namespace}::${expression.name}`;
@@ -336,8 +336,7 @@ export class ExpressionParser {
                 while (!this.parser.state.eof() && this.parser.state.peek().kind !== "r_angle") {
                     const argStart = this.parser.state.peek().span;
                     const kind = this.parser.state.peek().kind;
-                    // Function-template arguments may be non-type values (`irootK64<2>` and
-                    // `irootNewtonStep<k>`), just like class-template arguments. Preserve the
+                    // Preserve value arguments in function templates such as `irootK64<2>`.
                     if (kind === "int_literal" ||
                         kind === "l_paren" ||
                         kind === "kw_sizeof" ||

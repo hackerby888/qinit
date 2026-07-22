@@ -311,7 +311,7 @@ async function buildNative(spec: Spec, outDir: string): Promise<Record<number, U
   return out;
 }
 
-// Child entry: build the runner + one backend for one spec, run it, and record the outcome to
+// Child mode runs one spec/backend cell and writes its result to SC_OUT.
 async function runSingleCell(): Promise<void> {
   const outPath = process.env.SC_OUT!;
   const [name, mode] = (process.env.SC_SINGLE ?? "").split("|");

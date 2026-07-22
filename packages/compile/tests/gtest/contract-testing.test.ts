@@ -1,4 +1,4 @@
-// Verifies that the engine's generic runContractTesting binding reproduces the QUTIL corpus outcome previously validated by qutil-bridge.ts:runUpstream. The same
+// Verifies the generic ContractTesting bridge against the established QUTIL corpus.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";

@@ -11,7 +11,7 @@ export function emitIntrinsics(capacity: Layout, spec: ModuleSpecification): str
     if (spec.migrate) {
         inputSizeCases.push(`    (if (i32.eq (local.get $kind) (i32.const 3)) (then (return (i32.const ${spec.migrate.oldStateSize}))))`);
     }
-    // Container + helper intrinsics the codegen targets. HashMap helpers reproduce the real qpi.h
+    // Provide compiler intrinsics used by source-backed container helpers.
     return `  ;; ---- intrinsics ----
   ;; Canonical dispatch transcript:
   ;; prev spectrum[32], tick:u32, contract:u32, kind:u32, inputType:u32,

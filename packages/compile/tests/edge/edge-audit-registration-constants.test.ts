@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// REGISTER_USER_* accepts integral constant expressions in native C++. Registration extraction must
+// Checks integral constant expressions in REGISTER_USER_* indices.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

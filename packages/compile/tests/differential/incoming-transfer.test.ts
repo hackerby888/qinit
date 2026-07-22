@@ -58,7 +58,7 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
     expect(u64(g, 8)).toBe(0n); // type
     expect(u64(g, 16)).toBe(0n); // count
 
-    // Touch (proc 1) with a reward: engine credits the contract then fires PIT (procedureTransaction = 1) before the
+    // Reward credit fires PIT before the procedure body with procedureTransaction = 1.
     const user = new Uint8Array(32).fill(7);
     sim.fund(user, 1_000_000n);
     sim.procedure(28, 1, undefined, { reward: 500n, invocator: user });

@@ -31,9 +31,9 @@ export function sha256Hex(buf: Uint8Array): string {
 // Write a file atomically: a kill mid-write must never leave a torn file that existsSync treats as a
 // valid cache hit. Write a sibling tmp, then rename (atomic on the same filesystem).
 export function atomicWrite(file: string, data: Uint8Array | string): void {
-  const tmp = `${file}.tmp.${process.pid}.${Date.now()}`;
-  writeFileSync(tmp, data);
-  renameSync(tmp, file);
+  const tempFile = `${file}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tempFile, data);
+  renameSync(tempFile, file);
 }
 
 export interface AssetRef {
@@ -52,9 +52,11 @@ export interface Manifest {
 export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise<Manifest> {
   const path = ref === "latest" ? "latest/download" : `download/${ref}`;
   const url = `https://github.com/${repo}/releases/${path}/qinit-manifest.json`;
-  const r = await fetchT(url, undefined, 15000);
-  if (!r.ok) throw new Error(`manifest fetch failed (HTTP ${r.status}) from ${url}`);
-  return (await r.json()) as Manifest;
+  const response = await fetchT(url, undefined, 15000);
+  if (!response.ok) {
+    throw new Error(`manifest fetch failed (HTTP ${response.status}) from ${url}`);
+  }
+  return (await response.json()) as Manifest;
 }
 
 // ---- qinit CLI self-update / install resolution (the CLI binary release; mirrors install.sh) ----
@@ -63,30 +65,39 @@ export const CLI_REPO = "hackerby888/qinit";
 // qinit-<os>-<arch>[.exe] asset for this host. Windows ships only x64 (bun-windows-x64) — ARM64 Windows
 // runs that under emulation, so map win/arm64 -> x64.
 export function cliAssetName(): string {
-  const p = process.platform;
-  const o = p === "linux" ? "linux" : p === "darwin" ? "darwin" : p === "win32" ? "windows" : "";
-  const a =
-    p === "win32"
+  const platform = process.platform;
+  const os =
+    platform === "linux"
+      ? "linux"
+      : platform === "darwin"
+        ? "darwin"
+        : platform === "win32"
+          ? "windows"
+          : "";
+  const arch =
+    platform === "win32"
       ? "x64"
       : process.arch === "x64"
         ? "x64"
         : process.arch === "arm64"
           ? "arm64"
           : "";
-  if (!o || !a) throw new Error(`unsupported host for self-update: ${p}/${process.arch}`);
-  return `qinit-${o}-${a}${p === "win32" ? ".exe" : ""}`;
+  if (!os || !arch) {
+    throw new Error(`unsupported host for self-update: ${platform}/${process.arch}`);
+  }
+  return `qinit-${os}-${arch}${platform === "win32" ? ".exe" : ""}`;
 }
 
 // Newest qinit-cli-* tag via the GitHub API (NOT /releases/latest — verify-latest hijacks it). null if none.
 export async function resolveCliTag(repo = CLI_REPO): Promise<string | null> {
-  const r = await fetchT(
+  const response = await fetchT(
     `https://api.github.com/repos/${repo}/releases`,
     { headers: { "user-agent": "qinit", accept: "application/vnd.github+json" } },
     15000,
   );
-  if (!r.ok) throw new Error(`GitHub API ${r.status} listing ${repo} releases`);
-  const rel = (await r.json()) as Array<{ tag_name?: string }>;
-  return rel.map((x) => x.tag_name ?? "").find((t) => t.startsWith("qinit-cli-")) || null;
+  if (!response.ok) throw new Error(`GitHub API ${response.status} listing ${repo} releases`);
+  const releases = (await response.json()) as Array<{ tag_name?: string }>;
+  return releases.map((release) => release.tag_name ?? "").find((tag) => tag.startsWith("qinit-cli-")) || null;
 }
 
 export function cliReleaseUrls(
@@ -101,11 +112,11 @@ export function cliReleaseUrls(
 // Pull the sha256 for `name` from a SHA256SUMS file ("<sha>  <name>" lines); "" if missing/unreachable.
 export async function fetchCliSha(sumsUrl: string, name: string): Promise<string> {
   try {
-    const r = await fetchT(sumsUrl, undefined, 15000);
-    if (!r.ok) return "";
-    for (const line of (await r.text()).split("\n")) {
-      const m = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/);
-      if (m && m[2] === name) return m[1].toLowerCase();
+    const response = await fetchT(sumsUrl, undefined, 15000);
+    if (!response.ok) return "";
+    for (const line of (await response.text()).split("\n")) {
+      const match = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/);
+      if (match && match[2] === name) return match[1].toLowerCase();
     }
   } catch (e) {
     debug("fetchCliSha: SHA256SUMS fetch failed", e);
@@ -119,52 +130,59 @@ export async function fetchVerify(
   asset: AssetRef,
   onProgress?: (recv: number, total: number) => void,
 ): Promise<Uint8Array> {
-  let r: Response;
+  let response: Response;
   try {
-    r = await fetchT(asset.url, undefined, 30000);
+    response = await fetchT(asset.url, undefined, 30000);
   } catch (e: any) {
     // 30s connect/TTFB guard; the body then streams untimed
     throw new Error(
       `network error downloading ${asset.url} — check your connection  [${e?.message ?? e}]`,
     );
   }
-  if (!r.ok) throw new Error(`download failed (HTTP ${r.status}): ${asset.url}`);
-  const buf = await readBody(r, 60000, onProgress); // body guarded by an inactivity watchdog (net.readBody)
-  if (asset.sha256) {
-    const got = sha256Hex(buf);
-    if (got !== asset.sha256)
-      throw new Error(`sha256 mismatch for ${asset.url}\n  want ${asset.sha256}\n  got  ${got}`);
+  if (!response.ok) {
+    throw new Error(`download failed (HTTP ${response.status}): ${asset.url}`);
   }
-  return buf;
+  const buffer = await readBody(response, 60000, onProgress);
+  if (asset.sha256) {
+    const actualSha = sha256Hex(buffer);
+    if (actualSha !== asset.sha256) {
+      throw new Error(
+        `sha256 mismatch for ${asset.url}\n  want ${asset.sha256}\n  got  ${actualSha}`,
+      );
+    }
+  }
+  return buffer;
 }
 
 // Extract a .tar.gz buffer into destDir (system tar; gzip is universal — no zstd dep).
 export async function extractTarGz(tarGz: Uint8Array, destDir: string): Promise<void> {
   mkdirSync(destDir, { recursive: true });
-  // `tar` is the one external tool the fetch path needs (node bundle, wasi-sdk, headers). Surface a clear,
-  // actionable error instead of a cryptic spawn ENOENT when it's absent. Windows 10 (1803+)/11 ship tar.exe
+  // Fail clearly when the fetch path's only external tool is unavailable.
   if (!Bun.which("tar")) {
     throw new Error(
       process.platform === "win32"
-        ? "`tar` not found on PATH. Windows 10 (1803+) and 11 include it at C:\\Windows\\System32\\tar.exe — if it's missing, install Git for Windows (it ships tar) and reopen your terminal."
+        ? "`tar` not found on PATH. Windows 10 (1803+) and 11 include it at " +
+          "C:\\Windows\\System32\\tar.exe — if it's missing, install Git for Windows " +
+          "(it ships tar) and reopen your terminal."
         : "`tar` not found on PATH — install it with your package manager (e.g. `apt install tar`).",
     );
   }
   // Extract via the spawn cwd, not `tar -C <dir>`: on Windows the Git-bash MSYS tar mangles a
   // `C:\...` path passed to -C ("Cannot open"). cwd is applied by the OS, so tar never parses it.
-  const p = Bun.spawn(["tar", "xzf", "-"], {
+  const tarProcess = Bun.spawn(["tar", "xzf", "-"], {
     stdin: tarGz,
     cwd: destDir,
     stdout: "pipe",
     stderr: "pipe",
   });
-  const err = await new Response(p.stderr).text();
-  await p.exited;
-  if (p.exitCode !== 0) throw new Error("tar extract failed: " + err);
+  const stderr = await new Response(tarProcess.stderr).text();
+  await tarProcess.exited;
+  if (tarProcess.exitCode !== 0) {
+    throw new Error("tar extract failed: " + stderr);
+  }
 }
 
-// current.json — headers vs node tracked with SEPARATE versions so one update never clobbers
-// the other's version (prevents node/headers drift, which would mean building against headers
+// Track header and node versions separately so updating one never clobbers the other.
 export interface CurrentPointer {
   headersVersion?: string;
   coreHeaders?: string;
@@ -198,7 +216,7 @@ export function cacheHeaders(version: string): string {
 }
 
 // ---- contractverify tool distribution + auto-update --------------------------
-// The verify tool ships in its own moving release (re-published when upstream changes), so it
+// The verifier ships independently from core and the CLI.
 export const VERIFY_REPO = "hackerby888/qinit";
 export const VERIFY_TAG = "verify-latest";
 export interface VerifyManifest {
@@ -221,9 +239,11 @@ export function verifyPlatformKey(): string {
 }
 export async function loadVerifyManifest(repo = VERIFY_REPO): Promise<VerifyManifest> {
   const url = `https://github.com/${repo}/releases/download/${VERIFY_TAG}/verify-manifest.json`;
-  const r = await fetchT(url, undefined, 15000);
-  if (!r.ok) throw new Error(`verify manifest fetch failed (HTTP ${r.status})`);
-  return (await r.json()) as VerifyManifest;
+  const response = await fetchT(url, undefined, 15000);
+  if (!response.ok) {
+    throw new Error(`verify manifest fetch failed (HTTP ${response.status})`);
+  }
+  return (await response.json()) as VerifyManifest;
 }
 
 export interface VerifyUpdate {
@@ -278,7 +298,7 @@ export async function autoUpdateVerifyTool(opts?: {
 }
 
 // ---- wasi-sdk (clang + wasi-sysroot for `qinit build`) ------------------------------------------
-// Pinned to 29 (33 declares getrusage, breaking the toolchain's config assumptions). Upstream ships
+// Pinned to 29 because version 33 exposes getrusage, breaking the toolchain assumptions.
 const WASI_SDK_VER = "29";
 function wasiSdkAsset(): { url: string; base: string } {
   const arch = process.arch === "arm64" ? "arm64" : "x86_64";

@@ -192,7 +192,7 @@ export function handleUndef(context: PreprocessorInternals): void {
 export function handlePragma(context: PreprocessorInternals): void {
     context.skipWhitespace();
     const pragma = context.readIdentifier();
-    // #pragma once — no action (we track it but the caller should ensure qpi.h is included once) All
+    // Ignore #pragma once; include ownership stays with the caller.
     if (pragma === "once") {
         context.skipToNewline();
     }

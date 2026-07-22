@@ -1,8 +1,8 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Cross-host state equivalence — the capstone fidelity check. qinit's engine is a TS port of the node's C++
-// wasm host; the only thing that proves the port faithful (and keeps it faithful) is showing both produce
+// Verify that the TypeScript and core WAMR hosts produce identical contract state.
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { buildContract } from "@qinit/build";
 import { Sim, initK12, toHex } from "@qinit/engine";
 
@@ -117,6 +117,7 @@ for (const c of CASES) {
       const proc = Bun.spawnSync(
         [GTEST, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"],
         {
+          cwd: tmpdir(),
           env: {
             ...process.env,
             QINIT_WASM: r.so!,

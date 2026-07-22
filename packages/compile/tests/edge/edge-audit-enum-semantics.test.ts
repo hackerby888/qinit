@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Enum storage width and signedness come from the declared underlying type, including when the enum is held in
+// Checks enum storage width, signedness, and aggregate placement.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

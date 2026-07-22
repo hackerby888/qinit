@@ -4,7 +4,11 @@ import { unwrapType, evalIntegralConst } from "./validation-helpers";
 import type { ValidatorInternals } from "./validator-context";
 
 export function checkInitializerCardinality(context: ValidatorInternals, type: TypeSpec, initializer: Expression, span: Span): void {
-    const callArguments = initializer.kind === "initializer_list" ? initializer.expressions : initializer.kind === "construct" ? initializer.callArguments : null;
+    const callArguments = initializer.kind === "initializer_list"
+        ? initializer.expressions
+        : initializer.kind === "construct"
+            ? initializer.callArguments
+            : null;
     if (!callArguments)
         return;
     const unwrappedType = unwrapType(type);

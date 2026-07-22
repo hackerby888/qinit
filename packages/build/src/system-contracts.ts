@@ -1,11 +1,18 @@
-// Catalog of the built-in (system) contracts, parsed from the fetched core snapshot's contract_def.h.
-// index -> { name (on-chain ticker), source file, IDL }. Lets qinit call/ls/state see QX, QEARN, … the
+// Catalog built-in contracts from the fetched core snapshot's contract_def.h.
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { extractIdl, type ContractIdl } from "./idl";
 import { qpiPrelude } from "./prelude";
 
-export interface SystemContract { index: number; name: string; constructionEpoch: number; stateType: string; file: string; source: string; idl: ContractIdl }
+export interface SystemContract {
+  index: number;
+  name: string;
+  constructionEpoch: number;
+  stateType: string;
+  file: string;
+  source: string;
+  idl: ContractIdl;
+}
 
 const cache = new Map<string, SystemContract[]>();
 
@@ -13,28 +20,41 @@ const cache = new Map<string, SystemContract[]>();
 // The appended test contracts use a relative form `constexpr ... <NAME>_CONTRACT_INDEX = (CONTRACT_INDEX + 1)`
 function indexToFile(defSrc: string): Map<number, string> {
   const out = new Map<number, string>();
-  let cur = -1;
+  let currentIndex = -1;
   for (const line of defSrc.split("\n")) {
-    const d = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
-    if (d) { cur = Number(d[1]); continue; }
-    if (/\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line)) { cur += 1; continue; }
-    const inc = line.match(/#include\s+"contracts\/(\w+\.h)"/);
-    if (inc && cur >= 0) out.set(cur, inc[1]);   // last include in the block wins (e.g. Qswap.h over Qswap_old.h)
+    const explicitIndex = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
+    if (explicitIndex) {
+      currentIndex = Number(explicitIndex[1]);
+      continue;
+    }
+    if (/\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line)) {
+      currentIndex += 1;
+      continue;
+    }
+    const include = line.match(/#include\s+"contracts\/(\w+\.h)"/);
+    // The last include in a block wins, such as Qswap.h over Qswap_old.h.
+    if (include && currentIndex >= 0) out.set(currentIndex, include[1]);
   }
   return out;
 }
 
 // index -> C++ struct type, from the `#define <X>_CONTRACT_INDEX n` ... `#define CONTRACT_STATE_TYPE <Type>`
-// blocks. The struct type can differ from the on-chain ticker (e.g. ticker QTRY -> struct QUOTTERY) and is what
+// The struct type can differ from the ticker, such as QTRY using QUOTTERY.
 function indexToStateType(defSrc: string): Map<number, string> {
   const out = new Map<number, string>();
-  let cur = -1;
+  let currentIndex = -1;
   for (const line of defSrc.split("\n")) {
-    const d = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
-    if (d) { cur = Number(d[1]); continue; }
-    if (/\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line)) { cur += 1; continue; }
-    const st = line.match(/#define\s+CONTRACT_STATE_TYPE\s+(\w+)/);
-    if (st && cur >= 0) out.set(cur, st[1]);
+    const explicitIndex = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
+    if (explicitIndex) {
+      currentIndex = Number(explicitIndex[1]);
+      continue;
+    }
+    if (/\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line)) {
+      currentIndex += 1;
+      continue;
+    }
+    const stateType = line.match(/#define\s+CONTRACT_STATE_TYPE\s+(\w+)/);
+    if (stateType && currentIndex >= 0) out.set(currentIndex, stateType[1]);
   }
   return out;
 }
@@ -44,8 +64,11 @@ function indexToName(defSrc: string): Map<number, string> {
   const out = new Map<number, string>();
   const m = defSrc.match(/contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\n\s*\};/);
   if (!m) return out;
-  let i = 0;
-  for (const e of m[1].matchAll(/\{\s*"([^"]*)"/g)) { if (e[1]) out.set(i, e[1]); i++; }
+  let index = 0;
+  for (const entry of m[1].matchAll(/\{\s*"([^"]*)"/g)) {
+    if (entry[1]) out.set(index, entry[1]);
+    index++;
+  }
   return out;
 }
 
@@ -53,8 +76,10 @@ function indexToConstructionEpoch(defSrc: string): Map<number, number> {
   const out = new Map<number, number>();
   const m = defSrc.match(/contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\n\s*\};/);
   if (!m) return out;
-  let i = 0;
-  for (const entry of m[1].matchAll(/\{\s*"[^"]*"\s*,\s*(\d+)/g)) out.set(i++, Number(entry[1]));
+  let index = 0;
+  for (const entry of m[1].matchAll(/\{\s*"[^"]*"\s*,\s*(\d+)/g)) {
+    out.set(index++, Number(entry[1]));
+  }
   return out;
 }
 
@@ -66,7 +91,10 @@ export function systemContracts(coreRoot: string): SystemContract[] {
   const out: SystemContract[] = [];
   if (existsSync(def)) {
     const defSrc = readFileSync(def, "utf8");
-    const files = indexToFile(defSrc), names = indexToName(defSrc), epochs = indexToConstructionEpoch(defSrc), stateTypes = indexToStateType(defSrc);
+    const files = indexToFile(defSrc);
+    const names = indexToName(defSrc);
+    const epochs = indexToConstructionEpoch(defSrc);
+    const stateTypes = indexToStateType(defSrc);
     for (const [index, name] of [...names].sort((a, b) => a[0] - b[0])) {
       const file = files.get(index);
       if (!file) continue;
@@ -74,9 +102,20 @@ export function systemContracts(coreRoot: string): SystemContract[] {
       const path = join(dir, file);
       if (!existsSync(path)) continue;
       try {
-        const source = readFileSync(path, "utf8").replace(/X_MULTIPLIER/g, "1");   // testnet scaling (sizes only)
-        out.push({ index, name, constructionEpoch: epochs.get(index) ?? 0, stateType: stateTypes.get(index) ?? name, file, source, idl: extractIdl(source, name, { prelude: qpiPrelude(coreRoot) }) });
-      } catch { /* skip a contract that fails to parse — never break the catalog */ }
+        // Normalize testnet size scaling before IDL extraction.
+        const source = readFileSync(path, "utf8").replace(/X_MULTIPLIER/g, "1");
+        out.push({
+          index,
+          name,
+          constructionEpoch: epochs.get(index) ?? 0,
+          stateType: stateTypes.get(index) ?? name,
+          file,
+          source,
+          idl: extractIdl(source, name, { prelude: qpiPrelude(coreRoot) }),
+        });
+      } catch {
+        // Skip an unparseable contract without breaking the rest of the catalog.
+      }
     }
   }
   cache.set(coreRoot, out);

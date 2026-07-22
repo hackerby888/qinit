@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Function-call boundaries perform implicit conversions in native C++. Keeping the caller's
+// Checks native-compatible implicit conversions at function-call boundaries.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

@@ -153,8 +153,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             (context.materializedCalls ??= new WeakMap()).set(expression, { addr, type: null, size, layout: null });
             return addr;
         }
-        // Core-lite fixtures commonly pass an empty input temporary directly to callFunction, for example
-        // `callFunction(..., CCF::GetProposalFee_input(), output)`. It has the same zero-initialized object
+        // Materialize empty call inputs as zero-initialized temporary objects.
         if (expression.callArguments.length === 0) {
             const type: TypeSpec = { kind: "name", name: calleeName };
             const size = context.programAnalysis.sizeOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
@@ -193,8 +192,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             return addr;
         }
     }
-    // A computed uint128 value must go through its source-compiled constructor/operator
-    // before it is passed by reference. In particular, do this before stripping a C-style
+    // Materialize computed uint128 values before stripping casts or taking references.
     if ((expression.kind === "call" ||
         expression.kind === "template_call" ||
         expression.kind === "construct" ||
@@ -217,7 +215,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             return `(local.get $${branchAddress})`;
         }
     }
-    // min/max over id/m256i operands select an address by the 256-bit lexicographic compare (mirroring the contract-defined `const T&`-returning template
+    // Select id and m256i min/max addresses with a 256-bit comparison.
     if (expression.kind === "call" &&
         expression.callArguments.length === 2 &&
         (expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name")) {
@@ -257,8 +255,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         }
         return destination;
     }
-    // A qualified static method returning an aggregate is compiled from the owning
-    // struct's authoritative body. Typedef owners (id -> m256i) resolve to the same
+    // Compile qualified aggregate-returning methods from their owning struct bodies.
     if (expression.kind === "call" &&
         (expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name")) {
         const qualified = expression.callee.name;

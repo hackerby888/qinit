@@ -1,5 +1,5 @@
-// Typed views over the contract-execution ABI buffers — the TS mirror of core-lite's qpi.h context header and
-// the fixed system-procedure input/output layouts the host marshals when calling into a contract. Same zero-copy
+// Zero-copy views over contract-execution ABI buffers.
+// Mirrors core-lite's qpi.h context and system-procedure layouts.
 import { defineStruct, blob, u8, u16, u32, i32, i64, u64, pad, sub } from "@qinit/core";
 
 // ---- QpiContext (qpi.h): the 256-byte per-call header a contract reads for its identity + the caller chain.

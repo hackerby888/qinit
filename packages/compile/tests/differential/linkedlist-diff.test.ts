@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Differential gtest for LinkedList<T, L> compiled from the real qpi.h body: addHead/addTail, insertAfter/insertBefore, forward and backward traversal (headIndex/tailIndex/nextElementIndex/
+// Differential coverage for LinkedList mutation, traversal, reuse, and reset.
 import { coreGtest } from "../support/core-gtest";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";

@@ -49,8 +49,7 @@ interface Line {
   ok?: boolean | null;
   detail?: string;
 }
-// Everything permanent (header, build status, each finished test) is an append-only Static item so it
-// commits to the terminal top-to-bottom and survives a suite taller than the viewport; only the spinner
+// Keep completed output in Static items; reserve the live tail for the spinner or summary.
 type Item =
   | { kind: "header" }
   | { kind: "line"; line: Line }
@@ -89,8 +88,8 @@ export function Gtest({ args }: { args: string[] }) {
       try {
         const core = resolveCore(o.core, cfg.core);
 
-        // --corpus <NAME>: run a system contract's REAL gtest (core-lite test/contract_<x>.cpp, the
-        // contract_testing.h suite) on an isolated engine. Contract built by native clang, or by our TS
+        // Run a real core-lite contract_testing.h suite on an isolated engine.
+        // The contract can use native Clang or the local TypeScript compiler.
         if ("corpus" in o) {
           const scName = o.corpus || pos[0];
           if (!scName) {

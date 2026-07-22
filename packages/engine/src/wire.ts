@@ -1,5 +1,5 @@
-// Typed views over the Qubic wire structures — the TS mirror of core-lite src/network_messages/* (+ the m256i
-// from platform/m256.h). Layout is not hand-written: a struct is declared as a list of primitive codecs and
+// Typed views over Qubic wire structures mirrored from core-lite network_messages.
+// Struct layouts use primitive codecs rather than handwritten offsets.
 import { toHex } from "./k12";
 import {
   type Codec,
@@ -256,8 +256,8 @@ export class Transaction {
   }
 }
 
-// ---- AssetRecord (network_messages/assets.h): a 48-byte union of issuance / ownership / possession. The caller
-// reads the variant fields matching `type`. Variant offsets are derived from the same alignment cursor as the
+// AssetRecord is a 48-byte issuance, ownership, or possession union.
+// Variant offsets share the standard alignment cursor.
 const assetIssuance = layout([
   ["publicKey", DIGEST_SIZE, 8],
   ["type", 1, 1],

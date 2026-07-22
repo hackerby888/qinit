@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// state.get() exposes read-only contract state. A non-const reference must not turn a nested
+// Ensures nested aliases from state.get() cannot mutate contract state.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../../src/index";
 

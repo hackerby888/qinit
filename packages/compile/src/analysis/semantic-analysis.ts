@@ -23,7 +23,7 @@ export class SemanticAnalysis {
         this.diagnostics.push({ severity: "warning", message: msg, span, category });
     }
     // ---- Constexpr evaluation ----
-    // Folds expressions built from literals only; anything needing a symbol table (identifiers, sizeof) yields null — codegen resolves
+    // Fold literal-only expressions; leave symbol-dependent cases to codegen.
     evaluateConstexpr(expression: Expression): bigint | null {
         try {
             return this.evalExpr(expression);

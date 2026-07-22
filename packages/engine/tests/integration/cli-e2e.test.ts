@@ -1,5 +1,4 @@
-// End-to-end against the real external CLI binary. Gated: runs only when QUBIC_CLI points at a built binary, so
-// CI and machines without it skip. Each test stands up an in-process PeerServer on an ephemeral port, spawns
+// Gated end-to-end tests against QUBIC_CLI using an ephemeral in-process PeerServer.
 import { test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
@@ -37,8 +36,7 @@ async function serve(
   return server.start(0);
 }
 
-// Does the external binary trust the engine's dev arbitrator? The CLI hardcodes its ARBITRATOR identity at
-// compile time (defines.h); the engine signs the computor list with its own dev arbitrator (DEFAULT_ARBITRATOR_
+// The CLI trusts a compile-time arbitrator while the engine signs with its development key.
 let arbitratorTrusted = false;
 
 beforeAll(async () => {

@@ -1,5 +1,4 @@
-// QPI semantic hover: hovering a registered function/procedure name shows its on-chain index, the
-// input/output codec format, and how to call it — derived from the SAME extractIdl() the CLI uses, so
+// Show registered entry indices, codecs, and call syntax using the CLI's IDL extractor.
 import * as vscode from "vscode";
 import { extractIdl, type IdlEntry } from "@qinit/build/idl";
 import { loadConfig } from "@qinit/core/project";

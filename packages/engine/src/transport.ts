@@ -1,5 +1,5 @@
-// Layer 3 — NodeTransport adapter. The VirtualNode implements the qinit RPC surface (@qinit/core NodeTransport)
-// on top of the in-process chain (Sim + Contract), so qinit's deploy/test/call flows can target the TS engine
+// Layer 3 NodeTransport adapter over the in-process chain.
+// Lets Qinit deploy, test, and call contracts through the standard RPC surface.
 import type {
   NodeTransport,
   TxStatus,
@@ -84,15 +84,13 @@ export class VirtualNode implements NodeTransport {
     this.sim.onLog = fn;
   }
 
-  // Self-initializing constructor: awaits the crypto module (initK12) ONCE, then returns a ready engine —
-  // callers never touch initK12. After this resolves, every k12/sign op stays synchronous (the wasm crypto
+  // Initialize crypto once before returning an engine ready for synchronous crypto operations.
   static async create(opts: EngineOpts = {}): Promise<VirtualNode> {
     await initK12();
     return new VirtualNode(opts);
   }
 
-  // Realistic node behaviour by default: mempool (txs land on their target tick), signature verification, and
-  // metered execution fees are all ON — so a bare engine mirrors a real node. Opt out per flag for the sim
+  // Enable mempool, signature checks, and metered fees by default; tests may opt out.
   constructor(opts: EngineOpts = {}) {
     this.logger = new NativeLogger();
     this.sim = new Sim({
@@ -162,8 +160,7 @@ export class VirtualNode implements NodeTransport {
       version: (this.meta.get(slot)?.version ?? 0) + 1,
     });
 
-    // Post-IPO invariant: a contract's 676 shares always exist in the universe (distributeDividends pays
-    // their possessors). The dev engine has no IPO, so mint them at deploy — to the deploying identity when
+    // Mint the 676 post-IPO shares at deploy, assigning them to the deployer when provided.
     const ticker =
       (name ?? "Contract")
         .toUpperCase()
@@ -178,8 +175,7 @@ export class VirtualNode implements NodeTransport {
     return contract;
   }
 
-  // Slot policy: an explicit slot always wins (pin). Else a known name reuses its slot — that routes into the
-  // registry's redeploy/migrate path. Else allocate the lowest free slot at or above slotBase. Unnamed deploys
+  // Explicit slots win; known names redeploy in place; otherwise choose the lowest free slot.
   private resolveSlot(explicit: number | undefined, name: string | undefined): number {
     if (explicit !== undefined) {
       return explicit;
@@ -400,8 +396,7 @@ export class VirtualNode implements NodeTransport {
   }
 
   async txStatus(tick: number, txId: string): Promise<TxStatus> {
-    // Single-authority engine: every broadcast tx is included. But a tx scheduled for tick T only mutates state
-    // when the ticker reaches T — so `processed` must wait for the chain to advance PAST T, else a confirm()
+    // A scheduled transaction is processed only after the chain advances past its target tick.
     const r = this.sim.txByHash(txId);
     const processed = this.sim.tickN > tick;
     return {
@@ -422,8 +417,7 @@ export class VirtualNode implements NodeTransport {
     return this.sim.query(contractIndex, inputType, input); // function call (kind=0)
   }
 
-  // ---- direct engine ops (instant, byte-level — the in-process test fast path). No signing, no tick
-  // scheduling: procedure() runs the contract NOW and returns its output; for a realistic signed, tick-bound
+  // Immediate byte-level test helpers bypass signing and tick scheduling.
   procedure(slot: number, it: number, input?: Uint8Array, opts?: ProcedureOpts): Uint8Array {
     return this.sim.procedure(slot, it, input, opts);
   }
@@ -589,8 +583,7 @@ export class VirtualNode implements NodeTransport {
     return { off, len, stateSize: st.length, hex: toHex(st.slice(off, off + len)) };
   }
 
-  // Deterministic, reproducible pool of funded dev seeds — mirrors the real node, whose /dev/funded-seeds
-  // returns its (funded) computor seeds. pool[0] is the universal default "a"*55 that every command falls back
+  // Deterministic funded seed pool; the first entry is the universal "a"*55 fallback.
   fundedPool(): string[] {
     if (this._pool) {
       return this._pool;

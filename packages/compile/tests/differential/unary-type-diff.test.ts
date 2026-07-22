@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Unary operator type propagation: -x and ~x carry their operand's promoted type into comparisons and stores (unsigned 32-bit
+// Checks unary width propagation and mixed signed/unsigned comparisons.
 import { coreGtest } from "../support/core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";

@@ -1,5 +1,5 @@
-// The asset universe — a faithful TS mirror of core-lite's assets/assets.h record table: a 2^24-slot
-// open-addressing hash table of 48-byte ISSUANCE / OWNERSHIP / POSSESSION records, linearly probed from
+// Asset universe mirroring core-lite's 2^24-slot open-addressing table.
+// Stores 48-byte issuance, ownership, and possession records.
 import { toHex, k12Bytes } from "./k12";
 import { SparseMerkle } from "./merkle";
 import { AssetRecord, ASSET_RECORD_SIZE } from "./wire";
@@ -130,12 +130,16 @@ export class AssetLedger {
   }
 
   private idEq(a: Uint8Array, b: Uint8Array): boolean {
-    for (let i = 0; i < 32; i++) if (a[i] !== b[i]) return false;
+    for (let i = 0; i < 32; i++) {
+      if (a[i] !== b[i]) return false;
+    }
     return true;
   }
 
   private isZeroId(a: Uint8Array): boolean {
-    for (let i = 0; i < 32; i++) if (a[i] !== 0) return false;
+    for (let i = 0; i < 32; i++) {
+      if (a[i] !== 0) return false;
+    }
     return true;
   }
 
@@ -372,17 +376,21 @@ export class AssetLedger {
 
     let sum = 0n;
     if (pos.anyId && pos.anyMgmt) {
-      for (const oi of this.ownershipIndices(issuanceIdx, own)) sum += this.rec(oi)!.shares;
+      for (const ownershipIndex of this.ownershipIndices(issuanceIdx, own)) {
+        sum += this.rec(ownershipIndex)!.shares;
+      }
     } else {
-      for (const oi of this.ownershipIndices(issuanceIdx, own)) {
-        for (const pi of this.possessionIndices(oi, pos)) sum += this.rec(pi)!.shares;
+      for (const ownershipIndex of this.ownershipIndices(issuanceIdx, own)) {
+        for (const possessionIndex of this.possessionIndices(ownershipIndex, pos)) {
+          sum += this.rec(possessionIndex)!.shares;
+        }
       }
     }
     return sum;
   }
 
-  // Enumerate records for the contract-side AssetOwnership/PossessionIterator (assetEnumerate host import).
-  // kind 0 = ownership records, kind 1 = possession records — in the node's iteration order (LIFO index
+  // Enumerate ownership or possession records in the node's LIFO index order.
+  // Kind 0 selects ownership; kind 1 selects possession.
   enumerate(
     assetB: Uint8Array,
     ownSelB: Uint8Array,
@@ -591,8 +599,8 @@ export class AssetLedger {
     return true;
   }
 
-  // qpi.transferShareOwnershipAndPossession (qpi_asset_impl.h wrapper): drill down requiring BOTH the
-  // ownership and the possession record to be managed by the calling contract. Return codes mirror the node:
+  // Transfer both records only when the calling contract manages ownership and possession.
+  // Return the node-compatible remaining balance or negative failure code.
   transferShareOwnershipAndPossession(
     slot: number,
     name: bigint,
@@ -731,8 +739,8 @@ export class AssetLedger {
     return true;
   }
 
-  // Name-based façade used by Sim's acquire/release wrappers (owner == possessor and equal managing pairs at
-  // the qpi level — the node rejects split custody there too). Resolves the caller-managed record pair, then
+  // Resolve the caller-managed pair used by Sim's acquire/release wrappers.
+  // The node rejects split custody at the QPI level.
   transferShareManagementRights(
     name: bigint,
     issuer: Uint8Array,

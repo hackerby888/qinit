@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// The snapshot pipeline: assembleQpiHeader is the single source of header text (loadQpiHeader delegates to it), the generator's output
+// Verifies the assembled header, manifest hash, and generated browser module.
 import { describe, test, expect } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";

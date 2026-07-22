@@ -1,6 +1,6 @@
 import { SCALAR_SIZE } from "../../../shared/scalar-sizes";
 export { SCALAR_SIZE };
-// Share-transfer / incoming-transfer hooks carry real input (and, for the pre-* pair, output) structs — unlike the lifecycle
+// Transfer hooks use real I/O structs, unlike empty lifecycle hooks.
 export const SYSPROC_IO: Record<string, {
     in?: string;
     out?: string;
@@ -17,7 +17,7 @@ export const SYSPROC_IO: Record<string, {
     __impl_postReleaseShares: { in: "PostManagementRightsTransfer_input" },
     __impl_postAcquireShares: { in: "PostManagementRightsTransfer_input" },
     __impl_postIncomingTransfer: { in: "PostIncomingTransfer_input" },
-    // The shareholder-governance hooks' io are typedefs to a container (Array<uint8,1024>) and scalars (uint16 / bit) rather than field
+    // Resolve governance-hook typedef I/O through container or scalar layouts.
     __impl_setShareholderProposal: {
         in: "SET_SHAREHOLDER_PROPOSAL_input",
         out: "SET_SHAREHOLDER_PROPOSAL_output",
@@ -29,7 +29,7 @@ export const SYSPROC_IO: Record<string, {
         typedIO: true,
     },
 };
-// Plain C scalar spellings that SCALAR_SIZE doesn't key (they lower through other paths); listed so the unknown-type check
+// List C scalar spellings handled outside SCALAR_SIZE for validation.
 export const C_SCALAR_NAMES = new Set([
     "int",
     "unsigned",

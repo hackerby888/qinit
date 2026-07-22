@@ -1,5 +1,4 @@
-// NodeTransport — the seam between qinit and a node backend. The HTTP client (LiteRpc) and the in-process
-// TS engine (@qinit/engine VirtualNode) both implement it, so qinit's deploy/test/call flows run against
+// Shared node transport implemented by the HTTP client and in-process engine.
 import type { TickInfo, DynRegistry, DynUpload, DebugTrace } from "./rpc";
 import type { BroadcastResult } from "./net";
 

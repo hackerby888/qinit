@@ -21,7 +21,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-// body → expected state.a (the native result; the differential below re-derives it from the wasi build when the
+// Each body maps to its pinned native state.a result.
 const CASES: Record<string, { body: string; expect: bigint }> = {
   "sint32 add overflow wraps": {
     body: `sint32 x = 2000000000; sint64 y = x + x; state.mut().a = (uint64)y;`,

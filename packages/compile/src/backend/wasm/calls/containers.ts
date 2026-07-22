@@ -31,7 +31,7 @@ export function classifyMethodParam(programAnalysis: ProgramAnalysis, parameter:
         readOnlyRef,
     };
 }
-// Instantiate (or fetch from cache) a container method from its real qpi.h body, emitting a wasm function. Returns
+// Compile or reuse a source-backed container method.
 export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: TypeSpec & {
     kind: "template_instance";
 }, methodName: string, methodArgumentCount?: number, parameterTypeDiscriminator?: string, resolveMethodArgumentTypes?: () => Array<TypeSpec | null>, explicitTemplateArgs: TypeSpec[] = []): CompiledMethod | null {
@@ -78,9 +78,8 @@ export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: T
         });
         ownerBindings = { ...ownerBindings, types, values };
     }
-    // Infer a member-function template's type parameters from its concrete call arguments. This is
-    // deliberately structural: any authoritative `const T&`/`T&` member-template parameter benefits,
-    // rather than assigning semantics to Array::setMem or any other method name.
+    // Infer member-template types structurally from concrete call arguments instead of assigning
+    // semantics to specific method names.
     if (resolvedMethod.requiresMethodTemplateInference && definition.params.some((param) => param.kind === "type")) {
         const types = new Map(ownerBindings.types);
         const templateTypeNames = new Set(definition.params.filter((param) => param.kind === "type").map((param) => param.name));
@@ -127,8 +126,7 @@ export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: T
     catch (entry: any) {
         programAnalysis.warn(`failed to compile ${cacheKey}: ${entry.message}`, definition.span?.line ?? 0);
         programAnalysis.compiledMethods.delete(cacheKey);
-        // Once an authoritative method body has been selected, a lowering failure is a
-        // compiler error. Returning null here used to let callers substitute handwritten
+        // A selected authoritative body must compile; never fall back to handwritten lowering.
         throw entry;
     }
     return cm;
@@ -139,7 +137,7 @@ function methodTypeKey(type: TypeSpec & {
     const argumentKeys = type.callArguments.map((argument) => context.typeKeyOf(argument)).join(",");
     return `${type.name}<${argumentKeys}>`;
 }
-// Emit the wasm function for an instantiated container method: param $this + the method's own params, body lowered
+// Emit an instantiated method with `$this`, concrete parameters, and its body.
 export function emitTemplateMethod(programAnalysis: ProgramAnalysis, cm: CompiledMethod, def: FunctionTemplateDecl, type: TypeSpec & {
     kind: "template_instance";
 }, bind: TemplateBindings): string {
@@ -173,7 +171,7 @@ export function emitTemplateMethod(programAnalysis: ProgramAnalysis, cm: Compile
         context.retAggSize = cm.retAgg;
         context.retType = cm.retType;
     }
-    // Register params with their CONCRETE types (ValueT → uint64): a scalar ref-param read sizes and signs its load
+    // Register concrete parameter types so scalar references load at the right width.
     for (const fnParam of cm.functionParameters)
         context.params!.set(fnParam.name, {
             wasmType: fnParam.wasmType,
@@ -196,7 +194,7 @@ export function emitTemplateMethod(programAnalysis: ProgramAnalysis, cm: Compile
             : [];
     return [header, ...localDecls, ...context.lines, ...tail, "  )"].join("\n");
 }
-// Build a call to a container method compiled from its real qpi.h body. Arguments are classified from
+// Build a call using the compiled method's concrete parameter types.
 export function callCompiled(context: FunctionEmissionContext, type: TypeSpec & {
     kind: "template_instance";
 }, method: string, self: string, callArguments: Expression[], parameterTypeDiscriminator?: string, explicitTemplateArgs: TypeSpec[] = []): {
@@ -292,7 +290,7 @@ export function emitTemplateContainerCall(context: FunctionEmissionContext, expr
     context.lines.push(compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
     return "";
 }
-// Lower a container method call on a HashMap/HashSet/Array state/locals field. When valueWanted, returns
+// Lower a source-backed instance call and return its scalar value when requested.
 export function emitContainerCall(context: FunctionEmissionContext, expression: Expression & {
     kind: "call";
 }, valueWanted: boolean): string | null {
@@ -301,7 +299,7 @@ export function emitContainerCall(context: FunctionEmissionContext, expression: 
     const node = context.lowering.resolveExpressionAddress(context, expression.callee.object);
     if (!node || !node.type)
         return null;
-    // follow typedefs to the concrete container instance (e.g. bit_4096 → BitArray<4096>). Resolve through the
+    // Resolve typedefs and bindings to the concrete container instance.
     let ct: TypeSpec | null = node.type;
     for (let index = 0; index < 8 && ct?.kind === "name"; index++) {
         const next: TypeSpec | undefined = context.thisBind?.types.get(ct.name) ?? context.programAnalysis.typedefs.get(ct.name);
@@ -309,7 +307,7 @@ export function emitContainerCall(context: FunctionEmissionContext, expression: 
             break;
         ct = next;
     }
-    // A plain (non-template) struct with an inline method (ProposalDataYesNo::checkValidity) is dispatched as a zero-arg instance — normalize its
+    // Normalize plain inline structs to zero-argument instances.
     if (ct?.kind === "inline_struct" &&
         ct.struct.name &&
         context.programAnalysis.templateMethods.get(ct.struct.name)?.has(expression.callee.member)) {
@@ -321,15 +319,14 @@ export function emitContainerCall(context: FunctionEmissionContext, expression: 
     }
     if (!ct || ct.kind !== "template_instance")
         return null;
-    // A namespace-qualified spelling (QPI::HashMap<sint64,uint32,16> local) dispatches by its base name — the layout side already strips the qualifier
+    // Dispatch namespace-qualified container types by their base name.
     if (ct.name.includes("::") && !context.programAnalysis.templates.has(ct.name)) {
         ct = { ...ct, name: ct.name.slice(ct.name.lastIndexOf("::") + 2) };
     }
     node.type = ct;
     const map = node.addr;
     const member = expression.callee.member;
-    // Any captured instance method goes through the same source-instantiation path.
-    // Container family and method names do not carry semantics here: the selected
+    // Route every captured instance method through source-backed instantiation.
     const compiled = callCompiled(context, node.type, member, map, expression.callArguments);
     if (!compiled)
         return null;
@@ -351,7 +348,7 @@ export function emitContainerCall(context: FunctionEmissionContext, expression: 
     context.lines.push(compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
     return "";
 }
-// Inside a compiled container method: a call to a sibling method of *this (getElementIndex(key)) or the hash functor
+// Lower asset-iterator methods in statement, value, or address context.
 export function emitAssetIter(context: FunctionEmissionContext, expression: Expression & {
     kind: "call";
 }, mode: "stmt" | "value" | "addr"): string | null {

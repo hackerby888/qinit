@@ -1,5 +1,4 @@
-// Headless background entry (the hidden `__serve` subcommand). Runs the in-process TS engine as a persistent
-// node on a fixed RPC port so `qinit mode virtualnode` makes every node command (node run/deploy/call/state/
+// Run the persistent in-process engine behind the hidden `__serve` command.
 import { EngineServer } from "@qinit/engine/server";
 import { VirtualNode } from "@qinit/engine";
 import type { WasmSlotLayout } from "@qinit/core";
@@ -10,8 +9,7 @@ export function portFromRpc(rpcBase: string): number {
   return Number(new URL(rpcBase).port || "41841");
 }
 
-// Seed the user-chosen built-in system contracts onto the node (compile/cache + direct deploy). Runs AFTER
-// start() (needs initK12) and concurrently with serving — a first-run compile doesn't block RPC/ticking; cached
+// Seed configured system contracts after startup without blocking RPC or ticking.
 async function seedSystemContracts(srv: EngineServer, names: string[]): Promise<void> {
   for (const name of names) {
     try {

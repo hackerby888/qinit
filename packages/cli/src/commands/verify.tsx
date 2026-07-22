@@ -8,7 +8,7 @@ import { Header, Panel, Status, theme, termCols } from "../ui";
 import { output } from "../args";
 
 // qinit verify <file.h> [--name <n>] [--callee <n>=<hdr>@<i>] [--json]
-// Standalone protocol-rule check (the same contractverify gate `qinit build` runs first), exposed so
+// Run the same protocol-rule check that gates `qinit build`.
 function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
   const o: Record<string, string> = {};
   const pos: string[] = [];

@@ -1,6 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// End-to-end correctness of the wasm QPI shim (recipe.ts): build a real system contract to wasm, deploy it on
-// the VirtualNode, and drive a procedure that allocates function locals (__qpiAllocLocals) and moves qu. The
+// Build and deploy a real system contract to exercise QPI locals allocation and balance transfers.
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildSystemContract } from "@qinit/build";

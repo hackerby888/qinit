@@ -72,7 +72,7 @@ export class FunctionParser {
         // Check for function call syntax: Type(...) or Type::name(
         const name = this.parser.types.parseMaybeQualifiedName();
         if (!name) {
-            // Constructor / destructor: `ClassName(...) {...}` or `~ClassName() {...}` — no return type. Parse
+            // Constructors and destructors have no return type.
             if (this.parser.state.peek().kind === "l_paren" && type.kind === "name") {
                 return this.parser.functions.parseFunctionRest(type.name, { kind: "void" }, isConstexpr, isStatic, isInline, isVirtual, isExtern);
             }
@@ -80,7 +80,7 @@ export class FunctionParser {
             this.parser.state.expect("semicolon", "declaration");
             return { kind: "empty" };
         }
-        // `name(...)` is either a function declaration or a variable with constructor-style direct-init (Type name(expr, ...);). In this subset
+        // Distinguish functions from constructor-style direct initialization.
         if (this.parser.state.peek().kind === "l_paren") {
             if (this.parser.functions.looksLikeDirectInit()) {
                 return this.parser.functions.parseDirectInitVar(name, type, isConstexpr, isStatic);
@@ -102,7 +102,7 @@ export class FunctionParser {
             after === "kw_false" ||
             after === "kw_nullptr" ||
             after === "minus" ||
-            // A `{` after `(` is a braced-init constructor argument (`AssetPossessionIterator iter({NULL_ID, name})`) a parameter list can't open with
+            // A parameter list cannot start with a braced constructor argument.
             after === "bang" ||
             after === "tilde" ||
             after === "l_brace");
@@ -222,7 +222,7 @@ export class FunctionParser {
                 initializer = this.parser.expressions.parseExpression();
             }
             else if (this.parser.state.peek().kind === "l_brace") {
-                // Direct-list initialization is executable semantics, not layout trivia. Preserve the
+                // Preserve direct-list initialization in the executable AST.
                 const list = this.parser.expressions.parseExpression();
                 initializer =
                     type.kind === "array" || list.kind !== "initializer_list"
@@ -269,9 +269,8 @@ export class FunctionParser {
         while (!this.parser.state.eof() && this.parser.state.peek().kind !== "r_paren") {
             let type = this.parser.types.parseTypeSpec();
             let name = "";
-            // Function-pointer parameter: `void (*callback)(Args...)` or the unnamed `void (*)(Args...)`
-            // used by core's oracle wrappers. The pointee signature is not called by generated Wasm, but the
-            // parameter remains an address in the parsed ABI and still counts for overload resolution.
+            // Function pointers remain addresses in the parsed ABI and still participate in overload
+            // resolution; generated Wasm does not call their pointee signatures.
             if (this.parser.state.peek().kind === "l_paren" && this.parser.state.peek(1).kind === "star") {
                 this.parser.state.next();
                 this.parser.state.next();

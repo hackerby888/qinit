@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// QPI headers and contracts use static_assert as a compile-time safety boundary. A false assertion
+// Checks static_assert evaluation as a compile-time safety boundary.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../../src/index";
 

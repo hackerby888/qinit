@@ -27,7 +27,7 @@ export function emitInterContract(context: FunctionEmissionContext, expression: 
     const inSize = (expression.callArguments[2] ? context.lowering.resolveExpressionAddress(context, expression.callArguments[2])?.size : undefined) ?? entry.inSize;
     const outSize = (expression.callArguments[3] ? context.lowering.resolveExpressionAddress(context, expression.callArguments[3])?.size : undefined) ?? entry.outSize;
     const dims = `(i32.const ${idx}) (i32.const ${entry.inputType}) ${inAddr} (i32.const ${inSize}) ${outAddr} (i32.const ${outSize})`;
-    // Returns the bare i32 call expression (the InterContractCallError). The statement caller drops it; the
+    // Return the i32 error result; statement callers drop it.
     if (isInvoke) {
         const reward = expression.callArguments[4] ? context.lowering.emitValue(context, expression.callArguments[4]) : "(i64.const 0)";
         return `(call $liteInvokeProcedure ${dims} ${reward})`;

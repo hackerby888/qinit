@@ -4,8 +4,7 @@ import type { DynRegistry, DynContract } from "@qinit/core/rpc";
 import { scanCallees, type DynCallees } from "@qinit/build/intercontract";
 import { blankCommentsAndStrings } from "./lint/qpi-rules";
 
-// Position-aware callee references: each CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE
-// (+ _E) call and the offset of its callee-name token. Comments/strings are blanked first (offsets
+// Find callee references after blanking comments and strings while preserving source offsets.
 export function findCalleeRefs(source: string): { name: string; offset: number; length: number }[] {
   const src = blankCommentsAndStrings(source);
   const out: { name: string; offset: number; length: number }[] = [];
@@ -18,8 +17,7 @@ export function findCalleeRefs(source: string): { name: string; offset: number; 
   return out;
 }
 
-// Callee references that resolve to NEITHER an in-core contract (contract_def.h) nor a known dynamic
-// (node-deployed) callee — they'll have no declarations in the editor TU, so clangd shows raw
+// Report callees absent from both core definitions and the known dynamic registry.
 export function unresolvedCalleeRefs(
   source: string,
   known: Set<string>,
@@ -27,11 +25,9 @@ export function unresolvedCalleeRefs(
   return findCalleeRefs(source).filter((r) => !known.has(r.name));
 }
 
-// Dynamic inter-contract resolution for the editor. A qinit-deployed contract that does
-// CALL_OTHER_CONTRACT_*(Foo, …) needs Foo's declarations to parse. Foo isn't in core's contract_def.h
+// Dynamic callees need registry declarations because they are absent from contract_def.h.
 
-// Build the DynCallees map for the other-contract names `source` references from the node's registry
-// contracts, writing each matched callee's stored .h to <calleeDir>/<Name>.h. Network-free (the caller
+// Write referenced registry headers to calleeDir and return their dynamic metadata.
 export function calleesFromRegistry(
   source: string,
   contracts: DynContract[],

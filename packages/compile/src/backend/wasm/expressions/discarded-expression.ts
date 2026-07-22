@@ -3,7 +3,7 @@ import { isUint128 } from "../memory/address-resolution";
 import { FunctionEmissionContext } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
 import * as watIr from "../../../wat-ir";
-// Emit an expression used as a statement (side effects only). Calls/assignments push their own
+// Emit a statement expression; calls and assignments record their own effects.
 export function emitDiscardedExpression(context: FunctionEmissionContext, expression: Expression): string {
     if (expression.kind === "assign") {
         context.lowering.emitAssignment(context, expression);
@@ -26,7 +26,7 @@ export function emitDiscardedExpression(context: FunctionEmissionContext, expres
     }
     return "";
 }
-// A name held in a wasm local slot: a body-declared local OR a scalar (by-value) parameter. Both are
+// Recognize locals and by-value scalar parameters held in Wasm slots.
 export function isScalarLocal(context: FunctionEmissionContext, name: string): boolean {
     if (context.localVars.has(name))
         return true;
@@ -36,7 +36,7 @@ export function isScalarLocal(context: FunctionEmissionContext, name: string): b
 export function emitIncrementOrDecrement(context: FunctionEmissionContext, expression: Expression): string {
     const argument = expression.kind === "postfix_op" || expression.kind === "prefix_op" ? expression.argument : expression;
     const operator = (expression as any).operator === "++" ? "i64.add" : "i64.sub";
-    // A scalar local/value-param increments in place via local.set, narrowed back to its declared width so overflow wraps like
+    // Narrow incremented scalar locals so overflow matches C++.
     if (argument.kind === "identifier" && isScalarLocal(context, argument.name)) {
         const next = watIr.operation(operator, watIr.localGet(argument.name, "i64"), watIr.i64Constant(1));
         return `(local.set $${argument.name} ${watIr.serializeWatNode(context.lowering.narrowLocalValue(context, argument.name, next))})`;

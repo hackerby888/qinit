@@ -6,7 +6,7 @@ import { Header, Panel, KV, theme } from "../ui";
 import { output } from "../args";
 
 // qinit ext install [--vsix <path>] [--editor <cmd>]
-// Installs the Qubic QPI VS Code extension into a detected editor. All of code/cursor/windsurf/codium
+// Install the Qubic QPI extension into VS Code, Cursor, Windsurf, or VSCodium.
 const EXTENSION_ID = "qubic.qpi-vscode";
 const EDITORS = ["code", "cursor", "windsurf", "codium"];
 

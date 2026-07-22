@@ -3,7 +3,7 @@ import { isUint128 } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, FunctionDecl } from "../../../ast";
 import * as watIr from "../../../wat-ir";
-// Whether an expression is uint128-typed (so it flows as a 16-byte value through source-compiled methods rather than
+// Detect uint128 expressions that require 16-byte source-backed operations.
 export function isU128Expr(context: FunctionEmissionContext, expression: Expression): boolean {
     if (expression.kind === "paren")
         return isU128Expr(context, expression.expression);
@@ -55,7 +55,7 @@ export function isU128Expr(context: FunctionEmissionContext, expression: Express
             return isU128Expr(context, expression.left) || isU128Expr(context, expression.right);
         return false;
     }
-    // Method calls: answer from the DECLARED return type. Falling through to resolveAddr would
+    // Trust declared method return types before attempting address resolution.
     if (expression.kind === "call" && expression.callee.kind === "member_access") {
         const obj = context.lowering.resolveExpressionAddress(context, expression.callee.object);
         let ot: TypeSpec | null = obj?.type ?? null;
@@ -83,7 +83,7 @@ export function isU128Expr(context: FunctionEmissionContext, expression: Express
     const resolvedAddress = context.lowering.resolveExpressionAddress(context, expression);
     return !!(resolvedAddress && isUint128(context.programAnalysis, resolvedAddress.type));
 }
-// Materialize a uint128 expression into a fresh 16-byte slot (low@0, high@8) and return its address; an existing uint128
+// Materialize uint128 expressions into fresh 16-byte slots when needed.
 export const U128_CLASS: TypeSpec & {
     kind: "template_instance";
 } = {
@@ -198,8 +198,7 @@ export function lowerUint128Expression(context: FunctionEmissionContext, express
         if (method) {
             const left = lowerUint128Expression(context, expression.left);
             const scalarRight = !isU128Expr(context, expression.right);
-            // platform/uint128.h defines scalar overloads only for `& int` and `>> unsigned
-            // int`. Every other scalar operand reaches the uint128_t overload through the
+            // Use scalar overloads only for `& int` and `>> unsigned int`; promote the rest.
             const key = scalarRight && expression.operator === "&"
                 ? "int"
                 : scalarRight && expression.operator === ">>"

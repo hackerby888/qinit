@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Shared bridge for driving the upstream contract_qutil.cpp gtest corpus against deployable QUTIL+QX wasm. The runner (clang) is mode-independent;
+// Drives the upstream QUTIL gtests against deployable QUTIL and QX Wasm.
 import { existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,20 +26,24 @@ export function wasiAvailable(): boolean {
   }
 }
 
-function calleeIdlFrom(name: string, index: number, r: CompileResult) {
-  const fns = Object.fromEntries(
-    r.idl.functions.map((f) => [
-      f.name,
-      { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize },
+function calleeIdlFrom(name: string, index: number, result: CompileResult) {
+  const functions = Object.fromEntries(
+    result.idl.functions.map((fn) => [
+      fn.name,
+      { inputType: fn.inputType, inSize: fn.inSize, outSize: fn.outSize },
     ]),
   );
-  const procs = Object.fromEntries(
-    r.idl.procedures.map((p) => [
-      p.name,
-      { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize },
+  const procedures = Object.fromEntries(
+    result.idl.procedures.map((procedure) => [
+      procedure.name,
+      {
+        inputType: procedure.inputType,
+        inSize: procedure.inSize,
+        outSize: procedure.outSize,
+      },
     ]),
   );
-  return { name, index, functions: fns, procedures: procs };
+  return { name, index, functions, procedures };
 }
 
 // Phase 0: the clang runner wasm (test logic + a dead QUTIL copy for types). Built once, mode-independent.
@@ -56,14 +60,16 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
       outDir: dir,
       arenaSz: 8 * 1024 * 1024,
     });
-    if (!built.ok) throw new Error("runner build failed:\n" + (built.stderr ?? ""));
+    if (!built.ok) {
+      throw new Error("runner build failed:\n" + (built.stderr ?? ""));
+    }
     return new Uint8Array(readFileSync(built.so!));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-// Phase 1 (ours): QUTIL+QX compiled by our TS compiler. QUTIL gets QX's IDL + source so its
+// Compile QUTIL and QX with the TS compiler, including QX as a callee.
 export async function buildContractsOurs(core: string): Promise<Record<number, Uint8Array>> {
   const headers = loadQpiHeader(core);
   const qutilSrc = readFileSync(`${core}/src/contracts/QUtil.h`, "utf8");
@@ -103,7 +109,7 @@ export async function buildContractsOurs(core: string): Promise<Record<number, U
   return { [QUTIL_IDX]: mineQutil.wasm, [QX_IDX]: mineQx.wasm };
 }
 
-// Phase 1 (native): QUTIL+QX built by clang (LITE_WASM_TU_BUILD) as plain deployable contract wasm — no testSource, so recipe.ts
+// Compile deployable QUTIL and QX Wasm with native Clang.
 export async function buildContractsNative(core: string): Promise<Record<number, Uint8Array>> {
   const dir = mkdtempSync(join(tmpdir(), "qutil-native-"));
 
@@ -148,7 +154,7 @@ export async function buildContractsNative(core: string): Promise<Record<number,
   }
 }
 
-// Instantiate the runner wasm, bind the thost table to a fresh Sim with the contracts deployed, drive each test.
+// Run the shared test runner against a deployed contract set.
 export async function runUpstream(
   runnerWasm: Uint8Array,
   contracts: Record<number, Uint8Array>,

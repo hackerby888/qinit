@@ -1,5 +1,4 @@
-// Identity + crypto via @qubic-lib/qubic-ts-library.
-// NOTE: if this import fails after `bun install`, check the installed package's
+// Identity and cryptography through @qubic-lib/qubic-ts-library.
 import { QubicHelper } from "@qubic-lib/qubic-ts-library/dist/qubicHelper.js";
 import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper.js";
 
@@ -26,8 +25,7 @@ function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// KangarooTwelve (KT128, 32-byte digest) — matches the core's content addressing.
-// The lib's crypto default export is a Promise resolving to { schnorrq, K12 } once
+// KangarooTwelve (KT128, 32-byte digest) matching core content addressing.
 export async function k12Hex(bytes: Uint8Array): Promise<string> {
   // Static CJS require -> bun bundles + dedups to the SAME crypto instance QubicHelper inits.
   // ESM `import *` / createRequire resolved a second, uninitialized Emscripten instance under --compile.
@@ -38,8 +36,7 @@ export async function k12Hex(bytes: Uint8Array): Promise<string> {
   return toHex(out);
 }
 
-// Synchronous K12 for callers that hash inside a tight loop or a wasm host import (e.g. the TS SC engine's
-// `lh_k12` + state digest), where awaiting per call isn't possible. Resolve the crypto module once via
+// Synchronous K12 for host imports and tight loops after initK12 resolves the crypto module.
 let _k12Sync: ((input: Uint8Array, out: Uint8Array, outLen: number) => void) | null = null;
 // The resolved FourQ/SchnorrQ object from the SAME crypto module — captured once so signing/verification run
 // synchronously after initK12() (mirrors k12Sync). Used by the engine's tick-consensus (computor vote signing).
@@ -102,11 +99,10 @@ export function verifySync(
   return _schnorrq.verify(publicKey, message, signature) === 1;
 }
 
-// Deriving an identity exercises K12 (subseed) + FourQ (public key) in the
-// library's wasm crypto — the thing we must prove works in the compiled binary.
+// Deriving an identity exercises K12 and FourQ inside the compiled binary.
 export async function deriveIdentity(seed: string): Promise<IdentityResult> {
-  const pkg = await helper.createIdPackage(seed);
-  return { identity: pkg.publicId, publicKeyHex: toHex(pkg.publicKey) };
+  const idPackage = await helper.createIdPackage(seed);
+  return { identity: idPackage.publicId, publicKeyHex: toHex(idPackage.publicKey) };
 }
 
 // id codec: 60-char identity <-> 32-byte public key (for the contract ABI `id` type).

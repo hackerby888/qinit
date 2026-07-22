@@ -143,7 +143,7 @@ export function bindingSig(context: ProgramAnalysisInternals, templateBindings: 
 }
 
 export function layoutOfMembers(context: ProgramAnalysisInternals, members: Declaration[], bIn: TemplateBindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {
-    // Cache by a binding-aware key so each concrete instantiation is computed once (avoids the exponential blowup of deeply
+    // Cache each concrete binding once to avoid recursive layout blowups.
     const key = cacheKey ? cacheKey + context.bindingSig(bIn) : "";
     if (key) {
         const cached = context.layoutCache.get(key);
@@ -185,7 +185,7 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
                 context.layoutCache.set(key, layout);
             return layout;
         }
-        // Base classes occupy the start of the object: each base's fields are placed at the current offset and
+        // Place base-class fields first and inherit their static constants.
         let memberVals = templateBindings.values;
         for (const baseType of bases) {
             const baseContribution = context.baseContribution(baseType, templateBindings);
@@ -211,7 +211,7 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
                         memberVals.set(baseConstName, baseConstValue);
             }
         }
-        // Nested typedefs (a template may alias its own params or define a dependent storage type, e.g.
+        // Add nested typedefs to the member binding scope.
         let memberTypes = templateBindings.types;
         for (const member of members) {
             if (member.kind !== "typedef_decl")
@@ -226,7 +226,7 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
             ? templateBindings
             : { types: memberTypes, values: memberVals, structs: templateBindings.structs };
         for (const memberDeclaration of members) {
-            // An anonymous struct/union (no name, no declarator) promotes its members into this struct at the current offset (`union
+            // Promote anonymous struct and union members at the current offset.
             if (memberDeclaration.kind === "struct" && !(memberDeclaration as StructDecl).name) {
                 const sub = context.layoutOfStruct(memberDeclaration as StructDecl, bMem);
                 offset = context.alignUp(offset, sub.align);

@@ -1,5 +1,4 @@
-// Phase 2 — the NodeTransport seam. Proves the in-process engine answers qinit's RPC surface and is driven by
-// qinit's OWN codec (encodeInput/decodeOutput), a REAL @qubic-lib signed tx, and the real deploy wire
+// Exercises NodeTransport through real codecs, signed transactions, and deploy wire data.
 import { test, expect } from "bun:test";
 import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes } from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
@@ -19,8 +18,7 @@ import { VirtualNode } from "../../src/transport";
 const SEED = "a".repeat(55);
 const ORACLE = "4b31b54f2213f1396cec4a1bd633b9409112d5969592c2c5fa66ddc1656f63c9";
 
-// A tx with the canonical Qubic header but no real signature — the engine ignores it (consensus simplified).
-// Lets the deploy wire path run without a FourQ sign per chunk. The header offsets are validated against real
+// Build an unsigned canonical transaction for deploy-wire tests with real header offsets.
 function wrapTx(inputType: number, payload: Uint8Array, destU64: bigint): Uint8Array {
   const b = new Uint8Array(80 + payload.length + 64);
   const v = new DataView(b.buffer);

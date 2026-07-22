@@ -23,7 +23,7 @@ import { parseArgs, output } from "../args";
 import { prepareNodeRunCore } from "../node-run-core";
 
 // qinit node run [--ref <tag>] [--core <path>] [--restart] [--offline] [--bin <path>] [--tick-ms <n>] [--keep] [--rpc] [--wait]
-// One command bring-up: sync headers + fetch the wasm compiler + get the node + run it. Reuses a node that's
+// Sync dependencies and launch the node, reusing a healthy process unless restart is requested.
 function parse(args: string[]): Record<string, string> {
   const a = parseArgs(args, {
     booleans: ["restart", "offline", "keep", "real", "realnode", "virtual"],

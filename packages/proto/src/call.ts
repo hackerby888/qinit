@@ -40,7 +40,7 @@ export async function callFunction(
 }
 
 // Invoke a contract procedure (signed tx). tick must be a near-future, accepted tick.
-// confirm: poll the tx-status RPC until the tx is processed (Anchor .rpc()-style) — exact
+// With confirmation, poll tx status until processed or fall back to tick advancement.
 export async function invokeProcedure(opts: {
   seed: string;
   rpcBase: string;

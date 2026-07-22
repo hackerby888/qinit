@@ -220,8 +220,7 @@ function splitTop(s: string): string[] {
   return parts.map((x) => x.trim()).filter((x) => x.length);
 }
 
-// Expand the "<token> ×N" repeat shorthand (mirrors the output formatter's run-length display) into N copies
-// of the token. Multiplier is ×, *, or x (spaces optional — "9uint32x32" is valid; no value-token type
+// Expand `<token> ×N` using ×, *, or x as the multiplier; spaces are optional.
 const REPEAT_RE = /^(.+?)\s*[×*x]\s*(\d+)$/;
 function expandReps(parts: string[]): string[] {
   const out: string[] = [];
@@ -343,7 +342,7 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
 }
 
 // ---------- JSON -> input value-format (field-name keyed; reuses the encodeInput grammar) ----------
-// Build the value-format string encodeInput consumes from a JSON object keyed by field name (or a positional
+// Build encodeInput's value format from named JSON fields or positional nested arrays.
 function jsonValueToFmt(typeTok: string, value: any): string {
   typeTok = typeTok.trim();
   if (typeTok[0] === "{") {

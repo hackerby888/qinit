@@ -13,7 +13,7 @@ const APPROVER_SRC = readFileSync(QINIT_ROOT + "/fixtures/ShareApprover.h", "utf
 
 const TOKEN = 0x4e454b4f54n; // "TOKEN"
 
-// Records what its POST_RELEASE_SHARES hook receives — validates the PostManagementRightsTransfer_input layout (numberOfShares, receivedFee read past the leading Asset
+// Records POST_RELEASE_SHARES fields to verify input layout and hook delivery.
 const POST_REC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

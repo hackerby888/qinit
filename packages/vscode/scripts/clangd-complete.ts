@@ -1,5 +1,4 @@
-// Headless completion probe: drives clangd over stdio LSP against the generated compile DB to prove
-// the completion behavior the user cares about — the PUBLIC QPI surface completes (state./Array./qpi.
+// Drive clangd over stdio to verify public QPI completions.
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -12,9 +11,12 @@ const core = resolveCore(process.env.QINIT_CORE);
 const sdk = wasiSdkPaths();
 const wasiClang = process.env.WASM_CLANG ?? sdk?.clang;
 const wasiSysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
-if (!wasiClang) { console.error("no wasi-sdk — run `qinit node run` (or set WASM_CLANG/WASI_SYSROOT)"); process.exit(2); }
+if (!wasiClang) {
+  console.error("no wasi-sdk — run `qinit node run` (or set WASM_CLANG/WASI_SYSROOT)");
+  process.exit(2);
+}
 
-const ws = mkdtempSync(join(tmpdir(), "qpi-complete-"));
+const workspace = mkdtempSync(join(tmpdir(), "qpi-complete-"));
 const PROBE = `#include "contracts/qpi.h"
 using namespace QPI;
 struct Probe2 {};
@@ -31,90 +33,173 @@ struct Probe : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };
 `;
-const file = join(ws, "Probe.h");
+const file = join(workspace, "Probe.h");
 writeFileSync(file, PROBE);
-const cfg = generateClangdConfig({ contractPath: file, corePath: core, wasiClang, wasiSysroot, workspaceRoot: ws, name: "Probe" });
-const uri = pathToFileURL(cfg.contractFile).href;
+const config = generateClangdConfig({
+  contractPath: file,
+  corePath: core,
+  wasiClang,
+  wasiSysroot,
+  workspaceRoot: workspace,
+  name: "Probe",
+});
+const uri = pathToFileURL(config.contractFile).href;
 
-const posAt = (off: number) => {
-  const pre = PROBE.slice(0, off);
-  const line = pre.split("\n").length - 1;
-  return { line, character: off - (pre.lastIndexOf("\n") + 1) };
+const posAt = (offset: number) => {
+  const prefix = PROBE.slice(0, offset);
+  const line = prefix.split("\n").length - 1;
+  return { line, character: offset - (prefix.lastIndexOf("\n") + 1) };
 };
-// position right after the dot of `<find>` (member completion), e.g. find="qpi.invocator", dot="qpi."
+// Position after the member-access dot, such as `qpi.`.
 const afterDot = (find: string, dot: string) => posAt(PROBE.indexOf(find) + dot.length);
 
-const proc = Bun.spawn(
-  [CLANGD, `--compile-commands-dir=${cfg.dir}`, `--query-driver=${wasiClang}`, "--background-index=false", "--log=error"],
+const clangd = Bun.spawn(
+  [
+    CLANGD,
+    `--compile-commands-dir=${config.dir}`,
+    `--query-driver=${wasiClang}`,
+    "--background-index=false",
+    "--log=error",
+  ],
   { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
 );
 
-let seq = 0;
-const pending = new Map<number, (v: any) => void>();
+let sequence = 0;
+const pending = new Map<number, (value: any) => void>();
 function send(method: string, params: any, isNotification = false) {
-  const msg: any = { jsonrpc: "2.0", method, params };
-  let p: Promise<any> | undefined;
-  if (!isNotification) { const id = ++seq; msg.id = id; p = new Promise((res) => pending.set(id, res)); }
-  const body = JSON.stringify(msg);
-  proc.stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
-  proc.stdin.flush();
-  return p;
+  const message: any = { jsonrpc: "2.0", method, params };
+  let response: Promise<any> | undefined;
+  if (!isNotification) {
+    const id = ++sequence;
+    message.id = id;
+    response = new Promise((resolve) => pending.set(id, resolve));
+  }
+  const body = JSON.stringify(message);
+  clangd.stdin.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+  clangd.stdin.flush();
+  return response;
 }
 
-// frame reader
+// Read LSP frames from clangd's output.
 (async () => {
-  let buf = Buffer.alloc(0);
-  for await (const chunk of proc.stdout as any) {
-    buf = Buffer.concat([buf, chunk]);
+  let buffer = Buffer.alloc(0);
+  for await (const chunk of clangd.stdout as any) {
+    buffer = Buffer.concat([buffer, chunk]);
     for (;;) {
-      const sep = buf.indexOf("\r\n\r\n");
-      if (sep < 0) break;
-      const header = buf.subarray(0, sep).toString();
-      const m = header.match(/Content-Length: (\d+)/i);
-      if (!m) { buf = buf.subarray(sep + 4); continue; }
-      const len = Number(m[1]);
-      if (buf.length < sep + 4 + len) break;
-      const body = buf.subarray(sep + 4, sep + 4 + len).toString();
-      buf = buf.subarray(sep + 4 + len);
-      try { const msg = JSON.parse(body); if (msg.id != null && pending.has(msg.id)) { pending.get(msg.id)!(msg.result); pending.delete(msg.id); } } catch {}
+      const separator = buffer.indexOf("\r\n\r\n");
+      if (separator < 0) {
+        break;
+      }
+      const header = buffer.subarray(0, separator).toString();
+      const match = header.match(/Content-Length: (\d+)/i);
+      if (!match) {
+        buffer = buffer.subarray(separator + 4);
+        continue;
+      }
+      const length = Number(match[1]);
+      if (buffer.length < separator + 4 + length) {
+        break;
+      }
+      const body = buffer.subarray(separator + 4, separator + 4 + length).toString();
+      buffer = buffer.subarray(separator + 4 + length);
+      try {
+        const message = JSON.parse(body);
+        if (message.id != null && pending.has(message.id)) {
+          pending.get(message.id)!(message.result);
+          pending.delete(message.id);
+        }
+      } catch {}
     }
   }
 })();
 
 const labelsAt = async (pos: { line: number; character: number }): Promise<string[]> => {
-  const r = await send("textDocument/completion", { textDocument: { uri }, position: pos });
-  const items = Array.isArray(r) ? r : (r?.items ?? []);
-  return items.map((i: any) => i.label.trim());
+  const result = await send("textDocument/completion", { textDocument: { uri }, position: pos });
+  const items = Array.isArray(result) ? result : (result?.items ?? []);
+  return items.map((item: any) => item.label.trim());
 };
 
-const ok = (cond: boolean, msg: string) => { console.log(`${cond ? "PASS" : "FAIL"}  ${msg}`); return cond; };
+const ok = (condition: boolean, message: string) => {
+  console.log(`${condition ? "PASS" : "FAIL"}  ${message}`);
+  return condition;
+};
 let failures = 0;
 try {
-  await send("initialize", { processId: process.pid, rootUri: pathToFileURL(ws).href, capabilities: { textDocument: { completion: { completionItem: { snippetSupport: false } } } } });
+  await send("initialize", {
+    processId: process.pid,
+    rootUri: pathToFileURL(workspace).href,
+    capabilities: {
+      textDocument: { completion: { completionItem: { snippetSupport: false } } },
+    },
+  });
   send("initialized", {}, true);
-  send("textDocument/didOpen", { textDocument: { uri, languageId: "cpp", version: 1, text: PROBE } }, true);
-  await new Promise((r) => setTimeout(r, 4000)); // let clangd build the preamble
+  send(
+    "textDocument/didOpen",
+    { textDocument: { uri, languageId: "cpp", version: 1, text: PROBE } },
+    true,
+  );
+  // Let clangd build the preamble.
+  await new Promise((resolve) => setTimeout(resolve, 4000));
 
   const stateMembers = await labelsAt(afterDot("state.mut().counter", "state.mut()."));
-  const arrMembers = await labelsAt(afterDot("nums.get(0)", "nums."));
+  const arrayMembers = await labelsAt(afterDot("nums.get(0)", "nums."));
   const qpiMembers = await labelsAt(afterDot("qpi.invocator", "qpi."));
-  const valScope = await labelsAt(posAt(PROBE.lastIndexOf("locals.x = ") + "locals.x = ".length)); // value/statement scope
+  const valueScope = await labelsAt(
+    posAt(PROBE.lastIndexOf("locals.x = ") + "locals.x = ".length),
+  );
 
-  const starts = (arr: string[], p: string) => arr.some((l) => l.startsWith(p));
+  const starts = (items: string[], prefix: string) =>
+    items.some((item) => item.startsWith(prefix));
   console.log(`state.mut(). -> ${stateMembers.length} items: ${stateMembers.slice(0, 8).join(", ")}`);
-  console.log(`Array .      -> ${arrMembers.length} items: ${arrMembers.slice(0, 8).join(", ")}`);
-  console.log(`qpi.         -> ${qpiMembers.length} items; __reserved=${qpiMembers.filter((l) => l.startsWith("__")).length}; public e.g. ${qpiMembers.filter((l) => !l.startsWith("__")).slice(0, 8).join(", ")}`);
-  console.log(`value scope  -> ${valScope.length} items; std:: labels=${valScope.filter((l) => l.startsWith("std::")).length}; e.g. ${valScope.slice(0, 10).join(", ")}\n`);
+  console.log(
+    `Array .      -> ${arrayMembers.length} items: ${arrayMembers.slice(0, 8).join(", ")}`,
+  );
+  console.log(
+    `qpi.         -> ${qpiMembers.length} items; __reserved=${qpiMembers.filter((item) => item.startsWith("__")).length}; public e.g. ${qpiMembers.filter((item) => !item.startsWith("__")).slice(0, 8).join(", ")}`,
+  );
+  console.log(
+    `value scope  -> ${valueScope.length} items; std:: labels=${valueScope.filter((item) => item.startsWith("std::")).length}; e.g. ${valueScope.slice(0, 10).join(", ")}\n`,
+  );
 
-  // POSITIVE — the public API must complete (the user's hard requirement)
-  if (!ok(stateMembers.includes("counter") && stateMembers.includes("nums"), "state.mut(). completes StateData members (counter, nums)")) failures++;
-  if (!ok(starts(arrMembers, "get") && starts(arrMembers, "capacity"), "Array member access completes (get, capacity)")) failures++;
-  if (!ok(qpiMembers.some((l) => /^(invocator|invocationReward|numberOfTickTransactions|transfer|burn)\b/.test(l)), "qpi. completes public API members")) failures++;
-  // NEGATIVE — Completion.AllScopes:No removes the cross-namespace std:: flood
-  if (!ok(!valScope.some((l) => l.startsWith("std::")), "value scope has no cross-scope std:: flood")) failures++;
+  if (
+    !ok(
+      stateMembers.includes("counter") && stateMembers.includes("nums"),
+      "state.mut(). completes StateData members (counter, nums)",
+    )
+  ) {
+    failures++;
+  }
+  if (
+    !ok(
+      starts(arrayMembers, "get") && starts(arrayMembers, "capacity"),
+      "Array member access completes (get, capacity)",
+    )
+  ) {
+    failures++;
+  }
+  if (
+    !ok(
+      qpiMembers.some((item) =>
+        /^(invocator|invocationReward|numberOfTickTransactions|transfer|burn)\b/.test(item),
+      ),
+      "qpi. completes public API members",
+    )
+  ) {
+    failures++;
+  }
+  if (
+    !ok(
+      !valueScope.some((item) => item.startsWith("std::")),
+      "value scope has no cross-scope std:: flood",
+    )
+  ) {
+    failures++;
+  }
 } finally {
-  proc.kill();
-  rmSync(ws, { recursive: true, force: true });
+  clangd.kill();
+  rmSync(workspace, { recursive: true, force: true });
 }
-console.log(`\n${failures === 0 ? "COMPLETION PROBE: PASS — public QPI surface completes" : `COMPLETION PROBE: FAIL (${failures})`}`);
+console.log(
+  `\n${failures === 0 ? "COMPLETION PROBE: PASS — public QPI surface completes" : `COMPLETION PROBE: FAIL (${failures})`}`,
+);
 process.exit(failures === 0 ? 0 : 1);

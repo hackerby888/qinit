@@ -1,5 +1,4 @@
-// A contract can declare `env.*` imports (--allow-undefined) for symbols the wasm build didn't compile in. The
-// engine used to stub every such import with `() => 0`; for an i64-return helper (e.g. QPI::smul) that 0 became a
+// Unresolved env imports throw when called; the known assert helper remains a no-op.
 import { test, expect } from "bun:test";
 import { envImportStub } from "../../src/runtime";
 

@@ -72,12 +72,12 @@ export function buildPreamble(): string {
 
 // --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
 export function genWrapperWasm(o: BuildOpts): string {
-  const T = o.stateType ?? o.name; // the C++ struct type the contract declares
+  const contractType = o.stateType ?? o.name;
   const wrapper = `${buildPreamble()}${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
-#define ${T}_CONTRACT_INDEX ${o.slot}
-#define CONTRACT_STATE_TYPE ${T}
-#define CONTRACT_STATE2_TYPE ${T}2
+#define ${contractType}_CONTRACT_INDEX ${o.slot}
+#define CONTRACT_STATE_TYPE ${contractType}
+#define CONTRACT_STATE2_TYPE ${contractType}2
 // Late-bind CALL/INVOKE_OTHER_CONTRACT to the callee's deployed code via the host (needs the callee
 // __contract_index + <Type>_<fn>_inputType consts from the prelude + CONTRACT_INDEX above).
 #include "${CORE_WASM_HEADERS.sdk.intercontractCalls}"
@@ -101,8 +101,7 @@ export function genWrapperWasm(o: BuildOpts): string {
   if (!o.testSource) {
     return wrapper;
   }
-  // Test runner module: inject Qinit's private TEST/EXPECT registry before the standard core-lite-style
-  // source. The source itself uses contract_testing.h / ContractTesting; only the runner implementation is
+  // Inject Qinit's private TEST/EXPECT registry before the core-lite-style test source.
   const testPath = (o.testPath ?? `${o.name}.test.cpp`).replace(/\\/g, "/").replace(/"/g, "");
   return `${wrapper}#define QINIT_WASM_GTEST
 ${WASM_GTEST_H}
@@ -122,7 +121,6 @@ export interface WasmCompileResult {
 }
 
 // --- precompiled header (PCH) of the stable preamble ----------------------------------------------------
-// One clang on one TU is single-threaded; the slow part is re-parsing qpi.h + the core headers on EVERY
 let pchState: string | null | undefined;
 let pchInflight: Promise<string | null> | null = null;
 
@@ -130,8 +128,7 @@ function disablePch(): void {
   pchState = null;
 }
 
-// Build (or reuse) a PCH of the wasm preamble with exactly `pchFlags` (the compile flags incl. -include shim).
-// Cached on disk keyed by clang + flags + preamble, so it survives across builds. Never throws — null means
+// Build or reuse a PCH keyed by clang, flags, and preamble. Returns null on failure.
 async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string | null> {
   if (process.env.QINIT_NO_PCH) {
     return null; // operational escape hatch — compile without a precompiled header
@@ -146,21 +143,31 @@ async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string 
   pchInflight = (async () => {
     try {
       const preamble = buildPreamble();
-      const sig = createHash("sha256").update(clang).update("\0").update(pchFlags.join(" ")).update("\0").update(preamble).digest("hex").slice(0, 24);
+      const cacheKey = createHash("sha256")
+        .update(clang)
+        .update("\0")
+        .update(pchFlags.join(" "))
+        .update("\0")
+        .update(preamble)
+        .digest("hex")
+        .slice(0, 24);
       const dir = join(tmpdir(), "qinit-pch");
       mkdirSync(dir, { recursive: true });
-      const pch = join(dir, `wasm-${sig}.pch`);
+      const pch = join(dir, `wasm-${cacheKey}.pch`);
       if (existsSync(pch)) {
         pchState = pch;
         return pch;
       }
 
-      const hpp = join(dir, `wasm-${sig}.hpp`);
+      const hpp = join(dir, `wasm-${cacheKey}.hpp`);
       writeFileSync(hpp, preamble);
-      const p = Bun.spawn([clang, ...pchFlags, "-x", "c++-header", hpp, "-o", pch], { stdout: "pipe", stderr: "pipe" });
-      await new Response(p.stderr).text();
-      await p.exited;
-      pchState = p.exitCode === 0 && existsSync(pch) ? pch : null;
+      const buildProcess = Bun.spawn([clang, ...pchFlags, "-x", "c++-header", hpp, "-o", pch], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      await new Response(buildProcess.stderr).text();
+      await buildProcess.exited;
+      pchState = buildProcess.exitCode === 0 && existsSync(pch) ? pch : null;
       return pchState;
     } catch {
       pchState = null;
@@ -183,38 +190,55 @@ export async function compileWasmContract(
   const wrapper = join(o.outDir, `${o.name}.wasm.wrapper.cpp`);
   await writeFile(wrapper, genWrapperWasm(o));
   const wasm = join(o.outDir, `${o.name}.wasm`);
-  const sdk = wasiSdkPaths();   // auto-fetched by `qinit node run`; cached under ~/.cache/qinit/wasi-sdk
+  const sdk = wasiSdkPaths();
   const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
   const sysroot = o.wasmSysroot ?? process.env.WASI_SYSROOT ?? sdk?.sysroot;
   const shim = join(src, CORE_WASM_HEADERS.sdk.platformIntrinsics);
-  // -DLITEDYN_CONTRACT_TU gates the node-only throw in utils.h; -fno-exceptions/-fno-rtti keep the module lean;
-  // reactor + --no-entry => a library wasm (no _start); --allow-undefined leaves the lhost imports unresolved
+  // Build a reactor library and leave lhost imports unresolved for the runtime.
   const compileFlags = [
-    "--target=wasm32-wasi", "-std=c++20", "-O0", "-g", "-fno-rtti", "-fno-exceptions",
+    "--target=wasm32-wasi",
+    "-std=c++20",
+    "-O0",
+    "-g",
+    "-fno-rtti",
+    "-fno-exceptions",
     "-DNDEBUG",
     "-DLITEDYN_CONTRACT_TU",
     ...(o.arenaSz ? [`-DWASM_ARENA_SIZE=${o.arenaSz}`] : []),
     ...(sysroot ? [`--sysroot=${sysroot}`] : []),
-    `-I${o.corePath}`, `-I${src}`,
+    `-I${o.corePath}`,
+    `-I${src}`,
   ];
   const shimFlag = ["-include", shim];
   const linkFlags = ["-Wl,--no-entry", "-Wl,--allow-undefined", "-mexec-model=reactor"];
   if (o.sharedMemBase !== undefined) {
-    // Shared-memory gtest mode: relocate the module's whole static footprint (data, stack, state buffer,
-    // arena) above the given base and import the memory instead of owning one. The shadow stack rides just
-    linkFlags.push("-Wl,--import-memory", `-Wl,--global-base=${o.sharedMemBase >>> 0}`, "-Wl,-z,stack-size=8388608");
+    // Relocate the module above the shared-memory base and import memory from the runner.
+    linkFlags.push(
+      "-Wl,--import-memory",
+      `-Wl,--global-base=${o.sharedMemBase >>> 0}`,
+      "-Wl,-z,stack-size=8388608",
+    );
   }
 
   // Reuse the precompiled preamble when available. The PCH already carries -include shim (whose static-inline
   // defs aren't include-guarded), so the PCH-consuming compile must NOT repeat it; the no-PCH path keeps it.
   const pch = await ensureWasmPch(clang, [...compileFlags, ...shimFlag]);
 
-  const runClang = async (front: string[], withShim: boolean) => {
-    const args = [...front, ...compileFlags, ...(withShim ? shimFlag : []), ...(o.extraCompileFlags ?? []), ...linkFlags, wrapper, "-o", wasm];
-    const cp = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
-    const out = await new Response(cp.stderr).text();
-    await cp.exited;
-    return { exitCode: cp.exitCode, stderr: out };
+  const runClang = async (prefixArgs: string[], withShim: boolean) => {
+    const args = [
+      ...prefixArgs,
+      ...compileFlags,
+      ...(withShim ? shimFlag : []),
+      ...(o.extraCompileFlags ?? []),
+      ...linkFlags,
+      wrapper,
+      "-o",
+      wasm,
+    ];
+    const clangProcess = Bun.spawn([clang, ...args], { stdout: "pipe", stderr: "pipe" });
+    const stderr = await new Response(clangProcess.stderr).text();
+    await clangProcess.exited;
+    return { exitCode: clangProcess.exitCode, stderr };
   };
 
   let { exitCode, stderr } = pch ? await runClang(["-include-pch", pch], false) : await runClang([], true);
@@ -228,20 +252,24 @@ export async function compileWasmContract(
 
   // -g leaves DWARF in `wasm`: copy it as the debug sidecar (qinit symbolizes trap offsets against it), then
   // strip DWARF from the deployed wasm in place -> code byte-identical, so offsets still match the sidecar.
-  let debugWasm: string | undefined, linesJson: string | undefined;
+  let debugWasm: string | undefined;
+  let linesJson: string | undefined;
   if (exitCode === 0) {
     try {
-      // clang's directory — handle BOTH separators. On Windows WASM_CLANG is a backslash path
-      // (C:\...\bin\clang++.exe), so the old '/'-only split left dir="" -> llvm-strip/objdump/dwarfdump fell
+      // Handle both path separators when resolving LLVM tools beside clang.
       const cut = Math.max(clang.lastIndexOf("/"), clang.lastIndexOf("\\"));
       const dir = cut >= 0 ? clang.slice(0, cut + 1) : "";
       const exe = process.platform === "win32" ? ".exe" : "";
-      const tool = (n: string) => dir + n + exe;   // llvm-{strip,objdump,dwarfdump} next to clang, else PATH
+      const tool = (name: string) => dir + name + exe;
       const dbg = join(o.outDir, `${o.name}.debug.wasm`);
-      await copyFile(wasm, dbg);              // keep the DWARF copy as the sidecar
+      await copyFile(wasm, dbg);
       const lj = join(o.outDir, `${o.name}.lines.json`);
-      if (writeLineMap(dbg, lj, { objdump: tool("llvm-objdump"), dwarfdump: tool("llvm-dwarfdump") })) linesJson = lj;
-      if (Bun.spawnSync([tool("llvm-strip"), "--strip-debug", wasm]).exitCode === 0) debugWasm = dbg;   // deploy stripped
+      if (writeLineMap(dbg, lj, { objdump: tool("llvm-objdump"), dwarfdump: tool("llvm-dwarfdump") })) {
+        linesJson = lj;
+      }
+      if (Bun.spawnSync([tool("llvm-strip"), "--strip-debug", wasm]).exitCode === 0) {
+        debugWasm = dbg;
+      }
     } catch {}
   }
   return { ok: exitCode === 0, wasm, wrapper, stderr, exitCode, debugWasm, linesJson };

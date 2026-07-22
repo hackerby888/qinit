@@ -10,8 +10,7 @@ export interface TestResult {
   message: string; // failure detail (empty when passed)
 }
 
-// Generic multi-contract test host binding. The runner Wasm is compiled from standard core-lite gtest source;
-// `contracts` maps contract-index → deployable Wasm. Every
+// Run a core-lite gtest Wasm module against contracts mapped by slot.
 export async function runContractTesting(
   runnerWasm: Uint8Array,
   contracts: Record<number, Uint8Array>,
@@ -33,8 +32,7 @@ export async function runContractTesting(
   let spectrumIds: string[] = [];
   let spectrumBytes: Uint8Array[] = [];
   let runner: WebAssembly.Instance;
-  // State-sync between the runner's getState() shadow buffers and the engine's contract instances. The full
-  // state can be hundreds of MB (e.g. QEARN ~214MB), so a per-dispatch full copy is fatal to dispatch-heavy
+  // Synchronize runner shadows lazily because contract states may be hundreds of MiB.
   const materialized = new Map<number, { dst: number; len: number }>();
   const engineDirty = new Set<number>();
   const touched = new Set<number>();
@@ -45,8 +43,7 @@ export async function runContractTesting(
   const id32 = (p: number) => read(p, 32);
   const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 
-  // Opt-in instrumentation. QINIT_GTEST_TRACE logs entry/exit of every engine dispatch (a dispatch entered
-  // but never exited is a contract procedure looping in the engine). QINIT_GTEST_PROF (implied by TRACE)
+  // TRACE logs dispatch entry/exit; PROF records aggregate synchronization timings.
   const env_ = (globalThis as any).process?.env ?? {};
   const dispTrace = !!env_.QINIT_GTEST_TRACE;
   const prof = dispTrace || !!env_.QINIT_GTEST_PROF;
@@ -68,8 +65,7 @@ export async function runContractTesting(
     return r;
   };
 
-  // Shared-memory contracts (linked with --import-memory, see recipe.ts sharedMemBase): the module lives
-  // inside the runner's memory, so the runner's contractStates[i] pointer IS the live state — the shadow
+  // Shared-memory contracts expose live state through the runner's imported memory.
   const sharedSlots = new Set<number>();
   for (const [idx, wasm] of Object.entries(contracts)) {
     const m = new WebAssembly.Module(wasm as BufferSource);
@@ -117,8 +113,7 @@ export async function runContractTesting(
     }
   };
 
-  // Push back only shadows the test touched since the last flush, and only while the shadow is still in sync
-  // with the engine (not behind a mutating dispatch) — pushing a stale shadow would clobber newer engine
+  // Flush only touched, current shadows so stale buffers cannot overwrite engine state.
   const flushState = () => {
     if (touched.size === 0) return;
     for (const i of touched) {
@@ -130,8 +125,7 @@ export async function runContractTesting(
     touched.clear();
   };
 
-  // After a mutating dispatch the engine state has advanced past every materialized shadow. core-lite's
-  // contractStates[i] is a live pointer, so a corpus may cache `auto s = getState()` and read s-> after a
+  // Refresh materialized shadows after mutation so cached getState() pointers stay current.
   const EAGER_SYNC_MAX = 4 << 20; // 4 MiB
   const markEngineMoved = () => {
     for (const [i, m] of materialized) {
@@ -147,8 +141,7 @@ export async function runContractTesting(
     engineDirty.clear();
   };
 
-  // Diff-copy between the runner shadow and the engine state (either direction): scan in chunks (native
-  // memcmp via Buffer.compare when available) and copy only the chunks that actually changed. A dispatch or
+  // Compare state in chunks and copy only changed regions.
   const SYNC_CHUNK = 1 << 20;
   const Buf = (globalThis as any).Buffer;
   const syncChunked = (src: Uint8Array, dst: Uint8Array) => {
@@ -340,8 +333,7 @@ export async function runContractTesting(
         issuer,
       ) as bigint;
     },
-    // issueContractShares(googletest): mint a contract's NULL_ID-issuer shares (qxSlot = QX), then move each
-    // owner's slice from the NULL_ID holder to the owner. transferShareOwnershipAndPossession returns <0 on
+    // Mint NULL_ID-issued contract shares, then transfer each owner's slice from NULL_ID.
     q_mint_contract_shares: (name: bigint, shares: bigint, qxSlot: number): void => {
       (sim as any).assets.mintContractShares(
         qxSlot >>> 0,
@@ -422,7 +414,9 @@ export async function runContractTesting(
       let sum = 0n;
       for (const a of sim.assetUniverse()) {
         if (a.issuer === issuerHex && a.name === nameStr) {
-          for (const h of a.holdings) sum += BigInt(h.shares);
+          for (const holding of a.holdings) {
+            sum += BigInt(holding.shares);
+          }
         }
       }
       return sum;
@@ -475,8 +469,7 @@ export async function runContractTesting(
     q_state_in: (i: number, dst: number, len: number) => {
       const c = handles[i];
       if (!c) return;
-      // Copy engine->shadow only on the first pull, after the engine advanced, or if the runner handed a new
-      // buffer; otherwise the shadow at dst is already current and the (large) copy is skipped. Mark touched
+      // Refresh a shadow only on first use, after mutation, or when its destination changes.
       const prev = materialized.get(i);
       if (!prev || prev.dst !== dst) {
         const t0 = prof ? now() : 0;
@@ -563,8 +556,7 @@ export async function runContractTesting(
   const noopVal = (..._args: unknown[]): number => 0;
   const noopBig = (..._args: unknown[]): bigint => 0n;
 
-  // Runner-side scratchpad (shared-memory mode): the corpus may run qpi container maintenance directly on the
-  // live shared state (e.g. QTRY's discountedFeeForUsers.cleanup()), whose __ScopedScratchpad acquires through
+  // Runner-side scratchpad for QPI container maintenance on shared state.
   let scratchBase = 0,
     scratchBump = 0;
   const scratchAcquire = (size: bigint, initZero: number): number => {
@@ -681,7 +673,9 @@ export async function runContractTesting(
     fd_write: (_fd: number, iovs: number, iovsLen: number, nwritten: number): number => {
       const dv = new DataView(mem().buffer);
       let total = 0;
-      for (let k = 0; k < iovsLen >>> 0; k++) total += dv.getUint32((iovs >>> 0) + k * 8 + 4, true);
+      for (let k = 0; k < iovsLen >>> 0; k++) {
+        total += dv.getUint32((iovs >>> 0) + k * 8 + 4, true);
+      }
       dv.setUint32(nwritten >>> 0, total >>> 0, true);
       return 0;
     },
@@ -716,15 +710,13 @@ export async function runContractTesting(
   imports.wasi_snapshot_preview1 = wasiObj;
 
   runner = await WebAssembly.instantiate(mod, imports as any);
-  // Deploy between instantiation and _initialize: shared-memory contracts need the runner's Memory (live from
-  // instantiate), while _initialize may already drive thost (a corpus registering a gtest Environment whose
+  // Deploy after instantiation so _initialize can call the host with live shared memory.
   deployAll();
   (runner.exports._initialize as Function)?.();
 
   const count = (runner.exports.test_count as Function)() >>> 0;
 
-  // Opt-in trace (QINIT_GTEST_TRACE): name each test on stderr before it runs. A corpus test can loop
-  // forever inside the wasm (a tick/time/epoch precondition the harness doesn't satisfy), which blocks
+  // Name each traced test before execution so a hanging corpus test is identifiable.
   const trace = !!(globalThis as any).process?.env?.QINIT_GTEST_TRACE;
   // QINIT_GTEST_FILTER: comma-separated substrings — run only tests whose name contains one (skip the rest).
   // Iterating on a known-failing subset avoids paying for the already-green bulk of a heavy corpus.
@@ -759,7 +751,9 @@ export async function runContractTesting(
         `[gtest] #${i} ${traceName(i)} wall=${Math.round(now() - tt)}ms\n`,
       );
     if (opts.onResult) {
-      for (let k = before; k < results.length; k++) await opts.onResult(results[k]);
+      for (let k = before; k < results.length; k++) {
+        await opts.onResult(results[k]);
+      }
       await new Promise((res) => setTimeout(res, 0));
     }
   }

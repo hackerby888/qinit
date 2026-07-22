@@ -199,8 +199,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect(inspection.imports.every((item) => item.module === "lhost")).toBe(true);
     expect(inspection.features).toEqual([]);
 
-    // WAMR maps wasm offset 0 to nullptr at the host-import boundary. A random-
-    // capable module hashes its resident state through lhost.k12, so state_addr
+    // WAMR maps offset 0 to nullptr, so resident state must start above it.
     const module = await WebAssembly.compile(wasm);
     const lhost = Object.fromEntries(
       WebAssembly.Module.imports(module)

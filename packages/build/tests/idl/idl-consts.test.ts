@@ -1,6 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// constexpr array-size resolution: the qpi math helpers come in a templated form (div<uint64>(a,b)) AND a plain
-// form (div(a,b)). The size evaluator only rewrote the templated form, so a contract sizing an array with the
+// Verify constexpr array sizes using both templated and plain QPI math helpers.
 import { test, expect } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { extractIdl } from "../../src/idl";

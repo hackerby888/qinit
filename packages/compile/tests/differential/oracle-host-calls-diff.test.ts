@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Host-call parity for the qpi surface beyond the system-SC corpus: getOracleQuery/getOracleReply (template reads sized by the interface's OracleQuery/OracleReply),
+// Checks oracle host-call payloads and reply decoding against native behavior.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
@@ -167,7 +167,7 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
       expect(firstDiff).toBe(-1);
     }
 
-    // Sanity on the resolved phase against known host behavior (guards against both sides being identically wrong): query found
+    // Anchor the resolved phase to known query/reply host behavior.
     const dv = new DataView(nat.resolvedState.buffer, nat.resolvedState.byteOffset);
     expect(dv.getBigInt64(0, true)).toBe(1n); // queryId
     expect(dv.getBigUint64(8, true)).toBe(1n); // notified

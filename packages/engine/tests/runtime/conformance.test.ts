@@ -1,5 +1,4 @@
-// Execution-fee conformance (core-lite doc/execution_fees.md). Asserts the opt-in fee model: gating at the
-// right entry points, the exemptions (epoch sysprocs + callbacks), reserve depletion/refill, the IPO seed, and
+// Verifies fee gating, exemptions, depletion, refill, IPO seeding, and reserve behavior.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";

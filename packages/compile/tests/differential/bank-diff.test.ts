@@ -1,5 +1,5 @@
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
-// Differential gtest for Bank.h — exercises HashMap<id,uint64,1024>.set/get/population/reset and Array<uint64,4>.set through my TS codegen, validated by the SAME native-clang
+// Differential coverage for Bank's HashMap and Array operations.
 import { coreGtest } from "../support/core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";

@@ -1,5 +1,4 @@
-// qpi DateAndTime packing (runtime.ts packDateAndTime) — the 8-byte value the wasm `now()` import writes. Mirrors
-// core-lite qpi.h DateAndTime::set: full year at bit 46, then month/day/hour/minute/second/millisecond, with the
+// Verifies QPI DateAndTime packing, including full-year bits and zero microseconds.
 import { test, expect } from "bun:test";
 import { packDateAndTime, dateFields } from "../../src/runtime";
 

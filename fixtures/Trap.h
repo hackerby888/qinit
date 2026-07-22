@@ -1,5 +1,4 @@
-// Fault-injection fixture: Div does a raw integer division (input.a / input.b) which the wasm executes as
-// i64.div is a wasm TRAP on b == 0. Used to ensure the engine isolates a faulting procedure (the tick survives).
+// Div traps on a zero divisor, verifying that the engine isolates a faulting procedure.
 using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase

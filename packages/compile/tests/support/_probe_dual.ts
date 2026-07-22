@@ -21,7 +21,7 @@ const catalog = systemContracts(CORE);
 const HEAVY = new Set(["PULSE", "QTF", "QTRY", "GGWP", "QEARN", "NOST"]); // NOST: ~1GB state — shadow-sync pulls dominate outside shared mode
 const only = process.argv[2];
 
-// contracts referenced by the corpus or the contract source (deployed + compiled alongside the target).
+// Find system contracts referenced by the corpus or contract source.
 function depNamesOf(c: any, corpusSrc: string, contractSrc: string): any[] {
   const deps: any[] = [];
   for (const other of catalog) {
@@ -49,7 +49,7 @@ function stubExports(wasm: Uint8Array): any {
   return new WebAssembly.Instance(mod, imports as any).exports;
 }
 
-// native-clang wasm of a contract (the oracle) at its slot, + every referenced dep at its slot.
+// Build native reference Wasm for the target and its dependencies.
 async function nativeWasms(
   c: any,
   deps: any[],
@@ -116,7 +116,7 @@ async function oursWasms(
     nextBase = (base + stateSize + arenaSz + SLACK + 0xffff) & ~0xffff;
     return (await compileContract({ ...o, arenaSz, sharedMemBase: base })).wasm;
   };
-  // A dep may itself CALL another system contract (QRWA's corpus deploys QUTIL/QSWAP, which CALL QX) — compile every
+  // Compile transitive callees so nested system-contract calls resolve.
   const idlCache = new Map<string, { entry: any; source: string }>();
   const calleeInfo = async (cc: any) => {
     if (idlCache.has(cc.name)) return idlCache.get(cc.name)!;
@@ -254,7 +254,7 @@ for (const c of catalog) {
     }
     const runnerBytes = new Uint8Array(readFileSync(runner.so));
     const shared = HEAVY.has(c.name);
-    // slot -> ticker (contractDescriptions assetName) so qpi.distributeDividends can find each contract's share asset in the universe.
+    // Map contract slots to tickers for dividend asset lookup.
     const assetNames = Object.fromEntries([c, ...deps].map((cc: any) => [cc.index, cc.name]));
     const nat = await runContractTesting(runnerBytes, await nativeWasms(c, deps, shared), {
       assetNames,

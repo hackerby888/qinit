@@ -40,8 +40,7 @@ export function scalarDeclInfo(context: FunctionEmissionContext, type: TypeSpec)
         : dereferencedType.kind === "name"
             ? dereferencedType.name
             : "";
-    // The parser keeps a plain C `int` as `int`, while QPI's corresponding
-    // typedef is spelled `sint32`. Treat the C spelling as its canonical signed
+    // Normalize plain C int spellings to QPI's signed scalar names.
     const canonical = name === "int" || name === "signed"
         ? "signed int"
         : name === "unsigned"
@@ -91,7 +90,7 @@ export function lookupHelper(context: FunctionEmissionContext, expression: Expre
 }): CompiledHelperMetadata | null {
     if (expression.callee.kind !== "identifier")
         return null;
-    // Match the intrinsics by base name — a qualified QPI::div would otherwise slip past this guard, get instantiated
+    // Match intrinsic base names before attempting source instantiation.
     const name = expression.callee.name;
     const base = symbolBaseName(name);
     const sourceKeys = context.programAnalysis.namespaceCandidates(name, context.sourceNamespace, context.usingNamespaces);
@@ -121,7 +120,7 @@ export function lookupHelper(context: FunctionEmissionContext, expression: Expre
         }
     }
     if (!info) {
-        // A namespace free function template (isArraySortedWithoutDuplicates<T,L>): instantiate for this call, picking the overload whose parameter patterns match the
+        // Instantiate the namespace template whose parameters best match this call.
         const templateKey = sourceKeys.find((key) => context.programAnalysis.libFnTemplates.has(key));
         const tdefs = templateKey ? context.programAnalysis.libFnTemplates.get(templateKey) : undefined;
         if (tdefs?.length)
@@ -142,7 +141,7 @@ export function lookupHelper(context: FunctionEmissionContext, expression: Expre
             kind: "function";
         } => member.kind === "function" && member.name === method && member.isStatic && !!member.body);
         if (sd && fn) {
-            // Param/return types spelled in the owner's scope (const OracleReply&) name its nested structs — substitute them inline so
+            // Resolve parameter and return types against nested owner declarations.
             const nestedOf = new Map(sd.members
                 .filter((member): member is StructDecl => member.kind === "struct" && !!member.name)
                 .map((structDeclaration) => [structDeclaration.name, structDeclaration]));
@@ -176,7 +175,7 @@ export function emitHelperCall(context: FunctionEmissionContext, expression: Exp
     const info = lookupHelper(context, expression);
     if (!info)
         return null;
-    // An aggregate-returning helper flows as an address — materialize into a slot. In value context return 0
+    // Materialize aggregate returns; scalar value contexts receive zero.
     if (info.retAgg) {
         const addr = emitAggHelperCall(context, expression, info);
         return valueWanted ? "(i64.const 0)" : (void addr, "");

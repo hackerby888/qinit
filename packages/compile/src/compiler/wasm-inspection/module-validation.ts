@@ -22,7 +22,9 @@ export function classifyMemory(memories: readonly InspectedWasmMemory[]): Inspec
         return "none";
     const imported = memories.some((memory) => memory.source === "imported");
     const defined = memories.some((memory) => memory.source === "defined");
-    return imported && defined ? "mixed" : imported ? "imported" : "defined";
+    if (imported && defined)
+        return "mixed";
+    return imported ? "imported" : "defined";
 }
 
 export function validateImports(parsed: ParsedModule, lhostAbi: Readonly<Record<string, WasmFunctionSignature>>): void {

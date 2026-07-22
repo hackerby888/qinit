@@ -126,7 +126,9 @@ export function decodeTick(p: Uint8Array): number {
 
 export function hasZeroLogPasscode(p: Uint8Array): boolean {
   if (p.length < 32) return false;
-  for (let i = 0; i < 32; i++) if (p[i] !== 0) return false;
+  for (let i = 0; i < 32; i++) {
+    if (p[i] !== 0) return false;
+  }
   return true;
 }
 
@@ -303,8 +305,7 @@ export interface OwnedAssetView {
   managingContractIndex: number;
 }
 
-// RespondOwnedAssets (structs.h) — the AssetRecord ownership variant + the issuance AssetRecord + tick +
-// universeIndex (siblings[ASSETS_DEPTH] are zero-padded by a client). AssetRecord is a 48-byte union:
+// Encode ownership and issuance records with their universe Merkle proof.
 export function encodeRespondOwnedAssets(
   v: OwnedAssetView,
   universeIndex = 0,
@@ -349,8 +350,7 @@ export interface PossessedAssetView {
   ownershipManagingContract: number;
 }
 
-// RespondPossessedAssets (structs.h) — the possession AssetRecord + the ownership AssetRecord + the issuance
-// AssetRecord + tick + universeIndex (siblings[ASSETS_DEPTH] zero-padded by a client). AssetRecord type:
+// Encode possession, ownership, and issuance records with their universe Merkle proof.
 export function encodeRespondPossessedAssets(
   v: PossessedAssetView,
   universeIndex = 0,

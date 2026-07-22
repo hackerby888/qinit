@@ -6,8 +6,7 @@
 #include <vector>
 #include "platform/common_types.h"
 
-// Wasm-mode replacement for core-lite contract_testing.h.
-// Routes ContractTesting / free-helper calls to "thost" imports bound by
+// Routes core-lite ContractTesting helpers to Qinit's "thost" imports.
 
 // ---- thost import declarations (module "thost", names fixed by runContractTesting) ----
 
@@ -594,8 +593,8 @@ static inline void issueContractShares(unsigned int contractIndex, std::vector<s
     EXPECT_EQ(numberOfShares(QPI::Asset{ nullId, assetName }), (QPI::sint64)NUMBER_OF_COMPUTORS);
 }
 
-// Index-based share transfer (googletest free helper): move `numberOfShares` from the holding denoted by
-// sourceOwnershipIndex (a prior issueAsset / transfer result) to newOwner. The engine transfers ownership and
+// Move shares from a prior issuance or transfer result to a new owner.
+// The engine transfers ownership and possession together.
 static inline bool transferShareOwnershipAndPossession(int sourceOwnershipIndex, int sourcePossessionIndex,
                                                        const QPI::id& newOwner, long long numberOfShares,
                                                        int* destinationOwnershipIndex, int* destinationPossessionIndex,
@@ -623,8 +622,7 @@ static inline bool transferShareOwnershipAndPossession(int sourceOwnershipIndex,
     return ok;
 }
 
-// ---- streamable EXPECT_* (gtest `EXPECT_EQ(a,b) << "note"`) ----
-// The private Wasm registry defines EXPECT_*/ASSERT_* comparisons as `do{...}while(0)` statements, so a corpus that
+// Support stream suffixes such as `EXPECT_EQ(a, b) << "note"`.
 namespace qinit_gtest {
     struct Sink { template <class T> Sink& operator<<(const T&) { return *this; } };
 }
@@ -726,8 +724,7 @@ static inline bool getPublicKeyFromIdentity(const unsigned char* identity, unsig
     return true;
 }
 
-// State save/load to disk — core-lite platform/file_io.h, which has no wasm equivalent. A corpus may define a
-// loadState()/saveState() helper over these (QSWAP) without any test invoking it, so never-called stubs that
+// Stub disk I/O for corpora that define but never invoke persistence helpers.
 static inline long long load(const CHAR16*, unsigned long long, void*, const CHAR16* = nullptr) {
     return -1;
 }

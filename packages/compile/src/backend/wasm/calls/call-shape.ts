@@ -1,6 +1,6 @@
 import type { Expression } from "../../../ast";
 
-// The ProposalVoting wrapper call shape: `qpi(<aggregate>).<method>(...)` — a member call whose object is a `qpi(...)` call. Returns the
+// Return the method name for `qpi(aggregate).method(...)` wrappers.
 export function qpiWrapperMethod(expression: Expression & {
     kind: "call";
 }): string | null {

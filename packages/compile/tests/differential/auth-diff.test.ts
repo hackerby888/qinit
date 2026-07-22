@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Differential gtest for id-valued body codegen: qpi.invocator() captured into state (id copy), an id == id guard, and
+// Covers invocator capture, id equality guards, and id-valued state reads.
 import { coreGtest } from "../support/core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";

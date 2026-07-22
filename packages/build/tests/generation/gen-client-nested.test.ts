@@ -1,6 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Nested-type client codegen, end-to-end. Asserts the generated source shape (inline nested object types,
-// recursive output mapper, typed args for nested-struct inputs), that real QX/Quottery clients transpile, and —
+// Covers nested client types, recursive output mapping, typed inputs, and generated-client execution.
 import { test, expect, afterAll } from "bun:test";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { Transpiler } from "bun";

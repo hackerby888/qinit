@@ -11,11 +11,18 @@ export function isStateAccessor(expression: Expression): boolean {
         expression.callee.object.name === "state" &&
         (expression.callee.member === "mut" || expression.callee.member === "get"));
 }
-// id/m256i expose their 32 bytes as fixed-width limb views (`.u64`/`.u32`/`.u16`/`.u8`) with named limbs `_0.._N` at element-sized strides. Each
+// Build fixed-width limb views for id and m256i storage.
 export function limbLayout(elemSize: number, count: number): StructLayout {
+    let typeName = "uint8";
+    if (elemSize === 8)
+        typeName = "uint64";
+    else if (elemSize === 4)
+        typeName = "uint32";
+    else if (elemSize === 2)
+        typeName = "uint16";
     const type: TypeSpec = {
         kind: "name",
-        name: elemSize === 8 ? "uint64" : elemSize === 4 ? "uint32" : elemSize === 2 ? "uint16" : "uint8",
+        name: typeName,
     };
     const fields = new Map<string, FieldLayout>();
     for (let index = 0; index < count; index++)
@@ -66,7 +73,12 @@ export function castInfo(expression: Expression): {
 }
 export function stripPtrRefConst(type: TypeSpec): TypeSpec {
     while (type.kind === "pointer" || type.kind === "reference" || type.kind === "const") {
-        type = type.kind === "pointer" ? type.pointee : type.kind === "reference" ? type.referentType : type.valueType;
+        if (type.kind === "pointer")
+            type = type.pointee;
+        else if (type.kind === "reference")
+            type = type.referentType;
+        else
+            type = type.valueType;
     }
     return type;
 }
@@ -121,7 +133,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
                 size: context.locals.size,
                 layout: context.locals,
             };
-        // bare `state` (a static helper taking ContractState& — QTF's enableBuyTicket(state, flag)): the resident state region. Only meaningful where
+        // Resolve a static helper's bare `state` parameter to resident state.
         if (expression.name === "state" && context.hasStateParam && !context.localVars.has("state")) {
             return {
                 addr: "(local.get $__qinit_state)",
@@ -130,7 +142,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
                 layout: context.state,
             };
         }
-        // inside a compiled container method (or an inlined struct method): `this`, or a bare member of *this
+        // Resolve `this` and bare members against the active method instance.
         if (context.thisLayout) {
             const thisAddr = context.thisAddr ?? "(local.get $this)";
             if (expression.name === "this")
@@ -174,7 +186,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
             layout: context.programAnalysis.layoutOfType(elemType, context.thisBind),
         };
     }
-    // ptr + n / ptr - n: pointer arithmetic — the address n elements away, staying pointer-typed (feeds
+    // Keep pointer arithmetic pointer-typed for subsequent dereference or indexing.
     if (expression.kind === "binary_op" && (expression.operator === "+" || expression.operator === "-")) {
         const base = resolveExpressionAddress(context, expression.left);
         const bt = base?.type;
@@ -194,7 +206,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
             layout: context.thisLayout,
         };
     }
-    // A pointer/reference cast reinterprets the same address as the target type (the base subobject of a single-inheritance derived
+    // Reinterpret pointer and reference casts at the same address.
     {
         const ci = castInfo(expression);
         if (ci) {
@@ -218,7 +230,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
             };
         }
     }
-    // &lvalue (address-of) and *this (deref) are identity at the addressing level — the node already carries the operand's
+    // Address-of preserves an lvalue's existing address.
     if (expression.kind === "unary_op" && expression.operator === "&")
         return resolveExpressionAddress(context, expression.argument);
     if (expression.kind === "unary_op" && expression.operator === "*") {
@@ -256,7 +268,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
         return null;
     }
     if (isStateAccessor(expression)) {
-        // Inside a compiled struct/template method `state` is a ContractState& PARAM (NextEpochData::apply); the wasm local of the same name
+        // Prefer a method's ContractState reference parameter over resident state.
         const layout = context.state.size > 0 ? context.state : context.programAnalysis.contractStateLayout;
         const stateParam = context.params?.get("state");
         const addr = stateParam?.isAddr
@@ -264,12 +276,12 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
             : "(local.get $__qinit_state)";
         return { addr, type: null, size: layout.size, layout };
     }
-    // a container element getter (arr.get(i), map.value(i)/key(i)) is an lvalue we can keep chaining from
+    // Keep container element getters addressable for chained member access.
     if (expression.kind === "call") {
         const ce = context.lowering.resolveContainerElem(context, expression);
         if (ce)
             return ce;
-        // obj.method(args) where method is an inline member of obj's struct returning a reference (the fluent `Element& init(...) {
+        // Inline reference-returning struct methods as addressable calls.
         return context.lowering.tryInlineStructMethod(context, expression);
     }
     // member access: resolve the object, then index its field
@@ -301,7 +313,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
                 };
             }
         }
-        // Member of an id-producing qpi call (`qpi.K12(x).u64._0`): resolveAddr has no lvalue for the call, but emitAddr materializes an
+        // Materialize id-producing QPI calls before resolving their members.
         if (!parent &&
             expression.object.kind === "call" &&
             expression.object.callee.kind === "member_access" &&
@@ -340,7 +352,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
         const fieldLayout = parent.layout.fields.get(expression.member);
         if (!fieldLayout)
             return null;
-        // A member type written in terms of the parent instance's own params / nested typedefs (e.g.
+        // Resolve member types through the parent instance's bindings and typedefs.
         let ptype: TypeSpec | null = parent.type;
         for (let index = 0; index < 8 && ptype?.kind === "name"; index++)
             ptype = context.programAnalysis.typedefs.get(ptype.name) ?? null;
@@ -355,7 +367,7 @@ export function resolveExpressionAddress(context: FunctionEmissionContext, expre
     }
     return null;
 }
-// Resolve a field type spelled in its declaring struct's own scope — Array<Order,256> where Order is a sibling
+// Resolve field types against sibling declarations in their owning struct.
 export function resolveInParentStruct(context: FunctionEmissionContext, type: TypeSpec, parent: ResolvedAddress): TypeSpec {
     const declaration = parent.type?.kind === "inline_struct"
         ? parent.type.struct

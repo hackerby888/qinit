@@ -1,5 +1,5 @@
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
-// Honest conformance sweep: compile every contract through the local TS compiler and report parse / wasm / engine-load
+// Measures parse, Wasm, engine-load, and state-size coverage across the corpus.
 import { test, expect, beforeAll } from "bun:test";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";

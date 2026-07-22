@@ -1,5 +1,5 @@
-import { compileContract, loadQpiHeader } from '../packages/compile/src/index';
-import { CORE_PATH } from '../test-utils/paths';
+import { compileContract, loadQpiHeader } from "../packages/compile/src/index";
+import { CORE_PATH } from "../test-utils/paths";
 
 const HEADER = loadQpiHeader(CORE_PATH);
 const source = `
@@ -12,5 +12,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
 };
 `;
-const r = await compileContract({ source, name: 'NsProbe', slot: 42, qpiHeader: HEADER });
-console.log(r.diagnostics.map((d)=> `${d.severity}: ${d.message}`));
+const result = await compileContract({
+  source,
+  name: "NsProbe",
+  slot: 42,
+  qpiHeader: HEADER,
+});
+console.log(
+  result.diagnostics.map((diagnostic) => `${diagnostic.severity}: ${diagnostic.message}`),
+);

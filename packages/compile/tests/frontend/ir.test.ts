@@ -1,4 +1,4 @@
-// Format lock for the typed WAT IR: every emit() branch and every leaf-helper shape must print the exact
+// Locks typed WAT IR formatting and helper output.
 import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -193,7 +193,7 @@ describe("type assertions catch the silent-divergence class", () => {
 });
 
 describe("escape-hatch ratchet", () => {
-  // ir.raw is the sanctioned bridge for not-yet-typed subtrees (lvalue address strings, dynamic-label calls, control-flow forms). The count must
+  // ir.raw bridges untyped forms; this ratchet keeps its use bounded.
   test("raw() count in codegen/ does not grow", () => {
     const dir = join(import.meta.dir, "../../src/codegen");
     let count = 0;

@@ -3,7 +3,7 @@ import { emitHelperFunction } from "../functions/function-emitter";
 import { FunctionEmissionContext, CompiledHelperMetadata, TemplateBindings, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import { isAuthoritativeSymbol } from "../abi/tables";
 import type { TypeSpec, Expression, FunctionDecl, FunctionTemplateDecl } from "../../../ast";
-// Call to a contract value helper (toReturnCode(...)): scalar args by value, aggregate args by address. valueWanted → returns
+// Compile helpers with scalar-by-value and aggregate-by-address parameters.
 export function compileLibraryFunction(programAnalysis: ProgramAnalysis, name: string, definition?: FunctionDecl, cacheKey = name): CompiledHelperMetadata | null {
     const cached = programAnalysis.helpers.get(cacheKey);
     if (cached)
@@ -24,7 +24,7 @@ export function compileLibraryFunction(programAnalysis: ProgramAnalysis, name: s
     if (!fn || !fn.body)
         return null;
     const params = fn.params.map((parameter) => {
-        // A NON-const scalar reference (RL::makeDateStamp's `uint32& res`) is an out-param and must travel by address for the write
+        // Pass mutable scalar references by address for write-back.
         const isConstRef = parameter.type.kind === "reference" && parameter.type.referentType?.kind === "const";
         const isPtrRef = (parameter.type.kind === "reference" && !isConstRef) || parameter.type.kind === "pointer";
         const isAddr = isPtrRef || programAnalysis.isAggregateType(parameter.type);
@@ -151,7 +151,7 @@ export function deduceLibraryFunctionBindings(context: FunctionEmissionContext, 
     }
     return { types, values, structs: new Map() };
 }
-// Pick the overload whose parameter patterns best match the concrete argument types. A concrete name
+// Pick the overload whose parameter patterns best match concrete arguments.
 export function selectLibraryFunctionOverload(context: FunctionEmissionContext, defs: FunctionTemplateDecl[], callArguments: Expression[]): FunctionTemplateDecl {
     if (defs.length === 1)
         return defs[0];

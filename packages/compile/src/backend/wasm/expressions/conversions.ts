@@ -9,7 +9,7 @@ export function isAutoType(type: TypeSpec): boolean {
     }
     return type.kind === "name" && type.name === "auto";
 }
-// Resolve a named type through typedef/using aliases to its underlying spec (bounded walk; stops at a known scalar
+// Resolve named aliases to their underlying types with a bounded walk.
 export function resolveAliasType(programAnalysis: ProgramAnalysis, type: TypeSpec): TypeSpec {
     let resolvedType = type;
     for (let index = 0; index < 8 && resolvedType.kind === "name" && SCALAR_SIZE[resolvedType.name] === undefined; index++) {
@@ -195,13 +195,13 @@ export function scalarTypeInfo(context: FunctionEmissionContext, expression: Exp
             return scalarTypeInfo(context, expression.argument);
         case "call":
         case "template_call": {
-            // QPI safe-math intrinsics return their (deduced or explicit) argument type; without this a comparison against e.g. `math_lib::max((uint64)a, (uint64)b)`
+            // Preserve the deduced scalar type of QPI safe-math calls.
             const nm = expression.callee?.kind === "identifier" ? expression.callee.name : null;
             if (!nm)
                 return null;
             const base = nm.includes("::") ? nm.slice(nm.lastIndexOf("::") + 2) : nm;
             if (!MATH_INTRINSIC_NAMES.has(base)) {
-                // A member value helper carries its declared return type; the width/signedness of `pick(x) + 1` etc. follow the
+                // Use a member helper's declared return type for width and signedness.
                 const set = context.programAnalysis.helperOverloads.get(nm);
                 const helper = set?.length
                     ? context.lowering.pickHelperOverload(context, set, expression.callArguments ?? [])
@@ -229,7 +229,7 @@ export function scalarTypeInfo(context: FunctionEmissionContext, expression: Exp
             return null;
     }
 }
-// Integral promotion: sub-int scalars become int (signed, 4 bytes); unknown types fall back to the legacy 64-bit +
+// Apply integral promotion; unknown scalars retain the legacy 64-bit model.
 export function promoteInfo(context: FunctionEmissionContext, expression: Expression): {
     width: number;
     unsigned: boolean;
@@ -239,7 +239,7 @@ export function promoteInfo(context: FunctionEmissionContext, expression: Expres
         return { width: 4, unsigned: false };
     return info;
 }
-// C++ usual arithmetic conversions over the promoted operands: same signedness → wider wins; mixed → unsigned wins at
+// Apply C++ arithmetic conversions after integral promotion.
 export function usualConversion(context: FunctionEmissionContext, left: Expression, right: Expression): {
     width: number;
     unsigned: boolean;

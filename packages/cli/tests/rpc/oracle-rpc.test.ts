@@ -1,5 +1,4 @@
-// The oracle dev/test RPC seam: the virtual node has no real oracle machines, so a TS test must (a) discover the
-// PENDING query a contract raised — a tx-raised query's id is never returned to the broadcaster — and (b) inject
+// Discover a pending oracle query over RPC, then inject its reply and verify notification.
 import { test, expect } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
 import { initK12 } from "@qinit/core";

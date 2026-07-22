@@ -1,5 +1,4 @@
-// State migration on redeploy: when the redeployed module declares MIGRATE() and its OldStateData size matches
-// the live state, the engine runs __migrate(newState, oldState) to convert the old state into the new layout —
+// Redeploy migration converts matching old state into the new layout without reinitializing.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
@@ -21,7 +20,10 @@ test("redeploy with MIGRATE() carries old state into the new layout", async () =
   sim.procedure(28, INC);
   expect(u64(sim.query(28, GET))).toBe(3n); // counter = 3
 
-  for (let i = 0; i < 5; i++) sim.advance(); // move the tick on so MIGRATE()'s qpi.tick() is non-zero
+  // Advance so MIGRATE() observes a non-zero qpi.tick().
+  for (let i = 0; i < 5; i++) {
+    sim.advance();
+  }
 
   sim.deploy(28, await wasm("CounterV2")); // v2: StateData { counter, lastMigratedTick } + MIGRATE()
 

@@ -11,7 +11,7 @@ export function emitScratchpadReleases(context: FunctionEmissionContext, from: n
     if (consume)
         context.scratchpadScope.length = from;
 }
-// Emit a brace block, lowering forward gotos (relooper-lite). A `goto L` that jumps forward to a label
+// Lower forward gotos with nested Wasm blocks.
 export function emitCompound(context: FunctionEmissionContext, body: Statement[]): void {
     const spBase = context.scratchpadScope?.length ?? 0;
     const scratchDepthAt = (child: number): number => {
@@ -35,7 +35,7 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
             if (!labelChild.has(label))
                 labelChild.set(label, bodyItemIndex);
     }
-    // forward gotos only: a label rooted in a later sibling than the goto. Each gets a block that
+    // Wrap each forward target in a block spanning its incoming gotos.
     const wasmLabel = new Map<string, string>();
     const blocks: {
         wl: string;
@@ -64,7 +64,7 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
         for (const [labelName, blockLabel] of wasmLabel) {
             context.gotoLabels.set(labelName, { label: blockLabel, scratchDepth: scratchDepthAt(labelChild.get(labelName) ?? 0) });
         }
-        // WASM blocks must nest (LIFO). With multiple labels whose [firstGoto..closeAt] ranges OVERLAP without
+        // Nest overlapping goto blocks in LIFO order.
         const openChild = Math.min(...blocks.map((block) => block.firstGoto));
         blocks.sort((block, blockIndex) => blockIndex.closeAt - block.closeAt);
         const closeStack: number[] = [];
@@ -88,6 +88,6 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
         for (const labelName of wasmLabel.keys())
             context.gotoLabels!.delete(labelName);
     }
-    // Scope exit: run __ScopedScratchpad destructors declared in this compound (RAII, LIFO). Without the
+    // Release scoped scratchpads in LIFO order when leaving the compound.
     emitScratchpadReleases(context, spBase, true);
 }

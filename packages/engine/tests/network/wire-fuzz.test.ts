@@ -1,5 +1,4 @@
-// Generative round-trip + layout fuzz over the wire views (wire.ts). The fixed vectors in wire.test.ts pin a few
-// known offsets by hand; this sweeps every defineStruct field with random values to catch any getter/setter
+// Deterministically fuzzes every typed wire field for round-trip and layout errors.
 import { test, expect } from "bun:test";
 import {
   M256i,

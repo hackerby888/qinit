@@ -17,21 +17,39 @@ export async function generateRuntime(): Promise<string> {
     target: "bun",
     minify: false,
     external: ["@qubic-lib/qubic-ts-library", "@qubic-lib"],
-    plugins: [{ name: "core-browser", setup(b) { b.onResolve({ filter: /^@qinit\/core$/ }, () => ({ path: CORE_BROWSER })); } }],
+    plugins: [
+      {
+        name: "core-browser",
+        setup(build) {
+          build.onResolve({ filter: /^@qinit\/core$/ }, () => ({ path: CORE_BROWSER }));
+        },
+      },
+    ],
   });
-  if (!r.success) throw new Error("gen-runtime: bundle failed\n" + r.logs.map(String).join("\n"));
+  if (!r.success) {
+    throw new Error("gen-runtime: bundle failed\n" + r.logs.map(String).join("\n"));
+  }
   const code = await r.outputs[0].text();
 
-  const externals = [...new Set([...code.matchAll(/from\s*"([^"]+)"|require\("([^"]+)"\)/g)].map((m) => m[1] || m[2]).filter((x) => x && !x.startsWith(".") && !x.startsWith("/")))];
-  const bad = externals.filter((x) => !x.startsWith("@qubic-lib"));
-  if (bad.length || /\bnode:|child_process|require\("fs"\)/.test(code)) {
-    throw new Error("gen-runtime: NON-PORTABLE bundle — unexpected externals: " + bad.join(", "));
+  const externals = [
+    ...new Set(
+      [...code.matchAll(/from\s*"([^"]+)"|require\("([^"]+)"\)/g)]
+        .map((match) => match[1] || match[2])
+        .filter((name) => name && !name.startsWith(".") && !name.startsWith("/")),
+    ),
+  ];
+  const unexpectedExternals = externals.filter((name) => !name.startsWith("@qubic-lib"));
+  if (unexpectedExternals.length || /\bnode:|child_process|require\("fs"\)/.test(code)) {
+    throw new Error(
+      "gen-runtime: NON-PORTABLE bundle — unexpected externals: " +
+        unexpectedExternals.join(", "),
+    );
   }
   return HEADER + code;
 }
 
-// Bun forbids a nested Bun.build in a macro worker because the outer bundler is waiting on that worker. Run the
-// same generator in a short-lived Bun process instead, then inline its stdout as the macro result.
+// Bun forbids nested builds while the outer bundler waits on its macro worker.
+// Run the generator in a short-lived Bun process and inline its stdout instead.
 export function generateRuntimeMacro(): string {
   const result = Bun.spawnSync([process.execPath, import.meta.path]);
   if (result.exitCode !== 0) {

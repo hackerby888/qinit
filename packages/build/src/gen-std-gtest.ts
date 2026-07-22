@@ -5,9 +5,9 @@ import type { ContractIdl, IdlEntry } from "./idl";
 const SAMPLE_SEED_ID = "id::randomValue()";
 
 export function genStdGtest(idl: ContractIdl, name: string, stateType: string = name): string {
-  const T = stateType; // the C++ contract struct type (== name for user contracts)
-  const procs = Object.entries(idl.procedures); // [index, IdlEntry]
-  const funcs = Object.entries(idl.functions);
+  const contractType = stateType;
+  const procedures = Object.entries(idl.procedures);
+  const functions = Object.entries(idl.functions);
 
   const head = [
     `// Standard gtest for ${name} (core-lite contract_testing.h) — the real Qubic SC-test format.`,
@@ -18,21 +18,20 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
     `#include "contract_testing.h"`,
   ].join("\n");
 
-  // A wrapper method per registered entry (mirrors how core's fixtures expose the contract): default-init the
-  // input, drive it through the harness, return the output.
-  const wrapper = (it: string, e: IdlEntry, kind: "proc" | "func"): string => {
+  // Each registered entry gets a wrapper that initializes input, invokes the harness, and returns output.
+  const wrapper = (inputTypeId: string, entry: IdlEntry, kind: "proc" | "func"): string => {
     const call = kind === "proc"
-      ? `        invokeUserProcedure(${T}_CONTRACT_INDEX, ${it}, in, out, user, amount);`
-      : `        callFunction(${T}_CONTRACT_INDEX, ${it}, in, out);`;
+      ? `        invokeUserProcedure(${contractType}_CONTRACT_INDEX, ${inputTypeId}, in, out, user, amount);`
+      : `        callFunction(${contractType}_CONTRACT_INDEX, ${inputTypeId}, in, out);`;
     const sig = kind === "proc"
-      ? `    ${T}::${e.name}_output ${lc(e.name)}(const id& user, sint64 amount = 0)`
-      : `    ${T}::${e.name}_output ${lc(e.name)}() const`;
+      ? `    ${contractType}::${entry.name}_output ${lowercaseFirst(entry.name)}(const id& user, sint64 amount = 0)`
+      : `    ${contractType}::${entry.name}_output ${lowercaseFirst(entry.name)}() const`;
     return [
       sig,
       `    {`,
-      `        ${T}::${e.name}_input in{};`,
+      `        ${contractType}::${entry.name}_input in{};`,
       `        // TODO: set in.<field> = ...;`,
-      `        ${T}::${e.name}_output out{};`,
+      `        ${contractType}::${entry.name}_output out{};`,
       call,
       `        return out;`,
       `    }`,
@@ -47,14 +46,14 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
     `    {`,
     `        initEmptySpectrum();`,
     `        initEmptyUniverse();`,
-    `        INIT_CONTRACT(${T});`,
-    `        callSystemProcedure(${T}_CONTRACT_INDEX, INITIALIZE);`,
+    `        INIT_CONTRACT(${contractType});`,
+    `        callSystemProcedure(${contractType}_CONTRACT_INDEX, INITIALIZE);`,
     `    }`,
     ``,
     `    void fund(const id& account, uint64 amount) { increaseEnergy(account, amount); }`,
     `    uint64 balanceOf(const id& account) const { return static_cast<uint64>(getBalance(account)); }`,
-    ...procs.flatMap(([it, e]) => ["", wrapper(it, e, "proc")]),
-    ...funcs.flatMap(([it, e]) => ["", wrapper(it, e, "func")]),
+    ...procedures.flatMap(([inputType, entry]) => ["", wrapper(inputType, entry, "proc")]),
+    ...functions.flatMap(([inputType, entry]) => ["", wrapper(inputType, entry, "func")]),
     `};`,
   ].join("\n");
 
@@ -62,7 +61,7 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
     `TEST(${name}, Initialize)`,
     `{`,
     `    ContractTesting${name} t;   // ctor ran INITIALIZE on a clean genesis ledger`,
-    `    // TODO: assert the initial state via a checker over contractStates[${T}_CONTRACT_INDEX].`,
+    `    // TODO: assert the initial state via a checker over contractStates[${contractType}_CONTRACT_INDEX].`,
     `}`,
   ].join("\n");
 
@@ -73,7 +72,7 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
     `    const id user = ${SAMPLE_SEED_ID};`,
     `    t.fund(user, 1000000000);   // balance for the invocation reward / any transfer`,
     ``,
-    `    ${T}::${e.name}_output out = t.${lc(e.name)}(user);`,
+    `    ${contractType}::${e.name}_output out = t.${lowercaseFirst(e.name)}(user);`,
     `    (void)out;`,
     `    // TODO: EXPECT_EQ(out.<field>, ...);`,
     `}`,
@@ -84,7 +83,7 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
     `{`,
     `    ContractTesting${name} t;`,
     ``,
-    `    ${T}::${e.name}_output out = t.${lc(e.name)}();`,
+    `    ${contractType}::${e.name}_output out = t.${lowercaseFirst(e.name)}();`,
     `    (void)out;`,
     `    // TODO: EXPECT_EQ(out.<field>, ...);`,
     `}`,
@@ -92,13 +91,13 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
 
   const tests = [
     initTest,
-    ...procs.map(([, e]) => procTest(e)),
-    ...funcs.map(([, e]) => funcTest(e)),
+    ...procedures.map(([, entry]) => procTest(entry)),
+    ...functions.map(([, entry]) => funcTest(entry)),
   ].join("\n\n");
 
   return `${head}\n\n${fixture}\n\n${tests}\n`;
 }
 
-function lc(s: string): string {
+function lowercaseFirst(s: string): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
 }

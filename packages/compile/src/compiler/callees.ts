@@ -24,7 +24,9 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
       message: `Callee '${callee.name}': ${diagnostic.message}`,
     }));
     diagnostics.push(...early);
-    if (early.some((diagnostic) => diagnostic.severity === "error")) continue;
+    if (early.some((diagnostic) => diagnostic.severity === "error")) {
+      continue;
+    }
 
     const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(callee.source)}`;
     const preprocessedSource = new Preprocessor().preprocess({
@@ -47,16 +49,22 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
         message: `Callee '${callee.name}': ${diagnostic.message}`,
       }));
     diagnostics.push(...parsed);
-    if (parsed.some((diagnostic) => diagnostic.severity === "error")) continue;
+    if (parsed.some((diagnostic) => diagnostic.severity === "error")) {
+      continue;
+    }
 
     calleeTranslationUnits.push({ contractName: callee.name, declarations: unit.declarations });
     for (const declaration of unit.declarations) {
-      if (declaration.kind !== "struct") continue;
+      if (declaration.kind !== "struct") {
+        continue;
+      }
       const struct = declaration;
       const isContract =
         struct.bases?.some((base) => base.kind === "name" && base.name === "ContractBase") ||
         struct.name === "CONTRACT_STATE_TYPE";
-      if (!isContract) continue;
+      if (!isContract) {
+        continue;
+      }
       for (const member of struct.members ?? []) {
         if (member.kind === "struct" && member.name)
           contractStructs.set(`${callee.name}::${member.name}`, member);

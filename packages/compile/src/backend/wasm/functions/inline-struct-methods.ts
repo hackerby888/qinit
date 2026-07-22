@@ -3,7 +3,7 @@ import { FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS } fro
 import type { TypeSpec, Expression, Statement, FunctionDecl } from "../../../ast";
 import * as watIr from "../../../wat-ir";
 import { addrIr } from "../memory/memory-operations";
-// A call `obj.method(args)` where method is an inline member of obj's struct that returns a reference (the fluent
+// Resolve reference-returning inline member calls as addresses.
 export function tryInlineStructMethod(context: FunctionEmissionContext, expression: Expression & {
     kind: "call";
 }): ResolvedAddress | null {
@@ -19,8 +19,7 @@ export function tryInlineStructMethod(context: FunctionEmissionContext, expressi
     const fn = struct.members.find((member) => member.kind === "function" && (member as FunctionDecl).name === method && (member as FunctionDecl).body) as FunctionDecl | undefined;
     if (!fn)
         return null;
-    // This address channel is only valid for fluent/reference-returning methods. Scalar methods
-    // such as WinnerData::isValid() must flow through normal value-call compilation; inlining them
+    // Keep scalar-returning methods on the normal value-call path.
     const returnsAddress = (type: TypeSpec): boolean => type.kind === "reference" ||
         type.kind === "pointer" ||
         (type.kind === "const" && returnsAddress(type.valueType));
@@ -111,7 +110,7 @@ export function renameInlineLocals(body: Statement, suffix: string): Statement {
     };
     return clone(body) as Statement;
 }
-// Emit a struct member method inline into the current function: stash the object address in a temp (used
+// Inline a struct method while retaining its object address in a temporary.
 export function emitInlineStructMethod(context: FunctionEmissionContext, objNode: ResolvedAddress, fn: FunctionDecl, callArguments: Expression[], result: {
     retAddr?: string;
     retSize?: number;
@@ -175,7 +174,7 @@ export function emitInlineStructMethod(context: FunctionEmissionContext, objNode
     context.retTypeName = fn.returnType.kind === "name" ? fn.returnType.name : undefined;
     const returnLabel = `$inline_return_${context.loopCount++}`;
     context.inlineReturnLabel = returnLabel;
-    // Hoist the inlined body's own local declarations into the host function's local set — the top-level collectLocals never
+    // Hoist inlined locals because the outer pre-scan cannot see them.
     const body = fn.body ? renameInlineLocals(fn.body, `__inline${context.tmpCount++}`) : undefined;
     if (body)
         context.lowering.collectFunctionLocals(body, context);

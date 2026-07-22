@@ -89,7 +89,7 @@ export function checkExpression(context: ValidatorInternals, root: Expression, m
                     ? memberFns.get(name)
                     : undefined;
                 if (sig) {
-                    // Native rejects a bare non-static member call from a static context (every macro-generated entry body is static) —
+                    // Entry bodies are static, so reject bare non-static member calls.
                     if (context.currentFn?.isStatic && !sig.declaration.isStatic) {
                         context.error(`cannot call non-static member function '${name}' from a static context — declare it static`, expression.span);
                     }
@@ -98,7 +98,7 @@ export function checkExpression(context: ValidatorInternals, root: Expression, m
                         context.error(`'${name}' expects ${want} argument(s) but got ${expression.callArguments.length}`, expression.span);
                     }
                     else {
-                        // Desugar defaults: append the declaration's default expressions so codegen emits the full argument list (C++ evaluates defaults at
+                        // Append default arguments so codegen sees the complete call.
                         for (let sigItemIndex = expression.callArguments.length; sigItemIndex < sig.maxArgs; sigItemIndex++) {
                             expression.callArguments.push(sig.declaration.params[sigItemIndex].defaultValue!);
                         }

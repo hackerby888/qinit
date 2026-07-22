@@ -1,5 +1,5 @@
-// Sparse binary Merkle tree (depth 24 = SPECTRUM_DEPTH / ASSETS_DEPTH) with incremental updates. The full tree
-// has 2^24 leaves; almost all are empty, so only the occupied paths are stored and each empty subtree collapses
+// Incremental depth-24 sparse Merkle tree.
+// Stores occupied paths while precomputed hashes represent empty subtrees.
 import { k12Bytes } from "./k12";
 
 export const MERKLE_DEPTH = 24;

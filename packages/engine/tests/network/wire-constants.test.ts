@@ -1,5 +1,4 @@
-// Wire-constant lock — the peer protocol the bridge speaks is the Qubic mainnet layout an external client
-// (qubic-cli, built against qubic/core) parses by fixed struct sizes. These constants are hand-mirrored with no
+// Locks bridge protocol sizes to core's fixed Qubic mainnet layouts.
 import { test, expect } from "bun:test";
 import { TICKDATA_SIZE, TXS_PER_TICK, TICK_SIZE } from "../../src/consensus";
 import {

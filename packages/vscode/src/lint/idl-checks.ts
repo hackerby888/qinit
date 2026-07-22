@@ -1,5 +1,4 @@
-// IDL-derived diagnostics: cheap structural checks over the REGISTER_*/PUBLIC_* macros that the
-// compiler/clangd won't flag (they're protocol semantics, not C++). Pure (no vscode/Bun). Uses the
+// Pure structural checks for protocol rules outside the compiler and clangd.
 import type { QpiFinding } from "./qpi-rules";
 
 // Replace comment bodies with spaces (offsets preserved) so commented-out macros don't false-fire.

@@ -22,15 +22,17 @@ export function resolveVerifyTool(): string | null {
   return Bun.which("contractverify"); // cross-platform PATH lookup (no `sh` on Windows)
 }
 
-// The contract .h uses the CONTRACT_STATE(2)_TYPE macros (substituted at compile by the build
-// wrapper). The verify tool parses raw source, so it needs the concrete names: a global struct
+// Replace build-time state-type macros because the verifier parses raw contract source.
 function concretize(src: string, name: string): string {
   return src.replaceAll("CONTRACT_STATE2_TYPE", `${name}2`).replaceAll("CONTRACT_STATE_TYPE", name);
 }
 
-// allowedPrefixes: inter-contract callee names (from --callee / CALL_OTHER_CONTRACT). The tool only whitelists
-// the upstream registered contracts, so it rejects `<DynCallee>::Type` scope resolution; those errors are false
-export async function verifyContract(file: string, name: string, opts?: { oracle?: boolean; allowedPrefixes?: string[] }): Promise<VerifyResult> {
+// Dynamic callee prefixes suppress only the verifier's known scope-resolution false positive.
+export async function verifyContract(
+  file: string,
+  name: string,
+  opts?: { oracle?: boolean; allowedPrefixes?: string[] },
+): Promise<VerifyResult> {
   const tool = resolveVerifyTool();
   const oracle = !!opts?.oracle || /oracle_interface/i.test(file);
   if (!tool) return { available: false, ok: true, oracle, errors: [] };
@@ -41,18 +43,30 @@ export async function verifyContract(file: string, name: string, opts?: { oracle
     writeFileSync(tmp, concretize(readFileSync(file, "utf8"), name));
     target = tmp;
   }
-  const p = Bun.spawn([tool, ...(oracle ? ["--oi", target] : [target])], { stdout: "pipe", stderr: "pipe" });
-  const [out, err] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()]);
+  const p = Bun.spawn([tool, ...(oracle ? ["--oi", target] : [target])], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, err] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+  ]);
   await p.exited;
   const raw = (out + err).trim();
-  const allErrors = raw.split("\n").filter((l) => l.includes("[ ERROR ]")).map((l) => l.replace(/.*\[ ERROR \]\s*/, "").trim());
+  const allErrors = raw
+    .split("\n")
+    .filter((line) => line.includes("[ ERROR ]"))
+    .map((line) => line.replace(/.*\[ ERROR \]\s*/, "").trim());
   const allow = opts?.allowedPrefixes ?? [];
-  const errors = allErrors.filter((e) => !allow.some((p) => e === `Scope resolution with prefix ${p} is not allowed.`));
+  const errors = allErrors.filter(
+    (error) =>
+      !allow.some((prefix) => error === `Scope resolution with prefix ${prefix} is not allowed.`),
+  );
   const dropped = allErrors.length - errors.length;
-  // A non-zero exit with NO parsed [ ERROR ] lines is a tool malfunction (crash / unsupported host /
-  // missing dep), not a real violation — report it unavailable (skip) like an absent tool, so a broken
-  if (p.exitCode !== 0 && allErrors.length === 0)
+  // Treat an unexplained non-zero exit as an unavailable tool, not a contract violation.
+  if (p.exitCode !== 0 && allErrors.length === 0) {
     return { available: false, ok: true, oracle, errors: [], raw, tool };
+  }
   // pass on a clean exit, or when the only violations were the declared-callee scope-resolution errors.
   const ok = p.exitCode === 0 || (dropped > 0 && errors.length === 0);
   return { available: true, ok, oracle, errors, raw, tool };

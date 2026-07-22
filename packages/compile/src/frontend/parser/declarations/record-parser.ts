@@ -59,7 +59,7 @@ export class RecordParser {
             specializationArgs,
             span: this.parser.recovery.makeSpan(start),
         };
-        // Combined form: `struct Tag {...} field[N], field2;` — declarators after the body become member variables whose type is
+        // Declarators after a combined struct body use the new struct as their type.
         if (hadBody && this.parser.records.declaratorFollows()) {
             const declType: TypeSpec = { kind: "inline_struct", struct, span: start };
             while (this.parser.state.peek().kind === "star" || this.parser.state.peek().kind === "amp")
@@ -127,7 +127,7 @@ export class RecordParser {
             isUnion: true,
             span: this.parser.recovery.makeSpan(start),
         };
-        // Combined form: `union Data {...} data;` — the declarator after the body is a member variable of this
+        // A declarator after a combined union body uses the new union as its type.
         if (hadBody && this.parser.records.declaratorFollows()) {
             const declType: TypeSpec = { kind: "inline_struct", struct: union, span: start };
             while (this.parser.state.peek().kind === "star" || this.parser.state.peek().kind === "amp")

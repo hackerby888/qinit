@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Compiler diagnostics are consumed by editors and the CLI. Their spans must refer to the original
+// Checks that diagnostics retain original-source spans after preprocessing.
 import { describe, expect, test } from "bun:test";
 import { compileContract, loadQpiHeader } from "../../src/index";
 

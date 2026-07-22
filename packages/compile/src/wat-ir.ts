@@ -221,7 +221,7 @@ export function functionCall(target: string, ...callArguments: WatNode[]): WatNo
   return functionCallWithSignature(CALL_SIGItem, target, ...callArguments);
 }
 
-// Call through an explicit signature — for per-contract generated targets (helpers, methods, dispatch stubs) that cannot live in
+// Call generated targets through an explicit signature.
 export function functionCallWithSignature(size: WatCallSignature, target: string, ...callArguments: WatNode[]): WatNode {
   if (callArguments.length !== size.params.length) {
     throw new Error(`IR: call ${target} expects ${size.params.length} arg(s), got ${callArguments.length}`);
@@ -234,7 +234,7 @@ export function rawWatNode(text: string, ty: WatNodeType, why?: string): WatNode
   return why === undefined ? { k: "raw", ty, text } : { k: "raw", ty, text, why };
 }
 
-// True when evaluating the node can neither trap nor produce a side effect — safe for wasm select's
+// Identify nodes safe for eager Wasm select evaluation.
 export function isPureWatNode(count: WatNode): boolean {
   switch (count.k) {
     case "const":
@@ -293,7 +293,7 @@ export function rawStore(mnemonic: string, offset: number | null, addr: WatNode,
   return { k: "store", ty: "void", operator: mnemonic, offset, addr, v: value };
 }
 
-// Load a scalar field into the i64 value model: 8-byte fields load directly, narrower fields load at their
+// Load scalar fields into i64 with the correct narrow extension.
 export function loadScalar(addr: WatNode, size: number, signed = false): WatNode {
   assertWatType(addr, "i32", "loadScalar address");
   switch (size) {
@@ -316,7 +316,7 @@ export function loadScalar(addr: WatNode, size: number, signed = false): WatNode
   }
 }
 
-// Store an i64 register value to a scalar field: 8-byte fields store directly, narrower fields wrap to i32
+// Store i64 values directly or narrow them for smaller scalar fields.
 export function storeScalar(addr: WatNode, size: number, value: WatNode): WatNode {
   assertWatType(addr, "i32", "storeScalar address");
   assertWatType(value, "i64", "storeScalar value");

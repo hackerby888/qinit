@@ -11,7 +11,7 @@ export function alignOfTypeB(context: ProgramAnalysisInternals, type: TypeSpec, 
     if (type.kind === "array")
         return context.alignOfTypeB(type.element, templateBindings);
     if (type.kind === "inline_struct") {
-        // For aggregates, reuse the (cached) layout's computed alignment — avoids a second, uncached recursive walk that blows up
+        // Reuse cached aggregate alignment to avoid another recursive layout walk.
         return context.layoutOfStruct(type.struct, templateBindings).align;
     }
     if (type.kind === "name") {

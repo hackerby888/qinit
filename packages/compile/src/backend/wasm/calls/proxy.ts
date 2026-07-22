@@ -88,7 +88,7 @@ export function emitProposalProxyAddr(context: FunctionEmissionContext, expressi
     context.lines.push(`    (call ${cm.label} ${scratchAddress} ${target.addr} (i32.const 0)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`);
     return scratchAddress;
 }
-// A bare sibling call inside a proxy body (e.g. clearProposal(idx) from setProposal) — compile it against
+// Compile bare sibling calls against the current proxy class.
 export function emitProxySiblingCall(context: FunctionEmissionContext, expression: Expression & {
     kind: "call";
 }, valueWanted: boolean): string | null {
@@ -107,7 +107,7 @@ export function emitProxySiblingCall(context: FunctionEmissionContext, expressio
         return null;
     return callProxy(context, cm, "(local.get $pv)", pvType, expression.callArguments, valueWanted);
 }
-// Emit the actual `(call $PV…)`: self = the ProposalVoting address, then the dummy qpi context, then the method's
+// Pass the proposal address, dummy QPI context, and method arguments.
 export function callProxy(context: FunctionEmissionContext, cm: CompiledMethod, self: string, pvType: TypeSpec & {
     kind: "template_instance";
 }, callArguments: Expression[], valueWanted: boolean): string {
@@ -121,7 +121,7 @@ export function callProxy(context: FunctionEmissionContext, cm: CompiledMethod, 
             ? context.lowering.argAddr(context, callArgument, context.programAnalysis.sizeOfType(paramType, bind), paramType, methodParameter.readOnlyRef === true)
             : context.lowering.emitValue(context, callArgument);
     });
-    // An aggregate-returning proxy method (proposerId → id) writes through a leading $ret slot. The
+    // Write aggregate proxy returns through a leading destination slot.
     if (cm.retAgg) {
         const scratchAddress = context.lowering.allocateScratchSlot(context, cm.retAgg);
         context.lines.push(`    (call ${cm.label} ${scratchAddress} ${self} (i32.const 0)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`);
@@ -140,7 +140,7 @@ export function callProxy(context: FunctionEmissionContext, cm: CompiledMethod, 
         : `    ${call}`);
     return "";
 }
-// Instantiate (or fetch) a ProposalVoting proxy method from its real qpi.h body, emitting a wasm function `(func $PV…
+// Compile or reuse a ProposalVoting proxy method from its qpi.h body.
 export function compileProxyMethod(programAnalysis: ProgramAnalysis, pvType: TypeSpec & {
     kind: "template_instance";
 }, proxyClass: string, method: string): CompiledMethod | null {

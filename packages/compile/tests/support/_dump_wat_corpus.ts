@@ -57,7 +57,7 @@ const SYSTEM_FILES = [
   "GeneralQuorumProposal.h",
 ];
 
-// Inline fixtures covering codegen shapes the file corpus underexercises: uint128 ops, narrowing casts, short-circuit && / ||, ternary,
+// Inline fixtures cover casts, uint128 ops, and branch shapes missing from files.
 const TIER1_SRC = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

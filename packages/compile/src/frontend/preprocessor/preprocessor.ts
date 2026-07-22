@@ -14,7 +14,7 @@ export class Preprocessor {
     private input: string = "";
     private pos: number = 0;
     private srcLine: number[]; // line → byte offset map
-    // Conditional-compilation stack. Each frame: whether this branch is emitting, and whether any
+    // Track whether each conditional branch is active or already taken.
     private condStack: {
         active: boolean;
         taken: boolean;
@@ -102,7 +102,7 @@ export class Preprocessor {
     private replaceParam(body: string, param: string, value: string): string {
         return preprocessorPart3.replaceParam(this as unknown as PreprocessorInternals, body, param, value);
     }
-    // Read a function-like macro's argument list from a STRING (not the main input stream) starting at the open
+    // Read macro arguments from a string starting at the opening parenthesis.
     private readArgsFromString(text: string, openIdx: number): {
         callArguments: string[];
         end: number;

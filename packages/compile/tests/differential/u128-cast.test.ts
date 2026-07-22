@@ -41,7 +41,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
 };`;
 
-// native-verified with a=2, b=5: f0/f1 = 2-5 wrapped in uint64 (high stays 0 — no 128-bit borrow), f2/f3
+// Native result for a=2, b=5 includes wrapped subtraction, casts, and division.
 const EXPECTED =
   "fdffffffffffffff00000000000000000a000000000000000000000000000000fdffffffffffffff000000000000000033333333333333330000000000000000";
 const INPUT = [2n, 5n, 0n, 0n];

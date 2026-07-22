@@ -1,5 +1,4 @@
-// Contract-ABI struct layouts (abi.ts) — these views replace the hand-written byte offsets the host used to
-// marshal the QpiContext header and the sysproc input/output buffers. The layouts feed entity/spectrum digests
+// Verifies ABI views replace manual context and system-procedure offsets.
 import { test, expect } from "bun:test";
 import {
   QpiContext,

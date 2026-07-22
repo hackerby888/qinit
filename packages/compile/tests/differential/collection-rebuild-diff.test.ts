@@ -88,7 +88,7 @@ describe("differential — Collection BST rebuild state parity", () => {
         sim.deploy(28, wasm);
         const user = new Uint8Array(32).fill(7);
         sim.fund(user, 1_000_000n);
-        // 48 adds with increasing priority: population passes 32 and the degenerate right-spine search exceeds population/4 iterations, firing the
+        // A 48-node right spine crosses the native rebuild threshold.
         const inBytes = new Uint8Array(8);
         new DataView(inBytes.buffer).setBigUint64(0, 48n, true);
         sim.procedure(28, 1, inBytes, { invocator: user });

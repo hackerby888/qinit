@@ -1,5 +1,4 @@
-// Pure quick-fix transforms for Tier-A findings (no vscode). Each returns the replacement text for a
-// single line, or null when the line doesn't match the expected shape — so the editor only offers the
+// Pure Tier-A transforms return edits only for expected source shapes.
 import { enclosingFunction, blankCommentsAndStrings } from "./lint/qpi-rules";
 
 export interface SourceEdit {
@@ -22,8 +21,7 @@ export function arrayFixForLine(line: string): string | null {
 
 const OPERAND = "[A-Za-z_]\\w*(?:\\.\\w+)*|\\d+"; // identifier / dotted member / integer literal
 
-// `a / b` -> `div(a, b)` and `a % b` -> `mod(a, b)`, for qpi/no-division / qpi/no-modulo. `col` is the
-// operator's column on `line`. CONSERVATIVE: only when both operands are simple primaries (so `/` `%`'s
+// Rewrite division or modulo only when both operands are simple primary expressions.
 export function divModFixForLine(
   line: string,
   col: number,
@@ -43,8 +41,7 @@ export function divModFixForLine(
 
 const TYPE_RE = "[A-Za-z_]\\w*(?:::[A-Za-z_]\\w*)*(?:\\s*<(?:[^<>]|<[^<>]*>)*>)?"; // mirrors the lexer's TYPE
 
-// Move a flagged stack local (qpi/stack-local) into its function's `<fn>_locals` struct: switch the
-// macro to *_WITH_LOCALS, create or extend `struct <fn>_locals`, drop the declaration (keeping any
+// Move a stack local into its function's locals struct and switch to the _WITH_LOCALS macro.
 export function moveLocalToWithLocalsEdits(
   source: string,
   nameOffset: number,

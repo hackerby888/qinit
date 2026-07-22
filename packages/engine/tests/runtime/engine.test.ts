@@ -1,5 +1,4 @@
-// MVP acceptance (plan phase 1): run qinit contract flows entirely in the TS engine and prove byte-identical
-// state via the K12 digest — the same value the node's /dev/contract-digest returns. Fixtures are the real
+// Runs contract flows in the TS engine and compares state against canonical K12 digests.
 import { test, expect } from "bun:test";
 import { k12Hex } from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";

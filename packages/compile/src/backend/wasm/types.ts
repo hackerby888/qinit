@@ -64,7 +64,7 @@ export interface ResolvedLvalue {
     type?: TypeSpec | null; // pointee type when known — drives signed sub-64-bit load extension
 }
 
-// A resolved memory location: its address, the pointee type (null at a struct root), the byte size, and
+// A resolved memory location with its address, pointee metadata, and layout.
 export interface ResolvedAddress {
     addr: string;
     type: TypeSpec | null;

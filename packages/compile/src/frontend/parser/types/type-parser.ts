@@ -65,7 +65,7 @@ export class TypeParser {
             this.parser.state.next();
             return { kind: "name", name: "auto", span: tok.span };
         }
-        // `typename` is a parse-time disambiguator (typename Sel<v>::type) — drop it and parse the type that follows; any trailing
+        // Drop the parse-only `typename` disambiguator before reading its type.
         if (tok.kind === "kw_typename") {
             this.parser.state.next();
             return this.parser.types.parseBaseType();
@@ -87,7 +87,7 @@ export class TypeParser {
         if (tok.kind === "kw_unsigned" || tok.kind === "kw_signed" || tok.kind === "kw_long") {
             return this.parser.types.parseBuiltinType();
         }
-        // Name or qualified name. In a type position, `Sel<args>::member` is a dependent type — stop the
+        // Parse a name, stopping before dependent template arguments.
         const name = this.parser.types.parseQualifiedName(true);
         if (!name) {
             this.parser.state.diagnostics.push({
@@ -104,7 +104,7 @@ export class TypeParser {
             const callArguments: TypeSpec[] = [];
             while (!this.parser.state.eof() && this.parser.state.peek().kind !== "r_angle") {
                 const kind = this.parser.state.peek().kind;
-                // Non-type arg that is a value expression (literal, paren, sizeof, `-N`, `~N`) — parse at shift precedence so
+                // Parse value template arguments at shift precedence to preserve the closing `>`.
                 if (kind === "int_literal" ||
                     kind === "l_paren" ||
                     kind === "kw_sizeof" ||
@@ -375,7 +375,7 @@ export class TypeParser {
             after.kind === "kw_this" ||
             after.kind === "kw_sizeof";
         this.parser.state.position = save;
-        // `(name) & x` / `(name) * x` / `(name) + x` / `(name) - x`: C++ resolves this
+        // C++ parses these forms as expressions rather than casts.
         if (loneIdent &&
             !SCALAR_CAST_NAMES.has(loneIdent) &&
             (after.kind === "amp" ||
@@ -384,7 +384,7 @@ export class TypeParser {
                 after.kind === "minus")) {
             return false;
         }
-        // A bare identifier in parens (`(L * 2 ...)` has operators → not pure) is a cast only
+        // A parenthesized identifier is a cast only when a valid operand follows.
         return saw && pureType && sawTypeToken && operandFollows && !sawNestedParen && !sawAngle;
     }
 

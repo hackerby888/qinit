@@ -19,7 +19,7 @@ const HEADER_FILES = [
   "oracle_core/oracle_interfaces_def.h",
 ];
 
-// Template method-body implementations — parsed SEPARATELY (after the IMPL boundary) so qpi.h's bulk doesn't interfere with capturing the
+// Parse template method bodies separately after the implementation boundary.
 const IMPL_FILES = [
   "platform/m256.h",
   "platform/random.h",
@@ -276,7 +276,7 @@ function assembleHostWrapperChunk(
   return `\n${IMPL_BOUNDARY}\n${wrapperSource}\n`;
 }
 
-// Every file assembly may read, for content-hash caching and watch mode. oracle_interfaces/*.h are
+// List every core file read during header assembly and cache hashing.
 export function snapshotInputFiles(corePath: string): string[] {
   const { existsSync, readdirSync } = loadNodeFileSystem();
   const { join } = require("node:path") as typeof import("node:path");

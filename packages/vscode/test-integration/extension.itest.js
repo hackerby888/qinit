@@ -1,5 +1,4 @@
-// Integration tests — driven by @vscode/test-electron in a real (headless) VS Code, so they exercise
-// the actual providers (activation, diagnostics, hover) end-to-end, not just the pure logic. Plain
+// Exercise activation, diagnostics, and hover end-to-end in headless VS Code.
 const assert = require("node:assert");
 const vscode = require("vscode");
 

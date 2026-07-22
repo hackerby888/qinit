@@ -17,14 +17,14 @@ function getQpiPrelude(headers: string): { preprocessedSource: string; macros: M
   const cached = qpiPreludeCache.get(mainHeaders);
   if (cached) return cached;
 
-  const pp = new Preprocessor();
-  const preprocessedSource = pp.preprocess({
+  const preprocessor = new Preprocessor();
+  const preprocessedSource = preprocessor.preprocess({
     source: "",
     qpiHeader: mainHeaders,
     contractName: "__lib__",
     contractIndex: 0,
   });
-  const prelude = { preprocessedSource, macros: pp.getDefines() };
+  const prelude = { preprocessedSource, macros: preprocessor.getDefines() };
   qpiPreludeCache.set(mainHeaders, prelude);
   return prelude;
 }

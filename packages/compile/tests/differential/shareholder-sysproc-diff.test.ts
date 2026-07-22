@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// SET_SHAREHOLDER_PROPOSAL / SET_SHAREHOLDER_VOTES parity: a caller's qpi.setShareholderProposal / qpi.setShareholderVotes invokes the callee's sysproc 10/11 with the typed payload
+// Checks shareholder proposal/vote sysproc payloads and return values.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
@@ -157,7 +157,7 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
       expect(firstDiff).toBe(-1);
     }
 
-    // Anchors: callee saw one proposal (first byte 42) and one vote (index 5); the caller received the callee's
+    // Anchor payloads and the returned proposal index and vote-success bit.
     const callee = new DataView(nat.callee.buffer, nat.callee.byteOffset);
     expect(callee.getBigUint64(0, true)).toBe(1n); // gotProposal
     expect(callee.getBigUint64(8, true)).toBe(42n); // firstByte

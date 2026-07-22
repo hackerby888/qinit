@@ -29,8 +29,7 @@ export function ModeCmd({ args }: { args: string[] }) {
   const { exit } = useApp();
   const cur: NodeMode = savedMode() ?? "realnode";
   const [i, setI] = useState(Math.max(0, NODE_MODES.indexOf(cur)));
-  // Selected index in a ref too: ink only re-subscribes useInput after React commits, so a fast arrow→↵ can
-  // hit the pre-move handler and save the previously-highlighted mode. The ref is updated synchronously in the
+  // Mirror selection in a ref so rapid arrow/Enter input uses the latest choice.
   const sel = useRef(i);
   const move = (d: number): void => {
     sel.current = (sel.current + d + NODE_MODES.length) % NODE_MODES.length;

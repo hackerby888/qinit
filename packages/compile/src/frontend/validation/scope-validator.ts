@@ -17,7 +17,7 @@ export function walkScope(context: ValidatorInternals, statement: Statement, fn:
     };
     switch (statement.kind) {
         case "compound":
-            // A multi-declarator statement (`uint64 x = 1, y = 3;`) is drained by the parser into a synthetic
+            // The parser wraps multi-declarator statements in a synthetic compound.
             if ((statement as any).synthetic) {
                 for (const bodyItem of statement.body) {
                     recurse(bodyItem);
@@ -126,7 +126,7 @@ export function checkDeclarationStatement(context: ValidatorInternals, statement
         context.error(`'${decl.name}' is already declared in this scope`, statement.span);
     }
     else if (decl.name !== "interContractCallError") {
-        // CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE declare `InterContractCallError interContractCallError;` at the call site, so nested calls shadow by design and each
+        // Nested inter-contract calls may shadow their macro-generated error variable.
         for (let index = scopes.length - 2; index >= 0; index--) {
             if (scopes[index].has(decl.name)) {
                 context.error(`'${decl.name}' shadows a declaration in an enclosing scope — locals share one slot per name, so shadowing is not supported`, statement.span);

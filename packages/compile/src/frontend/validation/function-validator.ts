@@ -116,7 +116,7 @@ export function guaranteesReturn(context: ValidatorInternals, statement: Stateme
     if (statement.kind === "if")
         return !!statement.else_ && context.guaranteesReturn(statement.then) && context.guaranteesReturn(statement.else_);
     if (statement.kind === "switch") {
-        // A switch guarantees a return when it has a default label, no arm can break out of it,
+        // A switch returns on all paths only with a default, no break, and a returning tail.
         const body = statement.body.kind === "compound" ? statement.body.body : [statement.body];
         const breaksOut = (statement: Statement): boolean => {
             if (statement.kind === "break")

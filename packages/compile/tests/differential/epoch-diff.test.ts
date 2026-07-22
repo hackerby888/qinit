@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Differential gtest for system-procedure locals: a lifecycle procedure (END_EPOCH_WITH_LOCALS) reads and writes its `locals.*` frame, which only works
+// Checks END_EPOCH_WITH_LOCALS frame reads and writes against native behavior.
 import { coreGtest } from "../support/core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";

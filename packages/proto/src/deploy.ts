@@ -6,8 +6,7 @@ import { LITE_TX, CHUNK_DATA_MAX } from "./protocol";
 import { WASM_ABI_VERSION, defineStruct, u16, u32, u64, blob } from "@qinit/core";
 export { LITE_TX, CHUNK_DATA_MAX };
 
-// The on-wire message layouts, as zero-copy struct views. ONE definition: proto encodes them here and the
-// engine's VirtualNode decodes the SAME views (packages/engine/src/transport.ts), so encoder and decoder can't
+// Define wire layouts once so the protocol encoder and engine decoder cannot drift.
 export const UploadBegin = defineStruct("UploadBegin", {
   sessionId: u64, // @0
   totalSize: u32, // @8

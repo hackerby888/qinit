@@ -46,7 +46,9 @@ export function encodeContainerOperation(operation: ContainerOperation): Uint8Ar
   ];
   const bytes = new Uint8Array(values.length * 8);
   const view = new DataView(bytes.buffer);
-  values.forEach((value, index) => view.setBigUint64(index * 8, BigInt.asUintN(64, value), true));
+  values.forEach((value, index) => {
+    view.setBigUint64(index * 8, BigInt.asUintN(64, value), true);
+  });
   return bytes;
 }
 
@@ -136,8 +138,9 @@ export async function compileNativeFixture(
 }
 
 export function compareExecutions(left: ExecutionResult, right: ExecutionResult): string | null {
-  if (left.operations.length !== right.operations.length)
+  if (left.operations.length !== right.operations.length) {
     return `operation count ${left.operations.length} != ${right.operations.length}`;
+  }
   for (let index = 0; index < left.operations.length; index++) {
     const leftOperation = left.operations[index];
     const rightOperation = right.operations[index];
@@ -148,12 +151,16 @@ export function compareExecutions(left: ExecutionResult, right: ExecutionResult)
       leftOperation.status === "ok" &&
       !Buffer.from(leftOperation.output!).equals(Buffer.from(rightOperation.output!))
     ) {
-      return `operation ${index} output differs: ${Buffer.from(leftOperation.output!).toString("hex")} != ${Buffer.from(rightOperation.output!).toString("hex")}`;
+      const leftHex = Buffer.from(leftOperation.output!).toString("hex");
+      const rightHex = Buffer.from(rightOperation.output!).toString("hex");
+      return `operation ${index} output differs: ${leftHex} != ${rightHex}`;
     }
   }
   if (!Buffer.from(left.state).equals(Buffer.from(right.state))) {
-    const first = left.state.findIndex((value, index) => value !== right.state[index]);
-    return `final state differs at byte ${first}: ${left.state[first]} != ${right.state[first]}`;
+    const firstDifference = left.state.findIndex(
+      (value, index) => value !== right.state[index],
+    );
+    return `final state differs at byte ${firstDifference}: ${left.state[firstDifference]} != ${right.state[firstDifference]}`;
   }
   return null;
 }
@@ -174,9 +181,10 @@ export function executeWamr(
   const artifact = join(dir, "fixture.wasm");
   try {
     writeFileSync(artifact, wasm);
-    const process = Bun.spawnSync(
+    const child = Bun.spawnSync(
       [gtestPath, "--gtest_filter=WasmContracts.CrossHostStateEquivalence"],
       {
+        cwd: dir,
         env: {
           ...globalThis.process.env,
           QINIT_WASM: artifact,
@@ -187,19 +195,23 @@ export function executeWamr(
         stderr: "pipe",
       },
     );
-    const stdout = process.stdout.toString();
-    const stderr = process.stderr.toString();
-    if (process.exitCode !== 0)
-      throw new Error(`WAMR gtest exited ${process.exitCode}:\n${stdout}\n${stderr}`);
+    const stdout = child.stdout.toString();
+    const stderr = child.stderr.toString();
+    if (child.exitCode !== 0) {
+      throw new Error(`WAMR gtest exited ${child.exitCode}:\n${stdout}\n${stderr}`);
+    }
     const stateMatch = stdout.match(/CROSSHOST_STATE=([0-9a-f]+)/);
-    if (!stateMatch) throw new Error(`WAMR gtest emitted no state:\n${stdout}\n${stderr}`);
+    if (!stateMatch) {
+      throw new Error(`WAMR gtest emitted no state:\n${stdout}\n${stderr}`);
+    }
     const operationResults: OperationResult[] = [];
     for (const match of stdout.matchAll(
       /CROSSHOST_OP=(\d+):(ok|trap|rejected)(?::([0-9a-f]*))?/g,
     )) {
       const index = Number(match[1]);
-      if (index !== operationResults.length)
+      if (index !== operationResults.length) {
         throw new Error(`WAMR gtest emitted out-of-order operation ${index}`);
+      }
       operationResults.push({
         status: match[2] as OperationResult["status"],
         ...(match[2] === "ok"
@@ -243,7 +255,9 @@ export function seededOperations(
     LinkedList: 10,
   };
   const opcodeCount = opcodeCounts[family];
-  if (!opcodeCount) throw new Error(`unknown container family ${family}`);
+  if (!opcodeCount) {
+    throw new Error(`unknown container family ${family}`);
+  }
   return Array.from({ length: count }, () => {
     const operation: ContainerOperation = {
       operator: BigInt(next() % opcodeCount),

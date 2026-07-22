@@ -1,20 +1,20 @@
-// fetch with a connect/response timeout (AbortController). The timer guards only until the response
-// HEADERS arrive (cleared in finally), so a slow/large body STREAM is not killed — only a hung
+// Fetch with a timeout until response headers arrive; body streaming has its own watchdog.
 export async function fetchT(url: string, init?: RequestInit, ms = 10000): Promise<Response> {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), ms);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
-    return await fetch(url, { ...init, signal: ac.signal });
+    return await fetch(url, { ...init, signal: controller.signal });
   } catch (e: any) {
-    if (ac.signal.aborted) throw new Error(`request timed out after ${ms}ms: ${url}`);
+    if (controller.signal.aborted) {
+      throw new Error(`request timed out after ${ms}ms: ${url}`);
+    }
     throw e;
   } finally {
     clearTimeout(timer);
   }
 }
 
-// Read a response body fully with an INACTIVITY watchdog: if no chunk arrives for `stallMs`, abort.
-// fetchT's timeout only guards until the headers arrive — this guards the body, so a stalled stream
+// Read a response body with an inactivity watchdog that resets after every chunk.
 export async function readBody(
   r: Response,
   stallMs = 60000,
@@ -23,9 +23,9 @@ export async function readBody(
   if (!r.body) return new Uint8Array(await r.arrayBuffer());
   const total = Number(r.headers.get("content-length") ?? 0);
   const reader = r.body.getReader();
-  const parts: Uint8Array[] = [];
-  let recv = 0,
-    stalled = false;
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  let stalled = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const arm = () => {
     clearTimeout(timer);
@@ -40,32 +40,32 @@ export async function readBody(
       const { done, value } = await reader.read();
       if (done) break;
       arm();
-      parts.push(value);
-      recv += value.length;
-      onProgress?.(recv, total);
+      chunks.push(value);
+      received += value.length;
+      onProgress?.(received, total);
     }
   } finally {
     clearTimeout(timer);
   }
-  if (stalled) throw new Error(`download stalled — no data for ${stallMs}ms`);
-  const buf = new Uint8Array(recv);
-  let off = 0;
-  for (const p of parts) {
-    buf.set(p, off);
-    off += p.length;
+  if (stalled) {
+    throw new Error(`download stalled — no data for ${stallMs}ms`);
   }
-  return buf;
+  const body = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return body;
 }
 
-// Broadcast a signed tx via the node's built-in RPC: POST /live/v1/broadcast-transaction
-// with { encodedTransaction: <base64> }. The endpoint checkValidity + verifies the signature
+// Broadcast a base64-encoded signed transaction through the node's built-in RPC.
 export interface BroadcastResult {
   ok: boolean;
   transactionId?: string;
   code?: number;
   message?: string;
-  // Set by the in-process engine: whether qu moved, and whether the tx was queued for a future tick rather than
-  // applied now. moneyFlew is only meaningful when queued is falsy (an applied tx); a queued tx's outcome is
+  // In-process engine metadata; moneyFlew is meaningful only when queued is false.
   moneyFlew?: boolean;
   queued?: boolean;
 }
@@ -74,15 +74,15 @@ export async function broadcastTx(
   txBytes: Uint8Array,
   rpcBase = "http://127.0.0.1:41841",
 ): Promise<BroadcastResult> {
-  const b64 = Buffer.from(txBytes).toString("base64");
-  let r: Response;
+  const encodedTransaction = Buffer.from(txBytes).toString("base64");
+  let response: Response;
   try {
-    r = await fetchT(
+    response = await fetchT(
       rpcBase + "/live/v1/broadcast-transaction",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ encodedTransaction: b64 }),
+        body: JSON.stringify({ encodedTransaction }),
       },
       15000,
     );
@@ -91,12 +91,12 @@ export async function broadcastTx(
       `node unreachable at ${rpcBase} — is it running? (qinit node run)  [${e?.message ?? e}]`,
     );
   }
-  const j: any = await r.json().catch(() => ({}));
+  const payload: any = await response.json().catch(() => ({}));
   return {
-    ok: r.ok && j.peersBroadcasted >= 1 && j.code == null,
-    transactionId: j.transactionId,
-    code: j.code,
-    message: j.message,
+    ok: response.ok && payload.peersBroadcasted >= 1 && payload.code == null,
+    transactionId: payload.transactionId,
+    code: payload.code,
+    message: payload.message,
   };
 }
 
@@ -105,6 +105,8 @@ export async function broadcastTxs(
   rpcBase = "http://127.0.0.1:41841",
 ): Promise<BroadcastResult[]> {
   const out: BroadcastResult[] = [];
-  for (const tx of txList) out.push(await broadcastTx(tx, rpcBase));
+  for (const tx of txList) {
+    out.push(await broadcastTx(tx, rpcBase));
+  }
   return out;
 }

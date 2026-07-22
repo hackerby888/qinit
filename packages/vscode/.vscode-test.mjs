@@ -1,6 +1,5 @@
-// @vscode/test-cli config: downloads a headless VS Code, installs the clangd dependency, loads this
-// extension (--extensionDevelopmentPath defaults to cwd → needs `dist/extension.js` built first), and
-// runs the mocha suite in the extension host against the fixture workspace.
+// Run the extension-host suite with headless VS Code and clangd.
+// Build `dist/extension.js` before starting the tests.
 import { defineConfig } from "@vscode/test-cli";
 
 export default defineConfig({

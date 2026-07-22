@@ -1,7 +1,5 @@
-// Build @qinit/engine to dist/ with Bun's bundler. Two entries: the main one is browser+Node safe (no
-// node:fs / Bun), the server one is Node/Bun. `@qinit/core` is aliased to its node-free browser entry so the
-// main bundle never pulls node:fs; `@qinit/proto` is bundled from source; `@qubic-lib` stays external (the
-// consumer installs it — it's a pure-wasm runtime dep). Types are emitted separately by `tsc` (see build script).
+// Bundle browser-safe engine code and Node/Bun server entries.
+// Keep @qubic-lib external and alias @qinit/core to its browser entry.
 import { resolve } from "node:path";
 
 const coreBrowser = resolve(import.meta.dir, "../core/src/browser.ts");
@@ -41,10 +39,10 @@ const peer = await Bun.build({
   external: [...base.external, "bun"],
 });
 
-const failed = [main, server, peer].filter((r) => !r.success);
+const failed = [main, server, peer].filter((result) => !result.success);
 if (failed.length > 0) {
-  for (const r of failed) {
-    for (const log of r.logs) {
+  for (const result of failed) {
+    for (const log of result.logs) {
       console.error(log);
     }
   }

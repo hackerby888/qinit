@@ -1,5 +1,4 @@
-// Lifecycle hooks: BEGIN_TICK/END_TICK fire on every advanced tick, and crossing an epoch boundary (the
-// tick reaching a multiple of epochLength) fires END_EPOCH then BEGIN_EPOCH — core's SystemProcedureID
+// Verifies tick and epoch lifecycle hooks, including boundary ordering.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";

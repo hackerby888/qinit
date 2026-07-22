@@ -1,5 +1,4 @@
-// Tick consensus — the N-computor quorum is real: each tick every computor signs a Tick vote over the chain's
-// computed state digests (spectrum/universe/computer), and the tick finalizes at aligned votes >= QUORUM. These
+// Verifies computor signatures, quorum finalization, and committed state digests.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, k12Bytes, toHex, deriveKeysSync, verifySync } from "../../src/k12";

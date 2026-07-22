@@ -1,5 +1,4 @@
-// Merkle incrementality — the spectrum (SpectrumLedger) and universe (AssetLedger) digests are built on the
-// sparse 2^24 SparseMerkle, which rehashes only a changed leaf's 24-node path, never the whole tree. These tests
+// Confirms spectrum and universe updates rehash only affected depth-24 Merkle paths.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex, k12Bytes } from "../../src/k12";
 import { SparseMerkle, MERKLE_DEPTH } from "../../src/merkle";

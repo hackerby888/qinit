@@ -97,7 +97,10 @@ test("findCalleeRefs locates callee-name tokens and ignores commented-out calls"
   }`;
   const refs = findCalleeRefs(src);
   expect(refs.map((r) => r.name).sort()).toEqual(["Foo", "QX"]); // Ghost is commented out
-  for (const r of refs) expect(src.slice(r.offset, r.offset + r.length)).toBe(r.name); // offsets land on the token
+  // Each reported offset must land on the referenced token.
+  for (const ref of refs) {
+    expect(src.slice(ref.offset, ref.offset + ref.length)).toBe(ref.name);
+  }
 });
 
 test("unresolvedCalleeRefs flags only callees absent from the known set", () => {

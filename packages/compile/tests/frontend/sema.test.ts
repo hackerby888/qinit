@@ -5,7 +5,7 @@ import type { Expression, TypeSpec, Span, BinaryOp, UnaryOp } from "../../src/as
 
 const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };
 
-// --- AST helpers for tests ---- Cast through `any` so test builders stay concise while matching the discriminated-union
+// AST helpers use `any` to keep valid test objects concise.
 
 const n = (name: string): TypeSpec => ({ kind: "name", name, span: NO_SPAN }) as TypeSpec;
 

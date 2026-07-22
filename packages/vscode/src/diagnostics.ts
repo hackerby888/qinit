@@ -1,5 +1,4 @@
-// Live QPI diagnostics: runs the Tier-A lexer (qpi-rules) + the IDL structural checks (idl-checks)
-// on contract documents and publishes them to a DiagnosticCollection. Debounced on edit, immediate
+// Publish debounced Tier-A and IDL diagnostics for contract documents.
 import * as vscode from "vscode";
 import { scanQpi, scanLocals, scanLocalsForm, type QpiFinding } from "./lint/qpi-rules";
 import { idlChecks } from "./lint/idl-checks";

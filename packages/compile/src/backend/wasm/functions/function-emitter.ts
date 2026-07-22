@@ -81,7 +81,7 @@ export function emitFunction(programAnalysis: ProgramAnalysis, label: string, fn
     const localDecls = [...context.localVars.entries()].map(([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`);
     return [header, ...localDecls, ...context.lines, "  )"].join("\n");
 }
-// Emit a value-helper (e.g. toReturnCode) as a wasm function with its own scalar/address parameters
+// Emit a helper with its own scalar and address parameters.
 export function emitHelperFunction(programAnalysis: ProgramAnalysis, info: CompiledHelperMetadata, fn: {
     body?: Statement;
 }, stateLayout: StructLayout, bind?: TemplateBindings): string {

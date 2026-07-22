@@ -1,5 +1,4 @@
-// Zero-copy struct-view kit: a struct is declared as a list of primitive codecs and `defineStruct` derives
-// every field offset + the struct size the way the C compiler does — summing field sizes and inserting
+// Define zero-copy struct views with C-style natural alignment and derived offsets and sizes.
 
 // ---- codec combinator: a struct is composed from these primitives; offsets/sizes are derived, never typed. ----
 export interface Backing {
@@ -117,8 +116,7 @@ export const blob = (n: number): Codec<Uint8Array> => ({
   },
 });
 
-// explicit padding — an escape hatch for #pragma pack structs and for the reserved gaps in fixed ABI headers
-// (e.g. the unused words of QpiContext); the natural-alignment emulation makes it unnecessary for structs whose
+// Explicit padding for packed structs and fixed ABI gaps; naturally aligned structs rarely need it.
 export const pad = (n: number): Codec<void> => ({
   size: n,
   align: 1,
@@ -164,8 +162,7 @@ export const array = <T>(elem: Codec<T>, n: number): Codec<ArrayView<T>> => ({
   },
 });
 
-// an embedded struct field (e.g. RespondEntity's EntityRecord, PreManagementRightsTransfer's Asset): the getter
-// returns a zero-copy view of the embedded struct over the parent buffer, so callers mutate it in place. align
+// Embed a zero-copy struct view over the parent buffer, using eight-byte alignment by default.
 export const sub = <T extends { bytes: Uint8Array }>(
   klass: { SIZE: number; wrap(buf: Uint8Array, off?: number): T },
   align = 8,
@@ -209,8 +206,7 @@ export interface StructClass<S extends Record<string, Codec<any>>> {
   alloc(): StructInstance<S>;
 }
 
-// Build a struct view class from a field list, emulating the C compiler's natural-alignment layout: each field
-// is placed at the next offset aligned to its codec's alignment, and SIZE is rounded up to the struct's max
+// Build a struct view with C-style field alignment and trailing size alignment.
 export function defineStruct<S extends Record<string, Codec<any>>>(
   name: string,
   fields: S,

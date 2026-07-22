@@ -4,7 +4,7 @@ import type { Declaration, StructDecl, FunctionDecl } from "../../../ast";
 export function findContractStruct(translationUnit: {
     declarations: Declaration[];
 }): StructDecl | null {
-    // The user contract may end up nested inside a namespace if qpi.h's bracket structure recovered imperfectly, so search
+    // Search nested namespaces when recovery leaves the user contract wrapped.
     const all: StructDecl[] = [];
     const walk = (declarations: Declaration[]) => {
         for (const declaration of declarations) {

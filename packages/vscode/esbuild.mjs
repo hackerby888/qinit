@@ -4,7 +4,8 @@ import { build, context } from "esbuild";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = dirname(fileURLToPath(import.meta.url)); // package dir, so this runs from any CWD
+// Resolve the package directory so this works from any CWD.
+const root = dirname(fileURLToPath(import.meta.url));
 
 const opts = {
   entryPoints: [join(root, "src/extension.ts")],

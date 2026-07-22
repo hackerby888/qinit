@@ -1,5 +1,4 @@
-// Project-level config (qinit.json) + core/toolchain resolution, shared by @qinit/cli and the
-// VS Code extension. Bun-free (node:fs/path only) so it is safe to call from the Node-based VS Code
+// Project config and core resolution shared by the CLI and VS Code extension. Bun-free.
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { readCurrent } from "./fetch";
@@ -11,8 +10,8 @@ export interface QinitConfig {
   core?: string;
   rpc?: string;
   system?: string[]; // built-in system contracts to seed onto the virtual node (`qinit system`)
-  callees?: { name: string; contract: string }[]; // inter-contract callees to deploy before the main contract
-  // (so its CALL_OTHER_CONTRACT names resolve from the registry)
+  // Inter-contract callees deployed before the main contract.
+  callees?: { name: string; contract: string }[];
 }
 
 // Per-project config (qinit.json). Precedence at the call site: CLI flag > qinit.json > default.

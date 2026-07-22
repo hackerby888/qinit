@@ -26,7 +26,7 @@ export class Validator {
     private loopDepth = 0;
     private constants = new Map<string, bigint>();
     private aggregateNames = new Set<string>(["id", "m256i", "uint128"]);
-    // Typedef aliases, name → target type key: qpi.h's `typedef m256i id` plus the contract's own typedef_decls. Aggregate type
+    // Map typedef aliases to canonical type names for aggregate checks.
     private typeAliases = new Map<string, string>([
         ["id", "m256i"],
         ["uint128_t", "uint128"],
@@ -51,7 +51,7 @@ export class Validator {
     runTopLevel(declarations: Declaration[]): void {
         return validatorPart0.runTopLevel(this as unknown as ValidatorInternals, declarations);
     }
-    // Contracts run on consensus state only: a file-scope mutable lives outside the hashed state and silently diverges between
+    // Reject mutable file-scope data because it lies outside consensus state.
     private checkGlobalVariable(variableDeclaration: VariableDecl): void {
         return validatorPart0.checkGlobalVariable(this as unknown as ValidatorInternals, variableDeclaration);
     }
@@ -81,7 +81,7 @@ export class Validator {
     private checkStaticAssert(condition: Expression, message: Expression | undefined, span: Span): void {
         return validatorPart0.checkStaticAssert(this as unknown as ValidatorInternals, condition, message, span);
     }
-    // Ordered walk with a scope stack: declarations register in the innermost scope, identifier uses must resolve to an
+    // Resolve identifiers against an ordered stack of lexical scopes.
     private walkScope(statement: Statement, fn: FunctionDecl, memberFns: Map<string, FnSig>, allLocals: Set<string>, constParams: Set<string>, scopes: Array<Map<string, {
         const: boolean;
     }>>): void {
@@ -106,7 +106,7 @@ export class Validator {
     }>>): void {
         return validatorPart5.checkExpression(this as unknown as ValidatorInternals, root, memberFns, allLocals, constParams, scopes);
     }
-    // The root of an assignment target must be mutable: a get() accessor result is a read-only view (writing
+    // Assignment roots must be mutable; accessor results are read-only views.
     private checkAssignTarget(target: Expression, constParams: Set<string>, lookup: (name: string) => {
         const: boolean;
     } | null): void {

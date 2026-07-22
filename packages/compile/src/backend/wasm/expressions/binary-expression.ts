@@ -52,7 +52,7 @@ export function lowerBinaryExpression(context: FunctionEmissionContext, expressi
             return watIr.operation("i64.extend_i32_u", watIr.operation("i32.eqz", leftAddressAndSize(la, ra)));
         }
     }
-    // Short-circuit `&&` / `||`: the right operand must not be evaluated when the left already decides the result
+    // Preserve C++ short-circuit evaluation for logical operators.
     if (expression.operator === "&&" || expression.operator === "||") {
         const lb = watIr.operation("i64.ne", watIr.i64Constant(0), context.lowering.lowerValueExpression(context, expression.left));
         const saved = context.lines;
@@ -78,7 +78,7 @@ export function lowerBinaryExpression(context: FunctionEmissionContext, expressi
     }
     const valueNode = context.lowering.lowerValueExpression(context, expression.left);
     const valueNodeCandidate = context.lowering.lowerValueExpression(context, expression.right);
-    // C++ usual arithmetic conversions decide the operation's signedness and rank. A 32-bit result
+    // Apply usual arithmetic conversions and wrap 32-bit results.
     const cv = context.lowering.usualConversion(context, expression.left, expression.right);
     const unsigned = cv.unsigned;
     const li = context.lowering.promoteInfo(context, expression.left);

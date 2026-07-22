@@ -1,4 +1,4 @@
-// Codegen struct-layout unit tests: field offsets, sizes, alignment for scalars, nested structs, unions, base classes, template instantiations, and
+// Unit coverage for scalar, aggregate, template, and inherited layouts.
 import { describe, test, expect } from "bun:test";
 import { CodeGenerationContext } from "../../src/codegen";
 import { Sema } from "../../src/sema";

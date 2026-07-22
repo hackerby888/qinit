@@ -6,7 +6,7 @@ import { advanceTo } from "./tick";
 import { Header, Spinner, Bar, KV, theme } from "../ui";
 
 // qinit epoch           -> show the current-epoch tick window
-// qinit epoch advance   -> advance to the next epoch. Fast-tick to the boundary (progress bar), then drive the
+// qinit epoch advance   -> fast-tick to the next epoch
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = { sub: "" };
   const pos: string[] = [];

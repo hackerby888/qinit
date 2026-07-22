@@ -8,50 +8,76 @@ import { idlChecks } from "../src/lint/idl-checks";
 
 // Registered in contract_def.h but NOT deployed QPI contracts: the header itself, the test-example
 // harnesses (printf/#ifdef debug code), and the superseded Qswap (Qswap.h is the active one).
-const DENY = new Set(["qpi.h", "Qswap_old.h", "TestExampleA.h", "TestExampleB.h", "TestExampleC.h", "TestExampleD.h"]);
+const DENY = new Set([
+  "qpi.h",
+  "Qswap_old.h",
+  "TestExampleA.h",
+  "TestExampleB.h",
+  "TestExampleC.h",
+  "TestExampleD.h",
+]);
 
 export function deployedContracts(core: string): string[] {
   const def = join(core, "src", "contract_core", "contract_def.h");
   if (!existsSync(def)) return [];
   return [...readFileSync(def, "utf8").matchAll(/#include\s+"contracts\/([\w.]+\.h)"/g)]
-    .map((m) => m[1])
-    .filter((f) => !DENY.has(f));
+    .map((match) => match[1])
+    .filter((file) => !DENY.has(file));
 }
 
 // All warning/error-severity findings per deployed contract (info-level hints excluded).
 export function lintCorpus(core: string): { file: string; findings: QpiFinding[] }[] {
   const dir = join(core, "src", "contracts");
-  const out: { file: string; findings: QpiFinding[] }[] = [];
-  for (const f of deployedContracts(core)) {
-    const p = join(dir, f);
-    if (!existsSync(p)) continue;
-    const src = readFileSync(p, "utf8");
-    const findings = [...scanQpi(src), ...scanLocals(src), ...scanLocalsForm(src), ...idlChecks(src)]
-      .filter((h) => h.severity !== "info");
-    out.push({ file: f, findings });
+  const results: { file: string; findings: QpiFinding[] }[] = [];
+  for (const file of deployedContracts(core)) {
+    const path = join(dir, file);
+    if (!existsSync(path)) {
+      continue;
+    }
+    const source = readFileSync(path, "utf8");
+    const findings = [
+      ...scanQpi(source),
+      ...scanLocals(source),
+      ...scanLocalsForm(source),
+      ...idlChecks(source),
+    ].filter((finding) => finding.severity !== "info");
+    results.push({ file, findings });
   }
-  return out;
+  return results;
 }
 
 if (import.meta.main) {
   let core: string;
-  try { core = resolveCore(process.env.QINIT_CORE); } catch (e: any) {
-    console.error("no core headers:", String(e?.message ?? e), "— set QINIT_CORE or run `qinit node run`");
+  try {
+    core = resolveCore(process.env.QINIT_CORE);
+  } catch (error: any) {
+    console.error(
+      "no core headers:",
+      String(error?.message ?? error),
+      "— set QINIT_CORE or run `qinit node run`",
+    );
     process.exit(2);
   }
   const results = lintCorpus(core);
-  let bad = 0;
-  for (const r of results) {
-    if (!r.findings.length) continue;
-    bad += r.findings.length;
+  let failures = 0;
+  for (const result of results) {
+    if (!result.findings.length) {
+      continue;
+    }
+    failures += result.findings.length;
     const dir = join(core, "src", "contracts");
-    const src = readFileSync(join(dir, r.file), "utf8");
-    console.log(`FAIL ${r.file}:`);
-    for (const h of r.findings.slice(0, 8)) {
-      const line = src.slice(0, h.offset).split("\n").length;
-      console.log(`   L${line} ${h.rule}: ${JSON.stringify(src.slice(h.offset, h.offset + 40).replace(/\n/g, "\\n"))}`);
+    const source = readFileSync(join(dir, result.file), "utf8");
+    console.log(`FAIL ${result.file}:`);
+    for (const finding of result.findings.slice(0, 8)) {
+      const line = source.slice(0, finding.offset).split("\n").length;
+      const excerpt = source
+        .slice(finding.offset, finding.offset + 40)
+        .replace(/\n/g, "\\n");
+      console.log(`   L${line} ${finding.rule}: ${JSON.stringify(excerpt)}`);
     }
   }
-  console.log(`\nlint-corpus: ${results.length} deployed contracts scanned, ${bad} warning/error findings`);
-  process.exit(bad === 0 ? 0 : 1);
+  console.log(
+    `\nlint-corpus: ${results.length} deployed contracts scanned, ${failures} warning/error findings`,
+  );
+  process.exit(failures === 0 ? 0 : 1);
 }

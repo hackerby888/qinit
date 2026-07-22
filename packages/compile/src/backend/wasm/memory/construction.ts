@@ -14,7 +14,7 @@ export function resolveContainerElem(context: FunctionEmissionContext, expressio
     const node = context.lowering.resolveExpressionAddress(context, expression.callee.object);
     if (!node || !node.type)
         return null;
-    // Follow typedefs / template-param bindings to the concrete container instance (e.g. RevenueDonationT →
+    // Resolve typedefs and template bindings to the concrete container type.
     let ct: TypeSpec | null = node.type;
     for (let index = 0; index < 8 && ct?.kind === "name"; index++) {
         const next: TypeSpec | undefined = context.thisBind?.types.get(ct.name) ?? context.programAnalysis.typedefs.get(ct.name);
@@ -49,7 +49,7 @@ export function resolveContainerElem(context: FunctionEmissionContext, expressio
         (context.materializedCalls ??= new WeakMap()).set(expression, result);
     return result;
 }
-// Aggregate construction `Type{ a, b, c }` written into dstAddr: zero the target, then store each arg into
+// Zero an aggregate destination, then initialize each supplied field.
 export function emitConstruct(context: FunctionEmissionContext, dstAddr: string, type: TypeSpec, callArguments: Expression[]): boolean {
     const resolved = context.programAnalysis.resolveType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
     const owner = resolved.kind === "name"
@@ -86,7 +86,11 @@ export function emitConstruct(context: FunctionEmissionContext, dstAddr: string,
         const fieldDestination = watIr.addressWithOffset(watIr.localGet(destinationBase, "i32"), field.offset);
         if (context.lowering.isAggregate(context, field.type, field.size)) {
             const argument = callArguments[index];
-            const nestedArgs = argument.kind === "initializer_list" ? argument.expressions : argument.kind === "construct" ? argument.callArguments : null;
+            const nestedArgs = argument.kind === "initializer_list"
+                ? argument.expressions
+                : argument.kind === "construct"
+                    ? argument.callArguments
+                    : null;
             if (nestedArgs && emitConstruct(context, watIr.serializeWatNode(fieldDestination), field.type, nestedArgs))
                 continue;
             const src = context.lowering.emitAddress(context, argument);

@@ -1,5 +1,4 @@
-// Quick-fix provider for Tier-A findings: `T[N]` -> `Array<T, N>` (qpi/no-brackets), `a / b` -> `div(a,
-// b)` / `a % b` -> `mod(a, b)` (qpi/no-division, qpi/no-modulo). Each is offered only when the source
+// Offer Tier-A quick fixes only when their conservative source transforms match.
 import * as vscode from "vscode";
 import { arrayFixForLine, divModFixForLine, moveLocalToWithLocalsEdits } from "./codefix";
 import { isContractDoc } from "./project-util";

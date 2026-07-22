@@ -1,5 +1,5 @@
 // Run a STANDARD gtest (core-lite `contract_testing.h` suite) against a contract on a fresh isolated engine.
-// buildCorpusRunner swaps the test's `#include "contract_testing.h"` for the engine-backed
+// buildCorpusRunner replaces contract_testing.h with the engine-backed test harness.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildContract, buildCorpusRunner, systemContracts } from "@qinit/build";
@@ -238,8 +238,7 @@ async function oursWasms(
   };
   for (const d of deps) {
     const dsrc = readFileSync(d.contractPath, "utf8");
-    // System dependencies may themselves call an earlier-index dependency
-    // (PULSE -> QTF -> RL, for example). Feed the IDL/source context built so
+    // Compile dependencies in order so each sees earlier IDL and source context.
     const depOpts = {
       source: dsrc,
       name: d.name,

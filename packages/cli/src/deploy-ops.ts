@@ -46,8 +46,8 @@ export function tickFailureMessage(reached: boolean, rpcBase: string): string {
     : `node unreachable at ${rpcBase} — is it running? (qinit node run)`;
 }
 
-// Best-effort: resolve a contract's inter-contract callees from the live node registry — each deployed
-// contract submits its .h source at deploy, so the node knows name -> { deployed slot, source }. Used by both
+// Best-effort: resolve unconfigured callees from headers stored in the live registry.
+// Shared by build and deploy.
 export async function resolveNodeCallees(
   rpc: Pick<LiteRpc, "dynRegistry">,
   contractSrc: string,
@@ -195,8 +195,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   if (vu.action === "updated" || vu.action === "installed")
     emit({ note: `↻ contractverify ${vu.action} → ${vu.version}` });
 
-  // tick — wait until advancing (broadcasting during boot crashes the node). 300s: a cold node can
-  // stall a few minutes in its first ticks (initial-epoch work; seen on the Windows port) before
+  // Wait up to 300 seconds for a cold node to advance before broadcasting.
   emit({ step: "tick", state: "active", detail: "waiting for node…" });
   let t0 = -1,
     cur = 0,
@@ -254,8 +253,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     (note) => emit({ note }),
   );
 
-  // build — native clang or the in-process TS compiler, per `qinit compiler` (or an explicit override). The
-  // local path skips the protocol-rule gate (the TS compiler surfaces its own diagnostics) and produces the
+  // Build with the selected compiler; the local compiler reports its own protocol diagnostics.
   const compiler: Compiler = o.compiler ?? savedCompiler() ?? "native";
   const outDir = o.outDir ?? resolve("dist/contracts");
   if (o.artifact) emit({ note: "compiler: prebuilt artifact (exact bytes)" });
@@ -301,8 +299,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   emit({ step: "build", state: "ok", detail: `${so.length}B · k12 ${hash.slice(0, 12)}…` });
   if (b.idlError) emit({ note: "⚠ IDL parse failed — no typed client/state names: " + b.idlError });
 
-  // Single-authority virtual node: no peer network or quorum to satisfy, so skip the chunk-upload + multi-tick
-  // confirm and drop the wasm straight into the slot. The route 404s on a real node (returns null) -> the
+  // Virtual nodes deploy directly; real nodes return null and use chunked upload below.
   const direct = await rpc.directDeploy(slot, new Uint8Array(so), o.name).catch(() => null);
   if (direct) {
     emit({ step: "upload", state: "ok", detail: "direct (virtualnode)" });
@@ -340,8 +337,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     return t;
   };
 
-  // Fail-fast on a pathologically slow chain (e.g. the free windows-latest CI runner, whose ~190x-slower
-  // loopback drags ticks to ~50s). The upload + arm need dozens of ticks, so without this the per-step 300s
+  // Abort before upload when the chain cannot finish the multi-tick deployment within budget.
   {
     const ps = Date.now();
     const base = cur;
@@ -555,8 +551,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     } catch {}
   }
 
-  // confirm — poll dyn-registry until armed && codeHash, then until constructed (INITIALIZE runs a few ticks
-  // after arming). "ready" means constructed = callable; an armed-but-unconstructed result is flagged so the
+  // Wait for the matching code hash and construction; ready means callable.
   emit({ step: "confirm", state: "active", detail: "polling arm…" });
   const want = hash.toLowerCase();
   let armed = false,

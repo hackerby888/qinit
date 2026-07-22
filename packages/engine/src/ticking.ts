@@ -1,5 +1,5 @@
-// Tick consensus — N computors, quorum votes, the per-tick TickData + vote record. The TS model of core-lite
-// ticking/ + vote_counter.h + the qubic.cpp tick processor (the leader packs the tick's tx digests into a signed
+// Tick consensus state and history, mirroring core-lite vote processing.
+// The leader signs each tick's transaction digests in TickData.
 import {
   Committee,
   type CommitteeOpts,
@@ -18,7 +18,8 @@ const ZERO32 = new Uint8Array(32);
 // A finalized tick's consensus record: the N computor votes, the aligned-vote count, and the etalon digests they
 // committed to. Stored per tick for the quorum-tick / current-tick-info queries.
 export interface TickRecord {
-  votes: Tick[]; // signed tick votes — read fields directly (vote.computorIndex, vote.signature); vote.bytes is the canonical buffer
+  // Signed votes expose fields directly; bytes remains the canonical buffer.
+  votes: Tick[];
   aligned: number;
   total: number;
   digests: TickStateDigests;
@@ -100,8 +101,7 @@ export class TickConsensus {
 
     const txDigests = this.host.tickTransactionDigests(tick);
 
-    // Lite ticking (the in-browser IDE): an empty tick commits no transactions, so its quorum record — 8 FourQ
-    // computor votes + the leader's TickData signature — is pure overhead. Jumping a whole epoch (~3000 ticks)
+    // Empty lite-mode ticks commit no transactions, so skip their expensive quorum records.
     if (this.lite && txDigests.length === 0) {
       return;
     }

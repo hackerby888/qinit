@@ -1,5 +1,4 @@
-// Inter-contract calls — Proxy (slot 29) calls Counter (slot 28, lower index) via liteCallFunction (CALL
-// function) and liteInvokeProcedure (INVOKE procedure). Routing is by contract index to whatever Contract is
+// Proxy exercises function and procedure calls into a lower-index Counter contract.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";

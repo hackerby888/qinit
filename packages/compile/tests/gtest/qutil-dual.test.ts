@@ -1,4 +1,4 @@
-// Dev-only differential: run contract_qutil.cpp against BOTH backends (ours = @qinit/compile, native = clang) through the same runner, and
+// Runs the QUTIL corpus against TS and native contracts through one runner.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import {

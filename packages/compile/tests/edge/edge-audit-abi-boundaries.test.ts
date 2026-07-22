@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Pin the inclusive QPI registration boundaries. The exact maximum values must be accepted while
+// Pins inclusive registration bounds and rejects values outside them.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

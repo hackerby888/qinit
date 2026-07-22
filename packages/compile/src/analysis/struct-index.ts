@@ -24,7 +24,7 @@ export function collectNested(context: ProgramAnalysisInternals, contract: Struc
                 context.typedefs.set(td.name, td.type);
         }
         else if (member.kind === "class_template") {
-            // contract-nested template struct (PULSE's HashMapConverter<Key,T,L>): register like a file-scope template — the layout table AND its inline methods
+            // Register nested templates and their inline methods like file-scope templates.
             const ct = member as any;
             const prev = context.templates.get(ct.name);
             if (!prev || (prev.members?.length ?? 0) < (ct.members?.length ?? 0))
@@ -54,8 +54,7 @@ export function collectNested(context: ProgramAnalysisInternals, contract: Struc
             }
         }
         else if (member.kind === "function_template") {
-            // Static function templates declared directly on the contract (QBond/RandomLottery/Pulse
-            // min/max) are ordinary source helpers, not class-layout methods. Register them under the
+            // Register contract-level function templates as source helpers.
             context.registerLibFnTemplate((member as FunctionTemplateDecl).name, member as FunctionTemplateDecl);
         }
     }
@@ -97,8 +96,7 @@ export function registerCalleeContractDeclarations(context: ProgramAnalysisInter
                         context.libFns.set(key, fn);
                 }
                 else if (member.kind === "function_template") {
-                    // Callee templates are needed by qualified source calls such as RL::min/max. The
-                    // parser currently drops the `static` bit on FunctionTemplateDecl, but contract-level
+                    // Register callee templates for qualified calls despite their dropped static flag.
                     const fn = member as FunctionTemplateDecl;
                     context.registerLibFnTemplate(`${name}::${fn.name}`, fn);
                 }
@@ -144,7 +142,7 @@ export function collectNestedStructs(context: ProgramAnalysisInternals, parent: 
             const key = `${prefix}::${structDeclaration.name}`;
             if (!context.nested.has(key))
                 context.nested.set(key, structDeclaration);
-            // Also register the unqualified name so a bare reference written inside the declaring struct (e.g. `Array<TableEntry, 512> info;`
+            // Register nested structs unqualified for references within their owner.
             if (!context.nested.has(structDeclaration.name) && !context.globalStructs.has(structDeclaration.name))
                 context.nested.set(structDeclaration.name, structDeclaration);
             context.captureStructMethods(structDeclaration, [structDeclaration.name, key]);
@@ -170,12 +168,14 @@ export function structByName(context: ProgramAnalysisInternals, name: string, te
 export function qualifiedNestedType(context: ProgramAnalysisInternals, name: string, templateBindings: TemplateBindings): TypeSpec | null {
     for (let sep = name.indexOf("::"); sep > 0; sep = name.indexOf("::", sep + 2)) {
         const head = name.slice(0, sep);
-        const headT = templateBindings.types.get(head) ?? context.typedefs.get(head);
-        let sd = headT ? context.structOf(headT, templateBindings) : (context.structByName(head, templateBindings) ?? null);
-        if (!sd)
+        const headType = templateBindings.types.get(head) ?? context.typedefs.get(head);
+        const structDeclaration = headType
+            ? context.structOf(headType, templateBindings)
+            : context.structByName(head, templateBindings) ?? null;
+        if (!structDeclaration)
             continue;
-        const segs = name.slice(sep + 2).split("::");
-        const walked = context.walkNestedSegments(sd, segs, templateBindings);
+        const segments = name.slice(sep + 2).split("::");
+        const walked = context.walkNestedSegments(structDeclaration, segments, templateBindings);
         if (walked)
             return walked;
     }

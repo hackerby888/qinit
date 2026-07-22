@@ -73,7 +73,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
     PUBLIC_PROCEDURE_WITH_LOCALS(Subscribe)
     {
-        output.subscriptionId = SUBSCRIBE_ORACLE(OI::Price, input.query, OnReply, input.periodMillisec, input.notifyPrevious);
+        output.subscriptionId = SUBSCRIBE_ORACLE(
+            OI::Price,
+            input.query,
+            OnReply,
+            input.periodMillisec,
+            input.notifyPrevious);
         state.mut().subscriptionId = output.subscriptionId;
     }
 

@@ -1,5 +1,4 @@
-// Phase 3 — semantics breadth: invocationReward, qpi.transfer (+ balances), the POST_INCOMING_TRANSFER
-// trigger (procedureTransaction + contract-to-contract), insufficient-funds, and the BEGIN_TICK lifecycle
+// Covers rewards, transfers, incoming callbacks, insufficient funds, and BEGIN_TICK.
 import { test, expect } from "bun:test";
 import { bytesToIdentity } from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";

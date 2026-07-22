@@ -1,6 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Resolving types a contract references but doesn't define in its own .h: (1) the comment-blanking fix, so a
-// `// ... struct ...` comment before a real `struct` no longer hides it (QtryGOV); (2) the `prelude` merge, so
+// Verify comment-safe type discovery and resolution of definitions supplied by the QPI prelude.
 import { test, expect } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { extractIdl } from "../../src/idl";

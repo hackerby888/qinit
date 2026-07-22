@@ -126,7 +126,7 @@ class Gen {
   }
 
   private leaf(): string {
-    // qpi.h `bit` is a struct with implicit bool conversion; mixing it into arbitrary expressions (ternary branches especially) is
+    // Exclude bit locals because native Clang finds implicit-bool use ambiguous.
     const vars = this.visibleVars().filter((v) => v.type.name !== "bit");
     const r = this.next();
     if (r < 0.3 && vars.length > 0) {
@@ -364,7 +364,7 @@ class Gen {
 
   // ---- helper functions ----
 
-  // A helper body sees only its params (immutable) and its own locals — no input/state. Bodies of
+  // Helpers see only parameters and locals; later helpers may call earlier ones.
   private helperDef(sig: HelperSig): string {
     this.stmtBudget = 5;
     this.inHelper = true;
@@ -394,7 +394,7 @@ class Gen {
       this.avail.push(base);
 
       if (this.chance(0.3)) {
-        // The overload keeps the parameter count but guarantees a different first parameter type, so the signatures differ and
+        // Change the first parameter type to keep the overload distinct.
         const p2 = params.map((p) => ({ name: this.freshName("p"), type: p.type }));
         const idx = TYPES.indexOf(p2[0].type);
         p2[0] = { name: p2[0].name, type: TYPES[(idx + 1 + this.int(7)) % 8] };

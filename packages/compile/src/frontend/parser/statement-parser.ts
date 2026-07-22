@@ -84,7 +84,7 @@ export class StatementParser {
             this.parser.expressions.looksLikeLocalDecl()) {
             const declaration = this.parser.declarations.parseDeclaration();
             if (declaration) {
-                // Multi-declarator statement (`sint64 a = 0, b = 0;`): parseVariableRest queues the extra declarators on `pending`, which only
+                // Drain queued declarators into a synthetic compound statement.
                 if (this.parser.state.pendingDeclarations.length) {
                     const statements: Statement[] = [{ kind: "declaration", declaration, span: this.parser.state.peek().span }];
                     while (this.parser.state.pendingDeclarations.length) {

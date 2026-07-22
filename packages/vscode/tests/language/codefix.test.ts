@@ -15,8 +15,9 @@ function applyDivMod(line: string, op: "/" | "%"): string | null {
 
 function applyEdits(src: string, edits: SourceEdit[]): string {
   let out = src;
-  for (const e of [...edits].sort((a, b) => b.start - a.start))
-    out = out.slice(0, e.start) + e.newText + out.slice(e.end);
+  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+    out = out.slice(0, edit.start) + edit.newText + out.slice(edit.end);
+  }
   return out;
 }
 // move the first stack local scanLocals reports

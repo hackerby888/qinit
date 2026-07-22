@@ -1,5 +1,4 @@
-// Tier-B: authoritative contractverify diagnostics via `qinit verify --json`. The CLI owns tool
-// resolution + invocation + concretize + allowedPrefixes, so the editor's verdict never drifts from
+// Run authoritative contractverify diagnostics through the same CLI path used elsewhere.
 import * as vscode from "vscode";
 import { execFile } from "node:child_process";
 import { findProjectRoot, isContractDoc } from "./project-util";

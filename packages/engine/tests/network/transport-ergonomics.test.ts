@@ -1,5 +1,4 @@
-// Ergonomics: VirtualNode.create() self-inits crypto (one await, no initK12 ceremony) and deploy()
-// auto-assigns the slot by name (redeploy-by-name reuses it). This file deliberately never imports initK12 —
+// Verifies crypto self-initialization and stable automatic slot assignment.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { VirtualNode } from "../../src/transport";

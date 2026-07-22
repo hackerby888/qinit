@@ -1,5 +1,5 @@
 // Build a contract .h -> wasm with the in-process TS compiler (@qinit/compile) — no clang, no toolchain.
-// Shared by `qinit build` and the deploy pipeline (deploy/dev/test) so the `qinit compiler local` selection
+// Shared by build, deploy, dev, and test when `qinit compiler local` is selected.
 import { readFileSync, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { compileContract, loadQpiHeader } from "@qinit/compile";

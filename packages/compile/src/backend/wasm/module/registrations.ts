@@ -98,7 +98,10 @@ export function evalRegistrationConstant(expression: Expression | undefined, pro
         }
         case "ternary": {
             const numericValue = evalRegistrationConstant(expression.condition, programAnalysis);
-            return numericValue === null ? null : evalRegistrationConstant(numericValue !== 0n ? expression.then : expression.else_, programAnalysis);
+            if (numericValue === null)
+                return null;
+            const branch = numericValue !== 0n ? expression.then : expression.else_;
+            return evalRegistrationConstant(branch, programAnalysis);
         }
         case "c_cast":
         case "static_cast":
@@ -142,7 +145,7 @@ export function extractRegistrations(contract: StructDecl, programAnalysis: Prog
         const itArg = expression.callArguments[1];
         const evaluated = evalRegistrationConstant(itArg, programAnalysis);
         let inputType = evaluated === null ? 0 : Number(evaluated);
-        // Notification procedure (oracle reply callback): its id arg is the synthetic __id_<proc> ((CONTRACT_INDEX << 22) | defLine, qpi.h
+        // Use the synthetic procedure ID for oracle-reply notifications.
         if (isNotif && fnName) {
             const def = contract.members.find((member) => member.kind === "function" && (member as FunctionDecl).name === fnName) as FunctionDecl | undefined;
             inputType = (def?.span?.line ?? 0) & 0xffff;

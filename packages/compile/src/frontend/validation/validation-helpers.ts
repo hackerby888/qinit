@@ -30,7 +30,7 @@ export function isConstType(type: TypeSpec): boolean {
     return false;
 }
 
-// Canonical key for a case label / constant operand: numeric literals normalize through BigInt (0x1 and 1 collide),
+// Canonicalize case-label constants; numeric spellings compare by value.
 export function constKey(expression: Expression): string | null {
     if (expression.kind === "int_literal") {
         try {
@@ -72,7 +72,7 @@ export function isLiteral(expression: Expression): boolean {
         expression.kind === "string_literal");
 }
 
-// Small, side-effect-free integral constant evaluator used by validation. Unknown identifiers
+// Evaluate integral constants; unresolved identifiers return null.
 export function evalIntegralConst(expression: Expression, resolve?: (name: string) => bigint | null): bigint | null {
     try {
         switch (expression.kind) {
@@ -150,7 +150,10 @@ export function evalIntegralConst(expression: Expression, resolve?: (name: strin
             }
             case "ternary": {
                 const numericValue = evalIntegralConst(expression.condition, resolve);
-                return numericValue === null ? null : evalIntegralConst(numericValue !== 0n ? expression.then : expression.else_, resolve);
+                if (numericValue === null)
+                    return null;
+                const branch = numericValue !== 0n ? expression.then : expression.else_;
+                return evalIntegralConst(branch, resolve);
             }
             case "c_cast":
             case "static_cast":

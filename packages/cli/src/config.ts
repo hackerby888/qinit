@@ -8,8 +8,8 @@ import { assertSeed } from "@qinit/core";
 export { loadConfig, resolveCore } from "@qinit/core";
 export type { QinitConfig } from "@qinit/core";
 
-// qinit's config dir. Honors $XDG_CONFIG_HOME on every platform (tests + power users rely on it); otherwise
-// %APPDATA%\qinit on Windows (idiomatic) and ~/.config/qinit elsewhere. Back-compat: an existing
+// Honor XDG_CONFIG_HOME; otherwise use APPDATA on Windows and ~/.config elsewhere.
+// Existing Windows ~/.config/qinit directories remain supported.
 function configDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
   if (xdg) return join(xdg, "qinit");
@@ -63,8 +63,7 @@ export function setSavedTheme(name: string): void {
   writeFileSync(p, name + "\n");
 }
 
-// Globally-chosen node mode (set by `qinit mode`): the backend `qinit test` runs against — a real ephemeral
-// qubic node ("realnode") or the in-process TS engine ("virtualnode"). Saved in qinit's config dir; defaults
+// Saved `qinit test` backend: an ephemeral Qubic node or the in-process TypeScript engine.
 export type NodeMode = "realnode" | "virtualnode";
 export const NODE_MODES: NodeMode[] = ["realnode", "virtualnode"];
 
@@ -87,8 +86,7 @@ export function setSavedMode(mode: NodeMode): void {
   writeFileSync(p, mode + "\n");
 }
 
-// Globally-chosen contract compiler (set by `qinit compiler`): the backend `qinit build/deploy/dev/test` use
-// to turn a .h into wasm — native clang ("native", the default, matches the pre-compiler CLI) or the in-process
+// Saved contract compiler for build, deploy, dev, and test: native Clang or in-process TypeScript.
 export type Compiler = "native" | "local";
 export const COMPILERS: Compiler[] = ["native", "local"];
 

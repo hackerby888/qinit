@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Differential gtest for container method completion: HashSet add/contains/remove/population and HashMap removeByKey + iteration (nextElementIndex/value(i)) — validated against native
+// Differential coverage for HashSet/HashMap removal and iteration methods.
 import { coreGtest } from "../support/core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
@@ -103,7 +103,7 @@ TEST(Registry, HashMapReuseRemovedSlot) {
   Registry::RemoveBal_input rb{}; rb.who = u1;
   t.invoke<Registry::RemoveBal_output>(4, rb, 0, u1);
   d.amt = 200ull;
-  t.invoke<Registry::Deposit_output>(3, d, 0, u1);   // re-insert the same key → set hits the slot it
+  t.invoke<Registry::Deposit_output>(3, d, 0, u1);   // Reinsert the key so the set reuses its removal slot.
   Registry::SumAll_input s{};                          // marked for removal and takes goto reuse_slot
   EXPECT_EQ(t.call<Registry::SumAll_output>(3, s).sum, 200ull);
 }

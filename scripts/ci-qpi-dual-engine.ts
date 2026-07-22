@@ -21,7 +21,9 @@ import { invokeProcedure } from "../packages/proto/src/index";
 
 const rpcBase = process.env.QINIT_RPC ?? "http://127.0.0.1:41841";
 const core = process.env.QINIT_CORE;
-if (!core) throw new Error("QINIT_CORE not set");
+if (!core) {
+  throw new Error("QINIT_CORE not set");
+}
 
 const ARENA_SIZE = 1024 * 1024 * 1024;
 const FALLBACK_SEED = "a".repeat(55);
@@ -75,7 +77,9 @@ function cmakeProof(): Record<string, string> {
   const cachePath = ["build-node", "build-win"]
     .map((directory) => resolve(core!, directory, "CMakeCache.txt"))
     .find(existsSync);
-  if (!cachePath) fail("core build is missing CMakeCache.txt");
+  if (!cachePath) {
+    fail("core build is missing CMakeCache.txt");
+  }
   const cache = readFileSync(cachePath, "utf8");
   const value = (key: string): string => {
     const match = cache.match(new RegExp(`^${key}:[^=]*=(.*)$`, "m"));
@@ -98,7 +102,9 @@ function cmakeProof(): Record<string, string> {
   const proof: Record<string, string> = {};
   for (const [key, wanted] of Object.entries(expected)) {
     proof[key] = value(key);
-    if (proof[key] !== wanted) fail(`CMake ${key}=${proof[key]}, expected ${wanted}`);
+    if (proof[key] !== wanted) {
+      fail(`CMake ${key}=${proof[key]}, expected ${wanted}`);
+    }
   }
   proof.CMAKE_CACHE = cachePath;
   return proof;
@@ -140,14 +146,22 @@ async function artifact(
   registration: Registration,
 ): Promise<Artifact> {
   const inspection = inspectWasmModule(wasm);
-  if (!inspection.ok) fail(`${compiler} ${role}: ${inspection.diagnostics.map((item) => item.message).join("; ")}`);
+  if (!inspection.ok) {
+    fail(
+      `${compiler} ${role}: ${inspection.diagnostics.map((item) => item.message).join("; ")}`,
+    );
+  }
   if (inspection.imports.some((item) => item.module !== "lhost")) {
     fail(`${compiler} ${role} has a non-lhost import`);
   }
   return { compiler, role, slot, wasm, registration, hash: await k12Hex(wasm) };
 }
 
-async function compileTsPair(calleeSlot: number, driverSlot: number, qpiHeader: string): Promise<Artifact[]> {
+async function compileTsPair(
+  calleeSlot: number,
+  driverSlot: number,
+  qpiHeader: string,
+): Promise<Artifact[]> {
   const callee = await compileContract({
     source: calleeSource,
     name: "QpiDualCallee",
@@ -193,7 +207,9 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
     outDir: join(scratch, "clang-callee"),
     arenaSz: ARENA_SIZE,
   });
-  if (!callee.ok || !callee.so || !callee.idl) fail(`Clang callee compile: ${callee.stderr ?? "no artifact"}`);
+  if (!callee.ok || !callee.so || !callee.idl) {
+    fail(`Clang callee compile: ${callee.stderr ?? "no artifact"}`);
+  }
   const driver = await buildContract({
     contractPath: driverPath,
     name: "QpiDual",
@@ -203,7 +219,9 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
     arenaSz: ARENA_SIZE,
     dynCallees: { QpiDualCallee: { header: calleePath, index: calleeSlot } },
   });
-  if (!driver.ok || !driver.so || !driver.idl) fail(`Clang driver compile: ${driver.stderr ?? "no artifact"}`);
+  if (!driver.ok || !driver.so || !driver.idl) {
+    fail(`Clang driver compile: ${driver.stderr ?? "no artifact"}`);
+  }
   return [
     await artifact("Clang", "callee", calleeSlot, new Uint8Array(readFileSync(callee.so)), {
       functions: Object.keys(callee.idl.functions).length,
@@ -216,7 +234,12 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
   ];
 }
 
-async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[], seed: string): Promise<void> {
+async function deployAll(
+  base: string,
+  rpc: LiteRpc,
+  artifacts: Artifact[],
+  seed: string,
+): Promise<void> {
   for (const item of artifacts) {
     const pairCallee = artifacts.find(
       (candidate) => candidate.compiler === item.compiler && candidate.role === "callee",
@@ -254,14 +277,22 @@ async function deployAll(base: string, rpc: LiteRpc, artifacts: Artifact[], seed
   const registry = await rpc.dynRegistry();
   for (const item of artifacts) {
     const row = registry.contracts.find((contract) => contract.index === item.slot);
-    if (!row?.armed || !row.constructed) fail(`${base} slot ${item.slot} is not ready`);
+    if (!row?.armed || !row.constructed) {
+      fail(`${base} slot ${item.slot} is not ready`);
+    }
     if (row.codeHash.toLowerCase() !== item.hash.toLowerCase()) {
       fail(`${base} slot ${item.slot} code hash ${row.codeHash} != ${item.hash}`);
     }
   }
 }
 
-async function invoke(base: string, rpc: LiteRpc, slot: number, inputSeed: bigint, seed: string): Promise<void> {
+async function invoke(
+  base: string,
+  rpc: LiteRpc,
+  slot: number,
+  inputSeed: bigint,
+  seed: string,
+): Promise<void> {
   const tick = (await rpc.tickInfo()).tick + 6;
   const result = await invokeProcedure({
     seed,
@@ -280,7 +311,12 @@ async function invoke(base: string, rpc: LiteRpc, slot: number, inputSeed: bigin
   }
 }
 
-async function plainTransfer(base: string, rpc: LiteRpc, slot: number, seed: string): Promise<void> {
+async function plainTransfer(
+  base: string,
+  rpc: LiteRpc,
+  slot: number,
+  seed: string,
+): Promise<void> {
   const tick = (await rpc.tickInfo()).tick + 6;
   const result = await invokeProcedure({
     seed,
@@ -321,10 +357,16 @@ async function execute(
   const calleeRead = await rpc.stateRead(callee.slot, 0, calleeDigest.stateSize);
   const driverState = new Uint8Array(Buffer.from(driverRead.hex, "hex"));
   const calleeState = new Uint8Array(Buffer.from(calleeRead.hex, "hex"));
-  if (driverRead.stateSize !== driverDigest.stateSize || driverState.byteLength !== driverDigest.stateSize) {
+  if (
+    driverRead.stateSize !== driverDigest.stateSize ||
+    driverState.byteLength !== driverDigest.stateSize
+  ) {
     fail(`${base} ${compiler} driver state read is incomplete`);
   }
-  if (calleeRead.stateSize !== calleeDigest.stateSize || calleeState.byteLength !== calleeDigest.stateSize) {
+  if (
+    calleeRead.stateSize !== calleeDigest.stateSize ||
+    calleeState.byteLength !== calleeDigest.stateSize
+  ) {
     fail(`${base} ${compiler} callee state read is incomplete`);
   }
   return {
@@ -340,17 +382,29 @@ async function execute(
 }
 
 function assertExpected(result: Result, label: string): void {
-  const driver = new DataView(result.driverOutput.buffer, result.driverOutput.byteOffset, result.driverOutput.byteLength);
+  const driver = new DataView(
+    result.driverOutput.buffer,
+    result.driverOutput.byteOffset,
+    result.driverOutput.byteLength,
+  );
   const expected = [63n, 4n, 16n, 16n, 16n, 11n, 57n, 2n, 2n, 0x51494e4954574153n];
   expected.forEach((value, index) => {
     const actual = driver.getBigUint64((index + 1) * 8, true);
-    if (actual !== value) fail(`${label} driver output word ${index + 1}: ${actual} != ${value}`);
+    if (actual !== value) {
+      fail(`${label} driver output word ${index + 1}: ${actual} != ${value}`);
+    }
   });
-  const callee = new DataView(result.calleeOutput.buffer, result.calleeOutput.byteOffset, result.calleeOutput.byteLength);
+  const callee = new DataView(
+    result.calleeOutput.buffer,
+    result.calleeOutput.byteOffset,
+    result.calleeOutput.byteLength,
+  );
   const calleeExpected = [57n, 2n, 0x43414c4c45455741n];
   calleeExpected.forEach((value, index) => {
     const actual = callee.getBigUint64(index * 8, true);
-    if (actual !== value) fail(`${label} callee output word ${index}: ${actual} != ${value}`);
+    if (actual !== value) {
+      fail(`${label} callee output word ${index}: ${actual} != ${value}`);
+    }
   });
 }
 
@@ -358,8 +412,12 @@ await initK12();
 console.log("CMake proof", JSON.stringify(cmakeProof()));
 const coreRpc = new LiteRpc(rpcBase);
 const registry = await coreRpc.dynRegistry();
-if (registry.contracts.some((contract) => contract.armed)) fail("core node must start with empty dynamic slots");
-if (registry.slotCount < 4) fail(`need four dynamic slots, node exposes ${registry.slotCount}`);
+if (registry.contracts.some((contract) => contract.armed)) {
+  fail("core node must start with empty dynamic slots");
+}
+if (registry.slotCount < 4) {
+  fail(`need four dynamic slots, node exposes ${registry.slotCount}`);
+}
 const slots = [0, 1, 2, 3].map((offset) => registry.slotBase + offset);
 
 const qpiHeader = loadQpiHeader(core);
@@ -369,7 +427,9 @@ const artifacts = [
   ...(await compileClangPair(slots[2], slots[3])),
 ];
 for (const item of artifacts) {
-  console.log(`${item.compiler.padEnd(5)} ${item.role.padEnd(6)} slot ${item.slot}: ${item.wasm.length}B · ${item.hash}`);
+  console.log(
+    `${item.compiler.padEnd(5)} ${item.role.padEnd(6)} slot ${item.slot}: ${item.wasm.length}B · ${item.hash}`,
+  );
 }
 
 const virtualServer = new EngineServer(

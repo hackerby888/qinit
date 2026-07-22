@@ -14,7 +14,7 @@ import type {
 
 const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };
 
-// --- AST builder helpers ---- Cast through `any` so test builders stay concise. Every helper produces objects whose
+// AST helpers use `any` to keep valid test objects concise.
 
 const nt = (name: string): TypeSpec => ({ kind: "name", name, span: NO_SPAN }) as TypeSpec;
 const vd = (): TypeSpec => ({ kind: "void", span: NO_SPAN }) as TypeSpec;

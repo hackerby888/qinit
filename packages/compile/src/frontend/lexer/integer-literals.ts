@@ -1,8 +1,8 @@
-// Parse an integer literal value (handles 0x, 0b, 0 prefixes and suffixes)
+// Parse an integer literal with C++ base prefixes, suffixes, and digit separators.
 export function parseIntLiteral(literalText: string): bigint {
     let normalizedText = literalText.toLowerCase();
     let base: number;
-    // Strip suffix and C++14 digit separators
+    // Strip suffixes and C++14 digit separators.
     normalizedText = normalizedText.replace(/(ull?|ll?u?|u|l)$/, "").replace(/'/g, "");
     if (normalizedText.startsWith("0x")) {
         base = 16;
@@ -19,7 +19,13 @@ export function parseIntLiteral(literalText: string): bigint {
     else {
         base = 10;
     }
-    // Convert with the detected base. Earlier this reparsed `s` as decimal regardless of base, so
-    const prefix = base === 16 ? "0x" : base === 2 ? "0b" : base === 8 ? "0o" : "";
+    // Preserve the detected base when converting the normalized digits.
+    let prefix = "";
+    if (base === 16)
+        prefix = "0x";
+    else if (base === 2)
+        prefix = "0b";
+    else if (base === 8)
+        prefix = "0o";
     return BigInt(prefix + (normalizedText || "0"));
 }

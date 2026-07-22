@@ -129,7 +129,7 @@ describe("operators and punctuators", () => {
   });
 
   test("ellipsis (...) tokenization", () => {
-    // NOTE: lexer has a peekChar(2) vs peekChar(1) bug in the ellipsis check — ... currently produces three "dot"
+    // The ellipsis check currently tokenizes `...` as three dot tokens.
     const toks = new Lexer("...").tokenize();
     // Expected after fix: expect(toks[0].kind).toBe("ellipsis");
     expect(toks[0].kind).toBe("dot");

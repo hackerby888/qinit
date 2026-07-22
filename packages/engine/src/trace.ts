@@ -1,5 +1,4 @@
-// Debug-trace recorder for the VirtualNode — fills the DebugEntry/DebugTrace shape the node's RPC
-// returns, so `qinit debug`/`call --trace`/`state` and the browser IDE's tx inspector light up against
+// Records VirtualNode debug traces for CLI and IDE inspection.
 import { toHex } from "./k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
 

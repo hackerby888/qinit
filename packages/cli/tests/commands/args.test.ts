@@ -1,5 +1,4 @@
-// parseArgs is the one parser every command routes through — its boolean/multi/positional rules are the
-// contract that replaced the old per-command off-by-ones, so they're worth pinning. nearest drives the
+// Pin the shared parser's flag, positional, and nearest-match behavior.
 import { test, expect } from "bun:test";
 import { parseArgs, nearest, initOutput, output } from "../../src/args";
 

@@ -101,7 +101,7 @@ class Gen {
     return this.scalarLeaf();
   }
 
-  // Comparison of two uint128 values — yields a scalar bool. The left side is always
+  // Comparisons keep a uint128 left operand and return a scalar bool.
   private u128Compare(depth: number): string {
     const operator = this.pick(["==", "<", ">", "<=", ">="]);
     return `(${this.u128Expr(depth)} ${operator} ${this.u128Expr(depth)})`;
@@ -109,7 +109,7 @@ class Gen {
 
   // ---- uint128 layer ----
 
-  // The count is spelled as a uint128 cast: a bare int count is AMBIGUOUS natively (uint128_t's non-explicit operator
+  // Cast shift counts to uint128 so the member operator wins overload resolution.
   private shiftCount(): string {
     if (this.chance(0.6)) {
       return `(uint128)(${this.pick(SHIFT_COUNTS)}ull)`;
@@ -232,7 +232,7 @@ class Gen {
     this.stmtBudget = 24;
     const lines: string[] = [];
 
-    // Declarations use the two-arg constructor form only: our declaration-initializer path does not yet lower a general `(uint128)(expr)` cast
+    // Declaration casts are not lowered yet, so use two-argument construction.
     const u128Count = 2 + this.int(3);
     for (let k = 0; k < u128Count; k++) {
       const name = this.freshName("q");

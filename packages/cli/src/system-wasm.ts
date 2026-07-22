@@ -1,5 +1,4 @@
-// Compile + disk-cache the built-in system contracts (QX, QEARN, …) for the virtual node. Shared by the
-// `qinit system` command and the node-run boot seeding. Cache lives at
+// Compile and cache built-in system contracts for the command and virtual-node startup.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cacheRoot, readCurrent } from "@qinit/core";

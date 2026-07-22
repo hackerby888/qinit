@@ -1,6 +1,6 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// A system contract's on-chain ticker can differ from its C++ struct type (e.g. ticker QTRY -> struct QUOTTERY).
-// The wrapper must #define CONTRACT_STATE_TYPE to the STRUCT type, not the ticker, or the build fails with
+// A system contract's ticker can differ from its C++ state type, such as QTRY and QUOTTERY.
+// The wrapper must use the state type in its contract-state defines.
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { genWrapperWasm } from "../../src/recipe";

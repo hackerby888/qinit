@@ -1,5 +1,4 @@
-// Generate the clangd compile DB that turns a qpi.h-constrained contract .h into a fully-resolved C++
-// translation unit FOR THE EDITOR — without the author needing the `#include "qpi.h"` dev-hack, and
+// Generate a clangd database that resolves QPI contracts without a local qpi.h include.
 import { writeFileSync, mkdirSync, readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
@@ -57,15 +56,13 @@ function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: str
     "-std=c++20",
     "-fno-rtti",
     "-fno-exceptions",
-    // Editor-only suppressions for artifacts of the parse-only TU (we omit the post-contract impl
-    // headers that the real build links): -Wundefined-inline fires because qpi.h declares inlines
+    // Suppress undefined-inline warnings caused by omitting link-only headers from this parse-only TU.
     "-Wno-undefined-inline",
     "-DLITEDYN_CONTRACT_TU",
     "-include",
     shim,
     ...(o.wasiSysroot ? [`--sysroot=${fwd(o.wasiSysroot)}`] : []),
-    // Core headers as SYSTEM headers (not -I): clangd then excludes qpi.h's internal symbols from its
-    // cross-file index (cutting the completion flood) + suppresses qpi.h's own diagnostics. Index-only —
+    // Treat core headers as system headers to hide QPI internals from completion and diagnostics.
     "-isystem",
     core,
     "-isystem",
@@ -73,8 +70,7 @@ function compileArgs(o: { wasiClang: string; corePath: string; wasiSysroot?: str
   ];
 }
 
-// Make clangd the sole C++ IntelliSense provider in the project: disable the Microsoft C/C++
-// extension's engine so it never squiggles QPI code it can't understand (no qpi.h). Merge-safe: only
+// Make clangd the C++ provider without overwriting existing editor settings.
 export function ensureEditorSettings(workspaceRoot: string): void {
   const dir = join(workspaceRoot, ".vscode");
   const file = join(dir, "settings.json");
@@ -87,8 +83,7 @@ export function ensureEditorSettings(workspaceRoot: string): void {
     } // JSONC/garbled → don't risk clobbering
     if (typeof settings !== "object" || settings === null || Array.isArray(settings)) return;
   }
-  // clangd is the C++ provider here. Turn the MS C/C++ extension's engine off AND force its error
-  // squiggles off — its default `enabledIfIncludesResolve` still squiggles "cannot open qpi.h" using
+  // Disable both cpptools IntelliSense and squiggles when the user has not configured them.
   let changed = false;
   for (const [k, v] of [
     ["C_Cpp.intelliSenseEngine", "disabled"],
@@ -119,8 +114,7 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   } catch {
     /* not yet on disk */
   }
-  // CONTRACT_STATE_TYPE name: the actual `struct <Name> : public ContractBase` in the SOURCE wins —
-  // the file may not match qinit.json (e.g. you pasted ESCROW into Counter.h). Fall back to qinit.json
+  // Prefer the state type parsed from source, then fall back to the configured or derived name.
   const detected = detectStateType(source);
   const name =
     detected && detected !== "CONTRACT_STATE_TYPE" ? detected : deriveName(o.contractPath, o.name);
@@ -128,8 +122,7 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   const dir = join(o.workspaceRoot, ".qinit", "clangd");
   mkdirSync(dir, { recursive: true });
 
-  // Inter-contract prelude — same input the real build feeds genWrapperWasm. Best-effort: a contract
-  // with no CALL_OTHER_CONTRACT_* yields "" (without touching corePath); a resolve failure must not
+  // Build the same inter-contract prelude as the real compiler, best-effort.
   let calleePrelude = "";
   try {
     calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {});
@@ -195,8 +188,7 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   return { dir, prefixPath, contractFile, dbPath, dotClangdPath, name, slot, args };
 }
 
-// Clangd compile entry for a standard core-lite contract_testing.h gtest. The contract wrapper and Qinit's
-// private Wasm registry are force-included; a local redirect header supplies the virtual-node implementation
+// Generate a clangd entry for a standard gtest with the contract and virtual-node harness.
 export function generateTestClangdConfig(o: ClangdInputs & { testPath: string }): {
   dbPath: string;
   prefixPath: string;

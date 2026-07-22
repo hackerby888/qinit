@@ -1,5 +1,4 @@
-// Phase 3 — assets/shares: issueAsset, isAssetIssued, numberOfShares, numberOfPossessedShares,
-// transferShareOwnershipAndPossession, and distributeDividends. Driven through the Token + Dividend fixtures
+// Asset and share flows exercised through the Token and Dividend fixtures.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, deriveKeysSync, signSync, k12Bytes, toHex } from "../../src/k12";
@@ -155,7 +154,8 @@ test("transferShareManagementRights moves the managing contract; the possessor i
 
   expect(sharesByMgmt(sim, 28)).toBe(600n); // 600 still managed by the issuer
   expect(sharesByMgmt(sim, 30)).toBe(400n); // 400 now managed by contract 30
-  expect(i64(sim.query(28, 3, possIn(TOKEN, SELF)))).toBe(600n); // Token's own (contract-28-managed) possession dropped to 600
+  // Token's own contract-managed possession dropped to 600.
+  expect(i64(sim.query(28, 3, possIn(TOKEN, SELF)))).toBe(600n);
 
   // a partial move with insufficient shares under the source manager fails
   expect(sim.transferShareManagementRights(TOKEN, SELF, SELF, SELF, 28, 30, 1000n)).toBe(false);

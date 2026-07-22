@@ -19,7 +19,7 @@ export type {
   WasmInspectionDiagnostic,
 } from "./compiler/wasm-inspect";
 
-// Bumped when the compile request/result contract visible to embedders (worker protocols, IDE facades) changes incompatibly — lets a
+// Increment when the public compile protocol changes incompatibly.
 export const COMPILER_PROTOCOL_VERSION = 2;
 
 export interface CompilerInfo {

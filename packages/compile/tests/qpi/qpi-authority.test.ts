@@ -14,8 +14,7 @@ beforeAll(async () => {
   await initK12();
 });
 
-// Calls every public operation in the source-backed container families and each
-// source-backed arithmetic family. Compilation is lazy, so this is also the
+// Forces lazy compilation of every source-backed container and arithmetic family.
 const CAPABILITY_SOURCE = `using namespace QPI;
 struct CustomHash
 {

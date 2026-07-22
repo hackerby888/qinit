@@ -89,14 +89,14 @@ export class DeclarationParser {
             case "kw_union":
                 return this.parser.records.parseUnion();
             case "kw_operator": {
-                // Conversion operator: `operator Type() const { ... }` — no leading return type. Parsed as a
+                // Conversion operators use their target as the return type.
                 this.parser.state.next();
                 const targetType = this.parser.types.parseTypeSpec();
                 const targetName = targetType.kind === "name" ? targetType.name : "?";
                 return this.parser.functions.parseFunctionRest(`operator ${targetName}`, targetType, false, false, false, false, false);
             }
             default:
-                // Skip unknown token — qpi.h has constructs our subset parser doesn't handle. Recorded as a
+                // Record unsupported qpi.h constructs as fidelity warnings.
                 this.parser.state.bodyDiagnostics.push({
                     severity: "warning",
                     category: "fidelity",

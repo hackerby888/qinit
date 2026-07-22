@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Collection maintenance parity checks: - remove() marks emptied PoVs and updates `_markRemovalCounter`.
+// Checks Collection removal counters and cleanup thresholds against native behavior.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { buildContract } from "@qinit/build";

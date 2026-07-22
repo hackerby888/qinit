@@ -1,5 +1,4 @@
-// Typed wire-struct views (wire.ts). The layout is derived by `defineStruct` emulating the C compiler's
-// natural-alignment rules, so these tests pin three things: (1) every auto-computed SIZE/offset equals the C++
+// Verifies typed wire views match C++ sizes, offsets, and round-trip behavior.
 import { test, expect } from "bun:test";
 import {
   M256i,

@@ -29,14 +29,14 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
             collectFunctionLocals(statement.body, context);
             break;
         case "declaration": {
-            // A struct declared inside a function body (QUTIL setupNewProposal's `struct Shareholder {...}`) isn't in globalStructs, so sizeof(Shareholder) and
+            // Register function-local structs so their size and fields resolve.
             if (statement.declaration.kind === "struct") {
                 const structDeclaration = statement.declaration as StructDecl;
                 if (structDeclaration.name && !context.programAnalysis.globalStructs.has(structDeclaration.name))
                     context.programAnalysis.globalStructs.set(structDeclaration.name, structDeclaration);
                 break;
             }
-            // Function-scope alias (`using Local = sint64;`): record it so locals declared with the alias name resolve as known
+            // Register function-local aliases before classifying later locals.
             if (statement.declaration.kind === "typedef_decl") {
                 const td = statement.declaration as {
                     name: string;
@@ -48,7 +48,7 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
             }
             if (statement.declaration.kind === "variable") {
                 const variableDeclaration = statement.declaration as VariableDecl;
-                // reference/pointer locals hold an address (i32); scalars use the i64 value model. A __ScopedScratchpad
+                // Store references, pointers, scratchpads, and iterators as i32 addresses.
                 const holdsAddr = variableDeclaration.type.kind === "name" && /(ScopedScratchpad|Iterator)$/.test(variableDeclaration.type.name);
                 const templateBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
                 // `auto` locals take their shape from the initializer; casts supply full type (e.g., auto* queue = reinterpret_cast<sint64_4*>(...)).
@@ -83,7 +83,7 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
                         }
                     }
                 }
-                // A local of an unresolvable named type would silently corrupt the locals layout (size 0, scalar fallback) —
+                // Reject unresolved local types before a zero-size scalar fallback.
                 if (dType.kind === "name" &&
                     !isAutoType(dType) &&
                     SCALAR_SIZE[dType.name] === undefined &&
@@ -95,14 +95,14 @@ export function collectFunctionLocals(statement: Statement, context: FunctionEmi
                     !context.programAnalysis.structByName(dType.name, templateBindings)) {
                     context.programAnalysis.error(`unknown type '${dType.name}' in declaration of '${variableDeclaration.name}'`, statement.span.line);
                 }
-                // A struct-typed local (DateAndTime begin = *this) lives in an allocated slot; its wasm local holds the slot
+                // Store aggregate locals in allocated slots referenced by i32 locals.
                 const concrete = dType.kind === "name" && templateBindings.types.has(dType.name) ? templateBindings.types.get(dType.name)! : dType;
                 const isAgg = !holdsAddr &&
                     dType.kind !== "reference" &&
                     dType.kind !== "pointer" &&
                     context.programAnalysis.isAggregateType(concrete);
                 const isRef = dType.kind === "reference" || dType.kind === "pointer" || holdsAddr || isAgg;
-                // In a ProposalVoting proxy method the `pv`/`qpi` aliases (`ProposalVotingType& pv = this->pv`) are bound as the function's own
+                // Skip proxy aliases already bound as function parameters.
                 if (context.proxyClass && isRef && (variableDeclaration.name === "pv" || variableDeclaration.name === "qpi"))
                     break;
                 const wasmType: "i32" | "i64" = isRef ? "i32" : "i64";

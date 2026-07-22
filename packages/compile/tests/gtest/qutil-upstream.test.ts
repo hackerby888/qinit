@@ -1,4 +1,4 @@
-// Upstream Qubic gtest corpus (core-lite/test/contract_qutil.cpp, 51 TEST cases) driven against contracts-under-test deployed in a Sim. Backend selected by
+// Runs the upstream QUTIL gtest corpus against deployable contracts in Sim.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import {

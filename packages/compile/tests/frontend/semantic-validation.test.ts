@@ -50,7 +50,7 @@ const REJECTS: Record<string, Rejects> = {
     msg: /already declared/i,
   },
   "local shadows outer scope": {
-    // Verified divergence: natively the outer v (1) survives the block; our single-slot lowering read back 2. Rejected until
+    // Native keeps outer v = 1; the old single-slot lowering read back 2.
     src: wrap(`uint64 v = 1; { uint64 v = 2; state.mut().a = v; } state.mut().a = v;`),
     msg: /shadow/i,
   },

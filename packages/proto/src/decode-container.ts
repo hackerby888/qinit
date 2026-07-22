@@ -1,5 +1,4 @@
-// Logical-entry decode for QPI containers. Given a container's raw bytes + its element key/value formats +
-// capacity, walk the 2-bit occupation flags and emit the OCCUPIED entries (key/value decoded). On-wire layout
+// Decode occupied QPI container entries from raw layouts and two-bit flags.
 import { decodeOutput, structFieldOffsets, layoutOf } from "./abi-fmt";
 import { flagWordCount, hashMapElemFmt, collectionElemFmt, COLLECTION_POV_FMT } from "./qpi-layout";
 import { roundUp } from "@qinit/core";

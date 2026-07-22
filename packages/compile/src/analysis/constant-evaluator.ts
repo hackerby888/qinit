@@ -63,7 +63,7 @@ export function resolveConst(
     }
     const initializer = context.constexprInit.get(name);
     if (initializer === undefined) {
-        // A callee's index constant (`QX_CONTRACT_INDEX`) isn't declared in this contract's source, so resolve it from the provided callee
+        // Resolve a callee's contract-index constant from its supplied metadata.
         const ci = name.match(/^(\w+)_CONTRACT_INDEX$/);
         if (ci) {
             const candidate = context.callees.get(ci[1]);
@@ -72,7 +72,7 @@ export function resolveConst(
                 return BigInt(candidate.index);
             }
         }
-        // namespace-qualified constant (ProposalTypes::Class::GeneralOptions): constants are collected by their unqualified name, so fall back to the tail after the
+        // Fall back to the unqualified tail of a namespace constant.
         return separator >= 0 ? context.resolveConst(name.slice(separator + 2), templateBindings) : null;
     }
     if (context.constInProgress.has(name))

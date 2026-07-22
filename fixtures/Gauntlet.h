@@ -1,5 +1,4 @@
-// QPI edge-case gauntlet for `qinit test` / CI deploy-smoke. Exercises a broad QPI surface the
-// counter fixtures: div/mod (incl. divide-by-zero -> 0), unsigned + signed wrap arithmetic.
+// Exercises QPI arithmetic edge cases beyond the counter fixtures, including zero divisors and wrapping.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE
@@ -109,7 +108,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     PUBLIC_FUNCTION(SignedOp)
     {
         output.q = QPI::div(input.a, input.b);   // QPI:: — unqualified div(long long,long long) hits stdlib lldiv_t
-        output.r = QPI::mod(input.a, input.b);   // truncates toward zero / sign follows dividend (-7 div 2=-3, -7 mod 2=-1)
+        // Signed division truncates toward zero; modulo follows the dividend sign.
+        output.r = QPI::mod(input.a, input.b);
         output.sum = input.a + input.b;
     }
 

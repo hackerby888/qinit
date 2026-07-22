@@ -5,7 +5,7 @@ import type { FnSig, ValidatorInternals } from "./validator-context";
 
 export function canonTypeKey(context: ValidatorInternals, type: TypeSpec): string {
     const unwrappedType = unwrapType(type);
-    // Template value arguments canonicalize to their constant values, so Array<uint8, ALIGNED_A> and Array<uint8, ALIGNED_B> compare equal when both
+    // Canonicalize constant template arguments so equal values compare equal.
     if (unwrappedType.kind === "template_instance") {
         const callArguments = unwrappedType.callArguments.map((argument) => {
             if (argument.kind === "name") {

@@ -21,7 +21,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
         context.scratchpadLocals?.has(expression.object.name)) {
         return watIr.operation("i64.extend_i32_u", watIr.localGet(expression.object.name, "i32"));
     }
-    // A uint128-valued expression used in a scalar/boolean context (a `while(z)` / `if(z)` truthiness test): materialize it and collapse
+    // Collapse materialized uint128 truthiness to a scalar boolean.
     if ((expression.kind === "call" ||
         expression.kind === "binary_op" ||
         expression.kind === "identifier" ||
@@ -51,7 +51,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
         case "paren":
             return lowerValueExpression(context, expression.expression);
         case "identifier": {
-            // a reference local is an address, not a scalar value — its scalar use is always via a
+            // Load reference locals through their stored address.
             if (context.localVars.has(expression.name) && !context.refLocals?.has(expression.name)) {
                 return watIr.localGet(expression.name, context.localVars.get(expression.name)!.wasmType);
             }
@@ -62,7 +62,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             const type = context.params?.get(expression.name);
             if (type && !type.isAddr)
                 return watIr.localGet(type.local ?? expression.name, type.wasmType);
-            // A pointer param read as a value (if (ptr), ptr == NULL) is the held address; a scalar
+            // Read pointer parameters as addresses and scalar parameters as values.
             if (type && type.isAddr && type.type.kind === "pointer")
                 return watIr.operation("i64.extend_i32_u", watIr.localGet(type.local ?? expression.name, "i32"));
             if (type && type.isAddr && !context.programAnalysis.isAggregateType(type.type))
@@ -76,7 +76,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 if (line !== undefined)
                     return watIr.i64Constant((context.programAnalysis.slot << 22) | (line & 0x3fffff));
             }
-            // inside a compiled container method: a template non-type param (L), a static constexpr member (_nEncodedFlags), or a bare
+            // Resolve template constants and bare members in compiled instance methods.
             if (context.thisBind?.values.has(expression.name))
                 return watIr.i64Constant(context.thisBind.values.get(expression.name)!);
             if (context.staticConsts?.has(expression.name))
@@ -86,7 +86,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 if (tn && tn.size <= 8)
                     return lowerScalarLoad(tn.addr, tn.size, isSignedScalarType(tn.type, context.programAnalysis));
             }
-            // entry-fn `input`/`output` typed by a scalar typedef (typedef uint16 SetShareholderProposal_output): the io name is a region address, so
+            // Load scalar-typedef entry I/O through its region address.
             if ((expression.name === "input" || expression.name === "output") && !context.localVars.has(expression.name)) {
                 const io = context.lowering.resolveExpressionAddress(context, expression);
                 if (io && io.size > 0 && io.size <= 8 && (!io.layout || io.layout.fields.size === 0)) {
@@ -111,7 +111,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 context.programAnalysis.warn(`aggregate value read unsupported [${describeShape(expression)}]`, expression.span.line);
                 return watIr.i64Constant(0);
             }
-            // a static constexpr member of the object's type (pv.maxProposals / pv.maxVotes on ProposalVoting<P,D>): not a runtime field, so
+            // Fold static constexpr members instead of treating them as runtime fields.
             const obj = context.lowering.resolveExpressionAddress(context, expression.object);
             let ot: TypeSpec | null = obj?.type ?? null;
             for (let index = 0; index < 8 && ot?.kind === "name"; index++)
@@ -121,7 +121,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 if (sc.has(expression.member))
                     return watIr.i64Constant(sc.get(expression.member)!);
             }
-            // the same static constexpr read through an inline-typed object (data.variableScalar carries its union/struct decl inline): fold the member's
+            // Fold static constexpr members reached through inline-typed objects.
             if (ot?.kind === "inline_struct") {
                 const sm = ot.struct.members.find((member) => member.kind === "variable" &&
                     (member as VariableDecl).name === expression.member &&
@@ -154,7 +154,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
         case "template_call": {
             if (expression.callee.kind === "identifier") {
                 const name = expression.callee.name;
-                // C++ cast spelled as a template call. static_cast narrows to its target width; reinterpret_cast/
+                // Narrow static casts; keep pointer reinterpret casts on the address path.
                 if ((name === "static_cast" || name === "reinterpret_cast" || name === "const_cast") &&
                     expression.callArguments[0]) {
                     const inner = lowerValueExpression(context, expression.callArguments[0]);
@@ -190,7 +190,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 }
             }
             const valueNode = lowerValueExpression(context, expression.argument);
-            // A 32-bit result wraps at 32 bits, so - and ~ reduce back to the canonical form: mask
+            // Re-canonicalize 32-bit unary results after wrapping.
             const info = context.lowering.scalarTypeInfo(context, expression);
             const mask32 = info !== null && info.width === 4 && info.unsigned;
             const sext32 = info !== null && info.width === 4 && !info.unsigned;
@@ -229,7 +229,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             return watIr.localGet(oldValueLocal, "i64");
         }
         case "ternary": {
-            // C++ evaluates the condition, then exactly ONE arm. wasm select is eager, so it is only safe
+            // Use select only when both ternary arms are pure and non-trapping.
             const cv = context.lowering.usualConversion(context, expression.then, expression.else_);
             const cvName = cv.width < 8 ? (cv.unsigned ? "uint32" : "sint32") : undefined;
             const condition = lowerValueExpression(context, expression.condition);
@@ -276,7 +276,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             const scalar = context.lowering.scalarTypeInfo(context, expression.expression);
             if (scalar)
                 return watIr.i64Constant(scalar.width);
-            // sizeof(TypeName) parses here when the operand is a bare type (e.g. sizeof(Element)) rather than
+            // Handle bare type names parsed as sizeof expressions.
             if (expression.expression.kind === "identifier") {
                 const byteSize = context.programAnalysis.sizeOfType({ kind: "name", name: expression.expression.name }, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
                 if (byteSize > 0)
@@ -286,7 +286,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             return watIr.i64Constant(0);
         }
         case "assign": {
-            // assignment used as a value — `while ((i = next()) >= 0)`, `a = b = 0`. Perform
+            // Execute assignment-valued expressions before returning their value.
             context.lowering.emitAssignment(context, expression);
             return lowerValueExpression(context, expression.left);
         }
@@ -298,7 +298,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
 export function emitValue(context: FunctionEmissionContext, expression: Expression): string {
     return watIr.serializeWatNode(lowerValueExpression(context, expression));
 }
-// Address+size of an operand that is an aggregate (id/m256i/struct): a struct-field lvalue, or a materialized id producer (SELF
+// Resolve aggregate operands to an address and size.
 export function aggOperand(context: FunctionEmissionContext, expression: Expression): {
     addr: string;
     size: number;

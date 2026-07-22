@@ -5,7 +5,7 @@ import type { Expression } from "../../../ast";
 import * as watIr from "../../../wat-ir";
 import { platformPrimitive } from "./platform-primitives";
 import { describeShape, qpiWrapperMethod } from "./call-shape";
-// rvalue call: a value helper, qpi getter, qpi valued host call, a value-returning container method, or a math
+// Lower calls used as scalar rvalues.
 export function emitCallValueIr(context: FunctionEmissionContext, expression: Expression & {
     kind: "call";
 }): watIr.WatNode {
@@ -91,7 +91,7 @@ export function emitCallValueIr(context: FunctionEmissionContext, expression: Ex
         }
         return watIr.operation("i64.extend_i32_u", watIr.operation("i64.eqz", combined));
     }
-    // ProposalVoting proxy `qpi(state.proposals).method(...)` — compile the real qpi.h proxy method against the wrapped ProposalVoting instance. A sibling proxy
+    // Compile sibling ProposalVoting proxy calls through the source-backed path.
     if (context.proxyClass) {
         const sib = context.lowering.emitProxySiblingCall(context, expression, true);
         if (sib !== null)
@@ -106,7 +106,7 @@ export function emitCallValueIr(context: FunctionEmissionContext, expression: Ex
             throw new Error(`authoritative proposal method '${wrapperMethod}' could not be lowered`);
         }
     }
-    // Inter-contract call in value context — the _E forms capture the InterContractCallError into a variable (`InterContractCallError err =
+    // Preserve the i32 error result for value-form inter-contract calls.
     if (expression.callee.kind === "identifier" &&
         (expression.callee.name === "__qpi_call_other" || expression.callee.name === "__qpi_invoke_other")) {
         const wat = context.lowering.emitInterContract(context, expression, expression.callee.name === "__qpi_invoke_other");
@@ -135,20 +135,20 @@ export function emitCallValueIr(context: FunctionEmissionContext, expression: Ex
     if (containerCallText !== null)
         return watIr.rawWatNode(containerCallText, "i64", "source-compiled instance method");
     context.lowering.emitQpiCall(context, expression);
-    // Functional-style scalar cast: uint64(x) / sint64(x) / uint8(x) / bit(x) ... — narrowed to the target
+    // Narrow functional scalar casts to the target width.
     if (expression.callee.kind === "identifier" &&
         SCALAR_SIZE[expression.callee.name] !== undefined &&
         expression.callArguments.length === 1) {
         return narrowCastIr(context.lowering.lowerValueExpression(context, expression.callArguments[0]), expression.callee.name);
     }
-    // The same cast through a template parameter: T(x) inside a qpi.h template body where T binds to a
+    // Resolve functional casts through bound template parameters.
     if (expression.callee.kind === "identifier" && expression.callArguments.length === 1) {
         const bound = context.thisBind?.types.get(expression.callee.name);
         if (bound?.kind === "name" && SCALAR_SIZE[bound.name] !== undefined) {
             return narrowCastIr(context.lowering.lowerValueExpression(context, expression.callArguments[0]), bound.name);
         }
     }
-    // uint128(i_high, i_low) two-arg constructor as a scalar value: the i64-collapsed model carries the low 64 bits, so the
+    // In the scalar model, a two-argument uint128 constructor yields its low limb.
     if (expression.callee.kind === "identifier" &&
         (expression.callee.name === "uint128" || expression.callee.name === "uint128_t") &&
         expression.callArguments.length === 2) {

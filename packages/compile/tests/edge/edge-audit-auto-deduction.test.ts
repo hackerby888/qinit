@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// `auto` must preserve the initializer's C++ type. Treating every deduced scalar as uint64 delays
+// Checks that `auto` preserves initializer types through later operations.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { Sim } from "@qinit/engine";

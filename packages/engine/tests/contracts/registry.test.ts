@@ -1,5 +1,4 @@
-// ContractRegistry (registry.ts) — the wasm-free surface in isolation: the empty store + the computer digest.
-// The deploy/fire path needs a real wasm Contract + HostServices, so it is covered by the Sim integration suites
+// ContractRegistry's Wasm-free store and computer digest in isolation.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex } from "../../src/k12";
 import { ContractRegistry } from "../../src/registry";

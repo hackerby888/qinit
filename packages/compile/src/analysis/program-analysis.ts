@@ -128,7 +128,7 @@ export class ProgramAnalysis {
     private sizeOfTypeInner(type: TypeSpec, templateBindings: TemplateBindings): number {
         return analysisPart2.sizeOfTypeInner(this as unknown as ProgramAnalysisInternals, type, templateBindings);
     }
-    // Resolve a dependent member type `Selector<args>::member` (e.g. ProposalVoting's
+    // Resolve a dependent member type such as `Selector<args>::member`.
     private resolveDependentMember(type: Extract<TypeSpec, {
         kind: "dependent_member";
     }>, templateBindings: TemplateBindings): {
@@ -137,7 +137,7 @@ export class ProgramAnalysis {
     } | null {
         return analysisPart2.resolveDependentMember(this as unknown as ProgramAnalysisInternals, type, templateBindings);
     }
-    // Select the template definition for `name<args>` and build its parameter bindings. A partial/explicit
+    // Select the matching template definition and bind its parameters.
     private instantiateTemplate(name: string, callArguments: TypeSpec[], parent: TemplateBindings): {
         templateDeclaration: ClassTemplate;
         b: TemplateBindings;
@@ -153,30 +153,30 @@ export class ProgramAnalysis {
     private instantiateTemplateBindings(templateDeclaration: ClassTemplate, resolvedArguments: TypeSpec[], parent: TemplateBindings): TemplateBindings {
         return analysisPart3.instantiateTemplateBindings(this as unknown as ProgramAnalysisInternals, templateDeclaration, resolvedArguments, parent);
     }
-    // Evaluate a template's own static constexpr members into the bindings (BitArray::_elements = (L+63)/64, ProposalWithAllVoteData::supportScalarVotes), so a member array
+    // Add a template's static constexpr members to its bindings.
     private withStaticConsts(templateDeclaration: ClassTemplate, templateBindings: TemplateBindings): TemplateBindings {
         return analysisPart3.withStaticConsts(this as unknown as ProgramAnalysisInternals, templateDeclaration, templateBindings);
     }
-    // Instantiate a template (HashMap<id,uint64,1024>, Array<T,L>, ...) and compute its exact layout by substituting type args + non-type args
+    // Instantiate a template and compute its layout from concrete arguments.
     private layoutOfTemplate(name: string, callArguments: TypeSpec[], parent: TemplateBindings): StructLayout {
         return analysisPart3.layoutOfTemplate(this as unknown as ProgramAnalysisInternals, name, callArguments, parent);
     }
-    // Add the struct declarations among `members` to a child binding scope so field types that reference a sibling
+    // Add member structs to a child scope for sibling type references.
     private withLocalStructs(members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
         return analysisPart3.withLocalStructs(this as unknown as ProgramAnalysisInternals, members, templateBindings);
     }
-    // If a field's type names a sibling nested struct/union (registered in the local-struct scope), return it as an
+    // Carry sibling nested structs and unions as inline types.
     private inlineNestedStruct(type: TypeSpec, templateBindings: TemplateBindings): TypeSpec {
         return analysisPart3.inlineNestedStruct(this as unknown as ProgramAnalysisInternals, type, templateBindings);
     }
     private fallbackTemplateLayout(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings): StructLayout {
         return analysisPart3.fallbackTemplateLayout(this as unknown as ProgramAnalysisInternals, name, callArguments, templateBindings);
     }
-    // Resolve a type name to its concrete type, chasing both template-parameter bindings and contract/qpi typedefs (e.g. ProposalVotingT ->
+    // Resolve template bindings and contract or QPI typedefs to concrete types.
     resolveType(type: TypeSpec, templateBindings: TemplateBindings, depth = 0): TypeSpec {
         return analysisPart2.resolveType(this as unknown as ProgramAnalysisInternals, type, templateBindings, depth);
     }
-    // Resolve a member/element type that is written in terms of a parent template instance's own parameters and nested
+    // Resolve member types against their parent template instance.
     concreteMemberType(type: TypeSpec, parent: TypeSpec & {
         kind: "template_instance";
     }, depth = 0): TypeSpec {
@@ -195,7 +195,7 @@ export class ProgramAnalysis {
     }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec[] {
         return analysisPart2.resolveTemplateInstanceArguments(this as unknown as ProgramAnalysisInternals, type, scope, nested, depth);
     }
-    // Public: substitute a type through bindings (T→sint64, L→4) — turns a template free fn's param type `Array<T,L>` into
+    // Substitute concrete type and value bindings into a type.
     substInBindings(type: TypeSpec, bind: TemplateBindings): TypeSpec {
         return analysisPart2.substInBindings(this as unknown as ProgramAnalysisInternals, type, bind);
     }
@@ -209,18 +209,18 @@ export class ProgramAnalysis {
     layoutOf(struct: StructDecl): StructLayout {
         return analysisPart4.layoutOf(this as unknown as ProgramAnalysisInternals, struct);
     }
-    // A base class contributes its fields (laid out at the start of the derived object) and its static
+    // Collect a base class's leading fields and static constants.
     private baseContribution(baseType: TypeSpec, parentB: TemplateBindings): {
         layout: StructLayout;
         consts: Map<string, bigint>;
     } | null {
         return analysisPart4.baseContribution(this as unknown as ProgramAnalysisInternals, baseType, parentB);
     }
-    // Evaluate a `TypeName::member` static constexpr. Resolves TypeName through the current bindings and
+    // Evaluate a qualified static constexpr under the current bindings.
     private evalQualifiedConst(typeName: string, member: string, templateBindings: TemplateBindings): bigint | null {
         return analysisPart4.evalQualifiedConst(this as unknown as ProgramAnalysisInternals, typeName, member, templateBindings);
     }
-    // A layout cache key unique to each struct DECLARATION, not its (possibly shared) name. Two distinct structs
+    // Key layout caches by declaration identity, not a possibly shared name.
     private structKeys = new WeakMap<StructDecl, string>();
     private structKeyCounter = 0;
     private structCacheKey(struct: StructDecl): string {
@@ -271,7 +271,7 @@ export class ProgramAnalysis {
     registerCalleeContractDeclarations(name: string, declarations: Declaration[]): void {
         return analysisPart6.registerCalleeContractDeclarations(this as unknown as ProgramAnalysisInternals, name, declarations);
     }
-    // Inline methods of a nested struct (WinnerData::isValid, EscrowAsset::setFrom) dispatch through templateMethods like any plain-struct method — capture them
+    // Register nested-struct methods in the shared method table.
     private captureStructMethods(structDeclaration: StructDecl, names: string[]): void {
         return analysisPart6.captureStructMethods(this as unknown as ProgramAnalysisInternals, structDeclaration, names);
     }
@@ -282,18 +282,18 @@ export class ProgramAnalysis {
     alignOfType(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
         return analysisPart5.alignOfType(this as unknown as ProgramAnalysisInternals, type, templateBindings);
     }
-    // Resolve a struct by name across the binding / nested / global tables. Falls back to the unqualified
+    // Resolve structs through binding, nested, and global tables.
     structByName(name: string, templateBindings: TemplateBindings): StructDecl | undefined {
         return analysisPart6.structByName(this as unknown as ProgramAnalysisInternals, name, templateBindings);
     }
-    // `Head::Nested[::Deeper]` where Head is a template-parameter binding, a typedef, or a (possibly namespace-qualified) struct name (`typename OracleInterface::OracleReply` with
+    // Resolve qualified nested types through bindings, typedefs, and structs.
     qualifiedNestedType(name: string, templateBindings: TemplateBindings): TypeSpec | null {
         return analysisPart6.qualifiedNestedType(this as unknown as ProgramAnalysisInternals, name, templateBindings);
     }
     private walkNestedSegments(sd: StructDecl | null, segs: string[], templateBindings: TemplateBindings): TypeSpec | null {
         return analysisPart6.walkNestedSegments(this as unknown as ProgramAnalysisInternals, sd, segs, templateBindings);
     }
-    // Strip const/reference wrappers to the underlying type (a by-ref aggregate param holds an address to this type, and
+    // Strip const and reference wrappers to the underlying type.
     derefType(type: TypeSpec): TypeSpec {
         return analysisPart2.derefType(this as unknown as ProgramAnalysisInternals, type);
     }
@@ -388,7 +388,7 @@ export class ProgramAnalysis {
             parameterTypeDiscriminator,
         );
     }
-    // The hash-container's internal byte offsets, read from the PARSED qpi.h template layout (so they track the real field
+    // Read hash-container offsets from the parsed qpi.h layout.
     private hashContainerOffsets(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings, capacity: number): {
         elemSize: number;
         occBase: number;
@@ -397,7 +397,7 @@ export class ProgramAnalysis {
     } | null {
         return analysisPart8.hashContainerOffsets(this as unknown as ProgramAnalysisInternals, name, callArguments, templateBindings, capacity);
     }
-    // Concrete offsets/sizes for HashMap<K,V,L>. Key/value sizing follows standard C struct layout of
+    // Compute HashMap offsets using standard C field layout.
     hashmapInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): ContainerLayoutMetadata | null {
         return analysisPart8.hashmapInfo(this as unknown as ProgramAnalysisInternals, callArguments, templateBindings);
     }
@@ -408,7 +408,7 @@ export class ProgramAnalysis {
     arrayInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): ContainerLayoutMetadata | null {
         return analysisPart8.arrayInfo(this as unknown as ProgramAnalysisInternals, callArguments, templateBindings);
     }
-    // Backing-store geometry for Collection<T, L>.element(i) = _elements[i & (L-1)].value — all offsets read from the parsed layout (the
+    // Read Collection backing-store geometry from its parsed layout.
     collectionInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): {
         L: number;
         elementsOff: number;
@@ -418,7 +418,7 @@ export class ProgramAnalysis {
     } | null {
         return analysisPart8.collectionInfo(this as unknown as ProgramAnalysisInternals, callArguments, templateBindings);
     }
-    // Backing-store geometry for LinkedList<T, L>.element(i) = _nodes[i & (L-1)].value — offsets from the parsed layout (the Node record
+    // Read LinkedList backing-store geometry from its parsed node layout.
     linkedListInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): {
         L: number;
         nodesOff: number;
@@ -431,7 +431,7 @@ export class ProgramAnalysis {
     warn(message: string, at: number | Span): void {
         return analysisPart9.warn(this as unknown as ProgramAnalysisInternals, message, at);
     }
-    // Hard semantic errors (not fidelity warnings): these abort the build regardless of strict mode. Deduplicated because speculative emission
+    // Deduplicate hard semantic errors raised during speculative emission.
     error(message: string, at: number | Span): void {
         return analysisPart9.error(this as unknown as ProgramAnalysisInternals, message, at);
     }

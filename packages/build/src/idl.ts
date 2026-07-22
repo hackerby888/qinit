@@ -1,27 +1,50 @@
-// Extract an IDL from a qpi.h contract .h: REGISTER_USER_* names + _input/_output
-// struct layouts -> codec format strings. Output is keyed to match qinit.idl.json
+// Extract registered entries and struct layouts from a qpi.h contract into qinit.idl.json format.
 
 // QPI container layouts come from @qinit/proto qpi-layout (single source of truth shared with the decoders).
 import { hashMapFmt, hashSetFmt, collectionFmt } from "@qinit/proto/qpi-layout";
 
-// type = codec token (uint64, id, bytes32, [N;T], { ... }); container = QPI HashMap/HashSet meta (for logical decode).
-// struct/array = the resolved nested shape for typed codegen: `struct` holds the member fields when this field is a
-export interface Field { name: string; type: string; container?: { kind: "hashmap" | "hashset" | "collection"; keyFmt: string; valFmt?: string; capacity: number }; struct?: Field[]; array?: boolean }
-export interface IdlEntry { name: string; in: string; out?: string; inFields: Field[]; outFields?: Field[] }
+// `type` is the codec token; `container`, `struct`, and `array` retain richer decode/codegen metadata.
+export interface Field {
+  name: string;
+  type: string;
+  container?: {
+    kind: "hashmap" | "hashset" | "collection";
+    keyFmt: string;
+    valFmt?: string;
+    capacity: number;
+  };
+  struct?: Field[];
+  array?: boolean;
+}
+export interface IdlEntry {
+  name: string;
+  in: string;
+  out?: string;
+  inFields: Field[];
+  outFields?: Field[];
+}
 // A qpi LOG_* struct (ends with `sint8 _terminator`): fmt/fields cover only the members BEFORE the terminator
 // (what the node logs). The decoder size-matches a log's byte count against these. fmt = comma-joined types.
-export interface LogStruct { name: string; fmt: string; fields: string[] }
+export interface LogStruct {
+  name: string;
+  fmt: string;
+  fields: string[];
+}
 // A C++ enum -> { value: memberName } (value stringified). Used to resolve a log's `_type` discriminator to a name.
-export interface EnumDef { name: string; members: Record<string, string>; base?: string }
+export interface EnumDef {
+  name: string;
+  members: Record<string, string>;
+  base?: string;
+}
 export interface ContractIdl {
   name: string;
   functions: Record<string, IdlEntry>;
   procedures: Record<string, IdlEntry>;
-  state?: Field[];        // StateData fields (name + codec type) for field-level state-diff naming
+  state?: Field[]; // StateData fields (name + codec type) for field-level state-diff naming
   logStructs?: LogStruct[]; // log-message struct catalog (for contract-log decode in the debugger)
-  enums?: EnumDef[];      // enums (e.g. log message kinds) -> name the `_type` discriminator
-  migrate?: boolean;      // contract declares MIGRATE() -> a redeploy with matching OldStateData runs __migrate
-  oldState?: Field[];     // OldStateData fields (the prior StateData layout the migration reads from)
+  enums?: EnumDef[]; // enums (e.g. log message kinds) -> name the `_type` discriminator
+  migrate?: boolean; // contract declares MIGRATE() -> a redeploy with matching OldStateData runs __migrate
+  oldState?: Field[]; // OldStateData fields (the prior StateData layout the migration reads from)
 }
 
 const SCALARS = new Set([
@@ -45,7 +68,8 @@ function collectStructs(src: string): Map<string, string> {
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) {
     const open = re.lastIndex - 1;
-    let depth = 1, i = open + 1;
+    let depth = 1;
+    let i = open + 1;
     for (; i < src.length && depth; i++) {
       if (src[i] === "{") depth++;
       else if (src[i] === "}") depth--;
@@ -55,11 +79,19 @@ function collectStructs(src: string): Map<string, string> {
   const bareDepth = new Map<string, number>();
   for (const s of all) {
     const body = src.slice(s.open + 1, s.close);
-    const parents = all.filter((p) => p.open < s.open && p.close > s.close).sort((a, b) => a.open - b.open).map((p) => p.name);
+    const parents = all
+      .filter((parent) => parent.open < s.open && parent.close > s.close)
+      .sort((a, b) => a.open - b.open)
+      .map((parent) => parent.name);
     // bare name resolves to the SHALLOWEST struct (e.g. the contract-level `Order` a StateData field references),
     // not the last-declared — a deeper function-nested struct of the same name must not shadow it.
-    if (!bareDepth.has(s.name) || parents.length < bareDepth.get(s.name)!) { out.set(s.name, body); bareDepth.set(s.name, parents.length); }
-    for (let k = 0; k < parents.length; k++) out.set([...parents.slice(k), s.name].join("::"), body);   // every scoped suffix (exact refs)
+    if (!bareDepth.has(s.name) || parents.length < bareDepth.get(s.name)!) {
+      out.set(s.name, body);
+      bareDepth.set(s.name, parents.length);
+    }
+    for (let k = 0; k < parents.length; k++) {
+      out.set([...parents.slice(k), s.name].join("::"), body);
+    }
   }
   return out;
 }
@@ -67,13 +99,17 @@ function collectStructs(src: string): Map<string, string> {
 // constexpr constants (name -> value) resolved from the contract source, so array/container sizes that use a
 // named constant (e.g. QEARN's Array<RoundInfo, QEARN_MAX_EPOCHS>) evaluate. Set per extractIdl().
 let g_consts = new Map<string, number>();
-let g_enums = new Map<string, string>();   // enum name -> underlying codec type — set per extractIdl()
-let g_typedefs = new Map<string, string>();   // typedef/using alias -> target type — set per extractIdl()
+let g_enums = new Map<string, string>(); // enum name -> underlying codec type — set per extractIdl()
+let g_typedefs = new Map<string, string>(); // typedef/using alias -> target type — set per extractIdl()
 // `typedef <target> <name>;` and `using <name> = <target>;` (skip function-pointer/template-heavy ones).
 function collectTypedefs(src: string): Map<string, string> {
   const out = new Map<string, string>();
-  for (const m of src.matchAll(/typedef\s+([\w:][\w:<>,\s*&]*?)\s+(\w+)\s*;/g)) if (!m[1].includes("(")) out.set(m[2], m[1].trim());
-  for (const m of src.matchAll(/using\s+(\w+)\s*=\s*([^;]+);/g)) if (!m[2].includes("(")) out.set(m[1], m[2].trim());
+  for (const m of src.matchAll(/typedef\s+([\w:][\w:<>,\s*&]*?)\s+(\w+)\s*;/g)) {
+    if (!m[1].includes("(")) out.set(m[2], m[1].trim());
+  }
+  for (const m of src.matchAll(/using\s+(\w+)\s*=\s*([^;]+);/g)) {
+    if (!m[2].includes("(")) out.set(m[1], m[2].trim());
+  }
   return out;
 }
 // Normalize a size expression: strip int suffixes + rewrite QPI div/mul/mod<T>(a,b) helpers to arithmetic.
@@ -82,24 +118,30 @@ function normalizeExpr(e: string): string {
   let prev = "";
   while (prev !== e) {
     prev = e;
-    e = e.replace(/\bdiv(?:\s*<[^>]*>)?\s*\(([^()]+?),([^()]+?)\)/g, "Math.trunc(($1)/($2))")
-         .replace(/\bmul(?:\s*<[^>]*>)?\s*\(([^()]+?),([^()]+?)\)/g, "(($1)*($2))")
-         .replace(/\bmod(?:\s*<[^>]*>)?\s*\(([^()]+?),([^()]+?)\)/g, "(($1)%($2))");
+    e = e
+      .replace(/\bdiv(?:\s*<[^>]*>)?\s*\(([^()]+?),([^()]+?)\)/g, "Math.trunc(($1)/($2))")
+      .replace(/\bmul(?:\s*<[^>]*>)?\s*\(([^()]+?),([^()]+?)\)/g, "(($1)*($2))")
+      .replace(/\bmod(?:\s*<[^>]*>)?\s*\(([^()]+?),([^()]+?)\)/g, "(($1)%($2))");
   }
   return e;
 }
 // Eval an arithmetic size expr (digits, operators, Math.trunc only — safe). null if any identifier is unresolved.
 function evalExpr(e: string): number | null {
   if (!/^(?:Math\.trunc|[0-9*/%+\-()\s.])+$/.test(e.trim())) return null;
-  try { return Math.trunc(Function(`return (${e})`)()); } catch { return null; }
+  try {
+    return Math.trunc(Function(`return (${e})`)());
+  } catch {
+    return null;
+  }
 }
-const subst = (e: string, m: Map<string, number>) => e.replace(/[A-Za-z_]\w*/g, (id) => (m.has(id) ? String(m.get(id)) : id));
+const subst = (e: string, m: Map<string, number>) =>
+  e.replace(/[A-Za-z_]\w*/g, (id) => (m.has(id) ? String(m.get(id)) : id));
 function collectConsts(src: string): Map<string, number> {
   const out = new Map<string, number>();
   const re = /constexpr\s+(?:unsigned\s+|signed\s+)?[\w:]+\s+(\w+)\s*=\s*([^;]+);/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) {
-    const v = evalExpr(normalizeExpr(subst(m[2], out)));   // substitute prior consts, then rewrite div<>()/suffixes
+    const v = evalExpr(normalizeExpr(subst(m[2], out)));
     if (v != null) out.set(m[1], v);
   }
   return out;
@@ -124,7 +166,10 @@ function collectEnums(src: string): EnumDef[] {
       const mm = part.trim().match(/^(\w+)\s*(?:=\s*(.+))?$/);
       if (!mm) continue;
       let val = next;
-      if (mm[2] !== undefined) { const ev = evalN(mm[2]); if (ev != null) val = ev; }
+      if (mm[2] !== undefined) {
+        const explicitValue = evalN(mm[2]);
+        if (explicitValue != null) val = explicitValue;
+      }
       members[String(val)] = mm[1];
       next = val + 1;
     }
@@ -146,27 +191,55 @@ function containerMeta(rawType: string, structs: Map<string, string>, scope?: st
   const t = rawType.trim().replace(/^QPI::/, "");
   let m: RegExpMatchArray | null;
   if ((m = t.match(/^HashMap\s*<\s*([^,<>]+?)\s*,\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[3]); if (L != null) return { kind: "hashmap", keyFmt: typeToken(m[1], structs, scope), valFmt: typeToken(m[2], structs, scope), capacity: L };
+    const capacity = evalN(m[3]);
+    if (capacity != null) {
+      return {
+        kind: "hashmap",
+        keyFmt: typeToken(m[1], structs, scope),
+        valFmt: typeToken(m[2], structs, scope),
+        capacity,
+      };
+    }
   }
   if ((m = t.match(/^HashSet\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[2]); if (L != null) return { kind: "hashset", keyFmt: typeToken(m[1], structs, scope), capacity: L };
+    const capacity = evalN(m[2]);
+    if (capacity != null) {
+      return { kind: "hashset", keyFmt: typeToken(m[1], structs, scope), capacity };
+    }
   }
   if ((m = t.match(/^Collection\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {   // pov key is always `id`
-    const L = evalN(m[2]); if (L != null) return { kind: "collection", keyFmt: "id", valFmt: typeToken(m[1], structs, scope), capacity: L };
+    const capacity = evalN(m[2]);
+    if (capacity != null) {
+      return {
+        kind: "collection",
+        keyFmt: "id",
+        valFmt: typeToken(m[1], structs, scope),
+        capacity,
+      };
+    }
   }
   return undefined;
 }
 
 // C++ native types -> sized QPI codec types (QX/QEARN message structs use a few of these).
 const NATIVE: Record<string, string> = {
-  "unsigned char": "uint8", "unsigned short": "uint16", "unsigned int": "uint32", "unsigned": "uint32",
-  "unsigned long": "uint64", "unsigned long long": "uint64",
-  "char": "sint8", "signed char": "sint8", "short": "sint16", "int": "sint32",
-  "long": "sint64", "long long": "sint64", "bool": "uint8",
+  "unsigned char": "uint8",
+  "unsigned short": "uint16",
+  "unsigned int": "uint32",
+  "unsigned": "uint32",
+  "unsigned long": "uint64",
+  "unsigned long long": "uint64",
+  "char": "sint8",
+  "signed char": "sint8",
+  "short": "sint16",
+  "int": "sint32",
+  "long": "sint64",
+  "long long": "sint64",
+  "bool": "uint8",
 };
 
 // Resolve a (possibly bare) struct name to the key in `structs`, preferring a name SCOPED to the current struct
-// (Parent::Child) over the bare name — collectStructs registers every scoped suffix, so a nested `Order` resolves
+// (Parent::Child) over the bare name, so nested types resolve in their declaring scope.
 function resolveStructName(name: string, structs: Map<string, string>, scope?: string): string | null {
   name = name.trim();
   if (scope) {
@@ -177,8 +250,7 @@ function resolveStructName(name: string, structs: Map<string, string>, scope?: s
     }
   }
   if (structs.has(name)) return name;
-  // A qualified reference (e.g. namespace-scoped `OI::Price::OracleQuery`) — try each trailing suffix, longest
-  // first, so it lands on the scoped struct key `Price::OracleQuery` (the right interface) rather than the bare
+  // For qualified references, try each trailing suffix longest-first before the bare name.
   if (name.includes("::")) {
     const segs = name.split("::");
     for (let k = 1; k < segs.length; k++) {
@@ -197,7 +269,8 @@ function stripNestedDefs(body: string): string {
     const m = out.match(/\b(?:struct|union|class|enum)\b[^{};]*\{/);
     if (!m) return out;
     const open = m.index! + m[0].length - 1;
-    let depth = 1, i = open + 1;
+    let depth = 1;
+    let i = open + 1;
     for (; i < out.length && depth; i++) {
       if (out[i] === "{") depth++;
       else if (out[i] === "}") depth--;
@@ -211,31 +284,39 @@ function stripNestedDefs(body: string): string {
 function typeToken(type: string, structs: Map<string, string>, scope?: string): string {
   type = type.trim().replace(/^QPI::/, "").replace(/\s+/g, " ");
   if (NATIVE[type]) return NATIVE[type];
-  const tt = (x: string) => typeToken(x, structs, scope);
-  // QPI containers -> equivalent struct layouts so field offsets/sizes match the C++ StateData (names the
-  // field; contents stay raw bytes). Covers scalar/id K/V/T; nested-generic params fall through to raw.
+  const toTypeToken = (value: string) => typeToken(value, structs, scope);
+  // QPI containers use equivalent struct layouts so field offsets and sizes match C++ StateData.
   let m: RegExpMatchArray | null;
   if ((m = type.match(/^HashMap\s*<\s*([^,<>]+?)\s*,\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[3]); if (L != null) return hashMapFmt(tt(m[1]), tt(m[2]), L);
+    const capacity = evalN(m[3]);
+    if (capacity != null) return hashMapFmt(toTypeToken(m[1]), toTypeToken(m[2]), capacity);
   }
   if ((m = type.match(/^HashSet\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[2]); if (L != null) return hashSetFmt(tt(m[1]), L);
+    const capacity = evalN(m[2]);
+    if (capacity != null) return hashSetFmt(toTypeToken(m[1]), capacity);
   }
   if ((m = type.match(/^Collection\s*<\s*([^,<>]+?)\s*,\s*([^<>]+?)\s*>$/))) {
-    const L = evalN(m[2]); if (L != null) return collectionFmt(tt(m[1]), L);
+    const capacity = evalN(m[2]);
+    if (capacity != null) return collectionFmt(toTypeToken(m[1]), capacity);
   }
   const am = type.match(/^Array\s*<\s*([\s\S]+?)\s*,\s*([^<>]+?)\s*>$/);
-  if (am) { const n = evalN(am[2]); return `[${n != null ? n : am[2].trim()};${tt(am[1])}]`; }
+  if (am) {
+    const length = evalN(am[2]);
+    return `[${length != null ? length : am[2].trim()};${toTypeToken(am[1])}]`;
+  }
   if (SCALARS.has(type)) return type;
-  if (type === "m256i" || type === "uint128" || type === "sint128") return type;   // raw-hex / 128-bit (abi-fmt sizes them)
-  if (type === "Asset") return "{ id, uint64 }";   // QPI built-in: { id issuer; uint64 assetName }
-  if (type === "DateAndTime") return "uint64";     // QPI built-in: a single bit-packed uint64
-  if (type === "bit_4096") return "[64; uint64]";  // QPI typedef BitArray<4096>
-  const bam = type.match(/^BitArray\s*<\s*([^<>]+?)\s*>$/);   // QPI BitArray<L> = uint64[ceil(L/64)]
-  if (bam) { const L = evalN(bam[1]); if (L != null) return `[${Math.ceil(L / 64)}; uint64]`; }
-  if (g_enums.has(type)) return g_enums.get(type)!;   // enum -> its underlying type (default uint32)
-  if (g_typedefs.has(type)) return typeToken(g_typedefs.get(type)!, structs);   // resolve typedef/using alias
-  // resolve a struct by exact (incl. scoped Parent::Child) name, else the bare last segment of a scoped type
+  if (type === "m256i" || type === "uint128" || type === "sint128") return type;
+  if (type === "Asset") return "{ id, uint64 }";
+  if (type === "DateAndTime") return "uint64";
+  if (type === "bit_4096") return "[64; uint64]";
+  const bitArrayMatch = type.match(/^BitArray\s*<\s*([^<>]+?)\s*>$/);
+  if (bitArrayMatch) {
+    const bitCount = evalN(bitArrayMatch[1]);
+    if (bitCount != null) return `[${Math.ceil(bitCount / 64)}; uint64]`;
+  }
+  if (g_enums.has(type)) return g_enums.get(type)!;
+  if (g_typedefs.has(type)) return typeToken(g_typedefs.get(type)!, structs);
+  // Resolve exact/scoped names before falling back to the original type.
   const sname = resolveStructName(type, structs, scope);
   if (sname) return `{ ${parseFields(structs.get(sname)!, structs, sname).join(", ")} }`;
   return type; // unknown — best effort, surfaced verbatim
@@ -244,7 +325,10 @@ function typeToken(type: string, structs: Map<string, string>, scope?: string): 
 // Strip member-function bodies ({...}, innermost-first) so a StateData with methods parses to fields only.
 function stripMethods(body: string): string {
   let prev: string;
-  do { prev = body; body = body.replace(/\{[^{}]*\}/g, " "); } while (body !== prev);
+  do {
+    prev = body;
+    body = body.replace(/\{[^{}]*\}/g, " ");
+  } while (body !== prev);
   return body;
 }
 
@@ -254,8 +338,7 @@ function memberBody(body: string): string {
 }
 const isTypeDef = (raw: string) => /^(?:struct|union|class|enum)\b/.test(raw);
 
-// Parse a struct body into ordered fields (name + codec type + nested struct/array tree). The SINGLE source of
-// truth for both the flat format string (.map(f => f.type)) and the typed field tree, so they can never drift —
+// Parse ordered fields once for both flat codec formats and typed field trees.
 function parseMembers(body: string, structs: Map<string, string>, scope: string, depth: number): Field[] {
   const out: Field[] = [];
   for (let raw of memberBody(body).split(";")) {
@@ -265,13 +348,22 @@ function parseMembers(body: string, structs: Map<string, string>, scope: string,
     const mv = raw.match(/^([A-Za-z_][\w:\s*]*?)\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)+)$/);
     if (mv && !mv[1].includes("<")) {
       const ty = mv[1].trim();
-      const type = typeToken(ty, structs, scope), container = containerMeta(ty, structs, scope), detail = fieldDetail(ty, structs, scope, depth);
-      for (const nm of mv[2].split(",")) out.push({ name: nm.trim(), type, container, ...detail });
+      const type = typeToken(ty, structs, scope);
+      const container = containerMeta(ty, structs, scope);
+      const detail = fieldDetail(ty, structs, scope, depth);
+      for (const name of mv[2].split(",")) {
+        out.push({ name: name.trim(), type, container, ...detail });
+      }
       continue;
     }
     const m = raw.match(/^([\s\S]+?)\s+(\w+)$/);
     if (!m) continue;
-    out.push({ name: m[2], type: typeToken(m[1], structs, scope), container: containerMeta(m[1], structs, scope), ...fieldDetail(m[1], structs, scope, depth) });
+    out.push({
+      name: m[2],
+      type: typeToken(m[1], structs, scope),
+      container: containerMeta(m[1], structs, scope),
+      ...fieldDetail(m[1], structs, scope, depth),
+    });
   }
   return out;
 }
@@ -289,7 +381,12 @@ function fmtOf(structs: Map<string, string>, structName: string): string {
 
 // Resolve a member's nested shape for typed codegen: its struct member fields (recursively) + whether it is an
 // Array<...>. Returns {} for scalars/ids/containers — the flat `type` token already describes those.
-function fieldDetail(rawType: string, structs: Map<string, string>, scope: string, depth: number): { struct?: Field[]; array?: boolean } {
+function fieldDetail(
+  rawType: string,
+  structs: Map<string, string>,
+  scope: string,
+  depth: number,
+): { struct?: Field[]; array?: boolean } {
   if (depth > 16) return {};
   let t = rawType.trim().replace(/^QPI::/, "");
   if (g_typedefs.has(t)) t = g_typedefs.get(t)!.trim();
@@ -298,53 +395,76 @@ function fieldDetail(rawType: string, structs: Map<string, string>, scope: strin
     const inner = fieldDetail(am[1].trim(), structs, scope, depth + 1);
     return inner.struct ? { struct: inner.struct, array: true } : { array: true };
   }
-  if (t === "Asset") return { struct: [{ name: "issuer", type: "id" }, { name: "assetName", type: "uint64" }] };
+  if (t === "Asset") {
+    return {
+      struct: [
+        { name: "issuer", type: "id" },
+        { name: "assetName", type: "uint64" },
+      ],
+    };
+  }
   const sname = resolveStructName(t, structs, scope);
   if (sname) return { struct: fieldsForStruct(structs, sname, sname, depth + 1) };
   return {};
 }
 
 // Like parseFields but keyed by struct NAME, returning the full named field tree (for typed codegen).
-function fieldsForStruct(structs: Map<string, string>, structName: string, scope = structName, depth = 0): Field[] {
+function fieldsForStruct(
+  structs: Map<string, string>,
+  structName: string,
+  scope = structName,
+  depth = 0,
+): Field[] {
   const body = structs.get(structName);
   return body === undefined ? [] : parseMembers(body, structs, scope, depth);
 }
 
-// `opts.prelude` is extra source (e.g. the ambient qpi proposal-voting / oracle-interface library headers a
-// contract is compiled against but doesn't #include) whose struct/enum/typedef/const definitions are merged into
+// `opts.prelude` supplies ambient definitions that the contract uses without including directly.
 export function extractIdl(source: string, name: string, opts?: { prelude?: string }): ContractIdl {
   const src = blankComments(source);
   const symbols = opts?.prelude ? blankComments(opts.prelude) + "\n" + src : src;
-  g_consts = collectConsts(symbols);   // resolve constexpr sizes before parsing struct/array layouts
-  g_enums = new Map(collectEnums(symbols).map((e) => [e.name, enumType(e.base)]));   // enum-typed fields size as their underlying type
+  g_consts = collectConsts(symbols);
+  g_enums = new Map(collectEnums(symbols).map((e) => [e.name, enumType(e.base)]));
   g_typedefs = collectTypedefs(symbols);
   const structs = collectStructs(symbols);
   const idl: ContractIdl = { name, functions: {}, procedures: {} };
-  for (const m of src.matchAll(/REGISTER_USER_FUNCTION\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
+  for (const m of src.matchAll(/REGISTER_USER_FUNCTION\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g)) {
     idl.functions[m[2]] = {
-      name: m[1], in: fmtOf(structs, m[1] + "_input"), out: fmtOf(structs, m[1] + "_output"),
-      inFields: fieldsForStruct(structs, m[1] + "_input"), outFields: fieldsForStruct(structs, m[1] + "_output"),
+      name: m[1],
+      in: fmtOf(structs, m[1] + "_input"),
+      out: fmtOf(structs, m[1] + "_output"),
+      inFields: fieldsForStruct(structs, m[1] + "_input"),
+      outFields: fieldsForStruct(structs, m[1] + "_output"),
     };
-  for (const m of src.matchAll(/REGISTER_USER_PROCEDURE\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g))
+  }
+  for (const m of src.matchAll(/REGISTER_USER_PROCEDURE\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g)) {
     idl.procedures[m[2]] = {
-      name: m[1], in: fmtOf(structs, m[1] + "_input"), out: fmtOf(structs, m[1] + "_output"),
-      inFields: fieldsForStruct(structs, m[1] + "_input"), outFields: fieldsForStruct(structs, m[1] + "_output"),
+      name: m[1],
+      in: fmtOf(structs, m[1] + "_input"),
+      out: fmtOf(structs, m[1] + "_output"),
+      inFields: fieldsForStruct(structs, m[1] + "_input"),
+      outFields: fieldsForStruct(structs, m[1] + "_output"),
     };
-  if (structs.has("StateData")) idl.state = fieldsForStruct(structs, "StateData");   // for field-level state diff
-  if (/\bMIGRATE(?:_WITH_LOCALS)?\s*\(\s*\)/.test(src)) {   // contract opts into state migration on redeploy
+  }
+  if (structs.has("StateData")) idl.state = fieldsForStruct(structs, "StateData");
+  if (/\bMIGRATE(?:_WITH_LOCALS)?\s*\(\s*\)/.test(src)) {
     idl.migrate = true;
     if (structs.has("OldStateData")) idl.oldState = fieldsForStruct(structs, "OldStateData");
   }
   // log-struct catalog: any flat (leaf) struct with a `sint8 _terminator` marker; keep only the fields before it.
   const logStructs: LogStruct[] = [];
   for (const [sname, body] of structs) {
-    if (sname.includes("::")) continue;                        // scoped-name alias of a struct already visited by its bare name
-    if (/\bstruct\b/.test(body)) continue;                     // container struct (nested defs) — its leaf children are collected separately
+    if (sname.includes("::")) continue;
+    if (/\bstruct\b/.test(body)) continue;
     const fs = fieldsForStruct(structs, sname);
     const ti = fs.findIndex((f) => f.name === "_terminator");
-    if (ti <= 0) continue;                                      // not a log struct, or nothing before terminator
+    if (ti <= 0) continue;
     const real = fs.slice(0, ti);
-    logStructs.push({ name: sname, fmt: real.map((f) => f.type).join(", "), fields: real.map((f) => f.name) });
+    logStructs.push({
+      name: sname,
+      fmt: real.map((f) => f.type).join(", "),
+      fields: real.map((f) => f.name),
+    });
   }
   if (logStructs.length) idl.logStructs = logStructs;
   const enums = collectEnums(src);

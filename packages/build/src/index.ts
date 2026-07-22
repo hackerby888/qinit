@@ -58,26 +58,59 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
     ? { available: false, ok: true, oracle: false, errors: [] as string[] }
     : await verifyContract(o.contractPath, o.name, { allowedPrefixes: calleeNames });
   if (verify.available && !verify.ok) {
-    return { ok: false, verify, stderr: ["Qubic protocol violations:", ...verify.errors.map((e) => "  • " + e)].join("\n") };
+    return {
+      ok: false,
+      verify,
+      stderr: ["Qubic protocol violations:", ...verify.errors.map((e) => "  • " + e)].join("\n"),
+    };
   }
 
   // Inter-contract: scan the contract for CALL_OTHER_CONTRACT_* and auto-derive the callee prelude
   // (callee type headers at their indices + per-fn inputType constants) from contract_def.h.
   let calleePrelude = o.calleePrelude;
   if (calleePrelude === undefined) {
-    try { calleePrelude = buildCalleePrelude(o.corePath, readFileSync(o.contractPath, "utf8"), o.dynCallees ?? {}, o.stateType ?? o.name); }
-    catch (e: any) { return { ok: false, stderr: "inter-contract resolve failed: " + String(e?.message ?? e) }; }
+    try {
+      calleePrelude = buildCalleePrelude(
+        o.corePath,
+        readFileSync(o.contractPath, "utf8"),
+        o.dynCallees ?? {},
+        o.stateType ?? o.name,
+      );
+    } catch (e: any) {
+      return { ok: false, stderr: "inter-contract resolve failed: " + String(e?.message ?? e) };
+    }
   }
   // Compile the contract to a wasm module (run by the node's WAMR engine). One platform-independent
   // artifact, deployed via the chunked-upload path (the node magic-sniffs '\0asm' -> wasm engine).
-  const w = await compileWasmContract({ ...o, calleePrelude });
-  if (!w.ok) return { ok: false, so: w.wasm, stderr: w.stderr };
-  const size = statSync(w.wasm).size;
+  const compiled = await compileWasmContract({ ...o, calleePrelude });
+  if (!compiled.ok) return { ok: false, so: compiled.wasm, stderr: compiled.stderr };
+  const size = statSync(compiled.wasm).size;
   let hash: string | undefined;
-  try { hash = await k12Hex(new Uint8Array(readFileSync(w.wasm))); } catch { hash = undefined; }
-  let idl: ContractIdl | undefined, idlError: string | undefined;
-  try { idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name, { prelude: o.corePath ? qpiPrelude(o.corePath) : undefined }); } catch (e: any) { idlError = String(e?.message ?? e); }
-  return { ok: true, so: w.wasm, size, hash, idl, idlError, verify, debugWasm: w.debugWasm, linesJson: w.linesJson };
+  try {
+    hash = await k12Hex(new Uint8Array(readFileSync(compiled.wasm)));
+  } catch {
+    hash = undefined;
+  }
+  let idl: ContractIdl | undefined;
+  let idlError: string | undefined;
+  try {
+    idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name, {
+      prelude: o.corePath ? qpiPrelude(o.corePath) : undefined,
+    });
+  } catch (e: any) {
+    idlError = String(e?.message ?? e);
+  }
+  return {
+    ok: true,
+    so: compiled.wasm,
+    size,
+    hash,
+    idl,
+    idlError,
+    verify,
+    debugWasm: compiled.debugWasm,
+    linesJson: compiled.linesJson,
+  };
 }
 
 // Compile a corpus file (core-lite/test/contract_X.cpp) into a runner wasm by redirecting its
@@ -104,8 +137,7 @@ export async function buildCorpusRunner(o: {
   // Some corpora also `#include "test_util.h"` (asset-name helpers etc.); provide the wasm-mode stub.
   await writeFile(join(o.outDir, "test_util.h"), TEST_UTIL_H);
 
-  // The corpus runner is a test tool, not a deployed contract, so it has no need for the recipe's
-  // -O0 -g debuggability. Build it -O2 (the trailing -O wins over the recipe's -O0): corpus checkers
+  // Corpus runners do not need deployed-contract debugging; the trailing -O2 overrides the recipe's -O0.
   const extraCompileFlags = ["-O2", "-Wno-error=return-mismatch", "-DQINIT_CORPUS_RUNNER"];
 
   // When the corpus pulls real <iostream>/<ostream> itself, suppress the harness's std::cout stubs so
@@ -114,13 +146,14 @@ export async function buildCorpusRunner(o: {
     extraCompileFlags.push("-DQINIT_HAVE_IOSTREAM");
   }
 
-  // Derive the inter-contract callee prelude from the contract AND the corpus: a corpus often references a
-  // sibling contract's types directly (e.g. `QX::IssueAsset_input` to seed an asset) even when the contract
+  // Include sibling types referenced only by the corpus, not just callees used by the contract.
   let calleePrelude: string | undefined;
   try {
     const contractSrc = readFileSync(o.contractPath, "utf8");
     calleePrelude = buildCalleePrelude(o.corePath, `${contractSrc}\n${testSource}`, {}, o.stateType);
-  } catch { /* fall back to buildContract's contract-only derivation */ }
+  } catch {
+    // Fall back to buildContract's contract-only derivation.
+  }
 
   return buildContract({
     contractPath: o.contractPath,
@@ -138,22 +171,28 @@ export async function buildCorpusRunner(o: {
   });
 }
 
-// Compile a named built-in system contract (QX, QEARN, …) from the core snapshot catalog. Shared by the CLI
-// (`qinit system`) and the backend's compile-system route. skipVerify because system code uses sysproc macros
+// System contracts use sysproc macros unsupported by the verifier, so buildContract skips verification.
 export async function buildSystemContract(
-  name: string, corePath: string, opts: { outDir?: string; wasmClang?: string; wasmSysroot?: string } = {},
+  name: string,
+  corePath: string,
+  opts: { outDir?: string; wasmClang?: string; wasmSysroot?: string } = {},
 ): Promise<BuildResult & { index?: number }> {
   const catalog = systemContracts(corePath);
-  const c = catalog.find((x) => x.name.toLowerCase() === name.toLowerCase());
-  if (!c) {
+  const contract = catalog.find((entry) => entry.name.toLowerCase() === name.toLowerCase());
+  if (!contract) {
     return { ok: false, stderr: `unknown system contract '${name}' — have: ${catalog.map((x) => x.name).join(", ")}` };
   }
 
-  const r = await buildContract({
-    contractPath: join(corePath, "src", "contracts", c.file),
-    name: c.name, stateType: c.stateType, slot: c.index, corePath,
+  const result = await buildContract({
+    contractPath: join(corePath, "src", "contracts", contract.file),
+    name: contract.name,
+    stateType: contract.stateType,
+    slot: contract.index,
+    corePath,
     outDir: opts.outDir ?? join(tmpdir(), "qinit-system"),
-    skipVerify: true, wasmClang: opts.wasmClang, wasmSysroot: opts.wasmSysroot,
+    skipVerify: true,
+    wasmClang: opts.wasmClang,
+    wasmSysroot: opts.wasmSysroot,
   });
-  return { ...r, index: c.index };
+  return { ...result, index: contract.index };
 }

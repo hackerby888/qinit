@@ -1,5 +1,4 @@
-// The contract registry — the deployed contracts (their wasm instances + persistent state), the deploy/construct
-// path, the metered invoke (fire), and the computer digest (the K12 merkle over contract-state leaves). The TS
+// Registry for deployed Wasm contracts, persistent state, metered calls, and the computer digest.
 import { Contract, type HostServices, KIND, SP } from "./runtime";
 import { k12Bytes } from "./k12";
 
@@ -42,8 +41,8 @@ export class ContractRegistry {
     return [...this.contracts.keys()].sort((a, b) => (asc ? a - b : b - a));
   }
 
-  // Deploy + construct: load the wasm, zero state, then run INITIALIZE (qubic.cpp contractProcessor INITIALIZE).
-  // A metered contract is born funded (a successful IPO) unless its reserve was pre-set; INITIALIZE is exempt
+  // Load or redeploy Wasm, then initialize or migrate state.
+  // Metered deployments are pre-funded; INITIALIZE is exempt.
   deploy(
     slot: number,
     wasm: Uint8Array,
@@ -84,8 +83,8 @@ export class ContractRegistry {
     return this.contracts.delete(slot);
   }
 
-  // Run a contract entry and, when metered, debit its measured cost from its own reserve. Every Sim-driven
-  // procedure / sysproc / callback goes through here; read-only function queries deliberately do not (they are
+  // Run a mutating entry and debit its measured cost when metering is enabled.
+  // Read-only queries bypass this path.
   fire(c: Contract, kind: number, it: number, input: Uint8Array, ctx: FireContext): Uint8Array {
     const out = c.invoke(kind, it, input, ctx);
     if (this.fees.metered) {
@@ -104,8 +103,7 @@ export class ContractRegistry {
   computerDigest(): Uint8Array {
     const leaves = new Map<number, Uint8Array>();
     for (const [slot, c] of this.contracts) {
-      // The one-shot wasm K12 caps near 8 MB of input; a contract with a larger state — e.g. QX's ~600 MB
-      // order books — can't be hashed here without overflowing it, and slicing that state out every tick is
+      // States above the one-shot Wasm K12 limit use a zero digest leaf.
       leaves.set(slot, c.stateSize > K12_MAX_LEAF_BYTES ? new Uint8Array(32) : k12Bytes(c.state()));
     }
 

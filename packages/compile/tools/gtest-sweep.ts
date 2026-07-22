@@ -1,5 +1,5 @@
 import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
-// Differential gtest sweep over the contracts @qinit/compile can build. For each: auto-generate a
+// Build and run differential gtests for each compilable contract.
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

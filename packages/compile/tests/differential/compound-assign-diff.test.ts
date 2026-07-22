@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Compound assignment signedness: >>= must be arithmetic on signed operands, /= and %= must follow the target's signedness,
+// Checks compound-assignment width and signedness against native behavior.
 import { coreGtest } from "../support/core-gtest";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";

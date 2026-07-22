@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// Inter-contract calls compiled by @qinit/compile: a caller at a higher slot reaches a callee at a lower slot
+// Checks higher-slot callers reaching lower-slot callees.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -19,7 +19,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Inc, 1); REGISTER_USER_FUNCTION(Get, 1); }
 };`;
 
-// Caller declares its own in/out structs (same byte layout as Counter's) for the call buffers — it never
+// The caller uses layout-compatible local structs for Counter's call buffers.
 const CALLER = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {

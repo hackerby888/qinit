@@ -1,5 +1,4 @@
-// The ambient qpi library headers a contract is compiled against but never #includes — their struct/enum/typedef
-// definitions (proposal-voting data, oracle interfaces, qpi built-ins) are merged into extractIdl (as its
+// Merge ambient QPI definitions that contracts compile against but do not include into extracted IDLs.
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 

@@ -3,7 +3,7 @@ import { test, expect } from "bun:test";
 import { deriveQpiContextLayout } from "../../src/codegen/module";
 import { getQpiContext } from "../../src/compiler/qpi-context";
 import { loadQpiHeader } from "../../src/compiler/header";
-// Reach the engine's ABI struct directly (it isn't on the package's public index): QpiContext.OFFSETS is derived from the
+// Compare compiler and engine context layouts derived from core headers.
 import { QpiContext } from "../../../engine/src/abi";
 
 test("live qpi.h context layout matches the engine ABI", () => {

@@ -33,23 +33,27 @@ const TRAP_CAUSES: [RegExp, string][] = [
   [/indirect call|undefined element|uninitialized element/i, "bad indirect call (function table)"],
 ];
 export function decodeTrapCause(exception: string): string {
-  for (const [re, msg] of TRAP_CAUSES) if (re.test(exception)) return msg;
+  for (const [pattern, message] of TRAP_CAUSES) {
+    if (pattern.test(exception)) return message;
+  }
   return exception.trim() || "trap";
 }
 
 // WAMR reports the ip AFTER the faulting instruction; step back one byte to land inside it, then take the
 // last line-map entry at/below that offset (entries are sorted; binary search).
 function lookup(entries: LineEntry[], off: number): LineEntry | null {
-  const t = off - 1;
-  let lo = 0,
-    hi = entries.length - 1,
-    best: LineEntry | null = null;
-  while (lo <= hi) {
-    const m = (lo + hi) >> 1;
-    if (entries[m].off <= t) {
-      best = entries[m];
-      lo = m + 1;
-    } else hi = m - 1;
+  const target = off - 1;
+  let low = 0;
+  let high = entries.length - 1;
+  let best: LineEntry | null = null;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (entries[middle].off <= target) {
+      best = entries[middle];
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
   }
   return best;
 }
@@ -65,40 +69,51 @@ export function resolveTrapBacktrace(
   opts: ResolveOpts = {},
 ): TrapBacktrace | null {
   const blocks: { frames: TrapFrame[]; exception: string }[] = [];
-  let cur: TrapFrame[] = [];
-  const flush = (exc: string) => {
-    if (cur.length) {
-      blocks.push({ frames: cur, exception: exc });
-      cur = [];
+  let currentFrames: TrapFrame[] = [];
+  const flush = (exception: string) => {
+    if (currentFrames.length) {
+      blocks.push({ frames: currentFrames, exception });
+      currentFrames = [];
     }
   };
-  for (const ln of logText.split("\n")) {
-    const fm = ln.match(/#(\d+):\s+0x([0-9a-fA-F]+)\s+-\s+(.+?)\s*$/);
-    if (fm) {
-      cur.push({ off: parseInt(fm[2], 16), func: fm[3] });
+  for (const line of logText.split("\n")) {
+    const frameMatch = line.match(/#(\d+):\s+0x([0-9a-fA-F]+)\s+-\s+(.+?)\s*$/);
+    if (frameMatch) {
+      currentFrames.push({ off: parseInt(frameMatch[2], 16), func: frameMatch[3] });
       continue;
     }
-    const em = ln.match(/Exception:\s+(.+?)\s*$/) || ln.match(/dispatch trap .*?—\s*(.+?)\s*$/);
-    if (em && cur.length) flush(em[1]);
+    const exceptionMatch =
+      line.match(/Exception:\s+(.+?)\s*$/) || line.match(/dispatch trap .*?—\s*(.+?)\s*$/);
+    if (exceptionMatch && currentFrames.length) flush(exceptionMatch[1]);
   }
   flush("");
   if (!blocks.length) return null;
-  const b = blocks[blocks.length - 1];
+  const latest = blocks[blocks.length - 1];
 
   let entries: LineEntry[] | null = null;
   if (opts.lineMapPath && existsSync(opts.lineMapPath)) {
     try {
-      const j = JSON.parse(readFileSync(opts.lineMapPath, "utf8"));
-      if (Array.isArray(j.entries)) entries = j.entries;
+      const lineMap = JSON.parse(readFileSync(opts.lineMapPath, "utf8"));
+      if (Array.isArray(lineMap.entries)) entries = lineMap.entries;
     } catch {}
   }
-  const frames = b.frames.map((f) => {
-    const e = entries ? lookup(entries, f.off) : null;
-    return e
-      ? { off: f.off, func: e.func, file: e.file || undefined, line: e.line, col: e.col }
-      : f;
+  const frames = latest.frames.map((frame) => {
+    const entry = entries ? lookup(entries, frame.off) : null;
+    return entry
+      ? {
+          off: frame.off,
+          func: entry.func,
+          file: entry.file || undefined,
+          line: entry.line,
+          col: entry.col,
+        }
+      : frame;
   });
-  return { exception: b.exception, cause: decodeTrapCause(b.exception), frames };
+  return {
+    exception: latest.exception,
+    cause: decodeTrapCause(latest.exception),
+    frames,
+  };
 }
 
 // One-line-per-frame render for `debug` / `call` / `test` failure output.

@@ -1,5 +1,4 @@
-// Node lifecycle: killNode/nodeAlive must act on the tracked PID (the on-disk pidfile), never a broad
-// image-name pkill/taskkill that also kills unrelated Qubic instances on a dev box. Uses detached
+// Ensure node lifecycle operations target only the tracked detached process.
 import { test, expect } from "bun:test";
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";

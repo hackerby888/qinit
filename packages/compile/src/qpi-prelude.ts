@@ -25,7 +25,7 @@ typedef signed int int32_t;
 typedef signed short int16_t;
 typedef signed char int8_t;
 
-// Protocol amount constants (network_messages/common_def.h) + standard integer limits, referenced by contracts but defined in headers the compiler does
+// Define protocol amounts and integer limits omitted from parsed headers.
 #define MAX_NUMBER_OF_CONTRACTS 1024
 #define ISSUANCE_RATE 1000000000000LL
 #define MAX_AMOUNT (ISSUANCE_RATE * 1000LL)
