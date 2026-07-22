@@ -117,8 +117,8 @@ export class ProgramAnalysis {
         return analysisPart1.normalizeConst(this as unknown as ProgramAnalysisInternals, value, type);
     }
     // Resolve a named constant (enum constant or constexpr) to its integer value, or null if unknown.
-    resolveConst(name: string): bigint | null {
-        return analysisPart1.resolveConst(this as unknown as ProgramAnalysisInternals, name);
+    resolveConst(name: string, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): bigint | null {
+        return analysisPart1.resolveConst(this as unknown as ProgramAnalysisInternals, name, templateBindings);
     }
     // ---- struct sizing (binding-aware: template params resolve through `b`) ----
     private sizeDepth = 0;

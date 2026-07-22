@@ -37,6 +37,7 @@ export type { TxRecord } from "./txs";
 const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
 const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
 const EP_USER_PROCEDURE = 11; // contract_def.h USER_PROCEDURE_CALL (contractSystemProcedureCount=10, +1)
+const EP_USER_PROCEDURE_NOTIFICATION = 16;
 const ZERO32 = new Uint8Array(32);
 const IPO_SHARE_COUNT = 676; // NUMBER_OF_COMPUTORS — a contract's IPO shares: one per computor (0..675)
 const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
@@ -125,8 +126,13 @@ export class Sim {
       contractBalance: (slot) => this.balance(this.contractId(slot)),
       debitContract: (slot, amount) => this.debit(this.contractId(slot), amount),
       notify: (slot, procId, input) => {
-        const self = this.contractId(slot);
-        this.runProcedure(slot, procId, input, self, self, 0n);
+        const contract = this.contracts.get(slot)!;
+        this.registry.fire(contract, KIND.PROCEDURE, procId, input, {
+          invocator: ZERO32,
+          originator: ZERO32,
+          invocationReward: 0n,
+          entryPoint: EP_USER_PROCEDURE_NOTIFICATION,
+        });
       },
       nowMs: () => this.nowMs(),
     });
@@ -201,11 +207,11 @@ export class Sim {
       computeMiningFunction: () => ZERO32, // mining is not modeled in the dev engine
       initMiningSeed: () => {},
       getOracleQueryStatus: (queryId) => this.oracle.queryStatus(queryId),
-      unsubscribeOracle: (sub) => this.oracle.unsubscribe(sub),
-      queryOracle: (slot, ifaceIdx, query, procId, timeout, fee) =>
-        this.oracle.query(slot, ifaceIdx, query, procId, timeout, fee, -1),
-      subscribeOracle: (slot, ifaceIdx, query, procId, period, notifyPrev, fee) =>
-        this.oracle.subscribe(slot, ifaceIdx, query, procId, period, notifyPrev, fee),
+      unsubscribeOracle: (slot, sub) => this.oracle.unsubscribe(slot, sub),
+      queryOracle: (slot, ifaceIdx, query, replySize, procId, timeout, fee) =>
+        this.oracle.query(slot, ifaceIdx, query, replySize, procId, timeout, fee),
+      subscribeOracle: (slot, ifaceIdx, query, replySize, timestampOffset, procId, period, notifyPrev, fee) =>
+        this.oracle.subscribe(slot, ifaceIdx, query, replySize, timestampOffset, procId, period, notifyPrev, fee),
       getOracleQuery: (queryId) => this.oracle.getQuery(queryId),
       getOracleReply: (queryId) => this.oracle.getReply(queryId),
       isContractId: (id) => (this.contractSlotOf(id) >= 0 ? 1 : 0),
@@ -750,6 +756,7 @@ export class Sim {
   // Epoch-boundary sysprocs are exempt from the fee gate (execution_fees.md): they run even on a depleted
   // reserve to keep contract state valid.
   beginEpoch(): void {
+    this.oracle.beginEpoch();
     this.nativeLogger?.begin(this.tickN, LOG_SC_BEGIN_EPOCH);
     try {
       for (const s of this.registry.slots(true)) {

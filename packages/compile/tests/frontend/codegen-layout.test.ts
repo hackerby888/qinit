@@ -400,6 +400,30 @@ describe("Codegen — layoutOfType via global structs", () => {
     const codeGenerationContext = makeCg();
     expect(codeGenerationContext.layoutOfType(n("uint64"))).toBeNull();
   });
+
+  test("qualified nested structs keep their alignment", () => {
+    const codeGenerationContext = makeCg();
+    const query = sdecl("Query", [fld("tag", n("uint8")), fld("timestamp", n("uint64"))]);
+    codeGenerationContext.globalStructs.set("Interface", sdecl("Interface", [query]));
+
+    expect(codeGenerationContext.alignOfType(n("Interface::Query"))).toBe(8);
+    expect(codeGenerationContext.layoutOf(sdecl("Input", [
+      fld("query", n("Interface::Query")),
+      fld("timeout", n("uint32")),
+    ])).size).toBe(24);
+  });
+
+  test("qualified constants resolve through template bindings", () => {
+    const codeGenerationContext = makeCg();
+    codeGenerationContext.globalStructs.set("Price", sdecl("Price", [stat("oracleInterfaceIndex", 0)]));
+    const bindings: TemplateBindings = {
+      types: new Map([["OracleInterface", n("Price")]]),
+      values: new Map(),
+      structs: new Map(),
+    };
+
+    expect(codeGenerationContext.resolveConst("OracleInterface::oracleInterfaceIndex", bindings)).toBe(0n);
+  });
 });
 
 // -------------------------------------------------------------------------- anonymous struct promotion --------------------------------------------------------------------------

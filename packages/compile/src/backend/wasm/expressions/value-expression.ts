@@ -94,7 +94,10 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                 }
             }
             // a named constant: enum constant or constexpr (incl. qualified Type::NAME)
-            const resolvedConstant = context.programAnalysis.resolveConst(expression.name);
+            const resolvedConstant = context.programAnalysis.resolveConst(
+                expression.name,
+                context.thisBind ?? EMPTY_TEMPLATE_BINDINGS,
+            );
             if (resolvedConstant !== null)
                 return watIr.i64Constant(resolvedConstant);
             context.programAnalysis.warn(`unknown identifier '${expression.name}'`, expression.span);

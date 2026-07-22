@@ -38,7 +38,21 @@ export function normalizeConst(context: ProgramAnalysisInternals, value: bigint,
     return narrowed;
 }
 
-export function resolveConst(context: ProgramAnalysisInternals, name: string): bigint | null {
+export function resolveConst(
+    context: ProgramAnalysisInternals,
+    name: string,
+    templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS,
+): bigint | null {
+    const separator = name.lastIndexOf("::");
+    if (separator > 0) {
+        const qualified = context.evalQualifiedConst(
+            name.slice(0, separator),
+            name.slice(separator + 2),
+            templateBindings,
+        );
+        if (qualified !== null)
+            return qualified;
+    }
     const cached = context.constCache.get(name);
     if (cached !== undefined)
         return cached;
@@ -59,8 +73,7 @@ export function resolveConst(context: ProgramAnalysisInternals, name: string): b
             }
         }
         // namespace-qualified constant (ProposalTypes::Class::GeneralOptions): constants are collected by their unqualified name, so fall back to the tail after the
-        const index = name.lastIndexOf("::");
-        return index >= 0 ? context.resolveConst(name.slice(index + 2)) : null;
+        return separator >= 0 ? context.resolveConst(name.slice(separator + 2), templateBindings) : null;
     }
     if (context.constInProgress.has(name))
         return null; // cyclic constexpr — give up

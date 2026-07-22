@@ -46,6 +46,9 @@ export function alignOfNameType(context: ProgramAnalysisInternals, typeName: str
     const resolvedStruct = context.structByName(typeName, templateBindings);
     if (resolvedStruct)
         return context.layoutOfStruct(resolvedStruct, templateBindings).align;
+    const qualifiedNested = context.qualifiedNestedType(typeName, templateBindings);
+    if (qualifiedNested)
+        return context.alignOfTypeB(qualifiedNested, templateBindings);
     const enumAlignment = context.enumSize.get(typeName) ?? context.enumSize.get(typeName.split("::").pop()!);
     return enumAlignment ?? 4;
 }

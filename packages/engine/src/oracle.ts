@@ -1,7 +1,5 @@
-// Oracle queries + subscriptions — the TS model of core-lite oracle_core/oracle_engine.h (query metadata +
-// recurring subscriptions + contract notification are interface-agnostic: query/reply are opaque bytes.
+import { packDateAndTime } from "./runtime";
 
-// network_messages/common_def.h ORACLE_QUERY_STATUS_* — the contract-observable lifecycle of an oracle query.
 export const ORACLE_STATUS = {
   UNKNOWN: 0,
   PENDING: 1,
@@ -10,34 +8,51 @@ export const ORACLE_STATUS = {
   TIMEOUT: 4,
   UNRESOLVABLE: 5,
 };
-const ORACLE_NOTIFY_HEADER = 16; // OracleNotificationInput: queryId(8) subscriptionId(4) status(1) pad(3), then reply
+
+const NOTIFY_HEADER_SIZE = 16;
+const MAX_QUERY_SIZE = 1008;
+const MAX_REPLY_SIZE = 1008;
+const MAX_QUERY_TIMEOUT_MS = 3_600_000;
+const SUBSCRIPTION_TIMEOUT_MS = 60_000;
+const MIN_QUERY_FEE = 10n;
+const MIN_SUBSCRIPTION_FEE = 100n;
+const MIN_SUBSCRIPTION_PERIOD_MS = 60_000;
+const MAX_SUBSCRIPTION_PERIOD_MS = 24 * 60 * 60_000;
+
+interface OracleRecipient {
+  slot: number;
+  notificationProcId: number;
+}
 
 interface OracleQueryRec {
   id: bigint;
-  slot: number;
   interfaceIndex: number;
   query: Uint8Array;
+  replySize: number;
   status: number;
   reply: Uint8Array | null;
-  notificationProcId: number;
-  subscriptionId: number; // -1 for a one-time query
+  subscriptionId: number;
+  deadlineMs: number;
+  recipients: OracleRecipient[];
 }
 
-interface OracleSubRec {
-  id: number;
-  slot: number;
-  interfaceIndex: number;
-  query: Uint8Array;
+interface OracleSubscriber extends OracleRecipient {
   periodMs: number;
-  notificationProcId: number;
-  notifyPrev: boolean;
-  lastReply: Uint8Array | null;
-  fee: bigint;
-  nextDueMs: number;
+  nextQueryMs: number;
 }
 
-// The seams the OracleManager needs from the rest of the engine: the query fee touches the spectrum (balance of
-// / debit the querying contract), the notification runs the contract's notification procedure, and the
+interface OracleChannel {
+  id: number;
+  key: string;
+  interfaceIndex: number;
+  initialQuery: Uint8Array;
+  replySize: number;
+  timestampOffset: number;
+  subscribers: Map<number, OracleSubscriber>;
+  lastQueryId: bigint | null;
+  lastReply: Uint8Array | null;
+}
+
 export interface OracleHost {
   contractBalance(slot: number): bigint;
   debitContract(slot: number, amount: bigint): void;
@@ -45,12 +60,27 @@ export interface OracleHost {
   nowMs(): number;
 }
 
+const gcd = (left: number, right: number): number => {
+  while (right) [left, right] = [right, left % right];
+  return left;
+};
+
+function channelKey(interfaceIndex: number, query: Uint8Array, timestampOffset: number): string {
+  let key = `${interfaceIndex}:`;
+  for (let index = 0; index < query.length; index++) {
+    if (index < timestampOffset || index >= timestampOffset + 8)
+      key += query[index].toString(16).padStart(2, "0");
+  }
+  return key;
+}
+
 export class OracleManager {
   private readonly host: OracleHost;
-  private queries = new Map<bigint, OracleQueryRec>(); // queryId -> query state (opaque query/reply bytes)
-  private subs = new Map<number, OracleSubRec>(); // subscriptionId -> recurring subscription
+  private queries = new Map<bigint, OracleQueryRec>();
+  private channels = new Map<number, OracleChannel>();
+  private channelIds = new Map<string, number>();
   private nextQueryId = 1n;
-  private nextSubId = 0;
+  private nextSubscriptionId = 0;
   private provider: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null =
     null;
 
@@ -58,154 +88,299 @@ export class OracleManager {
     this.host = host;
   }
 
-  // Start a one-time query (__qpiQueryOracle): burn the fee, record it PENDING, return the queryId. A provider
-  // (if set) resolves it on the next pump(); otherwise resolve() supplies the reply.
   query(
     slot: number,
     interfaceIndex: number,
     query: Uint8Array,
+    replySize: number,
     notificationProcId: number,
-    _timeoutMillisec: number,
+    timeoutMillisec: number,
     fee: bigint,
-    subscriptionId: number,
   ): bigint {
-    if (!this.chargeFee(slot, fee)) {
+    if (
+      query.length > MAX_QUERY_SIZE ||
+      replySize < 0 ||
+      replySize > MAX_REPLY_SIZE ||
+      timeoutMillisec < 0 ||
+      timeoutMillisec > MAX_QUERY_TIMEOUT_MS ||
+      fee < MIN_QUERY_FEE ||
+      !this.chargeFee(slot, fee)
+    ) {
+      this.fire(slot, notificationProcId, -1n, -1, ORACLE_STATUS.UNKNOWN, replySize);
       return -1n;
     }
 
-    const id = this.nextQueryId++;
-    this.queries.set(id, {
-      id,
-      slot,
+    return this.createQuery(
       interfaceIndex,
-      query: query.slice(),
-      status: ORACLE_STATUS.PENDING,
-      reply: null,
-      notificationProcId,
-      subscriptionId,
-    });
-    return id;
+      query,
+      replySize,
+      -1,
+      timeoutMillisec,
+      [{ slot, notificationProcId }],
+    );
   }
 
-  // Start a recurring subscription (__qpiSubscribeOracle): emit the first query now, then re-emit each periodMs.
   subscribe(
     slot: number,
     interfaceIndex: number,
     query: Uint8Array,
+    replySize: number,
+    timestampOffset: number,
     notificationProcId: number,
     periodMillisec: number,
-    notifyPrev: boolean,
+    notifyPrevious: boolean,
     fee: bigint,
   ): number {
-    const id = this.nextSubId++;
-    const sub: OracleSubRec = {
-      id,
+    const valid =
+      query.length <= MAX_QUERY_SIZE &&
+      replySize >= 0 &&
+      replySize <= MAX_REPLY_SIZE &&
+      timestampOffset >= 0 &&
+      timestampOffset + 8 <= query.length &&
+      periodMillisec >= MIN_SUBSCRIPTION_PERIOD_MS &&
+      periodMillisec <= MAX_SUBSCRIPTION_PERIOD_MS &&
+      periodMillisec % MIN_SUBSCRIPTION_PERIOD_MS === 0 &&
+      fee >= MIN_SUBSCRIPTION_FEE;
+    const key = valid ? channelKey(interfaceIndex, query, timestampOffset) : "";
+    const existingId = valid ? this.channelIds.get(key) : undefined;
+    const existing = existingId === undefined ? undefined : this.channels.get(existingId);
+
+    if (!valid || existing?.subscribers.has(slot) || !this.chargeFee(slot, fee)) {
+      this.fire(slot, notificationProcId, -1n, -1, ORACLE_STATUS.UNKNOWN, replySize);
+      return -1;
+    }
+
+    const now = this.host.nowMs();
+    const channel =
+      existing ??
+      this.createChannel(key, interfaceIndex, query, replySize, timestampOffset);
+    let nextQueryMs = now;
+    if (channel.subscribers.size) {
+      let reference: OracleSubscriber | undefined;
+      let greatestDivisor = -1;
+      for (const subscriber of channel.subscribers.values()) {
+        const divisor = gcd(periodMillisec, subscriber.periodMs);
+        if (divisor > greatestDivisor) {
+          greatestDivisor = divisor;
+          reference = subscriber;
+        }
+      }
+      const periodsUntilReference = Math.floor(
+        Math.max(0, reference!.nextQueryMs - now) / periodMillisec,
+      );
+      nextQueryMs = reference!.nextQueryMs - periodsUntilReference * periodMillisec;
+    }
+
+    channel.subscribers.set(slot, {
       slot,
+      notificationProcId,
+      periodMs: periodMillisec,
+      nextQueryMs,
+    });
+
+    if (notifyPrevious && channel.lastQueryId !== null && channel.lastReply) {
+      this.fire(
+        slot,
+        notificationProcId,
+        channel.lastQueryId,
+        channel.id,
+        ORACLE_STATUS.SUCCESS,
+        replySize,
+        channel.lastReply,
+      );
+    }
+
+    if (channel.subscribers.size === 1) this.emitDueChannel(channel, now);
+    return channel.id;
+  }
+
+  unsubscribe(slot: number, subscriptionId: number): number {
+    const channel = this.channels.get(subscriptionId);
+    return channel?.subscribers.delete(slot) ? 1 : 0;
+  }
+
+  beginEpoch(): void {
+    this.queries.clear();
+    this.channels.clear();
+    this.channelIds.clear();
+    this.nextQueryId = 1n;
+    this.nextSubscriptionId = 0;
+  }
+
+  private createChannel(
+    key: string,
+    interfaceIndex: number,
+    query: Uint8Array,
+    replySize: number,
+    timestampOffset: number,
+  ): OracleChannel {
+    const channel: OracleChannel = {
+      id: this.nextSubscriptionId++,
+      key,
+      interfaceIndex,
+      initialQuery: query.slice(),
+      replySize,
+      timestampOffset,
+      subscribers: new Map(),
+      lastQueryId: null,
+      lastReply: null,
+    };
+    this.channels.set(channel.id, channel);
+    this.channelIds.set(key, channel.id);
+    return channel;
+  }
+
+  private createQuery(
+    interfaceIndex: number,
+    query: Uint8Array,
+    replySize: number,
+    subscriptionId: number,
+    timeoutMillisec: number,
+    recipients: OracleRecipient[],
+    baseTimeMs: number = this.host.nowMs(),
+  ): bigint {
+    const id = this.nextQueryId++;
+    this.queries.set(id, {
+      id,
       interfaceIndex,
       query: query.slice(),
-      periodMs: periodMillisec,
-      notificationProcId,
-      notifyPrev,
-      lastReply: null,
-      fee,
-      nextDueMs: this.host.nowMs() + periodMillisec,
-    };
-    this.subs.set(id, sub);
-    this.emitSubscriptionQuery(sub);
+      replySize,
+      status: ORACLE_STATUS.PENDING,
+      reply: null,
+      subscriptionId,
+      deadlineMs: baseTimeMs + timeoutMillisec,
+      recipients: recipients.map((recipient) => ({ ...recipient })),
+    });
     return id;
   }
 
-  unsubscribe(subscriptionId: number): number {
-    return this.subs.delete(subscriptionId) ? 1 : 0;
-  }
-
-  // The query fee is destroyed (decreaseEnergy, not added to any reserve), like the node. False if unaffordable.
   private chargeFee(slot: number, fee: bigint): boolean {
-    if (fee < 0n) {
+    if (fee < 0n || this.host.contractBalance(slot) < fee) return false;
+    if (fee) this.host.debitContract(slot, fee);
+    return true;
+  }
+
+  private emitDueChannel(channel: OracleChannel, now: number): void {
+    while (channel.subscribers.size) {
+      const queryTimestamp = Math.min(
+        ...[...channel.subscribers.values()].map((subscriber) => subscriber.nextQueryMs),
+      );
+      if (queryTimestamp > now) return;
+
+      const due = [...channel.subscribers.values()].filter(
+        (subscriber) => subscriber.nextQueryMs <= queryTimestamp,
+      );
+      for (const subscriber of due) {
+        do subscriber.nextQueryMs += subscriber.periodMs;
+        while (subscriber.nextQueryMs < now);
+      }
+
+      const query = channel.initialQuery.slice();
+      new DataView(query.buffer, query.byteOffset, query.byteLength).setBigUint64(
+        channel.timestampOffset,
+        packDateAndTime(queryTimestamp),
+        true,
+      );
+      this.createQuery(
+        channel.interfaceIndex,
+        query,
+        channel.replySize,
+        channel.id,
+        SUBSCRIPTION_TIMEOUT_MS,
+        due,
+        queryTimestamp,
+      );
+    }
+  }
+
+  resolve(
+    queryId: bigint,
+    reply: Uint8Array,
+    status: number = ORACLE_STATUS.SUCCESS,
+  ): boolean {
+    const query = this.queries.get(queryId);
+    if (
+      !query ||
+      (query.status !== ORACLE_STATUS.PENDING && query.status !== ORACLE_STATUS.COMMITTED)
+    )
       return false;
+
+    if (status === ORACLE_STATUS.COMMITTED) {
+      query.status = status;
+      return true;
+    }
+    if (
+      status !== ORACLE_STATUS.SUCCESS &&
+      status !== ORACLE_STATUS.TIMEOUT &&
+      status !== ORACLE_STATUS.UNRESOLVABLE
+    )
+      return false;
+    if (status === ORACLE_STATUS.SUCCESS && reply.length !== query.replySize) return false;
+
+    query.status = status;
+    query.reply = status === ORACLE_STATUS.SUCCESS ? reply.slice() : null;
+    if (status === ORACLE_STATUS.SUCCESS && query.subscriptionId >= 0) {
+      const channel = this.channels.get(query.subscriptionId);
+      if (channel) {
+        channel.lastQueryId = query.id;
+        channel.lastReply = query.reply!;
+      }
     }
 
-    if (this.host.contractBalance(slot) < fee) {
-      return false;
-    }
-    if (fee > 0n) {
-      this.host.debitContract(slot, fee);
+    for (const recipient of query.recipients) {
+      this.fire(
+        recipient.slot,
+        recipient.notificationProcId,
+        query.id,
+        query.subscriptionId,
+        status,
+        query.replySize,
+        query.reply ?? undefined,
+      );
     }
     return true;
   }
 
-  private emitSubscriptionQuery(sub: OracleSubRec): bigint {
-    const id = this.query(
-      sub.slot,
-      sub.interfaceIndex,
-      sub.query,
-      sub.notificationProcId,
-      0,
-      sub.fee,
-      sub.id,
-    );
-    if (id >= 0n && sub.notifyPrev && sub.lastReply) {
-      this.fireNotification(this.queries.get(id)!, sub.lastReply, ORACLE_STATUS.SUCCESS);
-    }
-    return id;
-  }
-
-  // Public resolve seam: the dev/test (or a node-mode oracle-machine adapter) supplies a query's reply, which
-  // sets it SUCCESS and fires the contract's notification procedure. False for an unknown queryId.
-  resolve(queryId: bigint, reply: Uint8Array, status: number = ORACLE_STATUS.SUCCESS): boolean {
-    const q = this.queries.get(queryId);
-    if (!q) {
-      return false;
-    }
-
-    q.status = status;
-    q.reply = reply.slice();
-    const sub = q.subscriptionId >= 0 ? this.subs.get(q.subscriptionId) : undefined;
-    if (sub) {
-      sub.lastReply = q.reply;
-    }
-
-    this.fireNotification(q, q.reply, status);
-    return true;
-  }
-
-  // Register a reply provider (interfaceIndex, query) -> reply | null. Pending queries auto-resolve through it on
-  // pump(). This is the mock/browser path; a real oracle-machine fetch plugs in behind this same seam.
   setProvider(fn: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null): void {
     this.provider = fn;
   }
 
-  // Build OracleNotificationInput { queryId(8) subscriptionId(4) status(1) pad(3) reply } and run the contract's
-  // notification procedure (fired by its registered notification id; no reward, no PIT).
-  private fireNotification(q: OracleQueryRec, reply: Uint8Array, status: number): void {
-    const buf = new Uint8Array(ORACLE_NOTIFY_HEADER + reply.length);
-    const dv = new DataView(buf.buffer);
-    dv.setBigInt64(0, q.id, true);
-    dv.setInt32(8, q.subscriptionId, true);
-    buf[12] = status & 0xff;
-    buf.set(reply, ORACLE_NOTIFY_HEADER);
-
-    this.host.notify(q.slot, q.notificationProcId, buf);
+  private fire(
+    slot: number,
+    notificationProcId: number,
+    queryId: bigint,
+    subscriptionId: number,
+    status: number,
+    replySize: number,
+    reply?: Uint8Array,
+  ): void {
+    const safeReplySize = Math.min(MAX_REPLY_SIZE, Math.max(0, replySize));
+    const input = new Uint8Array(NOTIFY_HEADER_SIZE + safeReplySize);
+    const view = new DataView(input.buffer);
+    view.setBigInt64(0, queryId, true);
+    view.setInt32(8, subscriptionId, true);
+    input[12] = status & 0xff;
+    if (reply) input.set(reply.subarray(0, safeReplySize), NOTIFY_HEADER_SIZE);
+    this.host.notify(slot, notificationProcId, input);
   }
 
-  // Auto-resolve PENDING queries via the provider, then re-emit any due subscriptions. Called each advance().
   pump(): void {
     if (this.provider) {
-      const pending = [...this.queries.values()].filter((q) => q.status === ORACLE_STATUS.PENDING);
-      for (const q of pending) {
-        const reply = this.provider(q.interfaceIndex, q.query);
-        if (reply) {
-          this.resolve(q.id, reply);
-        }
+      for (const query of [...this.queries.values()]) {
+        if (query.status !== ORACLE_STATUS.PENDING) continue;
+        const reply = this.provider(query.interfaceIndex, query.query);
+        if (reply) this.resolve(query.id, reply);
       }
     }
 
     const now = this.host.nowMs();
-    for (const sub of [...this.subs.values()]) {
-      if (this.subs.has(sub.id) && now >= sub.nextDueMs) {
-        this.emitSubscriptionQuery(sub);
-        sub.nextDueMs += sub.periodMs;
-      }
+    for (const channel of this.channels.values()) this.emitDueChannel(channel, now);
+    for (const query of [...this.queries.values()]) {
+      if (
+        (query.status === ORACLE_STATUS.PENDING || query.status === ORACLE_STATUS.COMMITTED) &&
+        query.deadlineMs <= now
+      )
+        this.resolve(query.id, new Uint8Array(0), ORACLE_STATUS.TIMEOUT);
     }
   }
 
@@ -218,18 +393,24 @@ export class OracleManager {
   }
 
   getReply(queryId: bigint): Uint8Array | null {
-    const q = this.queries.get(queryId);
-    return q && q.status === ORACLE_STATUS.SUCCESS ? q.reply : null;
+    const query = this.queries.get(queryId);
+    return query?.status === ORACLE_STATUS.SUCCESS ? query.reply : null;
   }
 
-  // PENDING queries awaiting a reply — the discovery side of the dev/test resolve seam (a tx-driven query's id
-  // isn't returned to the broadcaster, so a test finds it here, then resolves it).
   pending(): { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[] {
-    const out: { queryId: bigint; slot: number; interfaceIndex: number; query: Uint8Array }[] = [];
-    for (const q of this.queries.values()) {
-      if (q.status === ORACLE_STATUS.PENDING)
-        out.push({ queryId: q.id, slot: q.slot, interfaceIndex: q.interfaceIndex, query: q.query });
+    const pending = [];
+    for (const query of this.queries.values()) {
+      if (query.status !== ORACLE_STATUS.PENDING) continue;
+      for (const recipient of query.recipients) {
+        pending.push({
+          queryId: query.id,
+          slot: recipient.slot,
+          interfaceIndex: query.interfaceIndex,
+          query: query.query,
+        });
+        break;
+      }
     }
-    return out;
+    return pending;
   }
 }

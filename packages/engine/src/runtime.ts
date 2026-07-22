@@ -218,11 +218,12 @@ export interface HostServices {
   ): Uint8Array;
   initMiningSeed(miningSeed: Uint8Array): void;
   getOracleQueryStatus(queryId: bigint): number;
-  unsubscribeOracle(oracleSubscriptionId: number): number;
+  unsubscribeOracle(slot: number, oracleSubscriptionId: number): number;
   queryOracle(
     slot: number,
     interfaceIndex: number,
     query: Uint8Array,
+    replySize: number,
     notificationProcId: number,
     timeoutMillisec: number,
     fee: bigint,
@@ -231,6 +232,8 @@ export interface HostServices {
     slot: number,
     interfaceIndex: number,
     query: Uint8Array,
+    replySize: number,
+    timestampOffset: number,
     notificationProcId: number,
     periodMillisec: number,
     notifyPrev: boolean,
@@ -959,12 +962,13 @@ export class Contract {
       },
       initMiningSeed: (sOff: number) => this.host.initMiningSeed(u8().slice(sOff, sOff + 32)),
       getOracleQueryStatus: (queryId: bigint) => this.host.getOracleQueryStatus(queryId),
-      unsubscribeOracle: (sub: number) => this.host.unsubscribeOracle(sub | 0),
+      unsubscribeOracle: (sub: number) => this.host.unsubscribeOracle(this.slot, sub | 0),
       // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
       queryOracle: (
         ifaceIdx: number,
         queryOff: number,
         querySize: number,
+        replySize: number,
         procId: number,
         timeout: number,
         fee: bigint,
@@ -973,6 +977,7 @@ export class Contract {
           this.slot,
           ifaceIdx >>> 0,
           u8().slice(queryOff, queryOff + querySize),
+          replySize >>> 0,
           procId >>> 0,
           timeout >>> 0,
           fee,
@@ -981,6 +986,8 @@ export class Contract {
         ifaceIdx: number,
         queryOff: number,
         querySize: number,
+        replySize: number,
+        timestampOffset: number,
         procId: number,
         period: number,
         notifyPrev: number,
@@ -990,6 +997,8 @@ export class Contract {
           this.slot,
           ifaceIdx >>> 0,
           u8().slice(queryOff, queryOff + querySize),
+          replySize >>> 0,
+          timestampOffset >>> 0,
           procId >>> 0,
           period >>> 0,
           notifyPrev !== 0,

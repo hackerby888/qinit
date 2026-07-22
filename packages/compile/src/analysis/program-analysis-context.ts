@@ -75,7 +75,7 @@ export interface ProgramAnalysisInternals {
   typeOfConstant(name: string): TypeSpec | null;
   scalarStorageType(type: TypeSpec): TypeSpec;
   normalizeConst(value: bigint, type: TypeSpec): bigint;
-  resolveConst(name: string): bigint | null;
+  resolveConst(name: string, templateBindings?: TemplateBindings): bigint | null;
   sizeOfType(type: TypeSpec, templateBindings?: TemplateBindings): number;
   sizeOfTypeInner(type: TypeSpec, templateBindings: TemplateBindings): number;
   resolveDependentMember(type: Extract<TypeSpec, {

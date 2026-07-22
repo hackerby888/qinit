@@ -1,5 +1,4 @@
-// Oracle fixture: queries / subscribes to the Mock oracle interface (value -> {echoed, doubled}) and stores the
-// reply delivered to its notification procedure. Exercises the wasm oracle binding end to end.
+// Price-oracle fixture shared by the TS/Clang and VirtualNode/WAMR parity tests.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE
@@ -10,27 +9,39 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 {
     struct StateData
     {
-        sint64 lastReply;
+        sint64 numerator;
+        sint64 denominator;
+        sint64 queryId;
+        sint32 subscriptionId;
+        uint8 status;
     };
 
     struct Query_input
     {
-        uint64 value;
+        OI::Price::OracleQuery query;
         uint32 timeoutMillisec;
     };
     struct Query_output { sint64 queryId; };
-    struct Query_locals { OI::Mock::OracleQuery q; };
+    struct Query_locals {};
 
     struct Subscribe_input
     {
-        uint64 value;
+        OI::Price::OracleQuery query;
         uint32 periodMillisec;
+        bit notifyPrevious;
     };
-    struct Subscribe_output { sint64 subscriptionId; };
-    struct Subscribe_locals { OI::Mock::OracleQuery q; };
+    struct Subscribe_output { sint32 subscriptionId; };
+    struct Subscribe_locals {};
 
     struct Last_input {};
-    struct Last_output { sint64 reply; };
+    struct Last_output
+    {
+        sint64 numerator;
+        sint64 denominator;
+        sint64 queryId;
+        sint32 subscriptionId;
+        uint8 status;
+    };
 
     struct Status_input { sint64 queryId; };
     struct Status_output { uint64 status; };
@@ -38,33 +49,41 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     struct Unsubscribe_input { sint32 subscriptionId; };
     struct Unsubscribe_output { uint32 ok; };
 
-    typedef OracleNotificationInput<OI::Mock> OnReply_input;
+    typedef OracleNotificationInput<OI::Price> OnReply_input;
     typedef NoData OnReply_output;
     struct OnReply_locals {};
 
     PRIVATE_PROCEDURE_WITH_LOCALS(OnReply)
     {
-        if (input.status == ORACLE_QUERY_STATUS_SUCCESS)
+        state.mut().queryId = input.queryId;
+        state.mut().subscriptionId = input.subscriptionId;
+        state.mut().status = input.status;
+        if (input.status == ORACLE_QUERY_STATUS_SUCCESS && OI::Price::replyIsValid(input.reply))
         {
-            state.mut().lastReply = (sint64)input.reply.doubledValue;
+            state.mut().numerator = input.reply.numerator;
+            state.mut().denominator = input.reply.denominator;
         }
     }
 
     PUBLIC_PROCEDURE_WITH_LOCALS(Query)
     {
-        locals.q.value = input.value;
-        output.queryId = QUERY_ORACLE(OI::Mock, locals.q, OnReply, input.timeoutMillisec);
+        output.queryId = QUERY_ORACLE(OI::Price, input.query, OnReply, input.timeoutMillisec);
+        state.mut().queryId = output.queryId;
     }
 
     PUBLIC_PROCEDURE_WITH_LOCALS(Subscribe)
     {
-        locals.q.value = input.value;
-        output.subscriptionId = SUBSCRIBE_ORACLE(OI::Mock, locals.q, OnReply, input.periodMillisec, true);
+        output.subscriptionId = SUBSCRIBE_ORACLE(OI::Price, input.query, OnReply, input.periodMillisec, input.notifyPrevious);
+        state.mut().subscriptionId = output.subscriptionId;
     }
 
     PUBLIC_FUNCTION(Last)
     {
-        output.reply = state.get().lastReply;
+        output.numerator = state.get().numerator;
+        output.denominator = state.get().denominator;
+        output.queryId = state.get().queryId;
+        output.subscriptionId = state.get().subscriptionId;
+        output.status = state.get().status;
     }
 
     PUBLIC_FUNCTION(Status)

@@ -1,6 +1,6 @@
 // Generated from core-lite Wasm shared ABI headers. Do not edit.
 export const WASM_ABI_METADATA = {
-  "abiVersion": 3,
+  "abiVersion": 4,
   "lhost": [
     {
       "name": "beginFn",
@@ -467,6 +467,7 @@ export const WASM_ABI_METADATA = {
         "i32",
         "i32",
         "i32",
+        "i32",
         "i64"
       ],
       "results": [
@@ -476,6 +477,8 @@ export const WASM_ABI_METADATA = {
     {
       "name": "subscribeOracle",
       "params": [
+        "i32",
+        "i32",
         "i32",
         "i32",
         "i32",

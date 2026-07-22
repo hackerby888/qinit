@@ -9,6 +9,19 @@ import { describeShape, qpiWrapperMethod } from "./call-shape";
 export function emitCallValueIr(context: FunctionEmissionContext, expression: Expression & {
     kind: "call";
 }): watIr.WatNode {
+    if (expression.callee.kind === "identifier" &&
+        expression.callee.name === "__builtin_offsetof" &&
+        expression.callArguments.length === 2) {
+        const type = expression.callArguments[0];
+        const member = expression.callArguments[1];
+        if ((type.kind === "identifier" || type.kind === "qualified_name") && member.kind === "identifier") {
+            const field = context.programAnalysis.fieldOf({ kind: "name", name: type.name }, member.name, context.thisBind);
+            if (field)
+                return watIr.i64Constant(field.offset);
+        }
+        context.programAnalysis.warn(`unsupported __builtin_offsetof`, expression.span.line);
+        return watIr.i64Constant(0);
+    }
     if (context.programAnalysis.gtestMode && expression.callee.kind === "identifier" && expression.callee.name === "getBalance") {
         const who = expression.callArguments[0] ? context.lowering.emitAddress(context, expression.callArguments[0]) : null;
         if (!who)
