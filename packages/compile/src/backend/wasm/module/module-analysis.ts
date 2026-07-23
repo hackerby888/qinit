@@ -1,3 +1,4 @@
+import { AstKind } from "../../../enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type {
@@ -72,7 +73,7 @@ function recordMemberFunctionLines(
     contract: StructDecl,
 ): void {
     for (const member of contract.members) {
-        if (member.kind !== "function") {
+        if (member.kind !== AstKind.FUNCTION) {
             continue;
         }
 

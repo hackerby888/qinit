@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { describe, expect, test } from "bun:test";
 import { compileContract, type CalleeIdl, type CompileOptions } from "../../src/index";
 
@@ -27,7 +28,7 @@ const CALLEE: CalleeIdl = {
 
 async function expectRejected(overrides: Partial<CompileOptions>): Promise<void> {
   const result = await compileContract({ ...BASE, ...overrides });
-  const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 
   expect(errors.length).toBeGreaterThan(0);
   expect(result.wasm.byteLength).toBe(0);
@@ -39,7 +40,7 @@ describe("compiler option validation", () => {
   test("accepts a valid boundary-control request", async () => {
     const result = await compileContract(BASE);
 
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     expect(result.wasm.byteLength).toBeGreaterThan(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
   });

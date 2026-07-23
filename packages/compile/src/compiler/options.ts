@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../enums";
 import type { Diagnostic as ParserDiagnostic } from "../parser";
 import type { CompileOptions } from "./types";
 
@@ -8,7 +9,7 @@ const COMPILER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 function optionDiagnostic(message: string): ParserDiagnostic {
   return {
-    severity: "error",
+    severity: DiagnosticSeverity.ERROR,
     message: `Invalid compiler option: ${message}`,
     span: { start: 0, end: 0, line: 0, column: 0 },
   };

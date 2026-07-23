@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // compileContract's ContractIdl must describe the same ABI that is embedded in the generated WASM.
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -37,7 +38,7 @@ describe("edge audit — compile result IDL fidelity", () => {
       qpiHeader: HEADERS,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
     idl = result.idl;
   });

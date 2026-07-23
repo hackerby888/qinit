@@ -1,7 +1,8 @@
+import { AstKind, DiagnosticSeverity } from "../../enums";
 // Validation runs after parse and before codegen.
 import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span } from "../../ast";
 export interface ValidateDiagnostic {
-    severity: "error";
+    severity: DiagnosticSeverity.ERROR;
     message: string;
     span: Span;
 }
@@ -34,14 +35,14 @@ export interface ValidatorInternals {
   checkReturns(fn: FunctionDecl): void;
   guaranteesReturn(statement: Statement): boolean;
   collectEnumConstants(entry: Declaration & {
-        kind: "enum";
+        kind: AstKind.ENUM;
     }): void;
   checkStaticAssert(condition: Expression, message: Expression | undefined, span: Span): void;
   walkScope(statement: Statement, fn: FunctionDecl, memberFns: Map<string, FnSig>, allLocals: Set<string>, constParams: Set<string>, scopes: Array<Map<string, {
         const: boolean;
     }>>): void;
   checkDeclarationStatement(statement: Statement & {
-        kind: "declaration";
+        kind: AstKind.DECLARATION;
     }, scopes: Array<Map<string, {
         const: boolean;
     }>>): void;

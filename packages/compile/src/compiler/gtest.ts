@@ -1,3 +1,4 @@
+import { AstKind, DiagnosticCategory, DiagnosticSeverity } from "../enums";
 import type { Declaration } from "../ast";
 import { generateWasmModule, type GeneratedContractMetadata } from "../codegen";
 import { findContractStruct } from "../backend/wasm/module/contract-discovery";
@@ -27,7 +28,7 @@ const EMPTY_IDL = (options: CompileOptions) => ({
 });
 
 function diagnostic(message: string, line = 1, column = 1): GtestDiagnostic {
-  return { severity: "error", message, span: { start: 0, end: 0, line, column } };
+  return { severity: DiagnosticSeverity.ERROR, message, span: { start: 0, end: 0, line, column } };
 }
 
 function matchingBrace(source: string, open: number): number {
@@ -300,7 +301,7 @@ export async function compileCoreGtest(
     slot: RUNNER_SLOT,
   });
   diagnostics.push(...runner.diagnostics);
-  if (diagnostics.some((item) => item.severity === "error")) return { diagnostics, idl };
+  if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics, idl };
 
   // Runner declarations come first so findContractStruct selects it. The target contract AST is still present
   // as a normal global struct, providing the authoritative nested input/output/state layouts used by fixtures.
@@ -308,7 +309,7 @@ export async function compileCoreGtest(
   const targetStruct = findContractStruct(target.ast);
   const targetTypes = new Map<string, StructDecl>();
   for (const member of targetStruct?.members ?? []) {
-    if (member.kind === "struct")
+    if (member.kind === AstKind.STRUCT)
       targetTypes.set(`${options.name}::${member.name}`, member as StructDecl);
   }
   const sema = new Sema();
@@ -343,9 +344,13 @@ export async function compileCoreGtest(
 
   diagnostics.push(...sema.getDiagnostics());
   if (options.strict !== false) {
-    for (const item of diagnostics) if (item.category === "fidelity") item.severity = "error";
+    for (const item of diagnostics) {
+      if (item.category === DiagnosticCategory.FIDELITY) {
+        item.severity = DiagnosticSeverity.ERROR;
+      }
+    }
   }
-  if (diagnostics.some((item) => item.severity === "error")) return { diagnostics, idl };
+  if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics, idl };
 
   try {
     const wasm = await assemble(wat);

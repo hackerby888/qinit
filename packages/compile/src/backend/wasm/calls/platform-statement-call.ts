@@ -1,3 +1,4 @@
+import { AstKind, PlatformPrimitiveKind } from "../../../enums";
 import * as watIr from "../../../wat-ir";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
@@ -8,16 +9,16 @@ export function tryEmitPlatformStatementCall(
     context: FunctionEmissionContext,
     expression: CallExpression,
 ): boolean {
-    if (expression.callee.kind === "identifier" && expression.callee.name === "ASSERT") {
+    if (expression.callee.kind === AstKind.IDENTIFIER && expression.callee.name === "ASSERT") {
         return true;
     }
 
     const primitive =
-        expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name"
+        expression.callee.kind === AstKind.IDENTIFIER || expression.callee.kind === AstKind.QUALIFIED_NAME
             ? platformPrimitive(expression.callee.name)
             : undefined;
 
-    if (primitive?.kind === "memory-store") {
+    if (primitive?.kind === PlatformPrimitiveKind.MEMORY_STORE) {
         const destinationAddress = context.lowering.emitAddress(
             context,
             expression.callArguments[0],
@@ -41,7 +42,7 @@ export function tryEmitPlatformStatementCall(
         return true;
     }
 
-    if (primitive?.kind === "chain-rdrand") {
+    if (primitive?.kind === PlatformPrimitiveKind.CHAIN_RDRAND) {
         const randomValue = context.lowering.emitCallValueIr(context, expression);
         context.lines.push(
             `    ${watIr.serializeWatNode(watIr.operation("drop", randomValue))}`,

@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks shareholder proposal/vote sysproc payloads and return values.
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -120,7 +121,7 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
         qpiHeader: HEADERS,
         arenaSz: 4 * 1024 * 1024,
       });
-      expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+      expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
       return mine.wasm;
     };
 

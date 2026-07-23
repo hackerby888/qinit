@@ -1,7 +1,8 @@
+import { AstKind } from "../../../enums";
 import type { Expression } from "../../../ast";
 
 export type AssignmentExpression = Expression & {
-    kind: "assign";
+    kind: AstKind.ASSIGN;
 };
 
 export type AssignmentTarget = NonNullable<

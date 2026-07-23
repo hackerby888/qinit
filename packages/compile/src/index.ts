@@ -3,9 +3,10 @@ import { compileContract as compileContractWithHeader, compileGtest as compileGt
 import { loadQpiHeader } from "./compiler/header";
 import type { CompileOptions, CompileResult, GtestCompileResult } from "./compiler/types";
 
+export * from "./enums";
 export type { Span, TypeSpec, Expression, Statement, Declaration, TranslationUnit } from "./ast";
-export { Lexer } from "./lexer";
-export type { Token, TokenKind } from "./lexer";
+export { Lexer, TokenKind } from "./lexer";
+export type { Token } from "./lexer";
 export { Preprocessor } from "./preprocess";
 export type { PreprocessOptions } from "./preprocess";
 export { Parser } from "./parser";
@@ -33,17 +34,13 @@ export function parseToAst(
 }
 export { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "./compiler/wasm-inspect";
 export type {
-  InspectedMemoryMode,
   InspectedWasmExport,
   InspectedWasmImport,
   InspectedWasmMemory,
   WasmModuleInspection,
   WasmModuleInspectionOptions,
-  WasmModuleMemoryMode,
-  WasmExternalKind,
   WasmFunctionSignature,
   WasmInspectionDiagnostic,
-  WasmValueType,
 } from "./compiler/wasm-inspect";
 export type {
   CalleeIdl,

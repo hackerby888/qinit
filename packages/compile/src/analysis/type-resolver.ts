@@ -1,3 +1,4 @@
+import { AstKind } from "../enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, VariableDecl } from "../ast";
@@ -19,20 +20,20 @@ export function sizeOfType(context: ProgramAnalysisInternals, type: TypeSpec, te
 }
 
 export function sizeOfTypeInner(context: ProgramAnalysisInternals, type: TypeSpec, templateBindings: TemplateBindings): number {
-    if (type.kind === "const")
+    if (type.kind === AstKind.CONST)
         return context.sizeOfType(type.valueType, templateBindings);
-    if (type.kind === "reference" || type.kind === "pointer")
+    if (type.kind === AstKind.REFERENCE || type.kind === AstKind.POINTER)
         return 4;
-    if (type.kind === "void")
+    if (type.kind === AstKind.VOID)
         return 0;
-    if (type.kind === "array") {
+    if (type.kind === AstKind.ARRAY) {
         const constantValue = context.evalConst(type.size, templateBindings);
         return context.sizeOfType(type.element, templateBindings) * constantValue;
     }
-    if (type.kind === "inline_struct") {
+    if (type.kind === AstKind.INLINE_STRUCT) {
         return context.layoutOfStruct(type.struct, templateBindings).size;
     }
-    if (type.kind === "name") {
+    if (type.kind === AstKind.NAME) {
         const baseName = type.name.includes("::") ? type.name.slice(type.name.lastIndexOf("::") + 2) : type.name;
         // template parameter bound to a concrete type?
         const bound = templateBindings.types.get(type.name) ?? templateBindings.types.get(baseName);
@@ -62,10 +63,10 @@ export function sizeOfTypeInner(context: ProgramAnalysisInternals, type: TypeSpe
             return num; // shouldn't happen for a type, defensive
         return 4; // assume enum-sized
     }
-    if (type.kind === "template_instance") {
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) {
         return context.layoutOfTemplate(type.name, type.callArguments, templateBindings).size;
     }
-    if (type.kind === "dependent_member") {
+    if (type.kind === AstKind.DEPENDENT_MEMBER) {
         const resolvedMember = context.resolveDependentMember(type, templateBindings);
         if (resolvedMember)
             return context.sizeOfType(resolvedMember.type, resolvedMember.bindings);
@@ -75,19 +76,19 @@ export function sizeOfTypeInner(context: ProgramAnalysisInternals, type: TypeSpe
 }
 
 export function resolveDependentMember(context: ProgramAnalysisInternals, type: Extract<TypeSpec, {
-    kind: "dependent_member";
+    kind: AstKind.DEPENDENT_MEMBER;
 }>, templateBindings: TemplateBindings): {
     type: TypeSpec;
     bindings: TemplateBindings;
 } | null {
     const base = type.base;
-    if (base.kind !== "template_instance")
+    if (base.kind !== AstKind.TEMPLATE_INSTANCE)
         return null;
     const inst = context.instantiateTemplate(base.name, base.callArguments, templateBindings);
     if (!inst)
         return null;
     for (const member of inst.templateDeclaration.members) {
-        if (member.kind === "typedef_decl" && (member as any).name === type.member) {
+        if (member.kind === AstKind.TYPEDEF_DECL && (member as any).name === type.member) {
             return { type: (member as any).type, bindings: inst.b };
         }
     }
@@ -95,14 +96,14 @@ export function resolveDependentMember(context: ProgramAnalysisInternals, type: 
 }
 
 export function resolveType(context: ProgramAnalysisInternals, type: TypeSpec, templateBindings: TemplateBindings, depth = 0): TypeSpec {
-    if (depth > 24 || type.kind !== "name")
+    if (depth > 24 || type.kind !== AstKind.NAME)
         return type;
     const bound = templateBindings.types.get(type.name);
-    if (bound && !(bound.kind === "name" && bound.name === type.name)) {
+    if (bound && !(bound.kind === AstKind.NAME && bound.name === type.name)) {
         return context.resolveType(bound, templateBindings, depth + 1);
     }
     const td = context.typedefs.get(type.name);
-    if (td && !(td.kind === "name" && td.name === type.name)) {
+    if (td && !(td.kind === AstKind.NAME && td.name === type.name)) {
         return context.resolveType(td, templateBindings, depth + 1);
     }
     const qn = context.qualifiedNestedType(type.name, templateBindings);
@@ -112,14 +113,14 @@ export function resolveType(context: ProgramAnalysisInternals, type: TypeSpec, t
 }
 
 export function concreteMemberType(context: ProgramAnalysisInternals, type: TypeSpec, parent: TypeSpec & {
-    kind: "template_instance";
+    kind: AstKind.TEMPLATE_INSTANCE;
 }, depth = 0): TypeSpec {
     const inst = context.instantiateTemplate(parent.name, parent.callArguments, EMPTY_TEMPLATE_BINDINGS);
     if (!inst)
         return type;
     const nested = new Map<string, TypeSpec>();
     for (const member of inst.templateDeclaration.members) {
-        if (member.kind === "typedef_decl")
+        if (member.kind === AstKind.TYPEDEF_DECL)
             nested.set((member as any).name, (member as any).type);
     }
     return context.resolveInScope(type, inst.b, nested, depth);
@@ -128,40 +129,40 @@ export function concreteMemberType(context: ProgramAnalysisInternals, type: Type
 export function resolveInScope(context: ProgramAnalysisInternals, type: TypeSpec, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
     if (depth > 24)
         return type;
-    if (type.kind === "const") {
+    if (type.kind === AstKind.CONST) {
         return {
-            kind: "const",
+            kind: AstKind.CONST,
             valueType: context.resolveInScope(type.valueType, scope, nested, depth + 1),
         };
     }
-    if (type.kind === "array") {
+    if (type.kind === AstKind.ARRAY) {
         return {
-            kind: "array",
+            kind: AstKind.ARRAY,
             element: context.resolveInScope(type.element, scope, nested, depth + 1),
             size: type.size,
         };
     }
-    if (type.kind === "name") {
+    if (type.kind === AstKind.NAME) {
         return context.resolveNamedTypeInScope(type, scope, nested, depth);
     }
-    if (type.kind === "template_instance") {
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) {
         const resolvedCallArguments = context.resolveTemplateInstanceArguments(type, scope, nested, depth);
-        return { kind: "template_instance", name: type.name, callArguments: resolvedCallArguments };
+        return { kind: AstKind.TEMPLATE_INSTANCE, name: type.name, callArguments: resolvedCallArguments };
     }
     return type;
 }
 
 export function resolveNamedTypeInScope(context: ProgramAnalysisInternals, type: Extract<TypeSpec, {
-    kind: "name";
+    kind: AstKind.NAME;
 }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
     const boundType = scope.types.get(type.name);
-    if (boundType && !(boundType.kind === "name" && boundType.name === type.name))
+    if (boundType && !(boundType.kind === AstKind.NAME && boundType.name === type.name))
         return context.resolveInScope(boundType, scope, nested, depth + 1);
     const nestedType = nested.get(type.name);
-    if (nestedType && !(nestedType.kind === "name" && nestedType.name === type.name))
+    if (nestedType && !(nestedType.kind === AstKind.NAME && nestedType.name === type.name))
         return context.resolveInScope(nestedType, scope, nested, depth + 1);
     const typedefType = context.typedefs.get(type.name);
-    if (typedefType && !(typedefType.kind === "name" && typedefType.name === type.name))
+    if (typedefType && !(typedefType.kind === AstKind.NAME && typedefType.name === type.name))
         return context.resolveInScope(typedefType, scope, nested, depth + 1);
     const qualifiedType = context.qualifiedNestedType(type.name, scope);
     if (qualifiedType)
@@ -170,14 +171,14 @@ export function resolveNamedTypeInScope(context: ProgramAnalysisInternals, type:
 }
 
 export function resolveTemplateInstanceArguments(context: ProgramAnalysisInternals, type: Extract<TypeSpec, {
-    kind: "template_instance";
+    kind: AstKind.TEMPLATE_INSTANCE;
 }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec[] {
     return type.callArguments.map((argument) => {
-        if (argument.kind === "name" && scope.values.has(argument.name)) {
+        if (argument.kind === AstKind.NAME && scope.values.has(argument.name)) {
             return {
-                kind: "expr_value",
+                kind: AstKind.EXPR_VALUE,
                 expression: {
-                    kind: "int_literal",
+                    kind: AstKind.INT_LITERAL,
                     value: scope.values.get(argument.name)!.toString(),
                     span: { start: 0, end: 0, line: 0, column: 0 },
                 },
@@ -197,9 +198,9 @@ export function valueOfTypeArg(context: ProgramAnalysisInternals, type: TypeSpec
 
 export function evalConstFromType(context: ProgramAnalysisInternals, type: TypeSpec, templateBindings: TemplateBindings): bigint {
     // A non-type template arg arrives as a TypeSpec; recover its integer value.
-    if (type.kind === "expr_value")
+    if (type.kind === AstKind.EXPR_VALUE)
         return context.evalConstBig(type.expression, templateBindings);
-    if (type.kind === "name") {
+    if (type.kind === AstKind.NAME) {
         const numericValue = templateBindings.values.get(type.name);
         if (numericValue !== undefined)
             return numericValue;
@@ -215,22 +216,22 @@ export function evalConstFromType(context: ProgramAnalysisInternals, type: TypeS
 }
 
 export function typeKey(context: ProgramAnalysisInternals, type: TypeSpec): string {
-    if (type.kind === "name")
+    if (type.kind === AstKind.NAME)
         return type.name;
-    if (type.kind === "template_instance")
+    if (type.kind === AstKind.TEMPLATE_INSTANCE)
         return `${type.name}<${type.callArguments.map((argument) => context.typeKey(argument)).join(",")}>`;
-    if (type.kind === "const")
+    if (type.kind === AstKind.CONST)
         return "c" + context.typeKey(type.valueType);
-    if (type.kind === "array")
+    if (type.kind === AstKind.ARRAY)
         return `${context.typeKey(type.element)}[]`;
-    if (type.kind === "pointer")
+    if (type.kind === AstKind.POINTER)
         return "*";
-    if (type.kind === "expr_value")
+    if (type.kind === AstKind.EXPR_VALUE)
         return `#${context.evalConst(type.expression)}`;
     // inline-carried struct as a template arg (Array<Order,256> resolved through its declaring scope): key by tag + field names
-    if (type.kind === "inline_struct") {
+    if (type.kind === AstKind.INLINE_STRUCT) {
         const fields = type.struct.members
-            .filter((member) => member.kind === "variable")
+            .filter((member) => member.kind === AstKind.VARIABLE)
             .map((variableDeclaration) => (variableDeclaration as VariableDecl).name)
             .join(",");
         return `s:${type.struct.name || "anon"}{${fields}}`;
@@ -239,26 +240,26 @@ export function typeKey(context: ProgramAnalysisInternals, type: TypeSpec): stri
 }
 
 export function derefType(context: ProgramAnalysisInternals, type: TypeSpec): TypeSpec {
-    if (type.kind === "const")
+    if (type.kind === AstKind.CONST)
         return context.derefType(type.valueType);
-    if (type.kind === "reference")
+    if (type.kind === AstKind.REFERENCE)
         return context.derefType(type.referentType);
     return type;
 }
 
 export function isVoidType(context: ProgramAnalysisInternals, type: TypeSpec): boolean {
     const dereferencedType = context.derefType(type);
-    return dereferencedType.kind === "void" || (dereferencedType.kind === "name" && dereferencedType.name === "void");
+    return dereferencedType.kind === AstKind.VOID || (dereferencedType.kind === AstKind.NAME && dereferencedType.name === "void");
 }
 
 export function isAggregateType(context: ProgramAnalysisInternals, type: TypeSpec): boolean {
-    if (type.kind === "const")
+    if (type.kind === AstKind.CONST)
         return context.isAggregateType(type.valueType);
-    if (type.kind === "reference")
+    if (type.kind === AstKind.REFERENCE)
         return context.isAggregateType(type.referentType);
-    if (type.kind === "array" || type.kind === "inline_struct" || type.kind === "template_instance")
+    if (type.kind === AstKind.ARRAY || type.kind === AstKind.INLINE_STRUCT || type.kind === AstKind.TEMPLATE_INSTANCE)
         return true;
-    if (type.kind === "name") {
+    if (type.kind === AstKind.NAME) {
         const baseName = type.name.includes("::") ? type.name.slice(type.name.lastIndexOf("::") + 2) : type.name;
         if (baseName === "id" ||
             baseName === "m256i" ||

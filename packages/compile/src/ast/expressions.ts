@@ -1,3 +1,10 @@
+import {
+    AssignOp,
+    AstKind,
+    BinaryOp,
+    UnaryOp,
+    UpdateOp,
+} from "../enums";
 import type { Span } from "./source-location";
 import type { TypeSpec } from "./types";
 
@@ -5,66 +12,66 @@ import type { TypeSpec } from "./types";
 export type Expression = 
 // Literals
 {
-    kind: "int_literal";
+    kind: AstKind.INT_LITERAL;
     value: string;
     suffix?: string;
     span: Span;
 } // 42, 0xFF, 0b1010, 1000000ull
  | {
-    kind: "float_literal";
+    kind: AstKind.FLOAT_LITERAL;
     value: string;
     span: Span;
 } // (present in qpi.h constexpr only)
  | {
-    kind: "bool_literal";
+    kind: AstKind.BOOL_LITERAL;
     value: boolean;
     span: Span;
 } // true, false
  | {
-    kind: "nullptr_literal";
+    kind: AstKind.NULLPTR_LITERAL;
     span: Span;
 } // (present but rarely used)
  | {
-    kind: "string_literal";
+    kind: AstKind.STRING_LITERAL;
     value: string;
     span: Span;
 } // static_assert messages only
  | {
-    kind: "char_literal";
+    kind: AstKind.CHAR_LITERAL;
     value: number;
     span: Span;
 } // 'a' → 97
 // Names
  | {
-    kind: "identifier";
+    kind: AstKind.IDENTIFIER;
     name: string;
     span: Span;
 } | {
-    kind: "qualified_name";
+    kind: AstKind.QUALIFIED_NAME;
     namespace: string;
     name: string;
     span: Span;
 } // QPI::foo, NAMESPACE::Type
 // Unary
  | {
-    kind: "unary_op";
+    kind: AstKind.UNARY_OP;
     operator: UnaryOp;
     argument: Expression;
     span: Span;
 } | {
-    kind: "prefix_op";
-    operator: "++" | "--";
+    kind: AstKind.PREFIX_OP;
+    operator: UpdateOp;
     argument: Expression;
     span: Span;
 } | {
-    kind: "postfix_op";
-    operator: "++" | "--";
+    kind: AstKind.POSTFIX_OP;
+    operator: UpdateOp;
     argument: Expression;
     span: Span;
 }
 // Binary
  | {
-    kind: "binary_op";
+    kind: AstKind.BINARY_OP;
     operator: BinaryOp;
     left: Expression;
     right: Expression;
@@ -72,7 +79,7 @@ export type Expression =
 }
 // Ternary
  | {
-    kind: "ternary";
+    kind: AstKind.TERNARY;
     condition: Expression;
     then: Expression;
     else_: Expression;
@@ -80,31 +87,31 @@ export type Expression =
 }
 // Member access
  | {
-    kind: "member_access";
+    kind: AstKind.MEMBER_ACCESS;
     object: Expression;
     member: string;
     arrow: boolean;
     span: Span;
 } // obj.member / ptr->member
  | {
-    kind: "subscript";
+    kind: AstKind.SUBSCRIPT;
     object: Expression;
     index: Expression;
     span: Span;
 } // obj[index] (internal)
  | {
-    kind: "sequence";
+    kind: AstKind.SEQUENCE;
     expressions: Expression[];
     span: Span;
 } // a, b (comma operator)
 // Function call
  | {
-    kind: "call";
+    kind: AstKind.CALL;
     callee: Expression;
     callArguments: Expression[];
     span: Span;
 } | {
-    kind: "template_call";
+    kind: AstKind.TEMPLATE_CALL;
     callee: Expression;
     templateArguments: TypeSpec[];
     callArguments: Expression[];
@@ -112,36 +119,36 @@ export type Expression =
 } // fn<T>(args)
 // Casts
  | {
-    kind: "c_cast";
+    kind: AstKind.C_CAST;
     type: TypeSpec;
     expression: Expression;
     span: Span;
 } // (type)expr
  | {
-    kind: "static_cast";
+    kind: AstKind.STATIC_CAST;
     type: TypeSpec;
     expression: Expression;
     span: Span;
 } | {
-    kind: "reinterpret_cast";
+    kind: AstKind.REINTERPRET_CAST;
     type: TypeSpec;
     expression: Expression;
     span: Span;
 }
 // sizeof
  | {
-    kind: "sizeof_type";
+    kind: AstKind.SIZEOF_TYPE;
     type: TypeSpec;
     span: Span;
 } // sizeof(T)
  | {
-    kind: "sizeof_expr";
+    kind: AstKind.SIZEOF_EXPR;
     expression: Expression;
     span: Span;
 } // sizeof expr
 // Assignment (expression-level)
  | {
-    kind: "assign";
+    kind: AstKind.ASSIGN;
     operator: AssignOp;
     left: Expression;
     right: Expression;
@@ -149,31 +156,31 @@ export type Expression =
 }
 // Constructor call
  | {
-    kind: "construct";
+    kind: AstKind.CONSTRUCT;
     type: TypeSpec;
     callArguments: Expression[];
     span: Span;
 } // Type{args}
  | {
-    kind: "initializer_list";
+    kind: AstKind.INITIALIZER_LIST;
     expressions: Expression[];
     span: Span;
 } // {a, b, c}
 // This
  | {
-    kind: "this";
+    kind: AstKind.THIS;
     span: Span;
 }
 // Parens
  | {
-    kind: "paren";
+    kind: AstKind.PAREN;
     expression: Expression;
     span: Span;
 };
 
-export type UnaryOp = "!" | "~" | "-" | "+" | "*" | "&";
-
-export type BinaryOp = "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" | "<<" | ">>" | "&" | "|" | "^" | "="; // assignment inside binary_op (legacy)
-
-
-export type AssignOp = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "<<=" | ">>=" | "&=" | "|=" | "^=";
+export {
+    AssignOp,
+    BinaryOp,
+    UnaryOp,
+    UpdateOp,
+};

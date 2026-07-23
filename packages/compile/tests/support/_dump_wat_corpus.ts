@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 // Dumps the exact WAT text (via QINIT_DUMP_WAT) for a fixed corpus of contracts into a directory.
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
@@ -127,7 +128,7 @@ async function dumpOne(
       qpiHeader: QPI,
       arenaSz: 64 * 1024,
     });
-    const errs = r.diagnostics.filter((d) => d.severity === "error").length;
+    const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR).length;
     const dumped = existsSync(watPath);
     return `${displayName}: ${dumped ? "wat" : "NO-WAT"} · ${errs} err`;
   } catch (e: any) {

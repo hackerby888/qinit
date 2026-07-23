@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // u128/safe-math semantics lock-down for divergence-sensitive cases.
 import { coreGtest } from "../support/core-gtest";
@@ -240,7 +241,7 @@ describe("safe-math + uint128 semantics vs BigInt reference", () => {
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(6, mine.wasm);
   });
@@ -470,7 +471,7 @@ describe("differential gtest — safe-math saturation + uint128 boundaries", () 
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {

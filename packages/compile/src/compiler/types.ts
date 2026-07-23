@@ -1,3 +1,7 @@
+import {
+  DiagnosticCategory,
+  DiagnosticSeverity,
+} from "../enums";
 import type { Span } from "../ast";
 import type { Diagnostic as ParserDiagnostic } from "../parser";
 
@@ -59,9 +63,9 @@ export interface GtestCompileResult {
 }
 
 export interface Diagnostic {
-  severity: "error" | "warning";
+  severity: DiagnosticSeverity.ERROR | DiagnosticSeverity.WARNING;
   message: string;
   file?: string;
   span: Span;
-  category?: "fidelity";
+  category?: DiagnosticCategory.FIDELITY;
 }

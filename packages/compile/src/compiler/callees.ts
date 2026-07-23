@@ -1,3 +1,4 @@
+import { AstKind, DiagnosticSeverity } from "../enums";
 import { Lexer } from "../lexer";
 import { Parser, type Diagnostic as ParserDiagnostic } from "../parser";
 import { Preprocessor } from "../preprocess";
@@ -24,7 +25,7 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
       message: `Callee '${callee.name}': ${diagnostic.message}`,
     }));
     diagnostics.push(...early);
-    if (early.some((diagnostic) => diagnostic.severity === "error")) {
+    if (early.some((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)) {
       continue;
     }
 
@@ -49,24 +50,24 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
         message: `Callee '${callee.name}': ${diagnostic.message}`,
       }));
     diagnostics.push(...parsed);
-    if (parsed.some((diagnostic) => diagnostic.severity === "error")) {
+    if (parsed.some((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)) {
       continue;
     }
 
     calleeTranslationUnits.push({ contractName: callee.name, declarations: unit.declarations });
     for (const declaration of unit.declarations) {
-      if (declaration.kind !== "struct") {
+      if (declaration.kind !== AstKind.STRUCT) {
         continue;
       }
       const struct = declaration;
       const isContract =
-        struct.bases?.some((base) => base.kind === "name" && base.name === "ContractBase") ||
+        struct.bases?.some((base) => base.kind === AstKind.NAME && base.name === "ContractBase") ||
         struct.name === "CONTRACT_STATE_TYPE";
       if (!isContract) {
         continue;
       }
       for (const member of struct.members ?? []) {
-        if (member.kind === "struct" && member.name)
+        if (member.kind === AstKind.STRUCT && member.name)
           contractStructs.set(`${callee.name}::${member.name}`, member);
       }
     }

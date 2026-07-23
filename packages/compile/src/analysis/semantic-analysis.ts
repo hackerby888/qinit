@@ -1,14 +1,21 @@
+import {
+    AstKind,
+    BinaryOp,
+    DiagnosticCategory,
+    DiagnosticSeverity,
+    UnaryOp,
+} from "../enums";
 // Sema now owns only diagnostics + constexpr-only arithmetic evaluation.
 import type { Span, Expression } from "../ast";
 
 import { parseIntLiteral } from "../lexer";
 
 export interface SemaDiagnostic {
-    severity: "error" | "warning";
+    severity: DiagnosticSeverity.ERROR | DiagnosticSeverity.WARNING;
     message: string;
     span: Span;
     // "fidelity": the construct was lowered to a placeholder instead of faithful code.
-    category?: "fidelity";
+    category?: DiagnosticCategory.FIDELITY;
 }
 
 export class SemanticAnalysis {
@@ -17,10 +24,10 @@ export class SemanticAnalysis {
         return this.diagnostics;
     }
     error(msg: string, span: Span): void {
-        this.diagnostics.push({ severity: "error", message: msg, span });
+        this.diagnostics.push({ severity: DiagnosticSeverity.ERROR, message: msg, span });
     }
-    warn(msg: string, span: Span, category?: "fidelity"): void {
-        this.diagnostics.push({ severity: "warning", message: msg, span, category });
+    warn(msg: string, span: Span, category?: DiagnosticCategory.FIDELITY): void {
+        this.diagnostics.push({ severity: DiagnosticSeverity.WARNING, message: msg, span, category });
     }
     // ---- Constexpr evaluation ----
     // Fold literal-only expressions; leave symbol-dependent cases to codegen.
@@ -34,92 +41,92 @@ export class SemanticAnalysis {
     }
     private evalExpr(expression: Expression): bigint {
         switch (expression.kind) {
-            case "int_literal":
+            case AstKind.INT_LITERAL:
                 return parseIntLiteral(expression.value);
-            case "bool_literal":
+            case AstKind.BOOL_LITERAL:
                 return BigInt(expression.value ? 1 : 0);
-            case "char_literal":
+            case AstKind.CHAR_LITERAL:
                 return BigInt(expression.value);
-            case "paren":
+            case AstKind.PAREN:
                 return this.evalExpr(expression.expression);
-            case "unary_op": {
+            case AstKind.UNARY_OP: {
                 const ue = expression as {
-                    kind: "unary_op";
-                    operator: string;
+                    kind: AstKind.UNARY_OP;
+                    operator: UnaryOp;
                     argument: Expression;
                     span: Span;
                 };
                 const argument = this.evalExpr(ue.argument);
                 switch (ue.operator) {
-                    case "!":
+                    case UnaryOp.LOGICAL_NOT:
                         return argument === 0n ? 1n : 0n;
-                    case "~":
+                    case UnaryOp.BITWISE_NOT:
                         return ~argument;
-                    case "-":
+                    case UnaryOp.MINUS:
                         return -argument;
-                    case "+":
+                    case UnaryOp.PLUS:
                         return argument;
                 }
                 throw new Error(`unknown unary op: ${expression.operator}`);
             }
-            case "binary_op": {
+            case AstKind.BINARY_OP: {
                 const left = this.evalExpr(expression.left);
                 const right = this.evalExpr(expression.right);
                 switch (expression.operator) {
-                    case "+":
+                    case BinaryOp.ADD:
                         return left + right;
-                    case "-":
+                    case BinaryOp.SUBTRACT:
                         return left - right;
-                    case "*":
+                    case BinaryOp.MULTIPLY:
                         return left * right;
-                    case "/":
+                    case BinaryOp.DIVIDE:
                         return right !== 0n ? left / right : 0n;
-                    case "%":
+                    case BinaryOp.MODULO:
                         return right !== 0n ? left % right : 0n;
-                    case "<<":
+                    case BinaryOp.SHIFT_LEFT:
                         return left << BigInt(Number(right));
-                    case ">>":
+                    case BinaryOp.SHIFT_RIGHT:
                         return left >> BigInt(Number(right));
-                    case "&":
+                    case BinaryOp.BITWISE_AND:
                         return left & right;
-                    case "|":
+                    case BinaryOp.BITWISE_OR:
                         return left | right;
-                    case "^":
+                    case BinaryOp.BITWISE_XOR:
                         return left ^ right;
-                    case "==":
+                    case BinaryOp.EQUAL:
                         return left === right ? 1n : 0n;
-                    case "!=":
+                    case BinaryOp.NOT_EQUAL:
                         return left !== right ? 1n : 0n;
-                    case "<":
+                    case BinaryOp.LESS_THAN:
                         return left < right ? 1n : 0n;
-                    case ">":
+                    case BinaryOp.GREATER_THAN:
                         return left > right ? 1n : 0n;
-                    case "<=":
+                    case BinaryOp.LESS_THAN_OR_EQUAL:
                         return left <= right ? 1n : 0n;
-                    case ">=":
+                    case BinaryOp.GREATER_THAN_OR_EQUAL:
                         return left >= right ? 1n : 0n;
-                    case "&&":
+                    case BinaryOp.LOGICAL_AND:
                         return left !== 0n && right !== 0n ? 1n : 0n;
-                    case "||":
+                    case BinaryOp.LOGICAL_OR:
                         return left !== 0n || right !== 0n ? 1n : 0n;
                     default:
                         throw new Error(`unknown binary op: ${expression.operator}`);
                 }
             }
-            case "ternary":
+            case AstKind.TERNARY:
                 return this.evalExpr(expression.condition) !== 0n
                     ? this.evalExpr(expression.then)
                     : this.evalExpr(expression.else_);
-            case "c_cast":
-            case "static_cast":
+            case AstKind.C_CAST:
+            case AstKind.STATIC_CAST:
                 return this.evalExpr(expression.expression);
-            case "call":
-            case "template_call": {
+            case AstKind.CALL:
+            case AstKind.TEMPLATE_CALL: {
                 // QPI safe-math helpers used in constexpr contexts, e.g. div<uint32>(REGISTER_AMOUNT, 20).
                 const callee = expression.callee;
-                const fn = callee.kind === "identifier"
+                const fn = callee.kind === AstKind.IDENTIFIER
                     ? callee.name
-                    : callee.kind === "qualified_name"
+                    : callee.kind === AstKind.QUALIFIED_NAME
                         ? (callee as {
                             name: string;
                         }).name

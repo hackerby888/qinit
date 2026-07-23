@@ -1,3 +1,4 @@
+import { AstKind } from "../enums";
 import { Lexer } from "../lexer";
 import { Parser } from "../parser";
 import { Preprocessor, type MacroDef } from "../preprocess";
@@ -60,12 +61,12 @@ export function getQpiContext(headers: string): QpiContext {
             .get(cls)
             ?.members.find(
               (member) =>
-                member.kind === "function" &&
+                member.kind === AstKind.FUNCTION &&
                 member.name === baseName &&
                 member.params.length === (definition.functionParameters ?? []).length,
             );
           const merged =
-            declared?.kind === "function"
+            declared?.kind === AstKind.FUNCTION
             ? {
                   ...definition,
                   functionParameters: (definition.functionParameters ?? []).map((param, index) => ({

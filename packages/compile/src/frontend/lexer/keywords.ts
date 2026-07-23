@@ -1,61 +1,61 @@
-import type { TokenKind } from "./tokens";
+import { TokenKind } from "../../enums";
 
 // ---- Keyword map ----
 export const KEYWORDS: Record<string, TokenKind> = {
-    asm: "kw_asm",
-    auto: "kw_auto",
-    bool: "kw_bool",
-    break: "kw_break",
-    case: "kw_case",
-    char: "kw_char",
-    class: "kw_class",
-    const: "kw_const",
-    constexpr: "kw_constexpr",
-    continue: "kw_continue",
-    default: "kw_default",
-    delete: "kw_delete",
-    do: "kw_do",
-    double: "kw_double",
-    else: "kw_else",
-    enum: "kw_enum",
-    extern: "kw_extern",
-    false: "kw_false",
-    float: "kw_float",
-    for: "kw_for",
-    friend: "kw_friend",
-    goto: "kw_goto",
-    if: "kw_if",
-    inline: "kw_inline",
-    int: "kw_int",
-    long: "kw_long",
-    namespace: "kw_namespace",
-    noexcept: "kw_noexcept",
-    nullptr: "kw_nullptr",
-    operator: "kw_operator",
-    override: "kw_override",
-    private: "kw_private",
-    protected: "kw_protected",
-    public: "kw_public",
-    return: "kw_return",
-    short: "kw_short",
-    signed: "kw_signed",
-    sizeof: "kw_sizeof",
-    static: "kw_static",
-    static_assert: "kw_static_assert",
-    struct: "kw_struct",
-    switch: "kw_switch",
-    template: "kw_template",
-    this: "kw_this",
-    true: "kw_true",
-    typedef: "kw_typedef",
-    typename: "kw_typename",
-    union: "kw_union",
-    unsigned: "kw_unsigned",
-    using: "kw_using",
-    virtual: "kw_virtual",
-    void: "kw_void",
-    volatile: "kw_volatile",
-    while: "kw_while",
+    asm: TokenKind.KW_ASM,
+    auto: TokenKind.KW_AUTO,
+    bool: TokenKind.KW_BOOL,
+    break: TokenKind.KW_BREAK,
+    case: TokenKind.KW_CASE,
+    char: TokenKind.KW_CHAR,
+    class: TokenKind.KW_CLASS,
+    const: TokenKind.KW_CONST,
+    constexpr: TokenKind.KW_CONSTEXPR,
+    continue: TokenKind.KW_CONTINUE,
+    default: TokenKind.KW_DEFAULT,
+    delete: TokenKind.KW_DELETE,
+    do: TokenKind.KW_DO,
+    double: TokenKind.KW_DOUBLE,
+    else: TokenKind.KW_ELSE,
+    enum: TokenKind.KW_ENUM,
+    extern: TokenKind.KW_EXTERN,
+    false: TokenKind.KW_FALSE,
+    float: TokenKind.KW_FLOAT,
+    for: TokenKind.KW_FOR,
+    friend: TokenKind.KW_FRIEND,
+    goto: TokenKind.KW_GOTO,
+    if: TokenKind.KW_IF,
+    inline: TokenKind.KW_INLINE,
+    int: TokenKind.KW_INT,
+    long: TokenKind.KW_LONG,
+    namespace: TokenKind.KW_NAMESPACE,
+    noexcept: TokenKind.KW_NOEXCEPT,
+    nullptr: TokenKind.KW_NULLPTR,
+    operator: TokenKind.KW_OPERATOR,
+    override: TokenKind.KW_OVERRIDE,
+    private: TokenKind.KW_PRIVATE,
+    protected: TokenKind.KW_PROTECTED,
+    public: TokenKind.KW_PUBLIC,
+    return: TokenKind.KW_RETURN,
+    short: TokenKind.KW_SHORT,
+    signed: TokenKind.KW_SIGNED,
+    sizeof: TokenKind.KW_SIZEOF,
+    static: TokenKind.KW_STATIC,
+    static_assert: TokenKind.KW_STATIC_ASSERT,
+    struct: TokenKind.KW_STRUCT,
+    switch: TokenKind.KW_SWITCH,
+    template: TokenKind.KW_TEMPLATE,
+    this: TokenKind.KW_THIS,
+    true: TokenKind.KW_TRUE,
+    typedef: TokenKind.KW_TYPEDEF,
+    typename: TokenKind.KW_TYPENAME,
+    union: TokenKind.KW_UNION,
+    unsigned: TokenKind.KW_UNSIGNED,
+    using: TokenKind.KW_USING,
+    virtual: TokenKind.KW_VIRTUAL,
+    void: TokenKind.KW_VOID,
+    volatile: TokenKind.KW_VOLATILE,
+    while: TokenKind.KW_WHILE,
 };
 
 // Multi-word type keywords formed by consecutive single keywords
@@ -63,35 +63,35 @@ export const TYPE_COMPOUNDS: [
     TokenKind[],
     TokenKind
 ][] = [
-    [["kw_signed", "kw_char"], "kw_signed_char"],
-    [["kw_unsigned", "kw_char"], "kw_unsigned_char"],
-    [["kw_signed", "kw_short"], "kw_signed_short"],
-    [["kw_unsigned", "kw_short"], "kw_unsigned_short"],
-    [["kw_signed", "kw_int"], "kw_signed_int"],
-    [["kw_unsigned", "kw_int"], "kw_unsigned_int"],
-    [["kw_signed", "kw_long", "kw_long"], "kw_signed_long_long"],
-    [["kw_unsigned", "kw_long", "kw_long"], "kw_unsigned_long_long"],
-    [["kw_long", "kw_long"], "kw_long_long"],
+    [[TokenKind.KW_SIGNED, TokenKind.KW_CHAR], TokenKind.KW_SIGNED_CHAR],
+    [[TokenKind.KW_UNSIGNED, TokenKind.KW_CHAR], TokenKind.KW_UNSIGNED_CHAR],
+    [[TokenKind.KW_SIGNED, TokenKind.KW_SHORT], TokenKind.KW_SIGNED_SHORT],
+    [[TokenKind.KW_UNSIGNED, TokenKind.KW_SHORT], TokenKind.KW_UNSIGNED_SHORT],
+    [[TokenKind.KW_SIGNED, TokenKind.KW_INT], TokenKind.KW_SIGNED_INT],
+    [[TokenKind.KW_UNSIGNED, TokenKind.KW_INT], TokenKind.KW_UNSIGNED_INT],
+    [[TokenKind.KW_SIGNED, TokenKind.KW_LONG, TokenKind.KW_LONG], TokenKind.KW_SIGNED_LONG_LONG],
+    [[TokenKind.KW_UNSIGNED, TokenKind.KW_LONG, TokenKind.KW_LONG], TokenKind.KW_UNSIGNED_LONG_LONG],
+    [[TokenKind.KW_LONG, TokenKind.KW_LONG], TokenKind.KW_LONG_LONG],
 ];
 
 export function isTypeKeyword(kind: TokenKind): boolean {
-    return (kind === "kw_void" ||
-        kind === "kw_bool" ||
-        kind === "kw_char" ||
-        kind === "kw_short" ||
-        kind === "kw_int" ||
-        kind === "kw_long" ||
-        kind === "kw_signed" ||
-        kind === "kw_unsigned" ||
-        kind === "kw_signed_char" ||
-        kind === "kw_unsigned_char" ||
-        kind === "kw_signed_short" ||
-        kind === "kw_unsigned_short" ||
-        kind === "kw_signed_int" ||
-        kind === "kw_unsigned_int" ||
-        kind === "kw_signed_long_long" ||
-        kind === "kw_unsigned_long_long" ||
-        kind === "kw_long_long" ||
-        kind === "kw_double" ||
-        kind === "kw_float");
+    return (kind === TokenKind.KW_VOID ||
+        kind === TokenKind.KW_BOOL ||
+        kind === TokenKind.KW_CHAR ||
+        kind === TokenKind.KW_SHORT ||
+        kind === TokenKind.KW_INT ||
+        kind === TokenKind.KW_LONG ||
+        kind === TokenKind.KW_SIGNED ||
+        kind === TokenKind.KW_UNSIGNED ||
+        kind === TokenKind.KW_SIGNED_CHAR ||
+        kind === TokenKind.KW_UNSIGNED_CHAR ||
+        kind === TokenKind.KW_SIGNED_SHORT ||
+        kind === TokenKind.KW_UNSIGNED_SHORT ||
+        kind === TokenKind.KW_SIGNED_INT ||
+        kind === TokenKind.KW_UNSIGNED_INT ||
+        kind === TokenKind.KW_SIGNED_LONG_LONG ||
+        kind === TokenKind.KW_UNSIGNED_LONG_LONG ||
+        kind === TokenKind.KW_LONG_LONG ||
+        kind === TokenKind.KW_DOUBLE ||
+        kind === TokenKind.KW_FLOAT);
 }

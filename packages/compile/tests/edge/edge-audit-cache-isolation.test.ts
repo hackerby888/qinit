@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 // QPI header caching must be content-addressed. Length + first 64 bytes is not sufficient:
 import { beforeAll, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -23,7 +24,7 @@ async function stateSize(name: string, qpiHeader: string): Promise<number> {
     qpiHeader,
     arenaSz: 1 << 20,
   });
-  expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
   sim.deploy(27, result.wasm);
   return sim.contracts.get(27)!.state().byteLength;

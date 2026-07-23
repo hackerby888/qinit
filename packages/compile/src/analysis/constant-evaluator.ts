@@ -1,3 +1,4 @@
+import { AstKind, BinaryOp, UnaryOp } from "../enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Expression } from "../ast";
@@ -12,7 +13,7 @@ export function typeOfConstant(context: ProgramAnalysisInternals, name: string):
 
 export function scalarStorageType(context: ProgramAnalysisInternals, type: TypeSpec): TypeSpec {
     const dereferencedType = context.derefType(type);
-    if (dereferencedType.kind !== "name")
+    if (dereferencedType.kind !== AstKind.NAME)
         return dereferencedType;
     const base = dereferencedType.name.includes("::") ? dereferencedType.name.slice(dereferencedType.name.lastIndexOf("::") + 2) : dereferencedType.name;
     const normalized = SCALAR_SIZE[base] !== undefined ? { ...dereferencedType, name: base } : dereferencedType;
@@ -21,7 +22,7 @@ export function scalarStorageType(context: ProgramAnalysisInternals, type: TypeS
 
 export function normalizeConst(context: ProgramAnalysisInternals, value: bigint, type: TypeSpec): bigint {
     const storageType = context.scalarStorageType(type);
-    if (storageType.kind !== "name")
+    if (storageType.kind !== AstKind.NAME)
         return value;
     const size = SCALAR_SIZE[storageType.name];
     if (size === undefined || size >= 8)
@@ -79,7 +80,7 @@ export function resolveConst(
         return null; // cyclic constexpr — give up
     context.constInProgress.add(name);
     try {
-        const numericValue = context.normalizeConst(context.evalConstBig(initializer, EMPTY_TEMPLATE_BINDINGS), context.constexprType.get(name) ?? { kind: "name", name: "sint64" });
+        const numericValue = context.normalizeConst(context.evalConstBig(initializer, EMPTY_TEMPLATE_BINDINGS), context.constexprType.get(name) ?? { kind: AstKind.NAME, name: "sint64" });
         context.constCache.set(name, numericValue);
         return numericValue;
     }
@@ -103,15 +104,15 @@ export function parseIntLiteral(context: ProgramAnalysisInternals, value: string
 
 export function evalConstBig(context: ProgramAnalysisInternals, expression: Expression, templateBindings: TemplateBindings): bigint {
     switch (expression.kind) {
-        case "int_literal":
+        case AstKind.INT_LITERAL:
             return context.parseIntLiteral(expression.value);
-        case "bool_literal":
+        case AstKind.BOOL_LITERAL:
             return expression.value ? 1n : 0n;
-        case "char_literal":
+        case AstKind.CHAR_LITERAL:
             return BigInt(expression.value);
-        case "paren":
+        case AstKind.PAREN:
             return context.evalConstBig(expression.expression, templateBindings);
-        case "identifier": {
+        case AstKind.IDENTIFIER: {
             const numericValue = templateBindings.values.get(expression.name);
             if (numericValue !== undefined)
                 return numericValue;
@@ -120,72 +121,72 @@ export function evalConstBig(context: ProgramAnalysisInternals, expression: Expr
                 return resolvedConstant;
             return 0n;
         }
-        case "unary_op": {
+        case AstKind.UNARY_OP: {
             const constantValue = context.evalConstBig(expression.argument, templateBindings);
-            if (expression.operator === "-")
+            if (expression.operator === UnaryOp.MINUS)
                 return -constantValue;
-            if (expression.operator === "~")
+            if (expression.operator === UnaryOp.BITWISE_NOT)
                 return ~constantValue;
-            if (expression.operator === "!")
+            if (expression.operator === UnaryOp.LOGICAL_NOT)
                 return constantValue === 0n ? 1n : 0n;
             return constantValue;
         }
-        case "binary_op": {
+        case AstKind.BINARY_OP: {
             const constantValue = context.evalConstBig(expression.left, templateBindings);
             const constantValueCandidate = context.evalConstBig(expression.right, templateBindings);
             switch (expression.operator) {
-                case "+":
+                case BinaryOp.ADD:
                     return constantValue + constantValueCandidate;
-                case "-":
+                case BinaryOp.SUBTRACT:
                     return constantValue - constantValueCandidate;
-                case "*":
+                case BinaryOp.MULTIPLY:
                     return constantValue * constantValueCandidate;
-                case "/":
+                case BinaryOp.DIVIDE:
                     return constantValueCandidate === 0n ? 0n : constantValue / constantValueCandidate;
-                case "%":
+                case BinaryOp.MODULO:
                     return constantValueCandidate === 0n ? 0n : constantValue % constantValueCandidate;
-                case "<<":
+                case BinaryOp.SHIFT_LEFT:
                     return constantValue << constantValueCandidate;
-                case ">>":
+                case BinaryOp.SHIFT_RIGHT:
                     return constantValue >> constantValueCandidate;
-                case "&":
+                case BinaryOp.BITWISE_AND:
                     return constantValue & constantValueCandidate;
-                case "|":
+                case BinaryOp.BITWISE_OR:
                     return constantValue | constantValueCandidate;
-                case "^":
+                case BinaryOp.BITWISE_XOR:
                     return constantValue ^ constantValueCandidate;
-                case "<":
+                case BinaryOp.LESS_THAN:
                     return constantValue < constantValueCandidate ? 1n : 0n;
-                case ">":
+                case BinaryOp.GREATER_THAN:
                     return constantValue > constantValueCandidate ? 1n : 0n;
-                case "<=":
+                case BinaryOp.LESS_THAN_OR_EQUAL:
                     return constantValue <= constantValueCandidate ? 1n : 0n;
-                case ">=":
+                case BinaryOp.GREATER_THAN_OR_EQUAL:
                     return constantValue >= constantValueCandidate ? 1n : 0n;
-                case "==":
+                case BinaryOp.EQUAL:
                     return constantValue === constantValueCandidate ? 1n : 0n;
-                case "!=":
+                case BinaryOp.NOT_EQUAL:
                     return constantValue !== constantValueCandidate ? 1n : 0n;
                 default:
                     return 0n;
             }
         }
-        case "ternary":
+        case AstKind.TERNARY:
             return context.evalConstBig(expression.condition, templateBindings) !== 0n
                 ? context.evalConstBig(expression.then, templateBindings)
                 : context.evalConstBig(expression.else_, templateBindings);
-        case "sizeof_type":
+        case AstKind.SIZEOF_TYPE:
             return BigInt(context.sizeOfType(expression.type, templateBindings));
-        case "c_cast":
-        case "static_cast":
+        case AstKind.C_CAST:
+        case AstKind.STATIC_CAST:
             return context.normalizeConst(context.evalConstBig(expression.expression, templateBindings), expression.type);
-        case "call":
-        case "template_call": {
+        case AstKind.CALL:
+        case AstKind.TEMPLATE_CALL: {
             // QPI safe-math helpers appear in constexpr contexts (e.g. QUTIL_MAX_NEW_POLL = div(MAX_POLL, 4)).
             const callee = expression.callee;
-            const fn = callee.kind === "identifier"
+            const fn = callee.kind === AstKind.IDENTIFIER
                 ? callee.name
-                : callee.kind === "qualified_name"
+                : callee.kind === AstKind.QUALIFIED_NAME
                     ? callee.name
                     : null;
             if (fn) {

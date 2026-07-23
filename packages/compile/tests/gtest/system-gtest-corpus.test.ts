@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -93,7 +94,7 @@ describe("core-lite system gtest corpus", () => {
         constructionEpoch: contract!.constructionEpoch,
         qpiHeader: QPI,
       });
-      expect(runner.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+      expect(runner.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
       expect(runner.program?.tests.map((item) => item.name)).toEqual([entry.test]);
 
       const compiledContract = await compileContract({
@@ -103,7 +104,7 @@ describe("core-lite system gtest corpus", () => {
         qpiHeader: QPI,
         arenaSz: 16 * 1024 * 1024,
       });
-      expect(compiledContract.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+      expect(compiledContract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
       expect(
         await runCompiledGtest(runner.program!, runner.wasm!, {
           [contract!.index]: compiledContract.wasm,

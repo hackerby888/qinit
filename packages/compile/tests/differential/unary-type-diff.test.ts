@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks unary width propagation and mixed signed/unsigned comparisons.
 import { coreGtest } from "../support/core-gtest";
@@ -108,7 +109,7 @@ describe("differential gtest — unary type propagation", () => {
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {

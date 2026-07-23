@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -29,7 +30,7 @@ describe("source-backed QPI context accessors", () => {
       qpiHeader: loadQpiHeader(CORE_PATH),
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     const invocator = new Uint8Array(32).map((_, index) => index + 1);

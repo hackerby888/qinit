@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -98,7 +99,7 @@ test("Price subscription matches across TS and Clang artifacts in VirtualNode", 
     qpiHeader: loadQpiHeader(CORE_PATH),
     arenaSz: 4 * 1024 * 1024,
   });
-  expect(typescript.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+  expect(typescript.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
   expect(typescript.idl.procedures.find((entry) => entry.name === "Subscribe")?.inSize).toBe(112);
 
   const nativeResult = run(new Uint8Array(readFileSync(clang.so!)));

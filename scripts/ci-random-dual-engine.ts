@@ -4,7 +4,12 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { initK12, k12Hex, LiteRpc } from "../packages/core/src/index";
-import { compileContract, inspectWasmModule, loadQpiHeader } from "../packages/compile/src/index";
+import {
+  compileContract,
+  DiagnosticSeverity,
+  inspectWasmModule,
+  loadQpiHeader,
+} from "../packages/compile/src/index";
 import { Sim } from "../packages/engine/src/index";
 import { deployContract } from "../packages/cli/src/deploy-ops";
 import { invokeProcedure, resolveSlot } from "../packages/proto/src/index";
@@ -74,7 +79,9 @@ const compiled = await compileContract({
   qpiHeader,
   arenaSz: 1024 * 1024 * 1024,
 });
-const errors = compiled.diagnostics.filter((item) => item.severity === "error");
+const errors = compiled.diagnostics.filter(
+  (item) => item.severity === DiagnosticSeverity.ERROR,
+);
 if (errors.length || !compiled.wasm.length) {
   fail(errors.map((item) => item.message).join("; ") || "empty artifact");
 }

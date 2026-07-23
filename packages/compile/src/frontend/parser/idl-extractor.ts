@@ -1,3 +1,4 @@
+import { AstKind } from "../../enums";
 import type {
     ClassTemplateDecl,
     Declaration,
@@ -32,7 +33,7 @@ function extractIdlFromNode(
     node: Declaration,
     idl: Record<string, ExtractedIdlEntry>,
 ): void {
-    if (node.kind === "function") {
+    if (node.kind === AstKind.FUNCTION) {
         const functionDeclaration = node as FunctionDecl;
 
         if (functionDeclaration.body) {
@@ -42,7 +43,7 @@ function extractIdlFromNode(
         return;
     }
 
-    if (node.kind === "struct" || node.kind === "class_template") {
+    if (node.kind === AstKind.STRUCT || node.kind === AstKind.CLASS_TEMPLATE) {
         const structDeclaration =
             node as StructDecl | ClassTemplateDecl;
 
@@ -53,7 +54,7 @@ function extractIdlFromNode(
         return;
     }
 
-    if (node.kind === "namespace") {
+    if (node.kind === AstKind.NAMESPACE) {
         for (const declaration of (node as NamespaceDecl).body) {
             extractIdlFromNode(declaration, idl);
         }
@@ -64,7 +65,7 @@ function extractIdlFromStatement(
     statement: Statement,
     idl: Record<string, ExtractedIdlEntry>,
 ): void {
-    if (statement.kind === "compound") {
+    if (statement.kind === AstKind.COMPOUND) {
         for (const childStatement of statement.body) {
             extractIdlFromStatement(childStatement, idl);
         }
@@ -73,19 +74,19 @@ function extractIdlFromStatement(
     }
 
     if (
-        statement.kind === "expression" &&
-        statement.expression.kind === "call"
+        statement.kind === AstKind.EXPRESSION &&
+        statement.expression.kind === AstKind.CALL
     ) {
         checkRegistrationCall(statement.expression, idl);
     }
 }
 
 function checkRegistrationCall(
-    call: Extract<Expression, { kind: "call" }>,
+    call: Extract<Expression, { kind: AstKind.CALL }>,
     idl: Record<string, ExtractedIdlEntry>,
 ): void {
     if (
-        call.callee.kind !== "member_access" ||
+        call.callee.kind !== AstKind.MEMBER_ACCESS ||
         (
             call.callee.member !== "__registerUserFunction" &&
             call.callee.member !== "__registerUserProcedure"
@@ -100,14 +101,14 @@ function checkRegistrationCall(
         expression: Expression | undefined,
     ) => {
         return (
-            expression?.kind === "sizeof_type" ||
-            expression?.kind === "sizeof_expr"
+            expression?.kind === AstKind.SIZEOF_TYPE ||
+            expression?.kind === AstKind.SIZEOF_EXPR
         );
     };
 
     if (
         call.callArguments.length < 5 ||
-        call.callArguments[1]?.kind !== "int_literal" ||
+        call.callArguments[1]?.kind !== AstKind.INT_LITERAL ||
         !isSizeofExpression(call.callArguments[2]) ||
         !isSizeofExpression(call.callArguments[3])
     ) {
@@ -117,10 +118,10 @@ function checkRegistrationCall(
     const inputType = parseInt(call.callArguments[1].value);
     const functionArgument = call.callArguments[0];
     const functionName =
-        functionArgument?.kind === "identifier"
+        functionArgument?.kind === AstKind.IDENTIFIER
             ? functionArgument.name
-            : functionArgument?.kind === "c_cast" &&
-                functionArgument.expression.kind === "identifier"
+            : functionArgument?.kind === AstKind.C_CAST &&
+                functionArgument.expression.kind === AstKind.IDENTIFIER
               ? functionArgument.expression.name
               : "";
 

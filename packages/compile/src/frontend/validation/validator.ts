@@ -1,3 +1,4 @@
+import { AstKind, DiagnosticSeverity } from "../../enums";
 // Validation runs after parse and before codegen.
 import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span } from "../../ast";
 import type {
@@ -45,7 +46,7 @@ export class Validator {
             return;
         }
         this.seen.add(key);
-        this.diagnostics.push({ severity: "error", message, span: sp });
+        this.diagnostics.push({ severity: DiagnosticSeverity.ERROR, message, span: sp });
     }
     // ---- Top level ----
     runTopLevel(declarations: Declaration[]): void {
@@ -74,7 +75,7 @@ export class Validator {
         return validatorPart1.guaranteesReturn(this as unknown as ValidatorInternals, statement);
     }
     private collectEnumConstants(entry: Declaration & {
-        kind: "enum";
+        kind: AstKind.ENUM;
     }): void {
         return validatorPart0.collectEnumConstants(this as unknown as ValidatorInternals, entry);
     }
@@ -88,7 +89,7 @@ export class Validator {
         return validatorPart2.walkScope(this as unknown as ValidatorInternals, statement, fn, memberFns, allLocals, constParams, scopes);
     }
     private checkDeclarationStatement(statement: Statement & {
-        kind: "declaration";
+        kind: AstKind.DECLARATION;
     }, scopes: Array<Map<string, {
         const: boolean;
     }>>): void {

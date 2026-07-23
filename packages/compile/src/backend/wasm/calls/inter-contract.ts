@@ -1,12 +1,13 @@
+import { AstKind } from "../../../enums";
 import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
 // statement call: a container mutation or a side-effecting qpi host call.
 export function emitInterContract(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }, isInvoke: boolean): string | null {
     const calleeArg = expression.callArguments[0];
     const functionArg = expression.callArguments[1];
-    if (calleeArg?.kind !== "identifier" || functionArg?.kind !== "identifier")
+    if (calleeArg?.kind !== AstKind.IDENTIFIER || functionArg?.kind !== AstKind.IDENTIFIER)
         return null;
     const callee = context.programAnalysis.callees.get(calleeArg.name);
     let idx: number | null = callee?.index ?? null;

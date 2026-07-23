@@ -1,3 +1,4 @@
+import { TokenKind } from "../../enums";
 import type { LexerInternals } from "./lexer-context";
 import type { Token } from "./tokens";
 
@@ -14,7 +15,7 @@ export function lexNumber(context: LexerInternals, start: number, startLine: num
                 text += context.advance();
             }
             text += context.peekSuffix();
-            return { kind: "int_literal", text, span: context.makeSpan(start, startLine, startCol) };
+            return { kind: TokenKind.INT_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
         }
         if (next === "b") {
             text += context.advance();
@@ -23,7 +24,7 @@ export function lexNumber(context: LexerInternals, start: number, startLine: num
                 text += context.advance();
             }
             text += context.peekSuffix();
-            return { kind: "int_literal", text, span: context.makeSpan(start, startLine, startCol) };
+            return { kind: TokenKind.INT_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
         }
     }
     // Decimal number (might be float)
@@ -48,9 +49,9 @@ export function lexNumber(context: LexerInternals, start: number, startLine: num
         }
     }
     if (isFloat) {
-        return { kind: "float_literal", text, span: context.makeSpan(start, startLine, startCol) };
+        return { kind: TokenKind.FLOAT_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
     }
-    return { kind: "int_literal", text, span: context.makeSpan(start, startLine, startCol) };
+    return { kind: TokenKind.INT_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
 }
 
 export function peekSuffix(context: LexerInternals): string {

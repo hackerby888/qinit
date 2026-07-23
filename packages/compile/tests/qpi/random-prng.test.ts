@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -69,7 +70,7 @@ async function compile(source = SOURCE) {
     qpiHeader: HEADERS,
     arenaSz: 1 << 20,
   });
-  expect(result.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+  expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
   expect(result.wasm.byteLength).toBeGreaterThan(0);
   return result;
 }
@@ -175,8 +176,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
       qpiHeader: HEADERS,
       arenaSz: 1 << 20,
     });
-    expect(plain.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
-    expect(reentrant.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+    expect(plain.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
+    expect(reentrant.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     expect(plain.wasm.byteLength, JSON.stringify(plain.diagnostics)).toBeGreaterThan(0);
     expect(reentrant.wasm.byteLength, JSON.stringify(reentrant.diagnostics)).toBeGreaterThan(0);
     const plainWasm = Uint8Array.from(plain.wasm);

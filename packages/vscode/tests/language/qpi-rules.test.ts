@@ -3,6 +3,8 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import {
   analyzeContract,
+  DiagnosticSeverity,
+  SourceAnalysisOrigin,
   type SourceAnalysisDiagnostic,
 } from "@qinit/compile/analyzer";
 
@@ -17,7 +19,7 @@ const separateRules = new Set([
 
 function qpiDiagnostics(source: string): SourceAnalysisDiagnostic[] {
   return analyzeContract({ source }).diagnostics.filter(
-    (item) => item.origin === "qpi",
+    (item) => item.origin === SourceAnalysisOrigin.QPI,
   );
 }
 
@@ -192,7 +194,7 @@ test("scanLocalsForm: real fixtures stay clean", () => {
 
 const warnsOf = (s: string) =>
   scanQpi(s)
-    .filter((f) => f.severity !== "information")
+    .filter((f) => f.severity !== DiagnosticSeverity.INFORMATION)
     .map((f) => f.code);
 
 test("valid QPI constructs never produce warn/error findings", () => {

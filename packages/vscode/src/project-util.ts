@@ -5,6 +5,7 @@ import { loadConfig } from "@qinit/core/project";
 import {
   detectContractName,
   Lexer,
+  TokenKind,
 } from "@qinit/compile/analyzer";
 
 export const QINIT_JSON = "qinit.json";
@@ -82,13 +83,13 @@ export function testContractType(source: string): string | undefined {
   for (let index = 0; index < tokens.length; index++) {
     if (
       tokens[index].text === "INIT_CONTRACT" &&
-      tokens[index + 1]?.kind === "l_paren" &&
-      tokens[index + 2]?.kind === "identifier"
+      tokens[index + 1]?.kind === TokenKind.L_PAREN &&
+      tokens[index + 2]?.kind === TokenKind.IDENTIFIER
     ) {
       return tokens[index + 2].text;
     }
     if (
-      tokens[index].kind === "identifier" &&
+      tokens[index].kind === TokenKind.IDENTIFIER &&
       tokens[index].text.startsWith("ContractTesting") &&
       tokens[index].text.length > "ContractTesting".length &&
       fallback === undefined

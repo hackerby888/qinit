@@ -1,3 +1,4 @@
+import { AstKind, ContainerEmissionMode, WatNodeType } from "../../../enums";
 import * as watIr from "../../../wat-ir";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
@@ -8,7 +9,7 @@ export function tryEmitContractStatementCall(
     expression: CallExpression,
 ): boolean {
     if (
-        expression.callee.kind === "member_access" &&
+        expression.callee.kind === AstKind.MEMBER_ACCESS &&
         context.lowering.emitInlineStructStatement(context, expression)
     ) {
         return true;
@@ -29,7 +30,7 @@ export function tryEmitContractStatementCall(
         return true;
     }
 
-    if (context.lowering.emitAssetIter(context, expression, "stmt") !== null) {
+    if (context.lowering.emitAssetIter(context, expression, ContainerEmissionMode.STATEMENT) !== null) {
         return true;
     }
 
@@ -49,7 +50,7 @@ function tryEmitSelfContractCall(
     expression: CallExpression,
 ): boolean {
     if (
-        expression.callee.kind !== "identifier" ||
+        expression.callee.kind !== AstKind.IDENTIFIER ||
         expression.callee.name !== "__qpi_call_self"
     ) {
         return false;
@@ -57,7 +58,7 @@ function tryEmitSelfContractCall(
 
     const functionArgument = expression.callArguments[0];
     const callableRegistration =
-        functionArgument?.kind === "identifier"
+        functionArgument?.kind === AstKind.IDENTIFIER
             ? (context.programAnalysis.privates.get(functionArgument.name) ??
               context.programAnalysis.registered.get(functionArgument.name))
             : undefined;
@@ -85,8 +86,8 @@ function tryEmitDirectContractCall(
     expression: CallExpression,
 ): boolean {
     if (
-        expression.callee.kind !== "identifier" ||
-        expression.callArguments[0]?.kind !== "identifier" ||
+        expression.callee.kind !== AstKind.IDENTIFIER ||
+        expression.callArguments[0]?.kind !== AstKind.IDENTIFIER ||
         expression.callArguments[0].name !== "qpi"
     ) {
         return false;
@@ -122,7 +123,7 @@ function tryEmitInterContractCall(
     expression: CallExpression,
 ): boolean {
     if (
-        expression.callee.kind !== "identifier" ||
+        expression.callee.kind !== AstKind.IDENTIFIER ||
         (expression.callee.name !== "__qpi_call_other" &&
             expression.callee.name !== "__qpi_invoke_other")
     ) {
@@ -139,7 +140,7 @@ function tryEmitInterContractCall(
     if (interContractCallText) {
         const interContractCall = watIr.rawWatNode(
             interContractCallText,
-            "i32",
+            WatNodeType.I32,
             "unconverted: inter-contract call",
         );
         context.lines.push(
@@ -149,7 +150,7 @@ function tryEmitInterContractCall(
         );
     } else {
         const contractName =
-            expression.callArguments[0]?.kind === "identifier"
+            expression.callArguments[0]?.kind === AstKind.IDENTIFIER
                 ? expression.callArguments[0].name
                 : "?";
         context.programAnalysis.warn(

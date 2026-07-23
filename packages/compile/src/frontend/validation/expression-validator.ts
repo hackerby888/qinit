@@ -1,3 +1,4 @@
+import { AstKind, BinaryOp, UnaryOp } from "../../enums";
 // Validation runs after parse and before codegen.
 import type { Expression, TypeSpec } from "../../ast";
 import { unwrapType, isConstType, isZeroLiteral, isLiteral, typeKey } from "./validation-helpers";
@@ -19,12 +20,12 @@ export function checkExpression(context: ValidatorInternals, root: Expression, m
     };
     const walk = (expression: Expression): void => {
         switch (expression.kind) {
-            case "identifier":
+            case AstKind.IDENTIFIER:
                 if (allLocals.has(expression.name) && !lookup(expression.name)) {
                     context.error(`'${expression.name}' is used before its declaration (or outside the scope that declares it)`, expression.span);
                 }
                 break;
-            case "assign": {
+            case AstKind.ASSIGN: {
                 const leftType = context.inferSimpleType(expression.left);
                 const rightType = context.inferSimpleType(expression.right);
                 if (leftType &&
@@ -39,38 +40,38 @@ export function checkExpression(context: ValidatorInternals, root: Expression, m
                 walk(expression.right);
                 break;
             }
-            case "prefix_op":
-            case "postfix_op":
+            case AstKind.PREFIX_OP:
+            case AstKind.POSTFIX_OP:
                 context.checkAssignTarget(expression.argument, constParams, lookup);
                 walk(expression.argument);
                 break;
-            case "unary_op":
-                if (expression.operator === "&" && isLiteral(expression.argument)) {
+            case AstKind.UNARY_OP:
+                if (expression.operator === UnaryOp.ADDRESS_OF && isLiteral(expression.argument)) {
                     context.error(`cannot take the address of a literal`, expression.span);
                 }
                 walk(expression.argument);
                 break;
-            case "binary_op":
-                if ((expression.operator === "/" || expression.operator === "%") && isZeroLiteral(expression.right)) {
+            case AstKind.BINARY_OP:
+                if ((expression.operator === BinaryOp.DIVIDE || expression.operator === BinaryOp.MODULO) && isZeroLiteral(expression.right)) {
                     context.error(`constant division by zero`, expression.span);
                 }
                 walk(expression.left);
                 walk(expression.right);
                 break;
-            case "call": {
-                const name = expression.callee.kind === "identifier"
+            case AstKind.CALL: {
+                const name = expression.callee.kind === AstKind.IDENTIFIER
                     ? expression.callee.name
-                    : expression.callee.kind === "member_access" &&
-                        expression.callee.object.kind === "identifier" &&
+                    : expression.callee.kind === AstKind.MEMBER_ACCESS &&
+                        expression.callee.object.kind === AstKind.IDENTIFIER &&
                         expression.callee.object.name === "this"
                         ? expression.callee.member
                         : null;
-                if (expression.callee.kind === "member_access") {
+                if (expression.callee.kind === AstKind.MEMBER_ACCESS) {
                     const method = expression.callee.member;
                     const object = expression.callee.object;
                     const receiverType = context.inferSimpleType(object);
                     const receiver = receiverType ? unwrapType(receiverType) : null;
-                    const isArray = receiver?.kind === "template_instance" && receiver.name === "Array";
+                    const isArray = receiver?.kind === AstKind.TEMPLATE_INSTANCE && receiver.name === "Array";
                     if (isArray && method === "set" && expression.callArguments.length !== 2) {
                         context.error(`container set expects 2 argument(s) but got ${expression.callArguments.length}`, expression.span);
                     }
@@ -79,7 +80,7 @@ export function checkExpression(context: ValidatorInternals, root: Expression, m
                         context.error(`container get expects 1 argument but got ${expression.callArguments.length}`, expression.span);
                     }
                     if (context.isPublicFunctionContext() &&
-                        object.kind === "identifier" &&
+                        object.kind === AstKind.IDENTIFIER &&
                         object.name === "state" &&
                         method === "mut") {
                         context.error(`public function is read-only and cannot call state.mut()`, expression.span);
@@ -112,7 +113,7 @@ export function checkExpression(context: ValidatorInternals, root: Expression, m
                             context.canonTypeKey(paramType) !== context.canonTypeKey(argType)) {
                             context.error(`argument ${index + 1} to '${name}' has incompatible aggregate type '${typeKey(argType)}'; expected '${typeKey(paramType)}'`, expression.callArguments[index].span);
                         }
-                        if (paramType.kind !== "reference" || isConstType(paramType))
+                        if (paramType.kind !== AstKind.REFERENCE || isConstType(paramType))
                             continue;
                         const argument = expression.callArguments[index];
                         if (!context.isWritableReferenceArgument(argument, constParams, lookup)) {
@@ -120,7 +121,7 @@ export function checkExpression(context: ValidatorInternals, root: Expression, m
                         }
                     }
                 }
-                if (expression.callee.kind !== "identifier") {
+                if (expression.callee.kind !== AstKind.IDENTIFIER) {
                     walk(expression.callee);
                 }
                 for (const argument of expression.callArguments) {
@@ -128,40 +129,40 @@ export function checkExpression(context: ValidatorInternals, root: Expression, m
                 }
                 break;
             }
-            case "template_call":
+            case AstKind.TEMPLATE_CALL:
                 for (const argument of expression.callArguments) {
                     walk(argument);
                 }
                 break;
-            case "member_access":
+            case AstKind.MEMBER_ACCESS:
                 walk(expression.object);
                 break;
-            case "subscript":
+            case AstKind.SUBSCRIPT:
                 walk(expression.object);
                 walk(expression.index);
                 break;
-            case "ternary":
+            case AstKind.TERNARY:
                 walk(expression.condition);
                 walk(expression.then);
                 walk(expression.else_);
                 break;
-            case "sequence":
+            case AstKind.SEQUENCE:
                 for (const sequenceExpression of expression.expressions) {
                     walk(sequenceExpression);
                 }
                 break;
-            case "c_cast":
-            case "static_cast":
-            case "reinterpret_cast":
+            case AstKind.C_CAST:
+            case AstKind.STATIC_CAST:
+            case AstKind.REINTERPRET_CAST:
                 walk(expression.expression);
                 break;
-            case "construct":
-            case "initializer_list":
+            case AstKind.CONSTRUCT:
+            case AstKind.INITIALIZER_LIST:
                 for (const itemItem of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
                     walk(itemItem);
                 }
                 break;
-            case "sizeof_expr":
+            case AstKind.SIZEOF_EXPR:
                 walk(expression.expression);
                 break;
         }
@@ -173,16 +174,16 @@ export function checkAssignTarget(context: ValidatorInternals, target: Expressio
     const: boolean;
 } | null): void {
     let root = target;
-    while (root.kind === "member_access" || root.kind === "subscript") {
-        root = root.kind === "member_access" ? root.object : root.object;
+    while (root.kind === AstKind.MEMBER_ACCESS || root.kind === AstKind.SUBSCRIPT) {
+        root = root.kind === AstKind.MEMBER_ACCESS ? root.object : root.object;
     }
-    if (root.kind === "call" &&
-        root.callee.kind === "member_access" &&
+    if (root.kind === AstKind.CALL &&
+        root.callee.kind === AstKind.MEMBER_ACCESS &&
         root.callee.member === "get") {
         context.error(`cannot modify through get(): it returns a read-only view — use mut()`, target.span);
         return;
     }
-    if (root.kind === "identifier") {
+    if (root.kind === AstKind.IDENTIFIER) {
         const local = lookup(root.name);
         if (local?.const) {
             context.error(`cannot assign to const '${root.name}'`, target.span);
@@ -195,44 +196,44 @@ export function checkAssignTarget(context: ValidatorInternals, target: Expressio
 
 export function isAggregateType(context: ValidatorInternals, type: TypeSpec): boolean {
     const unwrappedType = unwrapType(type);
-    return (unwrappedType.kind === "inline_struct" ||
-        unwrappedType.kind === "array" ||
-        unwrappedType.kind === "template_instance" ||
-        (unwrappedType.kind === "name" && context.aggregateNames.has(unwrappedType.name)));
+    return (unwrappedType.kind === AstKind.INLINE_STRUCT ||
+        unwrappedType.kind === AstKind.ARRAY ||
+        unwrappedType.kind === AstKind.TEMPLATE_INSTANCE ||
+        (unwrappedType.kind === AstKind.NAME && context.aggregateNames.has(unwrappedType.name)));
 }
 
 export function inferSimpleType(context: ValidatorInternals, expression: Expression): TypeSpec | null {
     switch (expression.kind) {
-        case "identifier":
+        case AstKind.IDENTIFIER:
             return context.currentTypes.get(expression.name) ?? null;
-        case "int_literal":
-            return { kind: "name", name: "uint64" };
-        case "bool_literal":
-            return { kind: "name", name: "bool" };
-        case "char_literal":
-            return { kind: "name", name: "int" };
-        case "paren":
+        case AstKind.INT_LITERAL:
+            return { kind: AstKind.NAME, name: "uint64" };
+        case AstKind.BOOL_LITERAL:
+            return { kind: AstKind.NAME, name: "bool" };
+        case AstKind.CHAR_LITERAL:
+            return { kind: AstKind.NAME, name: "int" };
+        case AstKind.PAREN:
             return context.inferSimpleType(expression.expression);
-        case "c_cast":
-        case "static_cast":
-        case "reinterpret_cast":
+        case AstKind.C_CAST:
+        case AstKind.STATIC_CAST:
+        case AstKind.REINTERPRET_CAST:
             return expression.type;
-        case "construct":
+        case AstKind.CONSTRUCT:
             return expression.type;
-        case "call": {
-            const name = expression.callee.kind === "identifier" ? expression.callee.name : null;
-            if (expression.callee.kind === "member_access" &&
-                expression.callee.object.kind === "identifier" &&
+        case AstKind.CALL: {
+            const name = expression.callee.kind === AstKind.IDENTIFIER ? expression.callee.name : null;
+            if (expression.callee.kind === AstKind.MEMBER_ACCESS &&
+                expression.callee.object.kind === AstKind.IDENTIFIER &&
                 expression.callee.object.name === "state" &&
                 (expression.callee.member === "get" || expression.callee.member === "mut")) {
-                return { kind: "name", name: "StateData" };
+                return { kind: AstKind.NAME, name: "StateData" };
             }
             return name ? (context.currentMemberFns.get(name)?.declaration.returnType ?? null) : null;
         }
-        case "member_access": {
+        case AstKind.MEMBER_ACCESS: {
             const owner = context.inferSimpleType(expression.object);
             const concrete = owner ? unwrapType(owner) : null;
-            return concrete?.kind === "name"
+            return concrete?.kind === AstKind.NAME
                 ? (context.structFields.get(concrete.name)?.get(expression.member) ?? null)
                 : null;
         }
@@ -243,11 +244,11 @@ export function inferSimpleType(context: ValidatorInternals, expression: Express
 
 export function isReadonlyStateExpression(context: ValidatorInternals, expression: Expression): boolean {
     let root = expression;
-    while (root.kind === "member_access" || root.kind === "subscript")
+    while (root.kind === AstKind.MEMBER_ACCESS || root.kind === AstKind.SUBSCRIPT)
         root = root.object;
-    return (root.kind === "call" &&
-        root.callee.kind === "member_access" &&
-        root.callee.object.kind === "identifier" &&
+    return (root.kind === AstKind.CALL &&
+        root.callee.kind === AstKind.MEMBER_ACCESS &&
+        root.callee.object.kind === AstKind.IDENTIFIER &&
         root.callee.object.name === "state" &&
         root.callee.member === "get");
 }
@@ -257,13 +258,13 @@ export function isWritableReferenceArgument(context: ValidatorInternals, argumen
 } | null): boolean {
     if (context.isReadonlyStateExpression(argument))
         return false;
-    if (argument.kind === "identifier") {
+    if (argument.kind === AstKind.IDENTIFIER) {
         const local = lookup(argument.name);
         if (local?.const || (!local && constParams.has(argument.name)))
             return false;
         return true;
     }
-    return (argument.kind === "member_access" ||
-        argument.kind === "subscript" ||
-        (argument.kind === "unary_op" && argument.operator === "*"));
+    return (argument.kind === AstKind.MEMBER_ACCESS ||
+        argument.kind === AstKind.SUBSCRIPT ||
+        (argument.kind === AstKind.UNARY_OP && argument.operator === UnaryOp.DEREFERENCE));
 }

@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType } from "../../../enums";
 import { narrowCast } from "../memory/memory-operations";
 import { unsignedScalar } from "../expressions/conversions";
 import { FunctionEmissionContext, CompiledHelperMetadata, EMPTY_TEMPLATE_BINDINGS } from "../types";
@@ -15,14 +16,14 @@ export function helperCallOps(context: FunctionEmissionContext, info: CompiledHe
             return context.lowering.argAddr(context, argument, context.programAnalysis.sizeOfType(parameter.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS), parameter.type, false, true);
         }
         const declared = context.programAnalysis.derefType(parameter.type);
-        const value = narrowCast(context.lowering.emitValue(context, argument), declared.kind === "name" ? declared.name : undefined);
-        return parameter.wasmType === "i32" ? `(i32.wrap_i64 ${value})` : value;
+        const value = narrowCast(context.lowering.emitValue(context, argument), declared.kind === AstKind.NAME ? declared.name : undefined);
+        return parameter.wasmType === WatNodeType.I32 ? `(i32.wrap_i64 ${value})` : value;
     })
         .join(" ");
 }
 // Aggregate-returning helpers allocate destination first, then pass it as the leading $ret arg.
 export function emitAggHelperCall(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }, info: CompiledHelperMetadata): string {
     const scratchAddress = context.lowering.allocateScratchSlot(context, info.retAgg!);
     const helperArgumentOperands = helperCallOps(context, info, expression.callArguments);
@@ -35,9 +36,9 @@ export function scalarDeclInfo(context: FunctionEmissionContext, type: TypeSpec)
     unsigned: boolean;
 } | null {
     const dereferencedType = context.programAnalysis.derefType(type);
-    const name = dereferencedType.kind === "name" && dereferencedType.name.includes("::")
+    const name = dereferencedType.kind === AstKind.NAME && dereferencedType.name.includes("::")
         ? dereferencedType.name.slice(dereferencedType.name.lastIndexOf("::") + 2)
-        : dereferencedType.kind === "name"
+        : dereferencedType.kind === AstKind.NAME
             ? dereferencedType.name
             : "";
     // Normalize plain C int spellings to QPI's signed scalar names.
@@ -46,8 +47,8 @@ export function scalarDeclInfo(context: FunctionEmissionContext, type: TypeSpec)
         : name === "unsigned"
             ? "unsigned int"
             : name;
-    const normalized: TypeSpec = dereferencedType.kind === "name" ? { ...dereferencedType, name: canonical } : dereferencedType;
-    const byteWidth = normalized.kind === "name" ? SCALAR_SIZE[normalized.name] : undefined;
+    const normalized: TypeSpec = dereferencedType.kind === AstKind.NAME ? { ...dereferencedType, name: canonical } : dereferencedType;
+    const byteWidth = normalized.kind === AstKind.NAME ? SCALAR_SIZE[normalized.name] : undefined;
     if (byteWidth === undefined || byteWidth > 8)
         return null;
     return { width: byteWidth, unsigned: unsignedScalar(normalized) };
@@ -86,9 +87,9 @@ export function pickHelperOverload(context: FunctionEmissionContext, set: Compil
 }
 // Resolve a helper / lib-fn name to its (possibly just-compiled) info, or null.
 export function lookupHelper(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }): CompiledHelperMetadata | null {
-    if (expression.callee.kind !== "identifier")
+    if (expression.callee.kind !== AstKind.IDENTIFIER)
         return null;
     // Match intrinsic base names before attempting source instantiation.
     const name = expression.callee.name;
@@ -138,24 +139,24 @@ export function lookupHelper(context: FunctionEmissionContext, expression: Expre
             ? (context.programAnalysis.structOf(boundOwner, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS) ?? undefined)
             : context.programAnalysis.structByName(ownerName, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
         const fn = sd?.members.find((member): member is Declaration & {
-            kind: "function";
-        } => member.kind === "function" && member.name === method && member.isStatic && !!member.body);
+            kind: AstKind.FUNCTION;
+        } => member.kind === AstKind.FUNCTION && member.name === method && member.isStatic && !!member.body);
         if (sd && fn) {
             // Resolve parameter and return types against nested owner declarations.
             const nestedOf = new Map(sd.members
-                .filter((member): member is StructDecl => member.kind === "struct" && !!member.name)
+                .filter((member): member is StructDecl => member.kind === AstKind.STRUCT && !!member.name)
                 .map((structDeclaration) => [structDeclaration.name, structDeclaration]));
             const qual = (tp: TypeSpec): TypeSpec => {
-                if (tp.kind === "const")
+                if (tp.kind === AstKind.CONST)
                     return { ...tp, valueType: qual(tp.valueType) };
-                if (tp.kind === "reference")
+                if (tp.kind === AstKind.REFERENCE)
                     return { ...tp, referentType: qual(tp.referentType) };
-                if (tp.kind === "name" && nestedOf.has(tp.name))
-                    return { kind: "inline_struct", struct: nestedOf.get(tp.name)!, span: tp.span };
+                if (tp.kind === AstKind.NAME && nestedOf.has(tp.name))
+                    return { kind: AstKind.INLINE_STRUCT, struct: nestedOf.get(tp.name)!, span: tp.span };
                 return tp;
             };
             const def: FunctionTemplateDecl = {
-                kind: "function_template",
+                kind: AstKind.FUNCTION_TEMPLATE,
                 name: `${sd.name}::${method}`,
                 params: [],
                 functionParameters: fn.params.map((parameter) => ({ ...parameter, type: qual(parameter.type) })),
@@ -170,7 +171,7 @@ export function lookupHelper(context: FunctionEmissionContext, expression: Expre
     return info ?? null;
 }
 export function emitHelperCall(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }, valueWanted: boolean): string | null {
     const info = lookupHelper(context, expression);
     if (!info)
@@ -185,7 +186,7 @@ export function emitHelperCall(context: FunctionEmissionContext, expression: Exp
     if (valueWanted) {
         if (!info.retIsValue)
             return "(i64.const 0)";
-        if (info.retWasmType === "i32") {
+        if (info.retWasmType === WatNodeType.I32) {
             const unsigned = info.retType ? unsignedScalar(context.programAnalysis.derefType(info.retType)) : true;
             return `(${unsigned ? "i64.extend_i32_u" : "i64.extend_i32_s"} ${call})`;
         }

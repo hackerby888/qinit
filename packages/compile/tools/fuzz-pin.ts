@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { buildContract } from "@qinit/build";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../src/index";
+import { compileContract, DiagnosticSeverity, loadQpiHeader } from "../src/index";
 import { generate, encodeInput } from "./fuzz-gen";
 
 const CORE = CORE_PATH;
@@ -28,7 +28,7 @@ function runState(wasm: Uint8Array, inputs: bigint[][]): string {
 for (const seed of process.argv.slice(2).map(Number)) {
   const c = generate(seed);
   const ours = await compileContract({ source: c.source, name: `F${seed}`, slot: 27, qpiHeader: H, arenaSz: 1 << 20 });
-  if (ours.diagnostics.some((d) => d.severity === "error")) {
+  if (ours.diagnostics.some((d) => d.severity === DiagnosticSeverity.ERROR)) {
     console.log(`  // seed ${seed}: OURS COMPILE FAIL — not pinned`);
     continue;
   }

@@ -1,7 +1,8 @@
+import { WasmExternalKind, WasmLimitKind, WasmMemorySource } from "../../enums";
 import { Reader, WasmParseError, error } from "./binary-reader";
 import type { ParsedModule } from "./parsed-module";
 import { readConstExpression, readGlobalType, readInstruction, readLimits, readTableType, readValueType, readValueTypeVector } from "./instruction-parser";
-import type { WasmExternalKind, WasmFunctionSignature } from "./inspection-types";
+import type { WasmFunctionSignature } from "./inspection-types";
 import { signature } from "./inspection-types";
 
 export function parseTypeSection(reader: Reader, parsed: ParsedModule): void {
@@ -37,19 +38,19 @@ export function parseImportSection(reader: Reader, parsed: ParsedModule): void {
             const typeIndex = reader.u32("import function type index");
             const fnType = typeAt(parsed, typeIndex, `import ${module}.${name}`, typeIndexAt);
             parsed.functionTypeIndices.push(typeIndex);
-            parsed.imports.push({ module, name, kind: "function", signature: fnType });
+            parsed.imports.push({ module, name, kind: WasmExternalKind.FUNCTION, signature: fnType });
         }
         else if (kind === 1) {
             readTableType(reader, parsed);
             parsed.tableCount++;
             if (parsed.tableCount > 1)
                 parsed.features.add("multiple-tables");
-            parsed.imports.push({ module, name, kind: "table" });
+            parsed.imports.push({ module, name, kind: WasmExternalKind.TABLE });
         }
         else if (kind === 2) {
-            const limits = readLimits(reader, parsed, "memory");
+            const limits = readLimits(reader, parsed, WasmLimitKind.MEMORY);
             parsed.memories.push({
-                source: "imported",
+                source: WasmMemorySource.IMPORTED,
                 module,
                 name,
                 minimumPages: limits.minimum,
@@ -57,17 +58,17 @@ export function parseImportSection(reader: Reader, parsed: ParsedModule): void {
                 shared: limits.shared,
                 memory64: limits.memory64,
             });
-            parsed.imports.push({ module, name, kind: "memory" });
+            parsed.imports.push({ module, name, kind: WasmExternalKind.MEMORY });
         }
         else if (kind === 3) {
             parsed.globals.push(readGlobalType(reader, parsed));
-            parsed.imports.push({ module, name, kind: "global" });
+            parsed.imports.push({ module, name, kind: WasmExternalKind.GLOBAL });
         }
         else if (kind === 4) {
             parsed.features.add("exception-handling/tags");
             reader.byte("tag attribute");
             reader.u32("tag type index");
-            parsed.imports.push({ module, name, kind: "tag" });
+            parsed.imports.push({ module, name, kind: WasmExternalKind.TAG });
         }
         else {
             throw new WasmParseError(`unknown import kind ${kind}`, kindAt);
@@ -99,9 +100,9 @@ export function parseTableSection(reader: Reader, parsed: ParsedModule): void {
 export function parseMemorySection(reader: Reader, parsed: ParsedModule): void {
     const count = reader.u32("memory count");
     for (let index = 0; index < count; index++) {
-        const limits = readLimits(reader, parsed, "memory");
+        const limits = readLimits(reader, parsed, WasmLimitKind.MEMORY);
         parsed.memories.push({
-            source: "defined",
+            source: WasmMemorySource.DEFINED,
             minimumPages: limits.minimum,
             maximumPages: limits.maximum,
             shared: limits.shared,
@@ -127,13 +128,13 @@ export function parseExportSection(reader: Reader, parsed: ParsedModule): void {
         const kindAt = reader.pos;
         const rawKind = reader.byte("export kind");
         const index = reader.u32("export index");
-        const kinds: WasmExternalKind[] = ["function", "table", "memory", "global", "tag"];
+        const kinds: WasmExternalKind[] = [WasmExternalKind.FUNCTION, WasmExternalKind.TABLE, WasmExternalKind.MEMORY, WasmExternalKind.GLOBAL, WasmExternalKind.TAG];
         const kind = kinds[rawKind];
         if (!kind)
             throw new WasmParseError(`unknown export kind ${rawKind}`, kindAt);
-        if (kind === "tag")
+        if (kind === WasmExternalKind.TAG)
             parsed.features.add("exception-handling/tags");
-        if (kind === "function") {
+        if (kind === WasmExternalKind.FUNCTION) {
             const typeIndex = parsed.functionTypeIndices[index];
             const fnType = typeIndex === undefined ? undefined : parsed.types[typeIndex];
             parsed.exports.push({ name, kind, index, signature: fnType });

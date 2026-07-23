@@ -1,3 +1,4 @@
+import { SourceAnalysisOrigin } from "../../src/enums";
 import { expect, test } from "bun:test";
 import {
   analyzeContract,
@@ -7,7 +8,7 @@ import {
 
 function qpiDiagnostics(source: string) {
   return analyzeContract({ source }).diagnostics.filter(
-    (item) => item.origin === "qpi",
+    (item) => item.origin === SourceAnalysisOrigin.QPI,
   );
 }
 
@@ -171,7 +172,7 @@ test("includes compiler semantic diagnostics without changing the QPI policy", (
   expect(
     diagnostics.some(
       (item) =>
-        item.origin === "compiler" &&
+        item.origin === SourceAnalysisOrigin.COMPILER &&
         item.code === "compiler/semantic" &&
         item.message.includes("cannot assign to const"),
     ),

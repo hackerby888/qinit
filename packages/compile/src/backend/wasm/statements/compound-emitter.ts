@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType } from "../../../enums";
 import { FunctionEmissionContext } from "../types";
 import type { Statement, VariableDecl } from "../../../ast";
 import * as watIr from "../../../wat-ir";
@@ -6,7 +7,7 @@ export function emitScratchpadReleases(context: FunctionEmissionContext, from: n
     if (!context.scratchpadScope || context.scratchpadScope.length <= from)
         return;
     for (let index = context.scratchpadScope.length - 1; index >= from; index--) {
-        context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$releaseScratchpad", watIr.localGet(context.scratchpadScope[index], "i32")))}`);
+        context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$releaseScratchpad", watIr.localGet(context.scratchpadScope[index], WatNodeType.I32)))}`);
     }
     if (consume)
         context.scratchpadScope.length = from;
@@ -18,10 +19,10 @@ export function emitCompound(context: FunctionEmissionContext, body: Statement[]
         let depth = spBase;
         for (let index = 0; index < child; index++) {
             const statement = body[index];
-            if (statement.kind !== "declaration" || statement.declaration.kind !== "variable")
+            if (statement.kind !== AstKind.DECLARATION || statement.declaration.kind !== AstKind.VARIABLE)
                 continue;
             const type = (statement.declaration as VariableDecl).type;
-            if (type.kind === "name" && /ScopedScratchpad$/.test(type.name))
+            if (type.kind === AstKind.NAME && /ScopedScratchpad$/.test(type.name))
                 depth++;
         }
         return depth;

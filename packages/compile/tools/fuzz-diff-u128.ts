@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { buildContract } from "@qinit/build";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../src/index";
+import { compileContract, DiagnosticSeverity, loadQpiHeader } from "../src/index";
 import { generate, encodeInput, type FuzzContract } from "./fuzz-gen-u128";
 
 const CORE = CORE_PATH;
@@ -42,7 +42,9 @@ async function checkSeed(c: FuzzContract, headers: string, wasi: boolean): Promi
   let oursHex: string;
   try {
     const ours = await compileContract({ source: c.source, name: `U${c.seed}`, slot: 27, qpiHeader: headers, arenaSz: 1 << 20 });
-    const errs = ours.diagnostics.filter((d) => d.severity === "error");
+    const errs = ours.diagnostics.filter(
+      (d) => d.severity === DiagnosticSeverity.ERROR,
+    );
     if (errs.length > 0) {
       return { seed: c.seed, kind: "ours-compile-error", detail: errs.map((e) => e.message).join(" | "), inputs };
     }

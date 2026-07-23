@@ -1,5 +1,7 @@
+import { AstKind } from "../../../enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
+import type { TypeSpec } from "../../../ast";
 
 export class ContractLayoutResolver {
     readonly emptyLayout: StructLayout = createEmptyLayout();
@@ -36,7 +38,7 @@ export class ContractLayoutResolver {
         name: string,
         fallback: StructLayout,
     ): StructLayout {
-        const type = { kind: "name" as const, name };
+        const type: TypeSpec = { kind: AstKind.NAME, name };
         const layout = this.programAnalysis.layoutOfType(type);
 
         if (layout) {

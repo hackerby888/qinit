@@ -1,3 +1,4 @@
+import { AstKind } from "../enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, NamespaceLookupContext } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl } from "../ast";
@@ -10,7 +11,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
     const activeUsing = [...new Set([...inheritedUsing, ...scopeUsing])];
     const sourceNamespace = nsPrefix.endsWith("::") ? nsPrefix.slice(0, -2) : nsPrefix || undefined;
     for (const declaration of declarations) {
-        const td = declaration.kind === "typedef_decl" ? (declaration as any) : null;
+        const td = declaration.kind === AstKind.TYPEDEF_DECL ? (declaration as any) : null;
         const usingMatch = typeof td?.name === "string" ? /^using namespace (.+)$/.exec(td.name) : null;
         if (usingMatch) {
             if (!scopeUsing.includes(usingMatch[1]))
@@ -24,20 +25,20 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
             usingNamespaces: [...activeUsing],
         };
         context.namespaceContexts.set(declaration, lookupContext);
-        if (declaration.kind === "namespace") {
+        if (declaration.kind === AstKind.NAMESPACE) {
             context.registerTopLevelDeclarations((declaration as any).body, `${nsPrefix}${(declaration as any).name}::`, activeUsing);
         }
-        else if (declaration.kind === "extern_block") {
+        else if (declaration.kind === AstKind.EXTERN_BLOCK) {
             context.registerTopLevelDeclarations((declaration as any).body, nsPrefix, activeUsing);
         }
-        else if (declaration.kind === "struct") {
+        else if (declaration.kind === AstKind.STRUCT) {
             const structDeclaration = declaration as StructDecl;
             context.captureMemberNamespaceContexts(structDeclaration.members, lookupContext);
             if (structDeclaration.name) {
                 context.globalStructs.set(structDeclaration.name, structDeclaration);
                 // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
                 for (const member of structDeclaration.members) {
-                    if (member.kind !== "function" || !(member as FunctionDecl).body)
+                    if (member.kind !== AstKind.FUNCTION || !(member as FunctionDecl).body)
                         continue;
                     const fn = member as FunctionDecl;
                     if (fn.name.startsWith("~"))
@@ -46,7 +47,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                         context.templateMethods.set(structDeclaration.name, new Map());
                     const into = context.templateMethods.get(structDeclaration.name)!;
                     const def: FunctionTemplateDecl = {
-                        kind: "function_template",
+                        kind: AstKind.FUNCTION_TEMPLATE,
                         name: fn.name,
                         params: [],
                         functionParameters: fn.params,
@@ -77,7 +78,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
             // file-scope structs can still nest constants/enums (e.g. a contract's static constexpr)
             context.collectConstants(structDeclaration.members);
         }
-        else if (declaration.kind === "class_template") {
+        else if (declaration.kind === AstKind.CLASS_TEMPLATE) {
             const ct = declaration as any;
             context.captureMemberNamespaceContexts(ct.members, lookupContext);
             // Keep the primary template and index each partial specialization separately.
@@ -102,17 +103,17 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
             // Capture inline methods, including templates, so call-site types can complete their
             // bindings lazily.
             for (const classMember of ct.specializationArgs ? [] : ct.members) {
-                if ((classMember.kind !== "function" && classMember.kind !== "function_template") ||
+                if ((classMember.kind !== AstKind.FUNCTION && classMember.kind !== AstKind.FUNCTION_TEMPLATE) ||
                     !(classMember as FunctionDecl | FunctionTemplateDecl).body)
                     continue;
                 const memberDeclaration = classMember as FunctionDecl | FunctionTemplateDecl;
                 if (!context.templateMethods.has(ct.name))
                     context.templateMethods.set(ct.name, new Map());
                 const into = context.templateMethods.get(ct.name)!;
-                const def: FunctionTemplateDecl = classMember.kind === "function_template"
+                const def: FunctionTemplateDecl = classMember.kind === AstKind.FUNCTION_TEMPLATE
                     ? (classMember as FunctionTemplateDecl)
                     : {
-                        kind: "function_template",
+                        kind: AstKind.FUNCTION_TEMPLATE,
                         name: memberDeclaration.name,
                         params: ct.params,
                         functionParameters: (memberDeclaration as FunctionDecl).params,
@@ -122,7 +123,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                         span: memberDeclaration.span,
                     };
                 context.namespaceContexts.set(def, lookupContext);
-                const functionParameters = classMember.kind === "function_template"
+                const functionParameters = classMember.kind === AstKind.FUNCTION_TEMPLATE
                     ? ((classMember as FunctionTemplateDecl).functionParameters ?? [])
                     : (classMember as FunctionDecl).params;
                 const functionName = memberDeclaration.name;
@@ -135,7 +136,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                     into.set(functionName, def);
             }
         }
-        else if (declaration.kind === "function_template" || declaration.kind === "function") {
+        else if (declaration.kind === AstKind.FUNCTION_TEMPLATE || declaration.kind === AstKind.FUNCTION) {
             // out-of-class template method definition: HashMap::set, Collection::add, ...
             const fn = declaration as FunctionTemplateDecl;
             const sep = fn.name.lastIndexOf("::");
@@ -144,7 +145,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
             const ownerBase = owner.includes("::") ? owner.slice(owner.lastIndexOf("::") + 2) : owner;
             const freeQualified = sep > 0 &&
                 fn.body &&
-                declaration.kind === "function" &&
+                declaration.kind === AstKind.FUNCTION &&
                 !owner.includes("::") &&
                 !context.templates.has(ownerBase) &&
                 !context.globalStructs.has(ownerBase);
@@ -161,10 +162,10 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
             else if (sep > 0 && fn.body) {
                 const cls = ownerBase;
                 const method = fn.name.slice(sep + 2);
-                const methodDefinition: FunctionTemplateDecl = declaration.kind === "function_template"
+                const methodDefinition: FunctionTemplateDecl = declaration.kind === AstKind.FUNCTION_TEMPLATE
                     ? fn
                     : {
-                        kind: "function_template",
+                        kind: AstKind.FUNCTION_TEMPLATE,
                         name: method,
                         params: [],
                         functionParameters: (declaration as FunctionDecl).params,
@@ -189,7 +190,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                 if (!minto.has(method))
                     minto.set(method, methodDefinition);
             }
-            else if (sep < 0 && declaration.kind === "function" && (declaration as FunctionDecl).body) {
+            else if (sep < 0 && declaration.kind === AstKind.FUNCTION && (declaration as FunctionDecl).body) {
                 // Index namespace and platform helpers by qualified name for lazy compilation.
                 const key = `${nsPrefix}${fn.name}`;
                 const overloads = context.libFnOverloads.get(key);
@@ -200,7 +201,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                 if (!context.libFns.has(key))
                     context.libFns.set(key, declaration as FunctionDecl);
             }
-            else if (sep < 0 && declaration.kind === "function_template" && fn.body) {
+            else if (sep < 0 && declaration.kind === AstKind.FUNCTION_TEMPLATE && fn.body) {
                 // Index namespace function templates by qualified name for call-site instantiation.
                 const key = `${nsPrefix}${fn.name}`;
                 const list = context.libFnTemplates.get(key);
@@ -210,13 +211,13 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
                     context.libFnTemplates.set(key, [fn as FunctionTemplateDecl]);
             }
         }
-        else if (declaration.kind === "typedef_decl") {
+        else if (declaration.kind === AstKind.TYPEDEF_DECL) {
             context.typedefs.set(td.name, td.type);
         }
-        else if (declaration.kind === "variable") {
+        else if (declaration.kind === AstKind.VARIABLE) {
             context.collectConstant(declaration as VariableDecl);
         }
-        else if (declaration.kind === "enum") {
+        else if (declaration.kind === AstKind.ENUM) {
             context.collectEnum(declaration as any);
         }
     }
@@ -229,7 +230,7 @@ export function captureMemberNamespaceContexts(
 ): void {
     for (const member of members) {
         context.namespaceContexts.set(member, namespaceContext);
-        if (member.kind === "struct" || member.kind === "class_template") {
+        if (member.kind === AstKind.STRUCT || member.kind === AstKind.CLASS_TEMPLATE) {
             context.captureMemberNamespaceContexts(
                 (member as StructDecl).members,
                 namespaceContext,
@@ -263,9 +264,9 @@ export function namespaceCandidates(context: ProgramAnalysisInternals, name: str
 
 export function collectConstants(context: ProgramAnalysisInternals, members: Declaration[]): void {
     for (const member of members) {
-        if (member.kind === "variable")
+        if (member.kind === AstKind.VARIABLE)
             context.collectConstant(member as VariableDecl);
-        else if (member.kind === "enum")
+        else if (member.kind === AstKind.ENUM)
             context.collectEnum(member as any);
     }
 }
@@ -281,7 +282,7 @@ export function registerLibFnTemplate(context: ProgramAnalysisInternals, key: st
 }
 
 export function collectConstant(context: ProgramAnalysisInternals, variableDeclaration: VariableDecl): void {
-    if (variableDeclaration.initializer && (variableDeclaration.isConstexpr || variableDeclaration.type.kind === "const")) {
+    if (variableDeclaration.initializer && (variableDeclaration.isConstexpr || variableDeclaration.type.kind === AstKind.CONST)) {
         // User constants shadow seeded qpi.h constants with the same unqualified name.
         context.constexprInit.set(variableDeclaration.name, variableDeclaration.initializer);
         context.constexprType.set(variableDeclaration.name, variableDeclaration.type);
@@ -302,13 +303,13 @@ export function collectEnum(context: ProgramAnalysisInternals, type: {
     if (type.name) {
         context.enumNames.add(type.name);
     }
-    if (type.name && type.underlyingType?.kind === "name") {
+    if (type.name && type.underlyingType?.kind === AstKind.NAME) {
         const byteSize = SCALAR_SIZE[type.underlyingType.name];
         if (byteSize !== undefined)
             context.enumSize.set(type.name, byteSize);
         context.enumUnderlying.set(type.name, type.underlyingType);
     }
-    const enumType: TypeSpec = type.underlyingType ?? { kind: "name", name: "sint32" };
+    const enumType: TypeSpec = type.underlyingType ?? { kind: AstKind.NAME, name: "sint32" };
     let next = 0n;
     for (const member of type.members) {
         const numericValue = member.value ? context.evalConstBig(member.value, EMPTY_TEMPLATE_BINDINGS) : next;

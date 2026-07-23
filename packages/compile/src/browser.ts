@@ -3,6 +3,7 @@ import type { CompileOptions, CompileResult, ContractIdl, CalleeIdl, GtestCompil
 import { compileContract as compileWithHeader, compileGtest as compileGtestWithHeader } from "./compiler/pipeline";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "./generated/qpi-snapshot";
 
+export * from "./enums";
 export type {
   CompileOptions,
   CompileResult,

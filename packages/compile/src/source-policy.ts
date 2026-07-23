@@ -1,5 +1,12 @@
+import {
+  BinaryOp,
+  DiagnosticSeverity,
+  QpiMacroKind,
+  SourceAnalysisOrigin,
+  TokenKind,
+} from "./enums";
 import type { Span } from "./ast";
-import { Lexer, type Token, type TokenKind } from "./lexer";
+import { Lexer, type Token } from "./lexer";
 import type {
   SourceAnalysisDiagnostic,
   SourceFix,
@@ -45,37 +52,37 @@ const KEYWORD_RULES: Record<string, { code: string; message: string }> = {
 };
 
 const TYPE_KINDS = new Set<TokenKind>([
-  "kw_auto",
-  "kw_bool",
-  "kw_char",
-  "kw_const",
-  "kw_constexpr",
-  "kw_double",
-  "kw_float",
-  "kw_int",
-  "kw_long",
-  "kw_long_long",
-  "kw_short",
-  "kw_signed",
-  "kw_signed_char",
-  "kw_signed_int",
-  "kw_signed_long_long",
-  "kw_signed_short",
-  "kw_static",
-  "kw_unsigned",
-  "kw_unsigned_char",
-  "kw_unsigned_int",
-  "kw_unsigned_long_long",
-  "kw_unsigned_short",
-  "kw_volatile",
+  TokenKind.KW_AUTO,
+  TokenKind.KW_BOOL,
+  TokenKind.KW_CHAR,
+  TokenKind.KW_CONST,
+  TokenKind.KW_CONSTEXPR,
+  TokenKind.KW_DOUBLE,
+  TokenKind.KW_FLOAT,
+  TokenKind.KW_INT,
+  TokenKind.KW_LONG,
+  TokenKind.KW_LONG_LONG,
+  TokenKind.KW_SHORT,
+  TokenKind.KW_SIGNED,
+  TokenKind.KW_SIGNED_CHAR,
+  TokenKind.KW_SIGNED_INT,
+  TokenKind.KW_SIGNED_LONG_LONG,
+  TokenKind.KW_SIGNED_SHORT,
+  TokenKind.KW_STATIC,
+  TokenKind.KW_UNSIGNED,
+  TokenKind.KW_UNSIGNED_CHAR,
+  TokenKind.KW_UNSIGNED_INT,
+  TokenKind.KW_UNSIGNED_LONG_LONG,
+  TokenKind.KW_UNSIGNED_SHORT,
+  TokenKind.KW_VOLATILE,
 ]);
 
 const DECLARATION_PREFIXES = new Set<TokenKind>([
-  "colon",
-  "l_brace",
-  "r_brace",
-  "r_paren",
-  "semicolon",
+  TokenKind.COLON,
+  TokenKind.L_BRACE,
+  TokenKind.R_BRACE,
+  TokenKind.R_PAREN,
+  TokenKind.SEMICOLON,
 ]);
 
 interface EntryFunction {
@@ -121,22 +128,22 @@ export function detectQpiContractName(source: string): string | undefined {
   const tokens = new Lexer(source).tokenize();
 
   for (let index = 0; index < tokens.length; index++) {
-    if (tokens[index].kind !== "kw_struct" && tokens[index].kind !== "kw_class") {
+    if (tokens[index].kind !== TokenKind.KW_STRUCT && tokens[index].kind !== TokenKind.KW_CLASS) {
       continue;
     }
 
     const name = tokens[index + 1];
-    if (name?.kind !== "identifier") {
+    if (name?.kind !== TokenKind.IDENTIFIER) {
       continue;
     }
 
     for (let cursor = index + 2; cursor < tokens.length; cursor++) {
       const token = tokens[cursor];
-      if (token.kind === "l_brace" || token.kind === "semicolon") {
+      if (token.kind === TokenKind.L_BRACE || token.kind === TokenKind.SEMICOLON) {
         break;
       }
       if (
-        token.kind === "identifier" &&
+        token.kind === TokenKind.IDENTIFIER &&
         token.text === "ContractBase"
       ) {
         return name.text;
@@ -157,7 +164,7 @@ function forbiddenConstructs(
 
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index];
-    if (token.kind === "eof") {
+    if (token.kind === TokenKind.EOF) {
       break;
     }
     if (token.span.start < skipUntil) {
@@ -165,17 +172,17 @@ function forbiddenConstructs(
     }
 
     if (
-      (token.kind === "kw_static_assert" || token.text === "STATIC_ASSERT") &&
-      tokens[index + 1]?.kind === "l_paren"
+      (token.kind === TokenKind.KW_STATIC_ASSERT || token.text === "STATIC_ASSERT") &&
+      tokens[index + 1]?.kind === TokenKind.L_PAREN
     ) {
-      const close = matchingToken(tokens, index + 1, "l_paren", "r_paren");
+      const close = matchingToken(tokens, index + 1, TokenKind.L_PAREN, TokenKind.R_PAREN);
       if (close >= 0) {
         index = close;
         continue;
       }
     }
 
-    if (token.kind === "hash") {
+    if (token.kind === TokenKind.HASH) {
       const newline = source.indexOf("\n", token.span.start);
       skipUntil = newline < 0 ? source.length : newline;
       const directive = source.slice(token.span.start, skipUntil);
@@ -185,23 +192,23 @@ function forbiddenConstructs(
             "qpi/no-preprocessor",
             "Preprocessor directives (`#`) are forbidden in QPI (remove before deploying).",
             token.span,
-            "information",
+            DiagnosticSeverity.INFORMATION,
           ),
         );
       }
       continue;
     }
 
-    if (token.kind === "l_brace") {
+    if (token.kind === TokenKind.L_BRACE) {
       braceDepth++;
       continue;
     }
-    if (token.kind === "r_brace") {
+    if (token.kind === TokenKind.R_BRACE) {
       braceDepth = Math.max(0, braceDepth - 1);
       continue;
     }
 
-    if (token.kind === "string_literal") {
+    if (token.kind === TokenKind.STRING_LITERAL) {
       diagnostics.push(
         diagnostic(
           "qpi/no-string",
@@ -211,7 +218,7 @@ function forbiddenConstructs(
       );
       continue;
     }
-    if (token.kind === "char_literal") {
+    if (token.kind === TokenKind.CHAR_LITERAL) {
       if (
         /[0-9a-fA-F]/.test(source[token.span.start - 1] ?? "") &&
         /[0-9a-fA-F]/.test(source[token.span.end] ?? "")
@@ -227,54 +234,54 @@ function forbiddenConstructs(
       );
       continue;
     }
-    if (token.kind === "slash" || token.kind === "slash_eq") {
+    if (token.kind === TokenKind.SLASH || token.kind === TokenKind.SLASH_EQ) {
       diagnostics.push(
         diagnostic(
           "qpi/no-division",
           "The `/` operator is forbidden (division by zero is undefined). Use `div(a, b)`.",
           token.span,
-          "warning",
-          divModFix(source, token, "/"),
+          DiagnosticSeverity.WARNING,
+          divModFix(source, token, BinaryOp.DIVIDE),
         ),
       );
       continue;
     }
-    if (token.kind === "percent" || token.kind === "percent_eq") {
+    if (token.kind === TokenKind.PERCENT || token.kind === TokenKind.PERCENT_EQ) {
       diagnostics.push(
         diagnostic(
           "qpi/no-modulo",
           "The `%` operator is forbidden. Use `mod(a, b)`.",
           token.span,
-          "warning",
-          divModFix(source, token, "%"),
+          DiagnosticSeverity.WARNING,
+          divModFix(source, token, BinaryOp.MODULO),
         ),
       );
       continue;
     }
-    if (token.kind === "l_bracket" || token.kind === "r_bracket") {
+    if (token.kind === TokenKind.L_BRACKET || token.kind === TokenKind.R_BRACKET) {
       diagnostics.push(
         diagnostic(
           "qpi/no-brackets",
           `\`${token.text}\` is forbidden (no low-level arrays / unchecked buffers). Use \`Array<T, N>\`.`,
           token.span,
-          "warning",
+          DiagnosticSeverity.WARNING,
           arrayFix(source, token.span.start),
         ),
       );
       continue;
     }
     if (
-      token.kind === "ellipsis" ||
+      token.kind === TokenKind.ELLIPSIS ||
       (
-        token.kind === "dot" &&
-        tokens[index + 1]?.kind === "dot" &&
-        tokens[index + 2]?.kind === "dot" &&
+        token.kind === TokenKind.DOT &&
+        tokens[index + 1]?.kind === TokenKind.DOT &&
+        tokens[index + 2]?.kind === TokenKind.DOT &&
         token.span.end === tokens[index + 1].span.start &&
         tokens[index + 1].span.end === tokens[index + 2].span.start
       )
     ) {
       const span =
-        token.kind === "ellipsis"
+        token.kind === TokenKind.ELLIPSIS
           ? token.span
           : {
               ...token.span,
@@ -287,7 +294,7 @@ function forbiddenConstructs(
           span,
         ),
       );
-      if (token.kind === "dot") {
+      if (token.kind === TokenKind.DOT) {
         index += 2;
       }
       continue;
@@ -311,7 +318,7 @@ function forbiddenConstructs(
       continue;
     }
 
-    if (braceDepth === 0 && token.kind === "kw_typedef") {
+    if (braceDepth === 0 && token.kind === TokenKind.KW_TYPEDEF) {
       diagnostics.push(
         diagnostic(
           "qpi/no-global-typedef",
@@ -323,7 +330,7 @@ function forbiddenConstructs(
     }
     if (
       braceDepth === 0 &&
-      token.kind === "kw_using" &&
+      token.kind === TokenKind.KW_USING &&
       !isUsingNamespaceQpi(tokens, index)
     ) {
       diagnostics.push(
@@ -377,7 +384,7 @@ function localDiagnostics(
             "qpi/stack-local",
             `Stack-local \`${name.text}\` is forbidden in QPI — declare it in a \`<fn>_locals\` struct (use the *_WITH_LOCALS form), or keep state in StateData via \`state.mut()\`.`,
             name.span,
-            "warning",
+            DiagnosticSeverity.WARNING,
             fixes,
           ),
         );
@@ -397,8 +404,8 @@ function localsFormDiagnostics(
 
   for (let index = 0; index + 1 < tokens.length; index++) {
     if (
-      tokens[index].kind === "kw_struct" &&
-      tokens[index + 1].kind === "identifier" &&
+      tokens[index].kind === TokenKind.KW_STRUCT &&
+      tokens[index + 1].kind === TokenKind.IDENTIFIER &&
       tokens[index + 1].text.endsWith("_locals")
     ) {
       localsStructs.add(tokens[index + 1].text.slice(0, -"_locals".length));
@@ -413,9 +420,9 @@ function localsFormDiagnostics(
     let usesLocals = false;
     for (let index = entry.bodyOpen + 1; index < entry.bodyClose; index++) {
       if (
-        tokens[index].kind === "identifier" &&
+        tokens[index].kind === TokenKind.IDENTIFIER &&
         tokens[index].text === "locals" &&
-        tokens[index + 1]?.kind === "dot"
+        tokens[index + 1]?.kind === TokenKind.DOT
       ) {
         usesLocals = true;
         break;
@@ -457,15 +464,15 @@ function idlDiagnostics(
     );
     if (
       !match ||
-      tokens[index + 1].kind !== "l_paren" ||
-      tokens[index + 2].kind !== "identifier" ||
-      tokens[index + 3].kind !== "comma" ||
-      tokens[index + 4].kind !== "int_literal"
+      tokens[index + 1].kind !== TokenKind.L_PAREN ||
+      tokens[index + 2].kind !== TokenKind.IDENTIFIER ||
+      tokens[index + 3].kind !== TokenKind.COMMA ||
+      tokens[index + 4].kind !== TokenKind.INT_LITERAL
     ) {
       continue;
     }
 
-    const kind = match[1] as "FUNCTION" | "PROCEDURE";
+    const kind = match[1] as QpiMacroKind;
     const name = tokens[index + 2].text;
     const id = Number.parseInt(tokens[index + 4].text.replaceAll("'", ""), 10);
     if (!Number.isFinite(id)) {
@@ -477,7 +484,7 @@ function idlDiagnostics(
     if (previous !== undefined && previous !== name) {
       diagnostics.push(
         diagnostic(
-          kind === "FUNCTION"
+          kind === QpiMacroKind.FUNCTION
             ? "qpi/dup-fn-index"
             : "qpi/dup-proc-index",
           `Duplicate ${kind.toLowerCase()} index ${id} — already used by \`${previous}\`. Each ${kind.toLowerCase()} needs a unique index.`,
@@ -497,8 +504,8 @@ function idlDiagnostics(
   for (const entry of entries) {
     if (entry.publicEntry && !registered.has(entry.name)) {
       const kind = entry.macro.includes("FUNCTION")
-        ? "FUNCTION"
-        : "PROCEDURE";
+        ? QpiMacroKind.FUNCTION
+        : QpiMacroKind.PROCEDURE;
       diagnostics.push(
         diagnostic(
           "qpi/unregistered",
@@ -517,8 +524,8 @@ function idlDiagnostics(
   ]);
   for (let index = 0; index + 2 < tokens.length; index++) {
     if (
-      tokens[index].kind !== "kw_struct" ||
-      tokens[index + 1].kind !== "identifier"
+      tokens[index].kind !== TokenKind.KW_STRUCT ||
+      tokens[index + 1].kind !== TokenKind.IDENTIFIER
     ) {
       continue;
     }
@@ -528,11 +535,11 @@ function idlDiagnostics(
       continue;
     }
 
-    const open = findNext(tokens, index + 2, "l_brace", "semicolon");
-    if (open < 0 || tokens[open].kind !== "l_brace") {
+    const open = findNext(tokens, index + 2, TokenKind.L_BRACE, TokenKind.SEMICOLON);
+    if (open < 0 || tokens[open].kind !== TokenKind.L_BRACE) {
       continue;
     }
-    const close = matchingToken(tokens, open, "l_brace", "r_brace");
+    const close = matchingToken(tokens, open, TokenKind.L_BRACE, TokenKind.R_BRACE);
     if (close < 0) {
       continue;
     }
@@ -570,38 +577,38 @@ function findEntryFunctions(tokens: Token[]): EntryFunction[] {
     if (!named && !lifecycleMatch) {
       continue;
     }
-    if (tokens[index + 1]?.kind !== "l_paren") {
+    if (tokens[index + 1]?.kind !== TokenKind.L_PAREN) {
       continue;
     }
 
     const closeParen = matchingToken(
       tokens,
       index + 1,
-      "l_paren",
-      "r_paren",
+      TokenKind.L_PAREN,
+      TokenKind.R_PAREN,
     );
     if (closeParen < 0) {
       continue;
     }
     const nameToken = named ? tokens[index + 2] : tokens[index];
-    if (named && nameToken?.kind !== "identifier") {
+    if (named && nameToken?.kind !== TokenKind.IDENTIFIER) {
       continue;
     }
 
     const bodyOpen = findNext(
       tokens,
       closeParen + 1,
-      "l_brace",
-      "semicolon",
+      TokenKind.L_BRACE,
+      TokenKind.SEMICOLON,
     );
-    if (bodyOpen < 0 || tokens[bodyOpen].kind !== "l_brace") {
+    if (bodyOpen < 0 || tokens[bodyOpen].kind !== TokenKind.L_BRACE) {
       continue;
     }
     const bodyClose = matchingToken(
       tokens,
       bodyOpen,
-      "l_brace",
-      "r_brace",
+      TokenKind.L_BRACE,
+      TokenKind.R_BRACE,
     );
     if (bodyClose < 0) {
       continue;
@@ -647,8 +654,8 @@ function findLocalDeclarations(
   ) {
     const previous = tokens[index - 1];
     const forInitializer =
-      previous?.kind === "l_paren" &&
-      tokens[index - 2]?.kind === "kw_for";
+      previous?.kind === TokenKind.L_PAREN &&
+      tokens[index - 2]?.kind === TokenKind.KW_FOR;
     if (
       index !== entry.bodyOpen + 1 &&
       !forInitializer &&
@@ -682,10 +689,10 @@ function parseLocalDeclaration(
 ): { value: LocalDeclaration; end: number } | null {
   let cursor = start;
   while (
-    tokens[cursor]?.kind === "kw_const" ||
-    tokens[cursor]?.kind === "kw_constexpr" ||
-    tokens[cursor]?.kind === "kw_static" ||
-    tokens[cursor]?.kind === "kw_volatile"
+    tokens[cursor]?.kind === TokenKind.KW_CONST ||
+    tokens[cursor]?.kind === TokenKind.KW_CONSTEXPR ||
+    tokens[cursor]?.kind === TokenKind.KW_STATIC ||
+    tokens[cursor]?.kind === TokenKind.KW_VOLATILE
   ) {
     cursor++;
   }
@@ -693,47 +700,47 @@ function parseLocalDeclaration(
   const typeStart = tokens[cursor];
   if (
     !typeStart ||
-    (typeStart.kind !== "identifier" && !TYPE_KINDS.has(typeStart.kind))
+    (typeStart.kind !== TokenKind.IDENTIFIER && !TYPE_KINDS.has(typeStart.kind))
   ) {
     return null;
   }
   cursor++;
 
-  if (typeStart.kind === "identifier") {
+  if (typeStart.kind === TokenKind.IDENTIFIER) {
     while (
-      tokens[cursor]?.kind === "d_colon" &&
-      tokens[cursor + 1]?.kind === "identifier"
+      tokens[cursor]?.kind === TokenKind.D_COLON &&
+      tokens[cursor + 1]?.kind === TokenKind.IDENTIFIER
     ) {
       cursor += 2;
     }
   }
 
-  if (tokens[cursor]?.kind === "l_angle") {
+  if (tokens[cursor]?.kind === TokenKind.L_ANGLE) {
     cursor = afterTemplateArguments(tokens, cursor);
     if (cursor < 0) {
       return null;
     }
   }
   while (
-    tokens[cursor]?.kind === "star" ||
-    tokens[cursor]?.kind === "amp" ||
-    tokens[cursor]?.kind === "kw_const"
+    tokens[cursor]?.kind === TokenKind.STAR ||
+    tokens[cursor]?.kind === TokenKind.AMP ||
+    tokens[cursor]?.kind === TokenKind.KW_CONST
   ) {
     cursor++;
   }
 
   const firstName = tokens[cursor];
-  if (firstName?.kind !== "identifier") {
+  if (firstName?.kind !== TokenKind.IDENTIFIER) {
     return null;
   }
   const next = tokens[cursor + 1]?.kind;
   if (
-    next !== "semicolon" &&
-    next !== "eq" &&
-    next !== "comma" &&
-    next !== "l_bracket" &&
-    next !== "l_brace" &&
-    next !== "l_paren"
+    next !== TokenKind.SEMICOLON &&
+    next !== TokenKind.EQ &&
+    next !== TokenKind.COMMA &&
+    next !== TokenKind.L_BRACKET &&
+    next !== TokenKind.L_BRACE &&
+    next !== TokenKind.L_PAREN
   ) {
     return null;
   }
@@ -746,20 +753,20 @@ function parseLocalDeclaration(
 
   for (cursor++; cursor < limit; cursor++) {
     const token = tokens[cursor];
-    if (token.kind === "l_paren") {
+    if (token.kind === TokenKind.L_PAREN) {
       parenDepth++;
-    } else if (token.kind === "r_paren") {
+    } else if (token.kind === TokenKind.R_PAREN) {
       if (parenDepth === 0 && forInitializer) {
         break;
       }
       parenDepth = Math.max(0, parenDepth - 1);
-    } else if (token.kind === "l_bracket") {
+    } else if (token.kind === TokenKind.L_BRACKET) {
       bracketDepth++;
-    } else if (token.kind === "r_bracket") {
+    } else if (token.kind === TokenKind.R_BRACKET) {
       bracketDepth = Math.max(0, bracketDepth - 1);
-    } else if (token.kind === "l_brace") {
+    } else if (token.kind === TokenKind.L_BRACE) {
       braceDepth++;
-    } else if (token.kind === "r_brace") {
+    } else if (token.kind === TokenKind.R_BRACE) {
       if (braceDepth === 0) {
         break;
       }
@@ -769,22 +776,22 @@ function parseLocalDeclaration(
     if (parenDepth || bracketDepth || braceDepth) {
       continue;
     }
-    if (token.kind === "semicolon") {
+    if (token.kind === TokenKind.SEMICOLON) {
       end = cursor;
       break;
     }
-    if (token.kind !== "comma") {
+    if (token.kind !== TokenKind.COMMA) {
       continue;
     }
 
     let nameIndex = cursor + 1;
     while (
-      tokens[nameIndex]?.kind === "star" ||
-      tokens[nameIndex]?.kind === "amp"
+      tokens[nameIndex]?.kind === TokenKind.STAR ||
+      tokens[nameIndex]?.kind === TokenKind.AMP
     ) {
       nameIndex++;
     }
-    if (tokens[nameIndex]?.kind === "identifier") {
+    if (tokens[nameIndex]?.kind === TokenKind.IDENTIFIER) {
       names.push(tokens[nameIndex]);
     }
   }
@@ -804,11 +811,11 @@ function afterTemplateArguments(tokens: Token[], start: number): number {
   let depth = 0;
   for (let index = start; index < tokens.length; index++) {
     const kind = tokens[index].kind;
-    if (kind === "l_angle") {
+    if (kind === TokenKind.L_ANGLE) {
       depth++;
-    } else if (kind === "r_angle") {
+    } else if (kind === TokenKind.R_ANGLE) {
       depth--;
-    } else if (kind === "r_shift") {
+    } else if (kind === TokenKind.R_SHIFT) {
       depth -= 2;
     }
     if (depth <= 0) {
@@ -820,8 +827,8 @@ function afterTemplateArguments(tokens: Token[], start: number): number {
 
 function isUsingNamespaceQpi(tokens: Token[], index: number): boolean {
   return (
-    tokens[index + 1]?.kind === "kw_namespace" &&
-    tokens[index + 2]?.kind === "identifier" &&
+    tokens[index + 1]?.kind === TokenKind.KW_NAMESPACE &&
+    tokens[index + 2]?.kind === TokenKind.IDENTIFIER &&
     tokens[index + 2]?.text === "QPI"
   );
 }
@@ -864,11 +871,11 @@ function diagnostic(
   code: string,
   message: string,
   span: Span,
-  severity: SourceAnalysisDiagnostic["severity"] = "warning",
+  severity: SourceAnalysisDiagnostic["severity"] = DiagnosticSeverity.WARNING,
   fixes?: SourceFix[],
 ): SourceAnalysisDiagnostic {
   return {
-    origin: "qpi",
+    origin: SourceAnalysisOrigin.QPI,
     code,
     severity,
     message,
@@ -908,7 +915,7 @@ function arrayFix(source: string, offset: number): SourceFix[] | undefined {
 function divModFix(
   source: string,
   token: Token,
-  operator: "/" | "%",
+  operator: BinaryOp.DIVIDE | BinaryOp.MODULO,
 ): SourceFix[] | undefined {
   const line = sourceLine(source, token.span.start);
   const fix = divModFixForLine(
@@ -921,7 +928,7 @@ function divModFix(
   }
   return [
     sourceFix(
-      `Convert to ${operator === "/" ? "div" : "mod"}(a, b)`,
+      `Convert to ${operator === BinaryOp.DIVIDE ? "div" : "mod"}(a, b)`,
       source,
       [
         {
@@ -1005,7 +1012,7 @@ const OPERAND = "[A-Za-z_]\\w*(?:\\.\\w+)*|\\d+";
 function divModFixForLine(
   line: string,
   column: number,
-  operator: "/" | "%",
+  operator: BinaryOp.DIVIDE | BinaryOp.MODULO,
 ): { start: number; end: number; text: string } | null {
   if (
     line[column] !== operator ||
@@ -1037,7 +1044,7 @@ function divModFixForLine(
   return {
     start,
     end,
-    text: `${operator === "/" ? "div" : "mod"}(${left[1]}, ${right[1]})`,
+    text: `${operator === BinaryOp.DIVIDE ? "div" : "mod"}(${left[1]}, ${right[1]})`,
   };
 }
 
@@ -1049,7 +1056,7 @@ function moveLocalToWithLocalsEdits(
   name: Token,
 ): OffsetEdit[] | null {
   const semicolon = tokens[declaration.end];
-  if (semicolon?.kind !== "semicolon") {
+  if (semicolon?.kind !== TokenKind.SEMICOLON) {
     return null;
   }
 
@@ -1065,13 +1072,13 @@ function moveLocalToWithLocalsEdits(
   }
 
   const unsafeType = new Set<TokenKind>([
-    "amp",
-    "kw_auto",
-    "kw_const",
-    "kw_constexpr",
-    "kw_static",
-    "kw_volatile",
-    "star",
+    TokenKind.AMP,
+    TokenKind.KW_AUTO,
+    TokenKind.KW_CONST,
+    TokenKind.KW_CONSTEXPR,
+    TokenKind.KW_STATIC,
+    TokenKind.KW_VOLATILE,
+    TokenKind.STAR,
   ]);
   for (let index = declaration.start; index < nameIndex; index++) {
     if (unsafeType.has(tokens[index].kind)) {
@@ -1080,19 +1087,19 @@ function moveLocalToWithLocalsEdits(
   }
 
   const unsafe = new Set<TokenKind>([
-    "comma",
-    "l_brace",
-    "r_brace",
-    "l_bracket",
-    "l_paren",
-    "r_paren",
+    TokenKind.COMMA,
+    TokenKind.L_BRACE,
+    TokenKind.R_BRACE,
+    TokenKind.L_BRACKET,
+    TokenKind.L_PAREN,
+    TokenKind.R_PAREN,
   ]);
   let equals = -1;
   for (let index = nameIndex + 1; index < declaration.end; index++) {
     if (unsafe.has(tokens[index].kind)) {
       return null;
     }
-    if (tokens[index].kind === "eq" && equals < 0) {
+    if (tokens[index].kind === TokenKind.EQ && equals < 0) {
       equals = index;
     }
   }
@@ -1125,13 +1132,13 @@ function moveLocalToWithLocalsEdits(
   let localsBrace: Token | undefined;
   for (let index = 0; index + 1 < tokens.length; index++) {
     if (
-      tokens[index].kind !== "kw_struct" ||
+      tokens[index].kind !== TokenKind.KW_STRUCT ||
       tokens[index + 1].text !== `${entry.name}_locals`
     ) {
       continue;
     }
-    const open = findNext(tokens, index + 2, "l_brace", "semicolon");
-    if (open >= 0 && tokens[open].kind === "l_brace") {
+    const open = findNext(tokens, index + 2, TokenKind.L_BRACE, TokenKind.SEMICOLON);
+    if (open >= 0 && tokens[open].kind === TokenKind.L_BRACE) {
       localsBrace = tokens[open];
     }
     break;
@@ -1185,7 +1192,7 @@ function moveLocalToWithLocalsEdits(
   ) {
     const token = tokens[index];
     if (
-      token.kind !== "identifier" ||
+      token.kind !== TokenKind.IDENTIFIER ||
       token.text !== name.text ||
       (token.span.start >= typeStart &&
         token.span.end <= semicolon.span.end)
@@ -1194,9 +1201,9 @@ function moveLocalToWithLocalsEdits(
     }
     const previous = tokens[index - 1]?.kind;
     if (
-      previous === "dot" ||
-      previous === "d_colon" ||
-      previous === "arrow"
+      previous === TokenKind.DOT ||
+      previous === TokenKind.D_COLON ||
+      previous === TokenKind.ARROW
     ) {
       continue;
     }

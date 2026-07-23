@@ -2,7 +2,13 @@ import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Standalone sweep tool: compile contracts without engine.
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
-import { compileContract, loadQpiHeader, type CompileResult, type CalleeIdl } from "../src/index";
+import {
+    compileContract,
+    DiagnosticSeverity,
+    loadQpiHeader,
+    type CalleeIdl,
+    type CompileResult,
+} from "../src/index";
 import { systemContracts, type SystemContract } from "../../build/src/system-contracts";
 
 const CORE = CORE_PATH;
@@ -117,8 +123,12 @@ for (const { name, compileName, path, slot: targetSlot } of targets) {
       calleeSources: calleeSources.length ? calleeSources : undefined,
     });
 
-    const errs = r.diagnostics.filter((d) => d.severity === "error").length;
-    const warns = r.diagnostics.filter((d) => d.severity === "warning");
+    const errs = r.diagnostics.filter(
+        (d) => d.severity === DiagnosticSeverity.ERROR,
+    ).length;
+    const warns = r.diagnostics.filter(
+        (d) => d.severity === DiagnosticSeverity.WARNING,
+    );
     for (const d of r.diagnostics) warnHist[d.message] = (warnHist[d.message] ?? 0) + 1;
     if (errs === 0 && r.wasm.byteLength > 0) ok++;
     totalWarn += warns.length;

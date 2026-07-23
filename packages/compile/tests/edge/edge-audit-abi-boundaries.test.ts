@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Pins inclusive registration bounds and rejects values outside them.
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -41,7 +42,7 @@ describe("edge audit — inclusive QPI ABI boundaries", () => {
       qpiHeader: HEADERS,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(27, result.wasm);

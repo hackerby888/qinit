@@ -1,3 +1,4 @@
+import { AstKind } from "../enums";
 import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, CalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
 import type { Sema } from "../sema";
@@ -130,7 +131,7 @@ export class ProgramAnalysis {
     }
     // Resolve a dependent member type such as `Selector<args>::member`.
     private resolveDependentMember(type: Extract<TypeSpec, {
-        kind: "dependent_member";
+        kind: AstKind.DEPENDENT_MEMBER;
     }>, templateBindings: TemplateBindings): {
         type: TypeSpec;
         bindings: TemplateBindings;
@@ -178,7 +179,7 @@ export class ProgramAnalysis {
     }
     // Resolve member types against their parent template instance.
     concreteMemberType(type: TypeSpec, parent: TypeSpec & {
-        kind: "template_instance";
+        kind: AstKind.TEMPLATE_INSTANCE;
     }, depth = 0): TypeSpec {
         return analysisPart2.concreteMemberType(this as unknown as ProgramAnalysisInternals, type, parent, depth);
     }
@@ -186,12 +187,12 @@ export class ProgramAnalysis {
         return analysisPart2.resolveInScope(this as unknown as ProgramAnalysisInternals, type, scope, nested, depth);
     }
     private resolveNamedTypeInScope(type: Extract<TypeSpec, {
-        kind: "name";
+        kind: AstKind.NAME;
     }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
         return analysisPart2.resolveNamedTypeInScope(this as unknown as ProgramAnalysisInternals, type, scope, nested, depth);
     }
     private resolveTemplateInstanceArguments(type: Extract<TypeSpec, {
-        kind: "template_instance";
+        kind: AstKind.TEMPLATE_INSTANCE;
     }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec[] {
         return analysisPart2.resolveTemplateInstanceArguments(this as unknown as ProgramAnalysisInternals, type, scope, nested, depth);
     }

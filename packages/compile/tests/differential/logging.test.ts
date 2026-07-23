@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -41,7 +42,7 @@ describe("QPI LOG_* lowering", () => {
       qpiHeader: HEADERS,
       arenaSz: 64 * 1024,
     });
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const imports = WebAssembly.Module.imports(new WebAssembly.Module(result.wasm as BufferSource));
     expect(imports.some((i) => i.module === "lhost" && i.name === "logBytes")).toBe(true);
     expect(imports.some((i) => i.module === "lhost" && i.name === "pauseLog")).toBe(true);
@@ -98,7 +99,7 @@ describe("QPI LOG_* lowering", () => {
     });
     expect(
       result.diagnostics.some(
-        (d) => d.severity === "error" && d.message.includes("at least 8 bytes"),
+        (d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("at least 8 bytes"),
       ),
     ).toBe(true);
 
@@ -112,7 +113,7 @@ describe("QPI LOG_* lowering", () => {
     });
     expect(
       missingResult.diagnostics.some(
-        (d) => d.severity === "error" && d.message.includes("must contain _terminator"),
+        (d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("must contain _terminator"),
       ),
     ).toBe(true);
 
@@ -126,7 +127,7 @@ describe("QPI LOG_* lowering", () => {
     });
     expect(
       scalarResult.diagnostics.some(
-        (d) => d.severity === "error" && d.message.includes("must be a struct"),
+        (d) => d.severity === DiagnosticSeverity.ERROR && d.message.includes("must be a struct"),
       ),
     ).toBe(true);
   });

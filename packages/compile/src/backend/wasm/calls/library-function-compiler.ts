@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { emitHelperFunction } from "../functions/function-emitter";
 import { FunctionEmissionContext, CompiledHelperMetadata, TemplateBindings, EMPTY_TEMPLATE_BINDINGS } from "../types";
@@ -25,13 +26,16 @@ export function compileLibraryFunction(programAnalysis: ProgramAnalysis, name: s
         return null;
     const params = fn.params.map((parameter) => {
         // Pass mutable scalar references by address for write-back.
-        const isConstRef = parameter.type.kind === "reference" && parameter.type.referentType?.kind === "const";
-        const isPtrRef = (parameter.type.kind === "reference" && !isConstRef) || parameter.type.kind === "pointer";
+        const isConstRef = parameter.type.kind === AstKind.REFERENCE && parameter.type.referentType?.kind === AstKind.CONST;
+        const isPtrRef = (parameter.type.kind === AstKind.REFERENCE && !isConstRef) || parameter.type.kind === AstKind.POINTER;
         const isAddr = isPtrRef || programAnalysis.isAggregateType(parameter.type);
-        const byValAgg = isAddr && parameter.type.kind !== "reference" && parameter.type.kind !== "pointer";
+        const byValAgg = isAddr && parameter.type.kind !== AstKind.REFERENCE && parameter.type.kind !== AstKind.POINTER;
+        const wasmType: WatValueType = isAddr
+            ? WatNodeType.I32
+            : WatNodeType.I64;
         return {
             name: parameter.name,
-            wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64",
+            wasmType,
             isAddr,
             type: programAnalysis.derefType(parameter.type),
             byValAgg,
@@ -79,14 +83,14 @@ export function compileLibraryFunction(programAnalysis: ProgramAnalysis, name: s
 export function deduceLibraryFunctionBindings(context: FunctionEmissionContext, def: FunctionTemplateDecl, callArguments: Expression[], explicit: TypeSpec[] = []): TemplateBindings {
     const types = new Map<string, TypeSpec>();
     const values = new Map<string, bigint>();
-    const typeParams = new Set(def.params.filter((parameter) => parameter.kind === "type").map((type) => type.name));
-    const valueParams = new Set(def.params.filter((parameter) => parameter.kind !== "type").map((type) => type.name));
+    const typeParams = new Set(def.params.filter((parameter) => parameter.kind === AstKind.TYPE).map((type) => type.name));
+    const valueParams = new Set(def.params.filter((parameter) => parameter.kind !== AstKind.TYPE).map((type) => type.name));
     const fps = def.functionParameters ?? [];
     def.params.forEach((param, index) => {
         const argument = explicit[index];
         if (!argument)
             return;
-        if (param.kind === "type") {
+        if (param.kind === AstKind.TYPE) {
             types.set(param.name, context.thisBind ? context.programAnalysis.substInBindings(argument, context.thisBind) : argument);
         }
         else {
@@ -99,7 +103,7 @@ export function deduceLibraryFunctionBindings(context: FunctionEmissionContext, 
             // A computed uint128 rvalue has no lvalue address until call lowering materializes it,
             // but template deduction still sees its class type (`div(a * b, c)` in GGWP/Qswap).
             if (context.lowering.isU128Expr(context, expression))
-                return { kind: "name", name: "uint128_t" };
+                return { kind: AstKind.NAME, name: "uint128_t" };
             const scalar = context.lowering.scalarTypeInfo(context, expression);
             if (!scalar)
                 return null;
@@ -110,13 +114,13 @@ export function deduceLibraryFunctionBindings(context: FunctionEmissionContext, 
                 : scalar.unsigned
                     ? "uint64"
                     : "sint64";
-            return { kind: "name", name };
+            return { kind: AstKind.NAME, name };
         }
         type = context.programAnalysis.derefType(type);
         // Resolve through the caller's template bindings so the deduced type is concrete (ProposalDataType → ProposalDataV1<false>), not a symbolic
         if (context.thisBind)
             type = context.programAnalysis.derefType(context.programAnalysis.substInBindings(type, context.thisBind));
-        for (let index = 0; index < 8 && type.kind === "name"; index++) {
+        for (let index = 0; index < 8 && type.kind === AstKind.NAME; index++) {
             const td = context.programAnalysis.typedefs.get(type.name);
             if (!td)
                 break;
@@ -129,13 +133,13 @@ export function deduceLibraryFunctionBindings(context: FunctionEmissionContext, 
         if (!argument)
             continue;
         const pt = context.programAnalysis.derefType(fps[fpIndex].type);
-        if (pt.kind === "template_instance") {
+        if (pt.kind === AstKind.TEMPLATE_INSTANCE) {
             const at = argType(argument);
-            if (at?.kind !== "template_instance" || at.name !== pt.name)
+            if (at?.kind !== AstKind.TEMPLATE_INSTANCE || at.name !== pt.name)
                 continue;
             for (let nestedIndex = 0; nestedIndex < pt.callArguments.length && nestedIndex < at.callArguments.length; nestedIndex++) {
                 const pa = pt.callArguments[nestedIndex];
-                if (pa.kind !== "name")
+                if (pa.kind !== AstKind.NAME)
                     continue;
                 if (typeParams.has(pa.name) && !types.has(pa.name))
                     types.set(pa.name, at.callArguments[nestedIndex]);
@@ -143,7 +147,7 @@ export function deduceLibraryFunctionBindings(context: FunctionEmissionContext, 
                     values.set(pa.name, context.programAnalysis.valueOfTypeArg(at.callArguments[nestedIndex]));
             }
         }
-        else if (pt.kind === "name" && typeParams.has(pt.name) && !types.has(pt.name)) {
+        else if (pt.kind === AstKind.NAME && typeParams.has(pt.name) && !types.has(pt.name)) {
             const at = argType(argument);
             if (at)
                 types.set(pt.name, at);
@@ -176,28 +180,28 @@ export function selectLibraryFunctionOverload(context: FunctionEmissionContext, 
             const at = argTypes[index];
             if (!at)
                 continue;
-            if (pat.kind === "name") {
+            if (pat.kind === AstKind.NAME) {
                 if (tparams.has(pat.name))
                     size += 1;
-                else if (at.kind === "name" && at.name === pat.name)
+                else if (at.kind === AstKind.NAME && at.name === pat.name)
                     size += 2;
                 continue;
             }
-            if (pat.kind === "template_instance" && at.kind === "template_instance") {
+            if (pat.kind === AstKind.TEMPLATE_INSTANCE && at.kind === AstKind.TEMPLATE_INSTANCE) {
                 if (pat.name !== at.name)
                     return -1;
                 for (let nestedIndex = 0; nestedIndex < pat.callArguments.length && nestedIndex < at.callArguments.length; nestedIndex++) {
                     const pa = pat.callArguments[nestedIndex];
-                    if (pa.kind !== "name")
+                    if (pa.kind !== AstKind.NAME)
                         continue;
                     if (tparams.has(pa.name)) {
                         size += 1;
                     }
                     else {
                         const aa = at.callArguments[nestedIndex];
-                        if (aa.kind === "name" && aa.name === pa.name)
+                        if (aa.kind === AstKind.NAME && aa.name === pa.name)
                             size += 2;
-                        else if (aa.kind === "template_instance" && aa.name === pa.name)
+                        else if (aa.kind === AstKind.TEMPLATE_INSTANCE && aa.name === pa.name)
                             size += 2;
                         else
                             return -1;
@@ -223,8 +227,8 @@ export function compileLibraryFunctionInstance(context: FunctionEmissionContext,
     const programAnalysis = context.programAnalysis;
     const bind = deduceLibraryFunctionBindings(context, def, callArguments, explicit);
     const keyArgs = def.params
-        .map((parameter) => parameter.kind === "type"
-        ? programAnalysis.typeKeyOf(bind.types.get(parameter.name) ?? { kind: "name", name: parameter.name })
+        .map((parameter) => parameter.kind === AstKind.TYPE
+        ? programAnalysis.typeKeyOf(bind.types.get(parameter.name) ?? { kind: AstKind.NAME, name: parameter.name })
         : (bind.values.get(parameter.name)?.toString() ?? parameter.name))
         .join(",");
     // The overload's source line disambiguates same-name defs whose deduced args coincide.
@@ -235,13 +239,16 @@ export function compileLibraryFunctionInstance(context: FunctionEmissionContext,
     const params = (def.functionParameters ?? []).map((parameter) => {
         const concrete = programAnalysis.substInBindings(programAnalysis.derefType(parameter.type), bind);
         const aggregate = programAnalysis.isAggregateType(concrete);
-        const constScalarRef = parameter.type.kind === "reference" && parameter.type.referentType.kind === "const" && !aggregate;
-        const isPtrRef = parameter.type.kind === "pointer" || (parameter.type.kind === "reference" && !constScalarRef);
+        const constScalarRef = parameter.type.kind === AstKind.REFERENCE && parameter.type.referentType.kind === AstKind.CONST && !aggregate;
+        const isPtrRef = parameter.type.kind === AstKind.POINTER || (parameter.type.kind === AstKind.REFERENCE && !constScalarRef);
         const isAddr = isPtrRef || aggregate;
         const byValAgg = isAddr && !isPtrRef && aggregate;
+        const wasmType: WatValueType = isAddr
+            ? WatNodeType.I32
+            : WatNodeType.I64;
         return {
             name: parameter.name,
-            wasmType: (isAddr ? "i32" : "i64") as "i32" | "i64",
+            wasmType,
             isAddr,
             type: concrete,
             byValAgg,

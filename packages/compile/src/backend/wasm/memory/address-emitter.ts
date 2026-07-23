@@ -1,3 +1,9 @@
+import {
+    AstKind,
+    ContainerEmissionMode,
+    PlatformPrimitiveKind,
+    PrimitiveResultChannel,
+} from "../../../enums";
 import { qpiWrapperMethod } from "../calls/call-shape";
 import { platformPrimitive } from "../calls/platform-primitives";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
@@ -6,15 +12,15 @@ import * as watIr from "../../../wat-ir";
 import { addrIr } from "./memory-operations";
 // Address of an lvalue or a materializable aggregate. Returns null if not addressable.
 export function emitAddress(context: FunctionEmissionContext, expression: Expression): string | null {
-    if (expression.kind === "identifier" && expression.name === "SELF")
+    if (expression.kind === AstKind.IDENTIFIER && expression.name === "SELF")
         return "(call $self_id)";
     // an aggregate value-helper parameter is passed by address
-    if (expression.kind === "identifier") {
+    if (expression.kind === AstKind.IDENTIFIER) {
         const type = context.params?.get(expression.name);
         if (type && type.isAddr)
             return `(local.get $${type.local ?? expression.name})`;
     }
-    if (expression.kind === "identifier") {
+    if (expression.kind === AstKind.IDENTIFIER) {
         const initializer = context.programAnalysis.constexprInit.get(expression.name);
         const declaredType = context.programAnalysis.typeOfConstant(expression.name);
         const type = declaredType
@@ -29,14 +35,14 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             const address = watIr.serializeWatNode(destination);
             let initialized = false;
 
-            if (initializer.kind === "initializer_list") {
+            if (initializer.kind === AstKind.INITIALIZER_LIST) {
                 initialized = context.lowering.emitConstruct(
                     context,
                     address,
                     type,
                     initializer.expressions,
                 );
-            } else if (initializer.kind === "construct") {
+            } else if (initializer.kind === AstKind.CONSTRUCT) {
                 initialized = context.lowering.emitConstruct(
                     context,
                     address,
@@ -78,44 +84,44 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             return address;
         }
     }
-    if (expression.kind === "paren")
+    if (expression.kind === AstKind.PAREN)
         return emitAddress(context, expression.expression);
-    if (expression.kind === "call") {
+    if (expression.kind === AstKind.CALL) {
         const cached = context.materializedCalls?.get(expression);
         if (cached)
             return cached.addr;
     }
-    if (expression.kind === "call" &&
-        (expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name")) {
+    if (expression.kind === AstKind.CALL &&
+        (expression.callee.kind === AstKind.IDENTIFIER || expression.callee.kind === AstKind.QUALIFIED_NAME)) {
         const primitive = platformPrimitive(expression.callee.name);
-        if (primitive?.result === "address") {
+        if (primitive?.result === PrimitiveResultChannel.ADDRESS) {
             for (const capability of primitive.capabilities ?? [])
                 context.programAnalysis.capabilities.add(capability);
             if (expression.callArguments.length !== primitive.operands.length) {
                 throw new Error(`${primitive.name} expects ${primitive.operands.length} argument(s), got ${expression.callArguments.length}`);
             }
             const destination = context.lowering.allocateScratchSlotNode(context, 32);
-            if (primitive.kind === "zero") {
+            if (primitive.kind === PlatformPrimitiveKind.ZERO) {
                 context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$setMem", destination, watIr.i32Constant(32), watIr.i32Constant(0)))}`);
             }
-            else if (primitive.kind === "lane-pack-64") {
+            else if (primitive.kind === PlatformPrimitiveKind.LANE_PACK_64) {
                 for (let lane = 0; lane < 4; lane++) {
                     context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i64.store", lane * 8, destination, context.lowering.lowerValueExpression(context, expression.callArguments[3 - lane])))}`);
                 }
             }
-            else if (primitive.kind === "lane-pack-8") {
+            else if (primitive.kind === PlatformPrimitiveKind.LANE_PACK_8) {
                 for (let lane = 0; lane < 32; lane++) {
                     const byte = watIr.operation("i32.wrap_i64", context.lowering.lowerValueExpression(context, expression.callArguments[31 - lane]));
                     context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store8", lane, destination, byte))}`);
                 }
             }
-            else if (primitive.kind === "memory-load") {
+            else if (primitive.kind === PlatformPrimitiveKind.MEMORY_LOAD) {
                 const source = emitAddress(context, expression.callArguments[0]);
                 if (!source)
                     throw new Error(`${primitive.name} source is not addressable`);
                 context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", destination, addrIr(source), watIr.i32Constant(32)))}`);
             }
-            else if (primitive.kind === "lane-compare-64") {
+            else if (primitive.kind === PlatformPrimitiveKind.LANE_COMPARE_64) {
                 const left = emitAddress(context, expression.callArguments[0]);
                 const right = emitAddress(context, expression.callArguments[1]);
                 if (!left || !right)
@@ -134,13 +140,13 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         }
     }
     if (context.programAnalysis.gtestMode &&
-        expression.kind === "call" &&
-        (expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name")) {
+        expression.kind === AstKind.CALL &&
+        (expression.callee.kind === AstKind.IDENTIFIER || expression.callee.kind === AstKind.QUALIFIED_NAME)) {
         const calleeName = expression.callee.name;
         if (calleeName === "__qtest_state") {
             const sizeExpr = expression.callArguments[1];
-            const size = sizeExpr?.kind === "sizeof_expr" && sizeExpr.expression.kind === "identifier"
-                ? context.programAnalysis.sizeOfType({ kind: "name", name: sizeExpr.expression.name }, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)
+            const size = sizeExpr?.kind === AstKind.SIZEOF_EXPR && sizeExpr.expression.kind === AstKind.IDENTIFIER
+                ? context.programAnalysis.sizeOfType({ kind: AstKind.NAME, name: sizeExpr.expression.name }, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS)
                 : sizeExpr
                     ? Number(context.programAnalysis.evalConstBig(sizeExpr, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS))
                     : 0;
@@ -155,7 +161,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         }
         // Materialize empty call inputs as zero-initialized temporary objects.
         if (expression.callArguments.length === 0) {
-            const type: TypeSpec = { kind: "name", name: calleeName };
+            const type: TypeSpec = { kind: AstKind.NAME, name: calleeName };
             const size = context.programAnalysis.sizeOfType(type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
             if (size > 0 || /_(?:input|output)$/.test(calleeName)) {
                 const destination = size > 0 ? context.lowering.allocateScratchSlotNode(context, size) : watIr.i32Constant(0);
@@ -172,7 +178,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
             }
         }
     }
-    if (context.programAnalysis.gtestMode && expression.kind === "call" && expression.callee.kind === "member_access") {
+    if (context.programAnalysis.gtestMode && expression.kind === AstKind.CALL && expression.callee.kind === AstKind.MEMBER_ACCESS) {
         const resolved = context.lowering.inlineMethodInfo(context, expression);
         if (resolved && context.programAnalysis.isAggregateType(context.programAnalysis.derefType(resolved.fn.returnType))) {
             const type = context.programAnalysis.derefType(resolved.fn.returnType);
@@ -193,20 +199,20 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         }
     }
     // Materialize computed uint128 values before stripping casts or taking references.
-    if ((expression.kind === "call" ||
-        expression.kind === "template_call" ||
-        expression.kind === "construct" ||
-        expression.kind === "binary_op" ||
-        expression.kind === "c_cast" ||
-        expression.kind === "static_cast" ||
-        expression.kind === "ternary") &&
+    if ((expression.kind === AstKind.CALL ||
+        expression.kind === AstKind.TEMPLATE_CALL ||
+        expression.kind === AstKind.CONSTRUCT ||
+        expression.kind === AstKind.BINARY_OP ||
+        expression.kind === AstKind.C_CAST ||
+        expression.kind === AstKind.STATIC_CAST ||
+        expression.kind === AstKind.TERNARY) &&
         context.lowering.isU128Expr(context, expression)) {
         return context.lowering.emitU128(context, expression);
     }
-    if (expression.kind === "c_cast" || expression.kind === "static_cast")
+    if (expression.kind === AstKind.C_CAST || expression.kind === AstKind.STATIC_CAST)
         return emitAddress(context, expression.expression);
     // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot
-    if (expression.kind === "ternary") {
+    if (expression.kind === AstKind.TERNARY) {
         const ta = context.lowering.resolveExpressionAddress(context, expression.then)?.addr ?? emitAddress(context, expression.then);
         const ea = ta ? (context.lowering.resolveExpressionAddress(context, expression.else_)?.addr ?? emitAddress(context, expression.else_)) : null;
         if (ta && ea) {
@@ -216,10 +222,10 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         }
     }
     // Select id and m256i min/max addresses with a 256-bit comparison.
-    if (expression.kind === "call" &&
+    if (expression.kind === AstKind.CALL &&
         expression.callArguments.length === 2 &&
-        (expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name")) {
-        const cname = expression.callee.kind === "identifier" ? expression.callee.name : expression.callee.name;
+        (expression.callee.kind === AstKind.IDENTIFIER || expression.callee.kind === AstKind.QUALIFIED_NAME)) {
+        const cname = expression.callee.kind === AstKind.IDENTIFIER ? expression.callee.name : expression.callee.name;
         const base = cname.includes("::") ? cname.slice(cname.lastIndexOf("::") + 2) : cname;
         if (base === "min" || base === "max") {
             const la = context.lowering.aggOperand(context, expression.callArguments[0]);
@@ -236,7 +242,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         }
     }
     // aggregate construction Type{...} as an rvalue/argument — materialize into a scratch slot.
-    if (expression.kind === "construct") {
+    if (expression.kind === AstKind.CONSTRUCT) {
         const byteSize = context.programAnalysis.sizeOfType(expression.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
         if (byteSize > 0) {
             const scratchAddress = context.lowering.allocateScratchSlot(context, byteSize);
@@ -245,10 +251,10 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         }
     }
     // Plain aggregate constructor syntax is normalized through the authoritative class constructor.
-    if (expression.kind === "call" &&
-        expression.callee.kind === "identifier" &&
+    if (expression.kind === AstKind.CALL &&
+        expression.callee.kind === AstKind.IDENTIFIER &&
         (expression.callee.name === "id" || expression.callee.name === "m256i")) {
-        const type: TypeSpec = { kind: "name", name: expression.callee.name };
+        const type: TypeSpec = { kind: AstKind.NAME, name: expression.callee.name };
         const destination = context.lowering.allocateScratchSlot(context, 32);
         if (!context.lowering.emitConstruct(context, destination, type, expression.callArguments)) {
             throw new Error(`authoritative ${expression.callee.name} constructor could not be lowered`);
@@ -256,8 +262,8 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         return destination;
     }
     // Compile qualified aggregate-returning methods from their owning struct bodies.
-    if (expression.kind === "call" &&
-        (expression.callee.kind === "identifier" || expression.callee.kind === "qualified_name")) {
+    if (expression.kind === AstKind.CALL &&
+        (expression.callee.kind === AstKind.IDENTIFIER || expression.callee.kind === AstKind.QUALIFIED_NAME)) {
         const qualified = expression.callee.name;
         const separator = qualified.lastIndexOf("::");
         if (separator > 0) {
@@ -269,7 +275,7 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
                 type: TypeSpec;
                 struct: StructDecl;
             } | null => {
-                const type = context.programAnalysis.resolveType({ kind: "name", name: spelling }, bind);
+                const type = context.programAnalysis.resolveType({ kind: AstKind.NAME, name: spelling }, bind);
                 const struct = context.programAnalysis.structOf(type, bind);
                 return struct ? { type, struct } : null;
             };
@@ -279,16 +285,16 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
                 owner = resolveOwner(tail);
             }
             if (owner) {
-                const declaration = owner.struct.members.find((member): member is FunctionDecl => member.kind === "function" &&
+                const declaration = owner.struct.members.find((member): member is FunctionDecl => member.kind === AstKind.FUNCTION &&
                     member.name === method &&
                     member.isStatic &&
                     !!member.body);
                 if (declaration && context.programAnalysis.isAggregateType(context.programAnalysis.derefType(declaration.returnType))) {
-                    const concreteOwner = owner.type.kind === "name" ? owner.type.name : owner.struct.name;
+                    const concreteOwner = owner.type.kind === AstKind.NAME ? owner.type.name : owner.struct.name;
                     const target: TypeSpec & {
-                        kind: "template_instance";
+                        kind: AstKind.TEMPLATE_INSTANCE;
                     } = {
-                        kind: "template_instance",
+                        kind: AstKind.TEMPLATE_INSTANCE,
                         name: concreteOwner,
                         callArguments: [],
                     };
@@ -311,19 +317,19 @@ export function emitAddress(context: FunctionEmissionContext, expression: Expres
         }
     }
     // a call to a helper that returns an aggregate by value (id liquidityPov(...)) → materialize into a slot.
-    if (expression.kind === "call" && expression.callee.kind === "identifier") {
+    if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.IDENTIFIER) {
         const hinfo = context.lowering.lookupHelper(context, expression);
         if (hinfo?.retAgg)
             return context.lowering.emitAggHelperCall(context, expression, hinfo);
     }
     // AssetOwnership/PossessionIterator.possessor()/owner() → address of the id in the current buffer record.
-    if (expression.kind === "call" && expression.callee.kind === "member_access") {
-        const ai = context.lowering.emitAssetIter(context, expression, "addr");
+    if (expression.kind === AstKind.CALL && expression.callee.kind === AstKind.MEMBER_ACCESS) {
+        const ai = context.lowering.emitAssetIter(context, expression, ContainerEmissionMode.ADDRESS);
         if (ai !== null)
             return ai;
     }
     // qpi(X).method(...) returning an id/struct (proposerId): compile the real proxy method and materialize the result into its $ret slot
-    if (expression.kind === "call" && qpiWrapperMethod(expression)) {
+    if (expression.kind === AstKind.CALL && qpiWrapperMethod(expression)) {
         const pa = context.lowering.emitProposalProxyAddr(context, expression);
         if (pa !== null)
             return pa;

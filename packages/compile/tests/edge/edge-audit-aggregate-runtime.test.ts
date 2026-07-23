@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Positive runtime coverage for legal aggregate copies, returns, and reference binding.
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -26,7 +27,7 @@ async function run(members: string, body: string): Promise<bigint> {
     qpiHeader: HEADERS,
     arenaSz: 1 << 20,
   });
-  expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   expect(WebAssembly.validate(result.wasm)).toBe(true);
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);

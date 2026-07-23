@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential gtest validation: drive MY TS-compiled contract wasm with the SAME gtest cases that pin the native-clang build.
 import { coreGtest } from "../support/core-gtest";
@@ -101,7 +102,7 @@ describe("differential gtest — my contract vs native test logic", () => {
       qpiHeader: HEADERS,
       arenaSz: 64 * 1024,
     });
-    expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     // 3. Drive MY contract with the NATIVE test logic.
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });

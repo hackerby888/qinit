@@ -1,3 +1,4 @@
+import { DiagnosticCategory, DiagnosticSeverity } from "../enums";
 import { Sema } from "../sema";
 import {
     generateWasmModule,
@@ -177,14 +178,14 @@ function promoteFidelityDiagnostics(
     }
 
     for (const diagnostic of diagnostics) {
-        if (diagnostic.category === "fidelity") {
-            diagnostic.severity = "error";
+        if (diagnostic.category === DiagnosticCategory.FIDELITY) {
+            diagnostic.severity = DiagnosticSeverity.ERROR;
         }
     }
 }
 
 function hasErrors(diagnostics: ParserDiagnostic[]): boolean {
-    return diagnostics.some((diagnostic) => diagnostic.severity === "error");
+    return diagnostics.some((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 }
 
 function appendCompilerError(
@@ -193,7 +194,7 @@ function appendCompilerError(
     error: any,
 ): void {
     diagnostics.push({
-        severity: "error",
+        severity: DiagnosticSeverity.ERROR,
         message: `${stage}: ${error.message}`,
         span: {
             start: 0,

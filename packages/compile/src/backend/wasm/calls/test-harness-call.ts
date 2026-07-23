@@ -1,3 +1,4 @@
+import { AstKind, BinaryOp } from "../../../enums";
 import type { Expression, TypeSpec } from "../../../ast";
 import * as watIr from "../../../wat-ir";
 import { addrIr } from "../memory/memory-operations";
@@ -11,7 +12,7 @@ export function tryEmitTestHarnessCall(
     context: FunctionEmissionContext,
     expression: CallExpression,
 ): boolean {
-    if (!context.programAnalysis.gtestMode || expression.callee.kind !== "identifier") {
+    if (!context.programAnalysis.gtestMode || expression.callee.kind !== AstKind.IDENTIFIER) {
         return false;
     }
 
@@ -108,13 +109,13 @@ function emitTestFunctionQuery(
         const inputExpression = expression.callArguments[2];
         const inputAddress = context.lowering.emitAddress(context, inputExpression);
         const constructorName =
-            inputExpression.kind === "call" &&
-            (inputExpression.callee.kind === "identifier" ||
-                inputExpression.callee.kind === "qualified_name")
+            inputExpression.kind === AstKind.CALL &&
+            (inputExpression.callee.kind === AstKind.IDENTIFIER ||
+                inputExpression.callee.kind === AstKind.QUALIFIED_NAME)
                 ? inputExpression.callee.name
                 : null;
         const inputType: TypeSpec | null = constructorName
-            ? { kind: "name", name: constructorName }
+            ? { kind: AstKind.NAME, name: constructorName }
             : null;
         const templateBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
         const inputSize = inputType
@@ -217,7 +218,7 @@ function tryEmitTestAssertion(
     const fatal = assertion[1] === "assert";
     const operation = assertion[2];
     const zero = (): Expression => ({
-        kind: "int_literal",
+        kind: AstKind.INT_LITERAL,
         value: "0",
         span: expression.span,
     });
@@ -227,21 +228,21 @@ function tryEmitTestAssertion(
             ? zero()
             : (expression.callArguments[1] ?? zero());
     const comparisonOperators = {
-        eq: "==",
-        ne: "!=",
-        lt: "<",
-        le: "<=",
-        gt: ">",
-        ge: ">=",
+        eq: BinaryOp.EQUAL,
+        ne: BinaryOp.NOT_EQUAL,
+        lt: BinaryOp.LESS_THAN,
+        le: BinaryOp.LESS_THAN_OR_EQUAL,
+        gt: BinaryOp.GREATER_THAN,
+        ge: BinaryOp.GREATER_THAN_OR_EQUAL,
     } as const;
     const operator =
         operation === "true"
-            ? "!="
+            ? BinaryOp.NOT_EQUAL
             : operation === "false"
-              ? "=="
+              ? BinaryOp.EQUAL
               : comparisonOperators[operation as keyof typeof comparisonOperators];
     const comparison = context.lowering.lowerValueExpression(context, {
-        kind: "binary_op",
+        kind: AstKind.BINARY_OP,
         operator,
         left,
         right,

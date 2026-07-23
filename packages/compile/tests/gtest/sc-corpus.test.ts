@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 // Dual-backend corpus verification: native clang + TS compiler.
 import { describe, test, expect, beforeAll } from "bun:test";
 import {
@@ -232,7 +233,7 @@ async function buildOurs(spec: Spec): Promise<Record<number, Uint8Array>> {
       callees: priorIdl.length ? priorIdl : undefined,
       calleeSources: priorSources.length ? priorSources : undefined,
     });
-    const errs = r.diagnostics.filter((d) => d.severity === "error");
+    const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     if (errs.length) {
       throw new Error(
         `ours ${callee.name}: ${errs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,
@@ -258,7 +259,7 @@ async function buildOurs(spec: Spec): Promise<Record<number, Uint8Array>> {
     callees,
     calleeSources,
   });
-  const mainErrs = mainR.diagnostics.filter((d) => d.severity === "error");
+  const mainErrs = mainR.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
   if (mainErrs.length) {
     throw new Error(
       `ours ${spec.name}: ${mainErrs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,

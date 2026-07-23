@@ -1,3 +1,4 @@
+import { AstKind } from "../../enums";
 // Validation runs after parse and before codegen.
 import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Expression, TypeSpec, Span } from "../../ast";
 import { unwrapType, isConstType, evalIntegralConst, typeKey, paramSignature } from "./validation-helpers";
@@ -6,9 +7,9 @@ import type { FnSig, ValidatorInternals } from "./validator-context";
 export function canonTypeKey(context: ValidatorInternals, type: TypeSpec): string {
     const unwrappedType = unwrapType(type);
     // Canonicalize constant template arguments so equal values compare equal.
-    if (unwrappedType.kind === "template_instance") {
+    if (unwrappedType.kind === AstKind.TEMPLATE_INSTANCE) {
         const callArguments = unwrappedType.callArguments.map((argument) => {
-            if (argument.kind === "name") {
+            if (argument.kind === AstKind.NAME) {
                 const numericValue = context.constants.get(argument.name);
                 if (numericValue !== undefined) {
                     return numericValue.toString();
@@ -33,44 +34,44 @@ export function runTopLevel(context: ValidatorInternals, declarations: Declarati
     const typeNames = new Set<string>();
     for (const declaration of declarations) {
         // A memberless struct is a forward declaration (`struct StateData;`), not a definition.
-        const isForwardDecl = declaration.kind === "struct" && declaration.members.length === 0;
-        if ((declaration.kind === "struct" ||
-            declaration.kind === "class_template" ||
-            declaration.kind === "enum" ||
-            declaration.kind === "typedef_decl") &&
+        const isForwardDecl = declaration.kind === AstKind.STRUCT && declaration.members.length === 0;
+        if ((declaration.kind === AstKind.STRUCT ||
+            declaration.kind === AstKind.CLASS_TEMPLATE ||
+            declaration.kind === AstKind.ENUM ||
+            declaration.kind === AstKind.TYPEDEF_DECL) &&
             declaration.name &&
             !isForwardDecl) {
             if (typeNames.has(declaration.name))
                 context.error(`duplicate type definition '${declaration.name}'`, declaration.span);
             typeNames.add(declaration.name);
         }
-        if (declaration.kind === "typedef_decl" && declaration.name) {
+        if (declaration.kind === AstKind.TYPEDEF_DECL && declaration.name) {
             context.typeAliases.set(declaration.name, typeKey(unwrapType((declaration as {
                 type: TypeSpec;
             }).type)));
         }
         switch (declaration.kind) {
-            case "variable":
+            case AstKind.VARIABLE:
                 context.checkGlobalVariable(declaration);
                 break;
-            case "struct":
+            case AstKind.STRUCT:
                 context.checkStruct(declaration);
                 break;
-            case "namespace":
+            case AstKind.NAMESPACE:
                 context.runTopLevel(declaration.body);
                 break;
-            case "function":
+            case AstKind.FUNCTION:
                 if (declaration.body) {
                     context.checkFunctionBody(declaration, new Map());
                 }
                 break;
-            case "enum":
+            case AstKind.ENUM:
                 context.collectEnumConstants(declaration);
                 break;
-            case "static_assert_decl":
+            case AstKind.STATIC_ASSERT_DECL:
                 context.checkStaticAssert(declaration.condition, declaration.message, declaration.span);
                 break;
-            case "class_template":
+            case AstKind.CLASS_TEMPLATE:
                 context.checkStruct(declaration as unknown as StructDecl);
                 break;
         }
@@ -95,10 +96,10 @@ export function checkStruct(context: ValidatorInternals, structDeclaration: Stru
     if (structDeclaration.name)
         context.aggregateNames.add(structDeclaration.name);
     if (structDeclaration.name)
-        context.aggregateFieldCount.set(structDeclaration.name, structDeclaration.members.filter((member) => member.kind === "variable" && !member.isStatic && !member.isConstexpr).length);
+        context.aggregateFieldCount.set(structDeclaration.name, structDeclaration.members.filter((member) => member.kind === AstKind.VARIABLE && !member.isStatic && !member.isConstexpr).length);
     if (structDeclaration.name)
         context.structFields.set(structDeclaration.name, new Map(structDeclaration.members
-            .filter((member): member is VariableDecl => member.kind === "variable")
+            .filter((member): member is VariableDecl => member.kind === AstKind.VARIABLE)
             .map((variableDeclaration) => [variableDeclaration.name, variableDeclaration.type])));
     const fieldNames = new Set<string>();
     const typeNames = new Set<string>();
@@ -106,23 +107,23 @@ export function checkStruct(context: ValidatorInternals, structDeclaration: Stru
     const fnSigs = new Map<string, FnSig>();
     for (const member of structDeclaration.members) {
         // A memberless struct is a forward declaration (`struct StateData;`), not a definition.
-        const isForwardDecl = member.kind === "struct" && member.members.length === 0;
-        if ((member.kind === "struct" ||
-            member.kind === "class_template" ||
-            member.kind === "enum" ||
-            member.kind === "typedef_decl") &&
+        const isForwardDecl = member.kind === AstKind.STRUCT && member.members.length === 0;
+        if ((member.kind === AstKind.STRUCT ||
+            member.kind === AstKind.CLASS_TEMPLATE ||
+            member.kind === AstKind.ENUM ||
+            member.kind === AstKind.TYPEDEF_DECL) &&
             member.name &&
             !isForwardDecl) {
             if (typeNames.has(member.name))
                 context.error(`duplicate type definition '${member.name}' in struct '${structDeclaration.name}'`, member.span);
             typeNames.add(member.name);
         }
-        if (member.kind === "typedef_decl" && member.name) {
+        if (member.kind === AstKind.TYPEDEF_DECL && member.name) {
             context.typeAliases.set(member.name, typeKey(unwrapType((member as {
                 type: TypeSpec;
             }).type)));
         }
-        if (member.kind === "variable") {
+        if (member.kind === AstKind.VARIABLE) {
             // Anonymous-union alternatives intentionally alias storage; only named duplicates in the same struct are redefinitions.
             if (fieldNames.has(member.name)) {
                 context.error(`duplicate member '${member.name}' in struct '${structDeclaration.name}'`, member.span);
@@ -134,18 +135,18 @@ export function checkStruct(context: ValidatorInternals, structDeclaration: Stru
                     context.constants.set(member.name, value);
             }
         }
-        if (member.kind === "struct") {
+        if (member.kind === AstKind.STRUCT) {
             if (member.name)
                 context.aggregateNames.add(member.name);
             context.checkStruct(member);
         }
-        if (member.kind === "enum") {
+        if (member.kind === AstKind.ENUM) {
             context.collectEnumConstants(member);
         }
-        if (member.kind === "static_assert_decl") {
+        if (member.kind === AstKind.STATIC_ASSERT_DECL) {
             context.checkStaticAssert(member.condition, member.message, member.span);
         }
-        if (member.kind === "function") {
+        if (member.kind === AstKind.FUNCTION) {
             const sig: FnSig = {
                 declaration: member,
                 minArgs: member.params.filter((parameter) => !parameter.defaultValue).length,
@@ -172,7 +173,7 @@ export function checkStruct(context: ValidatorInternals, structDeclaration: Stru
     // Overloaded names can't be arity-checked or default-desugared without type-based resolution — exclude them from call checks entirely.
     const bodyCount = new Map<string, number>();
     for (const memberCandidate of structDeclaration.members) {
-        if (memberCandidate.kind === "function" && memberCandidate.body) {
+        if (memberCandidate.kind === AstKind.FUNCTION && memberCandidate.body) {
             bodyCount.set(memberCandidate.name, (bodyCount.get(memberCandidate.name) ?? 0) + 1);
         }
     }
@@ -188,7 +189,7 @@ export function checkStruct(context: ValidatorInternals, structDeclaration: Stru
 }
 
 export function collectEnumConstants(context: ValidatorInternals, entry: Declaration & {
-    kind: "enum";
+    kind: AstKind.ENUM;
 }): void {
     const names = new Set<string>();
     let next = 0n;
@@ -211,7 +212,7 @@ export function collectEnumConstants(context: ValidatorInternals, entry: Declara
 export function checkStaticAssert(context: ValidatorInternals, condition: Expression, message: Expression | undefined, span: Span): void {
     const value = evalIntegralConst(condition, (name) => context.constants.get(name) ?? null);
     if (value === 0n) {
-        const detail = message?.kind === "string_literal" ? `: ${message.value}` : "";
+        const detail = message?.kind === AstKind.STRING_LITERAL ? `: ${message.value}` : "";
         context.error(`static assertion failed${detail}`, span);
     }
 }

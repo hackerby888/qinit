@@ -1,9 +1,10 @@
+import { DiagnosticCategory, DiagnosticSeverity } from "../../src/enums";
 import { describe, expect, test } from "bun:test";
 import { compileContract, parseToAst } from "../../src/index";
 
 function errorsFor(source: string, qpiHeader?: string) {
   return parseToAst({ source, qpiHeader, name: "DiagProbe", slot: 27 }).diagnostics.filter(
-    (diagnostic) => diagnostic.severity === "error",
+    (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
   );
 }
 
@@ -116,14 +117,16 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
     const lax = await compileContract({ source, name: "DiagSize", slot: 27, strict: false });
     const strict = await compileContract({ source, name: "DiagSize", slot: 27, strict: true });
-    const laxFidelity = lax.diagnostics.find((diagnostic) => diagnostic.category === "fidelity");
+    const laxFidelity = lax.diagnostics.find(
+      (diagnostic) => diagnostic.category === DiagnosticCategory.FIDELITY,
+    );
     const strictFidelity = strict.diagnostics.find(
-      (diagnostic) => diagnostic.category === "fidelity",
+      (diagnostic) => diagnostic.category === DiagnosticCategory.FIDELITY,
     );
 
-    expect(laxFidelity?.severity).toBe("warning");
+    expect(laxFidelity?.severity).toBe(DiagnosticSeverity.WARNING);
     expect(lax.wasm.byteLength).toBeGreaterThan(0);
-    expect(strictFidelity?.severity).toBe("error");
+    expect(strictFidelity?.severity).toBe(DiagnosticSeverity.ERROR);
     expect(strictFidelity?.span.line).toBe(9);
     expect(strict.wasm.byteLength).toBe(0);
   });

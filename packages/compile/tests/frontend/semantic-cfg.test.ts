@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { describe, expect, test } from "bun:test";
 import { Lexer } from "../../src/lexer";
 import { Parser } from "../../src/parser";
@@ -8,10 +9,10 @@ function validateSource(source: string) {
   const unit = parser.parseTranslationUnit();
   const parseErrors = parser
     .getDiagnostics()
-    .filter((diagnostic) => diagnostic.severity === "error");
+    .filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 
   expect(parseErrors, `test source did not parse: ${source}`).toEqual([]);
-  return validateAndDesugar(unit).filter((diagnostic) => diagnostic.severity === "error");
+  return validateAndDesugar(unit).filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
 }
 
 describe("semantic validation - control-flow graph", () => {

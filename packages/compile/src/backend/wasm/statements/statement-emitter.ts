@@ -1,3 +1,4 @@
+import { AstKind, ContainerEmissionMode, WatNodeType } from "../../../enums";
 import { addrIr, narrowCast } from "../memory/memory-operations";
 import { isUint128 } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
@@ -5,24 +6,24 @@ import type { Expression, Statement, FunctionDecl, VariableDecl } from "../../..
 import * as watIr from "../../../wat-ir";
 export function emitStatement(context: FunctionEmissionContext, statement: Statement): void {
     switch (statement.kind) {
-        case "compound":
+        case AstKind.COMPOUND:
             context.lowering.emitCompound(context, statement.body);
             break;
-        case "expression": {
+        case AstKind.EXPRESSION: {
             // “Discarded” means the expression's result is not used - e.g., transfer(...); // return value discarded
             const discardedText = context.lowering.emitDiscardedExpression(context, statement.expression);
             if (discardedText)
                 context.lines.push(`    ${discardedText}`);
             break;
         }
-        case "declaration": {
-            if (statement.declaration.kind === "variable") {
+        case AstKind.DECLARATION: {
+            if (statement.declaration.kind === AstKind.VARIABLE) {
                 const variableDeclaration = statement.declaration as VariableDecl;
                 // Keep initializer classification consistent with the pre-scanned local type.
                 const declared = context.localVars.get(variableDeclaration.name)?.type ?? variableDeclaration.type;
                 // Allocate scratchpad storage from the arena and retain its base address.
-                if (variableDeclaration.type.kind === "name" && /ScopedScratchpad$/.test(variableDeclaration.type.name)) {
-                    const callArguments = variableDeclaration.initializer && (variableDeclaration.initializer.kind === "construct" || variableDeclaration.initializer.kind === "call") ? variableDeclaration.initializer.callArguments : [];
+                if (variableDeclaration.type.kind === AstKind.NAME && /ScopedScratchpad$/.test(variableDeclaration.type.name)) {
+                    const callArguments = variableDeclaration.initializer && (variableDeclaration.initializer.kind === AstKind.CONSTRUCT || variableDeclaration.initializer.kind === AstKind.CALL) ? variableDeclaration.initializer.callArguments : [];
                     const size = callArguments[0] ? context.lowering.lowerValueExpression(context, callArguments[0]) : watIr.i64Constant(0);
                     const initZero = callArguments[1]
                         ? watIr.operation("i64.ne", watIr.i64Constant(0), context.lowering.lowerValueExpression(context, callArguments[1]))
@@ -33,31 +34,31 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                     break;
                 }
                 // Track asset iterators so their methods use the iterator buffer.
-                if (variableDeclaration.type.kind === "name" && /Asset(Ownership|Possession)Iterator$/.test(variableDeclaration.type.name)) {
+                if (variableDeclaration.type.kind === AstKind.NAME && /Asset(Ownership|Possession)Iterator$/.test(variableDeclaration.type.name)) {
                     context.lines.push(`    ${context.lowering.setLocal(context, variableDeclaration.name, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(8)))}`);
                     (context.refLocals ??= new Map()).set(variableDeclaration.name, variableDeclaration.type);
-                    const argument = variableDeclaration.initializer && (variableDeclaration.initializer.kind === "construct" || variableDeclaration.initializer.kind === "call")
+                    const argument = variableDeclaration.initializer && (variableDeclaration.initializer.kind === AstKind.CONSTRUCT || variableDeclaration.initializer.kind === AstKind.CALL)
                         ? variableDeclaration.initializer.callArguments[0]
                         : undefined;
                     if (argument) {
                         context.lowering.emitAssetIter(context, {
-                            kind: "call",
+                            kind: AstKind.CALL,
                             span: statement.span,
                             callArguments: [argument],
                             callee: {
-                                kind: "member_access",
+                                kind: AstKind.MEMBER_ACCESS,
                                 span: statement.span,
-                                object: { kind: "identifier", name: variableDeclaration.name, span: statement.span },
+                                object: { kind: AstKind.IDENTIFIER, name: variableDeclaration.name, span: statement.span },
                                 member: "begin",
                             },
                         } as Expression & {
-                            kind: "call";
-                        }, "stmt");
+                            kind: AstKind.CALL;
+                        }, ContainerEmissionMode.STATEMENT);
                     }
                     break;
                 }
                 // reference/pointer local: bind to the ADDRESS of its lvalue initializer; member access on it resolves through that address.
-                if (declared.kind === "reference" || declared.kind === "pointer") {
+                if (declared.kind === AstKind.REFERENCE || declared.kind === AstKind.POINTER) {
                     // proxy `pv`/`qpi` aliases are already bound as parameters — drop the alias declaration.
                     if (context.proxyClass && (variableDeclaration.name === "pv" || variableDeclaration.name === "qpi"))
                         break;
@@ -69,7 +70,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                             if (!context.refLocals)
                                 context.refLocals = new Map();
                             // Preserve pointer types for indexing; references bind to their referent type.
-                            const refType = declared.kind === "pointer" ? declared : (node?.type ?? declared.referentType);
+                            const refType = declared.kind === AstKind.POINTER ? declared : (node?.type ?? declared.referentType);
                             context.refLocals.set(variableDeclaration.name, refType);
                             context.lines.push(`    ${context.lowering.setLocal(context, variableDeclaration.name, addrIr(addr))}`);
                         }
@@ -82,13 +83,13 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 // Store aggregate locals in slots so member access uses their address.
                 {
                     const db = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
-                    const concrete = declared.kind === "name" && db.types.has(declared.name)
+                    const concrete = declared.kind === AstKind.NAME && db.types.has(declared.name)
                         ? db.types.get(declared.name)!
                         : declared;
                     if (context.programAnalysis.isAggregateType(concrete)) {
                         // matches collectLocals' aggregate predicate: the wasm local is i32 (slot address), so this branch must consume the declaration
                         let aggSz = context.programAnalysis.sizeOfType(concrete, db);
-                        if (concrete.kind === "array" && aggSz <= 0 && variableDeclaration.initializer?.kind === "initializer_list") {
+                        if (concrete.kind === AstKind.ARRAY && aggSz <= 0 && variableDeclaration.initializer?.kind === AstKind.INITIALIZER_LIST) {
                             aggSz = context.programAnalysis.sizeOfType(concrete.element, db) * ((variableDeclaration.initializer as any).expressions ?? []).length;
                         }
                         const byteSize = Math.max(aggSz, 8);
@@ -96,24 +97,24 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                         (context.refLocals ??= new Map()).set(variableDeclaration.name, concrete);
                         // Route uint128 construction through its high/low-aware constructor.
                         if (variableDeclaration.initializer && isUint128(context.programAnalysis, concrete)) {
-                            context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(variableDeclaration.name, "i32"), context.lowering.lowerUint128Expression(context, variableDeclaration.initializer), watIr.i32Constant(16)))}`);
+                            context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(variableDeclaration.name, WatNodeType.I32), context.lowering.lowerUint128Expression(context, variableDeclaration.initializer), watIr.i32Constant(16)))}`);
                             break;
                         }
                         const ctorArgs = variableDeclaration.initializer &&
-                            (variableDeclaration.initializer.kind === "construct" ||
-                                (variableDeclaration.initializer.kind === "call" &&
-                                    variableDeclaration.initializer.callee.kind === "identifier" &&
-                                    (variableDeclaration.initializer.callee as any).name === (variableDeclaration.type.kind === "name" ? variableDeclaration.type.name : "")))
+                            (variableDeclaration.initializer.kind === AstKind.CONSTRUCT ||
+                                (variableDeclaration.initializer.kind === AstKind.CALL &&
+                                    variableDeclaration.initializer.callee.kind === AstKind.IDENTIFIER &&
+                                    (variableDeclaration.initializer.callee as any).name === (variableDeclaration.type.kind === AstKind.NAME ? variableDeclaration.type.name : "")))
                             ? (variableDeclaration.initializer as any).callArguments
                             : null;
                         if (ctorArgs && context.lowering.emitConstruct(context, `(local.get $${variableDeclaration.name})`, concrete, ctorArgs)) {
                             break;
                         }
                         // brace-init: array locals (const int daysInMonth[] = {0, 31, ...}) store element-wise; struct locals go field-wise through emitConstruct.
-                        if (variableDeclaration.initializer?.kind === "initializer_list") {
-                            if (concrete.kind === "array") {
-                                context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(variableDeclaration.name, "i32"), watIr.i32Constant(byteSize), watIr.i32Constant(0)))}`);
-                                context.lowering.emitArrayInitializer(context, watIr.localGet(variableDeclaration.name, "i32"), concrete, variableDeclaration.initializer);
+                        if (variableDeclaration.initializer?.kind === AstKind.INITIALIZER_LIST) {
+                            if (concrete.kind === AstKind.ARRAY) {
+                                context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(variableDeclaration.name, WatNodeType.I32), watIr.i32Constant(byteSize), watIr.i32Constant(0)))}`);
+                                context.lowering.emitArrayInitializer(context, watIr.localGet(variableDeclaration.name, WatNodeType.I32), concrete, variableDeclaration.initializer);
                                 break;
                             }
                             if (context.lowering.emitConstruct(context, `(local.get $${variableDeclaration.name})`, concrete, (variableDeclaration.initializer as any).expressions ?? [])) {
@@ -123,15 +124,15 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                         if (variableDeclaration.initializer) {
                             const src = context.lowering.resolveExpressionAddress(context, variableDeclaration.initializer)?.addr ?? context.lowering.emitAddress(context, variableDeclaration.initializer);
                             if (src) {
-                                context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(variableDeclaration.name, "i32"), addrIr(src), watIr.i32Constant(byteSize)))}`);
+                                context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(variableDeclaration.name, WatNodeType.I32), addrIr(src), watIr.i32Constant(byteSize)))}`);
                                 break;
                             }
                             context.programAnalysis.warn(`unsupported struct-local initializer for '${variableDeclaration.name}'`, statement.span.line);
                         }
-                        context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(variableDeclaration.name, "i32"), watIr.i32Constant(byteSize), watIr.i32Constant(0)))}`);
-                        if (context.programAnalysis.gtestMode && !variableDeclaration.initializer && concrete.kind === "name") {
+                        context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$setMem", watIr.localGet(variableDeclaration.name, WatNodeType.I32), watIr.i32Constant(byteSize), watIr.i32Constant(0)))}`);
+                        if (context.programAnalysis.gtestMode && !variableDeclaration.initializer && concrete.kind === AstKind.NAME) {
                             const struct = context.programAnalysis.structOf(concrete, db);
-                            const constructor = struct?.members.find((member) => member.kind === "function" &&
+                            const constructor = struct?.members.find((member) => member.kind === AstKind.FUNCTION &&
                                 (member as FunctionDecl).name === concrete.name &&
                                 (member as FunctionDecl).body) as FunctionDecl | undefined;
                             const layout = context.programAnalysis.layoutOfType(concrete, db);
@@ -148,7 +149,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             }
             break;
         }
-        case "if": {
+        case AstKind.IF: {
             const condition = context.lowering.emitValue(context, statement.condition);
             context.lines.push(`    (if (i64.ne (i64.const 0) ${condition}) (then`);
             emitStatement(context, statement.then);
@@ -159,7 +160,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             context.lines.push(`    ))`);
             break;
         }
-        case "for": {
+        case AstKind.FOR: {
             if (statement.initializer)
                 emitStatement(context, statement.initializer);
             const count = context.loopCount++;
@@ -182,7 +183,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             context.lines.push(`      (br ${loop})))`);
             break;
         }
-        case "while": {
+        case AstKind.WHILE: {
             const count = context.loopCount++;
             const brk = `$brk${count}`, loop = `$loop${count}`, cont = `$cont${count}`;
             context.lines.push(`    (block ${brk} (loop ${loop}`);
@@ -195,7 +196,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             context.lines.push(`      (br ${loop})))`);
             break;
         }
-        case "do_while": {
+        case AstKind.DO_WHILE: {
             const count = context.loopCount++;
             const brk = `$brk${count}`, loop = `$loop${count}`, cont = `$cont${count}`;
             context.lines.push(`    (block ${brk} (loop ${loop}`);
@@ -207,19 +208,19 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             context.lines.push(`      (br_if ${loop} (i64.ne (i64.const 0) ${context.lowering.emitValue(context, statement.condition)}))))`);
             break;
         }
-        case "switch": {
+        case AstKind.SWITCH: {
             const count = context.loopCount++;
             const brk = `$swbrk${count}`;
             let sw = `__qinit_sw${count}`;
             while (context.localVars.has(sw) || context.params?.has(sw))
                 sw += "_";
-            context.localVars.set(sw, { wasmType: "i64" });
+            context.localVars.set(sw, { wasmType: WatNodeType.I64 });
             context.lines.push(`    ${context.lowering.setLocal(context, sw, context.lowering.lowerValueExpression(context, statement.condition))}`);
             context.lines.push(`    (block ${brk}`);
             // break targets the switch; continue still targets the enclosing loop (if any).
             const cont = context.loops.length ? context.loops[context.loops.length - 1].cont : brk;
             context.loops.push({ brk, cont, scratchDepth: context.scratchpadScope?.length ?? 0 });
-            const body = statement.body.kind === "compound" ? statement.body.body : [statement.body];
+            const body = statement.body.kind === AstKind.COMPOUND ? statement.body.body : [statement.body];
             // Give each switch group a block label for fallthrough dispatch.
             const groups: {
                 test: string | null;
@@ -228,14 +229,14 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             }[] = [];
             let caseIdx = 0;
             for (const bodyItem of body) {
-                if (bodyItem.kind === "case") {
+                if (bodyItem.kind === AstKind.CASE) {
                     groups.push({
                         test: `(i64.eq (local.get $${sw}) ${context.lowering.emitValue(context, bodyItem.value)})`,
                         statements: [],
                         label: `$swcase${count}_${caseIdx++}`,
                     });
                 }
-                else if (bodyItem.kind === "default") {
+                else if (bodyItem.kind === AstKind.DEFAULT) {
                     groups.push({ test: null, statements: [], label: `$swdef${count}` });
                 }
                 else if (groups.length) {
@@ -266,7 +267,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             context.lines.push(`    )`);
             break;
         }
-        case "break":
+        case AstKind.BREAK:
             if (context.loops.length) {
                 const loop = context.loops[context.loops.length - 1];
                 context.lowering.emitScratchpadReleases(context, loop.scratchDepth, false);
@@ -275,7 +276,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             else
                 context.programAnalysis.warn(`break outside loop`, statement.span.line);
             break;
-        case "continue":
+        case AstKind.CONTINUE:
             if (context.loops.length) {
                 const loop = context.loops[context.loops.length - 1];
                 context.lowering.emitScratchpadReleases(context, loop.scratchDepth, false);
@@ -284,7 +285,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             else
                 context.programAnalysis.warn(`continue outside loop`, statement.span.line);
             break;
-        case "return":
+        case AstKind.RETURN:
             if (context.inlineReturnLabel) {
                 if (statement.value && context.retAddr) {
                     const src = context.lowering.emitAddress(context, statement.value);
@@ -292,8 +293,8 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                         context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(context.retAddr), addrIr(src), watIr.i32Constant(context.retAggSize ?? 0)))}`);
                     }
                     else if (context.retType &&
-                        (statement.value.kind === "initializer_list" || statement.value.kind === "construct")) {
-                        const callArguments = statement.value.kind === "initializer_list" ? statement.value.expressions : statement.value.callArguments;
+                        (statement.value.kind === AstKind.INITIALIZER_LIST || statement.value.kind === AstKind.CONSTRUCT)) {
+                        const callArguments = statement.value.kind === AstKind.INITIALIZER_LIST ? statement.value.expressions : statement.value.callArguments;
                         if (!context.lowering.emitConstruct(context, context.retAddr, context.retType, callArguments)) {
                             throw new Error("aggregate return initializer could not be constructed");
                         }
@@ -318,8 +319,8 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                     context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", addrIr(context.retAddr!), addrIr(src), watIr.i32Constant(context.retAggSize!)))}`);
                 }
                 else if (context.retType &&
-                    (statement.value.kind === "initializer_list" || statement.value.kind === "construct")) {
-                    const callArguments = statement.value.kind === "initializer_list" ? statement.value.expressions : statement.value.callArguments;
+                    (statement.value.kind === AstKind.INITIALIZER_LIST || statement.value.kind === AstKind.CONSTRUCT)) {
+                    const callArguments = statement.value.kind === AstKind.INITIALIZER_LIST ? statement.value.expressions : statement.value.callArguments;
                     if (!context.lowering.emitConstruct(context, context.retAddr, context.retType, callArguments)) {
                         throw new Error("aggregate return initializer could not be constructed");
                     }
@@ -333,7 +334,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
             else if (statement.value && context.retIsAddr) {
                 // Apply reference-returning compound assignments before returning.
                 let addr: string | null;
-                if (statement.value.kind === "assign") {
+                if (statement.value.kind === AstKind.ASSIGN) {
                     context.lowering.emitAssignment(context, statement.value);
                     addr = context.lowering.emitAddress(context, statement.value.left);
                 }
@@ -355,7 +356,7 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 const value = narrowCast(context.lowering.emitValue(context, statement.value), context.retTypeName);
                 if (context.scratchpadScope?.length) {
                     const result = context.lowering.allocateTemporaryLocalName(context);
-                    context.localVars.set(result, { wasmType: "i64" });
+                    context.localVars.set(result, { wasmType: WatNodeType.I64 });
                     context.lines.push(`    (local.set $${result} ${value})`);
                     context.lowering.emitScratchpadReleases(context, 0, false);
                     context.lines.push(`    (return (local.get $${result}))`);
@@ -369,11 +370,11 @@ export function emitStatement(context: FunctionEmissionContext, statement: State
                 context.lines.push(`    (return)`);
             }
             break;
-        case "static_assert":
-        case "empty":
-        case "label":
+        case AstKind.STATIC_ASSERT:
+        case AstKind.EMPTY:
+        case AstKind.LABEL:
             break;
-        case "goto": {
+        case AstKind.GOTO: {
             const target = context.gotoLabels?.get(statement.label);
             if (target) {
                 context.lowering.emitScratchpadReleases(context, target.scratchDepth, false);

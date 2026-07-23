@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import {
   analyzeContract,
+  SourceAnalysisOrigin,
   type SourceAnalysisDiagnostic,
 } from "@qinit/compile/analyzer";
 
@@ -15,7 +16,9 @@ const idlCodes = new Set([
 
 function idlChecks(source: string): SourceAnalysisDiagnostic[] {
   return analyzeContract({ source }).diagnostics.filter(
-    (item) => item.origin === "qpi" && idlCodes.has(item.code),
+    (item) =>
+      item.origin === SourceAnalysisOrigin.QPI &&
+      idlCodes.has(item.code),
   );
 }
 

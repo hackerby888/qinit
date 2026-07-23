@@ -1,3 +1,4 @@
+import { AstKind, BinaryOp, QpiContextKind, UnaryOp } from "../../../enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type { Expression, StructDecl, FunctionDecl } from "../../../ast";
@@ -23,88 +24,88 @@ export function evalRegistrationConstant(expression: Expression | undefined, pro
     if (!expression)
         return null;
     switch (expression.kind) {
-        case "int_literal":
+        case AstKind.INT_LITERAL:
             try {
                 return lexRegistrationLiteral(expression.value);
             }
             catch {
                 return null;
             }
-        case "bool_literal":
+        case AstKind.BOOL_LITERAL:
             return expression.value ? 1n : 0n;
-        case "char_literal":
+        case AstKind.CHAR_LITERAL:
             return BigInt(expression.value);
-        case "identifier":
+        case AstKind.IDENTIFIER:
             return programAnalysis.resolveConst(expression.name);
-        case "qualified_name":
+        case AstKind.QUALIFIED_NAME:
             return programAnalysis.resolveConst(`${expression.namespace}::${expression.name}`);
-        case "paren":
+        case AstKind.PAREN:
             return evalRegistrationConstant(expression.expression, programAnalysis);
-        case "unary_op": {
+        case AstKind.UNARY_OP: {
             const numericValue = evalRegistrationConstant(expression.argument, programAnalysis);
             if (numericValue === null)
                 return null;
-            if (expression.operator === "-")
+            if (expression.operator === UnaryOp.MINUS)
                 return -numericValue;
-            if (expression.operator === "+")
+            if (expression.operator === UnaryOp.PLUS)
                 return numericValue;
-            if (expression.operator === "~")
+            if (expression.operator === UnaryOp.BITWISE_NOT)
                 return ~numericValue;
-            if (expression.operator === "!")
+            if (expression.operator === UnaryOp.LOGICAL_NOT)
                 return numericValue === 0n ? 1n : 0n;
             return null;
         }
-        case "binary_op": {
+        case AstKind.BINARY_OP: {
             const leftValue = evalRegistrationConstant(expression.left, programAnalysis);
             const rightValue = evalRegistrationConstant(expression.right, programAnalysis);
             if (leftValue === null || rightValue === null)
                 return null;
             switch (expression.operator) {
-                case "+":
+                case BinaryOp.ADD:
                     return leftValue + rightValue;
-                case "-":
+                case BinaryOp.SUBTRACT:
                     return leftValue - rightValue;
-                case "*":
+                case BinaryOp.MULTIPLY:
                     return leftValue * rightValue;
-                case "/":
+                case BinaryOp.DIVIDE:
                     return rightValue === 0n ? null : leftValue / rightValue;
-                case "%":
+                case BinaryOp.MODULO:
                     return rightValue === 0n ? null : leftValue % rightValue;
-                case "<<":
+                case BinaryOp.SHIFT_LEFT:
                     return leftValue << rightValue;
-                case ">>":
+                case BinaryOp.SHIFT_RIGHT:
                     return leftValue >> rightValue;
-                case "&":
+                case BinaryOp.BITWISE_AND:
                     return leftValue & rightValue;
-                case "|":
+                case BinaryOp.BITWISE_OR:
                     return leftValue | rightValue;
-                case "^":
+                case BinaryOp.BITWISE_XOR:
                     return leftValue ^ rightValue;
-                case "==":
+                case BinaryOp.EQUAL:
                     return leftValue === rightValue ? 1n : 0n;
-                case "!=":
+                case BinaryOp.NOT_EQUAL:
                     return leftValue !== rightValue ? 1n : 0n;
-                case "<":
+                case BinaryOp.LESS_THAN:
                     return leftValue < rightValue ? 1n : 0n;
-                case ">":
+                case BinaryOp.GREATER_THAN:
                     return leftValue > rightValue ? 1n : 0n;
-                case "<=":
+                case BinaryOp.LESS_THAN_OR_EQUAL:
                     return leftValue <= rightValue ? 1n : 0n;
-                case ">=":
+                case BinaryOp.GREATER_THAN_OR_EQUAL:
                     return leftValue >= rightValue ? 1n : 0n;
                 default:
                     return null;
             }
         }
-        case "ternary": {
+        case AstKind.TERNARY: {
             const numericValue = evalRegistrationConstant(expression.condition, programAnalysis);
             if (numericValue === null)
                 return null;
             const branch = numericValue !== 0n ? expression.then : expression.else_;
             return evalRegistrationConstant(branch, programAnalysis);
         }
-        case "c_cast":
-        case "static_cast":
+        case AstKind.C_CAST:
+        case AstKind.STATIC_CAST:
             return evalRegistrationConstant(expression.expression, programAnalysis);
         default:
             return null;
@@ -118,16 +119,16 @@ export function lexRegistrationLiteral(value: string): bigint {
 }
 export function extractRegistrations(contract: StructDecl, programAnalysis: ProgramAnalysis): ContractRegistration[] {
     const regs: ContractRegistration[] = [];
-    const regFn = contract.members.find((member) => member.kind === "function" && (member as FunctionDecl).name === "__registerUserFunctionsAndProcedures") as FunctionDecl | undefined;
-    if (!regFn?.body || regFn.body.kind !== "compound")
+    const regFn = contract.members.find((member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === "__registerUserFunctionsAndProcedures") as FunctionDecl | undefined;
+    if (!regFn?.body || regFn.body.kind !== AstKind.COMPOUND)
         return regs;
     for (const statement of regFn.body.body) {
-        if (statement.kind !== "expression")
+        if (statement.kind !== AstKind.EXPRESSION)
             continue;
         const expression = statement.expression;
-        if (expression.kind !== "call")
+        if (expression.kind !== AstKind.CALL)
             continue;
-        if (expression.callee.kind !== "member_access")
+        if (expression.callee.kind !== AstKind.MEMBER_ACCESS)
             continue;
         const method = expression.callee.member;
         const isFn = method === "__registerUserFunction";
@@ -138,16 +139,16 @@ export function extractRegistrations(contract: StructDecl, programAnalysis: Prog
         // args: (void*)fnName, inputType, sizeof(...), ...
         const fnArg = expression.callArguments[0];
         let fnName = "";
-        if (fnArg?.kind === "c_cast" && fnArg.expression.kind === "identifier")
+        if (fnArg?.kind === AstKind.C_CAST && fnArg.expression.kind === AstKind.IDENTIFIER)
             fnName = fnArg.expression.name;
-        else if (fnArg?.kind === "identifier")
+        else if (fnArg?.kind === AstKind.IDENTIFIER)
             fnName = fnArg.name;
         const itArg = expression.callArguments[1];
         const evaluated = evalRegistrationConstant(itArg, programAnalysis);
         let inputType = evaluated === null ? 0 : Number(evaluated);
         // Use the synthetic procedure ID for oracle-reply notifications.
         if (isNotif && fnName) {
-            const def = contract.members.find((member) => member.kind === "function" && (member as FunctionDecl).name === fnName) as FunctionDecl | undefined;
+            const def = contract.members.find((member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === fnName) as FunctionDecl | undefined;
             inputType = (def?.span?.line ?? 0) & 0xffff;
         }
         if (fnName) {
@@ -313,15 +314,15 @@ function validateRegistrationKind(
     programAnalysis: ProgramAnalysis,
 ): void {
     const contextType = programAnalysis.derefType(
-        declaration.params[0]?.type ?? { kind: "void" },
+        declaration.params[0]?.type ?? { kind: AstKind.VOID },
     );
     const actualKind = (
-        contextType.kind === "name" &&
+        contextType.kind === AstKind.NAME &&
         contextType.name === "QpiContextFunctionCall"
     )
         ? 0
         : (
-            contextType.kind === "name" &&
+            contextType.kind === AstKind.NAME &&
             contextType.name === "QpiContextProcedureCall"
         )
             ? 1
@@ -384,6 +385,8 @@ function validateRegistrationLayouts(
     }
 }
 
-function registrationKindName(kind: number): "function" | "procedure" {
-    return kind === 0 ? "function" : "procedure";
+function registrationKindName(kind: number): QpiContextKind {
+    return kind === 0
+        ? QpiContextKind.FUNCTION
+        : QpiContextKind.PROCEDURE;
 }

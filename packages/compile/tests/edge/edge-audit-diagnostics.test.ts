@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks that diagnostics retain original-source spans after preprocessing.
 import { describe, expect, test } from "bun:test";
@@ -64,7 +65,7 @@ describe("edge audit — user-facing diagnostic spans", () => {
       qpiHeader: HEADERS,
       arenaSz: 1 << 20,
     });
-    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.every((d) => d.span.line >= 1 && d.span.line <= sourceLineCount)).toBe(true);
   });

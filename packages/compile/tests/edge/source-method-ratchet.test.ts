@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -51,7 +52,7 @@ describe("source-method lowering ratchet", () => {
       qpiHeader: HEADER,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     const who = new Uint8Array(32).fill(0x5a);

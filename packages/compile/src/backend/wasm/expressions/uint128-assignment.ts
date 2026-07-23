@@ -1,3 +1,4 @@
+import { AssignOp } from "../../../enums";
 import * as watIr from "../../../wat-ir";
 import { isUint128 } from "../memory/address-resolution";
 import { addrIr } from "../memory/memory-operations";
@@ -15,7 +16,7 @@ export function tryEmitUint128Assignment(
     }
 
     const sourceAddress =
-        expression.operator === "="
+        expression.operator === AssignOp.ASSIGN
             ? context.lowering.lowerUint128Expression(context, expression.right)
             : context.lowering.lowerUint128Expression(
                   context,

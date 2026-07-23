@@ -1,5 +1,7 @@
+import { WasmModuleMemoryMode } from "../enums";
 import type { GeneratedContractMetadata } from "../codegen";
 import { inspectWasmModule } from "./wasm-inspect";
+import { toWasmFunctionSignatures } from "./wasm-inspection/inspection-types";
 import type { CompileOptions } from "./types";
 
 export async function encodeAndInspectWat(
@@ -20,8 +22,12 @@ export async function encodeAndInspectWat(
     }
 
     const inspection = inspectWasmModule(wasm, {
-        memoryMode: options.sharedMemBase === undefined ? "defined" : "imported",
-        lhostAbi: metadata.lhostAbi,
+        memoryMode: options.sharedMemBase === undefined
+            ? WasmModuleMemoryMode.DEFINED
+            : WasmModuleMemoryMode.IMPORTED,
+        lhostAbi: metadata.lhostAbi
+            ? toWasmFunctionSignatures(metadata.lhostAbi)
+            : undefined,
     });
 
     if (!inspection.ok) {

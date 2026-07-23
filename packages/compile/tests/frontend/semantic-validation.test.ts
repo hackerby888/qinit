@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Semantic validation coverage for invalid constructs.
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -28,7 +29,7 @@ const compile = async (source: string) => {
     qpiHeader: HEADERS,
     arenaSz: 1 << 20,
   });
-  return { wasm: r.wasm, errors: r.diagnostics.filter((d) => d.severity === "error") };
+  return { wasm: r.wasm, errors: r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR) };
 };
 
 interface Rejects {

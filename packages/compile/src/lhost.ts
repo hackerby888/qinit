@@ -1,9 +1,19 @@
-import { LHOST_ABI, type LhostFunctionSignature, type LhostImportName, type LhostValueType } from "@qinit/core";
+import {
+  LHOST_ABI,
+  type LhostFunctionSignature,
+  type LhostImportName,
+  type LhostValueType,
+} from "@qinit/core";
+import { WatNodeType, type WatValueType } from "./enums";
 
 export type LhostAbiSpec = Readonly<Record<string, LhostFunctionSignature>>;
 
 export function lhostSymbol(name: string): string {
   return `$lh_${name}`;
+}
+
+function watValueType(value: LhostValueType): WatValueType {
+  return value === "i32" ? WatNodeType.I32 : WatNodeType.I64;
 }
 
 export const LHOST_CALL_SIG = Object.freeze(
@@ -15,8 +25,10 @@ export const LHOST_CALL_SIG = Object.freeze(
         return [
           lhostSymbol(name),
           {
-            params: abi.params,
-            res: (abi.results[0] ?? "void") as LhostValueType | "void",
+            params: Object.freeze(abi.params.map(watValueType)),
+            res: abi.results[0] === undefined
+              ? WatNodeType.VOID
+              : watValueType(abi.results[0]),
           },
         ];
       },

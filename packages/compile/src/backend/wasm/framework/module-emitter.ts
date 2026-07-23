@@ -1,3 +1,4 @@
+import { PlatformCapability } from "../../../enums";
 import { resetLhostCallSigs } from "../../../wat-ir";
 import type { FrameworkOptions, ModuleSpecification } from "./framework-types";
 import { computeLayout } from "./framework-types";
@@ -11,7 +12,7 @@ import { emitDispatch, emitInitialize } from "./dispatch";
 // ---- The complete module assembler ----
 export function emitModule(spec: ModuleSpecification): string {
     resetLhostCallSigs();
-    const usesPrng = spec.capabilities?.includes("chain-prng") ?? false;
+    const usesPrng = spec.capabilities?.includes(PlatformCapability.CHAIN_PRNG) ?? false;
     const capacity = computeLayout(spec.stateSize, spec.arenaSize, spec.contextLayout.size, spec.memBase ?? (usesPrng ? 8 : 0), spec.assetEnumerationRecord);
     const sysprocMask = spec.sysprocs.reduce((sysproc, sp) => sysproc | (1 << sp.id), 0);
     return [

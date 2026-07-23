@@ -1,7 +1,6 @@
 // Lexer unit tests: tokenize source text, verify token kinds/text/spans.
 import { describe, test, expect } from "bun:test";
-import { Lexer, isTypeKeyword, parseIntLiteral } from "../../src/lexer";
-import type { TokenKind } from "../../src/lexer";
+import { Lexer, TokenKind, isTypeKeyword, parseIntLiteral } from "../../src/lexer";
 
 const kinds = (src: string): TokenKind[] => new Lexer(src).tokenize().map((t) => t.kind);
 
@@ -12,72 +11,72 @@ describe("keywords", () => {
     const src =
       "asm auto bool break case char class const constexpr continue default delete do double else enum extern false float for friend goto if inline int long namespace noexcept nullptr operator override private protected public return short signed sizeof static static_assert struct switch template this true typedef typename union unsigned using virtual void volatile while";
     const expected: TokenKind[] = [
-      "kw_asm",
-      "kw_auto",
-      "kw_bool",
-      "kw_break",
-      "kw_case",
-      "kw_char",
-      "kw_class",
-      "kw_const",
-      "kw_constexpr",
-      "kw_continue",
-      "kw_default",
-      "kw_delete",
-      "kw_do",
-      "kw_double",
-      "kw_else",
-      "kw_enum",
-      "kw_extern",
-      "kw_false",
-      "kw_float",
-      "kw_for",
-      "kw_friend",
-      "kw_goto",
-      "kw_if",
-      "kw_inline",
-      "kw_int",
-      "kw_long",
-      "kw_namespace",
-      "kw_noexcept",
-      "kw_nullptr",
-      "kw_operator",
-      "kw_override",
-      "kw_private",
-      "kw_protected",
-      "kw_public",
-      "kw_return",
-      "kw_short",
-      "kw_signed",
-      "kw_sizeof",
-      "kw_static",
-      "kw_static_assert",
-      "kw_struct",
-      "kw_switch",
-      "kw_template",
-      "kw_this",
-      "kw_true",
-      "kw_typedef",
-      "kw_typename",
-      "kw_union",
-      "kw_unsigned",
-      "kw_using",
-      "kw_virtual",
-      "kw_void",
-      "kw_volatile",
-      "kw_while",
-      "eof",
+      TokenKind.KW_ASM,
+      TokenKind.KW_AUTO,
+      TokenKind.KW_BOOL,
+      TokenKind.KW_BREAK,
+      TokenKind.KW_CASE,
+      TokenKind.KW_CHAR,
+      TokenKind.KW_CLASS,
+      TokenKind.KW_CONST,
+      TokenKind.KW_CONSTEXPR,
+      TokenKind.KW_CONTINUE,
+      TokenKind.KW_DEFAULT,
+      TokenKind.KW_DELETE,
+      TokenKind.KW_DO,
+      TokenKind.KW_DOUBLE,
+      TokenKind.KW_ELSE,
+      TokenKind.KW_ENUM,
+      TokenKind.KW_EXTERN,
+      TokenKind.KW_FALSE,
+      TokenKind.KW_FLOAT,
+      TokenKind.KW_FOR,
+      TokenKind.KW_FRIEND,
+      TokenKind.KW_GOTO,
+      TokenKind.KW_IF,
+      TokenKind.KW_INLINE,
+      TokenKind.KW_INT,
+      TokenKind.KW_LONG,
+      TokenKind.KW_NAMESPACE,
+      TokenKind.KW_NOEXCEPT,
+      TokenKind.KW_NULLPTR,
+      TokenKind.KW_OPERATOR,
+      TokenKind.KW_OVERRIDE,
+      TokenKind.KW_PRIVATE,
+      TokenKind.KW_PROTECTED,
+      TokenKind.KW_PUBLIC,
+      TokenKind.KW_RETURN,
+      TokenKind.KW_SHORT,
+      TokenKind.KW_SIGNED,
+      TokenKind.KW_SIZEOF,
+      TokenKind.KW_STATIC,
+      TokenKind.KW_STATIC_ASSERT,
+      TokenKind.KW_STRUCT,
+      TokenKind.KW_SWITCH,
+      TokenKind.KW_TEMPLATE,
+      TokenKind.KW_THIS,
+      TokenKind.KW_TRUE,
+      TokenKind.KW_TYPEDEF,
+      TokenKind.KW_TYPENAME,
+      TokenKind.KW_UNION,
+      TokenKind.KW_UNSIGNED,
+      TokenKind.KW_USING,
+      TokenKind.KW_VIRTUAL,
+      TokenKind.KW_VOID,
+      TokenKind.KW_VOLATILE,
+      TokenKind.KW_WHILE,
+      TokenKind.EOF,
     ];
     expect(kinds(src)).toEqual(expected);
   });
 
   test("keywords are case-sensitive (if vs IF)", () => {
     const toks = new Lexer("if IF If").tokenize();
-    expect(toks[0].kind).toBe("kw_if");
+    expect(toks[0].kind).toBe(TokenKind.KW_IF);
     // IF and If are identifiers, not keywords
-    expect(toks[1].kind).toBe("identifier");
+    expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[1].text).toBe("IF");
-    expect(toks[2].kind).toBe("identifier");
+    expect(toks[2].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[2].text).toBe("If");
   });
 });
@@ -88,18 +87,18 @@ describe("operators and punctuators", () => {
   test("all single-char punctuators", () => {
     const src = "{ } ( ) [ ] ; : , ? ~";
     const expected: TokenKind[] = [
-      "l_brace",
-      "r_brace",
-      "l_paren",
-      "r_paren",
-      "l_bracket",
-      "r_bracket",
-      "semicolon",
-      "colon",
-      "comma",
-      "question",
-      "tilde",
-      "eof",
+      TokenKind.L_BRACE,
+      TokenKind.R_BRACE,
+      TokenKind.L_PAREN,
+      TokenKind.R_PAREN,
+      TokenKind.L_BRACKET,
+      TokenKind.R_BRACKET,
+      TokenKind.SEMICOLON,
+      TokenKind.COLON,
+      TokenKind.COMMA,
+      TokenKind.QUESTION,
+      TokenKind.TILDE,
+      TokenKind.EOF,
     ];
     expect(kinds(src)).toEqual(expected);
   });
@@ -107,23 +106,23 @@ describe("operators and punctuators", () => {
   test("all multi-char operators", () => {
     const src = ">>= <<= ->* <=> :: -> ++ -- == != <= >= << >> && ||";
     const expected: TokenKind[] = [
-      "r_shift_eq",
-      "l_shift_eq",
-      "arrow_star",
-      "spaceship",
-      "d_colon",
-      "arrow",
-      "plus_plus",
-      "minus_minus",
-      "eq_eq",
-      "not_eq",
-      "lt_eq",
-      "gt_eq",
-      "l_shift",
-      "r_shift",
-      "amp_amp",
-      "pipe_pipe",
-      "eof",
+      TokenKind.R_SHIFT_EQ,
+      TokenKind.L_SHIFT_EQ,
+      TokenKind.ARROW_STAR,
+      TokenKind.SPACESHIP,
+      TokenKind.D_COLON,
+      TokenKind.ARROW,
+      TokenKind.PLUS_PLUS,
+      TokenKind.MINUS_MINUS,
+      TokenKind.EQ_EQ,
+      TokenKind.NOT_EQ,
+      TokenKind.LT_EQ,
+      TokenKind.GT_EQ,
+      TokenKind.L_SHIFT,
+      TokenKind.R_SHIFT,
+      TokenKind.AMP_AMP,
+      TokenKind.PIPE_PIPE,
+      TokenKind.EOF,
     ];
     expect(kinds(src)).toEqual(expected);
   });
@@ -132,64 +131,64 @@ describe("operators and punctuators", () => {
     // The ellipsis check currently tokenizes `...` as three dot tokens.
     const toks = new Lexer("...").tokenize();
     // Expected after fix: expect(toks[0].kind).toBe("ellipsis");
-    expect(toks[0].kind).toBe("dot");
-    expect(toks[1].kind).toBe("dot");
-    expect(toks[2].kind).toBe("dot");
+    expect(toks[0].kind).toBe(TokenKind.DOT);
+    expect(toks[1].kind).toBe(TokenKind.DOT);
+    expect(toks[2].kind).toBe(TokenKind.DOT);
   });
 
   test("compound assignment operators", () => {
     const src = "+= -= *= /= %= <<= >>= &= |= ^=";
     const expected: TokenKind[] = [
-      "plus_eq",
-      "minus_eq",
-      "star_eq",
-      "slash_eq",
-      "percent_eq",
-      "l_shift_eq",
-      "r_shift_eq",
-      "amp_eq",
-      "pipe_eq",
-      "caret_eq",
-      "eof",
+      TokenKind.PLUS_EQ,
+      TokenKind.MINUS_EQ,
+      TokenKind.STAR_EQ,
+      TokenKind.SLASH_EQ,
+      TokenKind.PERCENT_EQ,
+      TokenKind.L_SHIFT_EQ,
+      TokenKind.R_SHIFT_EQ,
+      TokenKind.AMP_EQ,
+      TokenKind.PIPE_EQ,
+      TokenKind.CARET_EQ,
+      TokenKind.EOF,
     ];
     expect(kinds(src)).toEqual(expected);
   });
 
   test("single = vs == vs => (arrow)", () => {
     const src = "= == ->";
-    const expected: TokenKind[] = ["eq", "eq_eq", "arrow", "eof"];
+    const expected: TokenKind[] = [TokenKind.EQ, TokenKind.EQ_EQ, TokenKind.ARROW, TokenKind.EOF];
     expect(kinds(src)).toEqual(expected);
   });
 
   test("& vs && vs &=, | vs || vs |=", () => {
     const src = "& && &= | || |=";
     const expected: TokenKind[] = [
-      "amp",
-      "amp_amp",
-      "amp_eq",
-      "pipe",
-      "pipe_pipe",
-      "pipe_eq",
-      "eof",
+      TokenKind.AMP,
+      TokenKind.AMP_AMP,
+      TokenKind.AMP_EQ,
+      TokenKind.PIPE,
+      TokenKind.PIPE_PIPE,
+      TokenKind.PIPE_EQ,
+      TokenKind.EOF,
     ];
     expect(kinds(src)).toEqual(expected);
   });
 
   test("< vs << vs <= vs <=>", () => {
     const src = "< << <= <=>";
-    const expected: TokenKind[] = ["l_angle", "l_shift", "lt_eq", "spaceship", "eof"];
+    const expected: TokenKind[] = [TokenKind.L_ANGLE, TokenKind.L_SHIFT, TokenKind.LT_EQ, TokenKind.SPACESHIP, TokenKind.EOF];
     expect(kinds(src)).toEqual(expected);
   });
 
   test("> vs >> vs >= vs >>=", () => {
     const src = "> >> >= >>=";
-    const expected: TokenKind[] = ["r_angle", "r_shift", "gt_eq", "r_shift_eq", "eof"];
+    const expected: TokenKind[] = [TokenKind.R_ANGLE, TokenKind.R_SHIFT, TokenKind.GT_EQ, TokenKind.R_SHIFT_EQ, TokenKind.EOF];
     expect(kinds(src)).toEqual(expected);
   });
 
   test("! vs !=", () => {
     const src = "! !=";
-    const expected: TokenKind[] = ["bang", "not_eq", "eof"];
+    const expected: TokenKind[] = [TokenKind.BANG, TokenKind.NOT_EQ, TokenKind.EOF];
     expect(kinds(src)).toEqual(expected);
   });
 
@@ -197,35 +196,35 @@ describe("operators and punctuators", () => {
     const src = ". .* ...";
     // NOTE: ... currently produces three dot tokens (ellipsis bug)
     const toks = new Lexer(src).tokenize();
-    expect(toks[0].kind).toBe("dot");
-    expect(toks[1].kind).toBe("dot_star");
-    expect(toks[2].kind).toBe("dot");
-    expect(toks[3].kind).toBe("dot");
-    expect(toks[4].kind).toBe("dot");
-    expect(toks[5].kind).toBe("eof");
+    expect(toks[0].kind).toBe(TokenKind.DOT);
+    expect(toks[1].kind).toBe(TokenKind.DOT_STAR);
+    expect(toks[2].kind).toBe(TokenKind.DOT);
+    expect(toks[3].kind).toBe(TokenKind.DOT);
+    expect(toks[4].kind).toBe(TokenKind.DOT);
+    expect(toks[5].kind).toBe(TokenKind.EOF);
   });
 
   test("# vs ##", () => {
     const src = "# ##";
-    const expected: TokenKind[] = ["hash", "d_hash", "eof"];
+    const expected: TokenKind[] = [TokenKind.HASH, TokenKind.D_HASH, TokenKind.EOF];
     expect(kinds(src)).toEqual(expected);
   });
 
   test("^ vs ^=", () => {
     const src = "^ ^=";
-    const expected: TokenKind[] = ["caret", "caret_eq", "eof"];
+    const expected: TokenKind[] = [TokenKind.CARET, TokenKind.CARET_EQ, TokenKind.EOF];
     expect(kinds(src)).toEqual(expected);
   });
 
   test("- vs -- vs -= vs ->", () => {
     const src = "- -- -= ->";
-    const expected: TokenKind[] = ["minus", "minus_minus", "minus_eq", "arrow", "eof"];
+    const expected: TokenKind[] = [TokenKind.MINUS, TokenKind.MINUS_MINUS, TokenKind.MINUS_EQ, TokenKind.ARROW, TokenKind.EOF];
     expect(kinds(src)).toEqual(expected);
   });
 
   test("+ vs ++ vs +=", () => {
     const src = "+ ++ +=";
-    const expected: TokenKind[] = ["plus", "plus_plus", "plus_eq", "eof"];
+    const expected: TokenKind[] = [TokenKind.PLUS, TokenKind.PLUS_PLUS, TokenKind.PLUS_EQ, TokenKind.EOF];
     expect(kinds(src)).toEqual(expected);
   });
 });
@@ -235,11 +234,11 @@ describe("operators and punctuators", () => {
 describe("integer literals", () => {
   test("decimal integers", () => {
     const toks = new Lexer("0 42 999").tokenize();
-    expect(toks[0].kind).toBe("int_literal");
+    expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[0].text).toBe("0");
-    expect(toks[1].kind).toBe("int_literal");
+    expect(toks[1].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[1].text).toBe("42");
-    expect(toks[2].kind).toBe("int_literal");
+    expect(toks[2].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[2].text).toBe("999");
   });
 
@@ -252,7 +251,7 @@ describe("integer literals", () => {
 
   test("hex with C++14 digit separator (')", () => {
     const toks = new Lexer("0xFF'FF").tokenize();
-    expect(toks[0].kind).toBe("int_literal");
+    expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[0].text).toBe("0xFF'FF");
   });
 
@@ -265,13 +264,13 @@ describe("integer literals", () => {
 
   test("binary with C++14 digit separator (')", () => {
     const toks = new Lexer("0b1010'0101").tokenize();
-    expect(toks[0].kind).toBe("int_literal");
+    expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[0].text).toBe("0b1010'0101");
   });
 
   test("octal integers (0 prefix)", () => {
     const toks = new Lexer("0777 0123").tokenize();
-    expect(toks[0].kind).toBe("int_literal");
+    expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[0].text).toBe("0777");
     expect(toks[1].text).toBe("0123");
   });
@@ -280,27 +279,27 @@ describe("integer literals", () => {
     const cases = ["42u", "42l", "42ul", "42lu", "42ll", "42ull", "42llu", "42ULL"];
     for (const c of cases) {
       const toks = new Lexer(c).tokenize();
-      expect(toks[0].kind).toBe("int_literal");
+      expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
       expect(toks[0].text).toBe(c);
     }
   });
 
   test("hex with suffix", () => {
     const toks = new Lexer("0xFFull").tokenize();
-    expect(toks[0].kind).toBe("int_literal");
+    expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[0].text).toBe("0xFFull");
   });
 
   test("digit separator in C++14 style", () => {
     // NOTE: decimal loop in lexer doesn't handle ' separators (only hex/binary loops do).
     const toks = new Lexer("1000000").tokenize();
-    expect(toks[0].kind).toBe("int_literal");
+    expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[0].text).toBe("1000000");
   });
 
   test("digit separator in hex works", () => {
     const toks = new Lexer("0xFF'FF").tokenize();
-    expect(toks[0].kind).toBe("int_literal");
+    expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[0].text).toBe("0xFF'FF");
   });
 });
@@ -359,17 +358,17 @@ describe("parseIntLiteral", () => {
 describe("float literals", () => {
   test("simple floats", () => {
     const toks = new Lexer("3.14 0.5 1.0").tokenize();
-    expect(toks[0].kind).toBe("float_literal");
+    expect(toks[0].kind).toBe(TokenKind.FLOAT_LITERAL);
     expect(toks[0].text).toBe("3.14");
-    expect(toks[1].kind).toBe("float_literal");
-    expect(toks[2].kind).toBe("float_literal");
+    expect(toks[1].kind).toBe(TokenKind.FLOAT_LITERAL);
+    expect(toks[2].kind).toBe(TokenKind.FLOAT_LITERAL);
   });
 
   test("leading dot is NOT a float (it's . operator + number)", () => {
     const toks = new Lexer(".5").tokenize();
     // .5 → dot + int_literal (C++ requires leading digit for float)
-    expect(toks[0].kind).toBe("dot");
-    expect(toks[1].kind).toBe("int_literal");
+    expect(toks[0].kind).toBe(TokenKind.DOT);
+    expect(toks[1].kind).toBe(TokenKind.INT_LITERAL);
   });
 });
 
@@ -378,7 +377,7 @@ describe("float literals", () => {
 describe("char literals", () => {
   test("simple char literal", () => {
     const toks = new Lexer("'a'").tokenize();
-    expect(toks[0].kind).toBe("char_literal");
+    expect(toks[0].kind).toBe(TokenKind.CHAR_LITERAL);
     expect(toks[0].text).toBe("'a'");
   });
 
@@ -392,7 +391,7 @@ describe("char literals", () => {
   test("unterminated char literal stops at newline", () => {
     const toks = new Lexer("'a\nb").tokenize();
     // Unterminated — lexer stops at newline, 'a is still a char_literal token
-    expect(toks[0].kind).toBe("char_literal");
+    expect(toks[0].kind).toBe(TokenKind.CHAR_LITERAL);
     expect(toks[0].text).toBe("'a");
   });
 });
@@ -402,25 +401,25 @@ describe("char literals", () => {
 describe("string literals", () => {
   test("simple string literal", () => {
     const toks = new Lexer('"hello"').tokenize();
-    expect(toks[0].kind).toBe("string_literal");
+    expect(toks[0].kind).toBe(TokenKind.STRING_LITERAL);
     expect(toks[0].text).toBe('"hello"');
   });
 
   test("string with escape sequences", () => {
     const toks = new Lexer('"hello\\nworld\\t!"').tokenize();
-    expect(toks[0].kind).toBe("string_literal");
+    expect(toks[0].kind).toBe(TokenKind.STRING_LITERAL);
     expect(toks[0].text).toBe('"hello\\nworld\\t!"');
   });
 
   test("empty string", () => {
     const toks = new Lexer('""').tokenize();
-    expect(toks[0].kind).toBe("string_literal");
+    expect(toks[0].kind).toBe(TokenKind.STRING_LITERAL);
     expect(toks[0].text).toBe('""');
   });
 
   test("unterminated string literal stops at newline", () => {
     const toks = new Lexer('"unterminated\n').tokenize();
-    expect(toks[0].kind).toBe("string_literal");
+    expect(toks[0].kind).toBe(TokenKind.STRING_LITERAL);
     expect(toks[0].text).toBe('"unterminated');
   });
 });
@@ -430,71 +429,71 @@ describe("string literals", () => {
 describe("multi-word type keyword collapsing", () => {
   test("unsigned long long → kw_unsigned_long_long", () => {
     const toks = new Lexer("unsigned long long x").tokenize();
-    expect(toks[0].kind).toBe("kw_unsigned_long_long");
+    expect(toks[0].kind).toBe(TokenKind.KW_UNSIGNED_LONG_LONG);
     expect(toks[0].text).toBe("unsigned long long");
-    expect(toks[1].kind).toBe("identifier");
+    expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[1].text).toBe("x");
   });
 
   test("signed long long → kw_signed_long_long", () => {
     const toks = new Lexer("signed long long x").tokenize();
-    expect(toks[0].kind).toBe("kw_signed_long_long");
+    expect(toks[0].kind).toBe(TokenKind.KW_SIGNED_LONG_LONG);
     expect(toks[0].text).toBe("signed long long");
   });
 
   test("long long → kw_long_long", () => {
     const toks = new Lexer("long long x").tokenize();
-    expect(toks[0].kind).toBe("kw_long_long");
+    expect(toks[0].kind).toBe(TokenKind.KW_LONG_LONG);
     expect(toks[0].text).toBe("long long");
   });
 
   test("unsigned char → kw_unsigned_char", () => {
     const toks = new Lexer("unsigned char x").tokenize();
-    expect(toks[0].kind).toBe("kw_unsigned_char");
+    expect(toks[0].kind).toBe(TokenKind.KW_UNSIGNED_CHAR);
     expect(toks[0].text).toBe("unsigned char");
   });
 
   test("signed char → kw_signed_char", () => {
     const toks = new Lexer("signed char x").tokenize();
-    expect(toks[0].kind).toBe("kw_signed_char");
+    expect(toks[0].kind).toBe(TokenKind.KW_SIGNED_CHAR);
     expect(toks[0].text).toBe("signed char");
   });
 
   test("unsigned short → kw_unsigned_short", () => {
     const toks = new Lexer("unsigned short x").tokenize();
-    expect(toks[0].kind).toBe("kw_unsigned_short");
+    expect(toks[0].kind).toBe(TokenKind.KW_UNSIGNED_SHORT);
     expect(toks[0].text).toBe("unsigned short");
   });
 
   test("signed short → kw_signed_short", () => {
     const toks = new Lexer("signed short x").tokenize();
-    expect(toks[0].kind).toBe("kw_signed_short");
+    expect(toks[0].kind).toBe(TokenKind.KW_SIGNED_SHORT);
     expect(toks[0].text).toBe("signed short");
   });
 
   test("unsigned int → kw_unsigned_int", () => {
     const toks = new Lexer("unsigned int x").tokenize();
-    expect(toks[0].kind).toBe("kw_unsigned_int");
+    expect(toks[0].kind).toBe(TokenKind.KW_UNSIGNED_INT);
     expect(toks[0].text).toBe("unsigned int");
   });
 
   test("signed int → kw_signed_int", () => {
     const toks = new Lexer("signed int x").tokenize();
-    expect(toks[0].kind).toBe("kw_signed_int");
+    expect(toks[0].kind).toBe(TokenKind.KW_SIGNED_INT);
     expect(toks[0].text).toBe("signed int");
   });
 
   test("long long NOT collapsed when separated by other tokens", () => {
     const toks = new Lexer("long x long").tokenize();
-    expect(toks[0].kind).toBe("kw_long");
-    expect(toks[1].kind).toBe("identifier");
-    expect(toks[2].kind).toBe("kw_long");
+    expect(toks[0].kind).toBe(TokenKind.KW_LONG);
+    expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);
+    expect(toks[2].kind).toBe(TokenKind.KW_LONG);
   });
 
   test("unsigned alone (not followed by long long) stays separate", () => {
     const toks = new Lexer("unsigned x").tokenize();
-    expect(toks[0].kind).toBe("kw_unsigned");
-    expect(toks[1].kind).toBe("identifier");
+    expect(toks[0].kind).toBe(TokenKind.KW_UNSIGNED);
+    expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);
   });
 });
 
@@ -529,7 +528,7 @@ describe("spans", () => {
     expect(toks[0].span.line).toBe(1);
     expect(toks[1].span.line).toBe(2);
     expect(toks[2].span.line).toBe(3);
-    expect(toks[3].kind).toBe("eof");
+    expect(toks[3].kind).toBe(TokenKind.EOF);
   });
 
   test("multi-char operator span covers full text", () => {
@@ -575,13 +574,13 @@ describe("comments are skipped", () => {
 describe("identifiers", () => {
   test("simple identifiers", () => {
     const toks = new Lexer("foo bar _baz X123").tokenize();
-    expect(toks[0].kind).toBe("identifier");
+    expect(toks[0].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[0].text).toBe("foo");
-    expect(toks[1].kind).toBe("identifier");
+    expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[1].text).toBe("bar");
-    expect(toks[2].kind).toBe("identifier");
+    expect(toks[2].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[2].text).toBe("_baz");
-    expect(toks[3].kind).toBe("identifier");
+    expect(toks[3].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[3].text).toBe("X123");
   });
 
@@ -594,9 +593,9 @@ describe("identifiers", () => {
   test("identifiers cannot start with digits", () => {
     const toks = new Lexer("1foo 2bar").tokenize();
     // 1 and 2 are int_literals, foo and bar are identifiers
-    expect(toks[0].kind).toBe("int_literal");
+    expect(toks[0].kind).toBe(TokenKind.INT_LITERAL);
     expect(toks[0].text).toBe("1");
-    expect(toks[1].kind).toBe("identifier");
+    expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[1].text).toBe("foo");
   });
 });
@@ -606,25 +605,25 @@ describe("identifiers", () => {
 describe("isTypeKeyword", () => {
   test("returns true for builtin type keywords", () => {
     const types: TokenKind[] = [
-      "kw_void",
-      "kw_bool",
-      "kw_char",
-      "kw_short",
-      "kw_int",
-      "kw_long",
-      "kw_signed",
-      "kw_unsigned",
-      "kw_signed_char",
-      "kw_unsigned_char",
-      "kw_signed_short",
-      "kw_unsigned_short",
-      "kw_signed_int",
-      "kw_unsigned_int",
-      "kw_signed_long_long",
-      "kw_unsigned_long_long",
-      "kw_long_long",
-      "kw_double",
-      "kw_float",
+      TokenKind.KW_VOID,
+      TokenKind.KW_BOOL,
+      TokenKind.KW_CHAR,
+      TokenKind.KW_SHORT,
+      TokenKind.KW_INT,
+      TokenKind.KW_LONG,
+      TokenKind.KW_SIGNED,
+      TokenKind.KW_UNSIGNED,
+      TokenKind.KW_SIGNED_CHAR,
+      TokenKind.KW_UNSIGNED_CHAR,
+      TokenKind.KW_SIGNED_SHORT,
+      TokenKind.KW_UNSIGNED_SHORT,
+      TokenKind.KW_SIGNED_INT,
+      TokenKind.KW_UNSIGNED_INT,
+      TokenKind.KW_SIGNED_LONG_LONG,
+      TokenKind.KW_UNSIGNED_LONG_LONG,
+      TokenKind.KW_LONG_LONG,
+      TokenKind.KW_DOUBLE,
+      TokenKind.KW_FLOAT,
     ];
     for (const t of types) {
       expect(isTypeKeyword(t)).toBe(true);
@@ -632,13 +631,13 @@ describe("isTypeKeyword", () => {
   });
 
   test("returns false for non-type keywords", () => {
-    expect(isTypeKeyword("kw_class")).toBe(false);
-    expect(isTypeKeyword("kw_struct")).toBe(false);
-    expect(isTypeKeyword("kw_enum")).toBe(false);
-    expect(isTypeKeyword("kw_if")).toBe(false);
-    expect(isTypeKeyword("kw_while")).toBe(false);
-    expect(isTypeKeyword("kw_return")).toBe(false);
-    expect(isTypeKeyword("kw_static")).toBe(false);
+    expect(isTypeKeyword(TokenKind.KW_CLASS)).toBe(false);
+    expect(isTypeKeyword(TokenKind.KW_STRUCT)).toBe(false);
+    expect(isTypeKeyword(TokenKind.KW_ENUM)).toBe(false);
+    expect(isTypeKeyword(TokenKind.KW_IF)).toBe(false);
+    expect(isTypeKeyword(TokenKind.KW_WHILE)).toBe(false);
+    expect(isTypeKeyword(TokenKind.KW_RETURN)).toBe(false);
+    expect(isTypeKeyword(TokenKind.KW_STATIC)).toBe(false);
   });
 });
 
@@ -648,47 +647,47 @@ describe("edge cases", () => {
   test("empty source produces only eof", () => {
     const toks = new Lexer("").tokenize();
     expect(toks).toHaveLength(1);
-    expect(toks[0].kind).toBe("eof");
+    expect(toks[0].kind).toBe(TokenKind.EOF);
   });
 
   test("whitespace-only source produces only eof", () => {
     const toks = new Lexer("   \n  \t  \n  ").tokenize();
     expect(toks).toHaveLength(1);
-    expect(toks[0].kind).toBe("eof");
+    expect(toks[0].kind).toBe(TokenKind.EOF);
   });
 
   test("comment-only source produces only eof", () => {
     const toks = new Lexer("// comment\n/* block */\n").tokenize();
     expect(toks).toHaveLength(1);
-    expect(toks[0].kind).toBe("eof");
+    expect(toks[0].kind).toBe(TokenKind.EOF);
   });
 
   test("unknown character is treated as identifier for error recovery", () => {
     // $ and @ are not valid C++ tokens — lexer emits them as identifiers
     const toks = new Lexer("$ @").tokenize();
-    expect(toks[0].kind).toBe("identifier");
+    expect(toks[0].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[0].text).toBe("$");
-    expect(toks[1].kind).toBe("identifier");
+    expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[1].text).toBe("@");
   });
 
   test("nullptr is a keyword, not an identifier", () => {
     const toks = new Lexer("nullptr").tokenize();
-    expect(toks[0].kind).toBe("kw_nullptr");
+    expect(toks[0].kind).toBe(TokenKind.KW_NULLPTR);
     expect(toks[0].text).toBe("nullptr");
   });
 
   test("true and false are keywords", () => {
     const toks = new Lexer("true false").tokenize();
-    expect(toks[0].kind).toBe("kw_true");
-    expect(toks[1].kind).toBe("kw_false");
+    expect(toks[0].kind).toBe(TokenKind.KW_TRUE);
+    expect(toks[1].kind).toBe(TokenKind.KW_FALSE);
   });
 
   test("token text preserves original casing", () => {
     const toks = new Lexer("Class STRUCT").tokenize();
-    expect(toks[0].kind).toBe("identifier");
+    expect(toks[0].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[0].text).toBe("Class");
-    expect(toks[1].kind).toBe("identifier");
+    expect(toks[1].kind).toBe(TokenKind.IDENTIFIER);
     expect(toks[1].text).toBe("STRUCT");
   });
 });

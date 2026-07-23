@@ -1,3 +1,8 @@
+import {
+    ContainerLayoutKind,
+    WatNodeType,
+    type WatValueType,
+} from "../enums";
 import type { ProgramAnalysis } from "./program-analysis";
 import type {
     TypeSpec,
@@ -72,13 +77,13 @@ export interface CompiledHelperMetadata {
     label: string; // WAT function name ($h_<name>)
     params: {
         name: string;
-        wasmType: "i32" | "i64";
+        wasmType: WatValueType;
         isAddr: boolean;
         type: TypeSpec;
         byValAgg?: boolean;
     }[];
     retIsValue: boolean; // returns a scalar i64 (vs void)
-    retWasmType?: "i32" | "i64"; // imported scalar ABI; ordinary helpers use i64
+    retWasmType?: WatValueType; // imported scalar ABI; ordinary helpers use i64
     retAgg?: number; // returns an aggregate (id/struct) by value — its size; ABI prepends a $ret dest-address param
     retType?: TypeSpec; // declared return type — drives conversions and aggregate-temporary member lookup
     sourceNamespace?: string; // lexical namespace/owner used to resolve unqualified sibling helpers
@@ -94,20 +99,20 @@ export interface CompiledMethod {
     label: string; // WAT function name ($T<n>_<Class>_<method>)
     functionParameters: {
         name: string;
-        wasmType: "i32" | "i64";
+        wasmType: WatValueType;
         isAddr: boolean;
         type: TypeSpec;
         concreteType?: TypeSpec;
         defaultValue?: Expression;
         readOnlyRef?: boolean;
     }[];
-    retKind: "i32" | "i64" | "void";
+    retKind: WatNodeType;
     retAgg?: number; // aggregate (id/struct) return size — ABI prepends a $ret dest-address param
     retType?: TypeSpec; // concrete return/referent type
 }
 
 export interface ContainerLayoutMetadata {
-    kind: "HashMap" | "Array";
+    kind: ContainerLayoutKind;
     L: number;
     elemSize: number;
     keySize?: number;

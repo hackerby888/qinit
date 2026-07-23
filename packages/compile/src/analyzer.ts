@@ -1,5 +1,11 @@
 import type { Span } from "./ast";
 import type { Diagnostic as CompilerDiagnostic } from "./parser";
+import {
+  AnalysisPhase,
+  DiagnosticCategory,
+  DiagnosticSeverity,
+  SourceAnalysisOrigin,
+} from "./enums";
 import { QPI_SNAPSHOT } from "./generated/qpi-snapshot";
 import {
   parseContractSource,
@@ -14,8 +20,14 @@ import {
   detectQpiContractName,
 } from "./source-policy";
 
-export { Lexer } from "./lexer";
-export type { Token, TokenKind } from "./lexer";
+export { Lexer, TokenKind } from "./lexer";
+export type { Token } from "./lexer";
+export {
+  AnalysisPhase,
+  DiagnosticCategory,
+  DiagnosticSeverity,
+  SourceAnalysisOrigin,
+};
 
 export interface AnalyzeContractOptions {
   source: string;
@@ -36,9 +48,12 @@ export interface SourceFix {
 }
 
 export interface SourceAnalysisDiagnostic {
-  origin: "compiler" | "qpi";
+  origin: SourceAnalysisOrigin;
   code: string;
-  severity: "error" | "warning" | "information";
+  severity:
+    | DiagnosticSeverity.ERROR
+    | DiagnosticSeverity.WARNING
+    | DiagnosticSeverity.INFORMATION;
   message: string;
   span: Span;
   fixes?: SourceFix[];
@@ -89,7 +104,9 @@ function analyzeCompiler(
 ): SourceAnalysisDiagnostic[] {
   const earlyDiagnostics = scanUnterminatedSource(options.source);
   if (hasErrors(earlyDiagnostics)) {
-    return earlyDiagnostics.map((item) => compilerDiagnostic(item, "syntax"));
+    return earlyDiagnostics.map((item) =>
+      compilerDiagnostic(item, AnalysisPhase.SYNTAX),
+    );
   }
 
   try {
@@ -113,7 +130,7 @@ function analyzeCompiler(
       parserDiagnostics,
     );
     const diagnostics = parserDiagnostics.map((item) =>
-      compilerDiagnostic(item, "syntax"),
+      compilerDiagnostic(item, AnalysisPhase.SYNTAX),
     );
 
     if (hasErrors(parserDiagnostics)) {
@@ -128,7 +145,7 @@ function analyzeCompiler(
     );
     diagnostics.push(
       ...validationDiagnostics.map((item) =>
-        compilerDiagnostic(item, "semantic"),
+        compilerDiagnostic(item, AnalysisPhase.SEMANTIC),
       ),
     );
     return diagnostics;
@@ -139,12 +156,12 @@ function analyzeCompiler(
 
 function compilerDiagnostic(
   item: CompilerDiagnostic,
-  phase: "syntax" | "semantic",
+  phase: AnalysisPhase,
 ): SourceAnalysisDiagnostic {
   return {
-    origin: "compiler",
+    origin: SourceAnalysisOrigin.COMPILER,
     code:
-      item.category === "fidelity"
+      item.category === DiagnosticCategory.FIDELITY
         ? "compiler/fidelity"
         : `compiler/${phase}`,
     severity: item.severity,
@@ -155,9 +172,9 @@ function compilerDiagnostic(
 
 function internalDiagnostic(error: any): SourceAnalysisDiagnostic {
   return {
-    origin: "compiler",
+    origin: SourceAnalysisOrigin.COMPILER,
     code: "compiler/internal",
-    severity: "error",
+    severity: DiagnosticSeverity.ERROR,
     message: `Source analysis failed: ${String(error?.message ?? error)}`,
     span: {
       start: 0,
@@ -169,7 +186,9 @@ function internalDiagnostic(error: any): SourceAnalysisDiagnostic {
 }
 
 function hasErrors(diagnostics: CompilerDiagnostic[]): boolean {
-  return diagnostics.some((item) => item.severity === "error");
+  return diagnostics.some(
+    (item) => item.severity === DiagnosticSeverity.ERROR,
+  );
 }
 
 function compareDiagnostics(

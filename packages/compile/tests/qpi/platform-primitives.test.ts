@@ -1,3 +1,9 @@
+import {
+  DiagnosticSeverity,
+  PlatformCapability,
+  PlatformPrimitiveKind,
+  PlatformWasmOp,
+} from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -51,9 +57,13 @@ describe("typed platform primitive registry", () => {
       ...descriptor.aliases,
     ]);
     expect(new Set(spellings).size).toBe(spellings.length);
-    expect(platformPrimitive("_mm256_lddqu_si256")?.kind).toBe("memory-load");
-    expect(platformPrimitive("math_lib::__lzcnt64")?.wasmOp).toBe("i64.clz");
-    expect(platformPrimitive("_rdrand64_step")?.capabilities).toEqual(["chain-prng"]);
+    expect(platformPrimitive("_mm256_lddqu_si256")?.kind).toBe(
+      PlatformPrimitiveKind.MEMORY_LOAD,
+    );
+    expect(platformPrimitive("math_lib::__lzcnt64")?.wasmOp).toBe(
+      PlatformWasmOp.I64_CLZ,
+    );
+    expect(platformPrimitive("_rdrand64_step")?.capabilities).toEqual([PlatformCapability.CHAIN_PRNG]);
   });
 
   test("zero, overloaded constructors, conversion helpers, and isZero compile from core source", async () => {
@@ -64,7 +74,7 @@ describe("typed platform primitive registry", () => {
       qpiHeader: HEADER,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(27, result.wasm);

@@ -3,4 +3,4 @@ export {
   isTypeKeyword,
   parseIntLiteral,
 } from "./frontend/lexer";
-export type { Token, TokenKind } from "./frontend/lexer";
+export { TokenKind, type Token } from "./frontend/lexer";

@@ -1,3 +1,8 @@
+import {
+    AccessSpec,
+    AstKind,
+    StorageClass,
+} from "../enums";
 import type { Expression } from "./expressions";
 import type { Span } from "./source-location";
 import type { Statement } from "./statements";
@@ -27,7 +32,7 @@ StructDecl | ClassTemplateDecl | FunctionTemplateDecl
  | EmptyDecl;
 
 export interface StructDecl {
-    kind: "struct";
+    kind: AstKind.STRUCT;
     name: string;
     bases: TypeSpec[]; // : public ContractBase, ...
     members: Declaration[];
@@ -37,7 +42,7 @@ export interface StructDecl {
 }
 
 export interface ClassTemplateDecl {
-    kind: "class_template";
+    kind: AstKind.CLASS_TEMPLATE;
     name: string;
     params: TemplateParam[];
     members: Declaration[];
@@ -47,7 +52,7 @@ export interface ClassTemplateDecl {
 }
 
 export interface FunctionTemplateDecl {
-    kind: "function_template";
+    kind: AstKind.FUNCTION_TEMPLATE;
     name: string;
     params: TemplateParam[]; // template parameters (KeyT, ValueT, L, ...)
     functionParameters?: ParamDecl[]; // the function's own parameters (key, value, ...)
@@ -58,7 +63,7 @@ export interface FunctionTemplateDecl {
 }
 
 export interface FunctionDecl {
-    kind: "function";
+    kind: AstKind.FUNCTION;
     name: string;
     returnType: TypeSpec;
     params: ParamDecl[];
@@ -71,7 +76,7 @@ export interface FunctionDecl {
     isOverride: boolean;
     isDeleted: boolean;
     isDefault: boolean;
-    storageClass?: "static" | "inline" | "extern";
+    storageClass?: StorageClass;
     span: Span;
 }
 
@@ -83,7 +88,7 @@ export interface ParamDecl {
 }
 
 export interface VariableDecl {
-    kind: "variable";
+    kind: AstKind.VARIABLE;
     name: string;
     type: TypeSpec;
     initializer?: Expression;
@@ -96,7 +101,7 @@ export interface VariableDecl {
 }
 
 export interface EnumDecl {
-    kind: "enum";
+    kind: AstKind.ENUM;
     name?: string; // anonymous enums have no name
     underlyingType?: TypeSpec; // enum class Foo : uint8
     isClass: boolean; // enum class vs plain enum
@@ -111,42 +116,45 @@ export interface EnumeratorDecl {
 }
 
 export interface TypedefDeclNode {
-    kind: "typedef_decl";
+    kind: AstKind.TYPEDEF_DECL;
     name: string;
     type: TypeSpec;
     span: Span;
 }
 
 export interface NamespaceDecl {
-    kind: "namespace";
+    kind: AstKind.NAMESPACE;
     name: string;
     body: Declaration[];
     span: Span;
 }
 
 export interface StaticAssertDecl {
-    kind: "static_assert_decl";
+    kind: AstKind.STATIC_ASSERT_DECL;
     condition: Expression;
     message?: Expression;
     span: Span;
 }
 
 export interface ExternBlockDecl {
-    kind: "extern_block";
+    kind: AstKind.EXTERN_BLOCK;
     linkage: string; // "C"
     body: Declaration[];
     span: Span;
 }
 
 export interface FriendDecl {
-    kind: "friend";
+    kind: AstKind.FRIEND;
     declaration: FunctionDecl | StructDecl | ClassTemplateDecl;
     span: Span;
 }
 
 export interface EmptyDecl {
-    kind: "empty";
+    kind: AstKind.EMPTY;
     span?: Span;
 }
 
-export type AccessSpec = "public" | "protected" | "private";
+export {
+    AccessSpec,
+    StorageClass,
+};

@@ -1,23 +1,29 @@
+import {
+    AstKind,
+    QpiContextKind,
+    WatNodeType,
+    type WatValueType,
+} from "../../../enums";
 import { getFunctionLoweringServices } from "./function-lowering-registry";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { FunctionEmissionContext, StructLayout, CompiledHelperMetadata, TemplateBindings, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, Statement, FunctionDecl } from "../../../ast";
 import * as watIr from "../../../wat-ir";
 export function emitArrayInitializer(context: FunctionEmissionContext, base: watIr.WatNode, type: TypeSpec & {
-    kind: "array";
+    kind: AstKind.ARRAY;
 }, initializer: Expression & {
-    kind: "initializer_list";
+    kind: AstKind.INITIALIZER_LIST;
 }): void {
     const templateBindings = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
     const elemSize = context.programAnalysis.sizeOfType(type.element, templateBindings);
     initializer.expressions.forEach((expression, index) => {
         const dst = watIr.addressWithOffset(base, index * elemSize);
-        if (type.element.kind === "array" && expression.kind === "initializer_list") {
+        if (type.element.kind === AstKind.ARRAY && expression.kind === AstKind.INITIALIZER_LIST) {
             emitArrayInitializer(context, dst, type.element, expression);
         }
         else if (context.programAnalysis.isAggregateType(type.element) &&
-            (expression.kind === "initializer_list" || expression.kind === "construct")) {
-            const callArguments = expression.kind === "initializer_list" ? expression.expressions : expression.callArguments;
+            (expression.kind === AstKind.INITIALIZER_LIST || expression.kind === AstKind.CONSTRUCT)) {
+            const callArguments = expression.kind === AstKind.INITIALIZER_LIST ? expression.expressions : expression.callArguments;
             context.lowering.emitConstruct(context, watIr.serializeWatNode(dst), type.element, callArguments);
         }
         else {
@@ -32,24 +38,24 @@ export function allocateTemporaryLocalName(context: FunctionEmissionContext): st
     do
         temporaryName = `__qinit_tmp${context.tmpCount++}`;
     while (context.localVars.has(temporaryName) || context.params?.has(temporaryName));
-    context.localVars.set(temporaryName, { wasmType: "i32" });
+    context.localVars.set(temporaryName, { wasmType: WatNodeType.I32 });
     return temporaryName;
 }
 export function emitFunction(programAnalysis: ProgramAnalysis, label: string, fn: FunctionDecl | null, state: StructLayout, inL: StructLayout, outL: StructLayout, localsL: StructLayout, paramAliases?: Map<string, {
-    wasmType: "i32" | "i64";
+    wasmType: WatValueType;
     isAddr: boolean;
     type: TypeSpec;
     local?: string;
 }>): string {
     const contextType = fn?.params[0] ? programAnalysis.derefType(fn.params[0].type) : null;
-    const qpiContext = contextType?.kind === "name" && contextType.name === "QpiContextProcedureCall"
-        ? "procedure"
-        : contextType?.kind === "name" && contextType.name === "QpiContextFunctionCall"
-            ? "function"
+    const qpiContext = contextType?.kind === AstKind.NAME && contextType.name === "QpiContextProcedureCall"
+        ? QpiContextKind.PROCEDURE
+        : contextType?.kind === AstKind.NAME && contextType.name === "QpiContextFunctionCall"
+            ? QpiContextKind.FUNCTION
             : undefined;
     const params = new Map(paramAliases ?? []);
     if (fn?.params[0]?.name === "qpi" && contextType && qpiContext) {
-        params.set("qpi", { wasmType: "i32", isAddr: true, type: contextType, local: "__qinit_ctx" });
+        params.set("qpi", { wasmType: WatNodeType.I32, isAddr: true, type: contextType, local: "__qinit_ctx" });
     }
     const lookup = programAnalysis.namespaceContextOf(fn);
     const context: FunctionEmissionContext = {
@@ -99,7 +105,7 @@ export function emitHelperFunction(programAnalysis: ProgramAnalysis, info: Compi
         loopCount: 0,
         params: new Map(),
         retIsValue: info.retIsValue,
-        retTypeName: info.retType?.kind === "name" ? info.retType.name : undefined,
+        retTypeName: info.retType?.kind === AstKind.NAME ? info.retType.name : undefined,
         // For an instantiated template free fn the body resolves T/L through these bindings (e.g. `L`→4).
         thisBind: bind,
         sourceNamespace: info.sourceNamespace,
@@ -126,9 +132,9 @@ export function emitHelperFunction(programAnalysis: ProgramAnalysis, info: Compi
         let cp = `__qinit_bv_${parameterCandidate.name}`;
         while (context.localVars.has(cp) || context.params?.has(cp))
             cp += "_";
-        context.localVars.set(cp, { wasmType: "i32" });
+        context.localVars.set(cp, { wasmType: WatNodeType.I32 });
         context.lines.push(`    ${context.lowering.setLocal(context, cp, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(size)))}`);
-        context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(cp, "i32"), watIr.localGet(parameterCandidate.name, "i32"), watIr.i32Constant(size)))}`);
+        context.lines.push(`    ${watIr.serializeWatNode(watIr.functionCall("$copyMem", watIr.localGet(cp, WatNodeType.I32), watIr.localGet(parameterCandidate.name, WatNodeType.I32), watIr.i32Constant(size)))}`);
         context.params!.get(parameterCandidate.name)!.local = cp;
     }
     const retParam = info.retAgg ? "(param $__qinit_ret i32) " : "";

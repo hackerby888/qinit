@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { ClassTemplate, CompiledHelperMetadata, NamespaceLookupContext } from "../types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl } from "../../../ast";
@@ -81,22 +82,25 @@ export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, librar
     for (const [declaration, namespaceContext] of libraryTypes.namespaceContexts)
         programAnalysis.namespaceContexts.set(declaration, namespaceContext);
     const lhostAbi: Record<string, {
-        params: readonly ("i32" | "i64")[];
-        results: readonly ("i32" | "i64")[];
+        params: readonly WatValueType[];
+        results: readonly WatValueType[];
     }> = {};
     for (const [name, fn] of libraryTypes.importedFunctions) {
         const params = fn.params.map((param) => {
             const declared = programAnalysis.derefType(param.type);
-            const isAddr = param.type.kind === "reference" ||
-                param.type.kind === "pointer" ||
+            const isAddr = param.type.kind === AstKind.REFERENCE ||
+                param.type.kind === AstKind.POINTER ||
                 programAnalysis.isAggregateType(declared);
             const width = isAddr ? 4 : programAnalysis.sizeOfType(declared);
             if (!isAddr && width !== 1 && width !== 2 && width !== 4 && width !== 8) {
                 throw new Error(`unsupported imported parameter '${name}.${param.name}' width ${width}`);
             }
+            const wasmType: WatValueType = isAddr || width < 8
+                ? WatNodeType.I32
+                : WatNodeType.I64;
             return {
                 name: param.name,
-                wasmType: (isAddr || width < 8 ? "i32" : "i64") as "i32" | "i64",
+                wasmType,
                 isAddr,
                 type: declared,
             };
@@ -113,11 +117,16 @@ export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, librar
             returnWidth !== 8) {
             throw new Error(`unsupported imported return '${name}' width ${returnWidth}`);
         }
+        const retWasmType: WatValueType | undefined = returnWidth === 0
+            ? undefined
+            : returnWidth < 8
+                ? WatNodeType.I32
+                : WatNodeType.I64;
         const helper: CompiledHelperMetadata = {
             label: `$lh_${name.slice("__lhost_".length)}`,
             params,
             retIsValue: returnWidth !== 0,
-            retWasmType: returnWidth === 0 ? undefined : returnWidth < 8 ? "i32" : "i64",
+            retWasmType,
             retType: returnType,
         };
         programAnalysis.helpers.set(name, helper);
@@ -125,7 +134,7 @@ export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, librar
         const abiParams = params.map((param) => param.wasmType);
         const results = helper.retWasmType ? [helper.retWasmType] : [];
         lhostAbi[importName] = { params: abiParams, results };
-        registerCallSig(helper.label, { params: abiParams, res: helper.retWasmType ?? "void" });
+        registerCallSig(helper.label, { params: abiParams, res: helper.retWasmType ?? WatNodeType.VOID });
     }
     for (const row of libraryTypes.wasmAbi?.lhost ?? []) {
         const derived = lhostAbi[row.name];
@@ -175,10 +184,10 @@ export function indexLibraryDeclarations(declarations: Declaration[], inheritedN
     const importedFunctions = new Map<string, FunctionDecl>();
     const collectHostImportDeclarations = (items: Declaration[]): void => {
         for (const declaration of items) {
-            if (declaration.kind === "extern_block" || declaration.kind === "namespace") {
+            if (declaration.kind === AstKind.EXTERN_BLOCK || declaration.kind === AstKind.NAMESPACE) {
                 collectHostImportDeclarations((declaration as any).body);
             }
-            else if (declaration.kind === "function" &&
+            else if (declaration.kind === AstKind.FUNCTION &&
                 declaration.name.startsWith("__lhost_") &&
                 !declaration.body) {
                 importedFunctions.set(declaration.name, declaration);

@@ -22,7 +22,10 @@ const browser = await import(bundle);
 console.log("compilerInfo:", browser.compilerInfo);
 
 const res = await browser.compileContract({ source: SOURCE, name: "SMOKE", slot: 27, arenaSz: 1 << 20 });
-const errors = res.diagnostics.filter((d: { severity: string }) => d.severity === "error");
+const errors = res.diagnostics.filter(
+  (diagnostic: { severity: string }) =>
+    diagnostic.severity === browser.DiagnosticSeverity.ERROR,
+);
 if (errors.length || res.wasm.byteLength === 0) {
   console.error("browser bundle compile failed:", errors);
   process.exit(1);

@@ -1,14 +1,21 @@
 
+import type { LhostValueType } from "@qinit/core";
+import {
+    DiagnosticSeverity,
+    InspectedMemoryMode,
+    WasmExternalKind,
+    WasmMemorySource,
+    WasmModuleMemoryMode,
+    WasmValueType,
+} from "../../enums";
+import type { LhostAbiSpec } from "../../lhost";
+
 // Static inspection for the dynamic-contract Wasm ABI.
 // Parse bytes without instantiation so signature checks stay stable across engines.
-export type WasmValueType = "i32" | "i64" | "f32" | "f64";
-
 export interface WasmFunctionSignature {
     readonly params: readonly WasmValueType[];
     readonly results: readonly WasmValueType[];
 }
-
-export type WasmExternalKind = "function" | "table" | "memory" | "global" | "tag";
 
 export interface InspectedWasmImport {
     readonly module: string;
@@ -25,7 +32,7 @@ export interface InspectedWasmExport {
 }
 
 export interface InspectedWasmMemory {
-    readonly source: "imported" | "defined";
+    readonly source: WasmMemorySource;
     readonly module?: string;
     readonly name?: string;
     readonly minimumPages: bigint;
@@ -34,12 +41,8 @@ export interface InspectedWasmMemory {
     readonly memory64: boolean;
 }
 
-export type WasmModuleMemoryMode = "defined" | "imported" | "either";
-
-export type InspectedMemoryMode = "none" | "defined" | "imported" | "mixed";
-
 export interface WasmInspectionDiagnostic {
-    readonly severity: "error";
+    readonly severity: DiagnosticSeverity.ERROR;
     readonly code: string;
     readonly message: string;
     readonly offset?: number;
@@ -64,9 +67,36 @@ export interface WasmModuleInspection {
 
 export const signature = (params: readonly WasmValueType[] = [], results: readonly WasmValueType[] = []): WasmFunctionSignature => Object.freeze({ params: Object.freeze([...params]), results: Object.freeze([...results]) });
 
-export const I32 = "i32" as const;
+function wasmValueType(value: LhostValueType): WasmValueType {
+    return value === "i32" ? WasmValueType.I32 : WasmValueType.I64;
+}
 
-export const I64 = "i64" as const;
+export function toWasmFunctionSignatures(
+    abi: LhostAbiSpec,
+): Readonly<Record<string, WasmFunctionSignature>> {
+    return Object.fromEntries(
+        Object.entries(abi).map(([name, value]) => [
+            name,
+            signature(
+                value.params.map(wasmValueType),
+                value.results.map(wasmValueType),
+            ),
+        ]),
+    );
+}
+
+export const I32 = WasmValueType.I32;
+
+export const I64 = WasmValueType.I64;
+
+export {
+    DiagnosticSeverity,
+    InspectedMemoryMode,
+    WasmExternalKind,
+    WasmMemorySource,
+    WasmModuleMemoryMode,
+    WasmValueType,
+};
 
 // Enabled by both JavaScript engines and WAMR's interpreter in the release node.
 // Keep this deliberately narrow; every other detected post-MVP feature fails closed.

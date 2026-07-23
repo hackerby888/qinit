@@ -1,3 +1,9 @@
+import {
+  InspectedMemoryMode,
+  WasmMemorySource,
+  WasmModuleMemoryMode,
+  WasmValueType,
+} from "../../src/enums";
 import { describe, expect, test } from "bun:test";
 import { emitModule, type ModuleSpecification } from "../../src/framework";
 import {
@@ -55,10 +61,10 @@ describe("Wasm module inspection", () => {
 
     expect(result.ok).toBe(true);
     expect(result.diagnostics).toEqual([]);
-    expect(result.memoryMode).toBe("defined");
+    expect(result.memoryMode).toBe(InspectedMemoryMode.DEFINED);
     expect(result.memories).toEqual([
       {
-        source: "defined",
+        source: WasmMemorySource.DEFINED,
         minimumPages: 6n,
         maximumPages: 6n,
         shared: false,
@@ -75,8 +81,8 @@ describe("Wasm module inspection", () => {
     const lhostImports = result.imports.filter((imported) => imported.module === "lhost");
     expect(lhostImports).toHaveLength(Object.keys(LHOST_ABI).length);
     expect(lhostImports.find((imported) => imported.name === "acquireScratch")?.signature).toEqual({
-      params: ["i64", "i32"],
-      results: ["i32"],
+      params: [WasmValueType.I64, WasmValueType.I32],
+      results: [WasmValueType.I32],
     });
     expect(result.exports.find((exported) => exported.name === "dispatch")?.signature).toEqual(
       WASM_MODULE_EXPORT_ABI.dispatch,
@@ -109,12 +115,14 @@ describe("Wasm module inspection", () => {
 
   test("accepts the established imported-memory mode only when requested", async () => {
     const wasm = await assemble(emitModule({ ...SPEC, memBase: 64 * 1024 }));
-    const shared = inspectWasmModule(wasm, { memoryMode: "imported" });
+    const shared = inspectWasmModule(wasm, {
+      memoryMode: WasmModuleMemoryMode.IMPORTED,
+    });
 
     expect(shared.ok).toBe(true);
-    expect(shared.memoryMode).toBe("imported");
+    expect(shared.memoryMode).toBe(InspectedMemoryMode.IMPORTED);
     expect(shared.memories[0]).toMatchObject({
-      source: "imported",
+      source: WasmMemorySource.IMPORTED,
       module: "env",
       name: "memory",
       shared: false,

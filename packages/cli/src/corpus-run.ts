@@ -4,7 +4,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildContract, buildCorpusRunner, systemContracts } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "@qinit/compile";
+import {
+  compileContract,
+  DiagnosticSeverity,
+  loadQpiHeader,
+} from "@qinit/compile";
 import { initK12 } from "@qinit/core";
 
 // System suites that are too memory- or dispatch-heavy for the routine developer gate. They run in
@@ -216,7 +220,10 @@ async function oursWasms(
     const requireWasm = (r: Awaited<ReturnType<typeof compileContract>>, stage: string) => {
       if (r.wasm.byteLength) return r;
       const errors = r.diagnostics
-        .filter((diagnostic) => diagnostic.severity === "error")
+        .filter(
+          (diagnostic) =>
+            diagnostic.severity === DiagnosticSeverity.ERROR,
+        )
         .map((diagnostic) => diagnostic.message);
       throw new Error(`${o.name} ${stage}: ${errors.join("; ") || "compiler returned empty wasm"}`);
     };
@@ -250,7 +257,10 @@ async function oursWasms(
     const dr = await compileContract({ ...depOpts, arenaSz: ARENA });
     if (!dr.wasm.byteLength) {
       const errors = dr.diagnostics
-        .filter((diagnostic) => diagnostic.severity === "error")
+        .filter(
+          (diagnostic) =>
+            diagnostic.severity === DiagnosticSeverity.ERROR,
+        )
         .map((diagnostic) => diagnostic.message);
       throw new Error(
         `local dependency ${d.name}: ${errors.join("; ") || "compiler returned empty wasm"}`,

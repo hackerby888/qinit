@@ -1,3 +1,4 @@
+import { AstKind } from "../enums";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
 import type { TypeSpec, Declaration, StructDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
@@ -11,7 +12,7 @@ export function baseContribution(context: ProgramAnalysisInternals, baseType: Ty
     consts: Map<string, bigint>;
 } | null {
     let resolvedBaseType: TypeSpec = baseType;
-    if (resolvedBaseType.kind === "name") {
+    if (resolvedBaseType.kind === AstKind.NAME) {
         const bound = parentB.types.get(resolvedBaseType.name);
         if (bound)
             resolvedBaseType = bound;
@@ -21,7 +22,7 @@ export function baseContribution(context: ProgramAnalysisInternals, baseType: Ty
                 resolvedBaseType = td;
         }
     }
-    if (resolvedBaseType.kind === "template_instance") {
+    if (resolvedBaseType.kind === AstKind.TEMPLATE_INSTANCE) {
         const templateDeclaration = context.templates.get(resolvedBaseType.name);
         if (!templateDeclaration)
             return {
@@ -35,14 +36,14 @@ export function baseContribution(context: ProgramAnalysisInternals, baseType: Ty
             const argument = resolved[parameterIndex];
             if (!argument)
                 continue;
-            if (parameter.kind === "type")
+            if (parameter.kind === AstKind.TYPE)
                 templateBindings.types.set(parameter.name, argument);
             else
                 templateBindings.values.set(parameter.name, context.evalConstFromType(argument, parentB));
         }
         const consts = new Map<string, bigint>();
         for (const member of templateDeclaration.members) {
-            if (member.kind !== "variable")
+            if (member.kind !== AstKind.VARIABLE)
                 continue;
             const variableDeclaration = member as VariableDecl;
             if ((variableDeclaration.isStatic || variableDeclaration.isConstexpr) && variableDeclaration.initializer && !templateBindings.values.has(variableDeclaration.name)) {
@@ -59,12 +60,12 @@ export function baseContribution(context: ProgramAnalysisInternals, baseType: Ty
         const layout = context.layoutOfMembers(templateDeclaration.members, templateBindings, `${resolvedBaseType.name}<${resolved.map((resolvedItem) => context.typeKey(resolvedItem)).join(",")}>`, false, templateDeclaration.bases);
         return { layout, consts };
     }
-    if (resolvedBaseType.kind === "name") {
+    if (resolvedBaseType.kind === AstKind.NAME) {
         const struct = context.structByName(resolvedBaseType.name, parentB);
         if (struct) {
             const consts = new Map<string, bigint>();
             for (const member of struct.members) {
-                if (member.kind !== "variable")
+                if (member.kind !== AstKind.VARIABLE)
                     continue;
                 const variableDeclaration = member as VariableDecl;
                 if ((variableDeclaration.isStatic || variableDeclaration.isConstexpr) && variableDeclaration.initializer) {
@@ -84,20 +85,20 @@ export function baseContribution(context: ProgramAnalysisInternals, baseType: Ty
 }
 
 export function evalQualifiedConst(context: ProgramAnalysisInternals, typeName: string, member: string, templateBindings: TemplateBindings): bigint | null {
-    const type = context.resolveType({ kind: "name", name: typeName }, templateBindings);
+    const type = context.resolveType({ kind: AstKind.NAME, name: typeName }, templateBindings);
     let members: Declaration[] | null = null;
     let tb: TemplateBindings = templateBindings;
-    if (type.kind === "template_instance") {
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) {
         const inst = context.instantiateTemplate(type.name, type.callArguments, templateBindings);
         if (!inst)
             return null;
         members = inst.templateDeclaration.members;
         tb = inst.b;
     }
-    else if (type.kind === "inline_struct") {
+    else if (type.kind === AstKind.INLINE_STRUCT) {
         members = type.struct.members;
     }
-    else if (type.kind === "name") {
+    else if (type.kind === AstKind.NAME) {
         const structDeclaration = context.structByName(type.name, templateBindings);
         if (!structDeclaration)
             return null;
@@ -106,7 +107,7 @@ export function evalQualifiedConst(context: ProgramAnalysisInternals, typeName: 
     if (!members)
         return null;
     for (const memberDeclaration of members) {
-        if (memberDeclaration.kind !== "variable")
+        if (memberDeclaration.kind !== AstKind.VARIABLE)
             continue;
         const variableDeclaration = memberDeclaration as VariableDecl;
         if (variableDeclaration.name === member && variableDeclaration.initializer) {
@@ -162,7 +163,7 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
         if (isUnion) {
             let max = 0;
             for (const member of members) {
-                if (member.kind === "variable") {
+                if (member.kind === AstKind.VARIABLE) {
                     const variableDeclaration = member as VariableDecl;
                     if (variableDeclaration.isStatic || variableDeclaration.isConstexpr)
                         continue;
@@ -214,7 +215,7 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
         // Add nested typedefs to the member binding scope.
         let memberTypes = templateBindings.types;
         for (const member of members) {
-            if (member.kind !== "typedef_decl")
+            if (member.kind !== AstKind.TYPEDEF_DECL)
                 continue;
             const td = member as any;
             if (memberTypes === templateBindings.types)
@@ -227,7 +228,7 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
             : { types: memberTypes, values: memberVals, structs: templateBindings.structs };
         for (const memberDeclaration of members) {
             // Promote anonymous struct and union members at the current offset.
-            if (memberDeclaration.kind === "struct" && !(memberDeclaration as StructDecl).name) {
+            if (memberDeclaration.kind === AstKind.STRUCT && !(memberDeclaration as StructDecl).name) {
                 const sub = context.layoutOfStruct(memberDeclaration as StructDecl, bMem);
                 offset = context.alignUp(offset, sub.align);
                 for (const inheritedField of sub.fields.values())
@@ -242,7 +243,7 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
                     maxAlign = sub.align;
                 continue;
             }
-            if (memberDeclaration.kind !== "variable")
+            if (memberDeclaration.kind !== AstKind.VARIABLE)
                 continue;
             const variableDeclaration = memberDeclaration as VariableDecl;
             if (variableDeclaration.isStatic || variableDeclaration.isConstexpr)

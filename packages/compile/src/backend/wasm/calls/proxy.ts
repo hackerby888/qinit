@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType } from "../../../enums";
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { classifyMethodParam } from "./containers";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
@@ -10,33 +11,33 @@ export const PROXY_PROCEDURE_METHODS = new Set(["setProposal", "clearProposal", 
 export function resolveProxyTarget(context: FunctionEmissionContext, xExpr: Expression): {
     addr: string;
     pvType: TypeSpec & {
-        kind: "template_instance";
+        kind: AstKind.TEMPLATE_INSTANCE;
     };
 } | null {
     const node = context.lowering.resolveExpressionAddress(context, xExpr);
     if (!node || !node.type)
         return null;
     let pvt: TypeSpec | null = node.type;
-    for (let index = 0; index < 8 && pvt?.kind === "name"; index++)
+    for (let index = 0; index < 8 && pvt?.kind === AstKind.NAME; index++)
         pvt = context.programAnalysis.typedefs.get(pvt.name) ?? null;
-    if (!pvt || pvt.kind !== "template_instance" || pvt.name !== "ProposalVoting")
+    if (!pvt || pvt.kind !== AstKind.TEMPLATE_INSTANCE || pvt.name !== "ProposalVoting")
         return null;
     // resolve the ProposalVoting args (ProposersAndVotersT/ProposalDataT contract typedefs) to concrete types
     const callArguments = pvt.callArguments.map((argument) => context.programAnalysis.resolveType(argument, EMPTY_TEMPLATE_BINDINGS));
     return {
         addr: node.addr,
-        pvType: { kind: "template_instance", name: "ProposalVoting", callArguments, span: pvt.span },
+        pvType: { kind: AstKind.TEMPLATE_INSTANCE, name: "ProposalVoting", callArguments, span: pvt.span },
     };
 }
 // Lower `qpi(X).method(args)` to a call of the real qpi.h proxy method compiled against ProposalVoting<P,D>.
 export function emitProposalProxyCall(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }, valueWanted: boolean): string | null {
     const method = qpiWrapperMethod(expression);
     if (!method)
         return null;
     const xExpr = ((expression.callee as any).object as Expression & {
-        kind: "call";
+        kind: AstKind.CALL;
     }).callArguments[0];
     if (!xExpr)
         return null;
@@ -53,15 +54,15 @@ export function emitProposalProxyCall(context: FunctionEmissionContext, expressi
 }
 // `qpi(X).method(args)` whose method returns an aggregate: emit the call writing into a fresh slot and return the slot
 export function emitProposalProxyAddr(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }): string | null {
     const method = qpiWrapperMethod(expression);
     if (!method)
         return null;
     const xExpr = ((expression.callee as Expression & {
-        kind: "member_access";
+        kind: AstKind.MEMBER_ACCESS;
     }).object as Expression & {
-        kind: "call";
+        kind: AstKind.CALL;
     }).callArguments[0];
     if (!xExpr)
         return null;
@@ -90,9 +91,9 @@ export function emitProposalProxyAddr(context: FunctionEmissionContext, expressi
 }
 // Compile bare sibling calls against the current proxy class.
 export function emitProxySiblingCall(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }, valueWanted: boolean): string | null {
-    if (!context.proxyClass || expression.callee.kind !== "identifier")
+    if (!context.proxyClass || expression.callee.kind !== AstKind.IDENTIFIER)
         return null;
     const method = expression.callee.name;
     const known = context.programAnalysis.templateMethods.get(context.proxyClass)?.has(method) ||
@@ -100,7 +101,7 @@ export function emitProxySiblingCall(context: FunctionEmissionContext, expressio
     if (!known)
         return null;
     const pvType = context.refLocals?.get("pv");
-    if (!pvType || pvType.kind !== "template_instance")
+    if (!pvType || pvType.kind !== AstKind.TEMPLATE_INSTANCE)
         return null;
     const cm = compileProxyMethod(context.programAnalysis, pvType, context.proxyClass, method);
     if (!cm)
@@ -109,7 +110,7 @@ export function emitProxySiblingCall(context: FunctionEmissionContext, expressio
 }
 // Pass the proposal address, dummy QPI context, and method arguments.
 export function callProxy(context: FunctionEmissionContext, cm: CompiledMethod, self: string, pvType: TypeSpec & {
-    kind: "template_instance";
+    kind: AstKind.TEMPLATE_INSTANCE;
 }, callArguments: Expression[], valueWanted: boolean): string {
     const bind = context.programAnalysis.bindContainer(pvType.name, pvType.callArguments);
     const methodArgumentOperands = cm.functionParameters.map((methodParameter, methodParameterIndex) => {
@@ -131,18 +132,18 @@ export function callProxy(context: FunctionEmissionContext, cm: CompiledMethod, 
     }
     const call = `(call ${cm.label} ${self} (i32.const 0)${methodArgumentOperands.length ? " " + methodArgumentOperands.join(" ") : ""})`;
     if (valueWanted) {
-        if (cm.retKind !== "i64")
+        if (cm.retKind !== WatNodeType.I64)
             throw new Error("void proposal method used as a value");
         return call;
     }
-    context.lines.push(cm.retKind === "i64"
-        ? `    ${watIr.serializeWatNode(watIr.operation("drop", watIr.rawWatNode(call, "i64", "unconverted: proxy method call")))}`
+    context.lines.push(cm.retKind === WatNodeType.I64
+        ? `    ${watIr.serializeWatNode(watIr.operation("drop", watIr.rawWatNode(call, WatNodeType.I64, "unconverted: proxy method call")))}`
         : `    ${call}`);
     return "";
 }
 // Compile or reuse a ProposalVoting proxy method from its qpi.h body.
 export function compileProxyMethod(programAnalysis: ProgramAnalysis, pvType: TypeSpec & {
-    kind: "template_instance";
+    kind: AstKind.TEMPLATE_INSTANCE;
 }, proxyClass: string, method: string): CompiledMethod | null {
     let def = programAnalysis.templateMethods.get(proxyClass)?.get(method);
     if (!def)
@@ -165,7 +166,9 @@ export function compileProxyMethod(programAnalysis: ProgramAnalysis, pvType: Typ
     const functionParameters = (def.functionParameters ?? []).map((parameter) => classifyMethodParam(programAnalysis, parameter, bind));
     const retT = programAnalysis.substInBindings(programAnalysis.derefType(def.returnType), bind);
     const isAggRet = !programAnalysis.isVoidType(def.returnType) && programAnalysis.isAggregateType(retT);
-    const retKind: "i64" | "void" = programAnalysis.isVoidType(def.returnType) || isAggRet ? "void" : "i64";
+    const retKind = programAnalysis.isVoidType(def.returnType) || isAggRet
+        ? WatNodeType.VOID
+        : WatNodeType.I64;
     const retAgg = isAggRet ? programAnalysis.sizeOfType(retT, bind) : undefined;
     const cm: CompiledMethod = {
         label: `$PV${programAnalysis.compiledMethods.size}_${proxyClass}_${method}`,
@@ -186,7 +189,7 @@ export function compileProxyMethod(programAnalysis: ProgramAnalysis, pvType: Typ
     return cm;
 }
 export function emitProxyMethodFn(programAnalysis: ProgramAnalysis, cm: CompiledMethod, def: FunctionTemplateDecl, pvType: TypeSpec & {
-    kind: "template_instance";
+    kind: AstKind.TEMPLATE_INSTANCE;
 }, bind: TemplateBindings, proxyClass: string): string {
     const empty = { size: 0, align: 1, fields: new Map<string, FieldLayout>() };
     const lookup = programAnalysis.namespaceContextOf(def);
@@ -202,7 +205,7 @@ export function emitProxyMethodFn(programAnalysis: ProgramAnalysis, cm: Compiled
         loops: [],
         loopCount: 0,
         params: new Map(),
-        retIsValue: cm.retKind === "i64",
+        retIsValue: cm.retKind === WatNodeType.I64,
         thisBind: bind,
         proxyClass,
         sourceNamespace: lookup.sourceNamespace,
@@ -217,9 +220,9 @@ export function emitProxyMethodFn(programAnalysis: ProgramAnalysis, cm: Compiled
     }
     // `qpi` (member) is a dummy address param; qpi.method() routes to the ambient host context.
     context.params!.set("qpi", {
-        wasmType: "i32",
+        wasmType: WatNodeType.I32,
         isAddr: true,
-        type: { kind: "name", name: "QpiContextFunctionCall" },
+        type: { kind: AstKind.NAME, name: "QpiContextFunctionCall" },
     });
     for (const fnParam of cm.functionParameters)
         context.params!.set(fnParam.name, {
@@ -233,9 +236,9 @@ export function emitProxyMethodFn(programAnalysis: ProgramAnalysis, cm: Compiled
         context.lowering.emitStatement(context, def.body);
     const retParam = cm.retAgg ? "(param $__qinit_ret i32) " : "";
     const paramDecls = cm.functionParameters.map((fnParam) => `(param $${fnParam.name} ${fnParam.wasmType})`).join(" ");
-    const result = cm.retKind === "i64" ? " (result i64)" : "";
+    const result = cm.retKind === WatNodeType.I64 ? " (result i64)" : "";
     const header = `  (func ${cm.label} ${retParam}(param $pv i32) (param $qpi i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
     const localDecls = [...context.localVars.entries()].map(([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`);
-    const tail = cm.retKind === "i64" ? ["    (i64.const 0)"] : [];
+    const tail = cm.retKind === WatNodeType.I64 ? ["    (i64.const 0)"] : [];
     return [header, ...localDecls, ...context.lines, ...tail, "  )"].join("\n");
 }

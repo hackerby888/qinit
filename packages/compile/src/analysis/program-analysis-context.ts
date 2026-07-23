@@ -1,3 +1,4 @@
+import { AstKind } from "../enums";
 import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, CalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
 import type { Sema } from "../sema";
@@ -79,7 +80,7 @@ export interface ProgramAnalysisInternals {
   sizeOfType(type: TypeSpec, templateBindings?: TemplateBindings): number;
   sizeOfTypeInner(type: TypeSpec, templateBindings: TemplateBindings): number;
   resolveDependentMember(type: Extract<TypeSpec, {
-        kind: "dependent_member";
+        kind: AstKind.DEPENDENT_MEMBER;
     }>, templateBindings: TemplateBindings): {
         type: TypeSpec;
         bindings: TemplateBindings;
@@ -100,14 +101,14 @@ export interface ProgramAnalysisInternals {
   fallbackTemplateLayout(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings): StructLayout;
   resolveType(type: TypeSpec, templateBindings: TemplateBindings, depth?: number): TypeSpec;
   concreteMemberType(type: TypeSpec, parent: TypeSpec & {
-        kind: "template_instance";
+        kind: AstKind.TEMPLATE_INSTANCE;
     }, depth?: number): TypeSpec;
   resolveInScope(type: TypeSpec, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec;
   resolveNamedTypeInScope(type: Extract<TypeSpec, {
-        kind: "name";
+        kind: AstKind.NAME;
     }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec;
   resolveTemplateInstanceArguments(type: Extract<TypeSpec, {
-        kind: "template_instance";
+        kind: AstKind.TEMPLATE_INSTANCE;
     }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec[];
   substInBindings(type: TypeSpec, bind: TemplateBindings): TypeSpec;
   valueOfTypeArg(type: TypeSpec, templateBindings?: TemplateBindings): bigint;

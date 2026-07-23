@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
@@ -147,7 +148,7 @@ describe("authoritative QPI capability matrix", () => {
         arenaSz: 1 << 20,
         qpiHeader: await header(),
       });
-      expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual(
+      expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual(
         [],
       );
       expect(result.wasm.byteLength).toBeGreaterThan(0);
@@ -181,7 +182,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
       arenaSz: 1 << 20,
       qpiHeader: loadQpiHeader(CORE),
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(7);

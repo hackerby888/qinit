@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
 import { classifyMethodParam } from "../calls/containers";
 import { FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, Statement, FunctionDecl } from "../../../ast";
@@ -5,9 +6,9 @@ import * as watIr from "../../../wat-ir";
 import { addrIr } from "../memory/memory-operations";
 // Resolve reference-returning inline member calls as addresses.
 export function tryInlineStructMethod(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }): ResolvedAddress | null {
-    if (expression.callee.kind !== "member_access")
+    if (expression.callee.kind !== AstKind.MEMBER_ACCESS)
         return null;
     const method = expression.callee.member;
     const objNode = context.lowering.resolveExpressionAddress(context, expression.callee.object);
@@ -16,40 +17,40 @@ export function tryInlineStructMethod(context: FunctionEmissionContext, expressi
     const struct = context.programAnalysis.structOf(objNode.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
     if (!struct)
         return null;
-    const fn = struct.members.find((member) => member.kind === "function" && (member as FunctionDecl).name === method && (member as FunctionDecl).body) as FunctionDecl | undefined;
+    const fn = struct.members.find((member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === method && (member as FunctionDecl).body) as FunctionDecl | undefined;
     if (!fn)
         return null;
     // Keep scalar-returning methods on the normal value-call path.
-    const returnsAddress = (type: TypeSpec): boolean => type.kind === "reference" ||
-        type.kind === "pointer" ||
-        (type.kind === "const" && returnsAddress(type.valueType));
+    const returnsAddress = (type: TypeSpec): boolean => type.kind === AstKind.REFERENCE ||
+        type.kind === AstKind.POINTER ||
+        (type.kind === AstKind.CONST && returnsAddress(type.valueType));
     if (!returnsAddress(fn.returnType))
         return null;
     const addr = emitInlineStructMethod(context, objNode, fn, expression.callArguments);
     return { addr, type: objNode.type, size: objNode.size, layout: objNode.layout };
 }
 export function inlineMethodInfo(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }): {
     object: ResolvedAddress;
     fn: FunctionDecl;
 } | null {
-    if (expression.callee.kind !== "member_access")
+    if (expression.callee.kind !== AstKind.MEMBER_ACCESS)
         return null;
     const object = context.lowering.resolveExpressionAddress(context, expression.callee.object);
     if (!object?.type || !object.layout)
         return null;
-    if (object.type.kind === "template_instance")
+    if (object.type.kind === AstKind.TEMPLATE_INSTANCE)
         return null;
     const struct = context.programAnalysis.structOf(object.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
     const method = expression.callee.member;
-    const fn = struct?.members.find((member) => member.kind === "function" &&
+    const fn = struct?.members.find((member) => member.kind === AstKind.FUNCTION &&
         (member as FunctionDecl).name === method &&
         (member as FunctionDecl).body) as FunctionDecl | undefined;
     return fn ? { object, fn } : null;
 }
 export function emitInlineStructValue(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }): watIr.WatNode | null {
     if (!context.programAnalysis.gtestMode)
         return null;
@@ -59,13 +60,13 @@ export function emitInlineStructValue(context: FunctionEmissionContext, expressi
         context.programAnalysis.isAggregateType(context.programAnalysis.derefType(resolved.fn.returnType)))
         return null;
     const result = context.lowering.allocateTemporaryLocalName(context);
-    context.localVars.set(result, { wasmType: "i64", type: context.programAnalysis.derefType(resolved.fn.returnType) });
+    context.localVars.set(result, { wasmType: WatNodeType.I64, type: context.programAnalysis.derefType(resolved.fn.returnType) });
     context.lines.push(`    ${context.lowering.setLocal(context, result, watIr.i64Constant(0))}`);
     emitInlineStructMethod(context, resolved.object, resolved.fn, expression.callArguments, { retValue: result });
-    return watIr.localGet(result, "i64");
+    return watIr.localGet(result, WatNodeType.I64);
 }
 export function emitInlineStructStatement(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }): boolean {
     if (!context.programAnalysis.gtestMode)
         return false;
@@ -86,7 +87,7 @@ export function renameInlineLocals(body: Statement, suffix: string): Statement {
             return;
         }
         const node = value as Record<string, unknown>;
-        if (node.kind === "variable" && node.isMember === false && typeof node.name === "string") {
+        if (node.kind === AstKind.VARIABLE && node.isMember === false && typeof node.name === "string") {
             names.set(node.name, `${node.name}${suffix}`);
         }
         for (const child of Object.values(node))
@@ -102,7 +103,7 @@ export function renameInlineLocals(body: Statement, suffix: string): Statement {
         const out: Record<string, unknown> = {};
         for (const [key, child] of Object.entries(node))
             out[key] = clone(child);
-        if ((node.kind === "identifier" || (node.kind === "variable" && node.isMember === false)) &&
+        if ((node.kind === AstKind.IDENTIFIER || (node.kind === AstKind.VARIABLE && node.isMember === false)) &&
             typeof node.name === "string") {
             out.name = names.get(node.name) ?? node.name;
         }
@@ -120,7 +121,7 @@ export function emitInlineStructMethod(context: FunctionEmissionContext, objNode
     context.lines.push(`    ${context.lowering.setLocal(context, self, addrIr(objNode.addr))}`);
     const bind = context.thisBind ?? EMPTY_TEMPLATE_BINDINGS;
     const params = new Map<string, {
-        wasmType: "i32" | "i64";
+        wasmType: WatValueType;
         isAddr: boolean;
         type: TypeSpec;
         local?: string;
@@ -171,7 +172,7 @@ export function emitInlineStructMethod(context: FunctionEmissionContext, objNode
     context.retAggSize = result.retSize;
     context.retType = context.programAnalysis.derefType(fn.returnType);
     context.inlineValueLocal = result.retValue;
-    context.retTypeName = fn.returnType.kind === "name" ? fn.returnType.name : undefined;
+    context.retTypeName = fn.returnType.kind === AstKind.NAME ? fn.returnType.name : undefined;
     const returnLabel = `$inline_return_${context.loopCount++}`;
     context.inlineReturnLabel = returnLabel;
     // Hoist inlined locals because the outer pre-scan cannot see them.

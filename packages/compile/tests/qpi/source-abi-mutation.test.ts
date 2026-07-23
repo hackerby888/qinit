@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { CORE_PATH } from "../../../../test-utils/paths";
@@ -63,7 +64,7 @@ describe("source-backed ABI mutations", () => {
       qpiHeader: header,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const moduleBytes = new Uint8Array(result.wasm).buffer as ArrayBuffer;
     expect(WebAssembly.Module.imports(new WebAssembly.Module(moduleBytes))[0]).toMatchObject({
       module: "lhost",
@@ -82,7 +83,7 @@ describe("source-backed ABI mutations", () => {
       qpiHeader: header,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
   });
 
   test("LHOST row order and additions are read from the canonical table", () => {
@@ -134,7 +135,7 @@ describe("source-backed ABI mutations", () => {
       qpiHeader: changedHeader,
       arenaSz: 1 << 20,
     });
-    expect(changed.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(changed.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     expect(inspectWasmModule(changed.wasm).memories[0].minimumPages).toBeGreaterThan(
       inspectWasmModule(baseline.wasm).memories[0].minimumPages,
     );
@@ -175,7 +176,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
       qpiHeader: header,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     expect(sim.deploy(27, result.wasm).ex.reg_sysproc_mask()).toBe(1 << 1);
   });

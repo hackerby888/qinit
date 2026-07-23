@@ -12,7 +12,12 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildContract } from "../packages/build/src/index";
 import { deployContract } from "../packages/cli/src/deploy-ops";
-import { compileContract, inspectWasmModule, loadQpiHeader } from "../packages/compile/src/index";
+import {
+  compileContract,
+  DiagnosticSeverity,
+  inspectWasmModule,
+  loadQpiHeader,
+} from "../packages/compile/src/index";
 import { QPI_SNAPSHOT } from "../packages/compile/src/generated/qpi-snapshot";
 import { initK12, k12Hex, LiteRpc } from "../packages/core/src/index";
 import { VirtualNode } from "../packages/engine/src/index";
@@ -169,7 +174,9 @@ async function compileTsPair(
     qpiHeader,
     arenaSz: ARENA_SIZE,
   });
-  const calleeErrors = callee.diagnostics.filter((item) => item.severity === "error");
+  const calleeErrors = callee.diagnostics.filter(
+    (item) => item.severity === DiagnosticSeverity.ERROR,
+  );
   if (calleeErrors.length || !callee.wasm.length) {
     fail(`TS callee compile: ${calleeErrors.map((item) => item.message).join("; ") || "empty artifact"}`);
   }
@@ -182,7 +189,9 @@ async function compileTsPair(
     callees: [calleeMetadata(callee.idl, calleeSlot)],
     calleeSources: [{ name: "QpiDualCallee", source: calleeSource }],
   });
-  const driverErrors = driver.diagnostics.filter((item) => item.severity === "error");
+  const driverErrors = driver.diagnostics.filter(
+    (item) => item.severity === DiagnosticSeverity.ERROR,
+  );
   if (driverErrors.length || !driver.wasm.length) {
     fail(`TS driver compile: ${driverErrors.map((item) => item.message).join("; ") || "empty artifact"}`);
   }

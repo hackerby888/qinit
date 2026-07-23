@@ -1,14 +1,15 @@
+import { AstKind } from "../../../enums";
 import type { Expression } from "../../../ast";
 
 // Return the method name for `qpi(aggregate).method(...)` wrappers.
 export function qpiWrapperMethod(expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }): string | null {
     const callee = expression.callee;
-    if (callee.kind !== "member_access")
+    if (callee.kind !== AstKind.MEMBER_ACCESS)
         return null;
     const object = callee.object;
-    if (object.kind === "call" && object.callee.kind === "identifier" && object.callee.name === "qpi")
+    if (object.kind === AstKind.CALL && object.callee.kind === AstKind.IDENTIFIER && object.callee.name === "qpi")
         return callee.member;
     return null;
 }
@@ -16,13 +17,13 @@ export function qpiWrapperMethod(expression: Expression & {
 export function describeShape(expression: Expression): string {
     if (!expression)
         return "?";
-    if (expression.kind === "identifier")
+    if (expression.kind === AstKind.IDENTIFIER)
         return expression.name;
-    if (expression.kind === "member_access")
+    if (expression.kind === AstKind.MEMBER_ACCESS)
         return `${describeShape(expression.object)}.${expression.member}`;
-    if (expression.kind === "call")
+    if (expression.kind === AstKind.CALL)
         return `${describeShape(expression.callee)}(${expression.callArguments.length})`;
-    if (expression.kind === "subscript")
+    if (expression.kind === AstKind.SUBSCRIPT)
         return `${describeShape(expression.object)}[]`;
     return expression.kind;
 }

@@ -1,3 +1,4 @@
+import { AstKind, TokenKind } from "../../../enums";
 import type {
     ClassTemplateDecl,
     Declaration,
@@ -14,14 +15,14 @@ export class TemplateParser {
 
     parseTemplateDeclaration(): Declaration {
         this.parser.state.next(); // template
-        this.parser.state.expect("l_angle", "template params");
+        this.parser.state.expect(TokenKind.L_ANGLE, "template params");
         const params = this.parser.templates.parseTemplateParams();
         this.parser.state.consumeTemplateAngleClose();
         const tok = this.parser.state.peek();
-        if (tok.kind === "kw_struct" || tok.kind === "kw_class") {
+        if (tok.kind === TokenKind.KW_STRUCT || tok.kind === TokenKind.KW_CLASS) {
             const struct = this.parser.records.parseStruct();
             return {
-                kind: "class_template",
+                kind: AstKind.CLASS_TEMPLATE,
                 name: struct.name,
                 params,
                 members: struct.members,
@@ -36,43 +37,43 @@ export class TemplateParser {
 
     parseTemplateParams(): TemplateParam[] {
         const params: TemplateParam[] = [];
-        while (!this.parser.state.eof() && this.parser.state.peek().kind !== "r_angle") {
+        while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_ANGLE) {
             const tok = this.parser.state.peek();
-            if (tok.kind === "kw_typename" || tok.kind === "kw_class") {
+            if (tok.kind === TokenKind.KW_TYPENAME || tok.kind === TokenKind.KW_CLASS) {
                 this.parser.state.next();
-                const nameTok = this.parser.state.expect("identifier", "template param name");
+                const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "template param name");
                 if (!nameTok)
                     break;
                 const name = nameTok.text;
                 // Default: typename T = DefaultType
                 let def: TypeSpec | undefined;
-                if (this.parser.state.tryConsume("eq")) {
+                if (this.parser.state.tryConsume(TokenKind.EQ)) {
                     def = this.parser.types.parseTypeSpec();
                 }
-                params.push({ kind: "type", name, default: def });
+                params.push({ kind: AstKind.TYPE, name, default: def });
             }
-            else if (isTypeKeyword(tok.kind) || tok.kind === "identifier") {
+            else if (isTypeKeyword(tok.kind) || tok.kind === TokenKind.IDENTIFIER) {
                 // Non-type parameter: uint64 L
                 const type = this.parser.types.parseTypeSpec();
-                const nameTok = this.parser.state.expect("identifier", "non-type param name");
+                const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "non-type param name");
                 if (!nameTok)
                     break;
                 const name = nameTok.text;
-                if (this.parser.state.tryConsume("eq")) {
+                if (this.parser.state.tryConsume(TokenKind.EQ)) {
                     // The default value runs up to the closing `>` of the template list — don't let a top-level
                     this.parser.state.templateAngleDepth++;
                     const defVal = this.parser.expressions.parseExpression();
                     this.parser.state.templateAngleDepth--;
-                    params.push({ kind: "non_type_default", name, type, default: defVal });
+                    params.push({ kind: AstKind.NON_TYPE_DEFAULT, name, type, default: defVal });
                 }
                 else {
-                    params.push({ kind: "non_type", name, type });
+                    params.push({ kind: AstKind.NON_TYPE, name, type });
                 }
             }
             else {
                 break;
             }
-            if (!this.parser.state.tryConsume("comma")) {
+            if (!this.parser.state.tryConsume(TokenKind.COMMA)) {
                 break;
             }
         }
@@ -102,7 +103,7 @@ export class TemplateParser {
         const nameTok = this.parser.types.parseMaybeQualifiedName();
         if (!nameTok) {
             return {
-                kind: "function_template",
+                kind: AstKind.FUNCTION_TEMPLATE,
                 name: "",
                 params,
                 returnType: retType,
@@ -110,20 +111,20 @@ export class TemplateParser {
                 span: this.parser.state.peek().span,
             };
         }
-        this.parser.state.expect("l_paren", "function params");
+        this.parser.state.expect(TokenKind.L_PAREN, "function params");
         const functionParameters = this.parser.functions.parseFunctionParams();
-        this.parser.state.expect("r_paren", "function params close");
+        this.parser.state.expect(TokenKind.R_PAREN, "function params close");
         this.parser.state.tryConsumeKeyword("const");
         this.parser.state.tryConsumeKeyword("noexcept");
         let body: Statement | undefined;
-        if (this.parser.state.peek().kind === "l_brace") {
+        if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
             body = this.parser.parseFunctionBody();
         }
         else {
-            this.parser.state.expect("semicolon", "function declaration");
+            this.parser.state.expect(TokenKind.SEMICOLON, "function declaration");
         }
         return {
-            kind: "function_template",
+            kind: AstKind.FUNCTION_TEMPLATE,
             name: nameTok,
             params,
             functionParameters,

@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // PIT (post incoming transfer) flow for @qinit/compile tests.
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -47,7 +48,7 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    expect(sink.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(sink.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(28, sink.wasm);

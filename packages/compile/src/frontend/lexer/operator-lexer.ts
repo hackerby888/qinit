@@ -1,5 +1,6 @@
+import { TokenKind } from "../../enums";
 import type { LexerInternals } from "./lexer-context";
-import type { Token, TokenKind } from "./tokens";
+import type { Token } from "./tokens";
 
 export function lexOperator(context: LexerInternals, start: number, startLine: number, startCol: number): Token {
     const ch = context.advance();
@@ -20,139 +21,139 @@ export function lexOperator(context: LexerInternals, start: number, startLine: n
     };
     switch (ch) {
         case "{":
-            return mk("l_brace");
+            return mk(TokenKind.L_BRACE);
         case "}":
-            return mk("r_brace");
+            return mk(TokenKind.R_BRACE);
         case "(":
-            return mk("l_paren");
+            return mk(TokenKind.L_PAREN);
         case ")":
-            return mk("r_paren");
+            return mk(TokenKind.R_PAREN);
         case "[":
-            return mk("l_bracket");
+            return mk(TokenKind.L_BRACKET);
         case "]":
-            return mk("r_bracket");
+            return mk(TokenKind.R_BRACKET);
         case ";":
-            return mk("semicolon");
+            return mk(TokenKind.SEMICOLON);
         case ":":
-            return next === ":" ? mk2("d_colon", ":") : mk("colon");
+            return next === ":" ? mk2(TokenKind.D_COLON, ":") : mk(TokenKind.COLON);
         case ",":
-            return mk("comma");
+            return mk(TokenKind.COMMA);
         case "?":
-            return mk("question");
+            return mk(TokenKind.QUESTION);
         case "~":
-            return mk("tilde");
+            return mk(TokenKind.TILDE);
         case ".":
             if (next === "*") {
-                return mk2("dot_star", "*");
+                return mk2(TokenKind.DOT_STAR, "*");
             }
             if (next === "." && context.peekChar(2) === ".") {
-                return mk3("ellipsis", ".", ".");
+                return mk3(TokenKind.ELLIPSIS, ".", ".");
             }
-            return mk("dot");
+            return mk(TokenKind.DOT);
         case "+":
             if (next === "=") {
-                return mk2("plus_eq", "=");
+                return mk2(TokenKind.PLUS_EQ, "=");
             }
             if (next === "+") {
-                return mk2("plus_plus", "+");
+                return mk2(TokenKind.PLUS_PLUS, "+");
             }
-            return mk("plus");
+            return mk(TokenKind.PLUS);
         case "-":
             if (next === "=") {
-                return mk2("minus_eq", "=");
+                return mk2(TokenKind.MINUS_EQ, "=");
             }
             if (next === "-") {
-                return mk2("minus_minus", "-");
+                return mk2(TokenKind.MINUS_MINUS, "-");
             }
             if (next === ">") {
                 const after = context.peekChar(1);
                 if (after === "*") {
-                    return mk3("arrow_star", ">", "*");
+                    return mk3(TokenKind.ARROW_STAR, ">", "*");
                 }
-                return mk2("arrow", ">");
+                return mk2(TokenKind.ARROW, ">");
             }
-            return mk("minus");
+            return mk(TokenKind.MINUS);
         case "*":
             if (next === "=") {
-                return mk2("star_eq", "=");
+                return mk2(TokenKind.STAR_EQ, "=");
             }
-            return mk("star");
+            return mk(TokenKind.STAR);
         case "/":
             if (next === "=") {
-                return mk2("slash_eq", "=");
+                return mk2(TokenKind.SLASH_EQ, "=");
             }
-            return mk("slash");
+            return mk(TokenKind.SLASH);
         case "%":
             if (next === "=") {
-                return mk2("percent_eq", "=");
+                return mk2(TokenKind.PERCENT_EQ, "=");
             }
-            return mk("percent");
+            return mk(TokenKind.PERCENT);
         case "=":
             if (next === "=") {
-                return mk2("eq_eq", "=");
+                return mk2(TokenKind.EQ_EQ, "=");
             }
-            return mk("eq");
+            return mk(TokenKind.EQ);
         case "!":
             if (next === "=") {
-                return mk2("not_eq", "=");
+                return mk2(TokenKind.NOT_EQ, "=");
             }
-            return mk("bang");
+            return mk(TokenKind.BANG);
         case "<":
             if (next === "=") {
                 const after = context.peekChar(1);
                 if (after === ">") {
-                    return mk3("spaceship", "=", ">");
+                    return mk3(TokenKind.SPACESHIP, "=", ">");
                 }
-                return mk2("lt_eq", "=");
+                return mk2(TokenKind.LT_EQ, "=");
             }
             if (next === "<") {
                 const after = context.peekChar(1);
                 if (after === "=") {
-                    return mk3("l_shift_eq", "<", "=");
+                    return mk3(TokenKind.L_SHIFT_EQ, "<", "=");
                 }
-                return mk2("l_shift", "<");
+                return mk2(TokenKind.L_SHIFT, "<");
             }
-            return mk("l_angle");
+            return mk(TokenKind.L_ANGLE);
         case ">":
             if (next === "=") {
-                return mk2("gt_eq", "=");
+                return mk2(TokenKind.GT_EQ, "=");
             }
             if (next === ">") {
                 const after = context.peekChar(1);
                 if (after === "=") {
-                    return mk3("r_shift_eq", ">", "=");
+                    return mk3(TokenKind.R_SHIFT_EQ, ">", "=");
                 }
-                return mk2("r_shift", ">");
+                return mk2(TokenKind.R_SHIFT, ">");
             }
-            return mk("r_angle");
+            return mk(TokenKind.R_ANGLE);
         case "&":
             if (next === "=") {
-                return mk2("amp_eq", "=");
+                return mk2(TokenKind.AMP_EQ, "=");
             }
             if (next === "&") {
-                return mk2("amp_amp", "&");
+                return mk2(TokenKind.AMP_AMP, "&");
             }
-            return mk("amp");
+            return mk(TokenKind.AMP);
         case "|":
             if (next === "=") {
-                return mk2("pipe_eq", "=");
+                return mk2(TokenKind.PIPE_EQ, "=");
             }
             if (next === "|") {
-                return mk2("pipe_pipe", "|");
+                return mk2(TokenKind.PIPE_PIPE, "|");
             }
-            return mk("pipe");
+            return mk(TokenKind.PIPE);
         case "^":
             if (next === "=") {
-                return mk2("caret_eq", "=");
+                return mk2(TokenKind.CARET_EQ, "=");
             }
-            return mk("caret");
+            return mk(TokenKind.CARET);
         case "#":
             if (next === "#") {
-                return mk2("d_hash", "#");
+                return mk2(TokenKind.D_HASH, "#");
             }
-            return mk("hash");
+            return mk(TokenKind.HASH);
         default:
             // Unknown character — skip it but emit as identifier for error recovery
-            return { kind: "identifier", text: ch, span: context.makeSpan(start, startLine, startCol) };
+            return { kind: TokenKind.IDENTIFIER, text: ch, span: context.makeSpan(start, startLine, startCol) };
     }
 }

@@ -1,3 +1,4 @@
+import { AstKind } from "../../enums";
 // Validation runs after parse and before codegen.
 import type { FunctionDecl, Statement } from "../../ast";
 import { isVoidType, isConstType } from "./validation-helpers";
@@ -16,7 +17,7 @@ export function walkScope(context: ValidatorInternals, statement: Statement, fn:
         scopes.pop();
     };
     switch (statement.kind) {
-        case "compound":
+        case AstKind.COMPOUND:
             // The parser wraps multi-declarator statements in a synthetic compound.
             if ((statement as any).synthetic) {
                 for (const bodyItem of statement.body) {
@@ -30,20 +31,20 @@ export function walkScope(context: ValidatorInternals, statement: Statement, fn:
             }
             scopes.pop();
             break;
-        case "declaration":
+        case AstKind.DECLARATION:
             context.checkDeclarationStatement(statement, scopes);
-            if (statement.declaration.kind === "variable" && statement.declaration.initializer) {
+            if (statement.declaration.kind === AstKind.VARIABLE && statement.declaration.initializer) {
                 context.checkExpression(statement.declaration.initializer, memberFns, allLocals, constParams, scopes);
             }
             break;
-        case "if":
+        case AstKind.IF:
             context.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
             inOwnScope(statement.then);
             if (statement.else_) {
                 inOwnScope(statement.else_);
             }
             break;
-        case "for":
+        case AstKind.FOR:
             scopes.push(new Map());
             if (statement.initializer) {
                 recurse(statement.initializer);
@@ -59,58 +60,58 @@ export function walkScope(context: ValidatorInternals, statement: Statement, fn:
             context.loopDepth--;
             scopes.pop();
             break;
-        case "while":
+        case AstKind.WHILE:
             context.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
             context.loopDepth++;
             inOwnScope(statement.body);
             context.loopDepth--;
             break;
-        case "do_while":
+        case AstKind.DO_WHILE:
             context.loopDepth++;
             inOwnScope(statement.body);
             context.loopDepth--;
             context.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
             break;
-        case "switch":
+        case AstKind.SWITCH:
             context.checkExpression(statement.condition, memberFns, allLocals, constParams, scopes);
             context.checkSwitchCases(statement.body, allLocals);
             inOwnScope(statement.body);
             break;
-        case "continue":
+        case AstKind.CONTINUE:
             if (context.loopDepth === 0)
                 context.error(`continue statement is outside a loop`, statement.span);
             break;
-        case "static_assert":
+        case AstKind.STATIC_ASSERT:
             context.checkStaticAssert(statement.condition, statement.message, statement.span);
             break;
-        case "return":
+        case AstKind.RETURN:
             if (statement.value) {
                 context.checkExpression(statement.value, memberFns, allLocals, constParams, scopes);
             }
             break;
-        case "expression":
+        case AstKind.EXPRESSION:
             context.checkExpression(statement.expression, memberFns, allLocals, constParams, scopes);
             break;
     }
 }
 
 export function checkDeclarationStatement(context: ValidatorInternals, statement: Statement & {
-    kind: "declaration";
+    kind: AstKind.DECLARATION;
 }, scopes: Array<Map<string, {
     const: boolean;
 }>>): void {
     const decl = statement.declaration;
-    if (decl.kind === "function") {
+    if (decl.kind === AstKind.FUNCTION) {
         if (decl.body) {
             context.error(`function '${decl.name}' cannot be defined nested inside another function`, statement.span);
         }
         return;
     }
-    if (decl.kind === "struct") {
+    if (decl.kind === AstKind.STRUCT) {
         context.checkStruct(decl);
         return;
     }
-    if (decl.kind !== "variable") {
+    if (decl.kind !== AstKind.VARIABLE) {
         return;
     }
     if (isVoidType(decl.type)) {

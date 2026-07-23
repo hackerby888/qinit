@@ -1,4 +1,5 @@
 import type { Diagnostic as ParserDiagnostic } from "../parser";
+import { DiagnosticSeverity, SourceScannerState } from "../enums";
 
 export const USER_BOUNDARY = "__QINIT_USER_BOUNDARY__";
 
@@ -136,7 +137,7 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
   const starts = lineStarts(source);
   const directives: Array<{ name: string; start: number; end: number }> = [];
   const conditionalStack: Array<{ name: string; start: number; end: number }> = [];
-  let state: "normal" | "line_comment" | "block_comment" | "string" | "char" = "normal";
+  let state = SourceScannerState.NORMAL;
   let blockCommentStart = -1;
   let escaped = false;
   let lineHasOnlyWhitespace = true;
@@ -149,7 +150,7 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
     const safeEnd = Math.max(safeStart, Math.min(end, source.length));
     const lineIndex = lineIndexAt(starts, safeStart);
     diagnostics.push({
-      severity: "error",
+      severity: DiagnosticSeverity.ERROR,
       message,
       span: {
         start: safeStart,
@@ -163,31 +164,34 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
   for (let sourceItemIndex = 0; sourceItemIndex < source.length; sourceItemIndex++) {
     const ch = source[sourceItemIndex];
     const next = source[sourceItemIndex + 1];
-    if (state === "line_comment") {
+    if (state === SourceScannerState.LINE_COMMENT) {
       if (ch === "\n") {
-        state = "normal";
+        state = SourceScannerState.NORMAL;
         lineHasOnlyWhitespace = true;
       }
       continue;
     }
-    if (state === "block_comment") {
+    if (state === SourceScannerState.BLOCK_COMMENT) {
       if (ch === "*" && next === "/") {
-        state = "normal";
+        state = SourceScannerState.NORMAL;
         sourceItemIndex++;
       } else if (ch === "\n") {
         lineHasOnlyWhitespace = true;
       }
       continue;
     }
-    if (state === "string" || state === "char") {
+    if (state === SourceScannerState.STRING || state === SourceScannerState.CHAR) {
       if (escaped) {
         escaped = false;
       } else if (ch === "\\") {
         escaped = true;
-      } else if ((state === "string" && ch === '"') || (state === "char" && ch === "'")) {
-        state = "normal";
+      } else if (
+        (state === SourceScannerState.STRING && ch === '"') ||
+        (state === SourceScannerState.CHAR && ch === "'")
+      ) {
+        state = SourceScannerState.NORMAL;
       } else if (ch === "\n") {
-        state = "normal";
+        state = SourceScannerState.NORMAL;
         lineHasOnlyWhitespace = true;
       }
       continue;
@@ -200,24 +204,24 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
       continue;
     }
     if (ch === "/" && next === "/") {
-      state = "line_comment";
+      state = SourceScannerState.LINE_COMMENT;
       sourceItemIndex++;
       continue;
     }
     if (ch === "/" && next === "*") {
-      state = "block_comment";
+      state = SourceScannerState.BLOCK_COMMENT;
       blockCommentStart = sourceItemIndex;
       sourceItemIndex++;
       continue;
     }
     if (ch === '"') {
-      state = "string";
+      state = SourceScannerState.STRING;
       escaped = false;
       lineHasOnlyWhitespace = false;
       continue;
     }
     if (ch === "'") {
-      state = "char";
+      state = SourceScannerState.CHAR;
       escaped = false;
       lineHasOnlyWhitespace = false;
       continue;
@@ -238,7 +242,7 @@ export function scanUnterminatedSource(source: string): ParserDiagnostic[] {
     lineHasOnlyWhitespace = false;
   }
 
-  if (state === "block_comment")
+  if (state === SourceScannerState.BLOCK_COMMENT)
     addDiagnostic(
       "unterminated block comment",
       blockCommentStart,

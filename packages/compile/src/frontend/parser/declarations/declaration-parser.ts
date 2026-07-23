@@ -1,3 +1,9 @@
+import {
+    AstKind,
+    DiagnosticCategory,
+    DiagnosticSeverity,
+    TokenKind,
+} from "../../../enums";
 import type {
     ClassTemplateDecl,
     Declaration,
@@ -23,107 +29,107 @@ export class DeclarationParser {
     parseDeclaration(): Declaration | null {
         const tok = this.parser.state.peek();
         switch (tok.kind) {
-            case "kw_namespace":
+            case TokenKind.KW_NAMESPACE:
                 return this.parser.records.parseNamespace();
-            case "kw_struct":
+            case TokenKind.KW_STRUCT:
                 return this.parser.records.parseStruct();
-            case "kw_class":
+            case TokenKind.KW_CLASS:
                 return this.parser.records.parseClassOrTemplate();
-            case "kw_template":
+            case TokenKind.KW_TEMPLATE:
                 return this.parser.templates.parseTemplateDeclaration();
-            case "kw_enum":
+            case TokenKind.KW_ENUM:
                 return this.parser.declarations.parseEnum();
-            case "kw_typedef":
+            case TokenKind.KW_TYPEDEF:
                 return this.parser.declarations.parseTypedef();
-            case "kw_using":
+            case TokenKind.KW_USING:
                 return this.parser.declarations.parseUsing();
-            case "kw_static_assert":
+            case TokenKind.KW_STATIC_ASSERT:
                 return this.parser.declarations.parseStaticAssertDecl();
-            case "kw_extern":
+            case TokenKind.KW_EXTERN:
                 return this.parser.declarations.parseExternBlock();
-            case "kw_friend":
+            case TokenKind.KW_FRIEND:
                 return this.parser.declarations.parseFriend();
-            case "kw_public":
-            case "kw_protected":
-            case "kw_private":
+            case TokenKind.KW_PUBLIC:
+            case TokenKind.KW_PROTECTED:
+            case TokenKind.KW_PRIVATE:
                 return this.parser.declarations.parseAccessSpec();
-            case "kw_constexpr":
-            case "kw_static":
-            case "kw_inline":
-            case "kw_virtual":
+            case TokenKind.KW_CONSTEXPR:
+            case TokenKind.KW_STATIC:
+            case TokenKind.KW_INLINE:
+            case TokenKind.KW_VIRTUAL:
                 return this.parser.functions.parseFunctionOrVariable(); // with modifiers
-            case "kw_const":
+            case TokenKind.KW_CONST:
                 // `const Type& name = ...` — a const qualifier belongs to the type, so peek the whole type
                 return this.parser.functions.parseFunctionOrVariablePeekType();
-            case "hash":
+            case TokenKind.HASH:
                 return this.parser.declarations.parsePreprocessorLine();
-            case "kw_signed":
-            case "kw_unsigned":
-            case "kw_void":
-            case "kw_bool":
-            case "kw_char":
-            case "kw_short":
-            case "kw_int":
-            case "kw_long":
-            case "kw_double":
-            case "kw_float":
-            case "kw_auto":
+            case TokenKind.KW_SIGNED:
+            case TokenKind.KW_UNSIGNED:
+            case TokenKind.KW_VOID:
+            case TokenKind.KW_BOOL:
+            case TokenKind.KW_CHAR:
+            case TokenKind.KW_SHORT:
+            case TokenKind.KW_INT:
+            case TokenKind.KW_LONG:
+            case TokenKind.KW_DOUBLE:
+            case TokenKind.KW_FLOAT:
+            case TokenKind.KW_AUTO:
             // collapsed multi-word builtin types (the lexer merges `unsigned int` → kw_unsigned_int etc.)
-            case "kw_signed_char":
-            case "kw_unsigned_char":
-            case "kw_signed_short":
-            case "kw_unsigned_short":
-            case "kw_signed_int":
-            case "kw_unsigned_int":
-            case "kw_signed_long_long":
-            case "kw_unsigned_long_long":
-            case "kw_long_long":
+            case TokenKind.KW_SIGNED_CHAR:
+            case TokenKind.KW_UNSIGNED_CHAR:
+            case TokenKind.KW_SIGNED_SHORT:
+            case TokenKind.KW_UNSIGNED_SHORT:
+            case TokenKind.KW_SIGNED_INT:
+            case TokenKind.KW_UNSIGNED_INT:
+            case TokenKind.KW_SIGNED_LONG_LONG:
+            case TokenKind.KW_UNSIGNED_LONG_LONG:
+            case TokenKind.KW_LONG_LONG:
                 // Type keyword at top level → likely a variable declaration (or free function)
                 return this.parser.functions.parseFunctionOrVariablePeekType();
-            case "identifier":
+            case TokenKind.IDENTIFIER:
                 // Could be: function definition, variable declaration, or constructor
                 return this.parser.functions.parseIdentifierDeclaration();
-            case "semicolon":
+            case TokenKind.SEMICOLON:
                 this.parser.state.next(); // empty declaration
-                return { kind: "empty", span: tok.span } as EmptyDecl;
-            case "kw_union":
+                return { kind: AstKind.EMPTY, span: tok.span } as EmptyDecl;
+            case TokenKind.KW_UNION:
                 return this.parser.records.parseUnion();
-            case "kw_operator": {
+            case TokenKind.KW_OPERATOR: {
                 // Conversion operators use their target as the return type.
                 this.parser.state.next();
                 const targetType = this.parser.types.parseTypeSpec();
-                const targetName = targetType.kind === "name" ? targetType.name : "?";
+                const targetName = targetType.kind === AstKind.NAME ? targetType.name : "?";
                 return this.parser.functions.parseFunctionRest(`operator ${targetName}`, targetType, false, false, false, false, false);
             }
             default:
                 // Record unsupported qpi.h constructs as fidelity warnings.
                 this.parser.state.bodyDiagnostics.push({
-                    severity: "warning",
-                    category: "fidelity",
+                    severity: DiagnosticSeverity.WARNING,
+                    category: DiagnosticCategory.FIDELITY,
                     message: `skipped unparseable token '${tok.text}' (${tok.kind})`,
                     span: tok.span,
                 });
                 this.parser.state.next();
-                return { kind: "empty", span: tok.span } as EmptyDecl;
+                return { kind: AstKind.EMPTY, span: tok.span } as EmptyDecl;
         }
     }
 
     parsePreprocessorLine(): Declaration {
         // Skip # line directive remnants
         this.parser.state.next();
-        while (!this.parser.state.eof() && this.parser.state.peek().kind !== "eof" && this.parser.state.peek().text !== "\n") {
+        while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.EOF && this.parser.state.peek().text !== "\n") {
             this.parser.state.next();
         }
-        return { kind: "empty" };
+        return { kind: AstKind.EMPTY };
     }
 
     parseDeclarationList(): Declaration[] {
         const declarations: Declaration[] = [];
-        while (!this.parser.state.eof() && this.parser.state.peek().kind !== "r_brace") {
+        while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
             const before = this.parser.state.position;
             const errsBefore = this.parser.state.diagnostics.length;
             const declaration = this.parser.declarations.parseDeclaration();
-            if (declaration && declaration.kind !== "empty")
+            if (declaration && declaration.kind !== AstKind.EMPTY)
                 declarations.push(declaration);
             while (this.parser.state.pendingDeclarations.length)
                 declarations.push(this.parser.state.pendingDeclarations.shift()!);
@@ -134,14 +140,14 @@ export class DeclarationParser {
 
     parseClassMembers(): Declaration[] {
         const members: Declaration[] = [];
-        while (!this.parser.state.eof() && this.parser.state.peek().kind !== "r_brace") {
+        while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
             const tok = this.parser.state.peek();
-            if (tok.kind === "kw_public" || tok.kind === "kw_protected" || tok.kind === "kw_private") {
+            if (tok.kind === TokenKind.KW_PUBLIC || tok.kind === TokenKind.KW_PROTECTED || tok.kind === TokenKind.KW_PRIVATE) {
                 this.parser.state.next();
-                this.parser.state.expect("colon", "access spec");
+                this.parser.state.expect(TokenKind.COLON, "access spec");
                 continue;
             }
-            if (tok.kind === "kw_friend") {
+            if (tok.kind === TokenKind.KW_FRIEND) {
                 const field = this.parser.declarations.parseFriend();
                 members.push(field);
                 continue;
@@ -149,7 +155,7 @@ export class DeclarationParser {
             const before = this.parser.state.position;
             const errsBefore = this.parser.state.diagnostics.length;
             const declaration = this.parser.declarations.parseDeclaration();
-            if (declaration && declaration.kind !== "empty")
+            if (declaration && declaration.kind !== AstKind.EMPTY)
                 members.push(declaration);
             while (this.parser.state.pendingDeclarations.length)
                 members.push(this.parser.state.pendingDeclarations.shift()!);
@@ -162,25 +168,25 @@ export class DeclarationParser {
         const start = this.parser.state.next().span; // enum
         let isClass = false;
         // enum class Foo : uint8
-        if (this.parser.state.tryConsume("kw_class")) {
+        if (this.parser.state.tryConsume(TokenKind.KW_CLASS)) {
             isClass = true;
         }
         let name: string | undefined;
-        if (this.parser.state.peek().kind === "identifier") {
+        if (this.parser.state.peek().kind === TokenKind.IDENTIFIER) {
             name = this.parser.state.next().text;
         }
         let underlyingType: TypeSpec | undefined;
-        if (this.parser.state.tryConsume("colon")) {
+        if (this.parser.state.tryConsume(TokenKind.COLON)) {
             underlyingType = this.parser.types.parseTypeSpec();
         }
         const members: EnumeratorDecl[] = [];
-        if (this.parser.state.tryConsume("l_brace")) {
+        if (this.parser.state.tryConsume(TokenKind.L_BRACE)) {
             members.push(...this.parser.declarations.parseEnumeratorList());
-            this.parser.state.expect("r_brace", "enum close");
+            this.parser.state.expect(TokenKind.R_BRACE, "enum close");
         }
-        this.parser.state.tryConsume("semicolon");
+        this.parser.state.tryConsume(TokenKind.SEMICOLON);
         return {
-            kind: "enum",
+            kind: AstKind.ENUM,
             name,
             underlyingType,
             isClass,
@@ -191,16 +197,16 @@ export class DeclarationParser {
 
     parseEnumeratorList(): EnumeratorDecl[] {
         const members: EnumeratorDecl[] = [];
-        while (!this.parser.state.eof() && this.parser.state.peek().kind !== "r_brace") {
-            const nameTok = this.parser.state.expect("identifier", "enumerator name");
+        while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_BRACE) {
+            const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "enumerator name");
             if (!nameTok)
                 break;
             let value: Expression | undefined;
-            if (this.parser.state.tryConsume("eq")) {
+            if (this.parser.state.tryConsume(TokenKind.EQ)) {
                 value = this.parser.expressions.parseExpression();
             }
             members.push({ name: nameTok.text, value, span: nameTok.span });
-            if (!this.parser.state.tryConsume("comma")) {
+            if (!this.parser.state.tryConsume(TokenKind.COMMA)) {
                 break;
             }
         }
@@ -211,93 +217,93 @@ export class DeclarationParser {
         const start = this.parser.state.next().span; // typedef
         let type = this.parser.types.parseTypeSpec();
         // Handle function pointer typedefs: typedef RetType (*Name)(Params);
-        if (this.parser.state.peek().kind === "l_paren" && this.parser.state.peek(1).kind === "star") {
+        if (this.parser.state.peek().kind === TokenKind.L_PAREN && this.parser.state.peek(1).kind === TokenKind.STAR) {
             this.parser.state.next(); // (
             this.parser.state.next(); // *
-            const nameTok = this.parser.state.expect("identifier", "typedef function pointer name");
-            this.parser.state.expect("r_paren", "typedef function pointer");
+            const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "typedef function pointer name");
+            this.parser.state.expect(TokenKind.R_PAREN, "typedef function pointer");
             // Skip parameter list
-            if (this.parser.state.peek().kind === "l_paren") {
-                this.parser.recovery.skipBalanced("l_paren", "r_paren");
+            if (this.parser.state.peek().kind === TokenKind.L_PAREN) {
+                this.parser.recovery.skipBalanced(TokenKind.L_PAREN, TokenKind.R_PAREN);
             }
-            this.parser.state.expect("semicolon", "typedef");
+            this.parser.state.expect(TokenKind.SEMICOLON, "typedef");
             // Return a simplified typedef — the exact signature doesn't matter for our subset
             return {
-                kind: "typedef_decl",
+                kind: AstKind.TYPEDEF_DECL,
                 name: nameTok?.text ?? "fn_ptr",
-                type: { kind: "pointer", pointee: { kind: "void" } },
+                type: { kind: AstKind.POINTER, pointee: { kind: AstKind.VOID } },
                 span: this.parser.recovery.makeSpan(start),
             };
         }
-        const nameTok = this.parser.state.expect("identifier", "typedef name");
-        this.parser.state.expect("semicolon", "typedef");
-        return { kind: "typedef_decl", name: nameTok?.text ?? "", type, span: this.parser.recovery.makeSpan(start) };
+        const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "typedef name");
+        this.parser.state.expect(TokenKind.SEMICOLON, "typedef");
+        return { kind: AstKind.TYPEDEF_DECL, name: nameTok?.text ?? "", type, span: this.parser.recovery.makeSpan(start) };
     }
 
     parseUsing(): Declaration {
         this.parser.state.next(); // using
         // using namespace QPI;
         if (this.parser.state.tryConsumeKeyword("namespace")) {
-            const nameTok = this.parser.state.expect("identifier", "namespace name");
-            this.parser.state.expect("semicolon", "using namespace");
+            const nameTok = this.parser.state.expect(TokenKind.IDENTIFIER, "namespace name");
+            this.parser.state.expect(TokenKind.SEMICOLON, "using namespace");
             return {
-                kind: "typedef_decl",
+                kind: AstKind.TYPEDEF_DECL,
                 name: `using namespace ${nameTok?.text ?? ""}`,
-                type: { kind: "void" },
+                type: { kind: AstKind.VOID },
                 span: this.parser.state.peek().span,
             };
         }
         // using Alias = Type;
         const name = this.parser.types.parseQualifiedName();
-        if (this.parser.state.tryConsume("eq")) {
+        if (this.parser.state.tryConsume(TokenKind.EQ)) {
             const type = this.parser.types.parseTypeSpec();
-            this.parser.state.expect("semicolon", "using alias");
+            this.parser.state.expect(TokenKind.SEMICOLON, "using alias");
             return {
-                kind: "typedef_decl",
+                kind: AstKind.TYPEDEF_DECL,
                 name,
                 type,
                 span: this.parser.state.peek().span,
             };
         }
         // using Base::member;
-        this.parser.state.expect("semicolon", "using decl");
+        this.parser.state.expect(TokenKind.SEMICOLON, "using decl");
         return {
-            kind: "typedef_decl",
+            kind: AstKind.TYPEDEF_DECL,
             name,
-            type: { kind: "void" },
+            type: { kind: AstKind.VOID },
             span: this.parser.state.peek().span,
         };
     }
 
     parseStaticAssertDecl(): StaticAssertDecl {
         const start = this.parser.state.next().span; // static_assert
-        this.parser.state.expect("l_paren", "static_assert");
+        this.parser.state.expect(TokenKind.L_PAREN, "static_assert");
         const condition = this.parser.expressions.parseExpression();
         let message: Expression | undefined;
-        if (this.parser.state.tryConsume("comma")) {
+        if (this.parser.state.tryConsume(TokenKind.COMMA)) {
             message = this.parser.expressions.parsePrimaryExpression();
         }
-        this.parser.state.expect("r_paren", "static_assert");
-        this.parser.state.expect("semicolon", "static_assert");
-        return { kind: "static_assert_decl", condition, message, span: this.parser.recovery.makeSpan(start) };
+        this.parser.state.expect(TokenKind.R_PAREN, "static_assert");
+        this.parser.state.expect(TokenKind.SEMICOLON, "static_assert");
+        return { kind: AstKind.STATIC_ASSERT_DECL, condition, message, span: this.parser.recovery.makeSpan(start) };
     }
 
     parseExternBlock(): ExternBlockDecl | FunctionDecl {
         const start = this.parser.state.next().span; // extern
         // extern "C" { ... }
-        if (this.parser.state.peek().kind === "string_literal") {
+        if (this.parser.state.peek().kind === TokenKind.STRING_LITERAL) {
             const linkage = this.parser.state.next().text.replace(/"/g, "");
-            if (this.parser.state.tryConsume("l_brace")) {
+            if (this.parser.state.tryConsume(TokenKind.L_BRACE)) {
                 const body = this.parser.declarations.parseDeclarationList();
-                this.parser.state.expect("r_brace", "extern block");
-                return { kind: "extern_block", linkage, body, span: this.parser.recovery.makeSpan(start) };
+                this.parser.state.expect(TokenKind.R_BRACE, "extern block");
+                return { kind: AstKind.EXTERN_BLOCK, linkage, body, span: this.parser.recovery.makeSpan(start) };
             }
             // extern "C" function declaration
-            const func = this.parser.functions.parseFunctionAfterReturnType({ kind: "name", name: "void" }, true);
+            const func = this.parser.functions.parseFunctionAfterReturnType({ kind: AstKind.NAME, name: "void" }, true);
             return func;
         }
         // extern function
-        const func = this.parser.functions.parseFunctionAfterReturnType({ kind: "name", name: "void" }, true);
+        const func = this.parser.functions.parseFunctionAfterReturnType({ kind: AstKind.NAME, name: "void" }, true);
         return func;
     }
 
@@ -306,11 +312,11 @@ export class DeclarationParser {
         const declaration = this.parser.declarations.parseDeclaration();
         if (!declaration) {
             return {
-                kind: "friend",
+                kind: AstKind.FRIEND,
                 declaration: {
-                    kind: "function",
+                    kind: AstKind.FUNCTION,
                     name: "",
-                    returnType: { kind: "void" },
+                    returnType: { kind: AstKind.VOID },
                     params: [],
                     isConstexpr: false,
                     isStatic: false,
@@ -326,7 +332,7 @@ export class DeclarationParser {
             };
         }
         return {
-            kind: "friend",
+            kind: AstKind.FRIEND,
             declaration: declaration as FunctionDecl | StructDecl | ClassTemplateDecl,
             span: this.parser.recovery.makeSpan(start),
         };
@@ -334,7 +340,7 @@ export class DeclarationParser {
 
     parseAccessSpec(): EmptyDecl {
         this.parser.state.next(); // public/protected/private
-        this.parser.state.expect("colon", "access specifier");
-        return { kind: "empty" };
+        this.parser.state.expect(TokenKind.COLON, "access specifier");
+        return { kind: AstKind.EMPTY };
     }
 }

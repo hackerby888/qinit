@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Drives the upstream QUTIL gtests against deployable QUTIL and QX Wasm.
 import { existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -94,8 +95,8 @@ export async function buildContractsOurs(core: string): Promise<Record<number, U
     calleeSources,
   });
 
-  const qxErrs = mineQx.diagnostics.filter((d) => d.severity === "error");
-  const qutilErrs = mineQutil.diagnostics.filter((d) => d.severity === "error");
+  const qxErrs = mineQx.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+  const qutilErrs = mineQutil.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
   if (qxErrs.length || qutilErrs.length) {
     const fmt = (label: string, ds: typeof qxErrs) =>
       ds.map((d) => `  ${label} L${d.span.line}: ${d.message}`).join("\n");

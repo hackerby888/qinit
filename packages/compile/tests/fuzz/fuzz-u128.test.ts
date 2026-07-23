@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // u128 differential-gate over pinned seeds from `tools/fuzz-gen-u128.ts`.
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -73,7 +74,7 @@ describe("fuzz pinned uint128 seeds", () => {
         qpiHeader: HEADERS,
         arenaSz: 1 << 20,
       });
-      expect(ours.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+      expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
       expect(runState(ours.wasm, c.inputs)).toBe(expected);
 
       if (wasiOk) {

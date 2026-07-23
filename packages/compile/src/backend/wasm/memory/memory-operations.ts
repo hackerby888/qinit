@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType } from "../../../enums";
 import { SCALAR_SIZE } from "../abi/tables";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { FunctionEmissionContext } from "../types";
@@ -7,11 +8,11 @@ import * as watIr from "../../../wat-ir";
 export function isAggregate(context: FunctionEmissionContext, type: TypeSpec | null, size: number): boolean {
     if (!type)
         return size > 8;
-    if (type.kind === "name" && (type.name === "id" || type.name === "m256i"))
+    if (type.kind === AstKind.NAME && (type.name === "id" || type.name === "m256i"))
         return true;
-    if (type.kind === "array" || type.kind === "inline_struct" || type.kind === "template_instance")
+    if (type.kind === AstKind.ARRAY || type.kind === AstKind.INLINE_STRUCT || type.kind === AstKind.TEMPLATE_INSTANCE)
         return true;
-    if (type.kind === "name" && context.programAnalysis.layoutOfType(type))
+    if (type.kind === AstKind.NAME && context.programAnalysis.layoutOfType(type))
         return true;
     return size > 8;
 }
@@ -27,7 +28,7 @@ export function setLocal(context: FunctionEmissionContext, name: string, value: 
 export function allocateScratchSlotNode(context: FunctionEmissionContext, size: number): watIr.WatNode {
     const temporaryAddress = context.lowering.allocateTemporaryLocalName(context);
     context.lines.push(`    ${watIr.serializeWatNode(watIr.localSet(temporaryAddress, watIr.functionCall("$qpiAllocLocals", watIr.i32Constant(size))))}`);
-    return watIr.localGet(temporaryAddress, "i32");
+    return watIr.localGet(temporaryAddress, WatNodeType.I32);
 }
 export function allocateScratchSlot(context: FunctionEmissionContext, size: number): string {
     return watIr.serializeWatNode(allocateScratchSlotNode(context, size));
@@ -38,7 +39,7 @@ export function argAddr(context: FunctionEmissionContext, expression: Expression
     const targetAggregate = !!type && context.programAnalysis.isAggregateType(type);
     const source = convertScalarToAggregate ? context.lowering.resolveExpressionAddress(context, expression) : null;
     const sourceAggregate = (!!source && isAggregate(context, source.type, source.size)) ||
-        (expression.kind === "construct" && context.programAnalysis.isAggregateType(expression.type)) ||
+        (expression.kind === AstKind.CONSTRUCT && context.programAnalysis.isAggregateType(expression.type)) ||
         context.lowering.isU128Expr(context, expression);
     const convertToAggregate = convertScalarToAggregate && targetAggregate && !sourceAggregate;
     const copyValue = copyConstScalar && !!type && !targetAggregate;
@@ -49,10 +50,10 @@ export function argAddr(context: FunctionEmissionContext, expression: Expression
     }
     const scratchAddress = allocateScratchSlot(context, size);
     if (type &&
-        (convertToAggregate || expression.kind === "initializer_list" || expression.kind === "construct")) {
-        const callArguments = expression.kind === "initializer_list"
+        (convertToAggregate || expression.kind === AstKind.INITIALIZER_LIST || expression.kind === AstKind.CONSTRUCT)) {
+        const callArguments = expression.kind === AstKind.INITIALIZER_LIST
             ? expression.expressions
-            : expression.kind === "construct"
+            : expression.kind === AstKind.CONSTRUCT
                 ? expression.callArguments
                 : [expression];
         if (!context.lowering.emitConstruct(context, scratchAddress, type, callArguments)) {
@@ -64,7 +65,7 @@ export function argAddr(context: FunctionEmissionContext, expression: Expression
     return scratchAddress;
 }
 export function addressAtOffset(ptr: string, offset: number): string {
-    return watIr.serializeWatNode(watIr.addressWithOffset(watIr.rawWatNode(ptr, "i32"), offset));
+    return watIr.serializeWatNode(watIr.addressWithOffset(watIr.rawWatNode(ptr, WatNodeType.I32), offset));
 }
 // Sign-extend narrow signed loads into the i64 value model.
 export function emitScalarLoad(addr: string, size: number, signed = false): string {
@@ -76,7 +77,7 @@ export function lowerScalarLoad(addr: string, size: number, signed = false): wat
 }
 // Wrap a string-typed address (the resolveAddr/emitAddr channel) as a typed i32 node.
 export function addrIr(addressText: string): watIr.WatNode {
-    return watIr.rawWatNode(addressText, "i32", "lvalue address channel");
+    return watIr.rawWatNode(addressText, WatNodeType.I32, "lvalue address channel");
 }
 export const SIGNED_SCALARS = new Set([
     "sint8",
@@ -95,16 +96,16 @@ export const SIGNED_SCALARS = new Set([
 export function isSignedScalarType(type: TypeSpec | null | undefined, programAnalysis?: ProgramAnalysis): boolean {
     if (!type)
         return false;
-    if (type.kind === "const")
+    if (type.kind === AstKind.CONST)
         return isSignedScalarType(type.valueType, programAnalysis);
     if (programAnalysis)
         type = programAnalysis.scalarStorageType(type);
-    if (type.kind === "name")
+    if (type.kind === AstKind.NAME)
         return SIGNED_SCALARS.has(type.name);
     return false;
 }
 export function emitScalarStore(addr: string, size: number, value: string): string {
-    return watIr.serializeWatNode(watIr.storeScalar(watIr.rawWatNode(addr, "i32"), size, watIr.rawWatNode(value, "i64")));
+    return watIr.serializeWatNode(watIr.storeScalar(watIr.rawWatNode(addr, WatNodeType.I32), size, watIr.rawWatNode(value, WatNodeType.I64)));
 }
 // Narrow i64 values with C++ signed extension or unsigned masking.
 export function narrowCastIr(inner: watIr.WatNode, typeName: string | undefined): watIr.WatNode {
@@ -132,5 +133,5 @@ export function narrowCastIr(inner: watIr.WatNode, typeName: string | undefined)
     return watIr.operation("i64.and", inner, watIr.i64Constant(mask));
 }
 export function narrowCast(inner: string, typeName: string | undefined): string {
-    return watIr.serializeWatNode(narrowCastIr(watIr.rawWatNode(inner, "i64"), typeName));
+    return watIr.serializeWatNode(narrowCastIr(watIr.rawWatNode(inner, WatNodeType.I64), typeName));
 }

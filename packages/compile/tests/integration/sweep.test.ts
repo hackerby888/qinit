@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 // Measures parse, Wasm, engine-load, and state-size coverage across the corpus.
 import { test, expect, beforeAll } from "bun:test";
@@ -170,7 +171,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
         calleeSources: priorSources.length ? priorSources : undefined,
       });
       const dependencyErrors = dependencyResult.diagnostics.filter(
-        (diagnostic) => diagnostic.severity === "error",
+        (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
       );
       if (dependencyErrors.length) {
         throw new Error(
@@ -202,7 +203,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
     return row;
   }
 
-  const errs = r.diagnostics.filter((d) => d.severity === "error");
+  const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
   row.parse = errs.length === 0 ? "ok" : `${errs.length} err`;
   row.errors.push(...errs.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`));
   row.wasm = r.wasm.byteLength > 0 ? `${r.wasm.byteLength}b` : "0";

@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Ensures nested aliases from state.get() cannot mutate contract state.
 import { describe, expect, test } from "bun:test";
@@ -24,7 +25,7 @@ async function expectReadonlyRejection(source: string) {
     qpiHeader: HEADERS,
     arenaSz: 1 << 20,
   });
-  const errors = result.diagnostics.filter((d) => d.severity === "error");
+  const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
   expect(
     errors.some((d) =>
       /state\.get|read.?only|const.*reference|cannot.*bind|non.?const/i.test(d.message),

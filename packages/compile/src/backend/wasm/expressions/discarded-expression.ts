@@ -1,3 +1,9 @@
+import {
+  AstKind,
+  BinaryOp,
+  UpdateOp,
+  WatNodeType,
+} from "../../../enums";
 import { addrIr, emitScalarLoad, isSignedScalarType, emitScalarStore } from "../memory/memory-operations";
 import { isUint128 } from "../memory/address-resolution";
 import { FunctionEmissionContext } from "../types";
@@ -5,18 +11,18 @@ import type { TypeSpec, Expression } from "../../../ast";
 import * as watIr from "../../../wat-ir";
 // Emit a statement expression; calls and assignments record their own effects.
 export function emitDiscardedExpression(context: FunctionEmissionContext, expression: Expression): string {
-    if (expression.kind === "assign") {
+    if (expression.kind === AstKind.ASSIGN) {
         context.lowering.emitAssignment(context, expression);
         return "";
     }
-    if (expression.kind === "call") {
+    if (expression.kind === AstKind.CALL) {
         context.lowering.emitCallStatement(context, expression);
         return "";
     }
-    if (expression.kind === "postfix_op" || expression.kind === "prefix_op")
+    if (expression.kind === AstKind.POSTFIX_OP || expression.kind === AstKind.PREFIX_OP)
         return emitIncrementOrDecrement(context, expression);
     // comma sequence (for-update `i++, flags >>= 2`): emit each side effect in order.
-    if (expression.kind === "sequence") {
+    if (expression.kind === AstKind.SEQUENCE) {
         for (const sequenceExpression of expression.expressions) {
             const discardedText = emitDiscardedExpression(context, sequenceExpression);
             if (discardedText)
@@ -34,11 +40,13 @@ export function isScalarLocal(context: FunctionEmissionContext, name: string): b
     return !!type && !type.isAddr;
 }
 export function emitIncrementOrDecrement(context: FunctionEmissionContext, expression: Expression): string {
-    const argument = expression.kind === "postfix_op" || expression.kind === "prefix_op" ? expression.argument : expression;
-    const operator = (expression as any).operator === "++" ? "i64.add" : "i64.sub";
+    const argument = expression.kind === AstKind.POSTFIX_OP || expression.kind === AstKind.PREFIX_OP ? expression.argument : expression;
+    const operator = (expression as any).operator === UpdateOp.INCREMENT
+        ? "i64.add"
+        : "i64.sub";
     // Narrow incremented scalar locals so overflow matches C++.
-    if (argument.kind === "identifier" && isScalarLocal(context, argument.name)) {
-        const next = watIr.operation(operator, watIr.localGet(argument.name, "i64"), watIr.i64Constant(1));
+    if (argument.kind === AstKind.IDENTIFIER && isScalarLocal(context, argument.name)) {
+        const next = watIr.operation(operator, watIr.localGet(argument.name, WatNodeType.I64), watIr.i64Constant(1));
         return `(local.set $${argument.name} ${watIr.serializeWatNode(context.lowering.narrowLocalValue(context, argument.name, next))})`;
     }
     // Otherwise a member/element lvalue: load, adjust, store back.
@@ -46,20 +54,22 @@ export function emitIncrementOrDecrement(context: FunctionEmissionContext, expre
     if (addr) {
         // uint128 increment/decrement uses the source-compiled arithmetic operator.
         if (isUint128(context.programAnalysis, addr.type ?? null)) {
-            if ((expression as any).operator === "++") {
-                const type = { kind: "template_instance", name: "uint128_t", callArguments: [] } as TypeSpec & {
-                    kind: "template_instance";
+            if ((expression as any).operator === UpdateOp.INCREMENT) {
+                const type = { kind: AstKind.TEMPLATE_INSTANCE, name: "uint128_t", callArguments: [] } as TypeSpec & {
+                    kind: AstKind.TEMPLATE_INSTANCE;
                 };
                 const compiled = context.lowering.callCompiled(context, type, "operator++", addr.addr, []);
-                if (!compiled || compiled.cm.retKind !== "i32") {
+                if (!compiled || compiled.cm.retKind !== WatNodeType.I32) {
                     throw new Error("authoritative uint128_t::operator++ could not be lowered");
                 }
-                return watIr.serializeWatNode(watIr.operation("drop", watIr.functionCallWithSignature({ params: ["i32"], res: "i32" }, compiled.cm.label, addrIr(addr.addr))));
+                return watIr.serializeWatNode(watIr.operation("drop", watIr.functionCallWithSignature({ params: [WatNodeType.I32], res: WatNodeType.I32 }, compiled.cm.label, addrIr(addr.addr))));
             }
-            const one: Expression = { kind: "int_literal", value: "1", span: (expression as any).span };
+            const one: Expression = { kind: AstKind.INT_LITERAL, value: "1", span: (expression as any).span };
             const res = context.lowering.lowerUint128Expression(context, {
-                kind: "binary_op",
-                operator: operator === "i64.add" ? "+" : "-",
+                kind: AstKind.BINARY_OP,
+                operator: operator === "i64.add"
+                    ? BinaryOp.ADD
+                    : BinaryOp.SUBTRACT,
                 left: argument,
                 right: one,
                 span: (expression as any).span,

@@ -1,5 +1,5 @@
+import { TokenKind } from "../../enums";
 import type { Span } from "../../ast";
-import type { TokenKind } from "../../lexer";
 import type { Parser } from "./parser";
 
 export class ParserRecovery {
@@ -27,7 +27,7 @@ export class ParserRecovery {
         if (!noProgress && !newError)
             return;
         // A declaration that consumed its full balanced body ends on `}` or `;`. Its inner errors are already
-        if (!noProgress && (this.parser.state.lastToken?.kind === "r_brace" || this.parser.state.lastToken?.kind === "semicolon")) {
+        if (!noProgress && (this.parser.state.lastToken?.kind === TokenKind.R_BRACE || this.parser.state.lastToken?.kind === TokenKind.SEMICOLON)) {
             return;
         }
         if (noProgress) {
@@ -36,12 +36,12 @@ export class ParserRecovery {
         let depth = 0;
         while (!this.parser.state.eof()) {
             const kind = this.parser.state.peek().kind;
-            if (kind === "l_brace") {
+            if (kind === TokenKind.L_BRACE) {
                 depth++;
                 this.parser.state.next();
                 continue;
             }
-            if (kind === "r_brace") {
+            if (kind === TokenKind.R_BRACE) {
                 if (depth === 0)
                     return; // class body's own close — let the caller handle it
                 depth--;
@@ -50,7 +50,7 @@ export class ParserRecovery {
                     return; // finished a member's brace body (e.g. a constructor) — member boundary
                 continue;
             }
-            if (kind === "semicolon" && depth === 0) {
+            if (kind === TokenKind.SEMICOLON && depth === 0) {
                 this.parser.state.next();
                 return;
             }

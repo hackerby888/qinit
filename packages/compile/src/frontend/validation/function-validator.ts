@@ -1,3 +1,4 @@
+import { AstKind, ValidationVisitState } from "../../enums";
 // Validation runs after parse and before codegen.
 import type { StructDecl, FunctionDecl, Statement } from "../../ast";
 import { unwrapType, isVoidType, isConstType, typeKey } from "./validation-helpers";
@@ -9,12 +10,12 @@ export function checkRecursion(context: ValidatorInternals, structDeclaration: S
         const callees = new Set<string>();
         context.walkStatements(fn.body!, (statement) => {
             context.walkExpressions(statement, (expression) => {
-                if (expression.kind === "call") {
-                    if (expression.callee.kind === "identifier" && fnBodies.has(expression.callee.name)) {
+                if (expression.kind === AstKind.CALL) {
+                    if (expression.callee.kind === AstKind.IDENTIFIER && fnBodies.has(expression.callee.name)) {
                         callees.add(expression.callee.name);
                     }
-                    if (expression.callee.kind === "member_access" &&
-                        expression.callee.object.kind === "identifier" &&
+                    if (expression.callee.kind === AstKind.MEMBER_ACCESS &&
+                        expression.callee.object.kind === AstKind.IDENTIFIER &&
                         expression.callee.object.name === "this" &&
                         fnBodies.has(expression.callee.member)) {
                         callees.add(expression.callee.member);
@@ -24,22 +25,22 @@ export function checkRecursion(context: ValidatorInternals, structDeclaration: S
         });
         edges.set(name, callees);
     }
-    const state = new Map<string, "visiting" | "done">();
+    const state = new Map<string, ValidationVisitState>();
     const visit = (name: string, path: string[]): void => {
         const st = state.get(name);
-        if (st === "done") {
+        if (st === ValidationVisitState.DONE) {
             return;
         }
-        if (st === "visiting") {
+        if (st === ValidationVisitState.VISITING) {
             const cycle = [...path.slice(path.indexOf(name)), name].join(" -> ");
             context.error(`recursion is not allowed in a contract: ${cycle}`, fnBodies.get(name)?.span);
             return;
         }
-        state.set(name, "visiting");
+        state.set(name, ValidationVisitState.VISITING);
         for (const callee of edges.get(name) ?? []) {
             visit(callee, [...path, name]);
         }
-        state.set(name, "done");
+        state.set(name, ValidationVisitState.DONE);
     };
     for (const name of edges.keys()) {
         visit(name, []);
@@ -54,7 +55,7 @@ export function checkFunctionBody(context: ValidatorInternals, fn: FunctionDecl,
     // Every local declared anywhere in the function, for classifying bare identifiers: names outside this set belong to members/parameters/constants
     const allLocals = new Set<string>();
     context.walkStatements(fn.body!, (statement) => {
-        if (statement.kind === "declaration" && statement.declaration.kind === "variable" && !statement.declaration.isMember) {
+        if (statement.kind === AstKind.DECLARATION && statement.declaration.kind === AstKind.VARIABLE && !statement.declaration.isMember) {
             allLocals.add(statement.declaration.name);
             context.currentTypes.set(statement.declaration.name, statement.declaration.type);
         }
@@ -76,7 +77,7 @@ export function checkReturns(context: ValidatorInternals, fn: FunctionDecl): voi
     const isVoid = isVoidType(fn.returnType);
     let valueReturns = 0;
     context.walkStatements(fn.body!, (statement) => {
-        if (statement.kind !== "return") {
+        if (statement.kind !== AstKind.RETURN) {
             return;
         }
         if (statement.value && isVoid) {
@@ -105,30 +106,30 @@ export function checkReturns(context: ValidatorInternals, fn: FunctionDecl): voi
 }
 
 export function guaranteesReturn(context: ValidatorInternals, statement: Statement): boolean {
-    if (statement.kind === "return")
+    if (statement.kind === AstKind.RETURN)
         return true;
-    if (statement.kind === "compound") {
+    if (statement.kind === AstKind.COMPOUND) {
         for (const child of statement.body)
             if (context.guaranteesReturn(child))
                 return true;
         return false;
     }
-    if (statement.kind === "if")
+    if (statement.kind === AstKind.IF)
         return !!statement.else_ && context.guaranteesReturn(statement.then) && context.guaranteesReturn(statement.else_);
-    if (statement.kind === "switch") {
+    if (statement.kind === AstKind.SWITCH) {
         // A switch returns on all paths only with a default, no break, and a returning tail.
-        const body = statement.body.kind === "compound" ? statement.body.body : [statement.body];
+        const body = statement.body.kind === AstKind.COMPOUND ? statement.body.body : [statement.body];
         const breaksOut = (statement: Statement): boolean => {
-            if (statement.kind === "break")
+            if (statement.kind === AstKind.BREAK)
                 return true;
-            if (statement.kind === "compound")
+            if (statement.kind === AstKind.COMPOUND)
                 return statement.body.some(breaksOut);
-            if (statement.kind === "if")
+            if (statement.kind === AstKind.IF)
                 return breaksOut(statement.then) || (!!statement.else_ && breaksOut(statement.else_));
             return false;
         };
         const last = body[body.length - 1];
-        return (body.some((bodyItem) => bodyItem.kind === "default") &&
+        return (body.some((bodyItem) => bodyItem.kind === AstKind.DEFAULT) &&
             !body.some(breaksOut) &&
             !!last &&
             context.guaranteesReturn(last));
@@ -143,5 +144,5 @@ export function isPublicFunctionContext(context: ValidatorInternals): boolean {
     if (!first)
         return false;
     const type = unwrapType(first);
-    return type.kind === "name" && type.name === "QpiContextFunctionCall";
+    return type.kind === AstKind.NAME && type.name === "QpiContextFunctionCall";
 }

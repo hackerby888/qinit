@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Tier-1 regression coverage for silent-divergence fixes.
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -92,7 +93,7 @@ describe("tier-1: uint128 bitwise & narrowing casts", () => {
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   });
 
   test("engine output matches the C++-semantics reference", async () => {
@@ -103,7 +104,7 @@ describe("tier-1: uint128 bitwise & narrowing casts", () => {
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(6, mine.wasm);

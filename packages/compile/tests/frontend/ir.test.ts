@@ -1,3 +1,4 @@
+import { WatExpectedType, WatNodeType } from "../../src/enums";
 // Locks typed WAT IR formatting and helper output.
 import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
@@ -24,8 +25,8 @@ import {
 import { emitModule } from "../../src/framework";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
-const p = getL("p", "i32");
-const v = getL("v", "i64");
+const p = getL("p", WatNodeType.I32);
+const v = getL("v", WatNodeType.I64);
 
 describe("emit format parity", () => {
   test("const is verbatim — hex, negative, bigint", () => {
@@ -37,7 +38,7 @@ describe("emit format parity", () => {
   });
 
   test("local get/set", () => {
-    expect(emit(getL("t3", "i64"))).toBe("(local.get $t3)");
+    expect(emit(getL("t3", WatNodeType.I64))).toBe("(local.get $t3)");
     expect(emit(setL("t3", i64c(7)))).toBe("(local.set $t3 (i64.const 7))");
   });
 
@@ -64,7 +65,7 @@ describe("emit format parity", () => {
 
   test("call: zero-arg has no trailing space", () => {
     expect(emit(call("$self_id"))).toBe("(call $self_id)");
-    expect(emit(call("$copyMem", p, getL("q", "i32"), i32c(16)))).toBe(
+    expect(emit(call("$copyMem", p, getL("q", WatNodeType.I32), i32c(16)))).toBe(
       "(call $copyMem (local.get $p) (local.get $q) (i32.const 16))",
     );
   });
@@ -74,7 +75,7 @@ describe("emit format parity", () => {
       emit(
         raw(
           "(i64.extend_i32_u (if (result i32) X (then (i32.const 1)) (else Y)))",
-          "i64",
+          WatNodeType.I64,
           "short-circuit",
         ),
       ),
@@ -149,7 +150,7 @@ describe("type assertions catch the silent-divergence class", () => {
 
   test("void call in value position throws", () => {
     const c = call("$copyMem", p, p, i32c(8));
-    expect(() => assertTy(c, "val", "assignment RHS")).toThrow(/expected val, got void/);
+    expect(() => assertTy(c, WatExpectedType.VALUE, "assignment RHS")).toThrow(/expected val, got void/);
     expect(() => setL("t", c)).toThrow(/expected val, got void/);
   });
 
@@ -161,9 +162,9 @@ describe("type assertions catch the silent-divergence class", () => {
   });
 
   test("callSig covers dynamic targets", () => {
-    const helper = callSig({ params: ["i32", "i64"], res: "i64" }, "$lib0_probe", p, v);
+    const helper = callSig({ params: [WatNodeType.I32, WatNodeType.I64], res: WatNodeType.I64 }, "$lib0_probe", p, v);
     expect(emit(helper)).toBe("(call $lib0_probe (local.get $p) (local.get $v))");
-    expect(() => callSig({ params: ["i32"], res: "void" }, "$fn_x", v)).toThrow(
+    expect(() => callSig({ params: [WatNodeType.I32], res: WatNodeType.VOID }, "$fn_x", v)).toThrow(
       /expected i32, got i64/,
     );
   });
@@ -186,8 +187,8 @@ describe("type assertions catch the silent-divergence class", () => {
   });
 
   test("raw's declared type is trusted", () => {
-    const r = raw("(call $mystery)", "i64");
-    expect(assertTy(r, "i64")).toBe(r);
+    const r = raw("(call $mystery)", WatNodeType.I64);
+    expect(assertTy(r, WatNodeType.I64)).toBe(r);
     expect(emit(operator("i64.add", r, v))).toBe("(i64.add (call $mystery) (local.get $v))");
   });
 });

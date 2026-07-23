@@ -1,4 +1,5 @@
 import { CORE_PATH } from "../../../test-utils/paths";
+import { AstKind } from "../src/enums";
 // Iteration harness: preprocess + parse the REAL core-lite headers, report errors + captured layouts.
 import { readFileSync, existsSync } from "node:fs";
 import { Preprocessor } from "../src/preprocess";
@@ -38,11 +39,13 @@ for (const d of translationUnit.declarations) {
   const nm = (d as any).name ?? "";
   const cnt = (d as any).body?.length ?? (d as any).members?.length ?? "";
   console.log(`  top: ${d.kind} ${nm} (${cnt})`);
-  if (d.kind === "namespace" && nm === "QPI") {
+  if (d.kind === AstKind.NAMESPACE && nm === "QPI") {
     const kinds: Record<string, number> = {};
     for (const m of (d as any).body) kinds[m.kind] = (kinds[m.kind] ?? 0) + 1;
     console.log("    QPI members:", JSON.stringify(kinds));
-    const ct = (d as any).body.filter((m: any) => m.kind === "class_template").map((m: any) => m.name);
+    const ct = (d as any).body
+      .filter((m: any) => m.kind === AstKind.CLASS_TEMPLATE)
+      .map((m: any) => m.name);
     console.log("    templates:", ct.join(", ").slice(0, 200));
   }
 }
@@ -52,10 +55,14 @@ for (const d of diags.slice(0, first)) {
 }
 
 // Check key templates captured with members
-const qpiNs = translationUnit.declarations.find((d) => d.kind === "namespace" && (d as any).name === "QPI") as any;
+const qpiNs = translationUnit.declarations.find(
+  (d) => d.kind === AstKind.NAMESPACE && (d as any).name === "QPI",
+) as any;
 const captured = new Map<string, number>();
 for (const m of qpiNs?.body ?? []) {
-  if (m.kind === "class_template" || m.kind === "struct") captured.set(m.name, m.members?.length ?? 0);
+  if (m.kind === AstKind.CLASS_TEMPLATE || m.kind === AstKind.STRUCT) {
+    captured.set(m.name, m.members?.length ?? 0);
+  }
 }
 for (const name of ["HashMap", "Array", "BitArray", "Collection", "QpiContextFunctionCall"]) {
   const n = captured.get(name);

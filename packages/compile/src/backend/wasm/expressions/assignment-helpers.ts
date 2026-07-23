@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType } from "../../../enums";
 import { SCALAR_SIZE } from "../abi/tables";
 import { narrowCastIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
@@ -15,13 +16,13 @@ export function newValueTmp(context: FunctionEmissionContext): string {
         context.params?.has(temporaryName)
     );
 
-    context.localVars.set(temporaryName, { wasmType: "i64" });
+    context.localVars.set(temporaryName, { wasmType: WatNodeType.I64 });
     return temporaryName;
 }
 
 export function compoundToBinary(expression: AssignmentExpression): Expression {
     return {
-        kind: "binary_op",
+        kind: AstKind.BINARY_OP,
         operator: expression.operator.slice(0, -1),
         left: expression.left,
         right: expression.right,
@@ -41,7 +42,7 @@ export function narrowLocalValue(
         : undefined;
 
     if (
-        storageType?.kind === "name" &&
+        storageType?.kind === AstKind.NAME &&
         (SCALAR_SIZE[storageType.name] ?? 8) < 8
     ) {
         return narrowCastIr(value, storageType.name);

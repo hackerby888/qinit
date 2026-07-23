@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks integral constant expressions in REGISTER_USER_* indices.
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -29,7 +30,7 @@ async function compile(source: string) {
 
 async function registeredInputType(source: string): Promise<number | undefined> {
   const result = await compile(source);
-  expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   expect(WebAssembly.validate(result.wasm)).toBe(true);
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
   sim.deploy(27, result.wasm);
@@ -38,7 +39,7 @@ async function registeredInputType(source: string): Promise<number | undefined> 
 
 async function expectRangeRejection(source: string) {
   const result = await compile(source);
-  const errors = result.diagnostics.filter((d) => d.severity === "error");
+  const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
   expect(
     errors.some((d) => /input.?type.*range|1.*65535|registration.*constant/i.test(d.message)),
   ).toBe(true);

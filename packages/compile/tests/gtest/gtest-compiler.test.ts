@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -84,7 +85,7 @@ describe("core-lite-style gtest compiler", () => {
       slot: 28,
       qpiHeader: QPI,
     });
-    expect(compiled.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+    expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     expect(compiled.program?.tests.map((item) => item.name)).toEqual(["Counter.Increment"]);
 
     const contract = await compileContract({
@@ -94,7 +95,7 @@ describe("core-lite-style gtest compiler", () => {
       qpiHeader: QPI,
       arenaSz: 64 * 1024,
     });
-    expect(contract.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+    expect(contract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const results = await runCompiledGtest(compiled.program!, compiled.wasm!, {
       28: contract.wasm,
     });
@@ -124,7 +125,7 @@ describe("core-lite-style gtest compiler", () => {
       slot: 28,
       qpiHeader: QPI,
     });
-    expect(compiled.diagnostics.filter((item) => item.severity === "error")).toEqual([]);
+    expect(compiled.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     expect(compiled.program).toBeDefined();
   });
 

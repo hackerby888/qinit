@@ -1,88 +1,89 @@
+import { AstKind } from "../enums";
 import type { Declaration } from "./declarations";
 import type { Expression } from "./expressions";
 import type { Span } from "./source-location";
 
 // ---- Statements ----
 export type Statement = {
-    kind: "expression";
+    kind: AstKind.EXPRESSION;
     expression: Expression;
     span: Span;
 } | {
-    kind: "compound";
+    kind: AstKind.COMPOUND;
     body: Statement[];
     span: Span;
 } // { ... }
  | {
-    kind: "if";
+    kind: AstKind.IF;
     condition: Expression;
     then: Statement;
     else_?: Statement;
     span: Span;
 } | {
-    kind: "for";
+    kind: AstKind.FOR;
     initializer?: Statement;
     condition?: Expression;
     update?: Expression;
     body: Statement;
     span: Span;
 } | {
-    kind: "while";
+    kind: AstKind.WHILE;
     condition: Expression;
     body: Statement;
     span: Span;
 } | {
-    kind: "do_while";
+    kind: AstKind.DO_WHILE;
     body: Statement;
     condition: Expression;
     span: Span;
 } | {
-    kind: "switch";
+    kind: AstKind.SWITCH;
     condition: Expression;
     body: Statement;
     span: Span;
 } | {
-    kind: "case";
+    kind: AstKind.CASE;
     value: Expression;
     span: Span;
 } // case VALUE:
  | {
-    kind: "default";
+    kind: AstKind.DEFAULT;
     span: Span;
 } // default:
  | {
-    kind: "break";
+    kind: AstKind.BREAK;
     span: Span;
 } | {
-    kind: "continue";
+    kind: AstKind.CONTINUE;
     span: Span;
 } | {
-    kind: "return";
+    kind: AstKind.RETURN;
     value?: Expression;
     span: Span;
 } | {
-    kind: "goto";
+    kind: AstKind.GOTO;
     label: string;
     span: Span;
 } | {
-    kind: "label";
+    kind: AstKind.LABEL;
     name: string;
     span: Span;
 } // label:
  | {
-    kind: "declaration";
+    kind: AstKind.DECLARATION;
     declaration: Declaration;
     span: Span;
 } | {
-    kind: "static_assert";
+    kind: AstKind.STATIC_ASSERT;
     condition: Expression;
     message?: Expression;
     span: Span;
 } | {
-    kind: "pragma";
+    kind: AstKind.PRAGMA;
     text: string;
     span: Span;
 } // #pragma once, etc.
  | {
-    kind: "empty";
+    kind: AstKind.EMPTY;
     span: Span;
 };

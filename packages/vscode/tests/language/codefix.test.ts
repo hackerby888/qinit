@@ -1,13 +1,17 @@
 import { test, expect } from "bun:test";
 import {
   analyzeContract,
+  SourceAnalysisOrigin,
   type SourceEdit,
   type SourceFix,
 } from "@qinit/compile/analyzer";
 
 function fixFor(source: string, code: string): SourceFix | null {
   const diagnostic = analyzeContract({ source }).diagnostics.find(
-    (item) => item.origin === "qpi" && item.code === code && item.fixes?.length,
+    (item) =>
+      item.origin === SourceAnalysisOrigin.QPI &&
+      item.code === code &&
+      item.fixes?.length,
   );
   return diagnostic?.fixes?.[0] ?? null;
 }
@@ -32,7 +36,7 @@ function applyFix(source: string, code: string): string | null {
 
 function qpiCodes(source: string): string[] {
   return analyzeContract({ source }).diagnostics
-    .filter((item) => item.origin === "qpi")
+    .filter((item) => item.origin === SourceAnalysisOrigin.QPI)
     .map((item) => item.code);
 }
 

@@ -1,3 +1,4 @@
+import { AstKind, UnaryOp, WatNodeType } from "../../../enums";
 import type { Expression } from "../../../ast";
 import * as watIr from "../../../wat-ir";
 import { addrIr } from "../memory/memory-operations";
@@ -15,7 +16,7 @@ export function tryEmitHostIntrinsicCall(
     context: FunctionEmissionContext,
     expression: CallExpression,
 ): boolean {
-    if (expression.callee.kind !== "identifier") {
+    if (expression.callee.kind !== AstKind.IDENTIFIER) {
         return false;
     }
 
@@ -57,18 +58,18 @@ function emitKangarooTwelveCall(
 
     let outputExpression: Expression | undefined = expression.callArguments[2];
     while (
-        outputExpression?.kind === "paren" ||
-        (outputExpression?.kind === "unary_op" && outputExpression.operator === "&")
+        outputExpression?.kind === AstKind.PAREN ||
+        (outputExpression?.kind === AstKind.UNARY_OP && outputExpression.operator === UnaryOp.ADDRESS_OF)
     ) {
         outputExpression =
-            outputExpression.kind === "paren"
+            outputExpression.kind === AstKind.PAREN
                 ? outputExpression.expression
                 : outputExpression.argument;
     }
 
     if (
-        outputExpression?.kind === "identifier" &&
-        context.localVars.get(outputExpression.name)?.wasmType === "i64"
+        outputExpression?.kind === AstKind.IDENTIFIER &&
+        context.localVars.get(outputExpression.name)?.wasmType === WatNodeType.I64
     ) {
         context.lines.push(
             `    ${context.lowering.setLocal(
@@ -108,7 +109,7 @@ function emitLoggingCall(
     context: FunctionEmissionContext,
     expression: CallExpression,
 ): void {
-    const callName = expression.callee.kind === "identifier" ? expression.callee.name : "";
+    const callName = expression.callee.kind === AstKind.IDENTIFIER ? expression.callee.name : "";
     const logLevel = LOG_LEVELS[callName];
 
     if (logLevel !== undefined) {

@@ -1,6 +1,7 @@
+import { DiagnosticSeverity, TokenKind } from "../../enums";
 import type { Declaration } from "../../ast";
 import { Lexer } from "../../lexer";
-import type { Token, TokenKind } from "../../lexer";
+import type { Token } from "../../lexer";
 import type { ParserDiagnostic } from "./parser-context";
 
 export class ParserState {
@@ -17,9 +18,9 @@ export class ParserState {
         (this.lexer as any).tokens = tokens;
         (this.lexer as any).index = 0;
 
-        if (tokens.length === 0 || tokens[tokens.length - 1].kind !== "eof") {
+        if (tokens.length === 0 || tokens[tokens.length - 1].kind !== TokenKind.EOF) {
             tokens.push({
-                kind: "eof",
+                kind: TokenKind.EOF,
                 text: "",
                 span: {
                     start: 0,
@@ -58,7 +59,7 @@ export class ParserState {
     }
 
     eof(): boolean {
-        return this.peek().kind === "eof";
+        return this.peek().kind === TokenKind.EOF;
     }
 
     expect(kind: TokenKind, context: string): Token | null {
@@ -69,7 +70,7 @@ export class ParserState {
         }
 
         this.diagnostics.push({
-            severity: "error",
+            severity: DiagnosticSeverity.ERROR,
             message:
                 "Expected " +
                 kind +
@@ -107,14 +108,14 @@ export class ParserState {
         const token = this.peek();
         const tokenIndex = this.position;
 
-        if (token.kind === "r_angle") {
+        if (token.kind === TokenKind.R_ANGLE) {
             this.next();
             return;
         }
 
-        if (token.kind === "r_shift") {
+        if (token.kind === TokenKind.R_SHIFT) {
             this.tokens[tokenIndex] = {
-                kind: "r_angle",
+                kind: TokenKind.R_ANGLE,
                 text: ">",
                 span: token.span,
             };
@@ -122,9 +123,9 @@ export class ParserState {
             return;
         }
 
-        if (token.kind === "gt_eq") {
+        if (token.kind === TokenKind.GT_EQ) {
             this.tokens[tokenIndex] = {
-                kind: "eq",
+                kind: TokenKind.EQ,
                 text: "=",
                 span: token.span,
             };
@@ -132,6 +133,6 @@ export class ParserState {
             return;
         }
 
-        this.expect("r_angle", "template close");
+        this.expect(TokenKind.R_ANGLE, "template close");
     }
 }

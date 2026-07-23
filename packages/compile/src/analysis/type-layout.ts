@@ -1,23 +1,24 @@
+import { AstKind } from "../enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
 import type { TypeSpec, Declaration, VariableDecl } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
 
 export function alignOfTypeB(context: ProgramAnalysisInternals, type: TypeSpec, templateBindings: TemplateBindings): number {
-    if (type.kind === "const")
+    if (type.kind === AstKind.CONST)
         return context.alignOfTypeB(type.valueType, templateBindings);
-    if (type.kind === "reference" || type.kind === "pointer")
+    if (type.kind === AstKind.REFERENCE || type.kind === AstKind.POINTER)
         return 4;
-    if (type.kind === "array")
+    if (type.kind === AstKind.ARRAY)
         return context.alignOfTypeB(type.element, templateBindings);
-    if (type.kind === "inline_struct") {
+    if (type.kind === AstKind.INLINE_STRUCT) {
         // Reuse cached aggregate alignment to avoid another recursive layout walk.
         return context.layoutOfStruct(type.struct, templateBindings).align;
     }
-    if (type.kind === "name") {
+    if (type.kind === AstKind.NAME) {
         return context.alignOfNameType(type.name, templateBindings);
     }
-    if (type.kind === "template_instance") {
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) {
         if (type.name === "Array") {
             const elementType = type.callArguments[0];
             return Math.min(context.alignOfTypeB(elementType, templateBindings), 8);
@@ -26,7 +27,7 @@ export function alignOfTypeB(context: ProgramAnalysisInternals, type: TypeSpec, 
             return context.layoutOfTemplate(type.name, type.callArguments, templateBindings).align;
         return 8;
     }
-    if (type.kind === "dependent_member") {
+    if (type.kind === AstKind.DEPENDENT_MEMBER) {
         const resolvedMember = context.resolveDependentMember(type, templateBindings);
         return resolvedMember ? context.alignOfTypeB(resolvedMember.type, resolvedMember.bindings) : 1;
     }
@@ -60,7 +61,7 @@ export function structAlign(context: ProgramAnalysisInternals, members: Declarat
     try {
         let argument = 1;
         for (const member of members) {
-            if (member.kind === "variable" &&
+            if (member.kind === AstKind.VARIABLE &&
                 !(member as VariableDecl).isStatic &&
                 !(member as VariableDecl).isConstexpr) {
                 argument = Math.max(argument, context.alignOfTypeB((member as VariableDecl).type, templateBindings));
@@ -82,14 +83,14 @@ export function alignOfType(context: ProgramAnalysisInternals, type: TypeSpec, t
 }
 
 export function layoutOfType(context: ProgramAnalysisInternals, type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): StructLayout | null {
-    if (type.kind === "const")
+    if (type.kind === AstKind.CONST)
         return context.layoutOfType(type.valueType, templateBindings);
-    if (type.kind === "inline_struct")
+    if (type.kind === AstKind.INLINE_STRUCT)
         return context.layoutOfStruct(type.struct, templateBindings);
-    if (type.kind === "template_instance") {
+    if (type.kind === AstKind.TEMPLATE_INSTANCE) {
         return context.templates.get(type.name) ? context.layoutOfTemplate(type.name, type.callArguments, templateBindings) : null;
     }
-    if (type.kind === "name") {
+    if (type.kind === AstKind.NAME) {
         const baseName = type.name.includes("::") ? type.name.slice(type.name.lastIndexOf("::") + 2) : type.name;
         const bound = templateBindings.types.get(type.name) ?? templateBindings.types.get(baseName);
         if (bound)

@@ -1,3 +1,4 @@
+import { AccessSpec, AstKind, TokenKind } from "../../../enums";
 import type {
     Declaration,
     Expression,
@@ -51,15 +52,15 @@ export class FunctionParser {
         const tok = this.parser.state.peek();
         const nextTok = this.parser.state.peek(1);
         // Identifier followed by "::" → qualified name (function/variable)
-        if (nextTok.kind === "d_colon") {
+        if (nextTok.kind === TokenKind.D_COLON) {
             return this.parser.functions.parseAfterModifiers(false, false, false, false, false);
         }
         // Identifier followed by "(" → function definition
-        if (nextTok.kind === "l_paren") {
+        if (nextTok.kind === TokenKind.L_PAREN) {
             return this.parser.functions.parseAfterModifiers(false, false, false, false, false);
         }
         // Identifier followed by ";" → variable declaration Identifier followed by "=" → variable with init
-        if (nextTok.kind === "semicolon" || nextTok.kind === "eq") {
+        if (nextTok.kind === TokenKind.SEMICOLON || nextTok.kind === TokenKind.EQ) {
             return this.parser.functions.parseAfterModifiers(false, false, false, false, false);
         }
         // Assume variable declaration
@@ -73,15 +74,15 @@ export class FunctionParser {
         const name = this.parser.types.parseMaybeQualifiedName();
         if (!name) {
             // Constructors and destructors have no return type.
-            if (this.parser.state.peek().kind === "l_paren" && type.kind === "name") {
-                return this.parser.functions.parseFunctionRest(type.name, { kind: "void" }, isConstexpr, isStatic, isInline, isVirtual, isExtern);
+            if (this.parser.state.peek().kind === TokenKind.L_PAREN && type.kind === AstKind.NAME) {
+                return this.parser.functions.parseFunctionRest(type.name, { kind: AstKind.VOID }, isConstexpr, isStatic, isInline, isVirtual, isExtern);
             }
             // Just a type with no name — semicolon
-            this.parser.state.expect("semicolon", "declaration");
-            return { kind: "empty" };
+            this.parser.state.expect(TokenKind.SEMICOLON, "declaration");
+            return { kind: AstKind.EMPTY };
         }
         // Distinguish functions from constructor-style direct initialization.
-        if (this.parser.state.peek().kind === "l_paren") {
+        if (this.parser.state.peek().kind === TokenKind.L_PAREN) {
             if (this.parser.functions.looksLikeDirectInit()) {
                 return this.parser.functions.parseDirectInitVar(name, type, isConstexpr, isStatic);
             }
@@ -93,43 +94,43 @@ export class FunctionParser {
 
     looksLikeDirectInit(): boolean {
         const after = this.parser.state.peek(1).kind;
-        return (after === "kw_sizeof" ||
-            after === "int_literal" ||
-            after === "float_literal" ||
-            after === "string_literal" ||
-            after === "char_literal" ||
-            after === "kw_true" ||
-            after === "kw_false" ||
-            after === "kw_nullptr" ||
-            after === "minus" ||
+        return (after === TokenKind.KW_SIZEOF ||
+            after === TokenKind.INT_LITERAL ||
+            after === TokenKind.FLOAT_LITERAL ||
+            after === TokenKind.STRING_LITERAL ||
+            after === TokenKind.CHAR_LITERAL ||
+            after === TokenKind.KW_TRUE ||
+            after === TokenKind.KW_FALSE ||
+            after === TokenKind.KW_NULLPTR ||
+            after === TokenKind.MINUS ||
             // A parameter list cannot start with a braced constructor argument.
-            after === "bang" ||
-            after === "tilde" ||
-            after === "l_brace");
+            after === TokenKind.BANG ||
+            after === TokenKind.TILDE ||
+            after === TokenKind.L_BRACE);
     }
 
     parseDirectInitVar(name: string, type: TypeSpec, isConstexpr: boolean, isStatic: boolean): VariableDecl {
         const start = this.parser.state.peek().span;
-        this.parser.state.expect("l_paren", "ctor args");
+        this.parser.state.expect(TokenKind.L_PAREN, "ctor args");
         const callArguments: Expression[] = [];
-        if (this.parser.state.peek().kind !== "r_paren") {
+        if (this.parser.state.peek().kind !== TokenKind.R_PAREN) {
             callArguments.push(this.parser.expressions.parseExpression());
-            while (this.parser.state.tryConsume("comma")) {
+            while (this.parser.state.tryConsume(TokenKind.COMMA)) {
                 callArguments.push(this.parser.expressions.parseExpression());
             }
         }
-        this.parser.state.expect("r_paren", "ctor args close");
-        this.parser.state.expect("semicolon", "direct-init declaration");
+        this.parser.state.expect(TokenKind.R_PAREN, "ctor args close");
+        this.parser.state.expect(TokenKind.SEMICOLON, "direct-init declaration");
         return {
-            kind: "variable",
+            kind: AstKind.VARIABLE,
             name,
             type,
-            initializer: { kind: "construct", type, callArguments, span: start },
+            initializer: { kind: AstKind.CONSTRUCT, type, callArguments, span: start },
             isConstexpr,
             isStatic,
             isExtern: false,
             isMember: false,
-            access: "public",
+            access: AccessSpec.PUBLIC,
             span: this.parser.recovery.makeSpan(start),
         };
     }
@@ -143,9 +144,9 @@ export class FunctionParser {
     parseFunctionRest(name: string, retType: TypeSpec, isConstexpr: boolean, isStatic: boolean, isInline: boolean, isVirtual: boolean, isExternC: boolean): FunctionDecl {
         const start = this.parser.state.peek(-1)?.span || this.parser.state.peek().span;
         // Function parameters
-        this.parser.state.expect("l_paren", "function params");
+        this.parser.state.expect(TokenKind.L_PAREN, "function params");
         const params = this.parser.functions.parseFunctionParams();
-        this.parser.state.expect("r_paren", "function params close");
+        this.parser.state.expect(TokenKind.R_PAREN, "function params close");
         // Optional const qualifier
         this.parser.state.tryConsumeKeyword("const");
         // Optional override/final/noexcept
@@ -155,23 +156,23 @@ export class FunctionParser {
         let body: Statement | undefined;
         let isDeleted = false;
         let isDefault = false;
-        if (this.parser.state.tryConsume("eq")) {
+        if (this.parser.state.tryConsume(TokenKind.EQ)) {
             if (this.parser.state.tryConsumeKeyword("delete")) {
                 isDeleted = true;
             }
             else if (this.parser.state.tryConsumeKeyword("default")) {
                 isDefault = true;
             }
-            this.parser.state.expect("semicolon", "function = delete/default");
+            this.parser.state.expect(TokenKind.SEMICOLON, "function = delete/default");
         }
-        else if (this.parser.state.peek().kind === "l_brace") {
+        else if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
             body = this.parser.parseFunctionBody();
         }
         else {
-            this.parser.state.expect("semicolon", "function declaration");
+            this.parser.state.expect(TokenKind.SEMICOLON, "function declaration");
         }
         return {
-            kind: "function",
+            kind: AstKind.FUNCTION,
             name,
             returnType: retType,
             params,
@@ -193,7 +194,7 @@ export class FunctionParser {
         // First declarator is returned; the rest are queued for the enclosing member/decl loop.
         for (let varIndex = 1; varIndex < vars.length; varIndex++)
             this.parser.state.pendingDeclarations.push(vars[varIndex]);
-        return vars[0] ?? { kind: "empty" };
+        return vars[0] ?? { kind: AstKind.EMPTY };
     }
 
     parseDeclaratorList(baseType: TypeSpec, firstName: string, isConstexpr: boolean, isStatic: boolean): VariableDecl[] {
@@ -204,33 +205,33 @@ export class FunctionParser {
             let type = baseType;
             // Array dimensions: name[E][E2]... — innermost dimension binds tightest, so collect then nest.
             const dims: Expression[] = [];
-            while (this.parser.state.peek().kind === "l_bracket") {
+            while (this.parser.state.peek().kind === TokenKind.L_BRACKET) {
                 this.parser.state.next(); // [
-                if (this.parser.state.peek().kind === "r_bracket") {
-                    dims.push({ kind: "int_literal", value: "0", span: this.parser.state.peek().span });
+                if (this.parser.state.peek().kind === TokenKind.R_BRACKET) {
+                    dims.push({ kind: AstKind.INT_LITERAL, value: "0", span: this.parser.state.peek().span });
                 }
                 else {
                     dims.push(this.parser.expressions.parseExpression());
                 }
-                this.parser.state.expect("r_bracket", "array dimension");
+                this.parser.state.expect(TokenKind.R_BRACKET, "array dimension");
             }
             for (let index = dims.length - 1; index >= 0; index--) {
-                type = { kind: "array", element: type, size: dims[index], span: start };
+                type = { kind: AstKind.ARRAY, element: type, size: dims[index], span: start };
             }
             let initializer: Expression | undefined;
-            if (this.parser.state.tryConsume("eq")) {
+            if (this.parser.state.tryConsume(TokenKind.EQ)) {
                 initializer = this.parser.expressions.parseExpression();
             }
-            else if (this.parser.state.peek().kind === "l_brace") {
+            else if (this.parser.state.peek().kind === TokenKind.L_BRACE) {
                 // Preserve direct-list initialization in the executable AST.
                 const list = this.parser.expressions.parseExpression();
                 initializer =
-                    type.kind === "array" || list.kind !== "initializer_list"
+                    type.kind === AstKind.ARRAY || list.kind !== AstKind.INITIALIZER_LIST
                         ? list
-                        : { kind: "construct", type, callArguments: list.expressions, span: list.span };
+                        : { kind: AstKind.CONSTRUCT, type, callArguments: list.expressions, span: list.span };
             }
             out.push({
-                kind: "variable",
+                kind: AstKind.VARIABLE,
                 name,
                 type,
                 initializer,
@@ -238,65 +239,65 @@ export class FunctionParser {
                 isStatic,
                 isExtern: false,
                 isMember: false,
-                access: "public",
+                access: AccessSpec.PUBLIC,
                 span: this.parser.recovery.makeSpan(start),
             });
-            if (this.parser.state.tryConsume("comma")) {
+            if (this.parser.state.tryConsume(TokenKind.COMMA)) {
                 // next declarator: optional * / & then a name
-                while (this.parser.state.peek().kind === "star" || this.parser.state.peek().kind === "amp")
+                while (this.parser.state.peek().kind === TokenKind.STAR || this.parser.state.peek().kind === TokenKind.AMP)
                     this.parser.state.next();
                 const token = this.parser.state.peek();
-                if (token.kind === "identifier") {
+                if (token.kind === TokenKind.IDENTIFIER) {
                     name = this.parser.state.next().text;
                     continue;
                 }
             }
             break;
         }
-        this.parser.state.expect("semicolon", "variable");
+        this.parser.state.expect(TokenKind.SEMICOLON, "variable");
         return out;
     }
 
     parseFunctionParams(): ParamDecl[] {
         const params: ParamDecl[] = [];
-        if (this.parser.state.peek().kind === "r_paren") {
+        if (this.parser.state.peek().kind === TokenKind.R_PAREN) {
             return params;
         }
-        if (this.parser.state.peek().kind === "kw_void" && this.parser.state.peek(1).kind === "r_paren") {
+        if (this.parser.state.peek().kind === TokenKind.KW_VOID && this.parser.state.peek(1).kind === TokenKind.R_PAREN) {
             this.parser.state.next(); // void
             return params;
         }
-        while (!this.parser.state.eof() && this.parser.state.peek().kind !== "r_paren") {
+        while (!this.parser.state.eof() && this.parser.state.peek().kind !== TokenKind.R_PAREN) {
             let type = this.parser.types.parseTypeSpec();
             let name = "";
             // Function pointers remain addresses in the parsed ABI and still participate in overload
             // resolution; generated Wasm does not call their pointee signatures.
-            if (this.parser.state.peek().kind === "l_paren" && this.parser.state.peek(1).kind === "star") {
+            if (this.parser.state.peek().kind === TokenKind.L_PAREN && this.parser.state.peek(1).kind === TokenKind.STAR) {
                 this.parser.state.next();
                 this.parser.state.next();
-                if (this.parser.state.peek().kind === "identifier")
+                if (this.parser.state.peek().kind === TokenKind.IDENTIFIER)
                     name = this.parser.state.next().text;
-                this.parser.state.expect("r_paren", "function-pointer declarator");
-                this.parser.state.expect("l_paren", "function-pointer parameters");
+                this.parser.state.expect(TokenKind.R_PAREN, "function-pointer declarator");
+                this.parser.state.expect(TokenKind.L_PAREN, "function-pointer parameters");
                 let depth = 1;
                 while (!this.parser.state.eof() && depth > 0) {
                     const token = this.parser.state.next();
-                    if (token.kind === "l_paren")
+                    if (token.kind === TokenKind.L_PAREN)
                         depth++;
-                    else if (token.kind === "r_paren")
+                    else if (token.kind === TokenKind.R_PAREN)
                         depth--;
                 }
-                type = { kind: "pointer", pointee: type, span: type.span };
+                type = { kind: AstKind.POINTER, pointee: type, span: type.span };
             }
-            if (!name && this.parser.state.peek().kind === "identifier") {
+            if (!name && this.parser.state.peek().kind === TokenKind.IDENTIFIER) {
                 name = this.parser.state.next().text;
             }
             let defaultVal: Expression | undefined;
-            if (this.parser.state.tryConsume("eq")) {
+            if (this.parser.state.tryConsume(TokenKind.EQ)) {
                 defaultVal = this.parser.expressions.parseExpression();
             }
             params.push({ name, type, defaultValue: defaultVal, span: this.parser.state.peek().span });
-            if (!this.parser.state.tryConsume("comma")) {
+            if (!this.parser.state.tryConsume(TokenKind.COMMA)) {
                 break;
             }
         }

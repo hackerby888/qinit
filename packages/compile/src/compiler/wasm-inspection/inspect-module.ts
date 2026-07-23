@@ -1,6 +1,7 @@
 import { LHOST_ABI } from "@qinit/core";
+import { InspectedMemoryMode, WasmModuleMemoryMode } from "../../enums";
 import type { WasmModuleInspection, WasmModuleInspectionOptions } from "./inspection-types";
-import { PORTABLE_FEATURES } from "./inspection-types";
+import { PORTABLE_FEATURES, toWasmFunctionSignatures } from "./inspection-types";
 import { emptyParsed } from "./parsed-module";
 import { parseModule } from "./module-parser";
 import { WasmParseError, error } from "./binary-reader";
@@ -47,14 +48,22 @@ export function inspectWasmModule(input: Uint8Array | ArrayBuffer, options: Wasm
     catch (caught) {
         error(parsed.diagnostics, "js-validation", `JavaScript Wasm validation failed: ${caught instanceof Error ? caught.message : String(caught)}`);
     }
-    validateImports(parsed, options.lhostAbi ?? LHOST_ABI);
+    validateImports(
+        parsed,
+        options.lhostAbi ?? toWasmFunctionSignatures(LHOST_ABI),
+    );
     const memoryMode = classifyMemory(parsed.memories);
     if (parsed.memories.length !== 1) {
         error(parsed.diagnostics, "memory-count", `expected exactly one wasm32 memory; found ${parsed.memories.length}`);
     }
-    const expectedMode = options.memoryMode ?? "defined";
-    if (expectedMode !== "either" && memoryMode !== expectedMode) {
-        error(parsed.diagnostics, "memory-mode", `expected ${expectedMode} memory; module uses ${memoryMode} memory`);
+    const expectedMode = options.memoryMode ?? WasmModuleMemoryMode.DEFINED;
+    if (expectedMode !== WasmModuleMemoryMode.EITHER) {
+        const expectedInspectedMode = expectedMode === WasmModuleMemoryMode.DEFINED
+            ? InspectedMemoryMode.DEFINED
+            : InspectedMemoryMode.IMPORTED;
+        if (memoryMode !== expectedInspectedMode) {
+            error(parsed.diagnostics, "memory-mode", `expected ${expectedMode} memory; module uses ${memoryMode} memory`);
+        }
     }
     validateExports(parsed, memoryMode);
     for (const feature of [...parsed.features].sort()) {

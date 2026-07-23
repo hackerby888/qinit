@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks higher-slot callers reaching lower-slot callees.
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -73,7 +74,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    expect(counter.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(counter.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const callees = [calleeIdlFrom("Counter", 28, counter)];
     const caller = await compileContract({
@@ -84,7 +85,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
       arenaSz: 1024 * 1024,
       callees,
     });
-    expect(caller.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(caller.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(28, counter.wasm);

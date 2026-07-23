@@ -2,7 +2,11 @@
 // Shared by build, deploy, dev, and test when `qinit compiler local` is selected.
 import { readFileSync, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { compileContract, loadQpiHeader } from "@qinit/compile";
+import {
+  compileContract,
+  DiagnosticSeverity,
+  loadQpiHeader,
+} from "@qinit/compile";
 import { extractIdl, type ContractIdl } from "@qinit/build";
 
 export interface LocalBuildResult {
@@ -43,7 +47,9 @@ export async function compileLocal(o: {
   for (const [cname, { header, index }] of Object.entries(o.dynCallees ?? {})) {
     const dsrc = readFileSync(header, "utf8");
     const dr = await compileContract({ source: dsrc, name: cname, slot: index, qpiHeader });
-    const derr = dr.diagnostics.filter((d) => d.severity === "error");
+    const derr = dr.diagnostics.filter(
+      (d) => d.severity === DiagnosticSeverity.ERROR,
+    );
     if (derr.length) {
       return { ok: false, stderr: `callee ${cname}: ` + derr.map((d) => d.message).join("; ") };
     }
@@ -74,13 +80,17 @@ export async function compileLocal(o: {
     callees: callees.length ? callees : undefined,
     calleeSources: calleeSources.length ? calleeSources : undefined,
   });
-  const errs = r.diagnostics.filter((d) => d.severity === "error");
+  const errs = r.diagnostics.filter(
+    (d) => d.severity === DiagnosticSeverity.ERROR,
+  );
   if (errs.length) {
     return { ok: false, stderr: errs.map((d) => `error: ${d.message}`).join("\n") };
   }
 
   // Surface non-fatal warnings instead of dropping them; the build still succeeds.
-  const warns = r.diagnostics.filter((d) => d.severity === "warning");
+  const warns = r.diagnostics.filter(
+    (d) => d.severity === DiagnosticSeverity.WARNING,
+  );
 
   mkdirSync(o.outDir, { recursive: true });
   const so = join(o.outDir, `${o.name}.wasm`);

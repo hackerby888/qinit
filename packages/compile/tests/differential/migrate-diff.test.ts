@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // MIGRATE() parity for redeploy flow.
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -113,7 +114,7 @@ describe("differential — MIGRATE() redeploy state parity", () => {
         qpiHeader: HEADERS,
         arenaSz: 4 * 1024 * 1024,
       });
-      expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+      expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
       return mine.wasm;
     };
 

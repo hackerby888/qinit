@@ -1,3 +1,9 @@
+import {
+    AstKind,
+    BinaryOp,
+    DiagnosticSeverity,
+    UnaryOp,
+} from "../../enums";
 import type { ValidateDiagnostic } from "./validator-context";
 
 interface SupplementalFlowContext {
@@ -17,34 +23,34 @@ interface SupplementalFlowContext {
 }
 
 function supplementalDiagnostic(message: string, span: any): ValidateDiagnostic {
-    return { severity: "error", message, span };
+    return { severity: DiagnosticSeverity.ERROR, message, span };
 }
 
 function isModifiableLvalue(expression: any): boolean {
     if (!expression)
         return false;
     switch (expression.kind) {
-        case "identifier":
-        case "member_access":
-        case "subscript":
+        case AstKind.IDENTIFIER:
+        case AstKind.MEMBER_ACCESS:
+        case AstKind.SUBSCRIPT:
             return true;
-        case "paren":
+        case AstKind.PAREN:
             return isModifiableLvalue(expression.expression);
-        case "unary_op":
-            return expression.operator === "*";
+        case AstKind.UNARY_OP:
+            return expression.operator === UnaryOp.DEREFERENCE;
         default:
             return false;
     }
 }
 
 function isMutableReference(type: any): boolean {
-    return type?.kind === "reference" && type.referentType?.kind !== "const";
+    return type?.kind === AstKind.REFERENCE && type.referentType?.kind !== AstKind.CONST;
 }
 
 function expressionUsesRuntimeName(expression: any, runtimeNames: Set<string>): boolean {
     if (!expression || typeof expression !== "object")
         return false;
-    if (expression.kind === "identifier")
+    if (expression.kind === AstKind.IDENTIFIER)
         return runtimeNames.has(expression.name);
     for (const [key, value] of Object.entries(expression)) {
         if (key === "span" || key === "kind")
@@ -65,12 +71,12 @@ function expressionUsesRuntimeName(expression: any, runtimeNames: Set<string>): 
 function validateSupplementalExpression(expression: any, diagnostics: ValidateDiagnostic[]): void {
     if (!expression || typeof expression !== "object")
         return;
-    if (expression.kind === "assign" || (expression.kind === "binary_op" && expression.operator === "=")) {
+    if (expression.kind === AstKind.ASSIGN || (expression.kind === AstKind.BINARY_OP && expression.operator === BinaryOp.ASSIGN)) {
         if (!isModifiableLvalue(expression.left)) {
             diagnostics.push(supplementalDiagnostic("assignment target is not a modifiable lvalue", expression.left?.span ?? expression.span));
         }
     }
-    if ((expression.kind === "prefix_op" || expression.kind === "postfix_op") && !isModifiableLvalue(expression.argument)) {
+    if ((expression.kind === AstKind.PREFIX_OP || expression.kind === AstKind.POSTFIX_OP) && !isModifiableLvalue(expression.argument)) {
         diagnostics.push(supplementalDiagnostic(`operand of '${expression.operator}' is not a modifiable lvalue`, expression.argument?.span ?? expression.span));
     }
     for (const [key, value] of Object.entries(expression)) {
@@ -108,7 +114,7 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
         if (!statement)
             return;
         switch (statement.kind) {
-            case "compound": {
+            case AstKind.COMPOUND: {
                 const scoped: SupplementalFlowContext = {
                     ...current,
                     runtimeNames: new Set(current.runtimeNames),
@@ -118,9 +124,9 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
                     walk(child, scoped);
                 return;
             }
-            case "declaration": {
+            case AstKind.DECLARATION: {
                 const declaration = statement.declaration;
-                if (declaration?.kind === "variable") {
+                if (declaration?.kind === AstKind.VARIABLE) {
                     if (declaration.initializer)
                         validateSupplementalExpression(declaration.initializer, diagnostics);
                     if (isMutableReference(declaration.type) &&
@@ -135,10 +141,10 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
                 }
                 return;
             }
-            case "expression":
+            case AstKind.EXPRESSION:
                 validateSupplementalExpression(statement.expression, diagnostics);
                 return;
-            case "if":
+            case AstKind.IF:
                 validateSupplementalExpression(statement.condition, diagnostics);
                 walk(statement.then, {
                     ...current,
@@ -152,7 +158,7 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
                         initialized: new Set(current.initialized),
                     });
                 return;
-            case "for": {
+            case AstKind.FOR: {
                 const nested = {
                     ...current,
                     loopDepth: current.loopDepth + 1,
@@ -166,8 +172,8 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
                 walk(statement.body, nested);
                 return;
             }
-            case "while":
-            case "do_while":
+            case AstKind.WHILE:
+            case AstKind.DO_WHILE:
                 validateSupplementalExpression(statement.condition, diagnostics);
                 walk(statement.body, {
                     ...current,
@@ -176,7 +182,7 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
                     initialized: new Set(current.initialized),
                 });
                 return;
-            case "switch":
+            case AstKind.SWITCH:
                 validateSupplementalExpression(statement.condition, diagnostics);
                 walk(statement.body, {
                     ...current,
@@ -185,7 +191,7 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
                     initialized: new Set(current.initialized),
                 });
                 return;
-            case "case":
+            case AstKind.CASE:
                 if (current.switchDepth === 0) {
                     diagnostics.push(supplementalDiagnostic("case label is only valid inside a switch", statement.span));
                 }
@@ -194,24 +200,24 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
                 }
                 validateSupplementalExpression(statement.value, diagnostics);
                 return;
-            case "default":
+            case AstKind.DEFAULT:
                 if (current.switchDepth === 0) {
                     diagnostics.push(supplementalDiagnostic("default label is only valid inside a switch", statement.span));
                 }
                 return;
-            case "break":
+            case AstKind.BREAK:
                 if (current.loopDepth === 0 && current.switchDepth === 0) {
                     diagnostics.push(supplementalDiagnostic("break is only valid inside a loop or switch", statement.span));
                 }
                 return;
-            case "goto":
+            case AstKind.GOTO:
                 current.gotos.push({
                     label: statement.label,
                     span: statement.span,
                     initialized: new Set(current.initialized),
                 });
                 return;
-            case "label":
+            case AstKind.LABEL:
                 if (current.labels.has(statement.name)) {
                     diagnostics.push(supplementalDiagnostic(`duplicate label '${statement.name}'`, statement.span));
                 }
@@ -222,7 +228,7 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
                     });
                 }
                 return;
-            case "return":
+            case AstKind.RETURN:
                 validateSupplementalExpression(statement.value, diagnostics);
                 return;
         }
@@ -243,16 +249,16 @@ function validateSupplementalFunction(fn: any, diagnostics: ValidateDiagnostic[]
 
 export function validateSupplementalDeclarations(declarations: any[], diagnostics: ValidateDiagnostic[]): void {
     for (const declaration of declarations ?? []) {
-        if (declaration.kind === "function" || declaration.kind === "function_template") {
+        if (declaration.kind === AstKind.FUNCTION || declaration.kind === AstKind.FUNCTION_TEMPLATE) {
             validateSupplementalFunction(declaration, diagnostics);
         }
-        if (declaration.kind === "struct" || declaration.kind === "class_template") {
+        if (declaration.kind === AstKind.STRUCT || declaration.kind === AstKind.CLASS_TEMPLATE) {
             validateSupplementalDeclarations(declaration.members, diagnostics);
         }
-        else if (declaration.kind === "namespace" || declaration.kind === "extern_block") {
+        else if (declaration.kind === AstKind.NAMESPACE || declaration.kind === AstKind.EXTERN_BLOCK) {
             validateSupplementalDeclarations(declaration.body, diagnostics);
         }
-        else if (declaration.kind === "friend" && declaration.declaration) {
+        else if (declaration.kind === AstKind.FRIEND && declaration.declaration) {
             validateSupplementalDeclarations([declaration.declaration], diagnostics);
         }
     }

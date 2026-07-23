@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Positive coverage for QPI-legal loops, switches, and short-circuit flow.
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -109,7 +110,7 @@ describe("edge audit — control-flow semantics", () => {
       qpiHeader: HEADERS,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
     wasm = result.wasm;
   });

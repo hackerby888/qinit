@@ -1,3 +1,4 @@
+import { AstKind, TokenKind } from "../../enums";
 import type { Statement, TranslationUnit } from "../../ast";
 import type { Token } from "../../lexer";
 import { DeclarationParser } from "./declarations/declaration-parser";
@@ -46,7 +47,7 @@ export class Parser {
             const previousErrorCount = this.state.diagnostics.length;
             const declaration = this.declarations.parseDeclaration();
 
-            if (declaration && declaration.kind !== "empty") {
+            if (declaration && declaration.kind !== AstKind.EMPTY) {
                 declarations.push(declaration);
             }
 
@@ -93,12 +94,12 @@ export class Parser {
         ) {
             const kind = tokens[tokenIndex].kind;
 
-            if (kind === "l_brace") {
+            if (kind === TokenKind.L_BRACE) {
                 braceDepth++;
                 continue;
             }
 
-            if (kind === "r_brace") {
+            if (kind === TokenKind.R_BRACE) {
                 braceDepth--;
 
                 if (braceDepth === 0) {
@@ -109,7 +110,7 @@ export class Parser {
                 continue;
             }
 
-            if (kind === "eof") {
+            if (kind === TokenKind.EOF) {
                 break;
             }
         }
@@ -124,7 +125,7 @@ export class Parser {
             closeBraceIndex + 1,
         );
         bodyTokens.push({
-            kind: "eof",
+            kind: TokenKind.EOF,
             text: "",
             span: tokens[closeBraceIndex].span,
         });

@@ -1,3 +1,4 @@
+import { TokenKind } from "../../enums";
 import type { LexerInternals } from "./lexer-context";
 import type { Token } from "./tokens";
 
@@ -9,7 +10,7 @@ export function tokenize(context: LexerInternals): Token[] {
             context.tokens.push(tok);
         }
     }
-    context.tokens.push({ kind: "eof", text: "", span: context.span() });
+    context.tokens.push({ kind: TokenKind.EOF, text: "", span: context.span() });
     context.collapseTypeKeywords();
     return context.tokens;
 }

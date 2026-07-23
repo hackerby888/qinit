@@ -1,3 +1,4 @@
+import { AccessSpec, AstKind, DiagnosticSeverity } from "../../src/enums";
 // Validator unit tests: validateAndDesugar in isolation.
 import { describe, test, expect } from "bun:test";
 import { validateAndDesugar } from "../../src/validate";
@@ -16,48 +17,48 @@ const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };
 
 // AST helpers use `any` to keep valid test objects concise.
 
-const nt = (name: string): TypeSpec => ({ kind: "name", name, span: NO_SPAN }) as TypeSpec;
-const vd = (): TypeSpec => ({ kind: "void", span: NO_SPAN }) as TypeSpec;
+const nt = (name: string): TypeSpec => ({ kind: AstKind.NAME, name, span: NO_SPAN }) as TypeSpec;
+const vd = (): TypeSpec => ({ kind: AstKind.VOID, span: NO_SPAN }) as TypeSpec;
 const cnst = (inner: TypeSpec): TypeSpec =>
-  ({ kind: "const", valueType: inner, span: NO_SPAN }) as TypeSpec;
+  ({ kind: AstKind.CONST, valueType: inner, span: NO_SPAN }) as TypeSpec;
 
 const ident = (name: string): Expression =>
-  ({ kind: "identifier", name, span: NO_SPAN }) as Expression;
+  ({ kind: AstKind.IDENTIFIER, name, span: NO_SPAN }) as Expression;
 const iLit = (value: string): Expression =>
-  ({ kind: "int_literal", value, span: NO_SPAN }) as Expression;
+  ({ kind: AstKind.INT_LITERAL, value, span: NO_SPAN }) as Expression;
 const bin = (left: Expression, operator: string, right: Expression): Expression =>
-  ({ kind: "binary_op", operator, left, right, span: NO_SPAN }) as Expression;
+  ({ kind: AstKind.BINARY_OP, operator, left, right, span: NO_SPAN }) as Expression;
 const callx = (callee: Expression, callArguments: Expression[]): Expression =>
-  ({ kind: "call", callee, callArguments, span: NO_SPAN }) as Expression;
+  ({ kind: AstKind.CALL, callee, callArguments, span: NO_SPAN }) as Expression;
 const assign = (target: Expression, value: Expression): Expression =>
-  ({ kind: "assign", operator: "=", left: target, right: value, span: NO_SPAN }) as Expression;
+  ({ kind: AstKind.ASSIGN, operator: "=", left: target, right: value, span: NO_SPAN }) as Expression;
 const unary = (operator: string, argument: Expression): Expression =>
-  ({ kind: "unary_op", operator, argument, span: NO_SPAN }) as Expression;
+  ({ kind: AstKind.UNARY_OP, operator, argument, span: NO_SPAN }) as Expression;
 
 const eStmt = (expression: Expression): Statement =>
-  ({ kind: "expression", expression, span: NO_SPAN }) as Statement;
+  ({ kind: AstKind.EXPRESSION, expression, span: NO_SPAN }) as Statement;
 const retStmt = (value?: Expression): Statement =>
-  ({ kind: "return", value, span: NO_SPAN }) as Statement;
+  ({ kind: AstKind.RETURN, value, span: NO_SPAN }) as Statement;
 const compStmt = (body: Statement[]): Statement =>
-  ({ kind: "compound", body, span: NO_SPAN }) as Statement;
+  ({ kind: AstKind.COMPOUND, body, span: NO_SPAN }) as Statement;
 const declStmt = (declaration: Declaration): Statement =>
-  ({ kind: "declaration", declaration, span: NO_SPAN }) as Statement;
+  ({ kind: AstKind.DECLARATION, declaration, span: NO_SPAN }) as Statement;
 const ifStmt = (condition: Expression, then: Statement, else_?: Statement): Statement =>
-  ({ kind: "if", condition, then, else_, span: NO_SPAN }) as Statement;
+  ({ kind: AstKind.IF, condition, then, else_, span: NO_SPAN }) as Statement;
 const forStmt = (
   initializer: Statement | undefined,
   condition: Expression | undefined,
   update: Expression | undefined,
   body: Statement,
-): Statement => ({ kind: "for", initializer, condition, update, body, span: NO_SPAN }) as Statement;
+): Statement => ({ kind: AstKind.FOR, initializer, condition, update, body, span: NO_SPAN }) as Statement;
 const swStmt = (condition: Expression, body: Statement): Statement =>
-  ({ kind: "switch", condition, body, span: NO_SPAN }) as Statement;
+  ({ kind: AstKind.SWITCH, condition, body, span: NO_SPAN }) as Statement;
 const caseStmt = (value: Expression, body: Statement[]): Statement =>
-  ({ kind: "case", value, body, span: NO_SPAN }) as Statement;
-const breakStmt = (): Statement => ({ kind: "break", span: NO_SPAN }) as Statement;
+  ({ kind: AstKind.CASE, value, body, span: NO_SPAN }) as Statement;
+const breakStmt = (): Statement => ({ kind: AstKind.BREAK, span: NO_SPAN }) as Statement;
 const ppOp = (argument: Expression, prefix: boolean): Expression =>
   ({
-    kind: prefix ? "prefix_op" : "postfix_op",
+    kind: prefix ? AstKind.PREFIX_OP : AstKind.POSTFIX_OP,
     operator: "++",
     argument,
     span: NO_SPAN,
@@ -76,7 +77,7 @@ const varDecl = (
   },
 ): VariableDecl =>
   ({
-    kind: "variable",
+    kind: AstKind.VARIABLE,
     name,
     type,
     initializer: options?.initializer,
@@ -84,7 +85,7 @@ const varDecl = (
     isStatic: options?.isStatic ?? false,
     isExtern: options?.isExtern ?? false,
     isMember: false,
-    access: options?.access ?? "public",
+    access: options?.access ?? AccessSpec.PUBLIC,
     span: NO_SPAN,
   }) as VariableDecl;
 
@@ -96,7 +97,7 @@ const funcDecl = (
   options?: { isStatic?: boolean; noBody?: boolean },
 ): FunctionDecl =>
   ({
-    kind: "function",
+    kind: AstKind.FUNCTION,
     name,
     params: params.map((p) => ({
       kind: "param" as const,
@@ -119,10 +120,10 @@ const funcDecl = (
   }) as FunctionDecl;
 
 const structDecl = (name: string, members: Declaration[], bases: TypeSpec[] = []): StructDecl =>
-  ({ kind: "struct", name, members, bases, span: NO_SPAN }) as StructDecl;
+  ({ kind: AstKind.STRUCT, name, members, bases, span: NO_SPAN }) as StructDecl;
 
 const nsDecl = (name: string, body: Declaration[]): Declaration =>
-  ({ kind: "namespace", name, body, span: NO_SPAN }) as Declaration;
+  ({ kind: AstKind.NAMESPACE, name, body, span: NO_SPAN }) as Declaration;
 
 const translationUnit = (declarations: Declaration[]): { declarations: Declaration[] } => ({ declarations: declarations });
 
@@ -458,7 +459,7 @@ describe("validateAndDesugar — default argument desugaring", () => {
       .right as { kind: "call"; callArguments: Expression[] };
     expect(callNode.kind).toBe("call");
     expect(callNode.callArguments).toHaveLength(2);
-    expect(callNode.callArguments[1].kind).toBe("int_literal");
+    expect(callNode.callArguments[1].kind).toBe(AstKind.INT_LITERAL);
     expect((callNode.callArguments[1] as { value: string }).value).toBe("2");
   });
 
@@ -525,7 +526,7 @@ describe("validateAndDesugar — scope rules", () => {
       ]),
     ]);
     const diags = validate([s]);
-    expect(diags.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(diags.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   });
 
   test("block-scope function prototype is allowed", () => {

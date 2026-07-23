@@ -1,3 +1,4 @@
+import { AstKind, UnaryOp, WatNodeType } from "../../../enums";
 import { SCALAR_SIZE } from "../abi/tables";
 import { describeShape } from "../calls/call-shape";
 import { narrowCastIr, lowerScalarLoad, isSignedScalarType } from "../memory/memory-operations";
@@ -8,65 +9,65 @@ import { unsignedScalar } from "./conversions";
 // ---- value (rvalue) codegen — produces an i64 ----
 export function lowerValueExpression(context: FunctionEmissionContext, expression: Expression): watIr.WatNode {
     if (context.programAnalysis.gtestMode &&
-        expression.kind === "member_access" &&
+        expression.kind === AstKind.MEMBER_ACCESS &&
         expression.member === "constructionEpoch" &&
-        expression.object.kind === "subscript" &&
-        expression.object.object.kind === "identifier" &&
+        expression.object.kind === AstKind.SUBSCRIPT &&
+        expression.object.object.kind === AstKind.IDENTIFIER &&
         expression.object.object.name === "contractDescriptions") {
         return watIr.operation("i64.extend_i32_u", watIr.functionCall("$qt_construction_epoch", watIr.operation("i32.wrap_i64", lowerValueExpression(context, expression.object.index))));
     }
-    if (expression.kind === "member_access" &&
+    if (expression.kind === AstKind.MEMBER_ACCESS &&
         expression.member === "ptr" &&
-        expression.object.kind === "identifier" &&
+        expression.object.kind === AstKind.IDENTIFIER &&
         context.scratchpadLocals?.has(expression.object.name)) {
-        return watIr.operation("i64.extend_i32_u", watIr.localGet(expression.object.name, "i32"));
+        return watIr.operation("i64.extend_i32_u", watIr.localGet(expression.object.name, WatNodeType.I32));
     }
     // Collapse materialized uint128 truthiness to a scalar boolean.
-    if ((expression.kind === "call" ||
-        expression.kind === "binary_op" ||
-        expression.kind === "identifier" ||
-        expression.kind === "member_access") &&
+    if ((expression.kind === AstKind.CALL ||
+        expression.kind === AstKind.BINARY_OP ||
+        expression.kind === AstKind.IDENTIFIER ||
+        expression.kind === AstKind.MEMBER_ACCESS) &&
         context.lowering.isU128Expr(context, expression)) {
         const result = context.lowering.sourceU128Result(context, "operator bool", context.lowering.lowerUint128Expression(context, expression), []);
-        return result.ty === "i64" ? result : watIr.operation("i64.extend_i32_u", result);
+        return result.ty === WatNodeType.I64 ? result : watIr.operation("i64.extend_i32_u", result);
     }
     // `.low` / `.high` of a uint128-valued expression that is not itself an lvalue (e.g. `div(a, b).low`):
-    if (expression.kind === "member_access" &&
+    if (expression.kind === AstKind.MEMBER_ACCESS &&
         (expression.member === "low" || expression.member === "high") &&
         context.lowering.isU128Expr(context, expression.object)) {
         const argument = context.lowering.lowerUint128Expression(context, expression.object);
         return watIr.rawLoad("i64.load", expression.member === "high" ? 8 : 0, argument);
     }
     switch (expression.kind) {
-        case "int_literal": {
+        case AstKind.INT_LITERAL: {
             const numericValue = context.programAnalysis["sema"].evaluateConstexpr(expression) ?? 0n;
             return watIr.i64Constant(numericValue);
         }
-        case "bool_literal":
+        case AstKind.BOOL_LITERAL:
             return watIr.i64Constant(expression.value ? 1 : 0);
-        case "nullptr_literal":
+        case AstKind.NULLPTR_LITERAL:
             return watIr.i64Constant(0);
-        case "char_literal":
+        case AstKind.CHAR_LITERAL:
             return watIr.i64Constant(expression.value);
-        case "paren":
+        case AstKind.PAREN:
             return lowerValueExpression(context, expression.expression);
-        case "identifier": {
+        case AstKind.IDENTIFIER: {
             // Load reference locals through their stored address.
             if (context.localVars.has(expression.name) && !context.refLocals?.has(expression.name)) {
                 return watIr.localGet(expression.name, context.localVars.get(expression.name)!.wasmType);
             }
             // a pointer local read as a value (p == NULL): the held address, zero-extended.
-            if (context.refLocals?.get(expression.name)?.kind === "pointer") {
-                return watIr.operation("i64.extend_i32_u", watIr.localGet(expression.name, "i32"));
+            if (context.refLocals?.get(expression.name)?.kind === AstKind.POINTER) {
+                return watIr.operation("i64.extend_i32_u", watIr.localGet(expression.name, WatNodeType.I32));
             }
             const type = context.params?.get(expression.name);
             if (type && !type.isAddr)
                 return watIr.localGet(type.local ?? expression.name, type.wasmType);
             // Read pointer parameters as addresses and scalar parameters as values.
-            if (type && type.isAddr && type.type.kind === "pointer")
-                return watIr.operation("i64.extend_i32_u", watIr.localGet(type.local ?? expression.name, "i32"));
+            if (type && type.isAddr && type.type.kind === AstKind.POINTER)
+                return watIr.operation("i64.extend_i32_u", watIr.localGet(type.local ?? expression.name, WatNodeType.I32));
             if (type && type.isAddr && !context.programAnalysis.isAggregateType(type.type))
-                return watIr.loadScalar(watIr.localGet(type.local ?? expression.name, "i32"), context.programAnalysis.sizeOfType(type.type), !unsignedScalar(type.type));
+                return watIr.loadScalar(watIr.localGet(type.local ?? expression.name, WatNodeType.I32), context.programAnalysis.sizeOfType(type.type), !unsignedScalar(type.type));
             if (expression.name === "SELF_INDEX")
                 return watIr.operation("i64.extend_i32_u", watIr.functionCall("$qpi_contractIndex"));
             if (expression.name === "NULL")
@@ -103,7 +104,7 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             context.programAnalysis.warn(`unknown identifier '${expression.name}'`, expression.span);
             return watIr.i64Constant(0);
         }
-        case "member_access": {
+        case AstKind.MEMBER_ACCESS: {
             const resolvedAddress = context.lowering.resolveExpressionAddress(context, expression);
             if (resolvedAddress && resolvedAddress.size <= 8)
                 return lowerScalarLoad(resolvedAddress.addr, resolvedAddress.size, isSignedScalarType(resolvedAddress.type, context.programAnalysis));
@@ -114,16 +115,16 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             // Fold static constexpr members instead of treating them as runtime fields.
             const obj = context.lowering.resolveExpressionAddress(context, expression.object);
             let ot: TypeSpec | null = obj?.type ?? null;
-            for (let index = 0; index < 8 && ot?.kind === "name"; index++)
+            for (let index = 0; index < 8 && ot?.kind === AstKind.NAME; index++)
                 ot = context.programAnalysis.typedefs.get(ot.name) ?? null;
-            if (ot?.kind === "template_instance") {
+            if (ot?.kind === AstKind.TEMPLATE_INSTANCE) {
                 const sc = context.programAnalysis.staticConstsOf(ot.name, context.programAnalysis.bindContainer(ot.name, ot.callArguments));
                 if (sc.has(expression.member))
                     return watIr.i64Constant(sc.get(expression.member)!);
             }
             // Fold static constexpr members reached through inline-typed objects.
-            if (ot?.kind === "inline_struct") {
-                const sm = ot.struct.members.find((member) => member.kind === "variable" &&
+            if (ot?.kind === AstKind.INLINE_STRUCT) {
+                const sm = ot.struct.members.find((member) => member.kind === AstKind.VARIABLE &&
                     (member as VariableDecl).name === expression.member &&
                     ((member as VariableDecl).isStatic || (member as VariableDecl).isConstexpr) &&
                     (member as VariableDecl).initializer) as VariableDecl | undefined;
@@ -140,50 +141,50 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             context.programAnalysis.warn(`unsupported member read [${describeShape(expression)}]`, expression.span.line);
             return watIr.i64Constant(0);
         }
-        case "subscript": {
+        case AstKind.SUBSCRIPT: {
             const resolvedAddress = context.lowering.resolveExpressionAddress(context, expression);
             if (resolvedAddress && resolvedAddress.size <= 8)
                 return lowerScalarLoad(resolvedAddress.addr, resolvedAddress.size, isSignedScalarType(resolvedAddress.type, context.programAnalysis));
             context.programAnalysis.warn(`unsupported subscript value`, (expression as any).span?.line ?? 0);
             return watIr.i64Constant(0);
         }
-        case "call": {
+        case AstKind.CALL: {
             const inline = context.lowering.emitInlineStructValue(context, expression);
             return inline ?? context.lowering.emitCallValueIr(context, expression);
         }
-        case "template_call": {
-            if (expression.callee.kind === "identifier") {
+        case AstKind.TEMPLATE_CALL: {
+            if (expression.callee.kind === AstKind.IDENTIFIER) {
                 const name = expression.callee.name;
                 // Narrow static casts; keep pointer reinterpret casts on the address path.
                 if ((name === "static_cast" || name === "reinterpret_cast" || name === "const_cast") &&
                     expression.callArguments[0]) {
                     const inner = lowerValueExpression(context, expression.callArguments[0]);
                     const tgt = expression.templateArguments?.[0];
-                    return name === "static_cast" && tgt?.kind === "name"
+                    return name === "static_cast" && tgt?.kind === AstKind.NAME
                         ? narrowCastIr(inner, tgt.name)
                         : inner;
                 }
                 const helper = context.lowering.emitHelperCall(context, expression as unknown as Expression & {
-                    kind: "call";
+                    kind: AstKind.CALL;
                 }, true);
                 if (helper !== null)
-                    return watIr.rawWatNode(helper, "i64", "source-compiled template helper");
+                    return watIr.rawWatNode(helper, WatNodeType.I64, "source-compiled template helper");
             }
-            if (expression.callee.kind === "member_access" &&
-                expression.callee.object.kind === "identifier" &&
+            if (expression.callee.kind === AstKind.MEMBER_ACCESS &&
+                expression.callee.object.kind === AstKind.IDENTIFIER &&
                 expression.callee.object.name === "qpi") {
                 const source = context.lowering.emitTemplateContainerCall(context, expression, true);
                 if (source !== null)
-                    return watIr.rawWatNode(source, "i64", "source-compiled template instance method");
+                    return watIr.rawWatNode(source, WatNodeType.I64, "source-compiled template instance method");
             }
-            context.programAnalysis.warn(`unsupported template_call '${expression.callee.kind === "identifier" ? expression.callee.name : "?"}' as value`, expression.span.line);
+            context.programAnalysis.warn(`unsupported template_call '${expression.callee.kind === AstKind.IDENTIFIER ? expression.callee.name : "?"}' as value`, expression.span.line);
             return watIr.i64Constant(0);
         }
-        case "binary_op":
+        case AstKind.BINARY_OP:
             return context.lowering.lowerBinaryExpression(context, expression);
-        case "unary_op": {
+        case AstKind.UNARY_OP: {
             // *ptr as a value: load the pointee through the pointer's held address.
-            if (expression.operator === "*") {
+            if (expression.operator === UnaryOp.DEREFERENCE) {
                 const resolvedAddress = context.lowering.resolveExpressionAddress(context, expression);
                 if (resolvedAddress && resolvedAddress.size <= 8) {
                     return lowerScalarLoad(resolvedAddress.addr, resolvedAddress.size, isSignedScalarType(resolvedAddress.type, context.programAnalysis));
@@ -200,35 +201,35 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
                     ? watIr.operation("i64.extend32_s", count)
                     : count;
             switch (expression.operator) {
-                case "-": {
+                case UnaryOp.MINUS: {
                     return canon32(watIr.operation("i64.sub", watIr.i64Constant(0), valueNode));
                 }
-                case "~": {
+                case UnaryOp.BITWISE_NOT: {
                     return canon32(watIr.operation("i64.xor", valueNode, watIr.i64Constant(-1)));
                 }
-                case "!":
+                case UnaryOp.LOGICAL_NOT:
                     return watIr.operation("i64.extend_i32_u", watIr.operation("i64.eqz", valueNode));
                 default:
                     return valueNode;
             }
         }
-        case "prefix_op": {
+        case AstKind.PREFIX_OP: {
             // ++x / --x as a value: apply in place (as a side-effect line), then yield the new value.
             const emittedText = context.lowering.emitIncrementOrDecrement(context, expression);
             if (emittedText)
                 context.lines.push(`    ${emittedText}`);
             return lowerValueExpression(context, expression.argument);
         }
-        case "postfix_op": {
+        case AstKind.POSTFIX_OP: {
             // x++ / x-- as a value: capture the old value, then apply — the expression evaluates to the old.
             const oldValueLocal = context.lowering.newValueTmp(context);
             context.lines.push(`    ${watIr.serializeWatNode(watIr.localSet(oldValueLocal, lowerValueExpression(context, expression.argument)))}`);
             const stepExpression = context.lowering.emitIncrementOrDecrement(context, expression);
             if (stepExpression)
                 context.lines.push(`    ${stepExpression}`);
-            return watIr.localGet(oldValueLocal, "i64");
+            return watIr.localGet(oldValueLocal, WatNodeType.I64);
         }
-        case "ternary": {
+        case AstKind.TERNARY: {
             // Use select only when both ternary arms are pure and non-trapping.
             const cv = context.lowering.usualConversion(context, expression.then, expression.else_);
             const cvName = cv.width < 8 ? (cv.unsigned ? "uint32" : "sint32") : undefined;
@@ -251,24 +252,24 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             const thenB = [...thenLines, `      ${context.lowering.setLocal(context, branchResultLocal, thenV)}`].join("\n");
             const elseB = [...elseLines, `      ${context.lowering.setLocal(context, branchResultLocal, elseV)}`].join("\n");
             context.lines.push(`    (if (i64.ne (i64.const 0) ${watIr.serializeWatNode(condition)}) (then\n${thenB}\n    ) (else\n${elseB}\n    ))`);
-            return narrowCastIr(watIr.localGet(branchResultLocal, "i64"), cvName);
+            return narrowCastIr(watIr.localGet(branchResultLocal, WatNodeType.I64), cvName);
         }
-        case "c_cast":
-        case "static_cast":
-            return narrowCastIr(lowerValueExpression(context, expression.expression), expression.type?.kind === "name" ? expression.type.name : undefined);
-        case "construct": {
+        case AstKind.C_CAST:
+        case AstKind.STATIC_CAST:
+            return narrowCastIr(lowerValueExpression(context, expression.expression), expression.type?.kind === AstKind.NAME ? expression.type.name : undefined);
+        case AstKind.CONSTRUCT: {
             const storageType = context.programAnalysis.scalarStorageType(expression.type);
-            if (storageType.kind === "name" && SCALAR_SIZE[storageType.name] !== undefined && SCALAR_SIZE[storageType.name] <= 8) {
+            if (storageType.kind === AstKind.NAME && SCALAR_SIZE[storageType.name] !== undefined && SCALAR_SIZE[storageType.name] <= 8) {
                 return narrowCastIr(expression.callArguments[0] ? lowerValueExpression(context, expression.callArguments[0]) : watIr.i64Constant(0), storageType.name);
             }
             context.programAnalysis.warn(`aggregate construction used as a scalar value`, expression.span);
             return watIr.i64Constant(0);
         }
-        case "initializer_list":
+        case AstKind.INITIALIZER_LIST:
             return expression.expressions.length === 1 ? lowerValueExpression(context, expression.expressions[0]) : watIr.i64Constant(0);
-        case "sizeof_type":
+        case AstKind.SIZEOF_TYPE:
             return watIr.i64Constant(context.programAnalysis.sizeOfType(expression.type, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS));
-        case "sizeof_expr": {
+        case AstKind.SIZEOF_EXPR: {
             // sizeof someLvalue — e.g. sizeof(*this) (the container).
             const resolvedAddress = context.lowering.resolveExpressionAddress(context, expression.expression);
             if (resolvedAddress)
@@ -277,15 +278,15 @@ export function lowerValueExpression(context: FunctionEmissionContext, expressio
             if (scalar)
                 return watIr.i64Constant(scalar.width);
             // Handle bare type names parsed as sizeof expressions.
-            if (expression.expression.kind === "identifier") {
-                const byteSize = context.programAnalysis.sizeOfType({ kind: "name", name: expression.expression.name }, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
+            if (expression.expression.kind === AstKind.IDENTIFIER) {
+                const byteSize = context.programAnalysis.sizeOfType({ kind: AstKind.NAME, name: expression.expression.name }, context.thisBind ?? EMPTY_TEMPLATE_BINDINGS);
                 if (byteSize > 0)
                     return watIr.i64Constant(byteSize);
             }
             context.programAnalysis.warn(`unsupported sizeof expr`, expression.span.line);
             return watIr.i64Constant(0);
         }
-        case "assign": {
+        case AstKind.ASSIGN: {
             // Execute assignment-valued expressions before returning their value.
             context.lowering.emitAssignment(context, expression);
             return lowerValueExpression(context, expression.left);

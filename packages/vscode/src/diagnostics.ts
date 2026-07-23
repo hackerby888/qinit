@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 import {
   analyzeContract,
+  DiagnosticSeverity,
+  SourceAnalysisOrigin,
   type SourceAnalysisDiagnostic,
   type SourceFix,
 } from "@qinit/compile/analyzer";
@@ -13,9 +15,9 @@ const SEVERITY: Record<
   SourceAnalysisDiagnostic["severity"],
   vscode.DiagnosticSeverity
 > = {
-  error: vscode.DiagnosticSeverity.Error,
-  warning: vscode.DiagnosticSeverity.Warning,
-  information: vscode.DiagnosticSeverity.Information,
+  [DiagnosticSeverity.ERROR]: vscode.DiagnosticSeverity.Error,
+  [DiagnosticSeverity.WARNING]: vscode.DiagnosticSeverity.Warning,
+  [DiagnosticSeverity.INFORMATION]: vscode.DiagnosticSeverity.Information,
 };
 
 function toDiagnostic(
@@ -32,7 +34,7 @@ function toDiagnostic(
     SEVERITY[item.severity],
   );
   diagnostic.source =
-    item.origin === "qpi"
+    item.origin === SourceAnalysisOrigin.QPI
       ? "qpi"
       : "qinit-compiler";
   diagnostic.code = item.code;

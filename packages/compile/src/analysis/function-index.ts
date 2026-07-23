@@ -1,3 +1,4 @@
+import { AstKind } from "../enums";
 import { EMPTY_TEMPLATE_BINDINGS, ResolvedSourceMethod, TemplateBindings } from "./types";
 import type { TypeSpec, FunctionDecl, FunctionTemplateDecl } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
@@ -20,9 +21,9 @@ export function methodOwnerNames(context: ProgramAnalysisInternals, name: string
 }
 
 export function baseTemplateName(context: ProgramAnalysisInternals, type: TypeSpec): string | null {
-    if (type.kind === "name")
+    if (type.kind === AstKind.NAME)
         return type.name;
-    if (type.kind === "template_instance")
+    if (type.kind === AstKind.TEMPLATE_INSTANCE)
         return type.name;
     return null;
 }
@@ -53,12 +54,12 @@ export function resolveSourceMethodDefinition(
     if (templateInstance) {
         const inlineMethodCandidates = templateInstance.templateDeclaration.members.filter(
             (member) =>
-                (member.kind === "function" || member.kind === "function_template") &&
+                (member.kind === AstKind.FUNCTION || member.kind === AstKind.FUNCTION_TEMPLATE) &&
                 (member as FunctionDecl | FunctionTemplateDecl).name === methodName &&
                 (member as FunctionDecl | FunctionTemplateDecl).body,
         ) as Array<FunctionDecl | FunctionTemplateDecl>;
         const parametersOf = (method: FunctionDecl | FunctionTemplateDecl) =>
-            method.kind === "function_template"
+            method.kind === AstKind.FUNCTION_TEMPLATE
                 ? (method.functionParameters ?? [])
                 : method.params;
 
@@ -81,10 +82,10 @@ export function resolveSourceMethodDefinition(
 
         if (selectedInlineMethod) {
             const definition: FunctionTemplateDecl =
-                selectedInlineMethod.kind === "function_template"
+                selectedInlineMethod.kind === AstKind.FUNCTION_TEMPLATE
                     ? selectedInlineMethod
                     : {
-                        kind: "function_template",
+                        kind: AstKind.FUNCTION_TEMPLATE,
                         name: selectedInlineMethod.name,
                         params: templateInstance.templateDeclaration.params,
                         functionParameters: selectedInlineMethod.params,
@@ -103,7 +104,7 @@ export function resolveSourceMethodDefinition(
                 definition,
                 ownerBindings,
                 requiresMethodTemplateInference:
-                    selectedInlineMethod.kind === "function_template",
+                    selectedInlineMethod.kind === AstKind.FUNCTION_TEMPLATE,
             };
         }
     }
@@ -142,7 +143,7 @@ export function resolveSourceMethodDefinition(
 
     const methodDeclaration = templateInstance?.templateDeclaration.members.find(
         (member): member is FunctionDecl => {
-            if (member.kind !== "function" || member.name !== methodName) {
+            if (member.kind !== AstKind.FUNCTION || member.name !== methodName) {
                 return false;
             }
 

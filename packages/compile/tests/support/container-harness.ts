@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -100,7 +101,7 @@ export async function compileTsFixture(
     qpiHeader,
     arenaSz: CONTAINER_ARENA_SIZE,
   });
-  const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
   if (errors.length || !result.wasm.byteLength) {
     throw new Error(
       `${fixture.family} TS compile failed: ${errors.map((error) => error.message).join(" | ") || "empty artifact"}`,

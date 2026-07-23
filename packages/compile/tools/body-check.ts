@@ -1,7 +1,7 @@
 import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 // Compiles representative fixtures and reports diagnostics and Wasm size.
 import { readFileSync } from "node:fs";
-import { compileContract, loadQpiHeader } from "../src/index";
+import { compileContract, DiagnosticSeverity, loadQpiHeader } from "../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -23,9 +23,11 @@ for (const [name, path] of targets) {
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+    const errors = result.diagnostics.filter(
+      (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
+    );
     const warnings = result.diagnostics.filter(
-      (diagnostic) => diagnostic.severity === "warning",
+      (diagnostic) => diagnostic.severity === DiagnosticSeverity.WARNING,
     );
     console.log(
       `\n=== ${name} === wasm=${result.wasm.byteLength}b errors=${errors.length} warnings=${warnings.length}`,

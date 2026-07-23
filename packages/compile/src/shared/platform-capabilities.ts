@@ -1,1 +1,1 @@
-export type PlatformCapability = "chain-prng";
+export { PlatformCapability } from "../enums";

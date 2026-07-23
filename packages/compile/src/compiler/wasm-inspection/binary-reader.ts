@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../enums";
 import type { WasmInspectionDiagnostic } from "./inspection-types";
 
 export class WasmParseError extends Error {
@@ -83,6 +84,6 @@ export class Reader {
 
 export function error(diagnostics: WasmInspectionDiagnostic[], code: string, message: string, offset?: number): void {
     diagnostics.push(offset === undefined
-        ? { severity: "error", code, message }
-        : { severity: "error", code, message, offset });
+        ? { severity: DiagnosticSeverity.ERROR, code, message }
+        : { severity: DiagnosticSeverity.ERROR, code, message, offset });
 }

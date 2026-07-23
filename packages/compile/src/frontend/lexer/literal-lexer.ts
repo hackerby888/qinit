@@ -1,3 +1,4 @@
+import { TokenKind } from "../../enums";
 import type { LexerInternals } from "./lexer-context";
 import type { Token } from "./tokens";
 
@@ -23,7 +24,7 @@ export function lexCharLiteral(context: LexerInternals, start: number, startLine
             text += context.advance();
         }
     }
-    return { kind: "char_literal", text, span: context.makeSpan(start, startLine, startCol) };
+    return { kind: TokenKind.CHAR_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
 }
 
 export function lexStringLiteral(context: LexerInternals, start: number, startLine: number, startCol: number): Token {
@@ -48,5 +49,5 @@ export function lexStringLiteral(context: LexerInternals, start: number, startLi
             text += context.advance();
         }
     }
-    return { kind: "string_literal", text, span: context.makeSpan(start, startLine, startCol) };
+    return { kind: TokenKind.STRING_LITERAL, text, span: context.makeSpan(start, startLine, startCol) };
 }

@@ -1,6 +1,7 @@
+import { TokenKind } from "../../enums";
 import { KEYWORDS } from "./keywords";
 import type { LexerInternals } from "./lexer-context";
-import type { Token, TokenKind } from "./tokens";
+import type { Token } from "./tokens";
 
 export function isIdStart(context: LexerInternals, ch: string): boolean {
     return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_";
@@ -16,6 +17,6 @@ export function lexIdOrKeyword(context: LexerInternals, start: number, startLine
         text += context.advance();
     }
     const kw = KEYWORDS[text];
-    const kind: TokenKind = kw ?? "identifier";
+    const kind: TokenKind = kw ?? TokenKind.IDENTIFIER;
     return { kind, text, span: context.makeSpan(start, startLine, startCol) };
 }

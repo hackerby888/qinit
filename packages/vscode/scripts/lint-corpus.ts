@@ -2,6 +2,8 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   analyzeContract,
+  DiagnosticSeverity,
+  SourceAnalysisOrigin,
   type SourceAnalysisDiagnostic,
 } from "@qinit/compile/analyzer";
 import { resolveCore } from "@qinit/core/project";
@@ -39,8 +41,8 @@ export function lintCorpus(
     const source = readFileSync(path, "utf8");
     const findings = analyzeContract({ source }).diagnostics.filter(
       (finding) =>
-        finding.origin === "qpi" &&
-        finding.severity !== "information",
+        finding.origin === SourceAnalysisOrigin.QPI &&
+        finding.severity !== DiagnosticSeverity.INFORMATION,
     );
     results.push({ file, findings });
   }

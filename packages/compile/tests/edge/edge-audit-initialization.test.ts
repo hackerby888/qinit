@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Covers direct, braced, and parenthesized initialization in helper bodies.
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -29,7 +30,7 @@ async function compile(source: string) {
 
 async function run(source: string): Promise<bigint> {
   const result = await compile(source);
-  expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
@@ -74,7 +75,7 @@ describe("edge audit — direct and aggregate initialization", () => {
       `Pair pair = {7, 9, 11}; state.mut().result = pair.left + pair.right;`,
     );
     const result = await compile(source);
-    const errors = result.diagnostics.filter((d) => d.severity === "error");
+    const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     expect(errors.some((d) => /initializer|too many|field/i.test(d.message))).toBe(true);
     expect(result.wasm).toHaveLength(0);
   });

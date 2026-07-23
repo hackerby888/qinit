@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -85,7 +86,7 @@ describe("scratchpad RAII and pointer lowering", () => {
       arenaSz: 1 << 20,
       qpiHeader: loadQpiHeader(CORE),
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(9);
     sim.fund(user, 1_000_000n);

@@ -1,18 +1,18 @@
+import { WasmLimitKind, WasmValueType } from "../../enums";
 import { Reader, WasmParseError, error } from "./binary-reader";
 import type { InternalGlobal, ParsedModule } from "./parsed-module";
-import type { WasmValueType } from "./inspection-types";
 
 export function readValueType(reader: Reader, parsed: ParsedModule, context: string): WasmValueType {
     const at = reader.pos;
     switch (reader.byte(`${context} value type`)) {
         case 0x7f:
-            return "i32";
+            return WasmValueType.I32;
         case 0x7e:
-            return "i64";
+            return WasmValueType.I64;
         case 0x7d:
-            return "f32";
+            return WasmValueType.F32;
         case 0x7c:
-            return "f64";
+            return WasmValueType.F64;
         case 0x7b:
             parsed.features.add("simd");
             throw new WasmParseError(`${context} uses v128`, at);
@@ -33,7 +33,7 @@ export function readValueTypeVector(reader: Reader, parsed: ParsedModule, contex
     return values;
 }
 
-export function readLimits(reader: Reader, parsed: ParsedModule, context: "memory" | "table"): {
+export function readLimits(reader: Reader, parsed: ParsedModule, context: WasmLimitKind): {
     minimum: bigint;
     maximum?: bigint;
     shared: boolean;
@@ -42,13 +42,13 @@ export function readLimits(reader: Reader, parsed: ParsedModule, context: "memor
     const at = reader.pos;
     const flags = reader.u32(`${context} limits flags`);
     const shared = (flags & 0x02) !== 0;
-    const memory64 = context === "memory" && (flags & 0x04) !== 0;
+    const memory64 = context === WasmLimitKind.MEMORY && (flags & 0x04) !== 0;
     const hasMaximum = (flags & 0x01) !== 0;
     if (shared)
         parsed.features.add("threads/shared-memory");
     if (memory64)
         parsed.features.add("memory64");
-    const known = context === "memory" ? 0x07 : 0x01;
+    const known = context === WasmLimitKind.MEMORY ? 0x07 : 0x01;
     if ((flags & ~known) !== 0)
         throw new WasmParseError(`${context} has unsupported limits flags 0x${flags.toString(16)}`, at);
     const readLimit = () => memory64 ? reader.u64(`${context} limit`) : BigInt(reader.u32(`${context} limit`));
@@ -66,7 +66,7 @@ export function readTableType(reader: Reader, parsed: ParsedModule): void {
         if (elementType !== 0x6f)
             throw new WasmParseError("table has an unsupported element type", at);
     }
-    readLimits(reader, parsed, "table");
+    readLimits(reader, parsed, WasmLimitKind.TABLE);
 }
 
 export function readGlobalType(reader: Reader, parsed: ParsedModule): InternalGlobal {

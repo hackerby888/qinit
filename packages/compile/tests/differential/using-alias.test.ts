@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks allowed C++11 type aliases in struct and function scope.
 import { describe, test, expect, beforeAll } from "bun:test";
@@ -61,7 +62,7 @@ describe("using type aliases", () => {
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    const errs = r.diagnostics.filter((d) => d.severity === "error");
+    const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     if (errs.length) console.log("  COMPILE ERRORS:", errs.map((e) => e.message).join("\n"));
     expect(errs).toHaveLength(0);
 

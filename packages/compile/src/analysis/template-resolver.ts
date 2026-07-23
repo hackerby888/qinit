@@ -1,3 +1,4 @@
+import { AstKind } from "../enums";
 import { ClassTemplate, StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Declaration, StructDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
@@ -36,10 +37,10 @@ export function matchTemplateSpecialization(context: ProgramAnalysisInternals, n
         let match = true;
         for (let specArgIndex = 0; specArgIndex < specialization.specArgs.length; specArgIndex++) {
             const specializationArg = specialization.specArgs[specArgIndex];
-            const specializedParameter = specializationArg.kind === "name" ? paramByName.get(specializationArg.name) : undefined;
+            const specializedParameter = specializationArg.kind === AstKind.NAME ? paramByName.get(specializationArg.name) : undefined;
             const instantiationArg = resolvedArguments[specArgIndex];
             if (specializedParameter) {
-                if (specializedParameter.kind === "type") {
+                if (specializedParameter.kind === AstKind.TYPE) {
                     // pattern variable — bind this specialization parameter to the instantiation argument
                     templateBindings.types.set(specializedParameter.name, instantiationArg);
                     continue;
@@ -47,10 +48,10 @@ export function matchTemplateSpecialization(context: ProgramAnalysisInternals, n
                 templateBindings.values.set(specializedParameter.name, context.evalConstFromType(instantiationArg, parent));
                 continue;
             }
-            if (specializationArg.kind === "name") {
-                const normalizedName = instantiationArg.kind === "name"
+            if (specializationArg.kind === AstKind.NAME) {
+                const normalizedName = instantiationArg.kind === AstKind.NAME
                     ? instantiationArg.name
-                    : instantiationArg.kind === "template_instance"
+                    : instantiationArg.kind === AstKind.TEMPLATE_INSTANCE
                         ? instantiationArg.name
                         : "";
                 if (normalizedName !== specializationArg.name) {
@@ -79,14 +80,14 @@ export function instantiateTemplateBindings(context: ProgramAnalysisInternals, t
     for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
         const templateParam = templateDeclaration.params[parameterIndex];
         const argument = resolvedArguments[parameterIndex] ??
-            (templateParam.kind === "type" && templateParam.default
+            (templateParam.kind === AstKind.TYPE && templateParam.default
                 ? context.substInBindings(templateParam.default, templateBindings)
-                : templateParam.kind === "non_type_default"
-                    ? ({ kind: "expr_value", expression: templateParam.default } as TypeSpec)
+                : templateParam.kind === AstKind.NON_TYPE_DEFAULT
+                    ? ({ kind: AstKind.EXPR_VALUE, expression: templateParam.default } as TypeSpec)
                     : undefined);
         if (!argument)
             continue;
-        if (templateParam.kind === "type")
+        if (templateParam.kind === AstKind.TYPE)
             templateBindings.types.set(templateParam.name, argument);
         else
             templateBindings.values.set(templateParam.name, context.evalConstFromType(argument, parent));
@@ -96,7 +97,7 @@ export function instantiateTemplateBindings(context: ProgramAnalysisInternals, t
 
 export function withStaticConsts(context: ProgramAnalysisInternals, templateDeclaration: ClassTemplate, templateBindings: TemplateBindings): TemplateBindings {
     for (const member of templateDeclaration.members) {
-        if (member.kind !== "variable")
+        if (member.kind !== AstKind.VARIABLE)
             continue;
         const variableDeclaration = member as VariableDecl;
         if ((variableDeclaration.isStatic || variableDeclaration.isConstexpr) && variableDeclaration.initializer && !templateBindings.values.has(variableDeclaration.name)) {
@@ -123,7 +124,7 @@ export function layoutOfTemplate(context: ProgramAnalysisInternals, name: string
 export function withLocalStructs(context: ProgramAnalysisInternals, members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
     let structs = templateBindings.structs;
     for (const member of members) {
-        if (member.kind === "struct" && (member as StructDecl).name) {
+        if (member.kind === AstKind.STRUCT && (member as StructDecl).name) {
             if (structs === templateBindings.structs)
                 structs = new Map(templateBindings.structs);
             structs.set((member as StructDecl).name, member as StructDecl);
@@ -133,11 +134,11 @@ export function withLocalStructs(context: ProgramAnalysisInternals, members: Dec
 }
 
 export function inlineNestedStruct(context: ProgramAnalysisInternals, type: TypeSpec, templateBindings: TemplateBindings): TypeSpec {
-    const bare = type.kind === "const" ? type.valueType : type;
-    if (bare.kind === "name") {
+    const bare = type.kind === AstKind.CONST ? type.valueType : type;
+    if (bare.kind === AstKind.NAME) {
         const structDeclaration = templateBindings.structs.get(bare.name);
         if (structDeclaration)
-            return { kind: "inline_struct", struct: structDeclaration };
+            return { kind: AstKind.INLINE_STRUCT, struct: structDeclaration };
         // Resolve dependent nested types under the active template bindings.
         const qn = context.qualifiedNestedType(bare.name, templateBindings);
         if (qn)
@@ -160,27 +161,27 @@ export function bindContainer(context: ProgramAnalysisInternals, name: string, c
     for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
         const parameter = templateDeclaration.params[parameterIndex];
         const parameterArgument = resolved[parameterIndex] ??
-            (parameter.kind === "type" && parameter.default
+            (parameter.kind === AstKind.TYPE && parameter.default
                 ? context.substInBindings(parameter.default, out)
-                : parameter.kind === "non_type_default"
-                    ? ({ kind: "expr_value", expression: parameter.default } as TypeSpec)
+                : parameter.kind === AstKind.NON_TYPE_DEFAULT
+                    ? ({ kind: AstKind.EXPR_VALUE, expression: parameter.default } as TypeSpec)
                     : undefined);
         if (!parameterArgument)
             continue;
-        if (parameter.kind === "type")
+        if (parameter.kind === AstKind.TYPE)
             out.types.set(parameter.name, parameterArgument);
         else
             out.values.set(parameter.name, context.evalConstFromType(parameterArgument, templateBindings));
     }
     for (const member of templateDeclaration.members) {
-        if (member.kind === "struct" && (member as StructDecl).name)
+        if (member.kind === AstKind.STRUCT && (member as StructDecl).name)
             out.structs.set((member as StructDecl).name, member as StructDecl);
-        else if (member.kind === "typedef_decl" && !out.types.has((member as any).name))
+        else if (member.kind === AstKind.TYPEDEF_DECL && !out.types.has((member as any).name))
             out.types.set((member as any).name, (member as any).type);
     }
     // Evaluate static constexpr members needed by dependent array sizes.
     for (const templateMember of templateDeclaration.members) {
-        if (templateMember.kind !== "variable")
+        if (templateMember.kind !== AstKind.VARIABLE)
             continue;
         const variableDeclaration = templateMember as VariableDecl;
         if ((variableDeclaration.isStatic || variableDeclaration.isConstexpr) && variableDeclaration.initializer && !out.values.has(variableDeclaration.name)) {
@@ -201,7 +202,7 @@ export function staticConstsOf(context: ProgramAnalysisInternals, name: string, 
     if (!templateDeclaration)
         return out;
     for (const member of templateDeclaration.members) {
-        if (member.kind === "variable") {
+        if (member.kind === AstKind.VARIABLE) {
             const variableDeclaration = member as VariableDecl;
             if ((variableDeclaration.isStatic || variableDeclaration.isConstexpr) && variableDeclaration.initializer)
                 out.set(variableDeclaration.name, context.evalConstBig(variableDeclaration.initializer, templateBindings));

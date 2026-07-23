@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Namespace-aware free-helper resolution: using-directives, qualified forms, no accidental QPI fallback.
 import { describe, expect, test } from "bun:test";
@@ -31,7 +32,7 @@ using namespace Utils;`,
       `output.r = twice(input.v);`,
     );
     const r = await compile(source);
-    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });
 
@@ -44,7 +45,7 @@ namespace Utils {
       `output.r = Utils::thrice(input.v);`,
     );
     const r = await compile(source);
-    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });
 
@@ -60,8 +61,8 @@ namespace Utils {
     );
     const r = await compile(source, false);
     // Non-strict: unknown free helper is non-fatal (fidelity/warn path), not a hard success.
-    const errors = r.diagnostics.filter((d) => d.severity === "error");
-    const warnings = r.diagnostics.filter((d) => d.severity === "warning");
+    const errors = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
+    const warnings = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.WARNING);
     // Must not silently bind onlyMine through QPI — either a diagnostic fires or the build fails to lower cleanly.
     const complained =
       errors.length > 0 ||
@@ -72,7 +73,7 @@ namespace Utils {
   test("QPI math still resolves under using namespace QPI", async () => {
     const source = contractShell(`using namespace QPI;`, `output.r = (uint64)div(input.v, 2ull);`);
     const r = await compile(source);
-    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });
 
@@ -82,7 +83,7 @@ namespace Utils {
       `output.r = (uint64)QPI::div(input.v, 2ull);`,
     );
     const r = await compile(source);
-    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });
 
@@ -92,7 +93,7 @@ namespace Utils {
       `output.r = ProposalTypes::cls(uint16(input.v));`,
     );
     const r = await compile(source);
-    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });
 
@@ -107,7 +108,7 @@ using namespace Utils;`,
       `output.r = incTwice(input.v);`,
     );
     const r = await compile(source);
-    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });
 
@@ -132,7 +133,7 @@ struct HelperCallee : public ContractBase {
       ],
       calleeSources: [{ name: "HelperCallee", source: calleeSource }],
     });
-    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });
 
@@ -175,7 +176,7 @@ namespace Wrap {
 }`;
     const source = contractShell(`using namespace QPI;`, `output.r = Wrap::wrapped(input.v);`);
     const r = await compileContract({ source, name: "NsProbe", slot: 28, qpiHeader });
-    expect(r.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(r.diagnostics.some((d) => /plusSeven|unsupported call/i.test(d.message))).toBe(false);
     expect(r.wasm.byteLength).toBeGreaterThan(100);
   });

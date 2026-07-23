@@ -1,3 +1,9 @@
+import {
+    AstKind,
+    ContainerEmissionMode,
+    WatNodeType,
+    type WatValueType,
+} from "../../../enums";
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { emitScalarLoad, addrIr, isSignedScalarType } from "../memory/memory-operations";
 import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext } from "../types";
@@ -8,7 +14,7 @@ import * as watIr from "../../../wat-ir";
 // A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32), scalars pass by value (i64).
 export function classifyMethodParam(programAnalysis: ProgramAnalysis, parameter: ParamDecl, bind: TemplateBindings): {
     name: string;
-    wasmType: "i32" | "i64";
+    wasmType: WatValueType;
     isAddr: boolean;
     type: TypeSpec;
     concreteType: TypeSpec;
@@ -16,14 +22,14 @@ export function classifyMethodParam(programAnalysis: ProgramAnalysis, parameter:
     readOnlyRef?: boolean;
 } {
     const type = parameter.type;
-    const isPtrOrRef = type.kind === "reference" || type.kind === "pointer";
-    const readOnlyRef = type.kind === "reference" && type.referentType.kind === "const";
+    const isPtrOrRef = type.kind === AstKind.REFERENCE || type.kind === AstKind.POINTER;
+    const readOnlyRef = type.kind === AstKind.REFERENCE && type.referentType.kind === AstKind.CONST;
     const deref = programAnalysis.derefType(type);
     const concrete = programAnalysis.substInBindings(deref, bind);
     const isAddr = isPtrOrRef || programAnalysis.isAggregateType(concrete);
     return {
         name: parameter.name,
-        wasmType: isAddr ? "i32" : "i64",
+        wasmType: isAddr ? WatNodeType.I32 : WatNodeType.I64,
         isAddr,
         type: type,
         concreteType: concrete,
@@ -33,7 +39,7 @@ export function classifyMethodParam(programAnalysis: ProgramAnalysis, parameter:
 }
 // Compile or reuse a source-backed container method.
 export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: TypeSpec & {
-    kind: "template_instance";
+    kind: AstKind.TEMPLATE_INSTANCE;
 }, methodName: string, methodArgumentCount?: number, parameterTypeDiscriminator?: string, resolveMethodArgumentTypes?: () => Array<TypeSpec | null>, explicitTemplateArgs: TypeSpec[] = []): CompiledMethod | null {
     const explicitTemplateKey = explicitTemplateArgs.map((argument) => programAnalysis.typeKeyOf(argument)).join(",");
     const baseInstanceKey = methodTypeKey(type, programAnalysis);
@@ -71,7 +77,7 @@ export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: T
             const argument = explicitTemplateArgs[index];
             if (!argument)
                 return;
-            if (parameter.kind === "type")
+            if (parameter.kind === AstKind.TYPE)
                 types.set(parameter.name, argument);
             else
                 values.set(parameter.name, programAnalysis.valueOfTypeArg(argument, ownerBindings));
@@ -80,13 +86,13 @@ export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: T
     }
     // Infer member-template types structurally from concrete call arguments instead of assigning
     // semantics to specific method names.
-    if (resolvedMethod.requiresMethodTemplateInference && definition.params.some((param) => param.kind === "type")) {
+    if (resolvedMethod.requiresMethodTemplateInference && definition.params.some((param) => param.kind === AstKind.TYPE)) {
         const types = new Map(ownerBindings.types);
-        const templateTypeNames = new Set(definition.params.filter((param) => param.kind === "type").map((param) => param.name));
+        const templateTypeNames = new Set(definition.params.filter((param) => param.kind === AstKind.TYPE).map((param) => param.name));
         for (let index = 0; index < (definition.functionParameters ?? []).length; index++) {
             const declared = programAnalysis.derefType(definition.functionParameters![index].type);
             const actual = resolvedMethodArgumentTypes[index];
-            if (declared.kind === "name" && templateTypeNames.has(declared.name) && actual) {
+            if (declared.kind === AstKind.NAME && templateTypeNames.has(declared.name) && actual) {
                 types.set(declared.name, actual);
             }
         }
@@ -94,13 +100,13 @@ export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: T
     }
     const functionParameters = (definition.functionParameters ?? []).map((parameter) => classifyMethodParam(programAnalysis, parameter, ownerBindings));
     const retType = programAnalysis.substInBindings(programAnalysis.derefType(definition.returnType), ownerBindings);
-    const returnsAddr = definition.returnType.kind === "reference" || definition.returnType.kind === "pointer";
+    const returnsAddr = definition.returnType.kind === AstKind.REFERENCE || definition.returnType.kind === AstKind.POINTER;
     const returnsAggregate = !returnsAddr && !programAnalysis.isVoidType(definition.returnType) && programAnalysis.isAggregateType(retType);
-    const retKind: "i32" | "i64" | "void" = returnsAddr
-        ? "i32"
+    const retKind: WatNodeType = returnsAddr
+        ? WatNodeType.I32
         : programAnalysis.isVoidType(definition.returnType) || returnsAggregate
-            ? "void"
-            : "i64";
+            ? WatNodeType.VOID
+            : WatNodeType.I64;
     const retAgg = returnsAggregate ? programAnalysis.sizeOfType(retType, ownerBindings) : undefined;
     const safeMethodName = methodName.replace(/[^a-zA-Z0-9_]/g, "_");
     const cm: CompiledMethod = {
@@ -132,14 +138,14 @@ export function compileContainerMethod(programAnalysis: ProgramAnalysis, type: T
     return cm;
 }
 function methodTypeKey(type: TypeSpec & {
-    kind: "template_instance";
+    kind: AstKind.TEMPLATE_INSTANCE;
 }, context: ProgramAnalysis): string {
     const argumentKeys = type.callArguments.map((argument) => context.typeKeyOf(argument)).join(",");
     return `${type.name}<${argumentKeys}>`;
 }
 // Emit an instantiated method with `$this`, concrete parameters, and its body.
 export function emitTemplateMethod(programAnalysis: ProgramAnalysis, cm: CompiledMethod, def: FunctionTemplateDecl, type: TypeSpec & {
-    kind: "template_instance";
+    kind: AstKind.TEMPLATE_INSTANCE;
 }, bind: TemplateBindings): string {
     const thisLayout = programAnalysis.containerLayout(type.name, type.callArguments);
     const empty = { size: 0, align: 1, fields: new Map<string, FieldLayout>() };
@@ -156,8 +162,8 @@ export function emitTemplateMethod(programAnalysis: ProgramAnalysis, cm: Compile
         loops: [],
         loopCount: 0,
         params: new Map(),
-        retIsValue: cm.retKind === "i64",
-        retIsAddr: cm.retKind === "i32",
+        retIsValue: cm.retKind === WatNodeType.I64,
+        retIsAddr: cm.retKind === WatNodeType.I32,
         thisLayout,
         thisType: type,
         thisBind: bind,
@@ -184,19 +190,19 @@ export function emitTemplateMethod(programAnalysis: ProgramAnalysis, cm: Compile
         context.lowering.emitStatement(context, def.body);
     const retParam = cm.retAgg ? "(param $__qinit_ret i32) " : "";
     const paramDecls = cm.functionParameters.map((fnParam) => `(param $${fnParam.name} ${fnParam.wasmType})`).join(" ");
-    const result = cm.retKind === "i64" ? " (result i64)" : cm.retKind === "i32" ? " (result i32)" : "";
+    const result = cm.retKind === WatNodeType.I64 ? " (result i64)" : cm.retKind === WatNodeType.I32 ? " (result i32)" : "";
     const header = `  (func ${cm.label} ${retParam}(param $this i32) ${paramDecls}${result}`.replace(/\s+\)/, ")");
     const localDecls = [...context.localVars.entries()].map(([localName, localMetadata]) => `    (local $${localName} ${localMetadata.wasmType})`);
-    const tail = cm.retKind === "i64"
+    const tail = cm.retKind === WatNodeType.I64
         ? ["    (i64.const 0)"]
-        : cm.retKind === "i32"
+        : cm.retKind === WatNodeType.I32
             ? ["    (i32.const 0)"]
             : [];
     return [header, ...localDecls, ...context.lines, ...tail, "  )"].join("\n");
 }
 // Build a call using the compiled method's concrete parameter types.
 export function callCompiled(context: FunctionEmissionContext, type: TypeSpec & {
-    kind: "template_instance";
+    kind: AstKind.TEMPLATE_INSTANCE;
 }, method: string, self: string, callArguments: Expression[], parameterTypeDiscriminator?: string, explicitTemplateArgs: TypeSpec[] = []): {
     call: string;
     cm: CompiledMethod;
@@ -206,10 +212,10 @@ export function callCompiled(context: FunctionEmissionContext, type: TypeSpec & 
         const node = context.lowering.resolveExpressionAddress(context, argument);
         if (node?.type)
             return context.programAnalysis.derefType(node.type);
-        if (argument.kind === "construct")
+        if (argument.kind === AstKind.CONSTRUCT)
             return context.programAnalysis.derefType(argument.type);
-        if (argument.kind === "call" && argument.callee.kind === "identifier") {
-            const type: TypeSpec = { kind: "name", name: argument.callee.name };
+        if (argument.kind === AstKind.CALL && argument.callee.kind === AstKind.IDENTIFIER) {
+            const type: TypeSpec = { kind: AstKind.NAME, name: argument.callee.name };
             if (context.programAnalysis.isAggregateType(type))
                 return type;
         }
@@ -230,20 +236,20 @@ export function callCompiled(context: FunctionEmissionContext, type: TypeSpec & 
         if (!callArgument) {
             throw new Error(`${type.name}::${method} is missing required argument ${methodParameterIndex + 1}`);
         }
-        if (callArgument.kind === "nullptr_literal") {
+        if (callArgument.kind === AstKind.NULLPTR_LITERAL) {
             return methodParameter.isAddr ? "(i32.const 0)" : "(i64.const 0)";
         }
         const paramType = methodParameter.concreteType ??
             context.programAnalysis.substInBindings(context.programAnalysis.derefType(methodParameter.type), bind);
         if (!methodParameter.isAddr)
             return context.lowering.emitValue(context, callArgument);
-        if (methodParameter.type.kind === "pointer" &&
+        if (methodParameter.type.kind === AstKind.POINTER &&
             context.programAnalysis.isVoidType(methodParameter.type.pointee) &&
             !context.lowering.resolveExpressionAddress(context, callArgument)) {
             return "(i32.const 0)";
         }
         if (context.programAnalysis.isAggregateType(paramType)) {
-            if (callArgument.kind === "initializer_list") {
+            if (callArgument.kind === AstKind.INITIALIZER_LIST) {
                 return context.lowering.argAddr(context, callArgument, context.programAnalysis.sizeOfType(paramType, bind), paramType, methodParameter.readOnlyRef === true);
             }
             const direct = context.lowering.emitAddress(context, callArgument);
@@ -263,61 +269,61 @@ export function callCompiled(context: FunctionEmissionContext, type: TypeSpec & 
     };
 }
 export function emitTemplateContainerCall(context: FunctionEmissionContext, expression: Expression & {
-    kind: "template_call";
+    kind: AstKind.TEMPLATE_CALL;
 }, valueWanted: boolean): string | null {
-    if (expression.callee.kind !== "member_access")
+    if (expression.callee.kind !== AstKind.MEMBER_ACCESS)
         return null;
     const node = context.lowering.resolveExpressionAddress(context, expression.callee.object);
     if (!node?.type)
         return null;
     let type: TypeSpec = node.type;
-    if (type.kind === "name" &&
+    if (type.kind === AstKind.NAME &&
         (context.programAnalysis.globalStructs.has(type.name) || context.programAnalysis.templateMethods.has(type.name))) {
-        type = { kind: "template_instance", name: type.name, callArguments: [] };
+        type = { kind: AstKind.TEMPLATE_INSTANCE, name: type.name, callArguments: [] };
     }
-    if (type.kind !== "template_instance")
+    if (type.kind !== AstKind.TEMPLATE_INSTANCE)
         return null;
     const compiled = callCompiled(context, type, expression.callee.member, node.addr, expression.callArguments, undefined, expression.templateArguments ?? []);
     if (!compiled)
         return null;
     if (valueWanted) {
-        if (compiled.retDest || compiled.cm.retKind === "void")
+        if (compiled.retDest || compiled.cm.retKind === WatNodeType.VOID)
             throw new Error(`aggregate or void method ${type.name}::${expression.callee.member} used as a scalar`);
-        if (compiled.cm.retKind === "i32")
+        if (compiled.cm.retKind === WatNodeType.I32)
             return emitScalarLoad(compiled.call, context.programAnalysis.sizeOfType(compiled.cm.retType!), isSignedScalarType(compiled.cm.retType!, context.programAnalysis));
         return compiled.call;
     }
-    context.lines.push(compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
+    context.lines.push(compiled.cm.retKind === WatNodeType.VOID ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
     return "";
 }
 // Lower a source-backed instance call and return its scalar value when requested.
 export function emitContainerCall(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
+    kind: AstKind.CALL;
 }, valueWanted: boolean): string | null {
-    if (expression.callee.kind !== "member_access")
+    if (expression.callee.kind !== AstKind.MEMBER_ACCESS)
         return null;
     const node = context.lowering.resolveExpressionAddress(context, expression.callee.object);
     if (!node || !node.type)
         return null;
     // Resolve typedefs and bindings to the concrete container instance.
     let ct: TypeSpec | null = node.type;
-    for (let index = 0; index < 8 && ct?.kind === "name"; index++) {
+    for (let index = 0; index < 8 && ct?.kind === AstKind.NAME; index++) {
         const next: TypeSpec | undefined = context.thisBind?.types.get(ct.name) ?? context.programAnalysis.typedefs.get(ct.name);
         if (!next)
             break;
         ct = next;
     }
     // Normalize plain inline structs to zero-argument instances.
-    if (ct?.kind === "inline_struct" &&
+    if (ct?.kind === AstKind.INLINE_STRUCT &&
         ct.struct.name &&
         context.programAnalysis.templateMethods.get(ct.struct.name)?.has(expression.callee.member)) {
-        ct = { kind: "template_instance", name: ct.struct.name, callArguments: [] } as TypeSpec;
+        ct = { kind: AstKind.TEMPLATE_INSTANCE, name: ct.struct.name, callArguments: [] } as TypeSpec;
     }
-    if (ct?.kind === "name" &&
+    if (ct?.kind === AstKind.NAME &&
         (context.programAnalysis.globalStructs.has(ct.name) || context.programAnalysis.templateMethods.has(ct.name))) {
-        ct = { kind: "template_instance", name: ct.name, callArguments: [] } as TypeSpec;
+        ct = { kind: AstKind.TEMPLATE_INSTANCE, name: ct.name, callArguments: [] } as TypeSpec;
     }
-    if (!ct || ct.kind !== "template_instance")
+    if (!ct || ct.kind !== AstKind.TEMPLATE_INSTANCE)
         return null;
     // Dispatch namespace-qualified container types by their base name.
     if (ct.name.includes("::") && !context.programAnalysis.templates.has(ct.name)) {
@@ -335,9 +341,9 @@ export function emitContainerCall(context: FunctionEmissionContext, expression: 
             context.lines.push(`    ${compiled.call}`);
             return `(i64.load ${compiled.retDest})`;
         }
-        if (compiled.cm.retKind === "void")
+        if (compiled.cm.retKind === WatNodeType.VOID)
             throw new Error(`void method ${node.type.name}::${member} used as a scalar`);
-        if (compiled.cm.retKind === "i32") {
+        if (compiled.cm.retKind === WatNodeType.I32) {
             if (!compiled.cm.retType || context.programAnalysis.isAggregateType(compiled.cm.retType)) {
                 throw new Error(`aggregate reference ${node.type.name}::${member} used as a scalar`);
             }
@@ -345,23 +351,23 @@ export function emitContainerCall(context: FunctionEmissionContext, expression: 
         }
         return compiled.call;
     }
-    context.lines.push(compiled.cm.retKind === "void" ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
+    context.lines.push(compiled.cm.retKind === WatNodeType.VOID ? `    ${compiled.call}` : `    (drop ${compiled.call})`);
     return "";
 }
 // Lower asset-iterator methods in statement, value, or address context.
 export function emitAssetIter(context: FunctionEmissionContext, expression: Expression & {
-    kind: "call";
-}, mode: "stmt" | "value" | "addr"): string | null {
-    if (expression.callee.kind !== "member_access")
+    kind: AstKind.CALL;
+}, mode: ContainerEmissionMode): string | null {
+    if (expression.callee.kind !== AstKind.MEMBER_ACCESS)
         return null;
     const node = context.lowering.resolveExpressionAddress(context, expression.callee.object);
-    const tn = node?.type?.kind === "name" ? (node.type as any).name : null;
+    const tn = node?.type?.kind === AstKind.NAME ? (node.type as any).name : null;
     if (!node || (tn !== "AssetOwnershipIterator" && tn !== "AssetPossessionIterator"))
         return null;
     const method = expression.callee.member;
     const it = context.lowering.allocateTemporaryLocalName(context);
     context.lines.push(`    ${context.lowering.setLocal(context, it, addrIr(node.addr))}`);
-    const itN = watIr.localGet(it, "i32");
+    const itN = watIr.localGet(it, WatNodeType.I32);
     const iter = watIr.serializeWatNode(itN);
     const cursorN = watIr.rawLoad("i32.load", null, watIr.addressWithOffset(itN, 4));
     const count = `(i32.load ${iter})`;
@@ -369,10 +375,10 @@ export function emitAssetIter(context: FunctionEmissionContext, expression: Expr
     const record = context.programAnalysis.assetEnumerationRecord;
     const rec = `(i32.add (global.get $assetIterBase) (i32.mul ${cursor} (i32.const ${record.size})))`;
     if (method === "begin") {
-        const selN = watIr.rawWatNode(context.lowering.materializeSelect(context, undefined), "i32");
+        const selN = watIr.rawWatNode(context.lowering.materializeSelect(context, undefined), WatNodeType.I32);
         const asset = context.lowering.materializeAssetAddress(context, expression.callArguments[0], `${tn}.begin`);
         const kind = tn === "AssetPossessionIterator" ? 1 : 0;
-        const enumerate = watIr.functionCall("$lh_assetEnumerate", watIr.i32Constant(kind), addrIr(asset), selN, selN, watIr.rawWatNode("(global.get $assetIterBase)", "i32"), watIr.i32Constant(record.capacity));
+        const enumerate = watIr.functionCall("$lh_assetEnumerate", watIr.i32Constant(kind), addrIr(asset), selN, selN, watIr.rawWatNode("(global.get $assetIterBase)", WatNodeType.I32), watIr.i32Constant(record.capacity));
         context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, itN, enumerate))}`);
         context.lines.push(`    ${watIr.serializeWatNode(watIr.rawStore("i32.store", null, watIr.addressWithOffset(itN, 4), watIr.i32Constant(0)))}`);
         return "";
@@ -386,11 +392,11 @@ export function emitAssetIter(context: FunctionEmissionContext, expression: Expr
     if (method === "numberOfPossessedShares" || method === "numberOfOwnedShares")
         return `(i64.load (i32.add ${rec} (i32.const ${record.fields.shares.offset})))`;
     if (method === "possessor")
-        return mode === "addr"
+        return mode === ContainerEmissionMode.ADDRESS
             ? `(i32.add ${rec} (i32.const ${record.fields.possessor.offset}))`
             : `(i64.load (i32.add ${rec} (i32.const ${record.fields.possessor.offset})))`;
     if (method === "owner")
-        return mode === "addr" ? rec : `(i64.load ${rec})`;
+        return mode === ContainerEmissionMode.ADDRESS ? rec : `(i64.load ${rec})`;
     if (method === "ownershipManagingContract")
         return `(i64.extend_i32_u (i32.load16_u (i32.add ${rec} (i32.const ${record.fields.ownershipManagingContract.offset}))))`;
     return null;

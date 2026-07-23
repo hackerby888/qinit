@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Regression inventory: invalid QPI/C++ that the compiler currently accepts silently.
 import { describe, expect, test } from "bun:test";
@@ -119,7 +120,7 @@ describe("edge audit — semantic rejection gaps", () => {
         qpiHeader: HEADERS,
         arenaSz: 1 << 20,
       });
-      const errors = result.diagnostics.filter((d) => d.severity === "error");
+      const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
 
       expect(errors.some((d) => c.diagnostic.test(d.message))).toBe(true);
       expect(result.wasm).toHaveLength(0);

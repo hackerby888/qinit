@@ -1,3 +1,4 @@
+import { AstKind } from "../../../enums";
 import type { Expression } from "../../../ast";
 import * as watIr from "../../../wat-ir";
 import { addrIr } from "../memory/memory-operations";
@@ -15,7 +16,7 @@ export function tryEmitMemoryStatementCall(
     context: FunctionEmissionContext,
     expression: CallExpression,
 ): boolean {
-    if (expression.callee.kind !== "identifier") {
+    if (expression.callee.kind !== AstKind.IDENTIFIER) {
         return false;
     }
 

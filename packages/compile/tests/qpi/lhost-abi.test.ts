@@ -9,7 +9,10 @@ import {
   loadWasmAbiSource,
 } from "@qinit/core";
 import { emitModule } from "../../src/framework";
-import { inspectWasmModule } from "../../src/compiler/wasm-inspect";
+import {
+  inspectWasmModule,
+  toWasmFunctionSignatures,
+} from "../../src/compiler/wasm-inspect";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const CORE = CORE_PATH;
@@ -53,7 +56,7 @@ describe("shared lhost ABI", () => {
       );
       expect(imports.map((entry) => entry.name)).toEqual(Object.keys(LHOST_ABI));
       expect(Object.fromEntries(imports.map((entry) => [entry.name, entry.signature]))).toEqual(
-        LHOST_ABI,
+        toWasmFunctionSignatures(LHOST_ABI),
       );
     } finally {
       parsed.destroy();

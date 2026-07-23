@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Ensures placeholder lowerings fail strict builds instead of silently diverging.
 import { describe, expect, test } from "bun:test";
@@ -42,7 +43,7 @@ describe("strict fidelity gate", () => {
     });
 
     expect(r.wasm.length).toBe(0);
-    const errs = r.diagnostics.filter((d) => d.severity === "error");
+    const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     expect(errs.length).toBeGreaterThan(0);
     expect(
       errs.some(
@@ -63,8 +64,8 @@ describe("strict fidelity gate", () => {
     });
 
     expect(r.wasm.length).toBeGreaterThan(0);
-    expect(r.diagnostics.some((d) => d.severity === "error")).toBe(false);
-    expect(r.diagnostics.some((d) => d.severity === "warning" && d.category === "fidelity")).toBe(
+    expect(r.diagnostics.some((d) => d.severity === DiagnosticSeverity.ERROR)).toBe(false);
+    expect(r.diagnostics.some((d) => d.severity === DiagnosticSeverity.WARNING && d.category === "fidelity")).toBe(
       true,
     );
   });
@@ -81,7 +82,7 @@ describe("strict fidelity gate", () => {
       qpiHeader: HEADERS,
     });
 
-    expect(r.diagnostics.filter((d) => d.severity === "error").length).toBe(0);
+    expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR).length).toBe(0);
     expect(r.wasm.length).toBeGreaterThan(0);
   });
 });

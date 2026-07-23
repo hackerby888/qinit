@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type { FunctionDecl, StructDecl, TypeSpec } from "../../../ast";
@@ -17,7 +18,7 @@ interface LiteSystemProcedure {
 }
 
 type FunctionAliases = Map<string, {
-    wasmType: "i32" | "i64";
+    wasmType: WatValueType;
     isAddr: boolean;
     type: TypeSpec;
     local?: string;
@@ -67,7 +68,7 @@ export function emitSystemProcedures(
     const functionWat: string[] = [];
 
     for (const member of contract.members) {
-        if (member.kind !== "function") {
+        if (member.kind !== AstKind.FUNCTION) {
             continue;
         }
 
@@ -137,11 +138,11 @@ export function emitMigrationFunction(
         [
             "oldState",
             {
-                wasmType: "i32",
+                wasmType: WatNodeType.I32,
                 isAddr: true,
                 local: "__qinit_in",
                 type: {
-                    kind: "name",
+                    kind: AstKind.NAME,
                     name: "OldStateData",
                 },
             },
@@ -205,11 +206,11 @@ function bindIoAlias(
 
     const type = (
         programAnalysis.typedefs.get(typeName) ??
-        { kind: "name", name: typeName } as TypeSpec
+        { kind: AstKind.NAME, name: typeName } as TypeSpec
     );
 
     aliases.set(parameterName, {
-        wasmType: "i32",
+        wasmType: WatNodeType.I32,
         isAddr: true,
         local: localName,
         type,

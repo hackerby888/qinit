@@ -2,6 +2,7 @@ import type { FunctionLoweringServices } from "./functions/function-lowering-con
 import type { ProgramAnalysis } from "../../analysis/program-analysis";
 import type { TypeSpec, Expression, Declaration, StructDecl, TemplateParam } from "../../ast";
 import type { StructLayout, TemplateBindings } from "../../analysis/types";
+import type { QpiContextKind, WatValueType } from "../../enums";
 export * from "../../analysis/types";
 
 export interface FunctionEmissionContext {
@@ -12,7 +13,7 @@ export interface FunctionEmissionContext {
     out: StructLayout;
     locals: StructLayout;
     localVars: Map<string, {
-        wasmType: "i32" | "i64";
+        wasmType: WatValueType;
         type?: TypeSpec;
     }>;
     lines: string[];
@@ -24,7 +25,7 @@ export interface FunctionEmissionContext {
     }[]; // innermost loop's break/continue labels are last
     loopCount: number;
     params?: Map<string, {
-        wasmType: "i32" | "i64";
+        wasmType: WatValueType;
         isAddr: boolean;
         type: TypeSpec;
         local?: string;
@@ -54,7 +55,7 @@ export interface FunctionEmissionContext {
     proxyClass?: string; // emitting a ProposalVoting proxy method (qpi(pv).m()): the proxy class for sibling resolution
     sourceNamespace?: string; // lexical namespace/owner for unqualified free/static helper calls
     usingNamespaces?: string[]; // using-directives visible at the current function definition
-    qpiContext?: "function" | "procedure"; // ambient entry context for QPI binding permission checks
+    qpiContext?: QpiContextKind; // ambient entry context for QPI binding permission checks
     lowering: FunctionLoweringServices;
 }
 

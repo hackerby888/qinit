@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -96,7 +97,7 @@ beforeAll(async () => {
     qpiHeader: loadQpiHeader(CORE),
     arenaSz: 1 << 20,
   });
-  const errors = ours.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const errors = ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
   if (errors.length > 0) {
     throw new Error(errors.map((diagnostic) => diagnostic.message).join(" | "));
   }

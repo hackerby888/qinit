@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { buildCorpusRunner, genStdGtest, extractIdl, qpiPrelude } from "@qinit/build";
 import { runContractTesting } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader } from "../src/index";
+import { compileContract, DiagnosticSeverity, loadQpiHeader } from "../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -74,7 +74,13 @@ for (const [disp, base, file] of TARGETS) {
   let mineWasm: Uint8Array | null = null;
   try {
     const r = await compileContract({ source: src, name, slot: 28, qpiHeader: HEADERS, arenaSz: 1024 * 1024 });
-    if (r.wasm.byteLength && !r.diagnostics.some((d) => d.severity === "error")) { mineWasm = r.wasm; mine = "ok"; }
+    if (
+        r.wasm.byteLength &&
+        !r.diagnostics.some((d) => d.severity === DiagnosticSeverity.ERROR)
+    ) {
+        mineWasm = r.wasm;
+        mine = "ok";
+    }
     else mine = "err";
   } catch { mine = "THROW"; }
 

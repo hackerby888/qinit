@@ -1,3 +1,4 @@
+import { AssignOp, AstKind } from "../../../enums";
 import * as watIr from "../../../wat-ir";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
@@ -15,7 +16,7 @@ export function tryEmitScalarAssignment(
     }
 
     if (
-        expression.left.kind !== "identifier" ||
+        expression.left.kind !== AstKind.IDENTIFIER ||
         !context.lowering.isScalarLocal(context, expression.left.name)
     ) {
         return false;
@@ -48,6 +49,6 @@ function lowerAssignedValue(
     expression: AssignmentExpression,
 ): watIr.WatNode {
     const valueExpression =
-        expression.operator === "=" ? expression.right : compoundToBinary(expression);
+        expression.operator === AssignOp.ASSIGN ? expression.right : compoundToBinary(expression);
     return context.lowering.lowerValueExpression(context, valueExpression);
 }

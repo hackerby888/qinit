@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential gtest for BitArray<L> (bit_4096) compiled from the real qpi.h inline bodies: set/get of individual bits + setAll.
 import { coreGtest } from "../support/core-gtest";
@@ -89,7 +90,7 @@ describe("differential gtest — BitArray (bit_4096 set/get/setAll)", () => {
         qpiHeader: HEADERS,
         arenaSz: 1024 * 1024,
       });
-      expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+      expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
       const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
       for (const r of results) {

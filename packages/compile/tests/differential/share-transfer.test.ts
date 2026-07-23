@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 // Share custody sysproc parity (PRE_*_SHARES).
@@ -92,7 +93,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    expect(approver.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(approver.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const sim = new Sim();
     sim.deploy(28, approver.wasm); // MY compiled approver: issues + approves releases
@@ -170,7 +171,7 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
       qpiHeader: HEADERS,
       arenaSz: 1024 * 1024,
     });
-    expect(rec.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(rec.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const sim = new Sim();
     sim.deploy(28, rec.wasm);

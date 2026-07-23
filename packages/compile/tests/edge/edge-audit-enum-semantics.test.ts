@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks enum storage width, signedness, and aggregate placement.
 import { beforeAll, describe, expect, test } from "bun:test";
@@ -25,7 +26,7 @@ async function run(source: string): Promise<{ value: bigint; stateSize: number }
     qpiHeader: HEADERS,
     arenaSz: 1 << 20,
   });
-  expect(result.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+  expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);

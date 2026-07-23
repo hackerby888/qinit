@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -43,7 +44,7 @@ describe("typed QPI bindings", () => {
       qpiHeader: HEADER,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(27, result.wasm);
     expect(sim.query(27, 1).slice(0, 32)).not.toEqual(new Uint8Array(32));
@@ -67,7 +68,7 @@ describe("typed QPI bindings", () => {
       arenaSz: 1 << 20,
     });
     expect(
-      functionResult.diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
+      functionResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR),
     ).toEqual([]);
 
     const procedureResult = await compileContract({
@@ -85,7 +86,7 @@ describe("typed QPI bindings", () => {
       arenaSz: 1 << 20,
     });
     expect(
-      procedureResult.diagnostics.filter((diagnostic) => diagnostic.severity === "error"),
+      procedureResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR),
     ).toEqual([]);
   });
 
@@ -102,7 +103,7 @@ describe("typed QPI bindings", () => {
       qpiHeader: HEADER,
       arenaSz: 1 << 20,
     });
-    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+    expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(27, result.wasm);
     const output = sim.procedure(27, 1);

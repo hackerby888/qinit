@@ -1,3 +1,4 @@
+import { AstKind, ContainerLayoutKind } from "../enums";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, ContainerLayoutMetadata } from "./types";
 import type { TypeSpec } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
@@ -51,7 +52,7 @@ export function hashmapInfo(context: ProgramAnalysisInternals, callArguments: Ty
     const totalSize = parsed?.totalSize ?? popOff + 16;
     const hashMode = keySize === 32 ? 0 : 1;
     return {
-        kind: "HashMap",
+        kind: ContainerLayoutKind.HASH_MAP,
         L: capacity,
         elemSize,
         keySize,
@@ -78,7 +79,7 @@ export function hashsetInfo(context: ProgramAnalysisInternals, callArguments: Ty
     const totalSize = parsed?.totalSize ?? popOff + 16;
     const hashMode = keySize === 32 ? 0 : 1;
     return {
-        kind: "HashMap",
+        kind: ContainerLayoutKind.HASH_MAP,
         L: capacity,
         elemSize,
         keySize,
@@ -98,7 +99,12 @@ export function arrayInfo(context: ProgramAnalysisInternals, callArguments: Type
     const capacity = Number(context.evalConstFromType(callArguments[1], templateBindings));
     if (!capacity || elemSize <= 0)
         return null;
-    return { kind: "Array", L: capacity, elemSize, elemType: callArguments[0] };
+    return {
+        kind: ContainerLayoutKind.ARRAY,
+        L: capacity,
+        elemSize,
+        elemType: callArguments[0],
+    };
 }
 
 export function collectionInfo(context: ProgramAnalysisInternals, callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): {
@@ -115,7 +121,7 @@ export function collectionInfo(context: ProgramAnalysisInternals, callArguments:
         return null;
     const elementsF = context.containerLayout("Collection", callArguments, templateBindings).fields.get("_elements");
     const bind = context.bindContainer("Collection", callArguments, templateBindings);
-    const elemLayout = context.layoutOfType({ kind: "name", name: "Element" }, bind);
+    const elemLayout = context.layoutOfType({ kind: AstKind.NAME, name: "Element" }, bind);
     const valueF = elemLayout?.fields.get("value");
     if (!elementsF || !elemLayout || !valueF)
         return null;
@@ -142,7 +148,7 @@ export function linkedListInfo(context: ProgramAnalysisInternals, callArguments:
         return null;
     const nodesF = context.containerLayout("LinkedList", callArguments, templateBindings).fields.get("_nodes");
     const bind = context.bindContainer("LinkedList", callArguments, templateBindings);
-    const nodeLayout = context.layoutOfType({ kind: "name", name: "Node" }, bind);
+    const nodeLayout = context.layoutOfType({ kind: AstKind.NAME, name: "Node" }, bind);
     const valueF = nodeLayout?.fields.get("value");
     if (!nodesF || !nodeLayout || !valueF)
         return null;

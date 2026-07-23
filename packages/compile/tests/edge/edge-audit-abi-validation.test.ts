@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // QPI registration rules enforced by the native macros must also be enforced by the local compiler.
 import { describe, expect, test } from "bun:test";
@@ -93,7 +94,7 @@ describe("edge audit — QPI ABI validation", () => {
         qpiHeader: HEADERS,
         arenaSz: 1 << 20,
       });
-      const errors = result.diagnostics.filter((d) => d.severity === "error");
+      const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
       expect(errors.some((d) => c.diagnostic.test(d.message))).toBe(true);
       expect(result.wasm).toHaveLength(0);
     });

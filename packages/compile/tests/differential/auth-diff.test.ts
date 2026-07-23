@@ -1,3 +1,4 @@
+import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Covers invocator capture, id equality guards, and id-valued state reads.
 import { coreGtest } from "../support/core-gtest";
@@ -109,7 +110,7 @@ describe("differential gtest — Auth (qpi.invocator + id compare)", () => {
       qpiHeader: HEADERS,
       arenaSz: 64 * 1024,
     });
-    expect(mine.diagnostics.filter((d) => d.severity === "error")).toHaveLength(0);
+    expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const results: TestResult[] = await runContractTesting(runnerWasm, { 28: mine.wasm });
     for (const r of results) {

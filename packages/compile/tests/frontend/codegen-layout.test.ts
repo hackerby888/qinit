@@ -1,3 +1,4 @@
+import { AccessSpec, AstKind } from "../../src/enums";
 // Unit coverage for scalar, aggregate, template, and inherited layouts.
 import { describe, test, expect } from "bun:test";
 import { CodeGenerationContext } from "../../src/codegen";
@@ -16,46 +17,46 @@ import type { TemplateBindings } from "../../src/codegen";
 
 const NO_SPAN = { start: 0, end: 0, line: 0, column: 0 };
 
-const n = (name: string): TypeSpec => ({ kind: "name", name }) as TypeSpec;
+const n = (name: string): TypeSpec => ({ kind: AstKind.NAME, name }) as TypeSpec;
 
 const tinst = (name: string, callArguments: TypeSpec[]): TypeSpec =>
-  ({ kind: "template_instance", name, callArguments }) as TypeSpec;
+  ({ kind: AstKind.TEMPLATE_INSTANCE, name, callArguments }) as TypeSpec;
 
 const exprVal = (value: number): TypeSpec =>
   ({
-    kind: "expr_value",
-    expression: { kind: "int_literal", value: String(value), span: NO_SPAN },
+    kind: AstKind.EXPR_VALUE,
+    expression: { kind: AstKind.INT_LITERAL, value: String(value), span: NO_SPAN },
   }) as TypeSpec;
 
 const ident = (name: string): Expression =>
-  ({ kind: "identifier", name, span: NO_SPAN }) as Expression;
+  ({ kind: AstKind.IDENTIFIER, name, span: NO_SPAN }) as Expression;
 
 /** A non-static data member field. */
 const fld = (name: string, type: TypeSpec): VariableDecl =>
   ({
-    kind: "variable",
+    kind: AstKind.VARIABLE,
     name,
     type,
     isMember: true,
     isStatic: false,
     isConstexpr: false,
     isExtern: false,
-    access: "public",
+    access: AccessSpec.PUBLIC,
     span: NO_SPAN,
   }) as VariableDecl;
 
 /** A static constexpr member — skipped by layout. */
 const stat = (name: string, value: number): VariableDecl =>
   ({
-    kind: "variable",
+    kind: AstKind.VARIABLE,
     name,
     type: n("uint64"),
-    initializer: { kind: "int_literal", value: String(value), span: NO_SPAN },
+    initializer: { kind: AstKind.INT_LITERAL, value: String(value), span: NO_SPAN },
     isConstexpr: true,
     isStatic: true,
     isMember: true,
     isExtern: false,
-    access: "public",
+    access: AccessSpec.PUBLIC,
     span: NO_SPAN,
   }) as VariableDecl;
 
@@ -69,7 +70,7 @@ const sdecl = (
   },
 ): StructDecl =>
   ({
-    kind: "struct",
+    kind: AstKind.STRUCT,
     name,
     members,
     bases: options?.bases ?? [],
@@ -81,10 +82,10 @@ const sdecl = (
 const ctmpl = (params: TemplateParam[], members: Declaration[]) => ({ params, members });
 
 const tparam = (name: string): TemplateParam =>
-  ({ kind: "type", name, span: NO_SPAN }) as TemplateParam;
+  ({ kind: AstKind.TYPE, name, span: NO_SPAN }) as TemplateParam;
 
 const ntparam = (name: string): TemplateParam =>
-  ({ kind: "non_type", name, type: n("uint64"), span: NO_SPAN }) as TemplateParam;
+  ({ kind: AstKind.NON_TYPE, name, type: n("uint64"), span: NO_SPAN }) as TemplateParam;
 
 // ---- Codegen instance ----
 
@@ -123,12 +124,12 @@ describe("Codegen — scalar sizes", () => {
 
   test("sizeof(void) = 0", () => {
     const codeGenerationContext = makeCg();
-    expect(codeGenerationContext.sizeOfType({ kind: "void" } as TypeSpec)).toBe(0);
+    expect(codeGenerationContext.sizeOfType({ kind: AstKind.VOID } as TypeSpec)).toBe(0);
   });
 
   test("pointer size = 4 (i32)", () => {
     const codeGenerationContext = makeCg();
-    expect(codeGenerationContext.sizeOfType({ kind: "pointer", pointee: n("uint64") } as TypeSpec)).toBe(4);
+    expect(codeGenerationContext.sizeOfType({ kind: AstKind.POINTER, pointee: n("uint64") } as TypeSpec)).toBe(4);
   });
 });
 
@@ -207,7 +208,7 @@ describe("Codegen — nested struct layout", () => {
     const inner = sdecl("Inner", [fld("x", n("uint32")), fld("y", n("uint32"))]);
     const outer = sdecl("Outer", [
       fld("flag", n("uint8")),
-      fld("data", { kind: "inline_struct", struct: inner } as TypeSpec),
+      fld("data", { kind: AstKind.INLINE_STRUCT, struct: inner } as TypeSpec),
     ]);
     const layout = codeGenerationContext.layoutOf(outer);
     expect(layout.fields.get("flag")!.offset).toBe(0);
@@ -291,7 +292,7 @@ describe("Codegen — template layout", () => {
       "Array",
       ctmpl(
         [tparam("T"), ntparam("L")],
-        [fld("_data", { kind: "array", element: n("T"), size: ident("L") } as TypeSpec)],
+        [fld("_data", { kind: AstKind.ARRAY, element: n("T"), size: ident("L") } as TypeSpec)],
       ),
     );
 
@@ -307,7 +308,7 @@ describe("Codegen — template layout", () => {
       "Array",
       ctmpl(
         [tparam("T"), ntparam("L")],
-        [fld("_data", { kind: "array", element: n("T"), size: ident("L") } as TypeSpec)],
+        [fld("_data", { kind: AstKind.ARRAY, element: n("T"), size: ident("L") } as TypeSpec)],
       ),
     );
     expect(codeGenerationContext.layoutOfType(tinst("Array", [n("uint8"), exprVal(4)]))!.size).toBe(4);
@@ -319,7 +320,7 @@ describe("Codegen — template layout", () => {
       "Array",
       ctmpl(
         [tparam("T"), ntparam("L")],
-        [fld("_data", { kind: "array", element: n("T"), size: ident("L") } as TypeSpec)],
+        [fld("_data", { kind: AstKind.ARRAY, element: n("T"), size: ident("L") } as TypeSpec)],
       ),
     );
     const a1 = codeGenerationContext.layoutOfType(tinst("Array", [n("uint64"), exprVal(4)]));
@@ -483,7 +484,7 @@ describe("Codegen — sizeOfType with bindings", () => {
       "Array",
       ctmpl(
         [tparam("T"), ntparam("L")],
-        [fld("_data", { kind: "array", element: n("T"), size: ident("L") } as TypeSpec)],
+        [fld("_data", { kind: AstKind.ARRAY, element: n("T"), size: ident("L") } as TypeSpec)],
       ),
     );
     const b: TemplateBindings = {

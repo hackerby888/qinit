@@ -1,3 +1,4 @@
+import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { FunctionDecl, StructDecl } from "../../../ast";
 import type { CompiledHelperMetadata } from "../types";
@@ -22,7 +23,7 @@ export function registerContractCallables(
     const privateFunctions: FunctionDecl[] = [];
 
     for (const member of contract.members) {
-        if (member.kind !== "function") {
+        if (member.kind !== AstKind.FUNCTION) {
             continue;
         }
 
@@ -108,12 +109,12 @@ function registerHelperFunction(
 ): CompiledHelperMetadata {
     const parameters = declaration.params.map((parameter) => {
         const isConstReference = (
-            parameter.type.kind === "reference" &&
-            parameter.type.referentType?.kind === "const"
+            parameter.type.kind === AstKind.REFERENCE &&
+            parameter.type.referentType?.kind === AstKind.CONST
         );
         const isPointerOrMutableReference = (
-            (parameter.type.kind === "reference" && !isConstReference) ||
-            parameter.type.kind === "pointer"
+            (parameter.type.kind === AstKind.REFERENCE && !isConstReference) ||
+            parameter.type.kind === AstKind.POINTER
         );
         const isAddress = (
             isPointerOrMutableReference ||
@@ -121,13 +122,16 @@ function registerHelperFunction(
         );
         const isByValueAggregate = (
             isAddress &&
-            parameter.type.kind !== "reference" &&
-            parameter.type.kind !== "pointer"
+            parameter.type.kind !== AstKind.REFERENCE &&
+            parameter.type.kind !== AstKind.POINTER
         );
+        const wasmType: WatValueType = isAddress
+            ? WatNodeType.I32
+            : WatNodeType.I64;
 
         return {
             name: parameter.name,
-            wasmType: (isAddress ? "i32" : "i64") as "i32" | "i64",
+            wasmType,
             isAddr: isAddress,
             type: programAnalysis.derefType(parameter.type),
             byValAgg: isByValueAggregate,

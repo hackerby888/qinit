@@ -1,3 +1,4 @@
+import { DiagnosticCategory } from "../../../enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { Sema } from "../../../sema";
 import type { SystemProcedureInfo, UserEntry } from "../../../framework";
@@ -45,7 +46,7 @@ export function publishProgramDiagnostics(
                 line: warning.line,
                 column: warning.column,
             },
-            "fidelity",
+            DiagnosticCategory.FIDELITY,
         );
     }
 

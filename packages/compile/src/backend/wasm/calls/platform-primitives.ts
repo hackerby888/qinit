@@ -1,8 +1,19 @@
-import type { PlatformCapability } from "../../../shared/platform-capabilities";
-export type { PlatformCapability } from "../../../shared/platform-capabilities";
-export type PlatformPrimitiveKind = "zero" | "lane-pack-64" | "lane-pack-8" | "memory-load" | "memory-store" | "lane-compare-64" | "mask-extract" | "test-zero" | "wasm-unary" | "multiply-high" | "chain-rdrand";
-export type PrimitiveOperand = "value" | "address" | "output-destination";
-export type PrimitiveResultChannel = "value" | "address" | "void";
+import {
+    PlatformCapability,
+    PlatformPrimitiveKind,
+    PlatformWasmOp,
+    PrimitiveOperand,
+    PrimitiveResultChannel,
+} from "../../../enums";
+
+export {
+    PlatformCapability,
+    PlatformPrimitiveKind,
+    PlatformWasmOp,
+    PrimitiveOperand,
+    PrimitiveResultChannel,
+};
+
 export interface PlatformPrimitive {
     readonly name: string;
     readonly aliases: readonly string[];
@@ -10,7 +21,7 @@ export interface PlatformPrimitive {
     readonly result: PrimitiveResultChannel;
     readonly kind: PlatformPrimitiveKind;
     readonly signed?: boolean;
-    readonly wasmOp?: "i64.clz" | "i64.ctz";
+    readonly wasmOp?: PlatformWasmOp;
     readonly width?: 16 | 32 | 64;
     readonly capabilities?: readonly PlatformCapability[];
 }
@@ -25,116 +36,116 @@ export const PLATFORM_PRIMITIVES = Object.freeze([
         name: "_mm256_setzero_si256",
         aliases: [],
         operands: [],
-        result: "address",
-        kind: "zero",
+        result: PrimitiveResultChannel.ADDRESS,
+        kind: PlatformPrimitiveKind.ZERO,
     }),
     primitive({
         name: "_mm256_set_epi64x",
         aliases: [],
-        operands: ["value", "value", "value", "value"],
-        result: "address",
-        kind: "lane-pack-64",
+        operands: [PrimitiveOperand.VALUE, PrimitiveOperand.VALUE, PrimitiveOperand.VALUE, PrimitiveOperand.VALUE],
+        result: PrimitiveResultChannel.ADDRESS,
+        kind: PlatformPrimitiveKind.LANE_PACK_64,
     }),
     primitive({
         name: "_mm256_set_epi8",
         aliases: [],
         operands: Array(32).fill("value"),
-        result: "address",
-        kind: "lane-pack-8",
+        result: PrimitiveResultChannel.ADDRESS,
+        kind: PlatformPrimitiveKind.LANE_PACK_8,
     }),
     primitive({
         name: "_mm256_loadu_si256",
         aliases: ["_mm256_lddqu_si256"],
-        operands: ["address"],
-        result: "address",
-        kind: "memory-load",
+        operands: [PrimitiveOperand.ADDRESS],
+        result: PrimitiveResultChannel.ADDRESS,
+        kind: PlatformPrimitiveKind.MEMORY_LOAD,
     }),
     primitive({
         name: "_mm256_storeu_si256",
         aliases: [],
-        operands: ["address", "address"],
-        result: "void",
-        kind: "memory-store",
+        operands: [PrimitiveOperand.ADDRESS, PrimitiveOperand.ADDRESS],
+        result: PrimitiveResultChannel.VOID,
+        kind: PlatformPrimitiveKind.MEMORY_STORE,
     }),
     primitive({
         name: "_mm256_cmpeq_epi64",
         aliases: [],
-        operands: ["address", "address"],
-        result: "address",
-        kind: "lane-compare-64",
+        operands: [PrimitiveOperand.ADDRESS, PrimitiveOperand.ADDRESS],
+        result: PrimitiveResultChannel.ADDRESS,
+        kind: PlatformPrimitiveKind.LANE_COMPARE_64,
     }),
     primitive({
         name: "_mm256_movemask_epi8",
         aliases: [],
-        operands: ["address"],
-        result: "value",
-        kind: "mask-extract",
+        operands: [PrimitiveOperand.ADDRESS],
+        result: PrimitiveResultChannel.VALUE,
+        kind: PlatformPrimitiveKind.MASK_EXTRACT,
     }),
     primitive({
         name: "_mm256_testz_si256",
         aliases: [],
-        operands: ["address", "address"],
-        result: "value",
-        kind: "test-zero",
+        operands: [PrimitiveOperand.ADDRESS, PrimitiveOperand.ADDRESS],
+        result: PrimitiveResultChannel.VALUE,
+        kind: PlatformPrimitiveKind.TEST_ZERO,
     }),
     primitive({
         name: "_mul128",
         aliases: [],
-        operands: ["value", "value", "output-destination"],
-        result: "value",
-        kind: "multiply-high",
+        operands: [PrimitiveOperand.VALUE, PrimitiveOperand.VALUE, PrimitiveOperand.OUTPUT_DESTINATION],
+        result: PrimitiveResultChannel.VALUE,
+        kind: PlatformPrimitiveKind.MULTIPLY_HIGH,
         signed: true,
     }),
     primitive({
         name: "_umul128",
         aliases: [],
-        operands: ["value", "value", "output-destination"],
-        result: "value",
-        kind: "multiply-high",
+        operands: [PrimitiveOperand.VALUE, PrimitiveOperand.VALUE, PrimitiveOperand.OUTPUT_DESTINATION],
+        result: PrimitiveResultChannel.VALUE,
+        kind: PlatformPrimitiveKind.MULTIPLY_HIGH,
         signed: false,
     }),
     primitive({
         name: "_tzcnt_u64",
         aliases: ["_tzcnt64"],
-        operands: ["value"],
-        result: "value",
-        kind: "wasm-unary",
-        wasmOp: "i64.ctz",
+        operands: [PrimitiveOperand.VALUE],
+        result: PrimitiveResultChannel.VALUE,
+        kind: PlatformPrimitiveKind.WASM_UNARY,
+        wasmOp: PlatformWasmOp.I64_CTZ,
     }),
     primitive({
         name: "_lzcnt_u64",
         aliases: ["__lzcnt64"],
-        operands: ["value"],
-        result: "value",
-        kind: "wasm-unary",
-        wasmOp: "i64.clz",
+        operands: [PrimitiveOperand.VALUE],
+        result: PrimitiveResultChannel.VALUE,
+        kind: PlatformPrimitiveKind.WASM_UNARY,
+        wasmOp: PlatformWasmOp.I64_CLZ,
     }),
     primitive({
         name: "_rdrand16_step",
         aliases: [],
-        operands: ["output-destination"],
-        result: "value",
-        kind: "chain-rdrand",
+        operands: [PrimitiveOperand.OUTPUT_DESTINATION],
+        result: PrimitiveResultChannel.VALUE,
+        kind: PlatformPrimitiveKind.CHAIN_RDRAND,
         width: 16,
-        capabilities: ["chain-prng"],
+        capabilities: [PlatformCapability.CHAIN_PRNG],
     }),
     primitive({
         name: "_rdrand32_step",
         aliases: [],
-        operands: ["output-destination"],
-        result: "value",
-        kind: "chain-rdrand",
+        operands: [PrimitiveOperand.OUTPUT_DESTINATION],
+        result: PrimitiveResultChannel.VALUE,
+        kind: PlatformPrimitiveKind.CHAIN_RDRAND,
         width: 32,
-        capabilities: ["chain-prng"],
+        capabilities: [PlatformCapability.CHAIN_PRNG],
     }),
     primitive({
         name: "_rdrand64_step",
         aliases: [],
-        operands: ["output-destination"],
-        result: "value",
-        kind: "chain-rdrand",
+        operands: [PrimitiveOperand.OUTPUT_DESTINATION],
+        result: PrimitiveResultChannel.VALUE,
+        kind: PlatformPrimitiveKind.CHAIN_RDRAND,
         width: 64,
-        capabilities: ["chain-prng"],
+        capabilities: [PlatformCapability.CHAIN_PRNG],
     }),
 ] satisfies readonly PlatformPrimitive[]);
 const byAlias = new Map<string, PlatformPrimitive>();
