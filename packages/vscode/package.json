@@ -1,42 +1,27 @@
 {
   "name": "qpi-vscode",
   "displayName": "Qubic QPI",
-  "description": "CLion-grade IntelliSense + live QPI-rule diagnostics for Qubic dynamic contracts.",
-  "version": "0.0.1",
-  "publisher": "qubic",
+  "description": "Standalone IntelliSense and QPI diagnostics for Qubic smart contracts.",
+  "version": "0.1.0",
+  "publisher": "qinit",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/hackerby888/qinit.git" },
-  "private": true,
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Programming Languages", "Linters"],
   "extensionDependencies": ["llvm-vs-code-extensions.vscode-clangd"],
   "main": "./dist/extension.js",
-  "activationEvents": ["onLanguage:cpp", "workspaceContains:qinit.json"],
+  "activationEvents": ["onLanguage:c", "onLanguage:cpp"],
   "contributes": {
     "commands": [
       { "command": "qpi.regenerateConfig", "title": "Regenerate clangd config", "category": "Qubic QPI" }
-    ],
-    "configuration": {
-      "title": "Qubic QPI",
-      "properties": {
-        "qpi.core": {
-          "type": "string",
-          "default": "",
-          "description": "Path to a core-lite checkout. Overrides QINIT_CORE and the snapshot synced by `qinit node run`."
-        },
-        "qpi.qinitPath": {
-          "type": "string",
-          "default": "qinit",
-          "description": "The `qinit` CLI used for verify/build/deploy. Defaults to `qinit` on PATH."
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "build": "bun esbuild.mjs",
     "watch": "bun esbuild.mjs --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "package": "bun esbuild.mjs && vsce package --no-dependencies -o qpi-vscode.vsix",
+    "prepare:headers": "bun scripts/prepare-headers.ts",
+    "package": "bun scripts/prepare-headers.ts --check && bun esbuild.mjs && vsce package --no-dependencies -o qpi-vscode.vsix",
     "gate": "bun run scripts/clangd-gate.ts",
     "test:int": "bun esbuild.mjs && vscode-test"
   },

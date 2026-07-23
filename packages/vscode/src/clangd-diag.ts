@@ -1,5 +1,3 @@
-// Parse `clangd --check` output for REAL code diagnostics.
-//
 const DIAG = /^E\[[\d:.]+\]\s+\[\w+\]\s+Line\s+\d+:/;
 
 export function clangdErrorLines(log: string): string[] {

@@ -401,11 +401,8 @@ jobs:
           echo "=== run-dual/node.log tail ==="; tail -25 run-dual/node.log
           [ $c1 -eq 0 ] && [ $c2 -eq 0 ] && [ $c3 -eq 0 ] && [ $c4 -eq 0 ] && [ $c5 -eq 0 ]
 
-  # QPI VS Code extension. Unit tests run in lint-test (bun test); these two prove the parts that need a
-  # toolchain or a real editor: the clangd enablement gate, and the providers in a headless VS Code.
+  # QPI VS Code extension checks that need clangd or a real editor.
   vscode-clangd-check:
-    # The clangd enablement gate on Linux (gating) + macOS (advisory until proven green). The asset
-    # names match @qinit/core fetch.ts so we exercise the exact per-OS toolchain `qinit node run` would sync.
     strategy:
       fail-fast: false
       matrix:
@@ -421,11 +418,15 @@ jobs:
     continue-on-error: ${{ matrix.advisory || false }}
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout core-lite (${{ env.CORE_REF }})
+      - name: Resolve pinned core
+        id: core
+        shell: bash
+        run: echo "commit=$(jq -r .core.commit packages/compile/core-snapshot.json)" >> "$GITHUB_OUTPUT"
+      - name: Checkout pinned core-lite
         uses: actions/checkout@v4
         with:
           repository: hackerby888/core-lite
-          ref: ${{ env.CORE_REF }}
+          ref: ${{ steps.core.outputs.commit }}
           path: core
       - uses: oven-sh/setup-bun@v2
         with:
@@ -452,27 +453,53 @@ jobs:
       - name: Clear quarantine on the macOS clangd binary
         if: runner.os == 'macOS'
         run: xattr -dr com.apple.quarantine clangd_20.1.0 || true
-      - name: clangd enablement gate (clangd --check on the generated DB)
+      - name: Prepare bundled headers
         env:
           QINIT_CORE: ${{ github.workspace }}/core
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+        run: bun run --filter qpi-vscode prepare:headers
+      - name: clangd enablement gate (clangd --check on the generated DB)
         run: bun run packages/vscode/scripts/clangd-gate.ts
       - name: clangd completion probe (public API completes; no cross-scope flood)
-        env:
-          QINIT_CORE: ${{ github.workspace }}/core
-          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
-          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: bun run packages/vscode/scripts/clangd-complete.ts
 
   vscode-it:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Resolve pinned core
+        id: core
+        run: echo "commit=$(jq -r .core.commit packages/compile/core-snapshot.json)" >> "$GITHUB_OUTPUT"
+      - name: Checkout pinned core-lite
+        uses: actions/checkout@v4
+        with:
+          repository: hackerby888/core-lite
+          ref: ${{ steps.core.outputs.commit }}
+          path: core
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install
+      - name: Cache wasi-sdk
+        id: wasisdk
+        uses: actions/cache@v4
+        with:
+          path: wasi-sdk
+          key: wasi-sdk-29.0-x86_64-linux
+      - name: Fetch wasi-sdk-29
+        if: steps.wasisdk.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o wasi-sdk.tar.gz \
+            https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-29/wasi-sdk-29.0-x86_64-linux.tar.gz
+          mkdir -p wasi-sdk
+          tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components=1
+      - name: Prepare bundled headers
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+          WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
+          WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
+        run: bun run --filter qpi-vscode prepare:headers
       - name: Install xvfb (headless display for VS Code)
         run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Integration tests (headless VS Code)

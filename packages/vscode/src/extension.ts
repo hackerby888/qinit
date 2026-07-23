@@ -1,215 +1,225 @@
-// Qubic QPI extension.
-// Regenerate clangd configuration when a Qinit contract opens or saves.
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import * as vscode from "vscode";
-import { join, resolve } from "node:path";
-import { resolveCore, wasiSdkPaths, loadConfig } from "@qinit/core/project";
+import { loadConfig } from "@qinit/core/project";
+import { QpiCodeActions } from "./codeactions";
 import { generateClangdConfig, generateTestClangdConfig } from "./clangd-config";
-import { dynCalleesFromNode, unresolvedCalleeRefs } from "./callees";
-import { findProjectRoot, isContractDoc, isTestDoc, QINIT_JSON } from "./project-util";
-import { parseContractDef, type DynCallees } from "@qinit/build/intercontract";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
-import { VerifyRunner } from "./verify-runner";
-import { QpiCodeActions } from "./codeactions";
+import {
+  findContractCandidates,
+  findProjectRoot,
+  isContractDoc,
+  isTestDoc,
+  QINIT_JSON,
+  selectTestContract,
+} from "./project-util";
 
-let warnedAt = 0;
-function warnOncePerMinute(msg: string): void {
-  const now = Date.now();
-  if (now - warnedAt > 60_000) {
-    warnedAt = now;
-    vscode.window.showWarningMessage(msg);
-  }
+const warned = new Set<string>();
+const restartingRoots = new Set<string>();
+
+function warnOnce(key: string, message: string): void {
+  if (warned.has(key)) return;
+  warned.add(key);
+  vscode.window.showWarningMessage(message);
 }
 
-// Regenerate clangd data for project contracts; rate-limit unsynced-toolchain warnings.
-async function regenerateClangd(
+function workspaceRoot(doc: vscode.TextDocument): string {
+  return (
+    vscode.workspace.getWorkspaceFolder(doc.uri)?.uri.fsPath ??
+    findProjectRoot(doc.fileName) ??
+    dirname(doc.fileName)
+  );
+}
+
+function dataRoot(context: vscode.ExtensionContext, root: string): string {
+  const storage = context.storageUri?.fsPath ?? context.globalStorageUri.fsPath;
+  const key = createHash("sha256").update(resolve(root)).digest("hex").slice(0, 16);
+  return join(storage, key);
+}
+
+function bundledCore(context: vscode.ExtensionContext): string | undefined {
+  const core = context.asAbsolutePath(join("resources", "core-headers"));
+  const qpi = join(core, "src", "contracts", "qpi.h");
+  const sysroot = join(core, "wasi-sdk", "share", "wasi-sysroot");
+  return existsSync(qpi) && existsSync(sysroot) ? core : undefined;
+}
+
+function reportClangdConfig(
+  configured: boolean,
+  configPath: string,
+  databaseDir: string,
+): void {
+  if (configured) return;
+  warnOnce(
+    `clangd:${configPath}`,
+    `Qubic QPI: ${configPath} is user-owned. Point its CompilationDatabase to ${databaseDir}.`,
+  );
+}
+
+function restartClangd(root: string, out: vscode.OutputChannel): void {
+  if (restartingRoots.has(root)) return;
+  restartingRoots.add(root);
+  void vscode.commands.executeCommand("clangd.restart").then(
+    () => {
+      restartingRoots.delete(root);
+      out.appendLine("clangd restarted with QPI configuration");
+    },
+    (error) => {
+      restartingRoots.delete(root);
+      out.appendLine(`clangd restart failed: ${String(error?.message ?? error)}`);
+    },
+  );
+}
+
+function regenerateContract(
   doc: vscode.TextDocument,
+  context: vscode.ExtensionContext,
+  core: string,
   out: vscode.OutputChannel,
-  calleeDiags: vscode.DiagnosticCollection,
-): Promise<void> {
-  if (!isContractDoc(doc)) return;
-  const root = findProjectRoot(doc.fileName);
-  if (!root) return;
+): void {
+  const root = workspaceRoot(doc);
+  const project = findProjectRoot(doc.fileName);
+  const config = project ? loadConfig(join(project, QINIT_JSON)) : {};
+  const primary =
+    !!project &&
+    !!config.contract &&
+    resolve(join(project, config.contract)) === resolve(doc.fileName);
 
-  const cfg = loadConfig(join(root, QINIT_JSON));
-  const settingCore = vscode.workspace.getConfiguration("qpi").get<string>("core") || undefined;
-
-  let core: string;
   try {
-    core = resolveCore(settingCore, cfg.core);
-  } catch (e: any) {
-    out.appendLine("resolveCore: " + String(e?.message ?? e));
-    warnOncePerMinute(
-      "Qubic QPI: core headers not found — run `qinit node run`, or set the `qpi.core` setting / QINIT_CORE.",
-    );
-    return;
-  }
-
-  const wasi = wasiSdkPaths();
-  if (!wasi) {
-    warnOncePerMinute(
-      "Qubic QPI: the wasm compiler (wasi-sdk) isn't synced — run `qinit node run`.",
-    );
-    return;
-  }
-
-  // Resolve qinit-deployed inter-contract callees from the running node's stored sources (best-effort:
-  // {} if this contract calls nobody, or the node is down). In-core callees resolve via contract_def.h.
-  let dynCallees: DynCallees = {};
-  try {
-    const rpcBase =
-      vscode.workspace.getConfiguration("qpi").get<string>("rpc") ||
-      cfg.rpc ||
-      "http://127.0.0.1:41841";
-    dynCallees = await dynCalleesFromNode(
-      rpcBase,
-      doc.getText(),
-      join(root, ".qinit", "clangd", "callees"),
-    );
-  } catch (e: any) {
-    out.appendLine("dynCallees: " + String(e?.message ?? e));
-  }
-
-  // Friendly diagnostic for a callee that resolves to NEITHER an in-core contract nor a deployed one —
-  // turns clangd's raw "undeclared identifier <Callee>" into an actionable hint at the call site.
-  try {
-    const known = new Set<string>([...parseContractDef(core).keys(), ...Object.keys(dynCallees)]);
-    calleeDiags.set(
-      doc.uri,
-      unresolvedCalleeRefs(doc.getText(), known).map((r) => {
-        const d = new vscode.Diagnostic(
-          new vscode.Range(doc.positionAt(r.offset), doc.positionAt(r.offset + r.length)),
-          `Callee \`${r.name}\` isn't a known contract — deploy it (\`qinit deploy\`) or run \`qinit node run\`, otherwise its CALL_OTHER_CONTRACT_* references can't resolve.`,
-          vscode.DiagnosticSeverity.Warning,
-        );
-        d.source = "qpi";
-        d.code = "qpi/unknown-callee";
-        return d;
-      }),
-    );
-  } catch {
-    calleeDiags.delete(doc.uri); // no core / unreadable contract_def.h — don't assert anything
-  }
-
-  // Use qinit.json's name/slot only for the project's primary contract; other headers default to
-  // their basename + slot 28 so multi-header projects each get a correct TU.
-  const primary = !!cfg.contract && resolve(join(root, cfg.contract)) === resolve(doc.fileName);
-  try {
-    const r = generateClangdConfig({
+    const result = generateClangdConfig({
       contractPath: doc.fileName,
       corePath: core,
-      wasiClang: wasi.clang,
-      wasiSysroot: wasi.sysroot,
+      dataRoot: dataRoot(context, root),
       workspaceRoot: root,
-      name: primary ? cfg.name : undefined,
-      slot: primary ? cfg.slot : undefined,
-      dynCallees,
+      name: primary ? config.name : undefined,
+      slot: primary ? config.slot : undefined,
     });
-    const n = Object.keys(dynCallees).length;
+    reportClangdConfig(result.clangdConfigured, result.dotClangdPath, result.dir);
+    if (result.clangdConfigured && result.restartRequired) restartClangd(root, out);
     out.appendLine(
-      `clangd config ready: ${r.name} (slot ${r.slot})${n ? `, ${n} callee(s) from node` : ""} -> ${r.prefixPath}`,
+      `clangd config ready: ${result.name} (slot ${result.slot}) -> ${result.prefixPath}`,
     );
-  } catch (e: any) {
-    out.appendLine("generate failed: " + String(e?.message ?? e));
+  } catch (error: any) {
+    out.appendLine(`clangd config failed: ${String(error?.message ?? error)}`);
   }
 }
 
-// Generate a combined contract/test TU so clangd resolves the test API and generated input types.
-function regenerateTestClangd(doc: vscode.TextDocument, out: vscode.OutputChannel): void {
-  if (!isTestDoc(doc)) return;
-  const root = findProjectRoot(doc.fileName);
-  if (!root) return;
+function regenerateTest(
+  doc: vscode.TextDocument,
+  context: vscode.ExtensionContext,
+  core: string,
+  out: vscode.OutputChannel,
+): void {
+  const root = workspaceRoot(doc);
+  const project = findProjectRoot(doc.fileName);
+  const config = project ? loadConfig(join(project, QINIT_JSON)) : {};
+  const configuredContract =
+    project && config.contract ? resolve(join(project, config.contract)) : undefined;
 
-  const cfg = loadConfig(join(root, QINIT_JSON));
-  if (!cfg.contract) {
-    out.appendLine("gtest clangd: qinit.json has no `contract` to pair the test against");
-    return;
+  let contractPath =
+    configuredContract && existsSync(configuredContract) ? configuredContract : undefined;
+  let name = contractPath ? config.name : undefined;
+  if (!contractPath) {
+    const candidate = selectTestContract(
+      doc.getText(),
+      findContractCandidates(root),
+    );
+    contractPath = candidate?.path;
+    name = candidate?.stateType;
   }
 
-  const settingCore = vscode.workspace.getConfiguration("qpi").get<string>("core") || undefined;
-  let core: string;
-  try {
-    core = resolveCore(settingCore, cfg.core);
-  } catch (e: any) {
-    out.appendLine("resolveCore: " + String(e?.message ?? e));
-    return;
-  }
-
-  const wasi = wasiSdkPaths();
-  if (!wasi) {
-    warnOncePerMinute(
-      "Qubic QPI: the wasm compiler (wasi-sdk) isn't synced — run `qinit node run`.",
+  if (!contractPath) {
+    warnOnce(
+      `test:${doc.uri.toString()}`,
+      `Qubic QPI: cannot determine the contract for ${doc.fileName}.`,
     );
     return;
   }
 
   try {
-    const r = generateTestClangdConfig({
-      contractPath: resolve(join(root, cfg.contract)),
+    const result = generateTestClangdConfig({
+      contractPath,
       testPath: doc.fileName,
       corePath: core,
-      wasiClang: wasi.clang,
-      wasiSysroot: wasi.sysroot,
+      dataRoot: dataRoot(context, root),
       workspaceRoot: root,
-      name: cfg.name,
-      slot: cfg.slot,
+      name,
+      slot: config.slot,
     });
-    out.appendLine(`gtest clangd config ready: ${doc.fileName} -> ${r.prefixPath}`);
-  } catch (e: any) {
-    out.appendLine("gtest generate failed: " + String(e?.message ?? e));
+    reportClangdConfig(
+      result.clangdConfigured,
+      result.dotClangdPath,
+      dirname(result.dbPath),
+    );
+    if (result.clangdConfigured && result.restartRequired) restartClangd(root, out);
+    out.appendLine(`gtest clangd config ready: ${doc.fileName} -> ${result.prefixPath}`);
+  } catch (error: any) {
+    out.appendLine(`gtest clangd config failed: ${String(error?.message ?? error)}`);
+  }
+}
+
+function regenerateDocument(
+  doc: vscode.TextDocument,
+  context: vscode.ExtensionContext,
+  core: string | undefined,
+  out: vscode.OutputChannel,
+): void {
+  if (!isContractDoc(doc) && !isTestDoc(doc)) return;
+  if (!core) {
+    warnOnce(
+      "headers",
+      "Qubic QPI: bundled headers are missing. Reinstall the extension from its VSIX or Marketplace.",
+    );
+    return;
+  }
+  if (isContractDoc(doc)) {
+    regenerateContract(doc, context, core, out);
+  } else {
+    regenerateTest(doc, context, core, out);
   }
 }
 
 export function activate(context: vscode.ExtensionContext): void {
   const out = vscode.window.createOutputChannel("Qubic QPI");
-  const diags = new QpiDiagnostics();
-  const verify = new VerifyRunner();
-  const calleeDiags = vscode.languages.createDiagnosticCollection("qpi-callee"); // unresolved inter-contract callees
-  context.subscriptions.push(out, diags, verify, calleeDiags);
+  const diagnostics = new QpiDiagnostics();
+  const core = bundledCore(context);
+  context.subscriptions.push(out, diagnostics);
 
-  // open/save: regenerate the clangd DB, run the instant Tier-A diagnostics, and kick off the
-  // authoritative Tier-B contractverify pass (a CLI shell-out, save-frequency).
-  const onDoc = (doc?: vscode.TextDocument) => {
+  const onDocument = (doc?: vscode.TextDocument) => {
     if (!doc) return;
-    void regenerateClangd(doc, out, calleeDiags); // async (node callee resolution); never rejects — contracts only
-    regenerateTestClangd(doc, out); // gtest .cpp -> its own combined-TU clangd entry; no-op for contracts
-    diags.refresh(doc); // Tier-A QPI lint — gates on isContractDoc, so it skips tests
-    verify.run(doc); // Tier-B contractverify — gates on isContractDoc, so it skips tests
+    regenerateDocument(doc, context, core, out);
+    diagnostics.refresh(doc);
   };
 
   context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument(onDoc),
-    vscode.workspace.onDidSaveTextDocument(onDoc),
-    vscode.workspace.onDidChangeTextDocument((e) => diags.schedule(e.document)),
-    vscode.workspace.onDidCloseTextDocument((d) => {
-      diags.clear(d.uri);
-      verify.clear(d.uri);
-      calleeDiags.delete(d.uri);
-    }),
+    vscode.workspace.onDidOpenTextDocument(onDocument),
+    vscode.workspace.onDidSaveTextDocument(onDocument),
+    vscode.workspace.onDidChangeTextDocument((event) => diagnostics.schedule(event.document)),
+    vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clear(doc.uri)),
     vscode.languages.registerHoverProvider(
-      { scheme: "file", pattern: "**/*.{h,hpp,cpp}" },
+      { scheme: "file", pattern: "**/*.{h,hpp,hxx,cpp,cc,cxx}" },
       new IdlHover(),
     ),
     vscode.languages.registerCodeActionsProvider(
-      { scheme: "file", pattern: "**/*.{h,hpp,cpp}" },
+      { scheme: "file", pattern: "**/*.{h,hpp,hxx,cpp,cc,cxx}" },
       new QpiCodeActions(),
       QpiCodeActions.metadata,
     ),
-    vscode.commands.registerCommand("qpi.regenerateConfig", async () => {
+    vscode.commands.registerCommand("qpi.regenerateConfig", () => {
       const doc = vscode.window.activeTextEditor?.document;
-      if (!doc) {
-        vscode.window.showInformationMessage("Qubic QPI: open a contract header first.");
+      if (!doc || (!isContractDoc(doc) && !isTestDoc(doc))) {
+        vscode.window.showInformationMessage("Qubic QPI: open a contract or test first.");
         return;
       }
-      await regenerateClangd(doc, out, calleeDiags);
-      diags.refresh(doc);
+      regenerateDocument(doc, context, core, out);
+      diagnostics.refresh(doc);
       vscode.window.showInformationMessage("Qubic QPI: clangd config regenerated.");
     }),
   );
 
-  onDoc(vscode.window.activeTextEditor?.document); // handle the already-open editor on activation
+  onDocument(vscode.window.activeTextEditor?.document);
 }
 
-export function deactivate(): void {
-  /* subscriptions are disposed by VS Code */
-}
+export function deactivate(): void {}

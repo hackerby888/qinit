@@ -7,7 +7,6 @@ import {
 } from "../../src/codefix";
 import { scanLocals, scanLocalsForm } from "../../src/lint/qpi-rules";
 
-// apply the fix at the first occurrence of `op` and return the rewritten line (or null to decline)
 function applyDivMod(line: string, op: "/" | "%"): string | null {
   const fix = divModFixForLine(line, line.indexOf(op), op);
   return fix ? line.slice(0, fix.start) + fix.text + line.slice(fix.end) : null;
@@ -20,7 +19,6 @@ function applyEdits(src: string, edits: SourceEdit[]): string {
   }
   return out;
 }
-// move the first stack local scanLocals reports
 function moveFirstLocal(src: string): string | null {
   const f = scanLocals(src)[0];
   if (!f) throw new Error("no stack local found in fixture");
@@ -46,9 +44,9 @@ test("preserves a trailing comment", () => {
 });
 
 test("bails on shapes it can't safely rewrite", () => {
-  expect(arrayFixForLine("uint64 a, b[4];")).toBeNull(); // multi-var
-  expect(arrayFixForLine("doSomething(arr[i]);")).toBeNull(); // not a declaration
-  expect(arrayFixForLine("Array<uint64, 8> ok;")).toBeNull(); // already fine
+  expect(arrayFixForLine("uint64 a, b[4];")).toBeNull();
+  expect(arrayFixForLine("doSomething(arr[i]);")).toBeNull();
+  expect(arrayFixForLine("Array<uint64, 8> ok;")).toBeNull();
 });
 
 test("rewrites simple division/modulo to div()/mod()", () => {
@@ -67,10 +65,10 @@ test("div/mod fix preserves precedence — rewrites only the immediate operands"
 
 test("div/mod fix declines unsafe shapes (null = no action offered)", () => {
   const at = (l: string, op: "/" | "%") => divModFixForLine(l, l.indexOf(op), op);
-  expect(at("a /= b;", "/")).toBeNull(); // compound assignment
-  expect(at("x = f(y) / 2;", "/")).toBeNull(); // left operand is a call result
-  expect(at("x = a / g(z);", "/")).toBeNull(); // right operand continues into a call
-  expect(at("x = state.get().n / 2;", "/")).toBeNull(); // left is a member-chain tail
+  expect(at("a /= b;", "/")).toBeNull();
+  expect(at("x = f(y) / 2;", "/")).toBeNull();
+  expect(at("x = a / g(z);", "/")).toBeNull();
+  expect(at("x = state.get().n / 2;", "/")).toBeNull();
 });
 
 test("move-to-_WITH_LOCALS: rewrites the macro, creates the struct, moves the decl + uses", () => {
@@ -82,7 +80,6 @@ test("move-to-_WITH_LOCALS: rewrites the macro, creates the struct, moves the de
   expect(out).toContain("struct Inc_locals { uint64 x; };");
   expect(out).toContain("locals.x = input.amount;");
   expect(out).toContain("state.mut().total += locals.x;");
-  // the fix actually resolves its own warning and introduces no needs-with-locals
   expect(scanLocals(out)).toEqual([]);
   expect(scanLocalsForm(out)).toEqual([]);
 });
@@ -104,8 +101,8 @@ test("move-to-_WITH_LOCALS: extends an existing <fn>_locals struct; no double _W
     "    struct Inc_locals { uint64 y; };\n",
   );
   const out = moveFirstLocal(src)!;
-  expect(out).toContain("uint64 x;"); // added to the struct
-  expect(out).toContain("uint64 y;"); // kept
+  expect(out).toContain("uint64 x;");
+  expect(out).toContain("uint64 y;");
   expect(out).not.toContain("_WITH_LOCALS_WITH_LOCALS");
   expect(out).toContain("locals.x = 1;");
   expect(out).toContain("locals.y = locals.x;");
@@ -113,10 +110,8 @@ test("move-to-_WITH_LOCALS: extends an existing <fn>_locals struct; no double _W
 });
 
 test("move-to-_WITH_LOCALS: declines multi-declarator + for-init", () => {
-  // multi-declarator: the transform bails defensively (so it never drops the sibling `b`)
   const multi = wrap("        uint64 a, b;\n        a = 1;");
   expect(moveLocalToWithLocalsEdits(multi, multi.indexOf("a, b"), 1)).toBeNull();
-  // for-init loop variable: scanLocals flags it; moving it is a different rewrite, so decline
   const loop = wrap("        for (uint64 i = 0; i < 4; i = i + 1) { state.mut().total += i; }");
   const f = scanLocals(loop)[0];
   expect(f).toBeDefined();

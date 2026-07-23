@@ -1,4 +1,3 @@
-// Offer Tier-A quick fixes only when their conservative source transforms match.
 import * as vscode from "vscode";
 import { arrayFixForLine, divModFixForLine, moveLocalToWithLocalsEdits } from "./codefix";
 import { isContractDoc } from "./project-util";

@@ -1,18 +1,15 @@
-// Drive clangd over stdio to verify public QPI completions.
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { resolveCore, wasiSdkPaths } from "@qinit/core/project";
 import { generateClangdConfig } from "../src/clangd-config";
 
 const CLANGD = process.env.CLANGD ?? "clangd";
-const core = resolveCore(process.env.QINIT_CORE);
-const sdk = wasiSdkPaths();
-const wasiClang = process.env.WASM_CLANG ?? sdk?.clang;
-const wasiSysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
-if (!wasiClang) {
-  console.error("no wasi-sdk — run `qinit node run` (or set WASM_CLANG/WASI_SYSROOT)");
+const core =
+  process.env.QPI_VSCODE_HEADERS ??
+  resolve(import.meta.dir, "..", "resources", "core-headers");
+if (!existsSync(join(core, "src", "contracts", "qpi.h"))) {
+  console.error("bundled QPI headers are missing — run `bun run prepare:headers`");
   process.exit(2);
 }
 
@@ -38,8 +35,7 @@ writeFileSync(file, PROBE);
 const config = generateClangdConfig({
   contractPath: file,
   corePath: core,
-  wasiClang,
-  wasiSysroot,
+  dataRoot: workspace,
   workspaceRoot: workspace,
   name: "Probe",
 });
@@ -50,14 +46,12 @@ const posAt = (offset: number) => {
   const line = prefix.split("\n").length - 1;
   return { line, character: offset - (prefix.lastIndexOf("\n") + 1) };
 };
-// Position after the member-access dot, such as `qpi.`.
 const afterDot = (find: string, dot: string) => posAt(PROBE.indexOf(find) + dot.length);
 
 const clangd = Bun.spawn(
   [
     CLANGD,
     `--compile-commands-dir=${config.dir}`,
-    `--query-driver=${wasiClang}`,
     "--background-index=false",
     "--log=error",
   ],
@@ -80,7 +74,6 @@ function send(method: string, params: any, isNotification = false) {
   return response;
 }
 
-// Read LSP frames from clangd's output.
 (async () => {
   let buffer = Buffer.alloc(0);
   for await (const chunk of clangd.stdout as any) {
@@ -138,7 +131,6 @@ try {
     { textDocument: { uri, languageId: "cpp", version: 1, text: PROBE } },
     true,
   );
-  // Let clangd build the preamble.
   await new Promise((resolve) => setTimeout(resolve, 4000));
 
   const stateMembers = await labelsAt(afterDot("state.mut().counter", "state.mut()."));

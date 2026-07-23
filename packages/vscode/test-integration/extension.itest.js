@@ -1,8 +1,8 @@
-// Exercise activation, diagnostics, and hover end-to-end in headless VS Code.
 const assert = require("node:assert");
+const fs = require("node:fs");
 const vscode = require("vscode");
 
-const EXT_ID = "qubic.qpi-vscode";
+const EXT_ID = "qinit.qpi-vscode";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function wsUri(name) {
@@ -17,7 +17,7 @@ async function open(name) {
 suite("Qubic QPI extension", function () {
   this.timeout(120000);
 
-  test("activates; keeps the maintenance command, drops the build/deploy/call actions", async () => {
+  test("activates with only the clangd maintenance command", async () => {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext, "extension is present");
     await ext.activate();
@@ -28,7 +28,7 @@ suite("Qubic QPI extension", function () {
     }
   });
 
-  test("Tier-A diagnostics fire on a violating contract", async () => {
+  test("diagnostics fire on a violating contract", async () => {
     const doc = await open("Bad.h");
     await sleep(2500); // let onDidOpen -> refresh publish
     const codes = vscode.languages.getDiagnostics(doc.uri).map((d) => String(d.code));
@@ -36,11 +36,21 @@ suite("Qubic QPI extension", function () {
     assert.ok(codes.includes("qpi/no-brackets"), `expected qpi/no-brackets; got [${codes.join(", ")}]`);
   });
 
-  test("a clean contract produces no Tier-A diagnostics", async () => {
+  test("a clean contract produces no QPI diagnostics", async () => {
     const doc = await open("Counter.h");
     await sleep(2500);
-    const qpi = vscode.languages.getDiagnostics(doc.uri).filter((d) => String(d.source) === "qpi");
+    const diagnostics = vscode.languages.getDiagnostics(doc.uri);
+    const qpi = diagnostics.filter((d) => String(d.source) === "qpi");
+    const clang = diagnostics.filter((d) => String(d.source) === "clang");
     assert.strictEqual(qpi.length, 0, `clean contract should have no qpi diagnostics; got ${qpi.map((d) => d.code).join(", ")}`);
+    assert.strictEqual(clang.length, 0, `clean contract should have no clang diagnostics; got ${clang.map((d) => d.code).join(", ")}`);
+  });
+
+  test("plain C++ headers are ignored", async () => {
+    const doc = await open("Plain.h");
+    await sleep(1000);
+    const qpi = vscode.languages.getDiagnostics(doc.uri).filter((d) => d.source === "qpi");
+    assert.strictEqual(qpi.length, 0, "plain C++ should not receive QPI diagnostics");
   });
 
   test("IDL hover shows the index + codec for a registered function", async () => {
@@ -62,6 +72,17 @@ suite("Qubic QPI extension", function () {
     assert.ok(!/build|deploy|call|gen client/i.test(titles), `expected no QPI action lenses; got: ${titles}`);
   });
 
+  test("standalone contract and test files receive a clangd database", async () => {
+    await open("Counter.h");
+    await open("Counter.test.cpp");
+    await sleep(1500);
+
+    const config = wsUri(".clangd").fsPath;
+    assert.ok(fs.existsSync(config), ".clangd should be generated without qinit.json");
+    const text = fs.readFileSync(config, "utf8");
+    assert.match(text, /CompilationDatabase:/);
+  });
+
   test("quick-fix offers Array<T, N> for a bracket violation", async () => {
     const doc = await open("Bad.h");
     await sleep(1500);
@@ -79,7 +100,6 @@ suite("Qubic QPI extension", function () {
     const qpiCodes = diags.filter((d) => String(d.source) === "qpi").map((d) => String(d.code));
     assert.ok(qpiCodes.includes("qpi/stack-local"), `expected qpi/stack-local; got [${qpiCodes.join(", ")}]`);
     assert.ok(qpiCodes.includes("qpi/needs-with-locals"), `expected qpi/needs-with-locals; got [${qpiCodes.join(", ")}]`);
-    // the `#include "contracts/qpi.h"` on line 3 (index 2) must carry NO qpi diagnostic
     const onInclude = diags.filter((d) => String(d.source) === "qpi" && d.range.start.line === 2);
     assert.strictEqual(onInclude.length, 0, `qpi.h include should be exempt; got [${onInclude.map((d) => d.code).join(", ")}]`);
   });

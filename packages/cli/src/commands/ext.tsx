@@ -5,9 +5,7 @@ import { resolve } from "node:path";
 import { Header, Panel, KV, theme } from "../ui";
 import { output } from "../args";
 
-// qinit ext install [--vsix <path>] [--editor <cmd>]
-// Install the Qubic QPI extension into VS Code, Cursor, Windsurf, or VSCodium.
-const EXTENSION_ID = "qubic.qpi-vscode";
+const EXTENSION_ID = "qinit.qpi-vscode";
 const EDITORS = ["code", "cursor", "windsurf", "codium"];
 
 function parse(args: string[]): { sub: string; o: Record<string, string> } {
@@ -77,7 +75,7 @@ export function Ext({ args }: { args: string[] }) {
           ["source", o.vsix ? target : `marketplace (${EXTENSION_ID})`],
         ],
         note: ok
-          ? "next: run `qinit node run` to sync the core headers + wasm compiler the extension needs."
+          ? "Open a QPI contract header to start using IntelliSense and diagnostics."
           : log.split("\n").slice(0, 6).join("\n"),
       });
     })();

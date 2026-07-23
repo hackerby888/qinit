@@ -1,12 +1,9 @@
-// Tier-A QPI linter: a single comment/string-aware C++ scanner over the enumerable qpi.h rules
-// (qpi.h + doc/contracts.md) advisory checks catch high-confidence issues before emit.
-
 export type QpiSeverity = "warn" | "info";
 
 export interface QpiFinding {
-  rule: string; // stable id, e.g. "qpi/no-division"
+  rule: string;
   message: string;
-  offset: number; // 0-based offset into the source
+  offset: number;
   length: number;
   severity: QpiSeverity;
 }
@@ -36,8 +33,6 @@ const KEYWORDS: Record<string, { rule: string; message: string }> = {
 const isIdStart = (c: string) => /[A-Za-z_]/.test(c);
 const isIdChar = (c: string) => /[A-Za-z0-9_]/.test(c);
 
-// Scan a contract .h fragment for Tier-A QPI rule violations. The contract is assumed NOT to include
-// qpi.h (the extension supplies IntelliSense instead), so a `#` is flagged as a leftover dev include.
 export function scanQpi(src: string): QpiFinding[] {
   const out: QpiFinding[] = [];
   const push = (
@@ -49,14 +44,13 @@ export function scanQpi(src: string): QpiFinding[] {
   ) => out.push({ rule, message, offset, length, severity });
 
   let i = 0;
-  let brace = 0; // scope depth (0 = global) — for typedef/using rules
+  let brace = 0;
   const n = src.length;
 
   while (i < n) {
     const c = src[i];
     const c2 = src[i + 1];
 
-    // --- comments: skip entirely (their contents are not contract code) ---
     if (c === "/" && c2 === "/") {
       i += 2;
       while (i < n && src[i] !== "\n") i++;
@@ -69,22 +63,19 @@ export function scanQpi(src: string): QpiFinding[] {
       continue;
     }
 
-    // C++14 digit separator (1'000'000, 0xFFFF'FFFF): a `'` flanked by hex-word chars is part of a numeric
-    // literal, not a char literal — skip it so it isn't mis-flagged as qpi/no-char.
+    // C++ digit separators are part of numeric literals.
     if (c === "'" && /[0-9a-fA-F]/.test(src[i - 1] ?? "") && /[0-9a-fA-F]/.test(src[i + 1] ?? "")) {
       i++;
       continue;
     }
 
-    // --- string / char literals: the literal itself is the violation; skip its body so inner
-    //     characters (#, /, etc.) don't double-fire ---
     if (c === '"' || c === "'") {
       const quote = c;
       const start = i;
       i++;
       while (i < n && src[i] !== quote) i += src[i] === "\\" ? 2 : 1;
-      if (i < n) i++; // consume the closing quote if present
-      if (i > n) i = n; // clamp: an unterminated literal / trailing backslash must not overshoot the source
+      if (i < n) i++;
+      if (i > n) i = n;
       if (quote === '"')
         push(
           "qpi/no-string",
@@ -102,12 +93,10 @@ export function scanQpi(src: string): QpiFinding[] {
       continue;
     }
 
-    // --- single-character rules ---
     if (c === "#") {
       let j = i;
       while (j < n && src[j] !== "\n") j++;
       const directive = src.slice(i, j);
-      // Allow the sanctioned qpi.h development include; diagnose other preprocessor directives.
       if (!/^#\s*include\s*[<"][^>"]*qpi\.h[>"]/.test(directive)) {
         push(
           "qpi/no-preprocessor",
@@ -121,7 +110,6 @@ export function scanQpi(src: string): QpiFinding[] {
       continue;
     }
     if (c === "/") {
-      // not a comment (handled above) -> division (or /=)
       push(
         "qpi/no-division",
         "The `/` operator is forbidden (division by zero is undefined). Use `div(a, b)`.",
@@ -177,14 +165,13 @@ export function scanQpi(src: string): QpiFinding[] {
       continue;
     }
 
-    // --- identifiers / keywords ---
     if (isIdStart(c)) {
       const start = i;
       i++;
       while (i < n && isIdChar(src[i])) i++;
       const word = src.slice(start, i);
 
-      // Skip static assertions because their strings and operators are not runtime QPI violations.
+      // Static-assert expressions are not runtime QPI code.
       if (word === "STATIC_ASSERT" || word === "static_assert") {
         let j = i;
         while (j < n && /\s/.test(src[j])) j++;
@@ -238,7 +225,6 @@ export function scanQpi(src: string): QpiFinding[] {
         continue;
       }
       if (brace === 0 && word === "using") {
-        // `using namespace QPI` at global scope is the one allowed form.
         let j = i;
         while (j < n && /\s/.test(src[j])) j++;
         const rest = src.slice(j, j + 9);
@@ -261,8 +247,6 @@ export function scanQpi(src: string): QpiFinding[] {
   return out;
 }
 
-// Blank comments + string/char literals with spaces (offsets + newlines preserved) so the structural
-// regexes below never match inside them.
 export function blankCommentsAndStrings(src: string): string {
   let out = "";
   let i = 0;
@@ -298,8 +282,7 @@ export function blankCommentsAndStrings(src: string): string {
         if (src[i] === "\\" && i + 1 < n) {
           out += "  ";
           i += 2;
-        } // escape: 2 source chars -> 2 spaces
-        else {
+        } else {
           out += " ";
           i++;
         }
@@ -316,7 +299,6 @@ export function blankCommentsAndStrings(src: string): string {
   return out;
 }
 
-// Identify lifecycle and user-entry bodies where raw stack locals are forbidden.
 const LIFECYCLE =
   "INITIALIZE|BEGIN_EPOCH|END_EPOCH|BEGIN_TICK|END_TICK|POST_INCOMING_TRANSFER|PRE_ACQUIRE_SHARES|POST_ACQUIRE_SHARES|PRE_RELEASE_SHARES|POST_RELEASE_SHARES|EXPAND";
 const FN_MACRO = new RegExp(
@@ -324,7 +306,6 @@ const FN_MACRO = new RegExp(
   "g",
 );
 
-// [open, close) brace ranges of every contract function body in (already-blanked) src.
 function functionBodies(src: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   let m: RegExpExecArray | null;
@@ -332,7 +313,7 @@ function functionBodies(src: string): Array<[number, number]> {
   while ((m = FN_MACRO.exec(src))) {
     let k = m.index + m[0].length;
     while (k < src.length && src[k] !== "{" && src[k] !== ";") k++;
-    if (src[k] !== "{") continue; // no body
+    if (src[k] !== "{") continue;
     let depth = 0,
       i = k;
     for (; i < src.length; i++) {
@@ -351,16 +332,14 @@ function functionBodies(src: string): Array<[number, number]> {
 }
 
 export interface EnclosingFn {
-  name: string | null; // the function/hook name (Inc, INITIALIZE); base for the `<name>_locals` struct
-  withLocals: boolean; // already in the *_WITH_LOCALS form?
+  name: string | null;
+  withLocals: boolean;
   macroStart: number;
-  macroEnd: number; // the macro invocation span, e.g. `PUBLIC_PROCEDURE(Inc)`
+  macroEnd: number;
   bodyStart: number;
-  bodyEnd: number; // [ `{` , just-past-`}` ) of the body
+  bodyEnd: number;
 }
 
-// The contract function whose body contains `offset` (the FN_MACRO + its braces). null if `offset` is
-// not inside any function body. Works on raw source (blanks comments/strings internally).
 export function enclosingFunction(source: string, offset: number): EnclosingFn | null {
   const src = blankCommentsAndStrings(source);
   FN_MACRO.lastIndex = 0;
@@ -432,16 +411,13 @@ const STMT_KEYWORDS = new Set([
   "template",
 ]);
 
-// Detect plain entry macros that define or use function locals and require _WITH_LOCALS.
 export function scanLocalsForm(source: string): QpiFinding[] {
   const src = blankCommentsAndStrings(source);
   const out: QpiFinding[] = [];
 
-  const userLocals = new Set<string>(); // names with a user-defined `struct <Name>_locals`
+  const userLocals = new Set<string>();
   for (const m of src.matchAll(/\bstruct\s+(\w+)_locals\b/g)) userLocals.add(m[1]);
 
-  // For one plain (non-_WITH_LOCALS) function/hook: flag it if its body uses `locals.` or a
-  // `<name>_locals` struct exists — both mean the author needs the _WITH_LOCALS form.
   const check = (
     name: string,
     plainForm: string,
@@ -480,10 +456,9 @@ export function scanLocalsForm(source: string): QpiFinding[] {
   };
 
   let m: RegExpExecArray | null;
-  // Named user functions/procedures: PUBLIC/PRIVATE_FUNCTION/PROCEDURE(Name).
   const namedRe = /\b(PUBLIC|PRIVATE)_(FUNCTION|PROCEDURE)(_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/dg;
   while ((m = namedRe.exec(src))) {
-    if (m[3]) continue; // already _WITH_LOCALS
+    if (m[3]) continue;
     const form = `${m[1]}_${m[2]}`;
     check(
       m[4],
@@ -493,25 +468,20 @@ export function scanLocalsForm(source: string): QpiFinding[] {
       m.indices![0],
     );
   }
-  // Lifecycle hooks: INITIALIZE() etc. — the hook name itself is the `<name>_locals` base.
   const lifeRe = new RegExp(`\\b(${LIFECYCLE})(_WITH_LOCALS)?\\s*\\(\\s*\\)`, "gd");
   while ((m = lifeRe.exec(src))) {
-    if (m[2]) continue; // already _WITH_LOCALS
+    if (m[2]) continue;
     check(m[1], `${m[1]}()`, `${m[1]}_WITH_LOCALS()`, m.index + m[0].length, m.indices![0]);
   }
   return out;
 }
 
-// Detect stack-local declarations conservatively; use a locals struct or contract state instead.
 export function scanLocals(source: string): QpiFinding[] {
   const src = blankCommentsAndStrings(source);
   const out: QpiFinding[] = [];
   const seen = new Set<number>();
-  // A type may be templated — `Array<uint64, 4>`, `HashMap<id, V, 1024>`, `QPI::Array<…>` (one level
-  // of `<>` nesting). Without this, `Array<…> x;` slips past the stack-local check.
+  // Match one nested template level without parsing C++.
   const TYPE = "[A-Za-z_]\\w*(?:::[A-Za-z_]\\w*)*(?:\\s*<(?:[^<>]|<[^<>]*>)*>)?";
-  // Trailing `;`/`=` is a LOOKAHEAD so it isn't consumed — otherwise consecutive declarations
-  // (`A x; B y;`) would lose the `;` that anchors the next one.
   const decl = new RegExp(`(?:^|[;{})])\\s*(${TYPE})\\s+([A-Za-z_]\\w*)\\s*(?=;|=(?!=))`, "gd");
   const forInit = new RegExp(`\\bfor\\s*\\(\\s*(${TYPE})\\s+([A-Za-z_]\\w*)\\s*=(?!=)`, "gd");
 

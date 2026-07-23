@@ -1,7 +1,5 @@
-// Pure structural checks for protocol rules outside the compiler and clangd.
 import type { QpiFinding } from "./qpi-rules";
 
-// Replace comment bodies with spaces (offsets preserved) so commented-out macros don't false-fire.
 export function blankComments(src: string): string {
   let out = "";
   let i = 0;
@@ -39,7 +37,6 @@ export function idlChecks(source: string): QpiFinding[] {
   const src = blankComments(source);
   const out: QpiFinding[] = [];
 
-  // REGISTER_USER_FUNCTION/PROCEDURE(name, index) — duplicate index within each space is a deploy bug.
   const byKind = { FUNCTION: new Map<number, string>(), PROCEDURE: new Map<number, string>() };
   const registered = new Set<string>();
   for (const m of src.matchAll(
@@ -65,7 +62,6 @@ export function idlChecks(source: string): QpiFinding[] {
     }
   }
 
-  // PUBLIC_FUNCTION/PROCEDURE[_WITH_LOCALS](name) defined but never registered → unreachable on-chain.
   const publicNames = new Set<string>();
   for (const m of src.matchAll(
     /PUBLIC_(FUNCTION|PROCEDURE)(?:_WITH_LOCALS)?\s*\(\s*(\w+)\s*\)/dg,
@@ -84,8 +80,7 @@ export function idlChecks(source: string): QpiFinding[] {
     }
   }
 
-  // Complex types with internal hash/list state are forbidden in the PUBLIC interface — a contract's
-  // `<fn>_input`/`<fn>_output` may use only scalars, `id`, `Array`, `BitArray`, and structs of those
+  // Public codecs cannot contain containers with internal hash or list state.
   const FORBIDDEN = /\b(Collection|LinkedList|HashMap|HashSet)\b/g;
   for (const m of src.matchAll(/\bstruct\s+(\w+)_(input|output)\b\s*\{/g)) {
     if (!publicNames.has(m[1])) continue; // only the PUBLIC interface

@@ -1,13 +1,9 @@
-// Real-corpus false-positive gate. Every DEPLOYED core contract is valid QPI, so the Tier-A linter
-// must raise ZERO warning/error-severity findings on them — anything it does raise is a false positive.
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { resolveCore } from "@qinit/core/project";
 import { scanQpi, scanLocals, scanLocalsForm, type QpiFinding } from "../src/lint/qpi-rules";
 import { idlChecks } from "../src/lint/idl-checks";
 
-// Registered in contract_def.h but NOT deployed QPI contracts: the header itself, the test-example
-// harnesses (printf/#ifdef debug code), and the superseded Qswap (Qswap.h is the active one).
 const DENY = new Set([
   "qpi.h",
   "Qswap_old.h",
@@ -25,7 +21,6 @@ export function deployedContracts(core: string): string[] {
     .filter((file) => !DENY.has(file));
 }
 
-// All warning/error-severity findings per deployed contract (info-level hints excluded).
 export function lintCorpus(core: string): { file: string; findings: QpiFinding[] }[] {
   const dir = join(core, "src", "contracts");
   const results: { file: string; findings: QpiFinding[] }[] = [];
@@ -51,11 +46,7 @@ if (import.meta.main) {
   try {
     core = resolveCore(process.env.QINIT_CORE);
   } catch (error: any) {
-    console.error(
-      "no core headers:",
-      String(error?.message ?? error),
-      "— set QINIT_CORE or run `qinit node run`",
-    );
+    console.error("no core headers:", String(error?.message ?? error), "— set QINIT_CORE");
     process.exit(2);
   }
   const results = lintCorpus(core);

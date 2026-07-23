@@ -1,7 +1,6 @@
 import { test, expect } from "bun:test";
 import { clangdErrorLines, clangdErrorCount } from "../../src/clangd-diag";
 
-// Capture real clangd error and tweak output shapes so filtering cannot pass broken code.
 const BROKEN = [
   "I[00:00:00.000] Building AST...",
   "E[00:00:00.001] [undeclared_var_use] Line 19: use of undeclared identifier 'Counter'",
@@ -12,7 +11,6 @@ const BROKEN = [
   "I[00:00:00.002] All checks completed, 5 errors",
 ].join("\n");
 
-// A contract that resolves cleanly still emits tweak probes (the body lives in the .h, not the prefix).
 const CLEAN = [
   "I[00:00:00.000] Building AST...",
   "E[00:00:00.001] tweak: SpecialMembers ==> FAIL: Class body in wrong file: C:\\x\\Counter.h:9:1",
@@ -20,18 +18,16 @@ const CLEAN = [
 ].join("\n");
 
 test("counts only real code diagnostics (not the tweak-probe noise the summary inflates)", () => {
-  expect(clangdErrorCount(BROKEN)).toBe(3); // the 3 undeclared_var_use lines, NOT the summary's 5
+  expect(clangdErrorCount(BROKEN)).toBe(3);
   expect(clangdErrorLines(BROKEN).every((l) => /\[undeclared_var_use\]/.test(l))).toBe(true);
 });
 
 test("a resolving contract is 0 errors even though its summary says otherwise", () => {
-  expect(clangdErrorCount(CLEAN)).toBe(0); // the lone tweak FAIL must NOT count
+  expect(clangdErrorCount(CLEAN)).toBe(0);
 });
 
 test("regression guard: the gate's old `/error:/` filter was blind to clangd's format", () => {
-  // clangd diagnostics contain no literal "error:" — the old filter matched nothing and PASSED broken code
   expect(BROKEN.split("\n").filter((l) => /error:|fatal error:/.test(l))).toHaveLength(0);
-  // the current detector is not blind
   expect(clangdErrorCount(BROKEN)).toBeGreaterThan(0);
 });
 

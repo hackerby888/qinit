@@ -1,14 +1,12 @@
-// Pure Tier-A transforms return edits only for expected source shapes.
 import { enclosingFunction, blankCommentsAndStrings } from "./lint/qpi-rules";
 
 export interface SourceEdit {
   start: number;
   end: number;
   newText: string;
-} // [start,end) -> newText; start==end inserts
+}
 
-// `<type> <name>[<size>];`  ->  `Array<<type>, <size>> <name>;`  (a member array declaration).
-// Bails on multi-var decls / nested brackets so it never mangles ambiguous lines.
+// Rewrite only an unambiguous member array declaration.
 export function arrayFixForLine(line: string): string | null {
   const m = line.match(
     /^(\s*)([A-Za-z_][\w:<>,\s]*?)\s+([A-Za-z_]\w*)\s*\[\s*([^\]]+?)\s*\]\s*;(.*)$/,
@@ -21,7 +19,6 @@ export function arrayFixForLine(line: string): string | null {
 
 const OPERAND = "[A-Za-z_]\\w*(?:\\.\\w+)*|\\d+"; // identifier / dotted member / integer literal
 
-// Rewrite division or modulo only when both operands are simple primary expressions.
 export function divModFixForLine(
   line: string,
   col: number,
@@ -41,7 +38,6 @@ export function divModFixForLine(
 
 const TYPE_RE = "[A-Za-z_]\\w*(?:::[A-Za-z_]\\w*)*(?:\\s*<(?:[^<>]|<[^<>]*>)*>)?"; // mirrors the lexer's TYPE
 
-// Move a stack local into its function's locals struct and switch to the _WITH_LOCALS macro.
 export function moveLocalToWithLocalsEdits(
   source: string,
   nameOffset: number,
@@ -52,7 +48,6 @@ export function moveLocalToWithLocalsEdits(
   const v = source.slice(nameOffset, nameOffset + nameLength);
   if (!/^[A-Za-z_]\w*$/.test(v)) return null;
 
-  // the declaration head: `<TYPE> <v>` ending exactly at the name
   const before = source.slice(0, nameOffset);
   const typeM = before.match(new RegExp(`(${TYPE_RE})\\s+$`));
   if (!typeM) return null;
@@ -60,7 +55,6 @@ export function moveLocalToWithLocalsEdits(
   const type = typeM[1].trim();
   const typeStart = nameOffset - typeM[0].length;
 
-  // walk to the terminating ';' on the blanked source; bail on anything that isn't a plain single decl
   const blanked = blankCommentsAndStrings(source);
   let j = nameOffset + nameLength,
     eq = -1;
@@ -75,14 +69,12 @@ export function moveLocalToWithLocalsEdits(
 
   const edits: SourceEdit[] = [];
 
-  // 1. macro -> *_WITH_LOCALS (insert `_WITH_LOCALS` right before the macro's `(`)
   if (!fn.withLocals) {
     const paren = source.indexOf("(", fn.macroStart);
     if (paren < 0 || paren >= fn.bodyStart) return null;
     edits.push({ start: paren, end: paren, newText: "_WITH_LOCALS" });
   }
 
-  // 2. `struct <fn>_locals`: extend if it exists, else create one just before the macro
   const field = `${type} ${v};`;
   const structM = blanked.match(new RegExp(`\\bstruct\\s+${fn.name}_locals\\b\\s*\\{`));
   if (structM && structM.index !== undefined) {
@@ -99,7 +91,6 @@ export function moveLocalToWithLocalsEdits(
     });
   }
 
-  // 3. drop the declaration (keep an initializer as `locals.<v> = …;`)
   if (eq >= 0) {
     edits.push({ start: typeStart, end: semi + 1, newText: `locals.${v} = ${initText};` });
   } else {
@@ -116,7 +107,6 @@ export function moveLocalToWithLocalsEdits(
     );
   }
 
-  // 4. prefix every in-body use of <v> with `locals.` (skip the decl, member access `.`/`->`/`::`)
   const useRe = new RegExp(`\\b${v}\\b`, "g");
   useRe.lastIndex = fn.bodyStart;
   let u: RegExpExecArray | null;

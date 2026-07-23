@@ -34,7 +34,6 @@ test("detectStateType reads the `struct <Name> : public ContractBase` from sourc
 test("CONTRACT_STATE_TYPE comes from the source struct, not the filename / qinit.json", () => {
   const ws = mkdtempSync(join(tmpdir(), "qpi-name-"));
   try {
-    // state struct (Escrow) differs from BOTH the file name (Counter.h) and the passed name (Counter)
     const f = join(ws, "Counter.h");
     writeFileSync(
       f,
@@ -43,7 +42,6 @@ test("CONTRACT_STATE_TYPE comes from the source struct, not the filename / qinit
     const r = generateClangdConfig({
       contractPath: f,
       corePath: "/fake/core",
-      wasiClang: "/fake/clang++",
       workspaceRoot: ws,
       name: "Counter",
     });
@@ -62,60 +60,52 @@ test.if(hasFixture)(
       const r = generateClangdConfig({
         contractPath: COUNTER,
         corePath: "/fake/core",
-        wasiClang: "/fake/wasi/bin/clang++",
-        wasiSysroot: "/fake/wasi/sysroot",
         workspaceRoot: ws,
       });
 
       expect(r.name).toBe("Counter");
       expect(r.slot).toBe(DEFAULT_SLOT);
+      expect(r.restartRequired).toBe(true);
 
-      // --- the prefix is the wasm-build PREAMBLE: defines + qpi.h, but NOT the contract include nor the
-      //     post-contract impl tail (neither is needed to parse the contract) ---
       const prefix = readFileSync(r.prefixPath, "utf8");
       expect(prefix).toContain("#define LITE_WASM_TU_BUILD");
       expect(prefix).toContain("#define CONTRACT_STATE_TYPE Counter");
       expect(prefix).toContain("#define CONTRACT_STATE2_TYPE Counter2");
       expect(prefix).toContain(`#define CONTRACT_INDEX ${DEFAULT_SLOT}`);
       expect(prefix).toContain('#include "contracts/qpi.h"');
-      expect(prefix).not.toContain(`#include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"`); // impl tail excluded
-      expect(prefix).not.toContain('#include "' + COUNTER.replace(/\\/g, "/") + '"'); // contract include excluded
+      expect(prefix).not.toContain(`#include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"`);
+      expect(prefix).not.toContain('#include "' + COUNTER.replace(/\\/g, "/") + '"');
 
-      // --- compile_commands.json: `file` IS the contract, parsed with `-include <prefix> -x c++` ---
       const dbText = readFileSync(r.dbPath, "utf8");
       const db = JSON.parse(dbText);
       expect(db).toHaveLength(1);
       const args: string[] = db[0].arguments;
-      expect(args[0]).toBe("/fake/wasi/bin/clang++"); // argv[0] = real driver (query-driver match)
+      expect(args[0]).toBe("clang++");
       expect(args).toContain("--target=wasm32-wasi");
       expect(args).toContain("-std=c++20");
       expect(args).toContain("-DLITEDYN_CONTRACT_TU");
       expect(args).toContain("-fno-rtti");
       expect(args).toContain("-fno-exceptions");
-      expect(args).toContain("-Wno-undefined-inline"); // editor-only: impls omitted from the parse TU
-      expect(args).toContain("--sysroot=/fake/wasi/sysroot");
-      // core headers are -isystem (qpi.h internals -> excluded from clangd's cross-file index)
+      expect(args).toContain("-Wno-undefined-inline");
+      expect(args).toContain("--sysroot=/fake/core/wasi-sdk/share/wasi-sysroot");
       expect(args).toContain("-isystem");
       expect(args).toContain("/fake/core");
       expect(args).toContain("/fake/core/src");
       expect(args.some((a) => a.startsWith("-I/fake/core"))).toBe(false);
-      expect(args).toContain(r.prefixPath.replace(/\\/g, "/")); // the preamble is force-included
-      expect(args.slice(-3)).toEqual(["-x", "c++", r.contractFile]); // contract is the main C++ file + the DB `file`
+      expect(args).toContain(r.prefixPath.replace(/\\/g, "/"));
+      expect(args.slice(-3)).toEqual(["-x", "c++", r.contractFile]);
       expect(db[0].file).toBe(r.contractFile);
       expect(r.contractFile).toBe(COUNTER.replace(/\\/g, "/"));
-      // codegen/link-only flags MUST be dropped — clangd can't use them
       expect(args).not.toContain("-O0");
       expect(args).not.toContain("-g");
       expect(args).not.toContain("-o");
       expect(args).not.toContain("-mexec-model=reactor");
       expect(args.some((a) => a.startsWith("-Wl,"))).toBe(false);
 
-      // --- forward slashes everywhere in the DB (clangd requirement on Windows) ---
       expect(dbText.includes("\\")).toBe(false);
 
-      // --- .clangd points clangd at the DB + trims the completion flood ---
       const dotClangd = readFileSync(r.dotClangdPath, "utf8");
-      expect(dotClangd).toContain("CompilationDatabase: .qinit/clangd");
+      expect(dotClangd).toContain(join(ws, ".qpi", "clangd").replace(/\\/g, "/"));
       expect(dotClangd).toContain("AllScopes: No");
       expect(dotClangd).toContain("HeaderInsertion: Never");
     } finally {
@@ -132,7 +122,6 @@ test.if(hasFixture)("generateClangdConfig: does not clobber a user's existing .c
     generateClangdConfig({
       contractPath: COUNTER,
       corePath: "/fake/core",
-      wasiClang: "/fake/clang++",
       workspaceRoot: ws,
     });
     expect(readFileSync(dot, "utf8")).toBe("# user owned\n");
@@ -146,15 +135,16 @@ test.if(hasFixture)(
   () => {
     const ws = mkdtempSync(join(tmpdir(), "qpi-multi-"));
     try {
-      const base = { corePath: "/fake/core", wasiClang: "/fake/clang++", workspaceRoot: ws };
+      const base = { corePath: "/fake/core", workspaceRoot: ws };
       const TOKEN = resolve("fixtures", "Token.h");
       const expected = existsSync(TOKEN) ? 2 : 1;
       generateClangdConfig({ ...base, contractPath: COUNTER });
       if (existsSync(TOKEN)) generateClangdConfig({ ...base, contractPath: TOKEN });
-      const dbPath = join(ws, ".qinit", "clangd", "compile_commands.json");
+      const dbPath = join(ws, ".qpi", "clangd", "compile_commands.json");
       expect(JSON.parse(readFileSync(dbPath, "utf8")).length).toBe(expected);
-      generateClangdConfig({ ...base, contractPath: COUNTER }); // re-generate Counter
+      const regenerated = generateClangdConfig({ ...base, contractPath: COUNTER });
       expect(JSON.parse(readFileSync(dbPath, "utf8")).length).toBe(expected); // not duplicated
+      expect(regenerated.restartRequired).toBe(false);
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }
@@ -169,13 +159,11 @@ test.if(hasFixture)(
       generateClangdConfig({
         contractPath: COUNTER,
         corePath: "/fake/core",
-        wasiClang: "/fake/clang++",
         workspaceRoot: ws,
       });
       const s = JSON.parse(readFileSync(join(ws, ".vscode", "settings.json"), "utf8"));
       expect(s["C_Cpp.intelliSenseEngine"]).toBe("disabled");
       expect(s["C_Cpp.errorSquiggles"]).toBe("disabled");
-      // a second project where the user already set the key — must not be overwritten
       const ws2 = mkdtempSync(join(tmpdir(), "qpi-set2-"));
       try {
         const fs = require("node:fs");

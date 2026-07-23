@@ -4,8 +4,6 @@ import { join } from "node:path";
 import { resolveCore } from "@qinit/core/project";
 import { lintCorpus, deployedContracts } from "../../scripts/lint-corpus";
 
-// Real-corpus false-positive gate (runs when a core-lite checkout is resolvable: QINIT_CORE locally,
-// or the CI corpus job). Deployed contracts are valid QPI → the linter must raise 0 warn/error findings.
 let core: string | undefined;
 try {
   core = resolveCore(process.env.QINIT_CORE);

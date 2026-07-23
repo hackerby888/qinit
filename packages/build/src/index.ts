@@ -30,7 +30,7 @@ export { generateClient } from "./gen-client";
 export { testRuntimeSource, sampleTest } from "./gen-test";
 export { genStdGtest } from "./gen-std-gtest";
 export { buildSnapshot } from "./snapshot";
-export type { SnapshotResult } from "./snapshot";
+export type { SnapshotOptions, SnapshotResult } from "./snapshot";
 export { verifyContract, resolveVerifyTool } from "./verify";
 export type { VerifyResult } from "./verify";
 

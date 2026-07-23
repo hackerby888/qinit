@@ -1,26 +1,21 @@
-// Verify that clangd resolves fixture and core contracts without C++ errors.
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { resolveCore, wasiSdkPaths } from "@qinit/core/project";
 import { scanCallees, type DynCallees } from "@qinit/build/intercontract";
 import { generateClangdConfig } from "../src/clangd-config";
 import { clangdErrorLines } from "../src/clangd-diag";
 
-const REPO_ROOT = resolve(import.meta.dir, "../../.."); // packages/vscode/scripts -> repo root
+const REPO_ROOT = resolve(import.meta.dir, "../../..");
 const CLANGD = process.env.CLANGD ?? "clangd";
 const requested = process.argv.slice(2);
-
-const core = resolveCore(process.env.QINIT_CORE);
-const sdk = wasiSdkPaths();
-const wasiClang = process.env.WASM_CLANG ?? sdk?.clang;
-const wasiSysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
-if (!wasiClang) {
-  console.error("no wasi-sdk — run `qinit node run` (or set WASM_CLANG/WASI_SYSROOT)");
+const core =
+  process.env.QPI_VSCODE_HEADERS ??
+  resolve(import.meta.dir, "..", "resources", "core-headers");
+if (!existsSync(join(core, "src", "contracts", "qpi.h"))) {
+  console.error("bundled QPI headers are missing — run `bun run prepare:headers`");
   process.exit(2);
 }
 
-// Real deployed contracts cover varied QPI features.
 const REAL: Record<string, string> = { QX: "Qx.h", QEARN: "Qearn.h", QUTIL: "QUtil.h", RANDOM: "Random.h" };
 
 function entryFor(name: string): { name: string; path: string } | null {
@@ -45,7 +40,6 @@ const entries = names
   .map(entryFor)
   .filter((entry): entry is { name: string; path: string } => entry !== null);
 
-// Resolve sibling fixture callees without a running node.
 function siblingCallees(source: string): DynCallees {
   const callees: DynCallees = {};
   for (const callee of scanCallees(source)) {
@@ -57,10 +51,9 @@ function siblingCallees(source: string): DynCallees {
   return callees;
 }
 
-console.log(`core:       ${core}`);
-console.log(`wasi clang: ${wasiClang}`);
-console.log(`clangd:     ${CLANGD}`);
-console.log(`contracts:  ${entries.map((entry) => entry.name).join(", ")}\n`);
+console.log(`headers:   ${core}`);
+console.log(`clangd:    ${CLANGD}`);
+console.log(`contracts: ${entries.map((entry) => entry.name).join(", ")}\n`);
 
 let failures = 0;
 for (const { name, path: contractPath } of entries) {
@@ -70,8 +63,7 @@ for (const { name, path: contractPath } of entries) {
     const config = generateClangdConfig({
       contractPath,
       corePath: core,
-      wasiClang,
-      wasiSysroot,
+      dataRoot: workspace,
       workspaceRoot: workspace,
       name,
       dynCallees,
@@ -81,7 +73,6 @@ for (const { name, path: contractPath } of entries) {
         CLANGD,
         `--check=${config.contractFile}`,
         `--compile-commands-dir=${config.dir}`,
-        `--query-driver=${wasiClang}`,
         "--log=error",
       ],
       { stdout: "pipe", stderr: "pipe" },

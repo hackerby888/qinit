@@ -1,10 +1,8 @@
-// Bundle the extension for the VS Code (Node) host. The @qinit/* packages are TypeScript SOURCE
-// (no dist/), so esbuild transpiles + inlines them; the shipped .js has zero @qinit/* runtime deps.
+// Bundle workspace TypeScript into the extension host.
 import { build, context } from "esbuild";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Resolve the package directory so this works from any CWD.
 const root = dirname(fileURLToPath(import.meta.url));
 
 const opts = {

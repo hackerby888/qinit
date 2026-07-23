@@ -13,3 +13,4 @@ contracts_dyn/
 .vscode-test/
 /.idea/
 .generated/
+/packages/vscode/resources/

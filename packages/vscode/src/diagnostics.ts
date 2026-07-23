@@ -1,8 +1,7 @@
-// Publish debounced Tier-A and IDL diagnostics for contract documents.
 import * as vscode from "vscode";
 import { scanQpi, scanLocals, scanLocalsForm, type QpiFinding } from "./lint/qpi-rules";
 import { idlChecks } from "./lint/idl-checks";
-import { findProjectRoot, isContractDoc } from "./project-util";
+import { isContractDoc } from "./project-util";
 
 const SEVERITY: Record<QpiFinding["severity"], vscode.DiagnosticSeverity> = {
   warn: vscode.DiagnosticSeverity.Warning,
@@ -21,9 +20,8 @@ export class QpiDiagnostics implements vscode.Disposable {
   private readonly coll = vscode.languages.createDiagnosticCollection("qpi");
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  // Only lint contract documents that live inside a qinit project (avoids touching arbitrary C++).
   private applies(doc: vscode.TextDocument): boolean {
-    return isContractDoc(doc) && !!findProjectRoot(doc.fileName);
+    return isContractDoc(doc);
   }
 
   schedule(doc: vscode.TextDocument, delay = 250): void {

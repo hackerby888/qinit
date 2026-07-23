@@ -1,5 +1,3 @@
-// Core-header snapshot: compiler closures plus contracts and the canonical Wasm SDK layout.
-// Self-updating; mirrors core layout so -I resolves 1:1 with a real checkout.
 import { mkdirSync, copyFileSync, readdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { genWrapperWasm } from "./recipe";
@@ -21,8 +19,15 @@ export interface SnapshotResult {
   fileCount: number;
 }
 
-// Produce <outRoot>/core-headers/ (extracted, ready to use as a corePath).
-export async function buildSnapshot(corePath: string, outRoot: string): Promise<SnapshotResult> {
+export interface SnapshotOptions {
+  includeSdkHeaders?: boolean;
+}
+
+export async function buildSnapshot(
+  corePath: string,
+  outRoot: string,
+  options: SnapshotOptions = {},
+): Promise<SnapshotResult> {
   corePath = resolve(corePath);
   if (!existsSync(join(corePath, "src", "contracts", "qpi.h"))) {
     throw new Error(`not a core checkout (no src/contracts/qpi.h): ${corePath}`);
@@ -34,16 +39,24 @@ export async function buildSnapshot(corePath: string, outRoot: string): Promise<
   writeFileSync(stubH, STUB);
   const slot = loadCoreWasmSlotLayout(corePath).slotBase;
   const wrapper = join(tmp, "Stub.wrapper.cpp");
-  writeFileSync(wrapper, genWrapperWasm({ contractPath: stubH, name: "Stub", slot, corePath, outDir: tmp }));
+  writeFileSync(
+    wrapper,
+    genWrapperWasm({
+      contractPath: stubH,
+      name: "Stub",
+      slot,
+      corePath,
+      outDir: tmp,
+    }),
+  );
   const shim = join(corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics);
 
-  const flatten = (out: string) =>
+  const dependencies = (out: string) =>
     out
       .replace(/\\\n/g, " ")
       .split(/\s+/)
-      .filter((path) => path.startsWith(corePath));
-  // Compute the closure with the actual Wasm target and sysroot so it matches compileWasmContract.
-  // (SDK module runtime, force-included intrinsics, and the simde m256i headers used by the Wasm target).
+      .filter((path) => path && existsSync(path));
+
   const sdk = wasiSdkPaths();
   const wasmClang = process.env.WASM_CLANG ?? sdk?.clang;
   const sysroot = process.env.WASI_SYSROOT ?? sdk?.sysroot;
@@ -64,13 +77,14 @@ export async function buildSnapshot(corePath: string, outRoot: string): Promise<
     shim,
     `-I${corePath}`,
     `-I${join(corePath, "src")}`,
-    "-MM",
+    options.includeSdkHeaders ? "-M" : "-MM",
     wrapper,
   ]);
-  if (rw.exitCode !== 0) throw new Error("wasm clang -M failed:\n" + new TextDecoder().decode(rw.stderr));
-  const deps = flatten(new TextDecoder().decode(rw.stdout));
+  if (rw.exitCode !== 0) {
+    throw new Error("wasm clang -M failed:\n" + new TextDecoder().decode(rw.stderr));
+  }
+  const deps = dependencies(new TextDecoder().decode(rw.stdout));
 
-  // Inter-contract additions not in a no-callee closure: every contract header, index map, and SDK headers.
   const contractsDir = join(corePath, "src", "contracts");
   const extra = readdirSync(contractsDir)
     .filter((file) => file.endsWith(".h"))
@@ -85,14 +99,27 @@ export async function buildSnapshot(corePath: string, outRoot: string): Promise<
 
   const root = join(outRoot, "core-headers");
   rmSync(root, { recursive: true, force: true });
+  const copied = new Set<string>();
   let fileCount = 0;
+  const copy = (source: string, destination: string) => {
+    if (copied.has(destination)) return;
+    mkdirSync(dirname(destination), { recursive: true });
+    copyFileSync(source, destination);
+    copied.add(destination);
+    fileCount++;
+  };
+
   for (const f of new Set([...deps, ...extra].map((file) => resolve(file)))) {
     const rel = relative(corePath, f);
     if (rel.startsWith("..") || !existsSync(f)) continue;
-    const dst = join(root, rel);
-    mkdirSync(dirname(dst), { recursive: true });
-    copyFileSync(f, dst);
-    fileCount++;
+    copy(f, join(root, rel));
+  }
+  if (options.includeSdkHeaders) {
+    for (const f of new Set(deps.map((file) => resolve(file)))) {
+      const rel = relative(sysroot, f);
+      if (rel.startsWith("..") || !existsSync(f)) continue;
+      copy(f, join(root, "wasi-sdk", "share", "wasi-sysroot", rel));
+    }
   }
   rmSync(tmp, { recursive: true, force: true });
   return { root, fileCount };
