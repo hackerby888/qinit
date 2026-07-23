@@ -5,13 +5,13 @@ Standalone VS Code language support for Qubic smart contracts.
 ## Features
 
 - C++ completion, hover, signature help, and navigation through clangd
-- Live QPI rule and IDL diagnostics
+- Live compiler, QPI rule, and IDL diagnostics
 - IDL hover for registered functions and procedures
 - Quick fixes for supported QPI violations
 - IntelliSense for `contract_testing.h` test files
 
-The extension ships its pinned QPI and C++ headers. Qinit, core-lite, a node, and the WASI compiler
-are not required.
+The extension bundles the Qinit compiler frontend and ships its pinned QPI and C++ headers. Qinit,
+core-lite, a node, and the WASI compiler are not required.
 
 ## Install
 

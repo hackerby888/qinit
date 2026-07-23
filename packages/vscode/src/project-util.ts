@@ -1,9 +1,18 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type * as vscode from "vscode";
-import { blankCommentsAndStrings } from "./lint/qpi-rules";
+import { loadConfig } from "@qinit/core/project";
+import {
+  detectContractName,
+  Lexer,
+} from "@qinit/compile/analyzer";
 
 export const QINIT_JSON = "qinit.json";
+
+export interface ContractIdentity {
+  name?: string;
+  slot?: number;
+}
 
 export function findProjectRoot(file: string): string | undefined {
   let dir = dirname(file);
@@ -17,10 +26,28 @@ export function findProjectRoot(file: string): string | undefined {
   return undefined;
 }
 
+export function configuredContractIdentity(file: string): ContractIdentity {
+  const project = findProjectRoot(file);
+  if (!project) {
+    return {};
+  }
+
+  const config = loadConfig(join(project, QINIT_JSON));
+  if (
+    !config.contract ||
+    resolve(join(project, config.contract)) !== resolve(file)
+  ) {
+    return {};
+  }
+
+  return {
+    name: config.name,
+    slot: config.slot,
+  };
+}
+
 export function contractStateType(source: string): string | undefined {
-  return blankCommentsAndStrings(source).match(
-    /\b(?:struct|class)\s+([A-Za-z_]\w*)(?:\s+final)?\s*:\s*(?:(?:public|protected|private)\s+)?ContractBase\b/,
-  )?.[1];
+  return detectContractName(source);
 }
 
 export function isQpiContractSource(source: string): boolean {
@@ -49,11 +76,28 @@ export interface ContractCandidate {
 }
 
 export function testContractType(source: string): string | undefined {
-  const text = blankCommentsAndStrings(source);
-  return (
-    text.match(/\bINIT_CONTRACT\s*\(\s*([A-Za-z_]\w*)\s*\)/)?.[1] ??
-    text.match(/\bContractTesting([A-Za-z_]\w*)\b/)?.[1]
-  );
+  const tokens = new Lexer(source).tokenize();
+  let fallback: string | undefined;
+
+  for (let index = 0; index < tokens.length; index++) {
+    if (
+      tokens[index].text === "INIT_CONTRACT" &&
+      tokens[index + 1]?.kind === "l_paren" &&
+      tokens[index + 2]?.kind === "identifier"
+    ) {
+      return tokens[index + 2].text;
+    }
+    if (
+      tokens[index].kind === "identifier" &&
+      tokens[index].text.startsWith("ContractTesting") &&
+      tokens[index].text.length > "ContractTesting".length &&
+      fallback === undefined
+    ) {
+      fallback = tokens[index].text.slice("ContractTesting".length);
+    }
+  }
+
+  return fallback;
 }
 
 export function selectTestContract(

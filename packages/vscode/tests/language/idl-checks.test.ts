@@ -1,11 +1,27 @@
 import { test, expect } from "bun:test";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { idlChecks } from "../../src/lint/idl-checks";
+import {
+  analyzeContract,
+  type SourceAnalysisDiagnostic,
+} from "@qinit/compile/analyzer";
+
+const idlCodes = new Set([
+  "qpi/dup-fn-index",
+  "qpi/dup-proc-index",
+  "qpi/unregistered",
+  "qpi/public-complex-type",
+]);
+
+function idlChecks(source: string): SourceAnalysisDiagnostic[] {
+  return analyzeContract({ source }).diagnostics.filter(
+    (item) => item.origin === "qpi" && idlCodes.has(item.code),
+  );
+}
 
 test("duplicate function index is flagged", () => {
   const rules = idlChecks("REGISTER_USER_FUNCTION(getA, 1); REGISTER_USER_FUNCTION(getB, 1);").map(
-    (f) => f.rule,
+    (f) => f.code,
   );
   expect(rules).toContain("qpi/dup-fn-index");
 });
@@ -23,8 +39,8 @@ test("unregistered PUBLIC_* is flagged; registered is not", () => {
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES { REGISTER_USER_FUNCTION(getA, 1); }
   `;
   const f = idlChecks(src);
-  expect(f.some((x) => x.rule === "qpi/unregistered" && x.message.includes("doB"))).toBe(true);
-  expect(f.some((x) => x.rule === "qpi/unregistered" && x.message.includes("getA"))).toBe(false);
+  expect(f.some((x) => x.code === "qpi/unregistered" && x.message.includes("doB"))).toBe(true);
+  expect(f.some((x) => x.code === "qpi/unregistered" && x.message.includes("getA"))).toBe(false);
 });
 
 test("commented-out macros are ignored", () => {
@@ -44,7 +60,7 @@ test("complex types in the PUBLIC interface are flagged; allowed types are not",
   `;
   expect(
     idlChecks(bad).some(
-      (x) => x.rule === "qpi/public-complex-type" && x.message.includes("Collection"),
+      (x) => x.code === "qpi/public-complex-type" && x.message.includes("Collection"),
     ),
   ).toBe(true);
 
@@ -54,7 +70,7 @@ test("complex types in the PUBLIC interface are flagged; allowed types are not",
     struct getOk_output { Array<uint64, 8> vals; bit flag; };
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES { REGISTER_USER_FUNCTION(getOk, 1); }
   `;
-  expect(idlChecks(ok).filter((x) => x.rule === "qpi/public-complex-type")).toEqual([]);
+  expect(idlChecks(ok).filter((x) => x.code === "qpi/public-complex-type")).toEqual([]);
 });
 
 test("complex types outside the public interface (StateData / private I/O) are NOT flagged", () => {
@@ -64,7 +80,7 @@ test("complex types outside the public interface (StateData / private I/O) are N
     struct helper_input { Collection<id, 64> tmp; };
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES { }
   `;
-  expect(idlChecks(src).filter((x) => x.rule === "qpi/public-complex-type")).toEqual([]);
+  expect(idlChecks(src).filter((x) => x.code === "qpi/public-complex-type")).toEqual([]);
 });
 
 test("real fixtures: no duplicate-index / public-complex-type false positives", () => {
@@ -72,8 +88,8 @@ test("real fixtures: no duplicate-index / public-complex-type false positives", 
   if (!existsSync(dir)) return;
   for (const f of readdirSync(dir).filter((x) => x.endsWith(".h"))) {
     const hits = idlChecks(readFileSync(join(dir, f), "utf8"))
-      .filter((x) => x.rule.startsWith("qpi/dup") || x.rule === "qpi/public-complex-type")
-      .map((x) => x.rule);
+      .filter((x) => x.code.startsWith("qpi/dup") || x.code === "qpi/public-complex-type")
+      .map((x) => x.code);
     expect({ file: f, hits }).toEqual({ file: f, hits: [] });
   }
 });

@@ -1,9 +1,36 @@
 import { test, expect } from "bun:test";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { scanQpi, scanLocals, scanLocalsForm } from "../../src/lint/qpi-rules";
+import {
+  analyzeContract,
+  type SourceAnalysisDiagnostic,
+} from "@qinit/compile/analyzer";
 
-const rulesOf = (s: string) => new Set(scanQpi(s).map((f) => f.rule));
+const separateRules = new Set([
+  "qpi/stack-local",
+  "qpi/needs-with-locals",
+  "qpi/dup-fn-index",
+  "qpi/dup-proc-index",
+  "qpi/unregistered",
+  "qpi/public-complex-type",
+]);
+
+function qpiDiagnostics(source: string): SourceAnalysisDiagnostic[] {
+  return analyzeContract({ source }).diagnostics.filter(
+    (item) => item.origin === "qpi",
+  );
+}
+
+const scanQpi = (source: string) =>
+  qpiDiagnostics(source).filter((item) => !separateRules.has(item.code));
+const scanLocals = (source: string) =>
+  qpiDiagnostics(source).filter((item) => item.code === "qpi/stack-local");
+const scanLocalsForm = (source: string) =>
+  qpiDiagnostics(source).filter(
+    (item) => item.code === "qpi/needs-with-locals",
+  );
+const rulesOf = (source: string) =>
+  new Set(scanQpi(source).map((item) => item.code));
 
 test("flags each forbidden construct (one crafted violation per rule)", () => {
   expect(rulesOf('auto s = "hi";')).toContain("qpi/no-string");
@@ -55,7 +82,7 @@ test("real fixtures stay clean — zero false positives", () => {
   for (const f of readdirSync(dir).filter((x) => x.endsWith(".h"))) {
     const src = readFileSync(join(dir, f), "utf8");
     if (f === "Trap.h") continue;
-    const findings = scanQpi(src).map((x) => x.rule);
+    const findings = scanQpi(src).map((x) => x.code);
     expect({ file: f, findings }).toEqual({ file: f, findings: [] });
   }
 });
@@ -130,19 +157,19 @@ test("scanLocals: real fixtures stay clean (they use _WITH_LOCALS / state)", () 
   const dir = resolve("fixtures");
   if (!existsSync(dir)) return;
   for (const f of readdirSync(dir).filter((x) => x.endsWith(".h"))) {
-    const hits = scanLocals(readFileSync(join(dir, f), "utf8")).map((x) => x.rule);
+    const hits = scanLocals(readFileSync(join(dir, f), "utf8")).map((x) => x.code);
     expect({ file: f, hits }).toEqual({ file: f, hits: [] });
   }
 });
 
 test("scanLocalsForm hints _WITH_LOCALS when a plain function defines or uses locals", () => {
   const withStruct = `struct X : public ContractBase { struct Do_locals { uint64 d; }; PUBLIC_PROCEDURE(Do) { locals.d = 1; } };`;
-  expect(scanLocalsForm(withStruct).map((f) => f.rule)).toEqual(["qpi/needs-with-locals"]);
+  expect(scanLocalsForm(withStruct).map((f) => f.code)).toEqual(["qpi/needs-with-locals"]);
   expect(scanLocalsForm(withStruct)[0].message).toContain("PUBLIC_PROCEDURE_WITH_LOCALS(Do)");
   expect(
     scanLocalsForm(
       `struct X : public ContractBase { PUBLIC_FUNCTION(Q) { output.v = locals.tmp; } };`,
-    ).map((f) => f.rule),
+    ).map((f) => f.code),
   ).toEqual(["qpi/needs-with-locals"]);
   expect(
     scanLocalsForm(
@@ -158,15 +185,15 @@ test("scanLocalsForm: real fixtures stay clean", () => {
   const dir = resolve("fixtures");
   if (!existsSync(dir)) return;
   for (const f of readdirSync(dir).filter((x) => x.endsWith(".h"))) {
-    const hits = scanLocalsForm(readFileSync(join(dir, f), "utf8")).map((x) => x.rule);
+    const hits = scanLocalsForm(readFileSync(join(dir, f), "utf8")).map((x) => x.code);
     expect({ file: f, hits }).toEqual({ file: f, hits: [] });
   }
 });
 
 const warnsOf = (s: string) =>
   scanQpi(s)
-    .filter((f) => f.severity !== "info")
-    .map((f) => f.rule);
+    .filter((f) => f.severity !== "information")
+    .map((f) => f.code);
 
 test("valid QPI constructs never produce warn/error findings", () => {
   expect(warnsOf("uint64 a = div(x, y); uint64 b = mod(x, y); uint64 c = smul(x, y);")).toEqual([]);
@@ -182,7 +209,7 @@ test("valid QPI constructs never produce warn/error findings", () => {
   expect(warnsOf("LOG_INFO(locals.msg);")).toEqual([]);
   expect(warnsOf('STATIC_ASSERT(A == B, "A == B");')).toEqual([]);
   expect(warnsOf('static_assert(sizeof(X) <= 1024, "too big");')).toEqual([]);
-  expect(scanQpi('auto s = "runtime";').map((f) => f.rule)).toContain("qpi/no-string");
+  expect(scanQpi('auto s = "runtime";').map((f) => f.code)).toContain("qpi/no-string");
 });
 
 test("for-loop over a locals member is fine; a raw for-init local is flagged", () => {
@@ -191,16 +218,16 @@ test("for-loop over a locals member is fine; a raw for-init local is flagged", (
   expect(
     scanLocals(proc("for (locals.i = 0; locals.i < N; ++locals.i) { locals.s += locals.i; }")),
   ).toEqual([]);
-  expect(scanLocals(proc("for (uint64 i = 0; i < N; ++i) { }")).map((f) => f.rule)).toEqual([
+  expect(scanLocals(proc("for (uint64 i = 0; i < N; ++i) { }")).map((f) => f.code)).toEqual([
     "qpi/stack-local",
   ]);
 });
 
 test("lifecycle hooks: stack-local detection + the _WITH_LOCALS hint both cover them", () => {
   const init = `struct X : public ContractBase { struct INITIALIZE_locals { uint64 t; }; INITIALIZE_WITH_LOCALS() { uint64 tmp; locals.t = 0; } };`;
-  expect(scanLocals(init).map((f) => f.rule)).toEqual(["qpi/stack-local"]);
+  expect(scanLocals(init).map((f) => f.code)).toEqual(["qpi/stack-local"]);
   const plain = `struct X : public ContractBase { struct INITIALIZE_locals { uint64 t; }; INITIALIZE() { locals.t = 0; } };`;
-  expect(scanLocalsForm(plain).map((f) => f.rule)).toEqual(["qpi/needs-with-locals"]);
+  expect(scanLocalsForm(plain).map((f) => f.code)).toEqual(["qpi/needs-with-locals"]);
   expect(scanLocalsForm(plain)[0].message).toContain("INITIALIZE_WITH_LOCALS()");
   expect(
     scanLocalsForm(

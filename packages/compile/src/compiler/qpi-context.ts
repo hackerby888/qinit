@@ -3,6 +3,7 @@ import { Parser } from "../parser";
 import { Preprocessor, type MacroDef } from "../preprocess";
 import { indexLibraryDeclarations, type LibrarySymbolIndex } from "../codegen";
 import { embeddedWasmAbi, IMPL_BOUNDARY } from "../qpi-snapshot-format";
+import { getQpiPrelude } from "./qpi-macros";
 
 export interface QpiContext {
   macros: Map<string, MacroDef>;
@@ -10,28 +11,6 @@ export interface QpiContext {
 }
 
 const qpiCache = new Map<string, QpiContext>();
-const qpiPreludeCache = new Map<string, { preprocessedSource: string; macros: Map<string, MacroDef> }>();
-
-function getQpiPrelude(headers: string): { preprocessedSource: string; macros: Map<string, MacroDef> } {
-  const [mainHeaders] = headers.split(IMPL_BOUNDARY);
-  const cached = qpiPreludeCache.get(mainHeaders);
-  if (cached) return cached;
-
-  const preprocessor = new Preprocessor();
-  const preprocessedSource = preprocessor.preprocess({
-    source: "",
-    qpiHeader: mainHeaders,
-    contractName: "__lib__",
-    contractIndex: 0,
-  });
-  const prelude = { preprocessedSource, macros: preprocessor.getDefines() };
-  qpiPreludeCache.set(mainHeaders, prelude);
-  return prelude;
-}
-
-export function getQpiMacros(headers: string): Map<string, MacroDef> {
-  return getQpiPrelude(headers).macros;
-}
 
 export function getQpiContext(headers: string): QpiContext {
   const cached = qpiCache.get(headers);

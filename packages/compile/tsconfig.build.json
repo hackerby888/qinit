@@ -11,5 +11,5 @@
       "@qinit/core": ["packages/compile/types-build/core-abi.d.ts"]
     }
   },
-  "include": ["src/index.ts"]
+  "include": ["src/index.ts", "src/analyzer.ts"]
 }

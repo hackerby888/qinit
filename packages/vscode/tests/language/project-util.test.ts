@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  configuredContractIdentity,
   contractStateType,
   findContractCandidates,
   findProjectRoot,
@@ -57,8 +58,24 @@ test("project and contract discovery work without qinit.json", () => {
       },
     ]);
 
-    writeFileSync(join(root, "qinit.json"), "{}");
+    writeFileSync(
+      join(root, "qinit.json"),
+      JSON.stringify({
+        name: "Counter",
+        contract: "contracts/Counter.h",
+        slot: 42,
+      }),
+    );
     expect(findProjectRoot(join(root, "tests", "Counter.test.cpp"))).toBe(root);
+    expect(
+      configuredContractIdentity(join(root, "contracts", "Counter.h")),
+    ).toEqual({
+      name: "Counter",
+      slot: 42,
+    });
+    expect(
+      configuredContractIdentity(join(root, "contracts", "Plain.h")),
+    ).toEqual({});
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

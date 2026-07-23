@@ -1,8 +1,10 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+  analyzeContract,
+  type SourceAnalysisDiagnostic,
+} from "@qinit/compile/analyzer";
 import { resolveCore } from "@qinit/core/project";
-import { scanQpi, scanLocals, scanLocalsForm, type QpiFinding } from "../src/lint/qpi-rules";
-import { idlChecks } from "../src/lint/idl-checks";
 
 const DENY = new Set([
   "qpi.h",
@@ -21,21 +23,25 @@ export function deployedContracts(core: string): string[] {
     .filter((file) => !DENY.has(file));
 }
 
-export function lintCorpus(core: string): { file: string; findings: QpiFinding[] }[] {
+export function lintCorpus(
+  core: string,
+): { file: string; findings: SourceAnalysisDiagnostic[] }[] {
   const dir = join(core, "src", "contracts");
-  const results: { file: string; findings: QpiFinding[] }[] = [];
+  const results: {
+    file: string;
+    findings: SourceAnalysisDiagnostic[];
+  }[] = [];
   for (const file of deployedContracts(core)) {
     const path = join(dir, file);
     if (!existsSync(path)) {
       continue;
     }
     const source = readFileSync(path, "utf8");
-    const findings = [
-      ...scanQpi(source),
-      ...scanLocals(source),
-      ...scanLocalsForm(source),
-      ...idlChecks(source),
-    ].filter((finding) => finding.severity !== "info");
+    const findings = analyzeContract({ source }).diagnostics.filter(
+      (finding) =>
+        finding.origin === "qpi" &&
+        finding.severity !== "information",
+    );
     results.push({ file, findings });
   }
   return results;
@@ -60,11 +66,11 @@ if (import.meta.main) {
     const source = readFileSync(join(dir, result.file), "utf8");
     console.log(`FAIL ${result.file}:`);
     for (const finding of result.findings.slice(0, 8)) {
-      const line = source.slice(0, finding.offset).split("\n").length;
+      const line = finding.span.line;
       const excerpt = source
-        .slice(finding.offset, finding.offset + 40)
+        .slice(finding.span.start, finding.span.start + 40)
         .replace(/\n/g, "\\n");
-      console.log(`   L${line} ${finding.rule}: ${JSON.stringify(excerpt)}`);
+      console.log(`   L${line} ${finding.code}: ${JSON.stringify(excerpt)}`);
     }
   }
   console.log(

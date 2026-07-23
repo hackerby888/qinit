@@ -31,18 +31,33 @@ suite("Qubic QPI extension", function () {
   test("diagnostics fire on a violating contract", async () => {
     const doc = await open("Bad.h");
     await sleep(2500); // let onDidOpen -> refresh publish
-    const codes = vscode.languages.getDiagnostics(doc.uri).map((d) => String(d.code));
+    const diagnostics = vscode.languages.getDiagnostics(doc.uri);
+    const codes = diagnostics.map((d) => String(d.code));
     assert.ok(codes.includes("qpi/no-division"), `expected qpi/no-division; got [${codes.join(", ")}]`);
     assert.ok(codes.includes("qpi/no-brackets"), `expected qpi/no-brackets; got [${codes.join(", ")}]`);
+    assert.ok(
+      diagnostics.some(
+        (d) =>
+          String(d.source) === "qinit-compiler" &&
+          String(d.code) === "compiler/semantic",
+      ),
+      `expected a compiler semantic diagnostic; got [${codes.join(", ")}]`,
+    );
   });
 
-  test("a clean contract produces no QPI diagnostics", async () => {
+  test("a clean contract produces no extension diagnostics", async () => {
     const doc = await open("Counter.h");
     await sleep(2500);
     const diagnostics = vscode.languages.getDiagnostics(doc.uri);
-    const qpi = diagnostics.filter((d) => String(d.source) === "qpi");
+    const extension = diagnostics.filter(
+      (d) => String(d.source) === "qpi" || String(d.source) === "qinit-compiler",
+    );
     const clang = diagnostics.filter((d) => String(d.source) === "clang");
-    assert.strictEqual(qpi.length, 0, `clean contract should have no qpi diagnostics; got ${qpi.map((d) => d.code).join(", ")}`);
+    assert.strictEqual(
+      extension.length,
+      0,
+      `clean contract should have no extension diagnostics; got ${extension.map((d) => d.code).join(", ")}`,
+    );
     assert.strictEqual(clang.length, 0, `clean contract should have no clang diagnostics; got ${clang.map((d) => d.code).join(", ")}`);
   });
 

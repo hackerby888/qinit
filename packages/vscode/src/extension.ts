@@ -8,6 +8,7 @@ import { generateClangdConfig, generateTestClangdConfig } from "./clangd-config"
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
 import {
+  configuredContractIdentity,
   findContractCandidates,
   findProjectRoot,
   isContractDoc,
@@ -80,12 +81,7 @@ function regenerateContract(
   out: vscode.OutputChannel,
 ): void {
   const root = workspaceRoot(doc);
-  const project = findProjectRoot(doc.fileName);
-  const config = project ? loadConfig(join(project, QINIT_JSON)) : {};
-  const primary =
-    !!project &&
-    !!config.contract &&
-    resolve(join(project, config.contract)) === resolve(doc.fileName);
+  const identity = configuredContractIdentity(doc.fileName);
 
   try {
     const result = generateClangdConfig({
@@ -93,8 +89,8 @@ function regenerateContract(
       corePath: core,
       dataRoot: dataRoot(context, root),
       workspaceRoot: root,
-      name: primary ? config.name : undefined,
-      slot: primary ? config.slot : undefined,
+      name: identity.name,
+      slot: identity.slot,
     });
     reportClangdConfig(result.clangdConfigured, result.dotClangdPath, result.dir);
     if (result.clangdConfigured && result.restartRequired) restartClangd(root, out);
@@ -204,7 +200,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.languages.registerCodeActionsProvider(
       { scheme: "file", pattern: "**/*.{h,hpp,hxx,cpp,cc,cxx}" },
-      new QpiCodeActions(),
+      new QpiCodeActions(diagnostics),
       QpiCodeActions.metadata,
     ),
     vscode.commands.registerCommand("qpi.regenerateConfig", () => {

@@ -21,7 +21,7 @@ const aliasCoreBrowser = {
 };
 
 const result = await Bun.build({
-  entrypoints: ["src/index.ts", "src/browser.ts"],
+  entrypoints: ["src/index.ts", "src/browser.ts", "src/analyzer.ts"],
   outdir: "dist",
   format: "esm",
   target: "browser",
@@ -35,4 +35,4 @@ if (!result.success) {
   process.exit(1);
 }
 
-console.log("built dist/index.js + dist/browser.js");
+console.log("built dist/index.js + dist/browser.js + dist/analyzer.js");

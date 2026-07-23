@@ -17,6 +17,11 @@
       "bun": "./src/browser.ts",
       "types": "./src/browser.ts",
       "import": "./dist/browser.js"
+    },
+    "./analyzer": {
+      "bun": "./src/analyzer.ts",
+      "types": "./src/analyzer.ts",
+      "import": "./dist/analyzer.js"
     }
   },
   "files": [

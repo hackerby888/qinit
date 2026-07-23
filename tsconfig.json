@@ -17,6 +17,7 @@
       "@qinit/build": ["packages/build/src/index.ts"],
       "@qinit/build/*": ["packages/build/src/*"],
       "@qinit/compile": ["packages/compile/src/index.ts"],
+      "@qinit/compile/*": ["packages/compile/src/*"],
       "@qinit/core": ["packages/core/src/index.ts"],
       "@qinit/core/*": ["packages/core/src/*"],
       "@qinit/engine": ["packages/engine/src/index.ts"],
