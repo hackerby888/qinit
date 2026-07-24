@@ -71,7 +71,7 @@ export function Build({ args }: { args: string[] }) {
               writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
             } catch {}
           let hash = "";
-          if (output.json && r.so) {
+          if (r.so) {
             try {
               hash = await k12Hex(new Uint8Array(readFileSync(r.so)));
             } catch {}
