@@ -12,6 +12,10 @@ export interface CommandMeta {
 export const GROUP_ORDER = ["setup & node", "develop", "deploy & interact", "misc"];
 
 export const META: Record<string, CommandMeta> = {
+  setup: {
+    group: "setup & node",
+    summary: "download the core headers, node binary, WASI SDK, and contract verifier",
+  },
   doctor: {
     group: "setup & node",
     summary: "check toolchain (wasi-sdk, node.js, core headers, qubic lib)",

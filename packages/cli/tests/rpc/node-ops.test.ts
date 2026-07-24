@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { killNode, nodeAlive } from "../../src/node-ops";
+import { killNode, nodeAlive, nodeAssetForPlatform } from "../../src/node-ops";
 
 const scratch = () => mkdtempSync(join(tmpdir(), "qinit-nodeops-"));
 const pidFile = (s: string) => join(s, "node.pid");
@@ -77,4 +77,19 @@ test("nodeAlive reflects the tracked PID's liveness", async () => {
     } catch {}
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("node assets follow manifest platform keys and keep the legacy Linux fallback", () => {
+  const legacy = { url: "legacy", sha256: "legacy-sha" };
+  const windows = { url: "windows", sha256: "windows-sha" };
+  const manifest = {
+    version: "v1",
+    node: legacy,
+    nodes: { "windows-x64": windows },
+  };
+
+  expect(nodeAssetForPlatform(manifest, "windows-x64")).toBe(windows);
+  expect(nodeAssetForPlatform(manifest, "linux-x64")).toBe(legacy);
+  expect(nodeAssetForPlatform(manifest, "darwin-x64")).toBeUndefined();
+  expect(nodeAssetForPlatform(manifest, "future-riscv64")).toBeUndefined();
 });

@@ -79,7 +79,7 @@ export function Clean({ args }: { args: string[] }) {
           <Box marginTop={1}>
             <Text dimColor>re-fetched on next </Text>
             <Text bold color={theme.accent}>
-              qinit node run
+              qinit setup
             </Text>
           </Box>
         </Box>

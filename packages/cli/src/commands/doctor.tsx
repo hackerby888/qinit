@@ -49,7 +49,7 @@ async function runChecks(): Promise<Check[]> {
             name: "wasi-sdk (wasm compiler)",
             ok: false,
             detail: "not cached",
-            fix: "qinit node run   (auto-fetches the host wasi-sdk)",
+            fix: "qinit setup   (downloads the host wasi-sdk)",
           },
   );
   checks.push(
@@ -78,7 +78,7 @@ async function runChecks(): Promise<Check[]> {
     detail: hasQpi ? qpi : coreErr || "headers not found",
     fix: hasQpi
       ? undefined
-      : "qinit node run              (fetch published snapshot)  or  set QINIT_CORE=<core-checkout>",
+      : "qinit setup                 (fetch published snapshot)  or  set QINIT_CORE=<core-checkout>",
   });
 
   try {
@@ -104,7 +104,7 @@ async function runChecks(): Promise<Check[]> {
     optional: true,
     ok: vtool ? true : null,
     detail: vtool ?? "not fetched — qinit build will skip the qpi.h rule check",
-    fix: vtool ? undefined : "qinit node run   ·   or set QINIT_VERIFY=/path/to/contractverify",
+    fix: vtool ? undefined : "qinit setup   ·   or set QINIT_VERIFY=/path/to/contractverify",
   });
   return checks;
 }

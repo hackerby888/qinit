@@ -30,7 +30,7 @@ export function resolveCore(cliCore?: string, cfgCore?: string): string {
   const cur = readCurrent();
   if (cur?.coreHeaders && existsSync(cur.coreHeaders)) return cur.coreHeaders;
   throw new Error(
-    "no core headers: run `qinit node run` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>",
+    "no core headers: run `qinit setup` (fetch the published snapshot), or set QINIT_CORE=<core-checkout>",
   );
 }
 

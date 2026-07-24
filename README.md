@@ -14,8 +14,20 @@ Prebuilt binary (no Bun needed):
 curl -fsSL https://raw.githubusercontent.com/hackerby888/qinit/main/install.sh | sh
 ```
 
-Installs `qinit` to `~/.local/bin` (override with `QINIT_BIN`). Or download from
-[Releases](https://github.com/hackerby888/qinit/releases/latest):
+On Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/hackerby888/qinit/main/install.ps1 | iex
+```
+
+The installer puts `qinit` in `~/.local/bin` on Linux/macOS and
+`%LOCALAPPDATA%\qinit\bin` on Windows (override with `QINIT_BIN`). It then runs
+`qinit setup` to download and cache the core headers, node binary, WASI SDK, and
+contract verifier. Setup may download several hundred MB; reruns reuse cached
+tools, and unavailable platform assets are reported and skipped. If setup fails,
+the CLI remains installed and the installer prints the exact retry command.
+
+Or download a binary from [Releases](https://github.com/hackerby888/qinit/releases/latest):
 
 | OS | arch | asset |
 |----|------|-------|
@@ -25,7 +37,8 @@ Installs `qinit` to `~/.local/bin` (override with `QINIT_BIN`). Or download from
 | macOS | Intel | `qinit-darwin-x64` |
 | Windows | x64 | `qinit-windows-x64.exe` |
 
-Then `qinit doctor`. (Building from source is below.)
+After a manual download, run `qinit setup`, then `qinit doctor`. (Building from
+source is below.)
 
 ## Status — M0 (bin skeleton)
 
@@ -35,7 +48,7 @@ test that validates the binary path before any real feature code.
 ## Prereqs
 
 - [Bun](https://bun.sh) — `curl -fsSL https://bun.sh/install | bash`
-- wasi-sdk for the Clang-to-Wasm backend (`qinit node run` fetches and caches it automatically).
+- wasi-sdk for the Clang-to-Wasm backend (`qinit setup` fetches and caches it automatically).
 
 ## Run
 

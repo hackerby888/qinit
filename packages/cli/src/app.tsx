@@ -2,6 +2,7 @@
 import { Component, useEffect, type ReactNode } from "react";
 import { Box, Text, useApp } from "ink";
 import { Doctor } from "./commands/doctor";
+import { Setup } from "./commands/setup";
 import { Smoke } from "./commands/smoke";
 import { Node } from "./commands/node";
 import { NodeRun } from "./commands/node-run";
@@ -80,6 +81,8 @@ function route(command: string, args: string[]): ReactNode {
       return <New args={args} />;
     case "doctor":
       return <Doctor />;
+    case "setup":
+      return <Setup />;
     case "node":
       return args[0] === "run" ? <NodeRun args={args} /> : <Node args={args} />;
     case "ext":

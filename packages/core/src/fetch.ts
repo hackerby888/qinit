@@ -251,10 +251,11 @@ export interface VerifyUpdate {
   version?: string;
 }
 // Daily-cached, best-effort, never throws. Compares the published sha256 to the cached tool's and
-// pulls when newer. `force` ignores the age gate (used by `qinit sync`). Offline/unreachable = no-op.
+// pulls when newer. `force` ignores the age gate (used by `qinit setup`). Offline/unreachable = no-op.
 export async function autoUpdateVerifyTool(opts?: {
   force?: boolean;
   maxAgeMs?: number;
+  onProgress?: (recv: number, total: number) => void;
 }): Promise<VerifyUpdate> {
   if (process.env.QINIT_NO_UPDATE) return { action: "none" };
   const cur = readCurrent() ?? {};
@@ -281,7 +282,7 @@ export async function autoUpdateVerifyTool(opts?: {
     return { action: "current", version: m.version };
   }
   try {
-    const buf = await fetchVerify(asset);
+    const buf = await fetchVerify(asset, opts?.onProgress);
     mkdirSync(toolsDir(), { recursive: true });
     writeFileSync(tool, buf);
     if (process.platform !== "win32") Bun.spawnSync(["chmod", "+x", tool]); // no chmod on Windows (no exec bit)

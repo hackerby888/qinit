@@ -115,6 +115,7 @@ test("manifest-backed node run keeps the cached-header path", async () => {
 
 test("manifest-backed node run still fetches uncached headers", async () => {
   const calls: string[] = [];
+  const progress: Array<[number, number]> = [];
   const result = await prepareNodeRunCore(
     {},
     false,
@@ -123,8 +124,9 @@ test("manifest-backed node run still fetches uncached headers", async () => {
         ({ version: "qinit-v8", headers: { url: "headers.tgz", sha256: "abc" } }) as any,
       readCurrent: () => null,
       cacheHeaders: () => "/cache/qinit-v8",
-      fetchVerify: async () => {
+      fetchVerify: async (_asset, onProgress) => {
         calls.push("fetch");
+        onProgress?.(1, 3);
         return new Uint8Array([1, 2, 3]);
       },
       extractTarGz: async (_archive, destination) => {
@@ -135,10 +137,12 @@ test("manifest-backed node run still fetches uncached headers", async () => {
         return value;
       },
     },
+    (received, total) => progress.push([received, total]),
   );
 
   expect(result.detail).toBe("fetched qinit-v8");
   expect(calls).toEqual(["fetch", "extract:/cache/qinit-v8", "current:qinit-v8"]);
+  expect(progress).toEqual([[1, 3]]);
 });
 
 test("offline and virtual manifest-fallback paths still reuse cached headers", async () => {

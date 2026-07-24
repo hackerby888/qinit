@@ -102,7 +102,7 @@ export function Verify({ args }: { args: string[] }) {
         <Status
           ok={null}
           label="protocol rules"
-          detail="skipped — verify tool not fetched (run qinit node run)"
+          detail="skipped — verify tool not fetched (run qinit setup)"
           pad={16}
         />
       ) : v.ok ? (

@@ -31,6 +31,7 @@ export async function prepareNodeRunCore(
   options: Record<string, string>,
   virtual: boolean,
   injected: Partial<NodeRunCoreDeps> = {},
+  onProgress?: (recv: number, total: number) => void,
 ): Promise<PreparedNodeRunCore> {
   const deps = { ...defaultDeps, ...injected };
 
@@ -112,7 +113,10 @@ export async function prepareNodeRunCore(
   }
 
   const coreHeaders = deps.cacheHeaders(version);
-  await deps.extractTarGz(await deps.fetchVerify(headersAsset), coreHeaders);
+  await deps.extractTarGz(
+    await deps.fetchVerify(headersAsset, onProgress),
+    coreHeaders,
+  );
   deps.updateCurrent({ headersVersion: version, coreHeaders });
   return { version, coreHeaders, detail: `fetched ${version}` };
 }

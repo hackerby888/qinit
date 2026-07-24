@@ -26,6 +26,6 @@ if [ -f "$HOME/.cache/qinit/current.json" ] || [ -n "${QINIT_CORE:-}" ]; then
     exit 1
   fi
 else
-  echo "… skip k12-build check (run 'qinit sync' first)"
+  echo "… skip k12-build check (run 'qinit setup' first)"
 fi
 echo "compiled-crypto guard PASSED"

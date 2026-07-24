@@ -21,6 +21,8 @@ import {
   atomicWrite,
   extractTarGz,
   debug,
+  type AssetRef,
+  type Manifest,
 } from "@qinit/core";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -80,15 +82,26 @@ export function nodeAlive(scratch = scratchDir()): boolean {
   return Bun.spawnSync(["pgrep", "-x", "Qubic"]).exitCode === 0;
 }
 
+export function nodeAssetForPlatform(
+  manifest: Manifest,
+  platform = verifyPlatformKey(),
+): AssetRef | undefined {
+  const platformAsset = manifest.nodes?.[platform];
+  if (platformAsset) {
+    return platformAsset;
+  }
+  return platform === "linux-x64" ? manifest.node : undefined;
+}
+
 // Download + cache the prebuilt node from the fork's release (manifest-pinned).
 export async function fetchNodeBin(
   ref: string,
   onProgress?: (recv: number, total: number) => void,
+  loadedManifest?: Manifest,
 ): Promise<{ bin: string; version: string }> {
-  const m = await loadManifest(ref);
-  // per-platform node (linux-x64/linux-arm64); fall back to legacy single `node` (= linux-x64).
+  const m = loadedManifest ?? await loadManifest(ref);
   const plat = verifyPlatformKey();
-  const asset = m.nodes?.[plat] ?? m.node;
+  const asset = nodeAssetForPlatform(m, plat);
   if (!asset)
     throw new Error(`manifest ${m.version} has no node asset for ${plat} (publish via CI first)`);
   const dir = join(cacheRoot(), m.version, "node");
