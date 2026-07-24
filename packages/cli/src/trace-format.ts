@@ -1,4 +1,3 @@
-// Share state and trace decoding across debug, call --trace, and state commands.
 import {
   decodeOutput,
   decodeHashMap,
@@ -46,41 +45,65 @@ export type StateReader = {
   stateRead(slot: number, off: number, len: number): Promise<{ hex: string }>;
 };
 
-export const hexToBytes = (h: string) => {
-  const s = h.startsWith("0x") ? h.slice(2) : h;
-  const a = new Uint8Array(s.length >> 1);
-  for (let i = 0; i < a.length; i++) a[i] = parseInt(s.substr(i * 2, 2), 16);
-  return a;
-};
-export const jstr = (v: any) =>
-  JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
+export const hexToBytes = (input: string) => {
+  const hex = input.startsWith("0x") ? input.slice(2) : input;
+  const bytes = new Uint8Array(hex.length >> 1);
 
-// Compact array formatter: run-length-group consecutive equal values ("0 ×100") and cap the number of shown
-// items unless `full` (--all). Keeps short arrays/structs literal so e.g. Fees [0,0,0] reads normally.
-const RUN_MIN = 6,
-  MAX_ITEMS = 32;
-export function fmtVal(v: any, full = false): string {
-  if (Array.isArray(v)) {
-    const g: { s: string; n: number }[] = [];
-    for (const el of v) {
-      const s = fmtVal(el, full);
-      const last = g[g.length - 1];
-      if (last && last.s === s) last.n++;
-      else g.push({ s, n: 1 });
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+
+  return bytes;
+};
+
+export const jstr = (value: any) =>
+  JSON.stringify(
+    value,
+    (_key, item) => (typeof item === "bigint" ? item.toString() : item),
+  );
+
+const RUN_MIN = 6;
+const MAX_ITEMS = 32;
+
+export function fmtVal(value: any, full = false): string {
+  if (Array.isArray(value)) {
+    const groups: { value: string; count: number }[] = [];
+
+    for (const element of value) {
+      const formatted = fmtVal(element, full);
+      const last = groups[groups.length - 1];
+      if (last && last.value === formatted) {
+        last.count++;
+      } else {
+        groups.push({ value: formatted, count: 1 });
+      }
     }
-    let parts = g.flatMap((x) => (x.n >= RUN_MIN ? [`${x.s} ×${x.n}`] : Array(x.n).fill(x.s)));
-    let more = "";
+
+    let parts = groups.flatMap((group) =>
+      group.count >= RUN_MIN
+        ? [`${group.value} ×${group.count}`]
+        : Array(group.count).fill(group.value),
+    );
+    let suffix = "";
+
     if (!full && parts.length > MAX_ITEMS) {
-      more = `, … +${parts.length - MAX_ITEMS} more (--all)`;
+      suffix = `, … +${parts.length - MAX_ITEMS} more (--all)`;
       parts = parts.slice(0, MAX_ITEMS);
     }
-    return `[${parts.join(", ")}${more}]`;
+
+    return `[${parts.join(", ")}${suffix}]`;
   }
-  if (v && typeof v === "object") return jstr(v);
-  if (typeof v === "string") return JSON.stringify(v);
-  return typeof v === "bigint" ? v.toString() : String(v);
+  if (value && typeof value === "object") {
+    return jstr(value);
+  }
+  if (typeof value === "string") {
+    return JSON.stringify(value);
+  }
+  return typeof value === "bigint" ? value.toString() : String(value);
 }
-export const keyLabel = (k: unknown) => (typeof k === "string" ? k : jstr(k)); // full id/string (copy-pasteable); jstr for numeric keys
+
+export const keyLabel = (key: unknown) =>
+  typeof key === "string" ? key : jstr(key);
 
 function containerOf(type: AbiType): Container | undefined {
   switch (type.kind) {
@@ -108,7 +131,6 @@ function containerOf(type: AbiType): Container | undefined {
   }
 }
 
-// The compiler owns StateData layout; consumers use its exact offsets and sizes.
 export function stateFieldsOf(idl: Pick<ContractIdl, "state">): StateField[] {
   return idl.state.fields.map((field) => ({
     name: field.name,
@@ -120,76 +142,155 @@ export function stateFieldsOf(idl: Pick<ContractIdl, "state">): StateField[] {
   }));
 }
 
-export function labelOff(fields: StateField[], off: number): string {
-  const f = fields.find((x) => off >= x.off && off < x.off + x.size);
-  return f ? f.name + (off > f.off ? "+" + (off - f.off) : "") : "@" + off;
+export function labelOff(fields: StateField[], offset: number): string {
+  const field = fields.find(
+    (candidate) =>
+      offset >= candidate.off && offset < candidate.off + candidate.size,
+  );
+  return field
+    ? field.name + (offset > field.off ? "+" + (offset - field.off) : "")
+    : "@" + offset;
 }
 
-// Format a changed-byte run for the state diff. Integer fields -> decimal (the run is little-endian, e.g. "64" -> 100);
-// everything else (id / m256i / raw bytes) stays hex so it's still copy-pasteable.
-const isIntType = (t: string) => /^(uint|sint)(8|16|32|64)$/.test(t) || t === "bit";
-export function fmtDiffVal(fields: StateField[], off: number, hex: string): string {
-  const f = fields.find((x) => off >= x.off && off < x.off + x.size);
+const isIntType = (type: string) =>
+  /^(uint|sint)(8|16|32|64)$/.test(type) || type === "bit";
+
+export function fmtDiffVal(
+  fields: StateField[],
+  offset: number,
+  hex: string,
+): string {
+  const field = fields.find(
+    (candidate) =>
+      offset >= candidate.off && offset < candidate.off + candidate.size,
+  );
   const type =
-    f?.abi?.kind === AbiTypeKind.SCALAR ? f.abi.scalar : f?.type;
-  if (!f || !type || !isIntType(type) || !/^[0-9a-fA-F]+$/.test(hex)) return hex;
-  let v = 0n;
-  for (let i = 0; i + 1 < hex.length; i += 2)
-    v |= BigInt(parseInt(hex.slice(i, i + 2), 16)) << BigInt((i / 2) * 8);
-  return v.toString();
+    field?.abi?.kind === AbiTypeKind.SCALAR ? field.abi.scalar : field?.type;
+  if (
+    !field ||
+    !type ||
+    !isIntType(type) ||
+    !/^[0-9a-fA-F]+$/.test(hex)
+  ) {
+    return hex;
+  }
+
+  let value = 0n;
+  for (let i = 0; i + 1 < hex.length; i += 2) {
+    value |=
+      BigInt(parseInt(hex.slice(i, i + 2), 16)) << BigInt((i / 2) * 8);
+  }
+
+  return value.toString();
 }
 
-// log _type -> enum name map; log-named enums applied last so they win value collisions with unrelated enums.
 export function enumMap(idl: Pick<ContractIdl, "enums">): Record<string, string> {
-  const m: Record<string, string> = {};
-  for (const en of idl.enums) if (!/log/i.test(en.name)) Object.assign(m, en.members);
-  for (const en of idl.enums) if (/log/i.test(en.name)) Object.assign(m, en.members);
-  return m;
+  const names: Record<string, string> = {};
+
+  for (const item of idl.enums) {
+    if (!/log/i.test(item.name)) {
+      Object.assign(names, item.members);
+    }
+  }
+  // Log enums win collisions with unrelated enum values.
+  for (const item of idl.enums) {
+    if (/log/i.test(item.name)) {
+      Object.assign(names, item.members);
+    }
+  }
+
+  return names;
 }
 
-// decode each container field's CURRENT contents via state-read (capped 256KB), to logical entries.
 export async function decodeColumns(
   rpc: StateReader,
-  idx: number,
+  contractIndex: number,
   fields: StateField[],
   full = false,
 ): Promise<ColView[]> {
-  const out: ColView[] = [];
-  for (const f of fields) {
-    if (!f.container) continue;
+  const columns: ColView[] = [];
+
+  for (const field of fields) {
+    if (!field.container) {
+      continue;
+    }
+
     try {
-      const sr = await rpc.stateRead(idx, f.off, Math.min(f.size, 262144));
-      const buf = hexToBytes(sr.hex);
-      const c = f.container;
-      const ents =
-        c.kind === "hashmap"
-          ? (await decodeHashMap(buf, c.key, c.value, c.capacity)).map(
-              (x) => `${keyLabel(x.key)} = ${fmtVal(x.value, full)}`,
-            )
-          : c.kind === "collection"
-            ? (await decodeCollection(buf, c.value, c.capacity)).map(
-                (x) => `${keyLabel(x.pov)}: ${fmtVal(x.value, full)} (p${x.priority})`,
+      const state = await rpc.stateRead(
+        contractIndex,
+        field.off,
+        Math.min(field.size, 262144),
+      );
+      const bytes = hexToBytes(state.hex);
+      const container = field.container;
+      const entries =
+        container.kind === "hashmap"
+          ? (
+              await decodeHashMap(
+                bytes,
+                container.key,
+                container.value,
+                container.capacity,
               )
-            : (await decodeHashSet(buf, c.key, c.capacity)).map((x) =>
-                keyLabel(x.key),
+            ).map(
+              (entry) =>
+                `${keyLabel(entry.key)} = ${fmtVal(entry.value, full)}`,
+            )
+          : container.kind === "collection"
+            ? (
+                await decodeCollection(
+                  bytes,
+                  container.value,
+                  container.capacity,
+                )
+              ).map(
+                (entry) =>
+                  `${keyLabel(entry.pov)}: ${fmtVal(entry.value, full)} (p${
+                    entry.priority
+                  })`,
+              )
+            : (
+                await decodeHashSet(bytes, container.key, container.capacity)
+              ).map((entry) =>
+                keyLabel(entry.key),
               );
-      const cap = full ? Infinity : 10;
-      out.push({
-        name: f.name,
+
+      const limit = full ? Infinity : 10;
+      columns.push({
+        name: field.name,
         entries:
-          ents.length > cap
-            ? ents.slice(0, cap).concat(`… +${ents.length - cap} more (--all)`)
-            : ents,
+          entries.length > limit
+            ? entries
+                .slice(0, limit)
+                .concat(`… +${entries.length - limit} more (--all)`)
+            : entries,
       });
-    } catch {}
+    } catch {
+      // An unreadable container should not hide the rest of the state.
+    }
   }
-  return out;
+
+  return columns;
 }
 
-export const sevColor = (s: string) =>
-  s === "ERROR" ? "red" : s === "WARN" ? "yellow" : s === "INFO" ? "green" : undefined;
-export const fmtLog = (l: DecodedLog) =>
-  `${l.severity} ${l.name ? l.name + (l.typeName ? "·" + l.typeName : "") + " " + jstr(l.fields) : l.size + "B " + l.hex.slice(0, 34) + "…"}`;
+export const sevColor = (severity: string) =>
+  severity === "ERROR"
+    ? "red"
+    : severity === "WARN"
+      ? "yellow"
+      : severity === "INFO"
+        ? "green"
+        : undefined;
+
+export const fmtLog = (log: DecodedLog) => {
+  const detail = log.name
+    ? log.name +
+      (log.typeName ? "·" + log.typeName : "") +
+      " " +
+      jstr(log.fields)
+    : `${log.size}B ${log.hex.slice(0, 34)}…`;
+  return `${log.severity} ${detail}`;
+};
 
 export interface TraceView {
   inDecoded: string;
@@ -200,112 +301,158 @@ export interface TraceView {
   logs: DecodedLog[];
 }
 
-// Decode one debug-trace entry: input/output, caller identity, StateData field map (for the diff), container
-// contents, and the contract LOG_* records. `source` = the contract .h (from the dyn-registry); none -> hex.
 export async function describeTrace(
-  e: DebugEntry,
+  entry: DebugEntry,
   source: string | undefined,
   name: string,
   rpc: StateReader,
   qpiHeader?: string,
 ): Promise<TraceView> {
-  let inS = e.inHex ? "0x" + e.inHex : "(none)";
-  let outS = e.outHex ? "0x" + e.outHex : "(none)";
+  let input = entry.inHex ? "0x" + entry.inHex : "(none)";
+  let output = entry.outHex ? "0x" + entry.outHex : "(none)";
   let caller = "(none)";
-  if (e.kind === 1 && !/^0+$/.test(e.invocator)) {
+
+  if (entry.kind === 1 && !/^0+$/.test(entry.invocator)) {
     try {
-      caller = await bytesToIdentity(hexToBytes(e.invocator));
+      caller = await bytesToIdentity(hexToBytes(entry.invocator));
     } catch {
-      caller = "0x" + e.invocator.slice(0, 16) + "…";
+      caller = "0x" + entry.invocator.slice(0, 16) + "…";
     }
   }
+
   let fields: StateField[] = [];
   let cols: ColView[] = [];
   let logs: DecodedLog[] = [];
+
   if (source) {
     try {
       const idl = extractIdl(source, name, {
-        slot: e.index,
+        slot: entry.index,
         qpiHeader,
       });
-      const entries = e.kind === 0 ? idl.functions : idl.procedures;
-      const entry = entries.find((candidate) => candidate.inputType === e.entry);
-      if (entry && e.inHex) {
-        inS = jstr(await decodeOutput(hexToBytes(e.inHex), entry.input));
+      const registered = entry.kind === 0 ? idl.functions : idl.procedures;
+      const metadata = registered.find(
+        (candidate) => candidate.inputType === entry.entry,
+      );
+
+      if (metadata && entry.inHex) {
+        input = jstr(
+          await decodeOutput(hexToBytes(entry.inHex), metadata.input),
+        );
       }
-      if (entry && e.outHex) {
-        outS = jstr(await decodeOutput(hexToBytes(e.outHex), entry.output));
+      if (metadata && entry.outHex) {
+        output = jstr(
+          await decodeOutput(hexToBytes(entry.outHex), metadata.output),
+        );
       }
+
       fields = stateFieldsOf(idl);
-      cols = await decodeColumns(rpc, e.index, fields);
-      const em = enumMap(idl);
-      if (e.logs?.length) {
+      cols = await decodeColumns(rpc, entry.index, fields);
+      const enumNames = enumMap(idl);
+
+      if (entry.logs?.length) {
         logs = await Promise.all(
-          e.logs.map((log) =>
-            decodeLog(log.type, log.size, log.hex, idl.logs, em),
+          entry.logs.map((log) =>
+            decodeLog(log.type, log.size, log.hex, idl.logs, enumNames),
           ),
         );
       }
-    } catch {}
+    } catch {
+      // Raw trace bytes remain available when source decoding fails.
+    }
   }
-  return { inDecoded: inS, outDecoded: outS, caller, fields, cols, logs };
+
+  return {
+    inDecoded: input,
+    outDecoded: output,
+    caller,
+    fields,
+    cols,
+    logs,
+  };
 }
 
-// Decode a contract's FULL current state: scalar fields (decoded to values) + containers (logical entries).
 export interface StateDump {
   fields: { name: string; value: string }[];
   cols: ColView[];
 }
 export async function readState(
   rpc: StateReader,
-  idx: number,
+  contractIndex: number,
   source: string,
   name: string,
   full = false,
   qpiHeader?: string,
 ): Promise<StateDump> {
   const idl = extractIdl(source, name, {
-    slot: idx,
+    slot: contractIndex,
     qpiHeader,
   });
   const fields = stateFieldsOf(idl);
   const scalars: { name: string; value: string }[] = [];
-  for (const f of fields) {
-    if (f.bad) {
-      scalars.push({ name: f.name, value: `(undecodable: ${f.type} — fields below not shown)` });
+
+  for (const field of fields) {
+    if (field.bad) {
+      scalars.push({
+        name: field.name,
+        value: `(undecodable: ${field.type} — fields below not shown)`,
+      });
       continue;
     }
-    if (f.container) continue; // containers shown via decodeColumns below
-    const CAP = 262144; // the node's state-read window
+    if (field.container) {
+      continue;
+    }
+
+    const MAX_READ = 262144;
     try {
-      // a plain Array<T,N> field larger than the read window: decode only the elements that fit + "first K of N".
-      if (f.abi?.kind === AbiTypeKind.ARRAY && f.size > CAP) {
-        const n = f.abi.count;
-        const element = f.abi.element;
+      if (field.abi?.kind === AbiTypeKind.ARRAY && field.size > MAX_READ) {
+        const total = field.abi.count;
+        const element = field.abi.element;
         const stride = Math.max(1, roundUp(element.size, element.align));
-        const buf = hexToBytes((await rpc.stateRead(idx, f.off, CAP)).hex);
-        const k = Math.min(n, Math.floor(buf.length / stride));
+        const bytes = hexToBytes(
+          (await rpc.stateRead(contractIndex, field.off, MAX_READ)).hex,
+        );
+        const count = Math.min(total, Math.floor(bytes.length / stride));
         const partial = {
-          ...f.abi,
-          count: k,
-          size: k * stride,
-          format: `[${k};${element.format}]`,
+          ...field.abi,
+          count,
+          size: count * stride,
+          format: `[${count};${element.format}]`,
         };
-        const dv = await decodeOutput(buf, partial);
-        scalars.push({ name: f.name, value: `${fmtVal(dv, full)}  (first ${k} of ${n})` });
+        const decoded = await decodeOutput(bytes, partial);
+        scalars.push({
+          name: field.name,
+          value: `${fmtVal(decoded, full)}  (first ${count} of ${total})`,
+        });
         continue;
       }
-      const dv = await decodeOutput(
-        hexToBytes((await rpc.stateRead(idx, f.off, Math.min(f.size, CAP))).hex),
-        f.abi ?? f.type,
+
+      const decoded = await decodeOutput(
+        hexToBytes(
+          (
+            await rpc.stateRead(
+              contractIndex,
+              field.off,
+              Math.min(field.size, MAX_READ),
+            )
+          ).hex,
+        ),
+        field.abi ?? field.type,
       );
       scalars.push({
-        name: f.name,
-        value: typeof dv === "object" && dv !== null ? fmtVal(dv, full) : String(dv),
-      }); // bare scalar unquoted; struct/array run-length-grouped
+        name: field.name,
+        value:
+          typeof decoded === "object" && decoded !== null
+            ? fmtVal(decoded, full)
+            : String(decoded),
+      });
     } catch {
-      scalars.push({ name: f.name, value: "(read failed)" });
+      scalars.push({ name: field.name, value: "(read failed)" });
     }
   }
-  return { fields: scalars, cols: await decodeColumns(rpc, idx, fields, full) };
+
+  return {
+    fields: scalars,
+    cols: await decodeColumns(rpc, contractIndex, fields, full),
+  };
 }

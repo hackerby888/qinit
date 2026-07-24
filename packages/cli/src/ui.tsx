@@ -1,5 +1,3 @@
-// Shared terminal-UI kit (no external deps — bundles clean into the `bun --compile` binary).
-// UI primitives include gradient wordmark, banner/header, panels, status lines, key-value, and badges.
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { output } from "./args";
@@ -16,8 +14,6 @@ export type Theme = {
   mute: string;
 };
 
-// Color variants. ok/err/warn stay semantic (green/red/amber); brand/accent/info/gradient carry the "look".
-// Pick with `qinit theme`; the choice persists and every command's UI follows it.
 export const THEMES: Record<string, Theme> = {
   default: {
     gradFrom: "#7c5cff",
@@ -88,30 +84,35 @@ export const THEMES: Record<string, Theme> = {
 };
 export const THEME_NAMES = Object.keys(THEMES);
 
-// Mutable so a saved choice applied at startup (applyTheme) is seen by every component that reads `theme.*`.
+// Components share this object, so applying a theme must mutate it in place.
 export const theme: Theme = { ...THEMES.default };
+
 export function applyTheme(name?: string): string {
   const key = name && THEMES[name] ? name : "default";
   Object.assign(theme, THEMES[key]);
   return key;
 }
 
-// ---- color helpers ---------------------------------------------------------
-function hx(c: string): [number, number, number] {
-  const h = c.replace("#", "");
-  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
-}
-function lerp(a: string, b: string, t: number): string {
-  const x = hx(a),
-    y = hx(b);
-  const m = (i: number) =>
-    Math.round(x[i] + (y[i] - x[i]) * t)
-      .toString(16)
-      .padStart(2, "0");
-  return `#${m(0)}${m(1)}${m(2)}`;
+function hexChannels(color: string): [number, number, number] {
+  const hex = color.replace("#", "");
+  return [
+    parseInt(hex.slice(0, 2), 16),
+    parseInt(hex.slice(2, 4), 16),
+    parseInt(hex.slice(4, 6), 16),
+  ];
 }
 
-// Per-character gradient text.
+function lerp(from: string, to: string, position: number): string {
+  const start = hexChannels(from);
+  const end = hexChannels(to);
+  const channel = (index: number) =>
+    Math.round(start[index] + (end[index] - start[index]) * position)
+      .toString(16)
+      .padStart(2, "0");
+
+  return `#${channel(0)}${channel(1)}${channel(2)}`;
+}
+
 export function Grad({
   text,
   from = theme.gradFrom,
@@ -123,21 +124,25 @@ export function Grad({
   to?: string;
   bold?: boolean;
 }) {
-  if (output.plain) return <Text bold={bold}>{text}</Text>;
-  const n = text.length;
+  if (output.plain) {
+    return <Text bold={bold}>{text}</Text>;
+  }
+
+  const length = text.length;
   return (
     <Text bold={bold}>
-      {[...text].map((ch, i) => (
-        <Text key={i} color={lerp(from, to, n < 2 ? 0 : i / (n - 1))}>
-          {ch}
+      {[...text].map((character, index) => (
+        <Text
+          key={index}
+          color={lerp(from, to, length < 2 ? 0 : index / (length - 1))}
+        >
+          {character}
         </Text>
       ))}
     </Text>
   );
 }
 
-// WHITE text on a per-char gradient background — the standard highlight (table header, selected picker row).
-// Global rule: text on a gradient background is always white.
 export function GradLine({
   text,
   from = theme.gradFrom,
@@ -149,53 +154,69 @@ export function GradLine({
   to?: string;
   bold?: boolean;
 }) {
-  if (output.plain) return <Text bold={bold}>{text}</Text>;
-  const n = text.length;
+  if (output.plain) {
+    return <Text bold={bold}>{text}</Text>;
+  }
+
+  const length = text.length;
   return (
     <Text bold={bold}>
-      {[...text].map((ch, i) => (
-        <Text key={i} backgroundColor={lerp(from, to, n < 2 ? 0 : i / (n - 1))} color="#ffffff">
-          {ch}
+      {[...text].map((character, index) => (
+        <Text
+          key={index}
+          backgroundColor={lerp(from, to, length < 2 ? 0 : index / (length - 1))}
+          color="#ffffff"
+        >
+          {character}
         </Text>
       ))}
     </Text>
   );
 }
 
-// Gradient horizontal rule.
 export function Rule({ width = 50 }: { width?: number }) {
   return <Grad text={"─".repeat(width)} bold={false} />;
 }
 
-// ---- spinner ---------------------------------------------------------------
 const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
 export function useFrame(interval = 80): number {
-  const [f, setF] = useState(0);
+  const [frame, setFrame] = useState(0);
+
   useEffect(() => {
-    if (output.plain) return; // plain/piped/CI: don't animate (avoids spinner frame-churn in logs)
-    const id = setInterval(() => setF((x) => x + 1), interval);
-    return () => clearInterval(id);
+    if (output.plain) {
+      return;
+    }
+
+    const timer = setInterval(() => setFrame((current) => current + 1), interval);
+    return () => clearInterval(timer);
   }, [interval]);
-  return f;
+
+  return frame;
 }
+
 export function Spinner({ label, color = theme.info }: { label: string; color?: string }) {
-  const f = useFrame();
+  const frame = useFrame();
   return (
     <Text>
-      <Text color={color}>{FRAMES[f % FRAMES.length]}</Text> {label}
+      <Text color={color}>{FRAMES[frame % FRAMES.length]}</Text> {label}
       <Text dimColor>…</Text>
     </Text>
   );
 }
 
-// ---- chips / badges --------------------------------------------------------
 export function Badge({ text, color = theme.brand }: { text: string; color?: string }) {
-  if (output.plain) return <Text bold>{`[${text}]`}</Text>;
-  return <Text backgroundColor={color} color="#000000" bold>{` ${text} `}</Text>;
+  if (output.plain) {
+    return <Text bold>{`[${text}]`}</Text>;
+  }
+
+  return (
+    <Text backgroundColor={color} color="#000000" bold>
+      {` ${text} `}
+    </Text>
+  );
 }
 
-// ---- header / banner -------------------------------------------------------
-// Compact per-command header:  qinit ▸ deploy
 export function Header({ cmd }: { cmd: string }) {
   return (
     <Box marginBottom={1}>
@@ -210,7 +231,6 @@ export function Header({ cmd }: { cmd: string }) {
   );
 }
 
-// Full banner for help/version.
 export function Banner({ version, tagline }: { version: string; tagline: string }) {
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -227,7 +247,6 @@ export function Banner({ version, tagline }: { version: string; tagline: string 
   );
 }
 
-// ---- panel -----------------------------------------------------------------
 export function Panel({
   title,
   color = theme.info,
@@ -257,8 +276,6 @@ export function Panel({
   );
 }
 
-// ---- status line -----------------------------------------------------------
-// ok: true=✓green  false=✗red  null/undefined=•cyan (neutral)
 export function Status({
   ok,
   label,
@@ -271,26 +288,30 @@ export function Status({
   pad?: number;
 }) {
   const glyph = ok === true ? "✓" : ok === false ? "✗" : "•";
-  const col = ok === true ? theme.ok : ok === false ? theme.err : theme.info;
+  const color = ok === true ? theme.ok : ok === false ? theme.err : theme.info;
+
   return (
     <Text>
-      <Text color={col}>{glyph}</Text> <Text bold>{label.padEnd(pad)}</Text>
-      {detail ? <Text dimColor>{truncMid(detail, Math.max(12, termCols() - pad - 8))}</Text> : null}
+      <Text color={color}>{glyph}</Text> <Text bold>{label.padEnd(pad)}</Text>
+      {detail ? (
+        <Text dimColor>{truncMid(detail, Math.max(12, termCols() - pad - 8))}</Text>
+      ) : null}
     </Text>
   );
 }
 
-// ---- key/value table -------------------------------------------------------
-// full=true → never truncate values (for copy-pasteable ids / txids / hashes).
 export function KV({ rows, full }: { rows: [string, string][]; full?: boolean }) {
-  const w = Math.max(0, ...rows.map(([k]) => k.length));
+  const labelWidth = Math.max(0, ...rows.map(([label]) => label.length));
+
   return (
     <Box flexDirection="column">
-      {rows.map(([k, v], i) => (
-        <Text key={i}>
-          <Text color={theme.info}>{k.padEnd(w)}</Text>{" "}
+      {rows.map(([label, value], index) => (
+        <Text key={index}>
+          <Text color={theme.info}>{label.padEnd(labelWidth)}</Text>{" "}
           <Text wrap={full ? "wrap" : undefined}>
-            {full ? v : truncMid(v, Math.max(12, termCols() - w - 8))}
+            {full
+              ? value
+              : truncMid(value, Math.max(12, termCols() - labelWidth - 8))}
           </Text>
         </Text>
       ))}
@@ -298,8 +319,8 @@ export function KV({ rows, full }: { rows: [string, string][]; full?: boolean })
   );
 }
 
-// ---- step list (deploy phases) ---------------------------------------------
 export type StepState = "pending" | "active" | "ok" | "fail";
+
 export function Step({
   state,
   label,
@@ -309,18 +330,19 @@ export function Step({
   label: string;
   detail?: string;
 }) {
-  const f = useFrame();
+  const frame = useFrame();
   const glyph =
     state === "ok" ? (
       <Text color={theme.ok}>✓</Text>
     ) : state === "fail" ? (
       <Text color={theme.err}>✗</Text>
     ) : state === "active" ? (
-      <Text color={theme.info}>{FRAMES[f % FRAMES.length]}</Text>
+      <Text color={theme.info}>{FRAMES[frame % FRAMES.length]}</Text>
     ) : (
       <Text dimColor>◌</Text>
     );
   const labelColor = state === "pending" ? theme.mute : undefined;
+
   return (
     <Text>
       {glyph}{" "}
@@ -332,54 +354,66 @@ export function Step({
   );
 }
 
-// ---- progress bar + timings ------------------------------------------------
-// Gradient progress bar with gradient bracket caps — fill runs theme.gradFrom -> theme.gradTo.
 export function Bar({ pct, width = 22 }: { pct: number; width?: number }) {
-  const p = Math.max(0, Math.min(1, pct || 0));
-  const fill = Math.round(p * width);
-  if (output.plain)
+  const progress = Math.max(0, Math.min(1, pct || 0));
+  const fill = Math.round(progress * width);
+
+  if (output.plain) {
     return (
       <Text>
-        {"█".repeat(fill)}
-        {"░".repeat(Math.max(0, width - fill))} {Math.round(p * 100)}%
+        {"█".repeat(fill)}{"░".repeat(Math.max(0, width - fill))}{" "}
+        {Math.round(progress * 100)}%
       </Text>
     );
-  const cells = Array.from({ length: width }, (_, i) =>
-    i < fill ? (
-      <Text key={i} color={lerp(theme.gradFrom, theme.gradTo, width < 2 ? 0 : i / (width - 1))}>
+  }
+
+  const cells = Array.from({ length: width }, (_, index) =>
+    index < fill ? (
+      <Text
+        key={index}
+        color={lerp(
+          theme.gradFrom,
+          theme.gradTo,
+          width < 2 ? 0 : index / (width - 1),
+        )}
+      >
         █
       </Text>
     ) : (
-      <Text key={i} dimColor>
+      <Text key={index} dimColor>
         ░
       </Text>
     ),
   );
+
   return (
     <Text>
       <Text color={theme.gradFrom}>▕</Text>
       {cells}
-      <Text color={theme.gradTo}>▏</Text> <Text dimColor>{Math.round(p * 100)}%</Text>
+      <Text color={theme.gradTo}>▏</Text>{" "}
+      <Text dimColor>{Math.round(progress * 100)}%</Text>
     </Text>
   );
 }
+
 export const fmtMs = (ms?: number) =>
   ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 
-// Keep one line inside the terminal so it never wraps past a panel border.
-// truncEnd keeps the head (errors/labels); truncMid keeps head+tail (paths/digests).
 export const termCols = () => Math.max(40, process.stdout.columns || 80);
 export const truncEnd = (s: string, max: number) =>
   s.length <= max ? s : s.slice(0, Math.max(1, max - 1)) + "…";
+
 export const truncMid = (s: string, max: number) => {
-  if (s.length <= max) return s;
-  const keep = Math.max(2, max - 1),
-    head = Math.ceil(keep / 2),
-    tail = keep - head;
+  if (s.length <= max) {
+    return s;
+  }
+
+  const keep = Math.max(2, max - 1);
+  const head = Math.ceil(keep / 2);
+  const tail = keep - head;
   return s.slice(0, head) + "…" + s.slice(s.length - tail);
 };
 
-// Rich pipeline row: glyph + fixed-width label + live detail OR progress bar + elapsed.
 export function StepRow({
   state,
   label,
@@ -393,17 +427,18 @@ export function StepRow({
   pct?: number;
   elapsedMs?: number;
 }) {
-  const f = useFrame();
+  const frame = useFrame();
   const glyph =
     state === "ok" ? (
       <Text color={theme.ok}>✓</Text>
     ) : state === "fail" ? (
       <Text color={theme.err}>✗</Text>
     ) : state === "active" ? (
-      <Text color={theme.info}>{FRAMES[f % FRAMES.length]}</Text>
+      <Text color={theme.info}>{FRAMES[frame % FRAMES.length]}</Text>
     ) : (
       <Text dimColor>◌</Text>
     );
+
   return (
     <Text>
       {glyph}{" "}
@@ -415,13 +450,13 @@ export function StepRow({
       ) : detail ? (
         <Text dimColor>{truncEnd(detail, Math.max(12, termCols() - 24))}</Text>
       ) : null}
-      {state === "ok" && elapsedMs ? <Text dimColor>{`  ${fmtMs(elapsedMs)}`}</Text> : null}
+      {state === "ok" && elapsedMs ? (
+        <Text dimColor>{`  ${fmtMs(elapsedMs)}`}</Text>
+      ) : null}
     </Text>
   );
 }
 
-// ---- table -----------------------------------------------------------------
-// Auto-width columns from content (capped to the terminal); per-column align/color/dim/max; truncMid cells.
 export interface Column {
   header: string;
   align?: "left" | "right";
@@ -441,56 +476,89 @@ export function Table({
   rowColor?: (i: number) => string | undefined;
 }) {
   const gap = 2;
-  const widths = columns.map((c, i) => {
-    const w = Math.max(c.header.length, 0, ...rows.map((r) => (r[i] ?? "").length));
-    return c.max ? Math.min(w, c.max) : w;
+  const widths = columns.map((column, index) => {
+    const width = Math.max(
+      column.header.length,
+      0,
+      ...rows.map((row) => (row[index] ?? "").length),
+    );
+    return column.max ? Math.min(width, column.max) : width;
   });
-  // shrink the widest columns until the row fits the terminal
-  let over = widths.reduce((a, b) => a + b, 0) + gap * Math.max(0, columns.length - 1) - termCols();
+
+  let over =
+    widths.reduce((sum, width) => sum + width, 0) +
+    gap * Math.max(0, columns.length - 1) -
+    termCols();
+
   while (over > 0) {
-    let mi = 0;
-    for (let i = 1; i < widths.length; i++) if (widths[i] > widths[mi]) mi = i;
-    if (widths[mi] <= 6) break;
-    widths[mi]--;
+    let widest = 0;
+    for (let i = 1; i < widths.length; i++) {
+      if (widths[i] > widths[widest]) {
+        widest = i;
+      }
+    }
+    if (widths[widest] <= 6) {
+      break;
+    }
+
+    widths[widest]--;
     over--;
   }
-  const cell = (s: string, i: number) => {
-    const v = truncMid(s ?? "", widths[i]);
-    return columns[i].align === "right" ? v.padStart(widths[i]) : v.padEnd(widths[i]);
+
+  const cell = (value: string, index: number) => {
+    const truncated = truncMid(value ?? "", widths[index]);
+    return columns[index].align === "right"
+      ? truncated.padStart(widths[index])
+      : truncated.padEnd(widths[index]);
   };
-  const sp = " ".repeat(gap);
+
+  const spacing = " ".repeat(gap);
   const rowText = (cells: string[]) =>
-    columns.map((c, i) => cell(cells[i] ?? "", i) + (i < columns.length - 1 ? sp : "")).join("");
-  // header: one continuous gradient-background band (white bold text) across the full table width.
+    columns
+      .map(
+        (_, index) =>
+          cell(cells[index] ?? "", index) +
+          (index < columns.length - 1 ? spacing : ""),
+      )
+      .join("");
+
   const Header = () => (
     <Box>
-      <GradLine text={rowText(columns.map((c) => c.header))} />
+      <GradLine text={rowText(columns.map((column) => column.header))} />
     </Box>
   );
-  const Row = ({ r, ri }: { r: string[]; ri: number }) => {
-    if (ri === selected)
+
+  const Row = ({ row, index }: { row: string[]; index: number }) => {
+    if (index === selected) {
       return (
         <Box>
-          <GradLine text={rowText(r)} />
+          <GradLine text={rowText(row)} />
         </Box>
-      ); // selected -> gradient bg, white text
-    const rc = rowColor?.(ri);
+      );
+    }
+
+    const color = rowColor?.(index);
     return (
       <Box>
-        {columns.map((c, i) => (
-          <Text key={i} dimColor={c.dim && !rc} color={rc ?? c.color}>
-            {cell(r[i] ?? "", i)}
-            {i < columns.length - 1 ? sp : ""}
+        {columns.map((column, columnIndex) => (
+          <Text
+            key={columnIndex}
+            dimColor={column.dim && !color}
+            color={color ?? column.color}
+          >
+            {cell(row[columnIndex] ?? "", columnIndex)}
+            {columnIndex < columns.length - 1 ? spacing : ""}
           </Text>
         ))}
       </Box>
     );
   };
+
   return (
     <Box flexDirection="column">
       <Header />
-      {rows.map((r, ri) => (
-        <Row key={ri} r={r} ri={ri} />
+      {rows.map((row, index) => (
+        <Row key={index} row={row} index={index} />
       ))}
     </Box>
   );

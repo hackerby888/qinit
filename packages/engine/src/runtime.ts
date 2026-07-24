@@ -1,6 +1,8 @@
-// Layer 1 Wasm host runtime mirroring core-lite's engine and host services.
-// Runs in browser and Bun environments.
-import { ASSET_ENUMERATION_RECORD, LHOST_ABI, SYSTEM_PROCEDURES } from "@qinit/core";
+import {
+  ASSET_ENUMERATION_RECORD,
+  LHOST_ABI,
+  SYSTEM_PROCEDURES,
+} from "@qinit/core";
 import { k12Bytes, toHex } from "./k12";
 import { bytesEqual } from "./bytes";
 import { TRACE_STATE_CAP, type TraceRecorder } from "./trace";
@@ -10,9 +12,8 @@ import { validateContractIndexSignature } from "./wasm-contract-index";
 
 const EMPTY = new Uint8Array(0);
 
-// Only the known assert helper is a safe no-op for unresolved env imports.
-// Calling any other unresolved import throws.
 const ENV_NOOP = new Set(["addDebugMessageAssert"]);
+
 export function envImportStub(name: string): Function {
   if (typeof name !== "string" || ENV_NOOP.has(name)) {
     return () => 0;
@@ -26,18 +27,15 @@ export function envImportStub(name: string): Function {
 
 export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2, MIGRATE: 3 } as const;
 
-// System-procedure ids — Wasm::SystemProcedureId order (core-lite: shared/abi_types.h).
 export const SP = SYSTEM_PROCEDURES;
 
-// IO carve inside the contract's io_base region: [in 64K | out 64K | locals 32K | arena].
-// MUST match the runtime storage sizes in core-lite runtime/contract_slots.h.
-const IN_SZ = 64 * 1024,
-  OUT_SZ = 64 * 1024,
-  LOCALS_SZ = 32 * 1024;
+// Must match the I/O layout in contract_slots.h.
+const IN_SZ = 64 * 1024;
+const OUT_SZ = 64 * 1024;
+const LOCALS_SZ = 32 * 1024;
 
-// Deterministic execution costs used by Layer 2 to debit contract fee reserves.
-const BASE_CALL_COST = 10n; // fixed cost charged on every metered contract entry
-const DIGEST_BYTE_COST = 1n; // per StateData byte, charged once when a call mutates state (digest recompute)
+const BASE_CALL_COST = 10n;
+const DIGEST_BYTE_COST = 1n;
 const HOST_WEIGHT: Record<string, bigint> = {
   k12: 5n,
   getEntity: 1n,
@@ -74,8 +72,6 @@ const HOST_WEIGHT: Record<string, bigint> = {
   liteSetShareholderVotes: 20n,
 };
 
-// Decompose a unix-ms timestamp into the qpi date/time fields (UTC). `year` is the qubic 2-digit form
-// (year - 2000), matching the node's year() accessor + the Tick struct's uint8 year.
 export function dateFields(ms: number): {
   year: number;
   month: number;
@@ -85,34 +81,33 @@ export function dateFields(ms: number): {
   second: number;
   milli: number;
 } {
-  const d = new Date(ms);
+  const date = new Date(ms);
+
   return {
-    year: (d.getUTCFullYear() - 2000) & 0xff,
-    month: d.getUTCMonth() + 1,
-    day: d.getUTCDate(),
-    hour: d.getUTCHours(),
-    minute: d.getUTCMinutes(),
-    second: d.getUTCSeconds(),
-    milli: d.getUTCMilliseconds(),
+    year: (date.getUTCFullYear() - 2000) & 0xff,
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+    hour: date.getUTCHours(),
+    minute: date.getUTCMinutes(),
+    second: date.getUTCSeconds(),
+    milli: date.getUTCMilliseconds(),
   };
 }
 
-// Pack the chain clock into QPI's 8-byte DateAndTime; microseconds remain zero.
 export function packDateAndTime(ms: number): bigint {
-  const t = dateFields(ms);
+  const fields = dateFields(ms);
+
   return (
-    (BigInt(t.year + 2000) << 46n) |
-    (BigInt(t.month) << 42n) |
-    (BigInt(t.day) << 37n) |
-    (BigInt(t.hour) << 32n) |
-    (BigInt(t.minute) << 26n) |
-    (BigInt(t.second) << 20n) |
-    (BigInt(t.milli) << 10n)
+    (BigInt(fields.year + 2000) << 46n) |
+    (BigInt(fields.month) << 42n) |
+    (BigInt(fields.day) << 37n) |
+    (BigInt(fields.hour) << 32n) |
+    (BigInt(fields.minute) << 26n) |
+    (BigInt(fields.second) << 20n) |
+    (BigInt(fields.milli) << 10n)
   );
 }
 
-// Spectrum entity record — mirrors QPI::Entity (qpi.h:1615): publicKey + incoming/outgoing amounts, transfer
-// counts, latest transfer ticks. balance = incomingAmount - outgoingAmount.
 export interface Entity {
   incomingAmount: bigint;
   outgoingAmount: bigint;
@@ -122,7 +117,6 @@ export interface Entity {
   latestOutgoingTransferTick: number;
 }
 
-// The chain-sim (Layer 2) injects these; Layer 1 stays pure mechanics.
 export interface HostServices {
   tick(): number;
   epoch(): number;
@@ -273,11 +267,9 @@ export interface HostServices {
   ): number;
 }
 
-// Per-call context written into the contract's 256-byte QpiContext header (qpi.h QpiContext layout). The
-// contract reads these as struct fields (qpi.invocator()/originator()/invocationReward()/...), NOT host imports.
 export interface CallCtx {
-  invocator?: Uint8Array; // 32-byte id
-  originator?: Uint8Array; // 32-byte id
+  invocator?: Uint8Array;
+  originator?: Uint8Array;
   invocationReward?: bigint;
   entryPoint?: number;
 }
@@ -308,23 +300,26 @@ export class Contract {
   arenaTop = 0;
   arenaEnd = 0;
   sysMask = 0;
-  metering = false; // Layer 2 sets this when fee accounting is on; gates the cost meter (off => zero overhead)
-  private dispatchDepth = 0; // >0 while a dispatch is on the stack — a nested invoke must not reuse io regions
-  cost = 0n; // host-weight accumulator for the in-flight dispatch frame (reset/restored per invoke)
-  lastCost = 0n; // total cost of the most recently completed invoke frame — Layer 2 debits this
-  private inSizes = new Map<string, number>(); // user entries: "kind:it" -> inSize
-  private outSizes = new Map<string, number>(); // user entries: "kind:it" -> outSize
-  private sysInSizes = new Map<number, number>(); // sysproc id -> inSize
-  private sysOutSizes = new Map<number, number>(); // sysproc id -> outSize
-  entries: { it: number; kind: number; inSize: number; outSize: number }[] = []; // registered fns/procs
-  trace?: TraceRecorder; // set by the Sim when debug tracing is on
-  hasMigrate = false; // contract exports __migrate (a redeploy with matching old-state size runs it)
+  metering = false;
+  private dispatchDepth = 0;
+  cost = 0n;
+  lastCost = 0n;
+  private inSizes = new Map<string, number>();
+  private outSizes = new Map<string, number>();
+  private sysInSizes = new Map<number, number>();
+  private sysOutSizes = new Map<number, number>();
+  entries: {
+    it: number;
+    kind: number;
+    inSize: number;
+    outSize: number;
+  }[] = [];
+  trace?: TraceRecorder;
+  hasMigrate = false;
   migrateOldStateSize = 0;
   migrateLocalsSize = 0;
-  everInitialized = false; // INITIALIZE has run once -> redeploy preserves/migrates state, never re-inits
+  everInitialized = false;
 
-  // Shared-memory mode (gtest): the module was linked with --import-memory and lives inside the provided
-  // memory (the corpus runner's), so the runner's contractStates[i] pointer IS the live state — no copies.
   private extMem?: WebAssembly.Memory;
   private extraImports?: WebAssembly.Imports;
 
@@ -335,37 +330,52 @@ export class Contract {
   private constructor(
     public slot: number,
     public host: HostServices,
-    mod: WebAssembly.Module,
-    extMem?: WebAssembly.Memory,
+    wasmModule: WebAssembly.Module,
+    externalMemory?: WebAssembly.Memory,
     extraImports?: WebAssembly.Imports,
   ) {
-    this.extMem = extMem;
+    this.extMem = externalMemory;
     this.extraImports = extraImports;
-    if (extMem) {
-      // The import's declared minimum covers the module's relocated data end (--global-base + footprint);
-      // grow the provider up to it before instantiating.
-      for (const imp of WebAssembly.Module.imports(mod)) {
-        if (imp.module === "env" && imp.kind === "memory") {
-          const min = (((imp as any).type?.minimum ?? 0) as number) >>> 0;
-          const cur = Math.ceil(extMem.buffer.byteLength / 65536);
-          if (cur < min) extMem.grow(min - cur);
+
+    if (externalMemory) {
+      for (const imported of WebAssembly.Module.imports(wasmModule)) {
+        if (imported.module === "env" && imported.kind === "memory") {
+          const minimumPages =
+            (((imported as any).type?.minimum ?? 0) as number) >>> 0;
+          const currentPages = Math.ceil(
+            externalMemory.buffer.byteLength / 65536,
+          );
+
+          if (currentPages < minimumPages) {
+            externalMemory.grow(minimumPages - currentPages);
+          }
         }
       }
     }
-    this.inst = new WebAssembly.Instance(mod, this.imports(mod));
+
+    this.inst = new WebAssembly.Instance(
+      wasmModule,
+      this.imports(wasmModule),
+    );
     this.ex = this.inst.exports;
+
     let compiledSlot: number;
+
     try {
       compiledSlot = this.ex.contract_index() >>> 0;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`contract_index() failed for target ${slot}: ${detail}`);
     }
+
     if (compiledSlot !== slot) {
-      throw new Error(`artifact slot mismatch: compiled ${compiledSlot}, target ${slot}`);
+      throw new Error(
+        `artifact slot mismatch: compiled ${compiledSlot}, target ${slot}`,
+      );
     }
-    this.mem = (this.ex.memory as WebAssembly.Memory) ?? extMem;
-    // Exported layout getters return addresses of statics — safe to read before _initialize.
+
+    this.mem =
+      (this.ex.memory as WebAssembly.Memory) ?? externalMemory;
     this.ioBase = this.ex.io_base() >>> 0;
     this.stateAddr = this.ex.state_addr() >>> 0;
     this.stateSize = this.ex.state_size() >>> 0;
@@ -374,11 +384,18 @@ export class Contract {
     this.arenaStart = this.arenaBase;
     this.arenaTop = this.arenaBase;
     this.arenaEnd = this.ioBase + (this.ex.io_size() >>> 0);
-    // Shared-memory module: the state lives in bss, which emits no data segments — re-instantiating over an
-    // imported memory leaves the previous deployment's state bytes in place. Zero it to match a fresh deploy.
-    if (extMem && this.stateSize > 0)
-      new Uint8Array(this.mem.buffer).fill(0, this.stateAddr, this.stateAddr + this.stateSize);
-    if (typeof this.ex._initialize === "function") this.ex._initialize(); // reactor: run C++ ctors
+
+    if (externalMemory && this.stateSize > 0) {
+      new Uint8Array(this.mem.buffer).fill(
+        0,
+        this.stateAddr,
+        this.stateAddr + this.stateSize,
+      );
+    }
+    if (typeof this.ex._initialize === "function") {
+      this.ex._initialize();
+    }
+
     this.readRegistry();
   }
 
@@ -386,18 +403,24 @@ export class Contract {
     bytes: Uint8Array,
     slot: number,
     host: HostServices,
-    extMem?: WebAssembly.Memory,
+    externalMemory?: WebAssembly.Memory,
     extraImports?: WebAssembly.Imports,
   ): Contract {
     validateContractIndexSignature(bytes);
-    const mod = new WebAssembly.Module(bytes as BufferSource);
-    if (WebAssembly.Module.exports(mod).some((entry) => entry.name === "arena_top"))
+    const wasmModule = new WebAssembly.Module(bytes as BufferSource);
+    const hasLegacyArena = WebAssembly.Module.exports(wasmModule).some(
+      (entry) => entry.name === "arena_top",
+    );
+
+    if (hasLegacyArena) {
       throw new Error("legacy arena_top export is not supported");
+    }
+
     return new Contract(
       slot,
       host,
-      mod,
-      extMem,
+      wasmModule,
+      externalMemory,
       extraImports,
     );
   }
@@ -407,32 +430,43 @@ export class Contract {
   private u8() {
     return new Uint8Array(this.mem.buffer);
   }
+
   private dv() {
     return new DataView(this.mem.buffer);
   }
 
   private readRegistry() {
     this.sysMask = this.ex.reg_sysproc_mask() >>> 0;
-    const n = this.ex.reg_count() >>> 0; // also triggers the contract's lazy registration
-    const scratch = this.ioBase; // reuse the input region as a scratch out-param
-    for (let i = 0; i < n; i++) {
-      this.ex.reg_info(i >>> 0, scratch >>> 0);
-      const dv = this.dv(); // Wasm dispatch info: u32 inputType, kind, inSize, outSize
-      const it = dv.getUint32(scratch, true);
-      const kind = dv.getUint32(scratch + 4, true);
-      const inSize = dv.getUint32(scratch + 8, true);
-      const outSize = dv.getUint32(scratch + 12, true);
-      this.entries.push({ it, kind, inSize, outSize });
-      this.inSizes.set(kind + ":" + it, inSize);
-      this.outSizes.set(kind + ":" + it, outSize);
+    // reg_count() also initializes the contract's lazy registry.
+    const entryCount = this.ex.reg_count() >>> 0;
+    const infoOffset = this.ioBase;
+
+    for (let index = 0; index < entryCount; index++) {
+      this.ex.reg_info(index >>> 0, infoOffset >>> 0);
+      const view = this.dv();
+      const inputType = view.getUint32(infoOffset, true);
+      const kind = view.getUint32(infoOffset + 4, true);
+      const inSize = view.getUint32(infoOffset + 8, true);
+      const outSize = view.getUint32(infoOffset + 12, true);
+
+      this.entries.push({ it: inputType, kind, inSize, outSize });
+      this.inSizes.set(kind + ":" + inputType, inSize);
+      this.outSizes.set(kind + ":" + inputType, outSize);
     }
-    for (let sp = 0; sp < 12; sp++) {
-      if ((this.sysMask >>> sp) & 1) {
-        this.sysInSizes.set(sp, this.ex.sysproc_in_size(sp >>> 0) >>> 0);
-        this.sysOutSizes.set(sp, this.ex.sysproc_out_size(sp >>> 0) >>> 0);
+
+    for (let systemProcedure = 0; systemProcedure < 12; systemProcedure++) {
+      if ((this.sysMask >>> systemProcedure) & 1) {
+        this.sysInSizes.set(
+          systemProcedure,
+          this.ex.sysproc_in_size(systemProcedure >>> 0) >>> 0,
+        );
+        this.sysOutSizes.set(
+          systemProcedure,
+          this.ex.sysproc_out_size(systemProcedure >>> 0) >>> 0,
+        );
       }
     }
-    // migrate metadata — optional exports (contracts built before migration support lack them).
+
     if (typeof this.ex.has_migrate === "function") {
       this.hasMigrate = this.ex.has_migrate() >>> 0 === 1;
       this.migrateOldStateSize = (this.ex.migrate_old_state_size?.() ?? 0) >>> 0;
@@ -440,175 +474,208 @@ export class Contract {
     }
   }
 
-  hasSysproc(sp: number): boolean {
-    return ((this.sysMask >>> sp) & 1) === 1;
+  hasSysproc(systemProcedure: number): boolean {
+    return ((this.sysMask >>> systemProcedure) & 1) === 1;
   }
 
-  private inSizeFor(kind: number, it: number, fallback: number): number {
-    if (kind === KIND.SYSPROC) return this.sysInSizes.get(it) ?? fallback;
-    return this.inSizes.get(kind + ":" + it) ?? fallback;
+  private inSizeFor(kind: number, inputType: number, fallback: number): number {
+    if (kind === KIND.SYSPROC) {
+      return this.sysInSizes.get(inputType) ?? fallback;
+    }
+    return this.inSizes.get(kind + ":" + inputType) ?? fallback;
   }
 
-  private outSizeFor(kind: number, it: number): number {
-    if (kind === KIND.SYSPROC) return this.sysOutSizes.get(it) ?? 0;
-    return this.outSizes.get(kind + ":" + it) ?? 0;
+  private outSizeFor(kind: number, inputType: number): number {
+    if (kind === KIND.SYSPROC) {
+      return this.sysOutSizes.get(inputType) ?? 0;
+    }
+    return this.outSizes.get(kind + ":" + inputType) ?? 0;
   }
 
   zeroState() {
     this.u8().fill(0, this.stateAddr, this.stateAddr + this.stateSize);
   }
 
-  // Copy bytes into the resident state region (truncated to stateSize). Preserves overlapping state across a
-  // non-migrating redeploy — parity with core's raw restore in runtime/deployment.h.
   writeState(bytes: Uint8Array): void {
-    const n = Math.min(bytes.length, this.stateSize);
-    if (n) this.u8().set(bytes.subarray(0, n), this.stateAddr);
+    const length = Math.min(bytes.length, this.stateSize);
+    if (length > 0) {
+      this.u8().set(bytes.subarray(0, length), this.stateAddr);
+    }
   }
 
-  // Build the 256-byte QpiContext header the contract reads (currentContract*, originator, invocator,
-  // invocationReward, entryPoint) — qpi.h QpiContext field layout (offsets 0/4/8/40/72/104/112).
-  private writeCtx(ctx: CallCtx) {
+  private writeCtx(context: CallCtx) {
     const view = QpiContext.wrap(this.u8(), this.ctxAddr);
     view.bytes.fill(0);
     view.currentContractIndex = this.slot;
     view.stackIndex = -1;
-    view.currentContractId = BigInt(this.slot); // id(slot,0,0,0)
-    if (ctx.originator && ctx.originator.length >= 32) view.originator = ctx.originator;
-    if (ctx.invocator && ctx.invocator.length >= 32) view.invocator = ctx.invocator;
-    view.invocationReward = ctx.invocationReward ?? 0n;
-    view.entryPoint = ctx.entryPoint ?? 0;
+    view.currentContractId = BigInt(this.slot);
+
+    if (context.originator && context.originator.length >= 32) {
+      view.originator = context.originator;
+    }
+    if (context.invocator && context.invocator.length >= 32) {
+      view.invocator = context.invocator;
+    }
+
+    view.invocationReward = context.invocationReward ?? 0n;
+    view.entryPoint = context.entryPoint ?? 0;
   }
 
-  // Marshal one call through the instance (mirrors the SDK dispatch): write ctx header + input, zero output,
-  // call dispatch(kind,it,inOff,outOff,localsOff), copy the output back out.
   invoke(
     kind: number,
-    it: number,
+    inputType: number,
     input: Uint8Array = new Uint8Array(0),
-    ctx: CallCtx = {},
+    context: CallCtx = {},
   ): Uint8Array {
-    // Reentrant dispatch needs separate I/O and locals storage to preserve the outer frame.
     const nested = this.dispatchDepth > 0;
-    let inOff: number, outOff: number, localsOff: number;
+    let inputOffset: number;
+    let outputOffset: number;
+    let localsOffset: number;
     let savedArenaStart = 0;
     let savedArenaTop = 0;
-    let savedCtx: Uint8Array | null = null;
-    const pre = this.u8();
+    let savedContext: Uint8Array | null = null;
+    const memory = this.u8();
+
     if (nested) {
       // Avoid signed 32-bit alignment arithmetic for shared-memory arenas above 2 GiB.
       const base = this.arenaTop;
-      inOff = base + 7 - ((base + 7) % 8);
-      outOff = inOff + IN_SZ;
-      localsOff = outOff + OUT_SZ;
-      const frameArenaStart = localsOff + LOCALS_SZ;
-      if (frameArenaStart > this.arenaEnd) throw new Error("nested dispatch frame exceeds arena");
+      inputOffset = base + 7 - ((base + 7) % 8);
+      outputOffset = inputOffset + IN_SZ;
+      localsOffset = outputOffset + OUT_SZ;
+      const frameArenaStart = localsOffset + LOCALS_SZ;
+
+      if (frameArenaStart > this.arenaEnd) {
+        throw new Error("nested dispatch frame exceeds arena");
+      }
+
       savedArenaStart = this.arenaStart;
       savedArenaTop = this.arenaTop;
       this.arenaStart = frameArenaStart;
       this.arenaTop = frameArenaStart;
-      savedCtx = pre.slice(this.ctxAddr, this.ctxAddr + 256);
+      savedContext = memory.slice(this.ctxAddr, this.ctxAddr + 256);
     } else {
-      inOff = this.ioBase;
-      outOff = this.ioBase + IN_SZ;
-      localsOff = this.ioBase + IN_SZ + OUT_SZ;
+      inputOffset = this.ioBase;
+      outputOffset = this.ioBase + IN_SZ;
+      localsOffset = this.ioBase + IN_SZ + OUT_SZ;
       this.arenaStart = this.arenaBase;
       this.arenaTop = this.arenaBase;
     }
-    const inSize = this.inSizeFor(kind, it, input.length);
-    const outSize = this.outSizeFor(kind, it);
-    pre.fill(0, inOff, inOff + inSize);
-    pre.fill(0, outOff, outOff + OUT_SZ);
-    // Zero locals on every dispatch to match native QPI frames and container expectations.
-    pre.fill(0, localsOff, localsOff + LOCALS_SZ);
-    if (input.length && inSize) {
-      pre.set(input.subarray(0, Math.min(input.length, inSize)), inOff);
-    }
-    this.writeCtx(ctx);
 
-    // Cost meter (opt-in): isolate this frame's host-weight accumulator so a nested re-entrant call on the
-    // same Contract (e.g. a self-transfer firing POST_INCOMING_TRANSFER) doesn't clobber the parent's tally.
+    const inputSize = this.inSizeFor(kind, inputType, input.length);
+    const outputSize = this.outSizeFor(kind, inputType);
+    memory.fill(0, inputOffset, inputOffset + inputSize);
+    memory.fill(0, outputOffset, outputOffset + OUT_SZ);
+    memory.fill(0, localsOffset, localsOffset + LOCALS_SZ);
+
+    if (input.length > 0 && inputSize > 0) {
+      memory.set(
+        input.subarray(0, Math.min(input.length, inputSize)),
+        inputOffset,
+      );
+    }
+    this.writeCtx(context);
+
     const metering = this.metering;
     const savedCost = this.cost;
     this.cost = 0n;
 
-    // Capture an optional nested debug trace and bounded before/after state snapshots.
-    const rec = this.trace?.enabled ? this.trace : null;
-    const wantState = metering || rec != null;
+    const recorder = this.trace?.enabled ? this.trace : null;
+    const wantState = metering || recorder != null;
     const snapshotLimit = metering ? this.stateSize : TRACE_STATE_CAP;
     const stateBefore = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
-    const e = rec
-      ? rec.begin({
+    const traceEntry = recorder
+      ? recorder.begin({
           tick: this.host.tick(),
           index: this.slot,
-          entry: it,
+          entry: inputType,
           kind,
-          invocator: ctx.invocator,
-          invocationReward: ctx.invocationReward ?? 0n,
+          invocator: context.invocator,
+          invocationReward: context.invocationReward ?? 0n,
           input,
           stateSize: this.stateSize,
           stateBefore,
         })
       : null;
-    const t0 = rec ? performance.now() : 0;
+    const startedAt = recorder ? performance.now() : 0;
 
     this.dispatchDepth++;
     try {
-      this.ex.dispatch(kind >>> 0, it >>> 0, inOff >>> 0, outOff >>> 0, localsOff >>> 0);
-    } catch (err) {
+      this.ex.dispatch(
+        kind >>> 0,
+        inputType >>> 0,
+        inputOffset >>> 0,
+        outputOffset >>> 0,
+        localsOffset >>> 0,
+      );
+    } catch (error) {
       const stateAfter = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
       this.finishMeter(metering, savedCost, stateBefore, stateAfter);
-      if (rec) {
-        rec.end(e, {
+
+      if (recorder) {
+        recorder.end(traceEntry, {
           output: EMPTY,
           ok: false,
-          trap: trapMessage(err),
+          trap: trapMessage(error),
           stateBefore,
           stateAfter,
-          execNs: (performance.now() - t0) * 1e6,
+          execNs: (performance.now() - startedAt) * 1e6,
         });
       }
-      throw err;
+      throw error;
     } finally {
       this.dispatchDepth--;
+
       if (nested) {
-        const m = this.u8(); // fresh view — memory may have grown during dispatch
-        if (savedCtx) m.set(savedCtx, this.ctxAddr);
+        const currentMemory = this.u8();
+        if (savedContext) {
+          currentMemory.set(savedContext, this.ctxAddr);
+        }
         this.arenaStart = savedArenaStart;
         this.arenaTop = savedArenaTop;
       }
     }
 
     const stateAfter = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
-    const output = this.u8().slice(outOff, outOff + outSize); // fresh view after dispatch
+    const output = this.u8().slice(
+      outputOffset,
+      outputOffset + outputSize,
+    );
     this.finishMeter(metering, savedCost, stateBefore, stateAfter);
-    if (rec) {
-      rec.end(e, {
+
+    if (recorder) {
+      recorder.end(traceEntry, {
         output,
         ok: true,
         stateBefore,
         stateAfter,
-        execNs: (performance.now() - t0) * 1e6,
+        execNs: (performance.now() - startedAt) * 1e6,
       });
     }
+
     return output;
   }
 
-  // Run __migrate with old state in the arena and a zeroed new-state buffer.
   migrate(oldState: Uint8Array): void {
-    const localsOff = this.ioBase + IN_SZ + OUT_SZ;
-    const oldOff = this.arenaBase;
-    const u8 = this.u8();
-    u8.fill(0, this.stateAddr, this.stateAddr + this.stateSize); // zero new state (match native)
-    u8.fill(0, localsOff, localsOff + LOCALS_SZ);
-    u8.set(oldState, oldOff);
-    this.writeCtx({}); // NULL_ID / zero ctx (QpiContextMigrateProcedureCall)
-    this.arenaStart = this.arenaBase + ((oldState.length + 15) & ~15); // scratch past the old blob
+    const localsOffset = this.ioBase + IN_SZ + OUT_SZ;
+    const oldStateOffset = this.arenaBase;
+    const memory = this.u8();
+
+    memory.fill(0, this.stateAddr, this.stateAddr + this.stateSize);
+    memory.fill(0, localsOffset, localsOffset + LOCALS_SZ);
+    memory.set(oldState, oldStateOffset);
+    this.writeCtx({});
+    this.arenaStart = this.arenaBase + ((oldState.length + 15) & ~15);
     this.arenaTop = this.arenaStart;
-    this.ex.dispatch(KIND.MIGRATE >>> 0, 0, oldOff >>> 0, 0, localsOff >>> 0);
+    this.ex.dispatch(
+      KIND.MIGRATE >>> 0,
+      0,
+      oldStateOffset >>> 0,
+      0,
+      localsOffset >>> 0,
+    );
     this.host.markDirty(this.slot);
   }
 
-  // Charge base, host, and changed-state digest costs, then restore the parent frame's meter.
   private finishMeter(
     metering: boolean,
     savedCost: bigint,
@@ -616,85 +683,98 @@ export class Contract {
     after: Uint8Array,
   ): void {
     if (metering) {
-      let c = BASE_CALL_COST + this.cost;
+      let cost = BASE_CALL_COST + this.cost;
       if (!bytesEqual(before, after)) {
-        c += DIGEST_BYTE_COST * BigInt(this.stateSize);
+        cost += DIGEST_BYTE_COST * BigInt(this.stateSize);
       }
-      this.lastCost = c;
+      this.lastCost = cost;
     } else {
       this.lastCost = 0n;
     }
+
     this.cost = savedCost;
   }
 
   state(): Uint8Array {
     return this.stateSnapshot(this.stateSize);
   }
+
   private stateSnapshot(limit: number): Uint8Array {
-    const n = Math.min(limit >>> 0, this.stateSize);
-    return this.u8().slice(this.stateAddr, this.stateAddr + n);
+    const length = Math.min(limit >>> 0, this.stateSize);
+    return this.u8().slice(this.stateAddr, this.stateAddr + length);
   }
-  // A view (no copy) over the live state region, for callers that immediately copy it elsewhere. Valid only
-  // until the next dispatch can grow/detach the memory — read it now, don't retain it.
-  stateView(len: number = this.stateSize): Uint8Array {
-    const n = Math.min(len >>> 0, this.stateSize);
-    return this.u8().subarray(this.stateAddr, this.stateAddr + n);
+
+  // The view is invalid after a dispatch grows memory.
+  stateView(length: number = this.stateSize): Uint8Array {
+    const clampedLength = Math.min(length >>> 0, this.stateSize);
+    return this.u8().subarray(
+      this.stateAddr,
+      this.stateAddr + clampedLength,
+    );
   }
+
   digest(): string {
     return toHex(k12Bytes(this.state()));
   }
 
-  // Record effectful host calls only while tracing is enabled.
   private recHost(name: string, detail: () => string): void {
-    const rec = this.trace;
-    if (rec?.enabled) {
-      rec.hostCall(name, detail());
+    const recorder = this.trace;
+    if (recorder?.enabled) {
+      recorder.hostCall(name, detail());
     }
   }
 
-  // Wrap priced host imports so active metered frames accumulate their configured weights.
   private meterLhost(lhost: Record<string, Function>): void {
     for (const name of Object.keys(lhost)) {
-      const w = HOST_WEIGHT[name];
-      if (w === undefined) {
+      const weight = HOST_WEIGHT[name];
+      if (weight === undefined) {
         continue;
       }
-      const fn = lhost[name] as (...a: unknown[]) => unknown;
+
+      const hostFunction = lhost[name] as (...args: unknown[]) => unknown;
       lhost[name] = (...args: unknown[]) => {
         if (this.metering) {
-          this.cost += w;
+          this.cost += weight;
         }
-        return fn(...args);
+        return hostFunction(...args);
       };
     }
   }
 
-  // Build lhost and WASI imports from the ABI; undeclared extras are ignored.
-  private imports(mod?: WebAssembly.Module): WebAssembly.Imports {
+  private imports(wasmModule?: WebAssembly.Module): WebAssembly.Imports {
     const u8 = () => this.u8();
-    const ctxView = () => QpiContext.wrap(u8(), this.ctxAddr); // the live QpiContext header (originator / invocator)
+    const contextView = () => QpiContext.wrap(u8(), this.ctxAddr);
     const lhost: Record<string, Function> = {
-      // infra / logging
       beginFn: (_id: number) => {},
       endFn: (_id: number) => {},
       markDirty: (_ci: number) => this.host.markDirty(this.slot),
       pauseLog: () => this.host.pauseLog(),
       resumeLog: () => this.host.resumeLog(),
       acquireScratch: (size: bigint, initZero: number) => {
-        if (size < 0n || size > 0xfffffff8n)
+        if (size < 0n || size > 0xfffffff8n) {
           throw new Error("lhost: scratch arena exhausted");
-        const n = Number((size + 7n) & ~7n);
-        if (this.arenaTop > this.arenaEnd || n > this.arenaEnd - this.arenaTop)
+        }
+
+        const alignedSize = Number((size + 7n) & ~7n);
+        if (
+          this.arenaTop > this.arenaEnd ||
+          alignedSize > this.arenaEnd - this.arenaTop
+        ) {
           throw new Error("lhost: scratch arena exhausted");
-        const off = this.arenaTop;
-        this.arenaTop += n;
-        if (initZero) u8().fill(0, off, off + n);
-        return off >>> 0; // offset == ptr in wasm32
+        }
+
+        const offset = this.arenaTop;
+        this.arenaTop += alignedSize;
+        if (initZero) {
+          u8().fill(0, offset, offset + alignedSize);
+        }
+        return offset >>> 0;
       },
-      // Release scratch space in LIFO order by rewinding the arena bump pointer.
-      releaseScratch: (off: number) => {
-        const p = off >>> 0;
-        if (p >= this.arenaStart && p <= this.arenaTop) this.arenaTop = p;
+      releaseScratch: (offset: number) => {
+        const pointer = offset >>> 0;
+        if (pointer >= this.arenaStart && pointer <= this.arenaTop) {
+          this.arenaTop = pointer;
+        }
       },
       logBytes: (_ci: number, level: number, msgOff: number, size: number) =>
         this.host.log(this.slot, level, u8().slice(msgOff, msgOff + size)),
@@ -782,7 +862,7 @@ export class Contract {
           (dec << 24) >> 24,
           shares,
           unit,
-          ctxView().invocator,
+          contextView().invocator,
         );
         this.recHost("issueAsset", () => `${assetName(name)} shares=${shares}`);
         return r;
@@ -1025,8 +1105,7 @@ export class Contract {
         this.recHost("distributeDividends", () => `${amountPerShare}/share`);
         return r;
       },
-      // Route calls to the callee and copy results into the caller's memory.
-      // Preserve the original originator across nested calls.
+      // Nested calls keep the original originator.
       liteCallFunction: (
         calleeIdx: number,
         inputType: number,
@@ -1036,8 +1115,8 @@ export class Contract {
         outSize: number,
       ) => {
         const input = u8().slice(inOff, inOff + inSize);
-        const originator = ctxView().originator;
-        const r = this.host.callFunction(
+        const originator = contextView().originator;
+        const result = this.host.callFunction(
           this.slot,
           calleeIdx >>> 0,
           inputType & 0xffff,
@@ -1047,11 +1126,18 @@ export class Contract {
         this.recHost(
           "callFunction",
           () =>
-            `→ @${calleeIdx >>> 0} fn #${inputType & 0xffff}${r.error ? ` ✗ err ${r.error}` : ""}`,
+            `→ @${calleeIdx >>> 0} fn #${inputType & 0xffff}${result.error ? ` ✗ err ${result.error}` : ""}`,
         );
-        if (r.error === 0 && r.output.length)
-          u8().set(r.output.subarray(0, Math.min(outSize, r.output.length)), outOff);
-        return r.error;
+        if (result.error === 0 && result.output.length > 0) {
+          u8().set(
+            result.output.subarray(
+              0,
+              Math.min(outSize, result.output.length),
+            ),
+            outOff,
+          );
+        }
+        return result.error;
       },
       liteInvokeProcedure: (
         calleeIdx: number,
@@ -1063,8 +1149,8 @@ export class Contract {
         reward: bigint,
       ) => {
         const input = u8().slice(inOff, inOff + inSize);
-        const originator = ctxView().originator;
-        const r = this.host.invokeProcedure(
+        const originator = contextView().originator;
+        const result = this.host.invokeProcedure(
           this.slot,
           calleeIdx >>> 0,
           inputType & 0xffff,
@@ -1075,15 +1161,22 @@ export class Contract {
         this.recHost(
           "invokeProcedure",
           () =>
-            `→ @${calleeIdx >>> 0} proc #${inputType & 0xffff} reward=${reward}${r.error ? ` ✗ err ${r.error}` : ""}`,
+            `→ @${calleeIdx >>> 0} proc #${inputType & 0xffff} reward=${reward}${result.error ? ` ✗ err ${result.error}` : ""}`,
         );
-        if (r.error === 0 && r.output.length)
-          u8().set(r.output.subarray(0, Math.min(outSize, r.output.length)), outOff);
-        return r.error;
+        if (result.error === 0 && result.output.length > 0) {
+          u8().set(
+            result.output.subarray(
+              0,
+              Math.min(outSize, result.output.length),
+            ),
+            outOff,
+          );
+        }
+        return result.error;
       },
       liteSetShareholderProposal: (calleeIdx: number, propOff: number, reward: bigint) => {
         const proposal = u8().slice(propOff, propOff + 1024);
-        const originator = ctxView().originator;
+        const originator = contextView().originator;
         return this.host.setShareholderProposal(
           this.slot,
           calleeIdx >>> 0,
@@ -1099,8 +1192,14 @@ export class Contract {
         reward: bigint,
       ) => {
         const vote = u8().slice(voteOff, voteOff + voteSize);
-        const originator = ctxView().originator;
-        return this.host.setShareholderVotes(this.slot, calleeIdx >>> 0, vote, reward, originator);
+        const originator = contextView().originator;
+        return this.host.setShareholderVotes(
+          this.slot,
+          calleeIdx >>> 0,
+          vote,
+          reward,
+          originator,
+        );
       },
     };
     const missingLhost = Object.keys(LHOST_ABI).filter((name) => !(name in lhost));
@@ -1113,103 +1212,135 @@ export class Contract {
     this.meterLhost(lhost);
     // Wasm i32 parameters arrive signed in JS; coerce offsets to unsigned above 2 GiB.
     const toU32Args =
-      (fn: Function) =>
+      (hostFunction: Function) =>
       (...args: unknown[]) =>
-        fn(...args.map((a) => (typeof a === "number" ? a >>> 0 : a)));
-    for (const k of Object.keys(lhost)) lhost[k] = toU32Args(lhost[k]);
+        hostFunction(
+          ...args.map((argument) =>
+            typeof argument === "number" ? argument >>> 0 : argument,
+          ),
+        );
+
+    for (const name of Object.keys(lhost)) {
+      lhost[name] = toU32Args(lhost[name]);
+    }
+
     // Use explicit WASI and env stubs to avoid Bun's Proxy handling bug for i64 imports.
-    const safeNoop = (..._args: unknown[]): number | bigint => 0n;
-    const wasiBase: Record<string, Function> = {
-      proc_exit: (c: number) => {
-        throw new Error("wasm proc_exit(" + c + ")");
+    const wasiImports: Record<string, Function> = {
+      proc_exit: (code: number) => {
+        throw new Error("wasm proc_exit(" + code + ")");
       },
     };
-    const envBase: Record<string, Function> = {};
-    if (mod) {
-      for (const imp of WebAssembly.Module.imports(mod)) {
-        if (imp.kind !== "function") continue; // memory/global/table imports are bound explicitly, not stubbed
-        const results: string[] = ((imp as any).type?.results ?? []) as string[];
-        const noopFn = results.includes("i64") ? (..._a: unknown[]) => 0n : (..._a: unknown[]) => 0;
-        if (imp.module === "wasi_snapshot_preview1" && !(imp.name in wasiBase)) {
-          wasiBase[imp.name] = noopFn;
-        } else if (imp.module === "env" && !(imp.name in envBase)) {
-          envBase[imp.name] = envImportStub(imp.name);
+    const envImports: Record<string, unknown> = {};
+
+    if (wasmModule) {
+      for (const imported of WebAssembly.Module.imports(wasmModule)) {
+        if (imported.kind !== "function") {
+          continue;
+        }
+
+        const results = ((imported as any).type?.results ?? []) as string[];
+        const noopFunction = results.includes("i64")
+          ? (..._args: unknown[]) => 0n
+          : (..._args: unknown[]) => 0;
+
+        if (
+          imported.module === "wasi_snapshot_preview1" &&
+          !(imported.name in wasiImports)
+        ) {
+          wasiImports[imported.name] = noopFunction;
+        } else if (
+          imported.module === "env" &&
+          !(imported.name in envImports)
+        ) {
+          envImports[imported.name] = envImportStub(imported.name);
         }
       }
     }
-    const wasi = wasiBase;
-    const env: Record<string, unknown> = envBase;
-    if (this.extMem) env.memory = this.extMem;
+
+    if (this.extMem) {
+      envImports.memory = this.extMem;
+    }
+
     return {
       lhost,
-      env,
-      wasi_snapshot_preview1: wasi,
+      env: envImports,
+      wasi_snapshot_preview1: wasiImports,
       ...(this.extraImports ?? {}),
     } as unknown as WebAssembly.Imports;
   }
 }
 
-// A compact label for a 32-byte id in a host-call detail line: a contract id (id(slot,0,0,0)) shows as
-// `@slot`, any other identity as the first and last eight chars of its Qubic identity.
 function shortId(id: Uint8Array): string {
-  let high = false;
-  for (let i = 8; i < 32; i++) {
-    if (id[i] !== 0) {
-      high = true;
-      break;
-    }
+  const hasHighBytes = id.subarray(8, 32).some((byte) => byte !== 0);
+  if (!hasHighBytes) {
+    const contractIndex = new DataView(
+      id.buffer,
+      id.byteOffset,
+      id.byteLength,
+    ).getBigUint64(0, true);
+    return "@" + contractIndex;
   }
-  if (!high) {
-    return (
-      "@" + new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true).toString()
-    );
-  }
+
   return idPrefix(id, 8) + "…" + idSuffix(id);
 }
 
 // Encode the first identity-body chunk without computing the checksum.
-function idPrefix(id: Uint8Array, n: number): string {
-  let val = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(0, true);
-  let s = "";
-  for (let i = 0; i < n; i++) {
-    s += String.fromCharCode(65 + Number(val % 26n));
-    val /= 26n;
+function idPrefix(id: Uint8Array, length: number): string {
+  let value = new DataView(
+    id.buffer,
+    id.byteOffset,
+    id.byteLength,
+  ).getBigUint64(0, true);
+  let prefix = "";
+
+  for (let index = 0; index < length; index++) {
+    prefix += String.fromCharCode(65 + Number(value % 26n));
+    value /= 26n;
   }
-  return s;
+
+  return prefix;
 }
 
-// The final identity-body chunk followed by its four checksum chars, matching core-lite's getIdentity.
 function idSuffix(id: Uint8Array): string {
-  let fragment = new DataView(id.buffer, id.byteOffset, id.byteLength).getBigUint64(24, true);
-  let s = "";
-  for (let i = 0; i < 10; i++) {
+  let fragment = new DataView(
+    id.buffer,
+    id.byteOffset,
+    id.byteLength,
+  ).getBigUint64(24, true);
+  let suffix = "";
+
+  for (let index = 0; index < 10; index++) {
     fragment /= 26n;
   }
-  for (let i = 0; i < 4; i++) {
-    s += String.fromCharCode(65 + Number(fragment % 26n));
+
+  for (let index = 0; index < 4; index++) {
+    suffix += String.fromCharCode(65 + Number(fragment % 26n));
     fragment /= 26n;
   }
 
   const digest = k12Bytes(id);
   let checksum = (digest[0] | (digest[1] << 8) | (digest[2] << 16)) & 0x3ffff;
-  for (let i = 0; i < 4; i++) {
-    s += String.fromCharCode(65 + (checksum % 26));
+
+  for (let index = 0; index < 4; index++) {
+    suffix += String.fromCharCode(65 + (checksum % 26));
     checksum = Math.floor(checksum / 26);
   }
-  return s;
+
+  return suffix;
 }
 
-// qpi packs an asset name as up to 7 ASCII bytes little-endian in a uint64 — decode it back to text for the
-// host-call detail (falls back to the numeric value if it isn't printable).
+// Asset names are seven little-endian ASCII bytes.
 function assetName(name: bigint): string {
-  let s = "";
-  let n = name;
-  for (let i = 0; i < 7 && n > 0n; i++) {
-    const b = Number(n & 0xffn);
-    if (b >= 0x20 && b < 0x7f) {
-      s += String.fromCharCode(b);
+  let text = "";
+  let packedName = name;
+
+  for (let index = 0; index < 7 && packedName > 0n; index++) {
+    const byte = Number(packedName & 0xffn);
+    if (byte >= 0x20 && byte < 0x7f) {
+      text += String.fromCharCode(byte);
     }
-    n >>= 8n;
+    packedName >>= 8n;
   }
-  return s || name.toString();
+
+  return text || name.toString();
 }

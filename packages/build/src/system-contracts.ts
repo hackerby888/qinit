@@ -1,4 +1,3 @@
-// Catalog built-in contracts from the fetched core snapshot's contract_def.h.
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadQpiHeader } from "@qinit/compile";
@@ -16,101 +15,165 @@ export interface SystemContract {
 
 const cache = new Map<string, SystemContract[]>();
 
-// index -> source file, from the `#define <NAME>_CONTRACT_INDEX n` ... `#include "contracts/<File>.h"` blocks.
-// The appended test contracts use a relative form `constexpr ... <NAME>_CONTRACT_INDEX = (CONTRACT_INDEX + 1)`
-function indexToFile(defSrc: string): Map<number, string> {
-  const out = new Map<number, string>();
+function indexToFile(definitionSource: string): Map<number, string> {
+  const files = new Map<number, string>();
   let currentIndex = -1;
-  for (const line of defSrc.split("\n")) {
+
+  for (const line of definitionSource.split("\n")) {
     const explicitIndex = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
     if (explicitIndex) {
       currentIndex = Number(explicitIndex[1]);
       continue;
     }
-    if (/\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line)) {
+
+    const incrementsIndex =
+      /\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(
+        line,
+      );
+    if (incrementsIndex) {
       currentIndex += 1;
       continue;
     }
+
     const include = line.match(/#include\s+"contracts\/(\w+\.h)"/);
-    // The last include in a block wins, such as Qswap.h over Qswap_old.h.
-    if (include && currentIndex >= 0) out.set(currentIndex, include[1]);
+    if (include && currentIndex >= 0) {
+      files.set(currentIndex, include[1]);
+    }
   }
-  return out;
+
+  return files;
 }
 
-// index -> C++ struct type, from the `#define <X>_CONTRACT_INDEX n` ... `#define CONTRACT_STATE_TYPE <Type>`
-// The struct type can differ from the ticker, such as QTRY using QUOTTERY.
-function indexToStateType(defSrc: string): Map<number, string> {
-  const out = new Map<number, string>();
+function indexToStateType(definitionSource: string): Map<number, string> {
+  const stateTypes = new Map<number, string>();
   let currentIndex = -1;
-  for (const line of defSrc.split("\n")) {
+
+  for (const line of definitionSource.split("\n")) {
     const explicitIndex = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
     if (explicitIndex) {
       currentIndex = Number(explicitIndex[1]);
       continue;
     }
-    if (/\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(line)) {
+
+    const incrementsIndex =
+      /\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(
+        line,
+      );
+    if (incrementsIndex) {
       currentIndex += 1;
       continue;
     }
+
     const stateType = line.match(/#define\s+CONTRACT_STATE_TYPE\s+(\w+)/);
-    if (stateType && currentIndex >= 0) out.set(currentIndex, stateType[1]);
+    if (stateType && currentIndex >= 0) {
+      stateTypes.set(currentIndex, stateType[1]);
+    }
   }
-  return out;
+
+  return stateTypes;
 }
 
-// index -> on-chain name, from the contractDescriptions[] = { {"", …}, {"QX", …}, … } array (position = index).
-function indexToName(defSrc: string): Map<number, string> {
-  const out = new Map<number, string>();
-  const m = defSrc.match(/contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\n\s*\};/);
-  if (!m) return out;
+function descriptionEntries(definitionSource: string): string | undefined {
+  return definitionSource.match(
+    /contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\n\s*\};/,
+  )?.[1];
+}
+
+function indexToName(definitionSource: string): Map<number, string> {
+  const names = new Map<number, string>();
+  const descriptions = descriptionEntries(definitionSource);
+  if (!descriptions) {
+    return names;
+  }
+
   let index = 0;
-  for (const entry of m[1].matchAll(/\{\s*"([^"]*)"/g)) {
-    if (entry[1]) out.set(index, entry[1]);
+
+  for (const entry of descriptions.matchAll(/\{\s*"([^"]*)"/g)) {
+    if (entry[1]) {
+      names.set(index, entry[1]);
+    }
     index++;
   }
-  return out;
+
+  return names;
 }
 
-function indexToConstructionEpoch(defSrc: string): Map<number, number> {
-  const out = new Map<number, number>();
-  const m = defSrc.match(/contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\n\s*\};/);
-  if (!m) return out;
-  let index = 0;
-  for (const entry of m[1].matchAll(/\{\s*"[^"]*"\s*,\s*(\d+)/g)) {
-    out.set(index++, Number(entry[1]));
+function indexToConstructionEpoch(
+  definitionSource: string,
+): Map<number, number> {
+  const epochs = new Map<number, number>();
+  const descriptions = descriptionEntries(definitionSource);
+  if (!descriptions) {
+    return epochs;
   }
-  return out;
+
+  let index = 0;
+
+  for (const entry of descriptions.matchAll(
+    /\{\s*"[^"]*"\s*,\s*(\d+)/g,
+  )) {
+    epochs.set(index, Number(entry[1]));
+    index++;
+  }
+
+  return epochs;
 }
 
-// Build the catalog from a resolved core snapshot root (the dir holding src/contract_core + src/contracts).
 export function systemContracts(coreRoot: string): SystemContract[] {
-  if (cache.has(coreRoot)) return cache.get(coreRoot)!;
-  const def = join(coreRoot, "src", "contract_core", "contract_def.h");
-  const dir = join(coreRoot, "src", "contracts");
-  const out: SystemContract[] = [];
-  if (existsSync(def)) {
+  const cachedContracts = cache.get(coreRoot);
+  if (cachedContracts) {
+    return cachedContracts;
+  }
+
+  const definitionPath = join(
+    coreRoot,
+    "src",
+    "contract_core",
+    "contract_def.h",
+  );
+  const contractsDir = join(coreRoot, "src", "contracts");
+  const contracts: SystemContract[] = [];
+
+  if (existsSync(definitionPath)) {
     const qpiHeader = loadQpiHeader(coreRoot);
-    const defSrc = readFileSync(def, "utf8");
-    const files = indexToFile(defSrc);
-    const names = indexToName(defSrc);
-    const epochs = indexToConstructionEpoch(defSrc);
-    const stateTypes = indexToStateType(defSrc);
-    for (const [index, name] of [...names].sort((a, b) => a[0] - b[0])) {
-      if (/^LDYN/.test(name)) continue;
+    const definitionSource = readFileSync(definitionPath, "utf8");
+    const files = indexToFile(definitionSource);
+    const names = indexToName(definitionSource);
+    const epochs = indexToConstructionEpoch(definitionSource);
+    const stateTypes = indexToStateType(definitionSource);
+    const orderedNames = [...names].sort(
+      (left, right) => left[0] - right[0],
+    );
+
+    for (const [index, name] of orderedNames) {
+      if (/^LDYN/.test(name)) {
+        continue;
+      }
+
       const file = files.get(index);
       if (!file) {
-        throw new Error(`system contract ${name} (${index}) has no source mapping`);
+        throw new Error(
+          `system contract ${name} (${index}) has no source mapping`,
+        );
       }
-      if (/^TestExample/.test(file)) continue; // test/example fixtures (TESTEXA-D), not deployable system contracts
-      const path = join(dir, file);
-      if (!existsSync(path)) {
-        throw new Error(`system contract ${name} source is missing: ${path}`);
+
+      if (/^TestExample/.test(file)) {
+        continue;
       }
-      // Normalize testnet size scaling before IDL extraction.
-      const source = readFileSync(path, "utf8").replace(/X_MULTIPLIER/g, "1");
+
+      const sourcePath = join(contractsDir, file);
+      if (!existsSync(sourcePath)) {
+        throw new Error(
+          `system contract ${name} source is missing: ${sourcePath}`,
+        );
+      }
+
+      const source = readFileSync(sourcePath, "utf8").replace(
+        /X_MULTIPLIER/g,
+        "1",
+      );
       const stateType = stateTypes.get(index) ?? name;
-      out.push({
+      contracts.push({
         index,
         name,
         constructionEpoch: epochs.get(index) ?? 0,
@@ -125,11 +188,13 @@ export function systemContracts(coreRoot: string): SystemContract[] {
       });
     }
   }
-  cache.set(coreRoot, out);
-  return out;
+
+  cache.set(coreRoot, contracts);
+  return contracts;
 }
 
-// Lowercased system names (for the deploy name guard).
 export function systemNames(coreRoot: string): Set<string> {
-  return new Set(systemContracts(coreRoot).map((c) => c.name.toLowerCase()));
+  return new Set(
+    systemContracts(coreRoot).map((contract) => contract.name.toLowerCase()),
+  );
 }

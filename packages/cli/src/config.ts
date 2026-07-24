@@ -1,6 +1,10 @@
-// Per-project config (qinit.json) + core resolution now live in @qinit/core (project.ts) so the
-// VS Code extension can share them without pulling in Ink/React. Re-exported here for back-compat:
-import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { assertSeed, loadConfig, resolveCore } from "@qinit/core";
@@ -9,53 +13,63 @@ import { loadQpiHeader } from "@qinit/compile";
 export { loadConfig, resolveCore };
 export type { QinitConfig } from "@qinit/core";
 
+// Keep these re-exports free of Ink/React so the VS Code extension can use them.
 export function loadConfiguredQpiHeader(explicitCore?: string): string {
   const config = loadConfig();
   return loadQpiHeader(resolveCore(explicitCore, config.core));
 }
 
-// Honor XDG_CONFIG_HOME; otherwise use APPDATA on Windows and ~/.config elsewhere.
-// Existing Windows ~/.config/qinit directories remain supported.
 function configDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
-  if (xdg) return join(xdg, "qinit");
+  if (xdg) {
+    return join(xdg, "qinit");
+  }
+
   if (process.platform === "win32") {
-    const appData = join(process.env.APPDATA || join(homedir(), "AppData", "Roaming"), "qinit");
+    const appData = join(
+      process.env.APPDATA ||
+        join(homedir(), "AppData", "Roaming"),
+      "qinit",
+    );
     const legacy = join(homedir(), ".config", "qinit");
     return !existsSync(appData) && existsSync(legacy) ? legacy : appData;
   }
+
   return join(homedir(), ".config", "qinit");
 }
 
-// Globally-chosen signing seed (a key) — stored in qinit's config dir, NOT the committed qinit.json. `qinit seed`
-// sets it; every command that needs a seed uses it (so the user picks once and it auto-fills everywhere).
 export function seedStorePath(): string {
   return join(configDir(), "seed");
 }
+
 export function savedSeed(): string | undefined {
   try {
-    const s = readFileSync(seedStorePath(), "utf8").trim();
-    return /^[a-z]{55}$/.test(s) ? s : undefined;
+    const seed = readFileSync(seedStorePath(), "utf8").trim();
+    return /^[a-z]{55}$/.test(seed) ? seed : undefined;
   } catch {
     return undefined;
   }
 }
+
 export function setSavedSeed(seed: string): void {
   assertSeed(seed);
-  const p = seedStorePath();
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, seed + "\n", { mode: 0o600 });
+  const path = seedStorePath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, seed + "\n", { mode: 0o600 });
 }
+
 export function clearSavedSeed(): void {
   try {
     rmSync(seedStorePath());
-  } catch {}
+  } catch {
+    // Clearing a missing seed is already complete.
+  }
 }
 
-// Globally-chosen UI color theme (set by `qinit theme`), applied at startup so every command follows it.
 export function themeStorePath(): string {
   return join(configDir(), "theme");
 }
+
 export function savedTheme(): string | undefined {
   try {
     return readFileSync(themeStorePath(), "utf8").trim() || undefined;
@@ -63,13 +77,13 @@ export function savedTheme(): string | undefined {
     return undefined;
   }
 }
+
 export function setSavedTheme(name: string): void {
-  const p = themeStorePath();
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, name + "\n");
+  const path = themeStorePath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, name + "\n");
 }
 
-// Saved `qinit test` backend: an ephemeral Qubic node or the in-process TypeScript engine.
 export type NodeMode = "realnode" | "virtualnode";
 export const NODE_MODES: NodeMode[] = ["realnode", "virtualnode"];
 
@@ -79,20 +93,19 @@ export function modeStorePath(): string {
 
 export function savedMode(): NodeMode | undefined {
   try {
-    const m = readFileSync(modeStorePath(), "utf8").trim();
-    return m === "realnode" || m === "virtualnode" ? m : undefined;
+    const mode = readFileSync(modeStorePath(), "utf8").trim();
+    return mode === "realnode" || mode === "virtualnode" ? mode : undefined;
   } catch {
     return undefined;
   }
 }
 
 export function setSavedMode(mode: NodeMode): void {
-  const p = modeStorePath();
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, mode + "\n");
+  const path = modeStorePath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, mode + "\n");
 }
 
-// Saved contract compiler for build, deploy, dev, and test: native Clang or in-process TypeScript.
 export type Compiler = "native" | "local";
 export const COMPILERS: Compiler[] = ["native", "local"];
 
@@ -102,28 +115,29 @@ export function compilerStorePath(): string {
 
 export function savedCompiler(): Compiler | undefined {
   try {
-    const c = readFileSync(compilerStorePath(), "utf8").trim();
-    return c === "native" || c === "local" ? c : undefined;
+    const compiler = readFileSync(compilerStorePath(), "utf8").trim();
+    return compiler === "native" || compiler === "local" ? compiler : undefined;
   } catch {
     return undefined;
   }
 }
 
-export function setSavedCompiler(c: Compiler): void {
-  const p = compilerStorePath();
-  mkdirSync(dirname(p), { recursive: true });
-  writeFileSync(p, c + "\n");
+export function setSavedCompiler(compiler: Compiler): void {
+  const path = compilerStorePath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, compiler + "\n");
 }
 
-// Compiler precedence: an explicit per-run flag (--native / --local) wins over the saved `qinit compiler` pick,
-// which wins over the default (native). Mirrors how `--real`/`--virtual` override `qinit mode`.
-export function resolveCompiler(o: Record<string, unknown>): Compiler {
-  if ("native" in o) return "native";
-  if ("local" in o) return "local";
+export function resolveCompiler(options: Record<string, unknown>): Compiler {
+  if ("native" in options) {
+    return "native";
+  }
+  if ("local" in options) {
+    return "local";
+  }
   return savedCompiler() ?? "native";
 }
 
-// Seed precedence: explicit (--seed) > saved pick (`qinit seed`) > node funded seed > dev default.
 export async function resolveSeed(
   rpc: { fundedSeed(): Promise<string | undefined> },
   explicit?: string,
@@ -133,7 +147,10 @@ export async function resolveSeed(
     return explicit;
   }
   const saved = savedSeed();
-  if (saved) return saved;
+  if (saved) {
+    return saved;
+  }
+
   const funded = await rpc.fundedSeed();
   return funded ?? "a".repeat(55);
 }

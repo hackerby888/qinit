@@ -1,5 +1,4 @@
-// Layer 2 — chain-sim. Drives contracts + a single-authority testnet: deploy/registry, tick/epoch, the
-// lifecycle sweep uses the money model for entity spectrum, invocationReward, transfer/burn flows.
+import type { DebugTrace } from "@qinit/core";
 import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
 import { toHex, verifySync } from "./k12";
 import { TraceRecorder } from "./trace";
@@ -27,7 +26,6 @@ import {
   LOG_SC_END_TICK,
   LOG_SC_INITIALIZE,
 } from "./native-logger";
-import type { DebugTrace } from "@qinit/core";
 
 export type { AssetSnapshot };
 export type { FeeMode } from "./fees";
@@ -42,7 +40,6 @@ const ZERO32 = new Uint8Array(32);
 const IPO_SHARE_COUNT = 676; // NUMBER_OF_COMPUTORS — a contract's IPO shares: one per computor (0..675)
 const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
 
-// qpi.h TransferType
 const TT_STANDARD = 0;
 const TT_PROCEDURE = 1;
 const TT_QPI = 2;
@@ -53,53 +50,49 @@ const EP_USER_FUNCTION = 12; // contract_def.h USER_FUNCTION_CALL (contractSyste
 const MAX_CALL_DEPTH = 10; // NUMBER_OF_CONTRACT_EXECUTION_BUFFERS (recursion-depth guard)
 const EMPTY = new Uint8Array(0);
 
-// InterContractCallError (qpi.h:68-75) — the codes liteCallFunction/liteInvokeProcedure return.
 const CALL_ERR_NONE = 0;
-const CALL_ERR_INSUFFICIENT_FEES = 2; // CallErrorInsufficientFees — callee has no execution-fee reserve
+const CALL_ERR_INSUFFICIENT_FEES = 2;
 const CALL_ERR_ALLOC = 3;
 const CALL_ERR_INACTIVE = 4;
 
-// Execution-fee model (core-lite doc/execution_fees.md, opt-in via `new Sim({ fees: "metered" })`); the reserve
-// accounting itself lives in FeeManager (fees.ts).
-const CONTRACT_COUNT = 1024; // MAX_NUMBER_OF_CONTRACTS — valid contract indices are 1..1023
+const CONTRACT_COUNT = 1024;
 
-const INVALID_PROPOSAL_INDEX = 0xffff; // qpi.h:1847 — setShareholderProposal's error sentinel
+const INVALID_PROPOSAL_INDEX = 0xffff;
 
 export interface ProcedureOpts {
-  invocator?: Uint8Array; // 32-byte id of the caller (tx source)
-  originator?: Uint8Array; // 32-byte id of the root initiator
-  reward?: bigint; // invocationReward (Qu sent with the tx)
+  invocator?: Uint8Array;
+  originator?: Uint8Array;
+  reward?: bigint;
 }
 
 export class Sim {
   tickN = 0;
   epochN = 0;
-  // Match TESTNET_EPOCH_DURATION; epochs switch at its multiples.
   epochLength = 3000;
   host: HostServices;
-  onLog?: LogSink; // diagnostic log stream — a host (the IDE) subscribes; unset = no-op (see log.ts)
-  private registry: ContractRegistry; // deployed contracts (instances + state) + deploy/fire + the computer digest
-  private spectrum = new SpectrumLedger(); // entity balance records + the spectrum merkle (spectrumDigest)
-  private oracle: OracleManager; // oracle queries + subscriptions (the query/reply are opaque bytes)
-  private pitDepth = 0; // POST_INCOMING_TRANSFER reentrancy guard
-  private assets = new AssetLedger({ contractId: (slot) => this.contractId(slot) }); // the asset universe + merkle
-  private txpool = new TxPool(); // per-tick tx history + tx-by-id index + the mempool
-  // Fixed from the mempool batch at beginTick for numberOfTickTransactions.
+  onLog?: LogSink;
+  private registry: ContractRegistry;
+  private spectrum = new SpectrumLedger();
+  private oracle: OracleManager;
+  private pitDepth = 0;
+  private assets = new AssetLedger({
+    contractId: (slot) => this.contractId(slot),
+  });
+  private txpool = new TxPool();
   private tickTxCount = 0;
-  private callDepth = 0; // inter-contract nesting depth
-  private recorder = new TraceRecorder(); // debug-trace capture (opt-in via setDebug)
-  private ticking: TickConsensus; // committee + per-tick quorum votes/TickData + the prev*Digest roots
-  tickDuration = 50; // ms/tick surfaced to clients; set by the server to match its auto-tick interval
-  timeBaseMs = Date.UTC(2024, 0, 1); // chain clock origin (tick 0); the chain clock = timeBaseMs + tick*tickDuration
-  private mempoolMode: boolean; // when true, broadcast txs are deferred to their scheduled tick (opt-in)
-  private fees: FeeManager; // per-contract execution-fee reserves + the fee-mode policy
+  private callDepth = 0;
+  private recorder = new TraceRecorder();
+  private ticking: TickConsensus;
+  tickDuration = 50;
+  timeBaseMs = Date.UTC(2024, 0, 1);
+  private mempoolMode: boolean;
+  private fees: FeeManager;
   private nativeLogger?: NativeLogger;
-  private computorOverride = new Map<number, Uint8Array>(); // test seam: qpi.computor(i) overrides (gtest harness)
-  // Test seam for the native harness's pinned previous spectrum digest.
+  private computorOverride = new Map<number, Uint8Array>();
   prevSpectrumDigestOverride?: Uint8Array;
 
   constructor(
-    opts: {
+    options: {
       consensus?: CommitteeOpts;
       mempool?: boolean;
       fees?: FeeMode;
@@ -108,26 +101,32 @@ export class Sim {
       nativeLogger?: NativeLogger;
     } = {},
   ) {
-    this.mempoolMode = opts.mempool ?? false;
-    this.fees = new FeeManager(opts.fees ?? "off", opts.defaultReserve);
-    this.nativeLogger = opts.nativeLogger;
+    this.mempoolMode = options.mempool ?? false;
+    this.fees = new FeeManager(
+      options.fees ?? "off",
+      options.defaultReserve,
+    );
+    this.nativeLogger = options.nativeLogger;
     this.registry = new ContractRegistry(this.fees, this.recorder);
     this.ticking = new TickConsensus(
       {
         spectrumDigest: () => this.spectrumDigest(),
         universeDigest: () => this.universeDigest(),
         computerDigest: () => this.computerDigest(),
-        tickTransactionDigests: (tick) => this.tickTransactions(tick).map((r) => r.digest),
+        tickTransactionDigests: (tick) =>
+          this.tickTransactions(tick).map((record) => record.digest),
         nowMs: () => this.nowMs(),
         tick: () => this.tickN,
         epoch: () => this.epochN,
       },
-      opts.consensus ?? {},
-      opts.liteTicking ?? false,
+      options.consensus ?? {},
+      options.liteTicking ?? false,
     );
+
     this.oracle = new OracleManager({
       contractBalance: (slot) => this.balance(this.contractId(slot)),
-      debitContract: (slot, amount) => this.debit(this.contractId(slot), amount),
+      debitContract: (slot, amount) =>
+        this.debit(this.contractId(slot), amount),
       notify: (slot, procId, input) => {
         const contract = this.contracts.get(slot)!;
         this.registry.fire(contract, KIND.PROCEDURE, procId, input, {
@@ -154,16 +153,49 @@ export class Sim {
       transfer: (slot, dest, amount, type) => this.doTransfer(slot, dest, amount, type),
       burn: (slot, amount, burnedFor) => this.doBurn(slot, amount, burnedFor),
       getEntity: (id) => this.entityOf(id),
-      queryFeeReserve: (callerSlot, ci) => this.fees.queryFeeReserve(callerSlot, ci),
+      queryFeeReserve: (callerSlot, contractIndex) =>
+        this.fees.queryFeeReserve(callerSlot, contractIndex),
       issueAsset: (slot, name, issuer, decimals, shares, unit, invocator) =>
-        this.assets.issueAsset(slot, name, issuer, decimals, shares, unit, invocator),
-      isAssetIssued: (issuer, name) => (this.assets.isAssetIssued(issuer, name) ? 1 : 0),
-      numberOfShares: (asset, ownSel, posSel) => this.assets.numberOfShares(asset, ownSel, posSel),
-      numberOfPossessedShares: (name, issuer, owner, possessor, ownMgmt, posMgmt) =>
-        this.assets.numberOfPossessedShares(name, issuer, owner, possessor, ownMgmt, posMgmt),
-      assetEnumerate: (asset, ownSel, posSel, kind) =>
-        this.assets.enumerate(asset, ownSel, posSel, kind),
-      transferShares: (slot, name, issuer, owner, possessor, shares, newOwner) =>
+        this.assets.issueAsset(
+          slot,
+          name,
+          issuer,
+          decimals,
+          shares,
+          unit,
+          invocator,
+        ),
+      isAssetIssued: (issuer, name) =>
+        this.assets.isAssetIssued(issuer, name) ? 1 : 0,
+      numberOfShares: (asset, ownership, possession) =>
+        this.assets.numberOfShares(asset, ownership, possession),
+      numberOfPossessedShares: (
+        name,
+        issuer,
+        owner,
+        possessor,
+        ownershipManager,
+        possessionManager,
+      ) =>
+        this.assets.numberOfPossessedShares(
+          name,
+          issuer,
+          owner,
+          possessor,
+          ownershipManager,
+          possessionManager,
+        ),
+      assetEnumerate: (asset, ownership, possession, kind) =>
+        this.assets.enumerate(asset, ownership, possession, kind),
+      transferShares: (
+        slot,
+        name,
+        issuer,
+        owner,
+        possessor,
+        shares,
+        newOwner,
+      ) =>
         this.assets.transferShareOwnershipAndPossession(
           slot,
           name,
@@ -173,7 +205,17 @@ export class Sim {
           shares,
           newOwner,
         ),
-      acquireShares: (slot, name, issuer, owner, possessor, shares, srcOwnMgmt, srcPosMgmt, fee) =>
+      acquireShares: (
+        slot,
+        name,
+        issuer,
+        owner,
+        possessor,
+        shares,
+        sourceOwnershipManager,
+        sourcePossessionManager,
+        fee,
+      ) =>
         this.acquireShares(
           slot,
           name,
@@ -181,11 +223,21 @@ export class Sim {
           owner,
           possessor,
           shares,
-          srcOwnMgmt,
-          srcPosMgmt,
+          sourceOwnershipManager,
+          sourcePossessionManager,
           fee,
         ),
-      releaseShares: (slot, name, issuer, owner, possessor, shares, dstOwnMgmt, dstPosMgmt, fee) =>
+      releaseShares: (
+        slot,
+        name,
+        issuer,
+        owner,
+        possessor,
+        shares,
+        destinationOwnershipManager,
+        destinationPossessionManager,
+        fee,
+      ) =>
         this.releaseShares(
           slot,
           name,
@@ -193,36 +245,78 @@ export class Sim {
           owner,
           possessor,
           shares,
-          dstOwnMgmt,
-          dstPosMgmt,
+          destinationOwnershipManager,
+          destinationPossessionManager,
           fee,
         ),
       dayOfWeek: (year, month, day) =>
-        (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) % 7, // qubic dayOfWeek: 0 = Wednesday
+        (new Date(Date.UTC(2000 + year, month - 1, day)).getUTCDay() + 4) %
+        7,
       signatureValidity: (entity, digest, signature) =>
         verifySync(entity, digest, signature) ? 1 : 0,
-      bidInIPO: () => -1n, // the default IPO is already finalized (the 676 shares are held by the computors)
-      ipoBidId: (_ci, i) =>
-        i >= 0 && i < IPO_SHARE_COUNT
-          ? this.ticking.getCommittee().computors[i % this.ticking.committeeSize()].publicKey
+      bidInIPO: () => -1n,
+      ipoBidId: (_contractIndex, index) =>
+        index >= 0 && index < IPO_SHARE_COUNT
+          ? this.ticking.getCommittee().computors[
+              index % this.ticking.committeeSize()
+            ].publicKey
           : ZERO32,
-      // qpi.h uses -3 for an invalid bid index.
-      ipoBidPrice: (_ci, i) => (i >= 0 && i < IPO_SHARE_COUNT ? IPO_SHARE_PRICE : -3n),
-      computeMiningFunction: () => ZERO32, // mining is not modeled in the dev engine
+      ipoBidPrice: (_contractIndex, index) =>
+        index >= 0 && index < IPO_SHARE_COUNT ? IPO_SHARE_PRICE : -3n,
+      computeMiningFunction: () => ZERO32,
       initMiningSeed: () => {},
       getOracleQueryStatus: (queryId) => this.oracle.queryStatus(queryId),
-      unsubscribeOracle: (slot, sub) => this.oracle.unsubscribe(slot, sub),
-      queryOracle: (slot, ifaceIdx, query, replySize, procId, timeout, fee) =>
-        this.oracle.query(slot, ifaceIdx, query, replySize, procId, timeout, fee),
-      subscribeOracle: (slot, ifaceIdx, query, replySize, timestampOffset, procId, period, notifyPrev, fee) =>
-        this.oracle.subscribe(slot, ifaceIdx, query, replySize, timestampOffset, procId, period, notifyPrev, fee),
+      unsubscribeOracle: (slot, subscriptionId) =>
+        this.oracle.unsubscribe(slot, subscriptionId),
+      queryOracle: (
+        slot,
+        interfaceIndex,
+        query,
+        replySize,
+        procedureId,
+        timeout,
+        fee,
+      ) =>
+        this.oracle.query(
+          slot,
+          interfaceIndex,
+          query,
+          replySize,
+          procedureId,
+          timeout,
+          fee,
+        ),
+      subscribeOracle: (
+        slot,
+        interfaceIndex,
+        query,
+        replySize,
+        timestampOffset,
+        procedureId,
+        period,
+        notifyPrevious,
+        fee,
+      ) =>
+        this.oracle.subscribe(
+          slot,
+          interfaceIndex,
+          query,
+          replySize,
+          timestampOffset,
+          procedureId,
+          period,
+          notifyPrevious,
+          fee,
+        ),
       getOracleQuery: (queryId) => this.oracle.getQuery(queryId),
       getOracleReply: (queryId) => this.oracle.getReply(queryId),
       isContractId: (id) => (this.contractSlotOf(id) >= 0 ? 1 : 0),
       arbitrator: () => this.ticking.getCommittee().arbitrator.publicKey,
-      computor: (i) =>
-        this.computorOverride.get(i >>> 0) ??
-        this.ticking.getCommittee().computors[i % this.ticking.committeeSize()]?.publicKey ??
+      computor: (index) =>
+        this.computorOverride.get(index >>> 0) ??
+        this.ticking.getCommittee().computors[
+          index % this.ticking.committeeSize()
+        ]?.publicKey ??
         ZERO32,
       prevSpectrumDigest: () =>
         this.prevSpectrumDigestOverride ?? this.ticking.prevSpectrumDigest(),
@@ -230,38 +324,81 @@ export class Sim {
       prevComputerDigest: () => this.ticking.prevComputerDigest(),
       distributeDividends: (slot, amountPerShare) =>
         this.doDistributeDividends(slot, amountPerShare),
-      callFunction: (callerSlot, calleeIdx, inputType, input, originator) =>
-        this.doCallFunction(callerSlot, calleeIdx, inputType, input, originator),
-      invokeProcedure: (callerSlot, calleeIdx, inputType, input, reward, originator) =>
-        this.doInvokeProcedure(callerSlot, calleeIdx, inputType, input, reward, originator),
+      callFunction: (
+        callerSlot,
+        calleeIndex,
+        inputType,
+        input,
+        originator,
+      ) =>
+        this.doCallFunction(
+          callerSlot,
+          calleeIndex,
+          inputType,
+          input,
+          originator,
+        ),
+      invokeProcedure: (
+        callerSlot,
+        calleeIndex,
+        inputType,
+        input,
+        reward,
+        originator,
+      ) =>
+        this.doInvokeProcedure(
+          callerSlot,
+          calleeIndex,
+          inputType,
+          input,
+          reward,
+          originator,
+        ),
       nextId: (id) => this.nextId(id),
       prevId: (id) => this.prevId(id),
-      setShareholderProposal: (callerSlot, calleeIdx, proposal, reward, originator) =>
-        this.doSetShareholderProposal(callerSlot, calleeIdx, proposal, reward, originator),
-      setShareholderVotes: (callerSlot, calleeIdx, vote, reward, originator) =>
-        this.doSetShareholderVotes(callerSlot, calleeIdx, vote, reward, originator),
+      setShareholderProposal: (
+        callerSlot,
+        calleeIndex,
+        proposal,
+        reward,
+        originator,
+      ) =>
+        this.doSetShareholderProposal(
+          callerSlot,
+          calleeIndex,
+          proposal,
+          reward,
+          originator,
+        ),
+      setShareholderVotes: (
+        callerSlot,
+        calleeIndex,
+        vote,
+        reward,
+        originator,
+      ) =>
+        this.doSetShareholderVotes(
+          callerSlot,
+          calleeIndex,
+          vote,
+          reward,
+          originator,
+        ),
     };
   }
 
-  // ---- execution fees (FeeManager owns the reserve accounting; these stay on the façade for the public API) ----
-  // The current reserve of a contract (Contract-0's contractFeeReserves[index]); 0 if never funded.
   feeReserveOf(slot: number): bigint {
     return this.fees.getReserve(slot);
   }
 
-  // Set a contract's reserve directly (tests / IDE faucet). A positive value clears any prior IPO-failed mark.
   setFeeReserve(slot: number, amount: bigint): void {
     this.fees.setReserve(slot, amount);
   }
 
-  // Model the IPO outcome that seeds the reserve: finalPrice > 0 funds it to finalPrice * 676; finalPrice 0 is a
-  // failed IPO — the contract is marked failed, its reserve stays 0, and burning can no longer refill it.
   ipo(slot: number, finalPrice: bigint): void {
     this.fees.ipo(slot, finalPrice);
   }
 
-  // The deployed contracts + the per-tick dirty set live in ContractRegistry; exposed for the transport/peer
-  // layers that read the slot map (e.g. registry size, per-slot lookups).
   get contracts(): Map<number, Contract> {
     return this.registry.contracts;
   }
@@ -270,10 +407,9 @@ export class Sim {
     return this.registry.dirty;
   }
 
-  // ---- spectrum (the ledger lives in SpectrumLedger; these stay on the façade for the public API) ----
   contractId(slot: number): Uint8Array {
     const id = ContractId.alloc();
-    id.lane0 = BigInt(slot); // id(slot,0,0,0)
+    id.lane0 = BigInt(slot);
     return id.bytes;
   }
 
@@ -301,34 +437,36 @@ export class Sim {
     this.spectrum.decreaseEnergy(id, amount, tick);
   }
 
-  // Faucet: seed an identity with balance (the in-process testnet pre-funds test/seed accounts).
   fund(id: Uint8Array, amount: bigint): void {
     this.spectrum.increaseEnergy(id, amount, this.tickN);
   }
 
-  // Move funds and fire POST_INCOMING_TRANSFER, matching core's test helper.
-  notifyIncomingTransfer(source: Uint8Array, dest: Uint8Array, amount: bigint, type: number): void {
+  notifyIncomingTransfer(
+    source: Uint8Array,
+    destination: Uint8Array,
+    amount: bigint,
+    type: number,
+  ): void {
     this.spectrum.decreaseEnergy(source, amount, this.tickN);
-    this.spectrum.increaseEnergy(dest, amount, this.tickN);
-    this.notifyPIT(dest, source, amount, type);
+    this.spectrum.increaseEnergy(destination, amount, this.tickN);
+    this.notifyPIT(destination, source, amount, type);
   }
 
-  // Override computor identities for corpora that seed a proposal-voting committee.
   setComputorKey(index: number, key: Uint8Array): void {
-    if (key.every((b) => b === 0)) {
+    if (key.every((byte) => byte === 0)) {
       this.computorOverride.delete(index >>> 0);
     } else {
       this.computorOverride.set(index >>> 0, key.slice(0, 32));
     }
   }
 
-  // Reset spectrum and universe between gtests while preserving deployed contract state.
   resetLedger(): void {
     this.spectrum = new SpectrumLedger();
-    this.assets = new AssetLedger({ contractId: (slot) => this.contractId(slot) });
+    this.assets = new AssetLedger({
+      contractId: (slot) => this.contractId(slot),
+    });
   }
 
-  // Spectrum iteration (qpi.nextId/prevId) — the next/previous occupied entity id; zero if none.
   nextId(id: Uint8Array): Uint8Array {
     return this.spectrum.nextId(id);
   }
@@ -337,61 +475,81 @@ export class Sim {
     return this.spectrum.prevId(id);
   }
 
-  // The slot index if `id` is a deployed contract's id (id(slot,0,0,0)), else -1.
   private contractSlotOf(id: Uint8Array): number {
-    const c = ContractId.wrap(id);
-    // Contract identities have zero upper lanes.
-    if (c.lane1 !== 0n || c.lane2 !== 0n || c.lane3 !== 0n) return -1;
+    const contractId = ContractId.wrap(id);
+    if (
+      contractId.lane1 !== 0n ||
+      contractId.lane2 !== 0n ||
+      contractId.lane3 !== 0n
+    ) {
+      return -1;
+    }
 
-    const slot = Number(c.lane0);
+    const slot = Number(contractId.lane0);
     return this.contracts.has(slot) ? slot : -1;
   }
 
-  // ---- transfer / burn (mirror qpi_spectrum_impl.h __transfer / burn) ----
-  private doTransfer(slot: number, dest: Uint8Array, amount: bigint, type: number): bigint {
-    // PIT callbacks cannot transfer to another contract.
-    if (this.pitDepth > 0 && this.contractSlotOf(dest) >= 0) return INVALID_AMOUNT;
-    if (amount < 0n || amount > MAX_AMOUNT) return -(MAX_AMOUNT + 1n);
-
-    const cur = this.contractId(slot);
-    const remaining = this.balance(cur) - amount;
-    if (remaining < 0n) return remaining; // insufficient — nothing moves
-
-    this.debit(cur, amount);
-    this.credit(dest, amount);
-    this.notifyPIT(dest, cur, amount, type);
-
-    return remaining;
-  }
-
-  // Burn QU into a contract's fee reserve; invalid targets fall back to the caller.
-  // Failed-IPO targets reject the burn.
-  private doBurn(slot: number, amount: bigint, burnedFor: number): bigint {
-    if (amount < 0n || amount > MAX_AMOUNT) return -(MAX_AMOUNT + 1n);
-
-    const target = burnedFor < 1 || burnedFor >= CONTRACT_COUNT ? slot : burnedFor;
-    if (this.fees.metered && this.fees.isFailed(target)) return -amount;
-
-    const cur = this.contractId(slot);
-    const remaining = this.balance(cur) - amount;
-    if (remaining < 0n) return remaining;
-
-    this.debit(cur, amount);
-    if (this.fees.metered) this.fees.add(target, amount);
-
-    return remaining;
-  }
-
-  // ---- share management rights / custody (qpi_asset_impl.h acquireShares / releaseShares). The asset ledger
-  // lives in AssetLedger; acquire/release stay here because they weave the spectrum + a contract callback. ----
-  private idEq(a: Uint8Array, b: Uint8Array): boolean {
-    for (let i = 0; i < 32; i++) {
-      if (a[i] !== b[i]) return false;
+  private doTransfer(
+    slot: number,
+    destination: Uint8Array,
+    amount: bigint,
+    type: number,
+  ): bigint {
+    if (this.pitDepth > 0 && this.contractSlotOf(destination) >= 0) {
+      return INVALID_AMOUNT;
     }
+    if (amount < 0n || amount > MAX_AMOUNT) {
+      return -(MAX_AMOUNT + 1n);
+    }
+
+    const source = this.contractId(slot);
+    const remaining = this.balance(source) - amount;
+    if (remaining < 0n) {
+      return remaining;
+    }
+
+    this.debit(source, amount);
+    this.credit(destination, amount);
+    this.notifyPIT(destination, source, amount, type);
+
+    return remaining;
+  }
+
+  private doBurn(slot: number, amount: bigint, burnedFor: number): bigint {
+    if (amount < 0n || amount > MAX_AMOUNT) {
+      return -(MAX_AMOUNT + 1n);
+    }
+
+    const target =
+      burnedFor < 1 || burnedFor >= CONTRACT_COUNT ? slot : burnedFor;
+    if (this.fees.metered && this.fees.isFailed(target)) {
+      return -amount;
+    }
+
+    const source = this.contractId(slot);
+    const remaining = this.balance(source) - amount;
+    if (remaining < 0n) {
+      return remaining;
+    }
+
+    this.debit(source, amount);
+    if (this.fees.metered) {
+      this.fees.add(target, amount);
+    }
+
+    return remaining;
+  }
+
+  private idEq(left: Uint8Array, right: Uint8Array): boolean {
+    for (let i = 0; i < 32; i++) {
+      if (left[i] !== right[i]) {
+        return false;
+      }
+    }
+
     return true;
   }
 
-  // The low-level management-rights move (AssetLedger owns it); kept on the façade for the public API.
   transferShareManagementRights(
     name: bigint,
     issuer: Uint8Array,
@@ -412,8 +570,6 @@ export class Sim {
     );
   }
 
-  // Run a management-rights-transfer approval callback (PRE/POST_RELEASE/ACQUIRE_SHARES) on the other managing
-  // contract. An absent callback denies the transfer (the node zeroes the output, so allowTransfer is false).
   private runManagementCallback(
     targetSlot: number,
     spId: number,
@@ -425,29 +581,34 @@ export class Sim {
     fee: bigint,
     otherSlot: number,
   ): { allow: boolean; fee: bigint } {
-    const c = this.contracts.get(targetSlot);
-    if (!c || !c.hasSysproc(spId)) {
+    const contract = this.contracts.get(targetSlot);
+    if (!contract || !contract.hasSysproc(spId)) {
       return { allow: false, fee: 0n };
     }
 
-    const req = PreManagementRightsTransferInput.alloc();
-    req.asset.issuer = issuer;
-    req.asset.assetName = name;
-    req.owner = owner;
-    req.possessor = possessor;
-    req.shares = shares;
-    req.offeredFee = fee;
-    req.otherContractIndex = otherSlot;
+    const request = PreManagementRightsTransferInput.alloc();
+    request.asset.issuer = issuer;
+    request.asset.assetName = name;
+    request.owner = owner;
+    request.possessor = possessor;
+    request.shares = shares;
+    request.offeredFee = fee;
+    request.otherContractIndex = otherSlot;
 
-    const out = this.registry.fire(c, KIND.SYSPROC, spId, req.bytes, { entryPoint: spId });
-    const reply = PreManagementRightsTransferOutput.wrap(out);
-    const allow = out.length >= 1 && reply.allowTransfer !== 0;
-    const reqFee = out.length >= 16 ? reply.requestedFee : 0n;
-    return { allow, fee: reqFee };
+    const output = this.registry.fire(
+      contract,
+      KIND.SYSPROC,
+      spId,
+      request.bytes,
+      { entryPoint: spId },
+    );
+    const reply = PreManagementRightsTransferOutput.wrap(output);
+    const allow = output.length >= 1 && reply.allowTransfer !== 0;
+    const requestedFee = output.length >= 16 ? reply.requestedFee : 0n;
+
+    return { allow, fee: requestedFee };
   }
 
-  // qpi.acquireShares — the calling contract takes management rights of (owner,possessor)'s shares currently
-  // managed by srcMgmt. The source managing contract approves via PRE_RELEASE_SHARES (and may charge a fee);
   acquireShares(
     callerSlot: number,
     name: bigint,
@@ -455,31 +616,41 @@ export class Sim {
     owner: Uint8Array,
     possessor: Uint8Array,
     shares: bigint,
-    srcOwnMgmt: number,
-    srcPosMgmt: number,
+    sourceOwnershipManager: number,
+    sourcePossessionManager: number,
     offeredFee: bigint,
   ): bigint {
-    if (!this.idEq(owner, possessor) || srcOwnMgmt !== srcPosMgmt) {
+    if (
+      !this.idEq(owner, possessor) ||
+      sourceOwnershipManager !== sourcePossessionManager
+    ) {
       return INVALID_AMOUNT;
     }
+
     if (
-      srcPosMgmt === callerSlot ||
-      srcPosMgmt < 1 ||
-      srcPosMgmt >= CONTRACT_COUNT ||
+      sourcePossessionManager === callerSlot ||
+      sourcePossessionManager < 1 ||
+      sourcePossessionManager >= CONTRACT_COUNT ||
       shares <= 0n ||
       offeredFee < 0n
     ) {
       return INVALID_AMOUNT;
     }
-    if (
-      this.assets.numberOfPossessedShares(name, issuer, owner, possessor, srcPosMgmt, srcPosMgmt) <
-      shares
-    ) {
+
+    const availableShares = this.assets.numberOfPossessedShares(
+      name,
+      issuer,
+      owner,
+      possessor,
+      sourcePossessionManager,
+      sourcePossessionManager,
+    );
+    if (availableShares < shares) {
       return INVALID_AMOUNT;
     }
 
-    const cb = this.runManagementCallback(
-      srcOwnMgmt,
+    const callback = this.runManagementCallback(
+      sourceOwnershipManager,
       SP.PRE_RELEASE_SHARES,
       name,
       issuer,
@@ -489,17 +660,28 @@ export class Sim {
       offeredFee,
       callerSlot,
     );
-    if (!cb.allow || cb.fee < 0n || cb.fee > MAX_AMOUNT) {
+
+    if (
+      !callback.allow ||
+      callback.fee < 0n ||
+      callback.fee > MAX_AMOUNT
+    ) {
       return INVALID_AMOUNT;
     }
-    if (cb.fee > offeredFee) {
-      return -cb.fee;
+
+    if (callback.fee > offeredFee) {
+      return -callback.fee;
     }
 
-    if (cb.fee > 0n) {
-      // the fee is a real qpi transfer to the releasing contract — its POST_INCOMING_TRANSFER fires
-      if (this.doTransfer(callerSlot, this.contractId(srcOwnMgmt), cb.fee, TT_QPI) < 0n) {
-        return -cb.fee;
+    if (callback.fee > 0n) {
+      const feeResult = this.doTransfer(
+        callerSlot,
+        this.contractId(sourceOwnershipManager),
+        callback.fee,
+        TT_QPI,
+      );
+      if (feeResult < 0n) {
+        return -callback.fee;
       }
     }
 
@@ -509,7 +691,7 @@ export class Sim {
         issuer,
         owner,
         possessor,
-        srcPosMgmt,
+        sourcePossessionManager,
         callerSlot,
         shares,
       )
@@ -518,21 +700,20 @@ export class Sim {
     }
 
     this.runManagementCallback(
-      srcOwnMgmt,
+      sourceOwnershipManager,
       SP.POST_RELEASE_SHARES,
       name,
       issuer,
       owner,
       possessor,
       shares,
-      cb.fee,
+      callback.fee,
       callerSlot,
     );
-    return cb.fee;
+
+    return callback.fee;
   }
 
-  // qpi.releaseShares — the calling contract (the current manager) releases management rights of the shares to
-  // dstMgmt, which approves via PRE_ACQUIRE_SHARES. Mirror of acquireShares.
   releaseShares(
     callerSlot: number,
     name: bigint,
@@ -540,31 +721,41 @@ export class Sim {
     owner: Uint8Array,
     possessor: Uint8Array,
     shares: bigint,
-    dstOwnMgmt: number,
-    dstPosMgmt: number,
+    destinationOwnershipManager: number,
+    destinationPossessionManager: number,
     offeredFee: bigint,
   ): bigint {
-    if (!this.idEq(owner, possessor) || dstOwnMgmt !== dstPosMgmt) {
+    if (
+      !this.idEq(owner, possessor) ||
+      destinationOwnershipManager !== destinationPossessionManager
+    ) {
       return INVALID_AMOUNT;
     }
+
     if (
-      dstPosMgmt === callerSlot ||
-      dstPosMgmt < 1 ||
-      dstPosMgmt >= CONTRACT_COUNT ||
+      destinationPossessionManager === callerSlot ||
+      destinationPossessionManager < 1 ||
+      destinationPossessionManager >= CONTRACT_COUNT ||
       shares <= 0n ||
       offeredFee < 0n
     ) {
       return INVALID_AMOUNT;
     }
-    if (
-      this.assets.numberOfPossessedShares(name, issuer, owner, possessor, callerSlot, callerSlot) <
-      shares
-    ) {
+
+    const availableShares = this.assets.numberOfPossessedShares(
+      name,
+      issuer,
+      owner,
+      possessor,
+      callerSlot,
+      callerSlot,
+    );
+    if (availableShares < shares) {
       return INVALID_AMOUNT;
     }
 
-    const cb = this.runManagementCallback(
-      dstOwnMgmt,
+    const callback = this.runManagementCallback(
+      destinationOwnershipManager,
       SP.PRE_ACQUIRE_SHARES,
       name,
       issuer,
@@ -574,17 +765,28 @@ export class Sim {
       offeredFee,
       callerSlot,
     );
-    if (!cb.allow || cb.fee < 0n || cb.fee > MAX_AMOUNT) {
+
+    if (
+      !callback.allow ||
+      callback.fee < 0n ||
+      callback.fee > MAX_AMOUNT
+    ) {
       return INVALID_AMOUNT;
     }
-    if (cb.fee > offeredFee) {
-      return -cb.fee;
+
+    if (callback.fee > offeredFee) {
+      return -callback.fee;
     }
 
-    if (cb.fee > 0n) {
-      // the fee is a real qpi transfer to the acquiring contract — its POST_INCOMING_TRANSFER fires
-      if (this.doTransfer(callerSlot, this.contractId(dstOwnMgmt), cb.fee, TT_QPI) < 0n) {
-        return -cb.fee;
+    if (callback.fee > 0n) {
+      const feeResult = this.doTransfer(
+        callerSlot,
+        this.contractId(destinationOwnershipManager),
+        callback.fee,
+        TT_QPI,
+      );
+      if (feeResult < 0n) {
+        return -callback.fee;
       }
     }
 
@@ -595,7 +797,7 @@ export class Sim {
         owner,
         possessor,
         callerSlot,
-        dstPosMgmt,
+        destinationPossessionManager,
         shares,
       )
     ) {
@@ -603,50 +805,67 @@ export class Sim {
     }
 
     this.runManagementCallback(
-      dstOwnMgmt,
+      destinationOwnershipManager,
       SP.POST_ACQUIRE_SHARES,
       name,
       issuer,
       owner,
       possessor,
       shares,
-      cb.fee,
+      callback.fee,
       callerSlot,
     );
-    return cb.fee;
+
+    return callback.fee;
   }
 
-  // distributeDividends (qpi_asset_impl.h): deduct amountPerShare * 676 from the contract up front, then pay
-  // amountPerShare per share to every POSSESSOR of the contract's own share asset (issuer = zero id, name =
   private doDistributeDividends(slot: number, amountPerShare: bigint): number {
-    if (this.pitDepth > 0) return 0; // forbidden inside POST_INCOMING_TRANSFER
-    if (amountPerShare < 0n || amountPerShare * BigInt(IPO_SHARE_COUNT) > MAX_AMOUNT) return 0;
+    if (this.pitDepth > 0) {
+      return 0;
+    }
+
+    if (amountPerShare < 0n) {
+      return 0;
+    }
 
     const total = amountPerShare * BigInt(IPO_SHARE_COUNT);
-    const cur = this.contractId(slot);
-    if (this.balance(cur) < total) return 0;
+    if (total > MAX_AMOUNT) {
+      return 0;
+    }
 
-    this.debit(cur, total);
+    const contractId = this.contractId(slot);
+    if (this.balance(contractId) < total) {
+      return 0;
+    }
+
+    this.debit(contractId, total);
     if (amountPerShare === 0n) {
       return 1;
     }
 
     const name = this.contractAssetNames.get(slot);
-    // With no registered share asset, keep the deduction and pay nothing.
-    if (name === undefined) return 1;
+    if (name === undefined) {
+      return 1;
+    }
 
-    for (const p of this.assets.possessionsOf(ZERO32, name)) {
-      if (p.shares === 0n) continue;
-      const dividend = amountPerShare * p.shares;
-      this.credit(p.possessor, dividend);
-      this.notifyPIT(p.possessor, cur, dividend, TT_DIVIDENDS);
+    for (const possession of this.assets.possessionsOf(ZERO32, name)) {
+      if (possession.shares === 0n) {
+        continue;
+      }
+
+      const dividend = amountPerShare * possession.shares;
+      this.credit(possession.possessor, dividend);
+      this.notifyPIT(
+        possession.possessor,
+        contractId,
+        dividend,
+        TT_DIVIDENDS,
+      );
     }
 
     return 1;
   }
 
-  // The contract's share-asset name (its ticker, packed ASCII) — what distributeDividends iterates. System
-  // contracts get it from contract_def.h's contractDescriptions (the gtest harness passes the catalog);
   private contractAssetNames = new Map<number, bigint>();
 
   setContractAssetName(slot: number, name: bigint | string): void {
@@ -656,17 +875,29 @@ export class Sim {
     );
   }
 
-  // Mint 676 post-IPO shares to the deployer stand-in, managed by QX.
-  // Existing contract share assets are unchanged.
-  mintDeployShares(slot: number, name: bigint | string, holder: Uint8Array): void {
-    const packed = typeof name === "string" ? packAssetName(name) : name & 0xffffffffffffffn;
-    this.setContractAssetName(slot, packed);
-    if (this.assets.isAssetIssued(ZERO32, packed)) return;
+  mintDeployShares(
+    slot: number,
+    name: bigint | string,
+    holder: Uint8Array,
+  ): void {
+    const packedName =
+      typeof name === "string"
+        ? packAssetName(name)
+        : name & 0xffffffffffffffn;
+    this.setContractAssetName(slot, packedName);
 
-    this.assets.mintContractShares(1, packed, BigInt(IPO_SHARE_COUNT)); // minted to the zero-id holder, managed by QX
+    if (this.assets.isAssetIssued(ZERO32, packedName)) {
+      return;
+    }
+
+    this.assets.mintContractShares(
+      1,
+      packedName,
+      BigInt(IPO_SHARE_COUNT),
+    );
     this.assets.transferShareOwnershipAndPossession(
       1,
-      packed,
+      packedName,
       ZERO32,
       ZERO32,
       ZERO32,
@@ -675,18 +906,25 @@ export class Sim {
     );
   }
 
-  // Read-only snapshot of the asset universe for inspection tools (AssetLedger owns it).
   assetUniverse(): AssetSnapshot[] {
     return this.assets.assetUniverse();
   }
 
-  // Fire the dest contract's POST_INCOMING_TRANSFER callback (nested, synchronous), if registered.
-  private notifyPIT(dest: Uint8Array, source: Uint8Array, amount: bigint, type: number): void {
-    const slot = this.contractSlotOf(dest);
-    if (slot < 0) return;
+  private notifyPIT(
+    destination: Uint8Array,
+    source: Uint8Array,
+    amount: bigint,
+    type: number,
+  ): void {
+    const slot = this.contractSlotOf(destination);
+    if (slot < 0) {
+      return;
+    }
 
-    const c = this.contracts.get(slot)!;
-    if (!c.hasSysproc(SP.POST_INCOMING_TRANSFER)) return;
+    const contract = this.contracts.get(slot)!;
+    if (!contract.hasSysproc(SP.POST_INCOMING_TRANSFER)) {
+      return;
+    }
 
     const notice = PostIncomingTransferInput.alloc();
     notice.source = source;
@@ -694,42 +932,62 @@ export class Sim {
     notice.type = type;
     const input = notice.bytes;
 
-    // POST_INCOMING_TRANSFER is a system-initiated callback: exempt from the fee gate (it runs even on a
-    // dormant contract so it can receive transfers) but still metered, since a state change costs the digest.
     this.pitDepth++;
     try {
-      this.registry.fire(c, KIND.SYSPROC, SP.POST_INCOMING_TRANSFER, input, {
-        entryPoint: SP.POST_INCOMING_TRANSFER,
-      });
+      this.registry.fire(
+        contract,
+        KIND.SYSPROC,
+        SP.POST_INCOMING_TRANSFER,
+        input,
+        {
+          entryPoint: SP.POST_INCOMING_TRANSFER,
+        },
+      );
     } finally {
       this.pitDepth--;
     }
   }
 
-  // Deploy + construct (ContractRegistry owns the instances); stays on the façade for the public API.
-  deploy(slot: number, wasm: Uint8Array, extMem?: WebAssembly.Memory): Contract {
+  deploy(
+    slot: number,
+    wasm: Uint8Array,
+    externalMemory?: WebAssembly.Memory,
+  ): Contract {
     this.nativeLogger?.begin(this.tickN, LOG_SC_INITIALIZE);
-    let c: Contract;
+    let contract: Contract;
+
     try {
-      c = this.registry.deploy(slot, wasm, this.host, extMem);
+      contract = this.registry.deploy(
+        slot,
+        wasm,
+        this.host,
+        externalMemory,
+      );
     } finally {
       this.nativeLogger?.end();
     }
-    this.emit("info", "deploy", `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`);
-    if (c.stateSize > K12_MAX_LEAF_BYTES) {
-      // A mainnet-sized state (e.g. QX ~600 MB) can't be K12-hashed, so it gets a zero computer-digest leaf
-      // (see ContractRegistry.computerDigest). Surface it once here rather than silently every tick.
+
+    this.emit(
+      "info",
+      "deploy",
+      `slot ${slot} deployed · ${(wasm.length / 1024) | 0}KB wasm`,
+    );
+    if (contract.stateSize > K12_MAX_LEAF_BYTES) {
       this.emit(
         "warn",
         "digest",
-        `slot ${slot} state ${(c.stateSize / 1048576) | 0}MB > ${K12_MAX_LEAF_BYTES / 1048576}MB — excluded from computer digest (zero leaf)`,
+        `slot ${slot} state ${(contract.stateSize / 1048576) | 0}MB > ${K12_MAX_LEAF_BYTES / 1048576}MB — excluded from computer digest (zero leaf)`,
       );
     }
-    return c;
+
+    return contract;
   }
 
-  // Private test-runner hook: production contracts never receive engine-specific imports.
-  deployWithImports(slot: number, wasm: Uint8Array, imports: WebAssembly.Imports): Contract {
+  deployWithImports(
+    slot: number,
+    wasm: Uint8Array,
+    imports: WebAssembly.Imports,
+  ): Contract {
     this.nativeLogger?.begin(this.tickN, LOG_SC_INITIALIZE);
     try {
       return this.registry.deploy(slot, wasm, this.host, undefined, imports);
@@ -739,12 +997,14 @@ export class Sim {
   }
 
   undeploy(slot: number): boolean {
-    const ok = this.registry.undeploy(slot);
-    if (ok) this.emit("info", "deploy", `slot ${slot} undeployed`);
-    return ok;
+    const removed = this.registry.undeploy(slot);
+    if (removed) {
+      this.emit("info", "deploy", `slot ${slot} undeployed`);
+    }
+
+    return removed;
   }
 
-  // Debug tracing — wired to the node's /dev/debug + /debug-trace RPC by the transport.
   setDebug(on: boolean): void {
     this.recorder.setEnabled(on);
   }
@@ -753,24 +1013,33 @@ export class Sim {
     return this.recorder.trace();
   }
 
-  // Emit a diagnostic log event to the subscribed sink (the IDE's engine-log popup). No-op when unset, so the
-  // per-tick debug events cost only the message build when nobody is listening.
-  private emit(level: LogLevel, cat: string, msg: string): void {
-    this.onLog?.({ level, tick: this.tickN, cat, msg });
+  private emit(level: LogLevel, category: string, message: string): void {
+    this.onLog?.({
+      level,
+      tick: this.tickN,
+      cat: category,
+      msg: message,
+    });
   }
 
-  // Epoch-boundary sysprocs are exempt from the fee gate (execution_fees.md): they run even on a depleted
-  // reserve to keep contract state valid.
   beginEpoch(): void {
     this.oracle.beginEpoch();
     this.nativeLogger?.begin(this.tickN, LOG_SC_BEGIN_EPOCH);
+
     try {
-      for (const s of this.registry.slots(true)) {
-        const c = this.contracts.get(s)!;
-        if (c.hasSysproc(SP.BEGIN_EPOCH))
-          this.registry.fire(c, KIND.SYSPROC, SP.BEGIN_EPOCH, new Uint8Array(0), {
-            entryPoint: SP.BEGIN_EPOCH,
-          });
+      for (const slot of this.registry.slots(true)) {
+        const contract = this.contracts.get(slot)!;
+        if (contract.hasSysproc(SP.BEGIN_EPOCH)) {
+          this.registry.fire(
+            contract,
+            KIND.SYSPROC,
+            SP.BEGIN_EPOCH,
+            new Uint8Array(0),
+            {
+              entryPoint: SP.BEGIN_EPOCH,
+            },
+          );
+        }
       }
     } finally {
       this.nativeLogger?.end();
@@ -779,36 +1048,54 @@ export class Sim {
 
   endEpoch(): void {
     this.nativeLogger?.begin(this.tickN, LOG_SC_END_EPOCH);
+
     try {
-      for (const s of this.registry.slots(false)) {
-        const c = this.contracts.get(s)!;
-        if (c.hasSysproc(SP.END_EPOCH))
-          this.registry.fire(c, KIND.SYSPROC, SP.END_EPOCH, new Uint8Array(0), {
-            entryPoint: SP.END_EPOCH,
-          });
+      for (const slot of this.registry.slots(false)) {
+        const contract = this.contracts.get(slot)!;
+        if (contract.hasSysproc(SP.END_EPOCH)) {
+          this.registry.fire(
+            contract,
+            KIND.SYSPROC,
+            SP.END_EPOCH,
+            new Uint8Array(0),
+            {
+              entryPoint: SP.END_EPOCH,
+            },
+          );
+        }
       }
     } finally {
       this.nativeLogger?.end();
     }
   }
 
-  // BEGIN_TICK / END_TICK are gated: a metered contract with a non-positive reserve is skipped (dormant) until
-  // it is refilled.
   beginTick(): void {
     this.tickN++;
-    // Fix the tick transaction count before BEGIN_TICK.
     this.tickTxCount = this.txpool.dueCount(this.tickN);
-    this.emit("debug", "tick", `tick ${this.tickN} begin · ${this.tickTxCount} tx`);
+    this.emit(
+      "debug",
+      "tick",
+      `tick ${this.tickN} begin · ${this.tickTxCount} tx`,
+    );
 
     this.nativeLogger?.begin(this.tickN, LOG_SC_BEGIN_TICK);
     try {
-      for (const s of this.registry.slots(true)) {
-        // BEGIN_TICK: ascending 1->N
-        const c = this.contracts.get(s)!;
-        if (c.hasSysproc(SP.BEGIN_TICK) && this.fees.reserveOk(s))
-          this.registry.fire(c, KIND.SYSPROC, SP.BEGIN_TICK, new Uint8Array(0), {
-            entryPoint: SP.BEGIN_TICK,
-          });
+      for (const slot of this.registry.slots(true)) {
+        const contract = this.contracts.get(slot)!;
+        if (
+          contract.hasSysproc(SP.BEGIN_TICK) &&
+          this.fees.reserveOk(slot)
+        ) {
+          this.registry.fire(
+            contract,
+            KIND.SYSPROC,
+            SP.BEGIN_TICK,
+            new Uint8Array(0),
+            {
+              entryPoint: SP.BEGIN_TICK,
+            },
+          );
+        }
       }
     } finally {
       this.nativeLogger?.end();
@@ -817,30 +1104,46 @@ export class Sim {
 
   endTick(): void {
     this.nativeLogger?.begin(this.tickN, LOG_SC_END_TICK);
+
     try {
-      for (const s of this.registry.slots(false)) {
-        // END_TICK: descending N->1
-        const c = this.contracts.get(s)!;
-        if (c.hasSysproc(SP.END_TICK) && this.fees.reserveOk(s))
-          this.registry.fire(c, KIND.SYSPROC, SP.END_TICK, new Uint8Array(0), {
-            entryPoint: SP.END_TICK,
-          });
+      for (const slot of this.registry.slots(false)) {
+        const contract = this.contracts.get(slot)!;
+        if (
+          contract.hasSysproc(SP.END_TICK) &&
+          this.fees.reserveOk(slot)
+        ) {
+          this.registry.fire(
+            contract,
+            KIND.SYSPROC,
+            SP.END_TICK,
+            new Uint8Array(0),
+            {
+              entryPoint: SP.END_TICK,
+            },
+          );
+        }
       }
     } finally {
       this.nativeLogger?.end();
     }
+
     this.emit("debug", "tick", `tick ${this.tickN} end`);
   }
 
-  // Advance a tick, switching epoch first when its boundary is reached.
   advance(): void {
     const nextTick = this.tickN + 1;
+
     if (this.epochLength > 0 && nextTick % this.epochLength === 0) {
       this.endEpoch();
       this.epochN++;
       this.beginEpoch();
-      this.emit("info", "epoch", `epoch ${this.epochN - 1} → ${this.epochN}`);
+      this.emit(
+        "info",
+        "epoch",
+        `epoch ${this.epochN - 1} → ${this.epochN}`,
+      );
     }
+
     this.beginTick();
     this.drainMempool();
     this.oracle.pump();
@@ -853,8 +1156,6 @@ export class Sim {
     return this.contracts.get(slot)!.invoke(KIND.FUNCTION, it, input);
   }
 
-  // Run a user procedure: POST_INCOMING_TRANSFER (procedureTransaction) if reward>0, then the procedure.
-  // Does NOT credit — the caller (procedure() or applyTx()) has already moved the reward into the contract.
   private runProcedure(
     slot: number,
     it: number,
@@ -864,10 +1165,17 @@ export class Sim {
     reward: bigint,
     transferType = TT_PROCEDURE,
   ): Uint8Array {
-    const c = this.contracts.get(slot)!;
-    if (reward > 0n) this.notifyPIT(this.contractId(slot), invocator, reward, transferType);
+    const contract = this.contracts.get(slot)!;
+    if (reward > 0n) {
+      this.notifyPIT(
+        this.contractId(slot),
+        invocator,
+        reward,
+        transferType,
+      );
+    }
 
-    return this.registry.fire(c, KIND.PROCEDURE, it, input, {
+    return this.registry.fire(contract, KIND.PROCEDURE, it, input, {
       invocator,
       originator,
       invocationReward: reward,
@@ -875,17 +1183,12 @@ export class Sim {
     });
   }
 
-  // ---- oracle (OracleManager owns the queries/subscriptions; these stay on the façade for the public API) ----
-
-  // Public resolve seam: the dev/test (or a node-mode oracle-machine adapter) supplies a query's reply, which
-  // sets it SUCCESS and fires the contract's notification procedure. False for an unknown queryId.
   resolveOracle(queryId: bigint, reply: Uint8Array, status?: number): boolean {
     return status === undefined
       ? this.oracle.resolve(queryId, reply)
       : this.oracle.resolve(queryId, reply, status);
   }
 
-  // PENDING oracle queries (dev/test discovery — the resolve seam's read side).
   pendingOracleQueries(): {
     queryId: bigint;
     slot: number;
@@ -895,30 +1198,34 @@ export class Sim {
     return this.oracle.pending();
   }
 
-  // Register a reply provider (interfaceIndex, query) -> reply | null. Pending queries auto-resolve through it on
-  // advance(). This is the mock/browser path; a real oracle-machine fetch plugs in behind this same seam.
   setOracleProvider(
-    fn: ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null) | null,
+    provider:
+      | ((interfaceIndex: number, query: Uint8Array) => Uint8Array | null)
+      | null,
   ): void {
-    this.oracle.setProvider(fn);
+    this.oracle.setProvider(provider);
   }
 
-  // Route a function call to a lower-index contract and return its error or output.
   doCallFunction(
     callerSlot: number,
-    calleeIdx: number,
+    calleeIndex: number,
     inputType: number,
     input: Uint8Array,
     originator: Uint8Array,
   ): { error: number; output: Uint8Array } {
-    const callee = this.contracts.get(calleeIdx);
-    if (!callee) return { error: CALL_ERR_INACTIVE, output: EMPTY };
-    if (calleeIdx >= callerSlot) return { error: CALL_ERR_INACTIVE, output: EMPTY }; // lower-index rule
-    if (!this.fees.reserveOk(calleeIdx))
-      return { error: CALL_ERR_INSUFFICIENT_FEES, output: EMPTY }; // callee must have reserve
-    if (this.callDepth >= MAX_CALL_DEPTH) return { error: CALL_ERR_ALLOC, output: EMPTY };
+    const callee = this.contracts.get(calleeIndex);
+    if (!callee || calleeIndex >= callerSlot) {
+      return { error: CALL_ERR_INACTIVE, output: EMPTY };
+    }
+    if (!this.fees.reserveOk(calleeIndex)) {
+      return { error: CALL_ERR_INSUFFICIENT_FEES, output: EMPTY };
+    }
+    if (this.callDepth >= MAX_CALL_DEPTH) {
+      return { error: CALL_ERR_ALLOC, output: EMPTY };
+    }
 
     this.callDepth++;
+
     try {
       const invocator = this.contractId(callerSlot);
       const output = callee.invoke(KIND.FUNCTION, inputType, input, {
@@ -933,44 +1240,50 @@ export class Sim {
     }
   }
 
-  // Inter-contract procedure invocation (liteInvokeProcedure) — transfer the reward (caller contract -> callee
-  // contract), then run the callee procedure (fires its POST_INCOMING_TRANSFER, procedureInvocationByOtherContract).
   doInvokeProcedure(
     callerSlot: number,
-    calleeIdx: number,
+    calleeIndex: number,
     inputType: number,
     input: Uint8Array,
     reward: bigint,
     originator: Uint8Array,
   ): { error: number; output: Uint8Array } {
-    const callee = this.contracts.get(calleeIdx);
-    if (!callee) return { error: CALL_ERR_INACTIVE, output: EMPTY };
-    if (calleeIdx >= callerSlot) return { error: CALL_ERR_INACTIVE, output: EMPTY };
-    if (!this.fees.reserveOk(calleeIdx))
-      return { error: CALL_ERR_INSUFFICIENT_FEES, output: EMPTY }; // callee must have reserve (reward not moved)
-    if (this.callDepth >= MAX_CALL_DEPTH) return { error: CALL_ERR_ALLOC, output: EMPTY };
+    const callee = this.contracts.get(calleeIndex);
+    if (!callee || calleeIndex >= callerSlot) {
+      return { error: CALL_ERR_INACTIVE, output: EMPTY };
+    }
+    if (!this.fees.reserveOk(calleeIndex)) {
+      return { error: CALL_ERR_INSUFFICIENT_FEES, output: EMPTY };
+    }
+    if (this.callDepth >= MAX_CALL_DEPTH) {
+      return { error: CALL_ERR_ALLOC, output: EMPTY };
+    }
 
-    let r = reward;
-    if (r > 0n) {
-      const callerCid = this.contractId(callerSlot);
-      if (this.balance(callerCid) >= r) {
-        this.debit(callerCid, r);
-        this.credit(this.contractId(calleeIdx), r);
+    let transferredReward = reward;
+    if (transferredReward > 0n) {
+      const callerId = this.contractId(callerSlot);
+      if (this.balance(callerId) >= transferredReward) {
+        this.debit(callerId, transferredReward);
+        this.credit(
+          this.contractId(calleeIndex),
+          transferredReward,
+        );
       } else {
-        r = 0n; // insufficient — the node sets the reward to 0
+        transferredReward = 0n;
       }
     }
 
     this.callDepth++;
+
     try {
       const invocator = this.contractId(callerSlot);
       const output = this.runProcedure(
-        calleeIdx,
+        calleeIndex,
         inputType,
         input,
         invocator,
         originator,
-        r,
+        transferredReward,
         TT_PROCEDURE_BY_OTHER_CONTRACT,
       );
       return { error: CALL_ERR_NONE, output };
@@ -979,110 +1292,161 @@ export class Sim {
     }
   }
 
-  private transferReward(callerSlot: number, calleeIdx: number, reward: bigint): void {
-    const callerCid = this.contractId(callerSlot);
-    if (this.balance(callerCid) < reward) return;
+  private transferReward(
+    callerSlot: number,
+    calleeIndex: number,
+    reward: bigint,
+  ): void {
+    const callerId = this.contractId(callerSlot);
+    if (this.balance(callerId) < reward) {
+      return;
+    }
 
-    this.debit(callerCid, reward);
-    this.credit(this.contractId(calleeIdx), reward);
+    this.debit(callerId, reward);
+    this.credit(this.contractId(calleeIndex), reward);
   }
 
-  // Shareholder governance (qpi.setShareholderProposal) — invoke the callee's SET_SHAREHOLDER_PROPOSAL sysproc
-  // (1024-byte proposal in, uint16 proposal index out). Mirrors contract_exec.h:805.
   doSetShareholderProposal(
     callerSlot: number,
-    calleeIdx: number,
+    calleeIndex: number,
     proposal: Uint8Array,
     reward: bigint,
     originator: Uint8Array,
   ): number {
     if (
-      calleeIdx === callerSlot ||
-      calleeIdx === 0 ||
-      !this.contracts.has(calleeIdx) ||
+      calleeIndex === callerSlot ||
+      calleeIndex === 0 ||
+      !this.contracts.has(calleeIndex) ||
       reward < 0n
-    )
+    ) {
       return INVALID_PROPOSAL_INDEX;
-    if (this.callDepth >= MAX_CALL_DEPTH) return INVALID_PROPOSAL_INDEX;
+    }
+    if (this.callDepth >= MAX_CALL_DEPTH) {
+      return INVALID_PROPOSAL_INDEX;
+    }
 
-    const callee = this.contracts.get(calleeIdx)!;
-    if (!callee.hasSysproc(SP.SET_SHAREHOLDER_PROPOSAL)) return INVALID_PROPOSAL_INDEX;
-    if (!this.fees.reserveOk(calleeIdx)) return INVALID_PROPOSAL_INDEX; // dormant callee can't be invoked
+    const callee = this.contracts.get(calleeIndex)!;
+    if (
+      !callee.hasSysproc(SP.SET_SHAREHOLDER_PROPOSAL) ||
+      !this.fees.reserveOk(calleeIndex)
+    ) {
+      return INVALID_PROPOSAL_INDEX;
+    }
 
-    if (reward > 0n) this.transferReward(callerSlot, calleeIdx, reward);
+    if (reward > 0n) {
+      this.transferReward(callerSlot, calleeIndex, reward);
+    }
 
     this.callDepth++;
+
     try {
-      const out = this.registry.fire(callee, KIND.SYSPROC, SP.SET_SHAREHOLDER_PROPOSAL, proposal, {
-        invocator: this.contractId(callerSlot),
-        originator,
-        entryPoint: SP.SET_SHAREHOLDER_PROPOSAL,
-      });
-      return out.length >= 2
-        ? new DataView(out.buffer, out.byteOffset, out.byteLength).getUint16(0, true)
+      const output = this.registry.fire(
+        callee,
+        KIND.SYSPROC,
+        SP.SET_SHAREHOLDER_PROPOSAL,
+        proposal,
+        {
+          invocator: this.contractId(callerSlot),
+          originator,
+          entryPoint: SP.SET_SHAREHOLDER_PROPOSAL,
+        },
+      );
+
+      return output.length >= 2
+        ? new DataView(
+            output.buffer,
+            output.byteOffset,
+            output.byteLength,
+          ).getUint16(0, true)
         : 0;
     } finally {
       this.callDepth--;
     }
   }
 
-  // qpi.setShareholderVotes — invoke the callee's SET_SHAREHOLDER_VOTES sysproc; returns the success bit.
   doSetShareholderVotes(
     callerSlot: number,
-    calleeIdx: number,
+    calleeIndex: number,
     vote: Uint8Array,
     reward: bigint,
     originator: Uint8Array,
   ): number {
     if (
-      calleeIdx === callerSlot ||
-      calleeIdx === 0 ||
-      !this.contracts.has(calleeIdx) ||
+      calleeIndex === callerSlot ||
+      calleeIndex === 0 ||
+      !this.contracts.has(calleeIndex) ||
       reward < 0n
-    )
+    ) {
       return 0;
-    if (this.callDepth >= MAX_CALL_DEPTH) return 0;
+    }
+    if (this.callDepth >= MAX_CALL_DEPTH) {
+      return 0;
+    }
 
-    const callee = this.contracts.get(calleeIdx)!;
-    if (!callee.hasSysproc(SP.SET_SHAREHOLDER_VOTES)) return 0;
-    if (!this.fees.reserveOk(calleeIdx)) return 0; // dormant callee can't be invoked
+    const callee = this.contracts.get(calleeIndex)!;
+    if (
+      !callee.hasSysproc(SP.SET_SHAREHOLDER_VOTES) ||
+      !this.fees.reserveOk(calleeIndex)
+    ) {
+      return 0;
+    }
 
-    if (reward > 0n) this.transferReward(callerSlot, calleeIdx, reward);
+    if (reward > 0n) {
+      this.transferReward(callerSlot, calleeIndex, reward);
+    }
 
     this.callDepth++;
+
     try {
-      const out = this.registry.fire(callee, KIND.SYSPROC, SP.SET_SHAREHOLDER_VOTES, vote, {
-        invocator: this.contractId(callerSlot),
-        originator,
-        entryPoint: SP.SET_SHAREHOLDER_VOTES,
-      });
-      return out.length >= 1 ? out[0] : 0;
+      const output = this.registry.fire(
+        callee,
+        KIND.SYSPROC,
+        SP.SET_SHAREHOLDER_VOTES,
+        vote,
+        {
+          invocator: this.contractId(callerSlot),
+          originator,
+          entryPoint: SP.SET_SHAREHOLDER_VOTES,
+        },
+      );
+
+      return output.length >= 1 ? output[0] : 0;
     } finally {
       this.callDepth--;
     }
   }
 
-  // Direct procedure call (IDE/tests convenience): credit the reward, then run. The canonical on-chain path is
-  // applyTx (a tx to the contract address); this is the same effect without building a tx.
-  procedure(slot: number, it: number, input?: Uint8Array, opts: ProcedureOpts = {}): Uint8Array {
-    const reward = opts.reward ?? 0n;
-    const invocator = opts.invocator ?? ZERO32;
-    const originator = opts.originator ?? invocator;
+  procedure(
+    slot: number,
+    inputType: number,
+    input?: Uint8Array,
+    options: ProcedureOpts = {},
+  ): Uint8Array {
+    const reward = options.reward ?? 0n;
+    const invocator = options.invocator ?? ZERO32;
+    const originator = options.originator ?? invocator;
 
-    // A dormant metered contract can't run a user procedure; nothing is credited so there is nothing to refund.
     if (!this.fees.reserveOk(slot)) {
       return EMPTY;
     }
 
-    if (reward > 0n) this.credit(this.contractId(slot), reward);
+    if (reward > 0n) {
+      this.credit(this.contractId(slot), reward);
+    }
 
-    return this.runProcedure(slot, it, input ?? new Uint8Array(0), invocator, originator, reward);
+    return this.runProcedure(
+      slot,
+      inputType,
+      input ?? new Uint8Array(0),
+      invocator,
+      originator,
+      reward,
+    );
   }
 
-  // Dispatch a transaction as a contract procedure or plain transfer, matching core processing.
   applyTx(
     source: Uint8Array,
-    dest: Uint8Array,
+    destination: Uint8Array,
     amount: bigint,
     inputType: number,
     payload: Uint8Array,
@@ -1097,52 +1461,72 @@ export class Sim {
 
       if (amount > 0n && this.balance(source) >= amount) {
         this.debit(source, amount, tick);
-        this.credit(dest, amount, tick);
+        this.credit(destination, amount, tick);
         moneyFlew = true;
       }
+
       const reward = moneyFlew ? amount : 0n;
 
-      const slot = this.contractSlotOf(dest);
+      const slot = this.contractSlotOf(destination);
       if (slot >= 0) {
-        const c = this.contracts.get(slot)!;
-        const isProcedure = c.entries.some((e) => e.kind === KIND.PROCEDURE && e.it === inputType);
+        const contract = this.contracts.get(slot)!;
+        const isProcedure = contract.entries.some(
+          (entry) =>
+            entry.kind === KIND.PROCEDURE &&
+            entry.it === inputType,
+        );
 
         if (isProcedure && !this.fees.reserveOk(slot)) {
-          // Dormant contract (no execution-fee reserve): the procedure can't run and any attached amount is
-          // refunded to the sender (execution_fees.md — "amounts are refunded if a contract cannot execute").
           if (moneyFlew) {
-            this.debit(dest, amount, tick);
+            this.debit(destination, amount, tick);
             this.credit(source, amount, tick);
             moneyFlew = false;
           }
+
           this.emit(
             "warn",
             "fee",
             `slot ${slot} dormant — procedure it=${inputType} skipped${amount > 0n ? `, refunded ${amount}` : ""}`,
           );
         } else if (isProcedure) {
-          // Isolate procedure faults so one bad contract transaction cannot abort the tick.
-          const stateBefore = c.state().slice();
+          const stateBefore = contract.state().slice();
+
           try {
-            this.runProcedure(slot, inputType, payload, source, source, reward);
-          } catch (e) {
-            c.writeState(stateBefore);
+            this.runProcedure(
+              slot,
+              inputType,
+              payload,
+              source,
+              source,
+              reward,
+            );
+          } catch (error) {
+            contract.writeState(stateBefore);
+
             if (moneyFlew) {
-              this.debit(dest, amount, tick);
+              this.debit(destination, amount, tick);
               this.credit(source, amount, tick);
               moneyFlew = false;
             }
+
+            const message = String(
+              (error as Error)?.message ?? error,
+            );
             this.emit(
               "warn",
               "tx",
-              `slot ${slot} procedure it=${inputType} trapped: ${String((e as Error)?.message ?? e)}${amount > 0n ? `, refunded ${amount}` : ""}`,
+              `slot ${slot} procedure it=${inputType} trapped: ${message}${amount > 0n ? `, refunded ${amount}` : ""}`,
             );
           }
         } else if (reward > 0n) {
-          this.notifyPIT(dest, source, reward, TT_STANDARD); // plain incoming transfer to a contract
+          this.notifyPIT(
+            destination,
+            source,
+            reward,
+            TT_STANDARD,
+          );
         }
       }
-      // dest is a plain user identity: the debit/credit above is the whole transfer.
 
       this.emit(
         "info",
@@ -1153,7 +1537,7 @@ export class Sim {
         txId,
         tick,
         source: this.key(source),
-        dest: this.key(dest),
+        dest: this.key(destination),
         amount,
         inputType,
         moneyFlew,
@@ -1169,7 +1553,7 @@ export class Sim {
   enqueueTx(
     scheduledTick: number,
     source: Uint8Array,
-    dest: Uint8Array,
+    destination: Uint8Array,
     amount: bigint,
     inputType: number,
     payload: Uint8Array,
@@ -1177,28 +1561,57 @@ export class Sim {
     digest: Uint8Array = ZERO32,
   ): { moneyFlew: boolean; queued: boolean } {
     if (!this.mempoolMode || scheduledTick <= this.tickN) {
-      const r = this.applyTx(source, dest, amount, inputType, payload, txId, digest);
-      return { moneyFlew: r.moneyFlew, queued: false };
+      const result = this.applyTx(
+        source,
+        destination,
+        amount,
+        inputType,
+        payload,
+        txId,
+        digest,
+      );
+
+      return { moneyFlew: result.moneyFlew, queued: false };
     }
 
-    this.txpool.queue(scheduledTick, { source, dest, amount, inputType, payload, txId, digest });
+    this.txpool.queue(scheduledTick, {
+      source,
+      dest: destination,
+      amount,
+      inputType,
+      payload,
+      txId,
+      digest,
+    });
+
     return { moneyFlew: false, queued: true };
   }
 
-  // Apply the txs scheduled for the current tick (mempool mode), recording them under it.
   private drainMempool(): void {
-    for (const t of this.txpool.takeDue(this.tickN)) {
+    for (const transaction of this.txpool.takeDue(this.tickN)) {
       try {
-        this.applyTx(t.source, t.dest, t.amount, t.inputType, t.payload, t.txId, t.digest);
-      } catch (e) {
-        // Backstop: applyTx already isolates procedure faults; this guards any other unexpected throw so one tx
-        // can never abort the tick's remaining txs or crash the node.
-        this.emit("warn", "mempool", `tx ${t.txId} dropped: ${String((e as Error)?.message ?? e)}`);
+        this.applyTx(
+          transaction.source,
+          transaction.dest,
+          transaction.amount,
+          transaction.inputType,
+          transaction.payload,
+          transaction.txId,
+          transaction.digest,
+        );
+      } catch (error) {
+        const message = String(
+          (error as Error)?.message ?? error,
+        );
+        this.emit(
+          "warn",
+          "mempool",
+          `tx ${transaction.txId} dropped: ${message}`,
+        );
       }
     }
   }
 
-  // ---- tickdata (the per-tick history + tx-by-id live in TxPool; these stay on the façade) ----
   tickTransactions(tick: number): TxRecord[] {
     return this.txpool.tickTransactions(tick);
   }
@@ -1211,7 +1624,6 @@ export class Sim {
     return this.registry.digest(slot);
   }
 
-  // ---- tick consensus (TickConsensus owns the committee + votes; these stay on the façade for the public API) ----
   getCommittee(): Committee {
     return this.ticking.getCommittee();
   }
@@ -1220,8 +1632,6 @@ export class Sim {
     return this.ticking.quorum();
   }
 
-  // The chain clock (unix ms) at the current tick — deterministic: timeBaseMs + tick * tickDuration. Backs the
-  // qpi date/time accessors + the tick-vote timestamp. Set timeBaseMs to wall-clock for a live feel.
   nowMs(): number {
     return this.timeBaseMs + this.tickN * this.tickDuration;
   }
@@ -1234,22 +1644,18 @@ export class Sim {
     return this.txpool.size;
   }
 
-  // computerDigest — the K12 merkle over the contract-state leaves (ContractRegistry owns the contracts).
   computerDigest(): Uint8Array {
     return this.registry.computerDigest();
   }
 
-  // spectrumDigest — the root of the incremental 2^24 merkle over entity records (SpectrumLedger owns the tree).
   spectrumDigest(): Uint8Array {
     return this.spectrum.getSpectrumDigest();
   }
 
-  // universeDigest — the root of the incremental 2^24 merkle over asset holdings (AssetLedger owns the tree).
   universeDigest(): Uint8Array {
     return this.assets.getUniverseDigest();
   }
 
-  // Ownership / possession merkle proofs over the asset universe (AssetLedger owns the tree).
   universeProofOwned(ownerId: Uint8Array) {
     return this.assets.universeProofOwned(ownerId);
   }
@@ -1258,13 +1664,14 @@ export class Sim {
     return this.assets.universeProofPossessed(possessorId);
   }
 
-  // The merkle proof for an entity: its leaf index + the 24 sibling hashes from the leaf to the spectrum root.
-  // A client recomputes the root from (EntityRecord, index, siblings) and checks it against spectrumDigest.
-  spectrumProof(id: Uint8Array): { record: Uint8Array; index: number; siblings: Uint8Array[] } {
+  spectrumProof(id: Uint8Array): {
+    record: Uint8Array;
+    index: number;
+    siblings: Uint8Array[];
+  } {
     return this.spectrum.spectrumProof(id);
   }
 
-  // The finalized tick's quorum record / signed TickData / aligned-vote count (TickConsensus owns them).
   tickRecord(tick: number): TickRecord | undefined {
     return this.ticking.tickRecord(tick);
   }
@@ -1277,7 +1684,6 @@ export class Sim {
     return this.ticking.alignedVotes(tick);
   }
 
-  // The arbitrator-signed Computors wire list for the current epoch. slotCount pads for the peer-protocol bridge.
   signedComputorList(slotCount?: number): Uint8Array {
     return this.ticking.signedComputorList(slotCount);
   }

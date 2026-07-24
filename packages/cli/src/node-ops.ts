@@ -1,4 +1,3 @@
-// Shared node lifecycle ops (no UI) used by `qinit node` and `qinit node run`.
 import {
   openSync,
   closeSync,
@@ -27,58 +26,72 @@ import {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const scratchDir = () => join(cacheRoot(), "run");
-const pidFile = (s: string) => join(s, "node.pid");
+const pidFile = (scratch: string) => join(scratch, "node.pid");
 
-const isWin = process.platform === "win32";
+const isWindows = process.platform === "win32";
 
-// PID of the qinit-managed node, recovered from the on-disk pidfile (survives across qinit invocations).
+// The pidfile lets later Qinit invocations find the detached node.
 function trackedPid(scratch: string): number | undefined {
   try {
-    const p = parseInt(readFileSync(pidFile(scratch), "utf8").trim(), 10);
-    return Number.isFinite(p) && p > 0 ? p : undefined;
+    const pid = parseInt(readFileSync(pidFile(scratch), "utf8").trim(), 10);
+    return Number.isFinite(pid) && pid > 0 ? pid : undefined;
   } catch {
     return undefined;
   }
 }
-// Liveness without sending a real signal: kill(pid,0) throws ESRCH if gone, EPERM if alive-but-not-ours.
+
+// Signal 0 checks liveness without stopping the process.
 function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (e: any) {
-    return e?.code === "EPERM";
+  } catch (error: any) {
+    return error?.code === "EPERM";
   }
 }
 
-// Stop ONLY the node qinit started (by tracked PID) + confirm gone. Never a broad pkill/taskkill by
-// image name — that also kills unrelated Qubic instances on a multi-node dev box. No pidfile => nothing
+// Never kill by image name: a developer may be running other Qubic nodes.
 export async function killNode(scratch = scratchDir()): Promise<void> {
-  scratch = resolve(scratch);
-  const pid = trackedPid(scratch);
-  if (pid === undefined) return;
+  const resolvedScratch = resolve(scratch);
+  const pid = trackedPid(resolvedScratch);
+  if (pid === undefined) {
+    return;
+  }
+
   try {
-    if (isWin) Bun.spawnSync(["taskkill", "/F", "/PID", String(pid)]);
-    else process.kill(pid, "SIGKILL");
-  } catch {}
+    if (isWindows) {
+      Bun.spawnSync(["taskkill", "/F", "/PID", String(pid)]);
+    } else {
+      process.kill(pid, "SIGKILL");
+    }
+  } catch {
+    // The process may have exited after the liveness check.
+  }
+
   for (let i = 0; i < 20; i++) {
     if (!pidAlive(pid)) {
       try {
-        rmSync(pidFile(scratch));
-      } catch {}
+        rmSync(pidFile(resolvedScratch));
+      } catch {
+        // A concurrent Qinit invocation may already have removed it.
+      }
       return;
     }
     await sleep(250);
   }
 }
-// Is the qinit-managed node up? Prefer the tracked PID; fall back to a broad image-name probe only when
-// there is no pidfile (answers "is any Qubic running", e.g. before a fresh `up`).
+
 export function nodeAlive(scratch = scratchDir()): boolean {
   const pid = trackedPid(resolve(scratch));
-  if (pid !== undefined) return pidAlive(pid);
-  if (isWin) {
-    const r = Bun.spawnSync(["tasklist", "/NH", "/FI", "IMAGENAME eq Qubic.exe"]);
-    return new TextDecoder().decode(r.stdout).includes("Qubic.exe");
+  if (pid !== undefined) {
+    return pidAlive(pid);
   }
+
+  if (isWindows) {
+    const result = Bun.spawnSync(["tasklist", "/NH", "/FI", "IMAGENAME eq Qubic.exe"]);
+    return new TextDecoder().decode(result.stdout).includes("Qubic.exe");
+  }
+
   return Bun.spawnSync(["pgrep", "-x", "Qubic"]).exitCode === 0;
 }
 
@@ -93,54 +106,68 @@ export function nodeAssetForPlatform(
   return platform === "linux-x64" ? manifest.node : undefined;
 }
 
-// Download + cache the prebuilt node from the fork's release (manifest-pinned).
 export async function fetchNodeBin(
   ref: string,
   onProgress?: (recv: number, total: number) => void,
   loadedManifest?: Manifest,
 ): Promise<{ bin: string; version: string }> {
-  const m = loadedManifest ?? await loadManifest(ref);
-  const plat = verifyPlatformKey();
-  const asset = nodeAssetForPlatform(m, plat);
-  if (!asset)
-    throw new Error(`manifest ${m.version} has no node asset for ${plat} (publish via CI first)`);
-  const dir = join(cacheRoot(), m.version, "node");
-  const bin = join(dir, isWin ? "Qubic.exe" : "Qubic");
+  const manifest = loadedManifest ?? await loadManifest(ref);
+  const platform = verifyPlatformKey();
+  const asset = nodeAssetForPlatform(manifest, platform);
+  if (!asset) {
+    throw new Error(
+      `manifest ${manifest.version} has no node asset for ${platform} (publish via CI first)`,
+    );
+  }
+
+  const dir = join(cacheRoot(), manifest.version, "node");
+  const bin = join(dir, isWindows ? "Qubic.exe" : "Qubic");
   if (!existsSync(bin)) {
-    const buf = await fetchVerify(asset, onProgress);
+    const archive = await fetchVerify(asset, onProgress);
     mkdirSync(dir, { recursive: true });
+
     if (asset.url.endsWith(".tar.gz") || asset.url.endsWith(".tgz")) {
-      // Windows node ships as a tar.gz bundle: Qubic.exe + its vcpkg applocal DLLs (ffi-8/openssl/c-ares/
-      // zlib/brotli), which the exe needs to launch. Extract the whole dir, not a single file.
-      await extractTarGz(buf, dir);
-      if (!existsSync(bin))
+      // Windows needs the bundled DLLs beside Qubic.exe.
+      await extractTarGz(archive, dir);
+      if (!existsSync(bin)) {
         throw new Error(
-          `node archive ${asset.url} did not contain ${isWin ? "Qubic.exe" : "Qubic"}`,
+          `node archive ${asset.url} did not contain ${isWindows ? "Qubic.exe" : "Qubic"}`,
         );
+      }
     } else {
-      atomicWrite(bin, buf); // linux/macOS: a bare single binary
-      if (!isWin) Bun.spawnSync(["chmod", "+x", bin]);
+      atomicWrite(bin, archive);
+      if (!isWindows) {
+        Bun.spawnSync(["chmod", "+x", bin]);
+      }
     }
   }
-  updateCurrent({ nodeVersion: m.version, node: bin });
-  return { bin, version: m.version };
-}
-export function cachedNode(): string | undefined {
-  const n = readCurrent()?.node;
-  return n && existsSync(n) ? n : undefined;
+
+  updateCurrent({ nodeVersion: manifest.version, node: bin });
+  return { bin, version: manifest.version };
 }
 
-// Prefer the requested release, falling back to a cached node only when its manifest is unavailable.
+export function cachedNode(): string | undefined {
+  const node = readCurrent()?.node;
+  return node && existsSync(node) ? node : undefined;
+}
+
 export async function ensureNode(
   ref = "latest",
   onProgress?: (recv: number, total: number) => void,
 ): Promise<{ bin: string; version: string; stale: boolean }> {
   try {
-    const r = await fetchNodeBin(ref, onProgress);
-    return { ...r, stale: false };
+    const node = await fetchNodeBin(ref, onProgress);
+    return { ...node, stale: false };
   } catch {
     const bin = cachedNode();
-    if (bin) return { bin, version: readCurrent()?.nodeVersion ?? "cached", stale: true };
+    if (bin) {
+      return {
+        bin,
+        version: readCurrent()?.nodeVersion ?? "cached",
+        stale: true,
+      };
+    }
+
     throw new Error(
       "no node: latest release unreachable and nothing cached (run `qinit node run` online first)",
     );
@@ -154,28 +181,45 @@ export interface LaunchOpts {
   peers?: string;
   keep?: boolean;
 }
-// Detached launch (node outlives qinit). Fresh scratch unless keep; never in-tree.
-export function launchNode(o: LaunchOpts): { pid: number; scratch: string; log: string } {
-  const scratch = resolve(o.dir || scratchDir());
-  if (!o.keep) rmSync(scratch, { recursive: true, force: true });
+
+export function launchNode(
+  options: LaunchOpts,
+): { pid: number; scratch: string; log: string } {
+  const scratch = resolve(options.dir || scratchDir());
+  if (!options.keep) {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+
   mkdirSync(scratch, { recursive: true });
+
   const log = join(scratch, "node.log");
-  const fd = openSync(log, "a");
-  // Detach so the node outlives qinit, including on Windows.
-  const child = spawn(
-    o.bin,
-    ["--peers", o.peers || "127.0.0.1", "--node-mode", o.mode || "3", "--ticking-delay", "1000"],
-    { cwd: scratch, stdio: ["ignore", fd, fd], detached: true, windowsHide: true },
-  );
+  const logFd = openSync(log, "a");
+  const args = [
+    "--peers",
+    options.peers || "127.0.0.1",
+    "--node-mode",
+    options.mode || "3",
+    "--ticking-delay",
+    "1000",
+  ];
+  const child = spawn(options.bin, args, {
+    cwd: scratch,
+    stdio: ["ignore", logFd, logFd],
+    detached: true,
+    windowsHide: true,
+  });
+
   child.unref();
-  closeSync(fd); // child holds its own dup; don't keep the parent's copy open
+
+  // The child keeps its duplicated descriptor after the parent closes this one.
+  closeSync(logFd);
+
   const pid = child.pid ?? 0;
   writeFileSync(pidFile(scratch), String(pid));
   return { pid, scratch, log };
 }
 
-// Launch the in-process engine through this qinit's hidden `__serve` command.
-export function launchVirtualNode(o: {
+export function launchVirtualNode(options: {
   dir?: string;
   rpcBase?: string;
   peerPort?: number;
@@ -185,71 +229,96 @@ export function launchVirtualNode(o: {
   slotBase?: number;
   slotCount?: number;
 }): { pid: number; scratch: string; log: string } {
-  const scratch = resolve(o.dir || scratchDir());
-  if (!o.keep) rmSync(scratch, { recursive: true, force: true });
-  mkdirSync(scratch, { recursive: true });
-  const log = join(scratch, "node.log");
-  const fd = openSync(log, "a");
+  const scratch = resolve(options.dir || scratchDir());
+  if (!options.keep) {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 
-  // Self-exec: a compiled bin runs `<bin> __serve …`; in dev, execPath is bun so re-pass the entry script.
-  const self = process.execPath;
-  const compiled = !/bun(\.exe)?$/i.test(self);
-  const rpcBase = o.rpcBase || "http://127.0.0.1:41841";
+  mkdirSync(scratch, { recursive: true });
+
+  const log = join(scratch, "node.log");
+  const logFd = openSync(log, "a");
+
+  const executable = process.execPath;
+  const compiled = !/bun(\.exe)?$/i.test(executable);
+  const rpcBase = options.rpcBase || "http://127.0.0.1:41841";
   const flags = [
     "--rpc",
     rpcBase,
     "--peer-port",
-    String(o.peerPort ?? 21841),
-    ...(o.slotBase !== undefined ? ["--slot-base", String(o.slotBase)] : []),
-    ...(o.slotCount !== undefined ? ["--slot-count", String(o.slotCount)] : []),
-    ...(o.tickMs !== undefined ? ["--tick-ms", String(o.tickMs)] : []),
-    ...(o.system?.length ? ["--system", o.system.join(",")] : []),
+    String(options.peerPort ?? 21841),
+    ...(options.slotBase !== undefined
+      ? ["--slot-base", String(options.slotBase)]
+      : []),
+    ...(options.slotCount !== undefined
+      ? ["--slot-count", String(options.slotCount)]
+      : []),
+    ...(options.tickMs !== undefined
+      ? ["--tick-ms", String(options.tickMs)]
+      : []),
+    ...(options.system?.length
+      ? ["--system", options.system.join(",")]
+      : []),
   ];
-  const argv = compiled ? ["__serve", ...flags] : [Bun.main, "__serve", ...flags];
 
-  const child = spawn(self, argv, {
+  // A compiled binary can self-exec; Bun needs the source entry point again.
+  const argv = compiled
+    ? ["__serve", ...flags]
+    : [Bun.main, "__serve", ...flags];
+  const child = spawn(executable, argv, {
     cwd: scratch,
-    stdio: ["ignore", fd, fd],
+    stdio: ["ignore", logFd, logFd],
     detached: true,
     windowsHide: true,
   });
+
   child.unref();
-  closeSync(fd);
+  closeSync(logFd);
+
   const pid = child.pid ?? 0;
   writeFileSync(pidFile(scratch), String(pid));
   return { pid, scratch, log };
 }
 
-// Poll RPC until the tick advances (ticking) or the process exits / times out.
 export async function waitTicking(
   rpcBase: string,
   seconds: number,
 ): Promise<{ ticking: boolean; tick: number; exited: boolean }> {
   const rpc = new LiteRpc(rpcBase);
-  let t0 = -1,
-    cur = 0;
+  let initialTick = -1;
+  let currentTick = 0;
+
   for (let i = 0; i < seconds; i++) {
     await sleep(1000);
-    if (!nodeAlive()) return { ticking: false, tick: cur, exited: true };
+    if (!nodeAlive()) {
+      return { ticking: false, tick: currentTick, exited: true };
+    }
+
     try {
-      const ti: any = await rpc.tickInfo();
-      cur = ti.tick ?? ti.currentTick ?? 0;
-      if (t0 < 0) t0 = cur;
-      if (cur > t0 + 1) return { ticking: true, tick: cur, exited: false };
-    } catch {}
+      const tickInfo: any = await rpc.tickInfo();
+      currentTick = tickInfo.tick ?? tickInfo.currentTick ?? 0;
+      if (initialTick < 0) {
+        initialTick = currentTick;
+      }
+      if (currentTick > initialTick + 1) {
+        return { ticking: true, tick: currentTick, exited: false };
+      }
+    } catch {
+      // Keep polling while the node starts its RPC server.
+    }
   }
-  return { ticking: false, tick: cur, exited: false };
+
+  return { ticking: false, tick: currentTick, exited: false };
 }
 
-// Armed contracts via a single registry read (no tick sampling).
 export async function nodeContracts(rpcBase: string): Promise<string[]> {
   try {
-    const reg: any = await new LiteRpc(rpcBase).dynRegistry();
-    return (reg.contracts ?? [])
-      .filter((c: any) => c.armed)
-      .map((c: any) => `${c.name || c.index}@${c.index}`);
-  } catch (e) {
-    debug("nodeContracts: dyn-registry read failed", e);
+    const registry: any = await new LiteRpc(rpcBase).dynRegistry();
+    return (registry.contracts ?? [])
+      .filter((contract: any) => contract.armed)
+      .map((contract: any) => `${contract.name || contract.index}@${contract.index}`);
+  } catch (error) {
+    debug("nodeContracts: dyn-registry read failed", error);
     return [];
   }
 }
@@ -263,30 +332,44 @@ export interface NodeStatus {
   slotCount: number;
   contracts: string[];
 }
-// Status from the built-in RPC (two tick samples => ticking vs idle).
+
 export async function nodeStatus(rpcBase: string): Promise<NodeStatus> {
   const rpc = new LiteRpc(rpcBase);
   try {
-    const t1: any = await rpc.tickInfo();
+    const firstTickInfo: any = await rpc.tickInfo();
     await sleep(1200);
-    const t2: any = await rpc.tickInfo();
-    const a = t1.tick ?? t1.currentTick ?? 0,
-      b = t2.tick ?? t2.currentTick ?? 0;
-    const reg: any = await rpc.dynRegistry().catch(() => ({}));
-    const armed = (reg.contracts ?? []).filter((c: any) => c.armed);
+    const secondTickInfo: any = await rpc.tickInfo();
+    const firstTick = firstTickInfo.tick ?? firstTickInfo.currentTick ?? 0;
+    const secondTick = secondTickInfo.tick ?? secondTickInfo.currentTick ?? 0;
+    const registry: any = await rpc.dynRegistry().catch(() => ({}));
+    const armedContracts = (registry.contracts ?? []).filter(
+      (contract: any) => contract.armed,
+    );
+
     return {
       up: true,
-      ticking: b > a,
-      tick: b,
-      epoch: t2.epoch ?? 0,
-      armed: armed.length,
-      slotCount: reg.slotCount ?? 0,
-      contracts: armed.map(
-        (c: any) => `${c.name || c.index}@${c.index}${c.constructed ? "" : " (armed)"}`,
+      ticking: secondTick > firstTick,
+      tick: secondTick,
+      epoch: secondTickInfo.epoch ?? 0,
+      armed: armedContracts.length,
+      slotCount: registry.slotCount ?? 0,
+      contracts: armedContracts.map(
+        (contract: any) =>
+          `${contract.name || contract.index}@${contract.index}${
+            contract.constructed ? "" : " (armed)"
+          }`,
       ),
     };
-  } catch (e) {
-    debug("nodeStatus: rpc read failed", e);
-    return { up: false, ticking: false, tick: 0, epoch: 0, armed: 0, slotCount: 0, contracts: [] };
+  } catch (error) {
+    debug("nodeStatus: rpc read failed", error);
+    return {
+      up: false,
+      ticking: false,
+      tick: 0,
+      epoch: 0,
+      armed: 0,
+      slotCount: 0,
+      contracts: [],
+    };
   }
 }

@@ -1,7 +1,18 @@
-import { mkdirSync, copyFileSync, readdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
 import { genWrapperWasm } from "./recipe";
-import { CORE_WASM_HEADERS, loadCoreWasmSlotLayout, wasiSdkPaths } from "@qinit/core";
+import {
+  CORE_WASM_HEADERS,
+  loadCoreWasmSlotLayout,
+  wasiSdkPaths,
+} from "@qinit/core";
 
 const STUB = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -29,30 +40,38 @@ export async function buildSnapshot(
   options: SnapshotOptions = {},
 ): Promise<SnapshotResult> {
   corePath = resolve(corePath);
+
   if (!existsSync(join(corePath, "src", "contracts", "qpi.h"))) {
     throw new Error(`not a core checkout (no src/contracts/qpi.h): ${corePath}`);
   }
 
-  const tmp = join(outRoot, ".snap-stub");
-  mkdirSync(tmp, { recursive: true });
-  const stubH = join(tmp, "Stub.h");
-  writeFileSync(stubH, STUB);
+  const scratchDir = join(outRoot, ".snap-stub");
+  mkdirSync(scratchDir, { recursive: true });
+
+  const stubHeader = join(scratchDir, "Stub.h");
+  writeFileSync(stubHeader, STUB);
+
   const slot = loadCoreWasmSlotLayout(corePath).slotBase;
-  const wrapper = join(tmp, "Stub.wrapper.cpp");
+  const wrapperPath = join(scratchDir, "Stub.wrapper.cpp");
   writeFileSync(
-    wrapper,
+    wrapperPath,
     genWrapperWasm({
-      contractPath: stubH,
+      contractPath: stubHeader,
       name: "Stub",
       slot,
       corePath,
-      outDir: tmp,
+      outDir: scratchDir,
     }),
   );
-  const shim = join(corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics);
 
-  const dependencies = (out: string) =>
-    out
+  const platformIntrinsics = join(
+    corePath,
+    "src",
+    CORE_WASM_HEADERS.sdk.platformIntrinsics,
+  );
+
+  const parseDependencies = (output: string) =>
+    output
       .replace(/\\\n/g, " ")
       .split(/\s+/)
       .filter((path) => path && existsSync(path));
@@ -65,7 +84,8 @@ export async function buildSnapshot(
       "no complete wasi-sdk (WASM_CLANG + WASI_SYSROOT or a fetched SDK) — needed to snapshot the Wasm header closure",
     );
   }
-  const rw = Bun.spawnSync([
+
+  const clang = Bun.spawnSync([
     wasmClang,
     "--target=wasm32-wasi",
     "-std=c++20",
@@ -74,53 +94,89 @@ export async function buildSnapshot(
     "-DLITEDYN_CONTRACT_TU",
     `--sysroot=${sysroot}`,
     "-include",
-    shim,
+    platformIntrinsics,
     `-I${corePath}`,
     `-I${join(corePath, "src")}`,
     options.includeSdkHeaders ? "-M" : "-MM",
-    wrapper,
+    wrapperPath,
   ]);
-  if (rw.exitCode !== 0) {
-    throw new Error("wasm clang -M failed:\n" + new TextDecoder().decode(rw.stderr));
+
+  if (clang.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(clang.stderr);
+    throw new Error("wasm clang -M failed:\n" + stderr);
   }
-  const deps = dependencies(new TextDecoder().decode(rw.stdout));
+
+  const dependencies = parseDependencies(
+    new TextDecoder().decode(clang.stdout),
+  );
 
   const contractsDir = join(corePath, "src", "contracts");
-  const extra = readdirSync(contractsDir)
+  const extraFiles = readdirSync(contractsDir)
     .filter((file) => file.endsWith(".h"))
     .map((file) => join(contractsDir, file));
-  extra.push(join(corePath, "src", "contract_core", "contract_def.h"));
+
+  extraFiles.push(
+    join(corePath, "src", "contract_core", "contract_def.h"),
+  );
   for (const sdkHeader of Object.values(CORE_WASM_HEADERS.sdk)) {
-    extra.push(join(corePath, "src", sdkHeader));
+    extraFiles.push(join(corePath, "src", sdkHeader));
   }
   for (const sharedHeader of Object.values(CORE_WASM_HEADERS.shared)) {
-    extra.push(join(corePath, "src", sharedHeader));
+    extraFiles.push(join(corePath, "src", sharedHeader));
   }
 
   const root = join(outRoot, "core-headers");
   rmSync(root, { recursive: true, force: true });
+
   const copied = new Set<string>();
   let fileCount = 0;
-  const copy = (source: string, destination: string) => {
-    if (copied.has(destination)) return;
+
+  const copy = (source: string, destination: string): void => {
+    if (copied.has(destination)) {
+      return;
+    }
+
     mkdirSync(dirname(destination), { recursive: true });
     copyFileSync(source, destination);
     copied.add(destination);
     fileCount++;
   };
 
-  for (const f of new Set([...deps, ...extra].map((file) => resolve(file)))) {
-    const rel = relative(corePath, f);
-    if (rel.startsWith("..") || !existsSync(f)) continue;
-    copy(f, join(root, rel));
+  const projectFiles = new Set(
+    [...dependencies, ...extraFiles].map((file) => resolve(file)),
+  );
+  for (const file of projectFiles) {
+    const relativePath = relative(corePath, file);
+    if (relativePath.startsWith("..") || !existsSync(file)) {
+      continue;
+    }
+
+    copy(file, join(root, relativePath));
   }
+
   if (options.includeSdkHeaders) {
-    for (const f of new Set(deps.map((file) => resolve(file)))) {
-      const rel = relative(sysroot, f);
-      if (rel.startsWith("..") || !existsSync(f)) continue;
-      copy(f, join(root, "wasi-sdk", "share", "wasi-sysroot", rel));
+    const sdkFiles = new Set(
+      dependencies.map((file) => resolve(file)),
+    );
+    for (const file of sdkFiles) {
+      const relativePath = relative(sysroot, file);
+      if (relativePath.startsWith("..") || !existsSync(file)) {
+        continue;
+      }
+
+      copy(
+        file,
+        join(
+          root,
+          "wasi-sdk",
+          "share",
+          "wasi-sysroot",
+          relativePath,
+        ),
+      );
     }
   }
-  rmSync(tmp, { recursive: true, force: true });
+
+  rmSync(scratchDir, { recursive: true, force: true });
   return { root, fileCount };
 }
