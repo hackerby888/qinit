@@ -4,8 +4,7 @@ import { DynamicPayload } from "@qubic-lib/qubic-ts-library/dist/qubic-types/Dyn
 import { PublicKey } from "@qubic-lib/qubic-ts-library/dist/qubic-types/PublicKey.js";
 import { deriveIdentity } from "./qubic";
 
-// Dedicated lite dynamic-contract deploy address = id(99999,0,0,0) — NOT the core zero
-// address (which is reserved for core protocol txs). u64[0]=99999 little-endian.
+// Reserved Wasm deployment address: id(99999, 0, 0, 0).
 export const LITE_DEPLOY_ADDRESS = (() => {
   const address = new Uint8Array(32);
   new DataView(address.buffer).setBigUint64(0, 99999n, true);
@@ -19,7 +18,7 @@ export interface SignedTx {
 }
 
 export interface TxInput {
-  destination?: string | Uint8Array; // default: system (zero)
+  destination?: string | Uint8Array; // default: LITE_DEPLOY_ADDRESS
   amount?: number;
   tick: number;
   inputType: number;

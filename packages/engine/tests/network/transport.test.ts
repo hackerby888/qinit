@@ -1,6 +1,12 @@
 // Exercises NodeTransport through real codecs, signed transactions, and deploy wire data.
 import { test, expect } from "bun:test";
-import { buildSignedTx, k12Hex, deriveIdentity, identityToBytes } from "@qinit/core";
+import {
+  buildSignedTx,
+  k12Hex,
+  deriveIdentity,
+  identityToBytes,
+  LITE_DEPLOY_ADDRESS,
+} from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import {
   encodeInput,
@@ -19,10 +25,14 @@ const SEED = "a".repeat(55);
 const ORACLE = "4b31b54f2213f1396cec4a1bd633b9409112d5969592c2c5fa66ddc1656f63c9";
 
 // Build an unsigned canonical transaction for deploy-wire tests with real header offsets.
-function wrapTx(inputType: number, payload: Uint8Array, destU64: bigint): Uint8Array {
+function wrapTx(
+  inputType: number,
+  payload: Uint8Array,
+  destination: Uint8Array = LITE_DEPLOY_ADDRESS,
+): Uint8Array {
   const b = new Uint8Array(80 + payload.length + 64);
   const v = new DataView(b.buffer);
-  v.setBigUint64(32, destU64, true); // destination u64._0
+  b.set(destination, 32);
   v.setUint32(72, 10, true); // tick
   v.setUint16(76, inputType, true);
   v.setUint16(78, payload.length, true);
@@ -78,7 +88,6 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
         chunkCount: chunks.length,
         finalHashHex,
       }),
-      99999n,
     ),
   );
   for (let i = 0; i < chunks.length; i++)
@@ -86,7 +95,6 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
       wrapTx(
         LITE_TX.UPLOAD_CHUNK,
         encodeUploadChunk({ sessionId, seq: i, bytes: chunks[i] }),
-        99999n,
       ),
     );
   expect((await eng.dynUpload()).complete).toBe(true);
@@ -95,7 +103,6 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
     wrapTx(
       LITE_TX.DEPLOY,
       encodeDeploy({ sessionId, targetSlot: 29, finalHashHex, name: "DigestProbe" }),
-      99999n,
     ),
   );
   const reg = await eng.dynRegistry();
@@ -106,11 +113,32 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
   expect(
     await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64"),
   ).toBe(0n);
-  await eng.broadcastTx(wrapTx(1, new Uint8Array(0), 29n)); // Inc (procedure it=1)
+  await eng.broadcastTx(wrapTx(1, new Uint8Array(0), contractAddress(29))); // Inc (procedure it=1)
   expect(
     await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64"),
   ).toBe(1n);
   expect(eng.sim.digest(29)).toBe(ORACLE);
+});
+
+test("deployment routing requires the exact reserved address", async () => {
+  const eng = await VirtualNode.create({ mempool: false });
+  const otherAddress = LITE_DEPLOY_ADDRESS.slice();
+  otherAddress[8] = 1;
+
+  await eng.broadcastTx(
+    wrapTx(
+      LITE_TX.UPLOAD_BEGIN,
+      encodeUploadBegin({
+        sessionId: 1n,
+        totalSize: 1,
+        chunkCount: 1,
+        finalHashHex: "00".repeat(32),
+      }),
+      otherAddress,
+    ),
+  );
+
+  expect((await eng.dynUpload()).active).toBe(false);
 });
 
 test("UPLOAD_BEGIN keeps the active session across retries and rejects a different session", async () => {

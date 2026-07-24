@@ -1,5 +1,5 @@
 // Wire encodings for the on-chain chunked-upload deploy protocol (DYNAMIC_CONTRACTS.md §2.2).
-// These payloads ride lite-range transaction inputTypes to the system destination (dest == 0).
+// These payloads are sent to the reserved LITE_DEPLOY_ADDRESS.
 
 // Lite transaction inputTypes + chunk sizing live in ./protocol (mirrored against core by the drift guard).
 import { LITE_TX, CHUNK_DATA_MAX } from "./protocol";

@@ -4,6 +4,12 @@ import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
 import { loadCoreWasmSlotLayout } from "../packages/core/src/wasm-slot-layout-node";
+import { LITE_DEPLOY_ADDRESS } from "../packages/core/src/tx";
+import {
+  DeployMessage,
+  UploadBegin,
+  UploadChunkHeader,
+} from "../packages/proto/src/deploy";
 import {
   CHUNK_DATA_MAX,
   LITE_TX,
@@ -56,6 +62,28 @@ const readConstexpr = (file: string, name: string): number | null => {
   }
 };
 
+const readDeploymentAddress = (file: string): number | null => {
+  try {
+    const match = readFileSync(join(core, file), "utf8").match(
+      /const\s+m256i\s+DeploymentAddress\s*\(\s*(\d+)(?:ULL)?\s*,\s*0\s*,\s*0\s*,\s*0\s*\)/,
+    );
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+};
+
+const readStructSize = (file: string, name: string): number | null => {
+  try {
+    const match = readFileSync(join(core, file), "utf8").match(
+      new RegExp(`static_assert\\(sizeof\\(${name}\\)\\s*==\\s*(\\d+)`),
+    );
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+};
+
 const expectEqual = (label: string, actual: number | null, expected: number) => {
   if (actual !== expected) {
     failures.push(`${label}: core=${actual} qinit=${expected}`);
@@ -83,6 +111,41 @@ expectEqual(
   LITE_TX.DEPLOY,
 );
 
+const deployAddressView = new DataView(
+  LITE_DEPLOY_ADDRESS.buffer,
+  LITE_DEPLOY_ADDRESS.byteOffset,
+  LITE_DEPLOY_ADDRESS.byteLength,
+);
+expectEqual(
+  "LITE_DEPLOY_ADDRESS",
+  readDeploymentAddress(DEPLOYMENT_PROTOCOL),
+  Number(deployAddressView.getBigUint64(0, true)),
+);
+if (LITE_DEPLOY_ADDRESS.subarray(8).some((byte) => byte !== 0)) {
+  failures.push("LITE_DEPLOY_ADDRESS: lanes 1-3 must be zero");
+}
+
+expectEqual(
+  "UPLOAD_BEGIN_SIZE",
+  readStructSize(DEPLOYMENT_PROTOCOL, "UploadBeginMessage"),
+  UploadBegin.SIZE,
+);
+expectEqual(
+  "UPLOAD_CHUNK_HEADER_SIZE",
+  readStructSize(DEPLOYMENT_PROTOCOL, "UploadChunkHeader"),
+  UploadChunkHeader.SIZE,
+);
+expectEqual(
+  "DEPLOY_HEADER_SIZE",
+  readStructSize(DEPLOYMENT_PROTOCOL, "DeployHeader"),
+  DeployMessage.OFFSETS.name,
+);
+expectEqual(
+  "DEPLOY_MESSAGE_SIZE",
+  readStructSize(DEPLOYMENT_PROTOCOL, "DeployMessage"),
+  DeployMessage.SIZE,
+);
+
 // contract LOG_* severity codes (core define value must equal the qinit map key, and the name be present)
 for (const [code, symbol, name] of [
   [4, "CONTRACT_ERROR_MESSAGE", "ERROR"],
@@ -98,9 +161,9 @@ for (const [code, symbol, name] of [
 
 // transaction input sizing: MAX_INPUT_SIZE must match; CHUNK_DATA_MAX must stay within core's limit.
 expectEqual("MAX_INPUT_SIZE", readDefine(NET, "MAX_INPUT_SIZE"), MAX_INPUT_SIZE);
-if (CHUNK_DATA_MAX > MAX_INPUT_SIZE - 14) {
+if (CHUNK_DATA_MAX > MAX_INPUT_SIZE - UploadChunkHeader.SIZE) {
   failures.push(
-    `CHUNK_DATA_MAX ${CHUNK_DATA_MAX} exceeds MAX_INPUT_SIZE-header ${MAX_INPUT_SIZE - 14}`,
+    `CHUNK_DATA_MAX ${CHUNK_DATA_MAX} exceeds MAX_INPUT_SIZE-header ${MAX_INPUT_SIZE - UploadChunkHeader.SIZE}`,
   );
 }
 
@@ -120,4 +183,4 @@ if (failures.length) {
   console.error("PROTOCOL DRIFT vs core-lite:\n  " + failures.join("\n  "));
   process.exit(1);
 }
-console.log("protocol-drift OK — Wasm slots, LITE_TX, log severity, MAX_INPUT_SIZE, ORACLE_QUERY_STATUS match core");
+console.log("protocol-drift OK — Wasm slots, deployment, logging, input sizing, and oracle status match core");

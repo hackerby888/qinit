@@ -16,6 +16,7 @@ import {
   bytesToIdentity,
   identityToBytes,
   DEFAULT_WASM_SLOT_LAYOUT,
+  LITE_DEPLOY_ADDRESS,
   WASM_ABI_VERSION,
 } from "@qinit/core";
 import {
@@ -43,6 +44,7 @@ import {
 } from "./k12";
 import { Transaction } from "./wire";
 import { NativeLogger } from "./native-logger";
+import { bytesEqual } from "./bytes";
 
 interface SlotMeta {
   name: string;
@@ -520,13 +522,12 @@ export class VirtualNode implements NodeTransport {
       const source = transaction.sourcePublicKey.bytes.slice();
       const destination =
         transaction.destinationPublicKey.bytes.slice();
-      const destinationLane = transaction.destinationPublicKey.u64(0);
       const amount = transaction.amount;
       const scheduledTick = transaction.tick;
       const inputType = transaction.inputType;
       const payload = transaction.input.slice();
 
-      if (destinationLane === 99999n) {
+      if (bytesEqual(destination, LITE_DEPLOY_ADDRESS)) {
         this.handleDeployTx(inputType, payload, source);
         return { ok: true };
       }
