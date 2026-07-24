@@ -57,6 +57,7 @@ export class RecordParser {
             name,
             bases,
             members,
+            hasBody: hadBody,
             specializationArgs,
             span: this.parser.recovery.makeSpan(start),
         };
@@ -125,6 +126,7 @@ export class RecordParser {
             name,
             bases: [],
             members,
+            hasBody: hadBody,
             isUnion: true,
             span: this.parser.recovery.makeSpan(start),
         };

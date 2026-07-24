@@ -292,7 +292,7 @@ class AbiTypeBuilder {
   ): AbiType {
     const name = type.name.split("::").pop()!;
 
-    if (name === "Array") {
+    if (name === "Array" || name === "SlowAnySizeArray") {
       const count = Number(
         this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings),
       );
@@ -709,7 +709,9 @@ function nestedStruct(
   name: string,
 ): StructDecl | undefined {
   return contract?.members.find((member) => (
-    member.kind === AstKind.STRUCT && member.name === name
+    member.kind === AstKind.STRUCT &&
+    member.name === name &&
+    member.hasBody !== false
   )) as StructDecl | undefined;
 }
 
@@ -720,7 +722,11 @@ function withLocalStructs(
   const structs = new Map(bindings.structs);
 
   for (const member of declaration.members) {
-    if (member.kind === AstKind.STRUCT && member.name) {
+    if (
+      member.kind === AstKind.STRUCT &&
+      member.name &&
+      member.hasBody !== false
+    ) {
       structs.set(member.name, member as StructDecl);
     }
   }

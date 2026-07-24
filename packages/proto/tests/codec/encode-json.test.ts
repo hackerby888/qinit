@@ -227,6 +227,20 @@ test("typed codec accepts direct scalar and array roots", async () => {
   );
 });
 
+test("typed codec encodes an empty struct as one zero byte", async () => {
+  const schema: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    size: 1,
+    align: 1,
+    format: "",
+    fields: [],
+  };
+
+  expect(await encodeInputJson(schema, {})).toEqual(Uint8Array.of(0));
+  expect(await decodeOutput(Uint8Array.of(0), schema)).toEqual([]);
+  await expect(decodeOutput(new Uint8Array(0), schema)).rejects.toThrow(RangeError);
+});
+
 test("typed codec accepts a zero-length array", async () => {
   const schema: AbiStruct = {
     kind: AbiTypeKind.STRUCT,

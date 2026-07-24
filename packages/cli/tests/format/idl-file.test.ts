@@ -18,7 +18,7 @@ import {
 
 const emptyStruct: AbiStruct = {
   kind: AbiTypeKind.STRUCT,
-  size: 0,
+  size: 1,
   align: 1,
   format: "",
   fields: [],
@@ -38,8 +38,8 @@ const contract: ContractIdlArtifact = {
   codeHash: "abcd",
 };
 
-test("IDL v2 file stores contracts by slot", () => {
-  const root = mkdtempSync(join(tmpdir(), "qinit-idl-v2-"));
+test("IDL v3 file stores contracts by slot", () => {
+  const root = mkdtempSync(join(tmpdir(), "qinit-idl-v3-"));
   const path = join(root, "qinit.idl.json");
 
   saveContractIdl(28, contract, path);
@@ -50,13 +50,26 @@ test("IDL v2 file stores contracts by slot", () => {
       28: contract,
     },
   });
-  expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(2);
+  expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(
+    QINIT_IDL_VERSION,
+  );
 });
 
-test("IDL v1 slot maps are rejected", () => {
-  const root = mkdtempSync(join(tmpdir(), "qinit-idl-v1-"));
+test("IDL v2 files are rejected", () => {
+  const root = mkdtempSync(join(tmpdir(), "qinit-idl-v2-"));
   const path = join(root, "qinit.idl.json");
-  writeFileSync(path, JSON.stringify({ 28: { name: "Counter" } }));
+  writeFileSync(
+    path,
+    JSON.stringify({
+      version: 2,
+      contracts: {
+        28: {
+          ...contract,
+          version: 2,
+        },
+      },
+    }),
+  );
 
   expect(() => loadContractIdlFile(path)).toThrow(/Regenerate it with Qinit/);
 });
@@ -80,7 +93,7 @@ test("deployed metadata must match the live code hash", () => {
   expect(contractIdlForSlot(file, 28, "different")).toBeUndefined();
 });
 
-test("missing IDL file starts as an empty v2 registry", () => {
+test("missing IDL file starts as an empty v3 registry", () => {
   expect(emptyContractIdlFile()).toEqual({
     version: QINIT_IDL_VERSION,
     contracts: {},

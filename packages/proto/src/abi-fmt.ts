@@ -65,7 +65,7 @@ function sizeOf(n: TypeNode): number {
         o = roundUp(o, alignOf(f));
         o += sizeOf(f);
       }
-      return roundUp(o, alignOf(n));
+      return n.fields.length ? roundUp(o, alignOf(n)) : 1;
     }
   }
 }
@@ -211,6 +211,10 @@ async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[an
       return [arr, off];
     }
     case "struct": {
+      if (node.fields.length === 0) {
+        v.getUint8(off);
+        return [[], off + 1];
+      }
       const obj: any[] = [];
       for (const f of node.fields) {
         off = roundUp(off, alignOf(f));
@@ -750,6 +754,9 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
     const parts = expandReps(splitTop(tok.slice(1, tok.lastIndexOf("}"))));
     const sa = parts.length ? Math.max(...parts.map(tokenAlign)) : 1;
     padTo(out, sa);
+    if (parts.length === 0) {
+      out.push(0);
+    }
     for (const t of parts) await encodeToken(t, out);
     padTo(out, sa); // trailing struct padding
     return;
@@ -972,7 +979,7 @@ export function hasOverlappingAbiType(type: AbiType): boolean {
 // Top-level value tokens (comma-separated) = an implicit struct. "" = empty input.
 export async function encodeInput(fmt: string): Promise<Uint8Array> {
   const t = (fmt ?? "").trim();
-  if (!t) return new Uint8Array(0);
+  if (!t) return new Uint8Array(1);
   const parts = expandReps(splitTop(t));
   const out: number[] = [];
   const sa = parts.length ? Math.max(...parts.map(tokenAlign)) : 1;

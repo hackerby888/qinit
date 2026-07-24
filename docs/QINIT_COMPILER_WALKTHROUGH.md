@@ -102,7 +102,7 @@ the resulting contract metadata is:
 
 ```ts
 {
-  version: 2,
+  version: 3,
   name: "IdlEdge",
   slot: 27,
   state: {

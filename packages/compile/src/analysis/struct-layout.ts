@@ -3,6 +3,21 @@ import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } 
 import type { TypeSpec, Declaration, StructDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
 
+function emptyStructIdentity(
+    context: ProgramAnalysisInternals,
+    type: TypeSpec,
+    templateBindings: TemplateBindings,
+): StructDecl | string | null {
+    let resolved = context.substInBindings(type, templateBindings);
+    while (resolved.kind === AstKind.CONST)
+        resolved = resolved.valueType;
+    if (resolved.kind === AstKind.TEMPLATE_INSTANCE)
+        return `template:${context.typeKey(resolved)}`;
+    if (resolved.kind !== AstKind.NAME && resolved.kind !== AstKind.INLINE_STRUCT)
+        return null;
+    return context.structOf(resolved, templateBindings);
+}
+
 export function layoutOf(context: ProgramAnalysisInternals, struct: StructDecl): StructLayout {
     return context.layoutOfStruct(struct, EMPTY_TEMPLATE_BINDINGS);
 }
@@ -77,7 +92,7 @@ export function baseContribution(context: ProgramAnalysisInternals, baseType: Ty
                     }
                 }
             }
-            const layout = context.layoutOfMembers(struct.members, parentB, context.structCacheKey(struct), struct.isUnion, struct.bases);
+            const layout = context.layoutOfStruct(struct, parentB);
             return { layout, consts };
         }
     }
@@ -132,6 +147,8 @@ export function structCacheKey(context: ProgramAnalysisInternals, struct: Struct
 }
 
 export function layoutOfStruct(context: ProgramAnalysisInternals, struct: StructDecl, templateBindings: TemplateBindings): StructLayout {
+    if (struct.hasBody === false)
+        return { size: 0, align: 1, fields: new Map() };
     return context.layoutOfMembers(struct.members, templateBindings, context.structCacheKey(struct), struct.isUnion, struct.bases);
 }
 
@@ -188,18 +205,24 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
                         maxAlign = align;
                 }
             }
-            const layout = { size: max, align: maxAlign, fields };
+            const layout = {
+                size: fields.size === 0 ? 1 : context.alignUp(max, maxAlign),
+                align: maxAlign,
+                fields,
+            };
             if (key)
                 context.layoutCache.set(key, layout);
             return layout;
         }
         // Place base-class fields first and inherit their static constants.
         let memberVals = templateBindings.values;
+        const zeroOffsetEmptyStructs = new Set<StructDecl | string>();
         for (const baseType of bases) {
             const baseContribution = context.baseContribution(baseType, templateBindings);
             if (!baseContribution)
                 continue;
             offset = context.alignUp(offset, baseContribution.layout.align);
+            const baseOffset = offset;
             for (const baseField of baseContribution.layout.fields.values()) {
                 fields.set(baseField.name, {
                     name: baseField.name,
@@ -208,7 +231,24 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
                     type: baseField.type,
                 });
             }
-            offset += baseContribution.layout.size;
+            if (baseContribution.layout.fields.size > 0)
+                offset += baseContribution.layout.size;
+            else if (baseContribution.layout.size > 0) {
+                const baseIdentity = emptyStructIdentity(
+                    context,
+                    baseType,
+                    templateBindings,
+                );
+                if (baseIdentity)
+                    zeroOffsetEmptyStructs.add(baseIdentity);
+            }
+            if (
+                baseOffset === 0 ||
+                baseContribution.layout.fields.size === 0
+            ) {
+                for (const identity of baseContribution.layout.zeroOffsetEmptyStructs ?? [])
+                    zeroOffsetEmptyStructs.add(identity);
+            }
             if (baseContribution.layout.align > maxAlign)
                 maxAlign = baseContribution.layout.align;
             if (baseContribution.consts.size) {
@@ -258,6 +298,17 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
             const byteSize = context.sizeOfType(variableDeclaration.type, bMem);
             const align = Math.min(context.alignOfTypeB(variableDeclaration.type, bMem), 8);
             offset = context.alignUp(offset, align);
+            const memberIdentity = emptyStructIdentity(
+                context,
+                variableDeclaration.type,
+                bMem,
+            );
+            if (
+                offset === 0 &&
+                memberIdentity &&
+                zeroOffsetEmptyStructs.has(memberIdentity)
+            )
+                offset = context.alignUp(1, align);
             fields.set(variableDeclaration.name, {
                 name: variableDeclaration.name,
                 offset,
@@ -268,8 +319,12 @@ export function layoutOfMembers(context: ProgramAnalysisInternals, members: Decl
             if (align > maxAlign)
                 maxAlign = align;
         }
-        const size = context.alignUp(offset, maxAlign);
-        const layout = { size, align: maxAlign, fields };
+        const size = fields.size === 0
+            ? 1
+            : context.alignUp(offset, maxAlign);
+        const layout: StructLayout = { size, align: maxAlign, fields };
+        if (zeroOffsetEmptyStructs.size)
+            layout.zeroOffsetEmptyStructs = zeroOffsetEmptyStructs;
         if (key)
             context.layoutCache.set(key, layout);
         return layout;

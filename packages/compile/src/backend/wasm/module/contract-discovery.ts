@@ -9,7 +9,10 @@ export function findContractStruct(translationUnit: {
     const all: StructDecl[] = [];
     const walk = (declarations: Declaration[]) => {
         for (const declaration of declarations) {
-            if (declaration.kind === AstKind.STRUCT)
+            if (
+                declaration.kind === AstKind.STRUCT &&
+                declaration.hasBody !== false
+            )
                 all.push(declaration as StructDecl);
             else if (declaration.kind === AstKind.NAMESPACE)
                 walk((declaration as any).body);
@@ -24,7 +27,11 @@ export function findContractStruct(translationUnit: {
     }
     // fallback: a struct with a nested StateData that isn't one of the qpi.h library types
     for (const allItemCandidate of all) {
-        if (allItemCandidate.members.some((member) => member.kind === AstKind.STRUCT && (member as StructDecl).name === "StateData"))
+        if (allItemCandidate.members.some((member) => (
+            member.kind === AstKind.STRUCT &&
+            (member as StructDecl).name === "StateData" &&
+            (member as StructDecl).hasBody !== false
+        )))
             return allItemCandidate;
     }
     return null;

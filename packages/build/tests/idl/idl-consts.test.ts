@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { AbiTypeKind, extractIdl } from "../../src/idl";
 
-test("constexpr QPI math resolves array lengths in the v2 type tree", () => {
+test("constexpr QPI math resolves array lengths in the v3 type tree", () => {
   const source = `
 using namespace QPI;
 constexpr uint64 MAX_VALUES = 1024;

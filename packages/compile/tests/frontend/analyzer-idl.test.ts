@@ -48,7 +48,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-test("analyzer and compiler publish the same authoritative v2 IDL", async () => {
+test("analyzer and compiler publish the same authoritative v3 IDL", async () => {
   const analyzed = analyzeContract({
     source: SOURCE,
     name: "RichIdl",
@@ -117,6 +117,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     uint16 code;
     uint64 amount;
   };
+  struct StateData {};
 
   typedef uint64 Scalar_input;
   using Scalar_output = sint64;
@@ -195,6 +196,185 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   });
 });
 
+test("emits rare scalar, enum, array, and migration ABI types", () => {
+  const source = `
+using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  enum Plain { PlainValue = 1 };
+  enum class Tiny : uint8 { TinyValue = 2 };
+  enum class Wide : uint64 { WideValue = 3 };
+  using Alias = uint16;
+
+  struct StateData;
+  struct StateData {
+    bit bitValue;
+    id idValue;
+    m256i m256iValue;
+    uint8 uint8Value;
+    uint16 uint16Value;
+    uint32 uint32Value;
+    uint64 uint64Value;
+    uint128 uint128Value;
+    sint8 sint8Value;
+    sint16 sint16Value;
+    sint32 sint32Value;
+    sint64 sint64Value;
+    bool boolValue;
+    signed char signedCharValue;
+    unsigned char unsignedCharValue;
+    signed short signedShortValue;
+    unsigned short unsignedShortValue;
+    signed int signedIntValue;
+    unsigned int unsignedIntValue;
+    long long longLongValue;
+    signed long long signedLongLongValue;
+    unsigned long long unsignedLongLongValue;
+    const Alias aliasValue;
+    Plain plainValue;
+    Tiny tinyValue;
+    Wide wideValue;
+    DateAndTime dateValue;
+    BitArray<2> bits2;
+    BitArray<64> bits64;
+    BitArray<128> bits128;
+    Array<uint128, 2> wideValues;
+    Array<Array<uint16, 2>, 3> nestedValues;
+    SlowAnySizeArray<uint16, 3> slowValues;
+  };
+
+  struct OldStateData;
+  struct OldStateData {
+    DateAndTime dateValue;
+    SlowAnySizeArray<uint8, 3> bytes;
+  };
+  MIGRATE() {}
+};`;
+
+  const result = analyzeContract({
+    source,
+    name: "RareAbiTypes",
+  });
+
+  expect(result.diagnostics).toEqual([]);
+  expect(() => parseContractIdl(result.idl)).not.toThrow();
+
+  const fields = new Map(
+    result.idl?.state.fields.map((field) => [field.name, field]),
+  );
+  const scalarCases: Array<[
+    string,
+    AbiScalarKind,
+    number,
+    number,
+  ]> = [
+    ["bitValue", AbiScalarKind.BIT, 1, 1],
+    ["idValue", AbiScalarKind.ID, 32, 8],
+    ["m256iValue", AbiScalarKind.M256I, 32, 8],
+    ["uint8Value", AbiScalarKind.UINT8, 1, 1],
+    ["uint16Value", AbiScalarKind.UINT16, 2, 2],
+    ["uint32Value", AbiScalarKind.UINT32, 4, 4],
+    ["uint64Value", AbiScalarKind.UINT64, 8, 8],
+    ["uint128Value", AbiScalarKind.UINT128, 16, 8],
+    ["sint8Value", AbiScalarKind.SINT8, 1, 1],
+    ["sint16Value", AbiScalarKind.SINT16, 2, 2],
+    ["sint32Value", AbiScalarKind.SINT32, 4, 4],
+    ["sint64Value", AbiScalarKind.SINT64, 8, 8],
+    ["boolValue", AbiScalarKind.UINT8, 1, 1],
+    ["signedCharValue", AbiScalarKind.SINT8, 1, 1],
+    ["unsignedCharValue", AbiScalarKind.UINT8, 1, 1],
+    ["signedShortValue", AbiScalarKind.SINT16, 2, 2],
+    ["unsignedShortValue", AbiScalarKind.UINT16, 2, 2],
+    ["signedIntValue", AbiScalarKind.SINT32, 4, 4],
+    ["unsignedIntValue", AbiScalarKind.UINT32, 4, 4],
+    ["longLongValue", AbiScalarKind.SINT64, 8, 8],
+    ["signedLongLongValue", AbiScalarKind.SINT64, 8, 8],
+    ["unsignedLongLongValue", AbiScalarKind.UINT64, 8, 8],
+    ["aliasValue", AbiScalarKind.UINT16, 2, 2],
+    ["plainValue", AbiScalarKind.SINT32, 4, 4],
+    ["tinyValue", AbiScalarKind.UINT8, 1, 1],
+    ["wideValue", AbiScalarKind.UINT64, 8, 8],
+    ["dateValue", AbiScalarKind.UINT64, 8, 8],
+  ];
+
+  for (const [name, scalar, size, align] of scalarCases) {
+    expect(fields.get(name)?.type).toMatchObject({
+      kind: AbiTypeKind.SCALAR,
+      scalar,
+      size,
+      align,
+    });
+    expect(fields.get(name)?.size).toBe(size);
+  }
+
+  expect(fields.get("bits2")?.type).toMatchObject({
+    kind: AbiTypeKind.ARRAY,
+    count: 1,
+    size: 8,
+    element: {
+      kind: AbiTypeKind.SCALAR,
+      scalar: AbiScalarKind.UINT64,
+    },
+  });
+  expect(fields.get("bits64")?.type).toMatchObject({
+    kind: AbiTypeKind.ARRAY,
+    count: 1,
+    size: 8,
+  });
+  expect(fields.get("bits128")?.type).toMatchObject({
+    kind: AbiTypeKind.ARRAY,
+    count: 2,
+    size: 16,
+  });
+  expect(fields.get("wideValues")?.type).toMatchObject({
+    kind: AbiTypeKind.ARRAY,
+    count: 2,
+    size: 32,
+    element: {
+      kind: AbiTypeKind.SCALAR,
+      scalar: AbiScalarKind.UINT128,
+    },
+  });
+  expect(fields.get("nestedValues")?.type).toMatchObject({
+    kind: AbiTypeKind.ARRAY,
+    count: 3,
+    size: 12,
+    element: {
+      kind: AbiTypeKind.ARRAY,
+      count: 2,
+      size: 4,
+    },
+  });
+  expect(fields.get("slowValues")?.type).toMatchObject({
+    kind: AbiTypeKind.ARRAY,
+    count: 3,
+    size: 6,
+    element: {
+      kind: AbiTypeKind.SCALAR,
+      scalar: AbiScalarKind.UINT16,
+    },
+  });
+  expect(result.idl?.migration?.oldState).toMatchObject({
+    size: 16,
+    fields: [
+      {
+        name: "dateValue",
+        offset: 0,
+        size: 8,
+      },
+      {
+        name: "bytes",
+        offset: 8,
+        size: 3,
+        type: {
+          kind: AbiTypeKind.ARRAY,
+          count: 3,
+        },
+      },
+    ],
+  });
+});
+
 test("emits resolved dependent scalar types in ABI trees", () => {
   const source = `
 using namespace QPI;
@@ -208,6 +388,7 @@ struct Box {
   Array<Value, 2> values;
 };
 struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData {};
   struct Read_input {};
   typedef Box<false> Read_output;
   PUBLIC_FUNCTION(Read) {}

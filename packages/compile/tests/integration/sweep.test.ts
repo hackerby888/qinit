@@ -4,6 +4,7 @@ import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 import { test, expect, beforeAll } from "bun:test";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { systemContracts } from "@qinit/build";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { parseContractIdl } from "../../../proto/src/contract-idl";
@@ -19,37 +20,7 @@ const QPI = loadQpiHeader(CORE_PATH);
 const FIXTURES = QINIT_ROOT + "/fixtures";
 const SYSTEM = CORE_PATH + "/src/contracts";
 
-// system contract files (exclude headers/templates/old/test variants)
-const SYSTEM_FILES = [
-  "Qx.h",
-  "Quottery.h",
-  "Random.h",
-  "QUtil.h",
-  "QEARN=Qearn.h",
-  "QVAULT.h",
-  "MsVault.h",
-  "GGWP.h",
-  "QIP.h",
-  "QBond.h",
-  "QDuel.h",
-  "Qbay.h",
-  "Qdraw.h",
-  "Qswap.h",
-  "QThirtyFour.h",
-  "Qusino.h",
-  "qRWA.h",
-  "QReservePool.h",
-  "RandomLottery.h",
-  "Pulse.h",
-  "Escrow.h",
-  "Nostromo.h",
-  "QRaffle.h",
-  "MyLastMatch.h",
-  "SupplyWatcher.h",
-  "VottunBridge.h",
-  "ComputorControlledFund.h",
-  "GeneralQuorumProposal.h",
-];
+const SYSTEM_CONTRACTS = systemContracts(CORE_PATH);
 
 // simple user-level fixtures
 const FIXTURE_FILES = [
@@ -212,8 +183,57 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
   try {
     const sim = new Sim();
     const c = sim.deploy(28, r.wasm);
-    row.load = "ok";
-    row.state = `${c.ex.state_size()}b`;
+    const stateSize = c.ex.state_size() >>> 0;
+    const loadErrors: string[] = [];
+    row.state = `${stateSize}b`;
+
+    if (!r.idl) {
+      loadErrors.push("compiled artifact has no IDL");
+    } else {
+      if (r.idl.state.size !== stateSize) {
+        loadErrors.push(
+          `IDL state size ${r.idl.state.size} != Wasm state_size() ${stateSize}`,
+        );
+      }
+
+      const idlEntries = [
+        ...r.idl.functions.map((entry) => ({ ...entry, kind: 0 })),
+        ...r.idl.procedures.map((entry) => ({ ...entry, kind: 1 })),
+      ];
+      if (idlEntries.length !== c.entries.length) {
+        loadErrors.push(
+          `IDL entry count ${idlEntries.length} != Wasm reg_count() ${c.entries.length}`,
+        );
+      }
+      for (const entry of idlEntries) {
+        const registered = c.entries.find(
+          (candidate) =>
+            candidate.kind === entry.kind &&
+            candidate.it === entry.inputType,
+        );
+        if (!registered) {
+          loadErrors.push(
+            `missing Wasm registration for ${entry.name} (${entry.kind}:${entry.inputType})`,
+          );
+          continue;
+        }
+        if (
+          registered.inSize !== entry.inSize ||
+          registered.outSize !== entry.outSize
+        ) {
+          loadErrors.push(
+            `${entry.name} IDL ${entry.inSize}/${entry.outSize} != Wasm ${registered.inSize}/${registered.outSize}`,
+          );
+        }
+      }
+    }
+
+    if (loadErrors.length) {
+      row.load = "FAIL";
+      row.errors.push(...loadErrors);
+    } else {
+      row.load = "ok";
+    }
   } catch (e: any) {
     row.load = "FAIL";
     row.errors.push(`engine load: ${e.message ?? String(e)}`);
@@ -230,9 +250,7 @@ test("conformance sweep — fixtures + system contracts", async () => {
 
   const declaredTargets = new Set([
     ...FIXTURE_FILES.map((file) => file.replace(".h", "")),
-    ...SYSTEM_FILES.map((spec) =>
-      spec.includes("=") ? spec.split("=")[0] : spec.replace(".h", ""),
-    ),
+    ...SYSTEM_CONTRACTS.map((contract) => contract.file.replace(".h", "")),
   ]);
   expect(Object.keys(LINKED_DEPENDENCIES).filter((name) => !declaredTargets.has(name))).toEqual([]);
   expect(
@@ -245,9 +263,13 @@ test("conformance sweep — fixtures + system contracts", async () => {
     rows.push(await sweepOne(join(FIXTURES, f), f.replace(".h", "")));
   }
   rows.push({ name: "---", parse: "---", wasm: "---", load: "---", state: "---", errors: [] });
-  for (const spec of SYSTEM_FILES) {
-    const [disp, file] = spec.includes("=") ? spec.split("=") : [spec.replace(".h", ""), spec];
-    rows.push(await sweepOne(join(SYSTEM, file), disp));
+  for (const contract of SYSTEM_CONTRACTS) {
+    rows.push(
+      await sweepOne(
+        join(SYSTEM, contract.file),
+        contract.file.replace(".h", ""),
+      ),
+    );
   }
 
   // Print the table

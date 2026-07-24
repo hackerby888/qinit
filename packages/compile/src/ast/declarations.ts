@@ -36,6 +36,7 @@ export interface StructDecl {
     name: string;
     bases: TypeSpec[]; // : public ContractBase, ...
     members: Declaration[];
+    hasBody?: boolean;
     isUnion?: boolean;
     specializationArgs?: TypeSpec[]; // `struct Foo<ProposalDataYesNo, numOfVotes>` — partial/explicit specialization args
     span: Span;
@@ -47,6 +48,7 @@ export interface ClassTemplateDecl {
     params: TemplateParam[];
     members: Declaration[];
     bases: TypeSpec[];
+    hasBody?: boolean;
     specializationArgs?: TypeSpec[]; // present when this is a (partial) specialization, e.g. `<ProposalDataYesNo, numOfVotes>`
     span: Span;
 }

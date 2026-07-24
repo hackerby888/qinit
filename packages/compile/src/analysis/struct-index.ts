@@ -7,6 +7,8 @@ export function collectNested(context: ProgramAnalysisInternals, contract: Struc
     for (const member of contract.members) {
         if (member.kind === AstKind.STRUCT) {
             const structDeclaration = member as StructDecl;
+            if (structDeclaration.hasBody === false)
+                continue;
             context.nested.set(structDeclaration.name, structDeclaration);
             context.captureStructMethods(structDeclaration, [structDeclaration.name]);
             // Also register structs nested INSIDE this one under their qualified name (`Outer::Inner`), recursively.
@@ -27,6 +29,8 @@ export function collectNested(context: ProgramAnalysisInternals, contract: Struc
         else if (member.kind === AstKind.CLASS_TEMPLATE) {
             // Register nested templates and their inline methods like file-scope templates.
             const ct = member as any;
+            if (ct.hasBody === false)
+                continue;
             const prev = context.templates.get(ct.name);
             if (!prev || (prev.members?.length ?? 0) < (ct.members?.length ?? 0))
                 context.templates.set(ct.name, ct);
@@ -76,6 +80,8 @@ export function registerCalleeContractDeclarations(context: ProgramAnalysisInter
             for (const member of structDeclaration.members) {
                 if (member.kind === AstKind.STRUCT) {
                     const nested = member as StructDecl;
+                    if (nested.hasBody === false)
+                        continue;
                     context.globalStructs.set(`${name}::${nested.name}`, nested);
                     context.collectNestedStructs(nested, `${name}::${nested.name}`);
                 }
@@ -140,6 +146,8 @@ export function collectNestedStructs(context: ProgramAnalysisInternals, parent: 
     for (const member of parent.members) {
         if (member.kind === AstKind.STRUCT) {
             const structDeclaration = member as StructDecl;
+            if (structDeclaration.hasBody === false)
+                continue;
             const key = `${prefix}::${structDeclaration.name}`;
             if (!context.nested.has(key))
                 context.nested.set(key, structDeclaration);
@@ -189,7 +197,11 @@ export function walkNestedSegments(context: ProgramAnalysisInternals, sd: Struct
             return null;
         const seg = segs[segmentIndex];
         const last = segmentIndex === segs.length - 1;
-        const ms = sd.members.find((member): member is StructDecl => member.kind === AstKind.STRUCT && member.name === seg);
+        const ms = sd.members.find((member): member is StructDecl => (
+            member.kind === AstKind.STRUCT &&
+            member.name === seg &&
+            member.hasBody !== false
+        ));
         if (ms) {
             if (last)
                 return { kind: AstKind.INLINE_STRUCT, struct: ms, span: ms.span };

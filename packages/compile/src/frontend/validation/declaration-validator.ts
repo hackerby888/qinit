@@ -33,8 +33,10 @@ export function canonTypeKey(context: ValidatorInternals, type: TypeSpec): strin
 export function runTopLevel(context: ValidatorInternals, declarations: Declaration[]): void {
     const typeNames = new Set<string>();
     for (const declaration of declarations) {
-        // A memberless struct is a forward declaration (`struct StateData;`), not a definition.
-        const isForwardDecl = declaration.kind === AstKind.STRUCT && declaration.members.length === 0;
+        const isForwardDecl = (
+            declaration.kind === AstKind.STRUCT ||
+            declaration.kind === AstKind.CLASS_TEMPLATE
+        ) && declaration.hasBody === false;
         if ((declaration.kind === AstKind.STRUCT ||
             declaration.kind === AstKind.CLASS_TEMPLATE ||
             declaration.kind === AstKind.ENUM ||
@@ -95,6 +97,8 @@ export function checkGlobalVariable(context: ValidatorInternals, variableDeclara
 export function checkStruct(context: ValidatorInternals, structDeclaration: StructDecl): void {
     if (structDeclaration.name)
         context.aggregateNames.add(structDeclaration.name);
+    if (structDeclaration.hasBody === false)
+        return;
     if (structDeclaration.name)
         context.aggregateFieldCount.set(structDeclaration.name, structDeclaration.members.filter((member) => member.kind === AstKind.VARIABLE && !member.isStatic && !member.isConstexpr).length);
     if (structDeclaration.name)
@@ -106,8 +110,10 @@ export function checkStruct(context: ValidatorInternals, structDeclaration: Stru
     const fnBodies = new Map<string, FunctionDecl>();
     const fnSigs = new Map<string, FnSig>();
     for (const member of structDeclaration.members) {
-        // A memberless struct is a forward declaration (`struct StateData;`), not a definition.
-        const isForwardDecl = member.kind === AstKind.STRUCT && member.members.length === 0;
+        const isForwardDecl = (
+            member.kind === AstKind.STRUCT ||
+            member.kind === AstKind.CLASS_TEMPLATE
+        ) && member.hasBody === false;
         if ((member.kind === AstKind.STRUCT ||
             member.kind === AstKind.CLASS_TEMPLATE ||
             member.kind === AstKind.ENUM ||

@@ -36,6 +36,7 @@ export interface StructLayout {
     size: number;
     align: number;
     fields: Map<string, FieldLayout>;
+    zeroOffsetEmptyStructs?: Set<StructDecl | string>;
 }
 
 export interface TemplateBindings {

@@ -5,7 +5,7 @@ import {
   hashSetFmt,
 } from "./qpi-layout";
 
-export const QINIT_IDL_VERSION = 2 as const;
+export const QINIT_IDL_VERSION = 3 as const;
 
 export enum AbiTypeKind {
   SCALAR = "scalar",
@@ -570,7 +570,7 @@ function validateStruct(
   const expectedAlign = type.fields.length
     ? Math.max(...type.fields.map((field) => field.type.align))
     : 1;
-  const paddedSize = type.fields.length ? roundUp(end, expectedAlign) : 0;
+  const paddedSize = type.fields.length ? roundUp(end, expectedAlign) : 1;
   const sizeIsValid = type.size === paddedSize || (
     allowUnpaddedTail &&
     type.size === end

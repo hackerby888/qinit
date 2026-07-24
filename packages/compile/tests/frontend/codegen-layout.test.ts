@@ -31,6 +31,16 @@ const exprVal = (value: number): TypeSpec =>
 const ident = (name: string): Expression =>
   ({ kind: AstKind.IDENTIFIER, name, span: NO_SPAN }) as Expression;
 
+const array = (element: TypeSpec, size: number): TypeSpec => ({
+  kind: AstKind.ARRAY,
+  element,
+  size: {
+    kind: AstKind.INT_LITERAL,
+    value: String(size),
+    span: NO_SPAN,
+  },
+}) as TypeSpec;
+
 /** A non-static data member field. */
 const fld = (name: string, type: TypeSpec): VariableDecl =>
   ({
@@ -66,6 +76,7 @@ const sdecl = (
   members: Declaration[],
   options?: {
     bases?: TypeSpec[];
+    hasBody?: boolean;
     isUnion?: boolean;
   },
 ): StructDecl =>
@@ -74,6 +85,7 @@ const sdecl = (
     name,
     members,
     bases: options?.bases ?? [],
+    hasBody: options?.hasBody,
     isUnion: options?.isUnion,
     span: NO_SPAN,
   }) as StructDecl;
@@ -182,11 +194,11 @@ describe("Codegen — simple struct layout", () => {
     expect(layout.size).toBe(8);
   });
 
-  test("empty struct has size 0, align 1", () => {
+  test("empty struct has size 1, align 1", () => {
     const codeGenerationContext = makeCg();
     const s = sdecl("Empty", []);
     const layout = codeGenerationContext.layoutOf(s);
-    expect(layout.size).toBe(0);
+    expect(layout.size).toBe(1);
     expect(layout.align).toBe(1);
     expect(layout.fields.size).toBe(0);
   });
@@ -197,6 +209,40 @@ describe("Codegen — simple struct layout", () => {
     const layout = codeGenerationContext.layoutOf(s);
     expect(layout.fields.size).toBe(1);
     expect(layout.fields.get("a")!.offset).toBe(0);
+  });
+
+  test("static-only structs have size 1", () => {
+    const codeGenerationContext = makeCg();
+    const layout = codeGenerationContext.layoutOf(
+      sdecl("StaticOnly", [stat("K", 42)]),
+    );
+
+    expect(layout).toEqual({
+      size: 1,
+      align: 1,
+      fields: new Map(),
+    });
+  });
+
+  test("forward, recursive, and zero-length array sentinels stay size 0", () => {
+    const codeGenerationContext = makeCg();
+    const recursive = sdecl("Recursive", []);
+    recursive.members.push(fld("child", n("Recursive")));
+    codeGenerationContext.globalStructs.set("Recursive", recursive);
+
+    const forward = codeGenerationContext.layoutOf(
+      sdecl("Forward", [], { hasBody: false }),
+    );
+    const recursiveLayout = codeGenerationContext.layoutOf(recursive);
+    const zeroArray = codeGenerationContext.layoutOf(
+      sdecl("ZeroArray", [fld("values", array(n("uint8"), 0))]),
+    );
+
+    expect(forward.size).toBe(0);
+    expect(recursiveLayout.size).toBe(0);
+    expect(recursiveLayout.fields.get("child")?.size).toBe(0);
+    expect(zeroArray.size).toBe(0);
+    expect(zeroArray.fields.get("values")?.size).toBe(0);
   });
 });
 
@@ -218,11 +264,66 @@ describe("Codegen — nested struct layout", () => {
     expect(layout.fields.get("data")!.size).toBe(8);
     expect(layout.size).toBe(12);
   });
+
+  test("empty structs occupy storage as fields and array elements", () => {
+    const codeGenerationContext = makeCg();
+    const empty = sdecl("Empty", []);
+    const outer = sdecl("Outer", [
+      fld("one", { kind: AstKind.INLINE_STRUCT, struct: empty } as TypeSpec),
+      fld(
+        "many",
+        array(
+          { kind: AstKind.INLINE_STRUCT, struct: empty } as TypeSpec,
+          3,
+        ),
+      ),
+    ]);
+    const layout = codeGenerationContext.layoutOf(outer);
+
+    expect(layout.fields.get("one")).toMatchObject({ offset: 0, size: 1 });
+    expect(layout.fields.get("many")).toMatchObject({ offset: 1, size: 3 });
+    expect(layout.size).toBe(4);
+    expect(layout.align).toBe(1);
+  });
 });
 
 // -------------------------------------------------------------------------- unions --------------------------------------------------------------------------
 
 describe("Codegen — union layout", () => {
+  test("empty union has size 1, align 1", () => {
+    const codeGenerationContext = makeCg();
+    const layout = codeGenerationContext.layoutOf(
+      sdecl("EmptyUnion", [], { isUnion: true }),
+    );
+
+    expect(layout.size).toBe(1);
+    expect(layout.align).toBe(1);
+    expect(layout.fields.size).toBe(0);
+  });
+
+  test("union size includes trailing alignment padding", () => {
+    const codeGenerationContext = makeCg();
+    const sixBytes = sdecl("SixBytes", [
+      fld("values", array(n("uint16"), 3)),
+    ]);
+    const layout = codeGenerationContext.layoutOf(
+      sdecl(
+        "PaddedUnion",
+        [
+          fld(
+            "sixBytes",
+            { kind: AstKind.INLINE_STRUCT, struct: sixBytes } as TypeSpec,
+          ),
+          fld("fourBytes", n("uint32")),
+        ],
+        { isUnion: true },
+      ),
+    );
+
+    expect(layout.size).toBe(8);
+    expect(layout.align).toBe(4);
+  });
+
   test("all fields at offset 0, size = max field size", () => {
     const codeGenerationContext = makeCg();
     const s = sdecl(
@@ -245,6 +346,38 @@ describe("Codegen — union layout", () => {
 // -------------------------------------------------------------------------- base class inheritance --------------------------------------------------------------------------
 
 describe("Codegen — base class layout", () => {
+  test("empty bases do not shift derived fields", () => {
+    const codeGenerationContext = makeCg();
+    const emptyBase = sdecl("EmptyBase", [stat("K", 1)]);
+    codeGenerationContext.globalStructs.set("EmptyBase", emptyBase);
+    const derived = sdecl(
+      "Derived",
+      [fld("value", n("uint64"))],
+      { bases: [n("EmptyBase")] },
+    );
+    const layout = codeGenerationContext.layoutOf(derived);
+
+    expect(layout.fields.get("value")?.offset).toBe(0);
+    expect(layout.size).toBe(8);
+    expect(layout.align).toBe(8);
+  });
+
+  test("an empty base and member of the same type have distinct addresses", () => {
+    const codeGenerationContext = makeCg();
+    const emptyBase = sdecl("EmptyBase", []);
+    codeGenerationContext.globalStructs.set("EmptyBase", emptyBase);
+    const derived = sdecl(
+      "Derived",
+      [fld("member", n("EmptyBase"))],
+      { bases: [n("EmptyBase")] },
+    );
+    const layout = codeGenerationContext.layoutOf(derived);
+
+    expect(layout.fields.get("member")?.offset).toBe(1);
+    expect(layout.size).toBe(2);
+    expect(layout.align).toBe(1);
+  });
+
   test("base fields placed first, derived fields follow", () => {
     const codeGenerationContext = makeCg();
     const base = sdecl("Base", [fld("base_a", n("uint64")), fld("base_b", n("uint32"))]);

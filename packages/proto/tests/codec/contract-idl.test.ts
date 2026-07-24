@@ -11,7 +11,7 @@ import {
 
 const emptyStruct: ContractIdl["state"] = {
   kind: AbiTypeKind.STRUCT,
-  size: 0,
+  size: 1,
   align: 1,
   format: "",
   fields: [],
@@ -63,7 +63,7 @@ const paddedStruct: ContractIdl["state"] = {
   ],
 };
 
-test("parses typed v2 contract and registry IDL", () => {
+test("parses typed v3 contract and registry IDL", () => {
   expect(parseContractIdl(idl)).toEqual(idl);
   expect(
     parseContractIdlFile({
@@ -191,6 +191,42 @@ test("accepts a resolved zero-length array", () => {
   expect(parsed.state.format).toBe("[0;uint8]");
 });
 
+test("accepts nested empty structs and arrays with one-byte stride", () => {
+  const parsed = parseContractIdl({
+    ...idl,
+    state: {
+      kind: AbiTypeKind.STRUCT,
+      size: 4,
+      align: 1,
+      format: "wrong",
+      fields: [
+        {
+          name: "empty",
+          offset: 0,
+          size: 1,
+          type: emptyStruct,
+        },
+        {
+          name: "items",
+          offset: 1,
+          size: 3,
+          type: {
+            kind: AbiTypeKind.ARRAY,
+            count: 3,
+            size: 3,
+            align: 1,
+            format: "wrong",
+            element: emptyStruct,
+          },
+        },
+      ],
+    },
+  });
+
+  expect(parsed.state.format).toBe("{}, [3;{}]");
+  expect(parsed.state.fields[1].type.size).toBe(3);
+});
+
 test("accepts a zero-capacity container", () => {
   const parsed = parseContractIdl({
     ...idl,
@@ -305,14 +341,45 @@ test("accepts a log size that omits tail padding", () => {
           ],
         },
       },
+      {
+        name: "EmptyPrefix",
+        type: {
+          ...emptyStruct,
+          size: 0,
+        },
+      },
     ],
   });
 
   expect(parsed.logs[0].type.size).toBe(9);
+  expect(parsed.logs[1].type.size).toBe(0);
 });
 
-test("rejects v1 and inconsistent entry sizes", () => {
-  expect(() => parseContractIdl({ name: "Counter" })).toThrow(/version must be 2/);
+test("rejects v2, zero-byte empty structs, and inconsistent entry sizes", () => {
+  expect(() =>
+    parseContractIdl({
+      ...idl,
+      version: 2,
+    }),
+  ).toThrow(/version must be 3/);
+  expect(() =>
+    parseContractIdl({
+      ...idl,
+      state: {
+        ...emptyStruct,
+        size: 0,
+      },
+    }),
+  ).toThrow(/size 0 must be 1/);
+  expect(() =>
+    parseContractIdl({
+      ...idl,
+      state: {
+        ...emptyStruct,
+        align: 2,
+      },
+    }),
+  ).toThrow(/align 2 must be 1/);
   expect(() =>
     parseContractIdl({
       ...idl,
@@ -320,14 +387,14 @@ test("rejects v1 and inconsistent entry sizes", () => {
         {
           name: "Get",
           inputType: 1,
-          inSize: 1,
-          outSize: 0,
+          inSize: 0,
+          outSize: 1,
           input: emptyStruct,
           output: emptyStruct,
         },
       ],
     }),
-  ).toThrow(/inSize 1 does not match input size 0/);
+  ).toThrow(/inSize 0 does not match input size 1/);
 });
 
 test("rejects invalid scalar, array, and container layouts", () => {

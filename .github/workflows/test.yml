@@ -154,10 +154,21 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install
 
+      - name: Install native ABI compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-18
+
       - name: Protocol drift guard (qinit constants vs core)
         env:
           QINIT_CORE: ${{ github.workspace }}/core
         run: bun run scripts/check-protocol-drift.ts
+
+      - name: Native IDL ABI
+        env:
+          QINIT_CORE: ${{ github.workspace }}/core
+          QINIT_NATIVE_CLANG: clang++-18
+        run: bun run check:idl:native
 
       # The QPI extension's Tier-A linter must raise 0 warning/error findings on the real deployed
       # contracts (they're valid QPI) — a regression guard against linter false positives.

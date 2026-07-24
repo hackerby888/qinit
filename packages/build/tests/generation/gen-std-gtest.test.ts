@@ -19,7 +19,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 const output = genStdGtest(extractIdl(source, "Counter"), "Counter");
 
-test("gtest generator reads v2 entry arrays and input types", () => {
+test("gtest generator reads v3 entry arrays and input types", () => {
   expect(output).toContain(
     "callFunction(Counter_CONTRACT_INDEX, 9, in, out);",
   );

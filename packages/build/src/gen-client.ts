@@ -175,6 +175,17 @@ export function generateClient(
       `const ${schemaName(entry.name, "procedure", "input")} = ${JSON.stringify(entry.input)} as any;`,
     );
   }
+  if (idl.procedures.length) {
+    lines.push("");
+    lines.push(`type QinitProcedureResult = {`);
+    lines.push(`  ok: boolean;`);
+    lines.push(`  txId?: string;`);
+    lines.push(`  tick?: number;`);
+    lines.push(`  confirmed?: boolean;`);
+    lines.push(`  included?: boolean;`);
+    lines.push(`  moneyFlew?: boolean;`);
+    lines.push(`};`);
+  }
   lines.push("");
   for (const entry of idl.functions) {
     lines.push(interfaceSource(`${entry.name}_input`, entry.input, true));
@@ -232,7 +243,7 @@ export function generateClient(
       `    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed()) ?? "a".repeat(55);`,
     );
     lines.push(
-      `    const r = await invokeProcedure({ seed, rpcBase: this.rpcBase, contractIndex: this.index, procId: ${entry.inputType}, amount: opts.amount ?? 0, input: { type: ${inputSchema}, value: ${value} }, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc });`,
+      `    const r = await invokeProcedure({ seed, rpcBase: this.rpcBase, contractIndex: this.index, procId: ${entry.inputType}, amount: opts.amount ?? 0, input: { type: ${inputSchema}, value: ${value} }, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc }) as QinitProcedureResult;`,
     );
     lines.push(
       `    return { ok: r.ok, txId: r.txId, tick: r.tick, confirmed: r.confirmed, included: r.included, moneyFlew: r.moneyFlew };`,

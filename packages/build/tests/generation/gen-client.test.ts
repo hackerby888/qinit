@@ -105,8 +105,8 @@ const directRootClient = generateClient(
         ...rootBase.functions[0],
         name: "Empty",
         inputType: 12,
-        inSize: 0,
-        outSize: 0,
+        inSize: rootBase.functions[0].input.size,
+        outSize: rootBase.procedures[0].output.size,
         input: rootBase.functions[0].input,
         output: rootBase.procedures[0].output,
       },
@@ -205,10 +205,12 @@ test("scalar and array roots use direct aliases, arguments, and results", () => 
 });
 
 test("procedure wiring: tick+8, confirm-by-default, typed return", () => {
+  has("type QinitProcedureResult = {");
   has("async Inc(opts:"); // no-input proc: only opts
   has("procId: 1,");
   has("tick: (ti.tick ?? 0) + 8");
   has("confirm: opts.confirm !== false");
+  has("as QinitProcedureResult;");
   has("async Put(args: Put_input, opts:"); // flat-input proc: typed args + opts
   has("input: { type: Put_procedure_input_schema, value: args }");
 });

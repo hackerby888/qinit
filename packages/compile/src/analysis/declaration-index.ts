@@ -34,7 +34,7 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
         else if (declaration.kind === AstKind.STRUCT) {
             const structDeclaration = declaration as StructDecl;
             context.captureMemberNamespaceContexts(structDeclaration.members, lookupContext);
-            if (structDeclaration.name) {
+            if (structDeclaration.name && structDeclaration.hasBody !== false) {
                 if (nsPrefix) {
                     context.globalStructs.set(
                         `${nsPrefix}${structDeclaration.name}`,
@@ -87,6 +87,8 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
         else if (declaration.kind === AstKind.CLASS_TEMPLATE) {
             const ct = declaration as any;
             context.captureMemberNamespaceContexts(ct.members, lookupContext);
+            if (ct.hasBody === false)
+                continue;
             // Keep the primary template and index each partial specialization separately.
             if (ct.specializationArgs) {
                 if (!context.specializations.has(ct.name))

@@ -77,8 +77,34 @@ test("id round-trip (32-byte pubkey <-> 60-char identity)", async () => {
   expect(hex(await encodeInput(id + "id"))).toBe(pub);
 });
 
-test("empty input encodes to zero bytes", async () => {
-  expect((await encodeInput("")).length).toBe(0);
+test("empty structs encode and decode as one zero byte", async () => {
+  expect(await encodeInput("")).toEqual(Uint8Array.of(0));
+  expect(await encodeInput("{}")).toEqual(Uint8Array.of(0));
+  expect(layoutOf("")).toEqual({ size: 1, align: 1 });
+  expect(layoutOf("{}")).toEqual({ size: 1, align: 1 });
+  expect(await decodeOutput(Uint8Array.of(0), "")).toEqual([]);
+  await expect(decodeOutput(new Uint8Array(0), "")).rejects.toThrow(RangeError);
+});
+
+test("nested and arrayed empty structs use one-byte stride", async () => {
+  const nested = await encodeInput("{}, 7uint8");
+  expect(nested).toEqual(Uint8Array.of(0, 7));
+  expect(await decodeOutput(nested, "{}, uint8")).toEqual([[], 7]);
+  expect(structFieldOffsets("{}, uint8")).toEqual([
+    { off: 0, size: 1 },
+    { off: 1, size: 1 },
+  ]);
+
+  const array = await encodeInput("[3; {}, {}, {}]");
+  expect(array).toEqual(Uint8Array.of(0, 0, 0));
+  expect(layoutOf("[3;{}]")).toEqual({ size: 3, align: 1 });
+  expect(await decodeOutput(array, "[3;{}]")).toEqual([[], [], []]);
+});
+
+test("zero-length arrays remain zero bytes", async () => {
+  expect(layoutOf("[0;uint8]")).toEqual({ size: 0, align: 1 });
+  expect(await encodeInput("[0;]")).toEqual(new Uint8Array(0));
+  expect(await decodeOutput(new Uint8Array(0), "[0;uint8]")).toEqual([]);
 });
 
 test("m256i (digest) round-trips as hex, not an identity", async () => {

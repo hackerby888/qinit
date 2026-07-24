@@ -27,6 +27,7 @@ export class TemplateParser {
                 params,
                 members: struct.members,
                 bases: struct.bases,
+                hasBody: struct.hasBody,
                 specializationArgs: struct.specializationArgs,
                 span: struct.span,
             } as ClassTemplateDecl;

@@ -21,6 +21,7 @@ test("sampleTest: emits a balanced, non-trivial spec", () => {
 });
 
 test("testRuntimeSource: the inlined SDK template is present and non-empty", () => {
+  expect(testRuntimeSource.startsWith("// @ts-nocheck\n")).toBe(true);
   expect(typeof testRuntimeSource).toBe("string");
   expect(testRuntimeSource.length).toBeGreaterThan(0);
 });

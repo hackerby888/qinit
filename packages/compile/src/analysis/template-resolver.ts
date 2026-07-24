@@ -128,7 +128,11 @@ export function layoutOfTemplate(context: ProgramAnalysisInternals, name: string
 export function withLocalStructs(context: ProgramAnalysisInternals, members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
     let structs = templateBindings.structs;
     for (const member of members) {
-        if (member.kind === AstKind.STRUCT && (member as StructDecl).name) {
+        if (
+            member.kind === AstKind.STRUCT &&
+            (member as StructDecl).name &&
+            (member as StructDecl).hasBody !== false
+        ) {
             if (structs === templateBindings.structs)
                 structs = new Map(templateBindings.structs);
             structs.set((member as StructDecl).name, member as StructDecl);
@@ -178,7 +182,11 @@ export function bindContainer(context: ProgramAnalysisInternals, name: string, c
             out.values.set(parameter.name, context.evalConstFromType(parameterArgument, templateBindings));
     }
     for (const member of templateDeclaration.members) {
-        if (member.kind === AstKind.STRUCT && (member as StructDecl).name)
+        if (
+            member.kind === AstKind.STRUCT &&
+            (member as StructDecl).name &&
+            (member as StructDecl).hasBody !== false
+        )
             out.structs.set((member as StructDecl).name, member as StructDecl);
         else if (member.kind === AstKind.TYPEDEF_DECL && !out.types.has((member as any).name))
             out.types.set((member as any).name, (member as any).type);

@@ -247,7 +247,7 @@ function recordMemberFunctionLines(
 
 function createEmptyLayout(): StructLayout {
     return {
-        size: 0,
+        size: 1,
         align: 1,
         fields: new Map(),
     };

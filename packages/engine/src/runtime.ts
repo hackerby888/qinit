@@ -312,7 +312,9 @@ export class Contract {
   private dispatchDepth = 0; // >0 while a dispatch is on the stack — a nested invoke must not reuse io regions
   cost = 0n; // host-weight accumulator for the in-flight dispatch frame (reset/restored per invoke)
   lastCost = 0n; // total cost of the most recently completed invoke frame — Layer 2 debits this
+  private inSizes = new Map<string, number>(); // user entries: "kind:it" -> inSize
   private outSizes = new Map<string, number>(); // user entries: "kind:it" -> outSize
+  private sysInSizes = new Map<number, number>(); // sysproc id -> inSize
   private sysOutSizes = new Map<number, number>(); // sysproc id -> outSize
   entries: { it: number; kind: number; inSize: number; outSize: number }[] = []; // registered fns/procs
   trace?: TraceRecorder; // set by the Sim when debug tracing is on
@@ -421,11 +423,14 @@ export class Contract {
       const inSize = dv.getUint32(scratch + 8, true);
       const outSize = dv.getUint32(scratch + 12, true);
       this.entries.push({ it, kind, inSize, outSize });
+      this.inSizes.set(kind + ":" + it, inSize);
       this.outSizes.set(kind + ":" + it, outSize);
     }
     for (let sp = 0; sp < 12; sp++) {
-      if ((this.sysMask >>> sp) & 1)
+      if ((this.sysMask >>> sp) & 1) {
+        this.sysInSizes.set(sp, this.ex.sysproc_in_size(sp >>> 0) >>> 0);
         this.sysOutSizes.set(sp, this.ex.sysproc_out_size(sp >>> 0) >>> 0);
+      }
     }
     // migrate metadata — optional exports (contracts built before migration support lack them).
     if (typeof this.ex.has_migrate === "function") {
@@ -437,6 +442,11 @@ export class Contract {
 
   hasSysproc(sp: number): boolean {
     return ((this.sysMask >>> sp) & 1) === 1;
+  }
+
+  private inSizeFor(kind: number, it: number, fallback: number): number {
+    if (kind === KIND.SYSPROC) return this.sysInSizes.get(it) ?? fallback;
+    return this.inSizes.get(kind + ":" + it) ?? fallback;
   }
 
   private outSizeFor(kind: number, it: number): number {
@@ -504,11 +514,15 @@ export class Contract {
       this.arenaStart = this.arenaBase;
       this.arenaTop = this.arenaBase;
     }
+    const inSize = this.inSizeFor(kind, it, input.length);
     const outSize = this.outSizeFor(kind, it);
+    pre.fill(0, inOff, inOff + inSize);
     pre.fill(0, outOff, outOff + OUT_SZ);
     // Zero locals on every dispatch to match native QPI frames and container expectations.
     pre.fill(0, localsOff, localsOff + LOCALS_SZ);
-    if (input.length) pre.set(input, inOff);
+    if (input.length && inSize) {
+      pre.set(input.subarray(0, Math.min(input.length, inSize)), inOff);
+    }
     this.writeCtx(ctx);
 
     // Cost meter (opt-in): isolate this frame's host-weight accumulator so a nested re-entrant call on the
