@@ -8,6 +8,8 @@ export interface PreprocessOptions {
     contractIndex: number;
     calleePrelude?: string; // inter-contract callee type headers
     seedMacros?: Map<string, MacroDef>; // pre-built macro table (from qpi.h) to start from
+    expandMacros?: boolean;
+    preserveSourceOffsets?: boolean;
 }
 
 export interface MacroDef {
@@ -25,6 +27,8 @@ export interface PreprocessorInternals {
   input: string;
   pos: number;
   srcLine: number[];
+  expandMacros: boolean;
+  preserveSourceOffsets: boolean;
   condStack: {
     active: boolean;
     taken: boolean;

@@ -136,11 +136,18 @@ export function layoutOfStruct(context: ProgramAnalysisInternals, struct: Struct
 }
 
 export function bindingSig(context: ProgramAnalysisInternals, templateBindings: TemplateBindings): string {
-    if (templateBindings.types.size + templateBindings.values.size === 0)
+    const bindingCount =
+        templateBindings.types.size +
+        templateBindings.values.size +
+        templateBindings.structs.size;
+    if (bindingCount === 0)
         return "";
     const typeBindingSignature = [...templateBindings.types].map(([name, type]) => `${name}=${context.typeKey(type)}`).join(",");
     const valueBindingSignature = [...templateBindings.values].map(([name, value]) => `${name}=${value}`).join(",");
-    return `|${typeBindingSignature}|${valueBindingSignature}`;
+    const structBindingSignature = [...templateBindings.structs]
+        .map(([name, struct]) => `${name}=${context.structCacheKey(struct)}`)
+        .join(",");
+    return `|${typeBindingSignature}|${valueBindingSignature}|${structBindingSignature}`;
 }
 
 export function layoutOfMembers(context: ProgramAnalysisInternals, members: Declaration[], bIn: TemplateBindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {

@@ -23,27 +23,61 @@ function idlChecks(source: string): SourceAnalysisDiagnostic[] {
 }
 
 test("duplicate function index is flagged", () => {
-  const rules = idlChecks("REGISTER_USER_FUNCTION(getA, 1); REGISTER_USER_FUNCTION(getB, 1);").map(
-    (f) => f.code,
-  );
+  const source = `
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct GetA_input {};
+  struct GetA_output {};
+  struct GetB_input {};
+  struct GetB_output {};
+  PUBLIC_FUNCTION(GetA) {}
+  PUBLIC_FUNCTION(GetB) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(GetA, 1);
+    REGISTER_USER_FUNCTION(GetB, 1);
+  }
+};`;
+  const rules = idlChecks(source).map((diagnostic) => diagnostic.code);
+
   expect(rules).toContain("qpi/dup-fn-index");
 });
 
 test("a function and a procedure may share an index (separate index spaces)", () => {
-  expect(idlChecks("REGISTER_USER_FUNCTION(getA, 1); REGISTER_USER_PROCEDURE(doB, 1);")).toEqual(
-    [],
-  );
+  const source = `
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct GetA_input {};
+  struct GetA_output {};
+  struct DoB_input {};
+  struct DoB_output {};
+  PUBLIC_FUNCTION(GetA) {}
+  PUBLIC_PROCEDURE(DoB) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(GetA, 1);
+    REGISTER_USER_PROCEDURE(DoB, 1);
+  }
+};`;
+
+  expect(idlChecks(source)).toEqual([]);
 });
 
 test("unregistered PUBLIC_* is flagged; registered is not", () => {
   const src = `
-    PUBLIC_FUNCTION(getA) { }
-    PUBLIC_PROCEDURE_WITH_LOCALS(doB) { }
-    REGISTER_USER_FUNCTIONS_AND_PROCEDURES { REGISTER_USER_FUNCTION(getA, 1); }
-  `;
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct GetA_input {};
+  struct GetA_output {};
+  struct DoB_input {};
+  struct DoB_output {};
+  PUBLIC_FUNCTION(GetA) {}
+  PUBLIC_PROCEDURE(DoB) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(GetA, 1);
+  }
+};`;
   const f = idlChecks(src);
-  expect(f.some((x) => x.code === "qpi/unregistered" && x.message.includes("doB"))).toBe(true);
-  expect(f.some((x) => x.code === "qpi/unregistered" && x.message.includes("getA"))).toBe(false);
+  expect(f.some((x) => x.code === "qpi/unregistered" && x.message.includes("DoB"))).toBe(true);
+  expect(f.some((x) => x.code === "qpi/unregistered" && x.message.includes("GetA"))).toBe(false);
 });
 
 test("commented-out macros are ignored", () => {

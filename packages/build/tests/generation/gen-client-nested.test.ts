@@ -21,12 +21,22 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct EchoHolder_input { Holder h; }; struct EchoHolder_output { uint64 ok; };
   struct EchoPad_input { Padded p; uint8 c; }; struct EchoPad_output { uint64 ok; };
   struct AddPts_input { Array<Pt,2> pts; }; struct AddPts_output {};
+  typedef NoData Matrix_input;
+  typedef Array<Array<Pt, 2>, 2> Matrix_output;
+  PUBLIC_FUNCTION(GetPt) {}
+  PUBLIC_FUNCTION(ListPts) {}
+  PUBLIC_FUNCTION(Echo) {}
+  PUBLIC_FUNCTION(EchoHolder) {}
+  PUBLIC_FUNCTION(EchoPad) {}
+  PUBLIC_FUNCTION(Matrix) {}
+  PUBLIC_PROCEDURE(AddPts) {}
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
     REGISTER_USER_FUNCTION(GetPt, 1);
     REGISTER_USER_FUNCTION(ListPts, 2);
     REGISTER_USER_FUNCTION(Echo, 3);
     REGISTER_USER_FUNCTION(EchoHolder, 4);
     REGISTER_USER_FUNCTION(EchoPad, 5);
+    REGISTER_USER_FUNCTION(Matrix, 6);
     REGISTER_USER_PROCEDURE(AddPts, 1);
   }
 };`;
@@ -42,26 +52,30 @@ test("nested struct output -> inline object type", () => {
 
 test("array-of-struct output -> typed element array", () => {
   incl("export interface ListPts_output {\n  pts: { x: bigint; y: bigint }[];\n}");
+  incl("export type Matrix_output = { x: bigint; y: bigint }[][];");
 });
 
-test("nested struct input -> typed args + braced value template (no raw inFmt)", () => {
+test("nested struct input uses typed args and schema", () => {
   incl("async Echo(args: Echo_input): Promise<Echo_output>");
-  incl("`{ ${args.to.x}sint64, ${args.to.y}sint64 }, ${args.speed}uint64`");
+  incl(
+    "3, { type: Echo_function_input_schema, value: args }, Echo_function_output_schema)",
+  );
 });
 
-test("nested-with-id input keeps the id token inside the brace", () => {
-  incl("`{ ${args.h.who}id, ${args.h.amt}uint64 }`");
+test("nested-with-id input uses typed metadata", () => {
+  incl("4, { type: EchoHolder_function_input_schema, value: args }");
 });
 
 test("recursive output mapper turns the decoder's positional arrays into named objects", () => {
   incl("return { p: ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(r as unknown[]) };");
   incl(
-    "return { pts: (r as unknown[][]).map((e) => ({ x: e[0] as bigint, y: e[1] as bigint })) };",
+    "return { pts: (r as unknown[]).map((element) => ((s) => ({ x: s[0] as bigint, y: s[1] as bigint }))(element as unknown[])) };",
   );
 });
 
-test("array INPUT still falls back to a raw inFmt param (fixed-N can't be value-templated)", () => {
-  incl("async AddPts(inFmt: string, opts:");
+test("array input remains typed", () => {
+  incl("async AddPts(args: AddPts_input, opts:");
+  incl("input: { type: AddPts_procedure_input_schema, value: args }");
 });
 
 test.skipIf(!have("Qx"))("real QX/Quottery clients transpile cleanly (valid TS syntax)", () => {
@@ -115,6 +129,7 @@ test("RUN: nested + array-of-struct outputs decode into typed named objects", as
     async querySmartContract(_idx: number, fnId: number): Promise<Uint8Array> {
       if (fnId === 1) return sint64(5n, 7n); // GetPt -> Pt{5,7}
       if (fnId === 2) return sint64(1n, 2n, 3n, 4n, 5n, 6n); // ListPts -> 3 Pts
+      if (fnId === 6) return sint64(1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n);
       throw new Error("unexpected fn " + fnId);
     },
   };
@@ -127,6 +142,16 @@ test("RUN: nested + array-of-struct outputs decode into typed named objects", as
       { x: 5n, y: 6n },
     ],
   });
+  expect(await c.Matrix()).toEqual([
+    [
+      { x: 1n, y: 2n },
+      { x: 3n, y: 4n },
+    ],
+    [
+      { x: 5n, y: 6n },
+      { x: 7n, y: 8n },
+    ],
+  ]);
 });
 
 test("RUN: nested struct input is byte-exact encoded (alignment incl. trailing pad)", async () => {

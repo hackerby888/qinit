@@ -100,7 +100,12 @@ test("Price subscription matches across TS and Clang artifacts in VirtualNode", 
     arenaSz: 4 * 1024 * 1024,
   });
   expect(typescript.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-  expect(typescript.idl.procedures.find((entry) => entry.name === "Subscribe")?.inSize).toBe(112);
+  if (!typescript.idl) {
+    throw new Error("successful TypeScript compile returned no IDL");
+  }
+  expect(typescript.idl.procedures.find((entry) => entry.name === "Subscribe")?.inSize).toBe(
+    112,
+  );
 
   const nativeResult = run(new Uint8Array(readFileSync(clang.so!)));
   const typescriptResult = run(typescript.wasm);

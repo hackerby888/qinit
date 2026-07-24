@@ -8,7 +8,9 @@
     "rootDir": "src",
     "skipLibCheck": true,
     "paths": {
-      "@qinit/core": ["packages/compile/types-build/core-abi.d.ts"]
+      "@qinit/core": ["packages/compile/types-build/core-abi.d.ts"],
+      "@qinit/proto/contract-idl": ["packages/proto/dist/contract-idl.d.ts"],
+      "@qinit/proto/qpi-layout": ["packages/proto/dist/qpi-layout.d.ts"]
     }
   },
   "include": ["src/index.ts", "src/analyzer.ts"]

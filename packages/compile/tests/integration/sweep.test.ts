@@ -6,10 +6,11 @@ import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
+import { parseContractIdl } from "../../../proto/src/contract-idl";
 import {
   compileContract,
   loadQpiHeader,
-  type CalleeIdl,
+  type ContractIdl,
   type CompileResult,
 } from "../../src/index";
 
@@ -111,28 +112,16 @@ interface Row {
   errors: string[];
 }
 
-function calleeIdlFrom(name: string, index: number, result: CompileResult): CalleeIdl {
-  const functions = Object.fromEntries(
-    result.idl.functions.map((entry) => [
-      entry.name,
-      {
-        inputType: entry.inputType,
-        inSize: entry.inSize,
-        outSize: entry.outSize,
-      },
-    ]),
-  );
-  const procedures = Object.fromEntries(
-    result.idl.procedures.map((entry) => [
-      entry.name,
-      {
-        inputType: entry.inputType,
-        inSize: entry.inSize,
-        outSize: entry.outSize,
-      },
-    ]),
-  );
-  return { name, index, functions, procedures };
+function calleeIdlFrom(name: string, slot: number, result: CompileResult): ContractIdl {
+  if (!result.idl) {
+    throw new Error(`missing IDL for callee '${name}'`);
+  }
+
+  return {
+    ...result.idl,
+    name,
+    slot,
+  };
 }
 
 async function sweepOne(path: string, displayName: string): Promise<Row> {
@@ -204,8 +193,18 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
   }
 
   const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
-  row.parse = errs.length === 0 ? "ok" : `${errs.length} err`;
   row.errors.push(...errs.map((diagnostic) => `L${diagnostic.span.line} ${diagnostic.message}`));
+  if (errs.length > 0) {
+    row.parse = `${errs.length} err`;
+  } else {
+    try {
+      parseContractIdl(r.idl);
+      row.parse = "ok";
+    } catch (error: any) {
+      row.parse = "IDL err";
+      row.errors.push(`IDL: ${error.message ?? String(error)}`);
+    }
+  }
   row.wasm = r.wasm.byteLength > 0 ? `${r.wasm.byteLength}b` : "0";
 
   if (r.wasm.byteLength === 0) return row;

@@ -7,17 +7,26 @@ import { scratchDir } from "../node-ops";
 import {
   callFunction,
   invokeProcedure,
-  jsonToInputFmt,
   encodeInput,
+  encodeInputJson,
   zeroInputFmt,
   TX_TICK_OFFSET,
 } from "@qinit/proto";
+import {
+  AbiTypeKind,
+  type ContractEntry,
+} from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { describeTrace, jstr, fmtVal, type TraceView as TraceData } from "../trace-format";
 import { TraceView } from "../views";
 import { CallInteractive } from "./call-interactive";
-import { loadConfig, resolveSeed } from "../config";
+import {
+  loadConfig,
+  loadConfiguredQpiHeader,
+  resolveSeed,
+} from "../config";
 import { loadContracts, resolveContract } from "../contracts";
+import { contractIdlForSlot, loadContractIdlFile } from "../idl-file";
 import { Header, Spinner, Status, Bar, theme } from "../ui";
 
 type Result = {
@@ -69,15 +78,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
     (async () => {
       try {
         const rpc = new LiteRpc(rpcBase);
-        const idl: any = (() => {
-          try {
-            return existsSync("qinit.idl.json")
-              ? JSON.parse(readFileSync("qinit.idl.json", "utf8"))
-              : {};
-          } catch {
-            return {};
-          }
-        })();
+        const idlFile = loadContractIdlFile();
 
         // contract: resolve a name or index across user-deployed (first) then built-in system contracts.
         const sets = await loadContracts(rpc);
@@ -89,51 +90,73 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
         const idx = rc.index;
         // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
         // contract source (node dyn-registry source for user contracts, snapshot source for system contracts).
-        let tbl: any = o.mode === "fn" ? idl[String(idx)]?.functions : idl[String(idx)]?.procedures;
-        if ((!tbl || !Object.keys(tbl).length) && rc.source) {
-          const d = extractIdl(rc.source, rc.name);
-          tbl = o.mode === "fn" ? d.functions : d.procedures;
+        const localContractIdl = contractIdlForSlot(
+          idlFile,
+          idx,
+          rc.codeHash,
+        );
+        let contractIdl = localContractIdl;
+        let entries = o.mode === "fn" ? contractIdl?.functions : contractIdl?.procedures;
+        if ((!entries || entries.length === 0) && rc.source) {
+          contractIdl = extractIdl(rc.source, rc.name, {
+            slot: idx,
+            qpiHeader: loadConfiguredQpiHeader(),
+          });
+          entries = o.mode === "fn" ? contractIdl.functions : contractIdl.procedures;
         }
-        tbl = tbl ?? {};
+        entries ??= [];
         let entry = Number(o.entry);
-        let ie: any = tbl[String(entry)];
+        let entryIdl: ContractEntry | undefined = entries.find(
+          (candidate) => candidate.inputType === entry,
+        );
         if (Number.isNaN(entry)) {
-          const hit = Object.entries(tbl).find(
-            ([, e]: any) => (e.name || "").toLowerCase() === String(o.entry).toLowerCase(),
+          entryIdl = entries.find(
+            (candidate) =>
+              candidate.name.toLowerCase() === String(o.entry).toLowerCase(),
           );
-          if (!hit)
+          if (!entryIdl) {
             throw new Error(
               `no ${o.mode} named '${o.entry}' on contract ${idx} (no local IDL and node has no source for this slot)`,
             );
-          entry = Number(hit[0]);
-          ie = hit[1];
+          }
+          entry = entryIdl.inputType;
         }
-        // input: --args '<json>' (field-name keyed) encodes via the IDL field schema; else raw --in fmt; else
-        // fall back to the IDL type fmt (only valid when the entry takes no input).
-        let inFmt: string;
+        // --args JSON encodes through the IDL schema; otherwise use raw --in format.
+        let input: Uint8Array;
         if (o.args !== undefined) {
-          const flds = ie?.inFields;
-          if (!flds || !flds.length)
+          if (!entryIdl) {
             throw new Error(
-              `--args needs the input field schema for ${o.mode} ${idx}/${entry} (build/deploy locally, or the node must have the contract source)`,
+              `--args needs the input schema for ${o.mode} ${idx}/${entry} (build/deploy locally, or the node must have the contract source)`,
             );
+          }
           try {
-            inFmt = jsonToInputFmt(flds, JSON.parse(o.args));
+            input = await encodeInputJson(
+              entryIdl.input,
+              JSON.parse(o.args),
+            );
           } catch (er: any) {
             throw new Error("--args: " + String(er?.message ?? er));
           }
-        } else inFmt = o.in ?? ie?.in ?? "";
-
-        // pre-validate the input encodes; on failure show a schema-matched all-zero sample (no tx is sent).
-        try {
-          await encodeInput(inFmt);
-        } catch (enc: any) {
-          let z = "";
+        } else {
           try {
-            const f = ie?.in ?? (ie?.inFields ?? []).map((x: any) => x.type).join(", ");
-            if (f?.trim()) z = zeroInputFmt(f);
-          } catch {}
-          throw new Error(`bad input: ${enc?.message ?? enc}${z ? `\nall-zero sample: ${z}` : ""}`);
+            input = await encodeInput(o.in ?? entryIdl?.input.format ?? "");
+          } catch (enc: any) {
+            let z = "";
+            try {
+              if (
+                entryIdl &&
+                !(
+                  entryIdl.input.kind === AbiTypeKind.STRUCT &&
+                  entryIdl.input.fields.length === 0
+                )
+              ) {
+                z = zeroInputFmt(entryIdl.input);
+              }
+            } catch {}
+            throw new Error(
+              `bad input: ${enc?.message ?? enc}${z ? `\nall-zero sample: ${z}` : ""}`,
+            );
+          }
         }
 
         // --trace: capture the call in the node debug ring. Enable + note the latest seq BEFORE dispatch.
@@ -167,10 +190,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
         const enrichErr = async (raw: string): Promise<string | undefined> => {
           if (!raw) return undefined;
           try {
-            const all = existsSync("qinit.idl.json")
-              ? JSON.parse(readFileSync("qinit.idl.json", "utf8"))
-              : {};
-            const lineMapPath = all[String(idx)]?.linesJson;
+            const lineMapPath = localContractIdl?.linesJson;
             const log = join(scratchDir(), "node.log");
             if (existsSync(log)) {
               const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), { lineMapPath });
@@ -179,10 +199,16 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           } catch {}
           return raw;
         };
-        const label = `${o.idx}.${ie?.name ?? (o.mode === "fn" ? "fn#" : "proc#") + entry}`;
+        const label = `${o.idx}.${entryIdl?.name ?? (o.mode === "fn" ? "fn#" : "proc#") + entry}`;
 
         if (o.mode === "fn") {
-          const out = await callFunction(rpc, idx, entry, inFmt, o.out ?? ie?.out ?? "");
+          const out = await callFunction(
+            rpc,
+            idx,
+            entry,
+            input,
+            o.out ?? entryIdl?.output ?? "",
+          );
           const empty = out == null || (typeof out === "object" && Object.keys(out).length === 0);
           const ne = empty ? await nodeErr() : "";
           setResult({
@@ -201,7 +227,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
             contractIndex: idx,
             procId: entry,
             amount: Number(o.amount ?? 0),
-            inFmt,
+            input,
             tick,
             confirm: settle,
             rpc,
@@ -251,7 +277,13 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
             setTrace({
               e: te,
               name: traceName,
-              view: await describeTrace(te, traceSrc, traceName, rpc),
+              view: await describeTrace(
+                te,
+                traceSrc,
+                traceName,
+                rpc,
+                traceSrc ? loadConfiguredQpiHeader() : undefined,
+              ),
             });
           else setNote("(no trace captured — is the debug toggle available on this node?)");
           try {

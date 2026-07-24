@@ -11,6 +11,8 @@ test("build JSON includes complete failure diagnostics", () => {
     artifact: null,
     size: null,
     hash: null,
+    idl: null,
+    idlError: null,
     stderr,
   });
   expect(result.stderr.split("\n")).toHaveLength(80);
@@ -23,6 +25,7 @@ test("build JSON includes success artifact metadata", () => {
       so: "/tmp/contracts/DigestProbe.wasm",
       size: 4096,
       hash: "cd".repeat(32),
+      idlError: "unsupported layout",
       stderr: "warning: retained in full",
     },
     "local",
@@ -34,6 +37,8 @@ test("build JSON includes success artifact metadata", () => {
     artifact: "/tmp/contracts/DigestProbe.wasm",
     size: 4096,
     hash: "cd".repeat(32),
+    idl: null,
+    idlError: "unsupported layout",
     stderr: "warning: retained in full",
   });
 });

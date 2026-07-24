@@ -1,4 +1,4 @@
-import type { CalleeIdl, CompileResult } from "../packages/compile/src/browser";
+import type { CompileResult, ContractIdl } from "../packages/compile/src/browser";
 import { compileContract } from "../packages/compile/src/browser";
 import API_PROBE_SOURCE from "../fixtures/ApiProbe.h" with { type: "text" };
 import COUNTER_SOURCE from "../fixtures/Counter.h" with { type: "text" };
@@ -104,33 +104,14 @@ function fixture(
 function toCalleeIdl(
   definition: WasmFixtureDefinition,
   result: CompileResult,
-): CalleeIdl {
-  const functions = Object.fromEntries(
-    result.idl.functions.map((entry) => [
-      entry.name,
-      {
-        inputType: entry.inputType,
-        inSize: entry.inSize,
-        outSize: entry.outSize,
-      },
-    ]),
-  );
-  const procedures = Object.fromEntries(
-    result.idl.procedures.map((entry) => [
-      entry.name,
-      {
-        inputType: entry.inputType,
-        inSize: entry.inSize,
-        outSize: entry.outSize,
-      },
-    ]),
-  );
-
+): ContractIdl {
+  if (!result.idl) {
+    throw new Error(`successful ${definition.contractName} compile returned no IDL`);
+  }
   return {
+    ...result.idl,
     name: definition.contractName,
-    index: definition.slot,
-    functions,
-    procedures,
+    slot: definition.slot,
   };
 }
 

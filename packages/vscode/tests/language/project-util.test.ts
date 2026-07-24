@@ -8,6 +8,7 @@ import {
   findContractCandidates,
   findProjectRoot,
   isQpiContractSource,
+  projectContractDocuments,
   selectTestContract,
   testContractType,
 } from "../../src/project-util";
@@ -78,5 +79,40 @@ test("project and contract discovery work without qinit.json", () => {
     ).toEqual({});
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("config saves select only open contracts from that project", () => {
+  const root = mkdtempSync(join(tmpdir(), "qpi-config-save-"));
+  const other = mkdtempSync(join(tmpdir(), "qpi-config-save-other-"));
+  try {
+    writeFileSync(join(root, "qinit.json"), "{}");
+    writeFileSync(join(other, "qinit.json"), "{}");
+
+    const document = (fileName: string, source: string) =>
+      ({
+        uri: { scheme: "file" },
+        fileName,
+        getText: () => source,
+      }) as any;
+    const contract = document(
+      join(root, "Counter.h"),
+      "struct Counter : public ContractBase {};",
+    );
+    const documents = [
+      contract,
+      document(join(root, "Plain.h"), "struct Plain {};"),
+      document(
+        join(other, "Other.h"),
+        "struct Other : public ContractBase {};",
+      ),
+    ];
+
+    expect(
+      projectContractDocuments(join(root, "qinit.json"), documents),
+    ).toEqual([contract]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(other, { recursive: true, force: true });
   }
 });

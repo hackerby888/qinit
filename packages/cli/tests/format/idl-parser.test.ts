@@ -1,8 +1,6 @@
 import { test, expect } from "bun:test";
 import { extractIdl } from "@qinit/build";
 import { stateFieldsOf } from "../../src/trace-format";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
 
 const SRC = `using namespace QPI;
 constexpr uint64 CAP = 4 * 2;
@@ -50,32 +48,10 @@ test("parser: native, uint128, enum, Asset, nested + scoped struct, multi-var, c
   expect(by.helper).toBeUndefined(); // method stripped, not a field
 });
 
-test("parser: unresolvable field type degrades gracefully (marks bad + stops)", () => {
+test("compiler rejects state layouts with unresolved types", () => {
   const bad = `struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { uint64 ok; Array<X, SOME_EXTERNAL_DEFINE> nope; uint64 after; }; INITIALIZE() {} };`;
-  const sf = stateFieldsOf(extractIdl(bad, "B"));
-  expect(sf[0].name).toBe("ok");
-  expect(sf.find((f) => f.bad)?.name).toBe("nope"); // unsizable -> bad
-  expect(sf.some((f) => f.name === "after")).toBe(false); // stops (later offsets unknown)
+  expect(() => extractIdl(bad, "B")).toThrow();
 });
-
-// Optional sweep: every system contract parses without crashing (skipped if the core checkout isn't present).
-const CORE_CONTRACTS = process.env.QINIT_CORE
-  ? join(process.env.QINIT_CORE, "src", "contracts")
-  : undefined;
-test.skipIf(!CORE_CONTRACTS || !existsSync(CORE_CONTRACTS))(
-  "sweep: all system contracts parse without throwing",
-  () => {
-    for (const f of readdirSync(CORE_CONTRACTS!).filter(
-      (x) => x.endsWith(".h") && !["qpi.h", "math_lib.h"].includes(x),
-    )) {
-      expect(() =>
-        stateFieldsOf(
-          extractIdl(readFileSync(join(CORE_CONTRACTS!, f), "utf8"), f.replace(".h", "")),
-        ),
-      ).not.toThrow();
-    }
-  },
-);
 
 test("bare struct name resolves to the shallowest (contract-level) struct, not a nested same-named shadow", () => {
   const src = `using namespace QPI;

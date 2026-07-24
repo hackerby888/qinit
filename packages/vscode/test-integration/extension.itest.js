@@ -13,6 +13,29 @@ async function open(name) {
   await vscode.window.showTextDocument(doc);
   return doc;
 }
+async function replaceDocument(doc, source) {
+  const edit = new vscode.WorkspaceEdit();
+  const end = doc.positionAt(doc.getText().length);
+  edit.replace(doc.uri, new vscode.Range(new vscode.Position(0, 0), end), source);
+  assert.ok(await vscode.workspace.applyEdit(edit), `failed to edit ${doc.fileName}`);
+}
+async function hoverText(doc, marker) {
+  const offset = doc.getText().indexOf(marker);
+  assert.ok(offset >= 0, `missing hover marker ${marker}`);
+  const pos = doc.positionAt(offset);
+  const hovers = await vscode.commands.executeCommand(
+    "vscode.executeHoverProvider",
+    doc.uri,
+    pos,
+  );
+  return (hovers || [])
+    .flatMap((hover) =>
+      hover.contents.map((content) =>
+        typeof content === "string" ? content : content.value,
+      ),
+    )
+    .join("\n");
+}
 
 suite("Qubic QPI extension", function () {
   this.timeout(120000);
@@ -70,14 +93,70 @@ suite("Qubic QPI extension", function () {
 
   test("IDL hover shows the index + codec for a registered function", async () => {
     const doc = await open("Counter.h");
-    const marker = "PUBLIC_FUNCTION(";
-    const pos = doc.positionAt(doc.getText().indexOf(marker) + marker.length); // on `get`
-    const hovers = await vscode.commands.executeCommand("vscode.executeHoverProvider", doc.uri, pos);
-    const text = (hovers || [])
-      .flatMap((h) => h.contents.map((c) => (typeof c === "string" ? c : c.value)))
-      .join("\n");
+    const text = await hoverText(doc, "get) {");
     assert.ok(/QPI function/.test(text), `hover should name the QPI function; got: ${text}`);
-    assert.ok(/index/.test(text), `hover should show the index; got: ${text}`);
+    assert.match(text, /index \*\*1\*\*/);
+    assert.match(text, /output\s*: uint64/);
+  });
+
+  test("IDL hover invalidates cached analysis after an edit", async () => {
+    const doc = await open("Counter.h");
+    const original = doc.getText();
+    const changed = original.replace(
+      "REGISTER_USER_FUNCTION(get, 1)",
+      "REGISTER_USER_FUNCTION(get, 7)",
+    );
+
+    try {
+      assert.notStrictEqual(changed, original, "registration marker should exist");
+      assert.match(await hoverText(doc, "get) {"), /index \*\*1\*\*/);
+      await replaceDocument(doc, changed);
+      assert.match(await hoverText(doc, "get) {"), /index \*\*7\*\*/);
+
+      await replaceDocument(
+        doc,
+        changed.replace(": public ContractBase", ""),
+      );
+      assert.doesNotMatch(await hoverText(doc, "get) {"), /QPI function/);
+    } finally {
+      await replaceDocument(doc, original);
+    }
+  });
+
+  test("editing a contract into a plain header clears stale diagnostics", async () => {
+    const doc = await open("Bad.h");
+    const original = doc.getText();
+
+    try {
+      await sleep(500);
+      assert.ok(
+        vscode.languages
+          .getDiagnostics(doc.uri)
+          .some((diagnostic) => String(diagnostic.code) === "qpi/no-division"),
+        "contract should start with QPI diagnostics",
+      );
+
+      await replaceDocument(
+        doc,
+        original.replace(": public ContractBase", ""),
+      );
+      await sleep(500);
+
+      const stale = vscode.languages
+        .getDiagnostics(doc.uri)
+        .filter(
+          (diagnostic) =>
+            diagnostic.source === "qpi" ||
+            diagnostic.source === "qinit-compiler",
+        );
+      assert.strictEqual(
+        stale.length,
+        0,
+        `plain header kept stale diagnostics: ${stale.map((d) => d.code).join(", ")}`,
+      );
+    } finally {
+      await replaceDocument(doc, original);
+    }
   });
 
   test("no QPI CodeLens buttons (removed for simplicity)", async () => {

@@ -43,7 +43,6 @@ export type {
   WasmInspectionDiagnostic,
 } from "./compiler/wasm-inspect";
 export type {
-  CalleeIdl,
   CompileOptions,
   CompileResult,
   ContractIdl,

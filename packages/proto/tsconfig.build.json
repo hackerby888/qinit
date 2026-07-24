@@ -11,5 +11,5 @@
       "@qinit/core": ["packages/core/dist/browser.d.ts"]
     }
   },
-  "include": ["src/index.ts", "src/qpi-layout.ts"]
+  "include": ["src/index.ts", "src/qpi-layout.ts", "src/contract-idl.ts"]
 }

@@ -85,6 +85,10 @@ const errors = compiled.diagnostics.filter(
 if (errors.length || !compiled.wasm.length) {
   fail(errors.map((item) => item.message).join("; ") || "empty artifact");
 }
+const idl = compiled.idl;
+if (!idl) {
+  throw new Error("RANDOM DUAL FAIL: successful compile returned no IDL");
+}
 const inspection = inspectWasmModule(compiled.wasm);
 if (!inspection.ok) {
   fail(inspection.diagnostics.map((item) => item.message).join("; "));
@@ -103,14 +107,14 @@ const deployed = await deployContract({
   artifact: {
     wasm: compiled.wasm,
     hash,
-    registration: { functions: compiled.idl.functions.length, procedures: compiled.idl.procedures.length },
+    registration: { functions: idl.functions.length, procedures: idl.procedures.length },
   },
 }, () => {});
 if (!deployed.ok || !deployed.armed || !deployed.constructed) {
   fail(`deploy did not become ready: ${JSON.stringify(deployed)}`);
 }
 
-const preRead = await rpc.stateRead(slot, 0, compiled.idl.stateSize);
+const preRead = await rpc.stateRead(slot, 0, idl.state.size);
 const preState = bytes(preRead.hex);
 await rpc.setDebug(true);
 const beforeTrace = await rpc.debugTrace(0, 256);
@@ -139,7 +143,7 @@ const trace = (await rpc.debugTrace(since, 64)).entries
   .filter((entry) => entry.index === slot && entry.entry === 1 && entry.kind === 1 && entry.ok)
   .at(-1);
 if (!trace) throw new Error("RANDOM DUAL FAIL: node emitted no successful procedure trace");
-const postRead = await rpc.stateRead(slot, 0, compiled.idl.stateSize);
+const postRead = await rpc.stateRead(slot, 0, idl.state.size);
 const nodeState = bytes(postRead.hex);
 const prevSpectrum = nodeState.slice(0, 32);
 const invocator = bytes(trace.invocator);

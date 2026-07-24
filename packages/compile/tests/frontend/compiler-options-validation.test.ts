@@ -1,6 +1,7 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { describe, expect, test } from "bun:test";
-import { compileContract, type CalleeIdl, type CompileOptions } from "../../src/index";
+import { analyzeContract } from "../../src/analyzer";
+import { compileContract, type CompileOptions } from "../../src/index";
 
 const VALID_SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -19,12 +20,14 @@ const BASE: CompileOptions = {
   arenaSz: 1 << 20,
 };
 
-const CALLEE: CalleeIdl = {
+const CALLEE = analyzeContract({
+  source: VALID_SOURCE,
   name: "Other",
-  index: 28,
-  functions: { Ping: { inputType: 1, inSize: 0, outSize: 8 } },
-  procedures: {},
-};
+  slot: 28,
+}).idl;
+if (!CALLEE) {
+  throw new Error("valid callee analysis returned no IDL");
+}
 
 async function expectRejected(overrides: Partial<CompileOptions>): Promise<void> {
   const result = await compileContract({ ...BASE, ...overrides });
@@ -32,8 +35,7 @@ async function expectRejected(overrides: Partial<CompileOptions>): Promise<void>
 
   expect(errors.length).toBeGreaterThan(0);
   expect(result.wasm.byteLength).toBe(0);
-  expect(result.idl.functions).toEqual([]);
-  expect(result.idl.procedures).toEqual([]);
+  expect(result.idl).toBeUndefined();
 }
 
 describe("compiler option validation", () => {
@@ -90,7 +92,7 @@ describe("compiler option validation", () => {
 
   test("rejects duplicate callee names", () =>
     expectRejected({
-      callees: [CALLEE, { ...CALLEE, index: 29 }],
+      callees: [CALLEE, { ...CALLEE, slot: 29 }],
     }));
 
   test("rejects duplicate callee indices", () =>
@@ -103,7 +105,10 @@ describe("compiler option validation", () => {
       callees: [
         {
           ...CALLEE,
-          functions: { Ping: { inputType: 1, inSize: -1, outSize: 8 } },
+          functions: CALLEE.functions.map((entry) => ({
+            ...entry,
+            inSize: -1,
+          })),
         },
       ],
     }));
@@ -113,10 +118,58 @@ describe("compiler option validation", () => {
       callees: [
         {
           ...CALLEE,
-          functions: { Ping: { inputType: 1, inSize: 0, outSize: 1.5 } },
+          functions: CALLEE.functions.map((entry) => ({
+            ...entry,
+            outSize: 1.5,
+          })),
         },
       ],
     }));
+
+  for (const inputType of [0, 65536]) {
+    test(`rejects callee input type ${inputType}`, () =>
+      expectRejected({
+        callees: [
+          {
+            ...CALLEE,
+            functions: CALLEE.functions.map((entry) => ({
+              ...entry,
+              inputType,
+            })),
+          },
+        ],
+      }));
+  }
+
+  test("preprocesses callee source at its IDL slot", async () => {
+    const result = await compileContract({
+      ...BASE,
+      callees: [CALLEE],
+      calleeSources: [
+        {
+          name: "Other",
+          slot: 28,
+          source: `
+#if CONTRACT_INDEX == 28
+struct CONTRACT_STATE_TYPE : public ContractBase {};
+#else
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Broken { uint64 value = ; };
+};
+#endif
+`,
+        },
+      ],
+    });
+
+    expect(
+      result.diagnostics.filter(
+        (diagnostic) =>
+          diagnostic.severity === DiagnosticSeverity.ERROR,
+      ),
+    ).toEqual([]);
+    expect(result.wasm.byteLength).toBeGreaterThan(0);
+  });
 
   test("surfaces parser errors from callee source", () =>
     expectRejected({
@@ -125,6 +178,30 @@ describe("compiler option validation", () => {
         {
           name: "Other",
           source: "struct Other : public ContractBase { struct Broken { uint64 value = ; }; };",
+        },
+      ],
+    }));
+
+  test("rejects an invalid callee source slot", () =>
+    expectRejected({
+      callees: [CALLEE],
+      calleeSources: [
+        {
+          name: "Other",
+          slot: -1,
+          source: "struct CONTRACT_STATE_TYPE : public ContractBase {};",
+        },
+      ],
+    }));
+
+  test("rejects a callee source slot that differs from its IDL", () =>
+    expectRejected({
+      callees: [CALLEE],
+      calleeSources: [
+        {
+          name: "Other",
+          slot: 29,
+          source: "struct CONTRACT_STATE_TYPE : public ContractBase {};",
         },
       ],
     }));

@@ -25,6 +25,7 @@ test("buildCalleePrelude emits guarded callee CONTRACT_INDEX + inputType constan
       callee,
       `struct CONTRACT_STATE_TYPE : public ContractBase {
       struct Get_input {}; struct Get_output {};
+      PUBLIC_FUNCTION(Get) {}
       REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
     };`,
     );
@@ -36,6 +37,31 @@ test("buildCalleePrelude emits guarded callee CONTRACT_INDEX + inputType constan
     expect(prelude).toContain("#ifndef QX_CONTRACT_INDEX");
     expect(prelude).toContain("#define QX_CONTRACT_INDEX 1");
     expect(prelude).toContain("QX_Get_inputType = 1");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("buildCalleePrelude includes static-only dynamic callees", () => {
+  const root = mkdtempSync(join(tmpdir(), "ic-static-"));
+  try {
+    mkdirSync(join(root, "src", "contract_core"), { recursive: true });
+    writeFileSync(join(root, "src", "contract_core", "contract_def.h"), "// empty registry\n");
+    const callee = join(root, "DYNAMIC.h");
+    writeFileSync(
+      callee,
+      `struct CONTRACT_STATE_TYPE : public ContractBase {
+      static uint64 helper() { return 1; }
+      REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {}
+    };`,
+    );
+
+    const prelude = buildCalleePrelude(root, "const auto value = DYNAMIC::helper();", {
+      DYNAMIC: { header: callee, index: 28 },
+    });
+
+    expect(prelude).toContain("#define CONTRACT_STATE_TYPE DYNAMIC");
+    expect(prelude).toContain(`#include "${callee}"`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

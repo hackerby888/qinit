@@ -6,7 +6,6 @@ import { FunctionParser } from "./declarations/function-parser";
 import { RecordParser } from "./declarations/record-parser";
 import { TemplateParser } from "./declarations/template-parser";
 import { ExpressionParser } from "./expressions/expression-parser";
-import { extractIdl as extractContractIdl } from "./idl-extractor";
 import type { ParserDiagnostic } from "./parser-context";
 import { ParserRecovery } from "./parser-recovery";
 import { ParserState } from "./parser-state";
@@ -141,11 +140,5 @@ export class Parser {
         this.state.position = closeBraceIndex + 1;
 
         return body;
-    }
-
-    extractIdl(
-        translationUnit: TranslationUnit,
-    ): ReturnType<typeof extractContractIdl> {
-        return extractContractIdl(translationUnit);
     }
 }

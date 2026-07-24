@@ -3,10 +3,16 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { assertSeed } from "@qinit/core";
+import { assertSeed, loadConfig, resolveCore } from "@qinit/core";
+import { loadQpiHeader } from "@qinit/compile";
 
-export { loadConfig, resolveCore } from "@qinit/core";
+export { loadConfig, resolveCore };
 export type { QinitConfig } from "@qinit/core";
+
+export function loadConfiguredQpiHeader(explicitCore?: string): string {
+  const config = loadConfig();
+  return loadQpiHeader(resolveCore(explicitCore, config.core));
+}
 
 // Honor XDG_CONFIG_HOME; otherwise use APPDATA on Windows and ~/.config elsewhere.
 // Existing Windows ~/.config/qinit directories remain supported.

@@ -12,7 +12,8 @@ import {
 import { describeTrace, type TraceView as TraceData } from "../trace-format";
 import { TraceView } from "../views";
 import { scratchDir } from "../node-ops";
-import { loadConfig } from "../config";
+import { loadConfig, loadConfiguredQpiHeader } from "../config";
+import { contractIdlForSlot, loadContractIdlFile } from "../idl-file";
 import { Header, Table, Spinner, theme, type Column } from "../ui";
 
 // qinit debug [--rpc <url>] [--contract <name|slot>]
@@ -39,6 +40,13 @@ export function Debug({ args }: { args: string[] }) {
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
   const rpc = useRef(new LiteRpc(rpcBase)).current;
+  const [qpiHeader] = useState(() => {
+    try {
+      return loadConfiguredQpiHeader();
+    } catch {
+      return undefined;
+    }
+  });
   const [entries, setEntries] = useState<DebugEntry[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [err, setErr] = useState("");
@@ -153,7 +161,9 @@ export function Debug({ args }: { args: string[] }) {
                 e={cur}
                 name={nameOf(cur.index)}
                 source={reg.current.find((c) => c.index === cur.index)?.source}
+                codeHash={reg.current.find((c) => c.index === cur.index)?.codeHash}
                 rpc={rpc}
+                qpiHeader={qpiHeader}
               />
             ) : (
               <Text dimColor>—</Text>
@@ -169,18 +179,22 @@ function Detail({
   e,
   name,
   source,
+  codeHash,
   rpc,
+  qpiHeader,
 }: {
   e: DebugEntry;
   name: string;
   source?: string;
+  codeHash?: string;
   rpc: LiteRpc;
+  qpiHeader?: string;
 }) {
   const [v, setV] = useState<TraceData | null>(null);
   const [bt, setBt] = useState<string>("");
   useEffect(() => {
     let alive = true;
-    describeTrace(e, source, name, rpc)
+    describeTrace(e, qpiHeader ? source : undefined, name, rpc, qpiHeader)
       .then((view) => {
         if (alive) setV(view);
       })
@@ -189,22 +203,23 @@ function Detail({
     if (!e.ok) {
       // trapped call: source-mapped backtrace from node.log + the slot's line map
       try {
-        const all = existsSync("qinit.idl.json")
-          ? JSON.parse(readFileSync("qinit.idl.json", "utf8"))
-          : {};
+        const idl = loadContractIdlFile();
+        const contractIdl = contractIdlForSlot(idl, e.index, codeHash);
         const log = join(scratchDir(), "node.log");
         if (existsSync(log)) {
           const b = resolveTrapBacktrace(readFileSync(log, "utf8"), {
-            lineMapPath: all[String(e.index)]?.linesJson,
+            lineMapPath: contractIdl?.linesJson,
           });
           if (b?.frames.length && alive) setBt(formatTrapBacktrace(b));
         }
-      } catch {}
+      } catch (error: any) {
+        if (alive) setBt(String(error?.message ?? error));
+      }
     }
     return () => {
       alive = false;
     };
-  }, [e.seq]);
+  }, [e.seq, codeHash]);
   return (
     <Box flexDirection="column">
       {v ? <TraceView e={e} name={name} view={v} /> : <Text dimColor>decoding…</Text>}

@@ -5,37 +5,27 @@ import {
     type ModuleSpecification,
 } from "../../../framework";
 import { emitFunction, emitHelperFunction } from "../functions/function-emitter";
-import type { CalleeIdl } from "../types";
-import { registerContractCallables } from "./contract-callables";
-import { findContractStruct } from "./contract-discovery";
+import type { ContractIdl } from "@qinit/proto/contract-idl";
 import {
     type GeneratedContractMetadata,
     type LibrarySymbolIndex,
-    contextLayoutFromCodegen,
-    registerLibraryMetadata,
 } from "./library-index";
 import {
-    createModuleProgramAnalysis,
-    prepareContractState,
-    registerModuleDeclarations,
+    prepareContractModule,
     type CalleeTranslationUnit,
 } from "./module-analysis";
 import {
     publishProgramDiagnostics,
     writeGeneratedContractMetadata,
 } from "./module-output";
-import { ContractLayoutResolver } from "./named-layouts";
 import {
     emitRegisteredEntries,
-    registerEntryDispatchTargets,
-    validateContractRegistrations,
-    validateRegistrationInterfaces,
 } from "./registrations";
 import {
     emitMigrationFunction,
     emitSystemProcedures,
-    indexSystemProcedures,
 } from "./system-procedures";
+import { buildContractIdl } from "./contract-idl";
 
 const DEFAULT_ARENA_SIZE = 1024 * 1024 * 1024;
 
@@ -48,7 +38,7 @@ interface ModuleGenerationRequest {
     contractSlot: number;
     arenaSize: number;
     libraryIndex?: LibrarySymbolIndex;
-    callees?: CalleeIdl[];
+    callees?: ContractIdl[];
     calleeStructs?: Map<string, StructDecl>;
     calleeTranslationUnits?: CalleeTranslationUnit[];
     sharedMemoryBase?: number;
@@ -65,7 +55,7 @@ export function generateWasmModule(
     contractSlot: number,
     arenaSize: number = DEFAULT_ARENA_SIZE,
     libraryIndex?: LibrarySymbolIndex,
-    callees?: CalleeIdl[],
+    callees?: ContractIdl[],
     calleeStructs?: Map<string, StructDecl>,
     calleeTranslationUnits?: CalleeTranslationUnit[],
     sharedMemoryBase?: number,
@@ -89,28 +79,34 @@ export function generateWasmModule(
 }
 
 function generateContractModule(request: ModuleGenerationRequest): string {
-    const programAnalysis = createModuleProgramAnalysis(
-        request.semanticAnalysis,
-        request.gtestMode,
-        request.callees,
-        request.calleeStructs,
-    );
-
-    const lhostAbi = request.libraryIndex
-        ? registerLibraryMetadata(programAnalysis, request.libraryIndex)
-        : undefined;
-    const systemProcedureIndex = indexSystemProcedures(
-        request.libraryIndex?.wasmAbi?.systemProcedures ?? [],
-    );
-    const contextLayout = contextLayoutFromCodegen(programAnalysis);
-
-    registerModuleDeclarations(
+    const prepared = prepareContractModule({
+        translationUnit: request.translationUnit,
+        semanticAnalysis: request.semanticAnalysis,
+        contractSlot: request.contractSlot,
+        libraryIndex: request.libraryIndex,
+        callees: request.callees,
+        calleeStructs: request.calleeStructs,
+        calleeTranslationUnits: request.calleeTranslationUnits,
+        gtestMode: request.gtestMode,
+    });
+    const {
         programAnalysis,
-        request.translationUnit.declarations,
-        request.calleeTranslationUnits,
-    );
-
-    const contract = findContractStruct(request.translationUnit);
+        contract,
+        stateLayout,
+        layouts,
+        registrations,
+        callables,
+        systemProcedureIndex,
+        contextLayout,
+        lhostAbi,
+    } = prepared;
+    if (request.metadataOutput) {
+        request.metadataOutput.idl = buildContractIdl(prepared, {
+            name: request.contractName,
+            slot: request.contractSlot,
+            dependencies: request.metadataOutput.dependencies,
+        });
+    }
 
     if (!contract) {
         return emitModule({
@@ -126,31 +122,6 @@ function generateContractModule(request: ModuleGenerationRequest): string {
             assetEnumerationRecord: programAnalysis.assetEnumerationRecord,
         });
     }
-
-    const stateLayout = prepareContractState(
-        programAnalysis,
-        contract,
-        request.contractSlot,
-    );
-    const layouts = new ContractLayoutResolver(programAnalysis);
-    const registrations = validateContractRegistrations(
-        contract,
-        programAnalysis,
-    );
-    const callables = registerContractCallables(
-        programAnalysis,
-        contract,
-        new Set(registrations.map((registration) => registration.fnName)),
-        systemProcedureIndex.idsByImplementation,
-    );
-
-    validateRegistrationInterfaces(
-        contract,
-        registrations,
-        programAnalysis,
-        layouts,
-    );
-    registerEntryDispatchTargets(registrations, programAnalysis, layouts);
 
     const entryEmission = emitRegisteredEntries(
         contract,

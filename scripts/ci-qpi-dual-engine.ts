@@ -41,10 +41,6 @@ process.once("exit", () => rmSync(scratch, { recursive: true, force: true }));
 
 type Compiler = "TS" | "Clang";
 type Role = "driver" | "callee";
-interface TsIdlShape {
-  functions: Array<{ name: string; inputType: number; inSize: number; outSize: number }>;
-  procedures: Array<{ name: string; inputType: number; inSize: number; outSize: number }>;
-}
 interface Registration {
   functions: number;
   procedures: number;
@@ -127,22 +123,6 @@ function verifyPinnedHeader(header: string): void {
   }
 }
 
-function calleeMetadata(idl: TsIdlShape, index: number) {
-  const entries = (items: TsIdlShape["functions"]) =>
-    Object.fromEntries(
-      items.map((item) => [
-        item.name,
-        { inputType: item.inputType, inSize: item.inSize, outSize: item.outSize },
-      ]),
-    );
-  return {
-    name: "QpiDualCallee",
-    index,
-    functions: entries(idl.functions),
-    procedures: entries(idl.procedures),
-  };
-}
-
 async function artifact(
   compiler: Compiler,
   role: Role,
@@ -180,13 +160,16 @@ async function compileTsPair(
   if (calleeErrors.length || !callee.wasm.length) {
     fail(`TS callee compile: ${calleeErrors.map((item) => item.message).join("; ") || "empty artifact"}`);
   }
+  if (!callee.idl) {
+    fail("successful TS callee compile returned no IDL");
+  }
   const driver = await compileContract({
     source: driverSource,
     name: "QpiDual",
     slot: driverSlot,
     qpiHeader,
     arenaSz: ARENA_SIZE,
-    callees: [calleeMetadata(callee.idl, calleeSlot)],
+    callees: [callee.idl],
     calleeSources: [{ name: "QpiDualCallee", source: calleeSource }],
   });
   const driverErrors = driver.diagnostics.filter(
@@ -194,6 +177,9 @@ async function compileTsPair(
   );
   if (driverErrors.length || !driver.wasm.length) {
     fail(`TS driver compile: ${driverErrors.map((item) => item.message).join("; ") || "empty artifact"}`);
+  }
+  if (!driver.idl) {
+    fail("successful TS driver compile returned no IDL");
   }
   return [
     await artifact("TS", "callee", calleeSlot, callee.wasm, {
@@ -233,12 +219,12 @@ async function compileClangPair(calleeSlot: number, driverSlot: number): Promise
   }
   return [
     await artifact("Clang", "callee", calleeSlot, new Uint8Array(readFileSync(callee.so)), {
-      functions: Object.keys(callee.idl.functions).length,
-      procedures: Object.keys(callee.idl.procedures).length,
+      functions: callee.idl.functions.length,
+      procedures: callee.idl.procedures.length,
     }),
     await artifact("Clang", "driver", driverSlot, new Uint8Array(readFileSync(driver.so)), {
-      functions: Object.keys(driver.idl.functions).length,
-      procedures: Object.keys(driver.idl.procedures).length,
+      functions: driver.idl.functions.length,
+      procedures: driver.idl.procedures.length,
     }),
   ];
 }

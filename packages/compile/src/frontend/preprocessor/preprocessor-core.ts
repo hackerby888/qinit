@@ -16,6 +16,8 @@ export function getDefines(context: PreprocessorInternals): Map<string, MacroDef
 export function preprocess(context: PreprocessorInternals, options: PreprocessOptions): string {
     context.defines.clear();
     context.condStack = [];
+    context.expandMacros = options.expandMacros !== false;
+    context.preserveSourceOffsets = options.preserveSourceOffsets === true;
     if (options.seedMacros) {
         for (const [k, v] of options.seedMacros)
             context.defines.set(k, v);
@@ -65,7 +67,9 @@ export function buildLineMap(context: PreprocessorInternals, src: string): void 
 
 export function process(context: PreprocessorInternals, src: string): string {
     // Normalize line endings before joining backslash continuations.
-    context.input = src.replace(/\r\n?/g, "\n");
+    context.input = context.preserveSourceOffsets
+        ? src
+        : src.replace(/\r\n?/g, "\n");
     context.pos = 0;
     context.line = 1;
     context.result = "";
@@ -74,7 +78,13 @@ export function process(context: PreprocessorInternals, src: string): string {
         const ch = context.input[context.pos];
         // Line directives
         if (ch === "#") {
+            const start = context.pos;
+            const resultLength = context.result.length;
             context.handleDirective();
+            if (context.preserveSourceOffsets) {
+                context.result = context.result.slice(0, resultLength);
+                context.result += maskSource(context.input.slice(start, context.pos));
+            }
             continue;
         }
         // Whitespace — pass through but track newlines
@@ -91,18 +101,27 @@ export function process(context: PreprocessorInternals, src: string): string {
         }
         // Comment stripping
         if (ch === "/" && context.peek(1) === "/") {
+            const start = context.pos;
             context.skipLineComment();
+            if (context.preserveSourceOffsets) {
+                context.result += maskSource(context.input.slice(start, context.pos));
+            }
             continue;
         }
         if (ch === "/" && context.peek(1) === "*") {
+            const start = context.pos;
+            const resultLength = context.result.length;
             context.skipBlockComment();
+            if (context.preserveSourceOffsets) {
+                context.result = context.result.slice(0, resultLength);
+                context.result += maskSource(context.input.slice(start, context.pos));
+            }
             continue;
         }
         // Inside an inactive conditional branch: consume text without emitting/expanding.
         if (!context.condActive()) {
-            if (ch === "\n") {
-                context.result += "\n";
-                context.line++;
+            if (context.preserveSourceOffsets) {
+                context.result += " ";
             }
             context.pos++;
             continue;
@@ -110,7 +129,9 @@ export function process(context: PreprocessorInternals, src: string): string {
         // Identifier — check for macro expansion
         if (context.isIdStart(ch)) {
             const ident = context.readIdentifier();
-            const expanded = context.tryExpandMacro(ident);
+            const expanded = context.expandMacros
+                ? context.tryExpandMacro(ident)
+                : null;
             if (expanded !== null) {
                 context.result += expanded;
             }
@@ -124,4 +145,8 @@ export function process(context: PreprocessorInternals, src: string): string {
         context.pos++;
     }
     return context.result;
+}
+
+function maskSource(source: string): string {
+    return source.replace(/[^\n]/g, " ");
 }

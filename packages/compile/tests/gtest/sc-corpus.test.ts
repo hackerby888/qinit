@@ -18,7 +18,7 @@ import {
   compileContract,
   loadQpiHeader,
   type CompileResult,
-  type CalleeIdl,
+  type ContractIdl,
 } from "../../src/index";
 import { CORE, wasiAvailable } from "../support/qutil-bridge";
 
@@ -171,20 +171,16 @@ const SPECS: Spec[] = [
   },
 ];
 
-function calleeIdlFrom(name: string, index: number, r: CompileResult): CalleeIdl {
-  const fns = Object.fromEntries(
-    r.idl.functions.map((f) => [
-      f.name,
-      { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize },
-    ]),
-  );
-  const procs = Object.fromEntries(
-    r.idl.procedures.map((p) => [
-      p.name,
-      { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize },
-    ]),
-  );
-  return { name, index, functions: fns, procedures: procs };
+function calleeIdlFrom(name: string, slot: number, r: CompileResult): ContractIdl {
+  if (!r.idl) {
+    throw new Error(`missing IDL for callee '${name}'`);
+  }
+
+  return {
+    ...r.idl,
+    name,
+    slot,
+  };
 }
 
 async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {

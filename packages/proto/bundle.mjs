@@ -14,7 +14,7 @@ const aliasCoreBrowser = {
 };
 
 const r = await Bun.build({
-  entrypoints: ["src/index.ts", "src/qpi-layout.ts"],
+  entrypoints: ["src/index.ts", "src/qpi-layout.ts", "src/contract-idl.ts"],
   outdir: "dist",
   format: "esm",
   target: "node",
@@ -29,4 +29,4 @@ if (!r.success) {
   process.exit(1);
 }
 
-console.log("built dist/index.js + dist/qpi-layout.js");
+console.log("built dist/index.js + dist/qpi-layout.js + dist/contract-idl.js");

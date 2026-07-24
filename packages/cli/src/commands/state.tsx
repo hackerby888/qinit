@@ -3,7 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, type DynContract } from "@qinit/core";
 import { readState, type StateDump } from "../trace-format";
 import { StateView } from "../views";
-import { loadConfig } from "../config";
+import { loadConfig, loadConfiguredQpiHeader } from "../config";
 import { loadContracts, systemAsDyn } from "../contracts";
 import { Header, Spinner, GradLine, Panel, KV, theme } from "../ui";
 import { output } from "../args";
@@ -50,7 +50,16 @@ export function State({ args }: { args: string[] }) {
       setName(c.name || String(c.index));
       const rpc = new LiteRpc(rpcBase);
       await rpc.tickInfo(); // fail fast + loud if the node is unreachable (else readState silently fills "(read failed)")
-      setDump(await readState(rpc, c.index, c.source, c.name || "Contract", o.all));
+      setDump(
+        await readState(
+          rpc,
+          c.index,
+          c.source,
+          c.name || "Contract",
+          o.all,
+          loadConfiguredQpiHeader(),
+        ),
+      );
       setPhase("show");
     } catch (e: any) {
       add("ERROR: " + String(e?.message ?? e));

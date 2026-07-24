@@ -13,13 +13,13 @@ import {
     validateContractSource,
 } from "./contract-frontend";
 import { scanUnterminatedSource } from "./diagnostics";
-import { extractIdl } from "./idl";
 import { validateCompileOpts } from "./options";
 import { getQpiContext } from "./qpi-context";
 import type { Diagnostic as ParserDiagnostic } from "../parser";
 import type { CompileOptions, CompileResult } from "./types";
 import { emptyResult } from "./compile-result";
 import { dumpWatIfRequested, encodeAndInspectWat } from "./wasm-encoder";
+import { collectSourceContractCalls } from "./semantic-calls";
 
 const DEFAULT_ARENA_SIZE = 1024 * 1024 * 1024;
 
@@ -65,7 +65,15 @@ export async function compileContract(
     }
 
     await phases.enter("generating wasm");
-    const metadata = createContractMetadata();
+    const calls = collectSourceContractCalls(
+        options.source,
+        options.name,
+        options.slot,
+        qpiContext.macros,
+    );
+    const metadata = createContractMetadata(
+        calls.map((call) => call.callee),
+    );
     let wat: string;
 
     try {
@@ -114,7 +122,7 @@ export async function compileContract(
     return {
         wasm,
         diagnostics,
-        idl: extractIdl(translationUnit, options, metadata),
+        idl: metadata.idl,
         timings: phases.timings,
     };
 }
@@ -161,11 +169,14 @@ function generateContractWat(
     );
 }
 
-function createContractMetadata(): GeneratedContractMetadata {
+function createContractMetadata(
+    dependencies: string[],
+): GeneratedContractMetadata {
     return {
         stateSize: 0,
         entries: [],
         sysprocMask: 0,
+        dependencies: [...new Set(dependencies)],
     };
 }
 

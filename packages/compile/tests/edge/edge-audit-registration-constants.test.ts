@@ -70,4 +70,13 @@ describe("edge audit — registration constant expressions", () => {
   test("an unsigned literal suffix remains accepted", async () => {
     expect(await registeredInputType(wrap("", `7u`))).toBe(7);
   });
+
+  test("an unresolved named constant is rejected", async () => {
+    await expectRangeRejection(
+      wrap(
+        `static constexpr uint64 GO_TYPE = MISSING_TYPE + 1;`,
+        `GO_TYPE`,
+      ),
+    );
+  });
 });

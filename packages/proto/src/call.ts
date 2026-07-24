@@ -1,7 +1,13 @@
 // Contract call/invoke, qubic-cli style, over the built-in RPC.
 //   function (read)  -> POST /live/v1/querySmartContract
 import { LiteRpc, buildSignedTx, broadcastTx, type BroadcastResult } from "@qinit/core";
-import { encodeInput, decodeOutput } from "./abi-fmt";
+import { decodeOutput, encodeInput, encodeInputJson } from "./abi-fmt";
+import type { AbiType } from "./contract-idl";
+
+export interface TypedContractInput {
+  type: AbiType;
+  value: unknown;
+}
 
 // Resolve which slot to deploy a contract to, by name — the user never picks a slot.
 // Reuse the slot a same-named contract already occupies (upgrade); else the first free slot.
@@ -32,10 +38,15 @@ export async function callFunction(
   rpc: LiteRpc,
   contractIndex: number,
   fnId: number,
-  inFmt: string,
-  outFmt: string,
+  input: string | Uint8Array | TypedContractInput,
+  outFmt: string | AbiType,
 ): Promise<any> {
-  const out = await rpc.querySmartContract(contractIndex, fnId, await encodeInput(inFmt));
+  const encodedInput = typeof input === "string"
+    ? await encodeInput(input)
+    : input instanceof Uint8Array
+      ? input
+      : await encodeInputJson(input.type, input.value);
+  const out = await rpc.querySmartContract(contractIndex, fnId, encodedInput);
   return await decodeOutput(out, outFmt);
 }
 
@@ -47,7 +58,8 @@ export async function invokeProcedure(opts: {
   contractIndex: number;
   procId: number;
   amount: number;
-  inFmt: string;
+  inFmt?: string;
+  input?: Uint8Array | TypedContractInput;
   tick: number;
   confirm?: boolean;
   rpc?: LiteRpc;
@@ -62,12 +74,20 @@ export async function invokeProcedure(opts: {
     moneyFlew?: boolean;
   }
 > {
+  if (opts.input && opts.inFmt !== undefined) {
+    throw new Error("procedure input must use either typed input or inFmt");
+  }
+  const payload = opts.input instanceof Uint8Array
+    ? opts.input
+    : opts.input
+      ? await encodeInputJson(opts.input.type, opts.input.value)
+      : await encodeInput(opts.inFmt ?? "");
   const tx = await buildSignedTx(opts.seed, {
     destination: contractAddress(opts.contractIndex),
     amount: opts.amount,
     tick: opts.tick,
     inputType: opts.procId,
-    payload: await encodeInput(opts.inFmt),
+    payload,
   });
   const r = await broadcastTx(tx.bytes, opts.rpcBase);
   const res = { ...r, txId: tx.id, tick: opts.tick };

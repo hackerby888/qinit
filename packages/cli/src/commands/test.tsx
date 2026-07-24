@@ -7,8 +7,10 @@ import { deployContract, type Ev } from "../deploy-ops";
 import { launchNode, waitTicking, killNode, ensureNode, scratchDir } from "../node-ops";
 import { LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
 import { testRuntimeSource, sampleTest, generateClient, extractIdl } from "@qinit/build";
+import { loadQpiHeader } from "@qinit/compile";
 import { EngineServer } from "@qinit/engine/server";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
+import { loadContractIdlFile } from "../idl-file";
 
 function parse(args: string[]): Record<string, string> {
   const o: Record<string, string> = {};
@@ -202,7 +204,12 @@ export function Test({ args }: { args: string[] }) {
 
         // 3) emit the self-contained test SDK (runtime + typed client + barrel).
         spin("generating test SDK");
-        const idl = dep.idl ?? extractIdl(readFileSync(contractPath, "utf8"), name);
+        const idl =
+          dep.idl ??
+          extractIdl(readFileSync(contractPath, "utf8"), name, {
+            slot: dep.slot,
+            qpiHeader: loadQpiHeader(core),
+          });
         const sdkDir = join(root, "tests", ".qinit");
         mkdirSync(sdkDir, { recursive: true });
         writeFileSync(join(sdkDir, "runtime.ts"), testRuntimeSource);
@@ -221,7 +228,7 @@ export function Test({ args }: { args: string[] }) {
         add(
           "sdk",
           true,
-          `tests/.qinit/ (${Object.keys(idl.functions).length} fn / ${Object.keys(idl.procedures).length} proc)`,
+          `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc)`,
         );
 
         // 4) ensure the one public dep + install if needed.
@@ -276,17 +283,17 @@ export function Test({ args }: { args: string[] }) {
         if (!ok) {
           // append a source-mapped backtrace of the latest node trap (node.log + the slot's line map)
           try {
-            const all = existsSync(join(root, "qinit.idl.json"))
-              ? JSON.parse(readFileSync(join(root, "qinit.idl.json"), "utf8"))
-              : {};
+            const idl = loadContractIdlFile(join(root, "qinit.idl.json"));
             const log = join(scratchDir(), "node.log");
             if (existsSync(log)) {
               const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), {
-                lineMapPath: all[String(dep.slot)]?.linesJson,
+                lineMapPath: idl.contracts[String(dep.slot)]?.linesJson,
               });
               if (bt?.frames.length) output += "\n\n" + formatTrapBacktrace(bt);
             }
-          } catch {}
+          } catch (error: any) {
+            output += `\n\n${String(error?.message ?? error)}`;
+          }
         }
         add("tests", ok, ok ? "all passed" : "failures (see below)");
 

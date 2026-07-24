@@ -45,6 +45,9 @@ const errors = compiled.diagnostics.filter(
 if (errors.length) {
   throw new Error(errors.map((diagnostic) => diagnostic.message).join("; "));
 }
+if (!compiled.idl) {
+  throw new Error("successful LoggerDual compile returned no IDL");
+}
 const inspection = inspectWasmModule(compiled.wasm);
 if (!inspection.ok) {
   throw new Error(inspection.diagnostics.map((diagnostic) => diagnostic.message).join("; "));

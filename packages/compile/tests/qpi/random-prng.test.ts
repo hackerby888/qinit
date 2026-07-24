@@ -72,7 +72,13 @@ async function compile(source = SOURCE) {
   });
   expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
   expect(result.wasm.byteLength).toBeGreaterThan(0);
-  return result;
+  if (!result.idl) {
+    throw new Error("successful RandomProbe compile returned no IDL");
+  }
+  return {
+    ...result,
+    idl: result.idl,
+  };
 }
 
 function run(wasm: Uint8Array, tick: number, nonce: bigint, initialSeed?: bigint): Uint8Array {
@@ -97,8 +103,9 @@ describe("chain-seeded source-compiled random values", () => {
 
   test("all rdrand widths write through wasm32 pointers, return success, and advance", async () => {
     const { wasm, idl } = await compile();
+    expect(idl).toBeDefined();
     const state = run(wasm, 91, 7n);
-    expect(state.byteLength).toBe(idl.stateSize);
+    expect(state.byteLength).toBe(idl!.state.size);
     const view = new DataView(state.buffer, state.byteOffset, state.byteLength);
     expect(view.getUint16(2, true)).toBe(0xa55a);
     expect(view.getUint32(8, true)).toBe(0x5aa55aa5);

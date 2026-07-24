@@ -1,7 +1,8 @@
 // Decode occupied QPI container entries from raw layouts and two-bit flags.
 import { decodeOutput, structFieldOffsets, layoutOf } from "./abi-fmt";
-import { flagWordCount, hashMapElemFmt, collectionElemFmt, COLLECTION_POV_FMT } from "./qpi-layout";
+import { flagWordCount, COLLECTION_POV_FMT } from "./qpi-layout";
 import { roundUp } from "@qinit/core";
+import type { AbiType } from "./contract-idl";
 
 export interface MapEntry {
   slot: number;
@@ -33,14 +34,17 @@ function sint64At(buf: Uint8Array, off: number): bigint {
 
 export async function decodeHashMap(
   buf: Uint8Array,
-  keyFmt: string,
-  valFmt: string,
+  keyFmt: string | AbiType,
+  valFmt: string | AbiType,
   capacity: number,
 ): Promise<MapEntry[]> {
-  const elemFmt = hashMapElemFmt(keyFmt, valFmt);
-  const el = layoutOf(elemFmt);
-  const stride = roundUp(el.size, el.align);
-  const [kf, vf] = structFieldOffsets(elemFmt); // {off,size} of key, value within the element
+  const keyLayout = layoutOf(keyFmt);
+  const valueLayout = layoutOf(valFmt);
+  const valueOffset = roundUp(keyLayout.size, valueLayout.align);
+  const stride = roundUp(
+    valueOffset + valueLayout.size,
+    Math.max(keyLayout.align, valueLayout.align),
+  );
   const flagsOff = capacity * stride;
   const out: MapEntry[] = [];
   for (let i = 0; i < capacity; i++) {
@@ -48,8 +52,11 @@ export async function decodeHashMap(
     const e = i * stride;
     out.push({
       slot: i,
-      key: await decodeOutput(buf.slice(e + kf.off, e + kf.off + kf.size), keyFmt),
-      value: await decodeOutput(buf.slice(e + vf.off, e + vf.off + vf.size), valFmt),
+      key: await decodeOutput(buf.slice(e, e + keyLayout.size), keyFmt),
+      value: await decodeOutput(
+        buf.slice(e + valueOffset, e + valueOffset + valueLayout.size),
+        valFmt,
+      ),
     });
   }
   return out;
@@ -57,7 +64,7 @@ export async function decodeHashMap(
 
 export async function decodeHashSet(
   buf: Uint8Array,
-  keyFmt: string,
+  keyFmt: string | AbiType,
   capacity: number,
 ): Promise<SetEntry[]> {
   const kl = layoutOf(keyFmt);
@@ -78,17 +85,20 @@ export async function decodeHashSet(
 // Element{ T value; sint64 priority, povIndex, bstParent, bstLeft, bstRight } _elements[L] + 2 counters.
 export async function decodeCollection(
   buf: Uint8Array,
-  valFmt: string,
+  valFmt: string | AbiType,
   capacity: number,
 ): Promise<CollEntry[]> {
   const povFmt = COLLECTION_POV_FMT;
-  const elemFmt = collectionElemFmt(valFmt);
   const povStride = roundUp(layoutOf(povFmt).size, layoutOf(povFmt).align); // 64
-  const elemStride = roundUp(layoutOf(elemFmt).size, layoutOf(elemFmt).align);
+  const valueLayout = layoutOf(valFmt);
+  const priorityOffset = roundUp(valueLayout.size, 8);
+  const elemStride = roundUp(
+    priorityOffset + 5 * 8,
+    Math.max(valueLayout.align, 8),
+  );
   const flagsOff = capacity * povStride;
   const elemsOff = flagsOff + flagWordCount(capacity) * 8;
   const pf = structFieldOffsets(povFmt); // [id, population, head, tail, bstRoot]
-  const ef = structFieldOffsets(elemFmt); // [value, priority, povIndex, bstParent, bstLeft, bstRight]
   const cap = BigInt(capacity);
   const valid = (x: bigint) => x >= 0n && x < cap;
   const out: CollEntry[] = [];
@@ -102,17 +112,17 @@ export async function decodeCollection(
     while ((valid(cur) || stack.length) && guard++ < capacity * 2 + 4) {
       while (valid(cur) && guard++ < capacity * 2 + 4) {
         stack.push(Number(cur));
-        cur = sint64At(buf, elemsOff + Number(cur) * elemStride + ef[4].off);
+        cur = sint64At(buf, elemsOff + Number(cur) * elemStride + priorityOffset + 3 * 8);
       } // go left
       if (!stack.length) break;
       const idx = stack.pop()!;
       const eb = elemsOff + idx * elemStride;
       out.push({
         pov,
-        value: await decodeOutput(buf.slice(eb + ef[0].off, eb + ef[0].off + ef[0].size), valFmt),
-        priority: sint64At(buf, eb + ef[1].off),
+        value: await decodeOutput(buf.slice(eb, eb + valueLayout.size), valFmt),
+        priority: sint64At(buf, eb + priorityOffset),
       });
-      cur = sint64At(buf, eb + ef[5].off); // go right
+      cur = sint64At(buf, eb + priorityOffset + 4 * 8); // go right
     }
   }
   return out;

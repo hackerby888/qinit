@@ -4,21 +4,21 @@ import {
 } from "../enums";
 import type { Span } from "../ast";
 import type { Diagnostic as ParserDiagnostic } from "../parser";
+import type { ContractIdl } from "@qinit/proto/contract-idl";
 
-export interface CalleeIdl {
-  name: string;
-  index: number;
-  functions: Record<string, { inputType: number; inSize: number; outSize: number }>;
-  procedures: Record<string, { inputType: number; inSize: number; outSize: number }>;
-}
+export type { ContractIdl } from "@qinit/proto/contract-idl";
 
 export interface CompileOptions {
   source: string;
   name: string;
   slot: number;
   arenaSz?: number;
-  callees?: CalleeIdl[];
-  calleeSources?: Array<{ name: string; source: string }>;
+  callees?: ContractIdl[];
+  calleeSources?: Array<{
+    name: string;
+    source: string;
+    slot?: number;
+  }>;
   testSource?: string;
   testPath?: string;
   qpiHeader?: string;
@@ -28,19 +28,10 @@ export interface CompileOptions {
   constructionEpoch?: number;
 }
 
-export interface ContractIdl {
-  name: string;
-  slot: number;
-  functions: Array<{ name: string; inputType: number; inSize: number; outSize: number }>;
-  procedures: Array<{ name: string; inputType: number; inSize: number; outSize: number }>;
-  stateSize: number;
-  sysprocMask: number;
-}
-
 export interface CompileResult {
   wasm: Uint8Array;
   diagnostics: ParserDiagnostic[];
-  idl: ContractIdl;
+  idl?: ContractIdl;
   timings?: Record<string, number>;
 }
 
@@ -59,7 +50,7 @@ export interface GtestCompileResult {
   wasm?: Uint8Array;
   program?: GtestProgram;
   diagnostics: GtestDiagnostic[];
-  idl: ContractIdl;
+  idl?: ContractIdl;
 }
 
 export interface Diagnostic {

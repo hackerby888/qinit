@@ -177,7 +177,7 @@ export function Deploy({ args }: { args: string[] }) {
                 [
                   "fns/procs",
                   result.idl
-                    ? `${Object.keys(result.idl.functions).length} / ${Object.keys(result.idl.procedures).length}`
+                    ? `${result.idl.functions.length} / ${result.idl.procedures.length}`
                     : "—",
                 ],
               ]}

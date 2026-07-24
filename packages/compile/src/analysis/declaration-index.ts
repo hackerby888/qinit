@@ -35,6 +35,12 @@ export function registerTopLevelDeclarations(context: ProgramAnalysisInternals, 
             const structDeclaration = declaration as StructDecl;
             context.captureMemberNamespaceContexts(structDeclaration.members, lookupContext);
             if (structDeclaration.name) {
+                if (nsPrefix) {
+                    context.globalStructs.set(
+                        `${nsPrefix}${structDeclaration.name}`,
+                        structDeclaration,
+                    );
+                }
                 context.globalStructs.set(structDeclaration.name, structDeclaration);
                 // Inline value/void methods of a plain (non-template) struct — e.g. ProposalDataYesNo::checkValidity
                 for (const member of structDeclaration.members) {

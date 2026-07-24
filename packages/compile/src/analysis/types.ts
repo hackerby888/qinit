@@ -58,7 +58,7 @@ export interface NamespaceLookupContext {
 }
 
 // Callee contract IDL for inter-contract calls — name → contract index + per-entry input type / IO sizes.
-export interface CalleeIdl {
+export interface ResolvedCalleeIdl {
     name: string;
     index: number;
     functions: Record<string, {

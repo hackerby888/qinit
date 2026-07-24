@@ -8,6 +8,7 @@ import {
   compileContract,
   DiagnosticSeverity,
   loadQpiHeader,
+  type ContractIdl,
 } from "@qinit/compile";
 import { initK12 } from "@qinit/core";
 
@@ -207,7 +208,7 @@ async function oursWasms(
   onPhase?: (label: string) => void,
 ): Promise<{ wasms: Record<number, Uint8Array>; timings?: Record<string, number> }> {
   const out: Record<number, Uint8Array> = {};
-  const callees: any[] = [];
+  const callees: ContractIdl[] = [];
   const calleeSources: any[] = [];
   let nextBase = SHARED_START;
   const emitAt = async (
@@ -266,24 +267,12 @@ async function oursWasms(
         `local dependency ${d.name}: ${errors.join("; ") || "compiler returned empty wasm"}`,
       );
     }
+    if (!dr.idl) {
+      throw new Error(`local dependency ${d.name}: compiler did not produce IDL`);
+    }
     out[d.slot] =
       shared && main.name !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : dr.wasm;
-    callees.push({
-      name: d.name,
-      index: d.slot,
-      functions: Object.fromEntries(
-        dr.idl.functions.map((f) => [
-          f.name,
-          { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize },
-        ]),
-      ),
-      procedures: Object.fromEntries(
-        dr.idl.procedures.map((p) => [
-          p.name,
-          { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize },
-        ]),
-      ),
-    });
+    callees.push(dr.idl);
     calleeSources.push({ name: d.name, source: dsrc });
   }
   const csrc = readFileSync(main.contractPath, "utf8");

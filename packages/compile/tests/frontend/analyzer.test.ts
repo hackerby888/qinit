@@ -1,4 +1,7 @@
-import { SourceAnalysisOrigin } from "../../src/enums";
+import {
+  QpiContextKind,
+  SourceAnalysisOrigin,
+} from "../../src/enums";
 import { expect, test } from "bun:test";
 import {
   analyzeContract,
@@ -165,6 +168,28 @@ struct Contract : public ContractBase {
   expect(codes).toContain("qpi/public-complex-type");
 });
 
+test("reports forbidden public interface aliases", () => {
+  const source = `
+using namespace QPI;
+struct Contract : public ContractBase {
+  typedef NoData Read_input;
+  typedef HashMap<uint64, uint64, 4> Read_output;
+  PUBLIC_FUNCTION(Read) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Read, 1);
+  }
+};`;
+
+  const diagnostics = analyzeContract({ source }).diagnostics;
+  expect(
+    diagnostics.some(
+      (item) =>
+        item.code === "qpi/public-complex-type" &&
+        item.message.includes("HashMap"),
+    ),
+  ).toBe(true);
+});
+
 test("includes compiler semantic diagnostics without changing the QPI policy", () => {
   const source = procedure("const uint64 value = 1; value = 2;");
   const diagnostics = analyzeContract({ source }).diagnostics;
@@ -203,4 +228,46 @@ test("detects standalone contract names without comments or strings", () => {
   expect(
     detectContractName('const char* text = "struct Fake : ContractBase";'),
   ).toBeUndefined();
+});
+
+test("reports active inter-contract calls in source order", () => {
+  const source = `
+struct Caller : public ContractBase {
+  struct StateData {};
+  PUBLIC_PROCEDURE(run) {
+    // CALL_OTHER_CONTRACT_FUNCTION(Commented, Get, input, output);
+    const char* text = "INVOKE_OTHER_CONTRACT_PROCEDURE(String, Set, i, o, 0)";
+#if 0
+    CALL_OTHER_CONTRACT_FUNCTION(Disabled, Get, input, output);
+#endif
+    CALL_OTHER_CONTRACT_FUNCTION(Target, Get, input, output);
+    INVOKE_OTHER_CONTRACT_PROCEDURE_E(Target, Set, input, output, 0, error);
+  }
+};
+`;
+
+  const result = analyzeContract({ source, name: "Caller", slot: 1 });
+
+  expect(result.calls.map(({ kind, callee, entry }) => ({
+    kind,
+    callee,
+    entry,
+  }))).toEqual([
+    {
+      kind: QpiContextKind.FUNCTION,
+      callee: "Target",
+      entry: "Get",
+    },
+    {
+      kind: QpiContextKind.PROCEDURE,
+      callee: "Target",
+      entry: "Set",
+    },
+  ]);
+  expect(
+    result.calls.map((call) => source.slice(call.span.start, call.span.end)),
+  ).toEqual([
+    "CALL_OTHER_CONTRACT_FUNCTION(Target, Get, input, output)",
+    "INVOKE_OTHER_CONTRACT_PROCEDURE_E(Target, Set, input, output, 0, error)",
+  ]);
 });

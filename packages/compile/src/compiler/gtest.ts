@@ -18,15 +18,6 @@ interface TestBlock {
 
 const RUNNER_SLOT = 65534;
 
-const EMPTY_IDL = (options: CompileOptions) => ({
-  name: options.name,
-  slot: options.slot,
-  functions: [],
-  procedures: [],
-  stateSize: 0,
-  sysprocMask: 0,
-});
-
 function diagnostic(message: string, line = 1, column = 1): GtestDiagnostic {
   return { severity: DiagnosticSeverity.ERROR, message, span: { start: 0, end: 0, line, column } };
 }
@@ -236,26 +227,25 @@ export async function compileCoreGtest(
   options: CompileOptions & { testSource: string },
 ): Promise<GtestCompileResult> {
   const diagnostics: GtestDiagnostic[] = [];
-  const idl = EMPTY_IDL(options);
   if (/\bContractTest\b|lite_test\.h/.test(options.testSource)) {
     diagnostics.push(
       diagnostic(
         "legacy ContractTest/lite_test.h tests are not supported; use core-lite contract_testing.h and ContractTesting",
       ),
     );
-    return { diagnostics, idl };
+    return { diagnostics };
   }
   if (!/contract_testing\.h|\bContractTesting\b/.test(options.testSource)) {
     diagnostics.push(
       diagnostic("gtest source must use core-lite contract_testing.h / ContractTesting"),
     );
-    return { diagnostics, idl };
+    return { diagnostics };
   }
 
   const tests = extractTests(options.testSource);
   if (!tests.length) {
     diagnostics.push(diagnostic("no TEST(Suite, Name) cases found"));
-    return { diagnostics, idl };
+    return { diagnostics };
   }
 
   if (options.qpiHeader === undefined)
@@ -301,7 +291,7 @@ export async function compileCoreGtest(
     slot: RUNNER_SLOT,
   });
   diagnostics.push(...runner.diagnostics);
-  if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics, idl };
+  if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics };
 
   // Runner declarations come first so findContractStruct selects it. The target contract AST is still present
   // as a normal global struct, providing the authoritative nested input/output/state layouts used by fixtures.
@@ -334,7 +324,7 @@ export async function compileCoreGtest(
     diagnostics.push(
       diagnostic(`Gtest codegen failed: ${error instanceof Error ? error.message : String(error)}`),
     );
-    return { diagnostics, idl };
+    return { diagnostics };
   }
 
   if ((globalThis as any).process?.env?.QINIT_DUMP_WAT) {
@@ -350,7 +340,7 @@ export async function compileCoreGtest(
       }
     }
   }
-  if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics, idl };
+  if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics };
 
   try {
     const wasm = await assemble(wat);
@@ -362,13 +352,13 @@ export async function compileCoreGtest(
       mainConstructionEpoch: options.constructionEpoch ?? 0,
       tests: tests.map((test, index) => ({ name: test.name, inputType: index + 1 })),
     };
-    return { wasm, program, diagnostics, idl };
+    return { wasm, program, diagnostics, idl: targetMetadata.idl };
   } catch (error) {
     diagnostics.push(
       diagnostic(
         `Gtest WAT assembly failed: ${error instanceof Error ? error.message : String(error)}`,
       ),
     );
-    return { diagnostics, idl };
+    return { diagnostics };
   }
 }

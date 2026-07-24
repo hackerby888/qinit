@@ -4,6 +4,7 @@ import {
   DiagnosticSeverity,
   SourceAnalysisOrigin,
   type SourceAnalysisDiagnostic,
+  type SourceAnalysisResult,
   type SourceFix,
 } from "@qinit/compile/analyzer";
 import {
@@ -44,6 +45,15 @@ function toDiagnostic(
 export class QpiDiagnostics implements vscode.Disposable {
   private readonly coll = vscode.languages.createDiagnosticCollection("qpi");
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly analyses = new Map<
+    string,
+    {
+      version: number;
+      name?: string;
+      slot?: number;
+      result: SourceAnalysisResult;
+    }
+  >();
   private readonly fixes = new Map<
     string,
     {
@@ -57,10 +67,19 @@ export class QpiDiagnostics implements vscode.Disposable {
   }
 
   schedule(doc: vscode.TextDocument, delay = 250): void {
-    if (!this.applies(doc)) return;
+    if (
+      doc.uri.scheme !== "file" ||
+      !/\.(h|hpp|hxx)$/i.test(doc.fileName)
+    ) {
+      return;
+    }
+
     const key = doc.uri.toString();
     const prev = this.timers.get(key);
-    if (prev) clearTimeout(prev);
+    if (prev) {
+      clearTimeout(prev);
+    }
+
     this.timers.set(
       key,
       setTimeout(() => {
@@ -70,21 +89,46 @@ export class QpiDiagnostics implements vscode.Disposable {
     );
   }
 
-  refresh(doc: vscode.TextDocument): void {
-    if (!this.applies(doc)) {
-      this.coll.delete(doc.uri);
-      this.fixes.delete(doc.uri.toString());
-      return;
-    }
-    const text = doc.getText();
+  analysisFor(doc: vscode.TextDocument): SourceAnalysisResult | undefined {
+    const key = doc.uri.toString();
     const identity = configuredContractIdentity(doc.fileName);
-    const findings = analyzeContract({
-      source: text,
+    const cached = this.analyses.get(key);
+    if (
+      cached?.version === doc.version &&
+      cached.name === identity.name &&
+      cached.slot === identity.slot
+    ) {
+      return cached.result;
+    }
+    if (!this.applies(doc)) {
+      this.analyses.delete(key);
+      return undefined;
+    }
+
+    const result = analyzeContract({
+      source: doc.getText(),
       name: identity.name,
       slot: identity.slot,
-    }).diagnostics;
+    });
+    this.fixes.delete(key);
+    this.analyses.set(key, {
+      version: doc.version,
+      name: identity.name,
+      slot: identity.slot,
+      result,
+    });
+    return result;
+  }
+
+  refresh(doc: vscode.TextDocument): void {
+    const result = this.analysisFor(doc);
+    if (!result) {
+      this.clear(doc.uri);
+      return;
+    }
+
     const fixes = new Map<string, SourceFix[]>();
-    const diagnostics = findings.map((item) => {
+    const diagnostics = result.diagnostics.map((item) => {
       const value = toDiagnostic(doc, item);
       if (item.fixes?.length) {
         fixes.set(diagnosticKey(value), item.fixes);
@@ -114,13 +158,22 @@ export class QpiDiagnostics implements vscode.Disposable {
   }
 
   clear(uri: vscode.Uri): void {
+    const key = uri.toString();
+    const timer = this.timers.get(key);
+    if (timer) {
+      clearTimeout(timer);
+    }
+
+    this.timers.delete(key);
+    this.analyses.delete(key);
     this.coll.delete(uri);
-    this.fixes.delete(uri.toString());
+    this.fixes.delete(key);
   }
 
   dispose(): void {
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
+    this.analyses.clear();
     this.fixes.clear();
     this.coll.dispose();
   }

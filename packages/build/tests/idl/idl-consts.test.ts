@@ -1,49 +1,53 @@
-import { CORE_PATH } from "../../../../test-utils/paths";
-// Verify constexpr array sizes using both templated and plain QPI math helpers.
-import { test, expect } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
-import { extractIdl } from "../../src/idl";
-import { qpiPrelude } from "../../src/prelude";
+import { expect, test } from "bun:test";
+import { AbiTypeKind, extractIdl } from "../../src/idl";
 
-test("non-templated div() in a constexpr (chained) resolves the dependent array size", () => {
-  // mirrors QThirtyFour: a const defined with the plain div() form, the array sized by the const NAME
-  const SRC = `
+test("constexpr QPI math resolves array lengths in the v2 type tree", () => {
+  const source = `
+using namespace QPI;
+constexpr uint64 MAX_VALUES = 1024;
+constexpr uint64 GROUPS = 4;
+constexpr uint64 VALUE_COUNT = div(MAX_VALUES, 4) * GROUPS;
 struct CONTRACT_STATE_TYPE : public ContractBase {
-  struct M_input { Array<uint8, NVALS> a; }; struct M_output {};
-  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(M, 1); }
-};
-constexpr uint64 MAXP = 1024;
-constexpr uint64 RVC = 4;
-constexpr uint64 NVALS = div(MAXP, 4) * RVC;`;
-  const e = Object.values(extractIdl(SRC, "S").procedures)[0];
-  expect(e.in).toBe("[1024;uint8]"); // div(1024,4) * 4 = 1024
+  struct Measure_input { Array<uint8, VALUE_COUNT> values; };
+  struct Measure_output {};
+  PUBLIC_PROCEDURE(Measure) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_PROCEDURE(Measure, 1);
+  }
+};`;
+
+  const input = extractIdl(source, "Constants").procedures[0].input;
+  if (input.kind !== AbiTypeKind.STRUCT) {
+    throw new Error("Measure_input must be a struct");
+  }
+  expect(input.format).toBe("[1024;uint8]");
+  const values = input.fields[0].type;
+  expect(values.kind).toBe(AbiTypeKind.ARRAY);
+  if (values.kind === AbiTypeKind.ARRAY) {
+    expect(values.count).toBe(1024);
+    expect(values.element.format).toBe("uint8");
+  }
 });
 
-test("templated and plain forms both resolve (div<T>(a,b) and mod(a,b))", () => {
-  const SRC = `
-struct CONTRACT_STATE_TYPE : public ContractBase {
-  struct M_input { Array<uint8, A> a; Array<uint8, B> b; }; struct M_output {};
-  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(M, 1); }
-};
+test("templated and plain constexpr helpers resolve consistently", () => {
+  const source = `
+using namespace QPI;
 constexpr uint64 N = 12;
 constexpr uint64 A = div<uint64>(N, 2);
-constexpr uint64 B = mod(N, 3);`;
-  const e = Object.values(extractIdl(SRC, "S").procedures)[0];
-  expect(e.in).toBe("[6;uint8], [0;uint8]"); // div(12,2)=6 ; mod(12,3)=0
-});
+constexpr uint64 B = mod(N, 3);
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct Measure_input { Array<uint8, A> a; Array<uint8, B> b; };
+  struct Measure_output {};
+  PUBLIC_PROCEDURE(Measure) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_PROCEDURE(Measure, 1);
+  }
+};`;
 
-const QTF = CORE_PATH + "/src/contracts/QThirtyFour.h";
-test.skipIf(!existsSync(QTF))(
-  "real QThirtyFour: BuyTicketsBatch array size resolves (was a leaked const name)",
-  () => {
-    const idl = extractIdl(readFileSync(QTF, "utf8"), "QThirtyFour", {
-      prelude: qpiPrelude(CORE_PATH),
-    });
-    const e = Object.values({ ...idl.functions, ...idl.procedures }).find(
-      (x) => x.name === "BuyTicketsBatch",
-    )!;
-    // QTF_BATCH_TICKET_VALUES_COUNT = div(QTF_MAX_NUMBER_OF_PLAYERS=1024, 4) * QTF_RANDOM_VALUES_COUNT=4 = 1024
-    expect(e.in).toBe("[1024;uint8]");
-    expect(e.in).not.toContain("QTF_"); // no constant name leaked
-  },
-);
+  const input = extractIdl(source, "Constants").procedures[0].input;
+  if (input.kind !== AbiTypeKind.STRUCT) {
+    throw new Error("Measure_input must be a struct");
+  }
+  expect(input.format).toBe("[6;uint8], [0;uint8]");
+  expect(input.fields.map((field) => field.type.size)).toEqual([6, 0]);
+});

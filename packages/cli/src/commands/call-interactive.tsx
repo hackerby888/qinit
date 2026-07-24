@@ -5,33 +5,28 @@ import {
   callFunction,
   invokeProcedure,
   encodeInput,
+  hasOverlappingAbiType,
   zeroInputFmt,
   TX_TICK_OFFSET,
 } from "@qinit/proto";
+import {
+  AbiTypeKind,
+  type AbiField,
+  type AbiType,
+  type ContractEntry,
+  type ContractIdl,
+  type ContractIdlFile,
+} from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
-import { existsSync, readFileSync } from "node:fs";
-import { resolveSeed } from "../config";
+import { loadConfiguredQpiHeader, resolveSeed } from "../config";
 import { loadContracts, systemAsDyn } from "../contracts";
+import {
+  contractIdlForSlot,
+  emptyContractIdlFile,
+  loadContractIdlFile,
+} from "../idl-file";
 import { fmtVal } from "../trace-format";
 import { Header, Spinner, Panel, theme } from "../ui";
-
-// Optional local IDL (names + format strings) keyed by contract index, merged over the registry.
-//   { "28": { name, functions:{ "1":{name,in,out} }, procedures:{ "1":{name,in} } } }
-type Idl = Record<
-  string,
-  {
-    name?: string;
-    functions?: Record<string, { name?: string; in?: string; out?: string }>;
-    procedures?: Record<string, { name?: string; in?: string }>;
-  }
->;
-function loadIdl(path?: string): Idl {
-  const p = path ?? "qinit.idl.json";
-  try {
-    if (existsSync(p)) return JSON.parse(readFileSync(p, "utf8"));
-  } catch {}
-  return {};
-}
 
 // Arrow-key single-select list. `header` items are non-selectable group separators (skipped on navigation).
 type SelItem<T> = { label: string; value?: T; header?: boolean };
@@ -112,7 +107,7 @@ const QPI_TYPES = [
 ];
 // Schema-aware completer: the field at the current comma position expects a known type, so prefer it
 // (e.g. SC field is uint32 -> "1u" suggests uint32, not the generic-first uint64). Falls back to generic.
-export function completerFor(fields?: Field[]) {
+export function completerFor(fields?: AbiField[]) {
   return (v: string): string | null => {
     const cut = v.lastIndexOf(",");
     const head = v.slice(0, cut + 1),
@@ -120,7 +115,7 @@ export function completerFor(fields?: Field[]) {
     const m = seg.match(/[a-z][a-z0-9]*$/); // trailing lowercase-led type fragment
     if (!m) return null;
     const idx = (head.match(/,/g) || []).length; // current field index = commas before this token
-    const exp = fields?.[idx]?.type;
+    const exp = fields?.[idx]?.type.format;
     const cands = exp && QPI_TYPES.includes(exp) ? [exp, ...QPI_TYPES] : QPI_TYPES;
     const hit = cands.find((t) => t.startsWith(m[0]) && t !== m[0]);
     return hit ? head + seg.slice(0, seg.length - m[0].length) + hit : null;
@@ -129,8 +124,10 @@ export function completerFor(fields?: Field[]) {
 
 // Placeholder template: one "<field>type" token per field — shows the exact value+type syntax to type
 // (greyed, vanishes once the dev types). undefined when the schema is unknown -> no placeholder.
-export const tmplOf = (fields?: Field[]) =>
-  fields && fields.length ? fields.map((f) => `<${f.name}>${f.type}`).join(", ") : undefined;
+export const tmplOf = (fields?: AbiField[]) =>
+  fields && fields.length
+    ? fields.map((field) => `<${field.name}>${field.type.format}`).join(", ")
+    : undefined;
 
 // Single-line text prompt (chars / backspace / enter). `complete` adds ghost-text type autocomplete + Tab.
 // `placeholder` is shown greyed when the field is empty (input template hint) and disappears on first keystroke.
@@ -223,24 +220,30 @@ function TextPrompt({
 function SchemaBox({
   kind,
   name,
-  fields,
+  type,
 }: {
   kind: "input" | "output";
   name?: string;
-  fields?: Field[];
+  type?: AbiType;
 }) {
-  if (fields === undefined) return null;
+  if (type === undefined) return null;
+  const fields = type.kind === AbiTypeKind.STRUCT
+    ? type.fields
+    : undefined;
   return (
     <Panel
       title={`${kind}${name ? "  ·  " + name : ""}`}
       color={kind === "input" ? theme.info : theme.accent}
     >
-      {fields.length === 0 ? (
+      {fields === undefined ? (
+        <Text color={theme.info}>{type.format}</Text>
+      ) : fields.length === 0 ? (
         <Text dimColor>(no fields)</Text>
       ) : (
         fields.map((f, i) => (
           <Text key={i}>
-            <Text color={theme.info}>{f.type.padEnd(10)}</Text> <Text bold>{f.name}</Text>
+            <Text color={theme.info}>{f.type.format.padEnd(10)}</Text>{" "}
+            <Text bold>{f.name}</Text>
           </Text>
         ))
       )}
@@ -248,24 +251,29 @@ function SchemaBox({
   );
 }
 
-type Field = { name: string; type: string };
 type Entry = {
   kind: "fn" | "proc";
   inputType: number;
   inputSize: number;
   outputSize: number;
   name?: string;
-  in?: string;
-  out?: string;
-  inFields?: Field[];
-  outFields?: Field[];
+  input?: ContractEntry["input"];
+  output?: ContractEntry["output"];
 };
 
 // All-zero, schema-matched input sample for an entry — shown when the user's input fails to encode.
 export function zeroSample(e: Entry): string | null {
   try {
-    const fmt = e.in ?? (e.inFields ?? []).map((f) => f.type).join(", ");
-    return fmt.trim() ? zeroInputFmt(fmt) : null;
+    if (
+      !e.input ||
+      (
+        e.input.kind === AbiTypeKind.STRUCT &&
+        e.input.fields.length === 0
+      )
+    ) {
+      return null;
+    }
+    return zeroInputFmt(e.input);
   } catch {
     return null;
   }
@@ -275,14 +283,22 @@ type Stage =
 
 export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: string }) {
   const { exit } = useApp();
+  const [qpiHeader] = useState(() => {
+    try {
+      return loadConfiguredQpiHeader();
+    } catch {
+      return undefined;
+    }
+  });
   const [stage, setStage] = useState<Stage>("loading");
   const [contracts, setContracts] = useState<DynContract[]>([]);
   const [userCount, setUserCount] = useState(0); // contracts[0..userCount) = deployed, rest = system
-  const [idl, setIdl] = useState<Idl>({});
+  const [idl, setIdl] = useState<ContractIdlFile>(emptyContractIdlFile());
   const [sel, setSel] = useState<{
     c?: DynContract;
     e?: Entry;
     input?: string;
+    out?: string;
     amount?: string;
     seed?: string;
   }>({});
@@ -293,7 +309,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   useEffect(() => {
     (async () => {
       try {
-        setIdl(loadIdl());
+        setIdl(loadContractIdlFile());
         const { user, system } = await loadContracts(new LiteRpc(rpcBase)); // deployed first, then system (catalog)
         const combined = [...user, ...system.map(systemAsDyn)];
         if (!combined.length) {
@@ -350,7 +366,13 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
         e = s.e!;
       add("≡ " + equivCmd(s.c!, e, s)); // the non-interactive equivalent — copy-paste to repeat this call
       if (e.kind === "fn") {
-        const out = await callFunction(rpc, idx, e.inputType, s.input ?? "", e.out ?? "");
+        const out = await callFunction(
+          rpc,
+          idx,
+          e.inputType,
+          s.input ?? "",
+          e.output ?? s.out ?? "",
+        );
         add(`${labelFor(s.c!, e)} -> ${fmtVal(out)}`);
       } else {
         const ti: any = await rpc.tickInfo();
@@ -392,9 +414,10 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     setStage("done");
   };
 
-  // Skip prompts the IDL already answers: no input prompt when the input struct has zero fields (in===""), no
-  // output prompt when the out fmt is known. A no-arg getter (in="", out known) thus runs with zero prompts.
-  const noInput = (e: Entry) => e.in !== undefined && e.in.trim() === "";
+  // Skip prompts whose layouts are known from the IDL.
+  const noInput = (e: Entry) =>
+    e.input?.kind === AbiTypeKind.STRUCT &&
+    e.input.fields.length === 0;
   const startEntry = (e: Entry) => {
     const ns = { ...sel, e, input: "" };
     setSel(ns);
@@ -403,13 +426,13 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
       return;
     }
     if (e.kind === "fn") {
-      if (e.out !== undefined) run(ns);
+      if (e.output !== undefined) run(ns);
       else setStage("output");
     } else setStage("amount");
   };
   const afterInput = (ns: typeof sel) => {
     if (ns.e!.kind === "fn") {
-      if (ns.e!.out !== undefined) run(ns);
+      if (ns.e!.output !== undefined) run(ns);
       else setStage("output");
     } else setStage("amount");
   };
@@ -426,44 +449,63 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
       String(entry),
     ];
     if ((s.input ?? "").trim()) parts.push(`--in "${s.input!.trim()}"`);
-    if (e.kind === "fn" && (e.out ?? "").trim()) parts.push(`--out "${e.out!.trim()}"`);
+    const outputFormat = e.output?.format ?? s.out ?? "";
+    if (e.kind === "fn" && outputFormat.trim()) {
+      parts.push(`--out "${outputFormat.trim()}"`);
+    }
     if (e.kind === "proc" && Number(s.amount ?? 0) > 0) parts.push(`--amount ${s.amount}`);
     return parts.join(" ");
   };
-  const nameOf = (c: DynContract) => c.name || idl[String(c.index)]?.name || `contract ${c.index}`;
+  const nameOf = (c: DynContract) =>
+    c.name ||
+    contractIdlForSlot(idl, c.index, c.codeHash)?.name ||
+    `contract ${c.index}`;
 
   // ---- entries for the chosen contract (registry truth, merged with IDL names/formats) ----
   // names + in/out fmts: prefer the local qinit.idl.json, else derive from the node-stored contract source
   const entriesFor = (c: DynContract): Entry[] => {
-    const di = idl[String(c.index)];
-    let src: { functions?: Record<string, any>; procedures?: Record<string, any> } | null = null;
+    const localIdl = contractIdlForSlot(idl, c.index, c.codeHash);
+    let sourceIdl: ContractIdl | undefined;
     try {
-      if (c.source) src = extractIdl(c.source, c.name || "Contract");
+      if (c.source && qpiHeader) {
+        sourceIdl = extractIdl(c.source, c.name || "Contract", {
+          slot: c.index,
+          qpiHeader,
+        });
+      }
     } catch {}
-    const fnIdl = (it: number) => di?.functions?.[String(it)] ?? src?.functions?.[String(it)];
-    const pcIdl = (it: number) => di?.procedures?.[String(it)] ?? src?.procedures?.[String(it)];
+    const entryIdl = (
+      kind: "functions" | "procedures",
+      inputType: number,
+    ): ContractEntry | undefined =>
+      localIdl?.[kind].find((entry) => entry.inputType === inputType) ??
+      sourceIdl?.[kind].find((entry) => entry.inputType === inputType);
     // sort by inputType (registration id) — node dyn-registry returns entries hashmap-ordered (looks random);
     // stable ascending order makes the first-listed entry deterministic and matches source declaration order.
     const byId = (a: Entry, b: Entry) => a.inputType - b.inputType;
     const fns: Entry[] = (c.functions ?? [])
-      .map((f) => ({
-        kind: "fn" as const,
-        ...f,
-        name: fnIdl(f.inputType)?.name,
-        in: fnIdl(f.inputType)?.in,
-        out: fnIdl(f.inputType)?.out,
-        inFields: fnIdl(f.inputType)?.inFields,
-        outFields: fnIdl(f.inputType)?.outFields,
-      }))
+      .map((entry) => {
+        const metadata = entryIdl("functions", entry.inputType);
+        return {
+          kind: "fn" as const,
+          ...entry,
+          name: metadata?.name,
+          input: metadata?.input,
+          output: metadata?.output,
+        };
+      })
       .sort(byId);
     const pcs: Entry[] = (c.procedures ?? [])
-      .map((p) => ({
-        kind: "proc" as const,
-        ...p,
-        name: pcIdl(p.inputType)?.name,
-        in: pcIdl(p.inputType)?.in,
-        inFields: pcIdl(p.inputType)?.inFields,
-      }))
+      .map((entry) => {
+        const metadata = entryIdl("procedures", entry.inputType);
+        return {
+          kind: "proc" as const,
+          ...entry,
+          name: metadata?.name,
+          input: metadata?.input,
+          output: metadata?.output,
+        };
+      })
       .sort(byId);
     return [...fns, ...pcs];
   };
@@ -544,14 +586,24 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
         <SchemaBox
           kind="input"
           name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_input`}
-          fields={sel.e!.inFields}
+          type={sel.e!.input}
         />
         {/* input is never auto-filled — the schema shows as a greyed placeholder template, the dev types the values */}
         <TextPrompt
-          label={`<value>type per field, e.g. 5uint64 · [N; v…] arrays · ×N repeats${sel.e!.kind === "fn" ? "  (empty = none)" : ""}`}
+          label={`value format, e.g. 5uint64 · [N; v…] arrays · ×N repeats${sel.e!.kind === "fn" ? "  (empty = none)" : ""}`}
           initial={sel.input ?? ""}
-          placeholder={tmplOf(sel.e!.inFields)}
-          complete={completerFor(sel.e!.inFields)}
+          placeholder={
+            sel.e!.input && hasOverlappingAbiType(sel.e!.input)
+              ? zeroSample(sel.e!) ?? undefined
+              : sel.e!.input?.kind === AbiTypeKind.STRUCT
+              ? tmplOf(sel.e!.input.fields)
+              : zeroSample(sel.e!) ?? undefined
+          }
+          complete={completerFor(
+            sel.e!.input?.kind === AbiTypeKind.STRUCT
+              ? sel.e!.input.fields
+              : undefined,
+          )}
           onSubmit={(input) => {
             const ns = { ...sel, input };
             setSel(ns);
@@ -567,17 +619,24 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
         <SchemaBox
           kind="output"
           name={`${sel.e!.name ?? sel.e!.kind + "#" + sel.e!.inputType}_output`}
-          fields={sel.e!.outFields}
+          type={sel.e!.output}
         />
         <TextPrompt
           label="output types only, e.g. uint64 or { id, uint16 }"
-          initial={sel.e!.out ?? ""}
+          initial={sel.e!.output?.format ?? ""}
           placeholder={
-            sel.e!.outFields?.length ? sel.e!.outFields.map((f) => f.type).join(", ") : undefined
+            sel.e!.output?.kind === AbiTypeKind.STRUCT &&
+            sel.e!.output.fields.length
+              ? sel.e!.output.fields.map((field) => field.type.format).join(", ")
+              : sel.e!.output?.format
           }
-          complete={completerFor(sel.e!.outFields)}
+          complete={completerFor(
+            sel.e!.output?.kind === AbiTypeKind.STRUCT
+              ? sel.e!.output.fields
+              : undefined,
+          )}
           onSubmit={(out) => {
-            const ns = { ...sel, out } as any;
+            const ns = { ...sel, out };
             setSel(ns);
             run(ns);
           }}

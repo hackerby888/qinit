@@ -1,5 +1,5 @@
 import { AstKind } from "../enums";
-import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, CalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
+import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, ResolvedCalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
 import type { Sema } from "../sema";
 import type { PlatformCapability } from "../shared/platform-capabilities";
@@ -44,7 +44,7 @@ export interface ProgramAnalysisInternals {
   namespaceContexts: Map<object, NamespaceLookupContext>;
   privates: Map<string, PrivateFunctionMetadata>;
   registered: Map<string, PrivateFunctionMetadata>;
-  callees: Map<string, CalleeIdl>;
+  callees: Map<string, ResolvedCalleeIdl>;
   layoutCache: Map<string, StructLayout>;
   contractStateLayout: StructLayout;
   slot: number;

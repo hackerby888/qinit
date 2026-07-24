@@ -5,7 +5,8 @@ import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { loadConfig, resolveCore } from "../config";
-import { genStdGtest, extractIdl, qpiPrelude } from "@qinit/build";
+import { genStdGtest, extractIdl } from "@qinit/build";
+import { loadQpiHeader } from "@qinit/compile";
 import type { TestResult } from "@qinit/engine";
 import { runCorpus, runStdGtest } from "../corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
@@ -148,7 +149,10 @@ export function Gtest({ args }: { args: string[] }) {
 
         // Scaffold the test when missing (or --new).
         if (!existsSync(testPath) || o.new !== undefined) {
-          const idl = extractIdl(contractSrc, name, { prelude: qpiPrelude(core) });
+          const idl = extractIdl(contractSrc, name, {
+            slot,
+            qpiHeader: loadQpiHeader(core),
+          });
           mkdirSync(join(testPath, ".."), { recursive: true });
           writeFileSync(testPath, genStdGtest(idl, name, stateType));
           add("scaffold", true, `${testPath.replace(process.cwd() + "/", "")} (core-lite)`);

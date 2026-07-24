@@ -2,8 +2,15 @@
 // Emits STRUCTURED progress events (step state + live detail + pct) so the UI can show a rich pipeline.
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { buildContract, systemNames, type BuildResult, type ContractIdl } from "@qinit/build";
+import { readFileSync, writeFileSync } from "node:fs";
+import {
+  buildContract,
+  scanCallees,
+  systemNames,
+  type BuildResult,
+  type ContractIdl,
+} from "@qinit/build";
+import { loadQpiHeader } from "@qinit/compile";
 import {
   buildSignedTx,
   LiteRpc,
@@ -23,6 +30,7 @@ import {
 } from "@qinit/proto";
 import { savedSeed, savedCompiler, resolveCore, type Compiler } from "./config";
 import { compileLocal } from "./compile-local";
+import { saveContractIdl } from "./idl-file";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
 export type Ev =
@@ -53,17 +61,12 @@ export async function resolveNodeCallees(
   contractSrc: string,
   dynCallees: Record<string, { header: string; index: number }> = {},
   onNote?: (msg: string) => void,
+  analysis?: { name: string; slot: number; qpiHeader: string },
   timeoutMs?: number, // cap the registry probe so a down node fails fast (build); omit when the node is already known up (deploy)
 ): Promise<Record<string, { header: string; index: number }>> {
   const out: Record<string, { header: string; index: number }> = { ...dynCallees };
   try {
-    const names = [
-      ...new Set(
-        [...contractSrc.matchAll(/(?:CALL|INVOKE)_OTHER_CONTRACT_\w+\s*\(\s*(\w+)/g)].map(
-          (m) => m[1],
-        ),
-      ),
-    ];
+    const names = [...scanCallees(contractSrc, analysis)];
     const pending = names.filter((n) => !out[n]);
     if (pending.length) {
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -246,12 +249,19 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
 
   // inter-contract callees: for each CALL/INVOKE_OTHER_CONTRACT(<Name>) not given via --callee, resolve it from
   // the node registry (name -> slot + .h source, submitted at the callee's own deploy) so no --callee is needed.
-  const dynCallees = await resolveNodeCallees(
-    rpc,
-    readFileSync(o.contractPath, "utf8"),
-    o.dynCallees ?? {},
-    (note) => emit({ note }),
-  );
+  const dynCallees = o.artifact
+    ? o.dynCallees ?? {}
+    : await resolveNodeCallees(
+        rpc,
+        readFileSync(o.contractPath, "utf8"),
+        o.dynCallees ?? {},
+        (note) => emit({ note }),
+        {
+          name: o.name,
+          slot,
+          qpiHeader: loadQpiHeader(o.core),
+        },
+      );
 
   // Build with the selected compiler; the local compiler reports its own protocol diagnostics.
   const compiler: Compiler = o.compiler ?? savedCompiler() ?? "native";
@@ -297,7 +307,23 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   const so = o.artifact ? Buffer.from(o.artifact.wasm) : readFileSync(b.so!);
   const hash = o.artifact?.hash ?? b.hash ?? (await k12Hex(new Uint8Array(so)));
   emit({ step: "build", state: "ok", detail: `${so.length}B · k12 ${hash.slice(0, 12)}…` });
-  if (b.idlError) emit({ note: "⚠ IDL parse failed — no typed client/state names: " + b.idlError });
+  if (b.idlError) emit({ note: "⚠ compiler IDL analysis failed — no typed client/state names: " + b.idlError });
+  const saveIdl = () => {
+    if (!b.idl) {
+      return;
+    }
+    try {
+      saveContractIdl(slot, {
+        ...b.idl,
+        slot,
+        codeHash: hash,
+        debugWasm: b.debugWasm ? resolve(b.debugWasm) : undefined,
+        linesJson: b.linesJson ? resolve(b.linesJson) : undefined,
+      });
+    } catch (error: any) {
+      emit({ note: `IDL: ${String(error?.message ?? error)}` });
+    }
+  };
 
   // Virtual nodes deploy directly; real nodes return null and use chunked upload below.
   const direct = await rpc.directDeploy(slot, new Uint8Array(so), o.name).catch(() => null);
@@ -309,6 +335,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     } catch {
       /* best-effort */
     }
+    saveIdl();
     emit({ step: "confirm", state: "ok", detail: `ready · ${hash.slice(0, 12)}…` });
     return { ok: true, slot, reused, hash, armed: true, constructed: true, idl: b.idl };
   }
@@ -535,22 +562,6 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
   }
   emit({ step: "deploy", state: "ok", detail: `tx ${dr.transactionId ?? "—"}` }); // full txid — copy into the explorer
 
-  if (b.idl) {
-    try {
-      const p = "qinit.idl.json";
-      const all = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {};
-      all[String(slot)] = {
-        name: b.idl.name,
-        functions: b.idl.functions,
-        procedures: b.idl.procedures,
-        codeHash: hash,
-        debugWasm: b.debugWasm ? resolve(b.debugWasm) : undefined,
-        linesJson: b.linesJson ? resolve(b.linesJson) : undefined,
-      };
-      writeFileSync(p, JSON.stringify(all, null, 2));
-    } catch {}
-  }
-
   // Wait for the matching code hash and construction; ready means callable.
   emit({ step: "confirm", state: "active", detail: "polling arm…" });
   const want = hash.toLowerCase();
@@ -606,6 +617,7 @@ export async function deployContract(o: DeployOpts, emit: (e: Ev) => void): Prom
     try {
       await rpc.putContractSource(slot, readFileSync(o.contractPath, "utf8"));
     } catch {}
+    saveIdl();
     if (constructed)
       emit({ step: "confirm", state: "ok", detail: `ready · ${want.slice(0, 12)}…` });
     else {

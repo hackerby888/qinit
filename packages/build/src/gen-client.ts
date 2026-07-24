@@ -1,107 +1,192 @@
-// Generate a typed TS client from a contract IDL: named interfaces + a class whose methods
-// wrap callFunction / invokeProcedure (no format strings for the caller). Flat inputs stay deterministic and easy to fuzz.
-import type { ContractIdl, Field } from "./idl";
+// Generate a typed TS client from the compiler-owned contract IDL.
+import {
+  AbiScalarKind,
+  AbiTypeKind,
+  type AbiStruct,
+  type AbiType,
+  type ContractIdl,
+} from "@qinit/proto/contract-idl";
 
-// codec token -> TS type (QPI names).
-const TS: Record<string, string> = {
-  uint8: "number",
-  uint16: "number",
-  uint32: "number",
-  sint8: "number",
-  sint16: "number",
-  sint32: "number",
-  bit: "number",
-  uint64: "bigint",
-  sint64: "bigint",
-  id: "string",
-  m256i: "string",
+const TYPESCRIPT_SCALARS: Record<AbiScalarKind, string> = {
+  [AbiScalarKind.BIT]: "number",
+  [AbiScalarKind.ID]: "string",
+  [AbiScalarKind.M256I]: "string",
+  [AbiScalarKind.UINT8]: "number",
+  [AbiScalarKind.UINT16]: "number",
+  [AbiScalarKind.UINT32]: "number",
+  [AbiScalarKind.UINT64]: "bigint",
+  [AbiScalarKind.UINT128]: "bigint",
+  [AbiScalarKind.SINT8]: "number",
+  [AbiScalarKind.SINT16]: "number",
+  [AbiScalarKind.SINT32]: "number",
+  [AbiScalarKind.SINT64]: "bigint",
+  [AbiScalarKind.SINT128]: "bigint",
 };
-function tsType(tok: string): string {
-  if (tok.startsWith("[")) {
-    return `${tsType(tok.slice(tok.indexOf(";") + 1, tok.lastIndexOf("]")).trim())}[]`;
+
+function typescriptType(type: AbiType, input = false): string {
+  if (
+    input &&
+    type.kind === AbiTypeKind.STRUCT &&
+    hasOverlappingFields(type)
+  ) {
+    return "Uint8Array";
   }
-  if (tok.startsWith("{")) return "unknown"; // unresolved nested struct (no field tree) — best effort
-  return TS[tok] ?? "unknown";
-}
-// TS type of a field, using its resolved nested struct/array tree when present (inline object types).
-function tsTypeOf(f: Field): string {
-  if (f.struct) {
-    const obj = `{ ${f.struct.map((c) => `${c.name}: ${tsTypeOf(c)}`).join("; ")} }`;
-    return f.array ? `${obj}[]` : obj;
+
+  switch (type.kind) {
+    case AbiTypeKind.SCALAR:
+      return TYPESCRIPT_SCALARS[type.scalar];
+    case AbiTypeKind.STRUCT:
+      return `{ ${type.fields
+        .map((field) => `${field.name}: ${typescriptType(field.type, input)}`)
+        .join("; ")} }`;
+    case AbiTypeKind.ARRAY:
+      return `${typescriptType(type.element, input)}[]`;
+    default:
+      return "Uint8Array";
   }
-  return tsType(f.type);
 }
 
-// A field is value-template encodable (typed `args`) if it's a scalar/id or a nested struct of such — but NOT an
-// array (a fixed-N Array can't be sized from a value template), which keeps the raw `inFmt` fallback.
-function flatField(f: Field): boolean {
-  if (f.array) return false;
-  if (f.struct) return f.struct.every(flatField);
-  return true;
-}
-const flat = (fs: Field[]) => fs.every(flatField);
-
-function iface(name: string, fields: Field[]): string {
-  if (!fields.length) return `export interface ${name} {}`;
-  return `export interface ${name} {\n${fields.map((f) => `  ${f.name}: ${tsTypeOf(f)};`).join("\n")}\n}`;
-}
-
-// Map the decoder's positional value (structs decode to ordered arrays) at `acc` into the named/nested shape.
-function mapExpr(f: Field, acc: string): string {
-  if (f.struct) {
-    const obj = (element: string) =>
-      `{ ${f.struct!
-        .map((child, index) => `${child.name}: ${mapExpr(child, `${element}[${index}]`)}`)
-        .join(", ")} }`;
-    if (f.array) return `(${acc} as unknown[][]).map((e) => (${obj("e")}))`;
-    return `((s) => (${obj("s")}))(${acc} as unknown[])`;
+function hasOverlappingFields(type: AbiStruct): boolean {
+  for (let index = 0; index < type.fields.length; index++) {
+    const field = type.fields[index];
+    for (let previousIndex = 0; previousIndex < index; previousIndex++) {
+      const previous = type.fields[previousIndex];
+      if (
+        field.size > 0 &&
+        previous.size > 0 &&
+        field.offset < previous.offset + previous.size &&
+        previous.offset < field.offset + field.size
+      ) {
+        return true;
+      }
+    }
   }
-  return `${acc} as ${tsTypeOf(f)}`;
+  return false;
 }
-function outMap(fields: Field[]): string {
-  if (!fields.length) return "return {};";
-  if (fields.length === 1) return `return { ${fields[0].name}: ${mapExpr(fields[0], "r")} };`;
+
+function interfaceSource(
+  name: string,
+  type: AbiType,
+  input = false,
+): string {
+  if (type.kind !== AbiTypeKind.STRUCT) {
+    return `export type ${name} = ${typescriptType(type, input)};`;
+  }
+  if (input && hasOverlappingFields(type)) {
+    return `export type ${name} = Uint8Array;`;
+  }
+  if (!type.fields.length) {
+    return `export interface ${name} {}`;
+  }
+  const fields = type.fields
+    .map((field) => `  ${field.name}: ${typescriptType(field.type, input)};`)
+    .join("\n");
+  return `export interface ${name} {\n${fields}\n}`;
+}
+
+function mappedStruct(type: AbiStruct, expression: string): string {
+  return `{ ${type.fields
+    .map((field, index) => {
+      return `${field.name}: ${mapDecodedValue(field.type, `${expression}[${index}]`)}`;
+    })
+    .join(", ")} }`;
+}
+
+function mapDecodedValue(type: AbiType, expression: string): string {
+  if (type.kind === AbiTypeKind.STRUCT) {
+    return `((s) => (${mappedStruct(type, "s")}))(${expression} as unknown[])`;
+  }
+  if (
+    type.kind === AbiTypeKind.ARRAY &&
+    needsDecodedMapping(type.element)
+  ) {
+    return `(${expression} as unknown[]).map((element) => ${mapDecodedValue(type.element, "element")})`;
+  }
+  return `${expression} as ${typescriptType(type)}`;
+}
+
+function needsDecodedMapping(type: AbiType): boolean {
+  return type.kind === AbiTypeKind.STRUCT || (
+    type.kind === AbiTypeKind.ARRAY &&
+    needsDecodedMapping(type.element)
+  );
+}
+
+function outputMap(type: AbiType): string {
+  if (type.kind !== AbiTypeKind.STRUCT) {
+    return `return ${mapDecodedValue(type, "r")};`;
+  }
+  const fields = type.fields;
+  if (!fields.length) {
+    return "return {};";
+  }
+  if (fields.length === 1) {
+    const field = fields[0];
+    return `return { ${field.name}: ${mapDecodedValue(field.type, "r")} };`;
+  }
   return `const a = r as unknown[]; return { ${fields
-    .map((field, index) => `${field.name}: ${mapExpr(field, `a[${index}]`)}`)
+    .map((field, index) => {
+      return `${field.name}: ${mapDecodedValue(field.type, `a[${index}]`)}`;
+    })
     .join(", ")} };`;
 }
 
-// value-format template literal from a typed `args` object — recurses into nested structs as `{ ... }` groups
-// (the encoder gives a braced group its own alignment, matching the C++ struct layout). Flat-fields only.
-function inTmplFields(fs: Field[], prefix: string): string {
-  return fs
-    .map((field) =>
-      field.struct
-        ? `{ ${inTmplFields(field.struct, `${prefix}.${field.name}`)} }`
-        : `\${${prefix}.${field.name}}${field.type}`,
-    )
-    .join(", ");
+function schemaName(
+  entryName: string,
+  entryKind: "function" | "procedure",
+  direction: "input" | "output",
+): string {
+  return `${entryName}_${entryKind}_${direction}_schema`;
 }
-const inTmpl = (fs: Field[]) => (fs.length ? "`" + inTmplFields(fs, "args") + "`" : '""');
 
-// runtimeImport: when set (e.g. "./runtime"), pull LiteRpc/callFunction/invokeProcedure from one
-// self-contained module instead of @qinit/* — used by `qinit test`'s emitted SDK.
+function hasInput(type: AbiType): boolean {
+  return type.kind !== AbiTypeKind.STRUCT || type.fields.length > 0;
+}
+
+// runtimeImport lets `qinit test` use its emitted, self-contained runtime.
 export function generateClient(
   idl: ContractIdl,
   index: number,
-  opts?: { runtimeImport?: string },
+  options?: { runtimeImport?: string },
 ): string {
   const lines: string[] = [];
-  lines.push(`// AUTO-GENERATED by \`qinit gen\` — typed client for ${idl.name} (slot ${index}). Do not edit.`);
-  if (opts?.runtimeImport) {
-    lines.push(`import { LiteRpc, callFunction, invokeProcedure } from "${opts.runtimeImport}";`);
+  lines.push(
+    `// AUTO-GENERATED by \`qinit gen\` — typed client for ${idl.name} (slot ${index}). Do not edit.`,
+  );
+  if (options?.runtimeImport) {
+    lines.push(
+      `import { LiteRpc, callFunction, invokeProcedure } from "${options.runtimeImport}";`,
+    );
   } else {
     lines.push(`import { LiteRpc } from "@qinit/core";`);
     lines.push(`import { callFunction, invokeProcedure } from "@qinit/proto";`);
   }
   lines.push("");
-  for (const e of Object.values(idl.functions)) {
-    lines.push(iface(`${e.name}_input`, e.inFields));
-    lines.push(iface(`${e.name}_output`, e.outFields ?? []));
+  for (const entry of idl.functions) {
+    lines.push(
+      `const ${schemaName(entry.name, "function", "input")} = ${JSON.stringify(entry.input)} as any;`,
+    );
+    lines.push(
+      `const ${schemaName(entry.name, "function", "output")} = ${JSON.stringify(entry.output)} as any;`,
+    );
   }
-  for (const e of Object.values(idl.procedures)) lines.push(iface(`${e.name}_input`, e.inFields));
+  for (const entry of idl.procedures) {
+    lines.push(
+      `const ${schemaName(entry.name, "procedure", "input")} = ${JSON.stringify(entry.input)} as any;`,
+    );
+  }
   lines.push("");
-  lines.push(`export interface ${idl.name}Opts { rpc?: LiteRpc; rpcBase?: string; index?: number; seed?: string }`);
+  for (const entry of idl.functions) {
+    lines.push(interfaceSource(`${entry.name}_input`, entry.input, true));
+    lines.push(interfaceSource(`${entry.name}_output`, entry.output));
+  }
+  for (const entry of idl.procedures) {
+    lines.push(interfaceSource(`${entry.name}_input`, entry.input, true));
+  }
+  lines.push("");
+  lines.push(
+    `export interface ${idl.name}Opts { rpc?: LiteRpc; rpcBase?: string; index?: number; seed?: string }`,
+  );
   lines.push("");
   lines.push(`export class ${idl.name} {`);
   lines.push(`  rpc: LiteRpc; rpcBase: string; index: number; seed?: string;`);
@@ -111,29 +196,47 @@ export function generateClient(
   lines.push(`    this.index = o.index ?? ${index};`);
   lines.push(`    this.seed = o.seed;`);
   lines.push(`  }`);
-  for (const [id, e] of Object.entries(idl.functions)) {
-    const out = e.outFields ?? [];
-    const inFlat = flat(e.inFields);
-    const param = e.inFields.length ? (inFlat ? `args: ${e.name}_input` : "inFmt: string") : "";
-    const inFmt = !e.inFields.length ? '""' : inFlat ? inTmpl(e.inFields) : "inFmt";
+  for (const entry of idl.functions) {
+    const inputRequired = hasInput(entry.input);
+    const parameter = inputRequired
+      ? `args: ${entry.name}_input`
+      : "";
+    const value = inputRequired ? "args" : "{}";
+    const inputSchema = schemaName(entry.name, "function", "input");
+    const outputSchema = schemaName(entry.name, "function", "output");
     lines.push("");
     lines.push(`  /** read-only */`);
-    lines.push(`  async ${e.name}(${param}): Promise<${e.name}_output> {`);
-    lines.push(`    const r = await callFunction(this.rpc, this.index, ${id}, ${inFmt}, ${JSON.stringify(out.map((f) => f.type).join(", "))});`);
-    lines.push(`    ${outMap(out)}`);
+    lines.push(`  async ${entry.name}(${parameter}): Promise<${entry.name}_output> {`);
+    lines.push(
+      `    const r = await callFunction(this.rpc, this.index, ${entry.inputType}, { type: ${inputSchema}, value: ${value} }, ${outputSchema});`,
+    );
+    lines.push(`    ${outputMap(entry.output)}`);
     lines.push(`  }`);
   }
-  for (const [id, e] of Object.entries(idl.procedures)) {
-    const inFlat = flat(e.inFields);
-    const param = e.inFields.length ? (inFlat ? `args: ${e.name}_input, ` : "inFmt: string, ") : "";
-    const inFmt = !e.inFields.length ? '""' : inFlat ? inTmpl(e.inFields) : "inFmt";
+  for (const entry of idl.procedures) {
+    const inputRequired = hasInput(entry.input);
+    const parameter = inputRequired
+      ? `args: ${entry.name}_input, `
+      : "";
+    const value = inputRequired ? "args" : "{}";
+    const inputSchema = schemaName(entry.name, "procedure", "input");
     lines.push("");
-    lines.push(`  /** transaction — auto-confirms (resolves once processed) unless { confirm: false } */`);
-    lines.push(`  async ${e.name}(${param}opts: { seed?: string; amount?: number; confirm?: boolean } = {}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`);
+    lines.push(
+      `  /** transaction — auto-confirms (resolves once processed) unless { confirm: false } */`,
+    );
+    lines.push(
+      `  async ${entry.name}(${parameter}opts: { seed?: string; amount?: number; confirm?: boolean } = {}): Promise<{ ok: boolean; txId?: string; tick?: number; confirmed?: boolean; included?: boolean; moneyFlew?: boolean }> {`,
+    );
     lines.push(`    const ti = (await this.rpc.tickInfo()) as { tick?: number };`);
-    lines.push(`    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed()) ?? "a".repeat(55);`);
-    lines.push(`    const r = await invokeProcedure({ seed, rpcBase: this.rpcBase, contractIndex: this.index, procId: ${id}, amount: opts.amount ?? 0, inFmt: ${inFmt}, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc });`);
-    lines.push(`    return { ok: r.ok, txId: r.txId, tick: r.tick, confirmed: r.confirmed, included: r.included, moneyFlew: r.moneyFlew };`);
+    lines.push(
+      `    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed()) ?? "a".repeat(55);`,
+    );
+    lines.push(
+      `    const r = await invokeProcedure({ seed, rpcBase: this.rpcBase, contractIndex: this.index, procId: ${entry.inputType}, amount: opts.amount ?? 0, input: { type: ${inputSchema}, value: ${value} }, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc });`,
+    );
+    lines.push(
+      `    return { ok: r.ok, txId: r.txId, tick: r.tick, confirmed: r.confirmed, included: r.included, moneyFlew: r.moneyFlew };`,
+    );
     lines.push(`  }`);
   }
   lines.push(`}`);

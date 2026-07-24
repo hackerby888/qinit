@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { extractIdl, generateClient, qpiPrelude, testRuntimeSource } from "@qinit/build";
-import { DEFAULT_WASM_SLOT_LAYOUT, loadCoreWasmSlotLayout } from "@qinit/core";
+import { extractIdl, generateClient, testRuntimeSource } from "@qinit/build";
+import { loadQpiHeader } from "@qinit/compile";
+import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCore } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
 
@@ -35,23 +36,13 @@ export function Gen({ args }: { args: string[] }) {
       const cfg = loadConfig();
       const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
       const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
-      let core: string | undefined;
-      try {
-        core = resolveCore(o.core, cfg.core);
-      } catch {
-        core = undefined;
-      }
-      const defaultSlot = core
-        ? loadCoreWasmSlotLayout(core).slotBase
-        : DEFAULT_WASM_SLOT_LAYOUT.slotBase;
+      const core = resolveCore(o.core, cfg.core);
+      const defaultSlot = loadCoreWasmSlotLayout(core).slotBase;
       const slot = Number(o.slot ?? cfg.slot ?? defaultSlot);
-      let prelude: string | undefined;
-      try {
-        prelude = core ? qpiPrelude(core) : undefined;
-      } catch {
-        prelude = undefined;
-      } // resolve qpi library types; degrade if core unavailable
-      const idl = extractIdl(readFileSync(contractPath, "utf8"), name, { prelude });
+      const idl = extractIdl(readFileSync(contractPath, "utf8"), name, {
+        slot,
+        qpiHeader: loadQpiHeader(core),
+      });
       // Emit a SELF-CONTAINED client: the client pulls LiteRpc/codec from a sibling runtime.ts (only needs the
       // public @qubic-lib), not from the unpublished @qinit/* monorepo packages — so the output works outside it.
       const ts = generateClient(idl, slot, { runtimeImport: "./runtime" });
@@ -65,8 +56,8 @@ export function Gen({ args }: { args: string[] }) {
         file,
         name,
         slot,
-        fns: Object.keys(idl.functions).length,
-        procs: Object.keys(idl.procedures).length,
+        fns: idl.functions.length,
+        procs: idl.procedures.length,
       });
     } catch (e: any) {
       setS({ ok: false, err: String(e?.message ?? e) });

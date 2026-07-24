@@ -156,6 +156,37 @@ export function evalIntegralConst(expression: Expression, resolve?: (name: strin
                 const branch = numericValue !== 0n ? expression.then : expression.else_;
                 return evalIntegralConst(branch, resolve);
             }
+            case AstKind.CALL:
+            case AstKind.TEMPLATE_CALL: {
+                const callee = expression.callee;
+                const name = callee.kind === AstKind.IDENTIFIER ||
+                    callee.kind === AstKind.QUALIFIED_NAME
+                    ? callee.name
+                    : null;
+                if (!name)
+                    return null;
+                const values: bigint[] = [];
+                for (const argument of expression.callArguments) {
+                    const value = evalIntegralConst(argument, resolve);
+                    if (value === null)
+                        return null;
+                    values.push(value);
+                }
+                switch (name) {
+                    case "div":
+                        return values[1] === 0n ? null : values[0] / values[1];
+                    case "mod":
+                        return values[1] === 0n ? null : values[0] % values[1];
+                    case "min":
+                        return values[0] <= values[1] ? values[0] : values[1];
+                    case "max":
+                        return values[0] >= values[1] ? values[0] : values[1];
+                    case "abs":
+                        return values[0] < 0n ? -values[0] : values[0];
+                    default:
+                        return null;
+                }
+            }
             case AstKind.C_CAST:
             case AstKind.STATIC_CAST:
                 return evalIntegralConst(expression.expression, resolve);

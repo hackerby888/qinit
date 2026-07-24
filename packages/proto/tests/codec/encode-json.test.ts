@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
 import { jsonToInputFmt, encodeInputJson, encodeInput, decodeOutput } from "../../src/abi-fmt";
+import { callFunction } from "../../src/call";
+import {
+  AbiScalarKind,
+  AbiTypeKind,
+  type AbiStruct,
+  type AbiType,
+} from "../../src/contract-idl";
 
 test("jsonToInputFmt: flat scalars by field name", () => {
   expect(jsonToInputFmt([{ name: "value", type: "uint64" }], { value: 3 })).toBe("3uint64");
@@ -120,5 +127,248 @@ test("encodeInputJson: deep nested array-of-structs (positional) round-trips", a
   expect(await decodeOutput(b, "[2;{ uint32, uint32 }]")).toEqual([
     [1, 2],
     [3, 4],
+  ]);
+});
+
+test("typed codec honors explicit field offsets", async () => {
+  const padded: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    size: 24,
+    align: 8,
+    format: "wrong",
+    fields: [
+      {
+        name: "tag",
+        offset: 0,
+        size: 1,
+        type: {
+          kind: AbiTypeKind.SCALAR,
+          scalar: AbiScalarKind.UINT8,
+          size: 1,
+          align: 1,
+          format: "wrong",
+        },
+      },
+      {
+        name: "value",
+        offset: 16,
+        size: 8,
+        type: {
+          kind: AbiTypeKind.SCALAR,
+          scalar: AbiScalarKind.UINT64,
+          size: 8,
+          align: 8,
+          format: "wrong",
+        },
+      },
+    ],
+  };
+
+  const bytes = await encodeInputJson(padded, { tag: 7, value: 99n });
+  expect(bytes.length).toBe(24);
+  expect(bytes[0]).toBe(7);
+  expect(bytes.slice(1, 16)).toEqual(new Uint8Array(15));
+  expect(new DataView(bytes.buffer).getBigUint64(16, true)).toBe(99n);
+  expect(await decodeOutput(bytes, padded)).toEqual([7, 99n]);
+});
+
+test("typed codec accepts direct scalar and array roots", async () => {
+  const scalar: AbiType = {
+    kind: AbiTypeKind.SCALAR,
+    scalar: AbiScalarKind.UINT64,
+    size: 8,
+    align: 8,
+    format: "uint64",
+  };
+  const array: AbiType = {
+    kind: AbiTypeKind.ARRAY,
+    count: 3,
+    size: 6,
+    align: 2,
+    format: "[3;uint16]",
+    element: {
+      kind: AbiTypeKind.SCALAR,
+      scalar: AbiScalarKind.UINT16,
+      size: 2,
+      align: 2,
+      format: "uint16",
+    },
+  };
+
+  const scalarBytes = await encodeInputJson(scalar, 42n);
+  expect(await decodeOutput(scalarBytes, scalar)).toBe(42n);
+  expect(jsonToInputFmt(scalar, 42n)).toBe("42uint64");
+  let captured: number[] = [];
+  const rpc = {
+    querySmartContract: async (
+      _contractIndex: number,
+      _inputType: number,
+      input: Uint8Array,
+    ) => {
+      captured = [...input];
+      return input;
+    },
+  };
+  expect(
+    await callFunction(
+      rpc as any,
+      28,
+      1,
+      { type: scalar, value: 42n },
+      scalar,
+    ),
+  ).toBe(42n);
+  expect(captured).toEqual([...scalarBytes]);
+
+  const arrayBytes = await encodeInputJson(array, [3, 5, 8]);
+  expect(await decodeOutput(arrayBytes, array)).toEqual([3, 5, 8]);
+  expect(jsonToInputFmt(array, [3, 5, 8])).toBe(
+    "[3; 3uint16, 5uint16, 8uint16]",
+  );
+});
+
+test("typed codec accepts a zero-length array", async () => {
+  const schema: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    size: 0,
+    align: 1,
+    format: "wrong",
+    fields: [
+      {
+        name: "values",
+        offset: 0,
+        size: 0,
+        type: {
+          kind: AbiTypeKind.ARRAY,
+          count: 0,
+          size: 0,
+          align: 1,
+          format: "wrong",
+          element: {
+            kind: AbiTypeKind.SCALAR,
+            scalar: AbiScalarKind.UINT8,
+            size: 1,
+            align: 1,
+            format: "wrong",
+          },
+        },
+      },
+    ],
+  };
+
+  const bytes = await encodeInputJson(schema, { values: [] });
+  expect(bytes).toEqual(new Uint8Array());
+  expect(await decodeOutput(bytes, schema)).toEqual([]);
+});
+
+test("overlapping input fields require one raw union view", async () => {
+  const union: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    size: 8,
+    align: 8,
+    format: "wrong",
+    fields: [
+      {
+        name: "wide",
+        offset: 0,
+        size: 8,
+        type: {
+          kind: AbiTypeKind.SCALAR,
+          scalar: AbiScalarKind.UINT64,
+          size: 8,
+          align: 8,
+          format: "wrong",
+        },
+      },
+      {
+        name: "narrow",
+        offset: 0,
+        size: 4,
+        type: {
+          kind: AbiTypeKind.SCALAR,
+          scalar: AbiScalarKind.UINT32,
+          size: 4,
+          align: 4,
+          format: "wrong",
+        },
+      },
+    ],
+  };
+
+  await expect(
+    encodeInputJson(union, { wide: 1n, narrow: 2 }),
+  ).rejects.toThrow(/raw bytes/);
+
+  const raw = new Uint8Array([5, 0, 0, 0, 0, 0, 0, 0]);
+  expect(await encodeInputJson(union, raw)).toEqual(raw);
+  expect(await encodeInputJson(union, [...raw])).toEqual(raw);
+  await expect(
+    encodeInputJson(union, [256, 0, 0, 0, 0, 0, 0, 0]),
+  ).rejects.toThrow(/0 to 255/);
+  expect(await decodeOutput(raw, union)).toEqual([5n, 5]);
+});
+
+test("typed container decode keeps nested field offsets", async () => {
+  const value: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    size: 24,
+    align: 8,
+    format: "wrong",
+    fields: [
+      {
+        name: "tag",
+        offset: 0,
+        size: 1,
+        type: {
+          kind: AbiTypeKind.SCALAR,
+          scalar: AbiScalarKind.UINT8,
+          size: 1,
+          align: 1,
+          format: "wrong",
+        },
+      },
+      {
+        name: "amount",
+        offset: 16,
+        size: 8,
+        type: {
+          kind: AbiTypeKind.SCALAR,
+          scalar: AbiScalarKind.UINT64,
+          size: 8,
+          align: 8,
+          format: "wrong",
+        },
+      },
+    ],
+  };
+  const map: AbiType = {
+    kind: AbiTypeKind.HASH_MAP,
+    capacity: 1,
+    key: {
+      kind: AbiTypeKind.SCALAR,
+      scalar: AbiScalarKind.UINT8,
+      size: 1,
+      align: 1,
+      format: "wrong",
+    },
+    value,
+    size: 56,
+    align: 8,
+    format: "wrong",
+  };
+  const bytes = new Uint8Array(map.size);
+  const view = new DataView(bytes.buffer);
+  view.setUint8(0, 3);
+  view.setUint8(8, 7);
+  view.setBigUint64(24, 99n, true);
+  view.setBigUint64(32, 1n, true);
+  view.setBigUint64(40, 2n, true);
+  view.setBigUint64(48, 3n, true);
+
+  expect(await decodeOutput(bytes, map)).toEqual([
+    [[3, [7, 99n]]],
+    [1n],
+    2n,
+    3n,
   ]);
 });

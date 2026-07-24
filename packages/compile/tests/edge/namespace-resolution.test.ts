@@ -123,14 +123,24 @@ struct HelperCallee : public ContractBase {
       `using namespace QPI;`,
       `HelperCallee::derive(input.v, output.r);`,
     );
+    const callee = await compileContract({
+      source: calleeSource,
+      name: "HelperCallee",
+      slot: 27,
+      qpiHeader: HEADERS,
+    });
+    expect(callee.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(
+      0,
+    );
+    if (!callee.idl) {
+      throw new Error("successful callee compile returned no IDL");
+    }
     const r = await compileContract({
       source,
       name: "NsProbe",
       slot: 28,
       qpiHeader: HEADERS,
-      callees: [
-        { name: "HelperCallee", index: 27, functions: {}, procedures: {} },
-      ],
+      callees: [callee.idl],
       calleeSources: [{ name: "HelperCallee", source: calleeSource }],
     });
     expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

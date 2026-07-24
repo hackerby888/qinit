@@ -40,19 +40,36 @@ describe("edge audit — compile result IDL fidelity", () => {
     });
     expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
+    if (!result.idl) {
+      throw new Error("successful compile returned no IDL");
+    }
     idl = result.idl;
   });
 
   test("reports naturally aligned persistent state size", () => {
-    expect(idl.stateSize).toBe(16);
+    expect(idl.state.size).toBe(16);
   });
 
   test("reports procedure input/output layouts", () => {
-    expect(idl.procedures).toEqual([{ name: "Put", inputType: 7, inSize: 16, outSize: 8 }]);
+    expect(
+      idl.procedures.map(({ name, inputType, inSize, outSize }) => ({
+        name,
+        inputType,
+        inSize,
+        outSize,
+      })),
+    ).toEqual([{ name: "Put", inputType: 7, inSize: 16, outSize: 8 }]);
   });
 
   test("reports function input/output layouts", () => {
-    expect(idl.functions).toEqual([{ name: "Get", inputType: 9, inSize: 2, outSize: 8 }]);
+    expect(
+      idl.functions.map(({ name, inputType, inSize, outSize }) => ({
+        name,
+        inputType,
+        inSize,
+        outSize,
+      })),
+    ).toEqual([{ name: "Get", inputType: 9, inSize: 2, outSize: 8 }]);
   });
 
   test("reports lifecycle procedure mask", () => {

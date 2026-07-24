@@ -24,6 +24,8 @@ Live-core checks need a sibling checkout: `QINIT_CORE=/path/to/core-lite bun run
 
 Follow surrounding TypeScript: two-space indentation, double quotes, semicolons, trailing commas, and readable multiline expressions. Use `camelCase` for functions and variables, `PascalCase` for types and components, `UPPER_SNAKE_CASE` for constants, and kebab-case filenames. No general formatter is configured, so keep diffs narrow and run typechecking. Preserve public APIs and behavior unless the change explicitly requires otherwise; comments should be brief and useful.
 
+Read CODING_RULES.md for more details.
+
 ## Testing Guidelines
 
 Tests use `bun:test` and descriptive `*.test.ts` names grouped by package and domain. Add a regression test beside the affected package and run both the focused file and relevant broader suite. There is no numeric coverage threshold. Run core binaries from a temporary directory because they create runtime data relative to their working directory.

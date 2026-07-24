@@ -2,12 +2,8 @@
 // A log ends at its `sint8 _terminator`; the node records every preceding byte.
 import { decodeOutput, structFieldOffsets } from "./abi-fmt";
 import { LOG_SEVERITY as SEVERITY } from "./protocol";
+import type { AbiStruct, ContractLog } from "./contract-idl";
 
-export interface LogCatalogEntry {
-  name: string;
-  fmt: string;
-  fields: string[];
-} // fmt = comma-joined types; fields = names
 export interface DecodedLog {
   severity: string;
   type: number;
@@ -19,7 +15,7 @@ export interface DecodedLog {
 }
 
 // offsetof(_terminator): end of the last field — internal padding included, tail padding excluded.
-export function loggedSizeOf(fmt: string): number {
+export function loggedSizeOf(fmt: string | AbiStruct): number {
   const fo = structFieldOffsets(fmt);
   if (!fo.length) return 0;
   const last = fo[fo.length - 1];
@@ -39,7 +35,7 @@ export async function decodeLog(
   type: number,
   size: number,
   hex: string,
-  catalog: LogCatalogEntry[],
+  catalog: ContractLog[],
   enums?: Record<string, string>,
 ): Promise<DecodedLog> {
   const severity = SEVERITY[type] ?? `type${type}`;
@@ -49,20 +45,20 @@ export async function decodeLog(
     size,
     hex: "0x" + (hex.startsWith("0x") ? hex.slice(2) : hex),
   };
-  const hit = catalog.filter((s) => {
-    try {
-      return loggedSizeOf(s.fmt) === size;
-    } catch {
-      return false;
-    }
-  });
+  const hit = catalog.filter((entry) => loggedSizeOf(entry.type) === size);
   if (hit.length === 1) {
     try {
-      const decoded = await decodeOutput(hexToBytes(hex), hit[0].fmt);
+      const loggedBytes = hexToBytes(hex);
+      if (loggedBytes.length < size) {
+        throw new Error("log bytes are truncated");
+      }
+      const structBytes = new Uint8Array(hit[0].type.size);
+      structBytes.set(loggedBytes.subarray(0, structBytes.length));
+      const decoded = await decodeOutput(structBytes, hit[0].type);
       const vals = Array.isArray(decoded) ? decoded : [decoded];
       const fields: Record<string, unknown> = {};
-      hit[0].fields.forEach((n, i) => {
-        fields[n] = vals[i];
+      hit[0].type.fields.forEach((field, index) => {
+        fields[field.name] = vals[index];
       });
       const tv = fields["_type"];
       const typeName =

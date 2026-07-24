@@ -4,7 +4,12 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { describe, test, expect, beforeAll } from "bun:test";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { compileContract, loadQpiHeader, type CompileResult } from "../../src/index";
+import {
+  compileContract,
+  loadQpiHeader,
+  type CompileResult,
+  type ContractIdl,
+} from "../../src/index";
 
 const CORE = CORE_PATH;
 const HEADERS = loadQpiHeader(CORE);
@@ -41,20 +46,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(ReadCounter, 1); REGISTER_USER_PROCEDURE(BumpCounter, 1); }
 };`;
 
-function calleeIdlFrom(name: string, index: number, r: CompileResult) {
-  const fns = Object.fromEntries(
-    r.idl.functions.map((f) => [
-      f.name,
-      { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize },
-    ]),
-  );
-  const procs = Object.fromEntries(
-    r.idl.procedures.map((p) => [
-      p.name,
-      { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize },
-    ]),
-  );
-  return { name, index, functions: fns, procedures: procs };
+function requireIdl(result: CompileResult): ContractIdl {
+  if (!result.idl) {
+    throw new Error("successful Counter compile returned no IDL");
+  }
+  return result.idl;
 }
 
 function u64(b: Uint8Array): bigint {
@@ -76,7 +72,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
     });
     expect(counter.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-    const callees = [calleeIdlFrom("Counter", 28, counter)];
+    const callees = [requireIdl(counter)];
     const caller = await compileContract({
       source: CALLER,
       name: "Caller",
@@ -86,6 +82,7 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
       callees,
     });
     expect(caller.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
+    expect(caller.idl?.dependencies).toEqual(["Counter"]);
 
     const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(28, counter.wasm);

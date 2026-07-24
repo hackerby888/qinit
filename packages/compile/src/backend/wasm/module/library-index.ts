@@ -7,6 +7,7 @@ import { type QpiContextLayout } from "../../../framework";
 import type { LhostAbiSpec } from "../../../lhost";
 import { registerCallSig } from "../../../wat-ir";
 import type { WasmAbiSource } from "@qinit/core/wasm-abi-source";
+import type { ContractIdl } from "@qinit/proto/contract-idl";
 // ---- entry point ----
 export interface LibrarySymbolIndex {
     templates: Map<string, ClassTemplate>;
@@ -43,6 +44,8 @@ export interface GeneratedContractMetadata {
     }>;
     sysprocMask: number;
     lhostAbi?: LhostAbiSpec;
+    idl?: ContractIdl;
+    dependencies?: string[];
 }
 export function registerLibraryMetadata(programAnalysis: ProgramAnalysis, libraryTypes: LibrarySymbolIndex): LhostAbiSpec {
     if (libraryTypes.wasmAbi)

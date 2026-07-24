@@ -3,7 +3,7 @@ import { CORE_PATH, QINIT_ROOT } from "../../../test-utils/paths";
 import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildCorpusRunner, genStdGtest, extractIdl, qpiPrelude } from "@qinit/build";
+import { buildCorpusRunner, genStdGtest, extractIdl } from "@qinit/build";
 import { runContractTesting } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, DiagnosticSeverity, loadQpiHeader } from "../src/index";
@@ -34,7 +34,6 @@ function structName(src: string): string {
 
 await initK12();
 const dir = mkdtempSync(join(tmpdir(), "gtest-sweep-"));
-const prelude = qpiPrelude(CORE);
 
 const rows: string[] = [];
 const pad = (s: string, n: number) => s.padEnd(n);
@@ -51,7 +50,7 @@ for (const [disp, base, file] of TARGETS) {
   // 1. auto-generate the smoke gtest from the IDL
   let testSrc = "";
   try {
-    const idl = extractIdl(src, name, { prelude });
+    const idl = extractIdl(src, name, { slot: 28, qpiHeader: HEADERS });
     testSrc = genStdGtest(idl, name, name);
   } catch (e: any) {
     console.log(pad(disp, 22) + pad("idl-fail", 9) + "-");

@@ -63,6 +63,18 @@ export function isContractDoc(doc: vscode.TextDocument): boolean {
   );
 }
 
+export function projectContractDocuments(
+  configFile: string,
+  documents: readonly vscode.TextDocument[],
+): vscode.TextDocument[] {
+  const project = dirname(configFile);
+  return documents.filter(
+    (document) =>
+      findProjectRoot(document.fileName) === project &&
+      isContractDoc(document),
+  );
+}
+
 export function isTestDoc(doc: vscode.TextDocument): boolean {
   return (
     doc.uri.scheme === "file" &&

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { deployContract } from "../packages/cli/src/deploy-ops";
 import { callFunction, invokeProcedure, decodeLog } from "../packages/proto/src/index";
 import { extractIdl } from "../packages/build/src/index";
+import { loadQpiHeader } from "../packages/compile/src/index";
 import { LiteRpc } from "../packages/core/src/index";
 
 const rpcBase = process.env.QINIT_RPC ?? "http://127.0.0.1:41841";
@@ -138,6 +139,10 @@ console.log("deployed Logger slot", loggerSlot);
 const loggerIdl = extractIdl(
   readFileSync(resolve("fixtures/Logger.h"), "utf8"),
   "Logger",
+  {
+    slot: loggerSlot,
+    qpiHeader: loadQpiHeader(core),
+  },
 );
 const enumNames: Record<string, string> = {};
 for (const entry of loggerIdl.enums ?? []) {
@@ -173,7 +178,7 @@ for (let i = 0; i < 10; i++) {
       log.type,
       log.size,
       log.hex,
-      loggerIdl.logStructs ?? [],
+      loggerIdl.logs,
       enumNames,
     );
     console.log(

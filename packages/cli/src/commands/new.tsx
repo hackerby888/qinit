@@ -6,6 +6,7 @@ import { Header, theme } from "../ui";
 import { loadSystem } from "../contracts";
 import { extractIdl, genStdGtest } from "@qinit/build";
 import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "../templates";
+import { loadConfiguredQpiHeader } from "../config";
 
 function parse(args: string[]): { name?: string; slot?: string; core?: string; template?: string } {
   const o: any = {};
@@ -85,7 +86,12 @@ export function New({ args }: { args: string[] }) {
         mkdirSync(join(dir, "tests"), { recursive: true });
         writeFileSync(
           join(dir, "tests", `${name}.test.cpp`),
-          genStdGtest(extractIdl(source, name), name),
+          genStdGtest(
+            extractIdl(source, name, {
+              qpiHeader: loadConfiguredQpiHeader(o.core),
+            }),
+            name,
+          ),
         );
         testRel = `tests/${name}.test.cpp`;
       } catch {}

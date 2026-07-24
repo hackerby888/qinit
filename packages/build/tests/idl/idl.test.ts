@@ -1,112 +1,145 @@
-import { test, expect } from "bun:test";
-import { extractIdl } from "../../src/idl";
+import { expect, test } from "bun:test";
+import {
+  AbiScalarKind,
+  AbiTypeKind,
+  QINIT_IDL_VERSION,
+  extractIdl,
+} from "../../src/idl";
 
-const SRC = `
+const SOURCE = `
 using namespace QPI;
-enum Status { Idle, Running = 5, Stopped };          // 0, 5, 6
-enum class Color : uint8 { Red, Green, Blue };       // 0, 1, 2
+enum Status { Idle, Running = 5, Stopped };
+enum class Color : uint8 { Red, Green, Blue };
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData {
     uint64 counter;
-    Array<uint32, 2 + 1> nums;                        // expr size -> 3
-    HashMap<id, uint64, 1024> bal;
+    Array<uint32, 2 + 1> nums;
+    HashMap<id, uint64, 1024> balances;
   };
-  struct LogMsg { uint32 _contractIndex; uint32 _type; uint64 amount; sint8 _terminator; };
-  struct Get_input {}; struct Get_output { uint64 n; };
-  struct Set_input { uint64 v; id who; }; struct Set_output {};
-  struct Grant_input { id to; }; struct Grant_output { uint64 total; };
+  struct LogMsg {
+    uint32 _contractIndex;
+    uint32 _type;
+    uint64 amount;
+    sint8 _terminator;
+  };
+  struct Get_input {};
+  struct Get_output { uint64 value; };
+  struct Set_input { uint64 value; id owner; };
+  struct Set_output {};
   PUBLIC_FUNCTION(Get) {}
   PUBLIC_PROCEDURE(Set) {}
-  PUBLIC_PROCEDURE(Grant) {}
-  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); REGISTER_USER_PROCEDURE(Set, 2); REGISTER_USER_PROCEDURE(Grant, 3); }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Get, 1);
+    REGISTER_USER_PROCEDURE(Set, 2);
+  }
   INITIALIZE() {}
 };`;
 
-const idl = extractIdl(SRC, "Test");
+const idl = extractIdl(SOURCE, "Test", { slot: 28 });
 
-test("extractIdl: functions keyed by inputType, in/out fmt + fields", () => {
+test("extractIdl returns the compiler-owned v2 contract schema", () => {
+  expect(idl.version).toBe(QINIT_IDL_VERSION);
   expect(idl.name).toBe("Test");
-  expect(idl.functions["1"].name).toBe("Get");
-  expect(idl.functions["1"].in).toBe(""); // empty Get_input
-  expect(idl.functions["1"].out).toBe("uint64");
-  expect(idl.functions["1"].outFields!.map((f) => [f.name, f.type])).toEqual([["n", "uint64"]]);
+  expect(idl.slot).toBe(28);
+  expect(idl.functions.map((entry) => [entry.inputType, entry.name])).toEqual([[1, "Get"]]);
+  expect(idl.procedures.map((entry) => [entry.inputType, entry.name])).toEqual([[2, "Set"]]);
+  expect(idl.dependencies).toEqual([]);
 });
 
-test("extractIdl: procedures with multi-field input -> in fmt + named inFields", () => {
-  expect(idl.procedures["2"].name).toBe("Set");
-  expect(idl.procedures["2"].in).toBe("uint64, id");
-  expect(idl.procedures["2"].inFields.map((f) => [f.name, f.type])).toEqual([
-    ["v", "uint64"],
-    ["who", "id"],
+test("entry structs retain exact formats, fields, offsets, and sizes", () => {
+  const get = idl.functions[0];
+  expect(get.input.format).toBe("");
+  expect(get.output.format).toBe("uint64");
+  expect(get.outSize).toBe(get.output.size);
+  if (get.output.kind !== AbiTypeKind.STRUCT) {
+    throw new Error("Get_output must be a struct");
+  }
+  expect(get.output.fields.map((field) => [field.name, field.offset, field.size])).toEqual([
+    ["value", 0, 8],
   ]);
-});
 
-test("extractIdl: procedure output type captured (_output), empty stays falsy", () => {
-  expect(idl.procedures["3"].name).toBe("Grant");
-  expect(idl.procedures["3"].out).toBe("uint64"); // decoded in the IDE trace/debugger, not raw hex
-  expect(idl.procedures["3"].outFields!.map((f) => [f.name, f.type])).toEqual([
-    ["total", "uint64"],
+  const set = idl.procedures[0];
+  expect(set.input.format).toBe("uint64, id");
+  if (set.input.kind !== AbiTypeKind.STRUCT) {
+    throw new Error("Set_input must be a struct");
+  }
+  expect(set.input.fields.map((field) => [field.name, field.offset, field.type.format])).toEqual([
+    ["value", 0, "uint64"],
+    ["owner", 8, "id"],
   ]);
-  expect(idl.procedures["2"].out).toBe(""); // empty Set_output -> falsy -> no spurious decode
+  expect(set.output.size).toBe(0);
 });
 
-test("extractIdl: StateData fields + Array<T,expr> size eval", () => {
-  const names = idl.state!.map((f) => f.name);
-  expect(names).toEqual(["counter", "nums", "bal"]);
-  expect(idl.state!.find((f) => f.name === "nums")!.type).toBe("[3;uint32]"); // 2+1 evaluated
+test("state uses typed array and container nodes", () => {
+  expect(idl.state.fields.map((field) => field.name)).toEqual([
+    "counter",
+    "nums",
+    "balances",
+  ]);
+
+  const numbers = idl.state.fields[1].type;
+  expect(numbers.kind).toBe(AbiTypeKind.ARRAY);
+  if (numbers.kind === AbiTypeKind.ARRAY) {
+    expect(numbers.count).toBe(3);
+    expect(numbers.element.format).toBe(AbiScalarKind.UINT32);
+  }
+
+  const balances = idl.state.fields[2].type;
+  expect(balances.kind).toBe(AbiTypeKind.HASH_MAP);
+  if (balances.kind === AbiTypeKind.HASH_MAP) {
+    expect(balances.capacity).toBe(1024);
+    expect(balances.key.format).toBe("id");
+    expect(balances.value.format).toBe("uint64");
+    expect(balances.size).toBe(41232);
+  }
 });
 
-test("extractIdl: HashMap expands to the exact C++ struct layout + container meta", () => {
-  const bal = idl.state!.find((f) => f.name === "bal")!;
-  // [L; {key,val}] then [ceil(2L/64); uint64] flags then _population, _markRemovalCounter
-  expect(bal.type).toBe("{ [1024;{ id, uint64 }], [32;uint64], uint64, uint64 }");
-  expect(bal.container).toEqual({
-    kind: "hashmap",
-    keyFmt: "id",
-    valFmt: "uint64",
-    capacity: 1024,
+test("enums, logs, and system procedure mask come from semantic analysis", () => {
+  expect(idl.enums.find((entry) => entry.name === "Status")?.members).toEqual({
+    "0": "Idle",
+    "5": "Running",
+    "6": "Stopped",
   });
-});
-
-test("extractIdl: enums (auto-increment, explicit value continues, enum class + base)", () => {
-  const status = idl.enums!.find((e) => e.name === "Status")!;
-  expect(status.members).toEqual({ "0": "Idle", "5": "Running", "6": "Stopped" });
-  const color = idl.enums!.find((e) => e.name === "Color")!;
-  expect(color.members).toEqual({ "0": "Red", "1": "Green", "2": "Blue" });
-});
-
-test("extractIdl: log catalog = flat _terminator structs only; container structs skipped", () => {
-  expect(idl.logStructs).toEqual([
-    {
-      name: "LogMsg",
-      fmt: "uint32, uint32, uint64",
-      fields: ["_contractIndex", "_type", "amount"],
-    },
+  expect(idl.enums.find((entry) => entry.name === "Color")?.underlying).toBe(
+    AbiScalarKind.UINT8,
+  );
+  expect(idl.logs).toHaveLength(1);
+  expect(idl.logs[0].type.format).toBe("uint32, uint32, uint64");
+  expect(idl.logs[0].type.fields.map((field) => field.name)).toEqual([
+    "_contractIndex",
+    "_type",
+    "amount",
   ]);
-  // CONTRACT_STATE_TYPE has a nested `struct` body -> excluded even though its text contains "_terminator"
-  expect(idl.logStructs!.some((s) => s.name === "CONTRACT_STATE_TYPE")).toBe(false);
+  expect(idl.sysprocMask).toBe(1);
 });
 
-test("extractIdl: empty / no-StateData / comment stripping / unknown type passthrough", () => {
-  const empty = extractIdl("", "X");
-  expect(empty).toEqual({ name: "X", functions: {}, procedures: {} }); // no state/logStructs/enums keys
-  const noState = extractIdl(
-    `struct CONTRACT_STATE_TYPE { struct Foo_input { uint64 a; }; PUBLIC_FUNCTION(Foo) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Foo, 1); } };`,
-    "N",
-  );
-  expect(noState.state).toBeUndefined();
-  const commented = extractIdl(
-    `struct StateData { uint64 a; /* skip */ MyType b; // trailing\n };`,
-    "C",
-  );
-  expect(commented.state!.map((f) => [f.name, f.type])).toEqual([
-    ["a", "uint64"],
-    ["b", "MyType"],
-  ]); // unknown type verbatim
+test("empty source still returns a complete v2 schema", () => {
+  const empty = extractIdl("", "Empty");
+  expect(empty).toMatchObject({
+    version: QINIT_IDL_VERSION,
+    name: "Empty",
+    slot: 0,
+    functions: [],
+    procedures: [],
+    enums: [],
+    logs: [],
+    dependencies: [],
+  });
+  expect(empty.state.fields).toEqual([]);
 });
 
-test("extractIdl: _terminator at index 0 (nothing before it) is not a log struct", () => {
-  const idl2 = extractIdl(`struct OnlyTerm { sint8 _terminator; };`, "Z");
-  expect(idl2.logStructs).toBeUndefined();
+test("semantic failures surface through the adapter", () => {
+  expect(() =>
+    extractIdl(
+      `struct CONTRACT_STATE_TYPE : ContractBase {
+        struct Missing_input {};
+        struct Missing_output {};
+        REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+          REGISTER_USER_FUNCTION(Missing, 1);
+        }
+      };`,
+      "Broken",
+    ),
+  ).toThrow(/no implementation body/);
 });

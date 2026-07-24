@@ -1,5 +1,5 @@
 import { AstKind } from "../enums";
-import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, CalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
+import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, ResolvedCalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
 import type { Sema } from "../sema";
 import type { PlatformCapability } from "../shared/platform-capabilities";
@@ -55,7 +55,7 @@ export class ProgramAnalysis {
     namespaceContexts: Map<object, NamespaceLookupContext> = new Map(); // declaration -> namespace lookup state at its definition
     privates: Map<string, PrivateFunctionMetadata> = new Map(); // PRIVATE_FUNCTION/PROCEDURE called via CALL()
     registered: Map<string, PrivateFunctionMetadata> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
-    callees: Map<string, CalleeIdl> = new Map(); // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
+    callees: Map<string, ResolvedCalleeIdl> = new Map(); // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
     private layoutCache: Map<string, StructLayout> = new Map();
     contractStateLayout: StructLayout = { size: 0, align: 1, fields: new Map() }; // the contract's StateData (a ContractState& param in any function resolves through it)
     slot = 0; // contract slot; oracle notification ids embed it ((slot << 22) | defLine)
@@ -130,7 +130,7 @@ export class ProgramAnalysis {
         return analysisPart2.sizeOfTypeInner(this as unknown as ProgramAnalysisInternals, type, templateBindings);
     }
     // Resolve a dependent member type such as `Selector<args>::member`.
-    private resolveDependentMember(type: Extract<TypeSpec, {
+    resolveDependentMember(type: Extract<TypeSpec, {
         kind: AstKind.DEPENDENT_MEMBER;
     }>, templateBindings: TemplateBindings): {
         type: TypeSpec;

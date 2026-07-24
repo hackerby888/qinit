@@ -1,7 +1,13 @@
 // Derive inter-contract metadata from upstream CALL/INVOKE macros and core contract definitions.
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import {
+  analyzeContract,
+  DiagnosticSeverity,
+  type AnalyzeContractOptions,
+} from "@qinit/compile/analyzer";
+import { loadQpiHeader } from "@qinit/compile";
 
 export interface CalleeDef {
   type: string;
@@ -27,22 +33,31 @@ export function parseContractDef(corePath: string): Map<string, CalleeDef> {
   return out;
 }
 
-// Callee Type names referenced by CALL_OTHER_CONTRACT_FUNCTION / INVOKE_OTHER_CONTRACT_PROCEDURE.
-export function scanCallees(src: string): Set<string> {
-  const s = new Set<string>();
-  for (const m of src.matchAll(/(?:CALL_OTHER_CONTRACT_FUNCTION|INVOKE_OTHER_CONTRACT_PROCEDURE)(?:_E)?\s*\(\s*(\w+)\s*,/g)) {
-    s.add(m[1]);
-  }
-  return s;
+type SourceOptions = Pick<AnalyzeContractOptions, "name" | "slot" | "qpiHeader">;
+
+// Callee types referenced by active inter-contract calls.
+export function scanCallees(src: string, options: SourceOptions = {}): Set<string> {
+  const analysis = analyzeContract({ source: src, ...options });
+  return new Set(analysis.calls.map((call) => call.callee));
 }
 
 // REGISTER_USER_FUNCTION/PROCEDURE(fn, N) -> [{fn, n}].
-export function parseRegisters(src: string): { fn: string; n: number }[] {
-  const out: { fn: string; n: number }[] = [];
-  for (const m of src.matchAll(/REGISTER_USER_(?:FUNCTION|PROCEDURE)\s*\(\s*(\w+)\s*,\s*(\d+)\s*\)/g)) {
-    out.push({ fn: m[1], n: Number(m[2]) });
+export function parseRegisters(
+  src: string,
+  options: SourceOptions = {},
+): { fn: string; n: number }[] {
+  const analysis = analyzeContract({ source: src, ...options });
+  if (!analysis.idl) {
+    const message = analysis.diagnostics
+      .filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)
+      .map((diagnostic) => diagnostic.message)
+      .join("; ");
+    throw new Error(message || "compiler did not produce contract IDL");
   }
-  return out;
+  return [...analysis.idl.functions, ...analysis.idl.procedures].map((entry) => ({
+    fn: entry.name,
+    n: entry.inputType,
+  }));
 }
 
 // Dynamic (Qinit-deployed) callees: Type -> { absolute header path, deployed slot index }.
@@ -77,14 +92,33 @@ export function buildCalleePrelude(
   } catch {
     defMap = new Map(); // no contract_def.h (e.g. a non-core path) — only CALL-macro callees apply
   }
-  const wanted = scanCallees(contractSrc);
+  let wanted = scanCallees(contractSrc, { name: selfType });
   // Include siblings referenced only by type, static method, or constant names.
-  for (const type of defMap.keys()) {
+  for (const type of new Set([...defMap.keys(), ...Object.keys(dyn)])) {
     if (type !== selfType && new RegExp(`\\b${type}(?:::|_[A-Z])`).test(contractSrc)) {
       wanted.add(type);
     }
   }
   if (wanted.size === 0) return indexBlock;
+
+  let qpiHeader: string | undefined;
+  try {
+    qpiHeader = loadQpiHeader(corePath);
+  } catch (error) {
+    if (![...wanted].every((type) => dyn[type])) {
+      throw error;
+    }
+  }
+  const sourceOptions = {
+    name: selfType,
+    qpiHeader,
+  };
+  wanted = scanCallees(contractSrc, sourceOptions);
+  for (const type of new Set([...defMap.keys(), ...Object.keys(dyn)])) {
+    if (type !== selfType && new RegExp(`\\b${type}(?:::|_[A-Z])`).test(contractSrc)) {
+      wanted.add(type);
+    }
+  }
 
   interface ResolvedCallee {
     type: string;
@@ -115,7 +149,13 @@ export function buildCalleePrelude(
       throw new Error(`inter-contract: unknown callee '${type}' (not in contract_def.h, not a declared dynamic callee)`);
     }
     resolved.set(type, callee);
-    for (const calleeType of scanCallees(callee.src)) resolve(calleeType);
+    for (const calleeType of scanCallees(callee.src, {
+      name: type,
+      slot: callee.index,
+      qpiHeader,
+    })) {
+      resolve(calleeType);
+    }
   };
   for (const calleeType of wanted) resolve(calleeType);
 
@@ -133,7 +173,11 @@ export function buildCalleePrelude(
   }
   s += "// ---- generated <Type>_<fn>_inputType constants ----\n";
   for (const c of callees) {
-    for (const r of parseRegisters(c.src)) {
+    for (const r of parseRegisters(c.src, {
+      name: c.type,
+      slot: c.index,
+      qpiHeader,
+    })) {
       s += `static constexpr unsigned short ${c.type}_${r.fn}_inputType = ${r.n};\n`;
     }
   }

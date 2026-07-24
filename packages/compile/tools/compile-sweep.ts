@@ -6,8 +6,7 @@ import {
     compileContract,
     DiagnosticSeverity,
     loadQpiHeader,
-    type CalleeIdl,
-    type CompileResult,
+    type ContractIdl,
 } from "../src/index";
 import { systemContracts, type SystemContract } from "../../build/src/system-contracts";
 
@@ -45,18 +44,20 @@ function depsOf(src: string, selfFile: string): SystemContract[] {
   });
 }
 
-const depCache = new Map<string, { entry: CalleeIdl; source: string } | null>();
+const depCache = new Map<string, { entry: ContractIdl; source: string } | null>();
 
-async function calleeFor(c: SystemContract): Promise<{ entry: CalleeIdl; source: string } | null> {
+async function calleeFor(
+  c: SystemContract,
+): Promise<{ entry: ContractIdl; source: string } | null> {
   if (depCache.has(c.name)) return depCache.get(c.name)!;
   // Break possible catalog cycles while recursively giving a callee the IDLs it
   // itself needs (QThirtyFour -> QRP -> RL is the current real chain).
   depCache.set(c.name, null);
 
-  let result: { entry: CalleeIdl; source: string } | null = null;
+  let result: { entry: ContractIdl; source: string } | null = null;
   try {
     const source = readFileSync(`${SYS}/${c.file}`, "utf8");
-    const callees: CalleeIdl[] = [];
+    const callees: ContractIdl[] = [];
     const calleeSources: Array<{ name: string; source: string }> = [];
     for (const dependency of depsOf(source, c.file)) {
       const nested = await calleeFor(dependency);
@@ -69,13 +70,15 @@ async function calleeFor(c: SystemContract): Promise<{ entry: CalleeIdl; source:
       callees: callees.length ? callees : undefined,
       calleeSources: calleeSources.length ? calleeSources : undefined,
     });
+    if (!r.idl) {
+      throw new Error(`successful ${c.name} compile returned no IDL`);
+    }
     result = {
       source,
       entry: {
+        ...r.idl,
         name: c.stateType,
-        index: c.index,
-        functions: Object.fromEntries(r.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }])),
-        procedures: Object.fromEntries(r.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }])),
+        slot: c.index,
       },
     };
   } catch {
@@ -96,7 +99,7 @@ for (const { name, compileName, path, slot: targetSlot } of targets) {
   try { src = readFileSync(path, "utf8"); } catch { console.log(pad(name, 24) + "no-file"); continue; }
   try {
     const deps = depsOf(src, basename(path));
-    const callees: CalleeIdl[] = [];
+    const callees: ContractIdl[] = [];
     const calleeSources: Array<{ name: string; source: string }> = [];
     for (const d of deps) {
       const cr = await calleeFor(d);
@@ -107,11 +110,13 @@ for (const { name, compileName, path, slot: targetSlot } of targets) {
     for (const fd of FIXTURE_DEPS[name] ?? []) {
       const fsrc = readFileSync(fd.path, "utf8");
       const fr = await compileContract({ source: fsrc, name: fd.name, slot: fd.slot, qpiHeader: HEADERS, arenaSz: 1024 * 1024, strict: false });
+      if (!fr.idl) {
+        throw new Error(`successful ${fd.name} compile returned no IDL`);
+      }
       callees.push({
+        ...fr.idl,
         name: fd.name,
-        index: fd.slot,
-        functions: Object.fromEntries(fr.idl.functions.map((f) => [f.name, { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize }])),
-        procedures: Object.fromEntries(fr.idl.procedures.map((p) => [p.name, { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize }])),
+        slot: fd.slot,
       });
       calleeSources.push({ name: fd.name, source: fsrc });
     }

@@ -18,6 +18,12 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
   const contractStructs = new Map<string, StructDecl>();
   const calleeTranslationUnits: Array<{ contractName: string; declarations: Declaration[] }> = [];
   const diagnostics: ParserDiagnostic[] = [];
+  const calleeSlots = new Map(
+    (options.callees ?? []).map((callee) => [
+      callee.name,
+      callee.slot,
+    ]),
+  );
 
   for (const callee of options.calleeSources ?? []) {
     const early = scanUnterminatedSource(callee.source).map((diagnostic) => ({
@@ -34,7 +40,10 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
       source,
       qpiHeader: "",
       contractName: callee.name,
-      contractIndex: 0,
+      contractIndex:
+        callee.slot ??
+        calleeSlots.get(callee.name) ??
+        0,
       seedMacros: qpi.macros,
     });
     const boundaryIndex = preprocessedSource.indexOf(USER_BOUNDARY);

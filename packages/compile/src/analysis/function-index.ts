@@ -4,12 +4,15 @@ import type { TypeSpec, FunctionDecl, FunctionTemplateDecl } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
 
 export function methodOwnerNames(context: ProgramAnalysisInternals, name: string, seen = new Set<string>()): string[] {
-    const bare = name.includes("::") && !context.globalStructs.has(name) ? name.slice(name.lastIndexOf("::") + 2) : name;
+    const bare = name.includes("::") ? name.slice(name.lastIndexOf("::") + 2) : name;
     if (seen.has(bare))
         return [];
     seen.add(bare);
     const out = [bare];
-    const struct = context.globalStructs.get(bare) ?? context.nested.get(bare);
+    const struct = context.globalStructs.get(name) ??
+        context.nested.get(name) ??
+        context.globalStructs.get(bare) ??
+        context.nested.get(bare);
     const directBases = struct?.bases ?? [];
     for (const baseType of directBases) {
         const resolvedBase = context.resolveType(baseType, EMPTY_TEMPLATE_BINDINGS);

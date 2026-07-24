@@ -1,13 +1,13 @@
 // Scaffold a STANDARD gtest (core-lite `contract_testing.h`) from a contract's IDL — the real Qubic SC-test
 // format (a `ContractTesting<Name>` fixture over the `ContractTesting` base, one TEST per procedure/function).
-import type { ContractIdl, IdlEntry } from "./idl";
+import type { ContractEntry, ContractIdl } from "./idl";
 
 const SAMPLE_SEED_ID = "id::randomValue()";
 
 export function genStdGtest(idl: ContractIdl, name: string, stateType: string = name): string {
   const contractType = stateType;
-  const procedures = Object.entries(idl.procedures);
-  const functions = Object.entries(idl.functions);
+  const procedures = idl.procedures;
+  const functions = idl.functions;
 
   const head = [
     `// Standard gtest for ${name} (core-lite contract_testing.h) — the real Qubic SC-test format.`,
@@ -19,10 +19,10 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
   ].join("\n");
 
   // Each registered entry gets a wrapper that initializes input, invokes the harness, and returns output.
-  const wrapper = (inputTypeId: string, entry: IdlEntry, kind: "proc" | "func"): string => {
+  const wrapper = (entry: ContractEntry, kind: "proc" | "func"): string => {
     const call = kind === "proc"
-      ? `        invokeUserProcedure(${contractType}_CONTRACT_INDEX, ${inputTypeId}, in, out, user, amount);`
-      : `        callFunction(${contractType}_CONTRACT_INDEX, ${inputTypeId}, in, out);`;
+      ? `        invokeUserProcedure(${contractType}_CONTRACT_INDEX, ${entry.inputType}, in, out, user, amount);`
+      : `        callFunction(${contractType}_CONTRACT_INDEX, ${entry.inputType}, in, out);`;
     const sig = kind === "proc"
       ? `    ${contractType}::${entry.name}_output ${lowercaseFirst(entry.name)}(const id& user, sint64 amount = 0)`
       : `    ${contractType}::${entry.name}_output ${lowercaseFirst(entry.name)}() const`;
@@ -52,8 +52,8 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
     ``,
     `    void fund(const id& account, uint64 amount) { increaseEnergy(account, amount); }`,
     `    uint64 balanceOf(const id& account) const { return static_cast<uint64>(getBalance(account)); }`,
-    ...procedures.flatMap(([inputType, entry]) => ["", wrapper(inputType, entry, "proc")]),
-    ...functions.flatMap(([inputType, entry]) => ["", wrapper(inputType, entry, "func")]),
+    ...procedures.flatMap((entry) => ["", wrapper(entry, "proc")]),
+    ...functions.flatMap((entry) => ["", wrapper(entry, "func")]),
     `};`,
   ].join("\n");
 
@@ -65,7 +65,7 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
     `}`,
   ].join("\n");
 
-  const procTest = (e: IdlEntry): string => [
+  const procTest = (e: ContractEntry): string => [
     `TEST(${name}, ${e.name})`,
     `{`,
     `    ContractTesting${name} t;`,
@@ -78,7 +78,7 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
     `}`,
   ].join("\n");
 
-  const funcTest = (e: IdlEntry): string => [
+  const funcTest = (e: ContractEntry): string => [
     `TEST(${name}, ${e.name})`,
     `{`,
     `    ContractTesting${name} t;`,
@@ -91,8 +91,8 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
 
   const tests = [
     initTest,
-    ...procedures.map(([, entry]) => procTest(entry)),
-    ...functions.map(([, entry]) => funcTest(entry)),
+    ...procedures.map(procTest),
+    ...functions.map(funcTest),
   ].join("\n\n");
 
   return `${head}\n\n${fixture}\n\n${tests}\n`;

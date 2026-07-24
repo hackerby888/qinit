@@ -1,20 +1,34 @@
 import type { Span } from "./ast";
+import type { ContractIdl } from "@qinit/proto/contract-idl";
 import type { Diagnostic as CompilerDiagnostic } from "./parser";
 import {
   AnalysisPhase,
   DiagnosticCategory,
   DiagnosticSeverity,
+  QpiContextKind,
   SourceAnalysisOrigin,
 } from "./enums";
 import { QPI_SNAPSHOT } from "./generated/qpi-snapshot";
 import {
   parseContractSource,
   preprocessContractSource,
+  remapAnalysisDiagnostics,
   validateContractSource,
 } from "./compiler/contract-frontend";
 import { scanUnterminatedSource } from "./compiler/diagnostics";
 import { getQpiMacros } from "./compiler/qpi-macros";
 import type { CompileOptions } from "./compiler/types";
+import { collectCalleeContext } from "./compiler/callees";
+import {
+  collectSourceContractCalls,
+  type SourceContractCall,
+} from "./compiler/semantic-calls";
+import { getQpiContext } from "./compiler/qpi-context";
+import { Sema } from "./sema";
+import { prepareContractModule } from "./backend/wasm/module/module-analysis";
+import type { ContractRegistration } from "./backend/wasm/module/registrations";
+import { publishProgramDiagnostics } from "./backend/wasm/module/module-output";
+import { buildContractIdl } from "./backend/wasm/module/contract-idl";
 import {
   analyzeQpiPolicy,
   detectQpiContractName,
@@ -26,14 +40,22 @@ export {
   AnalysisPhase,
   DiagnosticCategory,
   DiagnosticSeverity,
+  QpiContextKind,
   SourceAnalysisOrigin,
 };
+export type { SourceContractCall };
 
 export interface AnalyzeContractOptions {
   source: string;
   name?: string;
   slot?: number;
   qpiHeader?: string;
+  callees?: ContractIdl[];
+  calleeSources?: Array<{
+    name: string;
+    source: string;
+    slot?: number;
+  }>;
 }
 
 export interface SourceEdit {
@@ -61,21 +83,43 @@ export interface SourceAnalysisDiagnostic {
 
 export interface SourceAnalysisResult {
   diagnostics: SourceAnalysisDiagnostic[];
+  calls: SourceContractCall[];
+  idl?: ContractIdl;
 }
 
 export function analyzeContract(
   options: AnalyzeContractOptions,
 ): SourceAnalysisResult {
-  const diagnostics = analyzeCompiler(options);
+  const qpiHeader = options.qpiHeader ?? QPI_SNAPSHOT;
+  const name =
+    options.name ??
+    detectQpiContractName(options.source) ??
+    "Contract";
+  const calls = collectSourceContractCalls(
+    options.source,
+    name,
+    options.slot ?? 0,
+    getQpiMacros(qpiHeader),
+  );
+  const compilerResult = analyzeCompiler(options, calls);
+  const diagnostics = compilerResult.diagnostics;
 
   try {
-    diagnostics.push(...analyzeQpiPolicy(options.source));
+    diagnostics.push(
+      ...analyzeQpiPolicy(
+        options.source,
+        compilerResult.registrations,
+        compilerResult.idl,
+      ),
+    );
   } catch (error: any) {
     diagnostics.push(internalDiagnostic(error));
   }
 
   const seen = new Set<string>();
   return {
+    calls,
+    idl: compilerResult.idl,
     diagnostics: diagnostics
       .filter((item) => {
         const key = [
@@ -101,12 +145,19 @@ export function detectContractName(source: string): string | undefined {
 
 function analyzeCompiler(
   options: AnalyzeContractOptions,
-): SourceAnalysisDiagnostic[] {
+  calls: SourceContractCall[],
+): {
+  diagnostics: SourceAnalysisDiagnostic[];
+  idl?: ContractIdl;
+  registrations?: ContractRegistration[];
+} {
   const earlyDiagnostics = scanUnterminatedSource(options.source);
   if (hasErrors(earlyDiagnostics)) {
-    return earlyDiagnostics.map((item) =>
-      compilerDiagnostic(item, AnalysisPhase.SYNTAX),
-    );
+    return {
+      diagnostics: earlyDiagnostics.map((item) =>
+        compilerDiagnostic(item, AnalysisPhase.SYNTAX),
+      ),
+    };
   }
 
   try {
@@ -119,7 +170,10 @@ function analyzeCompiler(
         "Contract",
       slot: options.slot ?? 0,
       qpiHeader,
+      callees: options.callees,
+      calleeSources: options.calleeSources,
     };
+    const qpiContext = getQpiContext(qpiHeader);
     const preprocessed = preprocessContractSource(
       compileOptions,
       getQpiMacros(qpiHeader),
@@ -134,7 +188,7 @@ function analyzeCompiler(
     );
 
     if (hasErrors(parserDiagnostics)) {
-      return diagnostics;
+      return { diagnostics };
     }
 
     const validationDiagnostics: CompilerDiagnostic[] = [];
@@ -148,9 +202,69 @@ function analyzeCompiler(
         compilerDiagnostic(item, AnalysisPhase.SEMANTIC),
       ),
     );
-    return diagnostics;
+
+    if (hasErrors(validationDiagnostics)) {
+      return { diagnostics };
+    }
+
+    const semanticAnalysis = new Sema();
+    const calleeContext = collectCalleeContext(
+      compileOptions,
+      qpiContext,
+    );
+    diagnostics.push(
+      ...calleeContext.diagnostics.map((item) =>
+        compilerDiagnostic(item, AnalysisPhase.SYNTAX),
+      ),
+    );
+
+    if (hasErrors(calleeContext.diagnostics)) {
+      return { diagnostics };
+    }
+
+    const prepared = prepareContractModule({
+      translationUnit,
+      semanticAnalysis,
+      contractSlot: compileOptions.slot,
+      libraryIndex: qpiContext.lib,
+      callees: compileOptions.callees,
+      calleeStructs: calleeContext.contractStructs,
+      calleeTranslationUnits: calleeContext.calleeTranslationUnits,
+      gtestMode: false,
+    });
+    const idl = buildContractIdl(prepared, {
+      name: compileOptions.name,
+      slot: compileOptions.slot,
+      dependencies: calls.map((call) => call.callee),
+    });
+    publishProgramDiagnostics(prepared.programAnalysis, semanticAnalysis);
+    diagnostics.push(
+      ...remapAnalysisDiagnostics(
+        semanticAnalysis.getDiagnostics(),
+        preprocessed,
+      ).map((item) =>
+        compilerDiagnostic(item, AnalysisPhase.SEMANTIC),
+      ),
+    );
+
+    if (diagnostics.some(
+      (item) => item.severity === DiagnosticSeverity.ERROR,
+    )) {
+      return {
+        diagnostics,
+        registrations: prepared.registrations,
+      };
+    }
+
+    return {
+      diagnostics,
+      idl,
+      registrations: prepared.registrations,
+    };
   } catch (error: any) {
-    return [internalDiagnostic(error)];
+    return {
+      diagnostics: [internalDiagnostic(error)],
+    };
   }
 }
 

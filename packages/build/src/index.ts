@@ -16,9 +16,9 @@ import { buildCalleePrelude } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
 import { systemContracts } from "./system-contracts";
 import { k12Hex } from "@qinit/core";
-import { qpiPrelude } from "./prelude";
+import { analyzeContract } from "@qinit/compile/analyzer";
+import { loadQpiHeader } from "@qinit/compile";
 
-export { qpiPrelude } from "./prelude";
 export type { BuildOpts } from "./recipe";
 export { genWrapperWasm } from "./recipe";
 export { buildCalleePrelude, parseRegisters, scanCallees, parseContractDef } from "./intercontract";
@@ -48,12 +48,30 @@ export interface BuildResult {
 }
 
 export async function buildContract(o: BuildOpts): Promise<BuildResult> {
+  const source = readFileSync(o.contractPath, "utf8");
+  let qpiHeader: string | undefined;
+  let qpiHeaderError: string | undefined;
+  try {
+    qpiHeader = o.corePath ? loadQpiHeader(o.corePath) : undefined;
+  } catch (error: any) {
+    qpiHeader = undefined;
+    qpiHeaderError = String(error?.message ?? error);
+  }
+
   // Protocol-rule gate first (cheap, fails before clang): reject contracts that break the
   // qpi.h restrictions. Skipped (not failed) when the verify tool isn't synced on this box.
-  const calleeNames = [...new Set([
-    ...Object.keys(o.dynCallees ?? {}),
-    ...[...readFileSync(o.contractPath, "utf8").matchAll(/(?:CALL|INVOKE)_OTHER_CONTRACT_\w+\s*\(\s*(\w+)/g)].map((m) => m[1]),
-  ])];
+  const calls = analyzeContract({
+    source,
+    name: o.stateType ?? o.name,
+    slot: o.slot,
+    qpiHeader,
+  }).calls;
+  const calleeNames = [
+    ...new Set([
+      ...Object.keys(o.dynCallees ?? {}),
+      ...calls.map((call) => call.callee),
+    ]),
+  ];
   const verify = o.skipVerify
     ? { available: false, ok: true, oracle: false, errors: [] as string[] }
     : await verifyContract(o.contractPath, o.name, { allowedPrefixes: calleeNames });
@@ -72,7 +90,7 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
     try {
       calleePrelude = buildCalleePrelude(
         o.corePath,
-        readFileSync(o.contractPath, "utf8"),
+        source,
         o.dynCallees ?? {},
         o.stateType ?? o.name,
       );
@@ -94,8 +112,13 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   let idl: ContractIdl | undefined;
   let idlError: string | undefined;
   try {
-    idl = extractIdl(readFileSync(o.contractPath, "utf8"), o.name, {
-      prelude: o.corePath ? qpiPrelude(o.corePath) : undefined,
+    if (qpiHeaderError) {
+      throw new Error(qpiHeaderError);
+    }
+    idl = extractIdl(source, o.name, {
+      slot: o.slot,
+      qpiHeader,
+      stateType: o.stateType,
     });
   } catch (e: any) {
     idlError = String(e?.message ?? e);

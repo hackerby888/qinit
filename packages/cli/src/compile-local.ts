@@ -6,8 +6,12 @@ import {
   compileContract,
   DiagnosticSeverity,
   loadQpiHeader,
+  type ContractIdl,
 } from "@qinit/compile";
-import { extractIdl, type ContractIdl } from "@qinit/build";
+import {
+  analyzeContract,
+  type SourceAnalysisResult,
+} from "@qinit/compile/analyzer";
 
 export interface LocalBuildResult {
   ok: boolean;
@@ -21,6 +25,44 @@ export interface LocalBuildResult {
   idlError?: string;
   debugWasm?: string;
   linesJson?: string;
+}
+
+interface DynamicCalleeSource {
+  name: string;
+  slot: number;
+  source: string;
+}
+
+function analyzeCallee(
+  callee: DynamicCalleeSource,
+  allCallees: DynamicCalleeSource[],
+  qpiHeader: string,
+): SourceAnalysisResult {
+  return analyzeContract({
+    source: callee.source,
+    name: callee.name,
+    slot: callee.slot,
+    qpiHeader,
+    calleeSources: allCallees
+      .filter((item) => item.name !== callee.name)
+      .map(({ name, slot, source }) => ({ name, slot, source })),
+  });
+}
+
+function requireCalleeIdl(
+  name: string,
+  result: SourceAnalysisResult,
+): ContractIdl | string {
+  const errors = result.diagnostics.filter(
+    (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
+  );
+  if (errors.length > 0) {
+    return `callee ${name}: ${errors.map((diagnostic) => diagnostic.message).join("; ")}`;
+  }
+  if (!result.idl) {
+    return `callee ${name}: compiler did not produce IDL`;
+  }
+  return result.idl;
 }
 
 export async function compileLocal(o: {
@@ -40,38 +82,29 @@ export async function compileLocal(o: {
   }
   const source = readFileSync(o.contractPath, "utf8");
 
-  // Inter-contract callees: compile each dep first for its type info (inputType/sizes) so the caller's
-  // CALL/INVOKE_OTHER_CONTRACT sites wire to the right host-call signature (mirrors corpus-run's oursWasms).
-  const callees: any[] = [];
-  const calleeSources: Array<{ name: string; source: string }> = [];
-  for (const [cname, { header, index }] of Object.entries(o.dynCallees ?? {})) {
-    const dsrc = readFileSync(header, "utf8");
-    const dr = await compileContract({ source: dsrc, name: cname, slot: index, qpiHeader });
-    const derr = dr.diagnostics.filter(
-      (d) => d.severity === DiagnosticSeverity.ERROR,
-    );
-    if (derr.length) {
-      return { ok: false, stderr: `callee ${cname}: ` + derr.map((d) => d.message).join("; ") };
+  const dynamicCallees = Object.entries(o.dynCallees ?? {}).map(
+    ([name, { header, index }]) => ({
+      name,
+      slot: index,
+      source: readFileSync(header, "utf8"),
+    }),
+  );
+
+  const callees: ContractIdl[] = [];
+  for (const callee of dynamicCallees) {
+    const analyzed = analyzeCallee(callee, dynamicCallees, qpiHeader);
+    const idl = requireCalleeIdl(callee.name, analyzed);
+    if (typeof idl === "string") {
+      return { ok: false, stderr: idl };
     }
-    callees.push({
-      name: cname,
-      index,
-      functions: Object.fromEntries(
-        dr.idl.functions.map((f) => [
-          f.name,
-          { inputType: f.inputType, inSize: f.inSize, outSize: f.outSize },
-        ]),
-      ),
-      procedures: Object.fromEntries(
-        dr.idl.procedures.map((p) => [
-          p.name,
-          { inputType: p.inputType, inSize: p.inSize, outSize: p.outSize },
-        ]),
-      ),
-    });
-    calleeSources.push({ name: cname, source: dsrc });
+    callees.push(idl);
   }
 
+  const calleeSources = dynamicCallees.map(({ name, slot, source }) => ({
+    name,
+    slot,
+    source,
+  }));
   const r = await compileContract({
     source,
     name: o.name,
@@ -86,6 +119,9 @@ export async function compileLocal(o: {
   if (errs.length) {
     return { ok: false, stderr: errs.map((d) => `error: ${d.message}`).join("\n") };
   }
+  if (!r.idl) {
+    return { ok: false, stderr: "compiler did not produce IDL" };
+  }
 
   // Surface non-fatal warnings instead of dropping them; the build still succeeds.
   const warns = r.diagnostics.filter(
@@ -99,7 +135,7 @@ export async function compileLocal(o: {
     ok: true,
     so,
     size: statSync(so).size,
-    idl: extractIdl(source, o.name),
+    idl: r.idl,
     stderr: warns.length ? warns.map((d) => `warning: ${d.message}`).join("\n") : undefined,
   };
 }

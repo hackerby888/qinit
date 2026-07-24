@@ -2,16 +2,8 @@
 // Shared by call / ls / state so a name or index resolves the same everywhere.
 import { LiteRpc, debug, type DynContract } from "@qinit/core";
 import { systemContracts, type SystemContract } from "@qinit/build";
-import { layoutOf } from "@qinit/proto";
+import type { ContractEntry } from "@qinit/proto/contract-idl";
 import { resolveCore } from "./config";
-
-const fmtSize = (fmt?: string): number => {
-  try {
-    return fmt ? layoutOf(fmt).size : 0;
-  } catch {
-    return 0;
-  }
-};
 
 export type ContractSets = { user: DynContract[]; system: SystemContract[] };
 
@@ -42,14 +34,13 @@ export async function loadContracts(rpc: LiteRpc): Promise<ContractSets> {
   return { user, system: loadSystem() };
 }
 
-// Present a system contract as a DynContract so the existing picker/entry code (which reads c.functions /
-// c.procedures + extractIdl(c.source)) works unchanged. Sizes are cosmetic for system entries (0).
+// Present a system contract as a DynContract so registry and system entries share one picker path.
 export function systemAsDyn(c: SystemContract): DynContract {
-  const entries = (tbl: Record<string, { in?: string; out?: string }>) =>
-    Object.entries(tbl).map(([it, e]) => ({
-      inputType: Number(it),
-      inputSize: fmtSize(e.in),
-      outputSize: fmtSize(e.out),
+  const entries = (items: ContractEntry[]) =>
+    items.map((entry) => ({
+      inputType: entry.inputType,
+      inputSize: entry.inSize,
+      outputSize: entry.outSize,
     }));
   return {
     index: c.index,
@@ -58,19 +49,33 @@ export function systemAsDyn(c: SystemContract): DynContract {
     constructed: true,
     version: 0,
     codeHash: "",
-    functions: entries(c.idl.functions as any),
-    procedures: entries(c.idl.procedures as any),
+    functions: entries(c.idl.functions),
+    procedures: entries(c.idl.procedures),
     source: c.source,
   };
 }
 
-export type Resolved = { index: number; name: string; kind: "user" | "system"; source?: string };
+export type Resolved = {
+  index: number;
+  name: string;
+  kind: "user" | "system";
+  source?: string;
+  codeHash?: string;
+};
 // Resolve a name-or-index across user (first) then system.
 export function resolveContract(target: string, sets: ContractSets): Resolved | null {
   const low = target.trim().toLowerCase();
   const asNum = Number(target);
   const u = sets.user.find((c) => c.index === asNum || (c.name || "").toLowerCase() === low);
-  if (u) return { index: u.index, name: u.name || String(u.index), kind: "user", source: u.source };
+  if (u) {
+    return {
+      index: u.index,
+      name: u.name || String(u.index),
+      kind: "user",
+      source: u.source,
+      ...(u.codeHash ? { codeHash: u.codeHash } : {}),
+    };
+  }
   const s = sets.system.find((c) => c.index === asNum || c.name.toLowerCase() === low);
   if (s) return { index: s.index, name: s.name, kind: "system", source: s.source };
   return null;

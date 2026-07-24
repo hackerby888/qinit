@@ -18,7 +18,7 @@ const sys = (over: any = {}) => ({
   name: "QX",
   file: "QX.h",
   source: "SYS_SRC",
-  idl: { name: "QX", functions: {}, procedures: {} } as any,
+  idl: { name: "QX", functions: [], procedures: [] } as any,
   ...over,
 });
 const sets = (over: Partial<ContractSets> = {}): ContractSets => ({
@@ -85,8 +85,8 @@ test("systemAsDyn: presents a system contract as an armed, constructed DynContra
   const c = sys({
     idl: {
       name: "QX",
-      functions: { "1": { name: "Get", in: "", out: "uint64" } },
-      procedures: { "2": { name: "Set", in: "uint64", out: "" } },
+      functions: [{ name: "Get", inputType: 1, inSize: 0, outSize: 8 }],
+      procedures: [{ name: "Set", inputType: 2, inSize: 8, outSize: 0 }],
     },
   });
   const d = systemAsDyn(c as any);

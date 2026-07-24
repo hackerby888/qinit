@@ -116,7 +116,7 @@ export function Ls({ args }: { args: string[] }) {
             rows={system.map((c) => [
               String(c.index),
               c.name,
-              `${Object.keys(c.idl.functions).length}/${Object.keys(c.idl.procedures).length}`,
+              `${c.idl.functions.length}/${c.idl.procedures.length}`,
               c.file,
             ])}
           />

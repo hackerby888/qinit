@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import * as vscode from "vscode";
 import { loadConfig } from "@qinit/core/project";
 import { QpiCodeActions } from "./codeactions";
@@ -13,6 +13,7 @@ import {
   findProjectRoot,
   isContractDoc,
   isTestDoc,
+  projectContractDocuments,
   QINIT_JSON,
   selectTestContract,
 } from "./project-util";
@@ -188,15 +189,28 @@ export function activate(context: vscode.ExtensionContext): void {
     regenerateDocument(doc, context, core, out);
     diagnostics.refresh(doc);
   };
+  const onSave = (doc: vscode.TextDocument) => {
+    if (doc.uri.scheme === "file" && basename(doc.fileName) === QINIT_JSON) {
+      for (const contract of projectContractDocuments(
+        doc.fileName,
+        vscode.workspace.textDocuments,
+      )) {
+        diagnostics.clear(contract.uri);
+        onDocument(contract);
+      }
+      return;
+    }
+    onDocument(doc);
+  };
 
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(onDocument),
-    vscode.workspace.onDidSaveTextDocument(onDocument),
+    vscode.workspace.onDidSaveTextDocument(onSave),
     vscode.workspace.onDidChangeTextDocument((event) => diagnostics.schedule(event.document)),
     vscode.workspace.onDidCloseTextDocument((doc) => diagnostics.clear(doc.uri)),
     vscode.languages.registerHoverProvider(
       { scheme: "file", pattern: "**/*.{h,hpp,hxx,cpp,cc,cxx}" },
-      new IdlHover(),
+      new IdlHover(diagnostics),
     ),
     vscode.languages.registerCodeActionsProvider(
       { scheme: "file", pattern: "**/*.{h,hpp,hxx,cpp,cc,cxx}" },

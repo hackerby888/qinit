@@ -12,6 +12,7 @@ import {
 } from "@qinit/core";
 import { resolveNodeCallees } from "../deploy-ops";
 import { compileLocal } from "../compile-local";
+import { loadQpiHeader } from "@qinit/compile";
 import { loadConfig, resolveCore, resolveCompiler } from "../config";
 import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
 import { output } from "../args";
@@ -37,6 +38,8 @@ export function buildJsonResult(r: BuildResult, compiler: string) {
     artifact: r.so ?? null,
     size: r.size ?? null,
     hash: r.hash ?? null,
+    idl: r.idl ?? null,
+    idlError: r.idlError ?? null,
     stderr: r.stderr ?? "",
   };
 }
@@ -96,6 +99,11 @@ export function Build({ args }: { args: string[] }) {
           readFileSync(contractPath, "utf8"),
           dynCallees,
           (n) => notes.push(n),
+          {
+            name,
+            slot,
+            qpiHeader: loadQpiHeader(core),
+          },
           2500,
         );
         const vu = await autoUpdateVerifyTool();
@@ -168,6 +176,11 @@ export function Build({ args }: { args: string[] }) {
           ]}
         />
       </Panel>
+      {r.idlError ? (
+        <Box marginTop={1}>
+          <Text color={theme.warn}>IDL unavailable: {r.idlError}</Text>
+        </Box>
+      ) : null}
       {compiler === "local" ? null : (
         <Box marginTop={1}>
           <Status

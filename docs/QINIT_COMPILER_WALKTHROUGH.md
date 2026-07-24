@@ -102,16 +102,40 @@ the resulting contract metadata is:
 
 ```ts
 {
+  version: 2,
   name: "IdlEdge",
   slot: 27,
-  stateSize: 16,
+  state: {
+    kind: "struct",
+    size: 16,
+    align: 8,
+    format: "uint64, uint64",
+    fields: [/* typed fields */]
+  },
   procedures: [
-    { name: "Put", inputType: 7, inSize: 16, outSize: 8 }
+    {
+      name: "Put",
+      inputType: 7,
+      inSize: 16,
+      outSize: 8,
+      input: { kind: "struct", size: 16, align: 8, format: "uint32, uint64", fields: [/* typed fields */] },
+      output: { kind: "struct", size: 8, align: 4, format: "uint8, uint32", fields: [/* typed fields */] }
+    }
   ],
   functions: [
-    { name: "Get", inputType: 9, inSize: 2, outSize: 8 }
+    {
+      name: "Get",
+      inputType: 9,
+      inSize: 2,
+      outSize: 8,
+      input: { kind: "struct", size: 2, align: 2, format: "uint16", fields: [/* typed fields */] },
+      output: { kind: "struct", size: 8, align: 8, format: "uint64", fields: [/* typed fields */] }
+    }
   ],
-  sysprocMask: 5
+  sysprocMask: 5,
+  enums: [],
+  logs: [],
+  dependencies: []
 }
 ```
 
@@ -136,7 +160,7 @@ The returned value is:
 interface CompileResult {
   wasm: Uint8Array;
   diagnostics: ParserDiagnostic[];
-  idl: ContractIdl;
+  idl?: ContractIdl;
   timings?: Record<string, number>;
 }
 ```
@@ -665,9 +689,9 @@ QX::GetFee_input
 QX::GetFee_output
 ```
 
-The corresponding `CalleeIdl` supplies:
+The callee's compiler-produced `ContractIdl` supplies:
 
-- Contract index.
+- Contract slot.
 - Function/procedure kind.
 - Numeric input type.
 - Input size.

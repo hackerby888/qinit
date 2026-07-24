@@ -5,7 +5,10 @@ import { initK12 } from "@qinit/core";
 import { LHOST_ABI } from "@qinit/core";
 import { Sim } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
+import { ProgramAnalysis } from "../../src/analysis/program-analysis";
+import { registerLibraryMetadata } from "../../src/backend/wasm/module/library-index";
 import { getQpiContext } from "../../src/compiler/qpi-context";
+import { Sema } from "../../src/sema";
 
 const CORE = CORE_PATH;
 const HEADER = loadQpiHeader(CORE);
@@ -34,6 +37,19 @@ describe("typed QPI bindings", () => {
     expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("setShareholderVotes")).toBe(
       true,
     );
+  });
+
+  test("qualified QPI context types retain inherited method lookup", () => {
+    const programAnalysis = new ProgramAnalysis(new Sema());
+    registerLibraryMetadata(programAnalysis, getQpiContext(HEADER).lib);
+
+    expect(programAnalysis.globalStructs.has("QPI::QpiContextFunctionCall")).toBe(true);
+    expect(
+      programAnalysis.hasInstanceMethod(
+        "QPI::QpiContextFunctionCall",
+        "invocationReward",
+      ),
+    ).toBe(true);
   });
 
   test("const-reference scalar temporaries use a real sized buffer", async () => {

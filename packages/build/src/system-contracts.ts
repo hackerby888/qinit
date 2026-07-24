@@ -1,8 +1,8 @@
 // Catalog built-in contracts from the fetched core snapshot's contract_def.h.
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { loadQpiHeader } from "@qinit/compile";
 import { extractIdl, type ContractIdl } from "./idl";
-import { qpiPrelude } from "./prelude";
 
 export interface SystemContract {
   index: number;
@@ -90,32 +90,39 @@ export function systemContracts(coreRoot: string): SystemContract[] {
   const dir = join(coreRoot, "src", "contracts");
   const out: SystemContract[] = [];
   if (existsSync(def)) {
+    const qpiHeader = loadQpiHeader(coreRoot);
     const defSrc = readFileSync(def, "utf8");
     const files = indexToFile(defSrc);
     const names = indexToName(defSrc);
     const epochs = indexToConstructionEpoch(defSrc);
     const stateTypes = indexToStateType(defSrc);
     for (const [index, name] of [...names].sort((a, b) => a[0] - b[0])) {
+      if (/^LDYN/.test(name)) continue;
       const file = files.get(index);
-      if (!file) continue;
+      if (!file) {
+        throw new Error(`system contract ${name} (${index}) has no source mapping`);
+      }
       if (/^TestExample/.test(file)) continue; // test/example fixtures (TESTEXA-D), not deployable system contracts
       const path = join(dir, file);
-      if (!existsSync(path)) continue;
-      try {
-        // Normalize testnet size scaling before IDL extraction.
-        const source = readFileSync(path, "utf8").replace(/X_MULTIPLIER/g, "1");
-        out.push({
-          index,
-          name,
-          constructionEpoch: epochs.get(index) ?? 0,
-          stateType: stateTypes.get(index) ?? name,
-          file,
-          source,
-          idl: extractIdl(source, name, { prelude: qpiPrelude(coreRoot) }),
-        });
-      } catch {
-        // Skip an unparseable contract without breaking the rest of the catalog.
+      if (!existsSync(path)) {
+        throw new Error(`system contract ${name} source is missing: ${path}`);
       }
+      // Normalize testnet size scaling before IDL extraction.
+      const source = readFileSync(path, "utf8").replace(/X_MULTIPLIER/g, "1");
+      const stateType = stateTypes.get(index) ?? name;
+      out.push({
+        index,
+        name,
+        constructionEpoch: epochs.get(index) ?? 0,
+        stateType,
+        file,
+        source,
+        idl: extractIdl(source, name, {
+          slot: index,
+          qpiHeader,
+          stateType,
+        }),
+      });
     }
   }
   cache.set(coreRoot, out);

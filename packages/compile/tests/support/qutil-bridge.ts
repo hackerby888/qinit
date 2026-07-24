@@ -5,7 +5,12 @@ import { existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runContractTesting } from "@qinit/engine";
-import { compileContract, loadQpiHeader, type CompileResult } from "../../src/index";
+import {
+  compileContract,
+  loadQpiHeader,
+  type CompileResult,
+  type ContractIdl,
+} from "../../src/index";
 import { buildContract, buildCorpusRunner } from "@qinit/build";
 
 export const CORE = CORE_PATH;
@@ -27,24 +32,15 @@ export function wasiAvailable(): boolean {
   }
 }
 
-function calleeIdlFrom(name: string, index: number, result: CompileResult) {
-  const functions = Object.fromEntries(
-    result.idl.functions.map((fn) => [
-      fn.name,
-      { inputType: fn.inputType, inSize: fn.inSize, outSize: fn.outSize },
-    ]),
-  );
-  const procedures = Object.fromEntries(
-    result.idl.procedures.map((procedure) => [
-      procedure.name,
-      {
-        inputType: procedure.inputType,
-        inSize: procedure.inSize,
-        outSize: procedure.outSize,
-      },
-    ]),
-  );
-  return { name, index, functions, procedures };
+function calleeIdlFrom(name: string, slot: number, result: CompileResult): ContractIdl {
+  if (!result.idl) {
+    throw new Error(`successful ${name} compile returned no IDL`);
+  }
+  return {
+    ...result.idl,
+    name,
+    slot,
+  };
 }
 
 // Phase 0: the clang runner wasm (test logic + a dead QUTIL copy for types). Built once, mode-independent.

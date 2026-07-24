@@ -14,7 +14,6 @@ export type {
   LibrarySymbolIndex,
 } from "../backend/wasm/module/library-index";
 export type {
-  CalleeIdl,
   CodeGenerationWarning,
   FieldLayout,
   StructLayout,

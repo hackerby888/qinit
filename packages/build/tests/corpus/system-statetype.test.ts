@@ -30,6 +30,8 @@ test.skipIf(!existsSync(`${CORE}/src/contract_core/contract_def.h`))(
     const qtry = cat.find((c) => c.name === "QTRY");
     expect(qtry).toBeTruthy();
     expect(qtry!.stateType).toBe("QUOTTERY"); // ticker QTRY, struct QUOTTERY
+    expect(qtry!.idl.name).toBe("QTRY");
+    expect(qtry!.idl.slot).toBe(qtry!.index);
     // contracts whose ticker == struct type still carry a matching stateType
     const qx = cat.find((c) => c.name === "QX");
     expect(qx?.stateType).toBe("QX");

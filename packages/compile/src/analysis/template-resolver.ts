@@ -33,7 +33,11 @@ export function matchTemplateSpecialization(context: ProgramAnalysisInternals, n
         if (specialization.specArgs.length !== resolvedArguments.length)
             continue;
         const paramByName = new Map(specialization.templateDeclaration.params.map((parameter) => [parameter.name, parameter] as const));
-        const templateBindings: TemplateBindings = { types: new Map(), values: new Map(), structs: new Map() };
+        const templateBindings: TemplateBindings = {
+            types: new Map(),
+            values: new Map(),
+            structs: new Map(parent.structs),
+        };
         let match = true;
         for (let specArgIndex = 0; specArgIndex < specialization.specArgs.length; specArgIndex++) {
             const specializationArg = specialization.specArgs[specArgIndex];
@@ -75,7 +79,7 @@ export function instantiateTemplateBindings(context: ProgramAnalysisInternals, t
     const templateBindings: TemplateBindings = {
         types: new Map(),
         values: new Map(),
-        structs: new Map(),
+        structs: new Map(parent.structs),
     };
     for (let parameterIndex = 0; parameterIndex < templateDeclaration.params.length; parameterIndex++) {
         const templateParam = templateDeclaration.params[parameterIndex];

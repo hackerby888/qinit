@@ -26,9 +26,9 @@ test.skipIf(!haveCore)(
 
     // functions and procedures have separate id spaces — look them up separately (a combined map would collide).
     const fnId = (name: string) =>
-      Number(Object.entries(r.idl!.functions).find(([, e]) => e.name === name)![0]);
+      r.idl!.functions.find((entry) => entry.name === name)!.inputType;
     const pId = (name: string) =>
-      Number(Object.entries(r.idl!.procedures).find(([, e]) => e.name === name)![0]);
+      r.idl!.procedures.find((entry) => entry.name === name)!.inputType;
 
     // a read function with output — the contract runs with a _locals frame; the i64 result must decode
     const fee = i64(sim.query(slot, fnId("GetSendToManyV1Fee"), new Uint8Array(0)));

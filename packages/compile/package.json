@@ -38,6 +38,7 @@
     "@qinit/core": "workspace:*"
   },
   "dependencies": {
+    "@qinit/proto": "workspace:*",
     "wabt": "1.0.39"
   }
 }

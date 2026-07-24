@@ -1,38 +1,60 @@
 import * as vscode from "vscode";
-import { extractIdl, type IdlEntry } from "@qinit/build/idl";
-import { basename } from "node:path";
-import { contractStateType, isContractDoc } from "./project-util";
+import type { QpiDiagnostics } from "./diagnostics";
+
+interface HoverEntry {
+  name: string;
+  inputType: number;
+  input: {
+    format: string;
+  };
+  output: {
+    format: string;
+  };
+}
 
 export class IdlHover implements vscode.HoverProvider {
-  provideHover(doc: vscode.TextDocument, pos: vscode.Position): vscode.Hover | undefined {
-    if (!isContractDoc(doc)) return undefined;
-    const wordRange = doc.getWordRangeAtPosition(pos, /\w+/);
-    if (!wordRange) return undefined;
-    const word = doc.getText(wordRange);
+  constructor(private readonly diagnostics: QpiDiagnostics) {}
 
-    const name =
-      contractStateType(doc.getText()) ?? basename(doc.fileName).replace(/\.[^.]+$/, "");
-    let idl;
-    try {
-      idl = extractIdl(doc.getText(), name);
-    } catch {
+  provideHover(doc: vscode.TextDocument, pos: vscode.Position): vscode.Hover | undefined {
+    const idl = this.diagnostics.analysisFor(doc)?.idl;
+    if (!idl) {
       return undefined;
     }
 
-    const fn = Object.entries(idl.functions).find(([, e]) => e.name === word);
-    if (fn) return hoverFor("function", fn[0], fn[1]);
-    const pr = Object.entries(idl.procedures).find(([, e]) => e.name === word);
-    if (pr) return hoverFor("procedure", pr[0], pr[1]);
+    const wordRange = doc.getWordRangeAtPosition(pos, /\w+/);
+    if (!wordRange) {
+      return undefined;
+    }
+
+    const word = doc.getText(wordRange);
+
+    const fn = idl.functions.find((entry) => entry.name === word);
+    if (fn) {
+      return hoverFor("function", fn);
+    }
+
+    const procedure = idl.procedures.find((entry) => entry.name === word);
+    if (procedure) {
+      return hoverFor("procedure", procedure);
+    }
+
     return undefined;
   }
 }
 
-function hoverFor(kind: "function" | "procedure", index: string, e: IdlEntry): vscode.Hover {
+function hoverFor(
+  kind: "function" | "procedure",
+  entry: HoverEntry,
+): vscode.Hover {
   const md = new vscode.MarkdownString();
-  md.appendMarkdown(`**QPI ${kind}** \`${e.name}\` · index **${index}**\n\n`);
+  md.appendMarkdown(
+    `**QPI ${kind}** \`${entry.name}\` · index **${entry.inputType}**\n\n`,
+  );
   md.appendCodeblock(
-    `input  : ${e.in || "(empty)"}` +
-      (kind === "function" ? `\noutput : ${e.out || "(empty)"}` : ""),
+    `input  : ${entry.input.format || "(empty)"}` +
+      (kind === "function"
+        ? `\noutput : ${entry.output.format || "(empty)"}`
+        : ""),
     "text",
   );
   return new vscode.Hover(md);

@@ -1,7 +1,8 @@
-import { AstKind, BinaryOp, QpiContextKind, UnaryOp } from "../../../enums";
+import { AstKind, QpiContextKind } from "../../../enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type { Expression, StructDecl, FunctionDecl } from "../../../ast";
+import { evalIntegralConst } from "../../../frontend/validation/validation-helpers";
 import type { UserEntry } from "../../../framework";
 import { emitFunction } from "../functions/function-emitter";
 import { findMemberFn } from "./contract-discovery";
@@ -23,93 +24,42 @@ export interface ContractRegistration {
 export function evalRegistrationConstant(expression: Expression | undefined, programAnalysis: ProgramAnalysis): bigint | null {
     if (!expression)
         return null;
-    switch (expression.kind) {
-        case AstKind.INT_LITERAL:
-            try {
-                return lexRegistrationLiteral(expression.value);
-            }
-            catch {
+
+    const resolving = new Set<string>();
+    const resolve = (name: string): bigint | null => {
+        const separator = name.lastIndexOf("::");
+        const candidates = separator >= 0
+            ? [name, name.slice(separator + 2)]
+            : [name];
+
+        for (const candidate of candidates) {
+            const enumValue = programAnalysis.enumConst.get(candidate);
+            if (enumValue !== undefined)
+                return enumValue;
+
+            const initializer = programAnalysis.constexprInit.get(candidate);
+            if (!initializer)
+                continue;
+            if (resolving.has(candidate))
                 return null;
-            }
-        case AstKind.BOOL_LITERAL:
-            return expression.value ? 1n : 0n;
-        case AstKind.CHAR_LITERAL:
-            return BigInt(expression.value);
-        case AstKind.IDENTIFIER:
-            return programAnalysis.resolveConst(expression.name);
-        case AstKind.QUALIFIED_NAME:
-            return programAnalysis.resolveConst(`${expression.namespace}::${expression.name}`);
-        case AstKind.PAREN:
-            return evalRegistrationConstant(expression.expression, programAnalysis);
-        case AstKind.UNARY_OP: {
-            const numericValue = evalRegistrationConstant(expression.argument, programAnalysis);
-            if (numericValue === null)
+
+            resolving.add(candidate);
+            const value = evalIntegralConst(initializer, resolve);
+            resolving.delete(candidate);
+            if (value === null)
                 return null;
-            if (expression.operator === UnaryOp.MINUS)
-                return -numericValue;
-            if (expression.operator === UnaryOp.PLUS)
-                return numericValue;
-            if (expression.operator === UnaryOp.BITWISE_NOT)
-                return ~numericValue;
-            if (expression.operator === UnaryOp.LOGICAL_NOT)
-                return numericValue === 0n ? 1n : 0n;
-            return null;
+
+            return programAnalysis.resolveConst(candidate) ?? value;
         }
-        case AstKind.BINARY_OP: {
-            const leftValue = evalRegistrationConstant(expression.left, programAnalysis);
-            const rightValue = evalRegistrationConstant(expression.right, programAnalysis);
-            if (leftValue === null || rightValue === null)
-                return null;
-            switch (expression.operator) {
-                case BinaryOp.ADD:
-                    return leftValue + rightValue;
-                case BinaryOp.SUBTRACT:
-                    return leftValue - rightValue;
-                case BinaryOp.MULTIPLY:
-                    return leftValue * rightValue;
-                case BinaryOp.DIVIDE:
-                    return rightValue === 0n ? null : leftValue / rightValue;
-                case BinaryOp.MODULO:
-                    return rightValue === 0n ? null : leftValue % rightValue;
-                case BinaryOp.SHIFT_LEFT:
-                    return leftValue << rightValue;
-                case BinaryOp.SHIFT_RIGHT:
-                    return leftValue >> rightValue;
-                case BinaryOp.BITWISE_AND:
-                    return leftValue & rightValue;
-                case BinaryOp.BITWISE_OR:
-                    return leftValue | rightValue;
-                case BinaryOp.BITWISE_XOR:
-                    return leftValue ^ rightValue;
-                case BinaryOp.EQUAL:
-                    return leftValue === rightValue ? 1n : 0n;
-                case BinaryOp.NOT_EQUAL:
-                    return leftValue !== rightValue ? 1n : 0n;
-                case BinaryOp.LESS_THAN:
-                    return leftValue < rightValue ? 1n : 0n;
-                case BinaryOp.GREATER_THAN:
-                    return leftValue > rightValue ? 1n : 0n;
-                case BinaryOp.LESS_THAN_OR_EQUAL:
-                    return leftValue <= rightValue ? 1n : 0n;
-                case BinaryOp.GREATER_THAN_OR_EQUAL:
-                    return leftValue >= rightValue ? 1n : 0n;
-                default:
-                    return null;
-            }
-        }
-        case AstKind.TERNARY: {
-            const numericValue = evalRegistrationConstant(expression.condition, programAnalysis);
-            if (numericValue === null)
-                return null;
-            const branch = numericValue !== 0n ? expression.then : expression.else_;
-            return evalRegistrationConstant(branch, programAnalysis);
-        }
-        case AstKind.C_CAST:
-        case AstKind.STATIC_CAST:
-            return evalRegistrationConstant(expression.expression, programAnalysis);
-        default:
-            return null;
-    }
+
+        const contractIndex = /^(\w+)_CONTRACT_INDEX$/.exec(name);
+        const callee = contractIndex
+            ? programAnalysis.callees.get(contractIndex[1])
+            : undefined;
+        return callee ? BigInt(callee.index) : null;
+    };
+
+    return evalIntegralConst(expression, resolve);
 }
 export function lexRegistrationLiteral(value: string): bigint {
     const cleaned = value.replace(/[uUlL]+$/, "").replace(/'/g, "");

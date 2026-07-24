@@ -52,9 +52,8 @@ in local development and to the pinned npm package in production.
 - The IDE compile facade routes contract builds and core-lite `ContractTesting` gtests through the local
   worker. `TEST` bodies and fixture methods use the normal parser, typed IR, and Wasm codegen; only virtual-node
   operations use the private `qtest` host ABI. Native clang remains the authoritative CLI/CI gtest backend.
-- Local WASM crosses the worker boundary as a transferable ArrayBuffer. The worker result is
-  normalized to the IDE's existing rich IDL instead of casting the compiler's minimal ABI
-  metadata.
+- Local WASM crosses the worker boundary as a transferable ArrayBuffer. The worker returns the
+  compiler-owned rich IDL with the build result.
 
 ## Test plan
 

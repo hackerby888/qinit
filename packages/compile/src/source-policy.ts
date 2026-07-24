@@ -5,7 +5,13 @@ import {
   SourceAnalysisOrigin,
   TokenKind,
 } from "./enums";
+import {
+  AbiTypeKind,
+  type AbiType,
+  type ContractIdl,
+} from "@qinit/proto/contract-idl";
 import type { Span } from "./ast";
+import type { ContractRegistration } from "./backend/wasm/module/registrations";
 import { Lexer, type Token } from "./lexer";
 import type {
   SourceAnalysisDiagnostic,
@@ -111,14 +117,18 @@ interface LocalDeclaration {
   forInitializer: boolean;
 }
 
-export function analyzeQpiPolicy(source: string): SourceAnalysisDiagnostic[] {
+export function analyzeQpiPolicy(
+  source: string,
+  registrations?: readonly ContractRegistration[],
+  idl?: ContractIdl,
+): SourceAnalysisDiagnostic[] {
   const tokens = new Lexer(source).tokenize();
   const entries = findEntryFunctions(tokens);
   const diagnostics = [
     ...forbiddenConstructs(source, tokens),
     ...localDiagnostics(source, tokens, entries),
     ...localsFormDiagnostics(tokens, entries),
-    ...idlDiagnostics(tokens, entries),
+    ...idlDiagnostics(tokens, entries, registrations, idl),
   ];
 
   return diagnostics.sort(compareDiagnostics);
@@ -450,6 +460,8 @@ function localsFormDiagnostics(
 function idlDiagnostics(
   tokens: Token[],
   entries: EntryFunction[],
+  semanticRegistrations?: readonly ContractRegistration[],
+  idl?: ContractIdl,
 ): SourceAnalysisDiagnostic[] {
   const diagnostics: SourceAnalysisDiagnostic[] = [];
   const registrations = {
@@ -458,41 +470,36 @@ function idlDiagnostics(
   };
   const registered = new Set<string>();
 
-  for (let index = 0; index + 5 < tokens.length; index++) {
-    const match = /^REGISTER_USER_(FUNCTION|PROCEDURE)$/.exec(
-      tokens[index].text,
-    );
-    if (
-      !match ||
-      tokens[index + 1].kind !== TokenKind.L_PAREN ||
-      tokens[index + 2].kind !== TokenKind.IDENTIFIER ||
-      tokens[index + 3].kind !== TokenKind.COMMA ||
-      tokens[index + 4].kind !== TokenKind.INT_LITERAL
-    ) {
-      continue;
-    }
+  if (semanticRegistrations) {
+    for (const registration of semanticRegistrations) {
+      const kind = registration.kind === 0
+        ? QpiMacroKind.FUNCTION
+        : QpiMacroKind.PROCEDURE;
 
-    const kind = match[1] as QpiMacroKind;
-    const name = tokens[index + 2].text;
-    const id = Number.parseInt(tokens[index + 4].text.replaceAll("'", ""), 10);
-    if (!Number.isFinite(id)) {
-      continue;
-    }
-
-    registered.add(name);
-    const previous = registrations[kind].get(id);
-    if (previous !== undefined && previous !== name) {
-      diagnostics.push(
-        diagnostic(
-          kind === QpiMacroKind.FUNCTION
-            ? "qpi/dup-fn-index"
-            : "qpi/dup-proc-index",
-          `Duplicate ${kind.toLowerCase()} index ${id} — already used by \`${previous}\`. Each ${kind.toLowerCase()} needs a unique index.`,
-          tokens[index + 4].span,
-        ),
-      );
-    } else if (previous === undefined) {
-      registrations[kind].set(id, name);
+      registered.add(registration.fnName);
+      const previous = registrations[kind].get(registration.inputType);
+      if (
+        previous !== undefined &&
+        previous !== registration.fnName
+      ) {
+        const entry = entries.find(
+          (candidate) => candidate.name === registration.fnName,
+        );
+        diagnostics.push(
+          diagnostic(
+            kind === QpiMacroKind.FUNCTION
+              ? "qpi/dup-fn-index"
+              : "qpi/dup-proc-index",
+            `Duplicate ${kind.toLowerCase()} index ${registration.inputType} — already used by \`${previous}\`. Each ${kind.toLowerCase()} needs a unique index.`,
+            entry?.nameSpan ?? tokens[0].span,
+          ),
+        );
+      } else if (previous === undefined) {
+        registrations[kind].set(
+          registration.inputType,
+          registration.fnName,
+        );
+      }
     }
   }
 
@@ -501,18 +508,20 @@ function idlDiagnostics(
       .filter((entry) => entry.publicEntry)
       .map((entry) => entry.name),
   );
-  for (const entry of entries) {
-    if (entry.publicEntry && !registered.has(entry.name)) {
-      const kind = entry.macro.includes("FUNCTION")
-        ? QpiMacroKind.FUNCTION
-        : QpiMacroKind.PROCEDURE;
-      diagnostics.push(
-        diagnostic(
-          "qpi/unregistered",
-          `\`${entry.name}\` is defined but never registered — add REGISTER_USER_${kind}(${entry.name}, <index>) so it's callable on-chain.`,
-          entry.nameSpan,
-        ),
-      );
+  if (semanticRegistrations) {
+    for (const entry of entries) {
+      if (entry.publicEntry && !registered.has(entry.name)) {
+        const kind = entry.macro.includes("FUNCTION")
+          ? QpiMacroKind.FUNCTION
+          : QpiMacroKind.PROCEDURE;
+        diagnostics.push(
+          diagnostic(
+            "qpi/unregistered",
+            `\`${entry.name}\` is defined but never registered — add REGISTER_USER_${kind}(${entry.name}, <index>) so it's callable on-chain.`,
+            entry.nameSpan,
+          ),
+        );
+      }
     }
   }
 
@@ -522,6 +531,7 @@ function idlDiagnostics(
     "HashMap",
     "HashSet",
   ]);
+  const reportedTypes = new Set<string>();
   for (let index = 0; index + 2 < tokens.length; index++) {
     if (
       tokens[index].kind !== TokenKind.KW_STRUCT ||
@@ -555,10 +565,60 @@ function idlDiagnostics(
           tokens[cursor].span,
         ),
       );
+      reportedTypes.add(`${tokens[index + 1].text}:${tokens[cursor].text}`);
+    }
+  }
+
+  const idlEntries = idl
+    ? [...idl.functions, ...idl.procedures]
+    : [];
+  for (const entry of idlEntries) {
+    const sourceEntry = entries.find((candidate) => candidate.name === entry.name);
+    for (const [suffix, type] of [
+      ["input", entry.input],
+      ["output", entry.output],
+    ] as const) {
+      const interfaceName = `${entry.name}_${suffix}`;
+      for (const typeName of forbiddenAbiTypes(type)) {
+        if (reportedTypes.has(`${interfaceName}:${typeName}`)) {
+          continue;
+        }
+        diagnostics.push(
+          diagnostic(
+            "qpi/public-complex-type",
+            `\`${typeName}\` is forbidden in the public interface (\`${interfaceName}\`) — complex types can carry inconsistent internal state across the call boundary. Use scalars, \`id\`, \`Array\`, or \`BitArray\`.`,
+            sourceEntry?.nameSpan ?? tokens[0].span,
+          ),
+        );
+      }
     }
   }
 
   return diagnostics;
+}
+
+function forbiddenAbiTypes(type: AbiType): string[] {
+  switch (type.kind) {
+    case AbiTypeKind.SCALAR:
+      return [];
+    case AbiTypeKind.ARRAY:
+      return forbiddenAbiTypes(type.element);
+    case AbiTypeKind.STRUCT:
+      return [
+        ...(type.name === "LinkedList" ? ["LinkedList"] : []),
+        ...type.fields.flatMap((field) => forbiddenAbiTypes(field.type)),
+      ];
+    case AbiTypeKind.COLLECTION:
+      return ["Collection", ...forbiddenAbiTypes(type.value)];
+    case AbiTypeKind.HASH_MAP:
+      return [
+        "HashMap",
+        ...forbiddenAbiTypes(type.key),
+        ...forbiddenAbiTypes(type.value),
+      ];
+    case AbiTypeKind.HASH_SET:
+      return ["HashSet", ...forbiddenAbiTypes(type.key)];
+  }
 }
 
 function findEntryFunctions(tokens: Token[]): EntryFunction[] {

@@ -1,6 +1,14 @@
 // Contract ABI format-string codec (qubic-cli compatible).
 //   types : uint8/16/32/64, sint8/16/32/64, id, bit ; struct { t, t } ; array [N; elem]
 import { bytesToIdentity, identityToBytes, roundUp } from "@qinit/core";
+import {
+  AbiScalarKind,
+  AbiTypeKind,
+  formatAbiType,
+  type AbiStruct,
+  type AbiType,
+} from "./contract-idl";
+import { flagWordCount } from "./qpi-layout";
 
 const SCALAR_SIZE: Record<string, number> = {
   uint8: 1,
@@ -64,7 +72,15 @@ function sizeOf(n: TypeNode): number {
 
 // Byte offset + size of each top-level field of a layout (matches the decode/struct alignment). Used to map
 // a changed state byte offset back to a field name (the debugger's field-level state diff).
-export function structFieldOffsets(fmt: string): { off: number; size: number }[] {
+export function structFieldOffsets(
+  fmt: string | AbiStruct,
+): { off: number; size: number }[] {
+  if (typeof fmt !== "string") {
+    return fmt.fields.map((field) => ({
+      off: field.offset,
+      size: field.size,
+    }));
+  }
   const node = parseLayout(fmt);
   const fields = node.kind === "struct" ? node.fields : [node];
   const out: { off: number; size: number }[] = [];
@@ -78,9 +94,32 @@ export function structFieldOffsets(fmt: string): { off: number; size: number }[]
 }
 
 // Total size + alignment of a layout (the C++ array stride of a T is roundUp(size, align)). For container decode.
-export function layoutOf(fmt: string): { size: number; align: number } {
+export function layoutOf(fmt: string | AbiType): { size: number; align: number } {
+  if (typeof fmt !== "string") {
+    return {
+      size: fmt.size,
+      align: fmt.align,
+    };
+  }
   const n = parseLayout(fmt);
   return { size: sizeOf(n), align: alignOf(n) };
+}
+
+function nodeOf(type: AbiType): TypeNode {
+  if (type.kind === AbiTypeKind.STRUCT) {
+    return {
+      kind: "struct",
+      fields: type.fields.map((field) => nodeOf(field.type)),
+    };
+  }
+  if (type.kind === AbiTypeKind.ARRAY) {
+    return {
+      kind: "array",
+      count: type.count,
+      elem: nodeOf(type.element),
+    };
+  }
+  return parseLayout(formatAbiType(type));
 }
 
 // ---------- type-grammar parser (output layout / decode schema) ----------
@@ -184,14 +223,239 @@ async function decodeNode(v: DataView, off: number, node: TypeNode): Promise<[an
   }
 }
 
-export async function decodeOutput(bytes: Uint8Array, fmt: string): Promise<any> {
-  const node = parseLayout(fmt);
-  const [val] = await decodeNode(
-    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
-    0,
-    node,
+async function decodeAbiType(
+  view: DataView,
+  offset: number,
+  type: AbiType,
+): Promise<any> {
+  assertBounds(view, offset, type.size);
+
+  switch (type.kind) {
+    case AbiTypeKind.SCALAR:
+      return decodeAbiScalar(view, offset, type.scalar);
+    case AbiTypeKind.STRUCT:
+      return await Promise.all(
+        type.fields.map((field) =>
+          decodeAbiType(view, offset + field.offset, field.type),
+        ),
+      );
+    case AbiTypeKind.ARRAY: {
+      const stride = roundUp(type.element.size, type.element.align);
+      const values: any[] = [];
+      for (let index = 0; index < type.count; index++) {
+        values.push(
+          await decodeAbiType(view, offset + index * stride, type.element),
+        );
+      }
+      return values;
+    }
+    case AbiTypeKind.HASH_MAP:
+      return await decodeAbiHashMap(view, offset, type);
+    case AbiTypeKind.HASH_SET:
+      return await decodeAbiHashSet(view, offset, type);
+    case AbiTypeKind.COLLECTION:
+      return await decodeAbiCollection(view, offset, type);
+  }
+}
+
+async function decodeAbiHashMap(
+  view: DataView,
+  offset: number,
+  type: Extract<AbiType, { kind: AbiTypeKind.HASH_MAP }>,
+): Promise<any[]> {
+  const elementAlign = Math.max(type.key.align, type.value.align);
+  const valueOffset = roundUp(type.key.size, type.value.align);
+  const elementStride = roundUp(
+    valueOffset + type.value.size,
+    elementAlign,
   );
-  return val;
+  const elements: any[] = [];
+  for (let index = 0; index < type.capacity; index++) {
+    const elementOffset = offset + index * elementStride;
+    elements.push([
+      await decodeAbiType(view, elementOffset, type.key),
+      await decodeAbiType(view, elementOffset + valueOffset, type.value),
+    ]);
+  }
+
+  const flagsOffset = roundUp(
+    offset + type.capacity * elementStride,
+    8,
+  );
+  const flags = decodeUint64Array(view, flagsOffset, flagWordCount(type.capacity));
+  const countersOffset = flagsOffset + flags.length * 8;
+  return [
+    elements,
+    flags,
+    view.getBigUint64(countersOffset, true),
+    view.getBigUint64(countersOffset + 8, true),
+  ];
+}
+
+async function decodeAbiHashSet(
+  view: DataView,
+  offset: number,
+  type: Extract<AbiType, { kind: AbiTypeKind.HASH_SET }>,
+): Promise<any[]> {
+  const keyStride = roundUp(type.key.size, type.key.align);
+  const keys: any[] = [];
+  for (let index = 0; index < type.capacity; index++) {
+    keys.push(
+      await decodeAbiType(view, offset + index * keyStride, type.key),
+    );
+  }
+
+  const flagsOffset = roundUp(offset + type.capacity * keyStride, 8);
+  const flags = decodeUint64Array(view, flagsOffset, flagWordCount(type.capacity));
+  const countersOffset = flagsOffset + flags.length * 8;
+  return [
+    keys,
+    flags,
+    view.getBigUint64(countersOffset, true),
+    view.getBigUint64(countersOffset + 8, true),
+  ];
+}
+
+async function decodeAbiCollection(
+  view: DataView,
+  offset: number,
+  type: Extract<AbiType, { kind: AbiTypeKind.COLLECTION }>,
+): Promise<any[]> {
+  const povStride = 64;
+  const povs: any[] = [];
+  for (let index = 0; index < type.capacity; index++) {
+    const povOffset = offset + index * povStride;
+    povs.push([
+      await decodeAbiScalar(view, povOffset, AbiScalarKind.ID),
+      view.getBigUint64(povOffset + 32, true),
+      view.getBigInt64(povOffset + 40, true),
+      view.getBigInt64(povOffset + 48, true),
+      view.getBigInt64(povOffset + 56, true),
+    ]);
+  }
+
+  const flagsOffset = offset + type.capacity * povStride;
+  const flags = decodeUint64Array(view, flagsOffset, flagWordCount(type.capacity));
+  const valueOffset = roundUp(
+    flagsOffset + flags.length * 8,
+    Math.max(type.value.align, 8),
+  );
+  const priorityOffset = roundUp(type.value.size, 8);
+  const elementStride = roundUp(
+    priorityOffset + 5 * 8,
+    Math.max(type.value.align, 8),
+  );
+  const elements: any[] = [];
+  for (let index = 0; index < type.capacity; index++) {
+    const elementOffset = valueOffset + index * elementStride;
+    elements.push([
+      await decodeAbiType(view, elementOffset, type.value),
+      view.getBigInt64(elementOffset + priorityOffset, true),
+      view.getBigInt64(elementOffset + priorityOffset + 8, true),
+      view.getBigInt64(elementOffset + priorityOffset + 16, true),
+      view.getBigInt64(elementOffset + priorityOffset + 24, true),
+      view.getBigInt64(elementOffset + priorityOffset + 32, true),
+    ]);
+  }
+
+  const countersOffset = valueOffset + type.capacity * elementStride;
+  return [
+    povs,
+    flags,
+    elements,
+    view.getBigUint64(countersOffset, true),
+    view.getBigUint64(countersOffset + 8, true),
+  ];
+}
+
+function decodeUint64Array(
+  view: DataView,
+  offset: number,
+  count: number,
+): bigint[] {
+  return Array.from(
+    { length: count },
+    (_, index) => view.getBigUint64(offset + index * 8, true),
+  );
+}
+
+async function decodeAbiScalar(
+  view: DataView,
+  offset: number,
+  scalar: AbiScalarKind,
+): Promise<any> {
+  switch (scalar) {
+    case AbiScalarKind.BIT:
+    case AbiScalarKind.UINT8:
+      return view.getUint8(offset);
+    case AbiScalarKind.SINT8:
+      return view.getInt8(offset);
+    case AbiScalarKind.UINT16:
+      return view.getUint16(offset, true);
+    case AbiScalarKind.SINT16:
+      return view.getInt16(offset, true);
+    case AbiScalarKind.UINT32:
+      return view.getUint32(offset, true);
+    case AbiScalarKind.SINT32:
+      return view.getInt32(offset, true);
+    case AbiScalarKind.UINT64:
+      return view.getBigUint64(offset, true);
+    case AbiScalarKind.SINT64:
+      return view.getBigInt64(offset, true);
+    case AbiScalarKind.UINT128:
+      return readUint128(view, offset);
+    case AbiScalarKind.SINT128: {
+      const value = readUint128(view, offset);
+      return value >= 1n << 127n ? value - (1n << 128n) : value;
+    }
+    case AbiScalarKind.ID: {
+      const bytes = new Uint8Array(32);
+      for (let index = 0; index < bytes.length; index++) {
+        bytes[index] = view.getUint8(offset + index);
+      }
+      return await bytesToIdentity(bytes);
+    }
+    case AbiScalarKind.M256I: {
+      let hex = "";
+      for (let index = 0; index < 32; index++) {
+        hex += view.getUint8(offset + index).toString(16).padStart(2, "0");
+      }
+      return hex;
+    }
+  }
+}
+
+function readUint128(view: DataView, offset: number): bigint {
+  const low = view.getBigUint64(offset, true);
+  const high = view.getBigUint64(offset + 8, true);
+  return (high << 64n) | low;
+}
+
+function assertBounds(view: DataView, offset: number, size: number): void {
+  if (offset < 0 || size < 0 || offset + size > view.byteLength) {
+    throw new RangeError(
+      `ABI value at ${offset} with size ${size} exceeds ${view.byteLength} bytes`,
+    );
+  }
+}
+
+export async function decodeOutput(
+  bytes: Uint8Array,
+  fmt: string | AbiType,
+): Promise<any> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const decoded = typeof fmt === "string"
+    ? (await decodeNode(view, 0, parseLayout(fmt)))[0]
+    : await decodeAbiType(view, 0, fmt);
+  if (typeof fmt !== "string" && fmt.kind === AbiTypeKind.STRUCT) {
+    if (fmt.fields.length === 0) {
+      return [];
+    }
+    if (fmt.fields.length === 1) {
+      return decoded[0];
+    }
+  }
+  return decoded;
 }
 
 // ---------- input encode (value-driven, aligned, async for id) ----------
@@ -201,6 +465,225 @@ function hexToBytes(hex: string): Uint8Array {
   const out = new Uint8Array(h.length / 2);
   for (let k = 0; k < out.length; k++) out[k] = parseInt(h.slice(k * 2, k * 2 + 2), 16);
   return out;
+}
+
+async function encodeAbiType(
+  view: DataView,
+  offset: number,
+  type: AbiType,
+  value: any,
+): Promise<void> {
+  assertBounds(view, offset, type.size);
+
+  switch (type.kind) {
+    case AbiTypeKind.SCALAR:
+      await encodeAbiScalar(view, offset, type.scalar, value);
+      return;
+    case AbiTypeKind.STRUCT: {
+      if (hasOverlappingFields(type)) {
+        writeRawAbiValue(view, offset, type, value);
+        return;
+      }
+      const values = structValues(type, value);
+      for (let index = 0; index < type.fields.length; index++) {
+        const field = type.fields[index];
+        await encodeAbiType(
+          view,
+          offset + field.offset,
+          field.type,
+          values[index],
+        );
+      }
+      return;
+    }
+    case AbiTypeKind.ARRAY: {
+      if (!Array.isArray(value)) {
+        throw new Error(`array '${formatAbiType(type)}' needs a JSON array`);
+      }
+      if (value.length !== type.count) {
+        throw new Error(
+          `array '${formatAbiType(type)}' expects ${type.count} elements, got ${value.length}`,
+        );
+      }
+      const stride = roundUp(type.element.size, type.element.align);
+      for (let index = 0; index < type.count; index++) {
+        await encodeAbiType(
+          view,
+          offset + index * stride,
+          type.element,
+          value[index],
+        );
+      }
+      return;
+    }
+    default:
+      writeRawAbiValue(view, offset, type, value);
+  }
+}
+
+function writeRawAbiValue(
+  view: DataView,
+  offset: number,
+  type: AbiType,
+  value: any,
+): void {
+  if (
+    !(value instanceof Uint8Array) &&
+    !Array.isArray(value)
+  ) {
+    throw new Error(`${type.kind} input needs exactly ${type.size} raw bytes`);
+  }
+  if (value.length !== type.size) {
+    throw new Error(`${type.kind} input needs exactly ${type.size} raw bytes`);
+  }
+  for (let index = 0; index < value.length; index++) {
+    const byte = value[index];
+    if (!Number.isInteger(byte) || byte < 0 || byte > 255) {
+      throw new Error(`raw byte ${index} must be an integer from 0 to 255`);
+    }
+    view.setUint8(offset + index, byte);
+  }
+}
+
+function hasOverlappingFields(type: AbiStruct): boolean {
+  for (let index = 0; index < type.fields.length; index++) {
+    const field = type.fields[index];
+    for (let previousIndex = 0; previousIndex < index; previousIndex++) {
+      const previous = type.fields[previousIndex];
+      if (
+        field.size > 0 &&
+        previous.size > 0 &&
+        field.offset < previous.offset + previous.size &&
+        previous.offset < field.offset + field.size
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function structValues(type: AbiStruct, value: any): any[] {
+  if (Array.isArray(value)) {
+    if (value.length !== type.fields.length) {
+      throw new Error(
+        `struct '${type.name ?? type.format}' expects ${type.fields.length} values, got ${value.length}`,
+      );
+    }
+    return value;
+  }
+  if (value === null || typeof value !== "object") {
+    throw new Error(`struct '${type.name ?? type.format}' needs a JSON object`);
+  }
+  return type.fields.map((field) => {
+    if (!(field.name in value)) {
+      throw new Error(`missing input field '${field.name}'`);
+    }
+    return value[field.name];
+  });
+}
+
+async function encodeAbiScalar(
+  view: DataView,
+  offset: number,
+  scalar: AbiScalarKind,
+  value: any,
+): Promise<void> {
+  if (scalar === AbiScalarKind.ID) {
+    const text = String(value);
+    let bytes: Uint8Array;
+    if (/^(0x)?[0-9a-fA-F]{64}$/.test(text)) {
+      bytes = hexToBytes(text);
+    } else if (/^[A-Z]{60}$/.test(text)) {
+      bytes = identityToBytes(text);
+    } else {
+      throw new Error(
+        `id must be a 60-char identity (A-Z) or a 64-hex pubkey, got '${text}'`,
+      );
+    }
+    writeBytes(view, offset, bytes);
+    return;
+  }
+
+  if (scalar === AbiScalarKind.M256I) {
+    const text = String(value).replace(/^0x/, "");
+    if (!/^[0-9a-fA-F]{64}$/.test(text)) {
+      throw new Error(`m256i must be 64 hex chars (32 bytes), got '${text}'`);
+    }
+    writeBytes(view, offset, hexToBytes(text));
+    return;
+  }
+
+  const number = scalar === AbiScalarKind.BIT && typeof value === "boolean"
+    ? BigInt(value ? 1 : 0)
+    : integerValue(value, scalar);
+  const bits = scalarBits(scalar);
+  const signed = scalar.startsWith("sint");
+  const minimum = signed ? -(1n << BigInt(bits - 1)) : 0n;
+  const maximum = scalar === AbiScalarKind.BIT
+    ? 1n
+    : signed
+      ? (1n << BigInt(bits - 1)) - 1n
+      : (1n << BigInt(bits)) - 1n;
+  if (number < minimum || number > maximum) {
+    throw new Error(
+      `${scalar} out of range: ${number} (allowed ${minimum}..${maximum})`,
+    );
+  }
+
+  const encoded = BigInt.asUintN(bits, number);
+  if (bits === 128) {
+    view.setBigUint64(offset, encoded & ((1n << 64n) - 1n), true);
+    view.setBigUint64(offset + 8, encoded >> 64n, true);
+  } else if (bits === 64) {
+    view.setBigUint64(offset, encoded, true);
+  } else if (bits === 32) {
+    view.setUint32(offset, Number(encoded), true);
+  } else if (bits === 16) {
+    view.setUint16(offset, Number(encoded), true);
+  } else {
+    view.setUint8(offset, Number(encoded));
+  }
+}
+
+function integerValue(value: any, scalar: AbiScalarKind): bigint {
+  if (value === undefined || value === null) {
+    throw new Error(`missing value for '${scalar}'`);
+  }
+  try {
+    return BigInt(value);
+  } catch {
+    throw new Error(`${scalar} needs an integer, got '${String(value)}'`);
+  }
+}
+
+function scalarBits(scalar: AbiScalarKind): 8 | 16 | 32 | 64 | 128 {
+  switch (scalar) {
+    case AbiScalarKind.BIT:
+    case AbiScalarKind.UINT8:
+    case AbiScalarKind.SINT8:
+      return 8;
+    case AbiScalarKind.UINT16:
+    case AbiScalarKind.SINT16:
+      return 16;
+    case AbiScalarKind.UINT32:
+    case AbiScalarKind.SINT32:
+      return 32;
+    case AbiScalarKind.UINT64:
+    case AbiScalarKind.SINT64:
+      return 64;
+    case AbiScalarKind.UINT128:
+    case AbiScalarKind.SINT128:
+      return 128;
+    default:
+      throw new Error(`'${scalar}' is not an integer scalar`);
+  }
+}
+
+function writeBytes(view: DataView, offset: number, bytes: Uint8Array): void {
+  for (let index = 0; index < bytes.length; index++) {
+    view.setUint8(offset + index, bytes[index]);
+  }
 }
 
 // Split by top-level commas, respecting [] and {} nesting.
@@ -375,7 +858,18 @@ function jsonValueToFmt(typeTok: string, value: any): string {
   return `${BigInt(value)}${typeTok}`; // number / bigint / numeric-string; rejects floats
 }
 
-export function jsonToInputFmt(fields: { name: string; type: string }[], json: any): string {
+type InputFields = { name: string; type: string }[] | AbiType;
+
+export function jsonToInputFmt(fields: InputFields, json: any): string {
+  if (!Array.isArray(fields)) {
+    if (fields.kind !== AbiTypeKind.STRUCT) {
+      return typedJsonValueToFmt(fields, json);
+    }
+    const values = structValues(fields, json);
+    return fields.fields
+      .map((field, index) => typedJsonValueToFmt(field.type, values[index]))
+      .join(", ");
+  }
   const arr = Array.isArray(json)
     ? json
     : fields.map((f) => {
@@ -386,15 +880,54 @@ export function jsonToInputFmt(fields: { name: string; type: string }[], json: a
 }
 
 export async function encodeInputJson(
-  fields: { name: string; type: string }[],
+  fields: InputFields,
   json: any,
 ): Promise<Uint8Array> {
+  if (!Array.isArray(fields)) {
+    const bytes = new Uint8Array(fields.size);
+    await encodeAbiType(
+      new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+      0,
+      fields,
+      json,
+    );
+    return bytes;
+  }
   return encodeInput(jsonToInputFmt(fields, json));
+}
+
+function typedJsonValueToFmt(type: AbiType, value: any): string {
+  if (type.kind === AbiTypeKind.STRUCT) {
+    if (hasOverlappingFields(type)) {
+      throw new Error("overlapping struct input requires raw bytes");
+    }
+    const values = structValues(type, value);
+    return `{ ${type.fields
+      .map((field, index) => typedJsonValueToFmt(field.type, values[index]))
+      .join(", ")} }`;
+  }
+  if (type.kind === AbiTypeKind.ARRAY) {
+    if (!Array.isArray(value)) {
+      throw new Error(`array '${formatAbiType(type)}' needs a JSON array`);
+    }
+    if (value.length !== type.count) {
+      throw new Error(
+        `array '${formatAbiType(type)}' expects ${type.count} elements, got ${value.length}`,
+      );
+    }
+    return `[${type.count}; ${value
+      .map((item) => typedJsonValueToFmt(type.element, item))
+      .join(", ")}]`;
+  }
+  return jsonValueToFmt(formatAbiType(type), value);
 }
 
 // Build an ALL-ZERO input value-format from a type-format (the input scheme) — same grammar encodeInput
 // consumes — so a user whose input fails to parse gets a valid, copy-pasteable sample matching their entry.
-export function zeroInputFmt(fmt: string): string {
+export function zeroInputFmt(fmt: string | AbiType): string {
+  if (typeof fmt !== "string" && hasOverlappingAbiType(fmt)) {
+    return `[${fmt.size}; 0uint8 ×${fmt.size}]`;
+  }
   const emit = (n: TypeNode): string => {
     switch (n.kind) {
       case "scalar":
@@ -412,9 +945,28 @@ export function zeroInputFmt(fmt: string): string {
         return `{ ${n.fields.map(emit).join(", ")} }`;
     }
   };
-  const node = parseLayout(fmt);
+  const node = typeof fmt === "string" ? parseLayout(fmt) : nodeOf(fmt);
   // top-level struct renders WITHOUT braces (mirrors encodeInput's implicit top-level struct of the input fields)
   return node.kind === "struct" ? node.fields.map(emit).join(", ") : emit(node);
+}
+
+export function hasOverlappingAbiType(type: AbiType): boolean {
+  switch (type.kind) {
+    case AbiTypeKind.SCALAR:
+      return false;
+    case AbiTypeKind.STRUCT:
+      return hasOverlappingFields(type) ||
+        type.fields.some((field) => hasOverlappingAbiType(field.type));
+    case AbiTypeKind.ARRAY:
+      return hasOverlappingAbiType(type.element);
+    case AbiTypeKind.COLLECTION:
+      return hasOverlappingAbiType(type.value);
+    case AbiTypeKind.HASH_MAP:
+      return hasOverlappingAbiType(type.key) ||
+        hasOverlappingAbiType(type.value);
+    case AbiTypeKind.HASH_SET:
+      return hasOverlappingAbiType(type.key);
+  }
 }
 
 // Top-level value tokens (comma-separated) = an implicit struct. "" = empty input.
