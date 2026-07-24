@@ -2,20 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedCompiler, setSavedCompiler, COMPILERS, type Compiler } from "../config";
 import { Header, GradLine, theme } from "../ui";
-
-// qinit compiler                 -> interactive picker; ↵ saves, q cancels
-// qinit compiler <native|local>  -> set directly
-function parse(args: string[]): { name?: string; show?: boolean } {
-  const o: { name?: string; show?: boolean } = {};
-  for (const a of args) {
-    if (a === "--show") {
-      o.show = true;
-    } else if (!a.startsWith("--")) {
-      o.name = a;
-    }
-  }
-  return o;
-}
+import { parseArgs } from "../args";
 
 // The compiler is the backend every build command (build / deploy / dev / test) turns a .h into wasm with.
 const DESC: Record<Compiler, string> = {
@@ -24,7 +11,11 @@ const DESC: Record<Compiler, string> = {
 };
 
 export function CompilerCmd({ args }: { args: string[] }) {
-  const o = parse(args);
+  const parsed = parseArgs(args, { booleans: ["show"] });
+  const o = {
+    name: parsed.pos[0],
+    show: parsed.has("show"),
+  };
   const { exit } = useApp();
   const cur: Compiler = savedCompiler() ?? "native";
   const [i, setI] = useState(Math.max(0, COMPILERS.indexOf(cur)));

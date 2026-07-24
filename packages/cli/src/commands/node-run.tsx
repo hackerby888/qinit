@@ -22,23 +22,25 @@ import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 import { parseArgs, output } from "../args";
 import { prepareNodeRunCore } from "../node-run-core";
 
-// qinit node run [--ref <tag>] [--core <path>] [--restart] [--offline] [--bin <path>] [--tick-ms <n>] [--keep] [--rpc] [--wait]
-// Sync dependencies and launch the node, reusing a healthy process unless restart is requested.
-function parse(args: string[]): Record<string, string> {
-  const a = parseArgs(args, {
-    booleans: ["restart", "offline", "keep", "real", "realnode", "virtual"],
-  });
-  const o: Record<string, string> = { ...a.flags };
-  for (const b of ["restart", "offline", "keep", "real", "realnode", "virtual"])
-    if (a.has(b)) o[b] = "1";
-  return o;
-}
-
 type Phase = { key: string; label: string; state: StepState; detail?: string };
 
 export function NodeRun({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const o = parse(args);
+  const { flags: o } = parseArgs(args, {
+    strings: [
+      "ref",
+      "core",
+      "bin",
+      "tick-ms",
+      "peer-port",
+      "rpc",
+      "wait",
+      "dir",
+      "node-mode",
+      "peers",
+    ],
+    booleans: ["restart", "offline", "keep", "real", "realnode", "virtual"],
+  });
   const rpcBase = o.rpc || "http://127.0.0.1:41841";
   const peerPort = Number(o["peer-port"] || 21841);
   const ref = o.ref || "latest";
@@ -86,7 +88,7 @@ export function NodeRun({ args }: { args: string[] }) {
           bin = resolve(o.bin);
           if (!existsSync(bin)) throw new Error(`--bin not found: ${bin}`);
           set("node", "ok", `local ${bin}`);
-        } else if (o.offline) {
+        } else if ("offline" in o) {
           const c = cachedNode();
           if (!c) throw new Error("offline: no cached node — run `qinit node run` online first");
           bin = c;
@@ -100,7 +102,8 @@ export function NodeRun({ args }: { args: string[] }) {
         // native deps. Best-effort — WASM_CLANG/WASI_SYSROOT or a clang on PATH still work.
         set("wasi-sdk", "active");
         try {
-          if (o.offline) set("wasi-sdk", "ok", haveWasiSdkCache() ? "cached" : "offline — skipped");
+          if ("offline" in o)
+            set("wasi-sdk", "ok", haveWasiSdkCache() ? "cached" : "offline — skipped");
           else {
             const s = await fetchWasiSdk((rc, tt) =>
               set(
@@ -121,7 +124,7 @@ export function NodeRun({ args }: { args: string[] }) {
         let scratch = "",
           ok: boolean,
           tick: number;
-        if (st.up && st.ticking && !o.restart) {
+        if (st.up && st.ticking && !("restart" in o)) {
           ok = true;
           tick = st.tick;
           set("run", "ok", `reused, ticking at ${tick}`);

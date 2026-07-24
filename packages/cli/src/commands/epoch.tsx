@@ -4,23 +4,14 @@ import { LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { advanceTo } from "./tick";
 import { Header, Spinner, Bar, KV, theme } from "../ui";
-
-// qinit epoch           -> show the current-epoch tick window
-// qinit epoch advance   -> fast-tick to the next epoch
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = { sub: "" };
-  const pos: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--rpc") o.rpc = args[++i] ?? "";
-    else if (!a.startsWith("--")) pos.push(a);
-  }
-  o.sub = pos[0] ?? "";
-  return o;
-}
+import { parseArgs } from "../args";
 
 export function Epoch({ args }: { args: string[] }) {
-  const o = parse(args);
+  const parsed = parseArgs(args, { strings: ["rpc"] });
+  const o = {
+    rpc: parsed.get("rpc"),
+    sub: parsed.pos[0] ?? "",
+  };
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
   const [rows, setRows] = useState<[string, string][] | null>(null);

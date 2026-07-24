@@ -3,22 +3,10 @@ import { Box, Text, useApp } from "ink";
 import { LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { Header, Spinner, Bar, KV, theme } from "../ui";
+import { parseArgs } from "../args";
 
 // qinit tick                     -> show the current-epoch tick window
 // qinit tick advance <n>         -> advance the chain by n ticks (capped at the epoch's last tick)
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = { sub: "", arg: "" };
-  const pos: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--rpc") o.rpc = args[++i] ?? "";
-    else if (!a.startsWith("--")) pos.push(a);
-  }
-  o.sub = pos[0] ?? "";
-  o.arg = pos[1] ?? "";
-  return o;
-}
-
 // Drive system.tick to `target` via repeated bounded advance-tick calls. Returns the tick reached.
 export async function advanceTo(
   rpc: LiteRpc,
@@ -43,7 +31,12 @@ export async function advanceTo(
 }
 
 export function Tick({ args }: { args: string[] }) {
-  const o = parse(args);
+  const parsed = parseArgs(args, { strings: ["rpc"] });
+  const o = {
+    rpc: parsed.get("rpc"),
+    sub: parsed.pos[0] ?? "",
+    arg: parsed.pos[1] ?? "",
+  };
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
   const [rows, setRows] = useState<[string, string][] | null>(null);

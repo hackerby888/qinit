@@ -5,17 +5,9 @@ import type { SystemContract } from "@qinit/build";
 import { loadConfig } from "../config";
 import { loadSystem } from "../contracts";
 import { Header, Spinner, Panel, Table, theme, type Column } from "../ui";
-import { output } from "../args";
+import { output, parseArgs } from "../args";
 
 // qinit ls [--rpc <url>]  — user-deployed contracts (dyn-registry) first, then built-in system contracts (catalog).
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a.startsWith("--")) o[a.slice(2)] = args[++i] ?? "";
-  }
-  return o;
-}
 const COLS: Column[] = [
   { header: "slot", align: "right" },
   { header: "name", max: 20 },
@@ -33,7 +25,7 @@ const SYS_COLS: Column[] = [
 const stateOf = (c: DynContract) => (!c.armed ? "empty" : c.constructed ? "ready" : "constructing");
 
 export function Ls({ args }: { args: string[] }) {
-  const o = parse(args);
+  const { flags: o } = parseArgs(args, { strings: ["rpc"] });
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
   const [s, setS] = useState<{

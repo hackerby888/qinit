@@ -2,17 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedTheme, setSavedTheme } from "../config";
 import { Header, Grad, GradLine, THEMES, THEME_NAMES, applyTheme, theme } from "../ui";
-
-// qinit theme            -> interactive picker (live preview); ↵ saves, q cancels
-// qinit theme <name>     -> set directly
-function parse(args: string[]): { name?: string; show?: boolean } {
-  const o: { name?: string; show?: boolean } = {};
-  for (const a of args) {
-    if (a === "--show") o.show = true;
-    else if (!a.startsWith("--")) o.name = a;
-  }
-  return o;
-}
+import { parseArgs } from "../args";
 
 // a row of color blocks for one variant — gradient + brand/accent/info + semantic
 function Swatch({ name }: { name: string }) {
@@ -30,7 +20,11 @@ function Swatch({ name }: { name: string }) {
 }
 
 export function ThemeCmd({ args }: { args: string[] }) {
-  const o = parse(args);
+  const parsed = parseArgs(args, { booleans: ["show"] });
+  const o = {
+    name: parsed.pos[0],
+    show: parsed.has("show"),
+  };
   const { exit } = useApp();
   const cur = savedTheme() && THEMES[savedTheme()!] ? savedTheme()! : "default";
   const [i, setI] = useState(Math.max(0, THEME_NAMES.indexOf(cur)));

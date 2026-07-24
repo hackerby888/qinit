@@ -3,22 +3,10 @@ import { Box, Text, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Header, Panel, KV, theme } from "../ui";
-import { output } from "../args";
+import { output, parseArgs } from "../args";
 
 const EXTENSION_ID = "qinit.qpi-vscode";
 const EDITORS = ["code", "cursor", "windsurf", "codium"];
-
-function parse(args: string[]): { sub: string; o: Record<string, string> } {
-  const o: Record<string, string> = {};
-  let sub = "";
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a.startsWith("--"))
-      o[a.slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
-    else if (!sub) sub = a;
-  }
-  return { sub, o };
-}
 
 interface Result {
   ok: boolean;
@@ -29,7 +17,10 @@ interface Result {
 
 export function Ext({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { sub, o } = parse(args);
+  const { flags: o, pos } = parseArgs(args, {
+    strings: ["vsix", "editor"],
+  });
+  const sub = pos[0] ?? "";
   const [r, setR] = useState<Result | null>(null);
 
   useEffect(() => {

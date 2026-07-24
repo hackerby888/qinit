@@ -28,6 +28,7 @@ import {
 import { loadContracts, resolveContract } from "../contracts";
 import { contractIdlForSlot, loadContractIdlFile } from "../idl-file";
 import { Header, Spinner, Status, Bar, theme } from "../ui";
+import { invalidArgs, parseArgs } from "../args";
 
 type Result = {
   ok: boolean | null;
@@ -42,24 +43,29 @@ type Confirm = { start: number; net: number; target: number };
 // Non-interactive forms (qubic-cli style):
 //   qinit call --fn   <idx> <fnId>   --in "<fmt>" --out "<fmt>"
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--fn" || a === "--proc") {
-      o.mode = a.slice(2);
-      o.idx = args[++i];
-      o.entry = args[++i];
-    } else if (a.startsWith("--")) {
-      const next = args[i + 1];
-      o[a.slice(2)] = next === undefined || next.startsWith("--") ? "" : args[++i];
-    }
-  }
-  return o;
-}
 
 export function Call({ args }: { args: string[] }) {
-  const o = parse(args);
+  const parsed = parseArgs(args, {
+    strings: ["rpc", "seed", "args", "in", "out", "amount"],
+    booleans: ["fn", "proc", "trace", "all", "no-settle"],
+  });
+  const fn = parsed.has("fn");
+  const proc = parsed.has("proc");
+  if (fn && proc) {
+    invalidArgs("choose either --fn or --proc");
+  }
+
+  const mode = fn ? "fn" : proc ? "proc" : undefined;
+  if (mode && (!parsed.pos[0] || !parsed.pos[1])) {
+    invalidArgs(`${mode} requires <contract> and <entry>`);
+  }
+
+  const o: Record<string, string> = {
+    ...parsed.flags,
+    ...(mode
+      ? { mode, idx: parsed.pos[0], entry: parsed.pos[1] }
+      : {}),
+  };
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   if (o.mode !== "fn" && o.mode !== "proc")
     return <CallInteractive rpcBase={rpcBase} seed={o.seed} />;

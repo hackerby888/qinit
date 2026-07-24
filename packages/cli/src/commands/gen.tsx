@@ -7,19 +7,7 @@ import { loadQpiHeader } from "@qinit/compile";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCore } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
-
-// qinit gen [--contract <path>] [--name] [--slot] [--out <dir>]
-// Generate a typed TS client (interfaces + a class over callFunction/invokeProcedure) from the contract.
-function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
-  const o: Record<string, string> = {};
-  const pos: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith("--"))
-      o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
-    else pos.push(args[i]);
-  }
-  return { o, pos };
-}
+import { parseArgs } from "../args";
 
 type State =
   | { ok: true; file: string; name: string; slot: number; fns: number; procs: number }
@@ -28,7 +16,9 @@ type State =
 
 export function Gen({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { o, pos } = parse(args);
+  const { flags: o, pos } = parseArgs(args, {
+    strings: ["contract", "name", "slot", "out", "core"],
+  });
   const [s, setS] = useState<State>(null);
 
   useEffect(() => {

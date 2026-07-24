@@ -3,26 +3,33 @@ import { test, expect } from "bun:test";
 import { parseArgs, nearest, initOutput, output } from "../../src/args";
 
 test("parseArgs: positionals collected in order, separate from flags", () => {
-  const p = parseArgs(["run", "status", "--rpc", "http://x"]);
+  const p = parseArgs(["run", "status", "--rpc", "http://x"], {
+    strings: ["rpc"],
+  });
 
   expect(p.pos).toEqual(["run", "status"]);
   expect(p.flags.rpc).toBe("http://x");
   expect(p.get("rpc")).toBe("http://x");
 });
 
-test("parseArgs: --k v binds a value; a trailing --k with no value is empty string", () => {
-  const p = parseArgs(["--ref", "v1.2", "--restart"]);
+test("parseArgs: declared strings and booleans keep their existing result shape", () => {
+  const p = parseArgs(["--ref", "v1.2", "--restart"], {
+    strings: ["ref"],
+    booleans: ["restart"],
+  });
 
   expect(p.flags.ref).toBe("v1.2");
   expect(p.flags.restart).toBe("");
   expect(p.has("restart")).toBe(true);
 });
 
-test("parseArgs: a flag followed by another flag does not consume it", () => {
-  const p = parseArgs(["--a", "--b", "x"]);
+test("parseArgs: supports equals syntax and the option separator", () => {
+  const p = parseArgs(["--rpc=http://x", "--", "--literal"], {
+    strings: ["rpc"],
+  });
 
-  expect(p.flags.a).toBe("");
-  expect(p.flags.b).toBe("x");
+  expect(p.flags.rpc).toBe("http://x");
+  expect(p.pos).toEqual(["--literal"]);
 });
 
 test("parseArgs: declared booleans never consume the next token, even as the first arg", () => {
@@ -33,7 +40,9 @@ test("parseArgs: declared booleans never consume the next token, even as the fir
 });
 
 test("parseArgs: multi keys collect repeats and stay out of flags", () => {
-  const p = parseArgs(["--callee", "A=a@1", "--callee", "B=b@2"], { multi: ["callee"] });
+  const p = parseArgs(["--callee", "A=a@1", "--callee=B=b@2"], {
+    multi: ["callee"],
+  });
 
   expect(p.multi.callee).toEqual(["A=a@1", "B=b@2"]);
   expect(p.has("callee")).toBe(true);
@@ -59,6 +68,15 @@ test("parseArgs: get returns the default when the flag is absent", () => {
 
   expect(p.get("missing", "fallback")).toBe("fallback");
   expect(p.has("missing")).toBe(false);
+});
+
+test("parseArgs: rejects unknown flags and missing string values", () => {
+  expect(() => parseArgs(["--rpx", "http://x"], { strings: ["rpc"] })).toThrow(
+    "Unknown option '--rpx'",
+  );
+  expect(() => parseArgs(["--rpc"], { strings: ["rpc"] })).toThrow(
+    "argument missing",
+  );
 });
 
 test("nearest: suggests a plausible typo within the edit-distance threshold", () => {

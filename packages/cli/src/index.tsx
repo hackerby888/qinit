@@ -4,7 +4,7 @@ import { render } from "ink";
 import { App } from "./app";
 import { applyTheme } from "./ui";
 import { savedTheme } from "./config";
-import { initOutput } from "./args";
+import { initOutput, parseArgs } from "./args";
 
 // Safety net for async throws that escape a command's try/catch — print one clean line + exit 1
 // (instead of a raw stack dump that can also leave the terminal in Ink raw-mode).
@@ -23,20 +23,28 @@ const [, , command = "help", ...args] = process.argv;
 // no exit — so it stays up serving RPC like a real node. Must short-circuit before render().
 if (command === "__serve") {
   const { serveEngine } = await import("./serve");
-  const rpc = args[args.indexOf("--rpc") + 1] || "http://127.0.0.1:41841";
-  const tm = args.indexOf("--tick-ms");
-  const sys = args.indexOf("--system");
-  const pp = args.indexOf("--peer-port");
-  const sb = args.indexOf("--slot-base");
-  const sc = args.indexOf("--slot-count");
-  const system = sys >= 0 && args[sys + 1] ? args[sys + 1].split(",").filter(Boolean) : [];
+  const { flags } = parseArgs(args, {
+    strings: [
+      "rpc",
+      "tick-ms",
+      "system",
+      "peer-port",
+      "slot-base",
+      "slot-count",
+    ],
+  });
+  const rpc = flags.rpc || "http://127.0.0.1:41841";
+  const system = flags.system?.split(",").filter(Boolean) ?? [];
   await serveEngine(
     rpc,
-    tm >= 0 ? Number(args[tm + 1]) : undefined,
+    flags["tick-ms"] !== undefined ? Number(flags["tick-ms"]) : undefined,
     system,
-    pp >= 0 ? Number(args[pp + 1]) : 21841,
-    sb >= 0 && sc >= 0
-      ? { slotBase: Number(args[sb + 1]), slotCount: Number(args[sc + 1]) }
+    flags["peer-port"] !== undefined ? Number(flags["peer-port"]) : 21841,
+    flags["slot-base"] !== undefined && flags["slot-count"] !== undefined
+      ? {
+          slotBase: Number(flags["slot-base"]),
+          slotCount: Number(flags["slot-count"]),
+        }
       : undefined,
   );
 }

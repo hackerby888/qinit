@@ -15,18 +15,7 @@ import { compileLocal } from "../compile-local";
 import { loadQpiHeader } from "@qinit/compile";
 import { loadConfig, resolveCore, resolveCompiler } from "../config";
 import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
-import { output } from "../args";
-
-function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
-  const o: Record<string, string> = {};
-  const pos: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith("--"))
-      o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
-    else pos.push(args[i]);
-  }
-  return { o, pos };
-}
+import { output, parseArgs } from "../args";
 
 type State =
   { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate; notes?: string[] };
@@ -46,7 +35,11 @@ export function buildJsonResult(r: BuildResult, compiler: string) {
 
 export function Build({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { o, pos } = parse(args);
+  const { flags: o, pos, multi } = parseArgs(args, {
+    strings: ["contract", "name", "out", "slot", "core", "rpc"],
+    booleans: ["native", "local", "skip-verify"],
+    multi: ["callee"],
+  });
   const compiler = resolveCompiler(o); // saved `qinit compiler` pick, overridable per-run with --native/--local
   const [s, setS] = useState<State>({ phase: "run" });
 
@@ -61,9 +54,8 @@ export function Build({ args }: { args: string[] }) {
         const slot = Number(o.slot ?? cfg.slot ?? loadCoreWasmSlotLayout(core).slotBase);
 
         const dynCallees: Record<string, { header: string; index: number }> = {};
-        for (let i = 0; i < args.length; i++) {
-          if (args[i] !== "--callee") continue;
-          const m = (args[i + 1] ?? "").match(/^(\w+)=(.+)@(\d+)$/);
+        for (const value of multi.callee ?? []) {
+          const m = value.match(/^(\w+)=(.+)@(\d+)$/);
           if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
         }
 

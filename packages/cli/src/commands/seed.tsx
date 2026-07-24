@@ -3,22 +3,15 @@ import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, deriveIdentity } from "@qinit/core";
 import { savedSeed, setSavedSeed, clearSavedSeed, seedStorePath, loadConfig } from "../config";
 import { Header, Spinner, GradLine, theme } from "../ui";
+import { parseArgs } from "../args";
 
-// qinit seed [--clear] [--show] [--rpc <url>]
-// Pick one of the node's funded seeds; saved globally (XDG config, 0600) and auto-used wherever a seed is needed.
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--rpc") o.rpc = args[++i] ?? "";
-    else if (a.startsWith("--")) o[a.slice(2)] = "";
-  }
-  return o;
-}
 type Item = { seed: string; id: string };
 
 export function Seed({ args }: { args: string[] }) {
-  const o = parse(args);
+  const { flags: o } = parseArgs(args, {
+    strings: ["rpc"],
+    booleans: ["clear", "show"],
+  });
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);

@@ -1,3 +1,5 @@
+import { parseArgs as parseNodeArgs } from "node:util";
+
 export const output = { json: false, plain: false };
 
 export function initOutput(args: string[]): void {
@@ -18,56 +20,69 @@ export interface Parsed {
   get(name: string, def?: string): string | undefined;
 }
 
+interface ParseOptions {
+  strings?: readonly string[];
+  booleans?: readonly string[];
+  multi?: readonly string[];
+}
+
 export function parseArgs(
   args: string[],
-  options?: { booleans?: string[]; multi?: string[] },
+  options: ParseOptions = {},
 ): Parsed {
-  const booleans = new Set([...(options?.booleans ?? []), "json", "plain"]);
-  const multiKeys = new Set(options?.multi ?? []);
+  const definitions: Record<
+    string,
+    { type: "string" | "boolean"; multiple?: boolean; short?: string }
+  > = {
+    help: { type: "boolean", short: "h" },
+    json: { type: "boolean" },
+    plain: { type: "boolean" },
+  };
+
+  for (const name of options.strings ?? []) {
+    definitions[name] = { type: "string" };
+  }
+  for (const name of options.booleans ?? []) {
+    definitions[name] = { type: "boolean" };
+  }
+  for (const name of options.multi ?? []) {
+    definitions[name] = { type: "string", multiple: true };
+  }
+
+  const { values, positionals } = parseNodeArgs({
+    args,
+    options: definitions,
+    allowPositionals: true,
+    strict: true,
+  });
+
   const flags: Record<string, string> = {};
   const multi: Record<string, string[]> = {};
-  const pos: string[] = [];
-  let help = false;
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--help" || arg === "-h") {
-      help = true;
+  for (const [name, value] of Object.entries(values)) {
+    if (name === "help" || value === undefined) {
       continue;
     }
-
-    if (!arg.startsWith("--")) {
-      pos.push(arg);
-      continue;
-    }
-
-    const key = arg.slice(2);
-    let value = "";
-    const nextArg = args[i + 1];
-    if (
-      !booleans.has(key) &&
-      nextArg !== undefined &&
-      !nextArg.startsWith("--")
-    ) {
-      value = nextArg;
-      i++;
-    }
-
-    if (multiKeys.has(key)) {
-      (multi[key] ??= []).push(value);
+    if (Array.isArray(value)) {
+      multi[name] = value.map(String);
     } else {
-      flags[key] = value;
+      flags[name] = typeof value === "boolean" ? "" : String(value);
     }
   }
 
   return {
-    pos,
+    pos: positionals,
     flags,
     multi,
-    help,
+    help: values.help === true,
     has: (name) => name in flags || name in multi,
     get: (name, defaultValue) => (name in flags ? flags[name] : defaultValue),
   };
+}
+
+export function invalidArgs(message: string): never {
+  const error = new Error(message) as Error & { code: string };
+  error.code = "ERR_PARSE_ARGS_INVALID_POSITIONAL";
+  throw error;
 }
 
 function editDistance(left: string, right: string): number {

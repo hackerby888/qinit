@@ -5,14 +5,8 @@ import { basename } from "node:path";
 import { resolveCliTag, cliReleaseUrls, fetchCliSha, fetchVerify } from "@qinit/core";
 import { VERSION } from "../version";
 import { Header, Status, Spinner, Bar, theme } from "../ui";
+import { parseArgs } from "../args";
 
-// qinit self-update [--force] [--dry-run]
-// Replace the running qinit binary with the newest qinit-cli-* release (mirrors install.sh API tag resolution).
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = {};
-  for (const a of args) if (a.startsWith("--")) o[a.slice(2)] = "";
-  return o;
-}
 type S = {
   phase: "run" | "done" | "uptodate" | "dev" | "dry" | "err";
   from?: string;
@@ -23,7 +17,9 @@ type S = {
 };
 
 export function Update({ args }: { args: string[] }) {
-  const o = parse(args);
+  const { flags: o } = parseArgs(args, {
+    booleans: ["force", "dry-run"],
+  });
   const force = o.force !== undefined,
     dry = o["dry-run"] !== undefined;
   const { exit } = useApp();

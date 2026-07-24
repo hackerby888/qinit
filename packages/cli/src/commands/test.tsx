@@ -11,18 +11,7 @@ import { loadQpiHeader } from "@qinit/compile";
 import { EngineServer } from "@qinit/engine/server";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { loadContractIdlFile } from "../idl-file";
-
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a.startsWith("--")) {
-      const n = args[i + 1];
-      o[a.slice(2)] = n !== undefined && !n.startsWith("--") ? args[++i] : "";
-    }
-  }
-  return o;
-}
+import { parseArgs } from "../args";
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const STEP_LABEL: Record<string, string> = {
@@ -59,12 +48,37 @@ type State =
 
 export function Test({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const o = parse(args);
+  const { flags: o, pos } = parseArgs(args, {
+    strings: [
+      "contract",
+      "name",
+      "core",
+      "rpc",
+      "bin",
+      "ref",
+      "node-mode",
+      "peers",
+      "wait",
+      "seed",
+      "timeout",
+      "filter",
+    ],
+    booleans: [
+      "in-process",
+      "engine",
+      "real",
+      "realnode",
+      "native",
+      "local",
+      "keep",
+      "skip-verify",
+    ],
+  });
   const cfg = loadConfig();
   const root = process.cwd();
   const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";
   const contractPath = resolve(
-    o.contract ?? cfg.contract ?? "contracts/" + (cfg.name ?? "") + ".h",
+    o.contract ?? pos[0] ?? cfg.contract ?? "contracts/" + (cfg.name ?? "") + ".h",
   );
   const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
   const [s, setS] = useState<State>({ phase: "setup", spin: "starting", lines: [] });

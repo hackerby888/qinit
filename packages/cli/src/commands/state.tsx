@@ -6,30 +6,22 @@ import { StateView } from "../views";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
 import { loadContracts, systemAsDyn } from "../contracts";
 import { Header, Spinner, GradLine, Panel, KV, theme } from "../ui";
-import { output } from "../args";
+import { output, parseArgs } from "../args";
 import { readStateDigest, type StateDigestResult } from "../state-digest";
-
-// qinit state [<name|slot>] [--digest] [--json] [--rpc <url>]
-// Decode + print a deployed contract's CURRENT state. No target -> interactive picker of deployed contracts.
-function parse(args: string[]): { target: string; rpc?: string; all: boolean; digest: boolean } {
-  let target = "";
-  let rpc: string | undefined;
-  let all = false;
-  let digest = false;
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--rpc") rpc = args[++i];
-    else if (a === "--all") all = true;
-    else if (a === "--digest") digest = true;
-    else if (!a.startsWith("--") && !target) target = a;
-  }
-  return { target, rpc, all, digest };
-}
 
 type DigestOutput = StateDigestResult | { ok: false; error: string };
 
 export function State({ args }: { args: string[] }) {
-  const o = parse(args);
+  const parsed = parseArgs(args, {
+    strings: ["rpc"],
+    booleans: ["all", "digest"],
+  });
+  const o = {
+    target: parsed.pos[0] ?? "",
+    rpc: parsed.get("rpc"),
+    all: parsed.has("all"),
+    digest: parsed.has("digest"),
+  };
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
   const [lines, setLines] = useState<string[]>([]);

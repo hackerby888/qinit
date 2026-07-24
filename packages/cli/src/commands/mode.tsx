@@ -2,20 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedMode, setSavedMode, NODE_MODES, type NodeMode } from "../config";
 import { Header, GradLine, theme } from "../ui";
-
-// qinit mode                          -> interactive picker; ↵ saves, q cancels
-// qinit mode <realnode|virtualnode>   -> set directly
-function parse(args: string[]): { name?: string; show?: boolean } {
-  const o: { name?: string; show?: boolean } = {};
-  for (const a of args) {
-    if (a === "--show") {
-      o.show = true;
-    } else if (!a.startsWith("--")) {
-      o.name = a;
-    }
-  }
-  return o;
-}
+import { parseArgs } from "../args";
 
 // What each mode means, shown next to the choice in the picker. The mode is the backend every node command
 // (node run / deploy / call / state / dev / test) runs against.
@@ -25,7 +12,11 @@ const DESC: Record<NodeMode, string> = {
 };
 
 export function ModeCmd({ args }: { args: string[] }) {
-  const o = parse(args);
+  const parsed = parseArgs(args, { booleans: ["show"] });
+  const o = {
+    name: parsed.pos[0],
+    show: parsed.has("show"),
+  };
   const { exit } = useApp();
   const cur: NodeMode = savedMode() ?? "realnode";
   const [i, setI] = useState(Math.max(0, NODE_MODES.indexOf(cur)));

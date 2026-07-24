@@ -5,25 +5,14 @@ import { Box, Text, useApp } from "ink";
 import { verifyContract, type VerifyResult } from "@qinit/build";
 import { loadConfig } from "../config";
 import { Header, Panel, Status, theme, termCols } from "../ui";
-import { output } from "../args";
-
-// qinit verify <file.h> [--name <n>] [--callee <n>=<hdr>@<i>] [--json]
-// Run the same protocol-rule check that gates `qinit build`.
-function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
-  const o: Record<string, string> = {};
-  const pos: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a.startsWith("--"))
-      o[a.slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
-    else pos.push(a);
-  }
-  return { o, pos };
-}
+import { output, parseArgs } from "../args";
 
 export function Verify({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { o, pos } = parse(args);
+  const { flags: o, pos, multi } = parseArgs(args, {
+    strings: ["contract", "name"],
+    multi: ["callee"],
+  });
   const [r, setR] = useState<VerifyResult | null>(null);
   const [err, setErr] = useState("");
 
@@ -41,9 +30,8 @@ export function Verify({ args }: { args: string[] }) {
         // Declared inter-contract callees (--callee + CALL/INVOKE_OTHER_CONTRACT) — their scope-resolution
         // errors are false for declared callees and dropped by verifyContract (same as buildContract).
         const dynCallees: Record<string, { header: string; index: number }> = {};
-        for (let i = 0; i < args.length; i++) {
-          if (args[i] !== "--callee") continue;
-          const m = (args[i + 1] ?? "").match(/^(\w+)=(.+)@(\d+)$/);
+        for (const value of multi.callee ?? []) {
+          const m = value.match(/^(\w+)=(.+)@(\d+)$/);
           if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
         }
         const calleeNames = [

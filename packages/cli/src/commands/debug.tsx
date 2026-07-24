@@ -15,17 +15,8 @@ import { scratchDir } from "../node-ops";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
 import { contractIdlForSlot, loadContractIdlFile } from "../idl-file";
 import { Header, Table, Spinner, theme, type Column } from "../ui";
+import { parseArgs } from "../args";
 
-// qinit debug [--rpc <url>] [--contract <name|slot>]
-// Inspect live Wasm calls by enabling and polling the node's debug trace ring.
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = {};
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a.startsWith("--")) o[a.slice(2)] = args[++i] ?? "";
-  }
-  return o;
-}
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const LIST_COLS: Column[] = [
   { header: "tick", align: "right", max: 10 },
@@ -36,7 +27,9 @@ const LIST_COLS: Column[] = [
 ];
 
 export function Debug({ args }: { args: string[] }) {
-  const o = parse(args);
+  const { flags: o } = parseArgs(args, {
+    strings: ["rpc", "contract"],
+  });
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
   const rpc = useRef(new LiteRpc(rpcBase)).current;

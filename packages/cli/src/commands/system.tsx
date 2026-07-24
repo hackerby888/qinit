@@ -5,28 +5,10 @@ import { LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { systemCatalog, systemWasm } from "../system-wasm";
 import { Header, Spinner, Status } from "../ui";
+import { parseArgs } from "../args";
 
 // qinit system               -> list the system contracts (catalog + which are live on the node + selected)
 // qinit system add <name…>   -> compile (cache) + direct-deploy onto the running virtual node; save to qinit.json
-function parse(args: string[]): { sub: string; names: string[]; rpc?: string } {
-  const names: string[] = [];
-  let sub = "";
-  let rpc: string | undefined;
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a === "--rpc") {
-      rpc = args[++i];
-    } else if (!a.startsWith("--")) {
-      if (!sub) {
-        sub = a;
-      } else {
-        names.push(a);
-      }
-    }
-  }
-  return { sub, names, rpc };
-}
-
 type Line = { t: string; ok?: boolean | null };
 
 // Persist the selection into qinit.json (kept minimal — preserves the rest of the config).
@@ -41,7 +23,12 @@ function saveSelection(system: string[]): void {
 
 export function System({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const o = parse(args);
+  const parsed = parseArgs(args, { strings: ["rpc"] });
+  const o = {
+    sub: parsed.pos[0] ?? "",
+    names: parsed.pos.slice(1),
+    rpc: parsed.get("rpc"),
+  };
   const cfg = loadConfig();
   const rpcBase = o.rpc || cfg.rpc || "http://127.0.0.1:41841";
   const [lines, setLines] = useState<Line[]>([]);

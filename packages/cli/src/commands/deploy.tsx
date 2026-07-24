@@ -6,7 +6,7 @@ import { bytesToIdentity } from "@qinit/core";
 import { loadConfig, resolveCore, resolveCompiler } from "../config";
 import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
-import { output } from "../args";
+import { output, parseArgs } from "../args";
 
 interface SS {
   state: StepState;
@@ -16,19 +16,12 @@ interface SS {
   elapsedMs?: number;
 }
 
-function parse(args: string[]): { o: Record<string, string>; pos: string[] } {
-  const o: Record<string, string> = {};
-  const pos: string[] = [];
-  for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith("--"))
-      o[args[i].slice(2)] = args[i + 1] && !args[i + 1].startsWith("--") ? args[++i] : "";
-    else pos.push(args[i]);
-  }
-  return { o, pos };
-}
-
 export function Deploy({ args }: { args: string[] }) {
-  const { o, pos } = parse(args);
+  const { flags: o, pos, multi } = parseArgs(args, {
+    strings: ["contract", "name", "slot", "core", "rpc", "seed"],
+    booleans: ["native", "local", "skip-verify"],
+    multi: ["callee"],
+  });
   const { exit } = useApp();
   const [steps, setSteps] = useState<Record<string, SS>>({});
   const [notes, setNotes] = useState<string[]>([]);
@@ -49,9 +42,8 @@ export function Deploy({ args }: { args: string[] }) {
         const nm = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
         setName(nm);
         const dynCallees: Record<string, { header: string; index: number }> = {};
-        for (let i = 0; i < args.length; i++) {
-          if (args[i] !== "--callee") continue;
-          const m = (args[i + 1] ?? "").match(/^(\w+)=(.+)@(\d+)$/);
+        for (const value of multi.callee ?? []) {
+          const m = value.match(/^(\w+)=(.+)@(\d+)$/);
           if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
         }
         const sv = o.slot ?? cfg.slot;

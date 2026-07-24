@@ -35,32 +35,47 @@ import { Version } from "./commands/version";
 import { nearest } from "./args";
 import { META, COMMANDS } from "./meta";
 
-// Catch a render-time throw in any command so the CLI shows one clean line + exits 1, never a raw React crash.
-function Crash({ err }: { err: Error }) {
+// Catch a render-time throw so the CLI exits cleanly instead of leaving Ink in raw mode.
+function Crash({ err, command }: { err: Error; command: string }) {
   const { exit } = useApp();
+  const code = (err as Error & { code?: string }).code;
+  const invalidArgs = code?.startsWith("ERR_PARSE_ARGS_") ?? false;
+  const message = err.message.split("\n")[0];
+
   useEffect(() => {
     process.exitCode = 1;
     const t = setTimeout(() => exit(), 30);
     return () => clearTimeout(t);
   }, []);
+
   return (
-    <Box>
-      <Text color="red">✗ qinit crashed: {err.message}</Text>
+    <Box flexDirection="column">
+      <Text color="red">
+        ✗ {invalidArgs ? `invalid arguments: ${message}` : `qinit crashed: ${message}`}
+      </Text>
+      {invalidArgs ? <Text dimColor>run `qinit {command} --help`</Text> : null}
     </Box>
   );
 }
-class ErrorBoundary extends Component<{ children: ReactNode }, { err?: Error }> {
+class ErrorBoundary extends Component<
+  { children: ReactNode; command: string },
+  { err?: Error }
+> {
   state: { err?: Error } = {};
   static getDerivedStateFromError(err: Error) {
     return { err };
   }
   render() {
-    return this.state.err ? <Crash err={this.state.err} /> : this.props.children;
+    return this.state.err ? (
+      <Crash err={this.state.err} command={this.props.command} />
+    ) : (
+      this.props.children
+    );
   }
 }
 
 export function App({ command, args }: { command: string; args: string[] }) {
-  return <ErrorBoundary>{route(command, args)}</ErrorBoundary>;
+  return <ErrorBoundary command={command}>{route(command, args)}</ErrorBoundary>;
 }
 
 // Commands that were removed/renamed — point the old name at its replacement instead of a fuzzy "did you mean".

@@ -3,15 +3,10 @@ import { Box, Text, useApp } from "ink";
 import { cacheRoot } from "@qinit/core";
 import { cacheInfo, wipeCache, human, type CacheItem } from "../cache-ops";
 import { Header, Status, Spinner, KV, theme } from "../ui";
+import { parseArgs } from "../args";
 
 // qinit clean [--dry-run]
 // Remove ALL qinit cache (~/.cache/qinit or $QINIT_CACHE): fetched node, core-headers, wasi-sdk/clang artifacts.
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = {};
-  for (const a of args) if (a.startsWith("--")) o[a.slice(2)] = "";
-  return o;
-}
-
 type S = {
   phase: "run" | "empty" | "done" | "err";
   items?: CacheItem[];
@@ -21,7 +16,7 @@ type S = {
 };
 
 export function Clean({ args }: { args: string[] }) {
-  const o = parse(args);
+  const { flags: o } = parseArgs(args, { booleans: ["dry-run"] });
   const dry = o["dry-run"] !== undefined;
   const root = cacheRoot();
   const { exit } = useApp();

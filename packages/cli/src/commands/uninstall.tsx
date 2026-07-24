@@ -5,14 +5,8 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { cacheInfo, wipeCache, human } from "../cache-ops";
 import { Header, Status, Spinner, KV, theme } from "../ui";
+import { parseArgs } from "../args";
 
-// qinit uninstall [--yes] [--keep-cache] [--dry-run]
-// Remove the qinit binary AND its cache/data. Bare run = preview only; --yes actually removes.
-function parse(args: string[]): Record<string, string> {
-  const o: Record<string, string> = {};
-  for (const a of args) if (a.startsWith("--")) o[a.slice(2)] = "";
-  return o;
-}
 const isWin = process.platform === "win32";
 // the running exe (unless dev: bun/node) + the canonical install path, de-duped.
 function binTargets(): string[] {
@@ -40,7 +34,9 @@ type S = {
 };
 
 export function Uninstall({ args }: { args: string[] }) {
-  const o = parse(args);
+  const { flags: o } = parseArgs(args, {
+    booleans: ["yes", "keep-cache", "dry-run"],
+  });
   const go = o.yes !== undefined && o["dry-run"] === undefined;
   const keepCache = o["keep-cache"] !== undefined;
   const { exit } = useApp();
