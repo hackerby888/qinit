@@ -28,7 +28,7 @@ async function isTicking(rpcBase: string): Promise<boolean> {
   const rpc = new LiteRpc(rpcBase);
   try {
     const a = (await rpc.tickInfo()).tick ?? 0;
-    await sleep(1300);
+    await sleep(2500);
     const b = (await rpc.tickInfo()).tick ?? 0;
     return b > a;
   } catch {
