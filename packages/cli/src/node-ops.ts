@@ -18,7 +18,6 @@ import {
   fetchVerify,
   verifyPlatformKey,
   atomicWrite,
-  extractTarGz,
   debug,
   type AssetRef,
   type Manifest,
@@ -123,22 +122,11 @@ export async function fetchNodeBin(
   const dir = join(cacheRoot(), manifest.version, "node");
   const bin = join(dir, isWindows ? "Qubic.exe" : "Qubic");
   if (!existsSync(bin)) {
-    const archive = await fetchVerify(asset, onProgress);
+    const node = await fetchVerify(asset, onProgress);
     mkdirSync(dir, { recursive: true });
-
-    if (asset.url.endsWith(".tar.gz") || asset.url.endsWith(".tgz")) {
-      // Windows needs the bundled DLLs beside Qubic.exe.
-      await extractTarGz(archive, dir);
-      if (!existsSync(bin)) {
-        throw new Error(
-          `node archive ${asset.url} did not contain ${isWindows ? "Qubic.exe" : "Qubic"}`,
-        );
-      }
-    } else {
-      atomicWrite(bin, archive);
-      if (!isWindows) {
-        Bun.spawnSync(["chmod", "+x", bin]);
-      }
+    atomicWrite(bin, node);
+    if (!isWindows) {
+      Bun.spawnSync(["chmod", "+x", bin]);
     }
   }
 

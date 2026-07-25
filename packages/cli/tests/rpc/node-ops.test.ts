@@ -1,10 +1,23 @@
 // Ensure node lifecycle operations target only the tracked detached process.
 import { test, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+} from "node:fs";
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { killNode, nodeAlive, nodeAssetForPlatform } from "../../src/node-ops";
+import { basename, join } from "node:path";
+import { verifyPlatformKey } from "@qinit/core";
+import {
+  fetchNodeBin,
+  killNode,
+  nodeAlive,
+  nodeAssetForPlatform,
+} from "../../src/node-ops";
 
 const scratch = () => mkdtempSync(join(tmpdir(), "qinit-nodeops-"));
 const pidFile = (s: string) => join(s, "node.pid");
@@ -92,4 +105,68 @@ test("node assets follow manifest platform keys and keep the legacy Linux fallba
   expect(nodeAssetForPlatform(manifest, "linux-x64")).toBe(legacy);
   expect(nodeAssetForPlatform(manifest, "darwin-x64")).toBeUndefined();
   expect(nodeAssetForPlatform(manifest, "future-riscv64")).toBeUndefined();
+});
+
+test("fetchNodeBin downloads a verified raw platform executable and updates current", async () => {
+  const cache = scratch();
+  const originalCache = process.env.QINIT_CACHE;
+  const originalFetch = globalThis.fetch;
+  const bytes = new Uint8Array([0x51, 0x55, 0x42, 0x49, 0x43]);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const platform = verifyPlatformKey();
+  const filename = process.platform === "win32" ? "Qubic.exe" : "Qubic";
+
+  try {
+    process.env.QINIT_CACHE = cache;
+    globalThis.fetch = (async () =>
+      new Response(bytes, {
+        headers: { "content-length": String(bytes.length) },
+      })) as unknown as typeof fetch;
+
+    const manifest = {
+      version: "qinit-v-direct-node",
+      nodes: {
+        [platform]: {
+          url: "https://example.invalid/Qubic-node",
+          sha256,
+        },
+      },
+    };
+    const downloaded = await fetchNodeBin("unused", undefined, manifest);
+
+    expect(basename(downloaded.bin)).toBe(filename);
+    expect(readFileSync(downloaded.bin)).toEqual(Buffer.from(bytes));
+    expect(downloaded.version).toBe(manifest.version);
+
+    const current = JSON.parse(
+      readFileSync(join(cache, "current.json"), "utf8"),
+    );
+    expect(current.nodeVersion).toBe(manifest.version);
+    expect(current.node).toBe(downloaded.bin);
+
+    const badManifest = {
+      ...manifest,
+      version: "qinit-v-bad-node",
+      nodes: {
+        [platform]: {
+          ...manifest.nodes[platform],
+          sha256: "0".repeat(64),
+        },
+      },
+    };
+    await expect(
+      fetchNodeBin("unused", undefined, badManifest),
+    ).rejects.toThrow("sha256 mismatch");
+    expect(
+      existsSync(join(cache, badManifest.version, "node", filename)),
+    ).toBe(false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCache === undefined) {
+      delete process.env.QINIT_CACHE;
+    } else {
+      process.env.QINIT_CACHE = originalCache;
+    }
+    rmSync(cache, { recursive: true, force: true });
+  }
 });

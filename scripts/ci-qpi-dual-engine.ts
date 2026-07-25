@@ -75,7 +75,7 @@ function same(left: Uint8Array, right: Uint8Array, label: string): void {
 }
 
 function cmakeProof(): Record<string, string> {
-  const cachePath = ["build-node", "build-win"]
+  const cachePath = ["build-node", "build-win-static", "build-win"]
     .map((directory) => resolve(core!, directory, "CMakeCache.txt"))
     .find(existsSync);
   if (!cachePath) {
