@@ -1,5 +1,4 @@
-// The shared boot-wait poller (scripts/poll-node-json.sh) gates both qinit's own CI and core-lite's
-// qinit-release smoke, so a regression in it is expensive. Exercise it directly against a Bun.serve:
+// The shared boot-wait poller gates Qinit's live-node CI.
 import { test, expect } from "bun:test";
 import { join } from "node:path";
 
@@ -11,7 +10,7 @@ const canPoll = ["bash", "curl", "jq"].every((c) => !!Bun.which(c));
 // async Bun.spawn (NOT spawnSync): a sync spawn blocks the event loop, so the in-process Bun.serve
 // could not answer the script's curl. Awaiting lets the server respond while bash runs.
 async function runPoll(url: string, filter: string, tries = "3", nap = "1") {
-  const p = Bun.spawn(["bash", "scripts/poll-node-json.sh", url, filter, tries, nap], {
+  const p = Bun.spawn(["bash", "scripts/live-node/poll-node-json.sh", url, filter, tries, nap], {
     cwd: repoRoot,
     stdout: "pipe",
     stderr: "pipe",

@@ -10,19 +10,19 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { buildContract } from "../packages/build/src/index";
-import { deployContract } from "../packages/cli/src/deploy-ops";
+import { buildContract } from "../../packages/build/src/index";
+import { deployContract } from "../../packages/cli/src/deploy-ops";
 import {
   compileContract,
   DiagnosticSeverity,
   inspectWasmModule,
   loadQpiHeader,
-} from "../packages/compile/src/index";
-import { QPI_SNAPSHOT } from "../packages/compile/src/generated/qpi-snapshot";
-import { initK12, k12Hex, LiteRpc } from "../packages/core/src/index";
-import { VirtualNode } from "../packages/engine/src/index";
-import { EngineServer } from "../packages/engine/src/server";
-import { invokeProcedure } from "../packages/proto/src/index";
+} from "../../packages/compile/src/index";
+import { QPI_SNAPSHOT } from "../../packages/compile/src/generated/qpi-snapshot";
+import { initK12, k12Hex, LiteRpc } from "../../packages/core/src/index";
+import { VirtualNode } from "../../packages/engine/src/index";
+import { EngineServer } from "../../packages/engine/src/server";
+import { invokeProcedure } from "../../packages/proto/src/index";
 
 const rpcBase = process.env.QINIT_RPC ?? "http://127.0.0.1:41841";
 const core = process.env.QINIT_CORE;

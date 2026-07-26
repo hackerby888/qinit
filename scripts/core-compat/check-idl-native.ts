@@ -1,3 +1,4 @@
+// Compare generated IDL layouts with native core-lite C++ layouts.
 import {
   existsSync,
   mkdtempSync,

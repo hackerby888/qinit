@@ -2,7 +2,7 @@
 # Regression guard: the `bun --compile` binary must run wasm crypto (K12 + FourQ).
 # The static-require k12 dedup is brittle — a lib bump can silently rebreak it in the compiled binary.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 bun run build:bin >/dev/null
 strip() {

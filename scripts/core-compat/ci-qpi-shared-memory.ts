@@ -1,6 +1,6 @@
 // Run imported-memory suites that cannot use the ordinary shadow-state harness.
 import { rmSync } from "node:fs";
-import { runCorpus } from "../packages/cli/src/corpus-run";
+import { runCorpus } from "../../packages/cli/src/corpus-run";
 
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE not set");

@@ -1,4 +1,5 @@
-// Cross-boundary protocol constants that MIRROR core-lite. The drift guard (scripts/check-protocol-drift.ts)
+// Cross-boundary protocol constants that MIRROR core-lite. The drift guard
+// (scripts/core-compat/check-protocol-drift.ts)
 // asserts these equal the core values in CI — change here AND in core together, never one side alone.
 
 // Lite deploy transaction inputTypes — core runtime/deployment_protocol.h WASM_DEPLOYMENT_*.

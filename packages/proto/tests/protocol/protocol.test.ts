@@ -7,7 +7,7 @@ import {
   CHUNK_HEADER_SIZE,
 } from "../../src/protocol";
 
-// These lock the qinit side; scripts/check-protocol-drift.ts locks them against core in CI.
+// These lock the Qinit side; scripts/core-compat/check-protocol-drift.ts locks them against core in CI.
 test("LITE_TX deploy inputTypes", () => {
   expect(LITE_TX).toEqual({ UPLOAD_BEGIN: 240, UPLOAD_CHUNK: 241, DEPLOY: 242 });
 });

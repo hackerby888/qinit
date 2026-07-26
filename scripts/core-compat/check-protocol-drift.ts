@@ -3,19 +3,19 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
-import { loadCoreWasmSlotLayout } from "../packages/core/src/wasm-slot-layout-node";
-import { LITE_DEPLOY_ADDRESS } from "../packages/core/src/tx";
+import { loadCoreWasmSlotLayout } from "../../packages/core/src/wasm-slot-layout-node";
+import { LITE_DEPLOY_ADDRESS } from "../../packages/core/src/tx";
 import {
   DeployMessage,
   UploadBegin,
   UploadChunkHeader,
-} from "../packages/proto/src/deploy";
+} from "../../packages/proto/src/deploy";
 import {
   CHUNK_DATA_MAX,
   LITE_TX,
   LOG_SEVERITY,
   MAX_INPUT_SIZE,
-} from "../packages/proto/src/protocol";
+} from "../../packages/proto/src/protocol";
 
 const core = process.env.QINIT_CORE;
 if (!core) {

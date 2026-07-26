@@ -2,16 +2,16 @@
 // release-configured core-lite WAMR node. QINIT_CORE and a ticking node at QINIT_RPC are required.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { initK12, k12Hex, LiteRpc } from "../packages/core/src/index";
+import { initK12, k12Hex, LiteRpc } from "../../packages/core/src/index";
 import {
   compileContract,
   DiagnosticSeverity,
   inspectWasmModule,
   loadQpiHeader,
-} from "../packages/compile/src/index";
-import { Sim } from "../packages/engine/src/index";
-import { deployContract } from "../packages/cli/src/deploy-ops";
-import { invokeProcedure, resolveSlot } from "../packages/proto/src/index";
+} from "../../packages/compile/src/index";
+import { Sim } from "../../packages/engine/src/index";
+import { deployContract } from "../../packages/cli/src/deploy-ops";
+import { invokeProcedure, resolveSlot } from "../../packages/proto/src/index";
 
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE not set");

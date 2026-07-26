@@ -1,8 +1,8 @@
 // Run contractverify over every fixture and fail on real protocol violations.
 import { readdirSync } from "node:fs";
 import { join, basename } from "node:path";
-import { verifyContract } from "../packages/build/src/verify";
-import { autoUpdateVerifyTool } from "../packages/core/src/index";
+import { verifyContract } from "../../packages/build/src/verify";
+import { autoUpdateVerifyTool } from "../../packages/core/src/index";
 
 // Best effort: fetch contractverify on a clean runner.
 await autoUpdateVerifyTool().catch(() => {});
@@ -20,7 +20,7 @@ const UNVERIFIABLE: Record<string, string> = {
   Trap: "deliberately uses forbidden raw division to exercise Wasm trap isolation",
 };
 
-const dir = join(import.meta.dir, "..", "fixtures");
+const dir = join(import.meta.dir, "..", "..", "fixtures");
 const files = readdirSync(dir).filter((file) => file.endsWith(".h")).sort();
 let failed = 0;
 let skipped = 0;

@@ -2,7 +2,7 @@
 # End-to-end smoke: cached node up -> deploy Counter -> verify ARMED (codeHash) -> call Get.
 # Requires a synced node (`qinit node get` / `qinit node run`). Exercises deploy arm-verification (#1).
 set -euo pipefail
-repo_root=$(cd "$(dirname "$0")/.." && pwd)
+repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$repo_root"
 
 qinit=./dist/qinit

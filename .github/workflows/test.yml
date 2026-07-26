@@ -137,7 +137,7 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install
       - name: contractverify fixtures
-        run: bun run scripts/verify-fixtures.ts
+        run: bun run scripts/contractverify/verify-fixtures.ts
 
   corpus:
     runs-on: ubuntu-latest
@@ -162,7 +162,7 @@ jobs:
       - name: Protocol drift guard (qinit constants vs core)
         env:
           QINIT_CORE: ${{ github.workspace }}/core
-        run: bun run scripts/check-protocol-drift.ts
+        run: bun run scripts/core-compat/check-protocol-drift.ts
 
       - name: Native IDL ABI
         env:
@@ -195,7 +195,7 @@ jobs:
           QINIT_CORE: ${{ github.workspace }}/core
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
-        run: bun run scripts/ci-build-corpus.ts
+        run: bun run scripts/core-compat/ci-build-corpus.ts
 
       - name: Light system-contract gtests (Clang runner, TS contracts)
         env:
@@ -217,7 +217,7 @@ jobs:
           QINIT_CORE: ${{ github.workspace }}/core
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
-        run: bun run scripts/ci-qpi-shared-memory.ts
+        run: bun run scripts/core-compat/ci-qpi-shared-memory.ts
 
       - name: CLI Wasm integrations
         env:
@@ -375,7 +375,7 @@ jobs:
                 --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000 > node.log 2>&1
             ) &
             node_pid=$!
-            if t=$(bash scripts/poll-node-json.sh http://127.0.0.1:41841/live/v1/tick-info '.tick // 0' 50 3); then
+            if t=$(bash scripts/live-node/poll-node-json.sh http://127.0.0.1:41841/live/v1/tick-info '.tick // 0' 50 3); then
               echo "node ticking at $t"
             else
               echo "node never ticked"
@@ -388,8 +388,8 @@ jobs:
           # Basic deploy coverage fits in three dynamic slots.
           start_node run-basic
           set +e
-          bun run scripts/ci-deploy-smoke.ts; c1=$?
-          bun run scripts/gauntlet-smoke.ts;  c2=$?   # QPI edge-case gauntlet (div/mod, wrap, K12, HashMap, ...)
+          bun run scripts/live-node/ci-deploy-smoke.ts; c1=$?
+          bun run scripts/live-node/gauntlet-smoke.ts;  c2=$?   # QPI edge-case gauntlet (div/mod, wrap, K12, HashMap, ...)
           set -e
           stop_node
           echo "=== run-basic/node.log tail ==="; tail -25 run-basic/node.log
@@ -397,7 +397,7 @@ jobs:
           # The full TS/Clang x virtual/core matrix owns all four slots.
           start_node run-matrix
           set +e
-          bun run scripts/ci-qpi-dual-engine.ts; c3=$?
+          bun run scripts/live-node/ci-qpi-dual-engine.ts; c3=$?
           set -e
           stop_node
           echo "=== run-matrix/node.log tail ==="; tail -25 run-matrix/node.log
@@ -405,8 +405,8 @@ jobs:
           # Use fresh state so these independent fixtures do not fail from slot exhaustion.
           start_node run-dual
           set +e
-          bun run scripts/ci-logging-dual-engine.ts; c4=$? # one TS artifact, byte-identical LOG_* payloads in Sim + production WAMR
-          bun run scripts/ci-random-dual-engine.ts; c5=$? # chain-seeded PRNG vectors, exact artifact and state in Sim + WAMR
+          bun run scripts/live-node/ci-logging-dual-engine.ts; c4=$? # one TS artifact, byte-identical LOG_* payloads in Sim + production WAMR
+          bun run scripts/live-node/ci-random-dual-engine.ts; c5=$? # chain-seeded PRNG vectors, exact artifact and state in Sim + WAMR
           set -e
           stop_node
           echo "=== run-dual/node.log tail ==="; tail -25 run-dual/node.log
