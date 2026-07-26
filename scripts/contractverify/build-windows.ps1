@@ -51,30 +51,6 @@ function Assert-StaticRuntimeProjects {
     [string[]]$BuildDirs
   )
 
-  $projects = @(
-    foreach ($dir in $BuildDirs) {
-      Get-ChildItem -LiteralPath $dir -Filter "*.vcxproj" -File -Recurse
-    }
-  )
-  $audited = @{}
-
-  foreach ($project in $projects) {
-    [xml]$document = Get-Content -LiteralPath $project.FullName -Raw
-    $runtimeNodes = @(
-      $document.SelectNodes("//*[local-name()='RuntimeLibrary']")
-    )
-    if ($runtimeNodes.Count -eq 0) {
-      continue
-    }
-
-    foreach ($node in $runtimeNodes) {
-      if ($node.InnerText.Trim() -ne "MultiThreaded") {
-        throw "$($project.FullName) uses RuntimeLibrary '$($node.InnerText)'"
-      }
-    }
-    $audited[$project.BaseName] = $true
-  }
-
   $requiredProjects = @(
     "cppast",
     "cppparser_lex_and_yacc",
@@ -82,13 +58,34 @@ function Assert-StaticRuntimeProjects {
     "contractverifylib",
     "contractverify"
   )
+
   foreach ($name in $requiredProjects) {
-    if (-not $audited.ContainsKey($name)) {
+    $projects = @(
+      foreach ($dir in $BuildDirs) {
+        Get-ChildItem -LiteralPath $dir -Filter "$name.vcxproj" -File -Recurse
+      }
+    )
+    if ($projects.Count -ne 1) {
+      throw "expected one generated project '$name', found $($projects.Count)"
+    }
+
+    $project = $projects[0]
+    [xml]$document = Get-Content -LiteralPath $project.FullName -Raw
+    $runtimeNodes = @(
+      $document.SelectNodes("//*[local-name()='RuntimeLibrary']")
+    )
+    if ($runtimeNodes.Count -eq 0) {
       throw "RuntimeLibrary was not found in generated project '$name'"
+    }
+
+    foreach ($node in $runtimeNodes) {
+      if ($node.InnerText.Trim() -ne "MultiThreaded") {
+        throw "$($project.FullName) uses RuntimeLibrary '$($node.InnerText)'"
+      }
     }
   }
 
-  Write-Host "RuntimeLibrary audit passed for $($audited.Count) generated projects"
+  Write-Host "RuntimeLibrary audit passed for $($requiredProjects.Count) linked projects"
 }
 
 function Assert-Smoke {

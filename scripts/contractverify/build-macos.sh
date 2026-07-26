@@ -25,7 +25,7 @@ audit_binary() {
 
   architectures="$(xcrun lipo -archs "$binary")"
   architecture_count="$(printf "%s\n" "$architectures" | awk "{ print NF }")"
-  xcrun lipo -verify_arch arm64 x86_64 "$binary"
+  xcrun lipo "$binary" -verify_arch arm64 x86_64
   [[ "$architecture_count" -eq 2 ]] ||
     fail "expected only arm64 and x86_64 slices, got: $architectures"
 
