@@ -119,6 +119,7 @@ function Assert-Smoke {
   }
 
   Write-Host "$Name smoke passed"
+  $global:LASTEXITCODE = 0
 }
 
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
