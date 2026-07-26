@@ -1,9 +1,10 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Drives the upstream QUTIL gtests against deployable QUTIL and QX Wasm.
-import { existsSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { wasiToolchain } from "./container-toolchains";
 import { runContractTesting } from "@qinit/engine";
 import {
   compileContract,
@@ -24,12 +25,7 @@ export interface TR {
 }
 
 export function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
+  return wasiToolchain().available;
 }
 
 function calleeIdlFrom(name: string, slot: number, result: CompileResult): ContractIdl {

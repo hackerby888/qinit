@@ -7,7 +7,7 @@ import { loadSystem } from "../contracts";
 import { extractIdl, genStdGtest } from "@qinit/build";
 import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "../templates";
 import { loadConfiguredQpiHeader } from "../config";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 // Sanitize a project name into a valid C++ struct identifier (PascalCase-ish).
 function toIdent(name: string): string {
@@ -18,9 +18,7 @@ function toIdent(name: string): string {
 
 export function New({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags, pos } = parseArgs(args, {
-    strings: ["template", "core"],
-  });
+  const { flags, pos } = parseCommandArgs("new", args);
   const o: { name?: string; template?: string; core?: string } = {
     ...flags,
     name: pos[0],

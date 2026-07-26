@@ -2,9 +2,10 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 // Covers token host calls and id construction against native behavior.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
-import { buildCorpusRunner } from "@qinit/build";
+import { readFileSync } from "node:fs";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -42,14 +43,7 @@ TEST(Token, NextIdIsDeterministic) {
 `,
 );
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — Token (qpi host calls)", () => {
   beforeAll(async () => {
@@ -57,30 +51,17 @@ describe("differential gtest — Token (qpi host calls)", () => {
   });
 
   test("my Token.wasm passes the native Token gtest", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
-    const { writeFileSync, mkdtempSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "token-diff-"));
-    const contractPath = join(dir, "Token.h");
-    writeFileSync(contractPath, TOKEN);
-
-    const testPath = join(dir, "Token.test.cpp");
-    writeFileSync(testPath, TOKEN_GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "Token",
-      stateType: "Token",
-      slot: 28,
+    const runnerWasm = await buildDifferentialRunner({
       corePath: CORE,
-      outDir: dir,
+      source: TOKEN,
+      testSource: TOKEN_GTEST,
+      name: "Token",
+      tempPrefix: "token-diff-",
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
     const mine = await compileContract({
       source: TOKEN,

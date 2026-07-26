@@ -1,8 +1,9 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // 32-bit fidelity parity for int-rank operations.
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync, writeFileSync, mkdtempSync, readFileSync } from "node:fs";
+import { writeFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContract } from "@qinit/build";
@@ -92,14 +93,7 @@ const run = (wasm: Uint8Array): bigint => {
   return new DataView(st.buffer, st.byteOffset).getBigUint64(0, true);
 };
 
-const wasiOk = (() => {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-})();
+const wasiOk = wasiToolchain().available;
 
 describe("32-bit width fidelity vs native", () => {
   beforeAll(async () => {

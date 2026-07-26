@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential gtest for BitArray<L> (bit_4096) compiled from the real qpi.h inline bodies: set/get of individual bits + setAll.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -62,26 +62,13 @@ describe("differential gtest — BitArray (bit_4096 set/get/setAll)", () => {
     "my BitArray contract passes the native gtest",
     wasi,
     async () => {
-      const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-      const { tmpdir } = await import("node:os");
-      const { join } = await import("node:path");
-      const dir = mkdtempSync(join(tmpdir(), "bitarray-diff-"));
-      const contractPath = join(dir, "Bits.h");
-      writeFileSync(contractPath, BITS);
-
-      const testPath = join(dir, "Bits.test.cpp");
-      writeFileSync(testPath, BITS_GTEST);
-      const built = await buildCorpusRunner({
-        corpusPath: testPath,
-        contractPath,
-        name: "Bits",
-        stateType: "Bits",
-        slot: 28,
+      const runnerWasm = await buildDifferentialRunner({
         corePath: CORE,
-        outDir: dir,
+        source: BITS,
+        testSource: BITS_GTEST,
+        name: "Bits",
+        tempPrefix: "bitarray-diff-",
       });
-      expect(built.ok).toBe(true);
-      const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
       const mine = await compileContract({
         source: BITS,

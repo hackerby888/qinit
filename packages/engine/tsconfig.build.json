@@ -12,5 +12,5 @@
       "@qinit/proto": ["packages/proto/dist/index.d.ts"]
     }
   },
-  "include": ["src/index.ts", "src/server.ts"]
+  "include": ["src/index.ts", "src/server.ts", "src/peer-server.ts"]
 }

@@ -49,6 +49,17 @@ test("call mode flags leave contract and entry as positionals", async () => {
   expect(result.stderr).toBe("");
 });
 
+test("CLI reports malformed callee declarations as argument errors", async () => {
+  const result = await run("build", "Counter.h", "--callee", "broken");
+
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain(
+    "invalid arguments: invalid --callee 'broken': expected Name=header@index",
+  );
+  expect(result.stdout).toContain("qinit build --help");
+  expect(result.stderr).toBe("");
+});
+
 test("hidden server options are strict too", async () => {
   const result = await run("__serve", "--bogus");
 

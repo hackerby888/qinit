@@ -28,7 +28,7 @@ import {
 import { loadContracts, resolveContract } from "../contracts";
 import { contractIdlForSlot, loadContractIdlFile } from "../idl-file";
 import { Header, Spinner, Status, Bar, theme } from "../ui";
-import { invalidArgs, parseArgs } from "../args";
+import { invalidArgs, parseCommandArgs } from "../args";
 
 type Result = {
   ok: boolean | null;
@@ -45,10 +45,7 @@ type Confirm = { start: number; net: number; target: number };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function Call({ args }: { args: string[] }) {
-  const parsed = parseArgs(args, {
-    strings: ["rpc", "seed", "args", "in", "out", "amount"],
-    booleans: ["fn", "proc", "trace", "all", "no-settle"],
-  });
+  const parsed = parseCommandArgs("call", args);
   const fn = parsed.has("fn");
   const proc = parsed.has("proc");
   if (fn && proc) {

@@ -13,5 +13,5 @@
       "@qinit/proto/qpi-layout": ["packages/proto/dist/qpi-layout.d.ts"]
     }
   },
-  "include": ["src/index.ts", "src/analyzer.ts"]
+  "files": ["src/index.ts", "src/browser.ts", "src/analyzer.ts"]
 }

@@ -5,7 +5,7 @@ import { LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { systemCatalog, systemWasm } from "../system-wasm";
 import { Header, Spinner, Status } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 // qinit system               -> list the system contracts (catalog + which are live on the node + selected)
 // qinit system add <name…>   -> compile (cache) + direct-deploy onto the running virtual node; save to qinit.json
@@ -23,7 +23,7 @@ function saveSelection(system: string[]): void {
 
 export function System({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const parsed = parseArgs(args, { strings: ["rpc"] });
+  const parsed = parseCommandArgs("system", args);
   const o = {
     sub: parsed.pos[0] ?? "",
     names: parsed.pos.slice(1),

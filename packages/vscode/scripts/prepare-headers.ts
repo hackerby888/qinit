@@ -30,9 +30,9 @@ if (process.argv.includes("--check")) {
 }
 
 const manifest = JSON.parse(
-  readFileSync(join(repositoryRoot, "packages", "compile", "core-snapshot.json"), "utf8"),
+  readFileSync(join(repositoryRoot, "config", "repositories.json"), "utf8"),
 ) as {
-  core: { repository: string; commit: string };
+  coreLite: { repository: string; pinnedCommit: string };
 };
 const core = resolve(process.argv[2] ?? process.env.QINIT_CORE ?? "");
 if (!core || !existsSync(join(core, "src", "contracts", "qpi.h"))) {
@@ -41,9 +41,13 @@ if (!core || !existsSync(join(core, "src", "contracts", "qpi.h"))) {
 
 const revision = Bun.spawnSync(["git", "-C", core, "rev-parse", "HEAD"]);
 const actualCommit = revision.stdout.toString().trim();
-if (revision.exitCode !== 0 || actualCommit !== manifest.core.commit) {
+if (
+  revision.exitCode !== 0 ||
+  actualCommit !== manifest.coreLite.pinnedCommit
+) {
   throw new Error(
-    `core commit ${actualCommit || "unknown"} does not match ${manifest.core.commit}`,
+    `core commit ${actualCommit || "unknown"} does not match ` +
+      manifest.coreLite.pinnedCommit,
   );
 }
 
@@ -57,12 +61,14 @@ writeFileSync(
   join(resources, "snapshot.json"),
   JSON.stringify(
     {
-      coreRepository: manifest.core.repository,
-      coreCommit: manifest.core.commit,
+      coreRepository: manifest.coreLite.repository,
+      coreCommit: manifest.coreLite.pinnedCommit,
       fileCount: snapshot.fileCount,
     },
     null,
     2,
   ) + "\n",
 );
-console.log(`prepared ${snapshot.fileCount} headers from ${manifest.core.commit}`);
+console.log(
+  `prepared ${snapshot.fileCount} headers from ${manifest.coreLite.pinnedCommit}`,
+);

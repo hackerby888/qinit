@@ -1,0 +1,245 @@
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { parseArgs } from "node:util";
+import { cacheRoot } from "@qinit/core";
+import repositories from "../../config/repositories.json";
+
+interface RunOptions {
+  cwd?: string;
+  env?: Record<string, string>;
+  capture?: boolean;
+  allowFailure?: boolean;
+}
+
+async function run(
+  command: string[],
+  options: RunOptions = {},
+): Promise<string> {
+  const child = Bun.spawn(command, {
+    cwd: options.cwd,
+    env: { ...process.env, ...options.env },
+    stdout: options.capture ? "pipe" : "inherit",
+    stderr: "inherit",
+  });
+  const stdout = options.capture
+    ? await new Response(child.stdout).text()
+    : "";
+  const exitCode = await child.exited;
+  if (exitCode !== 0 && !options.allowFailure) {
+    throw new Error(`${command[0]} exited with code ${exitCode}`);
+  }
+  return stdout;
+}
+
+function required(
+  values: Record<string, string | undefined>,
+  name: string,
+): string {
+  const value = values[name];
+  if (!value) {
+    throw new Error(`missing --${name}`);
+  }
+  return value;
+}
+
+const { values } = parseArgs({
+  args: process.argv.slice(2),
+  options: {
+    core: { type: "string" },
+    bin: { type: "string" },
+    platform: { type: "string" },
+    result: { type: "string" },
+    "qinit-bin": { type: "string" },
+    "qinit-repository": { type: "string" },
+    "core-repository": { type: "string" },
+  },
+  strict: true,
+});
+
+const parsed = values as Record<string, string | undefined>;
+const qinitRoot = resolve(import.meta.dir, "../..");
+const core = resolve(required(parsed, "core"));
+const nodeBin = resolve(required(parsed, "bin"));
+const qinitBin = resolve(
+  parsed["qinit-bin"] ??
+    process.env.QINIT_BIN ??
+    join(qinitRoot, "dist", process.platform === "win32" ? "qinit.exe" : "qinit"),
+);
+const platform = required(parsed, "platform");
+const resultPath = resolve(required(parsed, "result"));
+const qinitRepository =
+  parsed["qinit-repository"] ?? repositories.qinit.repository;
+const coreRepository =
+  parsed["core-repository"] ?? repositories.coreLite.repository;
+
+if (!existsSync(nodeBin)) {
+  throw new Error(`node binary not found: ${nodeBin}`);
+}
+if (!existsSync(qinitBin)) {
+  throw new Error(`qinit binary not found: ${qinitBin}`);
+}
+
+const qinitCommit = (
+  await run(["git", "-C", qinitRoot, "rev-parse", "HEAD"], { capture: true })
+).trim();
+const coreCommit = (
+  await run(["git", "-C", core, "rev-parse", "HEAD"], { capture: true })
+).trim();
+const scratch = mkdtempSync(join(tmpdir(), "qinit-core-smoke-"));
+const qpiDigestPath = join(scratch, "qpi-digests.txt");
+const project = join(scratch, "project");
+const nodeLog = join(cacheRoot(), "run", "node.log");
+
+const result = {
+  platform,
+  skipped: false,
+  sources: {
+    qinit: { repository: qinitRepository, commit: qinitCommit },
+    coreLite: { repository: coreRepository, commit: coreCommit },
+  },
+  stateDigest: "",
+  qpiDigests: { driver: "", callee: "" },
+  reason: "",
+};
+
+async function stopNode(): Promise<void> {
+  await run([qinitBin, "node", "stop", "--plain"], {
+    cwd: scratch,
+    allowFailure: true,
+  });
+}
+
+async function waitForProcessors(): Promise<"ready" | "unsupported"> {
+  for (let attempt = 0; attempt < 150; attempt++) {
+    const log = existsSync(nodeLog) ? readFileSync(nodeLog, "utf8") : "";
+    if (log.includes("processors are being used")) {
+      return "ready";
+    }
+    if (log.includes("At least 4 healthy enabled processors are required")) {
+      return "unsupported";
+    }
+    await Bun.sleep(1000);
+  }
+  throw new Error("core-lite did not finish processor initialization");
+}
+
+try {
+  await run([qinitBin, "smoke", "--plain"], { cwd: scratch });
+  await run(
+    [
+      qinitBin,
+      "node",
+      "run",
+      "--real",
+      "--core",
+      core,
+      "--bin",
+      nodeBin,
+      "--restart",
+      "--keep",
+      "--wait",
+      "150",
+      "--plain",
+    ],
+    { cwd: scratch },
+  );
+
+  if ((await waitForProcessors()) === "unsupported") {
+    result.skipped = true;
+    result.reason = "runner cannot initialize core-lite processor roles";
+  } else {
+    await run([qinitBin, "doctor", "--plain"], { cwd: scratch });
+    await run(
+      [process.execPath, join(qinitRoot, "scripts/live-node/ci-qpi-dual-engine.ts")],
+      {
+        cwd: qinitRoot,
+        env: {
+          QINIT_CORE: core,
+          QINIT_QPI_DIGEST_FILE: qpiDigestPath,
+        },
+      },
+    );
+
+    await run(
+      [
+        qinitBin,
+        "node",
+        "run",
+        "--real",
+        "--core",
+        core,
+        "--bin",
+        nodeBin,
+        "--restart",
+        "--wait",
+        "150",
+        "--plain",
+      ],
+      { cwd: scratch },
+    );
+
+    mkdirSync(join(project, "contracts"), { recursive: true });
+    copyFileSync(
+      join(qinitRoot, "fixtures", "DigestProbe.h"),
+      join(project, "contracts", "DigestProbe.h"),
+    );
+    await run(
+      [
+        qinitBin,
+        "test",
+        "--real",
+        "--native",
+        "--core",
+        core,
+        "--bin",
+        nodeBin,
+        "--keep",
+        "--contract",
+        "contracts/DigestProbe.h",
+        "--name",
+        "DigestProbe",
+        "--skip-verify",
+        "--timeout",
+        "90000",
+        "--plain",
+      ],
+      { cwd: project },
+    );
+
+    const state = JSON.parse(
+      await run(
+        [qinitBin, "state", "DigestProbe", "--digest", "--json"],
+        { cwd: project, capture: true },
+      ),
+    ) as { digest?: string };
+    if (!state.digest) {
+      throw new Error("qinit state returned no digest");
+    }
+
+    const [driver, callee] = readFileSync(qpiDigestPath, "utf8")
+      .trim()
+      .split(/\s+/);
+    if (!driver || !callee) {
+      throw new Error("QPI parity returned incomplete digests");
+    }
+
+    result.stateDigest = state.digest;
+    result.qpiDigests = { driver, callee };
+  }
+
+  mkdirSync(dirname(resultPath), { recursive: true });
+  writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);
+  console.log(JSON.stringify(result));
+} finally {
+  await stopNode();
+  rmSync(scratch, { recursive: true, force: true });
+}

@@ -49,4 +49,4 @@ if (failed.length > 0) {
   process.exit(1);
 }
 
-console.log("built dist/index.js + dist/server.js + dist/peer.js");
+console.log("built dist/index.js + dist/server.js + dist/peer-server.js");

@@ -1,8 +1,9 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Overload-resolution parity for static helpers.
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContract } from "@qinit/build";
@@ -88,14 +89,7 @@ const runState = (wasm: Uint8Array): string => {
   return Buffer.from(st.slice(0, 64)).toString("hex");
 };
 
-const wasiOk = (() => {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-})();
+const wasiOk = wasiToolchain().available;
 
 const checkBothSides = async (source: string, name: string, expected: string): Promise<void> => {
   const ours = await compileContract({

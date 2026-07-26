@@ -1,77 +1,72 @@
-# Browser Compiler Packaging and Local Source Development
+# Browser Compiler Packaging
 
-## Summary
+## Browser entry
 
-Qinit commits both a pinned core manifest and the generated QPI header snapshot consumed by the
-browser compiler. Only Qinit's generation and CI workflows read core-lite. Qinit-web uses the
-same `@qinit/compile/browser` import everywhere: Vite resolves it directly to sibling Qinit source
-in local development and to the pinned npm package in production.
+Browser applications import:
 
-## Qinit changes
+```ts
+import {
+  compileContract,
+  compilerInfo,
+  qpiSnapshot,
+} from "@qinit/compile/browser";
+```
 
-- Add `packages/compile/core-snapshot.json` containing the immutable core repository, commit
-  SHA, generator version, and expected snapshot hash.
-- Extract the existing header assembly logic into one Node-only snapshot generator shared by
-  `loadQpiHeader`, local preparation, and release CI. It must include the prelude, contract
-  indices, oracle includes, and implementation chunks.
-- Generate and commit `packages/compile/src/generated/qpi-snapshot.ts`. A clean Qinit checkout is
-  therefore sufficient for browser compilation; consumers never generate this file themselves.
-- Add `@qinit/compile/browser`, which embeds the generated snapshot and calls the compiler
-  without requiring callers to provide `qpiHeader`.
-- Export compiler metadata containing the Qinit version, core commit, actual snapshot hash, and
-  compiler protocol version.
-- Keep explicit `qpiHeader` override support for compiler tests and compatibility experiments.
+The entry embeds `packages/compile/src/generated/qpi-snapshot.ts`; it does not
+read files, spawn a compiler, or require a core-lite checkout at runtime.
+`compileContract()` accepts an optional `qpiHeader` only for compatibility tests
+and compiler development.
 
-## Development and production resolution
+`compilerInfo` identifies the Qinit version, core commit, snapshot hash,
+generator version, and compiler protocol version used by the bundle.
 
-- Qinit-web always imports `@qinit/compile/browser`.
-- Local Vite dev defaults to `QINIT_SOURCE=local`, aliases the import to
-  `${QINIT_LOCAL}/packages/compile/src/browser.ts`, and allows that sibling directory through
-  Vite's filesystem configuration.
-- `QINIT_LOCAL` defaults to the existing sibling `../../Qinit` and may be overridden. Local browser
-  development has no `QINIT_CORE` setting and does not require a core-lite checkout.
-- Qinit-web starts Vite directly. Missing Qinit source is a hard error; it must not silently fall
-  back to npm or a handwritten QPI header stub.
-- Core/header development regenerates the tracked snapshot from within Qinit, then commits the
-  artifact together with its updated immutable core pin.
-- Production builds use `QINIT_SOURCE=package`, disable the compiler source alias, and resolve
-  an exact, lockfile-pinned `@qinit/compile` npm version.
-- The compiler is imported inside a Vite Web Worker. Vite and Cloudflare Pages produce and serve
-  the content-hashed worker chunk; no runtime compiler manifest or separate header request is
-  required.
+## Snapshot ownership
 
-## Release CI and IDE integration
+`config/repositories.json` records the core source and pinned commit.
+`packages/compile/core-snapshot.json` records the generator version and expected
+snapshot hash. Qinit's snapshot generator is the only supported way to update
+the generated module:
 
-- Qinit CI checks out core, verifies that regenerating the tracked snapshot is byte-identical, and
-  fails on drift. A `qinit-compile-v*` workflow repeats that gate, builds the browser package, runs
-  a browser compile smoke test, and publishes `@qinit/compile`.
-- CI fails if the generated snapshot hash differs from the manifest, the browser bundle accesses
-  Node APIs, or a representative contract cannot compile and execute.
-- Qinit-web production CI installs the exact npm release, builds the SPA, runs its IDE smoke
-  test, and deploys `frontend/dist` to Cloudflare Pages with Wrangler.
-- The IDE compile facade routes contract builds and core-lite `ContractTesting` gtests through the local
-  worker. `TEST` bodies and fixture methods use the normal parser, typed IR, and Wasm codegen; only virtual-node
-  operations use the private `qtest` host ABI. Native clang remains the authoritative CLI/CI gtest backend.
-- Local WASM crosses the worker boundary as a transferable ArrayBuffer. The worker returns the
-  compiler-owned rich IDL with the build result.
+```bash
+bun packages/compile/tools/gen-qpi-snapshot.ts \
+  --core /path/to/core-lite \
+  --verify
+```
 
-## Test plan
+Commit the manifest and generated module together. Normal browser contributors
+do not need core-lite because both files are tracked.
 
-- Verify local Vite resolution loads the sibling Qinit source and reflects compiler changes
-  without npm publication.
-- Verify production resolution uses node_modules and succeeds without Qinit or core-lite
-  sibling checkouts.
-- Compile and execute Counter through the worker; validate diagnostics, WASM, rich IDL, and
-  exported snapshot metadata.
-- Test multi-contract callee metadata and header-dependent containers/oracle types.
-- Confirm a clean Qinit checkout builds locally without core-lite, while a stale generated snapshot,
-  hash mismatch, missing Qinit path, or worker startup failure produces a clear error.
-- Run a headless Cloudflare-style production build smoke using the published package.
+## Local build
 
-## Assumptions
+Use Bun 1.3.14:
 
-- `core-snapshot.json` and the generated TypeScript snapshot are committed; browser bundles are not.
-- npm is used only for production/production-parity builds; normal local development imports
-  the sibling Qinit checkout directly.
-- Core release pins are immutable commit SHAs, never moving branches.
-- Existing unrelated changes in the Qinit compiler worktree remain untouched.
+```bash
+bun install
+(cd packages/core && bun run build)
+(cd packages/proto && bun run build)
+(cd packages/compile && bun run build)
+bun packages/compile/tools/ci-browser-smoke.ts
+```
+
+The compile build emits ESM entry files under `dist/`. Browser compilation does
+not execute Node-only file or process APIs.
+
+The monorepo TypeScript configuration maps workspace imports to source during
+development. Package export conditions resolve to built files in `dist/`.
+
+## Distribution
+
+The compile workspace is currently private and npm publication is paused.
+Consumers should use the Qinit workspace or an explicitly pinned Qinit source
+checkout. Reintroducing npm publication requires a reviewed public package
+surface, a self-contained declaration contract, and a release workflow.
+
+## Verification
+
+CI and local packaging checks must verify:
+
+- the tracked QPI snapshot matches its manifest;
+- a browser can import and execute the compiler without Node APIs;
+- a representative contract compiles and executes;
+- `browser.d.ts` is emitted with the browser bundle;
+- all source revisions used for compatibility checks are recorded.

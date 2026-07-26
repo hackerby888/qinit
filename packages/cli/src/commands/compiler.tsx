@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedCompiler, setSavedCompiler, COMPILERS, type Compiler } from "../config";
 import { Header, GradLine, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 // The compiler is the backend every build command (build / deploy / dev / test) turns a .h into wasm with.
 const DESC: Record<Compiler, string> = {
@@ -11,7 +11,7 @@ const DESC: Record<Compiler, string> = {
 };
 
 export function CompilerCmd({ args }: { args: string[] }) {
-  const parsed = parseArgs(args, { booleans: ["show"] });
+  const parsed = parseCommandArgs("compiler", args);
   const o = {
     name: parsed.pos[0],
     show: parsed.has("show"),

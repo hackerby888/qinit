@@ -1,5 +1,4 @@
 # Publishes prebuilt qinit CLI binaries (5 targets) to a GitHub release.
-# Install: curl -fsSL https://raw.githubusercontent.com/hackerby888/qinit/main/install.sh | sh
 name: qinit-cli-release
 
 on:

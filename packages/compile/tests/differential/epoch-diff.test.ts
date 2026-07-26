@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks END_EPOCH_WITH_LOCALS frame reads and writes against native behavior.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
-import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -46,14 +46,7 @@ const EPOCHER_GTEST = coreGtest(
 `,
 );
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — Epoch (END_EPOCH sysproc locals)", () => {
   beforeAll(async () => {
@@ -61,30 +54,17 @@ describe("differential gtest — Epoch (END_EPOCH sysproc locals)", () => {
   });
 
   test("my Epoch.wasm runs END_EPOCH using its locals frame", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "epoch-diff-"));
-    const contractPath = join(dir, "Epoch.h");
-    writeFileSync(contractPath, EPOCHER);
-
-    const testPath = join(dir, "Epoch.test.cpp");
-    writeFileSync(testPath, EPOCHER_GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "Epoch",
-      stateType: "Epoch",
-      slot: 28,
+    const runnerWasm = await buildDifferentialRunner({
       corePath: CORE,
-      outDir: dir,
+      source: EPOCHER,
+      testSource: EPOCHER_GTEST,
+      name: "Epoch",
+      tempPrefix: "epoch-diff-",
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
     const mine = await compileContract({
       source: EPOCHER,

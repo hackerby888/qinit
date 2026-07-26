@@ -1,8 +1,8 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks shareholder proposal/vote sysproc payloads and return values.
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -75,14 +75,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential — shareholder sysproc 10/11 state parity", () => {
   beforeAll(async () => {
@@ -90,7 +83,7 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
   });
 
   test("caller + callee state bytes match native after proposal + votes", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }

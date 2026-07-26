@@ -10,12 +10,12 @@ import {
   loadCoreWasmSlotLayout,
   type VerifyUpdate,
 } from "@qinit/core";
-import { resolveNodeCallees } from "../deploy-ops";
 import { compileLocal } from "../compile-local";
 import { loadQpiHeader } from "@qinit/compile";
 import { loadConfig, resolveCore, resolveCompiler } from "../config";
 import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
-import { output, parseArgs } from "../args";
+import { output, parseCommandArgs } from "../args";
+import { parseCallees, resolveNodeCallees } from "../callees";
 
 type State =
   { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate; notes?: string[] };
@@ -35,11 +35,8 @@ export function buildJsonResult(r: BuildResult, compiler: string) {
 
 export function Build({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags: o, pos, multi } = parseArgs(args, {
-    strings: ["contract", "name", "out", "slot", "core", "rpc"],
-    booleans: ["native", "local", "skip-verify"],
-    multi: ["callee"],
-  });
+  const { flags: o, pos, multi } = parseCommandArgs("build", args);
+  const dynCallees = parseCallees(multi.callee);
   const compiler = resolveCompiler(o); // saved `qinit compiler` pick, overridable per-run with --native/--local
   const [s, setS] = useState<State>({ phase: "run" });
 
@@ -52,12 +49,6 @@ export function Build({ args }: { args: string[] }) {
         const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
         const outDir = resolve(o.out ?? "dist/contracts");
         const slot = Number(o.slot ?? cfg.slot ?? loadCoreWasmSlotLayout(core).slotBase);
-
-        const dynCallees: Record<string, { header: string; index: number }> = {};
-        for (const value of multi.callee ?? []) {
-          const m = value.match(/^(\w+)=(.+)@(\d+)$/);
-          if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
-        }
 
         // local: in-process TS compiler (no clang). Emits the same rich idl for the client/state tooling.
         if (compiler === "local") {

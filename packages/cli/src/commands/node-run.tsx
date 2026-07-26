@@ -19,28 +19,14 @@ import {
 } from "../node-ops";
 import { savedMode, loadConfig } from "../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
-import { parseArgs, output } from "../args";
+import { parseCommandArgs, output } from "../args";
 import { prepareNodeRunCore } from "../node-run-core";
 
 type Phase = { key: string; label: string; state: StepState; detail?: string };
 
 export function NodeRun({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags: o } = parseArgs(args, {
-    strings: [
-      "ref",
-      "core",
-      "bin",
-      "tick-ms",
-      "peer-port",
-      "rpc",
-      "wait",
-      "dir",
-      "node-mode",
-      "peers",
-    ],
-    booleans: ["restart", "offline", "keep", "real", "realnode", "virtual"],
-  });
+  const { flags: o } = parseCommandArgs("node", args, "run");
   const rpcBase = o.rpc || "http://127.0.0.1:41841";
   const peerPort = Number(o["peer-port"] || 21841);
   const ref = o.ref || "latest";
@@ -55,6 +41,7 @@ export function NodeRun({ args }: { args: string[] }) {
     { key: "run", label: "node running", state: "pending" },
   ]);
   const [done, setDone] = useState<{
+    ok: boolean;
     title: string;
     color: string;
     rows: [string, string][];
@@ -175,6 +162,7 @@ export function NodeRun({ args }: { args: string[] }) {
         if (virtual) rows.splice(3, 0, ["peer", `127.0.0.1:${peerPort}`]);
         if (scratch) rows.push(["scratch", scratch]);
         setDone({
+          ok,
           title: ok ? "node up ✓" : "node not ticking",
           color: ok ? theme.ok : theme.warn,
           rows,
@@ -182,6 +170,7 @@ export function NodeRun({ args }: { args: string[] }) {
       } catch (e: any) {
         setSteps((ps) => ps.map((p) => (p.state === "active" ? { ...p, state: "fail" } : p)));
         setDone({
+          ok: false,
           title: "node run failed",
           color: theme.err,
           rows: [["error", String(e?.message ?? e)]],
@@ -193,9 +182,9 @@ export function NodeRun({ args }: { args: string[] }) {
     if (done) {
       if (output.json)
         process.stdout.write(
-          JSON.stringify({ ok: done.color !== theme.err, ...Object.fromEntries(done.rows) }) + "\n",
+          JSON.stringify({ ok: done.ok, ...Object.fromEntries(done.rows) }) + "\n",
         );
-      process.exitCode = done.color === theme.err ? 1 : 0;
+      process.exitCode = done.ok ? 0 : 1;
       const t = setTimeout(() => exit(), 50);
       return () => clearTimeout(t);
     }

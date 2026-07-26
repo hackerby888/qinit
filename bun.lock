@@ -5,7 +5,7 @@
     "": {
       "name": "qinit",
       "devDependencies": {
-        "bun-types": "latest",
+        "bun-types": "1.3.14",
         "typescript": "^5.6.0",
       },
     },
@@ -13,7 +13,6 @@
       "name": "@qinit/build",
       "version": "0.0.0",
       "dependencies": {
-        "@bjorn3/browser_wasi_shim": "^0.4.2",
         "@qinit/core": "workspace:*",
         "@qinit/proto": "workspace:*",
       },
@@ -49,14 +48,14 @@
       "name": "@qinit/core",
       "version": "0.0.0",
       "dependencies": {
-        "@qubic-lib/qubic-ts-library": "latest",
+        "@qubic-lib/qubic-ts-library": "0.1.6",
       },
     },
     "packages/engine": {
       "name": "@qinit/engine",
       "version": "0.1.0",
       "dependencies": {
-        "@qubic-lib/qubic-ts-library": "latest",
+        "@qubic-lib/qubic-ts-library": "0.1.6",
       },
       "devDependencies": {
         "@qinit/core": "workspace:*",
@@ -68,7 +67,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@qinit/core": "workspace:*",
-        "@qubic-lib/qubic-ts-library": "latest",
+        "@qubic-lib/qubic-ts-library": "0.1.6",
       },
     },
     "packages/vscode": {
@@ -124,8 +123,6 @@
     "@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@7.29.7", "", {}, "sha512-qehxGkRj55h/ff8EMaJ+cYhyaKlHIxqYDn682wQD7RNp9UujOQsHog2uS0r2vzr4pW+sXf90NeeayjcNaX3fFg=="],
 
     "@bcoe/v8-coverage": ["@bcoe/v8-coverage@0.2.3", "", {}, "sha512-0hYQ8SB4Db5zvZB4axdMHGwEaQjkZzFjQiN9LVYvIFB2nSUHW9tYpxWriPrWDASIxiaXax83REcLxuSdnGPZtw=="],
-
-    "@bjorn3/browser_wasi_shim": ["@bjorn3/browser_wasi_shim@0.4.2", "", {}, "sha512-/iHkCVUG3VbcbmEHn5iIUpIrh7a7WPiwZ3sHy4HZKZzBdSadwdddYDZAII2zBvQYV0Lfi8naZngPCN7WPHI/hA=="],
 
     "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.28.1", "", { "os": "aix", "cpu": "ppc64" }, "sha512-Svl7tq8k/08+p6CXPpRjQ1fKX+1odH/BQbb48fV6fj3CWHhsoIOoY87w1oHXm0qEpkIK3ZfVgp0hed3XBXzXMQ=="],
 

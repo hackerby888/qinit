@@ -5,7 +5,7 @@ import { basename } from "node:path";
 import { resolveCliTag, cliReleaseUrls, fetchCliSha, fetchVerify } from "@qinit/core";
 import { VERSION } from "../version";
 import { Header, Status, Spinner, Bar, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 type S = {
   phase: "run" | "done" | "uptodate" | "dev" | "dry" | "err";
@@ -17,9 +17,7 @@ type S = {
 };
 
 export function Update({ args }: { args: string[] }) {
-  const { flags: o } = parseArgs(args, {
-    booleans: ["force", "dry-run"],
-  });
+  const { flags: o } = parseCommandArgs("self-update", args);
   const force = o.force !== undefined,
     dry = o["dry-run"] !== undefined;
   const { exit } = useApp();

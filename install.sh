@@ -2,7 +2,7 @@
 # qinit installer — downloads the prebuilt binary for this OS/arch from the newest qinit-cli release.
 #   curl -fsSL https://raw.githubusercontent.com/hackerby888/qinit/main/install.sh | sh
 set -eu
-REPO="hackerby888/qinit"
+REPO="${QINIT_REPOSITORY:-hackerby888/qinit}"
 BIN_DIR="${QINIT_BIN:-$HOME/.local/bin}"
 TOTAL_STEPS=5
 

@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks chained Array<Struct> writes and field reads used by QEARN.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
-import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -60,14 +60,7 @@ const ROUNDS_GTEST = coreGtest(
 `,
 );
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — Rounds (chain through Array element)", () => {
   beforeAll(async () => {
@@ -75,30 +68,17 @@ describe("differential gtest — Rounds (chain through Array element)", () => {
   });
 
   test("my Rounds.wasm passes the native Rounds gtest", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "rounds-diff-"));
-    const contractPath = join(dir, "Rounds.h");
-    writeFileSync(contractPath, ROUNDS);
-
-    const testPath = join(dir, "Rounds.test.cpp");
-    writeFileSync(testPath, ROUNDS_GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "Rounds",
-      stateType: "Rounds",
-      slot: 28,
+    const runnerWasm = await buildDifferentialRunner({
       corePath: CORE,
-      outDir: dir,
+      source: ROUNDS,
+      testSource: ROUNDS_GTEST,
+      name: "Rounds",
+      tempPrefix: "rounds-diff-",
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
     const mine = await compileContract({
       source: ROUNDS,

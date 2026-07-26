@@ -2,9 +2,10 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 // Differential coverage for Bank's HashMap and Array operations.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
-import { buildCorpusRunner } from "@qinit/build";
+import { readFileSync } from "node:fs";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -68,14 +69,7 @@ TEST(Bank, TwoKeysPopulationTwo) {
 `,
 );
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — Bank (HashMap + Array)", () => {
   beforeAll(async () => {
@@ -83,30 +77,17 @@ describe("differential gtest — Bank (HashMap + Array)", () => {
   });
 
   test("my Bank.wasm passes the native Bank gtest", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
-    const { writeFileSync, mkdtempSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "bank-diff-"));
-    const contractPath = join(dir, "Bank.h");
-    writeFileSync(contractPath, BANK);
-
-    const testPath = join(dir, "Bank.test.cpp");
-    writeFileSync(testPath, BANK_GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "Bank",
-      stateType: "Bank",
-      slot: 28,
+    const runnerWasm = await buildDifferentialRunner({
       corePath: CORE,
-      outDir: dir,
+      source: BANK,
+      testSource: BANK_GTEST,
+      name: "Bank",
+      tempPrefix: "bank-diff-",
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
     const mine = await compileContract({
       source: BANK,

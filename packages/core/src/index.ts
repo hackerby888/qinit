@@ -76,7 +76,14 @@ export {
   cliReleaseUrls,
   fetchCliSha,
 } from "./fetch";
-export type { AssetRef, Manifest, CurrentPointer, VerifyManifest, VerifyUpdate } from "./fetch";
+export type {
+  AssetRef,
+  ReleaseSource,
+  Manifest,
+  CurrentPointer,
+  VerifyManifest,
+  VerifyUpdate,
+} from "./fetch";
 export { loadConfig, resolveCore } from "./project";
 export type { QinitConfig } from "./project";
 export { debug } from "./debug";

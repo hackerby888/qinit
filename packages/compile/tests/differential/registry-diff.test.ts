@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential coverage for HashSet/HashMap removal and iteration methods.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
-import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -111,14 +111,7 @@ TEST(Registry, HashMapReuseRemovedSlot) {
 `,
 );
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — Registry (HashSet + HashMap iteration/remove)", () => {
   beforeAll(async () => {
@@ -126,30 +119,17 @@ describe("differential gtest — Registry (HashSet + HashMap iteration/remove)",
   });
 
   test("my Registry.wasm passes the native Registry gtest", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "registry-diff-"));
-    const contractPath = join(dir, "Registry.h");
-    writeFileSync(contractPath, REGISTRY);
-
-    const testPath = join(dir, "Registry.test.cpp");
-    writeFileSync(testPath, REGISTRY_GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "Registry",
-      stateType: "Registry",
-      slot: 28,
+    const runnerWasm = await buildDifferentialRunner({
       corePath: CORE,
-      outDir: dir,
+      source: REGISTRY,
+      testSource: REGISTRY_GTEST,
+      name: "Registry",
+      tempPrefix: "registry-diff-",
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
     const mine = await compileContract({
       source: REGISTRY,

@@ -1,6 +1,7 @@
 import { DiagnosticSeverity } from "../../src/enums";
+import { wasiToolchain } from "../support/container-toolchains";
 import { beforeAll, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContract } from "@qinit/build";
@@ -12,14 +13,7 @@ import { compileContract, loadQpiHeader } from "../../src/index";
 
 const SLOT = 29;
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 function contractId(): Uint8Array {
   const id = new Uint8Array(32);
@@ -74,7 +68,7 @@ beforeAll(async () => {
 });
 
 test("Price subscription matches across TS and Clang artifacts in VirtualNode", async () => {
-  if (!wasiAvailable()) {
+  if (!wasi.available) {
     console.log("  (wasi-sdk clang not found — skipping)");
     return;
   }

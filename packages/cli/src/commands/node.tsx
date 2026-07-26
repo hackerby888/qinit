@@ -3,7 +3,7 @@ import { Box, useApp } from "ink";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { readCurrent, LiteRpc } from "@qinit/core";
 import { killNode, nodeAlive, fetchNodeBin, nodeStatus } from "../node-ops";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 const dlLabel = (recv: number, total: number) =>
   total
     ? `downloading node ${(recv / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB`
@@ -16,9 +16,7 @@ type State =
 
 export function Node({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseArgs(args, {
-    strings: ["rpc", "ref"],
-  });
+  const { flags: o, pos } = parseCommandArgs("node", args);
   const sub = pos[0] ?? "status";
   const rpcBase = o.rpc || "http://127.0.0.1:41841";
   const [s, setS] = useState<State>({ phase: "run", spin: sub });

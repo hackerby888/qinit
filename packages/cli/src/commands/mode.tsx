@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedMode, setSavedMode, NODE_MODES, type NodeMode } from "../config";
 import { Header, GradLine, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 // What each mode means, shown next to the choice in the picker. The mode is the backend every node command
 // (node run / deploy / call / state / dev / test) runs against.
@@ -12,7 +12,7 @@ const DESC: Record<NodeMode, string> = {
 };
 
 export function ModeCmd({ args }: { args: string[] }) {
-  const parsed = parseArgs(args, { booleans: ["show"] });
+  const parsed = parseCommandArgs("mode", args);
   const o = {
     name: parsed.pos[0],
     show: parsed.has("show"),

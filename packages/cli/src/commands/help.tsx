@@ -2,7 +2,14 @@ import { useEffect } from "react";
 import { Box, Text, useApp } from "ink";
 import { VERSION } from "../version";
 import { Banner, Header, theme } from "../ui";
-import { META, GROUP_ORDER, COMMANDS, type Flag, type CommandMeta } from "../meta";
+import {
+  META,
+  GROUP_ORDER,
+  COMMANDS,
+  optionSyntax,
+  type OptionMeta,
+  type CommandMeta,
+} from "../meta";
 
 // Global help — grouped by workflow stage (from meta.ts) so it reads top-to-bottom as you'd use qinit.
 export function Help({
@@ -91,9 +98,20 @@ export function Usage({ cmd }: { cmd: string }) {
   }, [exit]);
   const m: CommandMeta | undefined = META[cmd];
   if (!m) return <Help unknown command={cmd} />;
-  const flags: Flag[] = [...(m.flags ?? [])];
-  if (m.json) flags.push(["--json", "emit a machine-readable result (implies --plain)"]);
-  const fw = flags.length ? Math.max(...flags.map(([f]) => f.length)) + 2 : 0;
+  const options: OptionMeta[] = [
+    ...(m.options ?? []),
+    ...Object.values(m.subcommands ?? {}).flatMap((subcommand) => subcommand.options),
+  ].filter((option) => !option.hidden);
+  if (m.json) {
+    options.push({
+      name: "json",
+      type: "boolean",
+      description: "emit a machine-readable result (implies --plain)",
+    });
+  }
+  const width = options.length
+    ? Math.max(...options.map((option) => optionSyntax(option).length)) + 2
+    : 0;
   return (
     <Box flexDirection="column">
       <Header cmd={cmd} />
@@ -105,16 +123,19 @@ export function Usage({ cmd }: { cmd: string }) {
           {m.usage ? " " + m.usage : ""}
         </Text>
       </Box>
-      {flags.length ? (
+      {options.length ? (
         <Box marginTop={1} flexDirection="column">
           <Text bold color={theme.brand}>
             flags
           </Text>
-          {flags.map(([f, d], i) => (
-            <Text key={i}>
+          {options.map((option) => (
+            <Text key={option.name}>
               {"  "}
-              <Text color={theme.accent}>{f.padEnd(fw)}</Text>
-              <Text dimColor>{d}</Text>
+              <Text color={theme.accent}>{optionSyntax(option).padEnd(width)}</Text>
+              <Text dimColor>
+                {option.description}
+                {option.multiple ? " (repeatable)" : ""}
+              </Text>
             </Text>
           ))}
         </Box>
