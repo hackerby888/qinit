@@ -1,151 +1,500 @@
-# Auto-track the upstream Qubic contract-verify tool and re-publish it as a moving release
-# (verify-latest) that `qinit` clients auto-pull. Republishes when upstream changes OR when a new
-# platform is added, so a new upstream build => a new asset => clients update on their next check.
-#
-# linux-x64 is extracted from the upstream docker image (amd64-only). darwin-arm64 (Apple Silicon —
-# the dominant web3-dev platform) is BUILT FROM SOURCE on a macos-14 runner (cmake + flex + CppParser),
-# since the docker image can't supply it. A darwin build failure degrades gracefully: the manifest
-# just omits that platform and those clients report `unsupported` (build still works, rule check skipped).
 name: contractverify tool
 
 on:
   schedule:
-    - cron: "0 6 * * 1"            # weekly (Mon 06:00 UTC) — pick up upstream changes
-  workflow_dispatch:               # manual refresh
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
     inputs:
       force:
-        description: "Force rebuild + republish even if the upstream version is unchanged"
+        description: "Rebuild even when the latest upstream release is already published"
         type: boolean
         default: false
+  pull_request:
+    paths:
+      - ".github/workflows/verify-tool.yml"
+      - "scripts/contractverify/**"
   push:
-    paths: [".github/workflows/verify-tool.yml"]   # publish on first install / edits
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-tool.yml"
+      - "scripts/contractverify/**"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: contractverify-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   TAG: verify-latest
-  IMAGE: ghcr.io/franziska-mueller/qubic-contract-verify:latest
-  UPSTREAM: https://github.com/Franziska-Mueller/qubic-contract-verify
+  UPSTREAM_REPOSITORY: Franziska-Mueller/qubic-contract-verify
 
 jobs:
-  # linux-x64 built from source (portable); the docker image still resolves the version + change gate.
-  # ubuntu-22.04 (glibc 2.35) + static libstdc++ -> binary loads on glibc >= 2.35. The docker-extracted
-  # binary needed GCC13/glibc 2.38 and failed to load on common runners (ubuntu-22.04). See memory.
-  linux-x64:
-    runs-on: ubuntu-22.04
+  prepare:
+    name: Resolve upstream release
+    runs-on: ubuntu-24.04
     outputs:
-      version: ${{ steps.ver.outputs.version }}
-      changed: ${{ steps.gate.outputs.changed }}
+      cppparser_sha: ${{ steps.pin.outputs.cppparser_sha }}
+      should_build: ${{ steps.gate.outputs.should_build }}
+      upstream_sha: ${{ steps.pin.outputs.upstream_sha }}
+      version: ${{ steps.pin.outputs.version }}
     steps:
-      - name: Pull upstream image
-        run: docker pull "$IMAGE"
-      - name: Resolve upstream version (image id)
-        id: ver
-        run: echo "version=$(docker inspect --format '{{.Id}}' "$IMAGE")" >> "$GITHUB_OUTPUT"
-      - name: Change gate
+      - name: Resolve latest stable release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_tag="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/latest" --jq ".tag_name")"
+          git check-ref-format "refs/tags/$release_tag"
+          printf "tag=%s\n" "$release_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check out upstream release
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          ref: ${{ steps.release.outputs.tag }}
+          path: upstream
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Pin source commits
+        id: pin
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          upstream_sha="$(git -C upstream rev-parse HEAD)"
+          cppparser_sha="$(git -C upstream rev-parse HEAD:deps/CppParser)"
+          checked_out_cppparser="$(git -C upstream/deps/CppParser rev-parse HEAD)"
+          test "$checked_out_cppparser" = "$cppparser_sha"
+
+          printf "upstream_sha=%s\n" "$upstream_sha" >> "$GITHUB_OUTPUT"
+          printf "cppparser_sha=%s\n" "$cppparser_sha" >> "$GITHUB_OUTPUT"
+          printf "version=%s@%s\n" "$RELEASE_TAG" "$upstream_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether to build
         id: gate
+        env:
+          FORCE_BUILD: ${{ inputs.force && 'true' || 'false' }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.pin.outputs.version }}
         run: |
-          url="https://github.com/${{ github.repository }}/releases/download/${TAG}/verify-manifest.json"
-          cur="$(curl -fsSL "$url" 2>/dev/null || echo '{}')"
-          curVer="$(echo "$cur" | jq -r '.version' 2>/dev/null || echo none)"
-          hasDarwin="$(echo "$cur" | jq -r '.assets["darwin-arm64"] // empty' 2>/dev/null)"
-          # republish if upstream changed OR a platform we now build is missing from the live manifest
-          if [ "$curVer" = "${{ steps.ver.outputs.version }}" ] && [ -n "$hasDarwin" ] && [ "${{ github.event.inputs.force }}" != "true" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "up to date ($curVer, all platforms present)"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"; echo "republish: ver $curVer->${{ steps.ver.outputs.version }} darwin=$hasDarwin"
+          set -euo pipefail
+
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" || "$GITHUB_EVENT_NAME" == "push" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-      - name: Build linux-x64 from source (portable — glibc 2.35 base + static libstdc++)
-        if: steps.gate.outputs.changed == 'true'
-        run: |
-          set -ex
-          sudo apt-get update -y && sudo apt-get install -y flex bison cmake g++ git
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          git clone --recurse-submodules "$UPSTREAM" src
-          cd src
-          cmake -S deps/CppParser -B deps/CppParser/builds -DCMAKE_BUILD_TYPE=Release
-          cmake --build deps/CppParser/builds --config Release -j"$(nproc)"
-          # static libstdc++/libgcc => no GLIBCXX_3.4.3x dependency; built on 22.04 => GLIBC floor 2.35.
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_CONTRACTVERIFY_TESTS=OFF \
-            -Dcppparser_DIR="$PWD/deps/CppParser/builds" -DCMAKE_PREFIX_PATH="$PWD/deps/CppParser/builds" \
-            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
-          cmake --build build --config Release -j"$(nproc)"
-          cp build/src/contractverify "$GITHUB_WORKSPACE/contractverify-linux-x64"
-          chmod +x "$GITHUB_WORKSPACE/contractverify-linux-x64"
-          file "$GITHUB_WORKSPACE/contractverify-linux-x64"
-          echo "max symbol versions (should be no GLIBCXX, GLIBC <= 2.35):"
-          objdump -T "$GITHUB_WORKSPACE/contractverify-linux-x64" | grep -oE 'GLIBC(XX)?_[0-9.]+' | sort -V | uniq | tail -5
-      - name: Upload artifact
-        if: steps.gate.outputs.changed == 'true'
-        uses: actions/upload-artifact@v4
-        with: { name: contractverify-linux-x64, path: contractverify-linux-x64, if-no-files-found: error }
 
-  # darwin-arm64 from source (Apple Silicon runner). Best-effort: failure omits the platform.
-  darwin-arm64:
-    needs: linux-x64
-    if: needs.linux-x64.outputs.changed == 'true'
-    runs-on: macos-14
-    continue-on-error: true   # best-effort: a darwin build failure omits the platform, never reds the run
-                              # (linux-x64 is the portable, always-published binary)
+          if [[ "$FORCE_BUILD" == "true" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          manifest_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}/verify-manifest.json"
+          if ! manifest="$(curl --fail --silent --show-error --location "$manifest_url")"; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          manifest_valid=true
+          if ! jq -e --arg version "$VERSION" '
+            . as $manifest |
+            $manifest.version == $version and
+            (
+              ["linux-x64", "linux-arm64", "darwin-arm64", "darwin-x64", "windows-x64"] |
+              all(
+                . as $key |
+                $manifest.assets[$key] as $asset |
+                ($asset.url | type == "string" and length > 0) and
+                (($asset.sha256 // "") | test("^[0-9a-f]{64}$")) and
+                ($asset.url | contains($asset.sha256))
+              )
+            )
+          ' <<< "$manifest" >/dev/null; then
+            manifest_valid=false
+          fi
+
+          if [[ "$manifest_valid" == "true" ]]; then
+            if ! release_assets="$(
+              gh release view "$TAG" \
+                --repo "$GITHUB_REPOSITORY" \
+                --json assets \
+                --jq ".assets[].name"
+            )"; then
+              manifest_valid=false
+            else
+              release_base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+              while IFS= read -r asset_url; do
+                asset_name="${asset_url##*/}"
+                if [[ "$asset_url" != "$release_base/"* ]] ||
+                  ! grep -Fxq "$asset_name" <<< "$release_assets"; then
+                  manifest_valid=false
+                  break
+                fi
+              done < <(jq -r ".assets[].url" <<< "$manifest" | sort -u)
+            fi
+          fi
+
+          if [[ "$manifest_valid" == "true" ]]; then
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            echo "contractverify $VERSION is already published for all supported platforms"
+          else
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  linux:
+    name: Build ${{ matrix.platform }}
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-24.04
+            architecture: x64
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            architecture: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Build contractverify from source
-        run: |
-          set -ex
-          # global so superproject AND nested submodules clone over https (.gitmodules uses git@)
-          git config --global url."https://github.com/".insteadOf "git@github.com:"
-          git clone --recurse-submodules "$UPSTREAM" src
-          cd src
-          brew install flex bison           # cmake is preinstalled on macos-14
-          FLEX="$(brew --prefix flex)/bin/flex"
-          export PATH="$(brew --prefix flex)/bin:$(brew --prefix bison)/bin:$PATH"
-          echo "cmake=$(cmake --version | head -1) flex=$($FLEX --version)"
-          # CppParser dependency (-DCMAKE_CXX_CLANG_TIDY="" — its CMakeLists enables clang-tidy, absent on macos-14)
-          cmake -S deps/CppParser -B deps/CppParser/builds -DCMAKE_BUILD_TYPE=Release -DFLEX_EXECUTABLE="$FLEX" -DCMAKE_CXX_CLANG_TIDY=""
-          cmake --build deps/CppParser/builds --config Release
-          ls deps/CppParser/builds/*.cmake 2>/dev/null || true
-          # contractverify tool — help cmake find the just-built CppParser config
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_CONTRACTVERIFY_TESTS=OFF \
-            -Dcppparser_DIR="$PWD/deps/CppParser/builds" \
-            -DCMAKE_PREFIX_PATH="$PWD/deps/CppParser/builds" -DFLEX_EXECUTABLE="$FLEX"
-          cmake --build build --config Release
-          cp build/src/contractverify "$GITHUB_WORKSPACE/contractverify-darwin-arm64"
-          file "$GITHUB_WORKSPACE/contractverify-darwin-arm64"
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with: { name: contractverify-darwin-arm64, path: contractverify-darwin-arm64, if-no-files-found: error }
+      - name: Check out Qinit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
-  # Aggregate whatever platform artifacts built into one manifest + the moving release.
+      - name: Check out pinned upstream source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          ref: ${{ needs.prepare.outputs.upstream_sha }}
+          path: upstream
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Assert source pins
+        env:
+          EXPECTED_CPPPARSER_SHA: ${{ needs.prepare.outputs.cppparser_sha }}
+          EXPECTED_UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream rev-parse HEAD)" = "$EXPECTED_UPSTREAM_SHA"
+          test "$(git -C upstream/deps/CppParser rev-parse HEAD)" = "$EXPECTED_CPPPARSER_SHA"
+
+      - name: Build and test
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+          OUTPUT_NAME: contractverify-${{ matrix.platform }}
+        run: |
+          scripts/contractverify/build-linux.sh \
+            "$GITHUB_WORKSPACE/upstream" \
+            "$GITHUB_WORKSPACE/$OUTPUT_NAME" \
+            "$ARCHITECTURE"
+
+      - name: Set up Bun
+        if: matrix.platform == 'linux-x64'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.3.14"
+
+      - name: Test Qinit contract fixtures
+        if: matrix.platform == 'linux-x64'
+        env:
+          QINIT_NO_UPDATE: "1"
+          QINIT_VERIFY: ${{ github.workspace }}/contractverify-linux-x64
+        run: |
+          bun install
+          bun scripts/verify-fixtures.ts
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: contractverify-${{ matrix.platform }}
+          path: contractverify-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 3
+
+  macos:
+    name: Build macOS universal2
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: macos-15
+    steps:
+      - name: Check out Qinit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out pinned upstream source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          ref: ${{ needs.prepare.outputs.upstream_sha }}
+          path: upstream
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Assert source pins
+        env:
+          EXPECTED_CPPPARSER_SHA: ${{ needs.prepare.outputs.cppparser_sha }}
+          EXPECTED_UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream rev-parse HEAD)" = "$EXPECTED_UPSTREAM_SHA"
+          test "$(git -C upstream/deps/CppParser rev-parse HEAD)" = "$EXPECTED_CPPPARSER_SHA"
+
+      - name: Install flex
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+        run: brew install flex
+
+      - name: Build and test arm64 slice
+        run: |
+          scripts/contractverify/build-macos.sh \
+            "$GITHUB_WORKSPACE/upstream" \
+            "$GITHUB_WORKSPACE/contractverify-darwin-universal2"
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: contractverify-darwin-universal2
+          path: contractverify-darwin-universal2
+          if-no-files-found: error
+          retention-days: 3
+
+  macos-intel:
+    name: Test macOS x64 slice
+    needs:
+      - prepare
+      - macos
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: macos-15-intel
+    steps:
+      - name: Check out Qinit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out pinned upstream source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          ref: ${{ needs.prepare.outputs.upstream_sha }}
+          path: upstream
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Assert source pins
+        env:
+          EXPECTED_CPPPARSER_SHA: ${{ needs.prepare.outputs.cppparser_sha }}
+          EXPECTED_UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream rev-parse HEAD)" = "$EXPECTED_UPSTREAM_SHA"
+          test "$(git -C upstream/deps/CppParser rev-parse HEAD)" = "$EXPECTED_CPPPARSER_SHA"
+
+      - name: Download universal binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: contractverify-darwin-universal2
+          path: dist
+
+      - name: Test x64 slice
+        run: |
+          chmod +x dist/contractverify-darwin-universal2
+          scripts/contractverify/test-macos-intel.sh \
+            "$GITHUB_WORKSPACE/upstream" \
+            "$GITHUB_WORKSPACE/dist/contractverify-darwin-universal2"
+
+  windows:
+    name: Build Windows x64
+    needs: prepare
+    if: needs.prepare.outputs.should_build == 'true'
+    runs-on: windows-2022
+    steps:
+      - name: Check out Qinit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out pinned upstream source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          ref: ${{ needs.prepare.outputs.upstream_sha }}
+          path: upstream
+          submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Assert source pins
+        shell: pwsh
+        env:
+          EXPECTED_CPPPARSER_SHA: ${{ needs.prepare.outputs.cppparser_sha }}
+          EXPECTED_UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
+        run: |
+          $upstreamSha = (& git -C upstream rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $upstreamSha -ne $env:EXPECTED_UPSTREAM_SHA) {
+            throw "upstream checkout does not match the resolved commit"
+          }
+
+          $cppparserSha = (& git -C upstream/deps/CppParser rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $cppparserSha -ne $env:EXPECTED_CPPPARSER_SHA) {
+            throw "CppParser checkout does not match the resolved commit"
+          }
+
+      - name: Build and test
+        shell: pwsh
+        run: |
+          ./scripts/contractverify/build-windows.ps1 `
+            -SourceDir "$env:GITHUB_WORKSPACE/upstream" `
+            -OutputPath "$env:GITHUB_WORKSPACE/contractverify-windows-x64.exe"
+
+      - name: Upload binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: contractverify-windows-x64
+          path: contractverify-windows-x64.exe
+          if-no-files-found: error
+          retention-days: 3
+
   publish:
-    needs: [linux-x64, darwin-arm64]
-    if: ${{ always() && needs.linux-x64.result == 'success' && needs.linux-x64.outputs.changed == 'true' }}
-    runs-on: ubuntu-latest
+    name: Publish complete verifier set
+    needs:
+      - prepare
+      - linux
+      - macos
+      - macos-intel
+      - windows
+    if: >-
+      needs.prepare.outputs.should_build == 'true' &&
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # Replace assets on the moving verifier release.
     env:
-      GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with: { path: dist, pattern: "contractverify-*", merge-multiple: true }
-      - name: Build manifest (only platforms that produced a binary)
+      - name: Download binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          pattern: contractverify-*
+          merge-multiple: true
+
+      - name: Build complete manifest
         run: |
-          BASE="https://github.com/${{ github.repository }}/releases/download/${TAG}"
-          assets='{}'
-          for key in linux-x64 darwin-arm64; do
-            f="dist/contractverify-$key"
-            [ -f "$f" ] || { echo "skip $key (no artifact)"; continue; }
-            chmod +x "$f"
-            sha="$(sha256sum "$f" | cut -d' ' -f1)"
-            assets="$(echo "$assets" | jq --arg k "$key" --arg u "$BASE/contractverify-$key" --arg s "$sha" '. + {($k):{url:$u,sha256:$s}}')"
+          set -euo pipefail
+          expected=(
+            contractverify-linux-x64
+            contractverify-linux-arm64
+            contractverify-darwin-universal2
+            contractverify-windows-x64.exe
+          )
+          for binary in "${expected[@]}"; do
+            test -f "dist/$binary"
           done
-          jq -n --arg v "${{ needs.linux-x64.outputs.version }}" --argjson a "$assets" '{version:$v, assets:$a}' > dist/verify-manifest.json
+
+          base_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          linux_x64_sha="$(sha256sum dist/contractverify-linux-x64 | cut -d " " -f 1)"
+          linux_arm64_sha="$(sha256sum dist/contractverify-linux-arm64 | cut -d " " -f 1)"
+          darwin_sha="$(sha256sum dist/contractverify-darwin-universal2 | cut -d " " -f 1)"
+          windows_sha="$(sha256sum dist/contractverify-windows-x64.exe | cut -d " " -f 1)"
+
+          linux_x64_asset="contractverify-linux-x64-$linux_x64_sha"
+          linux_arm64_asset="contractverify-linux-arm64-$linux_arm64_sha"
+          darwin_asset="contractverify-darwin-universal2-$darwin_sha"
+          windows_asset="contractverify-windows-x64-$windows_sha.exe"
+          mv dist/contractverify-linux-x64 "dist/$linux_x64_asset"
+          mv dist/contractverify-linux-arm64 "dist/$linux_arm64_asset"
+          mv dist/contractverify-darwin-universal2 "dist/$darwin_asset"
+          mv dist/contractverify-windows-x64.exe "dist/$windows_asset"
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg base "$base_url" \
+            --arg linux_x64_asset "$linux_x64_asset" \
+            --arg linux_x64_sha "$linux_x64_sha" \
+            --arg linux_arm64_asset "$linux_arm64_asset" \
+            --arg linux_arm64_sha "$linux_arm64_sha" \
+            --arg darwin_asset "$darwin_asset" \
+            --arg darwin_sha "$darwin_sha" \
+            --arg windows_asset "$windows_asset" \
+            --arg windows_sha "$windows_sha" \
+            '{
+              version: $version,
+              assets: {
+                "linux-x64": {
+                  url: ($base + "/" + $linux_x64_asset),
+                  sha256: $linux_x64_sha
+                },
+                "linux-arm64": {
+                  url: ($base + "/" + $linux_arm64_asset),
+                  sha256: $linux_arm64_sha
+                },
+                "darwin-arm64": {
+                  url: ($base + "/" + $darwin_asset),
+                  sha256: $darwin_sha
+                },
+                "darwin-x64": {
+                  url: ($base + "/" + $darwin_asset),
+                  sha256: $darwin_sha
+                },
+                "windows-x64": {
+                  url: ($base + "/" + $windows_asset),
+                  sha256: $windows_sha
+                }
+              }
+            }' > dist/verify-manifest.json
+
+          jq -e '
+            . as $manifest |
+            (
+              $manifest.assets | keys ==
+              ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "windows-x64"]
+            ) and
+            (
+              $manifest.assets |
+              all(.[]; . as $asset | $asset.url | contains($asset.sha256))
+            )
+          ' dist/verify-manifest.json >/dev/null
           cat dist/verify-manifest.json
-      - name: Publish (moving verify-latest release)
+
+      - name: Publish binaries, then manifest
         run: |
-          gh release create "$TAG" dist/contractverify-* dist/verify-manifest.json \
-            --title "contractverify (auto-tracking upstream)" --latest=false \
-            --notes "Prebuilt Qubic contract-verify tool, re-published when upstream changes. Consumed by qinit (daily auto-update)." \
-          || gh release upload "$TAG" dist/contractverify-* dist/verify-manifest.json --clobber
-          # This is a tool artifact, not the qinit CLI — never let it claim the repo's "latest"
-          # (else install.sh's old /releases/latest path, and the repo page, point at the wrong release).
-          gh release edit "$TAG" --latest=false || true
+          set -euo pipefail
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "contractverify native binaries" \
+              --notes "Standalone native builds of the latest stable upstream contractverify release." \
+              --latest=false
+          fi
+
+          existing_assets="$(
+            gh release view "$TAG" --json assets --jq ".assets[].name"
+          )"
+          while IFS= read -r asset_name; do
+            test -f "dist/$asset_name"
+            if grep -Fxq "$asset_name" <<< "$existing_assets"; then
+              echo "Reusing $asset_name"
+            else
+              gh release upload "$TAG" "dist/$asset_name"
+            fi
+          done < <(
+            jq -r "[.assets[].url | split(\"/\")[-1]] | unique[]" \
+              dist/verify-manifest.json
+          )
+
+          gh release upload "$TAG" dist/verify-manifest.json --clobber
+          gh release edit "$TAG" --latest=false
