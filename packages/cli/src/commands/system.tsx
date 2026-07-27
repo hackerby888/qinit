@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { LiteRpc } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { systemCatalog, systemWasm } from "../system-wasm";
 import { Header, Spinner, Status } from "../ui";
@@ -30,7 +30,7 @@ export function System({ args }: { args: string[] }) {
     rpc: parsed.get("rpc"),
   };
   const cfg = loadConfig();
-  const rpcBase = o.rpc || cfg.rpc || "http://127.0.0.1:41841";
+  const rpcBase = o.rpc || cfg.rpc || DEFAULT_RPC_BASE;
   const [lines, setLines] = useState<Line[]>([]);
   const [busy, setBusy] = useState("starting");
   const [done, setDone] = useState(false);

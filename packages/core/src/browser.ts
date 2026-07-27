@@ -32,7 +32,16 @@ export type {
   DebugStateRegion,
 } from "./rpc";
 
-export { broadcastTx, broadcastTxs, fetchT, readBody } from "./net";
+export {
+  LOOPBACK_HOST,
+  DEFAULT_RPC_PORT,
+  DEFAULT_RPC_BASE,
+  DEFAULT_PEER_PORT,
+  broadcastTx,
+  broadcastTxs,
+  fetchT,
+  readBody,
+} from "./net";
 export type { BroadcastResult } from "./net";
 
 export type { NodeTransport, TxStatus, StateRead, EntityInfo, TxInfo } from "./transport";

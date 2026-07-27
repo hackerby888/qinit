@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { resolve, basename } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { contractAddress } from "@qinit/proto";
-import { bytesToIdentity } from "@qinit/core";
+import { DEFAULT_RPC_BASE, bytesToIdentity } from "@qinit/core";
 import { loadConfig, resolveCore, resolveCompiler } from "../config";
 import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
@@ -69,7 +69,7 @@ export function Deploy({ args }: { args: string[] }) {
             contractPath,
             name: nm,
             core: resolveCore(o.core, cfg.core),
-            rpcBase: o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841",
+            rpcBase: o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE,
             seed: o.seed,
             dynCallees,
             slotOverride: sv !== undefined && sv !== "" ? Number(sv) : undefined,

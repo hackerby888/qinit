@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { LiteRpc, type DynContract } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, type DynContract } from "@qinit/core";
 import { readState, type StateDump } from "../trace-format";
 import { StateView } from "../views";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
@@ -19,7 +19,7 @@ export function State({ args }: { args: string[] }) {
     all: parsed.has("all"),
     digest: parsed.has("digest"),
   };
-  const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
+  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [lines, setLines] = useState<string[]>([]);
   const [dump, setDump] = useState<StateDump | null>(null);

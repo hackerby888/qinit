@@ -1,7 +1,11 @@
 // broadcastTx verdict logic + the readBody stall watchdog. broadcastTx must only report ok when the node
 // actually accepted+relayed the tx (peers >= 1, no error code) — a false ok would hide a dropped tx.
 import { test, expect, afterEach } from "bun:test";
-import { broadcastTx, readBody } from "../../src/net";
+import {
+  DEFAULT_RPC_BASE,
+  broadcastTx,
+  readBody,
+} from "../../src/net";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -13,8 +17,18 @@ const mock = (o: unknown, status = 200) => {
 const tx = new Uint8Array([1, 2, 3]);
 
 test("broadcastTx: ok only when peersBroadcasted >= 1 and no error code", async () => {
-  mock({ peersBroadcasted: 3, transactionId: "abc" });
+  let requestedUrl = "";
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    requestedUrl = String(url);
+    return new Response(
+      JSON.stringify({ peersBroadcasted: 3, transactionId: "abc" }),
+    );
+  }) as typeof fetch;
+
   expect(await broadcastTx(tx)).toMatchObject({ ok: true, transactionId: "abc" });
+  expect(requestedUrl).toBe(
+    `${DEFAULT_RPC_BASE}/live/v1/broadcast-transaction`,
+  );
 });
 
 test("broadcastTx: not ok on an error code or zero peers", async () => {

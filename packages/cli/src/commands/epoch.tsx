@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { LiteRpc } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { advanceTo } from "./tick";
 import { Header, Spinner, Bar, KV, theme } from "../ui";
@@ -12,7 +12,7 @@ export function Epoch({ args }: { args: string[] }) {
     rpc: parsed.get("rpc"),
     sub: parsed.pos[0] ?? "",
   };
-  const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
+  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [rows, setRows] = useState<[string, string][] | null>(null);
   const [prog, setProg] = useState<{ from: number; cur: number; target: number } | null>(null);

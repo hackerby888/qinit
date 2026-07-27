@@ -1,3 +1,5 @@
+import { DEFAULT_PEER_PORT } from "@qinit/core";
+
 export interface OptionMeta {
   name: string;
   type: "string" | "boolean";
@@ -102,7 +104,11 @@ export const META: Record<string, CommandMeta> = {
           ),
           stringOption("bin", "<path>", "run a local node binary (skip fetch)"),
           stringOption("tick-ms", "<n>", "virtualnode tick interval in ms (0 = fastest)"),
-          stringOption("peer-port", "<n>", "virtualnode Qubic TCP peer port (default 21841)"),
+          stringOption(
+            "peer-port",
+            "<n>",
+            `virtualnode Qubic TCP peer port (default ${DEFAULT_PEER_PORT})`,
+          ),
           stringOption("wait", "<s>", "seconds to wait for ticking"),
           stringOption("dir", "<path>", "node scratch directory"),
           stringOption("node-mode", "<n>", "native node mode"),

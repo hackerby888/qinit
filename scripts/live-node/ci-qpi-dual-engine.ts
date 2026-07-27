@@ -19,12 +19,17 @@ import {
   loadQpiHeader,
 } from "../../packages/compile/src/index";
 import { QPI_SNAPSHOT } from "../../packages/compile/src/generated/qpi-snapshot";
-import { initK12, k12Hex, LiteRpc } from "../../packages/core/src/index";
+import {
+  DEFAULT_RPC_BASE,
+  initK12,
+  k12Hex,
+  LiteRpc,
+} from "../../packages/core/src/index";
 import { VirtualNode } from "../../packages/engine/src/index";
 import { EngineServer } from "../../packages/engine/src/server";
 import { invokeProcedure } from "../../packages/proto/src/index";
 
-const rpcBase = process.env.QINIT_RPC ?? "http://127.0.0.1:41841";
+const rpcBase = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;
 if (!core) {
   throw new Error("QINIT_CORE not set");

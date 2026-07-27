@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { LiteRpc, type DynContract } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc, type DynContract } from "@qinit/core";
 import type { SystemContract } from "@qinit/build";
 import { loadConfig } from "../config";
 import { loadSystem } from "../contracts";
@@ -26,7 +26,7 @@ const stateOf = (c: DynContract) => (!c.armed ? "empty" : c.constructed ? "ready
 
 export function Ls({ args }: { args: string[] }) {
   const { flags: o } = parseCommandArgs("ls", args);
-  const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
+  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [s, setS] = useState<{
     phase: "run" | "done";

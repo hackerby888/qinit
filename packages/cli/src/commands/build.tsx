@@ -4,6 +4,7 @@ import { writeFileSync, readFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
 import { buildContract, type BuildResult } from "@qinit/build";
 import {
+  DEFAULT_RPC_BASE,
   autoUpdateVerifyTool,
   k12Hex,
   LiteRpc,
@@ -76,7 +77,7 @@ export function Build({ args }: { args: string[] }) {
 
         // Backend-clang build path
         const notes: string[] = [];
-        const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";
+        const rpcBase = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
         const callees = await resolveNodeCallees(
           new LiteRpc(rpcBase),
           readFileSync(contractPath, "utf8"),

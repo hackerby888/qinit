@@ -1,4 +1,4 @@
-import { initK12 } from "@qinit/core";
+import { LOOPBACK_HOST, initK12 } from "@qinit/core";
 import { VirtualNode } from "./transport";
 import { PeerServer } from "./peer-server";
 
@@ -330,7 +330,7 @@ export class EngineServer {
     }
 
     return {
-      rpcBase: `http://127.0.0.1:${server.port}`,
+      rpcBase: `http://${LOOPBACK_HOST}:${server.port}`,
       peerPort: boundPeerPort,
       stop: () => this.stop(),
     };

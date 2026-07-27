@@ -5,9 +5,12 @@ import { deployContract } from "../../packages/cli/src/deploy-ops";
 import { callFunction, invokeProcedure, decodeLog } from "../../packages/proto/src/index";
 import { extractIdl } from "../../packages/build/src/index";
 import { loadQpiHeader } from "../../packages/compile/src/index";
-import { LiteRpc } from "../../packages/core/src/index";
+import {
+  DEFAULT_RPC_BASE,
+  LiteRpc,
+} from "../../packages/core/src/index";
 
-const rpcBase = process.env.QINIT_RPC ?? "http://127.0.0.1:41841";
+const rpcBase = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;
 if (!core) {
   console.error("QINIT_CORE not set");

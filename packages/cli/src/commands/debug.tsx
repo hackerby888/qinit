@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from "ink";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  DEFAULT_RPC_BASE,
   LiteRpc,
   resolveTrapBacktrace,
   formatTrapBacktrace,
@@ -28,7 +29,7 @@ const LIST_COLS: Column[] = [
 
 export function Debug({ args }: { args: string[] }) {
   const { flags: o } = parseCommandArgs("debug", args);
-  const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
+  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const rpc = useRef(new LiteRpc(rpcBase)).current;
   const [qpiHeader] = useState(() => {

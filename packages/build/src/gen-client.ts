@@ -158,10 +158,10 @@ export function generateClient(
   );
   if (options?.runtimeImport) {
     lines.push(
-      `import { LiteRpc, callFunction, invokeProcedure } from "${options.runtimeImport}";`,
+      `import { DEFAULT_RPC_BASE, LiteRpc, callFunction, invokeProcedure } from "${options.runtimeImport}";`,
     );
   } else {
-    lines.push(`import { LiteRpc } from "@qinit/core";`);
+    lines.push(`import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";`);
     lines.push(`import { callFunction, invokeProcedure } from "@qinit/proto";`);
   }
 
@@ -211,7 +211,7 @@ export function generateClient(
   lines.push(`export class ${idl.name} {`);
   lines.push(`  rpc: LiteRpc; rpcBase: string; index: number; seed?: string;`);
   lines.push(`  constructor(o: ${idl.name}Opts = {}) {`);
-  lines.push(`    this.rpcBase = o.rpcBase ?? "http://127.0.0.1:41841";`);
+  lines.push(`    this.rpcBase = o.rpcBase ?? DEFAULT_RPC_BASE;`);
   lines.push(`    this.rpc = o.rpc ?? new LiteRpc(this.rpcBase);`);
   lines.push(`    this.index = o.index ?? ${index};`);
   lines.push(`    this.seed = o.seed;`);

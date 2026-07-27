@@ -1,3 +1,8 @@
+export const LOOPBACK_HOST = "127.0.0.1";
+export const DEFAULT_RPC_PORT = 41841;
+export const DEFAULT_RPC_BASE = `http://${LOOPBACK_HOST}:${DEFAULT_RPC_PORT}`;
+export const DEFAULT_PEER_PORT = 21841;
+
 // Fetch with a timeout until response headers arrive; body streaming has its own watchdog.
 export async function fetchT(url: string, init?: RequestInit, ms = 10000): Promise<Response> {
   const controller = new AbortController();
@@ -72,7 +77,7 @@ export interface BroadcastResult {
 
 export async function broadcastTx(
   txBytes: Uint8Array,
-  rpcBase = "http://127.0.0.1:41841",
+  rpcBase = DEFAULT_RPC_BASE,
 ): Promise<BroadcastResult> {
   const encodedTransaction = Buffer.from(txBytes).toString("base64");
   let response: Response;
@@ -102,7 +107,7 @@ export async function broadcastTx(
 
 export async function broadcastTxs(
   txList: Uint8Array[],
-  rpcBase = "http://127.0.0.1:41841",
+  rpcBase = DEFAULT_RPC_BASE,
 ): Promise<BroadcastResult[]> {
   const out: BroadcastResult[] = [];
   for (const tx of txList) {

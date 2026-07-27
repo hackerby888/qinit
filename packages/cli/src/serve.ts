@@ -1,12 +1,17 @@
 // Run the persistent in-process engine behind the hidden `__serve` command.
 import { EngineServer } from "@qinit/engine/server";
 import { VirtualNode } from "@qinit/engine";
-import type { WasmSlotLayout } from "@qinit/core";
+import {
+  DEFAULT_PEER_PORT,
+  DEFAULT_RPC_PORT,
+  LOOPBACK_HOST,
+  type WasmSlotLayout,
+} from "@qinit/core";
 import { systemWasm } from "./system-wasm";
 
 // RPC base -> the port the virtual node binds. Defaults to the standard dev-node port when none is given.
 export function portFromRpc(rpcBase: string): number {
-  return Number(new URL(rpcBase).port || "41841");
+  return Number(new URL(rpcBase).port || DEFAULT_RPC_PORT);
 }
 
 // Seed configured system contracts after startup without blocking RPC or ticking.
@@ -31,13 +36,15 @@ export async function serveEngine(
   rpcBase: string,
   tickMs?: number,
   system: string[] = [],
-  peerPort = 21841,
+  peerPort = DEFAULT_PEER_PORT,
   slotLayout?: WasmSlotLayout,
 ): Promise<never> {
   const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
   const srv = new EngineServer(new VirtualNode(slotLayout));
   await srv.start(portFromRpc(rpcBase), ms, peerPort);
-  process.stdout.write(`qinit virtual node: rpc ${rpcBase} · peer 127.0.0.1:${peerPort}\n`);
+  process.stdout.write(
+    `qinit virtual node: rpc ${rpcBase} · peer ${LOOPBACK_HOST}:${peerPort}\n`,
+  );
   await seedSystemContracts(srv, system);
 
   // Keep the process alive indefinitely — EngineServer auto-advances ticks on its own interval, and the

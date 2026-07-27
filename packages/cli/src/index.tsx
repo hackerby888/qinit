@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
+
 // Qinit CLI entry — the standalone-binary compile target (`bun build --compile`).
 import { render } from "ink";
+import { DEFAULT_PEER_PORT, DEFAULT_RPC_BASE } from "@qinit/core";
 import { App } from "./app";
 import { applyTheme } from "./ui";
 import { savedTheme } from "./config";
@@ -33,13 +35,15 @@ if (command === "__serve") {
       "slot-count",
     ],
   });
-  const rpc = flags.rpc || "http://127.0.0.1:41841";
+  const rpc = flags.rpc || DEFAULT_RPC_BASE;
   const system = flags.system?.split(",").filter(Boolean) ?? [];
   await serveEngine(
     rpc,
     flags["tick-ms"] !== undefined ? Number(flags["tick-ms"]) : undefined,
     system,
-    flags["peer-port"] !== undefined ? Number(flags["peer-port"]) : 21841,
+    flags["peer-port"] !== undefined
+      ? Number(flags["peer-port"])
+      : DEFAULT_PEER_PORT,
     flags["slot-base"] !== undefined && flags["slot-count"] !== undefined
       ? {
           slotBase: Number(flags["slot-base"]),

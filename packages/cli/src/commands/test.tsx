@@ -5,7 +5,12 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from 
 import { loadConfig, resolveCore, savedMode, resolveCompiler } from "../config";
 import { deployContract, type Ev } from "../deploy-ops";
 import { launchNode, waitTicking, killNode, ensureNode, scratchDir } from "../node-ops";
-import { LiteRpc, resolveTrapBacktrace, formatTrapBacktrace } from "@qinit/core";
+import {
+  DEFAULT_RPC_BASE,
+  LiteRpc,
+  resolveTrapBacktrace,
+  formatTrapBacktrace,
+} from "@qinit/core";
 import { testRuntimeSource, sampleTest, generateClient, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compile";
 import { EngineServer } from "@qinit/engine/server";
@@ -51,7 +56,7 @@ export function Test({ args }: { args: string[] }) {
   const { flags: o, pos } = parseCommandArgs("test", args);
   const cfg = loadConfig();
   const root = process.cwd();
-  const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";
+  const rpcBase = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
   const contractPath = resolve(
     o.contract ?? pos[0] ?? cfg.contract ?? "contracts/" + (cfg.name ?? "") + ".h",
   );

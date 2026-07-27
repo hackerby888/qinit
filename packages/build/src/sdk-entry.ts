@@ -1,5 +1,14 @@
 // Test SDK assembled from canonical Qinit codec, transaction, and RPC sources.
-export { deriveIdentity, bytesToIdentity, identityToBytes, buildSignedTx, broadcastTx, initK12, LiteRpc } from "@qinit/core/browser";
+export {
+  DEFAULT_RPC_BASE,
+  deriveIdentity,
+  bytesToIdentity,
+  identityToBytes,
+  buildSignedTx,
+  broadcastTx,
+  initK12,
+  LiteRpc,
+} from "@qinit/core/browser";
 export {
   encodeInput,
   encodeInputJson,
@@ -8,7 +17,7 @@ export {
   invokeProcedure,
   contractAddress,
 } from "@qinit/proto";
-import { LiteRpc } from "@qinit/core/browser";
+import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core/browser";
 
 const ORACLE_STATUS_SUCCESS = 3;
 
@@ -18,7 +27,7 @@ export interface Provider {
   seed?: string;
   index?: number;
 }
-const defaultRpcBase = () => process.env.QINIT_RPC || "http://127.0.0.1:41841";
+const defaultRpcBase = () => process.env.QINIT_RPC || DEFAULT_RPC_BASE;
 export function provider(): Provider {
   return {
     rpcBase: defaultRpcBase(),

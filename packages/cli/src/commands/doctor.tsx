@@ -78,7 +78,7 @@ async function runChecks(): Promise<Check[]> {
     detail: hasQpi ? qpi : coreErr || "headers not found",
     fix: hasQpi
       ? undefined
-      : "qinit setup                 (fetch published snapshot)  or  set QINIT_CORE=<core-checkout>",
+      : "qinit setup (fetch published snapshot) or set QINIT_CORE=<core-checkout>",
   });
 
   try {

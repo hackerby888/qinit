@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Header, theme } from "../ui";
 import { loadSystem } from "../contracts";
 import { extractIdl, genStdGtest } from "@qinit/build";
+import { DEFAULT_RPC_BASE } from "@qinit/core";
 import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "../templates";
 import { loadConfiguredQpiHeader } from "../config";
 import { parseCommandArgs } from "../args";
@@ -95,7 +96,7 @@ export function New({ args }: { args: string[] }) {
       const cfg: Record<string, unknown> = {
         name,
         contract: `contracts/${name}.h`,
-        rpc: "http://127.0.0.1:41841",
+        rpc: DEFAULT_RPC_BASE,
       };
       if (core) cfg.core = core; // omitted by default -> resolveCore uses the synced cache, project is machine-portable
       // The intercontract template CALLs a Counter — scaffold that callee + register it so `qinit test` deploys

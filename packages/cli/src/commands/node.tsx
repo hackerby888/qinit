@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
-import { readCurrent, LiteRpc } from "@qinit/core";
+import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
 import { killNode, nodeAlive, fetchNodeBin, nodeStatus } from "../node-ops";
 import { parseCommandArgs } from "../args";
 const dlLabel = (recv: number, total: number) =>
@@ -18,7 +18,7 @@ export function Node({ args }: { args: string[] }) {
   const { exit } = useApp();
   const { flags: o, pos } = parseCommandArgs("node", args);
   const sub = pos[0] ?? "status";
-  const rpcBase = o.rpc || "http://127.0.0.1:41841";
+  const rpcBase = o.rpc || DEFAULT_RPC_BASE;
   const [s, setS] = useState<State>({ phase: "run", spin: sub });
 
   useEffect(() => {

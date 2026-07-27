@@ -5,7 +5,7 @@ import { statSync } from "node:fs";
 import { loadConfig, resolveCore, resolveCompiler } from "../config";
 import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
 import { nodeContracts } from "../node-ops";
-import { LiteRpc } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { Header, StepRow, type StepState, Panel, theme } from "../ui";
 import { parseCommandArgs } from "../args";
 import { parseCallees } from "../callees";
@@ -22,7 +22,7 @@ export function Dev({ args }: { args: string[] }) {
   const { exit } = useApp();
   const { flags: o, pos, multi } = parseCommandArgs("dev", args);
   const cfg = loadConfig();
-  const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";
+  const rpcBase = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
   const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
   const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
   const dynCallees = parseCallees(multi.callee);

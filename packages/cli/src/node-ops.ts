@@ -10,6 +10,9 @@ import {
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import {
+  DEFAULT_PEER_PORT,
+  DEFAULT_RPC_BASE,
+  LOOPBACK_HOST,
   LiteRpc,
   cacheRoot,
   readCurrent,
@@ -184,7 +187,7 @@ export function launchNode(
   const logFd = openSync(log, "a");
   const args = [
     "--peers",
-    options.peers || "127.0.0.1",
+    options.peers || LOOPBACK_HOST,
     "--node-mode",
     options.mode || "3",
     "--ticking-delay",
@@ -229,12 +232,12 @@ export function launchVirtualNode(options: {
 
   const executable = process.execPath;
   const compiled = !/bun(\.exe)?$/i.test(executable);
-  const rpcBase = options.rpcBase || "http://127.0.0.1:41841";
+  const rpcBase = options.rpcBase || DEFAULT_RPC_BASE;
   const flags = [
     "--rpc",
     rpcBase,
     "--peer-port",
-    String(options.peerPort ?? 21841),
+    String(options.peerPort ?? DEFAULT_PEER_PORT),
     ...(options.slotBase !== undefined
       ? ["--slot-base", String(options.slotBase)]
       : []),

@@ -2,7 +2,12 @@
 // release-configured core-lite WAMR node. QINIT_CORE and a ticking node at QINIT_RPC are required.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { initK12, k12Hex, LiteRpc } from "../../packages/core/src/index";
+import {
+  DEFAULT_RPC_BASE,
+  initK12,
+  k12Hex,
+  LiteRpc,
+} from "../../packages/core/src/index";
 import {
   compileContract,
   DiagnosticSeverity,
@@ -15,7 +20,7 @@ import { invokeProcedure, resolveSlot } from "../../packages/proto/src/index";
 
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE not set");
-const rpcBase = process.env.QINIT_RPC ?? "http://127.0.0.1:41841";
+const rpcBase = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const rpc = new LiteRpc(rpcBase);
 const contractPath = resolve("fixtures/Logger.h");
 const source = readFileSync(contractPath, "utf8");

@@ -25,6 +25,7 @@ struct Demo : public ContractBase {
 };`;
 
 const RUNTIME = `
+export const DEFAULT_RPC_BASE = "http://127.0.0.1:41841";
 export const functionInputs: Uint8Array[] = [];
 export const procedureInputs: Uint8Array[] = [];
 

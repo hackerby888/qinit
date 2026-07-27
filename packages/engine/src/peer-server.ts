@@ -2,7 +2,11 @@
 // Lets external clients communicate with the simulation over TCP.
 import { VirtualNode } from "./transport";
 import { initK12, toHex } from "./k12";
-import { identityToBytes } from "@qinit/core";
+import {
+  DEFAULT_PEER_PORT,
+  LOOPBACK_HOST,
+  identityToBytes,
+} from "@qinit/core";
 import * as codec from "./peer-codec";
 import { MSG } from "./peer-codec";
 
@@ -26,10 +30,11 @@ export class PeerServer {
     this.engine = engine;
   }
 
-  // Listen on `port` (21841 = the default Qubic node port). Auto-advances one tick every `tickMs` so the current
-  // Advance ticks for broadcast transactions and report tickMs as tickDuration.
-  // Pre-fund the development seed.
-  async start(port = 21841, tickMs = 50, autoTick = true): Promise<PeerServerHandle> {
+  async start(
+    port = DEFAULT_PEER_PORT,
+    tickMs = 50,
+    autoTick = true,
+  ): Promise<PeerServerHandle> {
     await initK12();
     await this.engine.seedFaucet();
     this.engine.sim.tickDuration = tickMs;
@@ -49,7 +54,7 @@ export class PeerServer {
 
     const self = this;
     const server = Bun.listen<ConnState>({
-      hostname: "127.0.0.1",
+      hostname: LOOPBACK_HOST,
       port,
       socket: {
         open(socket) {

@@ -397,6 +397,7 @@ jobs:
       - name: Boot node + deploy smoke
         env:
           QINIT_CORE: ${{ github.workspace }}/core
+          QINIT_RPC: http://127.0.0.1:41841
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: |
@@ -418,7 +419,7 @@ jobs:
                 --peers 127.0.0.1 --node-mode 3 --ticking-delay 1000 > node.log 2>&1
             ) &
             node_pid=$!
-            if t=$(bash scripts/live-node/poll-node-json.sh http://127.0.0.1:41841/live/v1/tick-info '.tick // 0' 50 3); then
+            if t=$(bash scripts/live-node/poll-node-json.sh "$QINIT_RPC/live/v1/tick-info" '.tick // 0' 50 3); then
               echo "node ticking at $t"
             else
               echo "node never ticked"

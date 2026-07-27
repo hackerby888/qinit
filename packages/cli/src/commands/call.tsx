@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Box, Text, useApp } from "ink";
-import { LiteRpc, resolveTrapBacktrace, formatTrapBacktrace, type DebugEntry } from "@qinit/core";
+import {
+  DEFAULT_RPC_BASE,
+  LiteRpc,
+  resolveTrapBacktrace,
+  formatTrapBacktrace,
+  type DebugEntry,
+} from "@qinit/core";
 import { scratchDir } from "../node-ops";
 import {
   callFunction,
@@ -63,7 +69,7 @@ export function Call({ args }: { args: string[] }) {
       ? { mode, idx: parsed.pos[0], entry: parsed.pos[1] }
       : {}),
   };
-  const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
+  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   if (o.mode !== "fn" && o.mode !== "proc")
     return <CallInteractive rpcBase={rpcBase} seed={o.seed} />;
   return <CallOneShot o={o} rpcBase={rpcBase} />;

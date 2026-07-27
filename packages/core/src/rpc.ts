@@ -1,6 +1,10 @@
-// Client for the qubic-core-lite built-in HTTP RPC (GET-only; default :41841).
+// Client for the qubic-core-lite built-in HTTP RPC.
 // Fast path for on-chain reads — current tick, spectrum, and (later) the deploy registry.
-import { fetchT, broadcastTx as netBroadcastTx } from "./net";
+import {
+  DEFAULT_RPC_BASE,
+  fetchT,
+  broadcastTx as netBroadcastTx,
+} from "./net";
 import type { NodeTransport, EntityInfo, TxInfo } from "./transport";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -88,7 +92,7 @@ export interface DebugTrace {
 }
 
 export class LiteRpc implements NodeTransport {
-  constructor(private base = "http://127.0.0.1:41841") {}
+  constructor(private base = DEFAULT_RPC_BASE) {}
 
   // GETs are idempotent reads: a connect/timeout failure is retried (bounded, backoff) so a momentary
   // blip during node boot/load doesn't fail the command. An HTTP non-2xx is a real answer -> not retried.

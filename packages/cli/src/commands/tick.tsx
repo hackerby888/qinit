@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { LiteRpc } from "@qinit/core";
+import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { Header, Spinner, Bar, KV, theme } from "../ui";
 import { parseCommandArgs } from "../args";
@@ -37,7 +37,7 @@ export function Tick({ args }: { args: string[] }) {
     sub: parsed.pos[0] ?? "",
     arg: parsed.pos[1] ?? "",
   };
-  const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
+  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [rows, setRows] = useState<[string, string][] | null>(null);
   const [prog, setProg] = useState<{

@@ -3,6 +3,9 @@ import { Box, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  DEFAULT_PEER_PORT,
+  DEFAULT_RPC_BASE,
+  LOOPBACK_HOST,
   fetchWasiSdk,
   haveWasiSdkCache,
   loadCoreWasmSlotLayout,
@@ -27,8 +30,8 @@ type Phase = { key: string; label: string; state: StepState; detail?: string };
 export function NodeRun({ args }: { args: string[] }) {
   const { exit } = useApp();
   const { flags: o } = parseCommandArgs("node", args, "run");
-  const rpcBase = o.rpc || "http://127.0.0.1:41841";
-  const peerPort = Number(o["peer-port"] || 21841);
+  const rpcBase = o.rpc || DEFAULT_RPC_BASE;
+  const peerPort = Number(o["peer-port"] || DEFAULT_PEER_PORT);
   const ref = o.ref || "latest";
   // `qinit mode` chooses the backend; an explicit --real/--realnode or --virtual flag overrides it for this run
   // (parity with `qinit test`), so `qinit node run --real` isn't silently ignored.
@@ -159,7 +162,7 @@ export function NodeRun({ args }: { args: string[] }) {
           ["tick", String(tick)],
           ["contracts", contracts.length ? contracts.join(", ") : "(none)"],
         ];
-        if (virtual) rows.splice(3, 0, ["peer", `127.0.0.1:${peerPort}`]);
+        if (virtual) rows.splice(3, 0, ["peer", `${LOOPBACK_HOST}:${peerPort}`]);
         if (scratch) rows.push(["scratch", scratch]);
         setDone({
           ok,
