@@ -10,7 +10,7 @@ import {
   type DebugEntry,
   type DynamicContractRegistryEntry,
 } from "@qinit/core";
-import { describeTrace, type TraceView as TraceData } from "../trace-format";
+import { describeTrace, type DecodedTrace } from "../trace-format";
 import { TraceView } from "../views";
 import { activeNodeScratchDir } from "../node-ops";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
@@ -183,7 +183,7 @@ function Detail({
   rpc: LiteRpc;
   qpiHeader?: string;
 }) {
-  const [v, setV] = useState<TraceData | null>(null);
+  const [v, setV] = useState<DecodedTrace | null>(null);
   const [bt, setBt] = useState<string>("");
   useEffect(() => {
     let alive = true;

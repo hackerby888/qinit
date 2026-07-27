@@ -23,7 +23,12 @@ import {
   type ContractEntry,
 } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
-import { describeTrace, jstr, fmtVal, type TraceView as TraceData } from "../trace-format";
+import {
+  describeTrace,
+  jstr,
+  fmtVal,
+  type DecodedTrace,
+} from "../trace-format";
 import { TraceView } from "../views";
 import { CallInteractive } from "./call-interactive";
 import {
@@ -43,7 +48,7 @@ type Result = {
   rows?: [string, string][];
   err?: string;
 };
-type Trace = { e: DebugEntry; name: string; view: TraceData };
+type Trace = { e: DebugEntry; name: string; view: DecodedTrace };
 type Confirm = { start: number; net: number; target: number };
 
 // Non-interactive forms (qubic-cli style):

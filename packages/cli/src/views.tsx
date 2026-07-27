@@ -4,8 +4,8 @@ import { Box, Text } from "ink";
 import { type DebugEntry } from "@qinit/core";
 import { Status, theme, truncEnd, truncMid, termCols } from "./ui";
 import {
-  type TraceView as TraceData,
-  type StateDump,
+  type DecodedTrace,
+  type DecodedState,
   labelOff,
   fmtDiffVal,
   sevColor,
@@ -31,7 +31,7 @@ function Rows({ rows }: { rows: { label: string; node: React.ReactNode }[] }) {
 }
 
 // One decoded contract-call trace, compact. `view` = describeTrace(e, ...).
-export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view: TraceData }) {
+export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view: DecodedTrace }) {
   const rows: { label: string; node: React.ReactNode }[] = [
     { label: "in", node: <Text>{truncEnd(view.inDecoded, termCols() - 8)}</Text> },
     { label: "out", node: <Text>{truncEnd(view.outDecoded, termCols() - 8)}</Text> },
@@ -55,10 +55,14 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
       <Text dimColor>(no change)</Text>
     ),
   });
-  for (const c of view.cols)
+  for (const container of view.containers)
     rows.push({
-      label: c.name,
-      node: <Text dimColor>{truncMid(c.entries.join(", ") || "empty", termCols() - 12)}</Text>,
+      label: container.name,
+      node: (
+        <Text dimColor>
+          {truncMid(container.entries.join(", ") || "empty", termCols() - 12)}
+        </Text>
+      ),
     });
   for (const l of view.logs)
     rows.push({
@@ -111,7 +115,15 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
 }
 
 // A contract's decoded current state (scalars + containers), compact.
-export function StateView({ name, dump, full }: { name: string; dump: StateDump; full?: boolean }) {
+export function StateView({
+  name,
+  state,
+  full,
+}: {
+  name: string;
+  state: DecodedState;
+  full?: boolean;
+}) {
   // full -> wrap (show everything); else truncate each line to the terminal so long values don't trip the output.
   // truncMid keeps head + tail, so a grouped value's tail (×N / "first K of N" / "+N more (--all)") stays visible.
   const cell = (s: string, pad: number) =>
@@ -119,22 +131,29 @@ export function StateView({ name, dump, full }: { name: string; dump: StateDump;
   return (
     <Box flexDirection="column">
       <Status ok={null} label={`${name} state`} />
-      {dump.fields.length ? (
-        <Rows rows={dump.fields.map((f) => ({ label: f.name, node: cell(f.value, 12) }))} />
+      {state.fields.length ? (
+        <Rows rows={state.fields.map((f) => ({ label: f.name, node: cell(f.value, 12) }))} />
       ) : (
         <Box marginLeft={2}>
           <Text dimColor>no scalar fields</Text>
         </Box>
       )}
-      {dump.cols.map((c) => (
-        <Box key={c.name} flexDirection="column" marginTop={1}>
+      {state.containers.map((container) => (
+        <Box key={container.name} flexDirection="column" marginTop={1}>
           <Text>
-            <Text color={theme.accent}>{c.name}</Text>{" "}
-            <Text dimColor>· {c.entries.length ? c.entries.length + " entries" : "empty"}</Text>
+            <Text color={theme.accent}>{container.name}</Text>{" "}
+            <Text dimColor>
+              ·{" "}
+              {container.entries.length
+                ? container.entries.length + " entries"
+                : "empty"}
+            </Text>
           </Text>
           <Box flexDirection="column" marginLeft={2}>
-            {c.entries.length ? (
-              c.entries.map((x, i) => <Text key={i}>{cell(x, 4)}</Text>)
+            {container.entries.length ? (
+              container.entries.map((entry, index) => (
+                <Text key={index}>{cell(entry, 4)}</Text>
+              ))
             ) : (
               <Text dimColor>empty</Text>
             )}
