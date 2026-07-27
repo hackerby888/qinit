@@ -6,8 +6,8 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -49,7 +49,7 @@ const EXPECTED =
 const INPUT = [2n, 5n, 0n, 0n];
 
 const runState = (wasm: Uint8Array): string => {
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   sim.deploy(27, wasm);
@@ -71,10 +71,10 @@ describe("uint128 casts of scalar expressions", () => {
   test("scalar-domain evaluation and computed decl-inits", async () => {
     const ours = await compileContract({
       source: SOURCE,
-      name: "UC",
+      contractName: "UC",
       slot: 27,
       qpiHeader: HEADERS,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(runState(ours.wasm)).toBe(EXPECTED);
@@ -83,7 +83,7 @@ describe("uint128 casts of scalar expressions", () => {
       const dir = mkdtempSync(join(tmpdir(), "u128cast-"));
       try {
         writeFileSync(join(dir, "UC.h"), SOURCE);
-        const built = await buildContract({
+        const built = await buildContractWithWasiClang({
           contractPath: join(dir, "UC.h"),
           name: "UC",
           slot: 27,
@@ -92,7 +92,7 @@ describe("uint128 casts of scalar expressions", () => {
           skipVerify: true,
         });
         expect(built.ok).toBe(true);
-        expect(runState(new Uint8Array(readFileSync(built.so!)))).toBe(EXPECTED);
+        expect(runState(new Uint8Array(readFileSync(built.wasmPath!)))).toBe(EXPECTED);
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }

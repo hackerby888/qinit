@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 
 const SLOT = 29;
 const QUERY = 2;
@@ -61,7 +61,7 @@ function u64(bytes: Uint8Array): bigint {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(0, true);
 }
 
-function last(sim: Sim) {
+function last(sim: QubicSimulator) {
   const bytes = sim.query(SLOT, LAST);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   return {
@@ -73,9 +73,9 @@ function last(sim: Sim) {
   };
 }
 
-async function deployProbe(): Promise<Sim> {
+async function deployProbe(): Promise<QubicSimulator> {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.tickDuration = 60_000;
   sim.deploy(SLOT, await wasm("OracleProbe"));
   sim.fund(cid(SLOT), 1_000_000n);

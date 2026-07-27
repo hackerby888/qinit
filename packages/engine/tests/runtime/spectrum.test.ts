@@ -1,5 +1,5 @@
-// SpectrumLedger (spectrum.ts) in isolation — no Sim. The entity-balance ledger + the spectrum merkle extracted
-// from the Sim god object: energy/increaseEnergy/decreaseEnergy, nextId/prevId iteration, the digest + proof.
+// SpectrumLedger (spectrum.ts) in isolation — no QubicSimulator. The entity-balance ledger + the spectrum merkle extracted
+// from the simulator: energy/increaseEnergy/decreaseEnergy, nextId/prevId iteration, the digest + proof.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex } from "../../src/k12";
 import { SpectrumLedger } from "../../src/spectrum";

@@ -19,10 +19,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 async function compile(source: string) {
   return compileContract({
     source,
-    name: "StaticAssertEdge",
+    contractName: "StaticAssertEdge",
     slot: 27,
     qpiHeader: HEADERS,
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
 }
 

@@ -2,7 +2,7 @@
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 import { contractId } from "../support/helpers";
 
 const GET = 1; // Counter/Hooks Get function
@@ -15,7 +15,9 @@ function u64(b: Uint8Array): bigint {
 }
 
 // Hooks Get_output: { ticks, endticks, epochs, endepochs } as four uint64 LE.
-function hookCounters(sim: Sim): [bigint, bigint, bigint, bigint] {
+function hookCounters(
+  sim: QubicSimulator,
+): [bigint, bigint, bigint, bigint] {
   const s = sim.query(28, GET);
   const f = (i: number) =>
     new DataView(s.buffer, s.byteOffset, s.byteLength).getBigUint64(i * 8, true);
@@ -24,7 +26,7 @@ function hookCounters(sim: Sim): [bigint, bigint, bigint, bigint] {
 
 test("fees off: contracts run with no reserve (default behaviour preserved)", async () => {
   await initK12();
-  const sim = new Sim(); // default — fees off
+  const sim = new QubicSimulator(); // default — fees off
   sim.deploy(28, await wasm("Hooks"));
 
   expect(sim.feeReserveOf(28)).toBe(0n); // no reserve tracked at all
@@ -38,7 +40,7 @@ test("fees off: contracts run with no reserve (default behaviour preserved)", as
 
 test("metered: BEGIN_TICK / END_TICK are skipped when the reserve is depleted, resume when refilled", async () => {
   await initK12();
-  const sim = new Sim({ fees: "metered" });
+  const sim = new QubicSimulator({ fees: "metered" });
   sim.deploy(28, await wasm("Hooks"));
   sim.setFeeReserve(28, 0n); // dormant
 
@@ -58,7 +60,7 @@ test("metered: BEGIN_TICK / END_TICK are skipped when the reserve is depleted, r
 
 test("metered: BEGIN_EPOCH / END_EPOCH run even on a dormant contract (exempt from the gate)", async () => {
   await initK12();
-  const sim = new Sim({ fees: "metered" });
+  const sim = new QubicSimulator({ fees: "metered" });
   sim.epochLength = 10; // cross a boundary at tick 10
   sim.deploy(28, await wasm("Hooks"));
   sim.setFeeReserve(28, 0n); // dormant for the whole run
@@ -69,12 +71,12 @@ test("metered: BEGIN_EPOCH / END_EPOCH run even on a dormant contract (exempt fr
 
   // Tick hooks gated out, but the epoch boundary (END_EPOCH then BEGIN_EPOCH) fired regardless of the reserve.
   expect(hookCounters(sim)).toEqual([0n, 0n, 1n, 1n]);
-  expect(sim.epochN).toBe(1);
+  expect(sim.currentEpoch).toBe(1);
 });
 
 test("metered: a user procedure to a dormant contract is skipped and its amount is refunded", async () => {
   await initK12();
-  const sim = new Sim({ fees: "metered" });
+  const sim = new QubicSimulator({ fees: "metered" });
   sim.deploy(28, await wasm("Counter"));
 
   const source = new Uint8Array(32).fill(0x11);
@@ -100,7 +102,7 @@ test("metered: a user procedure to a dormant contract is skipped and its amount 
 
 test("metered: running a procedure debits the contract's reserve by a sane metered cost", async () => {
   await initK12();
-  const sim = new Sim({ fees: "metered" });
+  const sim = new QubicSimulator({ fees: "metered" });
   sim.deploy(28, await wasm("Counter")); // seeded with the default reserve
 
   const before = sim.feeReserveOf(28);
@@ -115,12 +117,12 @@ test("metered: running a procedure debits the contract's reserve by a sane meter
 test("metered: fee accounting does not change contract state (digest matches an unmetered run)", async () => {
   await initK12();
 
-  const off = new Sim();
+  const off = new QubicSimulator();
   off.deploy(28, await wasm("Counter"));
   off.procedure(28, INC);
   off.procedure(28, INC);
 
-  const metered = new Sim({ fees: "metered" });
+  const metered = new QubicSimulator({ fees: "metered" });
   metered.deploy(28, await wasm("Counter"));
   metered.procedure(28, INC);
   metered.procedure(28, INC);
@@ -131,7 +133,7 @@ test("metered: fee accounting does not change contract state (digest matches an 
 
 test("metered: qpi.burn refills a contract's reserve from its balance", async () => {
   await initK12();
-  const sim = new Sim({ fees: "metered" });
+  const sim = new QubicSimulator({ fees: "metered" });
   sim.deploy(28, await wasm("Counter"));
   sim.setFeeReserve(28, 0n);
   sim.fund(contractId(28), 1000n);
@@ -150,7 +152,7 @@ test("metered: qpi.burn refills a contract's reserve from its balance", async ()
 
 test("metered: IPO seeds the reserve; a failed IPO (finalPrice 0) can never be refilled", async () => {
   await initK12();
-  const sim = new Sim({ fees: "metered" });
+  const sim = new QubicSimulator({ fees: "metered" });
   sim.deploy(28, await wasm("Counter"));
 
   sim.ipo(28, 1000n);
@@ -168,7 +170,7 @@ test("metered: IPO seeds the reserve; a failed IPO (finalPrice 0) can never be r
 
 test("metered: contract-to-contract procedure call fails when the callee has no reserve", async () => {
   await initK12();
-  const sim = new Sim({ fees: "metered" });
+  const sim = new QubicSimulator({ fees: "metered" });
   sim.deploy(28, await wasm("Counter")); // callee
   sim.deploy(29, await wasm("Proxy")); // caller
 
@@ -185,7 +187,7 @@ test("metered: contract-to-contract procedure call fails when the callee has no 
 
 test("metered: contract-to-contract function call fails when the callee has no reserve", async () => {
   await initK12();
-  const sim = new Sim({ fees: "metered" });
+  const sim = new QubicSimulator({ fees: "metered" });
   sim.deploy(28, await wasm("Counter"));
   sim.deploy(29, await wasm("Proxy"));
 

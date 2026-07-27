@@ -867,7 +867,7 @@ function jsonValueToFmt(typeTok: string, value: any): string {
 
 type InputFields = { name: string; type: string }[] | AbiType;
 
-export function jsonToInputFmt(fields: InputFields, json: any): string {
+export function jsonToInputFormat(fields: InputFields, json: any): string {
   if (!Array.isArray(fields)) {
     if (fields.kind !== AbiTypeKind.STRUCT) {
       return typedJsonValueToFmt(fields, json);
@@ -900,7 +900,7 @@ export async function encodeInputJson(
     );
     return bytes;
   }
-  return encodeInput(jsonToInputFmt(fields, json));
+  return encodeInput(jsonToInputFormat(fields, json));
 }
 
 function typedJsonValueToFmt(type: AbiType, value: any): string {
@@ -931,7 +931,7 @@ function typedJsonValueToFmt(type: AbiType, value: any): string {
 
 // Build an ALL-ZERO input value-format from a type-format (the input scheme) — same grammar encodeInput
 // consumes — so a user whose input fails to parse gets a valid, copy-pasteable sample matching their entry.
-export function zeroInputFmt(fmt: string | AbiType): string {
+export function zeroInputFormat(fmt: string | AbiType): string {
   if (typeof fmt !== "string" && hasOverlappingAbiType(fmt)) {
     return `[${fmt.size}; 0uint8 ×${fmt.size}]`;
   }

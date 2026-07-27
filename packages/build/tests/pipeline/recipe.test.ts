@@ -4,11 +4,11 @@ import { test, expect } from "bun:test";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import {
   buildPreamble,
-  genWrapperWasm,
+  generateWasmWrapperSource,
   WASM_CONTRACT_TESTING_HEADER,
 } from "../../src/recipe";
 
-const opts = (over: Partial<Parameters<typeof genWrapperWasm>[0]> = {}) => ({
+const opts = (over: Partial<Parameters<typeof generateWasmWrapperSource>[0]> = {}) => ({
   contractPath: "/abs/Counter.h",
   name: "Counter",
   slot: 7,
@@ -58,8 +58,8 @@ test("buildPreamble: NO_UEFI, std headers, then build define, then core headers 
   expect(iFirstCore).toBeLessThan(iLastCore);
 });
 
-test("genWrapperWasm: starts with the preamble, then per-contract defines bound to slot/name", () => {
-  const w = genWrapperWasm(opts());
+test("generateWasmWrapperSource: starts with the preamble, then per-contract defines bound to slot/name", () => {
+  const w = generateWasmWrapperSource(opts());
 
   expect(w.startsWith(buildPreamble())).toBe(true);
   expect(w).toContain("#define CONTRACT_INDEX 7");
@@ -68,8 +68,8 @@ test("genWrapperWasm: starts with the preamble, then per-contract defines bound 
   expect(w).toContain("#define CONTRACT_STATE2_TYPE Counter2");
 });
 
-test("genWrapperWasm: includes in recipe order — calls, support, contract, impls, runtime", () => {
-  const w = genWrapperWasm(opts());
+test("generateWasmWrapperSource: includes in recipe order — calls, support, contract, impls, runtime", () => {
+  const w = generateWasmWrapperSource(opts());
 
   const order = [
     CORE_WASM_HEADERS.sdk.intercontractCalls,
@@ -85,8 +85,8 @@ test("genWrapperWasm: includes in recipe order — calls, support, contract, imp
   expect(order).toEqual([...order].sort((a, b) => a - b));
 });
 
-test("genWrapperWasm: the scratchpad rename brackets only the hash_map impl", () => {
-  const w = genWrapperWasm(opts());
+test("generateWasmWrapperSource: the scratchpad rename brackets only the hash_map impl", () => {
+  const w = generateWasmWrapperSource(opts());
 
   const iDef = w.indexOf("#define __acquireScratchpad __qinit_cb_acquireScratchpad_unused");
   const iHash = w.indexOf("contract_core/qpi_hash_map_impl.h");
@@ -97,8 +97,8 @@ test("genWrapperWasm: the scratchpad rename brackets only the hash_map impl", ()
   expect(iHash).toBeLessThan(iUndef);
 });
 
-test("genWrapperWasm: container diagnostics trap without importing libc printf", () => {
-  const w = genWrapperWasm(opts());
+test("generateWasmWrapperSource: container diagnostics trap without importing libc printf", () => {
+  const w = generateWasmWrapperSource(opts());
   const iDefine = w.indexOf("#define printf(...) (__builtin_trap(), 0)");
   const iCollection = w.indexOf("contract_core/qpi_collection_impl.h");
   const iHash = w.indexOf("contract_core/qpi_hash_map_impl.h");
@@ -110,9 +110,9 @@ test("genWrapperWasm: container diagnostics trap without importing libc printf",
   expect(iHash).toBeLessThan(iUndef);
 });
 
-test("genWrapperWasm: callee prelude is injected between preamble and the contract defines", () => {
+test("generateWasmWrapperSource: callee prelude is injected between preamble and the contract defines", () => {
   const prelude = "/*__CALLEE_PRELUDE__*/\n";
-  const w = genWrapperWasm(opts({ calleePrelude: prelude }));
+  const w = generateWasmWrapperSource(opts({ calleePrelude: prelude }));
 
   const iPreambleEnd = buildPreamble().length;
   const iPrelude = w.indexOf(prelude);
@@ -122,15 +122,15 @@ test("genWrapperWasm: callee prelude is injected between preamble and the contra
   expect(iPrelude).toBeLessThan(iDefines);
 });
 
-test("genWrapperWasm: omitting the callee prelude leaves no gap before the defines", () => {
-  const w = genWrapperWasm(opts());
+test("generateWasmWrapperSource: omitting the callee prelude leaves no gap before the defines", () => {
+  const w = generateWasmWrapperSource(opts());
 
   expect(w).toContain(`${buildPreamble()}\n#define CONTRACT_INDEX 7`);
 });
 
-test("genWrapperWasm: includes only the Wasm support and runtime headers", () => {
+test("generateWasmWrapperSource: includes only the Wasm support and runtime headers", () => {
   const o = opts();
-  const wasm = genWrapperWasm(o);
+  const wasm = generateWasmWrapperSource(o);
 
   expect(wasm).toContain("#define LITE_WASM_TU_BUILD");
   expect(wasm).not.toContain(CORE_WASM_HEADERS.shared.abiTypes);
@@ -147,8 +147,13 @@ test("genWrapperWasm: includes only the Wasm support and runtime headers", () =>
   );
 });
 
-test("genWrapperWasm: slot/name interpolation for a system contract", () => {
-  const w = genWrapperWasm(opts({ slot: 28, name: "QX", contractPath: "contracts/QX.h" }));
+test("generateWasmWrapperSource: slot/name interpolation for a system contract", () => {
+  const w = generateWasmWrapperSource({
+    ...opts(),
+    slot: 28,
+    name: "QX",
+    contractPath: "contracts/QX.h",
+  });
 
   expect(w).toContain("#define CONTRACT_INDEX 28");
   expect(w).toContain("#define QX_CONTRACT_INDEX 28");

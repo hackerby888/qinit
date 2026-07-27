@@ -1,5 +1,5 @@
 import { DiagnosticSeverity } from "../../src/enums";
-// Dual-backend corpus verification: native clang + TS compiler.
+// Dual-backend corpus verification: clang and TypeScript.
 import { describe, test, expect, beforeAll } from "bun:test";
 import {
   readFileSync,
@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initK12 } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";
-import { buildContract, buildCorpusRunner } from "@qinit/build";
+import { buildContractWithWasiClang, buildCorpusRunner } from "@qinit/build";
 import {
   compileContract,
   loadQpiHeader,
@@ -39,6 +39,7 @@ interface Spec {
 }
 
 const ARENA = 8 * 1024 * 1024;
+type CorpusCompilerBackend = "clang" | "typescript";
 
 const SPECS: Spec[] = [
   {
@@ -192,20 +193,20 @@ async function buildRunnerFor(spec: Spec, outDir: string): Promise<Uint8Array> {
     slot: spec.slot,
     corePath: CORE,
     outDir,
-    arenaSz: ARENA,
+    arenaSizeBytes: ARENA,
   });
 
-  if (!r.ok || !r.so) {
+  if (!r.ok || !r.wasmPath) {
     const lines = (r.stderr ?? "")
       .split("\n")
       .filter((l) => /error:|undefined|cannot|fatal/i.test(l));
     throw new Error(`runner build failed: ${lines.slice(0, 6).join(" | ")}`);
   }
 
-  return new Uint8Array(readFileSync(r.so));
+  return new Uint8Array(readFileSync(r.wasmPath));
 }
 
-async function buildOurs(spec: Spec): Promise<Record<number, Uint8Array>> {
+async function buildWithTypeScript(spec: Spec): Promise<Record<number, Uint8Array>> {
   const headers = loadQpiHeader(CORE);
   const out: Record<number, Uint8Array> = {};
   const calleeResults: CompileResult[] = [];
@@ -222,17 +223,17 @@ async function buildOurs(spec: Spec): Promise<Record<number, Uint8Array>> {
     }));
     const r = await compileContract({
       source: src,
-      name: callee.name,
+      contractName: callee.name,
       slot: callee.slot,
       qpiHeader: headers,
-      arenaSz: ARENA,
+      arenaSizeBytes: ARENA,
       callees: priorIdl.length ? priorIdl : undefined,
       calleeSources: priorSources.length ? priorSources : undefined,
     });
     const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     if (errs.length) {
       throw new Error(
-        `ours ${callee.name}: ${errs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,
+        `typescript ${callee.name}: ${errs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,
       );
     }
     calleeResults.push(r);
@@ -248,17 +249,17 @@ async function buildOurs(spec: Spec): Promise<Record<number, Uint8Array>> {
 
   const mainR = await compileContract({
     source: mainSrc,
-    name: spec.name,
+    contractName: spec.name,
     slot: spec.slot,
     qpiHeader: headers,
-    arenaSz: ARENA,
+    arenaSizeBytes: ARENA,
     callees,
     calleeSources,
   });
   const mainErrs = mainR.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
   if (mainErrs.length) {
     throw new Error(
-      `ours ${spec.name}: ${mainErrs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,
+      `typescript ${spec.name}: ${mainErrs.map((d) => `L${d.span.line} ${d.message}`).join("; ")}`,
     );
   }
   out[spec.slot] = mainR.wasm;
@@ -266,44 +267,44 @@ async function buildOurs(spec: Spec): Promise<Record<number, Uint8Array>> {
   return out;
 }
 
-async function buildNative(spec: Spec, outDir: string): Promise<Record<number, Uint8Array>> {
+async function buildWithClang(spec: Spec, outDir: string): Promise<Record<number, Uint8Array>> {
   const out: Record<number, Uint8Array> = {};
 
   for (const callee of spec.callees) {
-    const r = await buildContract({
+    const r = await buildContractWithWasiClang({
       contractPath: `${CORE}/src/contracts/${callee.header}`,
       name: callee.name,
       stateType: callee.stateType,
       slot: callee.slot,
       corePath: CORE,
       outDir,
-      arenaSz: ARENA,
+      arenaSizeBytes: ARENA,
       skipVerify: true,
     });
-    if (!r.ok || !r.so) {
+    if (!r.ok || !r.wasmPath) {
       throw new Error(
-        `native ${callee.name}: ${(r.stderr ?? "").split("\n").slice(-3).join(" | ")}`,
+        `clang ${callee.name}: ${(r.stderr ?? "").split("\n").slice(-3).join(" | ")}`,
       );
     }
-    out[callee.slot] = new Uint8Array(readFileSync(r.so));
+    out[callee.slot] = new Uint8Array(readFileSync(r.wasmPath));
   }
 
-  const mainR = await buildContract({
+  const mainR = await buildContractWithWasiClang({
     contractPath: `${CORE}/src/contracts/${spec.header}`,
     name: spec.name,
     stateType: spec.stateType,
     slot: spec.slot,
     corePath: CORE,
     outDir,
-    arenaSz: ARENA,
+    arenaSizeBytes: ARENA,
     skipVerify: true,
   });
-  if (!mainR.ok || !mainR.so) {
+  if (!mainR.ok || !mainR.wasmPath) {
     throw new Error(
-      `native ${spec.name}: ${(mainR.stderr ?? "").split("\n").slice(-3).join(" | ")}`,
+      `clang ${spec.name}: ${(mainR.stderr ?? "").split("\n").slice(-3).join(" | ")}`,
     );
   }
-  out[spec.slot] = new Uint8Array(readFileSync(mainR.so));
+  out[spec.slot] = new Uint8Array(readFileSync(mainR.wasmPath));
 
   return out;
 }
@@ -311,15 +312,21 @@ async function buildNative(spec: Spec, outDir: string): Promise<Record<number, U
 // Child mode runs one spec/backend cell and writes its result to SC_OUT.
 async function runSingleCell(): Promise<void> {
   const outPath = process.env.SC_OUT!;
-  const [name, mode] = (process.env.SC_SINGLE ?? "").split("|");
+  const [name, compilerBackend] = (process.env.SC_SINGLE ?? "").split("|");
   const spec = SPECS.find((s) => s.name === name);
 
   if (!spec) {
     appendFileSync(outPath, "RUNNER err\nERR unknown spec\n");
     return;
   }
+  if (compilerBackend !== "clang" && compilerBackend !== "typescript") {
+    appendFileSync(outPath, "RUNNER err\nERR unknown compiler backend\n");
+    return;
+  }
 
-  const dir = mkdtempSync(join(tmpdir(), `qinit-cell-${name.toLowerCase()}-${mode}-`));
+  const dir = mkdtempSync(
+    join(tmpdir(), `qinit-cell-${name.toLowerCase()}-${compilerBackend}-`),
+  );
   let runnerOk = false;
 
   try {
@@ -327,7 +334,10 @@ async function runSingleCell(): Promise<void> {
     runnerOk = true;
     appendFileSync(outPath, "RUNNER ok\n");
 
-    const contracts = mode === "ours" ? await buildOurs(spec) : await buildNative(spec, dir);
+    const contracts =
+      compilerBackend === "typescript"
+        ? await buildWithTypeScript(spec)
+        : await buildWithClang(spec, dir);
     const results = await runContractTesting(runner, contracts);
     const passed = results.filter((r) => r.passed).length;
     appendFileSync(outPath, `SCORE ${passed}/${results.length}\n`);
@@ -356,13 +366,25 @@ interface Cell {
 }
 
 // Spawn this file under `bun test` with SC_SINGLE set, kill it at a deadline, and read its temp result.
-async function spawnCell(name: string, mode: string, timeoutMs: number): Promise<Cell> {
-  const outPath = join(tmpdir(), `qinit-cell-${name.toLowerCase()}-${mode}-${Date.now()}.txt`);
+async function spawnCell(
+  name: string,
+  compilerBackend: CorpusCompilerBackend,
+  timeoutMs: number,
+): Promise<Cell> {
+  const outPath = join(
+    tmpdir(),
+    `qinit-cell-${name.toLowerCase()}-${compilerBackend}-${Date.now()}.txt`,
+  );
   writeFileSync(outPath, "");
 
   const proc = Bun.spawn([process.execPath, "test", import.meta.path], {
     cwd: join(import.meta.dir, "..", ".."),
-    env: { ...process.env, SC_SINGLE: `${name}|${mode}`, SC_OUT: outPath, SC_SWEEP: "" },
+    env: {
+      ...process.env,
+      SC_SINGLE: `${name}|${compilerBackend}`,
+      SC_OUT: outPath,
+      SC_SWEEP: "",
+    },
     stdout: "ignore",
     stderr: "ignore",
   });
@@ -407,8 +429,8 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
     await runSingleCell();
   }, 600000);
 
-  test("QUTIL parity: native >= 51 AND ours >= 51 via qinit harness", async () => {
-    if (process.env.SC_SINGLE || process.env.SC_OURS_ONLY) {
+  test("QUTIL parity: clang >= 51 AND typescript >= 51 via qinit harness", async () => {
+    if (process.env.SC_SINGLE || process.env.SC_TYPESCRIPT_ONLY) {
       return;
     }
     if (!wasiAvailable()) {
@@ -421,27 +443,33 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
 
     try {
       const runner = await buildRunnerFor(spec, dir);
-      const native = await buildNative(spec, dir);
-      const ours = await buildOurs(spec);
+      const clang = await buildWithClang(spec, dir);
+      const typescript = await buildWithTypeScript(spec);
 
-      const nativeResults = await runContractTesting(runner, native);
-      const oursResults = await runContractTesting(runner, ours);
+      const clangResults = await runContractTesting(runner, clang);
+      const typescriptResults = await runContractTesting(runner, typescript);
 
-      const nativePassed = nativeResults.filter((r) => r.passed).length;
-      const oursPassed = oursResults.filter((r) => r.passed).length;
+      const clangPassed = clangResults.filter((r) => r.passed).length;
+      const typescriptPassed = typescriptResults.filter((r) => r.passed).length;
 
-      console.log(`\n  [native] QUTIL: ${nativePassed}/${nativeResults.length} PASS`);
-      console.log(`  [ours]   QUTIL: ${oursPassed}/${oursResults.length} PASS`);
+      console.log(`\n  [clang] QUTIL: ${clangPassed}/${clangResults.length} PASS`);
+      console.log(
+        `  [typescript] QUTIL: ${typescriptPassed}/${typescriptResults.length} PASS`,
+      );
 
-      for (const r of nativeResults.filter((r) => !r.passed).slice(0, 6)) {
-        console.log(`  FAIL native  ${r.name} — ${r.message.replace(/\n/g, " ").slice(0, 100)}`);
+      for (const r of clangResults.filter((r) => !r.passed).slice(0, 6)) {
+        console.log(
+          `  FAIL clang ${r.name} — ${r.message.replace(/\n/g, " ").slice(0, 100)}`,
+        );
       }
-      for (const r of oursResults.filter((r) => !r.passed).slice(0, 6)) {
-        console.log(`  FAIL ours    ${r.name} — ${r.message.replace(/\n/g, " ").slice(0, 100)}`);
+      for (const r of typescriptResults.filter((r) => !r.passed).slice(0, 6)) {
+        console.log(
+          `  FAIL typescript ${r.name} — ${r.message.replace(/\n/g, " ").slice(0, 100)}`,
+        );
       }
 
-      expect(nativePassed).toBeGreaterThanOrEqual(51);
-      expect(oursPassed).toBeGreaterThanOrEqual(51);
+      expect(clangPassed).toBeGreaterThanOrEqual(51);
+      expect(typescriptPassed).toBeGreaterThanOrEqual(51);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -459,8 +487,8 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
     interface Row {
       name: string;
       runner: string;
-      native: string;
-      ours: string;
+      clang: string;
+      typescript: string;
     }
 
     const CELL_TIMEOUT = 120000;
@@ -470,36 +498,48 @@ describe("sc-corpus — dual-backend EASY-tier sweep", () => {
     const selected = selectedNames.size
       ? SPECS.filter((spec) => selectedNames.has(spec.name))
       : SPECS;
-    const oursOnly = !!process.env.SC_OURS_ONLY;
+    const typescriptOnly = !!process.env.SC_TYPESCRIPT_ONLY;
 
     for (const spec of selected) {
-      const native = oursOnly
+      const clang = typescriptOnly
         ? { runner: "-", score: "skip" }
-        : await spawnCell(spec.name, "native", CELL_TIMEOUT);
-      const ours = await spawnCell(spec.name, "ours", CELL_TIMEOUT);
+        : await spawnCell(spec.name, "clang", CELL_TIMEOUT);
+      const typescript = await spawnCell(spec.name, "typescript", CELL_TIMEOUT);
 
-      const runner = native.runner === "ok" || ours.runner === "ok" ? "ok" : "err";
-      rows.push({ name: spec.name, runner, native: native.score, ours: ours.score });
-      console.log(`  [${spec.name}] runner:${runner}  native:${native.score}  ours:${ours.score}`);
+      const runner = clang.runner === "ok" || typescript.runner === "ok" ? "ok" : "err";
+      rows.push({
+        name: spec.name,
+        runner,
+        clang: clang.score,
+        typescript: typescript.score,
+      });
+      console.log(
+        `  [${spec.name}] runner:${runner}  clang:${clang.score}  typescript:${typescript.score}`,
+      );
     }
 
     const column = (s: string, w: number) => s.padEnd(w);
-    const header = `${column("CONTRACT", 16)} ${column("RUNNER", 8)} ${column("NATIVE", 10)} ${column("OURS", 10)}`;
+    const header = [
+      column("CONTRACT", 16),
+      column("RUNNER", 8),
+      column("CLANG", 10),
+      column("TYPESCRIPT", 10),
+    ].join(" ");
     const sep = "-".repeat(header.length);
 
     const tableLines = [sep, header, sep];
     for (const row of rows) {
       tableLines.push(
-        `${column(row.name, 16)} ${column(row.runner, 8)} ${column(row.native, 10)} ${column(row.ours, 10)}`,
+        `${column(row.name, 16)} ${column(row.runner, 8)} ${column(row.clang, 10)} ${column(row.typescript, 10)}`,
       );
     }
     tableLines.push(sep);
 
     const scored = (v: string) => /^\d+\/\d+$/.test(v);
-    const nativeScored = rows.filter((r) => scored(r.native)).length;
-    const oursScored = rows.filter((r) => scored(r.ours)).length;
+    const clangScored = rows.filter((r) => scored(r.clang)).length;
+    const typescriptScored = rows.filter((r) => scored(r.typescript)).length;
     tableLines.push(
-      `  ${rows.length} specs · native scored ${nativeScored}/${rows.length} · ours scored ${oursScored}/${rows.length}`,
+      `  ${rows.length} specs · clang scored ${clangScored}/${rows.length} · typescript scored ${typescriptScored}/${rows.length}`,
     );
 
     console.log("\n" + tableLines.join("\n"));

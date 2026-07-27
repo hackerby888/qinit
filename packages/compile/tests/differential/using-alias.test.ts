@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks allowed C++11 type aliases in struct and function scope.
 import { describe, test, expect, beforeAll } from "bun:test";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -57,16 +57,16 @@ describe("using type aliases", () => {
   test("struct-scope and function-scope aliases compile and resolve", async () => {
     const r = await compileContract({
       source: SRC,
-      name: "Alias",
+      contractName: "Alias",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     const errs = r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     if (errs.length) console.log("  COMPILE ERRORS:", errs.map((e) => e.message).join("\n"));
     expect(errs).toHaveLength(0);
 
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(28, r.wasm);
 
     const user = new Uint8Array(32).fill(7);

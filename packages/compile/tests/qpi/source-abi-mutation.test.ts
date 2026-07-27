@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { CORE_WASM_HEADERS, parseWasmAbiSource } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
 import { inspectWasmModule } from "../../src/compiler/wasm-inspect";
 import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/qpi-snapshot";
@@ -59,10 +59,10 @@ describe("source-backed ABI mutations", () => {
     });
     const result = await compileContract({
       source: contract("output.value = qpi.newScalar();"),
-      name: "ScalarWrapperMutation",
+      contractName: "ScalarWrapperMutation",
       slot: 27,
       qpiHeader: header,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const moduleBytes = new Uint8Array(result.wasm).buffer as ArrayBuffer;
@@ -78,10 +78,10 @@ describe("source-backed ABI mutations", () => {
       `\n${IMPL_BOUNDARY}\nQPI::id QPI::QpiContextFunctionCall::nextAlias(const QPI::id& value) const { QPI::id out; __lhost_nextId(&value, &out); return out; }\n`;
     const result = await compileContract({
       source: contract("output.value = qpi.nextAlias(SELF);", "id value;"),
-      name: "AggregateWrapperMutation",
+      contractName: "AggregateWrapperMutation",
       slot: 27,
       qpiHeader: header,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
   });
@@ -120,20 +120,20 @@ describe("source-backed ABI mutations", () => {
     `);
     const baseline = await compileContract({
       source: iteratorContract,
-      name: "AssetRecordBaseline",
+      contractName: "AssetRecordBaseline",
       slot: 27,
       qpiHeader: HEADER,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     const changedHeader = mutateEmbeddedAbi(HEADER, (abi) => {
       abi.records.AssetEntry = record;
     });
     const changed = await compileContract({
       source: iteratorContract,
-      name: "AssetRecordMutation",
+      contractName: "AssetRecordMutation",
       slot: 27,
       qpiHeader: changedHeader,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(changed.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     expect(inspectWasmModule(changed.wasm).memories[0].minimumPages).toBeGreaterThan(
@@ -171,13 +171,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
     const result = await compileContract({
       source,
-      name: "SystemProcedureMutation",
+      contractName: "SystemProcedureMutation",
       slot: 27,
       qpiHeader: header,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     expect(sim.deploy(27, result.wasm).ex.reg_sysproc_mask()).toBe(1 << 1);
   });
 

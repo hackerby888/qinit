@@ -1,29 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { savedMode, setSavedMode, NODE_MODES, type NodeMode } from "../config";
+import {
+  NODE_BACKENDS,
+  savedNodeBackend,
+  setSavedNodeBackend,
+  type NodeBackend,
+} from "../config";
 import { Header, GradLine, theme } from "../ui";
 import { parseCommandArgs } from "../args";
 
-// What each mode means, shown next to the choice in the picker. The mode is the backend every node command
-// (node run / deploy / call / state / dev / test) runs against.
-const DESC: Record<NodeMode, string> = {
-  realnode: "qubic node binary (fetched + run by `qinit node run`)",
-  virtualnode: "in-process TS engine (no binary; instant, in-memory)",
+const DESC: Record<NodeBackend, string> = {
+  core: "core-lite node reached through RPC (`qinit node run` can launch one)",
+  simulator: "in-process Qinit simulator (no node binary)",
 };
 
-export function ModeCmd({ args }: { args: string[] }) {
-  const parsed = parseCommandArgs("mode", args);
+export function NodeBackendCmd({ args }: { args: string[] }) {
+  const parsed = parseCommandArgs("node-backend", args);
   const o = {
     name: parsed.pos[0],
     show: parsed.has("show"),
   };
   const { exit } = useApp();
-  const cur: NodeMode = savedMode() ?? "realnode";
-  const [i, setI] = useState(Math.max(0, NODE_MODES.indexOf(cur)));
+  const cur: NodeBackend = savedNodeBackend() ?? "core";
+  const [i, setI] = useState(Math.max(0, NODE_BACKENDS.indexOf(cur)));
   // Mirror selection in a ref so rapid arrow/Enter input uses the latest choice.
   const sel = useRef(i);
   const move = (d: number): void => {
-    sel.current = (sel.current + d + NODE_MODES.length) % NODE_MODES.length;
+    sel.current = (sel.current + d + NODE_BACKENDS.length) % NODE_BACKENDS.length;
     setI(sel.current);
   };
   const [msg, setMsg] = useState<string[]>([]);
@@ -32,16 +35,16 @@ export function ModeCmd({ args }: { args: string[] }) {
 
   useEffect(() => {
     if (o.show) {
-      add(`active mode: ${cur}`);
+      add(`active node backend: ${cur}`);
       return;
     }
     if (o.name) {
-      if (o.name !== "realnode" && o.name !== "virtualnode") {
-        add(`✗ unknown mode '${o.name}' — pick: ${NODE_MODES.join(", ")}`);
+      if (o.name !== "core" && o.name !== "simulator") {
+        add(`✗ unknown node backend '${o.name}' — pick: ${NODE_BACKENDS.join(", ")}`);
         return;
       }
-      setSavedMode(o.name);
-      add(`✓ mode set: ${o.name}`);
+      setSavedNodeBackend(o.name);
+      add(`✓ node backend set: ${o.name}`);
     }
   }, []);
 
@@ -64,9 +67,9 @@ export function ModeCmd({ args }: { args: string[] }) {
       } else if (key.downArrow) {
         move(1);
       } else if (key.return) {
-        const name = NODE_MODES[sel.current];
-        setSavedMode(name);
-        add(`✓ mode saved: ${name}`);
+        const name = NODE_BACKENDS[sel.current];
+        setSavedNodeBackend(name);
+        add(`✓ node backend saved: ${name}`);
         setPhase("done");
       }
     },
@@ -75,7 +78,7 @@ export function ModeCmd({ args }: { args: string[] }) {
 
   return (
     <Box flexDirection="column">
-      <Header cmd="mode" />
+      <Header cmd="node-backend" />
       {phase === "done" &&
         msg.map((m, k) => (
           <Text key={k} color={m.startsWith("✗") ? theme.err : theme.ok}>
@@ -86,7 +89,7 @@ export function ModeCmd({ args }: { args: string[] }) {
         <Box flexDirection="column">
           <Text dimColor>↑/↓ select · ↵ save · q cancel</Text>
           <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
-            {NODE_MODES.map((name, idx) => {
+            {NODE_BACKENDS.map((name, idx) => {
               const sel = idx === i;
               return (
                 <Text key={name}>

@@ -84,10 +84,10 @@ describe("differential gtest — unary type propagation", () => {
 
     const mine = await compileContract({
       source: SRC,
-      name: "UnaryP",
+      contractName: "UnaryP",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

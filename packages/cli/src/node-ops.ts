@@ -18,8 +18,8 @@ import {
   readCurrent,
   updateCurrent,
   loadManifest,
-  fetchVerify,
-  verifyPlatformKey,
+  downloadVerifiedAsset,
+  releasePlatformKey,
   atomicWrite,
   debug,
   type AssetRef,
@@ -27,10 +27,33 @@ import {
 } from "@qinit/core";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-export const scratchDir = () => join(cacheRoot(), "run");
+export const defaultNodeScratchDir = () => join(cacheRoot(), "run");
 const pidFile = (scratch: string) => join(scratch, "node.pid");
+const activeScratchFile = () => join(cacheRoot(), "active-node-scratch");
 
 const isWindows = process.platform === "win32";
+
+export function activeNodeScratchDir(): string {
+  try {
+    return resolve(readFileSync(activeScratchFile(), "utf8").trim() || defaultNodeScratchDir());
+  } catch {
+    return resolve(defaultNodeScratchDir());
+  }
+}
+
+function rememberActiveScratch(scratch: string): void {
+  mkdirSync(cacheRoot(), { recursive: true });
+  writeFileSync(activeScratchFile(), scratch);
+}
+
+function forgetActiveScratch(scratch: string): void {
+  if (activeNodeScratchDir() !== scratch) {
+    return;
+  }
+  try {
+    rmSync(activeScratchFile());
+  } catch {}
+}
 
 // The pidfile lets later Qinit invocations find the detached node.
 function trackedPid(scratch: string): number | undefined {
@@ -53,7 +76,7 @@ function pidAlive(pid: number): boolean {
 }
 
 // Never kill by image name: a developer may be running other Qubic nodes.
-export async function killNode(scratch = scratchDir()): Promise<void> {
+export async function killNode(scratch = activeNodeScratchDir()): Promise<void> {
   const resolvedScratch = resolve(scratch);
   const pid = trackedPid(resolvedScratch);
   if (pid === undefined) {
@@ -77,13 +100,14 @@ export async function killNode(scratch = scratchDir()): Promise<void> {
       } catch {
         // A concurrent Qinit invocation may already have removed it.
       }
+      forgetActiveScratch(resolvedScratch);
       return;
     }
     await sleep(250);
   }
 }
 
-export function nodeAlive(scratch = scratchDir()): boolean {
+export function nodeAlive(scratch = activeNodeScratchDir()): boolean {
   const pid = trackedPid(resolve(scratch));
   if (pid !== undefined) {
     return pidAlive(pid);
@@ -99,7 +123,7 @@ export function nodeAlive(scratch = scratchDir()): boolean {
 
 export function nodeAssetForPlatform(
   manifest: Manifest,
-  platform = verifyPlatformKey(),
+  platform = releasePlatformKey(),
 ): AssetRef | undefined {
   const platformAsset = manifest.nodes?.[platform];
   if (platformAsset) {
@@ -108,13 +132,13 @@ export function nodeAssetForPlatform(
   return platform === "linux-x64" ? manifest.node : undefined;
 }
 
-export async function fetchNodeBin(
+export async function fetchNodeBinary(
   ref: string,
   onProgress?: (recv: number, total: number) => void,
   loadedManifest?: Manifest,
-): Promise<{ bin: string; version: string }> {
+): Promise<{ nodeBinaryPath: string; version: string }> {
   const manifest = loadedManifest ?? await loadManifest(ref);
-  const platform = verifyPlatformKey();
+  const platform = releasePlatformKey();
   const asset = nodeAssetForPlatform(manifest, platform);
   if (!asset) {
     throw new Error(
@@ -123,18 +147,18 @@ export async function fetchNodeBin(
   }
 
   const dir = join(cacheRoot(), manifest.version, "node");
-  const bin = join(dir, isWindows ? "Qubic.exe" : "Qubic");
-  if (!existsSync(bin)) {
-    const node = await fetchVerify(asset, onProgress);
+  const nodeBinaryPath = join(dir, isWindows ? "Qubic.exe" : "Qubic");
+  if (!existsSync(nodeBinaryPath)) {
+    const node = await downloadVerifiedAsset(asset, onProgress);
     mkdirSync(dir, { recursive: true });
-    atomicWrite(bin, node);
+    atomicWrite(nodeBinaryPath, node);
     if (!isWindows) {
-      Bun.spawnSync(["chmod", "+x", bin]);
+      Bun.spawnSync(["chmod", "+x", nodeBinaryPath]);
     }
   }
 
-  updateCurrent({ nodeVersion: manifest.version, node: bin });
-  return { bin, version: manifest.version };
+  updateCurrent({ nodeVersion: manifest.version, node: nodeBinaryPath });
+  return { nodeBinaryPath, version: manifest.version };
 }
 
 export function cachedNode(): string | undefined {
@@ -142,18 +166,18 @@ export function cachedNode(): string | undefined {
   return node && existsSync(node) ? node : undefined;
 }
 
-export async function ensureNode(
+export async function ensureNodeBinary(
   ref = "latest",
   onProgress?: (recv: number, total: number) => void,
-): Promise<{ bin: string; version: string; stale: boolean }> {
+): Promise<{ nodeBinaryPath: string; version: string; stale: boolean }> {
   try {
-    const node = await fetchNodeBin(ref, onProgress);
+    const node = await fetchNodeBinary(ref, onProgress);
     return { ...node, stale: false };
   } catch {
-    const bin = cachedNode();
-    if (bin) {
+    const nodeBinaryPath = cachedNode();
+    if (nodeBinaryPath) {
       return {
-        bin,
+        nodeBinaryPath,
         version: readCurrent()?.nodeVersion ?? "cached",
         stale: true,
       };
@@ -165,19 +189,19 @@ export async function ensureNode(
   }
 }
 
-export interface LaunchOpts {
-  bin: string;
-  dir?: string;
-  mode?: string;
+export interface LaunchOptions {
+  nodeBinary: string;
+  scratchDirectory?: string;
+  nodeMode?: string;
   peers?: string;
-  keep?: boolean;
+  preserveScratchContents?: boolean;
 }
 
 export function launchNode(
-  options: LaunchOpts,
+  options: LaunchOptions,
 ): { pid: number; scratch: string; log: string } {
-  const scratch = resolve(options.dir || scratchDir());
-  if (!options.keep) {
+  const scratch = resolve(options.scratchDirectory || defaultNodeScratchDir());
+  if (!options.preserveScratchContents) {
     rmSync(scratch, { recursive: true, force: true });
   }
 
@@ -189,11 +213,11 @@ export function launchNode(
     "--peers",
     options.peers || LOOPBACK_HOST,
     "--node-mode",
-    options.mode || "3",
+    options.nodeMode || "3",
     "--ticking-delay",
     "1000",
   ];
-  const child = spawn(options.bin, args, {
+  const child = spawn(options.nodeBinary, args, {
     cwd: scratch,
     stdio: ["ignore", logFd, logFd],
     detached: true,
@@ -207,21 +231,22 @@ export function launchNode(
 
   const pid = child.pid ?? 0;
   writeFileSync(pidFile(scratch), String(pid));
+  rememberActiveScratch(scratch);
   return { pid, scratch, log };
 }
 
-export function launchVirtualNode(options: {
-  dir?: string;
-  rpcBase?: string;
+export function launchSimulatorNode(options: {
+  scratchDirectory?: string;
+  rpcBaseUrl?: string;
   peerPort?: number;
-  keep?: boolean;
+  preserveScratchContents?: boolean;
   tickMs?: number;
   system?: string[];
   slotBase?: number;
   slotCount?: number;
 }): { pid: number; scratch: string; log: string } {
-  const scratch = resolve(options.dir || scratchDir());
-  if (!options.keep) {
+  const scratch = resolve(options.scratchDirectory || defaultNodeScratchDir());
+  if (!options.preserveScratchContents) {
     rmSync(scratch, { recursive: true, force: true });
   }
 
@@ -232,10 +257,10 @@ export function launchVirtualNode(options: {
 
   const executable = process.execPath;
   const compiled = !/bun(\.exe)?$/i.test(executable);
-  const rpcBase = options.rpcBase || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = options.rpcBaseUrl || DEFAULT_RPC_BASE;
   const flags = [
     "--rpc",
-    rpcBase,
+    rpcBaseUrl,
     "--peer-port",
     String(options.peerPort ?? DEFAULT_PEER_PORT),
     ...(options.slotBase !== undefined
@@ -268,14 +293,15 @@ export function launchVirtualNode(options: {
 
   const pid = child.pid ?? 0;
   writeFileSync(pidFile(scratch), String(pid));
+  rememberActiveScratch(scratch);
   return { pid, scratch, log };
 }
 
 export async function waitTicking(
-  rpcBase: string,
+  rpcBaseUrl: string,
   seconds: number,
 ): Promise<{ ticking: boolean; tick: number; exited: boolean }> {
-  const rpc = new LiteRpc(rpcBase);
+  const rpc = new LiteRpc(rpcBaseUrl);
   let initialTick = -1;
   let currentTick = 0;
 
@@ -302,9 +328,9 @@ export async function waitTicking(
   return { ticking: false, tick: currentTick, exited: false };
 }
 
-export async function nodeContracts(rpcBase: string): Promise<string[]> {
+export async function nodeContracts(rpcBaseUrl: string): Promise<string[]> {
   try {
-    const registry: any = await new LiteRpc(rpcBase).dynRegistry();
+    const registry: any = await new LiteRpc(rpcBaseUrl).dynRegistry();
     return (registry.contracts ?? [])
       .filter((contract: any) => contract.armed)
       .map((contract: any) => `${contract.name || contract.index}@${contract.index}`);
@@ -324,8 +350,8 @@ export interface NodeStatus {
   contracts: string[];
 }
 
-export async function nodeStatus(rpcBase: string): Promise<NodeStatus> {
-  const rpc = new LiteRpc(rpcBase);
+export async function nodeStatus(rpcBaseUrl: string): Promise<NodeStatus> {
+  const rpc = new LiteRpc(rpcBaseUrl);
   try {
     const firstTickInfo: any = await rpc.tickInfo();
     await sleep(1200);

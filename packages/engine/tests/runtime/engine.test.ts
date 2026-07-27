@@ -3,7 +3,7 @@ import { test, expect } from "bun:test";
 import { k12Hex } from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 
 const GET = 1; // REGISTER_USER_FUNCTION(Get, 1)
 const INC = 1; // REGISTER_USER_PROCEDURE(Inc, 1)
@@ -13,7 +13,7 @@ function u64(b: Uint8Array): bigint {
 }
 test("Counter: deploy -> Get=0 -> Inc -> Get=1, digest = K12(state)", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Counter"));
   expect(u64(sim.query(28, GET))).toBe(0n);
   sim.procedure(28, INC);
@@ -24,7 +24,7 @@ test("Counter: deploy -> Get=0 -> Inc -> Get=1, digest = K12(state)", async () =
 
 test("DigestProbe: reproduces the cross-platform digest oracle", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   const c = sim.deploy(29, await wasm("DigestProbe"));
   expect(c.stateSize).toBe(64); // rich mixed-width StateData (uint8/16/32/64, sint64, Array<uint64,4>, Array<uint8,8>)
   expect(u64(sim.query(29, GET))).toBe(0n);
@@ -39,7 +39,7 @@ import { contractId } from "../support/helpers";
 
 test("applyTx isolates a faulting procedure — no throw, the node survives, the fault rolls back", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Trap"));
   const dest = contractId(28);
   const src = new Uint8Array(32).fill(0x11);

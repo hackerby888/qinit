@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src/index";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
@@ -143,9 +143,9 @@ describe("authoritative QPI capability matrix", () => {
     test(`compiles every supported family from ${label}`, async () => {
       const result = await compileContract({
         source: CAPABILITY_SOURCE,
-        name: "QpiAuthority",
+        contractName: "QpiAuthority",
         slot: 27,
-        arenaSz: 1 << 20,
+        arenaSizeBytes: 1 << 20,
         qpiHeader: await header(),
       });
       expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual(
@@ -177,14 +177,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
     const result = await compileContract({
       source,
-      name: "CustomHash",
+      contractName: "CustomHash",
       slot: 27,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
       qpiHeader: loadQpiHeader(CORE),
     });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(7);
     sim.fund(user, 1_000_000n);
     sim.deploy(27, result.wasm);

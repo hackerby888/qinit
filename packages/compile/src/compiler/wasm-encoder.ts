@@ -22,7 +22,7 @@ export async function encodeAndInspectWat(
     }
 
     const inspection = inspectWasmModule(wasm, {
-        memoryMode: options.sharedMemBase === undefined
+        memoryMode: options.sharedMemoryBaseOffsetBytes === undefined
             ? WasmModuleMemoryMode.DEFINED
             : WasmModuleMemoryMode.IMPORTED,
         lhostAbi: metadata.lhostAbi

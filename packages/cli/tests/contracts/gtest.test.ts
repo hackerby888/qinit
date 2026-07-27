@@ -1,9 +1,8 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-// End-to-end standard gtest: the same contract_testing.h source is compiled into a Wasm runner and drives a
-// separately deployed contract on an isolated Virtual Node. Covers pass, fixture isolation, and reporting.
+// The Wasm runner drives a separately deployed contract in an isolated simulator.
 import { test, expect } from "bun:test";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { buildContract, buildCorpusRunner } from "@qinit/build";
+import { buildContractWithWasiClang, buildCorpusRunner } from "@qinit/build";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { runContractTesting } from "@qinit/engine";
 
@@ -73,24 +72,24 @@ test.skipIf(!have)(
       slot: 1,
       corePath: CORE,
       outDir: `${outDir}/runner`,
-      arenaSz: 64 * 1024 * 1024,
+      arenaSizeBytes: 64 * 1024 * 1024,
     });
     expect(runner.ok, runner.stderr).toBe(true);
 
-    const contract = await buildContract({
+    const contract = await buildContractWithWasiClang({
       contractPath: CONTRACT,
       name: "Counter",
       slot: 1,
       corePath: CORE,
       outDir: `${outDir}/contract`,
       skipVerify: true,
-      arenaSz: 64 * 1024 * 1024,
+      arenaSizeBytes: 64 * 1024 * 1024,
     });
     expect(contract.ok, contract.stderr).toBe(true);
 
     const results = await runContractTesting(
-      new Uint8Array(await Bun.file(runner.so!).arrayBuffer()),
-      { 1: new Uint8Array(await Bun.file(contract.so!).arrayBuffer()) },
+      new Uint8Array(await Bun.file(runner.wasmPath!).arrayBuffer()),
+      { 1: new Uint8Array(await Bun.file(contract.wasmPath!).arrayBuffer()) },
     );
     const by = Object.fromEntries(results.map((result) => [result.name, result]));
     expect(by["Counter.IncrementsTwice"]?.passed).toBe(true);

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, type DynContract } from "@qinit/core";
+import {
+  DEFAULT_RPC_BASE,
+  LiteRpc,
+  type DynamicContractRegistryEntry,
+} from "@qinit/core";
 import { readState, type StateDump } from "../trace-format";
 import { StateView } from "../views";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
@@ -19,25 +23,25 @@ export function State({ args }: { args: string[] }) {
     all: parsed.has("all"),
     digest: parsed.has("digest"),
   };
-  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [lines, setLines] = useState<string[]>([]);
   const [dump, setDump] = useState<StateDump | null>(null);
   const [name, setName] = useState("");
-  const [contracts, setContracts] = useState<DynContract[]>([]);
+  const [contracts, setContracts] = useState<DynamicContractRegistryEntry[]>([]);
   const [userCount, setUserCount] = useState(0); // contracts[0..userCount) deployed, rest system
   const [i, setI] = useState(0);
   const [phase, setPhase] = useState<"loading" | "pick" | "show" | "done">("loading");
   const [digest, setDigest] = useState<DigestOutput | null>(null);
   const add = (s: string) => setLines((l) => [...l, s]);
 
-  const load = async (c: DynContract) => {
+  const load = async (c: DynamicContractRegistryEntry) => {
     setPhase("loading");
     try {
       if (!c.source)
         throw new Error(`node has no source for slot ${c.index} — cannot decode state`);
       setName(c.name || String(c.index));
-      const rpc = new LiteRpc(rpcBase);
+      const rpc = new LiteRpc(rpcBaseUrl);
       await rpc.tickInfo(); // fail fast + loud if the node is unreachable (else readState silently fills "(read failed)")
       setDump(
         await readState(
@@ -59,7 +63,7 @@ export function State({ args }: { args: string[] }) {
   useEffect(() => {
     (async () => {
       try {
-        const rpc = new LiteRpc(rpcBase);
+        const rpc = new LiteRpc(rpcBaseUrl);
         if (o.digest) {
           setDigest(await readStateDigest(o.target, rpc));
           return;
@@ -164,7 +168,7 @@ export function State({ args }: { args: string[] }) {
           <Text dimColor>↑/↓ select · ↵ show state · q quit</Text>
           <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
             {(() => {
-              const row = (c: DynContract, idx: number) => {
+              const row = (c: DynamicContractRegistryEntry, idx: number) => {
                 const sel = idx === i;
                 const detail = `idx ${c.index} · ${c.functions?.length ?? 0}fn/${c.procedures?.length ?? 0}proc`;
                 return sel ? (

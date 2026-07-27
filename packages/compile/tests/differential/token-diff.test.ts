@@ -65,10 +65,10 @@ describe("differential gtest — Token (qpi host calls)", () => {
 
     const mine = await compileContract({
       source: TOKEN,
-      name: "Token",
+      contractName: "Token",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     // numberOfShares (Select args) is a known gap — only errors should block; warnings are fine.
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);

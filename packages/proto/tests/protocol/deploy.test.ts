@@ -5,8 +5,8 @@ import {
   encodeUploadBegin,
   encodeUploadChunk,
   encodeDeploy,
-  chunkSo,
-  newSessionId,
+  splitUploadChunks,
+  createUploadSessionId,
 } from "../../src/deploy";
 import { contractAddress } from "../../src/call";
 import { WASM_ABI_VERSION } from "@qinit/core";
@@ -88,20 +88,24 @@ test("encodeDeploy: name written at 52, truncated to 31, high bit stripped", () 
   expect(hi[52]).toBe(0xe9 & 0x7f);
 });
 
-test("chunkSo: empty, partial, exact-multiple boundaries; concat === original", () => {
-  expect(chunkSo(new Uint8Array(0))).toEqual([]);
-  expect(chunkSo(new Uint8Array(10), 4).map((c) => c.length)).toEqual([4, 4, 2]); // partial last
-  expect(chunkSo(new Uint8Array(8), 4).map((c) => c.length)).toEqual([4, 4]); // exact multiple
-  expect(chunkSo(new Uint8Array(3), 4).map((c) => c.length)).toEqual([3]); // < size
+test("splitUploadChunks: empty, partial, exact-multiple boundaries; concat === original", () => {
+  expect(splitUploadChunks(new Uint8Array(0))).toEqual([]);
+  expect(splitUploadChunks(new Uint8Array(10), 4).map((chunk) => chunk.length)).toEqual([
+    4,
+    4,
+    2,
+  ]);
+  expect(splitUploadChunks(new Uint8Array(8), 4).map((chunk) => chunk.length)).toEqual([4, 4]);
+  expect(splitUploadChunks(new Uint8Array(3), 4).map((chunk) => chunk.length)).toEqual([3]);
   const src = new Uint8Array(2050);
   src.forEach((_, i) => (src[i] = i & 0xff));
-  const chunks = chunkSo(src);
+  const chunks = splitUploadChunks(src);
   expect(chunks.length).toBe(3); // 1008,1008,34
   expect(hx(new Uint8Array(chunks.flatMap((c) => [...c])))).toBe(hx(src));
 });
 
-test("newSessionId: a uint64-range bigint", () => {
-  const s = newSessionId();
+test("createUploadSessionId: a uint64-range bigint", () => {
+  const s = createUploadSessionId();
   expect(typeof s).toBe("bigint");
   expect(s >= 0n && s < 1n << 64n).toBe(true);
 });

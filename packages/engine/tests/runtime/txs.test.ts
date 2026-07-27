@@ -4,7 +4,7 @@ import { buildSignedTx, deriveIdentity } from "@qinit/core";
 import { contractAddress, encodeInput } from "@qinit/proto";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 import { VirtualNode } from "../../src/transport";
 
 const SEED = "a".repeat(55);
@@ -20,7 +20,7 @@ async function seedPubkey(): Promise<Uint8Array> {
 }
 
 // Vault Get output: { uint64 totalReceived; uint64 incomingCount; sint64 lastIncoming; uint64 tickCount }
-function vaultGet(sim: Sim, slot: number) {
+function vaultGet(sim: QubicSimulator, slot: number) {
   const b = sim.query(slot, 1);
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
   return {
@@ -33,7 +33,7 @@ function vaultGet(sim: Sim, slot: number) {
 test("regular transfer moves spectrum balance + lands in the tick", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   const A = new Uint8Array(32).fill(0x11);
   const B = new Uint8Array(32).fill(0x22);
   sim.fund(A, 1000n);
@@ -43,7 +43,7 @@ test("regular transfer moves spectrum balance + lands in the tick", async () => 
   expect(sim.balance(A)).toBe(900n);
   expect(sim.balance(B)).toBe(100n);
 
-  const txs = sim.tickTransactions(sim.tickN);
+  const txs = sim.tickTransactions(sim.currentTick);
   expect(txs.length).toBe(1);
   expect(txs[0].txId).toBe("tx-1");
   expect(sim.txByHash("tx-1")?.amount).toBe(100n);
@@ -52,7 +52,7 @@ test("regular transfer moves spectrum balance + lands in the tick", async () => 
 test("insufficient source: moneyFlew false, no balance change (tx still recorded)", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   const A = new Uint8Array(32).fill(0x11);
   const B = new Uint8Array(32).fill(0x22);
   sim.fund(A, 50n);
@@ -61,7 +61,7 @@ test("insufficient source: moneyFlew false, no balance change (tx still recorded
   expect(r.moneyFlew).toBe(false);
   expect(sim.balance(A)).toBe(50n);
   expect(sim.balance(B)).toBe(0n);
-  expect(sim.tickTransactions(sim.tickN).length).toBe(1);
+  expect(sim.tickTransactions(sim.currentTick).length).toBe(1);
 });
 
 test("contract procedure tx (real signed): source debited, procedure runs with invocationReward", async () => {

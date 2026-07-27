@@ -2,7 +2,7 @@
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 
 const INC = 1; // REGISTER_USER_PROCEDURE(Inc, 1)
 const GET = 1; // REGISTER_USER_FUNCTION(Get, 1)
@@ -13,7 +13,7 @@ function u64(b: Uint8Array, i = 0): bigint {
 
 test("redeploy with MIGRATE() carries old state into the new layout", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("CounterV1")); // v1: StateData { counter }
   sim.procedure(28, INC);
   sim.procedure(28, INC);
@@ -29,12 +29,12 @@ test("redeploy with MIGRATE() carries old state into the new layout", async () =
 
   const out = sim.query(28, GET); // Get_output { value, lastMigratedTick }
   expect(u64(out, 0)).toBe(3n); // counter preserved across the layout change (migrated, NOT zeroed by INITIALIZE)
-  expect(u64(out, 1)).toBe(BigInt(sim.tickN)); // lastMigratedTick == qpi.tick() at the migrate
+  expect(u64(out, 1)).toBe(BigInt(sim.currentTick));
 });
 
 test("plain redeploy (no MIGRATE) preserves overlapping state — parity with core", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("CounterV1"));
   sim.procedure(28, INC);
   sim.procedure(28, INC);

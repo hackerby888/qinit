@@ -1,7 +1,7 @@
-// Verify locally-compiled Counter.wasm works in the engine
+// Verify the TypeScript-compiled Counter.wasm works in the simulator.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12, deriveKeysSync } from "@qinit/core";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -16,11 +16,11 @@ beforeAll(async () => {
   await initK12();
 });
 
-describe("Local Counter compilation", () => {
+describe("TypeScript Counter compilation", () => {
   test("compiles Counter.h with zero errors", async () => {
     const r = await compileContract({
       source: COUNTER_SRC,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI_HEADER,
     });
@@ -31,11 +31,11 @@ describe("Local Counter compilation", () => {
   test("compiled Counter loads in engine with correct state_size", async () => {
     const r = await compileContract({
       source: COUNTER_SRC,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI_HEADER,
     });
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     const c = sim.deploy(28, r.wasm);
     expect(typeof c.ex.dispatch).toBe("function");
     expect(c.ex.state_size()).toBe(8);
@@ -44,11 +44,11 @@ describe("Local Counter compilation", () => {
   test("Get returns 0 initially", async () => {
     const r = await compileContract({
       source: COUNTER_SRC,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI_HEADER,
     });
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     sim.deploy(28, r.wasm);
     const result = sim.query(28, 1);
     const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
@@ -58,11 +58,11 @@ describe("Local Counter compilation", () => {
   test("Inc increments then Get returns 1", async () => {
     const r = await compileContract({
       source: COUNTER_SRC,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI_HEADER,
     });
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     sim.deploy(28, r.wasm);
     const id = deriveKeysSync("aaaa").publicKey;
     sim.fund(id, 1_000_000_000n);

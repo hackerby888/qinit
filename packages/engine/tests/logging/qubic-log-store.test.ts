@@ -1,12 +1,15 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12, k12Bytes } from "../../src/k12";
-import { LOG_HEADER_SIZE, NativeLogger } from "../../src/native-logger";
+import {
+  LOG_HEADER_SIZE,
+  QubicLogStore,
+} from "../../src/qubic-log-store";
 
-describe("native logging store", () => {
+describe("Qubic log store", () => {
   beforeAll(initK12);
 
   test("encodes the core-lite record header and transaction range", () => {
-    const logger = new NativeLogger();
+    const logger = new QubicLogStore();
     const source = Uint8Array.of(0, 0, 0, 0, 9, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0);
     logger.begin(12, 3);
     logger.log(28, 6, source, 4);
@@ -30,7 +33,7 @@ describe("native logging store", () => {
   });
 
   test("pause suppresses persistence and future ticks use native sentinels", () => {
-    const logger = new NativeLogger();
+    const logger = new QubicLogStore();
     logger.begin(1, 0);
     logger.pause();
     logger.log(28, 6, new Uint8Array(8), 1);
@@ -42,7 +45,7 @@ describe("native logging store", () => {
   });
 
   test("retention cap drops whole records without creating log-id holes", () => {
-    const logger = new NativeLogger(40);
+    const logger = new QubicLogStore(40);
     logger.begin(1, 0);
     logger.log(28, 6, new Uint8Array(8), 1); // 34 bytes: accepted
     logger.log(28, 6, new Uint8Array(8), 1); // would exceed 40: dropped

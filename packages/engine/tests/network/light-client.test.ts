@@ -1,16 +1,18 @@
 // Verifies entity Merkle proofs against spectrum roots signed by a computor quorum.
 import { test, expect } from "bun:test";
 import { initK12 } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 import { verifyEntityProof } from "../../src/consensus";
 
 const SEEDS4 = ["b".repeat(55), "c".repeat(55), "d".repeat(55), "e".repeat(55)];
 const A = new Uint8Array(32).fill(0x33);
 const B = new Uint8Array(32).fill(0x44);
 
-async function fundedTick(): Promise<Sim> {
+async function fundedTick(): Promise<QubicSimulator> {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
   sim.fund(A, 5000n);
   sim.fund(B, 100n); // a second entity so A's path carries real siblings
   sim.advance(); // finalize: the votes commit the spectrum digest including these balances
@@ -19,7 +21,7 @@ async function fundedTick(): Promise<Sim> {
 
 test("an entity proof verifies against the quorum-signed spectrum root", async () => {
   const sim = await fundedTick();
-  const rec = sim.tickRecord(sim.tickN)!;
+  const rec = sim.tickRecord(sim.currentTick)!;
   const proof = sim.spectrumProof(A);
 
   // the balance is provably part of the state a supermajority of the committee signed
@@ -30,7 +32,7 @@ test("an entity proof verifies against the quorum-signed spectrum root", async (
 
 test("a tampered balance record fails light-client verification", async () => {
   const sim = await fundedTick();
-  const rec = sim.tickRecord(sim.tickN)!;
+  const rec = sim.tickRecord(sim.currentTick)!;
   const proof = sim.spectrumProof(A);
 
   const forged = proof.record.slice();
@@ -42,7 +44,7 @@ test("a tampered balance record fails light-client verification", async () => {
 
 test("another entity's index + siblings fail (the proof is bound to the leaf)", async () => {
   const sim = await fundedTick();
-  const rec = sim.tickRecord(sim.tickN)!;
+  const rec = sim.tickRecord(sim.currentTick)!;
   const pa = sim.spectrumProof(A);
   const pb = sim.spectrumProof(B);
 

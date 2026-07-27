@@ -1,10 +1,10 @@
-// broadcastTx verdict logic + the readBody stall watchdog. broadcastTx must only report ok when the node
+// broadcastTx verdict logic + the response-body stall watchdog. broadcastTx must only report ok when the node
 // actually accepted+relayed the tx (peers >= 1, no error code) — a false ok would hide a dropped tx.
 import { test, expect, afterEach } from "bun:test";
 import {
   DEFAULT_RPC_BASE,
   broadcastTx,
-  readBody,
+  readResponseBodyWithTimeout,
 } from "../../src/net";
 
 const realFetch = globalThis.fetch;
@@ -45,15 +45,22 @@ test("broadcastTx: a fetch failure throws 'node unreachable'", async () => {
   await expect(broadcastTx(tx, "http://127.0.0.1:1")).rejects.toThrow(/node unreachable/);
 });
 
-test("readBody: a stalled body stream aborts via the inactivity watchdog", async () => {
+test("readResponseBodyWithTimeout: a stalled body stream aborts via the inactivity watchdog", async () => {
   const never = new ReadableStream<Uint8Array>({
     start() {
       /* never enqueue, never close */
     },
   });
-  await expect(readBody(new Response(never), 100)).rejects.toThrow(/stalled/);
+  await expect(
+    readResponseBodyWithTimeout(new Response(never), 100),
+  ).rejects.toThrow(/stalled/);
 });
 
-test("readBody: reads a normal body in full", async () => {
-  expect([...(await readBody(new Response(new Uint8Array([5, 6, 7])), 1000))]).toEqual([5, 6, 7]);
+test("readResponseBodyWithTimeout: reads a normal body in full", async () => {
+  expect([
+    ...(await readResponseBodyWithTimeout(
+      new Response(new Uint8Array([5, 6, 7])),
+      1000,
+    )),
+  ]).toEqual([5, 6, 7]);
 });

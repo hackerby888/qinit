@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { DEFAULT_RPC_BASE, LiteRpc, type DynContract } from "@qinit/core";
+import {
+  DEFAULT_RPC_BASE,
+  LiteRpc,
+  type DynamicContractRegistryEntry,
+} from "@qinit/core";
 import type { SystemContract } from "@qinit/build";
 import { loadConfig } from "../config";
 import { loadSystem } from "../contracts";
@@ -22,25 +26,26 @@ const SYS_COLS: Column[] = [
   { header: "fn·proc", align: "right" },
   { header: "source", dim: true, max: 24 },
 ];
-const stateOf = (c: DynContract) => (!c.armed ? "empty" : c.constructed ? "ready" : "constructing");
+const stateOf = (contract: DynamicContractRegistryEntry) =>
+  !contract.armed ? "empty" : contract.constructed ? "ready" : "constructing";
 
 export function Ls({ args }: { args: string[] }) {
   const { flags: o } = parseCommandArgs("ls", args);
-  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [s, setS] = useState<{
     phase: "run" | "done";
-    user?: DynContract[];
+    user?: DynamicContractRegistryEntry[];
     system?: SystemContract[];
     nodeDown?: boolean;
   }>({ phase: "run" });
 
   useEffect(() => {
     (async () => {
-      let user: DynContract[] = [];
+      let user: DynamicContractRegistryEntry[] = [];
       let nodeDown = false;
       try {
-        user = (await new LiteRpc(rpcBase).dynRegistry()).contracts ?? [];
+        user = (await new LiteRpc(rpcBaseUrl).dynRegistry()).contracts ?? [];
       } catch {
         nodeDown = true;
       }

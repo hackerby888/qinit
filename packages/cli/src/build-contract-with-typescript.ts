@@ -1,5 +1,5 @@
 // Build a contract .h -> wasm with the in-process TS compiler (@qinit/compile) — no clang, no toolchain.
-// Shared by build, deploy, dev, and test when `qinit compiler local` is selected.
+// Shared by build, deploy, dev, and test when the TypeScript compiler is selected.
 import { readFileSync, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -12,9 +12,9 @@ import {
   analyzeContract,
   type SourceAnalysisResult,
 } from "@qinit/compile/analyzer";
-import type { BuildResult } from "@qinit/build";
+import type { ContractBuildResult } from "@qinit/build";
 
-export type LocalBuildResult = BuildResult;
+export type TypeScriptContractBuildResult = ContractBuildResult;
 
 interface DynamicCalleeSource {
   name: string;
@@ -29,7 +29,7 @@ function analyzeCallee(
 ): SourceAnalysisResult {
   return analyzeContract({
     source: callee.source,
-    name: callee.name,
+    contractName: callee.name,
     slot: callee.slot,
     qpiHeader,
     calleeSources: allCallees
@@ -54,19 +54,19 @@ function requireCalleeIdl(
   return result.idl;
 }
 
-export async function compileLocal(o: {
+export async function buildContractWithTypeScript(o: {
   contractPath: string;
   name: string;
   slot: number;
   core: string;
   outDir: string;
   dynCallees?: Record<string, { header: string; index: number }>;
-}): Promise<LocalBuildResult> {
+}): Promise<TypeScriptContractBuildResult> {
   const qpiHeader = loadQpiHeader(o.core);
   if (!qpiHeader) {
     return {
       ok: false,
-      stderr: "cannot load qpi.h — set QINIT_CORE or pass --core <core-lite checkout>",
+      stderr: "cannot load qpi.h — set QINIT_CORE or pass --core-dir <core-lite checkout>",
     };
   }
   const source = readFileSync(o.contractPath, "utf8");
@@ -96,7 +96,7 @@ export async function compileLocal(o: {
   }));
   const r = await compileContract({
     source,
-    name: o.name,
+    contractName: o.name,
     slot: o.slot,
     qpiHeader,
     callees: callees.length ? callees : undefined,
@@ -118,12 +118,12 @@ export async function compileLocal(o: {
   );
 
   mkdirSync(o.outDir, { recursive: true });
-  const so = join(o.outDir, `${o.name}.wasm`);
-  writeFileSync(so, Buffer.from(r.wasm));
+  const wasmPath = join(o.outDir, `${o.name}.wasm`);
+  writeFileSync(wasmPath, Buffer.from(r.wasm));
   return {
     ok: true,
-    so,
-    size: statSync(so).size,
+    wasmPath,
+    wasmSizeBytes: statSync(wasmPath).size,
     idl: r.idl,
     stderr: warns.length ? warns.map((d) => `warning: ${d.message}`).join("\n") : undefined,
   };

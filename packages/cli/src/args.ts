@@ -12,7 +12,7 @@ export function initOutput(args: string[]): void {
     !!process.env.NO_COLOR;
 }
 
-export interface Parsed {
+export interface ParsedArguments {
   pos: string[];
   flags: Record<string, string>;
   multi: Record<string, string[]>;
@@ -31,7 +31,7 @@ export function parseCommandArgs(
   command: string,
   args: string[],
   subcommand?: string,
-): Parsed {
+): ParsedArguments {
   const options = commandOptions(command, subcommand);
   return parseArgs(args, {
     strings: options
@@ -49,7 +49,7 @@ export function parseCommandArgs(
 export function parseArgs(
   args: string[],
   options: ParseOptions = {},
-): Parsed {
+): ParsedArguments {
   const definitions: Record<
     string,
     { type: "string" | "boolean"; multiple?: boolean; short?: string }

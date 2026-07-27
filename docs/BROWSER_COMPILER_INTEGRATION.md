@@ -29,7 +29,7 @@ supported way to update the generated module:
 
 ```bash
 bun packages/compile/tools/gen-qpi-snapshot.ts \
-  --core /path/to/core-lite \
+  --core-dir /path/to/core-lite \
   --verify
 ```
 

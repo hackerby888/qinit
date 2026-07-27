@@ -10,9 +10,9 @@ export type { ContractIdl } from "@qinit/proto/contract-idl";
 
 export interface CompileOptions {
   source: string;
-  name: string;
+  contractName: string;
   slot: number;
-  arenaSz?: number;
+  arenaSizeBytes?: number;
   callees?: ContractIdl[];
   calleeSources?: Array<{
     name: string;
@@ -22,7 +22,7 @@ export interface CompileOptions {
   testSource?: string;
   testPath?: string;
   qpiHeader?: string;
-  sharedMemBase?: number;
+  sharedMemoryBaseOffsetBytes?: number;
   onPhase?: (phase: string) => void | Promise<void>;
   strict?: boolean;
   constructionEpoch?: number;

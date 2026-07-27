@@ -8,10 +8,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContract } from "@qinit/build";
+import { buildContractWithWasiClang } from "@qinit/build";
 import { initK12 } from "@qinit/core";
 import { wasiSdkPaths } from "@qinit/core/project";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import {
   compileContract,
   DiagnosticSeverity,
@@ -85,7 +85,7 @@ function runState(
   contract: FuzzContract,
   encodeInput: FuzzRunnerOptions["encodeInput"],
 ): string {
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   sim.deploy(27, wasm);
@@ -112,10 +112,10 @@ async function checkSeed(
   try {
     const ours = await compileContract({
       source: contract.source,
-      name: `${options.contractPrefix}${contract.seed}`,
+      contractName: `${options.contractPrefix}${contract.seed}`,
       slot: 27,
       qpiHeader: headers,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     const errors = ours.diagnostics.filter(
       (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
@@ -149,7 +149,7 @@ async function checkSeed(
 
   try {
     writeFileSync(contractPath, contract.source);
-    const built = await buildContract({
+    const built = await buildContractWithWasiClang({
       contractPath,
       name: options.contractPrefix,
       slot: 27,
@@ -170,7 +170,7 @@ async function checkSeed(
     let nativeHex: string;
     try {
       nativeHex = runState(
-        new Uint8Array(readFileSync(built.so!)),
+        new Uint8Array(readFileSync(built.wasmPath!)),
         contract,
         options.encodeInput,
       );

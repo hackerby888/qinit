@@ -246,7 +246,7 @@ struct Caller : public ContractBase {
 };
 `;
 
-  const result = analyzeContract({ source, name: "Caller", slot: 1 });
+  const result = analyzeContract({ source, contractName: "Caller", slot: 1 });
 
   expect(result.calls.map(({ kind, callee, entry }) => ({
     kind,

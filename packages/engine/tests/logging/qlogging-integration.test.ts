@@ -17,10 +17,15 @@ test.skipIf(!QLOGGING || !existsSync(QLOGGING))(
 
     try {
       engine.advanceTick(1);
-      const tick = engine.sim.tickN;
+      const tick = engine.sim.currentTick;
       const message = Uint8Array.of(0, 0, 0, 0, 9, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0);
       engine.logger.begin(tick, 0);
-      engine.logger.log(28, 6, message, engine.sim.epochN);
+      engine.logger.log(
+        28,
+        6,
+        message,
+        engine.sim.currentEpoch,
+      );
       engine.logger.end();
       engine.logger.finalizeTick(tick);
 

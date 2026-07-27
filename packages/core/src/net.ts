@@ -4,7 +4,11 @@ export const DEFAULT_RPC_BASE = `http://${LOOPBACK_HOST}:${DEFAULT_RPC_PORT}`;
 export const DEFAULT_PEER_PORT = 21841;
 
 // Fetch with a timeout until response headers arrive; body streaming has its own watchdog.
-export async function fetchT(url: string, init?: RequestInit, ms = 10000): Promise<Response> {
+export async function fetchWithTimeout(
+  url: string,
+  init?: RequestInit,
+  ms = 10000,
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   try {
@@ -20,7 +24,7 @@ export async function fetchT(url: string, init?: RequestInit, ms = 10000): Promi
 }
 
 // Read a response body with an inactivity watchdog that resets after every chunk.
-export async function readBody(
+export async function readResponseBodyWithTimeout(
   r: Response,
   stallMs = 60000,
   onProgress?: (recv: number, total: number) => void,
@@ -77,13 +81,13 @@ export interface BroadcastResult {
 
 export async function broadcastTx(
   txBytes: Uint8Array,
-  rpcBase = DEFAULT_RPC_BASE,
+  rpcBaseUrl = DEFAULT_RPC_BASE,
 ): Promise<BroadcastResult> {
   const encodedTransaction = Buffer.from(txBytes).toString("base64");
   let response: Response;
   try {
-    response = await fetchT(
-      rpcBase + "/live/v1/broadcast-transaction",
+    response = await fetchWithTimeout(
+      rpcBaseUrl + "/live/v1/broadcast-transaction",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -93,7 +97,7 @@ export async function broadcastTx(
     );
   } catch (e: any) {
     throw new Error(
-      `node unreachable at ${rpcBase} — is it running? (qinit node run)  [${e?.message ?? e}]`,
+      `node unreachable at ${rpcBaseUrl} — is it running? (qinit node run)  [${e?.message ?? e}]`,
     );
   }
   const payload: any = await response.json().catch(() => ({}));
@@ -107,11 +111,11 @@ export async function broadcastTx(
 
 export async function broadcastTxs(
   txList: Uint8Array[],
-  rpcBase = DEFAULT_RPC_BASE,
+  rpcBaseUrl = DEFAULT_RPC_BASE,
 ): Promise<BroadcastResult[]> {
   const out: BroadcastResult[] = [];
   for (const tx of txList) {
-    out.push(await broadcastTx(tx, rpcBase));
+    out.push(await broadcastTx(tx, rpcBaseUrl));
   }
   return out;
 }

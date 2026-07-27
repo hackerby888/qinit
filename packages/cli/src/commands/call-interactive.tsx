@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { LiteRpc, type DynContract } from "@qinit/core";
+import { LiteRpc, type DynamicContractRegistryEntry } from "@qinit/core";
 import {
   callFunction,
   invokeProcedure,
   encodeInput,
   hasOverlappingAbiType,
-  zeroInputFmt,
+  zeroInputFormat,
   TX_TICK_OFFSET,
 } from "@qinit/proto";
 import {
@@ -311,7 +311,7 @@ export function zeroSample(entry: Entry): string | null {
       return null;
     }
 
-    return zeroInputFmt(entry.input);
+    return zeroInputFormat(entry.input);
   } catch {
     return null;
   }
@@ -327,7 +327,7 @@ type Stage =
   | "running"
   | "done";
 
-export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: string }) {
+export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed?: string }) {
   const { exit } = useApp();
 
   const [qpiHeader] = useState(() => {
@@ -338,11 +338,11 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     }
   });
   const [stage, setStage] = useState<Stage>("loading");
-  const [contracts, setContracts] = useState<DynContract[]>([]);
+  const [contracts, setContracts] = useState<DynamicContractRegistryEntry[]>([]);
   const [userCount, setUserCount] = useState(0);
   const [idlFile, setIdlFile] = useState<ContractIdlFile>(emptyContractIdlFile());
   const [selection, setSelection] = useState<{
-    c?: DynContract;
+    c?: DynamicContractRegistryEntry;
     e?: Entry;
     input?: string;
     out?: string;
@@ -359,7 +359,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     (async () => {
       try {
         setIdlFile(loadContractIdlFile());
-        const { user, system } = await loadContracts(new LiteRpc(rpcBase));
+        const { user, system } = await loadContracts(new LiteRpc(rpcBaseUrl));
         const combined = [...user, ...system.map(systemAsDyn)];
 
         if (!combined.length) {
@@ -422,7 +422,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
         return;
       }
 
-      const rpc = new LiteRpc(rpcBase);
+      const rpc = new LiteRpc(rpcBaseUrl);
       const contract = selected.c!;
       const entry = selected.e!;
       const contractIndex = contract.index;
@@ -442,11 +442,11 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
         const tick = (tickInfo.tick ?? 0) + TX_TICK_OFFSET;
         const procedure = await invokeProcedure({
           seed: await resolveSeed(rpc, selected.seed || seed),
-          rpcBase,
+          rpcBaseUrl: rpcBaseUrl,
           contractIndex,
-          procId: entry.inputType,
+          procedureId: entry.inputType,
           amount: Number(selected.amount ?? 0),
-          inFmt: selected.input ?? "",
+          inputFormat: selected.input ?? "",
           tick,
           confirm: true,
           rpc,
@@ -526,11 +526,11 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     }
   };
 
-  const labelFor = (contract: DynContract, entry: Entry) =>
+  const labelFor = (contract: DynamicContractRegistryEntry, entry: Entry) =>
     `${nameOf(contract)}.${entry.name ?? entry.kind + "#" + entry.inputType}`;
 
   const equivCmd = (
-    contract: DynContract,
+    contract: DynamicContractRegistryEntry,
     entry: Entry,
     selected: typeof selection,
   ) => {
@@ -557,12 +557,12 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
     return parts.join(" ");
   };
 
-  const nameOf = (contract: DynContract) =>
+  const nameOf = (contract: DynamicContractRegistryEntry) =>
     contract.name ||
     contractIdlForSlot(idlFile, contract.index, contract.codeHash)?.name ||
     `contract ${contract.index}`;
 
-  const entriesFor = (contract: DynContract): Entry[] => {
+  const entriesFor = (contract: DynamicContractRegistryEntry): Entry[] => {
     const localIdl = contractIdlForSlot(
       idlFile,
       contract.index,
@@ -658,7 +658,7 @@ export function CallInteractive({ rpcBase, seed }: { rpcBase: string; seed?: str
   }
 
   if (stage === "contract") {
-    const item = (contract: DynContract) => ({
+    const item = (contract: DynamicContractRegistryEntry) => ({
       label: `${nameOf(contract)}  [idx ${contract.index}]  ${
         contract.functions.length
       } fn / ${contract.procedures.length} proc`,

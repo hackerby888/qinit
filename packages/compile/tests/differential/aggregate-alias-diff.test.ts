@@ -5,9 +5,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContract } from "@qinit/build";
+import { buildContractWithWasiClang } from "@qinit/build";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
@@ -66,7 +66,7 @@ function encodeInput(values: readonly bigint[]): Uint8Array {
 }
 
 function execute(wasm: Uint8Array, input: readonly bigint[]): Uint8Array {
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   sim.deploy(SLOT, wasm);
@@ -84,10 +84,10 @@ beforeAll(async () => {
   await initK12();
   const ours = await compileContract({
     source: SOURCE,
-    name: "AggregateAlias",
+    contractName: "AggregateAlias",
     slot: SLOT,
     qpiHeader: loadQpiHeader(CORE),
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
   const errors = ours.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
   if (errors.length > 0) {
@@ -99,7 +99,7 @@ beforeAll(async () => {
     nativeDir = mkdtempSync(join(tmpdir(), "qinit-aggregate-alias-"));
     const contractPath = join(nativeDir, "AggregateAlias.h");
     writeFileSync(contractPath, SOURCE);
-    const built = await buildContract({
+    const built = await buildContractWithWasiClang({
       contractPath,
       name: "AggregateAlias",
       slot: SLOT,
@@ -107,10 +107,10 @@ beforeAll(async () => {
       outDir: nativeDir,
       skipVerify: true,
     });
-    if (!built.ok || !built.so) {
+    if (!built.ok || !built.wasmPath) {
       throw new Error(built.stderr ?? "native aggregate-alias build failed");
     }
-    nativeWasm = new Uint8Array(readFileSync(built.so));
+    nativeWasm = new Uint8Array(readFileSync(built.wasmPath));
   }
 });
 

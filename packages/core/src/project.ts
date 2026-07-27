@@ -4,12 +4,12 @@ import { resolve } from "node:path";
 import { readCurrent } from "./fetch";
 
 export interface QinitConfig {
-  name?: string;
+  contractName?: string;
   contract?: string;
   slot?: number;
-  core?: string;
+  coreDir?: string;
   rpc?: string;
-  system?: string[]; // built-in system contracts to seed onto the virtual node (`qinit system`)
+  system?: string[]; // built-in system contracts to seed onto the simulator
   // Inter-contract callees deployed before the main contract.
   callees?: { name: string; contract: string }[];
 }
@@ -24,8 +24,11 @@ export function loadConfig(path = "qinit.json"): QinitConfig {
 
 // Where to find core headers for compiling: explicit checkout > env > fetched snapshot cache.
 // No checkout and no fetched snapshot => actionable error.
-export function resolveCore(cliCore?: string, cfgCore?: string): string {
-  const explicit = cliCore || cfgCore || process.env.QINIT_CORE;
+export function resolveCoreDir(
+  cliCoreDir?: string,
+  configCoreDir?: string,
+): string {
+  const explicit = cliCoreDir || configCoreDir || process.env.QINIT_CORE;
   if (explicit) return resolve(explicit);
   const cur = readCurrent();
   if (cur?.coreHeaders && existsSync(cur.coreHeaders)) return cur.coreHeaders;

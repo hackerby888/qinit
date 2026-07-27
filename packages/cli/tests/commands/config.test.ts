@@ -12,11 +12,16 @@ import {
   clearSavedSeed,
   savedTheme,
   setSavedTheme,
-  savedMode,
-  setSavedMode,
-  modeStorePath,
+  savedNodeBackend,
+  setSavedNodeBackend,
+  nodeBackendStorePath,
+  resolveNodeBackend,
+  savedCompilerBackend,
+  setSavedCompilerBackend,
+  compilerBackendStorePath,
+  resolveCompilerBackend,
   resolveSeed,
-  resolveCore,
+  resolveCoreDir,
 } from "../../src/config";
 
 const saved = {
@@ -46,8 +51,8 @@ test("loadConfig: missing -> {}, valid -> parsed, malformed -> {}", () => {
   const x = isolate();
   expect(loadConfig(join(x, "nope.json"))).toEqual({});
   const good = join(x, "good.json");
-  writeFileSync(good, JSON.stringify({ name: "C", slot: 28 }));
-  expect(loadConfig(good)).toEqual({ name: "C", slot: 28 });
+  writeFileSync(good, JSON.stringify({ contractName: "C", slot: 28 }));
+  expect(loadConfig(good)).toEqual({ contractName: "C", slot: 28 });
   const bad = join(x, "bad.json");
   writeFileSync(bad, "{not json");
   expect(loadConfig(bad)).toEqual({});
@@ -73,15 +78,34 @@ test("theme store: round-trip", () => {
   expect(savedTheme()).toBe("dracula");
 });
 
-test("mode store: default undefined, round-trip, ignore unknown value", () => {
+test("node backend store: default undefined, round-trip, ignore unknown value", () => {
   isolate();
-  expect(savedMode()).toBeUndefined(); // unset -> caller falls back to realnode
-  setSavedMode("virtualnode");
-  expect(savedMode()).toBe("virtualnode");
-  setSavedMode("realnode");
-  expect(savedMode()).toBe("realnode");
-  writeFileSync(modeStorePath(), "bogus"); // unknown value -> savedMode rejects it
-  expect(savedMode()).toBeUndefined();
+  expect(savedNodeBackend()).toBeUndefined();
+  expect(resolveNodeBackend({})).toBe("core");
+  setSavedNodeBackend("simulator");
+  expect(savedNodeBackend()).toBe("simulator");
+  expect(resolveNodeBackend({})).toBe("simulator");
+  expect(resolveNodeBackend({ "node-backend": "core" })).toBe("core");
+  writeFileSync(nodeBackendStorePath(), "bogus");
+  expect(savedNodeBackend()).toBeUndefined();
+  expect(() => resolveNodeBackend({ "node-backend": "bogus" })).toThrow(
+    "--node-backend must be core or simulator",
+  );
+});
+
+test("compiler backend store: default undefined, round-trip, ignore unknown value", () => {
+  isolate();
+  expect(savedCompilerBackend()).toBeUndefined();
+  expect(resolveCompilerBackend({})).toBe("clang");
+  setSavedCompilerBackend("typescript");
+  expect(savedCompilerBackend()).toBe("typescript");
+  expect(resolveCompilerBackend({})).toBe("typescript");
+  expect(resolveCompilerBackend({ compiler: "clang" })).toBe("clang");
+  writeFileSync(compilerBackendStorePath(), "bogus");
+  expect(savedCompilerBackend()).toBeUndefined();
+  expect(() => resolveCompilerBackend({ compiler: "bogus" })).toThrow(
+    "--compiler must be clang or typescript",
+  );
 });
 
 test("resolveSeed precedence: explicit > saved > funded > default", async () => {
@@ -97,12 +121,12 @@ test("resolveSeed precedence: explicit > saved > funded > default", async () => 
   expect(await resolveSeed(noFunded)).toBe("a".repeat(55)); // dev default
 });
 
-test("resolveCore: explicit precedence -> absolute; throws when unresolved", () => {
+test("resolveCoreDir: explicit precedence -> absolute; throws when unresolved", () => {
   const x = isolate();
-  expect(resolveCore(join(x, "cli-core"))).toBe(join(x, "cli-core")); // cli wins, absolute
-  expect(resolveCore(undefined, join(x, "cfg-core"))).toBe(join(x, "cfg-core"));
+  expect(resolveCoreDir(join(x, "cli-core"))).toBe(join(x, "cli-core"));
+  expect(resolveCoreDir(undefined, join(x, "cfg-core"))).toBe(join(x, "cfg-core"));
   process.env.QINIT_CORE = join(x, "env-core");
-  expect(resolveCore()).toBe(join(x, "env-core"));
+  expect(resolveCoreDir()).toBe(join(x, "env-core"));
   delete process.env.QINIT_CORE;
-  expect(() => resolveCore()).toThrow(/no core headers/); // nothing resolves
+  expect(() => resolveCoreDir()).toThrow(/no core headers/);
 });

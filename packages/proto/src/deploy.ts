@@ -98,13 +98,13 @@ export function encodeDeploy(p: DeployParams): Uint8Array {
   return m.bytes;
 }
 
-export function chunkSo(bytes: Uint8Array, size = CHUNK_DATA_MAX): Uint8Array[] {
+export function splitUploadChunks(bytes: Uint8Array, size = CHUNK_DATA_MAX): Uint8Array[] {
   const chunks: Uint8Array[] = [];
   for (let off = 0; off < bytes.length; off += size) chunks.push(bytes.subarray(off, off + size));
   return chunks;
 }
 
-export function newSessionId(): bigint {
+export function createUploadSessionId(): bigint {
   const r = new Uint8Array(8);
   crypto.getRandomValues(r);
   return new DataView(r.buffer).getBigUint64(0, true);

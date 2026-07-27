@@ -33,7 +33,7 @@ export function preprocessContractSource(
     const preprocessedSource = new Preprocessor().preprocess({
         source,
         qpiHeader: "",
-        contractName: options.name,
+        contractName: options.contractName,
         contractIndex: options.slot,
         seedMacros,
     });

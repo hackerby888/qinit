@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "../packages/core/src/index";
-import { Sim } from "../packages/engine/src/sim";
+import { QubicSimulator } from "../packages/engine/src/qubic-simulator";
 import {
   loadWasmFixture,
   wasmFixtureManifest,
@@ -21,7 +21,7 @@ describe("in-memory Wasm fixtures", () => {
 
         expect(WebAssembly.validate(wasm)).toBe(true);
 
-        const contract = new Sim().deploy(definition.slot, wasm);
+        const contract = new QubicSimulator().deploy(definition.slot, wasm);
         expect(contract.ex.contract_index()).toBe(definition.slot);
       }
     },
@@ -31,7 +31,7 @@ describe("in-memory Wasm fixtures", () => {
   test("Proxy derives its callee ABI from the generated slot-28 Counter", async () => {
     expect(wasmFixtureManifest.Proxy.dependencies).toEqual(["Counter"]);
 
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     sim.deploy(28, await loadWasmFixture("Counter"));
     sim.deploy(29, await loadWasmFixture("Proxy"));
     sim.procedure(29, 1);
@@ -49,7 +49,7 @@ describe("in-memory Wasm fixtures", () => {
     const wasm = await loadWasmFixture("OracleProbe");
 
     expect(WebAssembly.validate(wasm)).toBe(true);
-    expect(new Sim().deploy(29, wasm).ex.contract_index()).toBe(29);
+    expect(new QubicSimulator().deploy(29, wasm).ex.contract_index()).toBe(29);
   });
 
   test("each caller receives an independent byte copy", async () => {

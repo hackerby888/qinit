@@ -6,7 +6,7 @@ import {
   SourceAnalysisOrigin,
   type SourceAnalysisDiagnostic,
 } from "@qinit/compile/analyzer";
-import { resolveCore } from "@qinit/core/project";
+import { resolveCoreDir } from "@qinit/core/project";
 
 const DENY = new Set([
   "qpi.h",
@@ -52,7 +52,7 @@ export function lintCorpus(
 if (import.meta.main) {
   let core: string;
   try {
-    core = resolveCore(process.env.QINIT_CORE);
+    core = resolveCoreDir(process.env.QINIT_CORE);
   } catch (error: any) {
     console.error("no core headers:", String(error?.message ?? error), "— set QINIT_CORE");
     process.exit(2);

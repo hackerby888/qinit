@@ -15,14 +15,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 const BASE: CompileOptions = {
   source: VALID_SOURCE,
-  name: "OptionProbe",
+  contractName: "OptionProbe",
   slot: 27,
-  arenaSz: 1 << 20,
+  arenaSizeBytes: 1 << 20,
 };
 
 const CALLEE = analyzeContract({
   source: VALID_SOURCE,
-  name: "Other",
+  contractName: "Other",
   slot: 28,
 }).idl;
 if (!CALLEE) {
@@ -55,7 +55,8 @@ describe("compiler option validation", () => {
     ["oversized", "C".repeat(1025)],
   ] as const;
   for (const [label, name] of invalidNames) {
-    test(`rejects ${label} contract name`, () => expectRejected({ name }));
+    test(`rejects ${label} contract name`, () =>
+      expectRejected({ contractName: name }));
   }
 
   const invalidSlots = [
@@ -75,8 +76,8 @@ describe("compiler option validation", () => {
     ["non-finite", Number.POSITIVE_INFINITY],
     ["larger than wasm32", 0x1_0000_0000],
   ] as const;
-  for (const [label, arenaSz] of invalidArenaSizes) {
-    test(`rejects ${label} arena size`, () => expectRejected({ arenaSz }));
+  for (const [label, arenaSizeBytes] of invalidArenaSizes) {
+    test(`rejects ${label} arena size`, () => expectRejected({ arenaSizeBytes }));
   }
 
   const invalidSharedBases = [
@@ -86,8 +87,8 @@ describe("compiler option validation", () => {
     ["non-finite", Number.POSITIVE_INFINITY],
     ["larger than wasm32", 0x1_0000_0000],
   ] as const;
-  for (const [label, sharedMemBase] of invalidSharedBases) {
-    test(`rejects ${label} shared memory base`, () => expectRejected({ sharedMemBase }));
+  for (const [label, sharedMemoryBaseOffsetBytes] of invalidSharedBases) {
+    test(`rejects ${label} shared memory base`, () => expectRejected({ sharedMemoryBaseOffsetBytes }));
   }
 
   test("rejects duplicate callee names", () =>

@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Tier-1 regression coverage for silent-divergence fixes.
 import { describe, test, expect, beforeAll } from "bun:test";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -88,10 +88,10 @@ describe("tier-1: uint128 bitwise & narrowing casts", () => {
   test("compiles clean under the strict fidelity gate", async () => {
     const r = await compileContract({
       source: SRC,
-      name: "T1",
+      contractName: "T1",
       slot: 6,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   });
@@ -99,14 +99,14 @@ describe("tier-1: uint128 bitwise & narrowing casts", () => {
   test("engine output matches the C++-semantics reference", async () => {
     const mine = await compileContract({
       source: SRC,
-      name: "T1",
+      contractName: "T1",
       slot: 6,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(6, mine.wasm);
 
     const run = (x: bigint, k: bigint, ahi: bigint, alo: bigint, bhi: bigint, blo: bigint) => {

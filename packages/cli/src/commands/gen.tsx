@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { extractIdl, generateClient, testRuntimeSource } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compile";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
-import { loadConfig, resolveCore } from "../config";
+import { loadConfig, resolveCoreDir } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
 import { parseCommandArgs } from "../args";
 
@@ -23,8 +23,11 @@ export function Gen({ args }: { args: string[] }) {
     try {
       const cfg = loadConfig();
       const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
-      const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
-      const core = resolveCore(o.core, cfg.core);
+      const name =
+        o["contract-name"] ??
+        cfg.contractName ??
+        basename(contractPath).replace(/\.[^.]+$/, "");
+      const core = resolveCoreDir(o["core-dir"], cfg.coreDir);
       const defaultSlot = loadCoreWasmSlotLayout(core).slotBase;
       const slot = Number(o.slot ?? cfg.slot ?? defaultSlot);
       const idl = extractIdl(readFileSync(contractPath, "utf8"), name, {

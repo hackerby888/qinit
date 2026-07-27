@@ -3,8 +3,8 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks Collection removal counters and cleanup thresholds against native behavior.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -80,7 +80,7 @@ describe("differential — Collection needsCleanup/cleanup state parity", () => 
       const contractPath = join(dir, "ClnP.h");
       writeFileSync(contractPath, SRC);
 
-      const built = await buildContract({
+      const built = await buildContractWithWasiClang({
         contractPath,
         name: "ClnP",
         slot: 29,
@@ -89,19 +89,19 @@ describe("differential — Collection needsCleanup/cleanup state parity", () => 
         skipVerify: true,
       });
       expect(built.ok).toBe(true);
-      const nativeWasm = new Uint8Array(readFileSync(built.so!));
+      const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
       const mine = await compileContract({
         source: SRC,
-        name: "ClnP",
+        contractName: "ClnP",
         slot: 29,
         qpiHeader: HEADERS,
-        arenaSz: 4 * 1024 * 1024,
+        arenaSizeBytes: 4 * 1024 * 1024,
       });
       expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
       const run = (wasm: Uint8Array) => {
-        const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         sim.deploy(29, wasm);
         const user = new Uint8Array(32).fill(9);
         sim.fund(user, 1_000_000n);

@@ -7,8 +7,7 @@ import { systemCatalog, systemWasm } from "../system-wasm";
 import { Header, Spinner, Status } from "../ui";
 import { parseCommandArgs } from "../args";
 
-// qinit system               -> list the system contracts (catalog + which are live on the node + selected)
-// qinit system add <name…>   -> compile (cache) + direct-deploy onto the running virtual node; save to qinit.json
+// qinit system lists or updates the simulator's selected system contracts.
 type Line = { t: string; ok?: boolean | null };
 
 // Persist the selection into qinit.json (kept minimal — preserves the rest of the config).
@@ -30,7 +29,7 @@ export function System({ args }: { args: string[] }) {
     rpc: parsed.get("rpc"),
   };
   const cfg = loadConfig();
-  const rpcBase = o.rpc || cfg.rpc || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc || cfg.rpc || DEFAULT_RPC_BASE;
   const [lines, setLines] = useState<Line[]>([]);
   const [busy, setBusy] = useState("starting");
   const [done, setDone] = useState(false);
@@ -39,8 +38,8 @@ export function System({ args }: { args: string[] }) {
   useEffect(() => {
     (async () => {
       try {
-        const rpc = new LiteRpc(rpcBase);
-        const catalog = systemCatalog(cfg.core);
+        const rpc = new LiteRpc(rpcBaseUrl);
+        const catalog = systemCatalog(cfg.coreDir);
 
         if (o.sub === "add" || o.sub === "rm") {
           if (!o.names.length) {
@@ -58,12 +57,12 @@ export function System({ args }: { args: string[] }) {
             try {
               if (o.sub === "add") {
                 setBusy(`compiling ${c.name}`);
-                const w = await systemWasm(c.name, cfg.core);
+                const w = await systemWasm(c.name, cfg.coreDir);
                 setBusy(`deploying ${c.name}`);
                 const r = await rpc.directDeploy(w.index, w.wasm, w.name);
                 if (!r) {
                   add(
-                    `${c.name}: virtualnode-only — a real node already embeds system contracts`,
+                    `${c.name}: simulator only — a core node already embeds system contracts`,
                     false,
                   );
                   continue;

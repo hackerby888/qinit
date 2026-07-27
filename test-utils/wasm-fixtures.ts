@@ -157,9 +157,9 @@ async function compileFixtureUncached(name: WasmFixtureName): Promise<CompileRes
 
     const result = await compileContract({
       source: definition.source,
-      name: definition.contractName,
+      contractName: definition.contractName,
       slot: definition.slot,
-      arenaSz: FIXTURE_ARENA_SIZE,
+      arenaSizeBytes: FIXTURE_ARENA_SIZE,
       ...(callees.length > 0 ? { callees, calleeSources } : {}),
     });
     const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");

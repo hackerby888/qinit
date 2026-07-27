@@ -6,8 +6,8 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -77,7 +77,7 @@ const TERNARY_EXPECTED =
   "ffffffff00000000ffffffff00000000e70300000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 
 const runState = (wasm: Uint8Array): string => {
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   sim.deploy(27, wasm);
@@ -94,10 +94,10 @@ const wasiOk = wasiToolchain().available;
 const checkBothSides = async (source: string, name: string, expected: string): Promise<void> => {
   const ours = await compileContract({
     source,
-    name,
+    contractName: name,
     slot: 27,
     qpiHeader: HEADERS,
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
   expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   expect(runState(ours.wasm)).toBe(expected);
@@ -106,7 +106,7 @@ const checkBothSides = async (source: string, name: string, expected: string): P
     const dir = mkdtempSync(join(tmpdir(), `${name}-`));
     try {
       writeFileSync(join(dir, `${name}.h`), source);
-      const built = await buildContract({
+      const built = await buildContractWithWasiClang({
         contractPath: join(dir, `${name}.h`),
         name,
         slot: 27,
@@ -115,7 +115,7 @@ const checkBothSides = async (source: string, name: string, expected: string): P
         skipVerify: true,
       });
       expect(built.ok).toBe(true);
-      expect(runState(new Uint8Array(readFileSync(built.so!)))).toBe(expected);
+      expect(runState(new Uint8Array(readFileSync(built.wasmPath!)))).toBe(expected);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

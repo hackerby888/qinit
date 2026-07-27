@@ -12,7 +12,7 @@ import {
   type CompileResult,
   type ContractIdl,
 } from "../../src/index";
-import { buildContract, buildCorpusRunner } from "@qinit/build";
+import { buildContractWithWasiClang, buildCorpusRunner } from "@qinit/build";
 
 export const CORE = CORE_PATH;
 export const QUTIL_IDX = 4;
@@ -51,38 +51,40 @@ export async function buildRunner(core: string): Promise<Uint8Array> {
       slot: QUTIL_IDX,
       corePath: core,
       outDir: dir,
-      arenaSz: 8 * 1024 * 1024,
+      arenaSizeBytes: 8 * 1024 * 1024,
     });
     if (!built.ok) {
       throw new Error("runner build failed:\n" + (built.stderr ?? ""));
     }
-    return new Uint8Array(readFileSync(built.so!));
+    return new Uint8Array(readFileSync(built.wasmPath!));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
 // Compile QUTIL and QX with the TS compiler, including QX as a callee.
-export async function buildContractsOurs(core: string): Promise<Record<number, Uint8Array>> {
+export async function buildContractsWithTypeScript(
+  core: string,
+): Promise<Record<number, Uint8Array>> {
   const headers = loadQpiHeader(core);
   const qutilSrc = readFileSync(`${core}/src/contracts/QUtil.h`, "utf8");
   const qxSrc = readFileSync(`${core}/src/contracts/Qx.h`, "utf8");
 
   const mineQx = await compileContract({
     source: qxSrc,
-    name: "QX",
+    contractName: "QX",
     slot: QX_IDX,
     qpiHeader: headers,
-    arenaSz: 8 * 1024 * 1024,
+    arenaSizeBytes: 8 * 1024 * 1024,
   });
   const callees = [calleeIdlFrom("QX", QX_IDX, mineQx)];
   const calleeSources = [{ name: "QX", source: qxSrc }];
   const mineQutil = await compileContract({
     source: qutilSrc,
-    name: "QUTIL",
+    contractName: "QUTIL",
     slot: QUTIL_IDX,
     qpiHeader: headers,
-    arenaSz: 8 * 1024 * 1024,
+    arenaSizeBytes: 8 * 1024 * 1024,
     callees,
     calleeSources,
   });
@@ -93,7 +95,7 @@ export async function buildContractsOurs(core: string): Promise<Record<number, U
     const fmt = (label: string, ds: typeof qxErrs) =>
       ds.map((d) => `  ${label} L${d.span.line}: ${d.message}`).join("\n");
     throw new Error(
-      "ours compile errors:\n" +
+      "TypeScript compile errors:\n" +
         fmt("QX", qxErrs) +
         (qxErrs.length && qutilErrs.length ? "\n" : "") +
         fmt("QUTIL", qutilErrs),
@@ -102,45 +104,47 @@ export async function buildContractsOurs(core: string): Promise<Record<number, U
   return { [QUTIL_IDX]: mineQutil.wasm, [QX_IDX]: mineQx.wasm };
 }
 
-// Compile deployable QUTIL and QX Wasm with native Clang.
-export async function buildContractsNative(core: string): Promise<Record<number, Uint8Array>> {
-  const dir = mkdtempSync(join(tmpdir(), "qutil-native-"));
+// Compile deployable QUTIL and QX Wasm with Clang.
+export async function buildContractsWithClang(
+  core: string,
+): Promise<Record<number, Uint8Array>> {
+  const dir = mkdtempSync(join(tmpdir(), "qutil-clang-"));
 
   try {
-    const qx = await buildContract({
+    const qx = await buildContractWithWasiClang({
       contractPath: `${core}/src/contracts/Qx.h`,
       name: "QX",
       stateType: "QX",
       slot: QX_IDX,
       corePath: core,
       outDir: dir,
-      arenaSz: 8 * 1024 * 1024,
+      arenaSizeBytes: 8 * 1024 * 1024,
       skipVerify: true,
     });
     if (!qx.ok) {
       throw new Error(
-        "native QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"),
+        "Clang QX build failed:\n" + (qx.stderr ?? "").split("\n").slice(-15).join("\n"),
       );
     }
 
-    const qutil = await buildContract({
+    const qutil = await buildContractWithWasiClang({
       contractPath: `${core}/src/contracts/QUtil.h`,
       name: "QUTIL",
       stateType: "QUTIL",
       slot: QUTIL_IDX,
       corePath: core,
       outDir: dir,
-      arenaSz: 8 * 1024 * 1024,
+      arenaSizeBytes: 8 * 1024 * 1024,
       skipVerify: true,
     });
     if (!qutil.ok) {
       throw new Error(
-        "native QUTIL build failed:\n" + (qutil.stderr ?? "").split("\n").slice(-15).join("\n"),
+        "Clang QUTIL build failed:\n" + (qutil.stderr ?? "").split("\n").slice(-15).join("\n"),
       );
     }
 
-    const qxBytes = new Uint8Array(readFileSync(qx.so!));
-    const qutilBytes = new Uint8Array(readFileSync(qutil.so!));
+    const qxBytes = new Uint8Array(readFileSync(qx.wasmPath!));
+    const qutilBytes = new Uint8Array(readFileSync(qutil.wasmPath!));
     return { [QUTIL_IDX]: qutilBytes, [QX_IDX]: qxBytes };
   } finally {
     rmSync(dir, { recursive: true, force: true });

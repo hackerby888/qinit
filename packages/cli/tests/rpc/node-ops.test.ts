@@ -2,6 +2,7 @@
 import { test, expect } from "bun:test";
 import {
   mkdtempSync,
+  mkdirSync,
   writeFileSync,
   readFileSync,
   existsSync,
@@ -11,9 +12,10 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { verifyPlatformKey } from "@qinit/core";
+import { releasePlatformKey } from "@qinit/core";
 import {
-  fetchNodeBin,
+  activeNodeScratchDir,
+  fetchNodeBinary,
   killNode,
   nodeAlive,
   nodeAssetForPlatform,
@@ -92,6 +94,36 @@ test("nodeAlive reflects the tracked PID's liveness", async () => {
   }
 });
 
+test("default lifecycle operations follow the persisted active scratch directory", async () => {
+  const cache = scratch();
+  const customScratch = join(cache, "custom-run");
+  const mine = sleeper();
+  const originalCache = process.env.QINIT_CACHE;
+
+  try {
+    process.env.QINIT_CACHE = cache;
+    mkdirSync(customScratch);
+    writeFileSync(pidFile(customScratch), String(mine));
+    writeFileSync(join(cache, "active-node-scratch"), customScratch);
+
+    expect(activeNodeScratchDir()).toBe(customScratch);
+    expect(nodeAlive()).toBe(true);
+    await killNode();
+    expect(alive(mine)).toBe(false);
+    expect(existsSync(join(cache, "active-node-scratch"))).toBe(false);
+  } finally {
+    if (originalCache === undefined) {
+      delete process.env.QINIT_CACHE;
+    } else {
+      process.env.QINIT_CACHE = originalCache;
+    }
+    try {
+      process.kill(mine, "SIGKILL");
+    } catch {}
+    rmSync(cache, { recursive: true, force: true });
+  }
+});
+
 test("node assets follow manifest platform keys and keep the legacy Linux fallback", () => {
   const legacy = { url: "legacy", sha256: "legacy-sha" };
   const windows = { url: "windows", sha256: "windows-sha" };
@@ -107,13 +139,13 @@ test("node assets follow manifest platform keys and keep the legacy Linux fallba
   expect(nodeAssetForPlatform(manifest, "future-riscv64")).toBeUndefined();
 });
 
-test("fetchNodeBin downloads a verified raw platform executable and updates current", async () => {
+test("fetchNodeBinary downloads a verified raw platform executable and updates current", async () => {
   const cache = scratch();
   const originalCache = process.env.QINIT_CACHE;
   const originalFetch = globalThis.fetch;
   const bytes = new Uint8Array([0x51, 0x55, 0x42, 0x49, 0x43]);
   const sha256 = createHash("sha256").update(bytes).digest("hex");
-  const platform = verifyPlatformKey();
+  const platform = releasePlatformKey();
   const filename = process.platform === "win32" ? "Qubic.exe" : "Qubic";
 
   try {
@@ -132,17 +164,17 @@ test("fetchNodeBin downloads a verified raw platform executable and updates curr
         },
       },
     };
-    const downloaded = await fetchNodeBin("unused", undefined, manifest);
+    const downloaded = await fetchNodeBinary("unused", undefined, manifest);
 
-    expect(basename(downloaded.bin)).toBe(filename);
-    expect(readFileSync(downloaded.bin)).toEqual(Buffer.from(bytes));
+    expect(basename(downloaded.nodeBinaryPath)).toBe(filename);
+    expect(readFileSync(downloaded.nodeBinaryPath)).toEqual(Buffer.from(bytes));
     expect(downloaded.version).toBe(manifest.version);
 
     const current = JSON.parse(
       readFileSync(join(cache, "current.json"), "utf8"),
     );
     expect(current.nodeVersion).toBe(manifest.version);
-    expect(current.node).toBe(downloaded.bin);
+    expect(current.node).toBe(downloaded.nodeBinaryPath);
 
     const badManifest = {
       ...manifest,
@@ -155,7 +187,7 @@ test("fetchNodeBin downloads a verified raw platform executable and updates curr
       },
     };
     await expect(
-      fetchNodeBin("unused", undefined, badManifest),
+      fetchNodeBinary("unused", undefined, badManifest),
     ).rejects.toThrow("sha256 mismatch");
     expect(
       existsSync(join(cache, badManifest.version, "node", filename)),

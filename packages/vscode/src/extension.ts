@@ -117,7 +117,7 @@ function regenerateTest(
 
   let contractPath =
     configuredContract && existsSync(configuredContract) ? configuredContract : undefined;
-  let name = contractPath ? config.name : undefined;
+  let name = contractPath ? config.contractName : undefined;
   if (!contractPath) {
     const candidate = selectTestContract(
       doc.getText(),

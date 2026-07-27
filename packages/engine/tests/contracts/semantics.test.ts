@@ -3,7 +3,7 @@ import { test, expect } from "bun:test";
 import { bytesToIdentity } from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 
 const USER = new Uint8Array(32).fill(0xab); // a non-contract id (high words != 0)
 function cid(slot: number): Uint8Array {
@@ -11,7 +11,7 @@ function cid(slot: number): Uint8Array {
   new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
   return a;
 }
-function get(sim: Sim, slot: number) {
+function get(sim: QubicSimulator, slot: number) {
   const b = sim.query(slot, 1);
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
   return {
@@ -27,14 +27,19 @@ function sendInput(dest: Uint8Array, amount: bigint): Uint8Array {
   new DataView(b.buffer).setBigInt64(32, amount, true);
   return b;
 }
-function send(sim: Sim, slot: number, dest: Uint8Array, amount: bigint): bigint {
+function send(
+  sim: QubicSimulator,
+  slot: number,
+  dest: Uint8Array,
+  amount: bigint,
+): bigint {
   const b = sim.procedure(slot, 2, sendInput(dest, amount));
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigInt64(0, true);
 }
 
 test("invocationReward credits the contract + fires POST_INCOMING_TRANSFER (procedureTransaction)", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Vault"));
   sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n }); // Deposit, 100 Qu
   const g = get(sim, 28);
@@ -46,7 +51,7 @@ test("invocationReward credits the contract + fires POST_INCOMING_TRANSFER (proc
 
 test("transfer to a user moves balance, no PIT; insufficient transfer is a no-op", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Vault"));
   sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
   expect(send(sim, 28, USER, 30n)).toBe(70n); // returns remaining balance
@@ -59,7 +64,7 @@ test("transfer to a user moves balance, no PIT; insufficient transfer is a no-op
 
 test("transfer host events show eight chars from both ends of a Qubic identity", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Vault"));
   sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
   sim.setDebug(true);
@@ -76,7 +81,7 @@ test("transfer host events show eight chars from both ends of a Qubic identity",
 
 test("contract-to-contract transfer fires the destination's POST_INCOMING_TRANSFER", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Vault"));
   sim.deploy(29, await wasm("Vault29"));
   sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
@@ -91,7 +96,7 @@ test("contract-to-contract transfer fires the destination's POST_INCOMING_TRANSF
 
 test("BEGIN_TICK lifecycle sweep runs each tick, all contracts", async () => {
   await initK12();
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Vault"));
   sim.deploy(29, await wasm("Vault29"));
   sim.beginTick();

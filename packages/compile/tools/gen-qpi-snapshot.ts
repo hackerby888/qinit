@@ -24,9 +24,9 @@ const log = (msg: string) => {
   if (!quiet) console.log(`[qpi-snapshot] ${msg}`);
 };
 
-const corePath = opt("--core") ?? process.env.QINIT_CORE;
+const corePath = opt("--core-dir") ?? process.env.QINIT_CORE;
 if (!corePath) {
-  console.error("[qpi-snapshot] no core checkout: pass --core <path> or set QINIT_CORE");
+  console.error("[qpi-snapshot] no core checkout: pass --core-dir <path> or set QINIT_CORE");
   process.exit(1);
 }
 const core = resolve(corePath);

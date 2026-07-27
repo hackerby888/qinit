@@ -1,10 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
-  genWrapperWasm,
+  generateWasmWrapperSource,
   WASM_CONTRACT_TESTING_HEADER,
   WASM_TEST_UTIL_HEADER,
-  type BuildOpts,
+  type ContractBuildOptions,
 } from "@qinit/build/recipe";
 import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
@@ -111,7 +111,7 @@ function sourceDetails(o: ClangdInputs): {
   name: string;
   slot: number;
   dir: string;
-  options: BuildOpts;
+  options: ContractBuildOptions;
 } {
   const contractPath = resolve(o.contractPath);
   const contractFile = forwardSlashes(contractPath);
@@ -134,7 +134,7 @@ function sourceDetails(o: ClangdInputs): {
     calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {});
   } catch {}
 
-  const options: BuildOpts = {
+  const options: ContractBuildOptions = {
     contractPath: contractFile,
     name,
     slot,
@@ -195,7 +195,7 @@ function ensureClangdConfig(
 
 export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   const details = sourceDetails(o);
-  const wrapper = genWrapperWasm(details.options);
+  const wrapper = generateWasmWrapperSource(details.options);
   const contractInclude = `#include "${details.contractFile}"`;
   const includeOffset = wrapper.indexOf(contractInclude);
   const preamble = includeOffset >= 0 ? wrapper.slice(0, includeOffset) : wrapper;
@@ -232,7 +232,7 @@ export function generateTestClangdConfig(
   o: ClangdInputs & { testPath: string },
 ): TestClangdConfig {
   const details = sourceDetails(o);
-  const preamble = genWrapperWasm({
+  const preamble = generateWasmWrapperSource({
     ...details.options,
     testSource: "\n",
     testPath: "gtest-prefix.h",

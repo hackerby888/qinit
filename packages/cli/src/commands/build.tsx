@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { resolve, join, basename } from "node:path";
 import { writeFileSync, readFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
-import { buildContract, type BuildResult } from "@qinit/build";
+import { buildContractWithWasiClang, type ContractBuildResult } from "@qinit/build";
 import {
   DEFAULT_RPC_BASE,
   autoUpdateVerifyTool,
@@ -11,23 +11,27 @@ import {
   loadCoreWasmSlotLayout,
   type VerifyUpdate,
 } from "@qinit/core";
-import { compileLocal } from "../compile-local";
+import { buildContractWithTypeScript } from "../build-contract-with-typescript";
 import { loadQpiHeader } from "@qinit/compile";
-import { loadConfig, resolveCore, resolveCompiler } from "../config";
+import {
+  loadConfig,
+  resolveCoreDir,
+  resolveCompilerBackend,
+} from "../config";
 import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
 import { output, parseCommandArgs } from "../args";
 import { parseCallees, resolveNodeCallees } from "../callees";
 
 type State =
-  { phase: "run" } | { phase: "done"; r: BuildResult; vu?: VerifyUpdate; notes?: string[] };
+  { phase: "run" } | { phase: "done"; r: ContractBuildResult; vu?: VerifyUpdate; notes?: string[] };
 
-export function buildJsonResult(r: BuildResult, compiler: string) {
+export function buildJsonResult(r: ContractBuildResult, compiler: string) {
   return {
     ok: r.ok,
     compiler,
-    artifact: r.so ?? null,
-    size: r.size ?? null,
-    hash: r.hash ?? null,
+    artifact: r.wasmPath ?? null,
+    size: r.wasmSizeBytes ?? null,
+    hash: r.wasmK12DigestHex ?? null,
     idl: r.idl ?? null,
     idlError: r.idlError ?? null,
     stderr: r.stderr ?? "",
@@ -38,22 +42,31 @@ export function Build({ args }: { args: string[] }) {
   const { exit } = useApp();
   const { flags: o, pos, multi } = parseCommandArgs("build", args);
   const dynCallees = parseCallees(multi.callee);
-  const compiler = resolveCompiler(o); // saved `qinit compiler` pick, overridable per-run with --native/--local
+  const compiler = resolveCompilerBackend(o);
   const [s, setS] = useState<State>({ phase: "run" });
 
   useEffect(() => {
     (async () => {
       try {
         const cfg = loadConfig();
-        const core = resolveCore(o.core, cfg.core);
+        const core = resolveCoreDir(o["core-dir"], cfg.coreDir);
         const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
-        const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
+        const name =
+          o["contract-name"] ??
+          cfg.contractName ??
+          basename(contractPath).replace(/\.[^.]+$/, "");
         const outDir = resolve(o.out ?? "dist/contracts");
         const slot = Number(o.slot ?? cfg.slot ?? loadCoreWasmSlotLayout(core).slotBase);
 
-        // local: in-process TS compiler (no clang). Emits the same rich idl for the client/state tooling.
-        if (compiler === "local") {
-          const r = await compileLocal({ contractPath, name, slot, core, outDir, dynCallees });
+        if (compiler === "typescript") {
+          const r = await buildContractWithTypeScript({
+            contractPath,
+            name,
+            slot,
+            core,
+            outDir,
+            dynCallees,
+          });
           if (!r.ok) {
             setS({ phase: "done", r: { ok: false, stderr: r.stderr } });
             return;
@@ -63,23 +76,29 @@ export function Build({ args }: { args: string[] }) {
               writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
             } catch {}
           let hash = "";
-          if (r.so) {
+          if (r.wasmPath) {
             try {
-              hash = await k12Hex(new Uint8Array(readFileSync(r.so)));
+              hash = await k12Hex(new Uint8Array(readFileSync(r.wasmPath)));
             } catch {}
           }
           setS({
             phase: "done",
-            r: { ok: true, so: r.so, size: r.size, hash, idl: r.idl as any, stderr: r.stderr },
+            r: {
+              ok: true,
+              wasmPath: r.wasmPath,
+              wasmSizeBytes: r.wasmSizeBytes,
+              wasmK12DigestHex: hash,
+              idl: r.idl,
+              stderr: r.stderr,
+            },
           });
           return;
         }
 
-        // Backend-clang build path
         const notes: string[] = [];
-        const rpcBase = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+        const rpcBaseUrl = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
         const callees = await resolveNodeCallees(
-          new LiteRpc(rpcBase),
+          new LiteRpc(rpcBaseUrl),
           readFileSync(contractPath, "utf8"),
           dynCallees,
           (n) => notes.push(n),
@@ -91,7 +110,7 @@ export function Build({ args }: { args: string[] }) {
           2500,
         );
         const vu = await autoUpdateVerifyTool();
-        const r = await buildContract({
+        const r = await buildContractWithWasiClang({
           contractPath,
           name,
           slot,
@@ -125,8 +144,8 @@ export function Build({ args }: { args: string[] }) {
 
   if (s.phase === "run") {
     const label =
-      compiler === "local"
-        ? "compiling contract to wasm (local TS compiler)"
+      compiler === "typescript"
+        ? "compiling contract to wasm (TypeScript compiler)"
         : "compiling contract to wasm";
     return (
       <Box flexDirection="column">
@@ -151,12 +170,15 @@ export function Build({ args }: { args: string[] }) {
   return (
     <Box flexDirection="column">
       <Header cmd="build" />
-      <Panel title={"built ✓" + (compiler === "local" ? " (local)" : "")} color={theme.ok}>
+      <Panel
+        title={"built ✓" + (compiler === "typescript" ? " (TypeScript)" : "")}
+        color={theme.ok}
+      >
         <KV
           rows={[
-            ["wasm", String(r.so)],
-            ["size", `${r.size} bytes`],
-            ["k12 ", r.hash || "(pending)"],
+            ["wasm", String(r.wasmPath)],
+            ["size", `${r.wasmSizeBytes} bytes`],
+            ["k12 ", r.wasmK12DigestHex || "(pending)"],
           ]}
         />
       </Panel>
@@ -165,7 +187,7 @@ export function Build({ args }: { args: string[] }) {
           <Text color={theme.warn}>IDL unavailable: {r.idlError}</Text>
         </Box>
       ) : null}
-      {compiler === "local" ? null : (
+      {compiler === "typescript" ? null : (
         <Box marginTop={1}>
           <Status
             ok={true}

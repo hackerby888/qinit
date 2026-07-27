@@ -92,15 +92,15 @@ describe("differential gtest — my contract vs native test logic", () => {
       outDir: dir,
     });
     expect(built.ok, built.stderr).toBe(true);
-    const runnerWasm = new Uint8Array(await (await import("node:fs/promises")).readFile(built.so!));
+    const runnerWasm = new Uint8Array(await (await import("node:fs/promises")).readFile(built.wasmPath!));
 
     // 2. My TS compiler builds the contract under test.
     const mine = await compileContract({
       source: COUNTER,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

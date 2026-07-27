@@ -3,7 +3,7 @@ import type { Declaration } from "../ast";
 import { generateWasmModule, type GeneratedContractMetadata } from "../codegen";
 import { findContractStruct } from "../backend/wasm/module/contract-discovery";
 import type { StructDecl } from "../ast";
-import { Sema } from "../sema";
+import { SemanticAnalyzer } from "../semantic-analyzer";
 import { getQpiContext } from "./qpi-context";
 import { parseToAst } from "./parse-ast";
 import type { CompileOptions, GtestCompileResult, GtestDiagnostic, GtestProgram } from "./types";
@@ -175,7 +175,7 @@ function testSourceForCompiler(
   tests: TestBlock[],
   stateSize: number,
 ): string {
-  const escapedName = options.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedName = options.contractName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const transform = (source: string) =>
     stripAssertionStreams(source)
       .replace(new RegExp(`\\b${escapedName}_CONTRACT_INDEX\\b`, "g"), String(options.slot))
@@ -251,18 +251,23 @@ export async function compileCoreGtest(
   if (options.qpiHeader === undefined)
     throw new Error("internal gtest compiler requires a QPI header snapshot");
   const qpiHeader = options.qpiHeader;
-  const target = parseToAst({ source: options.source, qpiHeader, name: options.name, slot: options.slot });
+  const target = parseToAst({
+    source: options.source,
+    qpiHeader,
+    contractName: options.contractName,
+    slot: options.slot,
+  });
   diagnostics.push(...target.diagnostics);
   const qpi = getQpiContext(qpiHeader);
-  const targetSema = new Sema();
+  const targetSema = new SemanticAnalyzer();
   const targetMetadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
   try {
     generateWasmModule(
       target.ast,
       targetSema,
-      options.name,
+      options.contractName,
       options.slot,
-      options.arenaSz ?? 16 * 1024 * 1024,
+      options.arenaSizeBytes ?? 16 * 1024 * 1024,
       qpi.lib,
       undefined,
       undefined,
@@ -287,7 +292,7 @@ export async function compileCoreGtest(
   const runner = parseToAst({
     source: runnerSource,
     qpiHeader,
-    name: runnerName,
+    contractName: runnerName,
     slot: RUNNER_SLOT,
   });
   diagnostics.push(...runner.diagnostics);
@@ -300,9 +305,9 @@ export async function compileCoreGtest(
   const targetTypes = new Map<string, StructDecl>();
   for (const member of targetStruct?.members ?? []) {
     if (member.kind === AstKind.STRUCT)
-      targetTypes.set(`${options.name}::${member.name}`, member as StructDecl);
+      targetTypes.set(`${options.contractName}::${member.name}`, member as StructDecl);
   }
-  const sema = new Sema();
+  const sema = new SemanticAnalyzer();
   const metadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
   let wat: string;
   try {
@@ -311,11 +316,11 @@ export async function compileCoreGtest(
       sema,
       runnerName,
       RUNNER_SLOT,
-      options.arenaSz ?? 16 * 1024 * 1024,
+      options.arenaSizeBytes ?? 16 * 1024 * 1024,
       qpi.lib,
       undefined,
       targetTypes,
-      [{ contractName: options.name, declarations: target.ast.declarations }],
+      [{ contractName: options.contractName, declarations: target.ast.declarations }],
       undefined,
       metadata,
       true,
@@ -346,7 +351,7 @@ export async function compileCoreGtest(
     const wasm = await assemble(wat);
     const program: GtestProgram = {
       version: 2,
-      contract: options.name,
+      contract: options.contractName,
       mainSlot: options.slot,
       runnerSlot: RUNNER_SLOT,
       mainConstructionEpoch: options.constructionEpoch ?? 0,

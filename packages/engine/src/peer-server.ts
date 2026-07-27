@@ -10,7 +10,7 @@ import {
 import * as codec from "./peer-codec";
 import { MSG } from "./peer-codec";
 
-interface ConnState {
+interface PeerConnectionState {
   buf: Uint8Array;
 }
 
@@ -41,8 +41,8 @@ export class PeerServer {
 
     // Present a realistic, ticking chain to a client: a non-zero epoch (a client treats epoch 0 as "no data")
     // and a few finalized ticks so the very first query already carries a tick + quorum votes.
-    if (autoTick && this.engine.sim.epochN === 0) {
-      this.engine.sim.epochN = 1;
+    if (autoTick && this.engine.sim.currentEpoch === 0) {
+      this.engine.sim.currentEpoch = 1;
     }
     if (autoTick) this.engine.advanceTick(5);
 
@@ -53,7 +53,7 @@ export class PeerServer {
     }
 
     const self = this;
-    const server = Bun.listen<ConnState>({
+    const server = Bun.listen<PeerConnectionState>({
       hostname: LOOPBACK_HOST,
       port,
       socket: {
@@ -85,7 +85,11 @@ export class PeerServer {
   // Reassemble the TCP stream into complete [header|payload] frames and dispatch each. Leftover bytes (a partial
   // frame) are retained for the next chunk.
   private async onData(
-    socket: { data: ConnState; write: (b: Uint8Array) => void; end: () => void },
+    socket: {
+      data: PeerConnectionState;
+      write: (bytes: Uint8Array) => void;
+      end: () => void;
+    },
     chunk: Uint8Array<ArrayBufferLike>,
   ): Promise<void> {
     let buf = concat(socket.data.buf, new Uint8Array(chunk));
@@ -180,8 +184,8 @@ export class PeerServer {
     const sim = this.engine.sim;
     const payload = codec.encodeCurrentTickInfo({
       tickDuration: sim.tickDuration,
-      epoch: sim.epochN,
-      tick: sim.tickN,
+      epoch: sim.currentEpoch,
+      tick: sim.currentTick,
       numberOfAlignedVotes: sim.alignedVotes(),
       numberOfMisalignedVotes: 0,
       initialTick: 0,
@@ -202,7 +206,13 @@ export class PeerServer {
       latestOutgoingTransferTick: 0,
     };
     const proof = sim.spectrumProof(id);
-    const enc = codec.encodeRespondEntity(id, fields, sim.tickN, proof.index, proof.siblings);
+    const enc = codec.encodeRespondEntity(
+      id,
+      fields,
+      sim.currentTick,
+      proof.index,
+      proof.siblings,
+    );
     return codec.frame(MSG.RESPOND_ENTITY, enc, dejavu);
   }
 
@@ -221,10 +231,10 @@ export class PeerServer {
     const sim = this.engine.sim;
     const payload = codec.encodeSystemInfo({
       version: 1,
-      epoch: sim.epochN,
-      tick: sim.tickN,
-      initialTick: sim.epochN * sim.epochLength,
-      latestCreatedTick: sim.tickN,
+      epoch: sim.currentEpoch,
+      tick: sim.currentTick,
+      initialTick: sim.currentEpoch * sim.epochLength,
+      latestCreatedTick: sim.currentTick,
       numberOfEntities: sim.entityCount(),
       numberOfTransactions: sim.txCount(),
     });
@@ -284,7 +294,12 @@ export class PeerServer {
     const recs = sim.tickTransactions(tick);
     const digests = recs.map((r) => identityToBytes(r.txId));
     const money = recs.map((r) => r.moneyFlew);
-    const enc = codec.encodeTxStatus(sim.tickN, tick, digests, money);
+    const enc = codec.encodeTxStatus(
+      sim.currentTick,
+      tick,
+      digests,
+      money,
+    );
     return codec.frame(MSG.RESPOND_TX_STATUS, enc, dejavu);
   }
 

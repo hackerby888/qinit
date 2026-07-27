@@ -3,12 +3,12 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { LHOST_ABI } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
 import { ProgramAnalysis } from "../../src/analysis/program-analysis";
 import { registerLibraryMetadata } from "../../src/backend/wasm/module/library-index";
 import { getQpiContext } from "../../src/compiler/qpi-context";
-import { Sema } from "../../src/sema";
+import { SemanticAnalyzer } from "../../src/semantic-analyzer";
 
 const CORE = CORE_PATH;
 const HEADER = loadQpiHeader(CORE);
@@ -40,7 +40,7 @@ describe("typed QPI bindings", () => {
   });
 
   test("qualified QPI context types retain inherited method lookup", () => {
-    const programAnalysis = new ProgramAnalysis(new Sema());
+    const programAnalysis = new ProgramAnalysis(new SemanticAnalyzer());
     registerLibraryMetadata(programAnalysis, getQpiContext(HEADER).lib);
 
     expect(programAnalysis.globalStructs.has("QPI::QpiContextFunctionCall")).toBe(true);
@@ -55,13 +55,13 @@ describe("typed QPI bindings", () => {
   test("const-reference scalar temporaries use a real sized buffer", async () => {
     const result = await compileContract({
       source: wrap("FUNCTION", "output.digest = qpi.K12((uint32)7);"),
-      name: "QpiTemp",
+      contractName: "QpiTemp",
       slot: 27,
       qpiHeader: HEADER,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(27, result.wasm);
     expect(sim.query(27, 1).slice(0, 32)).not.toEqual(new Uint8Array(32));
   });
@@ -78,10 +78,10 @@ describe("typed QPI bindings", () => {
         output.digest = qpi.nextId(SELF);
       `,
       ),
-      name: "QpiFunctionRecipes",
+      contractName: "QpiFunctionRecipes",
       slot: 27,
       qpiHeader: HEADER,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(
       functionResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR),
@@ -96,10 +96,10 @@ describe("typed QPI bindings", () => {
         output.result += qpi.releaseShares(asset, SELF, SELF, 1, 2, 3, 4);
       `,
       ),
-      name: "QpiProcedureRecipes",
+      contractName: "QpiProcedureRecipes",
       slot: 27,
       qpiHeader: HEADER,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(
       procedureResult.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR),
@@ -114,13 +114,13 @@ describe("typed QPI bindings", () => {
         output.result = qpi.transferShareOwnershipAndPossession(0x515049ull, SELF, SELF, SELF, 1, SELF) < 0;
       `,
       ),
-      name: "QpiSignedResult",
+      contractName: "QpiSignedResult",
       slot: 27,
       qpiHeader: HEADER,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(27, result.wasm);
     const output = sim.procedure(27, 1);
     expect(
@@ -131,7 +131,7 @@ describe("typed QPI bindings", () => {
   test("context violations and unknown bindings fail closed even with strict false", async () => {
     const context = await compileContract({
       source: wrap("FUNCTION", "output.result = qpi.burn(1);"),
-      name: "QpiContextReject",
+      contractName: "QpiContextReject",
       slot: 27,
       qpiHeader: HEADER,
       strict: false,
@@ -145,7 +145,7 @@ describe("typed QPI bindings", () => {
 
     const unknown = await compileContract({
       source: wrap("FUNCTION", "output.result = qpi.notAHostBinding();"),
-      name: "QpiUnknownReject",
+      contractName: "QpiUnknownReject",
       slot: 27,
       qpiHeader: HEADER,
       strict: false,
@@ -159,7 +159,7 @@ describe("typed QPI bindings", () => {
 
     const missing = await compileContract({
       source: wrap("FUNCTION", "output.result = qpi.isAssetIssued(SELF);"),
-      name: "QpiMissingReject",
+      contractName: "QpiMissingReject",
       slot: 27,
       qpiHeader: HEADER,
       strict: false,
@@ -173,7 +173,7 @@ describe("typed QPI bindings", () => {
 
     const nonAddressable = await compileContract({
       source: wrap("FUNCTION", "output.digest = qpi.nextId(7);"),
-      name: "QpiAddressReject",
+      contractName: "QpiAddressReject",
       slot: 27,
       qpiHeader: HEADER,
       strict: false,

@@ -28,7 +28,7 @@ export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRe
   return out;
 }
 
-export interface BeginMeta {
+export interface TraceBeginMetadata {
   tick: number;
   index: number;
   entry: number;
@@ -40,7 +40,7 @@ export interface BeginMeta {
   stateBefore: Uint8Array;
 }
 
-export interface EndMeta {
+export interface TraceEndMetadata {
   output: Uint8Array;
   ok: boolean;
   trap?: string;
@@ -69,26 +69,28 @@ export class TraceRecorder {
     return { enabled: this.enabled, entries: this.entries };
   }
 
-  begin(m: BeginMeta): DebugEntry | null {
+  begin(metadata: TraceBeginMetadata): DebugEntry | null {
     if (!this.enabled) {
       return null;
     }
-    const stateSize = m.stateSize;
+    const stateSize = metadata.stateSize;
     const e: DebugEntry = {
       seq: this.seq++,
-      tick: m.tick,
-      index: m.index,
-      entry: m.entry,
-      kind: m.kind,
+      tick: metadata.tick,
+      index: metadata.index,
+      entry: metadata.entry,
+      kind: metadata.kind,
       ok: true,
       execNs: 0,
-      inSize: m.input.length,
+      inSize: metadata.input.length,
       outSize: 0,
       stateSize,
       stateTruncated: stateSize > TRACE_STATE_CAP,
-      invocator: m.invocator ? toHex(m.invocator.subarray(0, 32)) : "0".repeat(64),
-      invocationReward: Number(m.invocationReward),
-      inHex: toHex(m.input),
+      invocator: metadata.invocator
+        ? toHex(metadata.invocator.subarray(0, 32))
+        : "0".repeat(64),
+      invocationReward: Number(metadata.invocationReward),
+      inHex: toHex(metadata.input),
       outHex: "",
       stateDiff: [],
       trap: undefined,
@@ -99,22 +101,32 @@ export class TraceRecorder {
     return e;
   }
 
-  end(e: DebugEntry | null, m: EndMeta): void {
-    if (!e) {
+  end(
+    entry: DebugEntry | null,
+    metadata: TraceEndMetadata,
+  ): void {
+    if (!entry) {
       return;
     }
-    e.outHex = toHex(m.output);
-    e.outSize = m.output.length;
-    e.ok = m.ok;
-    e.execNs = m.execNs;
-    if (m.trap) {
-      e.trap = m.trap;
+    entry.outHex = toHex(metadata.output);
+    entry.outSize = metadata.output.length;
+    entry.ok = metadata.ok;
+    entry.execNs = metadata.execNs;
+    if (metadata.trap) {
+      entry.trap = metadata.trap;
     }
-    const cap = Math.min(m.stateBefore.length, m.stateAfter.length, TRACE_STATE_CAP);
-    e.stateDiff = diffRegions(m.stateBefore.subarray(0, cap), m.stateAfter.subarray(0, cap));
+    const cap = Math.min(
+      metadata.stateBefore.length,
+      metadata.stateAfter.length,
+      TRACE_STATE_CAP,
+    );
+    entry.stateDiff = diffRegions(
+      metadata.stateBefore.subarray(0, cap),
+      metadata.stateAfter.subarray(0, cap),
+    );
 
     this.stack.pop();
-    this.entries.push(e);
+    this.entries.push(entry);
     if (this.entries.length > ENTRY_CAP) {
       this.entries.splice(0, this.entries.length - ENTRY_CAP);
     }

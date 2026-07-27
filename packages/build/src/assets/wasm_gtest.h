@@ -2,7 +2,7 @@
 // Qinit-private Wasm registry for core-lite ContractTesting sources.
 #ifdef QINIT_WASM_GTEST
 
-// The virtual node receives one final result for each registered test.
+// The simulator receives one final result for each registered test.
 #define QINIT_TEST_IMPORT(name) __attribute__((import_module("thost"), import_name(#name)))
 extern "C" {
 QINIT_TEST_IMPORT(t_report) void th_report(const void* name, unsigned int nameLen, unsigned int passed, const void* msg, unsigned int msgLen);

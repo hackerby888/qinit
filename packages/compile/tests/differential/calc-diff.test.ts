@@ -84,10 +84,10 @@ describe("differential gtest — Calc (safe math, loops, break, constants)", () 
 
     const mine = await compileContract({
       source: CALC,
-      name: "Calc",
+      contractName: "Calc",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

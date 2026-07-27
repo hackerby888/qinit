@@ -22,7 +22,11 @@ async function serve(
 
   const server = new EngineServer(engine);
   const handle = await server.start(0);
-  return { base: handle.rpcBase, stop: handle.stop, engine };
+  return {
+    base: handle.rpcBaseUrl,
+    stop: handle.stop,
+    engine,
+  };
 }
 
 test("/tick-info reports the engine's tick + epoch", async () => {
@@ -31,7 +35,7 @@ test("/tick-info reports the engine's tick + epoch", async () => {
     const r = await fetch(`${base}/tick-info`);
     expect(r.status).toBe(200);
     const j = await r.json();
-    expect(j.epoch).toBe(engine.sim.epochN);
+    expect(j.epoch).toBe(engine.sim.currentEpoch);
     expect(typeof j.tick).toBe("number");
   } finally {
     stop();

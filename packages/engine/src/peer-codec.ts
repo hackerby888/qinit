@@ -63,14 +63,17 @@ export const MSG = {
   PROCESS_SPECIAL_COMMAND: 255,
 } as const;
 
-export interface Header {
+export interface PeerMessageHeader {
   size: number; // total message size incl. header
   type: number;
   dejavu: number;
 }
 
 // Read the 8-byte header at `off`. Returns null if fewer than 8 bytes are buffered.
-export function readHeader(buf: Uint8Array, off = 0): Header | null {
+export function readHeader(
+  buf: Uint8Array,
+  off = 0,
+): PeerMessageHeader | null {
   if (buf.length - off < HEADER_SIZE) {
     return null;
   }

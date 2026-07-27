@@ -3,8 +3,12 @@ import { resolve, basename } from "node:path";
 import { Box, Text, useApp } from "ink";
 import { contractAddress } from "@qinit/proto";
 import { DEFAULT_RPC_BASE, bytesToIdentity } from "@qinit/core";
-import { loadConfig, resolveCore, resolveCompiler } from "../config";
-import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
+import {
+  loadConfig,
+  resolveCoreDir,
+  resolveCompilerBackend,
+} from "../config";
+import { deployContract, STEPS, type DeploymentEvent, type DeployResult } from "../deploy-ops";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
 import { output, parseCommandArgs } from "../args";
 import { parseCallees } from "../callees";
@@ -37,10 +41,13 @@ export function Deploy({ args }: { args: string[] }) {
             "no contract: pass `qinit deploy <file.h>` (or --contract <file.h>, or set contract in qinit.json)",
           );
         const contractPath = resolve(cpath);
-        const nm = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
+        const nm =
+          o["contract-name"] ??
+          cfg.contractName ??
+          basename(contractPath).replace(/\.[^.]+$/, "");
         setName(nm);
         const sv = o.slot ?? cfg.slot;
-        const emit = (e: Ev) => {
+        const emit = (e: DeploymentEvent) => {
           if ("note" in e) {
             setNotes((n) => [...n, e.note]);
             return;
@@ -68,13 +75,13 @@ export function Deploy({ args }: { args: string[] }) {
           {
             contractPath,
             name: nm,
-            core: resolveCore(o.core, cfg.core),
-            rpcBase: o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE,
+            core: resolveCoreDir(o["core-dir"], cfg.coreDir),
+            rpcBaseUrl: o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE,
             seed: o.seed,
             dynCallees,
             slotOverride: sv !== undefined && sv !== "" ? Number(sv) : undefined,
             skipVerify: "skip-verify" in o, // parity with `qinit test --skip-verify` (deployContract already supports it)
-            compiler: resolveCompiler(o),
+            compiler: resolveCompilerBackend(o),
           },
           emit,
         );

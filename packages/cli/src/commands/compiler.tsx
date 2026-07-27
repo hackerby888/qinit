@@ -1,13 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { savedCompiler, setSavedCompiler, COMPILERS, type Compiler } from "../config";
+import {
+  COMPILER_BACKENDS,
+  savedCompilerBackend,
+  setSavedCompilerBackend,
+  type CompilerBackend,
+} from "../config";
 import { Header, GradLine, theme } from "../ui";
 import { parseCommandArgs } from "../args";
 
-// The compiler is the backend every build command (build / deploy / dev / test) turns a .h into wasm with.
-const DESC: Record<Compiler, string> = {
-  native: "clang / wasi-sdk (bit-exact; needs the toolchain installed)",
-  local: "in-process TS compiler (no toolchain; instant)",
+const DESC: Record<CompilerBackend, string> = {
+  clang: "clang / wasi-sdk (bit-exact; needs the toolchain installed)",
+  typescript: "in-process TypeScript compiler (no toolchain; instant)",
 };
 
 export function CompilerCmd({ args }: { args: string[] }) {
@@ -17,12 +21,12 @@ export function CompilerCmd({ args }: { args: string[] }) {
     show: parsed.has("show"),
   };
   const { exit } = useApp();
-  const cur: Compiler = savedCompiler() ?? "native";
-  const [i, setI] = useState(Math.max(0, COMPILERS.indexOf(cur)));
+  const cur: CompilerBackend = savedCompilerBackend() ?? "clang";
+  const [i, setI] = useState(Math.max(0, COMPILER_BACKENDS.indexOf(cur)));
   // Mirror selection in a ref so rapid arrow/Enter input uses the latest choice.
   const sel = useRef(i);
   const move = (d: number): void => {
-    sel.current = (sel.current + d + COMPILERS.length) % COMPILERS.length;
+    sel.current = (sel.current + d + COMPILER_BACKENDS.length) % COMPILER_BACKENDS.length;
     setI(sel.current);
   };
   const [msg, setMsg] = useState<string[]>([]);
@@ -35,11 +39,11 @@ export function CompilerCmd({ args }: { args: string[] }) {
       return;
     }
     if (o.name) {
-      if (o.name !== "native" && o.name !== "local") {
-        add(`✗ unknown compiler '${o.name}' — pick: ${COMPILERS.join(", ")}`);
+      if (o.name !== "clang" && o.name !== "typescript") {
+        add(`✗ unknown compiler '${o.name}' — pick: ${COMPILER_BACKENDS.join(", ")}`);
         return;
       }
-      setSavedCompiler(o.name);
+      setSavedCompilerBackend(o.name);
       add(`✓ compiler set: ${o.name}`);
     }
   }, []);
@@ -63,8 +67,8 @@ export function CompilerCmd({ args }: { args: string[] }) {
       } else if (key.downArrow) {
         move(1);
       } else if (key.return) {
-        const name = COMPILERS[sel.current];
-        setSavedCompiler(name);
+        const name = COMPILER_BACKENDS[sel.current];
+        setSavedCompilerBackend(name);
         add(`✓ compiler saved: ${name}`);
         setPhase("done");
       }
@@ -85,7 +89,7 @@ export function CompilerCmd({ args }: { args: string[] }) {
         <Box flexDirection="column">
           <Text dimColor>↑/↓ select · ↵ save · q cancel</Text>
           <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
-            {COMPILERS.map((name, idx) => {
+            {COMPILER_BACKENDS.map((name, idx) => {
               const isSel = idx === i;
               return (
                 <Text key={name}>

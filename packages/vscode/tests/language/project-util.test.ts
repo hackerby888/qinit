@@ -62,7 +62,7 @@ test("project and contract discovery work without qinit.json", () => {
     writeFileSync(
       join(root, "qinit.json"),
       JSON.stringify({
-        name: "Counter",
+        contractName: "Counter",
         contract: "contracts/Counter.h",
         slot: 42,
       }),

@@ -5,22 +5,21 @@ import {
     DiagnosticSeverity,
     UnaryOp,
 } from "../enums";
-// Sema now owns only diagnostics + constexpr-only arithmetic evaluation.
+// Owns diagnostics and constexpr-only arithmetic evaluation.
 import type { Span, Expression } from "../ast";
 
 import { parseIntLiteral } from "../lexer";
 
-export interface SemaDiagnostic {
+export interface SemanticAnalyzerDiagnostic {
     severity: DiagnosticSeverity.ERROR | DiagnosticSeverity.WARNING;
     message: string;
     span: Span;
     // "fidelity": the construct was lowered to a placeholder instead of faithful code.
     category?: DiagnosticCategory.FIDELITY;
 }
-
-export class SemanticAnalysis {
-    private diagnostics: SemaDiagnostic[] = [];
-    getDiagnostics(): SemaDiagnostic[] {
+export class SemanticAnalyzer {
+    private diagnostics: SemanticAnalyzerDiagnostic[] = [];
+    getDiagnostics(): SemanticAnalyzerDiagnostic[] {
         return this.diagnostics;
     }
     error(msg: string, span: Span): void {
@@ -153,7 +152,3 @@ export class SemanticAnalysis {
         }
     }
 }
-
-
-
-export { SemanticAnalysis as Sema };

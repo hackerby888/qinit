@@ -9,7 +9,7 @@ type Item = { seed: string; id: string };
 
 export function Seed({ args }: { args: string[] }) {
   const { flags: o } = parseCommandArgs("seed", args);
-  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [i, setI] = useState(0);
@@ -46,7 +46,7 @@ export function Seed({ args }: { args: string[] }) {
           setPhase("done");
           return;
         }
-        const r = await new LiteRpc(rpcBase).fundedSeeds(32);
+        const r = await new LiteRpc(rpcBaseUrl).fundedSeeds(32);
         if (!r.seeds?.length)
           throw new Error(
             "node returned no funded seeds (needs a testnet node with broadcastedComputorSeeds)",

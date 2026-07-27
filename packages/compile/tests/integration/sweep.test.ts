@@ -5,7 +5,7 @@ import { test, expect, beforeAll } from "bun:test";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { systemContracts } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { parseContractIdl } from "../../../proto/src/contract-idl";
 import {
@@ -123,10 +123,10 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
       });
       const dependencyResult = await compileContract({
         source: readFileSync(dependency.path, "utf8"),
-        name: dependency.name,
+        contractName: dependency.name,
         slot: dependency.slot,
         qpiHeader: QPI,
-        arenaSz: 64 * 1024,
+        arenaSizeBytes: 64 * 1024,
         callees: priorIdl.length ? priorIdl : undefined,
         calleeSources: priorSources.length ? priorSources : undefined,
       });
@@ -150,10 +150,10 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
     });
     r = await compileContract({
       source: src,
-      name,
+      contractName: name,
       slot: 28,
       qpiHeader: QPI,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
       callees: callees.length ? callees : undefined,
       calleeSources: calleeSources.length ? calleeSources : undefined,
     });
@@ -181,7 +181,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
   if (r.wasm.byteLength === 0) return row;
 
   try {
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     const c = sim.deploy(28, r.wasm);
     const stateSize = c.ex.state_size() >>> 0;
     const loadErrors: string[] = [];
@@ -209,7 +209,7 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
         const registered = c.entries.find(
           (candidate) =>
             candidate.kind === entry.kind &&
-            candidate.it === entry.inputType,
+            candidate.inputType === entry.inputType,
         );
         if (!registered) {
           loadErrors.push(
@@ -218,11 +218,11 @@ async function sweepOne(path: string, displayName: string): Promise<Row> {
           continue;
         }
         if (
-          registered.inSize !== entry.inSize ||
-          registered.outSize !== entry.outSize
+          registered.inputSizeBytes !== entry.inSize ||
+          registered.outputSizeBytes !== entry.outSize
         ) {
           loadErrors.push(
-            `${entry.name} IDL ${entry.inSize}/${entry.outSize} != Wasm ${registered.inSize}/${registered.outSize}`,
+            `${entry.name} IDL ${entry.inSize}/${entry.outSize} != Wasm ${registered.inputSizeBytes}/${registered.outputSizeBytes}`,
           );
         }
       }

@@ -37,7 +37,7 @@ export function Tick({ args }: { args: string[] }) {
     sub: parsed.pos[0] ?? "",
     arg: parsed.pos[1] ?? "",
   };
-  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [rows, setRows] = useState<[string, string][] | null>(null);
   const [prog, setProg] = useState<{
@@ -51,10 +51,10 @@ export function Tick({ args }: { args: string[] }) {
 
   useEffect(() => {
     (async () => {
-      const rpc = new LiteRpc(rpcBase);
+      const rpc = new LiteRpc(rpcBaseUrl);
       try {
         if (o.sub === "rate") {
-          // virtualnode only: change the engine's ms-per-tick on the fly (no respawn). 0 = fastest.
+          // The simulator can change its tick rate without restarting.
           const ms = Math.floor(Number(o.arg));
           if (!Number.isFinite(ms) || ms < 0)
             throw new Error(`rate <ms>: '${o.arg}' is not a non-negative integer`);

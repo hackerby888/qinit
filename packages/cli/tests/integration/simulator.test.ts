@@ -1,4 +1,4 @@
-// Exercise the virtual node through the same LiteRpc and protocol helpers used for real nodes.
+// Exercise the simulator through the LiteRpc and protocol helpers used for core nodes.
 import { test, expect, beforeAll } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
 import { initK12, LiteRpc, deriveIdentity } from "@qinit/core";
@@ -17,14 +17,18 @@ beforeAll(async () => {
   await initK12();
 });
 
-// Boot the same backend launchVirtualNode spawns (EngineServer over the in-process engine) with Counter armed,
-// on an ephemeral port; hand back the CLI's LiteRpc client + a stop fn.
+// Boot the same EngineServer used by the simulator with Counter armed on an available port.
 async function bootCounter() {
   const wasm = await loadWasmFixture("Counter");
   const srv = new EngineServer();
   srv.engine.deploy(SLOT, wasm);
   const h = await srv.start(0);
-  return { rpc: new LiteRpc(h.rpcBase), rpcBase: h.rpcBase, stop: h.stop, engine: srv.engine };
+  return {
+    rpc: new LiteRpc(h.rpcBaseUrl),
+    rpcBaseUrl: h.rpcBaseUrl,
+    stop: h.stop,
+    engine: srv.engine,
+  };
 }
 
 test("portFromRpc: parses the port, defaults to 41841", () => {
@@ -32,7 +36,7 @@ test("portFromRpc: parses the port, defaults to 41841", () => {
   expect(portFromRpc("http://127.0.0.1")).toBe(41841);
 });
 
-test("the virtual node ticks (what `node run` waits on before deploying)", async () => {
+test("the simulator ticks (what `node run` waits on before deploying)", async () => {
   const { rpc, stop } = await bootCounter();
   try {
     const a = (await rpc.tickInfo()).tick ?? 0;
@@ -55,17 +59,17 @@ test("callFunction reads Counter state over the CLI's RPC client", async () => {
 });
 
 test("invokeProcedure signs + broadcasts Inc; it processes and state advances", async () => {
-  const { rpc, rpcBase, stop } = await bootCounter();
+  const { rpc, rpcBaseUrl, stop } = await bootCounter();
   try {
     const ti = await rpc.tickInfo();
     const tick = ((ti.tick ?? 0) as number) + TX_TICK_OFFSET;
     const r = await invokeProcedure({
       seed: SEED,
-      rpcBase,
+      rpcBaseUrl,
       contractIndex: SLOT,
-      procId: INC,
+      procedureId: INC,
       amount: 0,
-      inFmt: "",
+      inputFormat: "",
       tick,
       confirm: true,
       rpc,
@@ -92,17 +96,17 @@ test("invokeProcedure signs + broadcasts Inc; it processes and state advances", 
 test("confirm waits for execution: a read right after confirm sees the mutation (no poll)", async () => {
   // Regression: txStatus.processed used to be hard-true on broadcast, so confirm() returned before the tx's
   // tick ran and a read right after saw stale state — which broke the default `await proc(); read()` sample.
-  const { rpc, rpcBase, stop } = await bootCounter();
+  const { rpc, rpcBaseUrl, stop } = await bootCounter();
   try {
     const ti = await rpc.tickInfo();
     const tick = ((ti.tick ?? 0) as number) + TX_TICK_OFFSET;
     const r = await invokeProcedure({
       seed: SEED,
-      rpcBase,
+      rpcBaseUrl,
       contractIndex: SLOT,
-      procId: INC,
+      procedureId: INC,
       amount: 0,
-      inFmt: "",
+      inputFormat: "",
       tick,
       confirm: true,
       rpc,
@@ -175,7 +179,7 @@ test("directDeploy arms an arbitrary (system-index) slot, runs, surfaces in regi
   const wasm = await loadWasmFixture("Counter1");
   const srv = new EngineServer();
   const h = await srv.start(0);
-  const rpc = new LiteRpc(h.rpcBase);
+  const rpc = new LiteRpc(h.rpcBaseUrl);
   try {
     const r = await rpc.directDeploy(1, wasm, "SYSISH"); // low index, like a system contract (outside [28,32))
     expect(r?.ok).toBe(true);

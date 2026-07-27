@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 import { TRACE_STATE_CAP, TraceRecorder } from "../../src/trace";
 
 test("trace metadata keeps the full state size while snapshots stay capped", () => {
@@ -43,7 +43,7 @@ test("trace metadata keeps the full state size while snapshots stay capped", () 
 });
 
 test("unmetered runtime tracing snapshots only the trace window", async () => {
-  const sim = new Sim({ fees: "off" });
+  const sim = new QubicSimulator({ fees: "off" });
   const contract = sim.deploy(28, await wasm("Counter"));
   const traced = contract as unknown as { stateSnapshot: (limit: number) => Uint8Array };
   const snapshot = traced.stateSnapshot.bind(contract);

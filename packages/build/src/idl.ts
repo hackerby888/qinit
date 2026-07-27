@@ -51,7 +51,7 @@ export function extractIdl(
   const analysisName = options.stateType ?? name;
   const result = analyzeContract({
     source,
-    name: analysisName,
+    contractName: analysisName,
     slot: options.slot,
     qpiHeader: options.qpiHeader,
   });

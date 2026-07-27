@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
 import { readSourceTree } from "../support/source-tree";
 
@@ -47,14 +47,14 @@ describe("source-method lowering ratchet", () => {
   test("Array and selector behavior comes from authoritative method bodies", async () => {
     const result = await compileContract({
       source: SOURCE,
-      name: "SourceMethods",
+      contractName: "SourceMethods",
       slot: 27,
       qpiHeader: HEADER,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const who = new Uint8Array(32).fill(0x5a);
     const input = new Uint8Array(40);
     input.set(who);

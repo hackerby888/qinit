@@ -20,7 +20,7 @@ const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace(
 export const WASM_CONTRACT_TESTING_HEADER = WASM_CONTRACT_TESTING_H;
 export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
 
-export interface BuildOpts {
+export interface ContractBuildOptions {
   contractPath: string; // absolute path to the contract .h
   name: string;         // contract name (artifact filenames + IDL); also the C++ struct type unless stateType is set
   stateType?: string;   // the C++ contract struct type for the wrapper #defines — differs from `name` when the
@@ -33,12 +33,12 @@ export interface BuildOpts {
   wasmClang?: string;   // clang targeting wasm32-wasi; default env WASM_CLANG / the auto-fetched wasi-sdk
   wasmSysroot?: string; // wasi-sysroot with libc++ headers; default env WASI_SYSROOT / the auto-fetched wasi-sdk
   skipVerify?: boolean; // skip the qpi.h protocol gate (compile-only; the upstream verifier can't parse some Wasm macros)
-  arenaSz?: number;     // contract-side arena size (WASM_ARENA_SIZE), default 1GB; shrink for browser IDE builds
+  arenaSizeBytes?: number;     // contract-side arena size (WASM_ARENA_SIZE), default 1GB; shrink for browser IDE builds
   testSource?: string;  // core-lite contract_testing.h-style source compiled into a private Wasm runner
   testPath?: string;    // display path for the test source (a #line directive maps EXPECT_* file:line back to it)
   extraCompileFlags?: string[]; // appended to the consuming compile only (not the PCH); used by the gtest
                         // corpus path to relax test-harness-only diagnostics (e.g. -Wno-error=return-mismatch)
-  sharedMemBase?: number; // shared-memory gtest mode: link with --import-memory + --global-base=<this>, so the
+  sharedMemoryBaseOffsetBytes?: number; // shared-memory gtest mode: link with --import-memory + --global-base=<this>, so the
                         // module lives inside the corpus runner's memory at the given byte offset. The engine
                         // instantiates it with the runner's Memory and the runner's contractStates[i] pointer
 }
@@ -71,7 +71,9 @@ export function buildPreamble(): string {
 }
 
 // --- wasm contract target (contract compiled TO wasm, run by the node's WAMR engine) ---
-export function genWrapperWasm(o: BuildOpts): string {
+export function generateWasmWrapperSource(
+  o: ContractBuildOptions,
+): string {
   const contractType = o.stateType ?? o.name;
   const wrapper = `${buildPreamble()}${o.calleePrelude ?? ""}
 #define CONTRACT_INDEX ${o.slot}
@@ -116,8 +118,8 @@ export interface WasmCompileResult {
   wrapper: string;
   stderr: string;
   exitCode: number | null;
-  debugWasm?: string;   // -g DWARF sidecar; the deployed wasm is stripped
-  linesJson?: string;   // build-time {fileOffset -> file:line:func} map for trap backtraces (100% at -O0)
+  debugWasmPath?: string; // -g DWARF sidecar; the deployed wasm is stripped
+  lineMapPath?: string;   // build-time {fileOffset -> file:line:func} map for trap backtraces (100% at -O0)
 }
 
 // --- precompiled header (PCH) of the stable preamble ----------------------------------------------------
@@ -183,12 +185,12 @@ async function ensureWasmPch(clang: string, pchFlags: string[]): Promise<string 
 // clang must target wasm32-wasi (the bundled clang.wasm multitool has the WebAssembly backend; a native
 // wasi-sdk clang++ also works). wasmSysroot = the wasi-sysroot with libc++ headers.
 export async function compileWasmContract(
-  o: BuildOpts & { wasmClang?: string; wasmSysroot?: string },
+  o: ContractBuildOptions & { wasmClang?: string; wasmSysroot?: string },
 ): Promise<WasmCompileResult> {
   const src = join(o.corePath, "src");
   await mkdir(o.outDir, { recursive: true });
   const wrapper = join(o.outDir, `${o.name}.wasm.wrapper.cpp`);
-  await writeFile(wrapper, genWrapperWasm(o));
+  await writeFile(wrapper, generateWasmWrapperSource(o));
   const wasm = join(o.outDir, `${o.name}.wasm`);
   const sdk = wasiSdkPaths();
   const clang = o.wasmClang ?? process.env.WASM_CLANG ?? sdk?.clang ?? "clang++";
@@ -204,18 +206,18 @@ export async function compileWasmContract(
     "-fno-exceptions",
     "-DNDEBUG",
     "-DLITEDYN_CONTRACT_TU",
-    ...(o.arenaSz ? [`-DWASM_ARENA_SIZE=${o.arenaSz}`] : []),
+    ...(o.arenaSizeBytes ? [`-DWASM_ARENA_SIZE=${o.arenaSizeBytes}`] : []),
     ...(sysroot ? [`--sysroot=${sysroot}`] : []),
     `-I${o.corePath}`,
     `-I${src}`,
   ];
   const shimFlag = ["-include", shim];
   const linkFlags = ["-Wl,--no-entry", "-Wl,--allow-undefined", "-mexec-model=reactor"];
-  if (o.sharedMemBase !== undefined) {
+  if (o.sharedMemoryBaseOffsetBytes !== undefined) {
     // Relocate the module above the shared-memory base and import memory from the runner.
     linkFlags.push(
       "-Wl,--import-memory",
-      `-Wl,--global-base=${o.sharedMemBase >>> 0}`,
+      `-Wl,--global-base=${o.sharedMemoryBaseOffsetBytes >>> 0}`,
       "-Wl,-z,stack-size=8388608",
     );
   }
@@ -252,8 +254,8 @@ export async function compileWasmContract(
 
   // -g leaves DWARF in `wasm`: copy it as the debug sidecar (qinit symbolizes trap offsets against it), then
   // strip DWARF from the deployed wasm in place -> code byte-identical, so offsets still match the sidecar.
-  let debugWasm: string | undefined;
-  let linesJson: string | undefined;
+  let debugWasmPath: string | undefined;
+  let lineMapPath: string | undefined;
   if (exitCode === 0) {
     try {
       // Handle both path separators when resolving LLVM tools beside clang.
@@ -265,12 +267,20 @@ export async function compileWasmContract(
       await copyFile(wasm, dbg);
       const lj = join(o.outDir, `${o.name}.lines.json`);
       if (writeLineMap(dbg, lj, { objdump: tool("llvm-objdump"), dwarfdump: tool("llvm-dwarfdump") })) {
-        linesJson = lj;
+        lineMapPath = lj;
       }
       if (Bun.spawnSync([tool("llvm-strip"), "--strip-debug", wasm]).exitCode === 0) {
-        debugWasm = dbg;
+        debugWasmPath = dbg;
       }
     } catch {}
   }
-  return { ok: exitCode === 0, wasm, wrapper, stderr, exitCode, debugWasm, linesJson };
+  return {
+    ok: exitCode === 0,
+    wasm,
+    wrapper,
+    stderr,
+    exitCode,
+    debugWasmPath,
+    lineMapPath,
+  };
 }

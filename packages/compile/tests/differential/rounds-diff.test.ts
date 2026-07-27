@@ -82,10 +82,10 @@ describe("differential gtest — Rounds (chain through Array element)", () => {
 
     const mine = await compileContract({
       source: ROUNDS,
-      name: "Rounds",
+      contractName: "Rounds",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 256 * 1024,
+      arenaSizeBytes: 256 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

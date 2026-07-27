@@ -4,7 +4,7 @@ import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 // Share custody sysproc parity (PRE_*_SHARES).
 import { describe, test, expect, beforeAll } from "bun:test";
 import { readFileSync } from "node:fs";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -70,7 +70,7 @@ function acqIn(
   d.setBigInt64(88, fee, true);
   return b;
 }
-function sharesByMgmt(sim: Sim, mgmt: number): bigint {
+function sharesByMgmt(sim: QubicSimulator, mgmt: number): bigint {
   let sum = 0n;
   for (const a of sim.assetUniverse()) {
     for (const h of a.holdings) {
@@ -88,14 +88,14 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
   test("my approver's PRE_RELEASE_SHARES lets the generated acquirer take rights (allowTransfer read back)", async () => {
     const approver = await compileContract({
       source: APPROVER_SRC,
-      name: "ShareApprover",
+      contractName: "ShareApprover",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(approver.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     sim.deploy(28, approver.wasm); // MY compiled approver: issues + approves releases
     sim.deploy(29, await loadWasmFixture("ShareManager"));
     const A = cid(28);
@@ -114,12 +114,12 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
   test("PRE_RELEASE_SHARES.requestedFee (output struct) is honoured: approver charges, acquirer pays", async () => {
     const approver = await compileContract({
       source: APPROVER_SRC,
-      name: "ShareApprover",
+      contractName: "ShareApprover",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     sim.deploy(28, approver.wasm);
     sim.deploy(29, await loadWasmFixture("ShareManager"));
     const A = cid(28);
@@ -142,12 +142,12 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
   test("my approver's PRE_ACQUIRE_SHARES lets the acquirer release rights back", async () => {
     const approver = await compileContract({
       source: APPROVER_SRC,
-      name: "ShareApprover",
+      contractName: "ShareApprover",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     sim.deploy(28, approver.wasm);
     sim.deploy(29, await loadWasmFixture("ShareManager"));
     const A = cid(28);
@@ -166,14 +166,14 @@ describe("sysproc — PRE_RELEASE_SHARES / PRE_ACQUIRE_SHARES approve management
   test("POST_RELEASE_SHARES (sysproc 7) fires with the right numberOfShares + receivedFee", async () => {
     const rec = await compileContract({
       source: POST_REC,
-      name: "PostRec",
+      contractName: "PostRec",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(rec.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     sim.deploy(28, rec.wasm);
     sim.deploy(29, await loadWasmFixture("ShareManager"));
     const A = cid(28);

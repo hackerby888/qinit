@@ -37,7 +37,7 @@ describe("strict fidelity gate", () => {
   test("default (strict) aborts with an error and empty wasm", async () => {
     const r = await compileContract({
       source: SRC,
-      name: "StrictProbe",
+      contractName: "StrictProbe",
       slot: 28,
       qpiHeader: HEADERS,
     });
@@ -57,7 +57,7 @@ describe("strict fidelity gate", () => {
   test("strict: false keeps the legacy placeholder build, warning only", async () => {
     const r = await compileContract({
       source: SRC,
-      name: "StrictProbe",
+      contractName: "StrictProbe",
       slot: 28,
       qpiHeader: HEADERS,
       strict: false,
@@ -77,7 +77,7 @@ describe("strict fidelity gate", () => {
     );
     const r = await compileContract({
       source: clean,
-      name: "StrictProbe",
+      contractName: "StrictProbe",
       slot: 28,
       qpiHeader: HEADERS,
     });

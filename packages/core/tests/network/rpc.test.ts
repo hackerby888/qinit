@@ -4,7 +4,7 @@ import {
   DEFAULT_RPC_BASE,
   DEFAULT_RPC_PORT,
   LOOPBACK_HOST,
-  fetchT,
+  fetchWithTimeout,
   LiteRpc,
 } from "../../src/index";
 
@@ -32,13 +32,15 @@ test("LiteRpc uses the shared default endpoint", async () => {
   expect(requestedUrl).toBe(`${DEFAULT_RPC_BASE}/tick-info`);
 });
 
-test("fetchT: aborts a hung connection after the timeout", async () => {
+test("fetchWithTimeout: aborts a hung connection after the timeout", async () => {
   // a fetch that never resolves on its own but honors the abort signal (the real hang scenario)
   globalThis.fetch = ((_url: string, init?: RequestInit) =>
     new Promise((_res, rej) => {
       init?.signal?.addEventListener("abort", () => rej(new DOMException("aborted", "AbortError")));
     })) as any;
-  await expect(fetchT("http://node", undefined, 50)).rejects.toThrow(/timed out after 50ms/);
+  await expect(
+    fetchWithTimeout("http://node", undefined, 50),
+  ).rejects.toThrow(/timed out after 50ms/);
 });
 
 test("LiteRpc.get: retries a transient connect failure, then succeeds", async () => {

@@ -28,7 +28,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Get, 1); }
 };`;
 
-// epochLength is 3000 ticks (Sim TESTNET_EPOCH_DURATION); each boundary crossing fires END_EPOCH once.
+// epochLength is 3000 ticks (QubicSimulator TESTNET_EPOCH_DURATION); each boundary crossing fires END_EPOCH once.
 const EPOCHER_GTEST = coreGtest(
   "Epoch",
   `TEST(Epoch, EndEpochUsesLocals) {
@@ -68,10 +68,10 @@ describe("differential gtest — Epoch (END_EPOCH sysproc locals)", () => {
 
     const mine = await compileContract({
       source: EPOCHER,
-      name: "Epoch",
+      contractName: "Epoch",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

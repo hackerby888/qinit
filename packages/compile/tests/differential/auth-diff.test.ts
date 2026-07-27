@@ -85,10 +85,10 @@ describe("differential gtest — Auth (qpi.invocator + id compare)", () => {
 
     const mine = await compileContract({
       source: AUTH,
-      name: "Auth",
+      contractName: "Auth",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

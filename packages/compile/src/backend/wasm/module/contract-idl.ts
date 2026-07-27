@@ -40,7 +40,7 @@ import { findMemberFn } from "./contract-discovery";
 import { evalIntegralConst } from "../../../frontend/validation/validation-helpers";
 
 export interface BuildContractIdlOptions {
-  name: string;
+  contractName: string;
   slot: number;
   dependencies?: readonly string[];
 }
@@ -96,7 +96,7 @@ export function buildContractIdl(
 
   return {
     version: QINIT_IDL_VERSION,
-    name: options.name,
+    name: options.contractName,
     slot: options.slot,
     functions,
     procedures,

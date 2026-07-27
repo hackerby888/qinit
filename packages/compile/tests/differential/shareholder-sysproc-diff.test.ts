@@ -3,8 +3,8 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks shareholder proposal/vote sysproc payloads and return values.
 import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -95,7 +95,7 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
     const buildNative = async (name: string, src: string, slot: number) => {
       const contractPath = join(dir, `${name}.h`);
       writeFileSync(contractPath, src);
-      const built = await buildContract({
+      const built = await buildContractWithWasiClang({
         contractPath,
         name,
         slot,
@@ -104,15 +104,15 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
         skipVerify: true,
       });
       expect(built.ok).toBe(true);
-      return new Uint8Array(readFileSync(built.so!));
+      return new Uint8Array(readFileSync(built.wasmPath!));
     };
     const buildOurs = async (name: string, src: string, slot: number) => {
       const mine = await compileContract({
         source: src,
-        name,
+        contractName: name,
         slot,
         qpiHeader: HEADERS,
-        arenaSz: 4 * 1024 * 1024,
+        arenaSizeBytes: 4 * 1024 * 1024,
       });
       expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
       return mine.wasm;
@@ -124,7 +124,7 @@ describe("differential — shareholder sysproc 10/11 state parity", () => {
     const oursCaller = await buildOurs("ShCaller", CALLER_SRC, 27);
 
     const run = (callee: Uint8Array, caller: Uint8Array) => {
-      const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+      const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
       const user = new Uint8Array(32).fill(4);
       sim.fund(user, 1_000_000n);
       sim.deploy(3, callee);

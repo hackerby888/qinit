@@ -1,15 +1,22 @@
-import { LiteRpc, debug, type DynContract } from "@qinit/core";
+import {
+  LiteRpc,
+  debug,
+  type DynamicContractRegistryEntry,
+} from "@qinit/core";
 import { systemContracts, type SystemContract } from "@qinit/build";
 import type { ContractEntry } from "@qinit/proto/contract-idl";
-import { resolveCore } from "./config";
+import { resolveCoreDir } from "./config";
 
-export type ContractSets = { user: DynContract[]; system: SystemContract[] };
+export type ContractSets = {
+  user: DynamicContractRegistryEntry[];
+  system: SystemContract[];
+};
 
 export function loadSystem(): SystemContract[] {
   let core: string;
 
   try {
-    core = resolveCore();
+    core = resolveCoreDir();
   } catch {
     return [];
   }
@@ -23,7 +30,7 @@ export function loadSystem(): SystemContract[] {
 }
 
 export async function loadContracts(rpc: LiteRpc): Promise<ContractSets> {
-  let user: DynContract[] = [];
+  let user: DynamicContractRegistryEntry[] = [];
 
   try {
     user = ((await rpc.dynRegistry()).contracts ?? []).filter(
@@ -36,7 +43,9 @@ export async function loadContracts(rpc: LiteRpc): Promise<ContractSets> {
   return { user, system: loadSystem() };
 }
 
-export function systemAsDyn(contract: SystemContract): DynContract {
+export function systemAsDyn(
+  contract: SystemContract,
+): DynamicContractRegistryEntry {
   const entries = (items: ContractEntry[]) =>
     items.map((entry) => ({
       inputType: entry.inputType,
@@ -57,7 +66,7 @@ export function systemAsDyn(contract: SystemContract): DynContract {
   };
 }
 
-export type Resolved = {
+export type ResolvedContract = {
   index: number;
   name: string;
   kind: "user" | "system";
@@ -68,7 +77,7 @@ export type Resolved = {
 export function resolveContract(
   target: string,
   sets: ContractSets,
-): Resolved | null {
+): ResolvedContract | null {
   const normalized = target.trim().toLowerCase();
   const index = Number(target);
   const userContract = sets.user.find(

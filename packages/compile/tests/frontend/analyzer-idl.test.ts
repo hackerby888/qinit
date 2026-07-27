@@ -51,7 +51,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("analyzer and compiler publish the same authoritative v3 IDL", async () => {
   const analyzed = analyzeContract({
     source: SOURCE,
-    name: "RichIdl",
+    contractName: "RichIdl",
     slot: 21,
   });
 
@@ -61,10 +61,10 @@ test("analyzer and compiler publish the same authoritative v3 IDL", async () => 
 
   const compiled = await compileContract({
     source: SOURCE,
-    name: "RichIdl",
+    contractName: "RichIdl",
     slot: 21,
     qpiHeader: QPI_SNAPSHOT,
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
 
   expect(compiled.diagnostics).toEqual([]);
@@ -143,7 +143,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "AliasRoots",
+    contractName: "AliasRoots",
   });
 
   expect(result.diagnostics).toEqual([]);
@@ -253,7 +253,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "RareAbiTypes",
+    contractName: "RareAbiTypes",
   });
 
   expect(result.diagnostics).toEqual([]);
@@ -399,7 +399,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "DependentAbiType",
+    contractName: "DependentAbiType",
   });
   const output = result.idl?.functions[0]?.output;
 
@@ -436,7 +436,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "NamedRegistration",
+    contractName: "NamedRegistration",
   });
 
   expect(result.idl?.functions[0]?.inputType).toBe(7);
@@ -465,7 +465,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "HexRegistrations",
+    contractName: "HexRegistrations",
   });
 
   expect(
@@ -493,7 +493,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "InvalidRegistration",
+    contractName: "InvalidRegistration",
   });
 
   expect(
@@ -531,7 +531,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "OracleUser",
+    contractName: "OracleUser",
     qpiHeader,
   });
 
@@ -576,7 +576,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "NestedArrays",
+    contractName: "NestedArrays",
   });
 
   expect(result.diagnostics).toEqual([]);
@@ -631,7 +631,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "GenericLayout",
+    contractName: "GenericLayout",
   });
 
   expect(result.diagnostics).toEqual([]);
@@ -663,7 +663,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "InvalidLayout",
+    contractName: "InvalidLayout",
   });
 
   expect(
@@ -685,7 +685,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   const result = analyzeContract({
     source,
-    name: "InvalidExpressionLayout",
+    contractName: "InvalidExpressionLayout",
   });
 
   expect(

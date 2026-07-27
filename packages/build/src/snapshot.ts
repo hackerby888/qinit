@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
-import { genWrapperWasm } from "./recipe";
+import { generateWasmWrapperSource } from "./recipe";
 import {
   CORE_WASM_HEADERS,
   loadCoreWasmSlotLayout,
@@ -45,22 +45,22 @@ export async function buildSnapshot(
     throw new Error(`not a core checkout (no src/contracts/qpi.h): ${corePath}`);
   }
 
-  const scratchDir = join(outRoot, ".snap-stub");
-  mkdirSync(scratchDir, { recursive: true });
+  const snapshotScratchDir = join(outRoot, ".snap-stub");
+  mkdirSync(snapshotScratchDir, { recursive: true });
 
-  const stubHeader = join(scratchDir, "Stub.h");
+  const stubHeader = join(snapshotScratchDir, "Stub.h");
   writeFileSync(stubHeader, STUB);
 
   const slot = loadCoreWasmSlotLayout(corePath).slotBase;
-  const wrapperPath = join(scratchDir, "Stub.wrapper.cpp");
+  const wrapperPath = join(snapshotScratchDir, "Stub.wrapper.cpp");
   writeFileSync(
     wrapperPath,
-    genWrapperWasm({
+    generateWasmWrapperSource({
       contractPath: stubHeader,
       name: "Stub",
       slot,
       corePath,
-      outDir: scratchDir,
+      outDir: snapshotScratchDir,
     }),
   );
 
@@ -177,6 +177,6 @@ export async function buildSnapshot(
     }
   }
 
-  rmSync(scratchDir, { recursive: true, force: true });
+  rmSync(snapshotScratchDir, { recursive: true, force: true });
   return { root, fileCount };
 }

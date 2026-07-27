@@ -46,7 +46,7 @@ test("oracle RPC seam: discover a pending query, inject the reply, the notificat
   const h = await srv.start();
   try {
     // (a) discover it over RPC — the part a fire-and-forget tx can't hand back
-    const pend = await (await fetch(h.rpcBase + "/live/v1/dev/oracle-pending")).json();
+    const pend = await (await fetch(h.rpcBaseUrl + "/live/v1/dev/oracle-pending")).json();
     expect(pend.queries.length).toBe(1);
     const q = pend.queries[0];
     expect(q.slot).toBe(SLOT);
@@ -54,18 +54,18 @@ test("oracle RPC seam: discover a pending query, inject the reply, the notificat
     expect(Buffer.from(q.query, "base64").length).toBeGreaterThan(0); // the contract's OracleQuery bytes
 
     // (b) inject the reply -> fires the contract's OnReply notification
-    const res = await post(h.rpcBase + "/live/v1/dev/oracle-resolve", {
+    const res = await post(h.rpcBaseUrl + "/live/v1/dev/oracle-resolve", {
       queryId: q.queryId,
       reply: Buffer.from(priceReply(42n, 1n)).toString("base64"),
     });
     expect(res.ok).toBe(true);
     expect(i64(srv.engine.sim.query(SLOT, LAST, new Uint8Array(0)))).toBe(42n); // OnReply stored the numerator
     expect(
-      (await (await fetch(h.rpcBase + "/live/v1/dev/oracle-pending")).json()).queries.length,
+      (await (await fetch(h.rpcBaseUrl + "/live/v1/dev/oracle-pending")).json()).queries.length,
     ).toBe(0); // no longer pending
 
     // unknown id -> false
-    const bad = await post(h.rpcBase + "/live/v1/dev/oracle-resolve", {
+    const bad = await post(h.rpcBaseUrl + "/live/v1/dev/oracle-resolve", {
       queryId: "999",
       reply: Buffer.from(priceReply(1n, 1n)).toString("base64"),
     });

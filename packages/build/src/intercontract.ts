@@ -45,7 +45,10 @@ export function parseContractDef(corePath: string): Map<string, CalleeDef> {
   return definitions;
 }
 
-type SourceOptions = Pick<AnalyzeContractOptions, "name" | "slot" | "qpiHeader">;
+type SourceOptions = Pick<
+  AnalyzeContractOptions,
+  "contractName" | "slot" | "qpiHeader"
+>;
 
 export function scanCallees(
   source: string,
@@ -114,7 +117,7 @@ export function buildCalleePrelude(
     definitions = new Map();
   }
 
-  let wanted = scanCallees(contractSource, { name: selfType });
+  let wanted = scanCallees(contractSource, { contractName: selfType });
   for (const type of new Set([
     ...definitions.keys(),
     ...Object.keys(dynamicCallees),
@@ -198,7 +201,7 @@ export function buildCalleePrelude(
     resolved.set(type, callee);
 
     const nestedCallees = scanCallees(callee.src, {
-      name: type,
+      contractName: type,
       slot: callee.index,
       qpiHeader,
     });
@@ -231,7 +234,7 @@ export function buildCalleePrelude(
   output += "// ---- generated <Type>_<fn>_inputType constants ----\n";
   for (const callee of callees) {
     const registrations = parseRegisters(callee.src, {
-      name: callee.type,
+      contractName: callee.type,
       slot: callee.index,
       qpiHeader,
     });

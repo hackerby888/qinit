@@ -8,11 +8,11 @@ import {
   resolveTrapBacktrace,
   formatTrapBacktrace,
   type DebugEntry,
-  type DynContract,
+  type DynamicContractRegistryEntry,
 } from "@qinit/core";
 import { describeTrace, type TraceView as TraceData } from "../trace-format";
 import { TraceView } from "../views";
-import { scratchDir } from "../node-ops";
+import { activeNodeScratchDir } from "../node-ops";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
 import { contractIdlForSlot, loadContractIdlFile } from "../idl-file";
 import { Header, Table, Spinner, theme, type Column } from "../ui";
@@ -28,10 +28,11 @@ const LIST_COLS: Column[] = [
 ];
 
 export function Debug({ args }: { args: string[] }) {
-  const { flags: o } = parseCommandArgs("debug", args);
-  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+  const { flags: o, pos } = parseCommandArgs("debug", args);
+  const target = o.contract ?? pos[0];
+  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
-  const rpc = useRef(new LiteRpc(rpcBase)).current;
+  const rpc = useRef(new LiteRpc(rpcBaseUrl)).current;
   const [qpiHeader] = useState(() => {
     try {
       return loadConfiguredQpiHeader();
@@ -45,7 +46,7 @@ export function Debug({ args }: { args: string[] }) {
   const [sel, setSel] = useState(0);
   const follow = useRef(true);
   const since = useRef(0);
-  const reg = useRef<DynContract[]>([]);
+  const reg = useRef<DynamicContractRegistryEntry[]>([]);
   const nameOf = (idx: number) => reg.current.find((c) => c.index === idx)?.name || String(idx);
 
   useEffect(() => {
@@ -96,11 +97,11 @@ export function Debug({ args }: { args: string[] }) {
     { isActive: Boolean(process.stdin.isTTY) },
   );
 
-  const list = o.contract
+  const list = target
     ? entries.filter(
         (e) =>
-          nameOf(e.index).toLowerCase() === o.contract.toLowerCase() ||
-          String(e.index) === o.contract,
+          nameOf(e.index).toLowerCase() === target.toLowerCase() ||
+          String(e.index) === target,
       )
     : entries;
   const selClamped = Math.min(sel, Math.max(0, list.length - 1));
@@ -197,7 +198,7 @@ function Detail({
       try {
         const idl = loadContractIdlFile();
         const contractIdl = contractIdlForSlot(idl, e.index, codeHash);
-        const log = join(scratchDir(), "node.log");
+        const log = join(activeNodeScratchDir(), "node.log");
         if (existsSync(log)) {
           const b = resolveTrapBacktrace(readFileSync(log, "utf8"), {
             lineMapPath: contractIdl?.linesJson,

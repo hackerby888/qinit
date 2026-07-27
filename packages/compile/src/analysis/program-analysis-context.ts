@@ -1,7 +1,7 @@
 import { AstKind } from "../enums";
 import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, ResolvedCalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
-import type { Sema } from "../sema";
+import type { SemanticAnalyzer } from "../semantic-analyzer";
 import type { PlatformCapability } from "../shared/platform-capabilities";
 
 
@@ -14,7 +14,7 @@ export interface ProgramAnalysisInternals {
             size: number;
         }>;
     };
-  sema: Sema;
+  sema: SemanticAnalyzer;
   nested: Map<string, StructDecl>;
   templates: Map<string, ClassTemplate>;
   specializations: Map<string, {

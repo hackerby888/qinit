@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
 
 const SOURCE = `using namespace QPI;
@@ -25,14 +25,14 @@ describe("source-backed QPI context accessors", () => {
   test("reads reward, invocator, and originator from the entry context", async () => {
     const result = await compileContract({
       source: SOURCE,
-      name: "ContextAccessors",
+      contractName: "ContextAccessors",
       slot: 27,
       qpiHeader: loadQpiHeader(CORE_PATH),
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const invocator = new Uint8Array(32).map((_, index) => index + 1);
     const originator = new Uint8Array(32).map((_, index) => 255 - index);
     const output =

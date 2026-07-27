@@ -24,7 +24,7 @@ import { Seed } from "./commands/seed";
 import { Tick } from "./commands/tick";
 import { Epoch } from "./commands/epoch";
 import { ThemeCmd } from "./commands/theme";
-import { ModeCmd } from "./commands/mode";
+import { NodeBackendCmd } from "./commands/node-backend";
 import { CompilerCmd } from "./commands/compiler";
 import { System } from "./commands/system";
 import { Update } from "./commands/update";
@@ -136,8 +136,8 @@ function route(command: string, args: string[]): ReactNode {
       return <Epoch args={args} />;
     case "theme":
       return <ThemeCmd args={args} />;
-    case "mode":
-      return <ModeCmd args={args} />;
+    case "node-backend":
+      return <NodeBackendCmd args={args} />;
     case "compiler":
       return <CompilerCmd args={args} />;
     case "system":

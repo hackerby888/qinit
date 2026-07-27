@@ -107,7 +107,7 @@ export class QpiDiagnostics implements vscode.Disposable {
 
     const result = analyzeContract({
       source: doc.getText(),
-      name: identity.name,
+      contractName: identity.name,
       slot: identity.slot,
     });
     this.fixes.delete(key);

@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src";
 import { readSourceTree } from "../support/source-tree";
 
@@ -65,10 +65,10 @@ function same(left: Uint8Array, right: Uint8Array): boolean {
 async function compile(source = SOURCE) {
   const result = await compileContract({
     source,
-    name: "RandomProbe",
+    contractName: "RandomProbe",
     slot: SLOT,
     qpiHeader: HEADERS,
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
   expect(result.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
   expect(result.wasm.byteLength).toBeGreaterThan(0);
@@ -82,8 +82,8 @@ async function compile(source = SOURCE) {
 }
 
 function run(wasm: Uint8Array, tick: number, nonce: bigint, initialSeed?: bigint): Uint8Array {
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
-  sim.tickN = tick;
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+  sim.currentTick = tick;
   sim.deploy(SLOT, wasm);
   if (initialSeed !== undefined)
     sim.procedure(SLOT, 1, u64(initialSeed), { invocator: USER, originator: USER });
@@ -171,17 +171,17 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };`;
     const plain = await compileContract({
       source: source(false),
-      name: "NestedRandom",
+      contractName: "NestedRandom",
       slot: SLOT,
       qpiHeader: HEADERS,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     const reentrant = await compileContract({
       source: source(true),
-      name: "NestedRandom",
+      contractName: "NestedRandom",
       slot: SLOT,
       qpiHeader: HEADERS,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(plain.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     expect(reentrant.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
@@ -190,8 +190,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     const plainWasm = Uint8Array.from(plain.wasm);
     const reentrantWasm = Uint8Array.from(reentrant.wasm);
     const execute = (wasm: Uint8Array) => {
-      const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
-      sim.tickN = 123;
+      const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+      sim.currentTick = 123;
       sim.deploy(SLOT, wasm);
       sim.fund(sim.contractId(SLOT), 10n);
       sim.procedure(SLOT, 1, undefined, { invocator: USER, originator: USER });

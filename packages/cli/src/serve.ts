@@ -9,9 +9,9 @@ import {
 } from "@qinit/core";
 import { systemWasm } from "./system-wasm";
 
-// RPC base -> the port the virtual node binds. Defaults to the standard dev-node port when none is given.
-export function portFromRpc(rpcBase: string): number {
-  return Number(new URL(rpcBase).port || DEFAULT_RPC_PORT);
+// RPC base -> simulator port. Use the standard development port when none is given.
+export function portFromRpc(rpcBaseUrl: string): number {
+  return Number(new URL(rpcBaseUrl).port || DEFAULT_RPC_PORT);
 }
 
 // Seed configured system contracts after startup without blocking RPC or ticking.
@@ -28,12 +28,11 @@ async function seedSystemContracts(srv: EngineServer, names: string[]): Promise<
   }
 }
 
-// The persistent dev node ticks once per second by default (readable counter, real-node-ish cadence); the
-// caller can lower it (down to 0 = as fast as the event loop allows) via `qinit node run --tick-ms`.
+// The simulator ticks once per second by default. A zero interval runs as fast as the event loop allows.
 export const DEFAULT_TICK_MS = 1000;
 
 export async function serveEngine(
-  rpcBase: string,
+  rpcBaseUrl: string,
   tickMs?: number,
   system: string[] = [],
   peerPort = DEFAULT_PEER_PORT,
@@ -41,9 +40,9 @@ export async function serveEngine(
 ): Promise<never> {
   const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
   const srv = new EngineServer(new VirtualNode(slotLayout));
-  await srv.start(portFromRpc(rpcBase), ms, peerPort);
+  await srv.start(portFromRpc(rpcBaseUrl), ms, peerPort);
   process.stdout.write(
-    `qinit virtual node: rpc ${rpcBase} · peer ${LOOPBACK_HOST}:${peerPort}\n`,
+    `qinit simulator: rpc ${rpcBaseUrl} · peer ${LOOPBACK_HOST}:${peerPort}\n`,
   );
   await seedSystemContracts(srv, system);
 

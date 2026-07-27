@@ -34,10 +34,10 @@ export type { SignedTx, TxInput } from "./tx";
 export { LiteRpc } from "./rpc";
 export type {
   TickInfo,
-  DynRegistry,
-  DynContract,
-  DynEntry,
-  DynUpload,
+  DynamicContractRegistry,
+  DynamicContractRegistryEntry,
+  DynamicContractEntry,
+  DynamicContractUploadStatus,
   DebugTrace,
   DebugEntry,
   DebugHostCall,
@@ -51,8 +51,8 @@ export {
   DEFAULT_PEER_PORT,
   broadcastTx,
   broadcastTxs,
-  fetchT,
-  readBody,
+  fetchWithTimeout,
+  readResponseBodyWithTimeout,
 } from "./net";
 export type { BroadcastResult } from "./net";
 export {
@@ -63,7 +63,7 @@ export {
   sha256Hex,
   atomicWrite,
   loadManifest,
-  fetchVerify,
+  downloadVerifiedAsset,
   extractTarGz,
   currentPath,
   readCurrent,
@@ -72,7 +72,7 @@ export {
   VERIFY_TAG,
   toolsDir,
   cachedVerifyToolPath,
-  verifyPlatformKey,
+  releasePlatformKey,
   loadVerifyManifest,
   autoUpdateVerifyTool,
   wasiSdkDir,
@@ -93,7 +93,7 @@ export type {
   VerifyManifest,
   VerifyUpdate,
 } from "./fetch";
-export { loadConfig, resolveCore } from "./project";
+export { loadConfig, resolveCoreDir } from "./project";
 export type { QinitConfig } from "./project";
 export { debug } from "./debug";
 export { resolveTrapBacktrace, formatTrapBacktrace, decodeTrapCause } from "./backtrace";

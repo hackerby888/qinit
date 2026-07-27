@@ -2,8 +2,12 @@ import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { resolve, basename } from "node:path";
 import { statSync } from "node:fs";
-import { loadConfig, resolveCore, resolveCompiler } from "../config";
-import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops";
+import {
+  loadConfig,
+  resolveCoreDir,
+  resolveCompilerBackend,
+} from "../config";
+import { deployContract, STEPS, type DeploymentEvent, type DeployResult } from "../deploy-ops";
 import { nodeContracts } from "../node-ops";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { Header, StepRow, type StepState, Panel, theme } from "../ui";
@@ -22,14 +26,17 @@ export function Dev({ args }: { args: string[] }) {
   const { exit } = useApp();
   const { flags: o, pos, multi } = parseCommandArgs("dev", args);
   const cfg = loadConfig();
-  const rpcBase = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
   const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
-  const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
+  const contractName =
+    o["contract-name"] ??
+    cfg.contractName ??
+    basename(contractPath).replace(/\.[^.]+$/, "");
   const dynCallees = parseCallees(multi.callee);
   let core = "",
     coreErr = "";
   try {
-    core = resolveCore(o.core, cfg.core);
+    core = resolveCoreDir(o["core-dir"], cfg.coreDir);
   } catch (e: any) {
     coreErr = String(e?.message ?? e);
   }
@@ -44,7 +51,7 @@ export function Dev({ args }: { args: string[] }) {
   const busyRef = useRef(false);
   const pending = useRef(false);
 
-  const emit = (e: Ev) => {
+  const emit = (e: DeploymentEvent) => {
     if ("note" in e) {
       setNotes((n) => [...n, e.note]);
       return;
@@ -84,13 +91,13 @@ export function Dev({ args }: { args: string[] }) {
         await deployContract(
           {
             contractPath,
-            name,
+            name: contractName,
             core,
-            rpcBase,
+            rpcBaseUrl: rpcBaseUrl,
             seed: o.seed,
             dynCallees,
             skipVerify: "skip-verify" in o,
-            compiler: resolveCompiler(o),
+            compiler: resolveCompilerBackend(o),
           },
           emit,
         ),
@@ -99,7 +106,7 @@ export function Dev({ args }: { args: string[] }) {
       setNotes((n) => [...n, "ERROR: " + String(e?.message ?? e)]);
     }
     try {
-      setContracts(await nodeContracts(rpcBase));
+      setContracts(await nodeContracts(rpcBaseUrl));
     } catch {}
     setRuns((n) => n + 1);
     busyRef.current = false;
@@ -141,7 +148,7 @@ export function Dev({ args }: { args: string[] }) {
   }, []);
   // Live node heartbeat — drives the tick counter + up/down dot in the status card.
   useEffect(() => {
-    const rpc = new LiteRpc(rpcBase);
+    const rpc = new LiteRpc(rpcBaseUrl);
     const ping = async () => {
       try {
         const ti: any = await rpc.tickInfo();
@@ -192,7 +199,7 @@ export function Dev({ args }: { args: string[] }) {
       <Panel title="watch" color={theme.brand}>
         <Text>
           <Text bold color={theme.accent}>
-            ◆ {name}
+            ◆ {contractName}
           </Text>
           {"   "}
           <Text dimColor>{basename(contractPath)}</Text>
@@ -210,7 +217,7 @@ export function Dev({ args }: { args: string[] }) {
           <Text dimColor> {live ? `tick ${tick}` : "node down"}</Text>
         </Box>
         <Text dimColor>
-          rpc {rpcBase.replace(/^https?:\/\//, "")}
+          rpc {rpcBaseUrl.replace(/^https?:\/\//, "")}
           {"   ·   "}
           <Text bold color={theme.accent}>
             q

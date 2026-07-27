@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { Header, Spinner, Panel, Status, theme } from "../ui";
-import { resolveCore } from "../config";
+import { resolveCoreDir } from "../config";
 import { resolveVerifyTool } from "@qinit/build";
 import { wasiSdkPaths } from "@qinit/core";
 
@@ -62,12 +62,12 @@ async function runChecks(): Promise<Check[]> {
     ),
   );
 
-  // Cache-aware: prefer the synced header cache, fall back to QINIT_CORE / --core.
+  // Prefer synced headers, then QINIT_CORE or --core-dir.
   let qpi = "",
     hasQpi = false,
     coreErr = "";
   try {
-    qpi = `${resolveCore()}/src/contracts/qpi.h`;
+    qpi = `${resolveCoreDir()}/src/contracts/qpi.h`;
     hasQpi = await Bun.file(qpi).exists();
   } catch (e: any) {
     coreErr = String(e?.message ?? e);

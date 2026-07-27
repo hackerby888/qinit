@@ -2,9 +2,20 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
-import { loadConfig, resolveCore, savedMode, resolveCompiler } from "../config";
-import { deployContract, type Ev } from "../deploy-ops";
-import { launchNode, waitTicking, killNode, ensureNode, scratchDir } from "../node-ops";
+import {
+  loadConfig,
+  resolveCompilerBackend,
+  resolveCoreDir,
+  resolveNodeBackend,
+} from "../config";
+import { deployContract, type DeploymentEvent } from "../deploy-ops";
+import {
+  activeNodeScratchDir,
+  ensureNodeBinary,
+  killNode,
+  launchNode,
+  waitTicking,
+} from "../node-ops";
 import {
   DEFAULT_RPC_BASE,
   LiteRpc,
@@ -29,8 +40,8 @@ const STEP_LABEL: Record<string, string> = {
 };
 
 // Two tick samples => is a node already advancing at this rpc?
-async function isTicking(rpcBase: string): Promise<boolean> {
-  const rpc = new LiteRpc(rpcBase);
+async function isTicking(rpcBaseUrl: string): Promise<boolean> {
+  const rpc = new LiteRpc(rpcBaseUrl);
   try {
     const a = (await rpc.tickInfo()).tick ?? 0;
     await sleep(2500);
@@ -56,16 +67,22 @@ export function Test({ args }: { args: string[] }) {
   const { flags: o, pos } = parseCommandArgs("test", args);
   const cfg = loadConfig();
   const root = process.cwd();
-  const rpcBase = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
   const contractPath = resolve(
-    o.contract ?? pos[0] ?? cfg.contract ?? "contracts/" + (cfg.name ?? "") + ".h",
+    o.contract ??
+      pos[0] ??
+      cfg.contract ??
+      "contracts/" + (cfg.contractName ?? "") + ".h",
   );
-  const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
+  const contractName =
+    o["contract-name"] ??
+    cfg.contractName ??
+    basename(contractPath).replace(/\.[^.]+$/, "");
   const [s, setS] = useState<State>({ phase: "setup", spin: "starting", lines: [] });
 
   useEffect(() => {
     let ownNode = false;
-    let activeRpc = rpcBase;
+    let activeRpc = rpcBaseUrl;
     let engineSrv: EngineServer | null = null;
     const L: Line[] = [];
     const add = (label: string, ok?: boolean | null, detail?: string) => {
@@ -81,44 +98,44 @@ export function Test({ args }: { args: string[] }) {
           setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
           return;
         }
-        const core = resolveCore(o.core, cfg.core);
+        const core = resolveCoreDir(o["core-dir"], cfg.coreDir);
         if (!existsSync(contractPath)) {
           add("contract", false, contractPath + " not found");
           setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
           return;
         }
 
-        // 1) node — virtual (in-process TS engine) or real (ephemeral qubic node), chosen by `qinit mode`.
-        // An explicit flag wins over the saved selection; with neither, the saved mode decides (default real).
-        const wantVirtual =
-          "in-process" in o ||
-          "engine" in o ||
-          (savedMode() === "virtualnode" && !("real" in o) && !("realnode" in o));
-        if (wantVirtual) {
-          spin("starting in-process engine");
+        // 1) Use the selected core-lite node or an in-process simulator.
+        const useSimulator = resolveNodeBackend(o) === "simulator";
+        if (useSimulator) {
+          spin("starting in-process simulator");
           engineSrv = new EngineServer();
-          activeRpc = (await engineSrv.start()).rpcBase;
-          add("node", true, `in-process engine @ ${activeRpc}`);
+          activeRpc = (await engineSrv.start()).rpcBaseUrl;
+          add("node", true, `simulator @ ${activeRpc}`);
         } else {
           spin("checking node");
           if (!(await isTicking(activeRpc))) {
-            spin("starting ephemeral node");
+            spin("starting core node");
             // Prefer the latest release node; fall back to a cached one only offline (don't silently
             // run a stale pinned version against newer tooling).
-            let bin = o.bin ? resolve(o.bin) : "";
+            let nodeBinary = o["node-bin"] ? resolve(o["node-bin"]) : "";
             let nodeNote = "";
-            if (!bin) {
+            if (!nodeBinary) {
               spin("resolving node");
-              const r = await ensureNode(o.ref || "latest", (rc, tt) =>
+              const r = await ensureNodeBinary(o.ref || "latest", (rc, tt) =>
                 spin(
                   tt ? `node ${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `node ${(rc / 1e6) | 0} MB`,
                 ),
               );
-              bin = r.bin;
+              nodeBinary = r.nodeBinaryPath;
               if (r.stale) nodeNote = ` · cached ${r.version} (offline)`;
             }
             await killNode();
-            launchNode({ bin, mode: o["node-mode"], peers: o.peers });
+            launchNode({
+              nodeBinary,
+              nodeMode: o["node-mode"],
+              peers: o.peers,
+            });
             ownNode = true;
             spin("waiting for ticking");
             const w = await waitTicking(activeRpc, Number(o.wait || 60));
@@ -127,7 +144,7 @@ export function Test({ args }: { args: string[] }) {
               setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
               return;
             }
-            add("node", true, `ephemeral · ticking at ${w.tick}${nodeNote}`);
+            add("node", true, `launched core node · ticking at ${w.tick}${nodeNote}`);
           } else {
             add("node", true, "reused running node");
           }
@@ -139,7 +156,7 @@ export function Test({ args }: { args: string[] }) {
           const cpath = resolve(callee.contract);
           if (!existsSync(cpath)) {
             add("callee", false, `${callee.name}: ${cpath} not found`);
-            if (ownNode && o.keep === undefined) await killNode();
+            if (ownNode && o["keep-node"] === undefined) await killNode();
             engineSrv?.stop();
             setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
             return;
@@ -150,16 +167,16 @@ export function Test({ args }: { args: string[] }) {
               contractPath: cpath,
               name: callee.name,
               core,
-              rpcBase: activeRpc,
+              rpcBaseUrl: activeRpc,
               seed: o.seed,
               skipVerify: "skip-verify" in o,
-              compiler: resolveCompiler(o),
+              compiler: resolveCompilerBackend(o),
             },
             () => {},
           );
           if (!cd.ok || cd.slot === undefined) {
             add("callee", false, `${callee.name}: ${cd.error ?? "deploy failed"}`);
-            if (ownNode && o.keep === undefined) await killNode();
+            if (ownNode && o["keep-node"] === undefined) await killNode();
             engineSrv?.stop();
             setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
             return;
@@ -173,14 +190,14 @@ export function Test({ args }: { args: string[] }) {
         const dep = await deployContract(
           {
             contractPath,
-            name,
+            name: contractName,
             core,
-            rpcBase: activeRpc,
+            rpcBaseUrl: activeRpc,
             seed: o.seed,
             skipVerify: "skip-verify" in o,
-            compiler: resolveCompiler(o),
+            compiler: resolveCompilerBackend(o),
           },
-          (e: Ev) => {
+          (e: DeploymentEvent) => {
             if ("note" in e) return;
             if (e.state === "active" && e.detail)
               spin(`deploy · ${STEP_LABEL[e.step] ?? e.step}: ${e.detail}`);
@@ -189,18 +206,22 @@ export function Test({ args }: { args: string[] }) {
         );
         if (!dep.ok || dep.slot === undefined) {
           add("deploy", false, dep.error || depDetail || "failed");
-          if (ownNode && o.keep === undefined) await killNode();
+          if (ownNode && o["keep-node"] === undefined) await killNode();
           engineSrv?.stop();
           setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
           return;
         }
-        add("deploy", true, `${name} @ slot ${dep.slot}${dep.reused ? " (reuse)" : ""}`);
+        add(
+          "deploy",
+          true,
+          `${contractName} @ slot ${dep.slot}${dep.reused ? " (reuse)" : ""}`,
+        );
 
         // 3) emit the self-contained test SDK (runtime + typed client + barrel).
         spin("generating test SDK");
         const idl =
           dep.idl ??
-          extractIdl(readFileSync(contractPath, "utf8"), name, {
+          extractIdl(readFileSync(contractPath, "utf8"), contractName, {
             slot: dep.slot,
             qpiHeader: loadQpiHeader(core),
           });
@@ -208,17 +229,22 @@ export function Test({ args }: { args: string[] }) {
         mkdirSync(sdkDir, { recursive: true });
         writeFileSync(join(sdkDir, "runtime.ts"), testRuntimeSource);
         writeFileSync(
-          join(sdkDir, `${name}.ts`),
+          join(sdkDir, `${contractName}.ts`),
           generateClient(idl, dep.slot, { runtimeImport: "./runtime" }),
         );
         writeFileSync(
           join(sdkDir, "index.ts"),
-          `export * from "./runtime";\nexport { ${name} } from "./${name}";\n`,
+          `export * from "./runtime";\nexport { ${contractName} } from "./${contractName}";\n`,
         );
         // scaffold a sample test if the project has none
         const testsDir = join(root, "tests");
         const hasTest = readdirSync(testsDir).some((f) => f.endsWith(".test.ts"));
-        if (!hasTest) writeFileSync(join(testsDir, `${name}.test.ts`), sampleTest(name));
+        if (!hasTest) {
+          writeFileSync(
+            join(testsDir, `${contractName}.test.ts`),
+            sampleTest(contractName),
+          );
+        }
         add(
           "sdk",
           true,
@@ -278,7 +304,7 @@ export function Test({ args }: { args: string[] }) {
           // append a source-mapped backtrace of the latest node trap (node.log + the slot's line map)
           try {
             const idl = loadContractIdlFile(join(root, "qinit.idl.json"));
-            const log = join(scratchDir(), "node.log");
+            const log = join(activeNodeScratchDir(), "node.log");
             if (existsSync(log)) {
               const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), {
                 lineMapPath: idl.contracts[String(dep.slot)]?.linesJson,
@@ -291,7 +317,7 @@ export function Test({ args }: { args: string[] }) {
         }
         add("tests", ok, ok ? "all passed" : "failures (see below)");
 
-        if (ownNode && o.keep === undefined) await killNode();
+        if (ownNode && o["keep-node"] === undefined) await killNode();
         engineSrv?.stop();
         setS({
           phase: "done",
@@ -299,23 +325,23 @@ export function Test({ args }: { args: string[] }) {
           ok,
           output,
           rows: [
-            ["contract", `${name} @ ${dep.slot}`],
+            ["contract", `${contractName} @ ${dep.slot}`],
             ["rpc", activeRpc],
             [
               "node",
               engineSrv
-                ? "in-process engine"
+                ? "simulator"
                 : ownNode
-                  ? o.keep === undefined
-                    ? "ephemeral (stopped)"
-                    : "ephemeral (kept)"
+                  ? o["keep-node"] === undefined
+                    ? "launched for test (stopped)"
+                    : "launched for test (kept)"
                   : "reused",
             ],
           ],
         });
       } catch (e: any) {
         add("ERROR", false, String(e?.message ?? e));
-        if (ownNode && o.keep === undefined)
+        if (ownNode && o["keep-node"] === undefined)
           try {
             await killNode();
           } catch {}

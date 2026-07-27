@@ -32,9 +32,9 @@ export async function buildDifferentialRunner(
     corePath: options.corePath,
     outDir: dir,
   });
-  if (!built.ok || !built.so) {
+  if (!built.ok || !built.wasmPath) {
     throw new Error(built.stderr ?? `failed to build ${options.name} differential runner`);
   }
 
-  return new Uint8Array(readFileSync(built.so));
+  return new Uint8Array(readFileSync(built.wasmPath));
 }

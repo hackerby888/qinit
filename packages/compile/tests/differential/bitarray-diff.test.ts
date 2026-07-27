@@ -72,10 +72,10 @@ describe("differential gtest — BitArray (bit_4096 set/get/setAll)", () => {
 
       const mine = await compileContract({
         source: BITS,
-        name: "Bits",
+        contractName: "Bits",
         slot: 28,
         qpiHeader: HEADERS,
-        arenaSz: 1024 * 1024,
+        arenaSizeBytes: 1024 * 1024,
       });
       expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

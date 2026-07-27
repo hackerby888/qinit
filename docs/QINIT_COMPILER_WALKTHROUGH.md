@@ -93,7 +93,7 @@ With:
 ```ts
 compileContract({
   source,
-  name: "IdlEdge",
+  contractName: "IdlEdge",
   slot: 27,
 });
 ```
@@ -144,7 +144,7 @@ the resulting contract metadata is:
 The public function in [`index.ts`](../packages/compile/src/index.ts) is:
 
 ```ts
-export async function compileContract(opts: CompileOpts): Promise<CompileResult> {
+export async function compileContract(opts: CompileOptions): Promise<CompileResult> {
   return compileContractWithHeader({
     ...opts,
     qpiHeader: opts.qpiHeader ?? loadQpiHeader(),
@@ -385,7 +385,7 @@ It runs the preprocessor with core's macro table:
 const text = new Preprocessor().preprocess({
   source,
   qpiHeader: "",
-  contractName: opts.name,
+  contractName: opts.contractName,
   contractIndex: opts.slot,
   seedMacros: qpi.macros,
 });
@@ -631,16 +631,16 @@ Recursion is rejected because contract stack and locals usage need to remain sta
 
 This is not a complete ISO C++ semantic analyzer. It validates the restricted C++/QPI subset that Qinit can faithfully lower.
 
-## 9. The analyzing phase and `Sema`
+## 9. The analyzing phase and `SemanticAnalyzer`
 
 The pipeline creates:
 
 ```ts
-const sema = new Sema();
-const calleeContext = collectCalleeContext(opts, qpi);
+const semanticAnalyzer = new SemanticAnalyzer();
+const calleeContext = collectCalleeContext(options, qpiContext);
 ```
 
-`Sema` currently owns:
+`SemanticAnalyzer` currently owns:
 
 - Errors.
 - Warnings.
@@ -706,15 +706,15 @@ The pipeline calls:
 ```ts
 generateWasmModule(
   unit,
-  sema,
+  semanticAnalyzer,
   contractName,
   slot,
-  arenaSize,
+  arenaSizeBytes,
   qpi.lib,
   callees,
   calleeStructs,
   calleeTranslationUnits,
-  sharedMemBase,
+  sharedMemoryBaseOffsetBytes,
   metadata,
 );
 ```
@@ -722,7 +722,7 @@ generateWasmModule(
 This creates:
 
 ```ts
-const cg = new Codegen(sema);
+const codeGeneration = new Codegen(semanticAnalyzer);
 ```
 
 Then it registers core library information, user declarations, callee declarations, and ABI metadata.

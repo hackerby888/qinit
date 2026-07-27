@@ -1,5 +1,10 @@
 // Shared node transport implemented by the HTTP client and in-process engine.
-import type { TickInfo, DynRegistry, DynUpload, DebugTrace } from "./rpc";
+import type {
+  TickInfo,
+  DynamicContractRegistry,
+  DynamicContractUploadStatus,
+  DebugTrace,
+} from "./rpc";
 import type { BroadcastResult } from "./net";
 
 export interface TxStatus {
@@ -42,8 +47,8 @@ export interface TxInfo {
 
 export interface NodeTransport {
   tickInfo(): Promise<TickInfo>;
-  dynRegistry(): Promise<DynRegistry>;
-  dynUpload(): Promise<DynUpload>;
+  dynRegistry(): Promise<DynamicContractRegistry>;
+  dynUpload(): Promise<DynamicContractUploadStatus>;
   txStatus(tick: number, txId: string): Promise<TxStatus>;
   querySmartContract(
     contractIndex: number,

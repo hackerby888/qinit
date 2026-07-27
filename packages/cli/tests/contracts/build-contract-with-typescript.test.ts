@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CORE_PATH } from "../../../../test-utils/paths";
-import { compileLocal } from "../../src/compile-local";
+import { buildContractWithTypeScript } from "../../src/build-contract-with-typescript";
 
 const MAIN = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -77,8 +77,8 @@ afterEach(() => {
   }
 });
 
-test("compileLocal analyzes transitive cyclic callees before one main build", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "qinit-compile-local-"));
+test("buildContractWithTypeScript analyzes transitive cyclic callees before one main build", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "qinit-build-typescript-"));
   temporaryDirectories.push(directory);
 
   const mainPath = join(directory, "Main.h");
@@ -89,7 +89,7 @@ test("compileLocal analyzes transitive cyclic callees before one main build", as
   writeFileSync(relayPath, RELAY);
   writeFileSync(mirrorPath, MIRROR);
 
-  const result = await compileLocal({
+  const result = await buildContractWithTypeScript({
     contractPath: mainPath,
     name: "Main",
     slot: 31,
@@ -105,7 +105,7 @@ test("compileLocal analyzes transitive cyclic callees before one main build", as
   expect(result.ok).toBe(true);
   expect(result.idl?.dependencies).toEqual(["Relay"]);
   expect(result.idl?.functions[0]?.inSize).toBe(29);
-  expect(result.so).toBe(join(outDir, "Main.wasm"));
-  expect(existsSync(result.so!)).toBe(true);
-  expect(result.size).toBeGreaterThan(0);
+  expect(result.wasmPath).toBe(join(outDir, "Main.wasm"));
+  expect(existsSync(result.wasmPath!)).toBe(true);
+  expect(result.wasmSizeBytes).toBeGreaterThan(0);
 }, 60_000);

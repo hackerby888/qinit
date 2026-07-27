@@ -3,8 +3,8 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Semantic validation coverage for invalid constructs.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -24,10 +24,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 const compile = async (source: string) => {
   const r = await compileContract({
     source,
-    name: "T",
+    contractName: "T",
     slot: 27,
     qpiHeader: HEADERS,
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
   return { wasm: r.wasm, errors: r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR) };
 };
@@ -263,7 +263,7 @@ describe("semantic validation — invalid source must fail loudly", () => {
     const src = ACCEPTS["default argument call"];
     const dir = mkdtempSync(join(tmpdir(), "defarg-"));
     writeFileSync(join(dir, "DefArg.h"), src);
-    const built = await buildContract({
+    const built = await buildContractWithWasiClang({
       contractPath: join(dir, "DefArg.h"),
       name: "DefArg",
       slot: 27,
@@ -276,7 +276,7 @@ describe("semantic validation — invalid source must fail loudly", () => {
     expect(ours.errors).toHaveLength(0);
 
     const run = (wasm: Uint8Array) => {
-      const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+      const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
       const user = new Uint8Array(32).fill(7);
       sim.fund(user, 1_000_000n);
       sim.deploy(27, wasm);
@@ -285,7 +285,7 @@ describe("semantic validation — invalid source must fail loudly", () => {
       return new DataView(st.buffer, st.byteOffset).getBigUint64(0, true);
     };
 
-    const nat = run(new Uint8Array(readFileSync(built.so!)));
+    const nat = run(new Uint8Array(readFileSync(built.wasmPath!)));
     const mine = run(ours.wasm);
     expect(nat).toBe(7n);
     expect(mine).toBe(nat);

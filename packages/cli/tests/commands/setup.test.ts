@@ -14,7 +14,7 @@ function setupDeps(overrides: Partial<SetupDeps> = {}): Partial<SetupDeps> {
   let wasiChecks = 0;
   return {
     loadManifest: async () => manifest,
-    prepareNodeRunCore: async (_options, _virtual, _injected, onProgress) => {
+    prepareNodeRunCore: async (_options, _useSimulator, _injected, onProgress) => {
       onProgress?.(5, 10);
       return {
         version: manifest.version,
@@ -23,9 +23,9 @@ function setupDeps(overrides: Partial<SetupDeps> = {}): Partial<SetupDeps> {
       };
     },
     nodeAssetForPlatform: () => asset,
-    fetchNodeBin: async (_ref, onProgress) => {
+    fetchNodeBinary: async (_ref, onProgress) => {
       onProgress?.(10, 10);
-      return { bin: "/cache/Qubic", version: manifest.version };
+      return { nodeBinaryPath: "/cache/Qubic", version: manifest.version };
     },
     wasiSdkPaths: () => {
       wasiChecks++;
@@ -59,9 +59,9 @@ test("setup prepares every dependency sequentially and reports download progress
       calls.push("headers");
       return manifest;
     },
-    fetchNodeBin: async () => {
+    fetchNodeBinary: async () => {
       calls.push("node");
-      return { bin: "/cache/Qubic", version: manifest.version };
+      return { nodeBinaryPath: "/cache/Qubic", version: manifest.version };
     },
     fetchWasiSdk: async () => {
       calls.push("wasi");
@@ -140,9 +140,9 @@ test("setup skips node and verifier assets that are not published for the host",
     (event) => events.push(event),
     setupDeps({
       nodeAssetForPlatform: () => undefined,
-      fetchNodeBin: async () => {
+      fetchNodeBinary: async () => {
         nodeFetches++;
-        return { bin: "/cache/Qubic", version: manifest.version };
+        return { nodeBinaryPath: "/cache/Qubic", version: manifest.version };
       },
       autoUpdateVerifyTool: async () =>
         ({ action: "unsupported" }) as VerifyUpdate,
@@ -166,7 +166,7 @@ test("setup fails fast when a published dependency cannot be downloaded", async 
     runSetup(
       (event) => events.push(event),
       setupDeps({
-        fetchNodeBin: async () => {
+        fetchNodeBinary: async () => {
           throw new Error("checksum mismatch");
         },
         fetchWasiSdk: async () => {
@@ -232,6 +232,6 @@ test("setup stays download-only", () => {
   );
 
   expect(source).not.toMatch(
-    /\b(?:killNode|launchNode|launchVirtualNode|nodeStatus|waitTicking|nodeAlive)\b/,
+    /\b(?:killNode|launchNode|launchSimulatorNode|nodeStatus|waitTicking|nodeAlive)\b/,
   );
 });

@@ -187,10 +187,10 @@ describe("differential gtest — LinkedList (add/insert/traverse/remove/reset)",
 
       const mine = await compileContract({
         source: QUEUE,
-        name: "Queue",
+        contractName: "Queue",
         slot: 28,
         qpiHeader: HEADERS,
-        arenaSz: 1024 * 1024,
+        arenaSizeBytes: 1024 * 1024,
       });
       expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

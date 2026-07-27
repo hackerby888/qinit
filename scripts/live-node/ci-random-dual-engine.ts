@@ -1,5 +1,5 @@
 // Compile once, execute the exact artifact on the release-configured WAMR node,
-// then replay the node's captured chain context in Sim and compare state bytes.
+// then replay the node's captured chain context in QubicSimulator and compare state bytes.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -15,16 +15,16 @@ import {
   inspectWasmModule,
   loadQpiHeader,
 } from "../../packages/compile/src/index";
-import { Sim } from "../../packages/engine/src/index";
+import { QubicSimulator } from "../../packages/engine/src/index";
 import { deployContract } from "../../packages/cli/src/deploy-ops";
-import { invokeProcedure, resolveSlot } from "../../packages/proto/src/index";
+import { invokeProcedure, resolveDeploymentSlot } from "../../packages/proto/src/index";
 
-const rpcBase = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
+const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE not set");
 const fixture = resolve("fixtures/RandomDual.h");
 const source = readFileSync(fixture, "utf8");
-const rpc = new LiteRpc(rpcBase);
+const rpc = new LiteRpc(rpcBaseUrl);
 const fail = (message: string): never => {
   throw new Error(`RANDOM DUAL FAIL: ${message}`);
 };
@@ -74,15 +74,15 @@ function input(nonce: bigint): Uint8Array {
 
 await initK12();
 cmakeProof();
-const { slot } = await resolveSlot(rpc, "RandomDual");
+const { slot } = await resolveDeploymentSlot(rpc, "RandomDual");
 const qpiHeader = loadQpiHeader(core);
 verifyPinnedHeader(qpiHeader);
 const compiled = await compileContract({
   source,
-  name: "RandomDual",
+  contractName: "RandomDual",
   slot,
   qpiHeader,
-  arenaSz: 1024 * 1024 * 1024,
+  arenaSizeBytes: 1024 * 1024 * 1024,
 });
 const errors = compiled.diagnostics.filter(
   (item) => item.severity === DiagnosticSeverity.ERROR,
@@ -107,7 +107,7 @@ const deployed = await deployContract({
   contractPath: fixture,
   name: "RandomDual",
   core,
-  rpcBase,
+  rpcBaseUrl,
   slotOverride: slot,
   artifact: {
     wasm: compiled.wasm,
@@ -130,11 +130,11 @@ const fundedSeed = (await rpc.fundedSeed()) ?? "a".repeat(55);
 const tick = (await rpc.tickInfo()).tick + 6;
 const invoked = await invokeProcedure({
   seed: fundedSeed,
-  rpcBase,
+  rpcBaseUrl,
   contractIndex: slot,
-  procId: 1,
+  procedureId: 1,
   amount: 0,
-  inFmt: `${nonce}uint64`,
+  inputFormat: `${nonce}uint64`,
   tick,
   confirm: true,
   confirmTimeoutMs: 60_000,
@@ -154,8 +154,8 @@ const prevSpectrum = nodeState.slice(0, 32);
 const invocator = bytes(trace.invocator);
 
 const replay = (): Uint8Array => {
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
-  sim.tickN = trace.tick;
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+  sim.currentTick = trace.tick;
   sim.prevSpectrumDigestOverride = prevSpectrum;
   const contract = sim.deploy(slot, compiled.wasm);
   contract.writeState(preState);
@@ -195,4 +195,4 @@ if (
   fail("rdrand success result differs");
 }
 await rpc.setDebug(false);
-console.log(`RANDOM DUAL OK — exact ${compiled.wasm.length}B artifact, tick ${trace.tick}, ${nodeState.length} state bytes match in WAMR and Sim`);
+console.log(`RANDOM DUAL OK — exact ${compiled.wasm.length}B artifact, tick ${trace.tick}, ${nodeState.length} state bytes match in WAMR and QubicSimulator`);

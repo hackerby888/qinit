@@ -3,8 +3,8 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks oracle host-call payloads and reply decoding against native behavior.
 import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -100,7 +100,7 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
     const contractPath = join(dir, "OrcP.h");
     writeFileSync(contractPath, SRC);
 
-    const built = await buildContract({
+    const built = await buildContractWithWasiClang({
       contractPath,
       name: "OrcP",
       slot: 27,
@@ -109,14 +109,14 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
       skipVerify: true,
     });
     expect(built.ok).toBe(true);
-    const nativeWasm = new Uint8Array(readFileSync(built.so!));
+    const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
     const mine = await compileContract({
       source: SRC,
-      name: "OrcP",
+      contractName: "OrcP",
       slot: 27,
       qpiHeader: HEADERS,
-      arenaSz: 4 * 1024 * 1024,
+      arenaSizeBytes: 4 * 1024 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
@@ -129,7 +129,7 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
     new DataView(askInput.buffer).setBigUint64(0, 42n, true);
 
     const run = (wasm: Uint8Array) => {
-      const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+      const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
       sim.deploy(27, wasm);
       const user = new Uint8Array(32).fill(7);
       sim.fund(user, 1_000_000n);

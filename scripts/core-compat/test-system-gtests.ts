@@ -28,9 +28,9 @@ function selection(): Selection {
 }
 
 const tier = selection();
-const coreArg = option("--core") ?? process.env.QINIT_CORE;
+const coreArg = option("--core-dir") ?? process.env.QINIT_CORE;
 if (!coreArg) {
-  throw new Error("QINIT_CORE is required (or pass --core <core-lite checkout>)");
+  throw new Error("QINIT_CORE is required (or pass --core-dir <core-lite checkout>)");
 }
 const core = resolve(coreArg);
 if (!existsSync(join(core, "src", "contract_core", "contract_def.h"))) {
@@ -88,7 +88,7 @@ for (const [index, entry] of selected.entries()) {
     const run = await runCorpus({
       name: entry.name,
       core,
-      backend: "local",
+      backend: "typescript",
       scratch,
       onPhase: (label) => {
         phase = label;

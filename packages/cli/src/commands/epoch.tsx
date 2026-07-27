@@ -12,7 +12,7 @@ export function Epoch({ args }: { args: string[] }) {
     rpc: parsed.get("rpc"),
     sub: parsed.pos[0] ?? "",
   };
-  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [rows, setRows] = useState<[string, string][] | null>(null);
   const [prog, setProg] = useState<{ from: number; cur: number; target: number } | null>(null);
@@ -21,7 +21,7 @@ export function Epoch({ args }: { args: string[] }) {
 
   useEffect(() => {
     (async () => {
-      const rpc = new LiteRpc(rpcBase);
+      const rpc = new LiteRpc(rpcBaseUrl);
       try {
         const e = await rpc.epochInfo();
         if (o.sub === "advance") {

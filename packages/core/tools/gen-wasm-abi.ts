@@ -5,9 +5,9 @@ import { parseWasmAbiSource } from "../src/wasm-abi-source";
 import { parseWasmSlotLayoutSource } from "../src/wasm-slot-layout-source";
 
 const args = process.argv.slice(2);
-const coreIndex = args.indexOf("--core");
+const coreIndex = args.indexOf("--core-dir");
 const coreArg = (coreIndex >= 0 ? args[coreIndex + 1] : undefined) ?? process.env.QINIT_CORE;
-if (!coreArg) throw new Error("pass --core <core-lite checkout> or set QINIT_CORE");
+if (!coreArg) throw new Error("pass --core-dir <core-lite checkout> or set QINIT_CORE");
 const core = resolve(coreArg);
 const metadataPath = join(core, "src", CORE_WASM_HEADERS.shared.abiMetadata);
 const sharedPath = join(core, "src", CORE_WASM_HEADERS.shared.abiTypes);

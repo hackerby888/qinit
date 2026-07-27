@@ -10,7 +10,7 @@ const compilerUrl = new URL("../../src/index.ts", import.meta.url).href;
 const childProgram = `
   import { parseToAst } from ${JSON.stringify(compilerUrl)};
   const source = Buffer.from(process.env.QINIT_ADVERSARIAL_SOURCE, "base64").toString("utf8");
-  const result = parseToAst({ source, name: "Adversarial", slot: 27 });
+  const result = parseToAst({ source, contractName: "Adversarial", slot: 27 });
   const diagnostics = result.diagnostics.slice(0, 16).map((diagnostic) => ({
     severity: diagnostic.severity,
     message: diagnostic.message.slice(0, 200),

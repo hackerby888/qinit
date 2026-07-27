@@ -136,7 +136,7 @@ test("runtimeImport emits a self-contained client (./runtime, no unpublished @qi
   expect(sc).toContain(
     'import { DEFAULT_RPC_BASE, LiteRpc, callFunction, invokeProcedure } from "./runtime";',
   );
-  expect(sc).toContain("this.rpcBase = o.rpcBase ?? DEFAULT_RPC_BASE;");
+  expect(sc).toContain("this.rpcBaseUrl = o.rpcBaseUrl ?? DEFAULT_RPC_BASE;");
   expect(sc).not.toContain("@qinit/");
   expect(out).toContain(
     'import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";',
@@ -212,7 +212,7 @@ test("scalar and array roots use direct aliases, arguments, and results", () => 
 test("procedure wiring: tick+8, confirm-by-default, typed return", () => {
   has("type QinitProcedureResult = {");
   has("async Inc(opts:"); // no-input proc: only opts
-  has("procId: 1,");
+  has("procedureId: 1,");
   has("tick: (ti.tick ?? 0) + 8");
   has("confirm: opts.confirm !== false");
   has("as QinitProcedureResult;");

@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks higher-slot callers reaching lower-slot callees.
 import { describe, test, expect, beforeAll } from "bun:test";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import {
   compileContract,
@@ -65,26 +65,26 @@ describe("inter-contract — Caller(29) → Counter(28) via CALL/INVOKE_OTHER", 
   test("CALL_OTHER reads the callee, INVOKE_OTHER mutates it across the boundary", async () => {
     const counter = await compileContract({
       source: COUNTER,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(counter.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
     const callees = [requireIdl(counter)];
     const caller = await compileContract({
       source: CALLER,
-      name: "Caller",
+      contractName: "Caller",
       slot: 29,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
       callees,
     });
     expect(caller.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(caller.idl?.dependencies).toEqual(["Counter"]);
 
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(28, counter.wasm);
     sim.deploy(29, caller.wasm);
 

@@ -58,7 +58,13 @@ test("deployContract: an unreachable node yields a loud 'unreachable' error (not
     fundedSeed: async () => undefined,
   };
   const r = await deployContract(
-    { contractPath: join(core, "none.h"), name: "X", core, rpcBase: "http://127.0.0.1:1", rpc },
+    {
+      contractPath: join(core, "none.h"),
+      name: "X",
+      core,
+      rpcBaseUrl: "http://127.0.0.1:1",
+      rpc,
+    },
     () => {},
   );
   expect(r.ok).toBe(false);
@@ -89,7 +95,13 @@ test("deployContract: an active upload fails before tick waiting, slot resolutio
   const events: any[] = [];
 
   const r = await deployContract(
-    { contractPath: join(core, "missing.h"), name: "Busy", core, rpcBase: "http://unused", rpc },
+    {
+      contractPath: join(core, "missing.h"),
+      name: "Busy",
+      core,
+      rpcBaseUrl: "http://unused",
+      rpc,
+    },
     (event) => events.push(event),
   );
 
@@ -160,7 +172,7 @@ test("deployContract: racing deployments send chunks only for the winner; the lo
     contractPath,
     name,
     core,
-    rpcBase: "http://unused",
+    rpcBaseUrl: "http://unused",
     seed: "a".repeat(55),
     slotOverride: 28,
     artifact,

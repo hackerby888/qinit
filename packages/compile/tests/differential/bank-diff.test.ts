@@ -91,10 +91,10 @@ describe("differential gtest — Bank (HashMap + Array)", () => {
 
     const mine = await compileContract({
       source: BANK,
-      name: "Bank",
+      contractName: "Bank",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

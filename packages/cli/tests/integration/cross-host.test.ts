@@ -3,8 +3,8 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { buildContract } from "@qinit/build";
-import { Sim, initK12, toHex } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator, initK12, toHex } from "@qinit/engine";
 
 const CORE = CORE_PATH;
 const GTEST = [
@@ -95,7 +95,7 @@ for (const c of CASES) {
     `cross-host: ${c.name} (${c.covers}) state byte-identical on the node WAMR and qinit`,
     async () => {
       await initK12();
-      const r = await buildContract({
+      const r = await buildContractWithWasiClang({
         contractPath: `${FIX}/${c.name}.h`,
         name: c.name,
         slot: c.slot,
@@ -106,8 +106,8 @@ for (const c of CASES) {
       expect(r.ok, r.stderr).toBe(true);
 
       // qinit side: deploy (runs INITIALIZE) then the op script, read the raw StateData
-      const sim = new Sim();
-      const ct = sim.deploy(c.slot, new Uint8Array(await Bun.file(r.so!).arrayBuffer()));
+      const sim = new QubicSimulator();
+      const ct = sim.deploy(c.slot, new Uint8Array(await Bun.file(r.wasmPath!).arrayBuffer()));
       for (const o of c.ops) sim.procedure(c.slot, o.it, o.in);
       const qinitHex = toHex(ct.state());
       expect(ct.state().length).toBe(c.bytes);
@@ -120,7 +120,7 @@ for (const c of CASES) {
           cwd: tmpdir(),
           env: {
             ...process.env,
-            QINIT_WASM: r.so!,
+            QINIT_WASM: r.wasmPath!,
             QINIT_SCRIPT: script,
             QINIT_EXPECTED_SLOT: String(c.slot),
           },

@@ -3,8 +3,8 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks HashMap/HashSet removal-slot reuse and state layout against native behavior.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -87,7 +87,7 @@ describe("differential — HashMap set-reuse + cleanup state parity", () => {
       const contractPath = join(dir, "HmP.h");
       writeFileSync(contractPath, SRC);
 
-      const built = await buildContract({
+      const built = await buildContractWithWasiClang({
         contractPath,
         name: "HmP",
         slot: 28,
@@ -96,19 +96,19 @@ describe("differential — HashMap set-reuse + cleanup state parity", () => {
         skipVerify: true,
       });
       expect(built.ok).toBe(true);
-      const nativeWasm = new Uint8Array(readFileSync(built.so!));
+      const nativeWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
       const mine = await compileContract({
         source: SRC,
-        name: "HmP",
+        contractName: "HmP",
         slot: 28,
         qpiHeader: HEADERS,
-        arenaSz: 4 * 1024 * 1024,
+        arenaSizeBytes: 4 * 1024 * 1024,
       });
       expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
       const run = (wasm: Uint8Array) => {
-        const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+        const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
         sim.deploy(28, wasm);
         const user = new Uint8Array(32).fill(7);
         sim.fund(user, 1_000_000n);

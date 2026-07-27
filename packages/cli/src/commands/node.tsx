@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
-import { killNode, nodeAlive, fetchNodeBin, nodeStatus } from "../node-ops";
+import { killNode, nodeAlive, fetchNodeBinary, nodeStatus } from "../node-ops";
 import { parseCommandArgs } from "../args";
 const dlLabel = (recv: number, total: number) =>
   total
@@ -18,7 +18,7 @@ export function Node({ args }: { args: string[] }) {
   const { exit } = useApp();
   const { flags: o, pos } = parseCommandArgs("node", args);
   const sub = pos[0] ?? "status";
-  const rpcBase = o.rpc || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc || DEFAULT_RPC_BASE;
   const [s, setS] = useState<State>({ phase: "run", spin: sub });
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export function Node({ args }: { args: string[] }) {
       const add = (t: string, ok?: boolean) => L.push({ t, ok });
       try {
         if (sub === "status") {
-          const st = await nodeStatus(rpcBase);
+          const st = await nodeStatus(rpcBaseUrl);
           if (!st.up) {
             add("rpc: down (node not reachable)", false);
             setS({ phase: "done", title: "node down", color: theme.err, lines: L });
@@ -40,7 +40,7 @@ export function Node({ args }: { args: string[] }) {
             ["dyn slots", `${st.armed} armed / ${st.slotCount}`],
           ];
           try {
-            const ei = await new LiteRpc(rpcBase).epochInfo();
+            const ei = await new LiteRpc(rpcBaseUrl).epochInfo();
             rows.splice(2, 0, ["epoch last tick", `${ei.epochLastTick}  (${ei.ticksLeft} left)`]);
           } catch {}
           if (st.contracts.length) rows.push(["contracts", st.contracts.join(", ")]);
@@ -82,7 +82,7 @@ export function Node({ args }: { args: string[] }) {
 
         if (sub === "get") {
           setS({ phase: "run", spin: `fetching node ${o.ref || "latest"}` });
-          const { bin, version } = await fetchNodeBin(o.ref || "latest", (rc, tt) =>
+          const { nodeBinaryPath, version } = await fetchNodeBinary(o.ref || "latest", (rc, tt) =>
             setS({ phase: "run", spin: dlLabel(rc, tt) }),
           );
           add(`node ${version} cached`, true);
@@ -93,7 +93,7 @@ export function Node({ args }: { args: string[] }) {
             lines: L,
             rows: [
               ["version", version],
-              ["bin", bin],
+              ["binary", nodeBinaryPath],
             ],
           });
           return;

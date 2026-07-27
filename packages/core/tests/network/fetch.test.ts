@@ -6,7 +6,7 @@ import { join } from "node:path";
 import {
   atomicWrite,
   extractTarGz,
-  readBody,
+  readResponseBodyWithTimeout,
   sha256Hex,
   cacheRoot,
   cacheDir,
@@ -37,8 +37,11 @@ test("extractTarGz round-trips a gzipped tar into destDir (cwd spawn, no `tar -C
   rmSync(src, { recursive: true, force: true });
 });
 
-test("readBody reads a full response body", async () => {
-  const buf = await readBody(new Response(new Uint8Array([9, 8, 7])), 1000);
+test("readResponseBodyWithTimeout reads a full response body", async () => {
+  const buf = await readResponseBodyWithTimeout(
+    new Response(new Uint8Array([9, 8, 7])),
+    1000,
+  );
   expect([...buf]).toEqual([9, 8, 7]);
 });
 

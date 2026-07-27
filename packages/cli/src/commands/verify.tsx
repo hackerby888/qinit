@@ -25,9 +25,12 @@ export function Verify({ args }: { args: string[] }) {
             "no contract: pass `qinit verify <file.h>` (or set contract in qinit.json)",
           );
         const file = resolve(cpath);
-        const name = o.name ?? cfg.name ?? basename(file).replace(/\.[^.]+$/, "");
+        const name =
+          o["contract-name"] ??
+          cfg.contractName ??
+          basename(file).replace(/\.[^.]+$/, "");
         // Declared inter-contract callees (--callee + CALL/INVOKE_OTHER_CONTRACT) — their scope-resolution
-        // errors are false for declared callees and dropped by verifyContract (same as buildContract).
+        // errors are false for declared callees and dropped by verifyContract (same as buildContractWithWasiClang).
         const calleeNames = [
           ...new Set([
             ...Object.keys(dynCallees),

@@ -28,10 +28,10 @@ describe("edge audit — user-facing diagnostic spans", () => {
   test("an unknown identifier reports its original source line", async () => {
     const result = await compileContract({
       source: UNKNOWN_SOURCE,
-      name: "DiagnosticEdge",
+      contractName: "DiagnosticEdge",
       slot: 27,
       qpiHeader: HEADERS,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     const diagnostic = result.diagnostics.find((d) =>
       /missingValue|unknown.*identifier/i.test(d.message),
@@ -43,10 +43,10 @@ describe("edge audit — user-facing diagnostic spans", () => {
   test("an unknown identifier reports its original source column", async () => {
     const result = await compileContract({
       source: UNKNOWN_SOURCE,
-      name: "DiagnosticEdge",
+      contractName: "DiagnosticEdge",
       slot: 27,
       qpiHeader: HEADERS,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     const diagnostic = result.diagnostics.find((d) =>
       /missingValue|unknown.*identifier/i.test(d.message),
@@ -60,10 +60,10 @@ describe("edge audit — user-facing diagnostic spans", () => {
     const sourceLineCount = source.split("\n").length;
     const result = await compileContract({
       source,
-      name: "DiagnosticEdge",
+      contractName: "DiagnosticEdge",
       slot: 27,
       qpiHeader: HEADERS,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
     expect(errors.length).toBeGreaterThan(0);

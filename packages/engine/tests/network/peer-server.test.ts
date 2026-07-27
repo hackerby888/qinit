@@ -102,13 +102,13 @@ test("native logging messages expose core-lite records and tick ranges", async (
   const { port, stop } = await server.start(0, 1000);
 
   try {
-    const tick = engine.sim.tickN;
+    const tick = engine.sim.currentTick;
     engine.logger.begin(tick, 2);
     engine.logger.log(
       28,
       6,
       Uint8Array.of(0, 0, 0, 0, 9, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0),
-      engine.sim.epochN,
+      engine.sim.currentEpoch,
     );
     engine.logger.end();
     engine.logger.finalizeTick(tick);

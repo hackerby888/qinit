@@ -12,7 +12,10 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { fetchT, readBody } from "./net";
+import {
+  fetchWithTimeout,
+  readResponseBodyWithTimeout,
+} from "./net";
 import { debug } from "./debug";
 import repositories from "../../../config/repositories.json";
 
@@ -45,7 +48,7 @@ export interface ReleaseSource {
   repository: string;
   commit: string;
 }
-// node = back-compat (linux-x64); nodes = per-platform map keyed by verifyPlatformKey() (linux-x64, linux-arm64, …)
+// node = back-compat (linux-x64); nodes = per-platform map keyed by releasePlatformKey() (linux-x64, linux-arm64, …)
 export interface Manifest {
   version: string;
   sources?: {
@@ -61,7 +64,7 @@ export interface Manifest {
 export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise<Manifest> {
   const path = ref === "latest" ? "latest/download" : `download/${ref}`;
   const url = `https://github.com/${repo}/releases/${path}/qinit-manifest.json`;
-  const response = await fetchT(url, undefined, 15000);
+  const response = await fetchWithTimeout(url, undefined, 15000);
   if (!response.ok) {
     throw new Error(`manifest fetch failed (HTTP ${response.status}) from ${url}`);
   }
@@ -100,7 +103,7 @@ export function cliAssetName(): string {
 
 // Newest qinit-cli-* tag via the GitHub API (NOT /releases/latest — verify-latest hijacks it). null if none.
 export async function resolveCliTag(repo = CLI_REPO): Promise<string | null> {
-  const response = await fetchT(
+  const response = await fetchWithTimeout(
     `https://api.github.com/repos/${repo}/releases`,
     { headers: { "user-agent": "qinit", accept: "application/vnd.github+json" } },
     15000,
@@ -122,7 +125,7 @@ export function cliReleaseUrls(
 // Pull the sha256 for `name` from a SHA256SUMS file ("<sha>  <name>" lines); "" if missing/unreachable.
 export async function fetchCliSha(sumsUrl: string, name: string): Promise<string> {
   try {
-    const response = await fetchT(sumsUrl, undefined, 15000);
+    const response = await fetchWithTimeout(sumsUrl, undefined, 15000);
     if (!response.ok) return "";
     for (const line of (await response.text()).split("\n")) {
       const match = line.trim().match(/^([0-9a-fA-F]{64})\s+\*?(\S+)$/);
@@ -136,13 +139,13 @@ export async function fetchCliSha(sumsUrl: string, name: string): Promise<string
 
 // Download an asset and verify its sha256 (mismatch => throw, never cache a bad blob).
 // onProgress(received, total) streams download bytes for a live progress bar.
-export async function fetchVerify(
+export async function downloadVerifiedAsset(
   asset: AssetRef,
   onProgress?: (recv: number, total: number) => void,
 ): Promise<Uint8Array> {
   let response: Response;
   try {
-    response = await fetchT(asset.url, undefined, 30000);
+    response = await fetchWithTimeout(asset.url, undefined, 30000);
   } catch (e: any) {
     // 30s connect/TTFB guard; the body then streams untimed
     throw new Error(
@@ -152,7 +155,11 @@ export async function fetchVerify(
   if (!response.ok) {
     throw new Error(`download failed (HTTP ${response.status}): ${asset.url}`);
   }
-  const buffer = await readBody(response, 60000, onProgress);
+  const buffer = await readResponseBodyWithTimeout(
+    response,
+    60000,
+    onProgress,
+  );
   if (asset.sha256) {
     const actualSha = sha256Hex(buffer);
     if (actualSha !== asset.sha256) {
@@ -241,7 +248,7 @@ export function cachedVerifyToolPath(): string {
   return join(toolsDir(), process.platform === "win32" ? "contractverify.exe" : "contractverify");
 }
 // e.g. linux-x64, darwin-arm64, windows-x64 — the manifest key for this host.
-export function verifyPlatformKey(): string {
+export function releasePlatformKey(): string {
   const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : process.arch;
   const os =
     process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "windows" : "linux";
@@ -249,7 +256,7 @@ export function verifyPlatformKey(): string {
 }
 export async function loadVerifyManifest(repo = VERIFY_REPO): Promise<VerifyManifest> {
   const url = `https://github.com/${repo}/releases/download/${VERIFY_TAG}/verify-manifest.json`;
-  const response = await fetchT(url, undefined, 15000);
+  const response = await fetchWithTimeout(url, undefined, 15000);
   if (!response.ok) {
     throw new Error(`verify manifest fetch failed (HTTP ${response.status})`);
   }
@@ -279,7 +286,7 @@ export async function autoUpdateVerifyTool(opts?: {
   } catch {
     return { action: "offline" };
   }
-  const asset = m.assets[verifyPlatformKey()];
+  const asset = m.assets[releasePlatformKey()];
   if (!asset) {
     updateCurrent({ verifyCheckedAt: new Date().toISOString() });
     return { action: "unsupported" };
@@ -292,7 +299,7 @@ export async function autoUpdateVerifyTool(opts?: {
     return { action: "current", version: m.version };
   }
   try {
-    const buf = await fetchVerify(asset, opts?.onProgress);
+    const buf = await downloadVerifiedAsset(asset, opts?.onProgress);
     mkdirSync(toolsDir(), { recursive: true });
     writeFileSync(tool, buf);
     if (process.platform !== "win32") Bun.spawnSync(["chmod", "+x", tool]); // no chmod on Windows (no exec bit)
@@ -360,10 +367,10 @@ export async function fetchWasiSdk(
   const { url } = wasiSdkAsset();
   let sha256 = "";
   try {
-    const r = await fetchT(url + ".sha256", undefined, 15000);
+    const r = await fetchWithTimeout(url + ".sha256", undefined, 15000);
     if (r.ok) sha256 = (await r.text()).trim().split(/\s+/)[0] ?? "";
   } catch {}
-  const buf = await fetchVerify({ url, sha256 }, onProgress);
+  const buf = await downloadVerifiedAsset({ url, sha256 }, onProgress);
   // Atomic install: extract into a sibling tmp dir, then swap it into place. A kill mid-extract leaves
   // the tmp (ignored), never a half-populated wasi-sdk/ that haveWasiSdkCache() would accept as valid.
   const tmp = `${dir}.tmp.${process.pid}`;

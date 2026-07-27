@@ -3,7 +3,7 @@ import { VirtualNode } from "./transport";
 import { PeerServer } from "./peer-server";
 
 export interface EngineServerHandle {
-  rpcBase: string;
+  rpcBaseUrl: string;
   peerPort?: number;
   stop: () => void;
 }
@@ -330,7 +330,7 @@ export class EngineServer {
     }
 
     return {
-      rpcBase: `http://${LOOPBACK_HOST}:${server.port}`,
+      rpcBaseUrl: `http://${LOOPBACK_HOST}:${server.port}`,
       peerPort: boundPeerPort,
       stop: () => this.stop(),
     };

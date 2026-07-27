@@ -24,7 +24,7 @@ import {
   type SourceContractCall,
 } from "./compiler/semantic-calls";
 import { getQpiContext } from "./compiler/qpi-context";
-import { Sema } from "./sema";
+import { SemanticAnalyzer } from "./semantic-analyzer";
 import { prepareContractModule } from "./backend/wasm/module/module-analysis";
 import type { ContractRegistration } from "./backend/wasm/module/registrations";
 import { publishProgramDiagnostics } from "./backend/wasm/module/module-output";
@@ -47,7 +47,7 @@ export type { SourceContractCall };
 
 export interface AnalyzeContractOptions {
   source: string;
-  name?: string;
+  contractName?: string;
   slot?: number;
   qpiHeader?: string;
   callees?: ContractIdl[];
@@ -91,13 +91,13 @@ export function analyzeContract(
   options: AnalyzeContractOptions,
 ): SourceAnalysisResult {
   const qpiHeader = options.qpiHeader ?? QPI_SNAPSHOT;
-  const name =
-    options.name ??
+  const contractName =
+    options.contractName ??
     detectQpiContractName(options.source) ??
     "Contract";
   const calls = collectSourceContractCalls(
     options.source,
-    name,
+    contractName,
     options.slot ?? 0,
     getQpiMacros(qpiHeader),
   );
@@ -164,8 +164,8 @@ function analyzeCompiler(
     const qpiHeader = options.qpiHeader ?? QPI_SNAPSHOT;
     const compileOptions: CompileOptions = {
       source: options.source,
-      name:
-        options.name ??
+      contractName:
+        options.contractName ??
         detectQpiContractName(options.source) ??
         "Contract",
       slot: options.slot ?? 0,
@@ -207,7 +207,7 @@ function analyzeCompiler(
       return { diagnostics };
     }
 
-    const semanticAnalysis = new Sema();
+    const semanticAnalysis = new SemanticAnalyzer();
     const calleeContext = collectCalleeContext(
       compileOptions,
       qpiContext,
@@ -233,7 +233,7 @@ function analyzeCompiler(
       gtestMode: false,
     });
     const idl = buildContractIdl(prepared, {
-      name: compileOptions.name,
+      contractName: compileOptions.contractName,
       slot: compileOptions.slot,
       dependencies: calls.map((call) => call.callee),
     });

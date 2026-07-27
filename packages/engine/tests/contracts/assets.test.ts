@@ -2,7 +2,7 @@
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, deriveKeysSync, signSync, k12Bytes, toHex } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 
 const TOKEN = 0x4e454b4f54n; // "TOKEN" (bytes T,O,K,E,N)
 
@@ -54,7 +54,7 @@ function possIn(name: bigint, who: Uint8Array): Uint8Array {
 test("Token: issueAsset + isAssetIssued + numberOfShares", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Token")); // built --slot 28 -> SELF = id(28)
   const SELF = cid(28);
 
@@ -69,7 +69,7 @@ test("Token: issueAsset + isAssetIssued + numberOfShares", async () => {
 test("Token: transferShareOwnershipAndPossession moves owner+possessor", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Token"));
   const SELF = cid(28);
   const R = new Uint8Array(32).fill(0xcd); // a non-contract recipient id
@@ -87,7 +87,7 @@ test("Token: transferShareOwnershipAndPossession moves owner+possessor", async (
 test("Dividend: distributeDividends debits balance + guards on insufficient funds", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Dividend"));
 
   const distIn = (perShare: bigint): Uint8Array => {
@@ -109,7 +109,10 @@ test("Dividend: distributeDividends debits balance + guards on insufficient fund
 const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
 
 // Sum a holder's possessed shares grouped by the possession-managing contract.
-function sharesByMgmt(sim: Sim, mgmt: number): bigint {
+function sharesByMgmt(
+  sim: QubicSimulator,
+  mgmt: number,
+): bigint {
   let sum = 0n;
   for (const a of sim.assetUniverse()) {
     for (const h of a.holdings) {
@@ -144,7 +147,7 @@ function mgmtIn(
 test("transferShareManagementRights moves the managing contract; the possessor is unchanged", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Token")); // issues TOKEN owned + possessed by id(28), managed by contract 28
   const SELF = cid(28);
   sim.procedure(28, 1, issueIn(TOKEN, 1000n));
@@ -164,7 +167,7 @@ test("transferShareManagementRights moves the managing contract; the possessor i
 test("acquireShares is denied when the source manager has no PRE_RELEASE_SHARES callback", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Token")); // Token implements no management-rights callbacks -> the node denies
   const SELF = cid(28);
   sim.procedure(28, 1, issueIn(TOKEN, 1000n));
@@ -176,7 +179,7 @@ test("acquireShares is denied when the source manager has no PRE_RELEASE_SHARES 
 test("acquireShares rejects owner != possessor (qpi keeps them equal)", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Token"));
   const SELF = cid(28);
   const OTHER = new Uint8Array(32).fill(0xcd);
@@ -188,7 +191,7 @@ test("acquireShares rejects owner != possessor (qpi keeps them equal)", async ()
 test("a wasm contract can call qpi.acquireShares (the lhost import resolves end-to-end)", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(29, await wasm("ShareManager")); // built --slot 29 -> SELF = id(29)
   const SELF = cid(29);
 
@@ -211,7 +214,7 @@ test("a wasm contract can call qpi.acquireShares (the lhost import resolves end-
 test("the approve path: PRE_RELEASE_SHARES lets another contract acquire management rights (through wasm)", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("ShareApprover")); // built --slot 28: issues + approves releases via PRE_RELEASE_SHARES
   sim.deploy(29, await wasm("ShareManager")); // built --slot 29: acquires
   const A = cid(28); // the source manager == issuer == holder
@@ -237,7 +240,7 @@ test("the approve path: PRE_RELEASE_SHARES lets another contract acquire managem
 test("acquire with a non-zero fee (through wasm): the approver charges, the acquirer pays", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("ShareApprover"));
   sim.deploy(29, await wasm("ShareManager"));
   const A = cid(28);
@@ -259,7 +262,7 @@ test("acquire with a non-zero fee (through wasm): the approver charges, the acqu
 test("release management rights back through wasm (PRE_ACQUIRE_SHARES approves)", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("ShareApprover"));
   sim.deploy(29, await wasm("ShareManager"));
   const A = cid(28);
@@ -278,7 +281,7 @@ test("release management rights back through wasm (PRE_ACQUIRE_SHARES approves)"
 test("newly-exposed qpi wasm imports resolve: dayOfWeek + signatureValidity real, IPO/mining/oracle stubbed", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(29, await wasm("ApiProbe")); // calls all 9 newly-exposed qpi methods
 
   // Probe = dayOfWeek(2024-01-01) + ipoBidPrice(0,0)=1,000,000 + getOracleQueryStatus(stub 0)
@@ -303,7 +306,7 @@ test("newly-exposed qpi wasm imports resolve: dayOfWeek + signatureValidity real
 test("qpi host wiring: isContractId, arbitrator/computor, prevDigests, IPO bid queries", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Counter"));
   const committee = sim.getCommittee();
 

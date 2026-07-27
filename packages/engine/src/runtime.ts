@@ -1,7 +1,6 @@
 import {
   ASSET_ENUMERATION_RECORD,
   LHOST_ABI,
-  SYSTEM_PROCEDURES,
 } from "@qinit/core";
 import { k12Bytes, toHex } from "./k12";
 import { bytesEqual } from "./bytes";
@@ -25,14 +24,17 @@ export function envImportStub(name: string): Function {
   };
 }
 
-export const KIND = { FUNCTION: 0, PROCEDURE: 1, SYSPROC: 2, MIGRATE: 3 } as const;
-
-export const SP = SYSTEM_PROCEDURES;
+export const CONTRACT_ENTRY_KIND = {
+  FUNCTION: 0,
+  PROCEDURE: 1,
+  SYSPROC: 2,
+  MIGRATE: 3,
+} as const;
 
 // Must match the I/O layout in contract_slots.h.
-const IN_SZ = 64 * 1024;
-const OUT_SZ = 64 * 1024;
-const LOCALS_SZ = 32 * 1024;
+const INPUT_BUFFER_SIZE_BYTES = 64 * 1024;
+const OUTPUT_BUFFER_SIZE_BYTES = 64 * 1024;
+const LOCALS_BUFFER_SIZE_BYTES = 32 * 1024;
 
 const BASE_CALL_COST = 10n;
 const DIGEST_BYTE_COST = 1n;
@@ -267,7 +269,7 @@ export interface HostServices {
   ): number;
 }
 
-export interface CallCtx {
+export interface ContractCallContext {
   invocator?: Uint8Array;
   originator?: Uint8Array;
   invocationReward?: bigint;
@@ -309,10 +311,10 @@ export class Contract {
   private sysInSizes = new Map<number, number>();
   private sysOutSizes = new Map<number, number>();
   entries: {
-    it: number;
+    inputType: number;
     kind: number;
-    inSize: number;
-    outSize: number;
+    inputSizeBytes: number;
+    outputSizeBytes: number;
   }[] = [];
   trace?: TraceRecorder;
   hasMigrate = false;
@@ -380,7 +382,11 @@ export class Contract {
     this.stateAddr = this.ex.state_addr() >>> 0;
     this.stateSize = this.ex.state_size() >>> 0;
     this.ctxAddr = this.ex.ctx_addr() >>> 0;
-    this.arenaBase = this.ioBase + IN_SZ + OUT_SZ + LOCALS_SZ;
+    this.arenaBase =
+      this.ioBase +
+      INPUT_BUFFER_SIZE_BYTES +
+      OUTPUT_BUFFER_SIZE_BYTES +
+      LOCALS_BUFFER_SIZE_BYTES;
     this.arenaStart = this.arenaBase;
     this.arenaTop = this.arenaBase;
     this.arenaEnd = this.ioBase + (this.ex.io_size() >>> 0);
@@ -446,12 +452,17 @@ export class Contract {
       const view = this.dv();
       const inputType = view.getUint32(infoOffset, true);
       const kind = view.getUint32(infoOffset + 4, true);
-      const inSize = view.getUint32(infoOffset + 8, true);
-      const outSize = view.getUint32(infoOffset + 12, true);
+      const inputSizeBytes = view.getUint32(infoOffset + 8, true);
+      const outputSizeBytes = view.getUint32(infoOffset + 12, true);
 
-      this.entries.push({ it: inputType, kind, inSize, outSize });
-      this.inSizes.set(kind + ":" + inputType, inSize);
-      this.outSizes.set(kind + ":" + inputType, outSize);
+      this.entries.push({
+        inputType,
+        kind,
+        inputSizeBytes,
+        outputSizeBytes,
+      });
+      this.inSizes.set(kind + ":" + inputType, inputSizeBytes);
+      this.outSizes.set(kind + ":" + inputType, outputSizeBytes);
     }
 
     for (let systemProcedure = 0; systemProcedure < 12; systemProcedure++) {
@@ -479,14 +490,14 @@ export class Contract {
   }
 
   private inSizeFor(kind: number, inputType: number, fallback: number): number {
-    if (kind === KIND.SYSPROC) {
+    if (kind === CONTRACT_ENTRY_KIND.SYSPROC) {
       return this.sysInSizes.get(inputType) ?? fallback;
     }
     return this.inSizes.get(kind + ":" + inputType) ?? fallback;
   }
 
   private outSizeFor(kind: number, inputType: number): number {
-    if (kind === KIND.SYSPROC) {
+    if (kind === CONTRACT_ENTRY_KIND.SYSPROC) {
       return this.sysOutSizes.get(inputType) ?? 0;
     }
     return this.outSizes.get(kind + ":" + inputType) ?? 0;
@@ -503,7 +514,7 @@ export class Contract {
     }
   }
 
-  private writeCtx(context: CallCtx) {
+  private writeCtx(context: ContractCallContext) {
     const view = QpiContext.wrap(this.u8(), this.ctxAddr);
     view.bytes.fill(0);
     view.currentContractIndex = this.slot;
@@ -525,7 +536,7 @@ export class Contract {
     kind: number,
     inputType: number,
     input: Uint8Array = new Uint8Array(0),
-    context: CallCtx = {},
+    context: ContractCallContext = {},
   ): Uint8Array {
     const nested = this.dispatchDepth > 0;
     let inputOffset: number;
@@ -540,9 +551,9 @@ export class Contract {
       // Avoid signed 32-bit alignment arithmetic for shared-memory arenas above 2 GiB.
       const base = this.arenaTop;
       inputOffset = base + 7 - ((base + 7) % 8);
-      outputOffset = inputOffset + IN_SZ;
-      localsOffset = outputOffset + OUT_SZ;
-      const frameArenaStart = localsOffset + LOCALS_SZ;
+      outputOffset = inputOffset + INPUT_BUFFER_SIZE_BYTES;
+      localsOffset = outputOffset + OUTPUT_BUFFER_SIZE_BYTES;
+      const frameArenaStart = localsOffset + LOCALS_BUFFER_SIZE_BYTES;
 
       if (frameArenaStart > this.arenaEnd) {
         throw new Error("nested dispatch frame exceeds arena");
@@ -555,8 +566,9 @@ export class Contract {
       savedContext = memory.slice(this.ctxAddr, this.ctxAddr + 256);
     } else {
       inputOffset = this.ioBase;
-      outputOffset = this.ioBase + IN_SZ;
-      localsOffset = this.ioBase + IN_SZ + OUT_SZ;
+      outputOffset = this.ioBase + INPUT_BUFFER_SIZE_BYTES;
+      localsOffset =
+        this.ioBase + INPUT_BUFFER_SIZE_BYTES + OUTPUT_BUFFER_SIZE_BYTES;
       this.arenaStart = this.arenaBase;
       this.arenaTop = this.arenaBase;
     }
@@ -564,8 +576,16 @@ export class Contract {
     const inputSize = this.inSizeFor(kind, inputType, input.length);
     const outputSize = this.outSizeFor(kind, inputType);
     memory.fill(0, inputOffset, inputOffset + inputSize);
-    memory.fill(0, outputOffset, outputOffset + OUT_SZ);
-    memory.fill(0, localsOffset, localsOffset + LOCALS_SZ);
+    memory.fill(
+      0,
+      outputOffset,
+      outputOffset + OUTPUT_BUFFER_SIZE_BYTES,
+    );
+    memory.fill(
+      0,
+      localsOffset,
+      localsOffset + LOCALS_BUFFER_SIZE_BYTES,
+    );
 
     if (input.length > 0 && inputSize > 0) {
       memory.set(
@@ -656,18 +676,23 @@ export class Contract {
   }
 
   migrate(oldState: Uint8Array): void {
-    const localsOffset = this.ioBase + IN_SZ + OUT_SZ;
+    const localsOffset =
+      this.ioBase + INPUT_BUFFER_SIZE_BYTES + OUTPUT_BUFFER_SIZE_BYTES;
     const oldStateOffset = this.arenaBase;
     const memory = this.u8();
 
     memory.fill(0, this.stateAddr, this.stateAddr + this.stateSize);
-    memory.fill(0, localsOffset, localsOffset + LOCALS_SZ);
+    memory.fill(
+      0,
+      localsOffset,
+      localsOffset + LOCALS_BUFFER_SIZE_BYTES,
+    );
     memory.set(oldState, oldStateOffset);
     this.writeCtx({});
     this.arenaStart = this.arenaBase + ((oldState.length + 15) & ~15);
     this.arenaTop = this.arenaStart;
     this.ex.dispatch(
-      KIND.MIGRATE >>> 0,
+      CONTRACT_ENTRY_KIND.MIGRATE >>> 0,
       0,
       oldStateOffset >>> 0,
       0,
@@ -1206,7 +1231,7 @@ export class Contract {
     const extraLhost = Object.keys(lhost).filter((name) => !(name in LHOST_ABI));
     if (missingLhost.length || extraLhost.length) {
       throw new Error(
-        `virtual-engine lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`,
+        `simulator lhost table drift (missing: ${missingLhost.join(", ") || "none"}; extra: ${extraLhost.join(", ") || "none"})`,
       );
     }
     this.meterLhost(lhost);

@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import {
-  buildContract,
+  buildContractWithWasiClang,
   systemNames,
-  type BuildResult,
+  type ContractBuildResult,
   type ContractIdl,
 } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compile";
@@ -18,20 +18,25 @@ import {
   encodeUploadBegin,
   encodeUploadChunk,
   encodeDeploy,
-  chunkSo,
-  newSessionId,
+  splitUploadChunks,
+  createUploadSessionId,
   LITE_TX,
-  resolveSlot,
+  resolveDeploymentSlot,
   TX_TICK_OFFSET,
 } from "@qinit/proto";
-import { savedSeed, savedCompiler, resolveCore, type Compiler } from "./config";
-import { compileLocal } from "./compile-local";
+import {
+  savedSeed,
+  savedCompilerBackend,
+  resolveCoreDir,
+  type CompilerBackend,
+} from "./config";
+import { buildContractWithTypeScript } from "./build-contract-with-typescript";
 import { saveContractIdl } from "./idl-file";
 import { resolveNodeCallees } from "./callees";
 export { resolveNodeCallees } from "./callees";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
-export type Ev =
+export type DeploymentEvent =
   | { step: StepKey; state: "active" | "ok" | "fail"; detail?: string; pct?: number }
   | { note: string };
 
@@ -44,10 +49,10 @@ export const STEPS: { key: StepKey; label: string }[] = [
   { key: "confirm", label: "confirm" },
 ];
 
-export function tickFailureMessage(reached: boolean, rpcBase: string): string {
+export function tickFailureMessage(reached: boolean, rpcBaseUrl: string): string {
   return reached
     ? "node not ticking"
-    : `node unreachable at ${rpcBase} — is it running? (qinit node run)`;
+    : `node unreachable at ${rpcBaseUrl} — is it running? (qinit node run)`;
 }
 
 export function classifyConfirm(state: {
@@ -83,13 +88,13 @@ export interface DeployOpts {
   contractPath: string;
   name: string;
   core: string;
-  rpcBase: string;
+  rpcBaseUrl: string;
   seed?: string;
   dynCallees?: Record<string, { header: string; index: number }>;
   slotOverride?: number;
   outDir?: string;
   skipVerify?: boolean;
-  compiler?: Compiler;
+  compiler?: CompilerBackend;
   artifact?: {
     wasm: Uint8Array;
     hash?: string;
@@ -123,9 +128,9 @@ function activeUploadError(upload: {
 
 export async function deployContract(
   options: DeployOpts,
-  emit: (event: Ev) => void,
+  emit: (event: DeploymentEvent) => void,
 ): Promise<DeployResult> {
-  const rpc = options.rpc ?? new LiteRpc(options.rpcBase);
+  const rpc = options.rpc ?? new LiteRpc(options.rpcBaseUrl);
 
   // Reject a competing upload before doing build or network work.
   try {
@@ -140,7 +145,7 @@ export async function deployContract(
   }
 
   try {
-    if (systemNames(resolveCore(options.core)).has(options.name.toLowerCase())) {
+    if (systemNames(resolveCoreDir(options.core)).has(options.name.toLowerCase())) {
       emit({
         step: "build",
         state: "fail",
@@ -199,7 +204,7 @@ export async function deployContract(
 
   if (!reached || currentTick <= initialTick + 3) {
     emit({ step: "tick", state: "fail", detail: reached ? "not ticking" : "unreachable" });
-    return { ok: false, error: tickFailureMessage(reached, options.rpcBase) };
+    return { ok: false, error: tickFailureMessage(reached, options.rpcBaseUrl) };
   }
 
   emit({ step: "tick", state: "ok", detail: `tick ${currentTick}` });
@@ -222,7 +227,11 @@ export async function deployContract(
   seed = seed ?? "a".repeat(55);
 
   emit({ step: "slot", state: "active" });
-  const { slot, reused } = await resolveSlot(rpc, options.name, options.slotOverride);
+  const { slot, reused } = await resolveDeploymentSlot(
+    rpc,
+    options.name,
+    options.slotOverride,
+  );
   emit({
     step: "slot",
     state: "ok",
@@ -243,12 +252,13 @@ export async function deployContract(
         },
       );
 
-  const compiler: Compiler = options.compiler ?? savedCompiler() ?? "native";
+  const compiler: CompilerBackend =
+    options.compiler ?? savedCompilerBackend() ?? "clang";
   const outDir = options.outDir ?? resolve("dist/contracts");
   if (options.artifact) {
     emit({ note: "compiler: prebuilt artifact (exact bytes)" });
-  } else if (compiler === "local") {
-    emit({ note: "compiler: local TS (qinit compiler local)" });
+  } else if (compiler === "typescript") {
+    emit({ note: "compiler: TypeScript (qinit compiler typescript)" });
   }
 
   emit({
@@ -256,14 +266,14 @@ export async function deployContract(
     state: "active",
     detail: options.artifact
       ? "validating prebuilt bytes…"
-      : compiler === "local"
-        ? "compiling (local TS)…"
+      : compiler === "typescript"
+        ? "compiling (TypeScript)…"
         : "compiling…",
   });
-  const build: BuildResult = options.artifact
+  const build: ContractBuildResult = options.artifact
     ? { ok: options.artifact.wasm.byteLength > 0, idl: options.artifact.idl }
-    : compiler === "local"
-      ? await compileLocal({
+    : compiler === "typescript"
+      ? await buildContractWithTypeScript({
           contractPath: options.contractPath,
           name: options.name,
           slot,
@@ -271,7 +281,7 @@ export async function deployContract(
           outDir,
           dynCallees,
         })
-      : await buildContract({
+      : await buildContractWithWasiClang({
           contractPath: options.contractPath,
           name: options.name,
           slot,
@@ -294,10 +304,10 @@ export async function deployContract(
 
   const wasm = options.artifact
     ? Buffer.from(options.artifact.wasm)
-    : readFileSync(build.so!);
+    : readFileSync(build.wasmPath!);
   const hash =
     options.artifact?.hash ??
-    build.hash ??
+    build.wasmK12DigestHex ??
     (await k12Hex(new Uint8Array(wasm)));
   emit({
     step: "build",
@@ -322,8 +332,8 @@ export async function deployContract(
         ...build.idl,
         slot,
         codeHash: hash,
-        debugWasm: build.debugWasm ? resolve(build.debugWasm) : undefined,
-        linesJson: build.linesJson ? resolve(build.linesJson) : undefined,
+        debugWasm: build.debugWasmPath ? resolve(build.debugWasmPath) : undefined,
+        linesJson: build.lineMapPath ? resolve(build.lineMapPath) : undefined,
       });
     } catch (error: any) {
       emit({ note: `IDL: ${String(error?.message ?? error)}` });
@@ -334,7 +344,7 @@ export async function deployContract(
     .directDeploy(slot, new Uint8Array(wasm), options.name)
     .catch(() => null);
   if (directDeployment) {
-    emit({ step: "upload", state: "ok", detail: "direct (virtualnode)" });
+    emit({ step: "upload", state: "ok", detail: "direct (simulator)" });
     emit({ step: "deploy", state: "ok", detail: `slot ${slot}` });
 
     try {
@@ -418,8 +428,8 @@ export async function deployContract(
   }
 
   currentTick = await readTick();
-  const session = newSessionId();
-  const chunks = chunkSo(new Uint8Array(wasm));
+  const session = createUploadSessionId();
+  const chunks = splitUploadChunks(new Uint8Array(wasm));
   const total = chunks.length + 1;
   const sentIndexes = new Set<number>();
   const buildTransaction = async (

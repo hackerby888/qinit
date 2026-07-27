@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import wabtInit from "../../../compile/node_modules/wabt";
-import { KIND, SP } from "../../src/runtime";
-import { Sim } from "../../src/sim";
+import { SYSTEM_PROCEDURES } from "@qinit/core";
+import { CONTRACT_ENTRY_KIND } from "../../src/runtime";
+import { QubicSimulator } from "../../src/qubic-simulator";
 
 async function compileWat(name: string, wat: string): Promise<Uint8Array> {
   const wabt = await wabtInit();
@@ -44,7 +45,7 @@ async function inputContract(inputSize = 4): Promise<Uint8Array> {
 }
 
 test("dispatch zero-fills a missing registered input byte", async () => {
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await inputContract(1));
 
   expect([...sim.query(28, 1, new Uint8Array([9]))]).toEqual([9, 0, 0, 0]);
@@ -52,7 +53,7 @@ test("dispatch zero-fills a missing registered input byte", async () => {
 });
 
 test("dispatch pads short inputs and truncates oversized inputs", async () => {
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   const contract = sim.deploy(28, await inputContract());
 
   expect([...sim.query(28, 1, new Uint8Array([1, 2, 3, 4]))]).toEqual([1, 2, 3, 4]);
@@ -66,10 +67,16 @@ test("dispatch pads short inputs and truncates oversized inputs", async () => {
 });
 
 test("system and inter-contract dispatch use registered input sizes", async () => {
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   const contract = sim.deploy(28, await inputContract());
 
-  expect([...contract.invoke(KIND.SYSPROC, SP.BEGIN_EPOCH, new Uint8Array([3]))]).toEqual([
+  expect([
+    ...contract.invoke(
+      CONTRACT_ENTRY_KIND.SYSPROC,
+      SYSTEM_PROCEDURES.BEGIN_EPOCH,
+      new Uint8Array([3]),
+    ),
+  ]).toEqual([
     3,
     0,
     0,

@@ -1,10 +1,14 @@
-// `qinit gtest` — run the authoritative core-lite contract_testing.h style against an isolated virtual node.
+// `qinit gtest` runs core-lite contract_testing.h tests against an isolated simulator.
 import { useEffect, useState } from "react";
 import { Box, Text, Static, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { loadConfig, resolveCore } from "../config";
+import {
+  loadConfig,
+  resolveCompilerBackend,
+  resolveCoreDir,
+} from "../config";
 import { genStdGtest, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compile";
 import type { TestResult } from "@qinit/engine";
@@ -73,17 +77,16 @@ export function Gtest({ args }: { args: string[] }) {
 
     (async () => {
       try {
-        const core = resolveCore(o.core, cfg.core);
+        const core = resolveCoreDir(o["core-dir"], cfg.coreDir);
+        const backend = resolveCompilerBackend(o);
 
-        // Run a real core-lite contract_testing.h suite on an isolated engine.
-        // The contract can use native Clang or the local TypeScript compiler.
+        // Run a core-lite contract_testing.h suite on an isolated engine.
         if ("corpus" in o) {
           const scName = o.corpus || pos[0];
           if (!scName) {
             add("corpus", false, "pass a system contract name, e.g. --corpus QUTIL");
             return done(false, []);
           }
-          const backend = "local" in o ? "local" : "native";
           spin(`building the real gtest for ${scName} (${backend})`);
           const run = await runCorpus({
             name: scName,
@@ -91,7 +94,7 @@ export function Gtest({ args }: { args: string[] }) {
             backend,
             scratch: join(tmpdir(), "qinit-corpus"),
             onResult,
-            onPhase: backend === "local" ? (label) => spin(label) : undefined,
+            onPhase: backend === "typescript" ? (label) => spin(label) : undefined,
           });
           if (!run.found) {
             add("corpus", false, `unknown contract '${scName}'`);
@@ -113,7 +116,7 @@ export function Gtest({ args }: { args: string[] }) {
           if (ctiming) note(`  compile   ${ctiming}`);
           return done(ok, [
             ["contract", `${run.name} @ ${run.slot}${run.heavy ? " (heavy/shared-mem)" : ""}`],
-            ["backend", backend === "local" ? "local TS compiler" : "native clang"],
+            ["backend", backend === "typescript" ? "TypeScript compiler" : "clang"],
             ["test", `real gtest — ${run.name.toLowerCase()} suite`],
             ["node", "in-process engine (isolated genesis)"],
           ]);
@@ -121,13 +124,18 @@ export function Gtest({ args }: { args: string[] }) {
 
         // One accepted source format: core-lite contract_testing.h / ContractTesting.
         const contractPath = resolve(
-          o.contract ?? cfg.contract ?? "contracts/" + (cfg.name ?? "") + ".h",
+          o.contract ??
+            cfg.contract ??
+            "contracts/" + (cfg.contractName ?? "") + ".h",
         );
         if (!existsSync(contractPath)) {
           add("contract", false, contractPath + " not found");
           return done(false, []);
         }
-        const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
+        const name =
+          o["contract-name"] ??
+          cfg.contractName ??
+          basename(contractPath).replace(/\.[^.]+$/, "");
         const stateType = o["state-type"] ?? name;
         const slot = Number.isFinite(Number(o.slot)) ? Number(o.slot) : 100; // above the system range (1-28) for dep ordering
         const contractSrc = readFileSync(contractPath, "utf8");
@@ -144,7 +152,6 @@ export function Gtest({ args }: { args: string[] }) {
           add("scaffold", true, `${testPath.replace(process.cwd() + "/", "")} (core-lite)`);
         }
 
-        const backend = "local" in o ? "local" : "native";
         spin(`building the gtest for ${name} (${backend})`);
         const run = await runStdGtest({
           contractPath,
@@ -157,7 +164,7 @@ export function Gtest({ args }: { args: string[] }) {
           shared: "shared-mem" in o,
           scratch: join(tmpdir(), "qinit-corpus"),
           onResult,
-          onPhase: backend === "local" ? (label) => spin(label) : undefined,
+          onPhase: backend === "typescript" ? (label) => spin(label) : undefined,
         });
         if (!run.runnerOk) {
           add("build", false, "test-wasm build failed");
@@ -171,7 +178,7 @@ export function Gtest({ args }: { args: string[] }) {
         add("tests", ok, `${pass}/${rr.length} passed`);
         return done(ok, [
           ["contract", `${name} @ ${slot}${run.heavy ? " (shared-mem)" : ""}`],
-          ["backend", backend === "local" ? "local TS compiler" : "native clang"],
+          ["backend", backend === "typescript" ? "TypeScript compiler" : "clang"],
           ["test", testPath.replace(process.cwd() + "/", "")],
           ["node", "in-process engine (isolated genesis)"],
         ]);

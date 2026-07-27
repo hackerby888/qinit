@@ -1,5 +1,5 @@
-// TxPool (txs.ts) in isolation — no Sim. The per-tick tx history + tx-by-id index + the mempool scheduling
-// extracted from the Sim god object. Pure storage: no money/contract logic.
+// TxPool (txs.ts) in isolation — no QubicSimulator. The per-tick tx history + tx-by-id index + the mempool scheduling
+// extracted from the simulator. Pure storage: no money/contract logic.
 import { test, expect } from "bun:test";
 import { TxPool, type TxRecord, type QueuedTx } from "../../src/txs";
 

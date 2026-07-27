@@ -2,7 +2,7 @@
 import { test, expect, beforeAll } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, toHex, verifySync } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 import { rootFromSiblings } from "../../src/merkle";
 import { tickVoteMessage, tickVoteSignature } from "../../src/consensus";
 import { Tick, M256i } from "../../src/wire";
@@ -20,7 +20,7 @@ beforeAll(async () => {
 // prev*Digest field — the generalized form of verifyEntityProof's spectrum check, for any of the three roots.
 function signedVotesCommitting(
   votes: Tick[],
-  committee: ReturnType<Sim["getCommittee"]>,
+  committee: ReturnType<QubicSimulator["getCommittee"]>,
   field: "prevSpectrumDigest" | "prevUniverseDigest" | "prevComputerDigest",
   expected: Uint8Array,
 ): number {
@@ -42,8 +42,10 @@ function signedVotesCommitting(
 
 // A tick that mutates all three sub-states: fund two entities (spectrum), issue an asset (universe), deploy a
 // contract (computer), then finalize so the votes commit the post-mutation roots.
-async function loadedTick(): Promise<Sim> {
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+async function loadedTick(): Promise<QubicSimulator> {
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
   sim.fund(A, 5000n);
   sim.fund(B, 100n); // a second entity so A's spectrum path carries real siblings
 
@@ -60,7 +62,7 @@ async function loadedTick(): Promise<Sim> {
 test("the spectrum root: proof reconstruction == spectrumDigest == a quorum of signed votes", async () => {
   const sim = await loadedTick();
   const committee = sim.getCommittee();
-  const rec = sim.tickRecord(sim.tickN)!;
+  const rec = sim.tickRecord(sim.currentTick)!;
 
   const proof = sim.spectrumProof(A);
   const root = rootFromSiblings(proof.record, proof.index, proof.siblings);
@@ -73,7 +75,7 @@ test("the spectrum root: proof reconstruction == spectrumDigest == a quorum of s
 test("the universe root: an asset holding proof == universeDigest == a quorum of signed votes", async () => {
   const sim = await loadedTick();
   const committee = sim.getCommittee();
-  const rec = sim.tickRecord(sim.tickN)!;
+  const rec = sim.tickRecord(sim.currentTick)!;
 
   const owned = sim.universeProofOwned(contractId(28));
   expect(owned.length).toBe(1);
@@ -88,7 +90,7 @@ test("the universe root: an asset holding proof == universeDigest == a quorum of
 test("the computer root: computerDigest is committed by a quorum of signed votes", async () => {
   const sim = await loadedTick();
   const committee = sim.getCommittee();
-  const rec = sim.tickRecord(sim.tickN)!;
+  const rec = sim.tickRecord(sim.currentTick)!;
 
   const root = sim.computerDigest();
   expect(
@@ -99,7 +101,7 @@ test("the computer root: computerDigest is committed by a quorum of signed votes
 test("a tampered asset record fails the universe digest chain (no votes commit the forged root)", async () => {
   const sim = await loadedTick();
   const committee = sim.getCommittee();
-  const rec = sim.tickRecord(sim.tickN)!;
+  const rec = sim.tickRecord(sim.currentTick)!;
 
   const proof = sim.universeProofOwned(contractId(28))[0];
   const forged = proof.record.slice();

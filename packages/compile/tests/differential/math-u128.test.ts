@@ -5,7 +5,7 @@ import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
 import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { Sim, runContractTesting, type TestResult } from "@qinit/engine";
+import { QubicSimulator, runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -230,19 +230,19 @@ const U128_FIELDS = [
 ] as const;
 
 describe("safe-math + uint128 semantics vs BigInt reference", () => {
-  let sim: Sim;
+  let sim: QubicSimulator;
 
   beforeAll(async () => {
     await initK12();
     const mine = await compileContract({
       source: SRC,
-      name: "M128",
+      contractName: "M128",
       slot: 6,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-    sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(6, mine.wasm);
   });
 
@@ -446,10 +446,10 @@ describe("differential gtest — safe-math saturation + uint128 boundaries", () 
 
     const mine = await compileContract({
       source: SRC,
-      name: "M128",
+      contractName: "M128",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

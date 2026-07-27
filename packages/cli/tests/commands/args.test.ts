@@ -87,12 +87,16 @@ test("parseCommandArgs: definitions come from command metadata", () => {
     "--callee",
     "A=a.h@1",
     "--callee=B=b.h@2",
-    "--local",
+    "--compiler",
+    "typescript",
+    "--contract-name",
+    "Counter",
   ]);
 
   expect(parsed.pos).toEqual(["Counter.h"]);
   expect(parsed.flags.rpc).toBe("http://x");
-  expect(parsed.flags.local).toBe("");
+  expect(parsed.flags.compiler).toBe("typescript");
+  expect(parsed.flags["contract-name"]).toBe("Counter");
   expect(parsed.multi.callee).toEqual(["A=a.h@1", "B=b.h@2"]);
 });
 

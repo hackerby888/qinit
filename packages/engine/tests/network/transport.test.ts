@@ -15,8 +15,8 @@ import {
   encodeUploadBegin,
   encodeUploadChunk,
   encodeDeploy,
-  chunkSo,
-  newSessionId,
+  splitUploadChunks,
+  createUploadSessionId,
   LITE_TX,
 } from "@qinit/proto";
 import { VirtualNode } from "../../src/transport";
@@ -44,7 +44,7 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
   const eng = await VirtualNode.create({ mempool: false }); // assert apply immediately (not mempool scheduling)
   eng.deploy(28, await wasm("Counter"), "Counter");
 
-  // dynRegistry exposes the contract + its fn/proc inputTypes (what resolveSlot / the client read)
+  // The registry exposes the entry input types used by deployment and clients.
   const reg = await eng.dynRegistry();
   const c = reg.contracts.find((x) => x.index === 28)!;
   expect(c.armed && c.constructed).toBe(true);
@@ -54,7 +54,14 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
 
   // Get (function) via querySmartContract + the real proto decode
   expect(
-    await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64"),
+    await decodeOutput(
+      await eng.querySmartContract(
+        28,
+        1,
+        await encodeInput(""),
+      ),
+      "uint64",
+    ),
   ).toBe(0n);
 
   // Inc (procedure) via a REAL @qubic-lib signed tx -> broadcastTx (validates the engine decodes the real wire)
@@ -68,7 +75,14 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
   expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
 
   expect(
-    await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64"),
+    await decodeOutput(
+      await eng.querySmartContract(
+        28,
+        1,
+        await encodeInput(""),
+      ),
+      "uint64",
+    ),
   ).toBe(1n);
 });
 
@@ -76,8 +90,8 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
   const eng = await VirtualNode.create({ mempool: false }); // assert apply immediately (not mempool scheduling)
   const so = await wasm("DigestProbe");
   const finalHashHex = await k12Hex(so);
-  const sessionId = newSessionId();
-  const chunks = chunkSo(so);
+  const sessionId = createUploadSessionId();
+  const chunks = splitUploadChunks(so);
 
   await eng.broadcastTx(
     wrapTx(
@@ -111,11 +125,25 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
 
   // Exercise the wire-deployed contract + reproduce the cross-platform digest oracle through the seam.
   expect(
-    await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64"),
+    await decodeOutput(
+      await eng.querySmartContract(
+        29,
+        1,
+        await encodeInput(""),
+      ),
+      "uint64",
+    ),
   ).toBe(0n);
   await eng.broadcastTx(wrapTx(1, new Uint8Array(0), contractAddress(29))); // Inc (procedure it=1)
   expect(
-    await decodeOutput(await eng.querySmartContract(29, 1, await encodeInput("")), "uint64"),
+    await decodeOutput(
+      await eng.querySmartContract(
+        29,
+        1,
+        await encodeInput(""),
+      ),
+      "uint64",
+    ),
   ).toBe(1n);
   expect(eng.sim.digest(29)).toBe(ORACLE);
 });
@@ -190,7 +218,14 @@ test("signature verification (opt-in): valid signed tx accepted, tampered one re
   });
   expect((await eng.broadcastTx(tx.bytes)).ok).toBe(true);
   expect(
-    await decodeOutput(await eng.querySmartContract(28, 1, await encodeInput("")), "uint64"),
+    await decodeOutput(
+      await eng.querySmartContract(
+        28,
+        1,
+        await encodeInput(""),
+      ),
+      "uint64",
+    ),
   ).toBe(1n); // applied
 
   const bad = tx.bytes.slice();
@@ -227,11 +262,11 @@ test("broadcastTx reports moneyFlew + queued for an applied transfer (the IDE re
   expect((await eng.broadcastTx(broke.bytes)).moneyFlew).toBe(false); // unfunded sender -> no money moved
 });
 
-test("VirtualNode re-exposes the direct engine ops (procedure/query/digests) matching sim", async () => {
+test("VirtualNode exposes the simulator's direct procedure, query, and digest operations", async () => {
   const eng = await VirtualNode.create({ fees: "off" });
   eng.deploy(28, await wasm("Counter"), "Counter");
 
-  expect(await decodeOutput(eng.query(28, 1), "uint64")).toBe(0n); // direct query (instant, no tx)
+  expect(await decodeOutput(eng.query(28, 1), "uint64")).toBe(0n);
   eng.procedure(28, 1); // direct Inc (instant, no signing)
   expect(await decodeOutput(eng.query(28, 1), "uint64")).toBe(1n);
 

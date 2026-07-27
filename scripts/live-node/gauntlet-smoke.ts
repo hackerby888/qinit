@@ -10,13 +10,13 @@ import {
   identityToBytes,
 } from "../../packages/core/src/index";
 
-const rpcBase = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
+const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;
 if (!core) {
   console.error("QINIT_CORE not set");
   process.exit(2);
 }
-const rpc = new LiteRpc(rpcBase);
+const rpc = new LiteRpc(rpcBaseUrl);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const fail = (message: string) => {
   console.error("GAUNTLET FAIL: " + message);
@@ -51,39 +51,39 @@ const le8 = (value: bigint) => {
 };
 
 let contractSlot = 0;
-const call = (fnId: number, inFmt: string, outFmt: string) =>
-  callFunction(rpc, contractSlot, fnId, inFmt, outFmt);
-async function invoke(procId: number, inFmt: string, opts: { amount?: number; seed?: string } = {}) {
+const call = (functionId: number, inputFormat: string, outputFormat: string) =>
+  callFunction(rpc, contractSlot, functionId, inputFormat, outputFormat);
+async function invoke(procedureId: number, inputFormat: string, opts: { amount?: number; seed?: string } = {}) {
   const seed = opts.seed ?? (await rpc.fundedSeed()) ?? "a".repeat(55);
   const tickInfo: any = await rpc.tickInfo();
   const tick = (tickInfo.tick ?? tickInfo.currentTick ?? 0) + 6;
   const result: any = await invokeProcedure({
     seed,
-    rpcBase,
+    rpcBaseUrl,
     contractIndex: contractSlot,
-    procId,
+    procedureId,
     amount: opts.amount ?? 0,
-    inFmt,
+    inputFormat,
     tick,
     confirm: true,
     rpc,
   });
   if (!result.ok || !result.confirmed || !result.included) {
-    fail(`proc ${procId} not confirmed/included: ${JSON.stringify(result)}`);
+    fail(`proc ${procedureId} not confirmed/included: ${JSON.stringify(result)}`);
   }
 }
 
 // poll a single-field read until it equals want (procedures land a few ticks after confirm)
 async function pollUntilEqual(
-  fnId: number,
-  inFmt: string,
-  outFmt: string,
+  functionId: number,
+  inputFormat: string,
+  outputFormat: string,
   want: bigint,
   label: string,
 ) {
   for (let i = 0; i < 12; i++) {
     try {
-      if (BigInt((await call(fnId, inFmt, outFmt)) as any) === want) {
+      if (BigInt((await call(functionId, inputFormat, outputFormat)) as any) === want) {
         expectEqual(want, want, label);
         return;
       }
@@ -92,12 +92,12 @@ async function pollUntilEqual(
   }
 
   // The final attempt produces the precise failure message.
-  expectEqual(await call(fnId, inFmt, outFmt), want, label);
+  expectEqual(await call(functionId, inputFormat, outputFormat), want, label);
 }
 
 console.log("deploy Gauntlet…");
 const dep = await deployContract(
-  { contractPath: resolve("fixtures/Gauntlet.h"), name: "Gauntlet", core, rpcBase },
+  { contractPath: resolve("fixtures/Gauntlet.h"), name: "Gauntlet", core, rpcBaseUrl },
   (event: any) => {
     if (!("note" in event)) {
       console.log(

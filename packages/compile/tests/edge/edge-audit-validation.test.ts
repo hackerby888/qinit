@@ -115,10 +115,10 @@ describe("edge audit — semantic rejection gaps", () => {
     test(name, async () => {
       const result = await compileContract({
         source: c.source,
-        name: "RejectEdge",
+        contractName: "RejectEdge",
         slot: 27,
         qpiHeader: HEADERS,
-        arenaSz: 1 << 20,
+        arenaSizeBytes: 1 << 20,
       });
       const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
 

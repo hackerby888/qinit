@@ -7,17 +7,17 @@ import { buildSnapshot } from "@qinit/build";
 const { values } = parseArgs({
   args: process.argv.slice(2),
   options: {
-    core: { type: "string" },
+    "core-dir": { type: "string" },
     out: { type: "string" },
   },
   strict: true,
 });
 
-if (!values.core || !values.out) {
-  throw new Error("usage: build-core-headers --core <checkout> --out <directory>");
+if (!values["core-dir"] || !values.out) {
+  throw new Error("usage: build-core-headers --core-dir <checkout> --out <directory>");
 }
 
-const core = resolve(values.core);
+const core = resolve(values["core-dir"]);
 const output = resolve(values.out);
 if (!existsSync(join(core, "src", "contracts", "qpi.h"))) {
   throw new Error(`not a core-lite checkout: ${core}`);

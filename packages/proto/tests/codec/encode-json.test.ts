@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { jsonToInputFmt, encodeInputJson, encodeInput, decodeOutput } from "../../src/abi-fmt";
+import {
+  jsonToInputFormat,
+  encodeInputJson,
+  encodeInput,
+  decodeOutput,
+} from "../../src/abi-fmt";
 import { callFunction } from "../../src/call";
 import {
   AbiScalarKind,
@@ -8,10 +13,10 @@ import {
   type AbiType,
 } from "../../src/contract-idl";
 
-test("jsonToInputFmt: flat scalars by field name", () => {
-  expect(jsonToInputFmt([{ name: "value", type: "uint64" }], { value: 3 })).toBe("3uint64");
+test("jsonToInputFormat: flat scalars by field name", () => {
+  expect(jsonToInputFormat([{ name: "value", type: "uint64" }], { value: 3 })).toBe("3uint64");
   expect(
-    jsonToInputFmt(
+    jsonToInputFormat(
       [
         { name: "a", type: "uint32" },
         { name: "b", type: "sint64" },
@@ -21,9 +26,9 @@ test("jsonToInputFmt: flat scalars by field name", () => {
   ).toBe("5uint32, -7sint64");
 });
 
-test("jsonToInputFmt: positional array form (order = field order)", () => {
+test("jsonToInputFormat: positional array form (order = field order)", () => {
   expect(
-    jsonToInputFmt(
+    jsonToInputFormat(
       [
         { name: "a", type: "uint8" },
         { name: "b", type: "uint16" },
@@ -33,9 +38,9 @@ test("jsonToInputFmt: positional array form (order = field order)", () => {
   ).toBe("1uint8, 2uint16");
 });
 
-test("jsonToInputFmt: id field passes the identity through", () => {
+test("jsonToInputFormat: id field passes the identity through", () => {
   const id = "A".repeat(60);
-  expect(jsonToInputFmt([{ name: "dst", type: "id" }], { dst: id })).toBe(`${id}id`);
+  expect(jsonToInputFormat([{ name: "dst", type: "id" }], { dst: id })).toBe(`${id}id`);
 });
 
 test("encodeInputJson: the 60-A zero identity hint encodes to the zero id", async () => {
@@ -43,39 +48,39 @@ test("encodeInputJson: the 60-A zero identity hint encodes to the zero id", asyn
   expect(b).toEqual(new Uint8Array(32));
 });
 
-test("jsonToInputFmt: nested struct (positional) + fixed array", () => {
-  expect(jsonToInputFmt([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1, 2] })).toBe(
+test("jsonToInputFormat: nested struct (positional) + fixed array", () => {
+  expect(jsonToInputFormat([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1, 2] })).toBe(
     "{ 1uint64, 2uint32 }",
   );
-  expect(jsonToInputFmt([{ name: "xs", type: "[3;uint64]" }], { xs: [1, 2, 3] })).toBe(
+  expect(jsonToInputFormat([{ name: "xs", type: "[3;uint64]" }], { xs: [1, 2, 3] })).toBe(
     "[3; 1uint64, 2uint64, 3uint64]",
   );
 });
 
-test("jsonToInputFmt: bool -> bit, big numeric string preserved", () => {
-  expect(jsonToInputFmt([{ name: "f", type: "bit" }], { f: true })).toBe("1bit");
-  expect(jsonToInputFmt([{ name: "n", type: "uint64" }], { n: "18446744073709551615" })).toBe(
+test("jsonToInputFormat: bool -> bit, big numeric string preserved", () => {
+  expect(jsonToInputFormat([{ name: "f", type: "bit" }], { f: true })).toBe("1bit");
+  expect(jsonToInputFormat([{ name: "n", type: "uint64" }], { n: "18446744073709551615" })).toBe(
     "18446744073709551615uint64",
   );
 });
 
-test("jsonToInputFmt: uint128 decimal string remains lossless", async () => {
+test("jsonToInputFormat: uint128 decimal string remains lossless", async () => {
   const max = (1n << 128n) - 1n;
-  expect(jsonToInputFmt([{ name: "n", type: "uint128" }], { n: max.toString() })).toBe(
+  expect(jsonToInputFormat([{ name: "n", type: "uint128" }], { n: max.toString() })).toBe(
     `${max}uint128`,
   );
   const b = await encodeInputJson([{ name: "n", type: "uint128" }], { n: max.toString() });
   expect(await decodeOutput(b, "uint128")).toBe(max);
 });
 
-test("jsonToInputFmt: missing field + arity mismatch throw", () => {
-  expect(() => jsonToInputFmt([{ name: "value", type: "uint64" }], {})).toThrow(
+test("jsonToInputFormat: missing field + arity mismatch throw", () => {
+  expect(() => jsonToInputFormat([{ name: "value", type: "uint64" }], {})).toThrow(
     /missing input field 'value'/,
   );
-  expect(() => jsonToInputFmt([{ name: "xs", type: "[2;uint64]" }], { xs: [1] })).toThrow(
+  expect(() => jsonToInputFormat([{ name: "xs", type: "[2;uint64]" }], { xs: [1] })).toThrow(
     /expects 2 elements/,
   );
-  expect(() => jsonToInputFmt([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1] })).toThrow(
+  expect(() => jsonToInputFormat([{ name: "p", type: "{ uint64, uint32 }" }], { p: [1] })).toThrow(
     /expects 2 values/,
   );
 });
@@ -89,18 +94,20 @@ test("encodeInputJson === encodeInput of the equivalent fmt (incl alignment)", a
   expect(b.length).toBe(16);
 });
 
-test("jsonToInputFmt: float value is rejected (BigInt refuses non-integers)", () => {
-  expect(() => jsonToInputFmt([{ name: "n", type: "uint64" }], { n: 3.5 })).toThrow();
+test("jsonToInputFormat: float value is rejected (BigInt refuses non-integers)", () => {
+  expect(() => jsonToInputFormat([{ name: "n", type: "uint64" }], { n: 3.5 })).toThrow();
 });
 
-test("jsonToInputFmt: null/undefined value throws", () => {
-  expect(() => jsonToInputFmt([{ name: "v", type: "uint64" }], { v: null })).toThrow(
+test("jsonToInputFormat: null/undefined value throws", () => {
+  expect(() => jsonToInputFormat([{ name: "v", type: "uint64" }], { v: null })).toThrow(
     /missing value/,
   );
 });
 
-test("jsonToInputFmt: extra JSON keys are ignored (only declared fields used)", () => {
-  expect(jsonToInputFmt([{ name: "a", type: "uint64" }], { a: 1, unrelated: 99 })).toBe("1uint64");
+test("jsonToInputFormat: extra JSON keys are ignored (only declared fields used)", () => {
+  expect(jsonToInputFormat([{ name: "a", type: "uint64" }], { a: 1, unrelated: 99 })).toBe(
+    "1uint64",
+  );
 });
 
 test("encodeInputJson: a bad id surfaces the encode-time validation error", async () => {
@@ -197,7 +204,7 @@ test("typed codec accepts direct scalar and array roots", async () => {
 
   const scalarBytes = await encodeInputJson(scalar, 42n);
   expect(await decodeOutput(scalarBytes, scalar)).toBe(42n);
-  expect(jsonToInputFmt(scalar, 42n)).toBe("42uint64");
+  expect(jsonToInputFormat(scalar, 42n)).toBe("42uint64");
   let captured: number[] = [];
   const rpc = {
     querySmartContract: async (
@@ -222,7 +229,7 @@ test("typed codec accepts direct scalar and array roots", async () => {
 
   const arrayBytes = await encodeInputJson(array, [3, 5, 8]);
   expect(await decodeOutput(arrayBytes, array)).toEqual([3, 5, 8]);
-  expect(jsonToInputFmt(array, [3, 5, 8])).toBe(
+  expect(jsonToInputFormat(array, [3, 5, 8])).toBe(
     "[3; 3uint16, 5uint16, 8uint16]",
   );
 });

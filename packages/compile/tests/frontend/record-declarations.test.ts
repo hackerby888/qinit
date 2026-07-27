@@ -77,7 +77,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   template <typename T> struct Wrapper : Base {};
   struct StateData { Wrapper<uint8> wrapper; };
 };`,
-      name: "NestedTemplateForward",
+      contractName: "NestedTemplateForward",
     });
 
     expect(result.diagnostics).toEqual([]);
@@ -96,7 +96,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   template <typename T> struct Empty {};
   struct StateData : Empty<uint8> { Empty<uint8> member; };
 };`,
-      name: "TemplateEmptyBase",
+      contractName: "TemplateEmptyBase",
     });
 
     expect(result.diagnostics).toEqual([]);
@@ -121,7 +121,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Intermediate : Empty {};
   struct StateData : Intermediate { Empty member; };
 };`,
-      name: "IndirectEmptyBase",
+      contractName: "IndirectEmptyBase",
     });
 
     expect(result.diagnostics).toEqual([]);

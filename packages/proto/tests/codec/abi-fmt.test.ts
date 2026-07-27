@@ -5,7 +5,7 @@ import {
   structFieldOffsets,
   layoutOf,
   parseLayout,
-  zeroInputFmt,
+  zeroInputFormat,
 } from "../../src/abi-fmt";
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -215,16 +215,16 @@ test("repeat shorthand: struct + top-level reps; non-repeat tokens untouched", a
   expect((await encodeInput("ee".repeat(32) + "id")).length).toBe(32); // 64-hex id (no x): unaffected
 });
 
-test("zeroInputFmt: builds a schema-matched all-zero sample (scalar/id/array/struct)", async () => {
-  expect(zeroInputFmt("uint64")).toBe("0uint64");
-  expect(zeroInputFmt("[64; uint64], id")).toBe(`[64; 0uint64 ×64], ${"0".repeat(64)}id`);
-  expect(zeroInputFmt("{ uint32, id }")).toBe(`0uint32, ${"0".repeat(64)}id`); // top-level struct -> implicit field list (no braces, encodeInput-consistent)
-  expect(zeroInputFmt("uint16, uint32")).toBe("0uint16, 0uint32");
-  expect(zeroInputFmt("m256i")).toBe(`${"0".repeat(64)}m256i`);
-  expect(zeroInputFmt("uint128")).toBe("0uint128");
+test("zeroInputFormat: builds a schema-matched all-zero sample (scalar/id/array/struct)", async () => {
+  expect(zeroInputFormat("uint64")).toBe("0uint64");
+  expect(zeroInputFormat("[64; uint64], id")).toBe(`[64; 0uint64 ×64], ${"0".repeat(64)}id`);
+  expect(zeroInputFormat("{ uint32, id }")).toBe(`0uint32, ${"0".repeat(64)}id`); // top-level struct -> implicit field list (no braces, encodeInput-consistent)
+  expect(zeroInputFormat("uint16, uint32")).toBe("0uint16, 0uint32");
+  expect(zeroInputFormat("m256i")).toBe(`${"0".repeat(64)}m256i`);
+  expect(zeroInputFormat("uint128")).toBe("0uint128");
 });
 
-test("zeroInputFmt: the sample is valid input — encodes to exactly the layout size", async () => {
+test("zeroInputFormat: the sample is valid input — encodes to exactly the layout size", async () => {
   for (const fmt of [
     "uint64",
     "uint128",
@@ -234,7 +234,7 @@ test("zeroInputFmt: the sample is valid input — encodes to exactly the layout 
     "m256i",
     "[3; { uint8, uint64 }]",
   ]) {
-    const sample = zeroInputFmt(fmt);
+    const sample = zeroInputFormat(fmt);
     const b = await encodeInput(sample);
     expect(hex(b)).toBe("00".repeat(b.length)); // all zero
     expect(b.length).toBe(layoutOf(fmt).size); // matches the entry's input scheme byte-for-byte

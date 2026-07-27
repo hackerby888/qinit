@@ -10,13 +10,13 @@ import {
   LiteRpc,
 } from "../../packages/core/src/index";
 
-const rpcBase = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
+const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;
 if (!core) {
   console.error("QINIT_CORE not set");
   process.exit(2);
 }
-const rpc = new LiteRpc(rpcBase);
+const rpc = new LiteRpc(rpcBaseUrl);
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const fail = (message: string) => {
   console.error("SMOKE FAIL: " + message);
@@ -32,7 +32,7 @@ const readCounterValue = async (slot: number): Promise<bigint> => {
 
 console.log("deploy Counter…");
 const counterDeployment = await deployContract(
-  { contractPath: resolve("fixtures/Counter.h"), name: "Counter", core, rpcBase },
+  { contractPath: resolve("fixtures/Counter.h"), name: "Counter", core, rpcBaseUrl },
   (event: any) => {
     if (!("note" in event)) {
       console.log(
@@ -73,11 +73,11 @@ const tick = (tickInfo.tick ?? tickInfo.currentTick ?? 0) + 6;
 console.log("Inc @tick", tick);
 const invocation: any = await invokeProcedure({
   seed,
-  rpcBase,
+  rpcBaseUrl,
   contractIndex: counterSlot,
-  procId: 1,
+  procedureId: 1,
   amount: 0,
-  inFmt: "",
+  inputFormat: "",
   tick,
   confirm: true,
   rpc,
@@ -125,7 +125,7 @@ if (!debugOk) {
 // Deploy Logger and verify that Emit(2) produces a decoded INFO log.
 console.log("deploy Logger…");
 const loggerDeployment = await deployContract(
-  { contractPath: resolve("fixtures/Logger.h"), name: "Logger", core, rpcBase },
+  { contractPath: resolve("fixtures/Logger.h"), name: "Logger", core, rpcBaseUrl },
   (event: any) => {
     if (!("note" in event)) {
       console.log(
@@ -156,11 +156,11 @@ const loggerTick = (loggerTickInfo.tick ?? loggerTickInfo.currentTick ?? 0) + 6;
 console.log("Emit(2) @tick", loggerTick);
 const loggerInvocation: any = await invokeProcedure({
   seed,
-  rpcBase,
+  rpcBaseUrl,
   contractIndex: loggerSlot,
-  procId: 1,
+  procedureId: 1,
   amount: 0,
-  inFmt: "2uint64",
+  inputFormat: "2uint64",
   tick: loggerTick,
   confirm: true,
   rpc,

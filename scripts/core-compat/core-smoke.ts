@@ -54,8 +54,8 @@ function required(
 const { values } = parseArgs({
   args: process.argv.slice(2),
   options: {
-    core: { type: "string" },
-    bin: { type: "string" },
+    "core-dir": { type: "string" },
+    "node-bin": { type: "string" },
     platform: { type: "string" },
     result: { type: "string" },
     "qinit-bin": { type: "string" },
@@ -67,8 +67,8 @@ const { values } = parseArgs({
 
 const parsed = values as Record<string, string | undefined>;
 const qinitRoot = resolve(import.meta.dir, "../..");
-const core = resolve(required(parsed, "core"));
-const nodeBin = resolve(required(parsed, "bin"));
+const core = resolve(required(parsed, "core-dir"));
+const nodeBinaryPath = resolve(required(parsed, "node-bin"));
 const qinitBin = resolve(
   parsed["qinit-bin"] ??
     process.env.QINIT_BIN ??
@@ -81,8 +81,8 @@ const qinitRepository =
 const coreRepository =
   parsed["core-repository"] ?? repositories.coreLite.repository;
 
-if (!existsSync(nodeBin)) {
-  throw new Error(`node binary not found: ${nodeBin}`);
+if (!existsSync(nodeBinaryPath)) {
+  throw new Error(`node binary not found: ${nodeBinaryPath}`);
 }
 if (!existsSync(qinitBin)) {
   throw new Error(`qinit binary not found: ${qinitBin}`);
@@ -139,11 +139,12 @@ try {
       qinitBin,
       "node",
       "run",
-      "--real",
-      "--core",
+      "--node-backend",
+      "core",
+      "--core-dir",
       core,
-      "--bin",
-      nodeBin,
+      "--node-bin",
+      nodeBinaryPath,
       "--restart",
       "--keep",
       "--wait",
@@ -174,11 +175,12 @@ try {
         qinitBin,
         "node",
         "run",
-        "--real",
-        "--core",
+        "--node-backend",
+        "core",
+        "--core-dir",
         core,
-        "--bin",
-        nodeBin,
+        "--node-bin",
+        nodeBinaryPath,
         "--restart",
         "--wait",
         "150",
@@ -196,16 +198,18 @@ try {
       [
         qinitBin,
         "test",
-        "--real",
-        "--native",
-        "--core",
+        "--node-backend",
+        "core",
+        "--compiler",
+        "clang",
+        "--core-dir",
         core,
-        "--bin",
-        nodeBin,
-        "--keep",
+        "--node-bin",
+        nodeBinaryPath,
+        "--keep-node",
         "--contract",
         "contracts/DigestProbe.h",
-        "--name",
+        "--contract-name",
         "DigestProbe",
         "--skip-verify",
         "--timeout",

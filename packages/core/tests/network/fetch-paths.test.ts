@@ -13,7 +13,7 @@ import {
   wasiSdkDir,
   wasiSdkPaths,
   haveWasiSdkCache,
-  verifyPlatformKey,
+  releasePlatformKey,
   CLI_REPO,
   cliAssetName,
   cliReleaseUrls,
@@ -104,11 +104,11 @@ test("explicit toolchain overrides do not masquerade as a fetched SDK cache", ()
   expect(haveWasiSdkCache()).toBe(false);
 });
 
-test("verifyPlatformKey is <os>-<arch> for this host", () => {
+test("releasePlatformKey is <os>-<arch> for this host", () => {
   const os =
     process.platform === "darwin" ? "darwin" : process.platform === "win32" ? "windows" : "linux";
   const arch = process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : process.arch;
-  expect(verifyPlatformKey()).toBe(`${os}-${arch}`);
+  expect(releasePlatformKey()).toBe(`${os}-${arch}`);
 });
 
 test("cliAssetName / cliReleaseUrls: per-host asset shape", () => {

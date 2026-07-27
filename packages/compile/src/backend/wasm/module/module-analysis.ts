@@ -7,7 +7,7 @@ import type {
     StructDecl,
 } from "../../../ast";
 import type { QpiContextLayout } from "../../../framework";
-import type { Sema } from "../../../sema";
+import type { SemanticAnalyzer } from "../../../semantic-analyzer";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import type { ResolvedCalleeIdl } from "../../../analysis/types";
 import {
@@ -54,7 +54,7 @@ export interface PrepareContractModuleRequest {
     translationUnit: {
         declarations: Declaration[];
     };
-    semanticAnalysis: Sema;
+    semanticAnalysis: SemanticAnalyzer;
     contractSlot: number;
     libraryIndex?: LibrarySymbolIndex;
     callees?: ContractIdl[];
@@ -145,7 +145,7 @@ export function prepareContractModule(
 }
 
 export function createModuleProgramAnalysis(
-    semanticAnalysis: Sema,
+    semanticAnalysis: SemanticAnalyzer,
     gtestMode: boolean,
     callees: ContractIdl[] | undefined,
     calleeStructs: Map<string, StructDecl> | undefined,

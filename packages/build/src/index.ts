@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import {
   compileWasmContract,
   WASM_CONTRACT_TESTING_HEADER,
-  type BuildOpts,
+  type ContractBuildOptions,
 } from "./recipe";
 // Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
 import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
@@ -19,8 +19,8 @@ import { k12Hex } from "@qinit/core";
 import { analyzeContract } from "@qinit/compile/analyzer";
 import { loadQpiHeader } from "@qinit/compile";
 
-export type { BuildOpts } from "./recipe";
-export { genWrapperWasm } from "./recipe";
+export type { ContractBuildOptions } from "./recipe";
+export { generateWasmWrapperSource } from "./recipe";
 export { buildCalleePrelude, parseRegisters, scanCallees, parseContractDef } from "./intercontract";
 export type { DynCallees, CalleeDef } from "./intercontract";
 export { extractIdl } from "./idl";
@@ -34,20 +34,22 @@ export type { SnapshotOptions, SnapshotResult } from "./snapshot";
 export { verifyContract, resolveVerifyTool } from "./verify";
 export type { VerifyResult } from "./verify";
 
-export interface BuildResult {
+export interface ContractBuildResult {
   ok: boolean;
-  so?: string;     // path to the built wasm module (kept the `so` name: the artifact the deploy path uploads)
-  size?: number;
-  hash?: string;
+  wasmPath?: string;
+  wasmSizeBytes?: number;
+  wasmK12DigestHex?: string;
   idl?: ContractIdl;
   verify?: VerifyResult;
-  debugWasm?: string;   // -g DWARF sidecar (deployed wasm is stripped)
-  linesJson?: string;   // {fileOffset -> file:line:func} map for source-mapped trap backtraces
+  debugWasmPath?: string; // -g DWARF sidecar (deployed wasm is stripped)
+  lineMapPath?: string;   // {fileOffset -> file:line:func} map for source-mapped trap backtraces
   stderr?: string;
   idlError?: string;    // set (instead of silently dropping idl) when extractIdl throws on a compiled contract
 }
 
-export async function buildContract(o: BuildOpts): Promise<BuildResult> {
+export async function buildContractWithWasiClang(
+  o: ContractBuildOptions,
+): Promise<ContractBuildResult> {
   const source = readFileSync(o.contractPath, "utf8");
   let qpiHeader: string | undefined;
   let qpiHeaderError: string | undefined;
@@ -62,7 +64,7 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   // qpi.h restrictions. Skipped (not failed) when the verify tool isn't synced on this box.
   const calls = analyzeContract({
     source,
-    name: o.stateType ?? o.name,
+    contractName: o.stateType ?? o.name,
     slot: o.slot,
     qpiHeader,
   }).calls;
@@ -101,13 +103,21 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   // Compile the contract to a wasm module (run by the node's WAMR engine). One platform-independent
   // artifact, deployed via the chunked-upload path (the node magic-sniffs '\0asm' -> wasm engine).
   const compiled = await compileWasmContract({ ...o, calleePrelude });
-  if (!compiled.ok) return { ok: false, so: compiled.wasm, stderr: compiled.stderr };
-  const size = statSync(compiled.wasm).size;
-  let hash: string | undefined;
+  if (!compiled.ok) {
+    return {
+      ok: false,
+      wasmPath: compiled.wasm,
+      stderr: compiled.stderr,
+    };
+  }
+  const wasmSizeBytes = statSync(compiled.wasm).size;
+  let wasmK12DigestHex: string | undefined;
   try {
-    hash = await k12Hex(new Uint8Array(readFileSync(compiled.wasm)));
+    wasmK12DigestHex = await k12Hex(
+      new Uint8Array(readFileSync(compiled.wasm)),
+    );
   } catch {
-    hash = undefined;
+    wasmK12DigestHex = undefined;
   }
   let idl: ContractIdl | undefined;
   let idlError: string | undefined;
@@ -125,14 +135,14 @@ export async function buildContract(o: BuildOpts): Promise<BuildResult> {
   }
   return {
     ok: true,
-    so: compiled.wasm,
-    size,
-    hash,
+    wasmPath: compiled.wasm,
+    wasmSizeBytes,
+    wasmK12DigestHex,
     idl,
     idlError,
     verify,
-    debugWasm: compiled.debugWasm,
-    linesJson: compiled.linesJson,
+    debugWasmPath: compiled.debugWasmPath,
+    lineMapPath: compiled.lineMapPath,
   };
 }
 
@@ -146,8 +156,8 @@ export async function buildCorpusRunner(o: {
   slot: number;
   corePath: string;
   outDir: string;
-  arenaSz?: number;
-}): Promise<BuildResult> {
+  arenaSizeBytes?: number;
+}): Promise<ContractBuildResult> {
   const raw = (await readFile(o.corpusPath, "utf8")).replace(/^﻿/, "");
 
   const testSource = raw
@@ -175,17 +185,17 @@ export async function buildCorpusRunner(o: {
     const contractSrc = readFileSync(o.contractPath, "utf8");
     calleePrelude = buildCalleePrelude(o.corePath, `${contractSrc}\n${testSource}`, {}, o.stateType);
   } catch {
-    // Fall back to buildContract's contract-only derivation.
+    // Fall back to buildContractWithWasiClang's contract-only derivation.
   }
 
-  return buildContract({
+  return buildContractWithWasiClang({
     contractPath: o.contractPath,
     name: o.name,
     stateType: o.stateType,
     slot: o.slot,
     corePath: o.corePath,
     outDir: o.outDir,
-    arenaSz: o.arenaSz ?? 8 * 1024 * 1024,
+    arenaSizeBytes: o.arenaSizeBytes ?? 8 * 1024 * 1024,
     skipVerify: true,
     testSource,
     testPath: basename(o.corpusPath),
@@ -194,19 +204,19 @@ export async function buildCorpusRunner(o: {
   });
 }
 
-// System contracts use sysproc macros unsupported by the verifier, so buildContract skips verification.
+// System contracts use sysproc macros unsupported by the verifier, so the build skips verification.
 export async function buildSystemContract(
   name: string,
   corePath: string,
   opts: { outDir?: string; wasmClang?: string; wasmSysroot?: string } = {},
-): Promise<BuildResult & { index?: number }> {
+): Promise<ContractBuildResult & { index?: number }> {
   const catalog = systemContracts(corePath);
   const contract = catalog.find((entry) => entry.name.toLowerCase() === name.toLowerCase());
   if (!contract) {
     return { ok: false, stderr: `unknown system contract '${name}' — have: ${catalog.map((x) => x.name).join(", ")}` };
   }
 
-  const result = await buildContract({
+  const result = await buildContractWithWasiClang({
     contractPath: join(corePath, "src", "contracts", contract.file),
     name: contract.name,
     stateType: contract.stateType,

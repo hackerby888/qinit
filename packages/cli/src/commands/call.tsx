@@ -9,13 +9,13 @@ import {
   formatTrapBacktrace,
   type DebugEntry,
 } from "@qinit/core";
-import { scratchDir } from "../node-ops";
+import { activeNodeScratchDir } from "../node-ops";
 import {
   callFunction,
   invokeProcedure,
   encodeInput,
   encodeInputJson,
-  zeroInputFmt,
+  zeroInputFormat,
   TX_TICK_OFFSET,
 } from "@qinit/proto";
 import {
@@ -47,7 +47,7 @@ type Trace = { e: DebugEntry; name: string; view: TraceData };
 type Confirm = { start: number; net: number; target: number };
 
 // Non-interactive forms (qubic-cli style):
-//   qinit call --fn   <idx> <fnId>   --in "<fmt>" --out "<fmt>"
+//   qinit call --fn   <idx> <functionId>   --in "<fmt>" --out "<fmt>"
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function Call({ args }: { args: string[] }) {
@@ -69,13 +69,13 @@ export function Call({ args }: { args: string[] }) {
       ? { mode, idx: parsed.pos[0], entry: parsed.pos[1] }
       : {}),
   };
-  const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   if (o.mode !== "fn" && o.mode !== "proc")
-    return <CallInteractive rpcBase={rpcBase} seed={o.seed} />;
-  return <CallOneShot o={o} rpcBase={rpcBase} />;
+    return <CallInteractive rpcBaseUrl={rpcBaseUrl} seed={o.seed} />;
+  return <CallOneShot o={o} rpcBaseUrl={rpcBaseUrl} />;
 }
 
-function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: string }) {
+function CallOneShot({ o, rpcBaseUrl }: { o: Record<string, string>; rpcBaseUrl: string }) {
   const { exit } = useApp();
   const [result, setResult] = useState<Result | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
@@ -86,7 +86,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
   useEffect(() => {
     (async () => {
       try {
-        const rpc = new LiteRpc(rpcBase);
+        const rpc = new LiteRpc(rpcBaseUrl);
         const idlFile = loadContractIdlFile();
 
         // contract: resolve a name or index across user-deployed (first) then built-in system contracts.
@@ -159,7 +159,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
                   entryIdl.input.fields.length === 0
                 )
               ) {
-                z = zeroInputFmt(entryIdl.input);
+                z = zeroInputFormat(entryIdl.input);
               }
             } catch {}
             throw new Error(
@@ -200,7 +200,7 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           if (!raw) return undefined;
           try {
             const lineMapPath = localContractIdl?.linesJson;
-            const log = join(scratchDir(), "node.log");
+            const log = join(activeNodeScratchDir(), "node.log");
             if (existsSync(log)) {
               const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), { lineMapPath });
               if (bt?.frames.length) return formatTrapBacktrace(bt);
@@ -232,9 +232,9 @@ function CallOneShot({ o, rpcBase }: { o: Record<string, string>; rpcBase: strin
           const settle = o["no-settle"] === undefined; // default: wait until the proc actually ran; --no-settle to skip
           const r = await invokeProcedure({
             seed: await resolveSeed(rpc, o.seed),
-            rpcBase,
+            rpcBaseUrl: rpcBaseUrl,
             contractIndex: idx,
-            procId: entry,
+            procedureId: entry,
             amount: Number(o.amount ?? 0),
             input,
             tick,

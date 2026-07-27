@@ -11,7 +11,7 @@ export function genStdGtest(idl: ContractIdl, name: string, stateType: string = 
 
   const head = [
     `// Standard gtest for ${name} (core-lite contract_testing.h) — the real Qubic SC-test format.`,
-    `// Run: \`qinit gtest\` (native clang) or \`qinit gtest --local\` (our TS compiler). Each TEST builds a fresh`,
+    `// Run: \`qinit gtest --compiler clang\` or \`qinit gtest --compiler typescript\`. Each TEST builds a fresh`,
     `// ContractTesting${name}, whose ctor resets an isolated genesis ledger and re-runs INITIALIZE.`,
     `#define NO_UEFI`,
     ``,

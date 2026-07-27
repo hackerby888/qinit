@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim, VirtualNode } from "@qinit/engine";
+import { QubicSimulator, VirtualNode } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
@@ -37,10 +37,10 @@ describe("QPI LOG_* lowering", () => {
   test("emits all native severity imports with bytes before _terminator", async () => {
     const result = await compileContract({
       source: SOURCE,
-      name: "Logging",
+      contractName: "Logging",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const imports = WebAssembly.Module.imports(new WebAssembly.Module(result.wasm as BufferSource));
@@ -48,7 +48,7 @@ describe("QPI LOG_* lowering", () => {
     expect(imports.some((i) => i.module === "lhost" && i.name === "pauseLog")).toBe(true);
     expect(imports.some((i) => i.module === "lhost" && i.name === "resumeLog")).toBe(true);
 
-    const sim = new Sim();
+    const sim = new QubicSimulator();
     sim.setDebug(true);
     sim.deploy(28, result.wasm);
     sim.procedure(28, 1, Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0));
@@ -61,10 +61,10 @@ describe("QPI LOG_* lowering", () => {
   test("the same import persists native records on VirtualNode", async () => {
     const result = await compileContract({
       source: SOURCE,
-      name: "Logging",
+      contractName: "Logging",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     const node = new VirtualNode({ mempool: false, fees: "off" });
     node.deploy(28, result.wasm, "Logging");
@@ -78,8 +78,8 @@ describe("QPI LOG_* lowering", () => {
       Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0),
       "tx",
     );
-    node.logger.finalizeTick(node.sim.tickN);
-    const range = node.logger.range(node.sim.tickN, 0);
+    node.logger.finalizeTick(node.sim.currentTick);
+    const range = node.logger.range(node.sim.currentTick, 0);
     expect(range).toEqual({ fromLogId: 0n, length: 4n });
     const records = node.logger.recordsBetween(0n, 3n)!;
     expect(new DataView(records.buffer).getUint32(26, true)).toBe(28);
@@ -92,10 +92,10 @@ describe("QPI LOG_* lowering", () => {
     );
     const result = await compileContract({
       source,
-      name: "BadLogging",
+      contractName: "BadLogging",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     expect(
       result.diagnostics.some(
@@ -106,10 +106,10 @@ describe("QPI LOG_* lowering", () => {
     const missing = SOURCE.replace("sint8 _terminator;", "sint8 end;");
     const missingResult = await compileContract({
       source: missing,
-      name: "MissingTerminator",
+      contractName: "MissingTerminator",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     expect(
       missingResult.diagnostics.some(
@@ -120,10 +120,10 @@ describe("QPI LOG_* lowering", () => {
     const scalar = SOURCE.replace("LOG_ERROR(locals.message);", "LOG_ERROR(input.value);");
     const scalarResult = await compileContract({
       source: scalar,
-      name: "ScalarLog",
+      contractName: "ScalarLog",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     expect(
       scalarResult.diagnostics.some(

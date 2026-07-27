@@ -60,10 +60,10 @@ describe("edge audit — call validation", () => {
     test(name, async () => {
       const result = await compileContract({
         source: c.source,
-        name: "CallRejectEdge",
+        contractName: "CallRejectEdge",
         slot: 27,
         qpiHeader: HEADERS,
-        arenaSz: 1 << 20,
+        arenaSizeBytes: 1 << 20,
       });
       const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
       expect(errors.some((d) => c.diagnostic.test(d.message))).toBe(true);

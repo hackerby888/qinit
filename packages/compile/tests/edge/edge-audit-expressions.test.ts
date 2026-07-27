@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Pins valid expression forms that must compile under the strict gate.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
@@ -22,15 +22,15 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 async function compileAndRun(source: string): Promise<bigint> {
   const result = await compileContract({
     source,
-    name: "ExpressionEdge",
+    contractName: "ExpressionEdge",
     slot: 27,
     qpiHeader: HEADERS,
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
   expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   expect(WebAssembly.validate(result.wasm)).toBe(true);
 
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   sim.deploy(27, result.wasm);

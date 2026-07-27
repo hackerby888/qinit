@@ -3,10 +3,10 @@ import type {
   TxStatus,
   StateRead,
   TickInfo,
-  DynRegistry,
-  DynContract,
-  DynEntry,
-  DynUpload,
+  DynamicContractRegistry,
+  DynamicContractRegistryEntry,
+  DynamicContractEntry,
+  DynamicContractUploadStatus,
   DebugTrace,
   BroadcastResult,
   EntityInfo,
@@ -27,14 +27,14 @@ import {
   DeployMessage,
 } from "@qinit/proto";
 import {
-  Sim,
+  QubicSimulator,
   type AssetSnapshot,
   type FeeMode,
-  type ProcedureOpts,
-} from "./sim";
+  type ProcedureCallOptions,
+} from "./qubic-simulator";
 import type { LogSink } from "./log";
 import type { CommitteeOpts } from "./consensus";
-import { Contract, KIND } from "./runtime";
+import { Contract, CONTRACT_ENTRY_KIND } from "./runtime";
 import {
   k12Bytes,
   toHex,
@@ -43,10 +43,10 @@ import {
   initK12,
 } from "./k12";
 import { Transaction } from "./wire";
-import { NativeLogger } from "./native-logger";
+import { QubicLogStore } from "./qubic-log-store";
 import { bytesEqual } from "./bytes";
 
-interface SlotMeta {
+interface DeployedContractMetadata {
   name: string;
   codeHash: string;
   version: number;
@@ -60,7 +60,7 @@ interface UploadSession {
   finalHash: string;
 }
 
-export interface EngineOpts {
+export interface VirtualNodeOptions {
   slotBase?: number;
   slotCount?: number;
   consensus?: CommitteeOpts;
@@ -72,11 +72,11 @@ export interface EngineOpts {
 }
 
 export class VirtualNode implements NodeTransport {
-  readonly sim: Sim;
-  readonly logger: NativeLogger;
+  readonly sim: QubicSimulator;
+  readonly logger: QubicLogStore;
   readonly slotBase: number;
   readonly slotCount: number;
-  private slotMeta = new Map<number, SlotMeta>();
+  private slotMeta = new Map<number, DeployedContractMetadata>();
   private slotsByName = new Map<string, number>();
   private upload: UploadSession | null = null;
   private contractSources = new Map<number, string>();
@@ -95,21 +95,21 @@ export class VirtualNode implements NodeTransport {
   }
 
   static async create(
-    options: EngineOpts = {},
+    options: VirtualNodeOptions = {},
   ): Promise<VirtualNode> {
     await initK12();
     return new VirtualNode(options);
   }
 
-  constructor(options: EngineOpts = {}) {
-    this.logger = new NativeLogger();
-    this.sim = new Sim({
+  constructor(options: VirtualNodeOptions = {}) {
+    this.logger = new QubicLogStore();
+    this.sim = new QubicSimulator({
       consensus: options.consensus,
       mempool: options.mempool ?? true,
       fees: options.fees ?? "metered",
       defaultReserve: options.defaultReserve,
       liteTicking: options.liteTicking,
-      nativeLogger: this.logger,
+      logStore: this.logger,
     });
     this.slotBase =
       options.slotBase ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;
@@ -171,7 +171,7 @@ export class VirtualNode implements NodeTransport {
       deployer = options.deployer;
     }
 
-    const slot = this.resolveSlot(explicitSlot, name);
+    const slot = this.resolveDeploymentSlot(explicitSlot, name);
     const contract = this.sim.deploy(slot, wasm);
     if (name !== undefined) {
       this.slotsByName.set(name, slot);
@@ -196,7 +196,7 @@ export class VirtualNode implements NodeTransport {
     return contract;
   }
 
-  private resolveSlot(
+  private resolveDeploymentSlot(
     explicitSlot: number | undefined,
     name: string | undefined,
   ): number {
@@ -227,7 +227,7 @@ export class VirtualNode implements NodeTransport {
       this.sim.advance();
     }
 
-    return this.sim.tickN;
+    return this.sim.currentTick;
   }
 
   epochInfo(): {
@@ -239,8 +239,8 @@ export class VirtualNode implements NodeTransport {
     duration: number;
   } {
     const epochLength = this.sim.epochLength;
-    const tick = this.sim.tickN;
-    const epoch = this.sim.epochN;
+    const tick = this.sim.currentTick;
+    const epoch = this.sim.currentEpoch;
     const initialTick = epochLength > 0 ? epoch * epochLength : 0;
     const epochLastTick =
       epochLength > 0 ? (epoch + 1) * epochLength - 1 : tick;
@@ -263,7 +263,7 @@ export class VirtualNode implements NodeTransport {
     epochLastTick: number;
     cappedAtEpochEnd: boolean;
   } {
-    const from = this.sim.tickN;
+    const from = this.sim.currentTick;
     const epochLastTick = this.epochInfo().epochLastTick;
     const target = Math.min(
       from + Math.max(0, count),
@@ -276,7 +276,7 @@ export class VirtualNode implements NodeTransport {
       from,
       requested: count,
       target,
-      reached: this.sim.tickN,
+      reached: this.sim.currentTick,
       epochLastTick,
       cappedAtEpochEnd: from + count > epochLastTick,
     };
@@ -289,7 +289,7 @@ export class VirtualNode implements NodeTransport {
     epochLastTick: number;
     epoch: number;
   } {
-    const from = this.sim.tickN;
+    const from = this.sim.currentTick;
     const epochLastTick = this.epochInfo().epochLastTick;
     const target = Math.max(from, epochLastTick - Math.max(0, gap));
 
@@ -298,9 +298,9 @@ export class VirtualNode implements NodeTransport {
     return {
       from,
       target,
-      reached: this.sim.tickN,
+      reached: this.sim.currentTick,
       epochLastTick,
-      epoch: this.sim.epochN,
+      epoch: this.sim.currentEpoch,
     };
   }
 
@@ -312,8 +312,8 @@ export class VirtualNode implements NodeTransport {
     initialTick: number;
     switched: boolean;
   } {
-    const fromEpoch = this.sim.epochN;
-    const fromTick = this.sim.tickN;
+    const fromEpoch = this.sim.currentEpoch;
+    const fromTick = this.sim.currentTick;
     const epochLength = this.sim.epochLength;
 
     if (epochLength > 0) {
@@ -322,37 +322,42 @@ export class VirtualNode implements NodeTransport {
       this.advanceTick(boundaryTick - fromTick);
     }
 
-    const toEpoch = this.sim.epochN;
+    const toEpoch = this.sim.currentEpoch;
 
     return {
       fromEpoch,
       toEpoch,
       fromTick,
-      tick: this.sim.tickN,
+      tick: this.sim.currentTick,
       initialTick: epochLength > 0 ? toEpoch * epochLength : 0,
       switched: toEpoch > fromEpoch,
     };
   }
 
   async tickInfo(): Promise<TickInfo> {
-    return { tick: this.sim.tickN, epoch: this.sim.epochN };
+    return {
+      tick: this.sim.currentTick,
+      epoch: this.sim.currentEpoch,
+    };
   }
 
-  async dynRegistry(): Promise<DynRegistry> {
-    const contracts: DynContract[] = [];
+  async dynRegistry(): Promise<DynamicContractRegistry> {
+    const contracts: DynamicContractRegistryEntry[] = [];
 
     const deployedContract = (
       slot: number,
       contract: Contract,
-      metadata: SlotMeta,
-    ): DynContract => {
-      const entries = (kind: number): DynEntry[] =>
+      metadata: DeployedContractMetadata,
+    ): DynamicContractRegistryEntry => {
+      const entries = (
+        kind: number,
+      ): DynamicContractEntry[] =>
         contract.entries
           .filter((entry) => entry.kind === kind)
           .map((entry) => ({
-            inputType: entry.it,
-            inputSize: entry.inSize,
-            outputSize: entry.outSize,
+            inputType: entry.inputType,
+            inputSize: entry.inputSizeBytes,
+            outputSize: entry.outputSizeBytes,
           }));
 
       return {
@@ -362,8 +367,8 @@ export class VirtualNode implements NodeTransport {
         version: metadata.version,
         name: metadata.name,
         codeHash: metadata.codeHash,
-        functions: entries(KIND.FUNCTION),
-        procedures: entries(KIND.PROCEDURE),
+        functions: entries(CONTRACT_ENTRY_KIND.FUNCTION),
+        procedures: entries(CONTRACT_ENTRY_KIND.PROCEDURE),
         source: this.contractSources.get(slot),
       };
     };
@@ -426,7 +431,7 @@ export class VirtualNode implements NodeTransport {
     return this.sim.undeploy(slot);
   }
 
-  async dynUpload(): Promise<DynUpload> {
+  async dynUpload(): Promise<DynamicContractUploadStatus> {
     const upload = this.upload;
     if (!upload) {
       return {
@@ -467,11 +472,11 @@ export class VirtualNode implements NodeTransport {
 
   async txStatus(tick: number, txId: string): Promise<TxStatus> {
     const transaction = this.sim.txByHash(txId);
-    const processed = this.sim.tickN > tick;
+    const processed = this.sim.currentTick > tick;
 
     return {
       tick,
-      currentTick: this.sim.tickN,
+      currentTick: this.sim.currentTick,
       txId,
       found: true,
       moneyFlew: transaction?.moneyFlew ?? true,
@@ -491,7 +496,7 @@ export class VirtualNode implements NodeTransport {
     slot: number,
     inputType: number,
     input?: Uint8Array,
-    options?: ProcedureOpts,
+    options?: ProcedureCallOptions,
   ): Uint8Array {
     return this.sim.procedure(slot, inputType, input, options);
   }

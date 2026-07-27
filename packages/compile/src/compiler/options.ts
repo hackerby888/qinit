@@ -21,7 +21,7 @@ function validCompilerName(name: string): boolean {
   return name.length > 0 && name.length <= MAX_COMPILER_NAME_LENGTH && COMPILER_NAME.test(name);
 }
 
-export function validateCompileOpts(options: CompileOptions): ParserDiagnostic[] {
+export function validateCompileOptions(options: CompileOptions): ParserDiagnostic[] {
   const diagnostics: ParserDiagnostic[] = [];
   const reject = (message: string) => diagnostics.push(optionDiagnostic(message));
   const validUint32 = (value: number) =>
@@ -34,21 +34,28 @@ export function validateCompileOpts(options: CompileOptions): ParserDiagnostic[]
     value <= MAX_INPUT_TYPE;
 
   if (typeof options.source !== "string") reject("source must be a string");
-  if (!validCompilerName(options.name)) {
-    reject(`name must be a C++ identifier of at most ${MAX_COMPILER_NAME_LENGTH} characters`);
+  if (!validCompilerName(options.contractName)) {
+    reject(`contractName must be a C++ identifier of at most ${MAX_COMPILER_NAME_LENGTH} characters`);
   }
   if (!validUint32(options.slot)) reject("slot must be a uint32 integer");
 
-  const arenaSz = options.arenaSz ?? 1024 * 1024 * 1024;
-  if (!validSize(arenaSz) || arenaSz === 0) reject("arenaSz must be a positive wasm32 byte size");
+  const arenaSizeBytes = options.arenaSizeBytes ?? 1024 * 1024 * 1024;
+  if (!validSize(arenaSizeBytes) || arenaSizeBytes === 0) {
+    reject("arenaSizeBytes must be a positive wasm32 byte size");
+  }
 
-  if (options.sharedMemBase !== undefined) {
-    if (!validSize(options.sharedMemBase)) {
-      reject("sharedMemBase must be a wasm32 byte offset");
+  if (options.sharedMemoryBaseOffsetBytes !== undefined) {
+    if (!validSize(options.sharedMemoryBaseOffsetBytes)) {
+      reject("sharedMemoryBaseOffsetBytes must be a wasm32 byte offset");
     } else {
-      if ((options.sharedMemBase & 7) !== 0) reject("sharedMemBase must be 8-byte aligned");
-      if (validSize(arenaSz) && options.sharedMemBase + arenaSz > WASM32_SIZE) {
-        reject("sharedMemBase plus arenaSz exceeds wasm32 address space");
+      if ((options.sharedMemoryBaseOffsetBytes & 7) !== 0) {
+        reject("sharedMemoryBaseOffsetBytes must be 8-byte aligned");
+      }
+      if (
+        validSize(arenaSizeBytes) &&
+        options.sharedMemoryBaseOffsetBytes + arenaSizeBytes > WASM32_SIZE
+      ) {
+        reject("sharedMemoryBaseOffsetBytes plus arenaSizeBytes exceeds wasm32 address space");
       }
     }
   }

@@ -2,7 +2,7 @@
 // Fast path for on-chain reads — current tick, spectrum, and (later) the deploy registry.
 import {
   DEFAULT_RPC_BASE,
-  fetchT,
+  fetchWithTimeout,
   broadcastTx as netBroadcastTx,
 } from "./net";
 import type { NodeTransport, EntityInfo, TxInfo } from "./transport";
@@ -15,30 +15,30 @@ export interface TickInfo {
   [k: string]: unknown;
 }
 
-export interface DynEntry {
+export interface DynamicContractEntry {
   inputType: number;
   inputSize: number;
   outputSize: number;
 }
-export interface DynContract {
+export interface DynamicContractRegistryEntry {
   index: number;
   armed: boolean;
   constructed: boolean;
   version: number;
   name: string;
   codeHash: string;
-  functions: DynEntry[];
-  procedures: DynEntry[];
+  functions: DynamicContractEntry[];
+  procedures: DynamicContractEntry[];
   source?: string;
   lastError?: string;
 }
-export interface DynRegistry {
-  contracts: DynContract[];
+export interface DynamicContractRegistry {
+  contracts: DynamicContractRegistryEntry[];
   slotBase: number;
   slotCount: number;
 }
 
-export interface DynUpload {
+export interface DynamicContractUploadStatus {
   active: boolean;
   sessionId: string;
   totalSize: number;
@@ -100,7 +100,7 @@ export class LiteRpc implements NodeTransport {
     for (let a = 0; ; a++) {
       let r: Response;
       try {
-        r = await fetchT(this.base + path, undefined, 10000);
+        r = await fetchWithTimeout(this.base + path, undefined, 10000);
       } catch (e: any) {
         if (a < tries - 1) {
           await sleep(200 * (a + 1));
@@ -133,13 +133,13 @@ export class LiteRpc implements NodeTransport {
 
   /** Deployed dynamic contracts + their fn/proc inputTypes (GET /live/v1/dyn-registry). */
   dynRegistry() {
-    return this.get<DynRegistry>("/live/v1/dyn-registry");
+    return this.get<DynamicContractRegistry>("/live/v1/dyn-registry");
   }
 
   /** Active upload session — assembled chunk count + which seqs are still missing (GET /live/v1/dyn-upload).
    * Lets deploy confirm the node assembled the full Wasm module before DEPLOY. */
   dynUpload() {
-    return this.get<DynUpload>("/live/v1/dyn-upload");
+    return this.get<DynamicContractUploadStatus>("/live/v1/dyn-upload");
   }
 
   /** Exact tx confirmation (GET /live/v1/tx-status/{tick}/{txId}) — needs the tx-status addon.
@@ -232,7 +232,7 @@ export class LiteRpc implements NodeTransport {
       switched: boolean;
     }>("/live/v1/dev/advance-epoch");
   }
-  /** Set the tick interval on a running virtual node, no respawn (GET /live/v1/dev/tick-ms?ms=N). */
+  /** Set the simulator tick interval without restarting it. */
   setTickMs(ms: number) {
     return this.get<{ tickMs: number }>(`/live/v1/dev/tick-ms?ms=${ms}`);
   }
@@ -250,7 +250,7 @@ export class LiteRpc implements NodeTransport {
   ): Promise<Uint8Array> {
     let r: Response;
     try {
-      r = await fetchT(
+      r = await fetchWithTimeout(
         this.base + "/live/v1/querySmartContract",
         {
           method: "POST",
@@ -279,7 +279,7 @@ export class LiteRpc implements NodeTransport {
    *  body = raw source) so inter-contract callers can resolve callees from the registry without --callee. */
   async putContractSource(slot: number, source: string): Promise<boolean> {
     try {
-      const r = await fetchT(
+      const r = await fetchWithTimeout(
         this.base + `/live/v1/dev/contract-source?slot=${slot}`,
         {
           method: "POST",
@@ -294,8 +294,8 @@ export class LiteRpc implements NodeTransport {
     }
   }
 
-  /** Single-authority direct deploy (POST /live/v1/dev/deploy) — no chunk-upload. Returns null when the route is
-   *  absent (a real node 404s), so callers can fall back to the chunked path. */
+  /** Single-authority simulator deploy without chunk upload.
+   * Returns null when the route is absent so callers can use the protocol path. */
   async directDeploy(
     slot: number,
     wasm: Uint8Array,
@@ -303,7 +303,7 @@ export class LiteRpc implements NodeTransport {
   ): Promise<{ ok: boolean; slot: number; digest: string } | null> {
     let r: Response;
     try {
-      r = await fetchT(
+      r = await fetchWithTimeout(
         this.base + "/live/v1/dev/deploy",
         {
           method: "POST",
@@ -323,14 +323,14 @@ export class LiteRpc implements NodeTransport {
     return j;
   }
 
-  /** Remove a deployed contract (POST /live/v1/dev/undeploy?slot=N) — virtualnode-only (real node 404s). */
+  /** Remove a deployed contract. This development endpoint is simulator-only. */
   async undeploy(slot: number): Promise<boolean> {
-    const r = await fetchT(
+    const r = await fetchWithTimeout(
       this.base + `/live/v1/dev/undeploy?slot=${slot}`,
       { method: "POST" },
       15000,
     );
-    if (r.status === 404) throw new Error("undeploy is virtualnode-only");
+    if (r.status === 404) throw new Error("undeploy is simulator-only");
     const j: any = await r.json().catch(() => ({}));
     return !!j.ok;
   }
@@ -354,7 +354,7 @@ export class LiteRpc implements NodeTransport {
   /** Transactions in a tick (POST /query/v1/getTransactionsForTick) — lite tickdata. */
   async tickTransactions(tick: number): Promise<TxInfo[]> {
     try {
-      const r = await fetchT(
+      const r = await fetchWithTimeout(
         this.base + "/query/v1/getTransactionsForTick",
         {
           method: "POST",

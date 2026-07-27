@@ -2,8 +2,8 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract } from "../../src/index";
 
 export const CONTAINER_SLOT = 27;
@@ -64,7 +64,7 @@ export function executeContainerScript(
   wasm: Uint8Array,
   operations: readonly ContainerOperation[],
 ): ExecutionResult {
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   const contract = sim.deploy(CONTAINER_SLOT, wasm);
@@ -96,10 +96,10 @@ export async function compileTsFixture(
 ): Promise<Uint8Array> {
   const result = await compileContract({
     source: fixture.source,
-    name: fixture.name,
+    contractName: fixture.name,
     slot: CONTAINER_SLOT,
     qpiHeader,
-    arenaSz: CONTAINER_ARENA_SIZE,
+    arenaSizeBytes: CONTAINER_ARENA_SIZE,
   });
   const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR);
   if (errors.length || !result.wasm.byteLength) {
@@ -110,30 +110,30 @@ export async function compileTsFixture(
   return result.wasm;
 }
 
-export async function compileNativeFixture(
+export async function compileClangFixture(
   fixture: ContainerFixture,
   corePath: string,
 ): Promise<{ wasm: Uint8Array; dispose: () => void }> {
   const dir = mkdtempSync(join(tmpdir(), `qinit-container-${fixture.family.toLowerCase()}-`));
   const contractPath = join(dir, `${fixture.name}.h`);
   writeFileSync(contractPath, fixture.source);
-  const result = await buildContract({
+  const result = await buildContractWithWasiClang({
     contractPath,
     name: fixture.name,
     slot: CONTAINER_SLOT,
     corePath,
     outDir: dir,
-    arenaSz: CONTAINER_ARENA_SIZE,
+    arenaSizeBytes: CONTAINER_ARENA_SIZE,
     skipVerify: true,
   });
-  if (!result.ok || !result.so) {
+  if (!result.ok || !result.wasmPath) {
     rmSync(dir, { recursive: true, force: true });
     throw new Error(
-      `${fixture.family} native WASI compile failed: ${result.stderr ?? "no artifact"}`,
+      `${fixture.family} Clang/WASI compile failed: ${result.stderr ?? "no artifact"}`,
     );
   }
   return {
-    wasm: new Uint8Array(readFileSync(result.so)),
+    wasm: new Uint8Array(readFileSync(result.wasmPath)),
     dispose: () => rmSync(dir, { recursive: true, force: true }),
   };
 }

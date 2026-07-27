@@ -14,7 +14,7 @@ export interface ParseAstResult {
 export function parseToAst(options: {
   source: string;
   qpiHeader?: string;
-  name?: string;
+  contractName?: string;
   slot?: number;
 }): ParseAstResult {
   if (options.qpiHeader === undefined)
@@ -24,7 +24,7 @@ export function parseToAst(options: {
   const preprocessedSource = new Preprocessor().preprocess({
     source,
     qpiHeader: "",
-    contractName: options.name ?? "Contract",
+    contractName: options.contractName ?? "Contract",
     contractIndex: options.slot ?? 0,
     seedMacros: macros,
   });

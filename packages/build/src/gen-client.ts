@@ -205,14 +205,14 @@ export function generateClient(
 
   lines.push("");
   lines.push(
-    `export interface ${idl.name}Opts { rpc?: LiteRpc; rpcBase?: string; index?: number; seed?: string }`,
+    `export interface ${idl.name}Opts { rpc?: LiteRpc; rpcBaseUrl?: string; index?: number; seed?: string }`,
   );
   lines.push("");
   lines.push(`export class ${idl.name} {`);
-  lines.push(`  rpc: LiteRpc; rpcBase: string; index: number; seed?: string;`);
+  lines.push(`  rpc: LiteRpc; rpcBaseUrl: string; index: number; seed?: string;`);
   lines.push(`  constructor(o: ${idl.name}Opts = {}) {`);
-  lines.push(`    this.rpcBase = o.rpcBase ?? DEFAULT_RPC_BASE;`);
-  lines.push(`    this.rpc = o.rpc ?? new LiteRpc(this.rpcBase);`);
+  lines.push(`    this.rpcBaseUrl = o.rpcBaseUrl ?? DEFAULT_RPC_BASE;`);
+  lines.push(`    this.rpc = o.rpc ?? new LiteRpc(this.rpcBaseUrl);`);
   lines.push(`    this.index = o.index ?? ${index};`);
   lines.push(`    this.seed = o.seed;`);
   lines.push(`  }`);
@@ -250,7 +250,7 @@ export function generateClient(
       `    const seed = opts.seed ?? this.seed ?? (await this.rpc.fundedSeed()) ?? "a".repeat(55);`,
     );
     lines.push(
-      `    const r = await invokeProcedure({ seed, rpcBase: this.rpcBase, contractIndex: this.index, procId: ${entry.inputType}, amount: opts.amount ?? 0, input: { type: ${inputSchema}, value: ${value} }, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc }) as QinitProcedureResult;`,
+      `    const r = await invokeProcedure({ seed, rpcBaseUrl: this.rpcBaseUrl, contractIndex: this.index, procedureId: ${entry.inputType}, amount: opts.amount ?? 0, input: { type: ${inputSchema}, value: ${value} }, tick: (ti.tick ?? 0) + 8, confirm: opts.confirm !== false, rpc: this.rpc }) as QinitProcedureResult;`,
     );
     lines.push(
       `    return { ok: r.ok, txId: r.txId, tick: r.tick, confirmed: r.confirmed, included: r.included, moneyFlew: r.moneyFlew };`,

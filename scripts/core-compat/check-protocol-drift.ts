@@ -167,7 +167,7 @@ if (CHUNK_DATA_MAX > MAX_INPUT_SIZE - UploadChunkHeader.SIZE) {
   );
 }
 
-// oracle query status codes — the engine's ORACLE_STATUS (sim.ts) is hand-mirrored from these constexprs.
+// Oracle query statuses are mirrored by the simulator.
 for (const [name, value] of [
   ["ORACLE_QUERY_STATUS_UNKNOWN", 0],
   ["ORACLE_QUERY_STATUS_PENDING", 1],

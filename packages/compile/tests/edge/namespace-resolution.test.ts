@@ -7,7 +7,7 @@ import { compileContract, loadQpiHeader } from "../../src/index";
 const HEADERS = loadQpiHeader(CORE_PATH);
 
 const compile = (source: string, strict = true) =>
-  compileContract({ source, name: "NsProbe", slot: 28, qpiHeader: HEADERS, strict });
+  compileContract({ source, contractName: "NsProbe", slot: 28, qpiHeader: HEADERS, strict });
 
 const contractShell = (prelude: string, body: string, members = "") => `${prelude}
 struct CONTRACT_STATE2_TYPE {};
@@ -125,7 +125,7 @@ struct HelperCallee : public ContractBase {
     );
     const callee = await compileContract({
       source: calleeSource,
-      name: "HelperCallee",
+      contractName: "HelperCallee",
       slot: 27,
       qpiHeader: HEADERS,
     });
@@ -137,7 +137,7 @@ struct HelperCallee : public ContractBase {
     }
     const r = await compileContract({
       source,
-      name: "NsProbe",
+      contractName: "NsProbe",
       slot: 28,
       qpiHeader: HEADERS,
       callees: [callee.idl],
@@ -185,7 +185,7 @@ namespace Wrap {
   inline uint64 wrapped(uint64 v) { return plusSeven(v); }
 }`;
     const source = contractShell(`using namespace QPI;`, `output.r = Wrap::wrapped(input.v);`);
-    const r = await compileContract({ source, name: "NsProbe", slot: 28, qpiHeader });
+    const r = await compileContract({ source, contractName: "NsProbe", slot: 28, qpiHeader });
     expect(r.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(r.diagnostics.some((d) => /plusSeven|unsupported call/i.test(d.message))).toBe(false);
     expect(r.wasm.byteLength).toBeGreaterThan(100);

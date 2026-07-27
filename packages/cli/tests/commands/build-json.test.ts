@@ -3,11 +3,11 @@ import { buildJsonResult } from "../../src/commands/build";
 
 test("build JSON includes complete failure diagnostics", () => {
   const stderr = Array.from({ length: 80 }, (_, index) => `diagnostic ${index}`).join("\n");
-  const result = buildJsonResult({ ok: false, stderr }, "native");
+  const result = buildJsonResult({ ok: false, stderr }, "clang");
 
   expect(result).toEqual({
     ok: false,
-    compiler: "native",
+    compiler: "clang",
     artifact: null,
     size: null,
     hash: null,
@@ -22,18 +22,18 @@ test("build JSON includes success artifact metadata", () => {
   const result = buildJsonResult(
     {
       ok: true,
-      so: "/tmp/contracts/DigestProbe.wasm",
-      size: 4096,
-      hash: "cd".repeat(32),
+      wasmPath: "/tmp/contracts/DigestProbe.wasm",
+      wasmSizeBytes: 4096,
+      wasmK12DigestHex: "cd".repeat(32),
       idlError: "unsupported layout",
       stderr: "warning: retained in full",
     },
-    "local",
+    "typescript",
   );
 
   expect(result).toEqual({
     ok: true,
-    compiler: "local",
+    compiler: "typescript",
     artifact: "/tmp/contracts/DigestProbe.wasm",
     size: 4096,
     hash: "cd".repeat(32),

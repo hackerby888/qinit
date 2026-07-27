@@ -1,5 +1,5 @@
 import { DiagnosticCategory, DiagnosticSeverity } from "../enums";
-import { Sema } from "../sema";
+import { SemanticAnalyzer } from "../semantic-analyzer";
 import {
     generateWasmModule,
     type GeneratedContractMetadata,
@@ -13,7 +13,7 @@ import {
     validateContractSource,
 } from "./contract-frontend";
 import { scanUnterminatedSource } from "./diagnostics";
-import { validateCompileOpts } from "./options";
+import { validateCompileOptions } from "./options";
 import { getQpiContext } from "./qpi-context";
 import type { Diagnostic as ParserDiagnostic } from "../parser";
 import type { CompileOptions, CompileResult } from "./types";
@@ -55,7 +55,7 @@ export async function compileContract(
     }
 
     await phases.enter("analyzing");
-    const semanticAnalysis = new Sema();
+    const semanticAnalysis = new SemanticAnalyzer();
     const calleeContext = collectCalleeContext(options, qpiContext);
     diagnostics.push(...calleeContext.diagnostics);
 
@@ -67,7 +67,7 @@ export async function compileContract(
     await phases.enter("generating wasm");
     const calls = collectSourceContractCalls(
         options.source,
-        options.name,
+        options.contractName,
         options.slot,
         qpiContext.macros,
     );
@@ -131,7 +131,7 @@ function collectInitialDiagnostics(
     options: CompileOptions,
 ): ParserDiagnostic[] {
     return [
-        ...validateCompileOpts(options),
+        ...validateCompileOptions(options),
         ...(typeof options.source === "string"
             ? scanUnterminatedSource(options.source)
             : []),
@@ -149,7 +149,7 @@ function loadQpiContext(options: CompileOptions) {
 function generateContractWat(
     options: CompileOptions,
     translationUnit: Parameters<typeof generateWasmModule>[0],
-    semanticAnalysis: Sema,
+    semanticAnalysis: SemanticAnalyzer,
     qpiContext: ReturnType<typeof getQpiContext>,
     calleeContext: ReturnType<typeof collectCalleeContext>,
     metadata: GeneratedContractMetadata,
@@ -157,14 +157,14 @@ function generateContractWat(
     return generateWasmModule(
         translationUnit,
         semanticAnalysis,
-        options.name,
+        options.contractName,
         options.slot,
-        options.arenaSz ?? DEFAULT_ARENA_SIZE,
+        options.arenaSizeBytes ?? DEFAULT_ARENA_SIZE,
         qpiContext.lib,
         options.callees,
         calleeContext.contractStructs,
         calleeContext.calleeTranslationUnits,
-        options.sharedMemBase,
+        options.sharedMemoryBaseOffsetBytes,
         metadata,
     );
 }

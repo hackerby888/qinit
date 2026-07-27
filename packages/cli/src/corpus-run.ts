@@ -2,7 +2,7 @@
 // buildCorpusRunner replaces contract_testing.h with the engine-backed test harness.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildContract, buildCorpusRunner, systemContracts } from "@qinit/build";
+import { buildContractWithWasiClang, buildCorpusRunner, systemContracts } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import {
   compileContract,
@@ -11,6 +11,7 @@ import {
   type ContractIdl,
 } from "@qinit/compile";
 import { initK12 } from "@qinit/core";
+import type { CompilerBackend } from "./config";
 
 // System suites that are too memory- or dispatch-heavy for the routine developer gate. They run in
 // shared-memory mode and belong to the opt-in heavy suite. This is empirical rather than purely state-size
@@ -40,8 +41,8 @@ export interface StdGtestRun {
   name: string;
   slot: number;
   heavy: boolean; // ran in shared-memory mode
-  backend: "native" | "local";
-  timings?: Record<string, number>; // main contract's per-phase compile time (local backend only)
+  backend: CompilerBackend;
+  timings?: Record<string, number>;
 }
 
 export interface CorpusRun extends StdGtestRun {
@@ -138,8 +139,8 @@ function depSpecs(
   return deps;
 }
 
-// Native-clang wasm of the main contract + every dep, each at its slot.
-async function nativeWasms(
+// Build the main contract and dependencies with clang, each at its own slot.
+async function clangWasms(
   core: string,
   scratch: string,
   main: Spec,
@@ -150,7 +151,7 @@ async function nativeWasms(
   let nextBase = SHARED_START;
   const build = async (
     s: Spec,
-    arenaSz: number,
+    arenaSizeBytes: number,
     isMain: boolean,
     useShared: boolean,
   ): Promise<Uint8Array | null> => {
@@ -162,29 +163,34 @@ async function nativeWasms(
       corePath: core,
       skipVerify: true,
     };
-    const p1 = await buildContract({
+    const p1 = await buildContractWithWasiClang({
       ...common,
       outDir: join(scratch, "n_" + s.name),
-      ...(useShared ? { arenaSz } : {}),
+      ...(useShared ? { arenaSizeBytes } : {}),
     });
-    if (!p1.so) {
+    if (!p1.wasmPath) {
       if (isMain)
         throw new Error(
-          "native build: " +
+          "clang build: " +
             (p1.stderr ?? "").split("\n").filter((l: string) => /error:/.test(l))[0],
         );
       return null;
     }
-    if (!useShared) return new Uint8Array(readFileSync(p1.so));
+    if (!useShared) return new Uint8Array(readFileSync(p1.wasmPath));
     const base = nextBase;
-    nextBase = align64k(base + stateSizeOf(new Uint8Array(readFileSync(p1.so))) + arenaSz + SLACK);
-    const p2 = await buildContract({
+    nextBase = align64k(
+      base +
+        stateSizeOf(new Uint8Array(readFileSync(p1.wasmPath))) +
+        arenaSizeBytes +
+        SLACK,
+    );
+    const p2 = await buildContractWithWasiClang({
       ...common,
       outDir: join(scratch, "ns_" + s.name),
-      arenaSz,
-      sharedMemBase: base,
+      arenaSizeBytes,
+      sharedMemoryBaseOffsetBytes: base,
     });
-    return p2.so ? new Uint8Array(readFileSync(p2.so)) : null;
+    return p2.wasmPath ? new Uint8Array(readFileSync(p2.wasmPath)) : null;
   };
   const m = await build(main, mainArenaSize(main.name), true, shared);
   if (m) out[main.slot] = m;
@@ -197,9 +203,8 @@ async function nativeWasms(
   return out;
 }
 
-// Our TS-compiler wasm of the main contract + every dep (with callee type resolution). Returns the wasms plus
-// the main contract's per-phase compile timings.
-async function oursWasms(
+// Build the main contract and dependencies with the TypeScript compiler.
+async function typescriptWasms(
   core: string,
   headers: string,
   main: Spec,
@@ -213,10 +218,10 @@ async function oursWasms(
   let nextBase = SHARED_START;
   const emitAt = async (
     o: any,
-    arenaSz: number,
+    arenaSizeBytes: number,
   ): Promise<{ wasm: Uint8Array; timings?: Record<string, number> }> => {
     const oph = onPhase
-      ? (p: string) => onPhase(`compiling ${o.name} (local TS) — ${p}`)
+      ? (p: string) => onPhase(`compiling ${o.contractName} (TypeScript) — ${p}`)
       : undefined;
     const requireWasm = (r: Awaited<ReturnType<typeof compileContract>>, stage: string) => {
       if (r.wasm.byteLength) return r;
@@ -226,20 +231,34 @@ async function oursWasms(
             diagnostic.severity === DiagnosticSeverity.ERROR,
         )
         .map((diagnostic) => diagnostic.message);
-      throw new Error(`${o.name} ${stage}: ${errors.join("; ") || "compiler returned empty wasm"}`);
+      throw new Error(
+        `${o.contractName} ${stage}: ${errors.join("; ") || "compiler returned empty wasm"}`,
+      );
     };
     if (!shared) {
-      const r = requireWasm(await compileContract({ ...o, arenaSz: ARENA, onPhase: oph }), "build");
+      const r = requireWasm(
+        await compileContract({
+          ...o,
+          arenaSizeBytes: ARENA,
+          onPhase: oph,
+        }),
+        "build",
+      );
       return { wasm: r.wasm, timings: r.timings };
     }
     const p1 = requireWasm(
-      await compileContract({ ...o, arenaSz: ARENA }),
+      await compileContract({ ...o, arenaSizeBytes: ARENA }),
       "state-size probe",
     ).wasm; // silent — arena-independent
     const base = nextBase;
-    nextBase = align64k(base + stateSizeOf(p1) + arenaSz + SLACK);
+    nextBase = align64k(base + stateSizeOf(p1) + arenaSizeBytes + SLACK);
     const r = requireWasm(
-      await compileContract({ ...o, arenaSz, sharedMemBase: base, onPhase: oph }),
+      await compileContract({
+        ...o,
+        arenaSizeBytes,
+        sharedMemoryBaseOffsetBytes: base,
+        onPhase: oph,
+      }),
       "shared-memory build",
     );
     return { wasm: r.wasm, timings: r.timings };
@@ -249,13 +268,16 @@ async function oursWasms(
     // Compile dependencies in order so each sees earlier IDL and source context.
     const depOpts = {
       source: dsrc,
-      name: d.name,
+      contractName: d.name,
       slot: d.slot,
       qpiHeader: headers,
       callees: callees.length ? callees : undefined,
       calleeSources: calleeSources.length ? calleeSources : undefined,
     };
-    const dr = await compileContract({ ...depOpts, arenaSz: ARENA });
+    const dr = await compileContract({
+      ...depOpts,
+      arenaSizeBytes: ARENA,
+    });
     if (!dr.wasm.byteLength) {
       const errors = dr.diagnostics
         .filter(
@@ -264,11 +286,11 @@ async function oursWasms(
         )
         .map((diagnostic) => diagnostic.message);
       throw new Error(
-        `local dependency ${d.name}: ${errors.join("; ") || "compiler returned empty wasm"}`,
+        `TypeScript dependency ${d.name}: ${errors.join("; ") || "compiler returned empty wasm"}`,
       );
     }
     if (!dr.idl) {
-      throw new Error(`local dependency ${d.name}: compiler did not produce IDL`);
+      throw new Error(`TypeScript dependency ${d.name}: compiler did not produce IDL`);
     }
     out[d.slot] =
       shared && main.name !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : dr.wasm;
@@ -279,7 +301,7 @@ async function oursWasms(
   const m = await emitAt(
     {
       source: csrc,
-      name: main.name,
+      contractName: main.name,
       slot: main.slot,
       qpiHeader: headers,
       callees: callees.length ? callees : undefined,
@@ -299,7 +321,7 @@ export async function runStdGtest(opts: {
   stateType: string;
   slot: number;
   core: string;
-  backend: "native" | "local";
+  backend: CompilerBackend;
   scratch: string;
   shared?: boolean;
   onResult?: (r: TestResult) => void | Promise<void>;
@@ -318,9 +340,8 @@ export async function runStdGtest(opts: {
   const shared = !!opts.shared;
   const ret = { name: opts.name, slot: opts.slot, heavy: shared, backend: opts.backend };
 
-  // The harness is ALWAYS native clang (our compiler can't build contract_testing.h), and clang is the slow
-  // step even in --local — label it so the wait isn't mistaken for our compiler.
-  opts.onPhase?.("building test harness (native clang — the slow step)");
+  // contract_testing.h requires clang even when the contract uses the TypeScript compiler.
+  opts.onPhase?.("building test harness (clang)");
   const runner = await buildCorpusRunner({
     corpusPath: opts.testPath,
     contractPath: opts.contractPath,
@@ -329,21 +350,21 @@ export async function runStdGtest(opts: {
     slot: opts.slot,
     corePath: opts.core,
     outDir: join(opts.scratch, "run_" + opts.name),
-    arenaSz: ARENA,
+    arenaSizeBytes: ARENA,
   });
-  if (!runner.ok || !runner.so) {
+  if (!runner.ok || !runner.wasmPath) {
     const err =
       (runner.stderr ?? "").split("\n").filter((l) => /error:/.test(l))[0] ??
       runner.stderr ??
       "test-wasm build failed";
     return { ...ret, runnerOk: false, buildError: err, results: [] };
   }
-  const runnerBytes = new Uint8Array(readFileSync(runner.so));
+  const runnerBytes = new Uint8Array(readFileSync(runner.wasmPath));
 
   let contracts: Record<number, Uint8Array>;
   let timings: Record<string, number> | undefined;
-  if (opts.backend === "local") {
-    const o = await oursWasms(
+  if (opts.backend === "typescript") {
+    const o = await typescriptWasms(
       opts.core,
       loadQpiHeader(opts.core),
       main,
@@ -354,7 +375,7 @@ export async function runStdGtest(opts: {
     contracts = o.wasms;
     timings = o.timings;
   } else {
-    contracts = await nativeWasms(opts.core, opts.scratch, main, deps, shared);
+    contracts = await clangWasms(opts.core, opts.scratch, main, deps, shared);
   }
 
   const assetNames = Object.fromEntries(
@@ -372,7 +393,7 @@ export async function runStdGtest(opts: {
 export async function runCorpus(opts: {
   name: string;
   core: string;
-  backend: "native" | "local";
+  backend: CompilerBackend;
   scratch: string;
   onResult?: (r: TestResult) => void | Promise<void>;
   onPhase?: (label: string) => void;

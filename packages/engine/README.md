@@ -28,12 +28,12 @@ const digest = node.sim.digest(contract.slot);
 ```
 
 `VirtualNode.create()` initializes the cryptography backend before returning.
-Use `Sim` directly when a test only needs contract execution and does not need
+Use `QubicSimulator` directly when a test only needs contract execution and does not need
 the `NodeTransport` or deployment-wire surface.
 
 ## Entries
 
-- `@qinit/engine` exports `VirtualNode`, `Sim`, contract runtime types, the
+- `@qinit/engine` exports `VirtualNode`, `QubicSimulator`, contract runtime types, the
   contract-testing runners, crypto helpers, consensus types, and wire records.
 - `@qinit/engine/server` exports the Bun HTTP adapter.
 - `@qinit/engine/peer` exports the Bun TCP peer-protocol adapter.

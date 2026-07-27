@@ -7,7 +7,7 @@ import {
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
 import { PLATFORM_PRIMITIVES, platformPrimitive } from "../../src/codegen/platform-primitives";
 import { readSourceTree } from "../support/source-tree";
@@ -69,14 +69,14 @@ describe("typed platform primitive registry", () => {
   test("zero, overloaded constructors, conversion helpers, and isZero compile from core source", async () => {
     const result = await compileContract({
       source: SOURCE,
-      name: "PlatformSource",
+      contractName: "PlatformSource",
       slot: 27,
       qpiHeader: HEADER,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
 
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(27, result.wasm);
     const output = sim.query(27, 1);
     const view = new DataView(output.buffer, output.byteOffset, output.byteLength);

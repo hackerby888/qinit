@@ -1,17 +1,22 @@
 // Browser- and Node-safe public API for the Qubic contract simulation engine.
 // The Bun-only HTTP adapter is exported from "@qinit/engine/server".
-export { Contract, KIND, SP, ContractAbort } from "./runtime";
+export {
+  Contract,
+  CONTRACT_ENTRY_KIND,
+  ContractAbort,
+} from "./runtime";
 export type { HostServices } from "./runtime";
-export { Sim } from "./sim";
-export type { TickRecord } from "./sim";
+export { SYSTEM_PROCEDURES } from "@qinit/core";
+export { QubicSimulator } from "./qubic-simulator";
+export type { TickRecord } from "./qubic-simulator";
 export { runContractTesting } from "./gtest";
 export type { TestResult } from "./gtest";
 export { runCompiledGtest } from "./gtest-program";
 export type { CompiledGtestProgram } from "./gtest-program";
 export type { AssetSnapshot } from "./assets";
 export { VirtualNode } from "./transport";
-export { NativeLogger } from "./native-logger";
-export type { NativeLogRange } from "./native-logger";
+export { QubicLogStore } from "./qubic-log-store";
+export type { QubicLogRange } from "./qubic-log-store";
 export type { EngineLogEvent, LogLevel, LogSink } from "./log";
 export { initK12, k12Bytes, toHex, deriveKeysSync, signSync, verifySync } from "./k12";
 export type { KeyPair } from "./k12";

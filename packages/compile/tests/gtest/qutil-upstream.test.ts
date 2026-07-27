@@ -1,12 +1,12 @@
-// Runs the upstream QUTIL gtest corpus against deployable contracts in Sim.
+// Runs the upstream QUTIL gtest corpus against deployable contracts in QubicSimulator.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import {
   CORE,
   wasiAvailable,
   buildRunner,
-  buildContractsOurs,
-  buildContractsNative,
+  buildContractsWithTypeScript,
+  buildContractsWithClang,
   runUpstream,
 } from "../support/qutil-bridge";
 
@@ -21,19 +21,24 @@ describe("upstream gtest — contract_qutil.cpp against deployed QUTIL+QX wasm",
       return;
     }
 
-    const mode = (process.env.GTEST_MODE ?? "ours") as "ours" | "native";
-    if (mode !== "ours" && mode !== "native") {
-      throw new Error(`GTEST_MODE must be "ours" or "native", got "${mode}"`);
+    const compiler = (process.env.GTEST_COMPILER ?? "typescript") as
+      | "typescript"
+      | "clang";
+    if (compiler !== "typescript" && compiler !== "clang") {
+      throw new Error(
+        `GTEST_COMPILER must be "typescript" or "clang", got "${compiler}"`,
+      );
     }
     const runner = await buildRunner(CORE);
-    const contracts =
-      mode === "native" ? await buildContractsNative(CORE) : await buildContractsOurs(CORE);
+    const contracts = compiler === "clang"
+      ? await buildContractsWithClang(CORE)
+      : await buildContractsWithTypeScript(CORE);
     const results = await runUpstream(runner, contracts);
 
     const passed = results.filter((r) => r.passed).length;
     const failed = results.length - passed;
     console.log(
-      `\n  [${mode}] contract_qutil.cpp: ${passed} PASS · ${failed} FAIL (of ${results.length})`,
+      `\n  [${compiler}] contract_qutil.cpp: ${passed} PASS · ${failed} FAIL (of ${results.length})`,
     );
     for (const r of results.filter((r) => !r.passed).slice(0, 12)) {
       console.log(`  FAIL  ${r.name || ""} — ${r.message.replace(/\n/g, " ").slice(0, 110)}`);

@@ -89,7 +89,7 @@ describe("core-lite system gtest corpus", () => {
       const runner = await compileGtest({
         source: contract!.source,
         testSource,
-        name: contract!.stateType,
+        contractName: contract!.stateType,
         slot: contract!.index,
         constructionEpoch: contract!.constructionEpoch,
         qpiHeader: QPI,
@@ -99,10 +99,10 @@ describe("core-lite system gtest corpus", () => {
 
       const compiledContract = await compileContract({
         source: contract!.source,
-        name: contract!.stateType,
+        contractName: contract!.stateType,
         slot: contract!.index,
         qpiHeader: QPI,
-        arenaSz: 16 * 1024 * 1024,
+        arenaSizeBytes: 16 * 1024 * 1024,
       });
       expect(compiledContract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
       expect(

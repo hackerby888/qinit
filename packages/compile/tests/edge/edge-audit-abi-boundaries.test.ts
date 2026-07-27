@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Pins inclusive registration bounds and rejects values outside them.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
@@ -33,7 +33,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-let entries: Array<{ it: number; kind: number; inSize: number; outSize: number }>;
+let entries: Array<{
+  inputType: number;
+  kind: number;
+  inputSizeBytes: number;
+  outputSizeBytes: number;
+}>;
 let stateSize: number;
 let oldStateSize: number;
 
@@ -42,14 +47,14 @@ describe("edge audit — inclusive QPI ABI boundaries", () => {
     await initK12();
     const result = await compileContract({
       source: SOURCE,
-      name: "AbiBoundaryEdge",
+      contractName: "AbiBoundaryEdge",
       slot: 27,
       qpiHeader: HEADERS,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(27, result.wasm);
     const contract = sim.contracts.get(27)!;
     entries = contract.entries;
@@ -58,15 +63,30 @@ describe("edge audit — inclusive QPI ABI boundaries", () => {
   });
 
   test("a procedure input of exactly MAX_INPUT_SIZE bytes is registered", () => {
-    expect(entries).toContainEqual({ it: 1, kind: 1, inSize: 1024, outSize: 1 });
+    expect(entries).toContainEqual({
+      inputType: 1,
+      kind: 1,
+      inputSizeBytes: 1024,
+      outputSizeBytes: 1,
+    });
   });
 
   test("a function output of exactly uint16 max bytes is registered", () => {
-    expect(entries).toContainEqual({ it: 1, kind: 0, inSize: 1, outSize: 65535 });
+    expect(entries).toContainEqual({
+      inputType: 1,
+      kind: 0,
+      inputSizeBytes: 1,
+      outputSizeBytes: 65535,
+    });
   });
 
   test("locals of exactly MAX_SIZE_OF_CONTRACT_LOCALS compile", () => {
-    expect(entries).toContainEqual({ it: 65535, kind: 1, inSize: 1, outSize: 1 });
+    expect(entries).toContainEqual({
+      inputType: 65535,
+      kind: 1,
+      inputSizeBytes: 1,
+      outputSizeBytes: 1,
+    });
   });
 
   test("empty state and migration layouts reach Wasm metadata", () => {
@@ -75,6 +95,6 @@ describe("edge audit — inclusive QPI ABI boundaries", () => {
   });
 
   test("the same input type is allowed once per function/procedure kind", () => {
-    expect(entries.filter((entry) => entry.it === 1)).toHaveLength(2);
+    expect(entries.filter((entry) => entry.inputType === 1)).toHaveLength(2);
   });
 });

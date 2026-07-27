@@ -19,7 +19,7 @@ const name = basename(input).replace(/\.[^.]+$/, "");
 const { ast, diagnostics } = parseToAst({
   source,
   qpiHeader: loadQpiHeader(CORE),
-  name,
+  contractName: name,
 });
 const tree = formatAst(ast);
 

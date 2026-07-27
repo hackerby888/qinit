@@ -1,7 +1,7 @@
 import { AstKind } from "../enums";
 import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, ResolvedCalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
-import type { Sema } from "../sema";
+import type { SemanticAnalyzer } from "../semantic-analyzer";
 import type { PlatformCapability } from "../shared/platform-capabilities";
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
@@ -25,7 +25,7 @@ export class ProgramAnalysis {
             size: number;
         }>;
     } = ASSET_ENUMERATION_RECORD;
-    private sema: Sema;
+    private sema: SemanticAnalyzer;
     private nested: Map<string, StructDecl> = new Map(); // contract-local nested structs
     templates: Map<string, ClassTemplate> = new Map(); // qpi.h templates (HashMap, Array, ...)
     specializations: Map<string, {
@@ -64,7 +64,7 @@ export class ProgramAnalysis {
     warnings: CodeGenerationWarning[] = [];
     errors: CodeGenerationWarning[] = [];
     capabilities: Set<PlatformCapability> = new Set();
-    constructor(sema: Sema) {
+    constructor(sema: SemanticAnalyzer) {
         this.sema = sema;
     }
     // ---- register declarations from the parsed TU into codegen lookup tables ----

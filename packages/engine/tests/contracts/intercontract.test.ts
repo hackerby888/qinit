@@ -2,7 +2,7 @@
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 
 function u64(b: Uint8Array): bigint {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
@@ -11,7 +11,7 @@ function u64(b: Uint8Array): bigint {
 test("Proxy calls Counter: CALL function + INVOKE procedure cross the contract boundary", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Counter")); // callee (lower index)
   sim.deploy(29, await wasm("Proxy")); // caller, built --callee Counter=...@28
 
@@ -31,7 +31,7 @@ test("Proxy calls Counter: CALL function + INVOKE procedure cross the contract b
 test("inter-contract guards: missing callee + lower-index rule -> CallErrorContractInactive", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(29, await wasm("Proxy"));
   const ORIG = new Uint8Array(32);
 

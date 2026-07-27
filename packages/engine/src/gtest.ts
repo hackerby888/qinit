@@ -1,6 +1,11 @@
-// Run core-lite contract_testing.h-style suites against contracts deployed in an isolated virtual node.
-import { Sim } from "./sim";
-import { Contract, KIND, dateFields, packDateAndTime } from "./runtime";
+// Run core-lite contract_testing.h suites in an isolated simulator.
+import { QubicSimulator } from "./qubic-simulator";
+import {
+  Contract,
+  CONTRACT_ENTRY_KIND,
+  dateFields,
+  packDateAndTime,
+} from "./runtime";
 import { initK12, k12Bytes } from "./k12";
 import { EntityRecord, M256i } from "./wire";
 
@@ -27,7 +32,7 @@ export async function runContractTesting(
   const dec = new TextDecoder();
   const results: TestResult[] = [];
 
-  let sim: Sim;
+  let sim: QubicSimulator;
   let handles: Record<number, Contract> = {};
   let spectrumIds: string[] = [];
   let spectrumBytes: Uint8Array[] = [];
@@ -78,20 +83,31 @@ export async function runContractTesting(
   const deployAll = () => {
     // The corpus `system` proxy (epoch / tick / chain clock) mirrors real Qubic's persistent global `system`:
     // constructing a ContractTesting fixture resets spectrum/universe/contract states but never system.epoch/tick.
-    const prevEpoch = sim?.epochN,
-      prevTick = sim?.tickN,
-      prevTimeBase = sim?.timeBaseMs;
-    const prevDigest = sim?.prevSpectrumDigestOverride;
-    sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const previousEpoch = sim?.currentEpoch;
+    const previousTick = sim?.currentTick;
+    const previousTimeBase = sim?.timeBaseMs;
+    const previousDigest = sim?.prevSpectrumDigestOverride;
+    sim = new QubicSimulator({
+      mempool: false,
+      fees: "off",
+      liteTicking: true,
+    });
     // Native-harness clock semantics: etalonTick's date fields ARE the chain time and never move on their
     // own — a corpus advances time only by writing them (q_set_datetime). Freeze the per-tick advance.
     sim.tickDuration = 0;
     // Native etalonTick.prevSpectrumDigest is a zero-initialized global the corpus may pin; contracts read
     // exactly that value, not a live digest of the throwaway chain.
-    sim.prevSpectrumDigestOverride = prevDigest ?? new Uint8Array(32);
-    if (prevEpoch !== undefined) sim.epochN = prevEpoch;
-    if (prevTick !== undefined) sim.tickN = prevTick;
-    if (prevTimeBase !== undefined) sim.timeBaseMs = prevTimeBase;
+    sim.prevSpectrumDigestOverride =
+      previousDigest ?? new Uint8Array(32);
+    if (previousEpoch !== undefined) {
+      sim.currentEpoch = previousEpoch;
+    }
+    if (previousTick !== undefined) {
+      sim.currentTick = previousTick;
+    }
+    if (previousTimeBase !== undefined) {
+      sim.timeBaseMs = previousTimeBase;
+    }
     handles = {};
     spectrumIds = [];
     spectrumBytes = [];
@@ -217,8 +233,7 @@ export async function runContractTesting(
       const n = Math.min(out.length, outCap >>> 0);
       if (n) write(outPtr, out.subarray(0, n));
       markEngineMoved();
-      // QINIT_GTEST_WATCH_SLOT=<n>: one line per invoke with the watched contract's balance — diffing the
-      // native vs ours streams pinpoints a corpus's first divergent dispatch.
+      // QINIT_GTEST_WATCH_SLOT=<n>: print the watched contract balance after each invocation.
       if (env_.QINIT_GTEST_WATCH_SLOT) {
         const ws = Number(env_.QINIT_GTEST_WATCH_SLOT);
         const bal = sim.balance((sim as any).contractId(ws));
@@ -236,8 +251,7 @@ export async function runContractTesting(
         (globalThis as any).process?.stderr?.write?.(
           `[watch] #${++dispatchCount} it=${it >>> 0} amt=${amount} org=${hex(origin).slice(0, 12)} bal=${bal}${fld}\n`,
         );
-        // QINIT_GTEST_SNAP="<dispatchN>:<filePrefix>": dump the watched contract's full state at that
-        // dispatch — byte-diffing a native vs ours pair localizes silent state divergence.
+        // QINIT_GTEST_SNAP="<dispatchN>:<filePrefix>": dump the watched contract state.
         const snap = (env_.QINIT_GTEST_SNAP ?? "") as string;
         if (snap) {
           const [nStr, prefix] = snap.split(":");
@@ -247,7 +261,9 @@ export async function runContractTesting(
             const f = `${prefix}.${dispatchCount}.bin`;
             if (c2)
               fs.writeFileSync(
-                fs.existsSync(f) ? f.replace(/\.bin$/, ".ours.bin") : f,
+                fs.existsSync(f)
+                  ? f.replace(/\.bin$/, ".simulator.bin")
+                  : f,
                 c2.stateView(c2.stateSize),
               );
           }
@@ -287,7 +303,12 @@ export async function runContractTesting(
       try {
         if (c && c.hasSysproc(sp >>> 0))
           traceDisp(`sysproc[${idx >>> 0}:${sp >>> 0}]`, () =>
-            c.invoke(KIND.SYSPROC, sp >>> 0, new Uint8Array(0), { entryPoint: sp >>> 0 }),
+            c.invoke(
+              CONTRACT_ENTRY_KIND.SYSPROC,
+              sp >>> 0,
+              new Uint8Array(0),
+              { entryPoint: sp >>> 0 },
+            ),
           );
       } catch (e: any) {
         (globalThis as any).process?.stderr?.write?.(
@@ -503,13 +524,13 @@ export async function runContractTesting(
     },
 
     q_set_epoch: (e: number) => {
-      sim.epochN = e >>> 0;
+      sim.currentEpoch = e >>> 0;
     },
-    q_get_epoch: (): number => sim.epochN >>> 0,
+    q_get_epoch: (): number => sim.currentEpoch >>> 0,
     q_set_tick: (t: number) => {
-      sim.tickN = t >>> 0;
+      sim.currentTick = t >>> 0;
     },
-    q_get_tick: (): number => sim.tickN >>> 0,
+    q_get_tick: (): number => sim.currentTick >>> 0,
     q_set_prev_spectrum_digest: (ptr: number) => {
       sim.prevSpectrumDigestOverride = read(ptr, 32);
     },
@@ -517,7 +538,7 @@ export async function runContractTesting(
     // date accessors (year/month/day/...) return them. timeBaseMs is chosen so nowMs() == the requested UTC.
     q_set_datetime: (y: number, mo: number, d: number, h: number, mi: number, s: number) => {
       const ms = Date.UTC(y >>> 0, (mo >>> 0) - 1, d >>> 0, h >>> 0, mi >>> 0, s >>> 0);
-      sim.timeBaseMs = ms - sim.tickN * sim.tickDuration;
+      sim.timeBaseMs = ms - sim.currentTick * sim.tickDuration;
     },
 
     // The proposal-voting corpora seed their committee by writing broadcastedComputors.computors.publicKeys[i];
@@ -571,13 +592,12 @@ export async function runContractTesting(
     return off >>> 0;
   };
 
-  // lhost: read-only surface backed by the live Sim (for in-runner qpi contexts like QDUEL's computeWinner),
-  // with explicit safeNoop stubs for state-mutating imports the runner never legitimately calls.
+  // Read-only host surface for in-runner QPI contexts.
   const lhost: Record<string, Function> = {
     k12: (inOff: number, len: number, outOff: number) =>
       mem().set(k12Bytes(read(inOff, len)), outOff >>> 0),
-    epoch: () => sim.epochN & 0xffff,
-    tick: () => sim.tickN >>> 0,
+    epoch: () => sim.currentEpoch & 0xffff,
+    tick: () => sim.currentTick >>> 0,
     day: () => dateFields(sim.nowMs()).day,
     year: () => dateFields(sim.nowMs()).year,
     hour: () => dateFields(sim.nowMs()).hour,

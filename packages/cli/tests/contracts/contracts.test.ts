@@ -81,7 +81,7 @@ test("resolveContract: an unnamed user contract reports its index as the name", 
   expect(r).toEqual({ index: 100, name: "100", kind: "user", source: "USER_SRC" });
 });
 
-test("systemAsDyn: presents a system contract as an armed, constructed DynContract", () => {
+test("systemAsDyn presents a system contract as an armed registry entry", () => {
   const c = sys({
     idl: {
       name: "QX",

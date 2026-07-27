@@ -1,37 +1,37 @@
-// Runs the QUTIL corpus against TS and native contracts through one runner.
+// Runs the QUTIL corpus against TypeScript and Clang contracts through one runner.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import {
   CORE,
   wasiAvailable,
   buildRunner,
-  buildContractsOurs,
-  buildContractsNative,
+  buildContractsWithTypeScript,
+  buildContractsWithClang,
   runUpstream,
   type TR,
 } from "../support/qutil-bridge";
 
-function classify(ours: TR | undefined, native: TR | undefined): string {
-  const o = ours?.passed ?? false;
-  const n = native?.passed ?? false;
-  if (o && n) {
+function classify(typescript: TR | undefined, clang: TR | undefined): string {
+  const typescriptPassed = typescript?.passed ?? false;
+  const clangPassed = clang?.passed ?? false;
+  if (typescriptPassed && clangPassed) {
     return "ok";
   }
-  if (!o && n) {
+  if (!typescriptPassed && clangPassed) {
     return "COMPILER";
   }
-  if (!o && !n) {
+  if (!typescriptPassed && !clangPassed) {
     return "BRIDGE";
   }
   return "SUSPECT";
 }
 
-describe("dual-backend differential — ours vs native", () => {
+describe("dual-backend differential — TypeScript vs Clang", () => {
   beforeAll(async () => {
     await initK12();
   });
 
-  test("ours matches native per-test", async () => {
+  test("TypeScript matches Clang per test", async () => {
     if (!process.env.GTEST_DUAL) {
       console.log("  (set GTEST_DUAL=1 to run the dual differential)");
       return;
@@ -42,36 +42,43 @@ describe("dual-backend differential — ours vs native", () => {
     }
 
     const runner = await buildRunner(CORE);
-    const rNative = await runUpstream(runner, await buildContractsNative(CORE));
-    const rOurs = await runUpstream(runner, await buildContractsOurs(CORE));
+    const clangResults = await runUpstream(runner, await buildContractsWithClang(CORE));
+    const typescriptResults = await runUpstream(
+      runner,
+      await buildContractsWithTypeScript(CORE),
+    );
 
     const byName = (rs: TR[]) => new Map(rs.map((r, i) => [r.name || String(i), r]));
-    const on = byName(rOurs);
-    const nn = byName(rNative);
-    const names = [...new Set([...on.keys(), ...nn.keys()])];
+    const typescriptByName = byName(typescriptResults);
+    const clangByName = byName(clangResults);
+    const names = [...new Set([...typescriptByName.keys(), ...clangByName.keys()])];
 
     const buckets: Record<string, string[]> = { ok: [], COMPILER: [], BRIDGE: [], SUSPECT: [] };
     for (const name of names) {
-      buckets[classify(on.get(name), nn.get(name))].push(name);
+      buckets[classify(typescriptByName.get(name), clangByName.get(name))].push(name);
     }
 
     console.log(
       `\n  dual: ${buckets.ok.length} ok · ${buckets.COMPILER.length} COMPILER-BUG · ${buckets.BRIDGE.length} BRIDGE-BUG · ${buckets.SUSPECT.length} SUSPECT (of ${names.length})`,
     );
     for (const name of buckets.COMPILER) {
-      console.log(`  COMPILER  ${name} — ours fails, native passes (fix codegen)`);
+      console.log(`  COMPILER  ${name} — TypeScript fails, Clang passes (fix codegen)`);
     }
     for (const name of buckets.BRIDGE) {
-      console.log(`  BRIDGE    ${name} — native fails (fix ContractTesting bridge/Sim)`);
+      console.log(`  BRIDGE    ${name} — Clang fails (fix ContractTesting bridge/simulator)`);
     }
     for (const name of buckets.SUSPECT) {
       console.log(
-        `  SUSPECT   ${name} — ours passes, native fails (oracle says fail — investigate)`,
+        `  SUSPECT   ${name} — TypeScript passes, Clang fails (investigate the oracle)`,
       );
     }
 
-    const oursVec = names.map((n) => `${n}:${on.get(n)?.passed ? 1 : 0}`);
-    const nativeVec = names.map((n) => `${n}:${nn.get(n)?.passed ? 1 : 0}`);
-    expect(oursVec).toEqual(nativeVec);
+    const typescriptVector = names.map(
+      (name) => `${name}:${typescriptByName.get(name)?.passed ? 1 : 0}`,
+    );
+    const clangVector = names.map(
+      (name) => `${name}:${clangByName.get(name)?.passed ? 1 : 0}`,
+    );
+    expect(typescriptVector).toEqual(clangVector);
   }, 600000);
 });

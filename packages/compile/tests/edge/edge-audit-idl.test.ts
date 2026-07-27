@@ -33,10 +33,10 @@ describe("edge audit — compile result IDL fidelity", () => {
   beforeAll(async () => {
     const result = await compileContract({
       source: SOURCE,
-      name: "IdlEdge",
+      contractName: "IdlEdge",
       slot: 27,
       qpiHeader: HEADERS,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
     expect(WebAssembly.validate(result.wasm)).toBe(true);

@@ -4,9 +4,9 @@ import { beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContract } from "@qinit/build";
+import { buildContractWithWasiClang } from "@qinit/build";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import ORACLE_PROBE_SOURCE from "../../../../fixtures/OracleProbe.h" with { type: "text" };
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -39,7 +39,7 @@ function priceReply(): Uint8Array {
 }
 
 function run(wasm: Uint8Array) {
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.tickDuration = 60_000;
   sim.deploy(SLOT, wasm);
   sim.fund(contractId(), 1_000_000n);
@@ -76,7 +76,7 @@ test("Price subscription matches across TS and Clang artifacts in VirtualNode", 
   const directory = mkdtempSync(join(tmpdir(), "oracle-subscription-diff-"));
   const contractPath = join(directory, "OracleProbe.h");
   writeFileSync(contractPath, ORACLE_PROBE_SOURCE);
-  const clang = await buildContract({
+  const clang = await buildContractWithWasiClang({
     contractPath,
     name: "OracleProbe",
     slot: SLOT,
@@ -88,10 +88,10 @@ test("Price subscription matches across TS and Clang artifacts in VirtualNode", 
 
   const typescript = await compileContract({
     source: ORACLE_PROBE_SOURCE,
-    name: "OracleProbe",
+    contractName: "OracleProbe",
     slot: SLOT,
     qpiHeader: loadQpiHeader(CORE_PATH),
-    arenaSz: 4 * 1024 * 1024,
+    arenaSizeBytes: 4 * 1024 * 1024,
   });
   expect(typescript.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
   if (!typescript.idl) {
@@ -101,7 +101,7 @@ test("Price subscription matches across TS and Clang artifacts in VirtualNode", 
     112,
   );
 
-  const nativeResult = run(new Uint8Array(readFileSync(clang.so!)));
+  const nativeResult = run(new Uint8Array(readFileSync(clang.wasmPath!)));
   const typescriptResult = run(typescript.wasm);
   expect(nativeResult.subscriptionId).toBe(0);
   expect(typescriptResult).toEqual(nativeResult);

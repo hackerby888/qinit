@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
@@ -81,13 +81,13 @@ describe("scratchpad RAII and pointer lowering", () => {
     await initK12();
     const result = await compileContract({
       source: SOURCE,
-      name: "ScratchRaii",
+      contractName: "ScratchRaii",
       slot: 27,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
       qpiHeader: loadQpiHeader(CORE),
     });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR)).toEqual([]);
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     const user = new Uint8Array(32).fill(9);
     sim.fund(user, 1_000_000n);
     sim.deploy(27, result.wasm);

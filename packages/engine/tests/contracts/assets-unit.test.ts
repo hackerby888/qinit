@@ -1,4 +1,4 @@
-// AssetLedger (assets.ts) in isolation — no Sim. A fake AssetHost supplies only the contract-id derivation, so
+// AssetLedger (assets.ts) in isolation — no QubicSimulator. A fake AssetHost supplies only the contract-id derivation, so
 // the issuance / share-transfer / management-rights / universe-merkle logic is exercised directly.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex } from "../../src/k12";

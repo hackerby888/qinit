@@ -11,7 +11,7 @@ for (const name of ["PULSE", "QEARN"]) {
   const run = await runCorpus({
     name,
     core,
-    backend: "local",
+    backend: "typescript",
     scratch,
     onPhase: (phase) => console.log(`[${name}] ${phase}`),
   });

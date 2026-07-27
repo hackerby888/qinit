@@ -8,7 +8,7 @@ import {
   wasiSdkPaths,
   type Manifest,
 } from "@qinit/core";
-import { fetchNodeBin, nodeAssetForPlatform } from "../node-ops";
+import { fetchNodeBinary, nodeAssetForPlatform } from "../node-ops";
 import { prepareNodeRunCore } from "../node-run-core";
 import { output } from "../args";
 import { Header, StepRow, type StepState, theme } from "../ui";
@@ -42,7 +42,7 @@ const defaultDeps = {
   loadManifest,
   prepareNodeRunCore,
   nodeAssetForPlatform,
-  fetchNodeBin,
+  fetchNodeBinary,
   wasiSdkPaths,
   fetchWasiSdk,
   configuredVerifyTool,
@@ -118,7 +118,7 @@ export async function runSetup(
       if (!deps.nodeAssetForPlatform(manifest)) {
         return "skipped — not published yet";
       }
-      const node = await deps.fetchNodeBin("latest", onProgress, manifest);
+      const node = await deps.fetchNodeBinary("latest", onProgress, manifest);
       return `ready ${node.version}`;
     },
     emit,

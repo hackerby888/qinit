@@ -83,9 +83,9 @@ describe("tracked snapshot + browser entry", () => {
     const browser = await import(browserModule);
     const res = await browser.compileContract({
       source: SOURCE,
-      name: "SNAP",
+      contractName: "SNAP",
       slot: 27,
-      arenaSz: 1 << 20,
+      arenaSizeBytes: 1 << 20,
     });
     expect(
       res.diagnostics.filter((d: { severity: string }) => d.severity === "error"),

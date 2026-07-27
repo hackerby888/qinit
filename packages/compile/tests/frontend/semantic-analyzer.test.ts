@@ -5,9 +5,9 @@ import {
   DiagnosticSeverity,
   UnaryOp,
 } from "../../src/enums";
-// Sema unit tests: the diagnostics channel's constexpr evaluator (scope-free literal arithmetic).
+// Tests the diagnostics channel's scope-free constexpr evaluator.
 import { describe, test, expect } from "bun:test";
-import { Sema } from "../../src/sema";
+import { SemanticAnalyzer } from "../../src/semantic-analyzer";
 import type { Expression, TypeSpec, Span } from "../../src/ast";
 
 const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };
@@ -37,13 +37,13 @@ const cast = (type: TypeSpec, expression: Expression): Expression =>
 const callx = (callee: Expression, callArguments: Expression[]): Expression =>
   ({ kind: AstKind.CALL, callee, callArguments, span: NO_SPAN }) as Expression;
 
-const ceval = (sema: Sema, expression: Expression): bigint | null => sema.evaluateConstexpr(expression);
+const ceval = (sema: SemanticAnalyzer, expression: Expression): bigint | null => sema.evaluateConstexpr(expression);
 
-const makeSema = () => new Sema();
+const makeSema = () => new SemanticAnalyzer();
 
 // ---- constexpr evaluation ----
 
-describe("Sema — constexpr evaluation", () => {
+describe("SemanticAnalyzer — constexpr evaluation", () => {
   // ---- literals ----
   describe("literals", () => {
     test("integer literals", () => {
@@ -297,7 +297,7 @@ describe("Sema — constexpr evaluation", () => {
 
 // ---- diagnostics channel ----
 
-describe("Sema — diagnostics", () => {
+describe("SemanticAnalyzer — diagnostics", () => {
   test("error and warning collection", () => {
     const s = makeSema();
     s.error("bad thing", NO_SPAN);

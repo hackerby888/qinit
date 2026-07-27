@@ -3,7 +3,12 @@ import { describe, expect, test } from "bun:test";
 import { compileContract, parseToAst } from "../../src/index";
 
 function errorsFor(source: string, qpiHeader?: string) {
-  return parseToAst({ source, qpiHeader, name: "DiagProbe", slot: 27 }).diagnostics.filter(
+  return parseToAst({
+    source,
+    qpiHeader,
+    contractName: "DiagProbe",
+    slot: 27,
+  }).diagnostics.filter(
     (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
   );
 }
@@ -77,7 +82,7 @@ describe("compiler diagnostics - source locations", () => {
     await expect(
       compileContract({
         source: "struct UserSource {};",
-        name: "DiagProbe",
+        contractName: "DiagProbe",
         slot: 27,
         qpiHeader: "struct HeaderOnly {};",
       }),
@@ -115,8 +120,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Size, 1); }
 };`;
-    const lax = await compileContract({ source, name: "DiagSize", slot: 27, strict: false });
-    const strict = await compileContract({ source, name: "DiagSize", slot: 27, strict: true });
+    const lax = await compileContract({ source, contractName: "DiagSize", slot: 27, strict: false });
+    const strict = await compileContract({ source, contractName: "DiagSize", slot: 27, strict: true });
     const laxFidelity = lax.diagnostics.find(
       (diagnostic) => diagnostic.category === DiagnosticCategory.FIDELITY,
     );

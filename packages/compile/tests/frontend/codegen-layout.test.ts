@@ -2,7 +2,7 @@ import { AccessSpec, AstKind } from "../../src/enums";
 // Unit coverage for scalar, aggregate, template, and inherited layouts.
 import { describe, test, expect } from "bun:test";
 import { CodeGenerationContext } from "../../src/codegen";
-import { Sema } from "../../src/sema";
+import { SemanticAnalyzer } from "../../src/semantic-analyzer";
 import type {
   TypeSpec,
   StructDecl,
@@ -101,7 +101,7 @@ const ntparam = (name: string): TemplateParam =>
 
 // ---- Codegen instance ----
 
-const makeCg = (): CodeGenerationContext => new CodeGenerationContext(new Sema());
+const makeCg = (): CodeGenerationContext => new CodeGenerationContext(new SemanticAnalyzer());
 
 // -------------------------------------------------------------------------- scalar sizes --------------------------------------------------------------------------
 

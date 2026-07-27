@@ -133,10 +133,10 @@ describe("differential gtest — Registry (HashSet + HashMap iteration/remove)",
 
     const mine = await compileContract({
       source: REGISTRY,
-      name: "Registry",
+      contractName: "Registry",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

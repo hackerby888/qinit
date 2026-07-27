@@ -2,7 +2,7 @@
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12, k12Bytes, toHex, deriveKeysSync, verifySync } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 import {
   Committee,
   merkleRoot,
@@ -41,7 +41,9 @@ test("committee derivation is deterministic for fixed seeds", async () => {
 
 test("arbitrator defaults to the seed 'aaa…a' and signs a verifiable computor list", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
   const committee = sim.getCommittee();
 
   // default arbitrator identity = derive("a".repeat(55))
@@ -60,7 +62,9 @@ test("arbitrator defaults to the seed 'aaa…a' and signs a verifiable computor 
 
 test("every advanced tick reaches quorum with N FourQ-verifiable votes", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
   sim.deploy(28, await wasm("Counter"));
 
   for (let i = 0; i < 5; i++) {
@@ -68,7 +72,7 @@ test("every advanced tick reaches quorum with N FourQ-verifiable votes", async (
   }
 
   const committee = sim.getCommittee();
-  const rec = sim.tickRecord(sim.tickN)!;
+  const rec = sim.tickRecord(sim.currentTick)!;
   expect(rec.total).toBe(4);
   expect(rec.aligned).toBe(4); // honest committee -> all align
   expect(rec.aligned).toBeGreaterThanOrEqual(committee.quorum);
@@ -85,16 +89,20 @@ test("every advanced tick reaches quorum with N FourQ-verifiable votes", async (
 
 test("configurable committee size drives quorum + vote count", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { numberOfComputors: 7 } });
+  const sim = new QubicSimulator({
+    consensus: { numberOfComputors: 7 },
+  });
   sim.advance();
 
   expect(sim.quorum()).toBe(5); // floor(7*2/3)+1
-  expect(sim.tickRecord(sim.tickN)!.total).toBe(7);
+  expect(sim.tickRecord(sim.currentTick)!.total).toBe(7);
 });
 
 test("computerDigest is the faithful K12 merkle over the 1024 contract leaves", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
   sim.deploy(28, await wasm("Counter"));
   sim.deploy(29, await wasm("Counter29"));
   sim.procedure(28, INC);
@@ -112,7 +120,9 @@ test("computerDigest is the faithful K12 merkle over the 1024 contract leaves", 
 
 test("consensus is additive — it does not change a contract's StateData digest", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
   sim.deploy(28, await wasm("Counter"));
   sim.procedure(28, INC);
 
@@ -130,7 +140,9 @@ test("consensus is additive — it does not change a contract's StateData digest
 
 test("chain clock advances with ticks and stamps the tick-vote timestamp", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
 
   const t0 = sim.nowMs();
   for (let i = 0; i < 4; i++) {
@@ -139,7 +151,7 @@ test("chain clock advances with ticks and stamps the tick-vote timestamp", async
   expect(sim.nowMs()).toBe(t0 + 4 * sim.tickDuration); // deterministic: timeBaseMs + tick*tickDuration
 
   // the latest vote carries the decomposed timestamp (year = UTC year - 2000, like the node's year())
-  const vote = sim.tickRecord(sim.tickN)!.votes[0];
+  const vote = sim.tickRecord(sim.currentTick)!.votes[0];
   const d = new Date(sim.nowMs());
   expect(vote.year).toBe((d.getUTCFullYear() - 2000) & 0xff); // year = UTC year - 2000 (node's year())
   expect(vote.month).toBe(d.getUTCMonth() + 1);
@@ -148,7 +160,9 @@ test("chain clock advances with ticks and stamps the tick-vote timestamp", async
 
 test("spectrum digest changes when balances move, universe digest when assets change", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
 
   const before = toHex(sim.spectrumDigest());
   sim.fund(new Uint8Array(32).fill(0x11), 1000n);

@@ -11,14 +11,14 @@ export const LOG_SC_END_TICK = LOG_TXS_PER_TICK + 3;
 export const LOG_SC_END_EPOCH = LOG_TXS_PER_TICK + 4;
 export const LOG_SC_NOTIFICATION = LOG_TXS_PER_TICK + 5;
 
-export interface NativeLogRange {
+export interface QubicLogRange {
   fromLogId: bigint;
   length: bigint;
 }
 
 const ZERO32 = new Uint8Array(32);
 
-function emptyRanges(): NativeLogRange[] {
+function emptyRanges(): QubicLogRange[] {
   return Array.from({ length: LOG_RANGES_PER_TICK }, () => ({ fromLogId: -1n, length: -1n }));
 }
 
@@ -33,10 +33,10 @@ function concat(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-// Native-shaped, in-memory qLogger storage. Wasm supplies only type + bytes through lhost.logBytes.
-export class NativeLogger {
+// Core-compatible in-memory qLogger storage.
+export class QubicLogStore {
   private records: Array<Uint8Array | null> = [];
-  private ranges = new Map<number, NativeLogRange[]>();
+  private ranges = new Map<number, QubicLogRange[]>();
   private digests = new Map<number, Uint8Array>();
   private digestInput: Uint8Array[] = [ZERO32];
   private previousDigest = ZERO32;
@@ -133,12 +133,12 @@ export class NativeLogger {
     this.paused = false;
   }
 
-  range(tick: number, txId: number): NativeLogRange {
+  range(tick: number, txId: number): QubicLogRange {
     if (tick > this.lastUpdatedTick) return { fromLogId: -3n, length: -3n };
     return this.ranges.get(tick)?.[txId] ?? { fromLogId: -2n, length: -2n };
   }
 
-  tickRanges(tick: number): NativeLogRange[] {
+  tickRanges(tick: number): QubicLogRange[] {
     if (tick > this.lastUpdatedTick)
       return Array.from({ length: LOG_RANGES_PER_TICK }, () => ({ fromLogId: -3n, length: -3n }));
     return (

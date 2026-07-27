@@ -11,16 +11,16 @@ import {
   loadCoreWasmSlotLayout,
 } from "@qinit/core";
 import {
-  fetchNodeBin,
+  fetchNodeBinary,
   cachedNode,
   nodeStatus,
   nodeContracts,
   killNode,
   launchNode,
-  launchVirtualNode,
+  launchSimulatorNode,
   waitTicking,
 } from "../node-ops";
-import { savedMode, loadConfig } from "../config";
+import { loadConfig, resolveNodeBackend } from "../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
 import { parseCommandArgs, output } from "../args";
 import { prepareNodeRunCore } from "../node-run-core";
@@ -30,13 +30,10 @@ type Phase = { key: string; label: string; state: StepState; detail?: string };
 export function NodeRun({ args }: { args: string[] }) {
   const { exit } = useApp();
   const { flags: o } = parseCommandArgs("node", args, "run");
-  const rpcBase = o.rpc || DEFAULT_RPC_BASE;
+  const rpcBaseUrl = o.rpc || DEFAULT_RPC_BASE;
   const peerPort = Number(o["peer-port"] || DEFAULT_PEER_PORT);
   const ref = o.ref || "latest";
-  // `qinit mode` chooses the backend; an explicit --real/--realnode or --virtual flag overrides it for this run
-  // (parity with `qinit test`), so `qinit node run --real` isn't silently ignored.
-  const virtual =
-    "virtual" in o ? true : "real" in o || "realnode" in o ? false : savedMode() === "virtualnode";
+  const useSimulator = resolveNodeBackend(o) === "simulator";
   const [steps, setSteps] = useState<Phase[]>([
     { key: "headers", label: "core headers", state: "pending" },
     { key: "node", label: "node binary", state: "pending" },
@@ -57,34 +54,35 @@ export function NodeRun({ args }: { args: string[] }) {
   useEffect(() => {
     (async () => {
       try {
-        // An explicit core checkout bypasses the release manifest. The published/cached path is unchanged
-        // when --core is absent.
+        // An explicit core checkout bypasses the release manifest.
         set("headers", "active");
-        const preparedCore = await prepareNodeRunCore(o, virtual);
+        const preparedCore = await prepareNodeRunCore(o, useSimulator);
         const { version, coreHeaders: currentHeaders } = preparedCore;
         set("headers", "ok", preparedCore.detail);
-        const slotLayout = virtual ? loadCoreWasmSlotLayout(currentHeaders) : undefined;
-        if (virtual && !slotLayout) {
-          throw new Error("virtual node requires synced core headers for its Wasm slot layout");
+        const slotLayout = useSimulator ? loadCoreWasmSlotLayout(currentHeaders) : undefined;
+        if (useSimulator && !slotLayout) {
+          throw new Error("simulator requires synced core headers for its Wasm slot layout");
         }
 
-        // Node binary: not needed for the virtual backend (the in-process engine replaces it); otherwise
-        // reuse cached, else fetch (fetchNodeBin skips download if already cached).
+        // Node binary: not needed for the simulator backend; otherwise
+        // reuse cached, else fetch (fetchNodeBinary skips download if already cached).
         set("node", "active");
-        let bin = "";
-        if (virtual) {
-          set("node", "ok", "virtual engine — no binary");
-        } else if (o.bin) {
-          bin = resolve(o.bin);
-          if (!existsSync(bin)) throw new Error(`--bin not found: ${bin}`);
-          set("node", "ok", `local ${bin}`);
+        let nodeBinary = "";
+        if (useSimulator) {
+          set("node", "ok", "simulator — no binary");
+        } else if (o["node-bin"]) {
+          nodeBinary = resolve(o["node-bin"]);
+          if (!existsSync(nodeBinary)) {
+            throw new Error(`--node-bin not found: ${nodeBinary}`);
+          }
+          set("node", "ok", `local ${nodeBinary}`);
         } else if ("offline" in o) {
           const c = cachedNode();
           if (!c) throw new Error("offline: no cached node — run `qinit node run` online first");
-          bin = c;
+          nodeBinary = c;
           set("node", "ok", "reuse cached");
         } else {
-          bin = (await fetchNodeBin(ref)).bin;
+          nodeBinary = (await fetchNodeBinary(ref)).nodeBinaryPath;
           set("node", "ok", `ready ${version}`);
         }
 
@@ -110,7 +108,7 @@ export function NodeRun({ args }: { args: string[] }) {
 
         // Run: reuse a node that's already ticking (keeps deployed state); else (re)launch.
         set("run", "active", "checking");
-        const st = await nodeStatus(rpcBase);
+        const st = await nodeStatus(rpcBaseUrl);
         let scratch = "",
           ok: boolean,
           tick: number;
@@ -120,31 +118,33 @@ export function NodeRun({ args }: { args: string[] }) {
           set("run", "ok", `reused, ticking at ${tick}`);
         } else {
           const why = !st.up ? "no node" : st.ticking ? "--restart" : "node idle";
-          set("run", "active", `${why} → launching${virtual ? " virtual engine" : ""}`);
-          await killNode(o.dir);
-          const l = virtual
-            ? launchVirtualNode({
-                dir: o.dir,
-                rpcBase,
+          set("run", "active", `${why} → launching${useSimulator ? " simulator" : ""}`);
+          await killNode();
+          const launched = useSimulator
+            ? launchSimulatorNode({
+                scratchDirectory: o["scratch-dir"],
+                rpcBaseUrl: rpcBaseUrl,
                 peerPort,
-                keep: o.keep !== undefined,
+                preserveScratchContents: o.keep !== undefined,
                 tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined,
                 system: loadConfig().system,
                 slotBase: slotLayout!.slotBase,
                 slotCount: slotLayout!.slotCount,
               })
             : launchNode({
-                bin,
-                dir: o.dir,
-                mode: o["node-mode"],
+                nodeBinary,
+                scratchDirectory: o["scratch-dir"],
+                nodeMode: o["node-mode"],
                 peers: o.peers,
-                keep: o.keep !== undefined,
+                preserveScratchContents: o.keep !== undefined,
               });
-          scratch = l.scratch;
-          const w = await waitTicking(rpcBase, Number(o.wait || 90));
+          scratch = launched.scratch;
+          const w = await waitTicking(rpcBaseUrl, Number(o.wait || 90));
           ok = w.ticking;
           tick = w.tick;
-          if (w.ticking) set("run", "ok", `launched pid ${l.pid}, ticking at ${tick}`);
+          if (w.ticking) {
+            set("run", "ok", `launched pid ${launched.pid}, ticking at ${tick}`);
+          }
           else
             set(
               "run",
@@ -154,15 +154,15 @@ export function NodeRun({ args }: { args: string[] }) {
         }
 
         // Trust the run verdict above; just read contracts once (no extra tick sampling).
-        const contracts = await nodeContracts(rpcBase);
+        const contracts = await nodeContracts(rpcBaseUrl);
         const rows: [string, string][] = [
-          ["backend", virtual ? "virtualnode (in-process engine)" : "realnode"],
+          ["backend", useSimulator ? "simulator (in-process)" : "core-lite node"],
           ["version", version],
-          ["rpc", rpcBase],
+          ["rpc", rpcBaseUrl],
           ["tick", String(tick)],
           ["contracts", contracts.length ? contracts.join(", ") : "(none)"],
         ];
-        if (virtual) rows.splice(3, 0, ["peer", `${LOOPBACK_HOST}:${peerPort}`]);
+        if (useSimulator) rows.splice(3, 0, ["peer", `${LOOPBACK_HOST}:${peerPort}`]);
         if (scratch) rows.push(["scratch", scratch]);
         setDone({
           ok,

@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 // QPI header caching must be content-addressed. Length + first 64 bytes is not sufficient:
 import { beforeAll, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -19,13 +19,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 async function stateSize(name: string, qpiHeader: string): Promise<number> {
   const result = await compileContract({
     source: SOURCE,
-    name,
+    contractName: name,
     slot: 27,
     qpiHeader,
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
   expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   sim.deploy(27, result.wasm);
   return sim.contracts.get(27)!.state().byteLength;
 }

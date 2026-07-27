@@ -1,6 +1,6 @@
 import { DiagnosticCategory } from "../../../enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
-import type { Sema } from "../../../sema";
+import type { SemanticAnalyzer } from "../../../semantic-analyzer";
 import type { SystemProcedureInfo, UserEntry } from "../../../framework";
 import type {
     GeneratedContractMetadata,
@@ -35,7 +35,7 @@ export function writeGeneratedContractMetadata(
 
 export function publishProgramDiagnostics(
     programAnalysis: ProgramAnalysis,
-    semanticAnalysis: Sema,
+    semanticAnalysis: SemanticAnalyzer,
 ): void {
     for (const warning of programAnalysis.warnings) {
         semanticAnalysis.warn(

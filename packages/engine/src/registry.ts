@@ -1,5 +1,10 @@
 // Registry for deployed Wasm contracts, persistent state, metered calls, and the computer digest.
-import { Contract, type HostServices, KIND, SP } from "./runtime";
+import { SYSTEM_PROCEDURES } from "@qinit/core";
+import {
+  Contract,
+  type HostServices,
+  CONTRACT_ENTRY_KIND,
+} from "./runtime";
 import { k12Bytes } from "./k12";
 
 // The wasm K12 mallocs its whole input; ~8 MB is the safe ceiling before it overflows. Contract states above
@@ -61,8 +66,14 @@ export class ContractRegistry {
     if (!prevState) {
       // first deploy: zero state + run INITIALIZE
       c.zeroState();
-      if (c.hasSysproc(SP.INITIALIZE)) {
-        this.fire(c, KIND.SYSPROC, SP.INITIALIZE, new Uint8Array(0), { entryPoint: SP.INITIALIZE });
+      if (c.hasSysproc(SYSTEM_PROCEDURES.INITIALIZE)) {
+        this.fire(
+          c,
+          CONTRACT_ENTRY_KIND.SYSPROC,
+          SYSTEM_PROCEDURES.INITIALIZE,
+          new Uint8Array(0),
+          { entryPoint: SYSTEM_PROCEDURES.INITIALIZE },
+        );
       }
       c.everInitialized = true;
     } else if (c.hasMigrate && c.migrateOldStateSize === prevState.length) {

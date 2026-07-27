@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
 import { writeFileSync, chmodSync, renameSync, unlinkSync } from "node:fs";
 import { basename } from "node:path";
-import { resolveCliTag, cliReleaseUrls, fetchCliSha, fetchVerify } from "@qinit/core";
+import {
+  resolveCliTag,
+  cliReleaseUrls,
+  fetchCliSha,
+  downloadVerifiedAsset,
+} from "@qinit/core";
 import { VERSION } from "../version";
 import { Header, Status, Spinner, Bar, theme } from "../ui";
 import { parseCommandArgs } from "../args";
@@ -45,7 +50,10 @@ export function Update({ args }: { args: string[] }) {
           return;
         }
         const sha = await fetchCliSha(sums, name);
-        const buf = await fetchVerify({ url: asset, sha256: sha }, (r, t) => t && setPct(r / t));
+        const buf = await downloadVerifiedAsset(
+          { url: asset, sha256: sha },
+          (received, total) => total && setPct(received / total),
+        );
         const tmp = self + ".new"; // same dir => atomic rename, no cross-fs copy
         writeFileSync(tmp, buf);
         if (process.platform === "win32") {

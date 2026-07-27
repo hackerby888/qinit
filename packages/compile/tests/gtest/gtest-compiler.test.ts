@@ -81,7 +81,7 @@ describe("core-lite-style gtest compiler", () => {
     const compiled = await compileGtest({
       source: CONTRACT,
       testSource: STANDARD_GTEST,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI,
     });
@@ -90,10 +90,10 @@ describe("core-lite-style gtest compiler", () => {
 
     const contract = await compileContract({
       source: CONTRACT,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     expect(contract.diagnostics.filter((item) => item.severity === DiagnosticSeverity.ERROR)).toEqual([]);
     const results = await runCompiledGtest(compiled.program!, compiled.wasm!, {
@@ -106,7 +106,7 @@ describe("core-lite-style gtest compiler", () => {
     const compiled = await compileGtest({
       source: CONTRACT,
       testSource: `TEST(Counter, Old) { ContractTest t; }`,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI,
     });
@@ -121,7 +121,7 @@ describe("core-lite-style gtest compiler", () => {
         "Counter::Inc_output out = t.inc(user);",
         "for (int i = 0; i < 3; ++i) { t.inc(user); }",
       ),
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI,
     });
@@ -136,16 +136,16 @@ describe("core-lite-style gtest compiler", () => {
         "EXPECT_EQ(t.get().value, 7ull);",
         "EXPECT_EQ(t.get().value, 8ull);",
       ),
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI,
     });
     const contract = await compileContract({
       source: CONTRACT,
-      name: "Counter",
+      contractName: "Counter",
       slot: 28,
       qpiHeader: QPI,
-      arenaSz: 64 * 1024,
+      arenaSizeBytes: 64 * 1024,
     });
     const [result] = await runCompiledGtest(compiled.program!, compiled.wasm!, {
       28: contract.wasm,

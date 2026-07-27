@@ -6,8 +6,8 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { writeFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -84,7 +84,7 @@ const CASES: Record<string, { body: string; expect: bigint }> = {
 };
 
 const run = (wasm: Uint8Array): bigint => {
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   sim.deploy(27, wasm);
@@ -107,10 +107,10 @@ describe("32-bit width fidelity vs native", () => {
         const src = wrap(c.body);
         const ours = await compileContract({
           source: src,
-          name: "W32",
+          contractName: "W32",
           slot: 27,
           qpiHeader: HEADERS,
-          arenaSz: 1 << 20,
+          arenaSizeBytes: 1 << 20,
         });
         expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
         expect(run(ours.wasm)).toBe(c.expect);
@@ -118,7 +118,7 @@ describe("32-bit width fidelity vs native", () => {
         if (wasiOk) {
           const dir = mkdtempSync(join(tmpdir(), "w32-"));
           writeFileSync(join(dir, "W32.h"), src);
-          const built = await buildContract({
+          const built = await buildContractWithWasiClang({
             contractPath: join(dir, "W32.h"),
             name: "W32",
             slot: 27,
@@ -127,7 +127,7 @@ describe("32-bit width fidelity vs native", () => {
             skipVerify: true,
           });
           expect(built.ok).toBe(true);
-          expect(run(new Uint8Array(readFileSync(built.so!)))).toBe(c.expect);
+          expect(run(new Uint8Array(readFileSync(built.wasmPath!)))).toBe(c.expect);
         }
       },
       180000,

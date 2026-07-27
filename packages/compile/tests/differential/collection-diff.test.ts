@@ -96,10 +96,10 @@ describe("differential gtest — Collection (BST add/iterate/remove)", () => {
 
       const mine = await compileContract({
         source: ORDERS,
-        name: "Orders",
+        contractName: "Orders",
         slot: 28,
         qpiHeader: HEADERS,
-        arenaSz: 1024 * 1024,
+        arenaSizeBytes: 1024 * 1024,
       });
       expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

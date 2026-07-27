@@ -61,7 +61,7 @@ test("GROUP_ORDER: every declared group is used by at least one command", () => 
 });
 
 test("release-smoke flags are exposed in command metadata", () => {
-  expect(commandOptions("node", "run").map(optionSyntax)).toContain("--core <path>");
+  expect(commandOptions("node", "run").map(optionSyntax)).toContain("--core-dir <path>");
   expect(commandOptions("state").map(optionSyntax)).toContain("--digest");
   expect(META.build.json).toBe(true);
 });
@@ -71,12 +71,27 @@ test("accepted build, dev, gen, and call options are documented", () => {
     expect.arrayContaining(["contract", "rpc", "callee"]),
   );
   expect(commandOptions("dev").map((option) => option.name)).toEqual(
-    expect.arrayContaining(["contract", "name", "core", "callee"]),
+    expect.arrayContaining(["contract", "contract-name", "core-dir", "callee", "compiler"]),
   );
   expect(commandOptions("gen").map((option) => option.name)).toEqual(
-    expect.arrayContaining(["contract", "core"]),
+    expect.arrayContaining(["contract", "contract-name", "core-dir"]),
   );
   expect(commandOptions("call").map((option) => option.name)).toEqual(
     expect.arrayContaining(["args", "amount", "all", "no-settle"]),
   );
+});
+
+test("legacy backend and path flags are not accepted", () => {
+  const optionNames = Object.entries(META).flatMap(([command, meta]) => [
+    ...(meta.options ?? []).map((option) => `${command}:${option.name}`),
+    ...Object.entries(meta.subcommands ?? {}).flatMap(([subcommand, sub]) =>
+      sub.options.map((option) => `${command} ${subcommand}:${option.name}`),
+    ),
+  ]);
+
+  for (const legacy of ["native", "local", "core", "bin", "dir", "mode"]) {
+    expect(optionNames.some((entry) => entry.endsWith(`:${legacy}`))).toBe(false);
+  }
+  expect(COMMANDS).toContain("node-backend");
+  expect(COMMANDS).not.toContain("mode");
 });

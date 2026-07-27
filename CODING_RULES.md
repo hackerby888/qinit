@@ -4,6 +4,7 @@
 - Keep comments short and useful (1–2 lines, no noise).
 - Prefer readable multiline code over dense one-line expressions (sometimes one-line is better if the code is still readable and simple, split it to multi-lines may even make it worse)
 - Use clear variable and function names where readability improves clarity.
+- Include the role, path kind, or unit when a shorter name would be ambiguous.
 - Keep code style consistent with existing project formatting.
 - Avoid compact blocks; favor explicit line breaks and spacing.
 - Keep tests passing after edits; run the relevant suite before finishing a task.

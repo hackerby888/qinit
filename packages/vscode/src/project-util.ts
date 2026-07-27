@@ -42,7 +42,7 @@ export function configuredContractIdentity(file: string): ContractIdentity {
   }
 
   return {
-    name: config.name,
+    name: config.contractName,
     slot: config.slot,
   };
 }

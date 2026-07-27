@@ -96,7 +96,7 @@ test.skipIf(!have("Qx"))(
     );
     // share-management procedure takes typed args, not a hand-written format string
     expect(qx).toContain("asset: { issuer: string; assetName: bigint }");
-    expect(qx).not.toContain("async TransferShareManagementRights(inFmt: string");
+    expect(qx).not.toContain("async TransferShareManagementRights(inputFormat: string");
   },
 );
 
@@ -126,11 +126,11 @@ const sint64 = (...vs: bigint[]) => {
 test("RUN: nested + array-of-struct outputs decode into typed named objects", async () => {
   const mod = await loadGenerated(geoClient, "out");
   const rpc = {
-    async querySmartContract(_idx: number, fnId: number): Promise<Uint8Array> {
-      if (fnId === 1) return sint64(5n, 7n); // GetPt -> Pt{5,7}
-      if (fnId === 2) return sint64(1n, 2n, 3n, 4n, 5n, 6n); // ListPts -> 3 Pts
-      if (fnId === 6) return sint64(1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n);
-      throw new Error("unexpected fn " + fnId);
+    async querySmartContract(_idx: number, functionId: number): Promise<Uint8Array> {
+      if (functionId === 1) return sint64(5n, 7n); // GetPt -> Pt{5,7}
+      if (functionId === 2) return sint64(1n, 2n, 3n, 4n, 5n, 6n); // ListPts -> 3 Pts
+      if (functionId === 6) return sint64(1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n);
+      throw new Error("unexpected fn " + functionId);
     },
   };
   const c = new mod.Geo({ rpc, index: 5 });

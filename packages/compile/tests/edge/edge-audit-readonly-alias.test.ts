@@ -20,10 +20,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 async function expectReadonlyRejection(source: string) {
   const result = await compileContract({
     source,
-    name: "ReadonlyAliasEdge",
+    contractName: "ReadonlyAliasEdge",
     slot: 27,
     qpiHeader: HEADERS,
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
   const errors = result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR);
   expect(

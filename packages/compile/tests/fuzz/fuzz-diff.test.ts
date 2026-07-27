@@ -5,8 +5,8 @@ import { describe, test, expect, beforeAll } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildContract } from "@qinit/build";
-import { Sim } from "@qinit/engine";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 import { generate, encodeInput } from "../../tools/fuzz-gen";
@@ -38,7 +38,7 @@ const PINNED: Record<number, string> = {
 };
 
 const runState = (wasm: Uint8Array, inputs: bigint[][]): string => {
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+  const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   sim.deploy(27, wasm);
@@ -69,10 +69,10 @@ describe("fuzz pinned seeds", () => {
       const c = generate(seed);
       const ours = await compileContract({
         source: c.source,
-        name: `F${seed}`,
+        contractName: `F${seed}`,
         slot: 27,
         qpiHeader: HEADERS,
-        arenaSz: 1 << 20,
+        arenaSizeBytes: 1 << 20,
       });
       expect(ours.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
       expect(runState(ours.wasm, c.inputs)).toBe(expected);
@@ -81,7 +81,7 @@ describe("fuzz pinned seeds", () => {
         const dir = mkdtempSync(join(tmpdir(), `fuzzpin-${seed}-`));
         try {
           writeFileSync(join(dir, "F.h"), c.source);
-          const built = await buildContract({
+          const built = await buildContractWithWasiClang({
             contractPath: join(dir, "F.h"),
             name: "F",
             slot: 27,
@@ -90,7 +90,7 @@ describe("fuzz pinned seeds", () => {
             skipVerify: true,
           });
           expect(built.ok).toBe(true);
-          expect(runState(new Uint8Array(readFileSync(built.so!)), c.inputs)).toBe(expected);
+          expect(runState(new Uint8Array(readFileSync(built.wasmPath!)), c.inputs)).toBe(expected);
         } finally {
           rmSync(dir, { recursive: true, force: true });
         }

@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import {
   cacheHeaders,
   extractTarGz,
-  fetchVerify,
+  downloadVerifiedAsset,
   loadManifest,
   readCurrent,
   updateCurrent,
@@ -13,7 +13,7 @@ const defaultDeps = {
   existsSync,
   cacheHeaders,
   extractTarGz,
-  fetchVerify,
+  downloadVerifiedAsset,
   loadManifest,
   readCurrent,
   updateCurrent,
@@ -29,32 +29,32 @@ export interface PreparedNodeRunCore {
 
 export async function prepareNodeRunCore(
   options: Record<string, string>,
-  virtual: boolean,
+  useSimulator: boolean,
   injected: Partial<NodeRunCoreDeps> = {},
   onProgress?: (recv: number, total: number) => void,
 ): Promise<PreparedNodeRunCore> {
   const deps = { ...defaultDeps, ...injected };
 
-  if ("core" in options) {
+  if ("core-dir" in options) {
     if ("ref" in options) {
-      throw new Error("--core cannot be combined with --ref");
+      throw new Error("--core-dir cannot be combined with --ref");
     }
-    if (!options.core) {
-      throw new Error("--core requires a path");
+    if (!options["core-dir"]) {
+      throw new Error("--core-dir requires a path");
     }
-    if (!virtual && !options.bin) {
+    if (!useSimulator && !options["node-bin"]) {
       throw new Error(
-        "real node with --core requires --bin <path> to keep node and headers aligned",
+        "core backend with --core-dir requires --node-bin <path> to keep node and headers aligned",
       );
     }
 
-    const coreHeaders = resolve(options.core);
+    const coreHeaders = resolve(options["core-dir"]);
     if (!deps.existsSync(coreHeaders)) {
-      throw new Error(`--core not found: ${coreHeaders}`);
+      throw new Error(`--core-dir not found: ${coreHeaders}`);
     }
     if (!deps.existsSync(join(coreHeaders, "src", "contracts", "qpi.h"))) {
       throw new Error(
-        `invalid --core path (missing src/contracts/qpi.h): ${coreHeaders}`,
+        `invalid --core-dir path (missing src/contracts/qpi.h): ${coreHeaders}`,
       );
     }
 
@@ -76,7 +76,7 @@ export async function prepareNodeRunCore(
       version = manifest.version;
       headersAsset = manifest.headers;
     } catch (error) {
-      if (!virtual) {
+      if (!useSimulator) {
         throw error;
       }
       const current = deps.readCurrent();
@@ -114,7 +114,7 @@ export async function prepareNodeRunCore(
 
   const coreHeaders = deps.cacheHeaders(version);
   await deps.extractTarGz(
-    await deps.fetchVerify(headersAsset, onProgress),
+    await deps.downloadVerifiedAsset(headersAsset, onProgress),
     coreHeaders,
   );
   deps.updateCurrent({ headersVersion: version, coreHeaders });

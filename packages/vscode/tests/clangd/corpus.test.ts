@@ -1,12 +1,12 @@
 import { test, expect } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { resolveCore } from "@qinit/core/project";
+import { resolveCoreDir } from "@qinit/core/project";
 import { lintCorpus, deployedContracts } from "../../scripts/lint-corpus";
 
 let core: string | undefined;
 try {
-  core = resolveCore(process.env.QINIT_CORE);
+  core = resolveCoreDir(process.env.QINIT_CORE);
 } catch {
   core = undefined;
 }

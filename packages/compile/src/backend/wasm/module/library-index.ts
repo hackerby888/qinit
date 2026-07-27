@@ -2,7 +2,7 @@ import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { ClassTemplate, CompiledHelperMetadata, NamespaceLookupContext } from "../types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl } from "../../../ast";
-import type { Sema } from "../../../sema";
+import type { SemanticAnalyzer } from "../../../semantic-analyzer";
 import { type QpiContextLayout } from "../../../framework";
 import type { LhostAbiSpec } from "../../../lhost";
 import { registerCallSig } from "../../../wat-ir";
@@ -172,13 +172,13 @@ export function contextLayoutFromCodegen(programAnalysis: ProgramAnalysis): QpiC
     };
 }
 export function deriveQpiContextLayout(libraryTypes: LibrarySymbolIndex): QpiContextLayout {
-    const programAnalysis = new ProgramAnalysis({} as Sema);
+    const programAnalysis = new ProgramAnalysis({} as SemanticAnalyzer);
     registerLibraryMetadata(programAnalysis, libraryTypes);
     return contextLayoutFromCodegen(programAnalysis);
 }
 // Parse-once: collect the qpi.h library type table (templates/structs/typedefs/constants/methods).
 export function indexLibraryDeclarations(declarations: Declaration[], inheritedNamespaceUsings?: Map<string, string[]>): LibrarySymbolIndex {
-    const programAnalysis = new ProgramAnalysis({} as Sema);
+    const programAnalysis = new ProgramAnalysis({} as SemanticAnalyzer);
     if (inheritedNamespaceUsings) {
         for (const [scope, namespaces] of inheritedNamespaceUsings)
             programAnalysis.namespaceUsings.set(scope, [...namespaces]);

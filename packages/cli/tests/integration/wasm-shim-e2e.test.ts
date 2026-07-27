@@ -19,19 +19,21 @@ test.skipIf(!haveCore)(
     const sim = eng.sim;
     const r = await buildSystemContract("QUTIL", CORE, { outDir: `/tmp/qinit-shim-e2e` });
     expect(r.ok).toBe(true);
-    const slot = eng.deploy(new Uint8Array(await Bun.file(r.so!).arrayBuffer()), {
+    const slot = eng.deploy(new Uint8Array(await Bun.file(r.wasmPath!).arrayBuffer()), {
       name: "QUTIL",
       slot: r.index,
     }).slot;
 
     // functions and procedures have separate id spaces — look them up separately (a combined map would collide).
-    const fnId = (name: string) =>
+    const functionId = (name: string) =>
       r.idl!.functions.find((entry) => entry.name === name)!.inputType;
     const pId = (name: string) =>
       r.idl!.procedures.find((entry) => entry.name === name)!.inputType;
 
     // a read function with output — the contract runs with a _locals frame; the i64 result must decode
-    const fee = i64(sim.query(slot, fnId("GetSendToManyV1Fee"), new Uint8Array(0)));
+    const fee = i64(
+      sim.query(slot, functionId("GetSendToManyV1Fee"), new Uint8Array(0)),
+    );
     expect(fee).toBe(10n);
 
     // SendToManyV1_input: 25 id (dst0..24) then 25 sint64 (amt0..24). Send 1000 -> r1, 2000 -> r2.

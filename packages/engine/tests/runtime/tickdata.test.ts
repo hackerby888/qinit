@@ -2,7 +2,7 @@
 // TickData; the quorum votes commit transaction = K12(TickData), and the bridge serves that exact artifact.
 import { test, expect } from "bun:test";
 import { initK12, k12Bytes, toHex, verifySync } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 import {
   TICKDATA_SIZE,
   TXS_PER_TICK,
@@ -20,17 +20,19 @@ function dv(b: Uint8Array): DataView {
 
 test("leader rotates as computor[tick % N] and signs the tick's TickData", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
   const committee = sim.getCommittee();
 
   for (let i = 0; i < 6; i++) {
     sim.advance();
-    const tick = sim.tickN;
+    const tick = sim.currentTick;
     const td = sim.tickData(tick)!.bytes;
 
     expect(td.length).toBe(TICKDATA_SIZE); // 41072 — the cli TickData layout
     expect(dv(td).getUint16(0, true)).toBe(tick % 4); // computorIndex = leader = tick % N
-    expect(dv(td).getUint16(2, true)).toBe(sim.epochN);
+    expect(dv(td).getUint16(2, true)).toBe(sim.currentEpoch);
     expect(dv(td).getUint32(4, true)).toBe(tick);
 
     // the leader's FourQ signature verifies against computors[tick % N]
@@ -41,30 +43,35 @@ test("leader rotates as computor[tick % N] and signs the tick's TickData", async
 
 test("the quorum votes commit transaction = K12(TickData)", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
   sim.advance();
 
-  const rec = sim.tickRecord(sim.tickN)!;
+  const rec = sim.tickRecord(sim.currentTick)!;
   expect(toHex(rec.digests.transaction)).toBe(toHex(k12Bytes(rec.tickData.bytes)));
   expect(rec.aligned).toBe(4); // honest committee -> all align on K12(TickData)
 });
 
 test("a tx targeting the next tick lands in that tick's TickData and is processed there", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 }, mempool: true });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+    mempool: true,
+  });
 
   const A = new Uint8Array(32).fill(0x11);
   const B = new Uint8Array(32).fill(0x22);
   sim.fund(A, 1000n);
 
-  const target = sim.tickN + 1; // no 2-ahead enforcement: the very next tick is allowed
+  const target = sim.currentTick + 1;
   const digest = k12Bytes(new Uint8Array([1, 2, 3, 4]));
   sim.enqueueTx(target, A, B, 100n, 0, new Uint8Array(0), "tx-1", digest);
 
   expect(sim.balance(B)).toBe(0n); // still queued for `target`
 
   sim.advance();
-  expect(sim.tickN).toBe(target);
+  expect(sim.currentTick).toBe(target);
 
   expect(sim.balance(B)).toBe(100n); // processed at `target`
   expect(sim.tickTransactions(target).some((r) => r.txId === "tx-1")).toBe(true);
@@ -76,22 +83,28 @@ test("a tx targeting the next tick lands in that tick's TickData and is processe
 
 test("an empty tick still produces a signed TickData with zero tx digests", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 } });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+  });
   sim.advance();
 
-  const td = sim.tickData(sim.tickN)!.bytes;
+  const td = sim.tickData(sim.currentTick)!.bytes;
   expect(td.length).toBe(TICKDATA_SIZE);
   expect(toHex(td.subarray(DIGESTS_OFFSET, DIGESTS_OFFSET + 32))).toBe(toHex(new Uint8Array(32)));
 
-  const leader = sim.getCommittee().computors[sim.tickN % 4];
+  const leader =
+    sim.getCommittee().computors[sim.currentTick % 4];
   expect(verifySync(leader.publicKey, tickDataMessage(td), tickDataSignature(td))).toBe(true);
 });
 
 test("tampering a transaction digest or the signature breaks leader verification", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 }, mempool: true });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+    mempool: true,
+  });
   sim.fund(new Uint8Array(32).fill(0x11), 1000n);
-  const target = sim.tickN + 1;
+  const target = sim.currentTick + 1;
   sim.enqueueTx(
     target,
     new Uint8Array(32).fill(0x11),
@@ -125,9 +138,12 @@ test("tampering a transaction digest or the signature breaks leader verification
 
 test("TickData layout: timelock = K12(state roots), contractFees + padding digests are zero", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: SEEDS4 }, mempool: true });
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: SEEDS4 },
+    mempool: true,
+  });
   sim.fund(new Uint8Array(32).fill(0x11), 1000n);
-  const target = sim.tickN + 1;
+  const target = sim.currentTick + 1;
   const digest = k12Bytes(new Uint8Array([1, 2, 3, 4]));
   sim.enqueueTx(
     target,
@@ -160,12 +176,14 @@ test("TickData layout: timelock = K12(state roots), contractFees + padding diges
 
 test("old TickData is pruned past the history window, recent ticks retained", async () => {
   await initK12();
-  const sim = new Sim({ consensus: { computorSeeds: ["b".repeat(55)] } }); // 1 computor -> fast advance
+  const sim = new QubicSimulator({
+    consensus: { computorSeeds: ["b".repeat(55)] },
+  });
   for (let i = 0; i < 2100; i++) {
     sim.advance();
   }
 
   expect(sim.tickData(1)).toBeUndefined(); // beyond the 2000-tick window
   expect(sim.tickRecord(1)).toBeUndefined();
-  expect(sim.tickData(sim.tickN)).toBeDefined(); // the latest tick is kept
+  expect(sim.tickData(sim.currentTick)).toBeDefined();
 }, 30000); // crossing the 2000-tick window is inherently a few seconds — above bun's 5s default

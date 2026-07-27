@@ -11,18 +11,24 @@ export interface TypedContractInput {
 
 // Resolve which slot to deploy a contract to, by name — the user never picks a slot.
 // Reuse the slot a same-named contract already occupies (upgrade); else the first free slot.
-export async function resolveSlot(
+export async function resolveDeploymentSlot(
   rpc: LiteRpc,
   name: string,
   override?: number,
 ): Promise<{ slot: number; reused: boolean }> {
-  if (override !== undefined && !Number.isNaN(override)) return { slot: override, reused: false };
+  if (override !== undefined && !Number.isNaN(override)) {
+    return { slot: override, reused: false };
+  }
   const reg = await rpc.dynRegistry();
   const cs = reg.contracts ?? [];
   const mine = cs.find((c) => c.armed && c.name === name);
-  if (mine) return { slot: mine.index, reused: true };
+  if (mine) {
+    return { slot: mine.index, reused: true };
+  }
   const free = cs.find((c) => !c.armed);
-  if (free) return { slot: free.index, reused: false };
+  if (free) {
+    return { slot: free.index, reused: false };
+  }
   throw new Error(`no free dynamic slot (all ${reg.slotCount ?? cs.length} in use)`);
 }
 
@@ -37,28 +43,28 @@ export function contractAddress(contractIndex: number): Uint8Array {
 export async function callFunction(
   rpc: LiteRpc,
   contractIndex: number,
-  fnId: number,
+  functionId: number,
   input: string | Uint8Array | TypedContractInput,
-  outFmt: string | AbiType,
+  outputFormat: string | AbiType,
 ): Promise<any> {
   const encodedInput = typeof input === "string"
     ? await encodeInput(input)
     : input instanceof Uint8Array
       ? input
       : await encodeInputJson(input.type, input.value);
-  const out = await rpc.querySmartContract(contractIndex, fnId, encodedInput);
-  return await decodeOutput(out, outFmt);
+  const output = await rpc.querySmartContract(contractIndex, functionId, encodedInput);
+  return await decodeOutput(output, outputFormat);
 }
 
 // Invoke a contract procedure (signed tx). tick must be a near-future, accepted tick.
 // With confirmation, poll tx status until processed or fall back to tick advancement.
 export async function invokeProcedure(opts: {
   seed: string;
-  rpcBase: string;
+  rpcBaseUrl: string;
   contractIndex: number;
-  procId: number;
+  procedureId: number;
   amount: number;
-  inFmt?: string;
+  inputFormat?: string;
   input?: Uint8Array | TypedContractInput;
   tick: number;
   confirm?: boolean;
@@ -74,25 +80,25 @@ export async function invokeProcedure(opts: {
     moneyFlew?: boolean;
   }
 > {
-  if (opts.input && opts.inFmt !== undefined) {
-    throw new Error("procedure input must use either typed input or inFmt");
+  if (opts.input && opts.inputFormat !== undefined) {
+    throw new Error("procedure input must use either typed input or inputFormat");
   }
   const payload = opts.input instanceof Uint8Array
     ? opts.input
     : opts.input
       ? await encodeInputJson(opts.input.type, opts.input.value)
-      : await encodeInput(opts.inFmt ?? "");
+      : await encodeInput(opts.inputFormat ?? "");
   const tx = await buildSignedTx(opts.seed, {
     destination: contractAddress(opts.contractIndex),
     amount: opts.amount,
     tick: opts.tick,
-    inputType: opts.procId,
+    inputType: opts.procedureId,
     payload,
   });
-  const r = await broadcastTx(tx.bytes, opts.rpcBase);
+  const r = await broadcastTx(tx.bytes, opts.rpcBaseUrl);
   const res = { ...r, txId: tx.id, tick: opts.tick };
   if (!opts.confirm) return res;
-  const rpc = opts.rpc ?? new LiteRpc(opts.rpcBase);
+  const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
   const deadline = Date.now() + (opts.confirmTimeoutMs ?? 30000);
   const sleep = (ms: number) => new Promise((s) => setTimeout(s, ms));
   for (;;) {

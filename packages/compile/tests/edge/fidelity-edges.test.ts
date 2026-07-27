@@ -124,14 +124,14 @@ describe("differential gtest — semantic fidelity edges", () => {
       outDir: dir,
     });
     expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
+    const runnerWasm = new Uint8Array(readFileSync(built.wasmPath!));
 
     const mine = await compileContract({
       source: SRC,
-      name: "Edge",
+      contractName: "Edge",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(mine.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 

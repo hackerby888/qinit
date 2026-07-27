@@ -7,16 +7,17 @@ import {
 } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
-import { assertSeed, loadConfig, resolveCore } from "@qinit/core";
+import { assertSeed, loadConfig, resolveCoreDir } from "@qinit/core";
 import { loadQpiHeader } from "@qinit/compile";
+import { invalidArgs } from "./args";
 
-export { loadConfig, resolveCore };
+export { loadConfig, resolveCoreDir };
 export type { QinitConfig } from "@qinit/core";
 
 // Keep these re-exports free of Ink/React so the VS Code extension can use them.
-export function loadConfiguredQpiHeader(explicitCore?: string): string {
+export function loadConfiguredQpiHeader(explicitCoreDir?: string): string {
   const config = loadConfig();
-  return loadQpiHeader(resolveCore(explicitCore, config.core));
+  return loadQpiHeader(resolveCoreDir(explicitCoreDir, config.coreDir));
 }
 
 function configDir(): string {
@@ -84,58 +85,70 @@ export function setSavedTheme(name: string): void {
   writeFileSync(path, name + "\n");
 }
 
-export type NodeMode = "realnode" | "virtualnode";
-export const NODE_MODES: NodeMode[] = ["realnode", "virtualnode"];
+export type NodeBackend = "core" | "simulator";
+export const NODE_BACKENDS: NodeBackend[] = ["core", "simulator"];
 
-export function modeStorePath(): string {
-  return join(configDir(), "mode");
+export function nodeBackendStorePath(): string {
+  return join(configDir(), "node-backend");
 }
 
-export function savedMode(): NodeMode | undefined {
+export function savedNodeBackend(): NodeBackend | undefined {
   try {
-    const mode = readFileSync(modeStorePath(), "utf8").trim();
-    return mode === "realnode" || mode === "virtualnode" ? mode : undefined;
+    const backend = readFileSync(nodeBackendStorePath(), "utf8").trim();
+    return backend === "core" || backend === "simulator" ? backend : undefined;
   } catch {
     return undefined;
   }
 }
 
-export function setSavedMode(mode: NodeMode): void {
-  const path = modeStorePath();
+export function setSavedNodeBackend(backend: NodeBackend): void {
+  const path = nodeBackendStorePath();
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, mode + "\n");
+  writeFileSync(path, backend + "\n");
 }
 
-export type Compiler = "native" | "local";
-export const COMPILERS: Compiler[] = ["native", "local"];
-
-export function compilerStorePath(): string {
-  return join(configDir(), "compiler");
+export function resolveNodeBackend(options: Record<string, unknown>): NodeBackend {
+  const backend = options["node-backend"];
+  if (backend === undefined) {
+    return savedNodeBackend() ?? "core";
+  }
+  if (backend === "core" || backend === "simulator") {
+    return backend;
+  }
+  return invalidArgs("--node-backend must be core or simulator");
 }
 
-export function savedCompiler(): Compiler | undefined {
+export type CompilerBackend = "clang" | "typescript";
+export const COMPILER_BACKENDS: CompilerBackend[] = ["clang", "typescript"];
+
+export function compilerBackendStorePath(): string {
+  return join(configDir(), "compiler-backend");
+}
+
+export function savedCompilerBackend(): CompilerBackend | undefined {
   try {
-    const compiler = readFileSync(compilerStorePath(), "utf8").trim();
-    return compiler === "native" || compiler === "local" ? compiler : undefined;
+    const backend = readFileSync(compilerBackendStorePath(), "utf8").trim();
+    return backend === "clang" || backend === "typescript" ? backend : undefined;
   } catch {
     return undefined;
   }
 }
 
-export function setSavedCompiler(compiler: Compiler): void {
-  const path = compilerStorePath();
+export function setSavedCompilerBackend(backend: CompilerBackend): void {
+  const path = compilerBackendStorePath();
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, compiler + "\n");
+  writeFileSync(path, backend + "\n");
 }
 
-export function resolveCompiler(options: Record<string, unknown>): Compiler {
-  if ("native" in options) {
-    return "native";
+export function resolveCompilerBackend(options: Record<string, unknown>): CompilerBackend {
+  const backend = options.compiler;
+  if (backend === undefined) {
+    return savedCompilerBackend() ?? "clang";
   }
-  if ("local" in options) {
-    return "local";
+  if (backend === "clang" || backend === "typescript") {
+    return backend;
   }
-  return savedCompiler() ?? "native";
+  return invalidArgs("--compiler must be clang or typescript");
 }
 
 export async function resolveSeed(

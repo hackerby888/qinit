@@ -3,7 +3,7 @@
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
-import { Sim } from "../../src/sim";
+import { QubicSimulator } from "../../src/qubic-simulator";
 
 function hex(b: Uint8Array): string {
   return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -15,7 +15,7 @@ const ZERO = new Uint8Array(32);
 test("nextId / prevId iterate the occupied spectrum entities", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   const A = ID(0x11),
     B = ID(0x22),
     C = ID(0x33);
@@ -33,7 +33,7 @@ test("nextId / prevId iterate the occupied spectrum entities", async () => {
 test("nextId via the wasm host import (Token.NextId)", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Token"));
   const A = ID(0x44),
     B = ID(0x55);
@@ -47,7 +47,7 @@ test("nextId via the wasm host import (Token.NextId)", async () => {
 test("governance: setShareholderProposal invokes the callee's SET_SHAREHOLDER_PROPOSAL", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("ShareReceiver")); // callee (defines SET_SHAREHOLDER_PROPOSAL)
   sim.deploy(29, await wasm("ShareProposer")); // caller
 
@@ -64,7 +64,7 @@ test("governance: setShareholderProposal invokes the callee's SET_SHAREHOLDER_PR
 test("governance guards: callee lacks the sysproc + self-call -> INVALID_PROPOSAL_INDEX", async () => {
   await initK12();
 
-  const sim = new Sim();
+  const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Counter")); // no SET_SHAREHOLDER_PROPOSAL
   sim.deploy(29, await wasm("ShareProposer"));
   const ORIG = new Uint8Array(32);

@@ -2,7 +2,12 @@
 import { describe, test, expect, beforeAll } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { runContractTesting } from "@qinit/engine";
-import { CORE, wasiAvailable, buildRunner, buildContractsOurs } from "../support/qutil-bridge";
+import {
+  CORE,
+  wasiAvailable,
+  buildRunner,
+  buildContractsWithTypeScript,
+} from "../support/qutil-bridge";
 
 describe("runContractTesting — generic engine binding (QUTIL regression)", () => {
   beforeAll(async () => {
@@ -16,7 +21,7 @@ describe("runContractTesting — generic engine binding (QUTIL regression)", () 
     }
 
     const runner = await buildRunner(CORE);
-    const contracts = await buildContractsOurs(CORE);
+    const contracts = await buildContractsWithTypeScript(CORE);
     const results = await runContractTesting(runner, contracts);
 
     const passed = results.filter((r) => r.passed).length;

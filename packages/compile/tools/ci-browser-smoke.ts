@@ -1,5 +1,5 @@
 // Verifies the built browser bundle can compile and execute without core files.
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 
 const SOURCE = `using namespace QPI;
@@ -21,7 +21,7 @@ const bundle = "../dist/browser.js";
 const browser = await import(bundle);
 console.log("compilerInfo:", browser.compilerInfo);
 
-const res = await browser.compileContract({ source: SOURCE, name: "SMOKE", slot: 27, arenaSz: 1 << 20 });
+const res = await browser.compileContract({ source: SOURCE, contractName: "SMOKE", slot: 27, arenaSizeBytes: 1 << 20 });
 const errors = res.diagnostics.filter(
   (diagnostic: { severity: string }) =>
     diagnostic.severity === browser.DiagnosticSeverity.ERROR,
@@ -32,7 +32,7 @@ if (errors.length || res.wasm.byteLength === 0) {
 }
 
 await initK12();
-const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
 const user = new Uint8Array(32).fill(7);
 sim.fund(user, 1_000_000n);
 sim.deploy(27, res.wasm);

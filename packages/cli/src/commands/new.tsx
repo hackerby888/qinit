@@ -20,7 +20,7 @@ function toIdent(name: string): string {
 export function New({ args }: { args: string[] }) {
   const { exit } = useApp();
   const { flags, pos } = parseCommandArgs("new", args);
-  const o: { name?: string; template?: string; core?: string } = {
+  const o: { name?: string; template?: string; "core-dir"?: string } = {
     ...flags,
     name: pos[0],
   };
@@ -31,7 +31,9 @@ export function New({ args }: { args: string[] }) {
   useEffect(() => {
     try {
       if (!o.name) {
-        add(`usage: qinit new <name> [--template ${TEMPLATE_KINDS.join("|")}] [--core PATH]`);
+        add(
+          `usage: qinit new <name> [--template ${TEMPLATE_KINDS.join("|")}] [--core-dir PATH]`,
+        );
         setDone(true);
         return;
       }
@@ -64,7 +66,7 @@ export function New({ args }: { args: string[] }) {
         setDone(true);
         return;
       }
-      const core = o.core ?? process.env.QINIT_CORE; // pin only if explicit; else qinit.json omits it -> synced cache (portable)
+      const coreDir = o["core-dir"] ?? process.env.QINIT_CORE;
       if (existsSync(dir)) {
         add(`✗ '${dir}' already exists`);
         setDone(true);
@@ -75,8 +77,7 @@ export function New({ args }: { args: string[] }) {
       const source = templateSource(kind);
       writeFileSync(join(dir, "contracts", `${name}.h`), source);
 
-      // Example standard gtest (contract_testing.h) scaffolded from the contract IDL. `qinit gtest` runs it;
-      // `--local` runs the contract through the TS compiler.
+      // Scaffold a contract_testing.h test from the contract IDL.
       let testRel: string | undefined;
       try {
         mkdirSync(join(dir, "tests"), { recursive: true });
@@ -84,7 +85,7 @@ export function New({ args }: { args: string[] }) {
           join(dir, "tests", `${name}.test.cpp`),
           genStdGtest(
             extractIdl(source, name, {
-              qpiHeader: loadConfiguredQpiHeader(o.core),
+              qpiHeader: loadConfiguredQpiHeader(o["core-dir"]),
             }),
             name,
           ),
@@ -94,11 +95,11 @@ export function New({ args }: { args: string[] }) {
 
       // No slot: the framework auto-allocates one at deploy by name (reuse-or-first-free).
       const cfg: Record<string, unknown> = {
-        name,
+        contractName: name,
         contract: `contracts/${name}.h`,
         rpc: DEFAULT_RPC_BASE,
       };
-      if (core) cfg.core = core; // omitted by default -> resolveCore uses the synced cache, project is machine-portable
+      if (coreDir) cfg.coreDir = coreDir;
       // The intercontract template CALLs a Counter — scaffold that callee + register it so `qinit test` deploys
       // it before the main contract (else the CALL_OTHER_CONTRACT(Counter) names can't resolve at build time).
       if (kind === "intercontract") {
@@ -118,12 +119,12 @@ export function New({ args }: { args: string[] }) {
           "qinit dev       # watch contracts/" +
           name +
           ".h -> auto build+deploy on save\n" +
-          "qinit gtest --local   # run tests/" +
+          "qinit gtest --compiler typescript   # run tests/" +
           name +
           ".test.cpp on an isolated node (TS compiler)\n" +
           "qinit call      # interactive: pick contract -> fn/proc\n```\n\n" +
-          "Config in `qinit.json` (name, contract, core, rpc). Slot is auto-allocated by name.\n" +
-          "`qinit gtest` needs a core-lite checkout (`test/contract_testing.h`): pass `--core PATH` or set `QINIT_CORE`.\n",
+          "Config in `qinit.json` (contractName, contract, coreDir, rpc). Slot is auto-allocated by contract name.\n" +
+          "`qinit gtest` needs a core-lite checkout (`test/contract_testing.h`): pass `--core-dir PATH` or set `QINIT_CORE`.\n",
       );
 
       add(`✓ created ${dir}/  (template: ${kind})`);

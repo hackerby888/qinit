@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // PIT (post incoming transfer) flow for @qinit/compile tests.
 import { describe, test, expect, beforeAll } from "bun:test";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -43,14 +43,14 @@ describe("sysproc — POST_INCOMING_TRANSFER receives the transfer notice", () =
   test("a reward-bearing procedure fires PIT with the right amount + type", async () => {
     const sink = await compileContract({
       source: SINK,
-      name: "Sink",
+      contractName: "Sink",
       slot: 28,
       qpiHeader: HEADERS,
-      arenaSz: 1024 * 1024,
+      arenaSizeBytes: 1024 * 1024,
     });
     expect(sink.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
 
-    const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
     sim.deploy(28, sink.wasm);
 
     // No transfer yet — PIT never fired.

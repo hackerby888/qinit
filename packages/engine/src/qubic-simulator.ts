@@ -1,5 +1,10 @@
-import type { DebugTrace } from "@qinit/core";
-import { Contract, Entity, HostServices, KIND, SP } from "./runtime";
+import { SYSTEM_PROCEDURES, type DebugTrace } from "@qinit/core";
+import {
+  Contract,
+  CONTRACT_ENTRY_KIND,
+  Entity,
+  HostServices,
+} from "./runtime";
 import { toHex, verifySync } from "./k12";
 import { TraceRecorder } from "./trace";
 import { Committee, type CommitteeOpts } from "./consensus";
@@ -18,14 +23,14 @@ import {
 import { TxPool, type TxRecord } from "./txs";
 import { ContractRegistry, K12_MAX_LEAF_BYTES } from "./registry";
 import type { LogSink, LogLevel } from "./log";
-import type { NativeLogger } from "./native-logger";
+import type { QubicLogStore } from "./qubic-log-store";
 import {
   LOG_SC_BEGIN_EPOCH,
   LOG_SC_BEGIN_TICK,
   LOG_SC_END_EPOCH,
   LOG_SC_END_TICK,
   LOG_SC_INITIALIZE,
-} from "./native-logger";
+} from "./qubic-log-store";
 
 export type { AssetSnapshot };
 export type { FeeMode } from "./fees";
@@ -59,15 +64,15 @@ const CONTRACT_COUNT = 1024;
 
 const INVALID_PROPOSAL_INDEX = 0xffff;
 
-export interface ProcedureOpts {
+export interface ProcedureCallOptions {
   invocator?: Uint8Array;
   originator?: Uint8Array;
   reward?: bigint;
 }
 
-export class Sim {
-  tickN = 0;
-  epochN = 0;
+export class QubicSimulator {
+  currentTick = 0;
+  currentEpoch = 0;
   epochLength = 3000;
   host: HostServices;
   onLog?: LogSink;
@@ -87,7 +92,7 @@ export class Sim {
   timeBaseMs = Date.UTC(2024, 0, 1);
   private mempoolMode: boolean;
   private fees: FeeManager;
-  private nativeLogger?: NativeLogger;
+  private logStore?: QubicLogStore;
   private computorOverride = new Map<number, Uint8Array>();
   prevSpectrumDigestOverride?: Uint8Array;
 
@@ -98,7 +103,7 @@ export class Sim {
       fees?: FeeMode;
       defaultReserve?: bigint;
       liteTicking?: boolean;
-      nativeLogger?: NativeLogger;
+      logStore?: QubicLogStore;
     } = {},
   ) {
     this.mempoolMode = options.mempool ?? false;
@@ -106,7 +111,7 @@ export class Sim {
       options.fees ?? "off",
       options.defaultReserve,
     );
-    this.nativeLogger = options.nativeLogger;
+    this.logStore = options.logStore;
     this.registry = new ContractRegistry(this.fees, this.recorder);
     this.ticking = new TickConsensus(
       {
@@ -116,8 +121,8 @@ export class Sim {
         tickTransactionDigests: (tick) =>
           this.tickTransactions(tick).map((record) => record.digest),
         nowMs: () => this.nowMs(),
-        tick: () => this.tickN,
-        epoch: () => this.epochN,
+        tick: () => this.currentTick,
+        epoch: () => this.currentEpoch,
       },
       options.consensus ?? {},
       options.liteTicking ?? false,
@@ -129,7 +134,7 @@ export class Sim {
         this.debit(this.contractId(slot), amount),
       notify: (slot, procId, input) => {
         const contract = this.contracts.get(slot)!;
-        this.registry.fire(contract, KIND.PROCEDURE, procId, input, {
+        this.registry.fire(contract, CONTRACT_ENTRY_KIND.PROCEDURE, procId, input, {
           invocator: ZERO32,
           originator: ZERO32,
           invocationReward: 0n,
@@ -139,17 +144,17 @@ export class Sim {
       nowMs: () => this.nowMs(),
     });
     this.host = {
-      tick: () => this.tickN,
-      epoch: () => this.epochN,
+      tick: () => this.currentTick,
+      epoch: () => this.currentEpoch,
       nowMs: () => this.nowMs(),
       numberOfTickTransactions: () => this.tickTxCount,
       markDirty: (slot) => this.dirty.add(slot),
       log: (slot, level, msg) => {
         this.recorder.log(level, msg);
-        this.nativeLogger?.log(slot, level, msg, this.epochN);
+        this.logStore?.log(slot, level, msg, this.currentEpoch);
       },
-      pauseLog: () => this.nativeLogger?.pause(),
-      resumeLog: () => this.nativeLogger?.resume(),
+      pauseLog: () => this.logStore?.pause(),
+      resumeLog: () => this.logStore?.resume(),
       transfer: (slot, dest, amount, type) => this.doTransfer(slot, dest, amount, type),
       burn: (slot, amount, burnedFor) => this.doBurn(slot, amount, burnedFor),
       getEntity: (id) => this.entityOf(id),
@@ -429,16 +434,16 @@ export class Sim {
     return this.balance(this.contractId(slot));
   }
 
-  credit(id: Uint8Array, amount: bigint, tick = this.tickN): void {
+  credit(id: Uint8Array, amount: bigint, tick = this.currentTick): void {
     this.spectrum.increaseEnergy(id, amount, tick);
   }
 
-  debit(id: Uint8Array, amount: bigint, tick = this.tickN): void {
+  debit(id: Uint8Array, amount: bigint, tick = this.currentTick): void {
     this.spectrum.decreaseEnergy(id, amount, tick);
   }
 
   fund(id: Uint8Array, amount: bigint): void {
-    this.spectrum.increaseEnergy(id, amount, this.tickN);
+    this.spectrum.increaseEnergy(id, amount, this.currentTick);
   }
 
   notifyIncomingTransfer(
@@ -447,8 +452,8 @@ export class Sim {
     amount: bigint,
     type: number,
   ): void {
-    this.spectrum.decreaseEnergy(source, amount, this.tickN);
-    this.spectrum.increaseEnergy(destination, amount, this.tickN);
+    this.spectrum.decreaseEnergy(source, amount, this.currentTick);
+    this.spectrum.increaseEnergy(destination, amount, this.currentTick);
     this.notifyPIT(destination, source, amount, type);
   }
 
@@ -597,7 +602,7 @@ export class Sim {
 
     const output = this.registry.fire(
       contract,
-      KIND.SYSPROC,
+      CONTRACT_ENTRY_KIND.SYSPROC,
       spId,
       request.bytes,
       { entryPoint: spId },
@@ -651,7 +656,7 @@ export class Sim {
 
     const callback = this.runManagementCallback(
       sourceOwnershipManager,
-      SP.PRE_RELEASE_SHARES,
+      SYSTEM_PROCEDURES.PRE_RELEASE_SHARES,
       name,
       issuer,
       owner,
@@ -701,7 +706,7 @@ export class Sim {
 
     this.runManagementCallback(
       sourceOwnershipManager,
-      SP.POST_RELEASE_SHARES,
+      SYSTEM_PROCEDURES.POST_RELEASE_SHARES,
       name,
       issuer,
       owner,
@@ -756,7 +761,7 @@ export class Sim {
 
     const callback = this.runManagementCallback(
       destinationOwnershipManager,
-      SP.PRE_ACQUIRE_SHARES,
+      SYSTEM_PROCEDURES.PRE_ACQUIRE_SHARES,
       name,
       issuer,
       owner,
@@ -806,7 +811,7 @@ export class Sim {
 
     this.runManagementCallback(
       destinationOwnershipManager,
-      SP.POST_ACQUIRE_SHARES,
+      SYSTEM_PROCEDURES.POST_ACQUIRE_SHARES,
       name,
       issuer,
       owner,
@@ -922,7 +927,7 @@ export class Sim {
     }
 
     const contract = this.contracts.get(slot)!;
-    if (!contract.hasSysproc(SP.POST_INCOMING_TRANSFER)) {
+    if (!contract.hasSysproc(SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER)) {
       return;
     }
 
@@ -936,11 +941,11 @@ export class Sim {
     try {
       this.registry.fire(
         contract,
-        KIND.SYSPROC,
-        SP.POST_INCOMING_TRANSFER,
+        CONTRACT_ENTRY_KIND.SYSPROC,
+        SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER,
         input,
         {
-          entryPoint: SP.POST_INCOMING_TRANSFER,
+          entryPoint: SYSTEM_PROCEDURES.POST_INCOMING_TRANSFER,
         },
       );
     } finally {
@@ -953,7 +958,7 @@ export class Sim {
     wasm: Uint8Array,
     externalMemory?: WebAssembly.Memory,
   ): Contract {
-    this.nativeLogger?.begin(this.tickN, LOG_SC_INITIALIZE);
+    this.logStore?.begin(this.currentTick, LOG_SC_INITIALIZE);
     let contract: Contract;
 
     try {
@@ -964,7 +969,7 @@ export class Sim {
         externalMemory,
       );
     } finally {
-      this.nativeLogger?.end();
+      this.logStore?.end();
     }
 
     this.emit(
@@ -988,11 +993,11 @@ export class Sim {
     wasm: Uint8Array,
     imports: WebAssembly.Imports,
   ): Contract {
-    this.nativeLogger?.begin(this.tickN, LOG_SC_INITIALIZE);
+    this.logStore?.begin(this.currentTick, LOG_SC_INITIALIZE);
     try {
       return this.registry.deploy(slot, wasm, this.host, undefined, imports);
     } finally {
-      this.nativeLogger?.end();
+      this.logStore?.end();
     }
   }
 
@@ -1016,7 +1021,7 @@ export class Sim {
   private emit(level: LogLevel, category: string, message: string): void {
     this.onLog?.({
       level,
-      tick: this.tickN,
+      tick: this.currentTick,
       cat: category,
       msg: message,
     });
@@ -1024,123 +1029,123 @@ export class Sim {
 
   beginEpoch(): void {
     this.oracle.beginEpoch();
-    this.nativeLogger?.begin(this.tickN, LOG_SC_BEGIN_EPOCH);
+    this.logStore?.begin(this.currentTick, LOG_SC_BEGIN_EPOCH);
 
     try {
       for (const slot of this.registry.slots(true)) {
         const contract = this.contracts.get(slot)!;
-        if (contract.hasSysproc(SP.BEGIN_EPOCH)) {
+        if (contract.hasSysproc(SYSTEM_PROCEDURES.BEGIN_EPOCH)) {
           this.registry.fire(
             contract,
-            KIND.SYSPROC,
-            SP.BEGIN_EPOCH,
+            CONTRACT_ENTRY_KIND.SYSPROC,
+            SYSTEM_PROCEDURES.BEGIN_EPOCH,
             new Uint8Array(0),
             {
-              entryPoint: SP.BEGIN_EPOCH,
+              entryPoint: SYSTEM_PROCEDURES.BEGIN_EPOCH,
             },
           );
         }
       }
     } finally {
-      this.nativeLogger?.end();
+      this.logStore?.end();
     }
   }
 
   endEpoch(): void {
-    this.nativeLogger?.begin(this.tickN, LOG_SC_END_EPOCH);
+    this.logStore?.begin(this.currentTick, LOG_SC_END_EPOCH);
 
     try {
       for (const slot of this.registry.slots(false)) {
         const contract = this.contracts.get(slot)!;
-        if (contract.hasSysproc(SP.END_EPOCH)) {
+        if (contract.hasSysproc(SYSTEM_PROCEDURES.END_EPOCH)) {
           this.registry.fire(
             contract,
-            KIND.SYSPROC,
-            SP.END_EPOCH,
+            CONTRACT_ENTRY_KIND.SYSPROC,
+            SYSTEM_PROCEDURES.END_EPOCH,
             new Uint8Array(0),
             {
-              entryPoint: SP.END_EPOCH,
+              entryPoint: SYSTEM_PROCEDURES.END_EPOCH,
             },
           );
         }
       }
     } finally {
-      this.nativeLogger?.end();
+      this.logStore?.end();
     }
   }
 
   beginTick(): void {
-    this.tickN++;
-    this.tickTxCount = this.txpool.dueCount(this.tickN);
+    this.currentTick++;
+    this.tickTxCount = this.txpool.dueCount(this.currentTick);
     this.emit(
       "debug",
       "tick",
-      `tick ${this.tickN} begin · ${this.tickTxCount} tx`,
+      `tick ${this.currentTick} begin · ${this.tickTxCount} tx`,
     );
 
-    this.nativeLogger?.begin(this.tickN, LOG_SC_BEGIN_TICK);
+    this.logStore?.begin(this.currentTick, LOG_SC_BEGIN_TICK);
     try {
       for (const slot of this.registry.slots(true)) {
         const contract = this.contracts.get(slot)!;
         if (
-          contract.hasSysproc(SP.BEGIN_TICK) &&
+          contract.hasSysproc(SYSTEM_PROCEDURES.BEGIN_TICK) &&
           this.fees.reserveOk(slot)
         ) {
           this.registry.fire(
             contract,
-            KIND.SYSPROC,
-            SP.BEGIN_TICK,
+            CONTRACT_ENTRY_KIND.SYSPROC,
+            SYSTEM_PROCEDURES.BEGIN_TICK,
             new Uint8Array(0),
             {
-              entryPoint: SP.BEGIN_TICK,
+              entryPoint: SYSTEM_PROCEDURES.BEGIN_TICK,
             },
           );
         }
       }
     } finally {
-      this.nativeLogger?.end();
+      this.logStore?.end();
     }
   }
 
   endTick(): void {
-    this.nativeLogger?.begin(this.tickN, LOG_SC_END_TICK);
+    this.logStore?.begin(this.currentTick, LOG_SC_END_TICK);
 
     try {
       for (const slot of this.registry.slots(false)) {
         const contract = this.contracts.get(slot)!;
         if (
-          contract.hasSysproc(SP.END_TICK) &&
+          contract.hasSysproc(SYSTEM_PROCEDURES.END_TICK) &&
           this.fees.reserveOk(slot)
         ) {
           this.registry.fire(
             contract,
-            KIND.SYSPROC,
-            SP.END_TICK,
+            CONTRACT_ENTRY_KIND.SYSPROC,
+            SYSTEM_PROCEDURES.END_TICK,
             new Uint8Array(0),
             {
-              entryPoint: SP.END_TICK,
+              entryPoint: SYSTEM_PROCEDURES.END_TICK,
             },
           );
         }
       }
     } finally {
-      this.nativeLogger?.end();
+      this.logStore?.end();
     }
 
-    this.emit("debug", "tick", `tick ${this.tickN} end`);
+    this.emit("debug", "tick", `tick ${this.currentTick} end`);
   }
 
   advance(): void {
-    const nextTick = this.tickN + 1;
+    const nextTick = this.currentTick + 1;
 
     if (this.epochLength > 0 && nextTick % this.epochLength === 0) {
       this.endEpoch();
-      this.epochN++;
+      this.currentEpoch++;
       this.beginEpoch();
       this.emit(
         "info",
         "epoch",
-        `epoch ${this.epochN - 1} → ${this.epochN}`,
+        `epoch ${this.currentEpoch - 1} → ${this.currentEpoch}`,
       );
     }
 
@@ -1149,16 +1154,22 @@ export class Sim {
     this.oracle.pump();
     this.endTick();
     this.ticking.finalizeTick();
-    this.nativeLogger?.finalizeTick(this.tickN);
+    this.logStore?.finalizeTick(this.currentTick);
   }
 
-  query(slot: number, it: number, input?: Uint8Array): Uint8Array {
-    return this.contracts.get(slot)!.invoke(KIND.FUNCTION, it, input);
+  query(
+    slot: number,
+    inputType: number,
+    input?: Uint8Array,
+  ): Uint8Array {
+    return this.contracts
+      .get(slot)!
+      .invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input);
   }
 
   private runProcedure(
     slot: number,
-    it: number,
+    inputType: number,
     input: Uint8Array,
     invocator: Uint8Array,
     originator: Uint8Array,
@@ -1175,12 +1186,18 @@ export class Sim {
       );
     }
 
-    return this.registry.fire(contract, KIND.PROCEDURE, it, input, {
-      invocator,
-      originator,
-      invocationReward: reward,
-      entryPoint: EP_USER_PROCEDURE,
-    });
+    return this.registry.fire(
+      contract,
+      CONTRACT_ENTRY_KIND.PROCEDURE,
+      inputType,
+      input,
+      {
+        invocator,
+        originator,
+        invocationReward: reward,
+        entryPoint: EP_USER_PROCEDURE,
+      },
+    );
   }
 
   resolveOracle(queryId: bigint, reply: Uint8Array, status?: number): boolean {
@@ -1228,7 +1245,7 @@ export class Sim {
 
     try {
       const invocator = this.contractId(callerSlot);
-      const output = callee.invoke(KIND.FUNCTION, inputType, input, {
+      const output = callee.invoke(CONTRACT_ENTRY_KIND.FUNCTION, inputType, input, {
         invocator,
         originator,
         invocationReward: 0n,
@@ -1327,7 +1344,7 @@ export class Sim {
 
     const callee = this.contracts.get(calleeIndex)!;
     if (
-      !callee.hasSysproc(SP.SET_SHAREHOLDER_PROPOSAL) ||
+      !callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL) ||
       !this.fees.reserveOk(calleeIndex)
     ) {
       return INVALID_PROPOSAL_INDEX;
@@ -1342,13 +1359,13 @@ export class Sim {
     try {
       const output = this.registry.fire(
         callee,
-        KIND.SYSPROC,
-        SP.SET_SHAREHOLDER_PROPOSAL,
+        CONTRACT_ENTRY_KIND.SYSPROC,
+        SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL,
         proposal,
         {
           invocator: this.contractId(callerSlot),
           originator,
-          entryPoint: SP.SET_SHAREHOLDER_PROPOSAL,
+          entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_PROPOSAL,
         },
       );
 
@@ -1385,7 +1402,7 @@ export class Sim {
 
     const callee = this.contracts.get(calleeIndex)!;
     if (
-      !callee.hasSysproc(SP.SET_SHAREHOLDER_VOTES) ||
+      !callee.hasSysproc(SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES) ||
       !this.fees.reserveOk(calleeIndex)
     ) {
       return 0;
@@ -1400,13 +1417,13 @@ export class Sim {
     try {
       const output = this.registry.fire(
         callee,
-        KIND.SYSPROC,
-        SP.SET_SHAREHOLDER_VOTES,
+        CONTRACT_ENTRY_KIND.SYSPROC,
+        SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES,
         vote,
         {
           invocator: this.contractId(callerSlot),
           originator,
-          entryPoint: SP.SET_SHAREHOLDER_VOTES,
+          entryPoint: SYSTEM_PROCEDURES.SET_SHAREHOLDER_VOTES,
         },
       );
 
@@ -1420,7 +1437,7 @@ export class Sim {
     slot: number,
     inputType: number,
     input?: Uint8Array,
-    options: ProcedureOpts = {},
+    options: ProcedureCallOptions = {},
   ): Uint8Array {
     const reward = options.reward ?? 0n;
     const invocator = options.invocator ?? ZERO32;
@@ -1453,9 +1470,9 @@ export class Sim {
     txId: string,
     digest: Uint8Array = ZERO32,
   ): { moneyFlew: boolean } {
-    const tick = this.tickN;
+    const tick = this.currentTick;
     const txIndex = this.txpool.tickTransactions(tick).length;
-    this.nativeLogger?.begin(tick, txIndex);
+    this.logStore?.begin(tick, txIndex);
     try {
       let moneyFlew = false;
 
@@ -1472,8 +1489,8 @@ export class Sim {
         const contract = this.contracts.get(slot)!;
         const isProcedure = contract.entries.some(
           (entry) =>
-            entry.kind === KIND.PROCEDURE &&
-            entry.it === inputType,
+            entry.kind === CONTRACT_ENTRY_KIND.PROCEDURE &&
+            entry.inputType === inputType,
         );
 
         if (isProcedure && !this.fees.reserveOk(slot)) {
@@ -1545,7 +1562,7 @@ export class Sim {
       });
       return { moneyFlew };
     } finally {
-      this.nativeLogger?.end();
+      this.logStore?.end();
     }
   }
 
@@ -1560,7 +1577,7 @@ export class Sim {
     txId: string,
     digest: Uint8Array = ZERO32,
   ): { moneyFlew: boolean; queued: boolean } {
-    if (!this.mempoolMode || scheduledTick <= this.tickN) {
+    if (!this.mempoolMode || scheduledTick <= this.currentTick) {
       const result = this.applyTx(
         source,
         destination,
@@ -1588,7 +1605,7 @@ export class Sim {
   }
 
   private drainMempool(): void {
-    for (const transaction of this.txpool.takeDue(this.tickN)) {
+    for (const transaction of this.txpool.takeDue(this.currentTick)) {
       try {
         this.applyTx(
           transaction.source,
@@ -1633,7 +1650,7 @@ export class Sim {
   }
 
   nowMs(): number {
-    return this.timeBaseMs + this.tickN * this.tickDuration;
+    return this.timeBaseMs + this.currentTick * this.tickDuration;
   }
 
   entityCount(): number {
@@ -1680,7 +1697,7 @@ export class Sim {
     return this.ticking.tickData(tick);
   }
 
-  alignedVotes(tick = this.tickN): number {
+  alignedVotes(tick = this.currentTick): number {
     return this.ticking.alignedVotes(tick);
   }
 

@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { buildContract } from "../../packages/build/src/index";
+import { buildContractWithWasiClang } from "../../packages/build/src/index";
 import { deployContract } from "../../packages/cli/src/deploy-ops";
 import {
   compileContract,
@@ -29,7 +29,7 @@ import { VirtualNode } from "../../packages/engine/src/index";
 import { EngineServer } from "../../packages/engine/src/server";
 import { invokeProcedure } from "../../packages/proto/src/index";
 
-const rpcBase = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
+const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;
 if (!core) {
   throw new Error("QINIT_CORE not set");
@@ -44,14 +44,14 @@ const calleeSource = readFileSync(calleePath, "utf8");
 const scratch = mkdtempSync(join(tmpdir(), "qinit-qpi-matrix-"));
 process.once("exit", () => rmSync(scratch, { recursive: true, force: true }));
 
-type Compiler = "TS" | "Clang";
+type CompilerBackendLabel = "TS" | "Clang";
 type Role = "driver" | "callee";
 interface Registration {
   functions: number;
   procedures: number;
 }
 interface Artifact {
-  compiler: Compiler;
+  compiler: CompilerBackendLabel;
   role: Role;
   slot: number;
   wasm: Uint8Array;
@@ -129,7 +129,7 @@ function verifyPinnedHeader(header: string): void {
 }
 
 async function artifact(
-  compiler: Compiler,
+  compiler: CompilerBackendLabel,
   role: Role,
   slot: number,
   wasm: Uint8Array,
@@ -154,10 +154,10 @@ async function compileTsPair(
 ): Promise<Artifact[]> {
   const callee = await compileContract({
     source: calleeSource,
-    name: "QpiDualCallee",
+    contractName: "QpiDualCallee",
     slot: calleeSlot,
     qpiHeader,
-    arenaSz: ARENA_SIZE,
+    arenaSizeBytes: ARENA_SIZE,
   });
   const calleeErrors = callee.diagnostics.filter(
     (item) => item.severity === DiagnosticSeverity.ERROR,
@@ -170,10 +170,10 @@ async function compileTsPair(
   }
   const driver = await compileContract({
     source: driverSource,
-    name: "QpiDual",
+    contractName: "QpiDual",
     slot: driverSlot,
     qpiHeader,
-    arenaSz: ARENA_SIZE,
+    arenaSizeBytes: ARENA_SIZE,
     callees: [callee.idl],
     calleeSources: [{ name: "QpiDualCallee", source: calleeSource }],
   });
@@ -199,35 +199,35 @@ async function compileTsPair(
 }
 
 async function compileClangPair(calleeSlot: number, driverSlot: number): Promise<Artifact[]> {
-  const callee = await buildContract({
+  const callee = await buildContractWithWasiClang({
     contractPath: calleePath,
     name: "QpiDualCallee",
     slot: calleeSlot,
     corePath: core!,
     outDir: join(scratch, "clang-callee"),
-    arenaSz: ARENA_SIZE,
+    arenaSizeBytes: ARENA_SIZE,
   });
-  if (!callee.ok || !callee.so || !callee.idl) {
+  if (!callee.ok || !callee.wasmPath || !callee.idl) {
     fail(`Clang callee compile: ${callee.stderr ?? "no artifact"}`);
   }
-  const driver = await buildContract({
+  const driver = await buildContractWithWasiClang({
     contractPath: driverPath,
     name: "QpiDual",
     slot: driverSlot,
     corePath: core!,
     outDir: join(scratch, "clang-driver"),
-    arenaSz: ARENA_SIZE,
+    arenaSizeBytes: ARENA_SIZE,
     dynCallees: { QpiDualCallee: { header: calleePath, index: calleeSlot } },
   });
-  if (!driver.ok || !driver.so || !driver.idl) {
+  if (!driver.ok || !driver.wasmPath || !driver.idl) {
     fail(`Clang driver compile: ${driver.stderr ?? "no artifact"}`);
   }
   return [
-    await artifact("Clang", "callee", calleeSlot, new Uint8Array(readFileSync(callee.so)), {
+    await artifact("Clang", "callee", calleeSlot, new Uint8Array(readFileSync(callee.wasmPath)), {
       functions: callee.idl.functions.length,
       procedures: callee.idl.procedures.length,
     }),
-    await artifact("Clang", "driver", driverSlot, new Uint8Array(readFileSync(driver.so)), {
+    await artifact("Clang", "driver", driverSlot, new Uint8Array(readFileSync(driver.wasmPath)), {
       functions: driver.idl.functions.length,
       procedures: driver.idl.procedures.length,
     }),
@@ -249,7 +249,7 @@ async function deployAll(
         contractPath: item.role === "driver" ? driverPath : calleePath,
         name: `Qpi${item.compiler}${item.role === "driver" ? "Driver" : "Callee"}`,
         core: core!,
-        rpcBase: base,
+        rpcBaseUrl: base,
         rpc,
         seed,
         slotOverride: item.slot,
@@ -296,12 +296,12 @@ async function invoke(
   const tick = (await rpc.tickInfo()).tick + 6;
   const result = await invokeProcedure({
     seed,
-    rpcBase: base,
+    rpcBaseUrl: base,
     rpc,
     contractIndex: slot,
-    procId: 1,
+    procedureId: 1,
     amount: 2,
-    inFmt: `${inputSeed}uint64, ${slot}uint64`,
+    inputFormat: `${inputSeed}uint64, ${slot}uint64`,
     tick,
     confirm: true,
     confirmTimeoutMs: 60_000,
@@ -320,12 +320,12 @@ async function plainTransfer(
   const tick = (await rpc.tickInfo()).tick + 6;
   const result = await invokeProcedure({
     seed,
-    rpcBase: base,
+    rpcBaseUrl: base,
     rpc,
     contractIndex: slot,
-    procId: 0,
+    procedureId: 0,
     amount: 1,
-    inFmt: "",
+    inputFormat: "",
     tick,
     confirm: true,
     confirmTimeoutMs: 60_000,
@@ -339,7 +339,7 @@ async function execute(
   base: string,
   rpc: LiteRpc,
   artifacts: Artifact[],
-  compiler: Compiler,
+  compiler: CompilerBackendLabel,
   seed: string,
 ): Promise<Result> {
   const driver = artifacts.find((item) => item.compiler === compiler && item.role === "driver")!;
@@ -410,7 +410,7 @@ function assertExpected(result: Result, label: string): void {
 
 await initK12();
 console.log("CMake proof", JSON.stringify(cmakeProof()));
-const coreRpc = new LiteRpc(rpcBase);
+const coreRpc = new LiteRpc(rpcBaseUrl);
 const registry = await coreRpc.dynRegistry();
 if (registry.contracts.some((contract) => contract.armed)) {
   fail("core node must start with empty dynamic slots");
@@ -432,21 +432,26 @@ for (const item of artifacts) {
   );
 }
 
-const virtualServer = new EngineServer(
+const simulatorServer = new EngineServer(
   new VirtualNode({ slotBase: registry.slotBase, slotCount: registry.slotCount }),
 );
-const virtual = await virtualServer.start(0, 25);
+const simulator = await simulatorServer.start(0, 25);
 try {
-  const virtualRpc = new LiteRpc(virtual.rpcBase);
-  const virtualSeed = (await virtualRpc.fundedSeed()) ?? FALLBACK_SEED;
+  const simulatorRpc = new LiteRpc(simulator.rpcBaseUrl);
+  const simulatorSeed = (await simulatorRpc.fundedSeed()) ?? FALLBACK_SEED;
   const coreSeed = (await coreRpc.fundedSeed()) ?? FALLBACK_SEED;
-  await deployAll(virtual.rpcBase, virtualRpc, artifacts, virtualSeed);
-  await deployAll(rpcBase, coreRpc, artifacts, coreSeed);
+  await deployAll(
+    simulator.rpcBaseUrl,
+    simulatorRpc,
+    artifacts,
+    simulatorSeed,
+  );
+  await deployAll(rpcBaseUrl, coreRpc, artifacts, coreSeed);
 
   const results = new Map<string, Result>();
   for (const [name, base, rpc, seed] of [
-    ["virtual", virtual.rpcBase, virtualRpc, virtualSeed],
-    ["core", rpcBase, coreRpc, coreSeed],
+    ["simulator", simulator.rpcBaseUrl, simulatorRpc, simulatorSeed],
+    ["core", rpcBaseUrl, coreRpc, coreSeed],
   ] as const) {
     for (const compiler of ["TS", "Clang"] as const) {
       const result = await execute(base, rpc, artifacts, compiler, seed);
@@ -455,7 +460,7 @@ try {
     }
   }
 
-  const canonical = results.get("TS/virtual")!;
+  const canonical = results.get("TS/simulator")!;
   for (const [name, result] of results) {
     if (result.driverStateSize !== canonical.driverStateSize) {
       fail(`${name} driver state size ${result.driverStateSize} != ${canonical.driverStateSize}`);
@@ -481,9 +486,9 @@ try {
     );
   }
   console.log(
-    `QPI MATRIX OK — TS/Clang × virtual/core: ${canonical.driverState.length}B driver ${canonical.driverDigest}, ${canonical.calleeState.length}B callee ${canonical.calleeDigest}`,
+    `QPI MATRIX OK — TS/Clang × simulator/core: ${canonical.driverState.length}B driver ${canonical.driverDigest}, ${canonical.calleeState.length}B callee ${canonical.calleeDigest}`,
   );
 } finally {
-  virtual.stop();
+  simulator.stop();
   rmSync(scratch, { recursive: true, force: true });
 }

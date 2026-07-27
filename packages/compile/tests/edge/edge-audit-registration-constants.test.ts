@@ -3,7 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks integral constant expressions in REGISTER_USER_* indices.
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
-import { Sim } from "@qinit/engine";
+import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
 const HEADERS = loadQpiHeader(CORE_PATH);
@@ -21,10 +21,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 async function compile(source: string) {
   return compileContract({
     source,
-    name: "RegistrationConstantEdge",
+    contractName: "RegistrationConstantEdge",
     slot: 27,
     qpiHeader: HEADERS,
-    arenaSz: 1 << 20,
+    arenaSizeBytes: 1 << 20,
   });
 }
 
@@ -32,9 +32,15 @@ async function registeredInputType(source: string): Promise<number | undefined> 
   const result = await compile(source);
   expect(result.diagnostics.filter((d) => d.severity === DiagnosticSeverity.ERROR)).toHaveLength(0);
   expect(WebAssembly.validate(result.wasm)).toBe(true);
-  const sim = new Sim({ mempool: false, fees: "off", liteTicking: true });
-  sim.deploy(27, result.wasm);
-  return sim.contracts.get(27)!.entries.find((entry) => entry.kind === 1)?.it;
+  const simulator = new QubicSimulator({
+    mempool: false,
+    fees: "off",
+    liteTicking: true,
+  });
+  simulator.deploy(27, result.wasm);
+  return simulator.contracts
+    .get(27)!
+    .entries.find((entry) => entry.kind === 1)?.inputType;
 }
 
 async function expectRangeRejection(source: string) {

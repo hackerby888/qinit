@@ -1,5 +1,5 @@
 import type { Declaration, StructDecl } from "../../../ast";
-import type { Sema } from "../../../sema";
+import type { SemanticAnalyzer } from "../../../semantic-analyzer";
 import {
     emitModule,
     type ModuleSpecification,
@@ -33,7 +33,7 @@ interface ModuleGenerationRequest {
     translationUnit: {
         declarations: Declaration[];
     };
-    semanticAnalysis: Sema;
+    semanticAnalysis: SemanticAnalyzer;
     contractName: string;
     contractSlot: number;
     arenaSize: number;
@@ -50,7 +50,7 @@ export function generateWasmModule(
     translationUnit: {
         declarations: Declaration[];
     },
-    semanticAnalysis: Sema,
+    semanticAnalysis: SemanticAnalyzer,
     contractName: string,
     contractSlot: number,
     arenaSize: number = DEFAULT_ARENA_SIZE,
@@ -102,7 +102,7 @@ function generateContractModule(request: ModuleGenerationRequest): string {
     } = prepared;
     if (request.metadataOutput) {
         request.metadataOutput.idl = buildContractIdl(prepared, {
-            name: request.contractName,
+            contractName: request.contractName,
             slot: request.contractSlot,
             dependencies: request.metadataOutput.dependencies,
         });

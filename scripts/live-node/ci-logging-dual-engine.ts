@@ -1,4 +1,4 @@
-// Compile Logger once with the TS compiler, then compare the exact LOG_* bytes produced by Sim and the
+// Compile Logger once with the TS compiler, then compare the exact LOG_* bytes produced by QubicSimulator and the
 // release-configured core-lite WAMR node. QINIT_CORE and a ticking node at QINIT_RPC are required.
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -14,14 +14,14 @@ import {
   inspectWasmModule,
   loadQpiHeader,
 } from "../../packages/compile/src/index";
-import { Sim } from "../../packages/engine/src/index";
+import { QubicSimulator } from "../../packages/engine/src/index";
 import { deployContract } from "../../packages/cli/src/deploy-ops";
-import { invokeProcedure, resolveSlot } from "../../packages/proto/src/index";
+import { invokeProcedure, resolveDeploymentSlot } from "../../packages/proto/src/index";
 
 const core = process.env.QINIT_CORE;
 if (!core) throw new Error("QINIT_CORE not set");
-const rpcBase = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
-const rpc = new LiteRpc(rpcBase);
+const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
+const rpc = new LiteRpc(rpcBaseUrl);
 const contractPath = resolve("fixtures/Logger.h");
 const source = readFileSync(contractPath, "utf8");
 const expectSameLogs = (
@@ -36,13 +36,13 @@ const expectSameLogs = (
 };
 
 await initK12();
-const { slot } = await resolveSlot(rpc, "LoggerDual");
+const { slot } = await resolveDeploymentSlot(rpc, "LoggerDual");
 const compiled = await compileContract({
   source,
-  name: "LoggerDual",
+  contractName: "LoggerDual",
   slot,
   qpiHeader: loadQpiHeader(core),
-  arenaSz: 1024 * 1024 * 1024,
+  arenaSizeBytes: 1024 * 1024 * 1024,
 });
 const errors = compiled.diagnostics.filter(
   (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,
@@ -58,7 +58,7 @@ if (!inspection.ok) {
   throw new Error(inspection.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
 }
 
-const sim = new Sim({ mempool: false, fees: "off" });
+const sim = new QubicSimulator({ mempool: false, fees: "off" });
 sim.setDebug(true);
 sim.deploy(slot, compiled.wasm);
 const input = new Uint8Array(8);
@@ -68,7 +68,7 @@ const simLogs = sim.getTrace().entries
   .filter((entry) => entry.index === slot && entry.kind === 1)
   .at(-1)?.logs ?? [];
 if (simLogs.length !== 2) {
-  throw new Error(`Sim emitted ${simLogs.length} logs, expected 2`);
+  throw new Error(`QubicSimulator emitted ${simLogs.length} logs, expected 2`);
 }
 
 const hash = await k12Hex(compiled.wasm);
@@ -76,7 +76,7 @@ const deployed = await deployContract({
   contractPath,
   name: "LoggerDual",
   core,
-  rpcBase,
+  rpcBaseUrl,
   slotOverride: slot,
   artifact: {
     wasm: compiled.wasm,
@@ -94,11 +94,11 @@ const seed = (await rpc.fundedSeed()) ?? "a".repeat(55);
 const tick = (await rpc.tickInfo()).tick + 6;
 const invoked = await invokeProcedure({
   seed,
-  rpcBase,
+  rpcBaseUrl,
   contractIndex: slot,
-  procId: 1,
+  procedureId: 1,
   amount: 0,
-  inFmt: "2uint64",
+  inputFormat: "2uint64",
   tick,
   confirm: true,
   confirmTimeoutMs: 60_000,
@@ -119,4 +119,4 @@ for (let i = 0; i < 10 && !nodeLogs.length; i++) {
   }
 }
 expectSameLogs(nodeLogs, simLogs, "LOG_* trace bytes");
-console.log(`LOGGING DUAL OK — exact ${compiled.wasm.length}B artifact emitted ${nodeLogs.length} identical logs in Sim and WAMR at slot ${slot}`);
+console.log(`LOGGING DUAL OK — exact ${compiled.wasm.length}B artifact emitted ${nodeLogs.length} identical logs in QubicSimulator and WAMR at slot ${slot}`);
