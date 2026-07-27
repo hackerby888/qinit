@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc, type DynContract } from "@qinit/core";
-import { readState, type StateDump } from "../trace-format";
+import { readState, type DecodedState } from "../trace-format";
 import { StateView } from "../views";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
 import { loadContracts, systemAsDyn } from "../contracts";
@@ -22,7 +22,7 @@ export function State({ args }: { args: string[] }) {
   const rpcBase = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [lines, setLines] = useState<string[]>([]);
-  const [dump, setDump] = useState<StateDump | null>(null);
+  const [decodedState, setDecodedState] = useState<DecodedState | null>(null);
   const [name, setName] = useState("");
   const [contracts, setContracts] = useState<DynContract[]>([]);
   const [userCount, setUserCount] = useState(0); // contracts[0..userCount) deployed, rest system
@@ -39,7 +39,7 @@ export function State({ args }: { args: string[] }) {
       setName(c.name || String(c.index));
       const rpc = new LiteRpc(rpcBase);
       await rpc.tickInfo(); // fail fast + loud if the node is unreachable (else readState silently fills "(read failed)")
-      setDump(
+      setDecodedState(
         await readState(
           rpc,
           c.index,
@@ -202,7 +202,9 @@ export function State({ args }: { args: string[] }) {
         </Box>
       )}
       {phase === "loading" && <Spinner label="reading state" />}
-      {dump ? <StateView name={name} dump={dump} full={o.all} /> : null}
+      {decodedState ? (
+        <StateView name={name} state={decodedState} full={o.all} />
+      ) : null}
     </Box>
   );
 }

@@ -14,7 +14,7 @@ import {
 import { extractIdl } from "@qinit/build";
 import { bytesToIdentity, roundUp, type DebugEntry } from "@qinit/core";
 
-export type Container =
+export type StateContainerLayout =
   | {
       kind: "hashmap";
       key: AbiType;
@@ -37,10 +37,10 @@ export type StateField = {
   size: number;
   type: string;
   abi?: AbiType;
-  container?: Container;
+  container?: StateContainerLayout;
   bad?: boolean;
 };
-export type ColView = { name: string; entries: string[] };
+export type DecodedStateContainer = { name: string; entries: string[] };
 export type StateReader = {
   stateRead(slot: number, off: number, len: number): Promise<{ hex: string }>;
 };
@@ -105,7 +105,7 @@ export function fmtVal(value: any, full = false): string {
 export const keyLabel = (key: unknown) =>
   typeof key === "string" ? key : jstr(key);
 
-function containerOf(type: AbiType): Container | undefined {
+function containerLayoutOf(type: AbiType): StateContainerLayout | undefined {
   switch (type.kind) {
     case AbiTypeKind.HASH_MAP:
       return {
@@ -138,7 +138,7 @@ export function stateFieldsOf(idl: Pick<ContractIdl, "state">): StateField[] {
     size: field.size,
     type: field.type.format,
     abi: field.type,
-    container: containerOf(field.type),
+    container: containerLayoutOf(field.type),
   }));
 }
 
@@ -202,13 +202,13 @@ export function enumMap(idl: Pick<ContractIdl, "enums">): Record<string, string>
   return names;
 }
 
-export async function decodeColumns(
+export async function readStateContainers(
   rpc: StateReader,
   contractIndex: number,
   fields: StateField[],
   full = false,
-): Promise<ColView[]> {
-  const columns: ColView[] = [];
+): Promise<DecodedStateContainer[]> {
+  const containers: DecodedStateContainer[] = [];
 
   for (const field of fields) {
     if (!field.container) {
@@ -256,7 +256,7 @@ export async function decodeColumns(
               );
 
       const limit = full ? Infinity : 10;
-      columns.push({
+      containers.push({
         name: field.name,
         entries:
           entries.length > limit
@@ -270,7 +270,7 @@ export async function decodeColumns(
     }
   }
 
-  return columns;
+  return containers;
 }
 
 export const sevColor = (severity: string) =>
@@ -292,12 +292,12 @@ export const fmtLog = (log: DecodedLog) => {
   return `${log.severity} ${detail}`;
 };
 
-export interface TraceView {
+export interface DecodedTrace {
   inDecoded: string;
   outDecoded: string;
   caller: string;
   fields: StateField[];
-  cols: ColView[];
+  containers: DecodedStateContainer[];
   logs: DecodedLog[];
 }
 
@@ -307,7 +307,7 @@ export async function describeTrace(
   name: string,
   rpc: StateReader,
   qpiHeader?: string,
-): Promise<TraceView> {
+): Promise<DecodedTrace> {
   let input = entry.inHex ? "0x" + entry.inHex : "(none)";
   let output = entry.outHex ? "0x" + entry.outHex : "(none)";
   let caller = "(none)";
@@ -321,7 +321,7 @@ export async function describeTrace(
   }
 
   let fields: StateField[] = [];
-  let cols: ColView[] = [];
+  let containers: DecodedStateContainer[] = [];
   let logs: DecodedLog[] = [];
 
   if (source) {
@@ -347,7 +347,7 @@ export async function describeTrace(
       }
 
       fields = stateFieldsOf(idl);
-      cols = await decodeColumns(rpc, entry.index, fields);
+      containers = await readStateContainers(rpc, entry.index, fields);
       const enumNames = enumMap(idl);
 
       if (entry.logs?.length) {
@@ -367,14 +367,14 @@ export async function describeTrace(
     outDecoded: output,
     caller,
     fields,
-    cols,
+    containers,
     logs,
   };
 }
 
-export interface StateDump {
+export interface DecodedState {
   fields: { name: string; value: string }[];
-  cols: ColView[];
+  containers: DecodedStateContainer[];
 }
 export async function readState(
   rpc: StateReader,
@@ -383,17 +383,17 @@ export async function readState(
   name: string,
   full = false,
   qpiHeader?: string,
-): Promise<StateDump> {
+): Promise<DecodedState> {
   const idl = extractIdl(source, name, {
     slot: contractIndex,
     qpiHeader,
   });
   const fields = stateFieldsOf(idl);
-  const scalars: { name: string; value: string }[] = [];
+  const decodedFields: { name: string; value: string }[] = [];
 
   for (const field of fields) {
     if (field.bad) {
-      scalars.push({
+      decodedFields.push({
         name: field.name,
         value: `(undecodable: ${field.type} — fields below not shown)`,
       });
@@ -420,7 +420,7 @@ export async function readState(
           format: `[${count};${element.format}]`,
         };
         const decoded = await decodeOutput(bytes, partial);
-        scalars.push({
+        decodedFields.push({
           name: field.name,
           value: `${fmtVal(decoded, full)}  (first ${count} of ${total})`,
         });
@@ -439,7 +439,7 @@ export async function readState(
         ),
         field.abi ?? field.type,
       );
-      scalars.push({
+      decodedFields.push({
         name: field.name,
         value:
           typeof decoded === "object" && decoded !== null
@@ -447,12 +447,12 @@ export async function readState(
             : String(decoded),
       });
     } catch {
-      scalars.push({ name: field.name, value: "(read failed)" });
+      decodedFields.push({ name: field.name, value: "(read failed)" });
     }
   }
 
   return {
-    fields: scalars,
-    cols: await decodeColumns(rpc, contractIndex, fields, full),
+    fields: decodedFields,
+    containers: await readStateContainers(rpc, contractIndex, fields, full),
   };
 }
