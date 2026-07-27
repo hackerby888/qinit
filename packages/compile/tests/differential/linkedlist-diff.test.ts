@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential coverage for LinkedList mutation, traversal, reuse, and reset.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -177,26 +177,13 @@ describe("differential gtest — LinkedList (add/insert/traverse/remove/reset)",
     "my LinkedList contract passes the native LinkedList gtest",
     wasi,
     async () => {
-      const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-      const { tmpdir } = await import("node:os");
-      const { join } = await import("node:path");
-      const dir = mkdtempSync(join(tmpdir(), "linkedlist-diff-"));
-      const contractPath = join(dir, "Queue.h");
-      writeFileSync(contractPath, QUEUE);
-
-      const testPath = join(dir, "Queue.test.cpp");
-      writeFileSync(testPath, QUEUE_GTEST);
-      const built = await buildCorpusRunner({
-        corpusPath: testPath,
-        contractPath,
-        name: "Queue",
-        stateType: "Queue",
-        slot: 28,
+      const runnerWasm = await buildDifferentialRunner({
         corePath: CORE,
-        outDir: dir,
+        source: QUEUE,
+        testSource: QUEUE_GTEST,
+        name: "Queue",
+        tempPrefix: "linkedlist-diff-",
       });
-      expect(built.ok).toBe(true);
-      const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
       const mine = await compileContract({
         source: QUEUE,

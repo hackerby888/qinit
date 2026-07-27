@@ -1,6 +1,6 @@
 // Pin the shared parser's flag, positional, and nearest-match behavior.
 import { test, expect } from "bun:test";
-import { parseArgs, nearest, initOutput, output } from "../../src/args";
+import { parseArgs, parseCommandArgs, nearest, initOutput, output } from "../../src/args";
 
 test("parseArgs: positionals collected in order, separate from flags", () => {
   const p = parseArgs(["run", "status", "--rpc", "http://x"], {
@@ -77,6 +77,30 @@ test("parseArgs: rejects unknown flags and missing string values", () => {
   expect(() => parseArgs(["--rpc"], { strings: ["rpc"] })).toThrow(
     "argument missing",
   );
+});
+
+test("parseCommandArgs: definitions come from command metadata", () => {
+  const parsed = parseCommandArgs("build", [
+    "Counter.h",
+    "--rpc",
+    "http://x",
+    "--callee",
+    "A=a.h@1",
+    "--callee=B=b.h@2",
+    "--local",
+  ]);
+
+  expect(parsed.pos).toEqual(["Counter.h"]);
+  expect(parsed.flags.rpc).toBe("http://x");
+  expect(parsed.flags.local).toBe("");
+  expect(parsed.multi.callee).toEqual(["A=a.h@1", "B=b.h@2"]);
+});
+
+test("parseCommandArgs: node run options do not leak into other node subcommands", () => {
+  expect(() => parseCommandArgs("node", ["status", "--restart"])).toThrow(
+    "Unknown option '--restart'",
+  );
+  expect(parseCommandArgs("node", ["run", "--restart"], "run").flags.restart).toBe("");
 });
 
 test("nearest: suggests a plausible typo within the edit-distance threshold", () => {

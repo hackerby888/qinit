@@ -10,7 +10,7 @@ import { loadQpiHeader } from "@qinit/compile";
 import type { TestResult } from "@qinit/engine";
 import { runCorpus, runStdGtest } from "../corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 // Render the TS compiler's per-phase timings as a one-line breakdown (short labels, in pipeline order).
 function fmtTimings(t?: Record<string, number>): string | undefined {
@@ -47,10 +47,7 @@ type Tail =
 
 export function Gtest({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseArgs(args, {
-    strings: ["filter", "core", "corpus", "contract", "name", "state-type", "slot"],
-    booleans: ["new", "local", "shared-mem"],
-  });
+  const { flags: o, pos } = parseCommandArgs("gtest", args);
   const cfg = loadConfig();
   const [items, setItems] = useState<Item[]>([{ kind: "header" }]);
   const [s, setS] = useState<Tail>({ phase: "work", spin: "starting" });

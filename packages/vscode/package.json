@@ -3,6 +3,7 @@
   "displayName": "Qubic QPI",
   "description": "Standalone IntelliSense and QPI diagnostics for Qubic smart contracts.",
   "version": "0.1.0",
+  "private": true,
   "publisher": "qinit",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/hackerby888/qinit.git" },

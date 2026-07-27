@@ -5,14 +5,13 @@ import { Box, Text, useApp } from "ink";
 import { verifyContract, type VerifyResult } from "@qinit/build";
 import { loadConfig } from "../config";
 import { Header, Panel, Status, theme, termCols } from "../ui";
-import { output, parseArgs } from "../args";
+import { output, parseCommandArgs } from "../args";
+import { parseCallees } from "../callees";
 
 export function Verify({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags: o, pos, multi } = parseArgs(args, {
-    strings: ["contract", "name"],
-    multi: ["callee"],
-  });
+  const { flags: o, pos, multi } = parseCommandArgs("verify", args);
+  const dynCallees = parseCallees(multi.callee);
   const [r, setR] = useState<VerifyResult | null>(null);
   const [err, setErr] = useState("");
 
@@ -29,11 +28,6 @@ export function Verify({ args }: { args: string[] }) {
         const name = o.name ?? cfg.name ?? basename(file).replace(/\.[^.]+$/, "");
         // Declared inter-contract callees (--callee + CALL/INVOKE_OTHER_CONTRACT) — their scope-resolution
         // errors are false for declared callees and dropped by verifyContract (same as buildContract).
-        const dynCallees: Record<string, { header: string; index: number }> = {};
-        for (const value of multi.callee ?? []) {
-          const m = value.match(/^(\w+)=(.+)@(\d+)$/);
-          if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
-        }
         const calleeNames = [
           ...new Set([
             ...Object.keys(dynCallees),

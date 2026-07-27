@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Covers invocator capture, id equality guards, and id-valued state reads.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
-import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -63,14 +63,7 @@ const AUTH_GTEST = coreGtest(
 `,
 );
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — Auth (qpi.invocator + id compare)", () => {
   beforeAll(async () => {
@@ -78,30 +71,17 @@ describe("differential gtest — Auth (qpi.invocator + id compare)", () => {
   });
 
   test("my Auth.wasm passes the native Auth gtest", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "auth-diff-"));
-    const contractPath = join(dir, "Auth.h");
-    writeFileSync(contractPath, AUTH);
-
-    const testPath = join(dir, "Auth.test.cpp");
-    writeFileSync(testPath, AUTH_GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "Auth",
-      stateType: "Auth",
-      slot: 28,
+    const runnerWasm = await buildDifferentialRunner({
       corePath: CORE,
-      outDir: dir,
+      source: AUTH,
+      testSource: AUTH_GTEST,
+      name: "Auth",
+      tempPrefix: "auth-diff-",
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
     const mine = await compileContract({
       source: AUTH,

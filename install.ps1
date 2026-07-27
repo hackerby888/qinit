@@ -3,7 +3,7 @@
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$Repo   = "hackerby888/qinit"
+$Repo = if ($env:QINIT_REPOSITORY) { $env:QINIT_REPOSITORY } else { "hackerby888/qinit" }
 $BinDir = if ($env:QINIT_BIN) { $env:QINIT_BIN } else { Join-Path $env:LOCALAPPDATA "qinit\bin" }
 $TotalSteps = 5
 

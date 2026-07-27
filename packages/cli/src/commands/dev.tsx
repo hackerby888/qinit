@@ -7,7 +7,8 @@ import { deployContract, STEPS, type Ev, type DeployResult } from "../deploy-ops
 import { nodeContracts } from "../node-ops";
 import { LiteRpc } from "@qinit/core";
 import { Header, StepRow, type StepState, Panel, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
+import { parseCallees } from "../callees";
 
 interface SS {
   state: StepState;
@@ -19,20 +20,12 @@ interface SS {
 
 export function Dev({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags: o, pos, multi } = parseArgs(args, {
-    strings: ["contract", "name", "core", "rpc", "seed"],
-    booleans: ["native", "local", "skip-verify"],
-    multi: ["callee"],
-  });
+  const { flags: o, pos, multi } = parseCommandArgs("dev", args);
   const cfg = loadConfig();
   const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";
   const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
   const name = o.name ?? cfg.name ?? basename(contractPath).replace(/\.[^.]+$/, "");
-  const dynCallees: Record<string, { header: string; index: number }> = {};
-  for (const value of multi.callee ?? []) {
-    const m = value.match(/^(\w+)=(.+)@(\d+)$/);
-    if (m) dynCallees[m[1]] = { header: resolve(m[2]), index: Number(m[3]) };
-  }
+  const dynCallees = parseCallees(multi.callee);
   let core = "",
     coreErr = "";
   try {

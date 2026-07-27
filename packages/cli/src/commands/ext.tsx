@@ -3,7 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Header, Panel, KV, theme } from "../ui";
-import { output, parseArgs } from "../args";
+import { output, parseCommandArgs } from "../args";
 
 const EXTENSION_ID = "qinit.qpi-vscode";
 const EDITORS = ["code", "cursor", "windsurf", "codium"];
@@ -17,9 +17,7 @@ interface Result {
 
 export function Ext({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseArgs(args, {
-    strings: ["vsix", "editor"],
-  });
+  const { flags: o, pos } = parseCommandArgs("ext", args);
   const sub = pos[0] ?? "";
   const [r, setR] = useState<Result | null>(null);
 

@@ -29,11 +29,17 @@ if (process.argv.includes("--check")) {
   process.exit(0);
 }
 
-const manifest = JSON.parse(
-  readFileSync(join(repositoryRoot, "packages", "compile", "core-snapshot.json"), "utf8"),
+const repositories = JSON.parse(
+  readFileSync(join(repositoryRoot, "config", "repositories.json"), "utf8"),
 ) as {
-  core: { repository: string; commit: string };
+  coreLite: { repository: string };
 };
+const snapshotManifest = JSON.parse(
+  readFileSync(
+    join(repositoryRoot, "packages", "compile", "core-snapshot.json"),
+    "utf8",
+  ),
+) as { coreCommit: string };
 const core = resolve(process.argv[2] ?? process.env.QINIT_CORE ?? "");
 if (!core || !existsSync(join(core, "src", "contracts", "qpi.h"))) {
   throw new Error("pass a pinned core-lite checkout or set QINIT_CORE");
@@ -41,9 +47,13 @@ if (!core || !existsSync(join(core, "src", "contracts", "qpi.h"))) {
 
 const revision = Bun.spawnSync(["git", "-C", core, "rev-parse", "HEAD"]);
 const actualCommit = revision.stdout.toString().trim();
-if (revision.exitCode !== 0 || actualCommit !== manifest.core.commit) {
+if (
+  revision.exitCode !== 0 ||
+  actualCommit !== snapshotManifest.coreCommit
+) {
   throw new Error(
-    `core commit ${actualCommit || "unknown"} does not match ${manifest.core.commit}`,
+    `core commit ${actualCommit || "unknown"} does not match ` +
+      snapshotManifest.coreCommit,
   );
 }
 
@@ -57,12 +67,14 @@ writeFileSync(
   join(resources, "snapshot.json"),
   JSON.stringify(
     {
-      coreRepository: manifest.core.repository,
-      coreCommit: manifest.core.commit,
+      coreRepository: repositories.coreLite.repository,
+      coreCommit: snapshotManifest.coreCommit,
       fileCount: snapshot.fileCount,
     },
     null,
     2,
   ) + "\n",
 );
-console.log(`prepared ${snapshot.fileCount} headers from ${manifest.core.commit}`);
+console.log(
+  `prepared ${snapshot.fileCount} headers from ${snapshotManifest.coreCommit}`,
+);

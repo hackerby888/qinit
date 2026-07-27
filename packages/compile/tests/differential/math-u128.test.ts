@@ -2,10 +2,10 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // u128/safe-math semantics lock-down for divergence-sensitive cases.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
 import { Sim, runContractTesting, type TestResult } from "@qinit/engine";
-import { buildCorpusRunner } from "@qinit/build";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
@@ -424,14 +424,7 @@ TEST(MathSat, U128Boundaries) {
 `,
 );
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — safe-math saturation + uint128 boundaries", () => {
   beforeAll(async () => {
@@ -439,30 +432,17 @@ describe("differential gtest — safe-math saturation + uint128 boundaries", () 
   });
 
   test("my contract matches native clang on the boundary vectors", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "math-u128-"));
-    const contractPath = join(dir, "M128.h");
-    writeFileSync(contractPath, SRC);
-
-    const testPath = join(dir, "M128.test.cpp");
-    writeFileSync(testPath, GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "M128",
-      stateType: "M128",
-      slot: 28,
+    const runnerWasm = await buildDifferentialRunner({
       corePath: CORE,
-      outDir: dir,
+      source: SRC,
+      testSource: GTEST,
+      name: "M128",
+      tempPrefix: "math-u128-",
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
     const mine = await compileContract({
       source: SRC,

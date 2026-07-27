@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential coverage for Collection mutation and per-PoV traversal.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -86,26 +86,13 @@ describe("differential gtest — Collection (BST add/iterate/remove)", () => {
     "my Collection contract passes the native Collection gtest",
     wasi,
     async () => {
-      const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-      const { tmpdir } = await import("node:os");
-      const { join } = await import("node:path");
-      const dir = mkdtempSync(join(tmpdir(), "collection-diff-"));
-      const contractPath = join(dir, "Orders.h");
-      writeFileSync(contractPath, ORDERS);
-
-      const testPath = join(dir, "Orders.test.cpp");
-      writeFileSync(testPath, ORDERS_GTEST);
-      const built = await buildCorpusRunner({
-        corpusPath: testPath,
-        contractPath,
-        name: "Orders",
-        stateType: "Orders",
-        slot: 28,
+      const runnerWasm = await buildDifferentialRunner({
         corePath: CORE,
-        outDir: dir,
+        source: ORDERS,
+        testSource: ORDERS_GTEST,
+        name: "Orders",
+        tempPrefix: "collection-diff-",
       });
-      expect(built.ok).toBe(true);
-      const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
       const mine = await compileContract({
         source: ORDERS,

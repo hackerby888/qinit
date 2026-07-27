@@ -11,7 +11,7 @@ import { loadQpiHeader } from "@qinit/compile";
 import { EngineServer } from "@qinit/engine/server";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { loadContractIdlFile } from "../idl-file";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const STEP_LABEL: Record<string, string> = {
@@ -48,32 +48,7 @@ type State =
 
 export function Test({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseArgs(args, {
-    strings: [
-      "contract",
-      "name",
-      "core",
-      "rpc",
-      "bin",
-      "ref",
-      "node-mode",
-      "peers",
-      "wait",
-      "seed",
-      "timeout",
-      "filter",
-    ],
-    booleans: [
-      "in-process",
-      "engine",
-      "real",
-      "realnode",
-      "native",
-      "local",
-      "keep",
-      "skip-verify",
-    ],
-  });
+  const { flags: o, pos } = parseCommandArgs("test", args);
   const cfg = loadConfig();
   const root = process.cwd();
   const rpcBase = o.rpc ?? cfg.rpc ?? "http://127.0.0.1:41841";

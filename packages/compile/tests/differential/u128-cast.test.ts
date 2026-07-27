@@ -1,8 +1,9 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // u128 cast semantics regression: `(uint128)(scalarExpr)` must evaluate in scalar domain, then zero-extend into low limb.
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContract } from "@qinit/build";
@@ -60,14 +61,7 @@ const runState = (wasm: Uint8Array): string => {
   return Buffer.from(st.slice(0, 64)).toString("hex");
 };
 
-const wasiOk = (() => {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-})();
+const wasiOk = wasiToolchain().available;
 
 describe("uint128 casts of scalar expressions", () => {
   beforeAll(async () => {

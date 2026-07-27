@@ -1,4 +1,5 @@
 import { parseArgs as parseNodeArgs } from "node:util";
+import { commandOptions } from "./meta";
 
 export const output = { json: false, plain: false };
 
@@ -24,6 +25,25 @@ interface ParseOptions {
   strings?: readonly string[];
   booleans?: readonly string[];
   multi?: readonly string[];
+}
+
+export function parseCommandArgs(
+  command: string,
+  args: string[],
+  subcommand?: string,
+): Parsed {
+  const options = commandOptions(command, subcommand);
+  return parseArgs(args, {
+    strings: options
+      .filter((option) => option.type === "string" && !option.multiple)
+      .map((option) => option.name),
+    booleans: options
+      .filter((option) => option.type === "boolean")
+      .map((option) => option.name),
+    multi: options
+      .filter((option) => option.type === "string" && option.multiple)
+      .map((option) => option.name),
+  });
 }
 
 export function parseArgs(

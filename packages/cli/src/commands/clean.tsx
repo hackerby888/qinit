@@ -3,7 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { cacheRoot } from "@qinit/core";
 import { cacheInfo, wipeCache, human, type CacheItem } from "../cache-ops";
 import { Header, Status, Spinner, KV, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 // qinit clean [--dry-run]
 // Remove ALL qinit cache (~/.cache/qinit or $QINIT_CACHE): fetched node, core-headers, wasi-sdk/clang artifacts.
@@ -16,7 +16,7 @@ type S = {
 };
 
 export function Clean({ args }: { args: string[] }) {
-  const { flags: o } = parseArgs(args, { booleans: ["dry-run"] });
+  const { flags: o } = parseCommandArgs("clean", args);
   const dry = o["dry-run"] !== undefined;
   const root = cacheRoot();
   const { exit } = useApp();

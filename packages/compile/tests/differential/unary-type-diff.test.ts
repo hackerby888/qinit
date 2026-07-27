@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks unary width propagation and mixed signed/unsigned comparisons.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
-import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -62,14 +62,7 @@ const GTEST = coreGtest(
 `,
 );
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — unary type propagation", () => {
   beforeAll(async () => {
@@ -77,30 +70,17 @@ describe("differential gtest — unary type propagation", () => {
   });
 
   test("unary ops and mixed-width compares match native C++ semantics", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "unary-type-"));
-    const contractPath = join(dir, "UnaryP.h");
-    writeFileSync(contractPath, SRC);
-
-    const testPath = join(dir, "UnaryP.test.cpp");
-    writeFileSync(testPath, GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "UnaryP",
-      stateType: "UnaryP",
-      slot: 28,
+    const runnerWasm = await buildDifferentialRunner({
       corePath: CORE,
-      outDir: dir,
+      source: SRC,
+      testSource: GTEST,
+      name: "UnaryP",
+      tempPrefix: "unary-type-",
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
     const mine = await compileContract({
       source: SRC,

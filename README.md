@@ -1,10 +1,12 @@
 # Qinit
 
-Framework for **Qubic dynamic contracts** — scaffold → build → deploy → test → typed
-client, shipped as a single standalone binary. Pairs with
-`qubic-core-lite/src/extensions/DYNAMIC_CONTRACTS.md`.
+Qinit is a Bun/TypeScript toolkit for Qubic dynamic contracts: scaffold, compile,
+deploy, test, inspect, and generate typed clients from one standalone CLI.
 
-See the [compiler walkthrough](./docs/QINIT_COMPILER_WALKTHROUGH.md) for the current Wasm pipeline.
+See the [compiler walkthrough](./docs/QINIT_COMPILER_WALKTHROUGH.md) for the
+TypeScript-to-Wasm pipeline and
+[browser compiler guide](./docs/BROWSER_COMPILER_INTEGRATION.md) for browser
+packaging.
 
 ## Install
 
@@ -22,68 +24,74 @@ irm https://raw.githubusercontent.com/hackerby888/qinit/main/install.ps1 | iex
 
 The installer puts `qinit` in `~/.local/bin` on Linux/macOS and
 `%LOCALAPPDATA%\qinit\bin` on Windows (override with `QINIT_BIN`). It then runs
-`qinit setup` to download and cache the core headers, node binary, WASI SDK, and
-contract verifier. Setup may download several hundred MB; reruns reuse cached
-tools, and unavailable platform assets are reported and skipped. If setup fails,
-the CLI remains installed and the installer prints the exact retry command.
+`qinit setup` to cache the core headers, node binary, WASI SDK, and contract
+verifier. Unavailable platform assets are reported without removing the CLI.
 
-Or download a binary from [Releases](https://github.com/hackerby888/qinit/releases/latest):
+Release assets:
 
-| OS | arch | asset |
-|----|------|-------|
+| OS | Architecture | Asset |
+|---|---|---|
 | Linux | x64 | `qinit-linux-x64` |
 | Linux | arm64 | `qinit-linux-arm64` |
 | macOS | Apple Silicon | `qinit-darwin-arm64` |
 | macOS | Intel | `qinit-darwin-x64` |
 | Windows | x64 | `qinit-windows-x64.exe` |
 
-After a manual download, run `qinit setup`, then `qinit doctor`. (Building from
-source is below.)
+After a manual download, run `qinit setup` and `qinit doctor`.
 
-## Status — M0 (bin skeleton)
+## Develop
 
-Bun workspaces + `--compile` standalone-binary config, an Ink CLI, `doctor`, and the crypto smoke
-test that validates the binary path before any real feature code.
-
-## Prereqs
-
-- [Bun](https://bun.sh) — `curl -fsSL https://bun.sh/install | bash`
-- wasi-sdk for the Clang-to-Wasm backend (`qinit setup` fetches and caches it automatically).
-
-## Run
+Use Bun 1.3.14, matching CI:
 
 ```bash
 bun install
-
-# dev (no compile)
 bun run dev help
-bun run dev doctor
-bun run dev smoke
-
-# standalone binary — the shipping artifact
-bun run build:bin           # -> dist/qinit
-./dist/qinit smoke          # MUST pass from the compiled binary (validates bundled wasm crypto)
-./dist/qinit doctor
-
-# all targets
-bun run build:all
+bun run typecheck
+bun test
 ```
 
-`smoke` derives a Qubic identity (exercising K12 + FourQ from `@qubic-lib/qubic-ts-library`'s wasm)
-**inside the compiled binary** — the M0 acceptance gate for the standalone-bin approach.
+Build and check the standalone CLI:
 
-## Config
-
-- `QINIT_CORE` — path to a core-lite checkout. Required by tests and tools that consume live core source:
-
-  ```bash
-  export QINIT_CORE=/path/to/core-lite
-  ```
-
-## Layout
-
+```bash
+bun run build:bin
+./dist/qinit smoke
 ```
-packages/cli    Ink TUI + command dispatch (the --compile entry)
-packages/core   wraps @qubic-lib/qubic-ts-library (identity, K12, sign, tx, connector)
-scripts         cross-target build matrix
+
+Live core-lite checks need a checkout supplied through `QINIT_CORE`:
+
+```bash
+QINIT_CORE=/path/to/core-lite bun run test:sc:light
 ```
+
+Run node binaries from a temporary working directory because they create
+runtime data relative to the current directory.
+
+## Workspace
+
+| Path | Responsibility |
+|---|---|
+| `packages/cli` | Ink command interface and standalone binary entry |
+| `packages/core` | Qubic primitives, signing, RPC, tool downloads, and source metadata |
+| `packages/build` | Contract project generation and native build recipes |
+| `packages/compile` | TypeScript-to-Wasm compiler and browser entry |
+| `packages/engine` | In-process contract simulation and protocol adapters |
+| `packages/proto` | Dynamic-contract wire, ABI, and IDL codecs |
+| `packages/vscode` | QPI language support extension |
+| `fixtures` | Shared contract fixtures |
+| `scripts` | CI, release, live-node, and compatibility automation |
+| `test-utils` | Shared test helpers |
+
+Workspace packages are private while their distribution contracts are being
+stabilized. Qinit releases the standalone CLI and contract-verifier artifacts;
+there is currently no npm package release workflow.
+
+## Cross-repository development
+
+`config/repositories.json` owns the Qinit release repository and core-lite
+development source/production pin. An empty `pinnedCommit` follows the latest
+`developmentRef`; a full commit SHA selects that exact revision. Each CI run
+resolves the selected ref once and uses the resulting commit for every job.
+
+Manual CI runs accept repository and ref overrides, so a new organization or
+branch can be tested before changing the descriptor. The installers also accept
+`QINIT_REPOSITORY=owner/repository` when testing a moved Qinit release source.

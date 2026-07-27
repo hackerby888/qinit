@@ -15,7 +15,7 @@ import { scratchDir } from "../node-ops";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
 import { contractIdlForSlot, loadContractIdlFile } from "../idl-file";
 import { Header, Table, Spinner, theme, type Column } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const LIST_COLS: Column[] = [
@@ -27,9 +27,7 @@ const LIST_COLS: Column[] = [
 ];
 
 export function Debug({ args }: { args: string[] }) {
-  const { flags: o } = parseArgs(args, {
-    strings: ["rpc", "contract"],
-  });
+  const { flags: o } = parseCommandArgs("debug", args);
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
   const rpc = useRef(new LiteRpc(rpcBase)).current;

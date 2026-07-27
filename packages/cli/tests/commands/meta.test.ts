@@ -1,7 +1,5 @@
-// META is the single source for the help screen, per-command help, completion, and did-you-mean. A malformed
-// entry (missing summary, a group typo, a bad flag tuple) silently breaks those surfaces, so pin the shape.
 import { test, expect } from "bun:test";
-import { META, COMMANDS, GROUP_ORDER } from "../../src/meta";
+import { META, COMMANDS, GROUP_ORDER, commandOptions, optionSyntax } from "../../src/meta";
 
 test("META: every command has a non-empty summary in a known group", () => {
   for (const m of Object.values(META)) {
@@ -17,17 +15,25 @@ test("COMMANDS mirrors the META keys — unique and non-empty", () => {
   expect(new Set(COMMANDS).size).toBe(COMMANDS.length);
 });
 
-test("META: flags are [flag, desc] pairs of non-empty strings", () => {
-  for (const m of Object.values(META)) {
-    if (!m.flags) {
-      continue;
+test("META: options are complete structured parser definitions", () => {
+  for (const [command, meta] of Object.entries(META)) {
+    const groups = [meta.options ?? [], ...Object.values(meta.subcommands ?? {}).map((s) => s.options)];
+    for (const options of groups) {
+      expect(new Set(options.map((option) => option.name)).size).toBe(options.length);
+      for (const option of options) {
+        expect(option.name).toMatch(/^[a-z][a-z-]*$/);
+        expect(["string", "boolean"]).toContain(option.type);
+        expect(option.description.length).toBeGreaterThan(0);
+        expect(optionSyntax(option)).toStartWith(`--${option.name}`);
+        if (option.type === "boolean") {
+          expect(option.valueLabel).toBeUndefined();
+          expect(option.multiple).not.toBe(true);
+        } else {
+          expect(option.valueLabel?.length).toBeGreaterThan(0);
+        }
+      }
     }
-    for (const f of m.flags) {
-      expect(Array.isArray(f)).toBe(true);
-      expect(f.length).toBe(2);
-      expect(f[0].length).toBeGreaterThan(0);
-      expect(f[1].length).toBeGreaterThan(0);
-    }
+    expect(commandOptions(command)).toEqual(meta.options ?? []);
   }
 });
 
@@ -55,7 +61,22 @@ test("GROUP_ORDER: every declared group is used by at least one command", () => 
 });
 
 test("release-smoke flags are exposed in command metadata", () => {
-  expect(META.node.flags?.map(([flag]) => flag)).toContain("--core <path>");
-  expect(META.state.flags?.map(([flag]) => flag)).toContain("--digest");
+  expect(commandOptions("node", "run").map(optionSyntax)).toContain("--core <path>");
+  expect(commandOptions("state").map(optionSyntax)).toContain("--digest");
   expect(META.build.json).toBe(true);
+});
+
+test("accepted build, dev, gen, and call options are documented", () => {
+  expect(commandOptions("build").map((option) => option.name)).toEqual(
+    expect.arrayContaining(["contract", "rpc", "callee"]),
+  );
+  expect(commandOptions("dev").map((option) => option.name)).toEqual(
+    expect.arrayContaining(["contract", "name", "core", "callee"]),
+  );
+  expect(commandOptions("gen").map((option) => option.name)).toEqual(
+    expect.arrayContaining(["contract", "core"]),
+  );
+  expect(commandOptions("call").map((option) => option.name)).toEqual(
+    expect.arrayContaining(["args", "amount", "all", "no-settle"]),
+  );
 });

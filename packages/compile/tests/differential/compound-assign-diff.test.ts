@@ -2,9 +2,9 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks compound-assignment width and signedness against native behavior.
 import { coreGtest } from "../support/core-gtest";
+import { buildDifferentialRunner } from "../support/differential-runner";
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
-import { buildCorpusRunner } from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";
@@ -73,14 +73,7 @@ const GTEST = coreGtest(
 `,
 );
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential gtest — compound assignment signedness", () => {
   beforeAll(async () => {
@@ -88,30 +81,17 @@ describe("differential gtest — compound assignment signedness", () => {
   });
 
   test("compound ops on locals and fields match native C++ semantics", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
-    const { writeFileSync, mkdtempSync, readFileSync } = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const dir = mkdtempSync(join(tmpdir(), "compound-assign-"));
-    const contractPath = join(dir, "CompoundP.h");
-    writeFileSync(contractPath, SRC);
-
-    const testPath = join(dir, "CompoundP.test.cpp");
-    writeFileSync(testPath, GTEST);
-    const built = await buildCorpusRunner({
-      corpusPath: testPath,
-      contractPath,
-      name: "CompoundP",
-      stateType: "CompoundP",
-      slot: 28,
+    const runnerWasm = await buildDifferentialRunner({
       corePath: CORE,
-      outDir: dir,
+      source: SRC,
+      testSource: GTEST,
+      name: "CompoundP",
+      tempPrefix: "compound-assign-",
     });
-    expect(built.ok).toBe(true);
-    const runnerWasm = new Uint8Array(readFileSync(built.so!));
 
     const mine = await compileContract({
       source: SRC,

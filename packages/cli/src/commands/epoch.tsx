@@ -4,10 +4,10 @@ import { LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { advanceTo } from "./tick";
 import { Header, Spinner, Bar, KV, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 export function Epoch({ args }: { args: string[] }) {
-  const parsed = parseArgs(args, { strings: ["rpc"] });
+  const parsed = parseCommandArgs("epoch", args);
   const o = {
     rpc: parsed.get("rpc"),
     sub: parsed.pos[0] ?? "",

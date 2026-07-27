@@ -7,7 +7,7 @@ import { loadQpiHeader } from "@qinit/compile";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCore } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 type State =
   | { ok: true; file: string; name: string; slot: number; fns: number; procs: number }
@@ -16,9 +16,7 @@ type State =
 
 export function Gen({ args }: { args: string[] }) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseArgs(args, {
-    strings: ["contract", "name", "slot", "out", "core"],
-  });
+  const { flags: o, pos } = parseCommandArgs("gen", args);
   const [s, setS] = useState<State>(null);
 
   useEffect(() => {

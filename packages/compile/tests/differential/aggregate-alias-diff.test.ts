@@ -1,5 +1,6 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
+import { wasiToolchain } from "../support/container-toolchains";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,16 +51,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Run, 1); }
 };`;
 
-const NATIVE_AVAILABLE = (() => {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project") as {
-      wasiSdkPaths: () => { clang: string };
-    };
-    return existsSync(CORE) && existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-})();
+const NATIVE_AVAILABLE = existsSync(CORE) && wasiToolchain().available;
 
 const nativeTest = NATIVE_AVAILABLE ? test : test.skip;
 let oursWasm: Uint8Array = new Uint8Array();

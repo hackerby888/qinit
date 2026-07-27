@@ -12,20 +12,9 @@ import {
   analyzeContract,
   type SourceAnalysisResult,
 } from "@qinit/compile/analyzer";
+import type { BuildResult } from "@qinit/build";
 
-export interface LocalBuildResult {
-  ok: boolean;
-  so?: string; // path to the emitted .wasm
-  size?: number;
-  idl?: ContractIdl; // rich idl (build's extractIdl) for downstream tooling
-  stderr?: string;
-  // Not produced by the local path (kept optional so this unions cleanly with @qinit/build's BuildResult
-  // wherever the deploy pipeline reads a build result). hash falls back to k12 of the wasm bytes downstream.
-  hash?: string;
-  idlError?: string;
-  debugWasm?: string;
-  linesJson?: string;
-}
+export type LocalBuildResult = BuildResult;
 
 interface DynamicCalleeSource {
   name: string;

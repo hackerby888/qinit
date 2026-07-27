@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedTheme, setSavedTheme } from "../config";
 import { Header, Grad, GradLine, THEMES, THEME_NAMES, applyTheme, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 // a row of color blocks for one variant — gradient + brand/accent/info + semantic
 function Swatch({ name }: { name: string }) {
@@ -20,7 +20,7 @@ function Swatch({ name }: { name: string }) {
 }
 
 export function ThemeCmd({ args }: { args: string[] }) {
-  const parsed = parseArgs(args, { booleans: ["show"] });
+  const parsed = parseCommandArgs("theme", args);
   const o = {
     name: parsed.pos[0],
     show: parsed.has("show"),

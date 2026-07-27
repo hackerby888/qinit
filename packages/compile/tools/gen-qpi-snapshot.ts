@@ -36,7 +36,7 @@ if (!existsSync(join(core, "src", "contracts", "qpi.h"))) {
 }
 
 interface SnapshotManifest {
-  core: { repository: string; commit: string };
+  coreCommit: string;
   generatorVersion: number;
   snapshotHash: string;
 }
@@ -49,7 +49,7 @@ function render(): { hash: string; module: string } {
   const pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
   const meta = {
     snapshotHash: hash,
-    coreCommit: manifest.core.commit,
+    coreCommit: manifest.coreCommit,
     generatorVersion: GENERATOR_VERSION,
     qinitCompileVersion: pkg.version as string,
   };
@@ -68,7 +68,10 @@ function verify(hash: string): void {
     throw new Error(`generator v${GENERATOR_VERSION} != manifest v${manifest.generatorVersion} — update core-snapshot.json`);
   }
   if (manifest.snapshotHash !== hash) {
-    throw new Error(`snapshot hash mismatch\n  generated: ${hash}\n  manifest:  ${manifest.snapshotHash}\n  (core at ${core}, expected commit ${manifest.core.commit})`);
+    throw new Error(
+      `snapshot hash mismatch\n  generated: ${hash}\n  manifest:  ${manifest.snapshotHash}` +
+        `\n  (core at ${core}, expected commit ${manifest.coreCommit})`,
+    );
   }
 }
 

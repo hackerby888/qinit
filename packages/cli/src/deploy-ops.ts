@@ -1,9 +1,7 @@
-import { resolve, join } from "node:path";
-import { tmpdir } from "node:os";
-import { readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
 import {
   buildContract,
-  scanCallees,
   systemNames,
   type BuildResult,
   type ContractIdl,
@@ -29,6 +27,8 @@ import {
 import { savedSeed, savedCompiler, resolveCore, type Compiler } from "./config";
 import { compileLocal } from "./compile-local";
 import { saveContractIdl } from "./idl-file";
+import { resolveNodeCallees } from "./callees";
+export { resolveNodeCallees } from "./callees";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
 export type Ev =
@@ -48,55 +48,6 @@ export function tickFailureMessage(reached: boolean, rpcBase: string): string {
   return reached
     ? "node not ticking"
     : `node unreachable at ${rpcBase} — is it running? (qinit node run)`;
-}
-
-export async function resolveNodeCallees(
-  rpc: Pick<LiteRpc, "dynRegistry">,
-  contractSource: string,
-  dynCallees: Record<string, { header: string; index: number }> = {},
-  onNote?: (message: string) => void,
-  analysis?: { name: string; slot: number; qpiHeader: string },
-  timeoutMs?: number,
-): Promise<Record<string, { header: string; index: number }>> {
-  const resolved: Record<string, { header: string; index: number }> = { ...dynCallees };
-
-  try {
-    const names = [...scanCallees(contractSource, analysis)];
-    const pending = names.filter((name) => !resolved[name]);
-    if (!pending.length) {
-      return resolved;
-    }
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const probe = rpc.dynRegistry();
-    const registry = timeoutMs
-      ? await Promise.race([
-          probe.finally(() => clearTimeout(timer)),
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(
-              () => reject(new Error("node probe timeout")),
-              timeoutMs,
-            );
-          }),
-        ])
-      : await probe;
-
-    for (const name of pending) {
-      const contract = (registry.contracts ?? []).find(
-        (candidate) => candidate.name === name && candidate.armed && candidate.source,
-      );
-      if (contract) {
-        const header = join(tmpdir(), `qinit-callee-${name}.h`);
-        writeFileSync(header, contract.source!);
-        resolved[name] = { header, index: contract.index };
-        onNote?.(`callee ${name} → slot ${contract.index} (from node)`);
-      }
-    }
-  } catch {
-    // Callee discovery is optional when the node is unavailable.
-  }
-
-  return resolved;
 }
 
 export function classifyConfirm(state: {
@@ -309,7 +260,7 @@ export async function deployContract(
         ? "compiling (local TS)…"
         : "compiling…",
   });
-  const build: any = options.artifact
+  const build: BuildResult = options.artifact
     ? { ok: options.artifact.wasm.byteLength > 0, idl: options.artifact.idl }
     : compiler === "local"
       ? await compileLocal({
@@ -331,7 +282,7 @@ export async function deployContract(
         });
 
   if (!build.ok) {
-    const verification = (build as BuildResult).verify;
+    const verification = build.verify;
     const error =
       verification && !verification.ok && verification.errors.length
         ? `protocol: ${verification.errors[0]}`

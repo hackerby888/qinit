@@ -14,6 +14,7 @@ import {
   wasiSdkPaths,
   haveWasiSdkCache,
   verifyPlatformKey,
+  CLI_REPO,
   cliAssetName,
   cliReleaseUrls,
 } from "../../src/fetch";
@@ -111,7 +112,7 @@ test("verifyPlatformKey is <os>-<arch> for this host", () => {
 });
 
 test("cliAssetName / cliReleaseUrls: per-host asset shape", () => {
-  const base = "https://github.com/hackerby888/qinit/releases/download/qinit-cli-v1.2.3";
+  const base = `https://github.com/${CLI_REPO}/releases/download/qinit-cli-v1.2.3`;
   if (process.platform === "win32") {
     // windows ships only x64 (.exe); `qinit update` self-fetches it (install.ps1 does the first install).
     expect(cliAssetName()).toBe("qinit-windows-x64.exe");

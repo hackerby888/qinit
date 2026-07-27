@@ -1,6 +1,7 @@
 {
   "name": "@qinit/core",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "module": "src/index.ts",
   "types": "./dist/browser.d.ts",
@@ -30,6 +31,6 @@
     "build": "bun bundle.mjs && tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@qubic-lib/qubic-ts-library": "latest"
+    "@qubic-lib/qubic-ts-library": "0.1.6"
   }
 }

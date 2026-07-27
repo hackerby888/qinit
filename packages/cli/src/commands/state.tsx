@@ -6,16 +6,13 @@ import { StateView } from "../views";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
 import { loadContracts, systemAsDyn } from "../contracts";
 import { Header, Spinner, GradLine, Panel, KV, theme } from "../ui";
-import { output, parseArgs } from "../args";
+import { output, parseCommandArgs } from "../args";
 import { readStateDigest, type StateDigestResult } from "../state-digest";
 
 type DigestOutput = StateDigestResult | { ok: false; error: string };
 
 export function State({ args }: { args: string[] }) {
-  const parsed = parseArgs(args, {
-    strings: ["rpc"],
-    booleans: ["all", "digest"],
-  });
+  const parsed = parseCommandArgs("state", args);
   const o = {
     target: parsed.pos[0] ?? "",
     rpc: parsed.get("rpc"),

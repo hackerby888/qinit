@@ -14,9 +14,10 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fetchT, readBody } from "./net";
 import { debug } from "./debug";
+import repositories from "../../../config/repositories.json";
 
-// Release source = the user's fork. NEVER qubic/core-lite (upstream) — see project memory.
-export const RELEASE_REPO = "hackerby888/core-lite";
+export const RELEASE_REPO =
+  process.env.QINIT_CORE_REPOSITORY ?? repositories.coreLite.repository;
 
 export function cacheRoot(): string {
   return process.env.QINIT_CACHE ?? join(homedir(), ".cache", "qinit");
@@ -40,9 +41,17 @@ export interface AssetRef {
   url: string;
   sha256: string;
 }
+export interface ReleaseSource {
+  repository: string;
+  commit: string;
+}
 // node = back-compat (linux-x64); nodes = per-platform map keyed by verifyPlatformKey() (linux-x64, linux-arm64, …)
 export interface Manifest {
   version: string;
+  sources?: {
+    coreLite: ReleaseSource;
+    qinit: ReleaseSource;
+  };
   node?: AssetRef;
   nodes?: Record<string, AssetRef>;
   headers?: AssetRef;
@@ -60,7 +69,8 @@ export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise
 }
 
 // ---- qinit CLI self-update / install resolution (the CLI binary release; mirrors install.sh) ----
-export const CLI_REPO = "hackerby888/qinit";
+export const CLI_REPO =
+  process.env.QINIT_REPOSITORY ?? repositories.qinit.repository;
 
 // qinit-<os>-<arch>[.exe] asset for this host. Windows ships only x64 (bun-windows-x64) — ARM64 Windows
 // runs that under emulation, so map win/arm64 -> x64.
@@ -217,7 +227,7 @@ export function cacheHeaders(version: string): string {
 
 // ---- contractverify tool distribution + auto-update --------------------------
 // The verifier ships independently from core and the CLI.
-export const VERIFY_REPO = "hackerby888/qinit";
+export const VERIFY_REPO = CLI_REPO;
 export const VERIFY_TAG = "verify-latest";
 export interface VerifyManifest {
   version: string;

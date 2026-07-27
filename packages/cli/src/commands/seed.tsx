@@ -3,15 +3,12 @@ import { Box, Text, useApp, useInput } from "ink";
 import { LiteRpc, deriveIdentity } from "@qinit/core";
 import { savedSeed, setSavedSeed, clearSavedSeed, seedStorePath, loadConfig } from "../config";
 import { Header, Spinner, GradLine, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 type Item = { seed: string; id: string };
 
 export function Seed({ args }: { args: string[] }) {
-  const { flags: o } = parseArgs(args, {
-    strings: ["rpc"],
-    booleans: ["clear", "show"],
-  });
+  const { flags: o } = parseCommandArgs("seed", args);
   const rpcBase = o.rpc || loadConfig().rpc || "http://127.0.0.1:41841";
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);

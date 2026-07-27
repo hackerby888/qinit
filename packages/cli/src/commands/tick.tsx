@@ -3,7 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { Header, Spinner, Bar, KV, theme } from "../ui";
-import { parseArgs } from "../args";
+import { parseCommandArgs } from "../args";
 
 // qinit tick                     -> show the current-epoch tick window
 // qinit tick advance <n>         -> advance the chain by n ticks (capped at the epoch's last tick)
@@ -31,7 +31,7 @@ export async function advanceTo(
 }
 
 export function Tick({ args }: { args: string[] }) {
-  const parsed = parseArgs(args, { strings: ["rpc"] });
+  const parsed = parseCommandArgs("tick", args);
   const o = {
     rpc: parsed.get("rpc"),
     sub: parsed.pos[0] ?? "",

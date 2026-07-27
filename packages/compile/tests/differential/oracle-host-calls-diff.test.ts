@@ -1,8 +1,8 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks oracle host-call payloads and reply decoding against native behavior.
+import { wasiToolchain } from "../support/container-toolchains";
 import { describe, test, expect, beforeAll } from "bun:test";
-import { existsSync } from "node:fs";
 import { buildContract } from "@qinit/build";
 import { Sim } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
@@ -81,14 +81,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
-function wasiAvailable(): boolean {
-  try {
-    const { wasiSdkPaths } = require("@qinit/core/project");
-    return existsSync(wasiSdkPaths().clang);
-  } catch {
-    return false;
-  }
-}
+const wasi = wasiToolchain();
 
 describe("differential — oracle read / mining / shareholder host calls", () => {
   beforeAll(async () => {
@@ -96,7 +89,7 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
   });
 
   test("state bytes match native across query -> pending read -> resolve -> read", async () => {
-    if (!wasiAvailable()) {
+    if (!wasi.available) {
       console.log("  (wasi-sdk clang not found — skipping)");
       return;
     }
