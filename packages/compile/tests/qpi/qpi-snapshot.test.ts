@@ -11,12 +11,12 @@ import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapsho
 
 const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "contracts", "qpi.h"));
-const repositories = JSON.parse(
+const snapshotManifest = JSON.parse(
   readFileSync(
-    join(import.meta.dir, "..", "..", "..", "..", "config", "repositories.json"),
+    join(import.meta.dir, "..", "..", "core-snapshot.json"),
     "utf8",
   ),
-);
+) as { coreCommit: string };
 
 const SOURCE = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -74,8 +74,8 @@ describe("tracked snapshot + browser entry", () => {
     const hash = "sha256:" + createHash("sha256").update(QPI_SNAPSHOT).digest("hex");
     expect(QPI_SNAPSHOT_META.snapshotHash as string).toBe(hash);
     expect(QPI_SNAPSHOT_META.generatorVersion).toBe(GENERATOR_VERSION);
-    expect(QPI_SNAPSHOT_META.coreCommit).toBe(
-      repositories.coreLite.pinnedCommit,
+    expect(QPI_SNAPSHOT_META.coreCommit as string).toBe(
+      snapshotManifest.coreCommit,
     );
   });
 

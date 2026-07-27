@@ -14,11 +14,6 @@ on:
     - cron: "37 6 * * *"   # daily drift probe against core
   workflow_dispatch:
     inputs:
-      compat_mode:
-        description: "default, latest development ref, or pinned production commit"
-        type: choice
-        options: [default, latest, pinned]
-        default: default
       core_repository:
         description: "temporary owner/repo override (requires core_ref)"
         required: false
@@ -40,7 +35,6 @@ jobs:
     outputs:
       repository: ${{ steps.source.outputs.repository }}
       ref: ${{ steps.source.outputs.ref }}
-      mode: ${{ steps.source.outputs.mode }}
       sha: ${{ steps.commit.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -50,8 +44,6 @@ jobs:
       - name: Select core-lite source
         id: source
         env:
-          COMPAT_MODE: ${{ inputs.compat_mode }}
-          REPOSITORY_COMPAT_MODE: ${{ vars.CROSS_REPO_COMPAT_MODE }}
           CORE_REPOSITORY: ${{ inputs.core_repository }}
           CORE_REF: ${{ inputs.core_ref }}
         run: bun run scripts/core-compat/resolve-source.ts
@@ -67,7 +59,7 @@ jobs:
         run: |
           sha=$(git -C resolved-core rev-parse HEAD)
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "::notice::core-lite ${{ steps.source.outputs.mode }} = ${{ steps.source.outputs.repository }}@${{ steps.source.outputs.ref }} ($sha)"
+          echo "::notice::core-lite = ${{ steps.source.outputs.repository }}@${{ steps.source.outputs.ref }} ($sha)"
 
   # Typecheck + unit tests on every host OS — qinit ships per-host process/tar/path code, so a
   # Linux-only run lets portability bugs (e.g. MSYS `tar -C` mangling) reach core's smoke undetected.
@@ -485,7 +477,7 @@ jobs:
         shell: bash
         run: |
           echo "repository=$(jq -r .coreLite.repository config/repositories.json)" >> "$GITHUB_OUTPUT"
-          echo "commit=$(jq -r .coreLite.pinnedCommit config/repositories.json)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(jq -r .coreCommit packages/compile/core-snapshot.json)" >> "$GITHUB_OUTPUT"
       - name: Checkout pinned core-lite
         uses: actions/checkout@v4
         with:
@@ -536,7 +528,7 @@ jobs:
         id: core
         run: |
           echo "repository=$(jq -r .coreLite.repository config/repositories.json)" >> "$GITHUB_OUTPUT"
-          echo "commit=$(jq -r .coreLite.pinnedCommit config/repositories.json)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(jq -r .coreCommit packages/compile/core-snapshot.json)" >> "$GITHUB_OUTPUT"
       - name: Checkout pinned core-lite
         uses: actions/checkout@v4
         with:

@@ -22,10 +22,10 @@ generator version, and compiler protocol version used by the bundle.
 
 ## Snapshot ownership
 
-`config/repositories.json` records the core source and pinned commit.
-`packages/compile/core-snapshot.json` records the generator version and expected
-snapshot hash. Qinit's snapshot generator is the only supported way to update
-the generated module:
+`config/repositories.json` selects the core source used by compatibility CI.
+`packages/compile/core-snapshot.json` records the snapshot's source commit,
+generator version, and expected hash. Qinit's snapshot generator is the only
+supported way to update the generated module:
 
 ```bash
 bun packages/compile/tools/gen-qpi-snapshot.ts \

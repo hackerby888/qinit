@@ -13,9 +13,7 @@ const opt = (name: string): string | undefined => {
 };
 
 const pkgDir = resolve(import.meta.dir, "..");
-const repositoryRoot = resolve(pkgDir, "../..");
 const manifestPath = join(pkgDir, "core-snapshot.json");
-const repositoriesPath = join(repositoryRoot, "config", "repositories.json");
 const outputPath = join(pkgDir, "src", "generated", "qpi-snapshot.ts");
 const quiet = flag("--quiet");
 const normalize = (source: string) => source.replace(/\r\n?/g, "\n");
@@ -38,14 +36,12 @@ if (!existsSync(join(core, "src", "contracts", "qpi.h"))) {
 }
 
 interface SnapshotManifest {
+  coreCommit: string;
   generatorVersion: number;
   snapshotHash: string;
 }
 
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as SnapshotManifest;
-const repositories = JSON.parse(readFileSync(repositoriesPath, "utf8")) as {
-  coreLite: { pinnedCommit: string };
-};
 
 function render(): { hash: string; module: string } {
   const snapshot = assembleQpiHeader(core);
@@ -53,7 +49,7 @@ function render(): { hash: string; module: string } {
   const pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
   const meta = {
     snapshotHash: hash,
-    coreCommit: repositories.coreLite.pinnedCommit,
+    coreCommit: manifest.coreCommit,
     generatorVersion: GENERATOR_VERSION,
     qinitCompileVersion: pkg.version as string,
   };
@@ -74,7 +70,7 @@ function verify(hash: string): void {
   if (manifest.snapshotHash !== hash) {
     throw new Error(
       `snapshot hash mismatch\n  generated: ${hash}\n  manifest:  ${manifest.snapshotHash}` +
-        `\n  (core at ${core}, expected commit ${repositories.coreLite.pinnedCommit})`,
+        `\n  (core at ${core}, expected commit ${manifest.coreCommit})`,
     );
   }
 }

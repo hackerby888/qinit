@@ -4,52 +4,38 @@ import { resolveSource } from "./resolve-source";
 const source = {
   repository: "owner/core-lite",
   developmentRef: "develop",
-  pinnedCommit: "a".repeat(40),
+  pinnedCommit: "",
 };
 
 describe("resolveSource", () => {
-  test("defaults to the development ref", () => {
+  test("an empty pin follows the development ref", () => {
     expect(resolveSource({ source })).toEqual({
       repository: "owner/core-lite",
       ref: "develop",
-      mode: "latest",
     });
   });
 
-  test("uses the production pin", () => {
-    expect(resolveSource({ source, repositoryMode: "pinned" })).toEqual({
-      repository: "owner/core-lite",
-      ref: "a".repeat(40),
-      mode: "pinned",
-    });
-  });
-
-  test("scheduled checks follow development", () => {
+  test("a non-empty pin selects the exact commit", () => {
     expect(
       resolveSource({
-        source,
-        repositoryMode: "pinned",
-        eventName: "schedule",
+        source: { ...source, pinnedCommit: "a".repeat(40) },
       }),
     ).toEqual({
       repository: "owner/core-lite",
-      ref: "develop",
-      mode: "latest",
+      ref: "a".repeat(40),
     });
   });
 
-  test("an explicit source overrides mode", () => {
+  test("an explicit source overrides the pin", () => {
     expect(
       resolveSource({
-        source,
-        requestedMode: "pinned",
+        source: { ...source, pinnedCommit: "not-a-commit" },
         repositoryOverride: "new/core-lite",
         refOverride: "candidate",
       }),
     ).toEqual({
       repository: "new/core-lite",
       ref: "candidate",
-      mode: "override",
     });
   });
 
@@ -60,5 +46,21 @@ describe("resolveSource", () => {
         repositoryOverride: "new/core-lite",
       }),
     ).toThrow("requires a ref override");
+  });
+
+  test("rejects a malformed pin", () => {
+    expect(() =>
+      resolveSource({
+        source: { ...source, pinnedCommit: "not-a-commit" },
+      }),
+    ).toThrow("must be empty or a full lowercase commit SHA");
+  });
+
+  test("rejects an empty pin and development ref", () => {
+    expect(() =>
+      resolveSource({
+        source: { ...source, developmentRef: "" },
+      }),
+    ).toThrow("developmentRef must not be empty");
   });
 });

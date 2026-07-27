@@ -5,6 +5,6 @@
   "coreLite": {
     "repository": "hackerby888/core-lite",
     "developmentRef": "feat/dynamic-contracts",
-    "pinnedCommit": "18407d7d6899aef0264a2d594c6c806cc2a3255c"
+    "pinnedCommit": ""
   }
 }

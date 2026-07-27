@@ -88,10 +88,9 @@ there is currently no npm package release workflow.
 ## Cross-repository development
 
 `config/repositories.json` owns the Qinit release repository and core-lite
-development source/production pin. CI follows the development branch by default
-and resolves it to one commit per run. Set the repository variable
-`CROSS_REPO_COMPAT_MODE=pinned` when production should use the reviewed commit
-instead.
+development source/production pin. An empty `pinnedCommit` follows the latest
+`developmentRef`; a full commit SHA selects that exact revision. Each CI run
+resolves the selected ref once and uses the resulting commit for every job.
 
 Manual CI runs accept repository and ref overrides, so a new organization or
 branch can be tested before changing the descriptor. The installers also accept

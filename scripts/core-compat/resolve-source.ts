@@ -9,9 +9,6 @@ interface SourceConfig {
 
 interface ResolveOptions {
   source: SourceConfig;
-  requestedMode?: string;
-  repositoryMode?: string;
-  eventName?: string;
   repositoryOverride?: string;
   refOverride?: string;
 }
@@ -19,7 +16,6 @@ interface ResolveOptions {
 export interface ResolvedSource {
   repository: string;
   ref: string;
-  mode: "latest" | "pinned" | "override";
 }
 
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
@@ -38,38 +34,18 @@ export function resolveSource(options: ResolveOptions): ResolvedSource {
     throw new Error(`invalid GitHub repository: ${repository}`);
   }
 
-  if (refOverride) {
-    return { repository, ref: refOverride, mode: "override" };
+  const pinnedCommit = options.source.pinnedCommit.trim();
+  if (!refOverride && pinnedCommit && !commitPattern.test(pinnedCommit)) {
+    throw new Error("pinnedCommit must be empty or a full lowercase commit SHA");
   }
 
-  let mode = options.requestedMode?.trim() || "default";
-  if (mode === "default") {
-    mode =
-      options.eventName === "schedule"
-        ? "latest"
-        : options.repositoryMode?.trim() || "latest";
+  const developmentRef = options.source.developmentRef.trim();
+  const ref = refOverride || pinnedCommit || developmentRef;
+  if (!ref) {
+    throw new Error("developmentRef must not be empty when pinnedCommit is empty");
   }
 
-  if (mode === "latest") {
-    return {
-      repository,
-      ref: options.source.developmentRef,
-      mode,
-    };
-  }
-
-  if (mode === "pinned") {
-    if (!commitPattern.test(options.source.pinnedCommit)) {
-      throw new Error("pinnedCommit must be a full lowercase commit SHA");
-    }
-    return {
-      repository,
-      ref: options.source.pinnedCommit,
-      mode,
-    };
-  }
-
-  throw new Error(`invalid compatibility mode: ${mode}`);
+  return { repository, ref };
 }
 
 if (import.meta.main) {
@@ -78,9 +54,6 @@ if (import.meta.main) {
   ) as { coreLite: SourceConfig };
   const source = resolveSource({
     source: repositories.coreLite,
-    requestedMode: process.env.COMPAT_MODE,
-    repositoryMode: process.env.REPOSITORY_COMPAT_MODE,
-    eventName: process.env.GITHUB_EVENT_NAME,
     repositoryOverride: process.env.CORE_REPOSITORY,
     refOverride: process.env.CORE_REF,
   });
@@ -88,7 +61,6 @@ if (import.meta.main) {
   const lines = [
     `repository=${source.repository}`,
     `ref=${source.ref}`,
-    `mode=${source.mode}`,
   ];
   const output = process.env.GITHUB_OUTPUT;
   if (output) {
