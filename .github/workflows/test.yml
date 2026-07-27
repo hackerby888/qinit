@@ -122,10 +122,10 @@ jobs:
           node --input-type=module -e '
             import { layoutOf } from "./packages/proto/dist/index.js";
             import { buildSignedTx, deriveIdentity } from "./packages/core/dist/browser.js";
-            import { Sim } from "./packages/engine/dist/index.js";
+            import { QubicSimulator } from "./packages/engine/dist/index.js";
             if (layoutOf("uint64").size !== 8) throw new Error("proto codec broken");
             if (typeof buildSignedTx !== "function" || typeof deriveIdentity !== "function") throw new Error("core surface broken");
-            if (typeof Sim !== "function") throw new Error("engine surface broken");
+            if (typeof QubicSimulator !== "function") throw new Error("engine surface broken");
             console.log("node-dist OK: proto + core + engine import under plain node");
           '
 
@@ -449,8 +449,8 @@ jobs:
           # Use fresh state so these independent fixtures do not fail from slot exhaustion.
           start_node run-dual
           set +e
-          bun run scripts/live-node/ci-logging-dual-engine.ts; c4=$? # one TS artifact, byte-identical LOG_* payloads in Sim + production WAMR
-          bun run scripts/live-node/ci-random-dual-engine.ts; c5=$? # chain-seeded PRNG vectors, exact artifact and state in Sim + WAMR
+          bun run scripts/live-node/ci-logging-dual-engine.ts; c4=$? # one TS artifact, byte-identical LOG_* payloads in the simulator and production WAMR
+          bun run scripts/live-node/ci-random-dual-engine.ts; c5=$? # chain-seeded PRNG vectors, exact artifact and state in the simulator and WAMR
           set -e
           stop_node
           echo "=== run-dual/node.log tail ==="; tail -25 run-dual/node.log
