@@ -72,7 +72,7 @@ test.if(hasFixture)(
       expect(prefix).toContain("#define CONTRACT_STATE_TYPE Counter");
       expect(prefix).toContain("#define CONTRACT_STATE2_TYPE Counter2");
       expect(prefix).toContain(`#define CONTRACT_INDEX ${DEFAULT_SLOT}`);
-      expect(prefix).toContain('#include "contracts/qpi.h"');
+      expect(prefix).toContain('#include "qpi/qpi.h"');
       expect(prefix).not.toContain(`#include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"`);
       expect(prefix).not.toContain('#include "' + COUNTER.replace(/\\/g, "/") + '"');
 

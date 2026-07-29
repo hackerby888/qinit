@@ -10,7 +10,7 @@ import { assembleQpiHeader, GENERATOR_VERSION, snapshotInputFiles } from "../../
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapshot";
 
 const CORE = CORE_PATH;
-const coreOk = existsSync(join(CORE, "src", "contracts", "qpi.h"));
+const coreOk = existsSync(join(CORE, "src", "qpi", "qpi.h"));
 const snapshotManifest = JSON.parse(
   readFileSync(
     join(import.meta.dir, "..", "..", "core-snapshot.json"),
@@ -57,6 +57,7 @@ describe.if(coreOk)("qpi snapshot assembly", () => {
         .filter((path) => path.startsWith(join(CORE, "src", CORE_WASM_HEADERS.root)))
         .sort(),
     ).toEqual(wasmInputs.map((path) => join(CORE, "src", path)).sort());
+    expect(inputs).toContain(join(CORE, "src", "oc_interfaces", "Mock.h"));
   });
 
   test("non-core path throws instead of returning a stub", () => {

@@ -41,8 +41,8 @@ export async function buildSnapshot(
 ): Promise<SnapshotResult> {
   corePath = resolve(corePath);
 
-  if (!existsSync(join(corePath, "src", "contracts", "qpi.h"))) {
-    throw new Error(`not a core checkout (no src/contracts/qpi.h): ${corePath}`);
+  if (!existsSync(join(corePath, "src", "qpi", "qpi.h"))) {
+    throw new Error(`not a core checkout (no src/qpi/qpi.h): ${corePath}`);
   }
 
   const snapshotScratchDir = join(outRoot, ".snap-stub");

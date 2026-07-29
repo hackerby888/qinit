@@ -30,8 +30,8 @@ if (!corePath) {
   process.exit(1);
 }
 const core = resolve(corePath);
-if (!existsSync(join(core, "src", "contracts", "qpi.h"))) {
-  console.error(`[qpi-snapshot] ${core} is not a core checkout (src/contracts/qpi.h missing)`);
+if (!existsSync(join(core, "src", "qpi", "qpi.h"))) {
+  console.error(`[qpi-snapshot] ${core} is not a core checkout (src/qpi/qpi.h missing)`);
   process.exit(1);
 }
 

@@ -271,6 +271,8 @@ export class QubicSimulator {
       computeMiningFunction: () => ZERO32,
       initMiningSeed: () => {},
       getOracleQueryStatus: (queryId) => this.oracle.queryStatus(queryId),
+      getOcInvocationStatus: () => 0,
+      invokeOc: () => -1n,
       unsubscribeOracle: (slot, subscriptionId) =>
         this.oracle.unsubscribe(slot, subscriptionId),
       queryOracle: (

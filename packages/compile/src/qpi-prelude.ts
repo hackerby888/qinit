@@ -52,6 +52,12 @@ constexpr uint8_t ORACLE_QUERY_STATUS_COMMITTED = 2;
 constexpr uint8_t ORACLE_QUERY_STATUS_SUCCESS = 3;
 constexpr uint8_t ORACLE_QUERY_STATUS_TIMEOUT = 4;
 constexpr uint8_t ORACLE_QUERY_STATUS_UNRESOLVABLE = 5;
+
+// Outsourced-computation invocation statuses from network_messages/common_def.h.
+constexpr uint8_t OC_INVOCATION_STATUS_UNKNOWN = 0;
+constexpr uint8_t OC_INVOCATION_STATUS_PENDING_AUTH = 1;
+constexpr uint8_t OC_INVOCATION_STATUS_AUTHORIZED = 2;
+constexpr uint8_t OC_INVOCATION_STATUS_TIMEOUT = 3;
 `;
 
 // Defines fed to the preprocessor when parsing the real qpi.h (the lite wasm build profile).

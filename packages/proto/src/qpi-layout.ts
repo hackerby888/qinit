@@ -1,4 +1,4 @@
-// Single source of truth for QPI container on-wire layouts (mirrors core src/contracts/qpi.h).
+// Single source of truth for QPI container on-wire layouts (mirrors core src/qpi/qpi_containers.h).
 // Both the IDL fmt-string builder (build/idl.ts `typeToken`) and the logical decoders (decode-container.ts)
 export const SLOTS_PER_FLAG_WORD = 32;
 export const FLAG_BITS_PER_SLOT = 2;

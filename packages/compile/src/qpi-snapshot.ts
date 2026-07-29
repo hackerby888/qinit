@@ -14,9 +14,17 @@ export {
 // Core snapshot inputs are resolved relative to `<core>/src`.
 const HEADER_FILES = [
   "contract_core/pre_qpi_def.h",
-  "contracts/qpi.h",
-  "contract_core/qpi_proposal_voting.h",
+  "qpi/qpi_types.h",
+  "qpi/qpi.h",
+  "qpi/qpi_assets.h",
+  "qpi/qpi_containers.h",
+  "qpi/qpi_date_time.h",
+  "qpi/qpi_proposals.h",
+  "qpi/qpi_context.h",
+  "qpi/qpi_macros.h",
+  "qpi/impl/qpi_proposals_impl.h",
   "oracle_core/oracle_interfaces_def.h",
+  "oc_core/oc_interfaces_def.h",
 ];
 
 // Parse template method bodies separately after the implementation boundary.
@@ -24,11 +32,11 @@ const IMPL_FILES = [
   "platform/m256.h",
   "platform/random.h",
   "platform/uint128.h",
-  "contract_core/qpi_hash_map_impl.h",
-  "contract_core/qpi_collection_impl.h",
-  "contract_core/qpi_linked_list_impl.h",
+  "qpi/impl/qpi_hash_map_impl.h",
+  "qpi/impl/qpi_collection_impl.h",
+  "qpi/impl/qpi_linked_list_impl.h",
   "contracts/math_lib.h",
-  "contract_core/qpi_trivial_impl.h",
+  "qpi/impl/qpi_trivial_impl.h",
 ];
 
 type NodeFileSystem = typeof import("node:fs");
@@ -45,7 +53,7 @@ function loadNodeFileSystem(): NodeFileSystem {
 
 function requireCoreSourceDirectory(corePath: string, fileSystem: NodeFileSystem): string {
   const sourceDirectory = `${corePath}/src`;
-  const qpiHeaderPath = `${sourceDirectory}/contracts/qpi.h`;
+  const qpiHeaderPath = `${sourceDirectory}/qpi/qpi.h`;
 
   if (!fileSystem.existsSync(qpiHeaderPath)) {
     throw new Error(`${corePath} is not a core checkout — ${qpiHeaderPath} not found`);
@@ -101,24 +109,24 @@ function assembleHeaderDeclarations(
 
     const headerSource = fileSystem.readFileSync(headerPath, "utf8");
     declarations +=
-      inlineOracleInterfaceHeaders(fileSystem, sourceDirectory, headerFile, headerSource) + "\n";
+      inlineInterfaceHeaders(fileSystem, sourceDirectory, headerFile, headerSource) + "\n";
   }
 
   return declarations;
 }
 
-function inlineOracleInterfaceHeaders(
+function inlineInterfaceHeaders(
   fileSystem: NodeFileSystem,
   sourceDirectory: string,
   headerFile: string,
   headerSource: string,
 ): string {
-  if (!headerFile.endsWith("oracle_interfaces_def.h")) {
+  if (!headerFile.endsWith("_interfaces_def.h")) {
     return headerSource;
   }
 
   return headerSource.replace(
-    /^[ \t]*#include[ \t]+"(oracle_interfaces\/\w+\.h)"[ \t]*$/gm,
+    /^[ \t]*#include[ \t]+"((?:oracle|oc)_interfaces\/\w+\.h)"[ \t]*$/gm,
     (includeLine: string, relativePath: string) => {
       const includedHeaderPath = `${sourceDirectory}/${relativePath}`;
 
@@ -291,10 +299,12 @@ export function snapshotInputFiles(corePath: string): string[] {
     ...HEADER_FILES.map((headerFile) => join(base, headerFile)),
     ...IMPL_FILES.map((implementationFile) => join(base, implementationFile)),
   ];
-  const oracleDir = join(base, "oracle_interfaces");
-  if (existsSync(oracleDir)) {
-    for (const entryName of readdirSync(oracleDir)) {
-      if (entryName.endsWith(".h")) files.push(join(oracleDir, entryName));
+  for (const interfaceDirectory of ["oracle_interfaces", "oc_interfaces"]) {
+    const directory = join(base, interfaceDirectory);
+    if (existsSync(directory)) {
+      for (const entryName of readdirSync(directory)) {
+        if (entryName.endsWith(".h")) files.push(join(directory, entryName));
+      }
     }
   }
   return files;

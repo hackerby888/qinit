@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { LHOST_ABI } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
-import { compileContract, loadQpiHeader } from "../../src";
+import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src";
 import { ProgramAnalysis } from "../../src/analysis/program-analysis";
 import { registerLibraryMetadata } from "../../src/backend/wasm/module/library-index";
 import { getQpiContext } from "../../src/compiler/qpi-context";
@@ -33,7 +33,11 @@ describe("typed QPI bindings", () => {
     );
     expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("epoch")).toBe(true);
     expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("nextId")).toBe(true);
+    expect(lib.templateMethods.get("QpiContextFunctionCall")?.has("getOcInvocationStatus")).toBe(
+      true,
+    );
     expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("transfer")).toBe(true);
+    expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("__qpiInvokeOC")).toBe(true);
     expect(lib.templateMethods.get("QpiContextProcedureCall")?.has("setShareholderVotes")).toBe(
       true,
     );
@@ -126,6 +130,46 @@ describe("typed QPI bindings", () => {
     expect(
       new DataView(output.buffer, output.byteOffset, output.byteLength).getBigInt64(32, true),
     ).toBe(1n);
+  });
+
+  test("OC invocation and status use the v5 host bindings", async () => {
+    const result = await compileContract({
+      source: `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData {};
+  struct Run_input { uint64 value; };
+  struct Run_output { sint64 invocationId; uint8 status; };
+  struct Run_locals { OCI::Mock::OcRequest request; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Run)
+  {
+    setMemory(locals.request, 0);
+    locals.request.value = input.value;
+    output.invocationId = INVOKE_OC(OCI::Mock, locals.request);
+    output.status = qpi.getOcInvocationStatus(output.invocationId);
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Run, 1); }
+};`,
+      contractName: "QpiOcBindings",
+      slot: 27,
+      qpiHeader: HEADER,
+      arenaSizeBytes: 1 << 20,
+    });
+    expect(
+      result.diagnostics.filter((diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR),
+    ).toEqual([]);
+    const imports = inspectWasmModule(result.wasm).imports
+      .filter((entry) => entry.module === "lhost")
+      .map((entry) => entry.name);
+    expect(imports).toContain("invokeOc");
+    expect(imports).toContain("getOcInvocationStatus");
+
+    const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
+    sim.deploy(27, result.wasm);
+    const output = sim.procedure(27, 1);
+    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+    expect(view.getBigInt64(0, true)).toBe(-1n);
+    expect(view.getUint8(8)).toBe(0);
   });
 
   test("context violations and unknown bindings fail closed even with strict false", async () => {

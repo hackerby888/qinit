@@ -11,7 +11,7 @@ const requested = process.argv.slice(2);
 const core =
   process.env.QPI_VSCODE_HEADERS ??
   resolve(import.meta.dir, "..", "resources", "core-headers");
-if (!existsSync(join(core, "src", "contracts", "qpi.h"))) {
+if (!existsSync(join(core, "src", "qpi", "qpi.h"))) {
   console.error("bundled QPI headers are missing — run `bun run prepare:headers`");
   process.exit(2);
 }

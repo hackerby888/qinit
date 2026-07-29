@@ -9,8 +9,8 @@ const temporary: string[] = [];
 function coreCheckout(): string {
   const root = mkdtempSync(join(tmpdir(), "qinit-node-run-core-"));
   temporary.push(root);
-  mkdirSync(join(root, "src", "contracts"), { recursive: true });
-  writeFileSync(join(root, "src", "contracts", "qpi.h"), "#pragma once\n");
+  mkdirSync(join(root, "src", "qpi"), { recursive: true });
+  writeFileSync(join(root, "src", "qpi", "qpi.h"), "#pragma once\n");
   return root;
 }
 
@@ -88,7 +88,7 @@ test("node run reports missing and malformed --core-dir paths", async () => {
     prepareNodeRunCore({ "core-dir": join(malformed, "missing") }, true),
   ).rejects.toThrow("--core-dir not found");
   await expect(prepareNodeRunCore({ "core-dir": malformed }, true)).rejects.toThrow(
-    "missing src/contracts/qpi.h",
+    "missing src/qpi/qpi.h",
   );
 });
 

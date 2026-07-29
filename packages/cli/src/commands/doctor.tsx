@@ -67,7 +67,7 @@ async function runChecks(): Promise<Check[]> {
     hasQpi = false,
     coreErr = "";
   try {
-    qpi = `${resolveCoreDir()}/src/contracts/qpi.h`;
+    qpi = `${resolveCoreDir()}/src/qpi/qpi.h`;
     hasQpi = await Bun.file(qpi).exists();
   } catch (e: any) {
     coreErr = String(e?.message ?? e);

@@ -30,9 +30,10 @@ const STD_HEADERS = [
 ];
 const CORE_HEADERS = [
   "contract_core/pre_qpi_def.h",
-  "contracts/qpi.h",
-  "contract_core/qpi_proposal_voting.h",
+  "qpi/qpi.h",
+  "qpi/impl/qpi_proposals_impl.h",
   "oracle_core/oracle_interfaces_def.h",
+  "oc_core/oc_interfaces_def.h",
 ];
 
 test("buildPreamble: NO_UEFI, std headers, then build define, then core headers — in that order", () => {
@@ -49,7 +50,7 @@ test("buildPreamble: NO_UEFI, std headers, then build define, then core headers 
   const iFirstStd = p.indexOf("#include <cstdint>");
   const iDefine = p.indexOf("#define LITE_WASM_TU_BUILD");
   const iFirstCore = p.indexOf('#include "contract_core/pre_qpi_def.h"');
-  const iLastCore = p.indexOf('#include "oracle_core/oracle_interfaces_def.h"');
+  const iLastCore = p.indexOf('#include "oc_core/oc_interfaces_def.h"');
 
   expect(iNoUefi).toBeGreaterThanOrEqual(0);
   expect(iNoUefi).toBeLessThan(iFirstStd);
@@ -75,9 +76,9 @@ test("generateWasmWrapperSource: includes in recipe order — calls, support, co
     CORE_WASM_HEADERS.sdk.intercontractCalls,
     CORE_WASM_HEADERS.sdk.qpiSupport,
     "/abs/Counter.h",
-    "contract_core/qpi_collection_impl.h",
-    "contract_core/qpi_linked_list_impl.h",
-    "contract_core/qpi_hash_map_impl.h",
+    "qpi/impl/qpi_collection_impl.h",
+    "qpi/impl/qpi_linked_list_impl.h",
+    "qpi/impl/qpi_hash_map_impl.h",
     CORE_WASM_HEADERS.sdk.moduleRuntime,
   ].map((s) => w.indexOf(s));
 
@@ -89,7 +90,7 @@ test("generateWasmWrapperSource: the scratchpad rename brackets only the hash_ma
   const w = generateWasmWrapperSource(opts());
 
   const iDef = w.indexOf("#define __acquireScratchpad __qinit_cb_acquireScratchpad_unused");
-  const iHash = w.indexOf("contract_core/qpi_hash_map_impl.h");
+  const iHash = w.indexOf("qpi/impl/qpi_hash_map_impl.h");
   const iUndef = w.indexOf("#undef __acquireScratchpad");
 
   expect(iDef).toBeGreaterThanOrEqual(0);
@@ -100,8 +101,8 @@ test("generateWasmWrapperSource: the scratchpad rename brackets only the hash_ma
 test("generateWasmWrapperSource: container diagnostics trap without importing libc printf", () => {
   const w = generateWasmWrapperSource(opts());
   const iDefine = w.indexOf("#define printf(...) (__builtin_trap(), 0)");
-  const iCollection = w.indexOf("contract_core/qpi_collection_impl.h");
-  const iHash = w.indexOf("contract_core/qpi_hash_map_impl.h");
+  const iCollection = w.indexOf("qpi/impl/qpi_collection_impl.h");
+  const iHash = w.indexOf("qpi/impl/qpi_hash_map_impl.h");
   const iUndef = w.indexOf("#undef printf");
 
   expect(iDefine).toBeGreaterThanOrEqual(0);
@@ -143,7 +144,7 @@ test("generateWasmWrapperSource: includes only the Wasm support and runtime head
     wasm.indexOf(`#include "${o.contractPath}"`),
   );
   expect(wasm.indexOf(`#include "${CORE_WASM_HEADERS.sdk.moduleRuntime}"`)).toBeGreaterThan(
-    wasm.indexOf("contract_core/qpi_hash_map_impl.h"),
+    wasm.indexOf("qpi/impl/qpi_hash_map_impl.h"),
   );
 });
 

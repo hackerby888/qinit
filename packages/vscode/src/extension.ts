@@ -43,7 +43,7 @@ function dataRoot(context: vscode.ExtensionContext, root: string): string {
 
 function bundledCore(context: vscode.ExtensionContext): string | undefined {
   const core = context.asAbsolutePath(join("resources", "core-headers"));
-  const qpi = join(core, "src", "contracts", "qpi.h");
+  const qpi = join(core, "src", "qpi", "qpi.h");
   const sysroot = join(core, "wasi-sdk", "share", "wasi-sysroot");
   return existsSync(qpi) && existsSync(sysroot) ? core : undefined;
 }

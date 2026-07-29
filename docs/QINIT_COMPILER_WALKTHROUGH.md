@@ -302,9 +302,17 @@ generated ABI JSON comment
 contract index macros
 
 pre_qpi_def.h
+qpi_types.h
 qpi.h
-qpi_proposal_voting.h
+qpi_assets.h
+qpi_containers.h
+qpi_date_time.h
+qpi_proposals.h
+qpi_context.h
+qpi_macros.h
+qpi_proposals_impl.h
 oracle interface definitions
+OC interface definitions
 
 QpiContext buffer-size constant
 

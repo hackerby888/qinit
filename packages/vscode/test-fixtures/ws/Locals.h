@@ -1,6 +1,6 @@
 // Integration fixture exercising the locals diagnostics + the qpi.h-include exception.
 // Line 1 below is the sanctioned dev-include — it must produce NO QPI diagnostic.
-#include "contracts/qpi.h"
+#include "qpi/qpi.h"
 using namespace QPI;
 
 struct Locals : public ContractBase {

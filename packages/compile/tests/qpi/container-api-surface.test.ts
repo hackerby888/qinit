@@ -181,7 +181,7 @@ export function publicMethodSurface(header: string, family: string): string[] {
 }
 
 describe("QPI container public API coverage manifest", () => {
-  const liveHeader = readFileSync(join(CORE_PATH, "src", "contracts", "qpi.h"), "utf8");
+  const liveHeader = readFileSync(join(CORE_PATH, "src", "qpi", "qpi_containers.h"), "utf8");
   for (const family of Object.keys(CONTAINER_COVERAGE)) {
     test(`${family} manifest exactly matches live qpi.h`, () => {
       expect(Object.keys(CONTAINER_COVERAGE[family]).sort()).toEqual(

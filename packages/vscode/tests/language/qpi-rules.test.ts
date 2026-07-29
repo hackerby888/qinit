@@ -60,7 +60,7 @@ test("flags each forbidden construct (one crafted violation per rule)", () => {
 
 test("the qpi.h dev-include is an exception (no diagnostics); other directives are not", () => {
   expect(rulesOf('#include "qpi.h"')).toEqual(new Set());
-  expect(rulesOf('#include "contracts/qpi.h"')).toEqual(new Set());
+  expect(rulesOf('#include "qpi/qpi.h"')).toEqual(new Set());
   expect(rulesOf("#include <qpi.h>")).toEqual(new Set());
   expect(rulesOf('#include "other.h"')).toContain("qpi/no-preprocessor");
   expect(rulesOf("#pragma once")).toContain("qpi/no-preprocessor");

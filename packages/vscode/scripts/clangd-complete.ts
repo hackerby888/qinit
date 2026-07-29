@@ -8,13 +8,13 @@ const CLANGD = process.env.CLANGD ?? "clangd";
 const core =
   process.env.QPI_VSCODE_HEADERS ??
   resolve(import.meta.dir, "..", "resources", "core-headers");
-if (!existsSync(join(core, "src", "contracts", "qpi.h"))) {
+if (!existsSync(join(core, "src", "qpi", "qpi.h"))) {
   console.error("bundled QPI headers are missing — run `bun run prepare:headers`");
   process.exit(2);
 }
 
 const workspace = mkdtempSync(join(tmpdir(), "qpi-complete-"));
-const PROBE = `#include "contracts/qpi.h"
+const PROBE = `#include "qpi/qpi.h"
 using namespace QPI;
 struct Probe2 {};
 struct Probe : public ContractBase {

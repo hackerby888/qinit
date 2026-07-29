@@ -1,6 +1,6 @@
 // Generated from core-lite Wasm shared ABI headers. Do not edit.
 export const WASM_ABI_METADATA = {
-  "abiVersion": 4,
+  "abiVersion": 5,
   "lhost": [
     {
       "name": "beginFn",
@@ -448,6 +448,26 @@ export const WASM_ABI_METADATA = {
       ],
       "results": [
         "i32"
+      ]
+    },
+    {
+      "name": "getOcInvocationStatus",
+      "params": [
+        "i64"
+      ],
+      "results": [
+        "i32"
+      ]
+    },
+    {
+      "name": "invokeOc",
+      "params": [
+        "i32",
+        "i32",
+        "i32"
+      ],
+      "results": [
+        "i64"
       ]
     },
     {

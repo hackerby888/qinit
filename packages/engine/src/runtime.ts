@@ -63,6 +63,8 @@ const HOST_WEIGHT: Record<string, bigint> = {
   computeMiningFunction: 5n,
   initMiningSeed: 2n,
   getOracleQueryStatus: 1n,
+  getOcInvocationStatus: 1n,
+  invokeOc: 20n,
   unsubscribeOracle: 5n,
   queryOracle: 20n,
   subscribeOracle: 20n,
@@ -212,6 +214,8 @@ export interface HostServices {
   ): Uint8Array;
   initMiningSeed(miningSeed: Uint8Array): void;
   getOracleQueryStatus(queryId: bigint): number;
+  getOcInvocationStatus(invocationId: bigint): number;
+  invokeOc(slot: number, interfaceIndex: number, request: Uint8Array): bigint;
   unsubscribeOracle(slot: number, oracleSubscriptionId: number): number;
   queryOracle(
     slot: number,
@@ -1067,6 +1071,14 @@ export class Contract {
       },
       initMiningSeed: (sOff: number) => this.host.initMiningSeed(u8().slice(sOff, sOff + 32)),
       getOracleQueryStatus: (queryId: bigint) => this.host.getOracleQueryStatus(queryId),
+      getOcInvocationStatus: (invocationId: bigint) =>
+        this.host.getOcInvocationStatus(invocationId),
+      invokeOc: (interfaceIndex: number, requestOffset: number, requestSize: number) =>
+        this.host.invokeOc(
+          this.slot,
+          interfaceIndex >>> 0,
+          u8().slice(requestOffset, requestOffset + requestSize),
+        ),
       unsubscribeOracle: (sub: number) => this.host.unsubscribeOracle(this.slot, sub | 0),
       // oracle query/subscribe/read — the query/reply are opaque sized buffers (the contract owns the typing)
       queryOracle: (

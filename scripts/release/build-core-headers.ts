@@ -19,7 +19,7 @@ if (!values["core-dir"] || !values.out) {
 
 const core = resolve(values["core-dir"]);
 const output = resolve(values.out);
-if (!existsSync(join(core, "src", "contracts", "qpi.h"))) {
+if (!existsSync(join(core, "src", "qpi", "qpi.h"))) {
   throw new Error(`not a core-lite checkout: ${core}`);
 }
 

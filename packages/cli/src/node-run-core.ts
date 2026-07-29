@@ -52,9 +52,9 @@ export async function prepareNodeRunCore(
     if (!deps.existsSync(coreHeaders)) {
       throw new Error(`--core-dir not found: ${coreHeaders}`);
     }
-    if (!deps.existsSync(join(coreHeaders, "src", "contracts", "qpi.h"))) {
+    if (!deps.existsSync(join(coreHeaders, "src", "qpi", "qpi.h"))) {
       throw new Error(
-        `invalid --core-dir path (missing src/contracts/qpi.h): ${coreHeaders}`,
+        `invalid --core-dir path (missing src/qpi/qpi.h): ${coreHeaders}`,
       );
     }
 

@@ -6,7 +6,7 @@ const packageRoot = resolve(import.meta.dir, "..");
 const repositoryRoot = resolve(packageRoot, "../..");
 const resources = join(packageRoot, "resources");
 const required = [
-  join(resources, "core-headers", "src", "contracts", "qpi.h"),
+  join(resources, "core-headers", "src", "qpi", "qpi.h"),
   join(
     resources,
     "core-headers",
@@ -41,7 +41,7 @@ const snapshotManifest = JSON.parse(
   ),
 ) as { coreCommit: string };
 const core = resolve(process.argv[2] ?? process.env.QINIT_CORE ?? "");
-if (!core || !existsSync(join(core, "src", "contracts", "qpi.h"))) {
+if (!core || !existsSync(join(core, "src", "qpi", "qpi.h"))) {
   throw new Error("pass a pinned core-lite checkout or set QINIT_CORE");
 }
 

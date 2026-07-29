@@ -9,7 +9,7 @@ import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src/ind
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
 const CORE = CORE_PATH;
-const coreOk = existsSync(join(CORE, "src", "contracts", "qpi.h"));
+const coreOk = existsSync(join(CORE, "src", "qpi", "qpi.h"));
 
 beforeAll(async () => {
   await initK12();
