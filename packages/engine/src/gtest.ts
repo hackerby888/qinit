@@ -23,6 +23,7 @@ export async function runContractTesting(
     mainSlot?: number;
     onResult?: (r: TestResult) => void | Promise<void>;
     assetNames?: Record<number, string | bigint>;
+    excludeTests?: readonly string[];
   } = {},
 ): Promise<TestResult[]> {
   await initK12();
@@ -745,10 +746,13 @@ export async function runContractTesting(
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  const excludedTests = opts.excludeTests ?? [];
   // Name lookups write into the runner's io scratch; resolve a real io_base whenever we'll print names
   // (trace or prof) or match the filter. Writing to a bogus base (0) would corrupt the runner's memory.
   const ioBase =
-    trace || prof || filters.length ? ((runner.exports.io_base as Function)?.() ?? 0) >>> 0 : 0;
+    trace || prof || filters.length || excludedTests.length
+      ? ((runner.exports.io_base as Function)?.() ?? 0) >>> 0
+      : 0;
   const traceName = (i: number): string => {
     if (!ioBase) return `#${i}`;
     const cap = 256;
@@ -758,9 +762,11 @@ export async function runContractTesting(
 
   const t0run = now();
   for (let i = 0; i < count; i++) {
-    if (filters.length) {
+    if (filters.length || excludedTests.length) {
       const nm = traceName(i);
-      if (!filters.some((f) => nm.includes(f))) continue;
+      if (excludedTests.includes(nm) || (filters.length && !filters.some((f) => nm.includes(f)))) {
+        continue;
+      }
     }
     if (trace) (globalThis as any).process.stderr.write(`[gtest] #${i} ${traceName(i)}\n`);
     const before = results.length;

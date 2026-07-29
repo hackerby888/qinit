@@ -12,6 +12,9 @@ import {
 
 type Selection = SystemGtestTier | "all";
 
+// qubic/core still carries this legacy assertion beside its replacement reveal-and-leave test.
+const EXCLUDED_UPSTREAM_TESTS = ["ContractRandom.RevealWithZeroCommitIsRejectedNoDoublePay"];
+
 function option(name: string): string | undefined {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : undefined;
@@ -90,6 +93,7 @@ for (const [index, entry] of selected.entries()) {
       core,
       backend: "typescript",
       scratch,
+      excludeTests: EXCLUDED_UPSTREAM_TESTS,
       onPhase: (label) => {
         phase = label;
       },

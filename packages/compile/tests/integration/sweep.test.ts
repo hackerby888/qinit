@@ -62,6 +62,7 @@ const LINKED_DEPENDENCIES: Record<string, string[]> = {
   QDuel: ["RANDOM", "RL"],
   Qbay: ["QX"],
   Qswap: ["QX"],
+  QIP: ["QX"],
   QThirtyFour: ["RANDOM", "RL", "QRP"],
   QReservePool: ["RANDOM", "RL"],
   RandomLottery: ["RANDOM"],
