@@ -125,7 +125,7 @@ export function layoutOfTemplate(context: ProgramAnalysisInternals, name: string
     return context.layoutOfMembers(inst.templateDeclaration.members, inst.b, `${name}<${resolved.map((resolvedItem) => context.typeKey(resolvedItem)).join(",")}>`, false, inst.templateDeclaration.bases);
 }
 
-export function withLocalStructs(context: ProgramAnalysisInternals, members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
+export function withLocalStructs(_context: ProgramAnalysisInternals, members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
     let structs = templateBindings.structs;
     for (const member of members) {
         if (
@@ -155,7 +155,7 @@ export function inlineNestedStruct(context: ProgramAnalysisInternals, type: Type
     return type;
 }
 
-export function fallbackTemplateLayout(context: ProgramAnalysisInternals, name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings): StructLayout {
+export function fallbackTemplateLayout(context: ProgramAnalysisInternals, name: string, callArguments: TypeSpec[], _templateBindings: TemplateBindings): StructLayout {
     const rendered = callArguments.map((argument) => context.typeKey(argument)).join(", ");
     throw new Error(`template '${name}<${rendered}>' was not captured from core source; refusing an approximate layout`);
 }

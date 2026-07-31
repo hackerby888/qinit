@@ -3,7 +3,7 @@ import { KEYWORDS } from "./keywords";
 import type { LexerInternals } from "./lexer-context";
 import type { Token } from "./tokens";
 
-export function isIdStart(context: LexerInternals, ch: string): boolean {
+export function isIdStart(_context: LexerInternals, ch: string): boolean {
     return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_";
 }
 

@@ -1,5 +1,7 @@
-// Prelude injected before the real core-lite headers when parsing qpi.h.
-export const QPI_PRELUDE = `
+import { QPI_PROTOCOL_PRELUDE } from "./generated/qpi-protocol-prelude";
+
+// Stable language shims injected before the real core-lite headers when parsing qpi.h.
+export const QPI_LANGUAGE_PRELUDE = `
 namespace std {
   template<typename T> struct is_same { static constexpr bool value = false; };
   template<typename T> struct is_integral { static constexpr bool value = false; };
@@ -25,11 +27,6 @@ typedef signed int int32_t;
 typedef signed short int16_t;
 typedef signed char int8_t;
 
-// Define protocol amounts and integer limits omitted from parsed headers.
-#define MAX_NUMBER_OF_CONTRACTS 1024
-#define ISSUANCE_RATE 1000000000000LL
-#define MAX_AMOUNT (ISSUANCE_RATE * 1000LL)
-#define MAX_SUPPLY (ISSUANCE_RATE * 200ULL)
 #define INT64_MAX 9223372036854775807LL
 #define INT64_MIN (-9223372036854775807LL - 1)
 #define UINT64_MAX 18446744073709551615ULL
@@ -40,25 +37,72 @@ typedef signed char int8_t;
 #define UINT16_MAX 65535
 #define INT8_MAX 127
 #define UINT8_MAX 255
-
-// Oracle query/reply size limits (network_messages/common_def.h: MAX_INPUT_SIZE(1024) - 16), referenced by the oracle interface headers.
-#define MAX_ORACLE_QUERY_SIZE 1008
-#define MAX_ORACLE_REPLY_SIZE 1008
-
-// Oracle query statuses from network_messages/common_def.h.
-constexpr uint8_t ORACLE_QUERY_STATUS_UNKNOWN = 0;
-constexpr uint8_t ORACLE_QUERY_STATUS_PENDING = 1;
-constexpr uint8_t ORACLE_QUERY_STATUS_COMMITTED = 2;
-constexpr uint8_t ORACLE_QUERY_STATUS_SUCCESS = 3;
-constexpr uint8_t ORACLE_QUERY_STATUS_TIMEOUT = 4;
-constexpr uint8_t ORACLE_QUERY_STATUS_UNRESOLVABLE = 5;
-
-// Outsourced-computation invocation statuses from network_messages/common_def.h.
-constexpr uint8_t OC_INVOCATION_STATUS_UNKNOWN = 0;
-constexpr uint8_t OC_INVOCATION_STATUS_PENDING_AUTH = 1;
-constexpr uint8_t OC_INVOCATION_STATUS_AUTHORIZED = 2;
-constexpr uint8_t OC_INVOCATION_STATUS_TIMEOUT = 3;
 `;
+
+const REQUIRED_DEFINES = [
+  "MAX_NUMBER_OF_CONTRACTS",
+  "MAX_INPUT_SIZE",
+  "ISSUANCE_RATE",
+  "MAX_AMOUNT",
+  "MAX_SUPPLY",
+] as const;
+
+const REQUIRED_CONSTANTS = [
+  "MAX_ORACLE_QUERY_SIZE",
+  "MAX_ORACLE_REPLY_SIZE",
+  "ORACLE_QUERY_STATUS_UNKNOWN",
+  "ORACLE_QUERY_STATUS_PENDING",
+  "ORACLE_QUERY_STATUS_COMMITTED",
+  "ORACLE_QUERY_STATUS_SUCCESS",
+  "ORACLE_QUERY_STATUS_TIMEOUT",
+  "ORACLE_QUERY_STATUS_UNRESOLVABLE",
+  "OC_INVOCATION_STATUS_UNKNOWN",
+  "OC_INVOCATION_STATUS_PENDING_AUTH",
+  "OC_INVOCATION_STATUS_AUTHORIZED",
+  "OC_INVOCATION_STATUS_TIMEOUT",
+] as const;
+
+function requiredLine(source: string, pattern: RegExp, name: string): string {
+  const matches = source
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .filter((line) => pattern.test(line));
+
+  if (matches.length !== 1) {
+    throw new Error(`core common_def.h must declare ${name} exactly once`);
+  }
+
+  return matches[0].replace(/\s*\/\/.*$/, "").trimEnd();
+}
+
+/** Core-owned declarations required by the compiler's flattened QPI snapshot. */
+export function assembleQpiProtocolPrelude(commonDefinitions: string): string {
+  const lines = ["// Protocol declarations copied from core-lite common_def.h."];
+
+  for (const name of REQUIRED_DEFINES) {
+    lines.push(
+      requiredLine(
+        commonDefinitions,
+        new RegExp(`^\\s*#define\\s+${name}\\b`),
+        name,
+      ),
+    );
+  }
+
+  for (const name of REQUIRED_CONSTANTS) {
+    lines.push(
+      requiredLine(
+        commonDefinitions,
+        new RegExp(`^\\s*constexpr\\s+[^;=]+\\s+${name}\\s*=`),
+        name,
+      ),
+    );
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
+export const QPI_PRELUDE = `${QPI_LANGUAGE_PRELUDE}\n${QPI_PROTOCOL_PRELUDE}`;
 
 // Defines fed to the preprocessor when parsing the real qpi.h (the lite wasm build profile).
 export const QPI_DEFINES: Record<string, string> = {

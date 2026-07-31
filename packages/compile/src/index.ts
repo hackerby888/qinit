@@ -3,6 +3,8 @@ import { compileContract as compileContractWithHeader, compileGtest as compileGt
 import { loadQpiHeader } from "./compiler/header";
 import type { CompileOptions, CompileResult, GtestCompileResult } from "./compiler/types";
 
+export { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "./defaults";
+
 export * from "./enums";
 export type { Span, TypeSpec, Expression, Statement, Declaration, TranslationUnit } from "./ast";
 export { Lexer, TokenKind } from "./lexer";

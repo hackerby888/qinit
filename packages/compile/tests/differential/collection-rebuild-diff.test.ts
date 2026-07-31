@@ -1,7 +1,7 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Collection rebalancing parity for BST in PoV state.
-import { describe, test, expect, beforeAll } from "bun:test";
+import { describe, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { buildContractWithWasiClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";

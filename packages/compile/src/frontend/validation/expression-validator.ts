@@ -242,7 +242,7 @@ export function inferSimpleType(context: ValidatorInternals, expression: Express
     }
 }
 
-export function isReadonlyStateExpression(context: ValidatorInternals, expression: Expression): boolean {
+export function isReadonlyStateExpression(_context: ValidatorInternals, expression: Expression): boolean {
     let root = expression;
     while (root.kind === AstKind.MEMBER_ACCESS || root.kind === AstKind.SUBSCRIPT)
         root = root.object;

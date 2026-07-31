@@ -1,11 +1,6 @@
 import { describeShape } from "../calls/call-shape";
 import type { FunctionEmissionContext } from "../types";
 import { tryEmitAggregateAssignment } from "./aggregate-assignment";
-import {
-    compoundToBinary,
-    narrowLocalValue,
-    newValueTmp,
-} from "./assignment-helpers";
 import type { AssignmentExpression } from "./assignment-types";
 import { tryEmitScalarAssignment } from "./scalar-assignment";
 import { tryEmitTestHarnessAssignment } from "./test-harness-assignment";

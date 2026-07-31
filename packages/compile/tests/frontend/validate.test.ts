@@ -43,8 +43,6 @@ const compStmt = (body: Statement[]): Statement =>
   ({ kind: AstKind.COMPOUND, body, span: NO_SPAN }) as Statement;
 const declStmt = (declaration: Declaration): Statement =>
   ({ kind: AstKind.DECLARATION, declaration, span: NO_SPAN }) as Statement;
-const ifStmt = (condition: Expression, then: Statement, else_?: Statement): Statement =>
-  ({ kind: AstKind.IF, condition, then, else_, span: NO_SPAN }) as Statement;
 const forStmt = (
   initializer: Statement | undefined,
   condition: Expression | undefined,
@@ -121,9 +119,6 @@ const funcDecl = (
 
 const structDecl = (name: string, members: Declaration[], bases: TypeSpec[] = []): StructDecl =>
   ({ kind: AstKind.STRUCT, name, members, bases, span: NO_SPAN }) as StructDecl;
-
-const nsDecl = (name: string, body: Declaration[]): Declaration =>
-  ({ kind: AstKind.NAMESPACE, name, body, span: NO_SPAN }) as Declaration;
 
 const translationUnit = (declarations: Declaration[]): { declarations: Declaration[] } => ({ declarations: declarations });
 

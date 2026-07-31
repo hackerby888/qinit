@@ -10,6 +10,7 @@ import {
 } from "../../packages/core/src/index";
 import {
   compileContract,
+  DEFAULT_COMPILE_ARENA_SIZE_BYTES,
   DiagnosticSeverity,
   inspectWasmModule,
   loadQpiHeader,
@@ -42,7 +43,7 @@ const compiled = await compileContract({
   contractName: "LoggerDual",
   slot,
   qpiHeader: loadQpiHeader(core),
-  arenaSizeBytes: 1024 * 1024 * 1024,
+  arenaSizeBytes: DEFAULT_COMPILE_ARENA_SIZE_BYTES,
 });
 const errors = compiled.diagnostics.filter(
   (diagnostic) => diagnostic.severity === DiagnosticSeverity.ERROR,

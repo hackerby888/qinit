@@ -1,11 +1,14 @@
 // Browser-safe entry for @qinit/core. The package index re-exports ./fetch, ./project, ./backtrace, which
 // pull node:fs / child_process; this entry exposes only browser-safe identity, tx signing, and signing helpers.
 export * from "./struct"; // zero-copy struct-view kit — node-free, safe in the browser bundle
+export * from "./bytes";
 export {
   LHOST_ABI,
   ASSET_ENUMERATION_RECORD,
   WASM_ABI_VERSION,
   SYSTEM_PROCEDURES,
+  SYSTEM_PROCEDURE_COUNT,
+  CONTRACT_ENTRY_POINTS,
 } from "./lhost-abi";
 export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./lhost-abi";
 export { CORE_WASM_HEADERS } from "./wasm-headers";

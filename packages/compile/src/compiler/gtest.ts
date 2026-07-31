@@ -7,6 +7,7 @@ import { SemanticAnalyzer } from "../semantic-analyzer";
 import { getQpiContext } from "./qpi-context";
 import { parseToAst } from "./parse-ast";
 import type { CompileOptions, GtestCompileResult, GtestDiagnostic, GtestProgram } from "./types";
+import { DEFAULT_GTEST_ARENA_SIZE_BYTES } from "../defaults";
 
 interface TestBlock {
   name: string;
@@ -267,7 +268,7 @@ export async function compileCoreGtest(
       targetSema,
       options.contractName,
       options.slot,
-      options.arenaSizeBytes ?? 16 * 1024 * 1024,
+      options.arenaSizeBytes ?? DEFAULT_GTEST_ARENA_SIZE_BYTES,
       qpi.lib,
       undefined,
       undefined,
@@ -316,7 +317,7 @@ export async function compileCoreGtest(
       sema,
       runnerName,
       RUNNER_SLOT,
-      options.arenaSizeBytes ?? 16 * 1024 * 1024,
+      options.arenaSizeBytes ?? DEFAULT_GTEST_ARENA_SIZE_BYTES,
       qpi.lib,
       undefined,
       targetTypes,

@@ -3,7 +3,6 @@ import {
     WatNodeType,
     type WatValueType,
 } from "../enums";
-import type { ProgramAnalysis } from "./program-analysis";
 import type {
     TypeSpec,
     Expression,

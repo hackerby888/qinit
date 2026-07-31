@@ -13,7 +13,7 @@ export function readIdentAt(context: PreprocessorInternals, text: string, start:
     return ident;
 }
 
-export function isIdStart(context: PreprocessorInternals, ch: string): boolean {
+export function isIdStart(_context: PreprocessorInternals, ch: string): boolean {
     return (ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_";
 }
 
@@ -123,6 +123,6 @@ export function skipBlockComment(context: PreprocessorInternals): void {
     }
 }
 
-export function escapeRegex(context: PreprocessorInternals, text: string): string {
+export function escapeRegex(_context: PreprocessorInternals, text: string): string {
     return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

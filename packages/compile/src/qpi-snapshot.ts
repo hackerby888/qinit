@@ -1,8 +1,11 @@
 // Assembles the exact header text consumed by compiler pipeline.
-import { QPI_PRELUDE } from "./qpi-prelude";
+import {
+  QPI_LANGUAGE_PRELUDE,
+  assembleQpiProtocolPrelude,
+} from "./qpi-prelude";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import { parseWasmAbiSource } from "@qinit/core/wasm-abi-source";
-import { GENERATOR_VERSION, IMPL_BOUNDARY, WASM_ABI_MARKER } from "./qpi-snapshot-format";
+import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "./qpi-snapshot-format";
 
 export {
   embeddedWasmAbi,
@@ -290,6 +293,7 @@ export function snapshotInputFiles(corePath: string): string[] {
   const { join } = require("node:path") as typeof import("node:path");
   const base = join(corePath, "src");
   const files = [
+    join(base, "network_messages", "common_def.h"),
     join(base, "contract_core", "contract_def.h"),
     join(base, CORE_WASM_HEADERS.shared.abiMetadata),
     join(base, CORE_WASM_HEADERS.shared.abiTypes),
@@ -314,6 +318,9 @@ export function assembleQpiHeader(corePath: string): string {
   const fileSystem = loadNodeFileSystem();
   const sourceDirectory = requireCoreSourceDirectory(corePath, fileSystem);
   const wasmAbi = readWasmAbi(fileSystem, sourceDirectory);
+  const protocolPrelude = assembleQpiProtocolPrelude(
+    fileSystem.readFileSync(`${sourceDirectory}/network_messages/common_def.h`, "utf8"),
+  );
   const contractIndexDefinitions = assembleContractIndexDefinitions(fileSystem, sourceDirectory);
   const headerDeclarations = assembleHeaderDeclarations(fileSystem, sourceDirectory);
   const lhostImports = readWasmSdkHeader(
@@ -344,7 +351,7 @@ export function assembleQpiHeader(corePath: string): string {
   );
 
   return [
-    `${QPI_PRELUDE}\n`,
+    `${QPI_LANGUAGE_PRELUDE}\n${protocolPrelude}\n`,
     serializeWasmAbi(wasmAbi),
     contractIndexDefinitions,
     headerDeclarations,

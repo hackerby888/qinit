@@ -6,6 +6,7 @@ import { buildContractWithWasiClang, buildCorpusRunner, systemContracts } from "
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import {
   compileContract,
+  DEFAULT_COMPILE_ARENA_SIZE_BYTES,
   DiagnosticSeverity,
   loadQpiHeader,
   type ContractIdl,
@@ -19,7 +20,7 @@ import type { CompilerBackend } from "./config";
 const HEAVY_SYSTEM_GTEST_NAMES = new Set(["PULSE", "QTF", "QTRY", "GGWP", "QEARN", "NOST"]);
 const ARENA = 8 * 1024 * 1024;
 const SHARED_START = 0x20000000;
-const MAIN_ARENA = 1024 * 1024 * 1024;
+const MAIN_ARENA = DEFAULT_COMPILE_ARENA_SIZE_BYTES;
 const DEP_ARENA = 128 * 1024 * 1024;
 const NOST_ARENA = 256 * 1024 * 1024;
 const SLACK = 128 * 1024 * 1024;
@@ -205,7 +206,6 @@ async function clangWasms(
 
 // Build the main contract and dependencies with the TypeScript compiler.
 async function typescriptWasms(
-  core: string,
   headers: string,
   main: Spec,
   deps: Spec[],
@@ -366,7 +366,6 @@ export async function runStdGtest(opts: {
   let timings: Record<string, number> | undefined;
   if (opts.backend === "typescript") {
     const o = await typescriptWasms(
-      opts.core,
       loadQpiHeader(opts.core),
       main,
       deps,

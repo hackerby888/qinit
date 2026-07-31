@@ -23,7 +23,7 @@ export function methodOwnerNames(context: ProgramAnalysisInternals, name: string
     return out;
 }
 
-export function baseTemplateName(context: ProgramAnalysisInternals, type: TypeSpec): string | null {
+export function baseTemplateName(_context: ProgramAnalysisInternals, type: TypeSpec): string | null {
     if (type.kind === AstKind.NAME)
         return type.name;
     if (type.kind === AstKind.TEMPLATE_INSTANCE)
@@ -201,7 +201,7 @@ export function buildMethodSpecializationKey(
 }
 
 export function buildMethodOverloadKey(
-    context: ProgramAnalysisInternals,
+    _context: ProgramAnalysisInternals,
     methodName: string,
     methodArgumentCount: number | undefined,
     parameterTypeDiscriminator: string | undefined,

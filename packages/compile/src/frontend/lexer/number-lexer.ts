@@ -80,6 +80,6 @@ export function peekSuffix(context: LexerInternals): string {
     return "";
 }
 
-export function isHexDigit(context: LexerInternals, ch: string): boolean {
+export function isHexDigit(_context: LexerInternals, ch: string): boolean {
     return (ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f") || (ch >= "A" && ch <= "F");
 }

@@ -158,18 +158,6 @@ const S_EDGES = [
   3037000500n,
   -3037000500n,
 ];
-const U_EDGES = [
-  0n,
-  1n,
-  2n,
-  U64_MAX,
-  U64_MAX - 1n,
-  2n ** 63n,
-  2n ** 63n - 1n,
-  2n ** 32n,
-  2n ** 32n - 1n,
-  4294967296n * 4294967296n - 1n,
-];
 const U128_EDGES = [
   0n,
   1n,

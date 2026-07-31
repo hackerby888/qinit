@@ -18,7 +18,7 @@ import {
   resolveCoreDir,
   resolveCompilerBackend,
 } from "../config";
-import { Header, Spinner, Panel, KV, Status, theme, termCols } from "../ui";
+import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { output, parseCommandArgs } from "../args";
 import { parseCallees, resolveNodeCallees } from "../callees";
 

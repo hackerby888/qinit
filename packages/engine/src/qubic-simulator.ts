@@ -1,4 +1,8 @@
-import { SYSTEM_PROCEDURES, type DebugTrace } from "@qinit/core";
+import {
+  CONTRACT_ENTRY_POINTS,
+  SYSTEM_PROCEDURES,
+  type DebugTrace,
+} from "@qinit/core";
 import {
   Contract,
   CONTRACT_ENTRY_KIND,
@@ -7,11 +11,21 @@ import {
 } from "./runtime";
 import { toHex, verifySync } from "./k12";
 import { TraceRecorder } from "./trace";
-import { Committee, type CommitteeOpts } from "./consensus";
+import {
+  Committee,
+  MAX_NUMBER_OF_CONTRACTS,
+  type CommitteeOpts,
+} from "./consensus";
 import { FeeManager, type FeeMode } from "./fees";
 import { SpectrumLedger } from "./spectrum";
 import { OracleManager } from "./oracle";
-import { AssetLedger, packAssetName, type AssetSnapshot } from "./assets";
+import {
+  AssetLedger,
+  INVALID_AMOUNT,
+  MAX_AMOUNT,
+  packAssetName,
+  type AssetSnapshot,
+} from "./assets";
 import { TickConsensus, type TickRecord } from "./ticking";
 import type { TickData } from "./wire";
 import {
@@ -37,10 +51,8 @@ export type { FeeMode } from "./fees";
 export type { TickRecord } from "./ticking";
 export type { TxRecord } from "./txs";
 
-const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
-const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
-const EP_USER_PROCEDURE = 11; // contract_def.h USER_PROCEDURE_CALL (contractSystemProcedureCount=10, +1)
-const EP_USER_PROCEDURE_NOTIFICATION = 16;
+const EP_USER_PROCEDURE = CONTRACT_ENTRY_POINTS.userProcedure;
+const EP_USER_PROCEDURE_NOTIFICATION = CONTRACT_ENTRY_POINTS.userProcedureNotification;
 const ZERO32 = new Uint8Array(32);
 const IPO_SHARE_COUNT = 676; // NUMBER_OF_COMPUTORS — a contract's IPO shares: one per computor (0..675)
 const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
@@ -51,7 +63,7 @@ const TT_QPI = 2;
 const TT_DIVIDENDS = 3; // qpiDistributeDividends
 const TT_PROCEDURE_BY_OTHER_CONTRACT = 6;
 
-const EP_USER_FUNCTION = 12; // contract_def.h USER_FUNCTION_CALL (contractSystemProcedureCount=10, +2)
+const EP_USER_FUNCTION = CONTRACT_ENTRY_POINTS.userFunction;
 const MAX_CALL_DEPTH = 10; // NUMBER_OF_CONTRACT_EXECUTION_BUFFERS (recursion-depth guard)
 const EMPTY = new Uint8Array(0);
 
@@ -59,8 +71,6 @@ const CALL_ERR_NONE = 0;
 const CALL_ERR_INSUFFICIENT_FEES = 2;
 const CALL_ERR_ALLOC = 3;
 const CALL_ERR_INACTIVE = 4;
-
-const CONTRACT_COUNT = 1024;
 
 const INVALID_PROPOSAL_INDEX = 0xffff;
 
@@ -528,7 +538,7 @@ export class QubicSimulator {
     }
 
     const target =
-      burnedFor < 1 || burnedFor >= CONTRACT_COUNT ? slot : burnedFor;
+      burnedFor < 1 || burnedFor >= MAX_NUMBER_OF_CONTRACTS ? slot : burnedFor;
     if (this.fees.metered && this.fees.isFailed(target)) {
       return -amount;
     }
@@ -637,7 +647,7 @@ export class QubicSimulator {
     if (
       sourcePossessionManager === callerSlot ||
       sourcePossessionManager < 1 ||
-      sourcePossessionManager >= CONTRACT_COUNT ||
+      sourcePossessionManager >= MAX_NUMBER_OF_CONTRACTS ||
       shares <= 0n ||
       offeredFee < 0n
     ) {
@@ -742,7 +752,7 @@ export class QubicSimulator {
     if (
       destinationPossessionManager === callerSlot ||
       destinationPossessionManager < 1 ||
-      destinationPossessionManager >= CONTRACT_COUNT ||
+      destinationPossessionManager >= MAX_NUMBER_OF_CONTRACTS ||
       shares <= 0n ||
       offeredFee < 0n
     ) {

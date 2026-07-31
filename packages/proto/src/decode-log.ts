@@ -3,6 +3,7 @@
 import { decodeOutput, structFieldOffsets } from "./abi-fmt";
 import { LOG_SEVERITY as SEVERITY } from "./protocol";
 import type { AbiStruct, ContractLog } from "./contract-idl";
+import { hexToBytes } from "@qinit/core";
 
 export interface DecodedLog {
   severity: string;
@@ -20,13 +21,6 @@ export function loggedSizeOf(fmt: string | AbiStruct): number {
   if (!fo.length) return 0;
   const last = fo[fo.length - 1];
   return last.off + last.size;
-}
-
-function hexToBytes(h: string): Uint8Array {
-  const s = h.startsWith("0x") ? h.slice(2) : h;
-  const out = new Uint8Array(s.length >> 1);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16);
-  return out;
 }
 
 // Match a log's full byte size (NOT the possibly-capped hex) against the catalog; a unique struct decodes.

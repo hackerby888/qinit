@@ -41,7 +41,7 @@ export function inspectWasmModule(input: Uint8Array | ArrayBuffer, options: Wasm
     // JS validation catches index/type/control-flow errors outside this structural parser.
     try {
         if (typeof WebAssembly !== "undefined" &&
-            !WebAssembly.validate(bytes as unknown as BufferSource)) {
+            !WebAssembly.validate(bytes as Parameters<typeof WebAssembly.validate>[0])) {
             error(parsed.diagnostics, "js-validation", "JavaScript WebAssembly.validate rejected the module");
         }
     }

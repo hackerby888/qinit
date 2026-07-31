@@ -143,6 +143,29 @@ test("runtimeImport emits a self-contained client (./runtime, no unpublished @qi
   );
 });
 
+test("imports only the runtime calls used by the contract", () => {
+  const base = extractIdl(SRC, "Demo");
+  const functionsOnly = generateClient(
+    { ...base, procedures: [] },
+    28,
+    { runtimeImport: "./runtime" },
+  );
+  const proceduresOnly = generateClient(
+    { ...base, functions: [] },
+    28,
+    { runtimeImport: "./runtime" },
+  );
+
+  expect(functionsOnly).toContain(
+    'import { DEFAULT_RPC_BASE, LiteRpc, callFunction } from "./runtime";',
+  );
+  expect(functionsOnly).not.toContain("invokeProcedure");
+  expect(proceduresOnly).toContain(
+    'import { DEFAULT_RPC_BASE, LiteRpc, invokeProcedure } from "./runtime";',
+  );
+  expect(proceduresOnly).not.toContain("callFunction");
+});
+
 test("no-input function: no args param, single-output map", () => {
   has("async Get(): Promise<Get_output>");
   has(

@@ -93,6 +93,8 @@ jobs:
         run: bun packages/compile/tools/gen-qpi-snapshot.ts --verify --check
       - name: Typecheck
         run: bunx tsc --noEmit -p tsconfig.json
+      - name: Typecheck VS Code extension
+        run: bun run --cwd packages/vscode typecheck
       - name: Unit tests
         run: bun test
 

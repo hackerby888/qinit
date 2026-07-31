@@ -1,8 +1,6 @@
 // Compile the same driver/callee sources with Qinit and Clang, deploy every
 // exact artifact through both node RPC paths, and compare complete state.
-import { createHash } from "node:crypto";
 import {
-  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -14,13 +12,14 @@ import { buildContractWithWasiClang } from "../../packages/build/src/index";
 import { deployContract } from "../../packages/cli/src/deploy-ops";
 import {
   compileContract,
+  DEFAULT_COMPILE_ARENA_SIZE_BYTES,
   DiagnosticSeverity,
   inspectWasmModule,
   loadQpiHeader,
 } from "../../packages/compile/src/index";
-import { QPI_SNAPSHOT } from "../../packages/compile/src/generated/qpi-snapshot";
 import {
   DEFAULT_RPC_BASE,
+  hexToBytes,
   initK12,
   k12Hex,
   LiteRpc,
@@ -28,6 +27,10 @@ import {
 import { VirtualNode } from "../../packages/engine/src/index";
 import { EngineServer } from "../../packages/engine/src/server";
 import { invokeProcedure } from "../../packages/proto/src/index";
+import {
+  assertCoreBuildProfile,
+  assertPinnedQpiHeader,
+} from "./core-proof";
 
 const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;
@@ -35,7 +38,7 @@ if (!core) {
   throw new Error("QINIT_CORE not set");
 }
 
-const ARENA_SIZE = 1024 * 1024 * 1024;
+const ARENA_SIZE = DEFAULT_COMPILE_ARENA_SIZE_BYTES;
 const FALLBACK_SEED = "a".repeat(55);
 const driverPath = resolve("fixtures/QpiDual.h");
 const calleePath = resolve("fixtures/QpiDualCallee.h");
@@ -77,55 +80,6 @@ function same(left: Uint8Array, right: Uint8Array, label: string): void {
   if (Buffer.from(left).equals(Buffer.from(right))) return;
   const first = left.findIndex((value, index) => value !== right[index]);
   fail(`${label} differs at byte ${first} (${left.byteLength}B vs ${right.byteLength}B)`);
-}
-
-function cmakeProof(): Record<string, string> {
-  const cachePath = ["build-node", "build-win-static", "build-win"]
-    .map((directory) => resolve(core!, directory, "CMakeCache.txt"))
-    .find(existsSync);
-  if (!cachePath) {
-    fail("core build is missing CMakeCache.txt");
-  }
-  const cache = readFileSync(cachePath, "utf8");
-  const value = (key: string): string => {
-    const match = cache.match(new RegExp(`^${key}:[^=]*=(.*)$`, "m"));
-    if (!match) fail(`CMake cache is missing ${key}`);
-    return match[1].trim();
-  };
-  const expected: Record<string, string> = {
-    BUILD_BINARY: "ON",
-    BUILD_TESTS: "OFF",
-    ENABLE_AVX512: "OFF",
-    USE_SANITIZER: "OFF",
-    TESTNET: "ON",
-    TESTNET_LITE_RAM: "ON",
-    TESTNET_PREFILL_QUS: "ON",
-    LITE_WASM_SC: "ON",
-    CMAKE_NO_USE_SWAP: "ON",
-    ADDON_TX_STATUS_REQUEST: "ON",
-    ONLY_LOGGING: "OFF",
-  };
-  const proof: Record<string, string> = {};
-  for (const [key, wanted] of Object.entries(expected)) {
-    proof[key] = value(key);
-    if (proof[key] !== wanted) {
-      fail(`CMake ${key}=${proof[key]}, expected ${wanted}`);
-    }
-  }
-  proof.CMAKE_CACHE = cachePath;
-  return proof;
-}
-
-function verifyPinnedHeader(header: string): void {
-  const manifest = JSON.parse(readFileSync(resolve("packages/compile/core-snapshot.json"), "utf8"));
-  const hash = (source: string) => `sha256:${createHash("sha256").update(source).digest("hex")}`;
-  const normalize = (source: string) => source.replace(/\r\n?/g, "\n");
-  if (normalize(header) !== normalize(QPI_SNAPSHOT)) {
-    fail(`core header hash ${hash(header)} does not match pinned ${manifest.snapshotHash}`);
-  }
-  if (hash(QPI_SNAPSHOT) !== manifest.snapshotHash) {
-    fail("generated QPI snapshot does not match its manifest");
-  }
 }
 
 async function artifact(
@@ -355,8 +309,8 @@ async function execute(
   const calleeDigest = await rpc.contractDigest(callee.slot);
   const driverRead = await rpc.stateRead(driver.slot, 0, driverDigest.stateSize);
   const calleeRead = await rpc.stateRead(callee.slot, 0, calleeDigest.stateSize);
-  const driverState = new Uint8Array(Buffer.from(driverRead.hex, "hex"));
-  const calleeState = new Uint8Array(Buffer.from(calleeRead.hex, "hex"));
+  const driverState = hexToBytes(driverRead.hex);
+  const calleeState = hexToBytes(calleeRead.hex);
   if (
     driverRead.stateSize !== driverDigest.stateSize ||
     driverState.byteLength !== driverDigest.stateSize
@@ -409,7 +363,12 @@ function assertExpected(result: Result, label: string): void {
 }
 
 await initK12();
-console.log("CMake proof", JSON.stringify(cmakeProof()));
+console.log(
+  "CMake proof",
+  JSON.stringify(
+    assertCoreBuildProfile(core, ["build-node", "build-win-static", "build-win"]),
+  ),
+);
 const coreRpc = new LiteRpc(rpcBaseUrl);
 const registry = await coreRpc.dynRegistry();
 if (registry.contracts.some((contract) => contract.armed)) {
@@ -421,7 +380,7 @@ if (registry.slotCount < 4) {
 const slots = [0, 1, 2, 3].map((offset) => registry.slotBase + offset);
 
 const qpiHeader = loadQpiHeader(core);
-verifyPinnedHeader(qpiHeader);
+assertPinnedQpiHeader(qpiHeader);
 const artifacts = [
   ...(await compileTsPair(slots[0], slots[1], qpiHeader)),
   ...(await compileClangPair(slots[2], slots[3])),

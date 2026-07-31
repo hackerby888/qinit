@@ -14,10 +14,8 @@ import type {
     ExternBlockDecl,
     FriendDecl,
     FunctionDecl,
-    NamespaceDecl,
     StaticAssertDecl,
     StructDecl,
-    TranslationUnit,
     TypedefDeclNode,
     TypeSpec,
 } from "../../../ast";

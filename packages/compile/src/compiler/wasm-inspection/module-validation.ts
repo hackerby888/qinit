@@ -1,6 +1,6 @@
 import { InspectedMemoryMode, WasmExternalKind, WasmMemorySource } from "../../enums";
 import type { InspectedWasmExport, InspectedWasmMemory, WasmFunctionSignature } from "./inspection-types";
-import { WASM_MODULE_EXPORT_ABI, signature } from "./inspection-types";
+import { WASM_MODULE_EXPORT_ABI } from "./inspection-types";
 import type { ParsedModule } from "./parsed-module";
 import { error } from "./binary-reader";
 

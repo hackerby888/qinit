@@ -7,7 +7,7 @@ export type {
 } from "./preprocessor-context";
 
 // Export a convenience function that embeds the qpi.h content
-export function createQpiHeader(corePath: string): string {
+export function createQpiHeader(_corePath: string): string {
     // This will be replaced at build time or the caller provides the content.
     return `// qpi.h stub — real content injected by compiler host
 `;

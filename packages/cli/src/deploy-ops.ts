@@ -182,10 +182,10 @@ export async function deployContract(
 
   for (let i = 0; i < 300; i++) {
     try {
-      const tickInfo: any = await rpc.tickInfo();
+      const tickInfo = await rpc.tickInfo();
       reached = true;
       misses = 0;
-      currentTick = tickInfo.tick ?? tickInfo.currentTick ?? 0;
+      currentTick = tickInfo.tick;
       if (initialTick < 0) {
         initialTick = currentTick;
       }
@@ -367,16 +367,16 @@ export async function deployContract(
   }
 
   try {
-    const tickInfo: any = await rpc.tickInfo();
-    currentTick = tickInfo.tick ?? currentTick;
+    const tickInfo = await rpc.tickInfo();
+    currentTick = tickInfo.tick;
   } catch {
     // The last tick from the readiness probe remains usable.
   }
 
   const readTick = async () => {
     try {
-      const tickInfo: any = await rpc.tickInfo();
-      return (tickInfo.tick ?? tickInfo.currentTick ?? currentTick) as number;
+      const tickInfo = await rpc.tickInfo();
+      return tickInfo.tick;
     } catch {
       return currentTick;
     }
@@ -668,8 +668,8 @@ export async function deployContract(
     await sleep(1000);
 
     try {
-      const tickInfo: any = await rpc.tickInfo();
-      lastTick = tickInfo.tick ?? lastTick;
+      const tickInfo = await rpc.tickInfo();
+      lastTick = tickInfo.tick;
       const registry = await rpc.dynRegistry();
       registryRead = true;
       const contract = (registry.contracts ?? []).find(

@@ -4,7 +4,7 @@ import type { StructDecl, FunctionDecl, Statement } from "../../ast";
 import { unwrapType, isVoidType, isConstType, typeKey } from "./validation-helpers";
 import type { FnSig, ValidatorInternals } from "./validator-context";
 
-export function checkRecursion(context: ValidatorInternals, structDeclaration: StructDecl, fnBodies: Map<string, FunctionDecl>): void {
+export function checkRecursion(context: ValidatorInternals, _structDeclaration: StructDecl, fnBodies: Map<string, FunctionDecl>): void {
     const edges = new Map<string, Set<string>>();
     for (const [name, fn] of fnBodies) {
         const callees = new Set<string>();

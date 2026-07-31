@@ -2,6 +2,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import {
+  CONTRACT_ENTRY_POINTS,
+  SYSTEM_PROCEDURE_COUNT,
+} from "@qinit/core/lhost-abi";
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
 import { loadCoreWasmSlotLayout } from "../../packages/core/src/wasm-slot-layout-node";
 import { LITE_DEPLOY_ADDRESS } from "../../packages/core/src/tx";
@@ -84,6 +88,35 @@ const readStructSize = (file: string, name: string): number | null => {
   }
 };
 
+const readEnumBody = (file: string, name: string): string | null => {
+  try {
+    return readFileSync(join(core, file), "utf8").match(
+      new RegExp(`enum\\s+${name}\\s*\\{([\\s\\S]*?)\\}`),
+    )?.[1] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+const readSystemProcedureCount = (file: string): number | null => {
+  const body = readEnumBody(file, "SystemProcedureID");
+  if (!body) return null;
+  return body
+    .replace(/\/\/.*$/gm, "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value && value !== "contractSystemProcedureCount")
+    .length;
+};
+
+const readEntryPoint = (file: string, name: string): number | null => {
+  const body = readEnumBody(file, "OtherEntryPointIDs");
+  const offset = body?.match(
+    new RegExp(`${name}\\s*=\\s*contractSystemProcedureCount\\s*\\+\\s*(\\d+)`),
+  )?.[1];
+  return offset ? SYSTEM_PROCEDURE_COUNT + Number(offset) : null;
+};
+
 const expectEqual = (label: string, actual: number | null, expected: number) => {
   if (actual !== expected) {
     failures.push(`${label}: core=${actual} qinit=${expected}`);
@@ -93,6 +126,25 @@ const expectEqual = (label: string, actual: number | null, expected: number) => 
 const DEPLOYMENT_PROTOCOL = join("src", CORE_WASM_HEADERS.runtime.deploymentProtocol);
 const LOG = "src/logging/logging.h";
 const NET = "src/network_messages/common_def.h";
+const CONTRACT_DEF = "src/contract_core/contract_def.h";
+
+expectEqual(
+  "contractSystemProcedureCount",
+  readSystemProcedureCount(CONTRACT_DEF),
+  SYSTEM_PROCEDURE_COUNT,
+);
+for (const [name, expected] of [
+  ["USER_PROCEDURE_CALL", CONTRACT_ENTRY_POINTS.userProcedure],
+  ["USER_FUNCTION_CALL", CONTRACT_ENTRY_POINTS.userFunction],
+  [
+    "REGISTER_USER_FUNCTIONS_AND_PROCEDURES_CALL",
+    CONTRACT_ENTRY_POINTS.registerUserFunctionsAndProcedures,
+  ],
+  ["USER_PROCEDURE_NOTIFICATION_CALL", CONTRACT_ENTRY_POINTS.userProcedureNotification],
+  ["MIGRATE_PROCEDURE_CALL", CONTRACT_ENTRY_POINTS.migrateProcedure],
+] as const) {
+  expectEqual(name, readEntryPoint(CONTRACT_DEF, name), expected);
+}
 
 // LITE_TX deploy inputTypes
 expectEqual(
@@ -183,4 +235,4 @@ if (failures.length) {
   console.error("PROTOCOL DRIFT vs core-lite:\n  " + failures.join("\n  "));
   process.exit(1);
 }
-console.log("protocol-drift OK — Wasm slots, deployment, logging, input sizing, and oracle status match core");
+console.log("protocol-drift OK — entry points, Wasm slots, deployment, logging, input sizing, and oracle status match core");

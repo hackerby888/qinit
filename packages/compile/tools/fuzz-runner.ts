@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithWasiClang } from "@qinit/build";
-import { initK12 } from "@qinit/core";
+import { bytesToHex, initK12 } from "@qinit/core";
 import { wasiSdkPaths } from "@qinit/core/project";
 import { QubicSimulator } from "@qinit/engine";
 import {
@@ -95,7 +95,7 @@ function runState(
   }
 
   const state = sim.contracts.get(27)!.state();
-  return Buffer.from(state.slice(0, 64)).toString("hex");
+  return bytesToHex(state.slice(0, 64));
 }
 
 async function checkSeed(

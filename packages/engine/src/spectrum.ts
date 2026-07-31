@@ -4,14 +4,7 @@ import type { Entity } from "./runtime";
 import { toHex, k12Bytes } from "./k12";
 import { SparseMerkle } from "./merkle";
 import { M256i, EntityRecord } from "./wire";
-
-function hexToBytes32(hex: string): Uint8Array {
-  const out = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return out;
-}
+import { hexToBytes } from "@qinit/core";
 
 export class SpectrumLedger {
   private entities = new Map<string, Entity>(); // hex(id) -> Entity (balance = incoming - outgoing)
@@ -87,7 +80,7 @@ export class SpectrumLedger {
       if (k > target && (best === null || k < best)) best = k;
     }
 
-    return best === null ? new Uint8Array(32) : hexToBytes32(best);
+    return best === null ? new Uint8Array(32) : hexToBytes(best, 32);
   }
 
   prevId(id: Uint8Array): Uint8Array {
@@ -97,13 +90,13 @@ export class SpectrumLedger {
       if (k < target && (best === null || k > best)) best = k;
     }
 
-    return best === null ? new Uint8Array(32) : hexToBytes32(best);
+    return best === null ? new Uint8Array(32) : hexToBytes(best, 32);
   }
 
   // The 64-byte EntityRecord whose K12 is the spectrum leaf (the layout a client reads back from getEntity).
   private entityRecord(k: string): Uint8Array {
     const rec = EntityRecord.alloc();
-    rec.publicKey = M256i.from(hexToBytes32(k));
+    rec.publicKey = M256i.from(hexToBytes(k, 32));
     const e = this.entities.get(k);
     if (e) {
       rec.incomingAmount = e.incomingAmount;

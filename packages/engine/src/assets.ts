@@ -3,8 +3,8 @@ import { SparseMerkle } from "./merkle";
 import { AssetRecord, ASSET_RECORD_SIZE } from "./wire";
 import { Asset, AssetSelect } from "./abi";
 
-const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
-const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
+export const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
+export const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
 
 const ASSET_CAPACITY = 1 << 24;
 const ASSET_INDEX_MASK = ASSET_CAPACITY - 1;

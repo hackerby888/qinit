@@ -1,6 +1,7 @@
 import { DiagnosticSeverity } from "../enums";
 import type { Diagnostic as ParserDiagnostic } from "../parser";
 import type { CompileOptions } from "./types";
+import { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "../defaults";
 
 const UINT32_MAX = 0xffff_ffff;
 const MIN_INPUT_TYPE = 1;
@@ -39,7 +40,7 @@ export function validateCompileOptions(options: CompileOptions): ParserDiagnosti
   }
   if (!validUint32(options.slot)) reject("slot must be a uint32 integer");
 
-  const arenaSizeBytes = options.arenaSizeBytes ?? 1024 * 1024 * 1024;
+  const arenaSizeBytes = options.arenaSizeBytes ?? DEFAULT_COMPILE_ARENA_SIZE_BYTES;
   if (!validSize(arenaSizeBytes) || arenaSizeBytes === 0) {
     reject("arenaSizeBytes must be a positive wasm32 byte size");
   }

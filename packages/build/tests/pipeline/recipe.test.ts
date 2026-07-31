@@ -168,4 +168,11 @@ test("Wasm test support resolves its core include through the canonical layout",
     `#include "${CORE_WASM_HEADERS.shared.abiMetadata}"`,
   );
   expect(WASM_CONTRACT_TESTING_HEADER).not.toContain("__QINIT_CORE_WASM_ABI_METADATA__");
+  expect(WASM_CONTRACT_TESTING_HEADER).toContain(
+    "USER_PROCEDURE_CALL = contractSystemProcedureCount + 1",
+  );
+  expect(WASM_CONTRACT_TESTING_HEADER).toContain(
+    "USER_FUNCTION_CALL = contractSystemProcedureCount + 2",
+  );
+  expect(WASM_CONTRACT_TESTING_HEADER).not.toMatch(/USER_(?:PROCEDURE|FUNCTION)_CALL\s*=\s*1[34]\b/);
 });

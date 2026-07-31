@@ -93,7 +93,7 @@ export function evalConst(context: ProgramAnalysisInternals, expression: Express
     return Number(context.evalConstBig(expression, templateBindings));
 }
 
-export function parseIntLiteral(context: ProgramAnalysisInternals, value: string): bigint {
+export function parseIntLiteral(_context: ProgramAnalysisInternals, value: string): bigint {
     try {
         return lexParseIntLiteral(value);
     }

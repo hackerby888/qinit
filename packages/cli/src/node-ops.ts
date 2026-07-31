@@ -312,8 +312,8 @@ export async function waitTicking(
     }
 
     try {
-      const tickInfo: any = await rpc.tickInfo();
-      currentTick = tickInfo.tick ?? tickInfo.currentTick ?? 0;
+      const tickInfo = await rpc.tickInfo();
+      currentTick = tickInfo.tick;
       if (initialTick < 0) {
         initialTick = currentTick;
       }
@@ -330,10 +330,10 @@ export async function waitTicking(
 
 export async function nodeContracts(rpcBaseUrl: string): Promise<string[]> {
   try {
-    const registry: any = await new LiteRpc(rpcBaseUrl).dynRegistry();
+    const registry = await new LiteRpc(rpcBaseUrl).dynRegistry();
     return (registry.contracts ?? [])
-      .filter((contract: any) => contract.armed)
-      .map((contract: any) => `${contract.name || contract.index}@${contract.index}`);
+      .filter((contract) => contract.armed)
+      .map((contract) => `${contract.name || contract.index}@${contract.index}`);
   } catch (error) {
     debug("nodeContracts: dyn-registry read failed", error);
     return [];
@@ -353,14 +353,14 @@ export interface NodeStatus {
 export async function nodeStatus(rpcBaseUrl: string): Promise<NodeStatus> {
   const rpc = new LiteRpc(rpcBaseUrl);
   try {
-    const firstTickInfo: any = await rpc.tickInfo();
+    const firstTickInfo = await rpc.tickInfo();
     await sleep(1200);
-    const secondTickInfo: any = await rpc.tickInfo();
-    const firstTick = firstTickInfo.tick ?? firstTickInfo.currentTick ?? 0;
-    const secondTick = secondTickInfo.tick ?? secondTickInfo.currentTick ?? 0;
-    const registry: any = await rpc.dynRegistry().catch(() => ({}));
+    const secondTickInfo = await rpc.tickInfo();
+    const firstTick = firstTickInfo.tick;
+    const secondTick = secondTickInfo.tick;
+    const registry = await rpc.dynRegistry().catch(() => ({ contracts: [], slotBase: 0, slotCount: 0 }));
     const armedContracts = (registry.contracts ?? []).filter(
-      (contract: any) => contract.armed,
+      (contract) => contract.armed,
     );
 
     return {

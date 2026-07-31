@@ -1,6 +1,7 @@
 // Identity and cryptography through @qubic-lib/qubic-ts-library.
 import { QubicHelper } from "@qubic-lib/qubic-ts-library/dist/qubicHelper.js";
 import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper.js";
+import { bytesToHex } from "./bytes";
 
 export interface IdentityResult {
   identity: string; // 60 uppercase letters
@@ -21,10 +22,6 @@ export interface CryptoSmokeResult {
 
 const helper: any = new QubicHelper();
 
-function toHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 // KangarooTwelve (KT128, 32-byte digest) matching core content addressing.
 export async function k12Hex(bytes: Uint8Array): Promise<string> {
   // Static CJS require -> bun bundles + dedups to the SAME crypto instance QubicHelper inits.
@@ -33,7 +30,7 @@ export async function k12Hex(bytes: Uint8Array): Promise<string> {
   const { K12 } = await (cryptoMod.default ?? cryptoMod);
   const out = new Uint8Array(32);
   K12(bytes, out, 32);
-  return toHex(out);
+  return bytesToHex(out);
 }
 
 // Synchronous K12 for host imports and tight loops after initK12 resolves the crypto module.
@@ -102,7 +99,7 @@ export function verifySync(
 // Deriving an identity exercises K12 and FourQ inside the compiled binary.
 export async function deriveIdentity(seed: string): Promise<IdentityResult> {
   const idPackage = await helper.createIdPackage(seed);
-  return { identity: idPackage.publicId, publicKeyHex: toHex(idPackage.publicKey) };
+  return { identity: idPackage.publicId, publicKeyHex: bytesToHex(idPackage.publicKey) };
 }
 
 // id codec: 60-char identity <-> 32-byte public key (for the contract ABI `id` type).

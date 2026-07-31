@@ -1,6 +1,6 @@
 import type { FunctionLoweringServices } from "./functions/function-lowering-contract";
 import type { ProgramAnalysis } from "../../analysis/program-analysis";
-import type { TypeSpec, Expression, Declaration, StructDecl, TemplateParam } from "../../ast";
+import type { TypeSpec } from "../../ast";
 import type { StructLayout, TemplateBindings } from "../../analysis/types";
 import type { QpiContextKind, WatValueType } from "../../enums";
 export * from "../../analysis/types";

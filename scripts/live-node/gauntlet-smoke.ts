@@ -8,6 +8,7 @@ import {
   k12Hex,
   deriveIdentity,
   identityToBytes,
+  bytesToHex,
 } from "../../packages/core/src/index";
 
 const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
@@ -40,10 +41,6 @@ const expectTrue = (condition: boolean, label: string) => {
   passedAssertions++;
   console.log(`  ✓ ${label}`);
 };
-const bytesToHex = (bytes: Uint8Array) =>
-  Array.from(bytes)
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
 const le8 = (value: bigint) => {
   const bytes = new Uint8Array(8);
   new DataView(bytes.buffer).setBigUint64(0, value, true);
@@ -55,8 +52,8 @@ const call = (functionId: number, inputFormat: string, outputFormat: string) =>
   callFunction(rpc, contractSlot, functionId, inputFormat, outputFormat);
 async function invoke(procedureId: number, inputFormat: string, opts: { amount?: number; seed?: string } = {}) {
   const seed = opts.seed ?? (await rpc.fundedSeed()) ?? "a".repeat(55);
-  const tickInfo: any = await rpc.tickInfo();
-  const tick = (tickInfo.tick ?? tickInfo.currentTick ?? 0) + 6;
+  const tickInfo = await rpc.tickInfo();
+  const tick = tickInfo.tick + 6;
   const result: any = await invokeProcedure({
     seed,
     rpcBaseUrl,

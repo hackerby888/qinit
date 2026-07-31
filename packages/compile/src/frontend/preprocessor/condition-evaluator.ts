@@ -29,7 +29,7 @@ export function evalConstCondition(context: PreprocessorInternals, expression: s
     }
 }
 
-export function evalArith(context: PreprocessorInternals, text: string): bigint {
+export function evalArith(_context: PreprocessorInternals, text: string): bigint {
     const toks = text.match(/\d+|&&|\|\||==|!=|<=|>=|<<|>>|[()+\-*/%<>!&|^]/g) ?? [];
     let index = 0;
     const peek = () => toks[index];

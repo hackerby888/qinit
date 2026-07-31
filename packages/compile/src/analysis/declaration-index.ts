@@ -253,7 +253,7 @@ export function namespaceContextOf(context: ProgramAnalysisInternals, declaratio
         : { usingNamespaces: [] };
 }
 
-export function namespaceCandidates(context: ProgramAnalysisInternals, name: string, sourceNamespace?: string, usingNamespaces: string[] = []): string[] {
+export function namespaceCandidates(_context: ProgramAnalysisInternals, name: string, sourceNamespace?: string, usingNamespaces: string[] = []): string[] {
     const hasNamespace = name.includes("::");
     const keys: string[] = [];
     const add = (key: string) => {

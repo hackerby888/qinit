@@ -3,6 +3,22 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { CORE_WASM_HEADERS } from "../../src/wasm-headers";
+import {
+  CONTRACT_ENTRY_POINTS,
+  SYSTEM_PROCEDURE_COUNT,
+  SYSTEM_PROCEDURES,
+} from "../../src/lhost-abi";
+
+test("contract entry points follow the generated system-procedure range", () => {
+  expect(Object.keys(SYSTEM_PROCEDURES).length).toBe(SYSTEM_PROCEDURE_COUNT as number);
+  expect(CONTRACT_ENTRY_POINTS).toEqual({
+    userProcedure: 13,
+    userFunction: 14,
+    registerUserFunctionsAndProcedures: 15,
+    userProcedureNotification: 16,
+    migrateProcedure: 17,
+  });
+});
 
 const sourceRoot = join(CORE_PATH, "src");
 const extensionRoot = join(sourceRoot, CORE_WASM_HEADERS.root);

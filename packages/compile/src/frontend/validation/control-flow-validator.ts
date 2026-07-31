@@ -77,7 +77,7 @@ export function walkStatements(context: ValidatorInternals, statement: Statement
     }
 }
 
-export function walkExpressions(context: ValidatorInternals, statement: Statement, visit: (expression: Expression) => void): void {
+export function walkExpressions(_context: ValidatorInternals, statement: Statement, visit: (expression: Expression) => void): void {
     const walkE = (expression: Expression): void => {
         visit(expression);
         switch (expression.kind) {

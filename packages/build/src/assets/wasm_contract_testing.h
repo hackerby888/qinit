@@ -81,7 +81,13 @@ enum SystemProcedureID { WASM_SYSTEM_PROCEDURE_ROWS(QINIT_SYSTEM_PROCEDURE_ENUM)
 
 // ---- user-function call context (a read-only function call that also carries an invocator) ----
 // core-lite's contract_core/contract_def.h defines USER_FUNCTION_CALL as an OtherEntryPointIDs value
-enum : unsigned char { USER_PROCEDURE_CALL = 13, USER_FUNCTION_CALL = 14 };
+#define QINIT_SYSTEM_PROCEDURE_COUNT(symbol, id, method, emptyMember) + 1
+enum : unsigned char {
+    contractSystemProcedureCount = 0 WASM_SYSTEM_PROCEDURE_ROWS(QINIT_SYSTEM_PROCEDURE_COUNT),
+    USER_PROCEDURE_CALL = contractSystemProcedureCount + 1,
+    USER_FUNCTION_CALL = contractSystemProcedureCount + 2,
+};
+#undef QINIT_SYSTEM_PROCEDURE_COUNT
 
 // contractError[slot]: contract execution status array from contract_exec.h (native harness asserts it).
 // In wasm mode a contract dispatch runs in the engine, so errors are engine-side; treat as always-clean

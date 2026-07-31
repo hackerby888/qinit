@@ -1,10 +1,13 @@
 // Qubic protocol primitives for Qinit, wrapping @qubic-lib/qubic-ts-library.
 export * from "./struct"; // zero-copy struct-view kit (defineStruct + codecs), shared by @qinit/engine + @qinit/proto
+export { bytesToHex, hexToBytes } from "./bytes";
 export {
   LHOST_ABI,
   ASSET_ENUMERATION_RECORD,
   WASM_ABI_VERSION,
   SYSTEM_PROCEDURES,
+  SYSTEM_PROCEDURE_COUNT,
+  CONTRACT_ENTRY_POINTS,
 } from "./lhost-abi";
 export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./lhost-abi";
 export { CORE_WASM_HEADERS } from "./wasm-headers";

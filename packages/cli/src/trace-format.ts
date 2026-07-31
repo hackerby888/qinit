@@ -12,7 +12,14 @@ import {
   type ContractIdl,
 } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
-import { bytesToIdentity, roundUp, type DebugEntry } from "@qinit/core";
+import {
+  bytesToIdentity,
+  hexToBytes,
+  roundUp,
+  type DebugEntry,
+} from "@qinit/core";
+
+export { hexToBytes };
 
 export type StateContainerLayout =
   | {
@@ -43,17 +50,6 @@ export type StateField = {
 export type DecodedStateContainer = { name: string; entries: string[] };
 export type StateReader = {
   stateRead(slot: number, off: number, len: number): Promise<{ hex: string }>;
-};
-
-export const hexToBytes = (input: string) => {
-  const hex = input.startsWith("0x") ? input.slice(2) : input;
-  const bytes = new Uint8Array(hex.length >> 1);
-
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-
-  return bytes;
 };
 
 export const jstr = (value: any) =>

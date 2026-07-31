@@ -20,8 +20,7 @@ import type { CompileOptions, CompileResult } from "./types";
 import { emptyResult } from "./compile-result";
 import { dumpWatIfRequested, encodeAndInspectWat } from "./wasm-encoder";
 import { collectSourceContractCalls } from "./semantic-calls";
-
-const DEFAULT_ARENA_SIZE = 1024 * 1024 * 1024;
+import { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "../defaults";
 
 export async function compileContract(
     options: CompileOptions,
@@ -159,7 +158,7 @@ function generateContractWat(
         semanticAnalysis,
         options.contractName,
         options.slot,
-        options.arenaSizeBytes ?? DEFAULT_ARENA_SIZE,
+        options.arenaSizeBytes ?? DEFAULT_COMPILE_ARENA_SIZE_BYTES,
         qpiContext.lib,
         options.callees,
         calleeContext.contractStructs,

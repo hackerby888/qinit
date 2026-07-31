@@ -151,8 +151,8 @@ export function Dev({ args }: { args: string[] }) {
     const rpc = new LiteRpc(rpcBaseUrl);
     const ping = async () => {
       try {
-        const ti: any = await rpc.tickInfo();
-        setTick(ti.tick ?? ti.currentTick ?? null);
+        const tickInfo = await rpc.tickInfo();
+        setTick(tickInfo.tick);
       } catch {
         setTick(null);
       }

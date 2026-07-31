@@ -49,7 +49,6 @@ export class FunctionParser {
 
     parseIdentifierDeclaration(): Declaration {
         // Identifier at top level — peek ahead
-        const tok = this.parser.state.peek();
         const nextTok = this.parser.state.peek(1);
         // Identifier followed by "::" → qualified name (function/variable)
         if (nextTok.kind === TokenKind.D_COLON) {

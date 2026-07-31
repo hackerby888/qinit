@@ -43,9 +43,9 @@ const STEP_LABEL: Record<string, string> = {
 async function isTicking(rpcBaseUrl: string): Promise<boolean> {
   const rpc = new LiteRpc(rpcBaseUrl);
   try {
-    const a = (await rpc.tickInfo()).tick ?? 0;
+    const a = (await rpc.tickInfo()).tick;
     await sleep(2500);
-    const b = (await rpc.tickInfo()).tick ?? 0;
+    const b = (await rpc.tickInfo()).tick;
     return b > a;
   } catch {
     return false;

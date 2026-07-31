@@ -3,7 +3,7 @@
 
 // Lite transaction inputTypes + chunk sizing live in ./protocol (mirrored against core by the drift guard).
 import { LITE_TX, CHUNK_DATA_MAX } from "./protocol";
-import { WASM_ABI_VERSION, defineStruct, u16, u32, u64, blob } from "@qinit/core";
+import { WASM_ABI_VERSION, defineStruct, hexToBytes, u16, u32, u64, blob } from "@qinit/core";
 export { LITE_TX, CHUNK_DATA_MAX };
 
 // Define wire layouts once so the protocol encoder and engine decoder cannot drift.
@@ -34,13 +34,6 @@ export const DeployMessage = defineStruct(
   },
   { packed: true },
 );
-
-function hexToBytes(hex: string, len: number): Uint8Array {
-  if (hex.length !== len * 2) throw new Error(`expected ${len}-byte hex, got ${hex.length / 2}`);
-  const out = new Uint8Array(len);
-  for (let i = 0; i < len; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
-}
 
 export interface UploadBeginParams {
   sessionId: bigint;

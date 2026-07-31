@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContractWithWasiClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
-import { initK12 } from "@qinit/core";
+import { bytesToHex, initK12 } from "@qinit/core";
 import { compileContract, DiagnosticSeverity, loadQpiHeader } from "../src/index";
 import { generate, encodeInput } from "./fuzz-gen";
 
@@ -22,7 +22,7 @@ function runState(wasm: Uint8Array, inputs: bigint[][]): string {
     sim.procedure(27, 1, encodeInput(row), { invocator: user });
   }
   const st = sim.contracts.get(27)!.state();
-  return Buffer.from(st.slice(0, 64)).toString("hex");
+  return bytesToHex(st.slice(0, 64));
 }
 
 for (const seed of process.argv.slice(2).map(Number)) {

@@ -4,7 +4,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { coreGtest } from "../support/core-gtest";
 import { buildDifferentialRunner } from "../support/differential-runner";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
-import { describe, test, expect, beforeAll } from "bun:test";
+import { describe, expect, beforeAll } from "bun:test";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
 import { compileContract, loadQpiHeader } from "../../src/index";

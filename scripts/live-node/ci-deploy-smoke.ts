@@ -68,8 +68,8 @@ console.log("enable debug…");
 await rpc.setDebug(true);
 
 const seed = (await rpc.fundedSeed()) ?? "a".repeat(55);
-const tickInfo: any = await rpc.tickInfo();
-const tick = (tickInfo.tick ?? tickInfo.currentTick ?? 0) + 6;
+const tickInfo = await rpc.tickInfo();
+const tick = tickInfo.tick + 6;
 console.log("Inc @tick", tick);
 const invocation: any = await invokeProcedure({
   seed,
@@ -151,8 +151,8 @@ const enumNames: Record<string, string> = {};
 for (const entry of loggerIdl.enums ?? []) {
   Object.assign(enumNames, entry.members);
 }
-const loggerTickInfo: any = await rpc.tickInfo();
-const loggerTick = (loggerTickInfo.tick ?? loggerTickInfo.currentTick ?? 0) + 6;
+const loggerTickInfo = await rpc.tickInfo();
+const loggerTick = loggerTickInfo.tick + 6;
 console.log("Emit(2) @tick", loggerTick);
 const loggerInvocation: any = await invokeProcedure({
   seed,

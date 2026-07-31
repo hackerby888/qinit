@@ -26,8 +26,7 @@ import {
     emitSystemProcedures,
 } from "./system-procedures";
 import { buildContractIdl } from "./contract-idl";
-
-const DEFAULT_ARENA_SIZE = 1024 * 1024 * 1024;
+import { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "../../../defaults";
 
 interface ModuleGenerationRequest {
     translationUnit: {
@@ -53,7 +52,7 @@ export function generateWasmModule(
     semanticAnalysis: SemanticAnalyzer,
     contractName: string,
     contractSlot: number,
-    arenaSize: number = DEFAULT_ARENA_SIZE,
+    arenaSize: number = DEFAULT_COMPILE_ARENA_SIZE_BYTES,
     libraryIndex?: LibrarySymbolIndex,
     callees?: ContractIdl[],
     calleeStructs?: Map<string, StructDecl>,

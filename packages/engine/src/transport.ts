@@ -18,6 +18,7 @@ import {
   DEFAULT_WASM_SLOT_LAYOUT,
   LITE_DEPLOY_ADDRESS,
   WASM_ABI_VERSION,
+  hexToBytes,
 } from "@qinit/core";
 import {
   LITE_TX,
@@ -827,17 +828,4 @@ export class VirtualNode implements NodeTransport {
 
     return identityToBytes(id);
   }
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-
-  for (let index = 0; index < bytes.length; index++) {
-    bytes[index] = parseInt(
-      hex.slice(index * 2, index * 2 + 2),
-      16,
-    );
-  }
-
-  return bytes;
 }

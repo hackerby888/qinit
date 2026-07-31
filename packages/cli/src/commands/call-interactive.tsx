@@ -438,8 +438,8 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         );
         addResult(`${labelFor(contract, entry)} -> ${fmtVal(output)}`);
       } else {
-        const tickInfo: any = await rpc.tickInfo();
-        const tick = (tickInfo.tick ?? 0) + TX_TICK_OFFSET;
+        const tickInfo = await rpc.tickInfo();
+        const tick = tickInfo.tick + TX_TICK_OFFSET;
         const procedure = await invokeProcedure({
           seed: await resolveSeed(rpc, selected.seed || seed),
           rpcBaseUrl: rpcBaseUrl,

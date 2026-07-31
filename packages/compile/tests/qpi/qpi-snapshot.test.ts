@@ -8,6 +8,8 @@ import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import { loadQpiHeader } from "../../src/index";
 import { assembleQpiHeader, GENERATOR_VERSION, snapshotInputFiles } from "../../src/qpi-snapshot";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapshot";
+import { QPI_PROTOCOL_PRELUDE } from "../../src/generated/qpi-protocol-prelude";
+import { assembleQpiProtocolPrelude } from "../../src/qpi-prelude";
 
 const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "qpi", "qpi.h"));
@@ -58,6 +60,16 @@ describe.if(coreOk)("qpi snapshot assembly", () => {
         .sort(),
     ).toEqual(wasmInputs.map((path) => join(CORE, "src", path)).sort());
     expect(inputs).toContain(join(CORE, "src", "oc_interfaces", "Mock.h"));
+    expect(inputs).toContain(join(CORE, "src", "network_messages", "common_def.h"));
+  });
+
+  test("protocol prelude is generated from core common definitions", () => {
+    const source = readFileSync(
+      join(CORE, "src", "network_messages", "common_def.h"),
+      "utf8",
+    );
+    expect(QPI_PROTOCOL_PRELUDE).toBe(assembleQpiProtocolPrelude(source));
+    expect(QPI_SNAPSHOT).toContain(QPI_PROTOCOL_PRELUDE);
   });
 
   test("non-core path throws instead of returning a stub", () => {
@@ -68,6 +80,21 @@ describe.if(coreOk)("qpi snapshot assembly", () => {
 const browserModule = "../../src/browser";
 
 describe("tracked snapshot + browser entry", () => {
+  test("protocol prelude extraction rejects drift and preserves source values", () => {
+    const changed = QPI_PROTOCOL_PRELUDE.replace(
+      "#define MAX_NUMBER_OF_CONTRACTS 1024",
+      "#define MAX_NUMBER_OF_CONTRACTS 2048",
+    );
+    expect(assembleQpiProtocolPrelude(changed)).toContain(
+      "#define MAX_NUMBER_OF_CONTRACTS 2048",
+    );
+    expect(() =>
+      assembleQpiProtocolPrelude(
+        QPI_PROTOCOL_PRELUDE.replace(/^.*MAX_AMOUNT.*\n/m, ""),
+      ),
+    ).toThrow(/MAX_AMOUNT/);
+  });
+
   test("generated module embeds the assembly verbatim with a matching hash", async () => {
     if (coreOk) {
       expect(QPI_SNAPSHOT).toBe(assembleQpiHeader(CORE));

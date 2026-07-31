@@ -110,7 +110,7 @@ export function replaceParamInBody(context: PreprocessorInternals, body: string,
     return result;
 }
 
-export function processTokenPaste(context: PreprocessorInternals, body: string): string {
+export function processTokenPaste(_context: PreprocessorInternals, body: string): string {
     // Replace `a ## b` with `ab` (remove whitespace + ##)
     let result = "";
     let index = 0;
@@ -148,7 +148,7 @@ export function replaceParam(context: PreprocessorInternals, body: string, param
     return body.replace(new RegExp(`(?<![#\\w])${escaped}(?!\\w)`, "g"), value);
 }
 
-export function readArgsFromString(context: PreprocessorInternals, text: string, openIdx: number): {
+export function readArgsFromString(_context: PreprocessorInternals, text: string, openIdx: number): {
     callArguments: string[];
     end: number;
 } | null {

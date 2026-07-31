@@ -74,7 +74,7 @@ export function structAlign(context: ProgramAnalysisInternals, members: Declarat
     }
 }
 
-export function alignUp(context: ProgramAnalysisInternals, count: number, argument: number): number {
+export function alignUp(_context: ProgramAnalysisInternals, count: number, argument: number): number {
     return Math.ceil(count / argument) * argument;
 }
 

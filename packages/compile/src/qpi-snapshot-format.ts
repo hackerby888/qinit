@@ -1,7 +1,7 @@
 import type { WasmAbiSource } from "@qinit/core/wasm-abi-source";
 
-// v9 follows split QPI headers and embeds Wasm ABI v5 metadata.
-export const GENERATOR_VERSION = 9;
+// v10 derives compiler-visible protocol declarations from core-lite common_def.h.
+export const GENERATOR_VERSION = 10;
 
 export const IMPL_BOUNDARY = "//__QINIT_IMPL_BOUNDARY__";
 export const WASM_ABI_MARKER = "//__QINIT_WASM_ABI__";

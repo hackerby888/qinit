@@ -1,7 +1,7 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks Collection removal counters and cleanup thresholds against native behavior.
-import { describe, test, expect, beforeAll } from "bun:test";
+import { describe, expect, beforeAll } from "bun:test";
 import { toolchainTest, wasiToolchain } from "../support/container-toolchains";
 import { buildContractWithWasiClang } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";

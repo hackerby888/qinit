@@ -1,6 +1,6 @@
 // Contract ABI format-string codec (qubic-cli compatible).
 //   types : uint8/16/32/64, sint8/16/32/64, id, bit ; struct { t, t } ; array [N; elem]
-import { bytesToIdentity, identityToBytes, roundUp } from "@qinit/core";
+import { bytesToIdentity, hexToBytes, identityToBytes, roundUp } from "@qinit/core";
 import {
   AbiScalarKind,
   AbiTypeKind,
@@ -463,14 +463,6 @@ export async function decodeOutput(
 }
 
 // ---------- input encode (value-driven, aligned, async for id) ----------
-function hexToBytes(hex: string): Uint8Array {
-  const h = hex.startsWith("0x") ? hex.slice(2) : hex;
-  if (h.length % 2 !== 0 || /[^0-9a-fA-F]/.test(h)) throw new Error(`invalid hex: '${hex}'`);
-  const out = new Uint8Array(h.length / 2);
-  for (let k = 0; k < out.length; k++) out[k] = parseInt(h.slice(k * 2, k * 2 + 2), 16);
-  return out;
-}
-
 async function encodeAbiType(
   view: DataView,
   offset: number,

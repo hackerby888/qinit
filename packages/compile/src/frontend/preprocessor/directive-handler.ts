@@ -2,7 +2,6 @@
 import type { PreprocessorInternals } from "./preprocessor-context";
 
 export function handleDirective(context: PreprocessorInternals): void {
-    const start = context.pos;
     context.pos++; // skip #
     // Skip whitespace after #
     context.skipWhitespace();

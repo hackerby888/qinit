@@ -4,7 +4,6 @@ import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, Funct
 import type { SemanticAnalyzer } from "../semantic-analyzer";
 import type { PlatformCapability } from "../shared/platform-capabilities";
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
-import type { ProgramAnalysisInternals } from "./program-analysis-context";
 import * as analysisPart0 from "./declaration-index";
 import * as analysisPart1 from "./constant-evaluator";
 import * as analysisPart2 from "./type-resolver";
@@ -25,8 +24,8 @@ export class ProgramAnalysis {
             size: number;
         }>;
     } = ASSET_ENUMERATION_RECORD;
-    private sema: SemanticAnalyzer;
-    private nested: Map<string, StructDecl> = new Map(); // contract-local nested structs
+    sema: SemanticAnalyzer;
+    nested: Map<string, StructDecl> = new Map(); // contract-local nested structs
     templates: Map<string, ClassTemplate> = new Map(); // qpi.h templates (HashMap, Array, ...)
     specializations: Map<string, {
         specArgs: TypeSpec[];
@@ -44,8 +43,8 @@ export class ProgramAnalysis {
     templateMethods: Map<string, Map<string, FunctionTemplateDecl>> = new Map(); // Class → method → out-of-class def
     compiledMethods: Map<string, CompiledMethod> = new Map(); // instantiation cache key → compiled method
     emittedMethodOrder: string[] = []; // emitted WAT, in emission order (appended to module)
-    private constCache: Map<string, bigint> = new Map();
-    private constInProgress = new Set<string>();
+    constCache: Map<string, bigint> = new Map();
+    constInProgress = new Set<string>();
     helpers: Map<string, CompiledHelperMetadata> = new Map(); // value helpers: toReturnCode(...) etc.
     helperOverloads: Map<string, CompiledHelperMetadata[]> = new Map(); // member value helpers, ALL overloads per name in declaration order; call sites rank by argument signature
     libFns: Map<string, FunctionDecl> = new Map(); // qpi.h namespace free functions (ProposalTypes::cls), keyed by qualified name; compiled lazily
@@ -56,7 +55,7 @@ export class ProgramAnalysis {
     privates: Map<string, PrivateFunctionMetadata> = new Map(); // PRIVATE_FUNCTION/PROCEDURE called via CALL()
     registered: Map<string, PrivateFunctionMetadata> = new Map(); // REGISTER_USER_* function/procedure, also reachable via CALL() (same entry shape)
     callees: Map<string, ResolvedCalleeIdl> = new Map(); // other contracts callable via CALL_OTHER/INVOKE_OTHER (by state-type name)
-    private layoutCache: Map<string, StructLayout> = new Map();
+    layoutCache: Map<string, StructLayout> = new Map();
     contractStateLayout: StructLayout = { size: 0, align: 1, fields: new Map() }; // the contract's StateData (a ContractState& param in any function resolves through it)
     slot = 0; // contract slot; oracle notification ids embed it ((slot << 22) | defLine)
     gtestMode = false; // test-runner module: enable qtest host intrinsics
@@ -69,13 +68,13 @@ export class ProgramAnalysis {
     }
     // ---- register declarations from the parsed TU into codegen lookup tables ----
     registerTopLevelDeclarations(declarations: Declaration[], nsPrefix = "", inheritedUsing: string[] = []): void {
-        return analysisPart0.registerTopLevelDeclarations(this as unknown as ProgramAnalysisInternals, declarations, nsPrefix, inheritedUsing);
+        return analysisPart0.registerTopLevelDeclarations(this, declarations, nsPrefix, inheritedUsing);
     }
-    private captureMemberNamespaceContexts(members: Declaration[], context: NamespaceLookupContext): void {
-        return analysisPart0.captureMemberNamespaceContexts(this as unknown as ProgramAnalysisInternals, members, context);
+    captureMemberNamespaceContexts(members: Declaration[], context: NamespaceLookupContext): void {
+        return analysisPart0.captureMemberNamespaceContexts(this, members, context);
     }
     namespaceContextOf(declaration?: object | null): NamespaceLookupContext {
-        return analysisPart0.namespaceContextOf(this as unknown as ProgramAnalysisInternals, declaration);
+        return analysisPart0.namespaceContextOf(this, declaration);
     }
     /**
      * Ordered lookup keys for a free helper / lib-fn call.
@@ -86,19 +85,19 @@ export class ProgramAnalysis {
      * First hit wins; no hardcoded QPI:: fallback.
      */
     namespaceCandidates(name: string, sourceNamespace?: string, usingNamespaces: string[] = []): string[] {
-        return analysisPart0.namespaceCandidates(this as unknown as ProgramAnalysisInternals, name, sourceNamespace, usingNamespaces);
+        return analysisPart0.namespaceCandidates(this, name, sourceNamespace, usingNamespaces);
     }
     // Collect named constexpr/const-with-initializer values and enum constants from a member list.
-    private collectConstants(members: Declaration[]): void {
-        return analysisPart0.collectConstants(this as unknown as ProgramAnalysisInternals, members);
+    collectConstants(members: Declaration[]): void {
+        return analysisPart0.collectConstants(this, members);
     }
-    private registerLibFnTemplate(key: string, fn: FunctionTemplateDecl): void {
-        return analysisPart0.registerLibFnTemplate(this as unknown as ProgramAnalysisInternals, key, fn);
+    registerLibFnTemplate(key: string, fn: FunctionTemplateDecl): void {
+        return analysisPart0.registerLibFnTemplate(this, key, fn);
     }
-    private collectConstant(variableDeclaration: VariableDecl): void {
-        return analysisPart0.collectConstant(this as unknown as ProgramAnalysisInternals, variableDeclaration);
+    collectConstant(variableDeclaration: VariableDecl): void {
+        return analysisPart0.collectConstant(this, variableDeclaration);
     }
-    private collectEnum(type: {
+    collectEnum(type: {
         name?: string;
         underlyingType?: TypeSpec;
         members: {
@@ -106,28 +105,28 @@ export class ProgramAnalysis {
             value?: Expression;
         }[];
     }): void {
-        return analysisPart0.collectEnum(this as unknown as ProgramAnalysisInternals, type);
+        return analysisPart0.collectEnum(this, type);
     }
     typeOfConstant(name: string): TypeSpec | null {
-        return analysisPart1.typeOfConstant(this as unknown as ProgramAnalysisInternals, name);
+        return analysisPart1.typeOfConstant(this, name);
     }
     scalarStorageType(type: TypeSpec): TypeSpec {
-        return analysisPart1.scalarStorageType(this as unknown as ProgramAnalysisInternals, type);
+        return analysisPart1.scalarStorageType(this, type);
     }
-    private normalizeConst(value: bigint, type: TypeSpec): bigint {
-        return analysisPart1.normalizeConst(this as unknown as ProgramAnalysisInternals, value, type);
+    normalizeConst(value: bigint, type: TypeSpec): bigint {
+        return analysisPart1.normalizeConst(this, value, type);
     }
     // Resolve a named constant (enum constant or constexpr) to its integer value, or null if unknown.
     resolveConst(name: string, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): bigint | null {
-        return analysisPart1.resolveConst(this as unknown as ProgramAnalysisInternals, name, templateBindings);
+        return analysisPart1.resolveConst(this, name, templateBindings);
     }
     // ---- struct sizing (binding-aware: template params resolve through `b`) ----
-    private sizeDepth = 0;
+    sizeDepth = 0;
     sizeOfType(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
-        return analysisPart2.sizeOfType(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+        return analysisPart2.sizeOfType(this, type, templateBindings);
     }
-    private sizeOfTypeInner(type: TypeSpec, templateBindings: TemplateBindings): number {
-        return analysisPart2.sizeOfTypeInner(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+    sizeOfTypeInner(type: TypeSpec, templateBindings: TemplateBindings): number {
+        return analysisPart2.sizeOfTypeInner(this, type, templateBindings);
     }
     // Resolve a dependent member type such as `Selector<args>::member`.
     resolveDependentMember(type: Extract<TypeSpec, {
@@ -136,216 +135,216 @@ export class ProgramAnalysis {
         type: TypeSpec;
         bindings: TemplateBindings;
     } | null {
-        return analysisPart2.resolveDependentMember(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+        return analysisPart2.resolveDependentMember(this, type, templateBindings);
     }
     // Select the matching template definition and bind its parameters.
-    private instantiateTemplate(name: string, callArguments: TypeSpec[], parent: TemplateBindings): {
+    instantiateTemplate(name: string, callArguments: TypeSpec[], parent: TemplateBindings): {
         templateDeclaration: ClassTemplate;
         b: TemplateBindings;
     } | null {
-        return analysisPart3.instantiateTemplate(this as unknown as ProgramAnalysisInternals, name, callArguments, parent);
+        return analysisPart3.instantiateTemplate(this, name, callArguments, parent);
     }
-    private matchTemplateSpecialization(name: string, resolvedArguments: TypeSpec[], parent: TemplateBindings): {
+    matchTemplateSpecialization(name: string, resolvedArguments: TypeSpec[], parent: TemplateBindings): {
         templateDeclaration: ClassTemplate;
         b: TemplateBindings;
     } | null {
-        return analysisPart3.matchTemplateSpecialization(this as unknown as ProgramAnalysisInternals, name, resolvedArguments, parent);
+        return analysisPart3.matchTemplateSpecialization(this, name, resolvedArguments, parent);
     }
-    private instantiateTemplateBindings(templateDeclaration: ClassTemplate, resolvedArguments: TypeSpec[], parent: TemplateBindings): TemplateBindings {
-        return analysisPart3.instantiateTemplateBindings(this as unknown as ProgramAnalysisInternals, templateDeclaration, resolvedArguments, parent);
+    instantiateTemplateBindings(templateDeclaration: ClassTemplate, resolvedArguments: TypeSpec[], parent: TemplateBindings): TemplateBindings {
+        return analysisPart3.instantiateTemplateBindings(this, templateDeclaration, resolvedArguments, parent);
     }
     // Add a template's static constexpr members to its bindings.
-    private withStaticConsts(templateDeclaration: ClassTemplate, templateBindings: TemplateBindings): TemplateBindings {
-        return analysisPart3.withStaticConsts(this as unknown as ProgramAnalysisInternals, templateDeclaration, templateBindings);
+    withStaticConsts(templateDeclaration: ClassTemplate, templateBindings: TemplateBindings): TemplateBindings {
+        return analysisPart3.withStaticConsts(this, templateDeclaration, templateBindings);
     }
     // Instantiate a template and compute its layout from concrete arguments.
-    private layoutOfTemplate(name: string, callArguments: TypeSpec[], parent: TemplateBindings): StructLayout {
-        return analysisPart3.layoutOfTemplate(this as unknown as ProgramAnalysisInternals, name, callArguments, parent);
+    layoutOfTemplate(name: string, callArguments: TypeSpec[], parent: TemplateBindings): StructLayout {
+        return analysisPart3.layoutOfTemplate(this, name, callArguments, parent);
     }
     // Add member structs to a child scope for sibling type references.
-    private withLocalStructs(members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
-        return analysisPart3.withLocalStructs(this as unknown as ProgramAnalysisInternals, members, templateBindings);
+    withLocalStructs(members: Declaration[], templateBindings: TemplateBindings): TemplateBindings {
+        return analysisPart3.withLocalStructs(this, members, templateBindings);
     }
     // Carry sibling nested structs and unions as inline types.
-    private inlineNestedStruct(type: TypeSpec, templateBindings: TemplateBindings): TypeSpec {
-        return analysisPart3.inlineNestedStruct(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+    inlineNestedStruct(type: TypeSpec, templateBindings: TemplateBindings): TypeSpec {
+        return analysisPart3.inlineNestedStruct(this, type, templateBindings);
     }
-    private fallbackTemplateLayout(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings): StructLayout {
-        return analysisPart3.fallbackTemplateLayout(this as unknown as ProgramAnalysisInternals, name, callArguments, templateBindings);
+    fallbackTemplateLayout(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings): StructLayout {
+        return analysisPart3.fallbackTemplateLayout(this, name, callArguments, templateBindings);
     }
     // Resolve template bindings and contract or QPI typedefs to concrete types.
     resolveType(type: TypeSpec, templateBindings: TemplateBindings, depth = 0): TypeSpec {
-        return analysisPart2.resolveType(this as unknown as ProgramAnalysisInternals, type, templateBindings, depth);
+        return analysisPart2.resolveType(this, type, templateBindings, depth);
     }
     // Resolve member types against their parent template instance.
     concreteMemberType(type: TypeSpec, parent: TypeSpec & {
         kind: AstKind.TEMPLATE_INSTANCE;
     }, depth = 0): TypeSpec {
-        return analysisPart2.concreteMemberType(this as unknown as ProgramAnalysisInternals, type, parent, depth);
+        return analysisPart2.concreteMemberType(this, type, parent, depth);
     }
-    private resolveInScope(type: TypeSpec, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
-        return analysisPart2.resolveInScope(this as unknown as ProgramAnalysisInternals, type, scope, nested, depth);
+    resolveInScope(type: TypeSpec, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
+        return analysisPart2.resolveInScope(this, type, scope, nested, depth);
     }
-    private resolveNamedTypeInScope(type: Extract<TypeSpec, {
+    resolveNamedTypeInScope(type: Extract<TypeSpec, {
         kind: AstKind.NAME;
     }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec {
-        return analysisPart2.resolveNamedTypeInScope(this as unknown as ProgramAnalysisInternals, type, scope, nested, depth);
+        return analysisPart2.resolveNamedTypeInScope(this, type, scope, nested, depth);
     }
-    private resolveTemplateInstanceArguments(type: Extract<TypeSpec, {
+    resolveTemplateInstanceArguments(type: Extract<TypeSpec, {
         kind: AstKind.TEMPLATE_INSTANCE;
     }>, scope: TemplateBindings, nested: Map<string, TypeSpec>, depth: number): TypeSpec[] {
-        return analysisPart2.resolveTemplateInstanceArguments(this as unknown as ProgramAnalysisInternals, type, scope, nested, depth);
+        return analysisPart2.resolveTemplateInstanceArguments(this, type, scope, nested, depth);
     }
     // Substitute concrete type and value bindings into a type.
     substInBindings(type: TypeSpec, bind: TemplateBindings): TypeSpec {
-        return analysisPart2.substInBindings(this as unknown as ProgramAnalysisInternals, type, bind);
+        return analysisPart2.substInBindings(this, type, bind);
     }
     // Public: recover the integer value of a (possibly value-) template arg, e.g. the `4` of Array<sint64,4>.
     valueOfTypeArg(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): bigint {
-        return analysisPart2.valueOfTypeArg(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+        return analysisPart2.valueOfTypeArg(this, type, templateBindings);
     }
-    private evalConstFromType(type: TypeSpec, templateBindings: TemplateBindings): bigint {
-        return analysisPart2.evalConstFromType(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+    evalConstFromType(type: TypeSpec, templateBindings: TemplateBindings): bigint {
+        return analysisPart2.evalConstFromType(this, type, templateBindings);
     }
     layoutOf(struct: StructDecl): StructLayout {
-        return analysisPart4.layoutOf(this as unknown as ProgramAnalysisInternals, struct);
+        return analysisPart4.layoutOf(this, struct);
     }
     // Collect a base class's leading fields and static constants.
-    private baseContribution(baseType: TypeSpec, parentB: TemplateBindings): {
+    baseContribution(baseType: TypeSpec, parentB: TemplateBindings): {
         layout: StructLayout;
         consts: Map<string, bigint>;
     } | null {
-        return analysisPart4.baseContribution(this as unknown as ProgramAnalysisInternals, baseType, parentB);
+        return analysisPart4.baseContribution(this, baseType, parentB);
     }
     // Evaluate a qualified static constexpr under the current bindings.
-    private evalQualifiedConst(typeName: string, member: string, templateBindings: TemplateBindings): bigint | null {
-        return analysisPart4.evalQualifiedConst(this as unknown as ProgramAnalysisInternals, typeName, member, templateBindings);
+    evalQualifiedConst(typeName: string, member: string, templateBindings: TemplateBindings): bigint | null {
+        return analysisPart4.evalQualifiedConst(this, typeName, member, templateBindings);
     }
     // Key layout caches by declaration identity, not a possibly shared name.
-    private structKeys = new WeakMap<StructDecl, string>();
-    private structKeyCounter = 0;
-    private structCacheKey(struct: StructDecl): string {
-        return analysisPart4.structCacheKey(this as unknown as ProgramAnalysisInternals, struct);
+    structKeys = new WeakMap<StructDecl, string>();
+    structKeyCounter = 0;
+    structCacheKey(struct: StructDecl): string {
+        return analysisPart4.structCacheKey(this, struct);
     }
-    private layoutOfStruct(struct: StructDecl, templateBindings: TemplateBindings): StructLayout {
-        return analysisPart4.layoutOfStruct(this as unknown as ProgramAnalysisInternals, struct, templateBindings);
+    layoutOfStruct(struct: StructDecl, templateBindings: TemplateBindings): StructLayout {
+        return analysisPart4.layoutOfStruct(this, struct, templateBindings);
     }
-    private inProgress = new Set<string>();
-    private bindingSig(templateBindings: TemplateBindings): string {
-        return analysisPart4.bindingSig(this as unknown as ProgramAnalysisInternals, templateBindings);
+    inProgress = new Set<string>();
+    bindingSig(templateBindings: TemplateBindings): string {
+        return analysisPart4.bindingSig(this, templateBindings);
     }
-    private layoutOfMembers(members: Declaration[], bIn: TemplateBindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {
-        return analysisPart4.layoutOfMembers(this as unknown as ProgramAnalysisInternals, members, bIn, cacheKey, isUnion, bases);
+    layoutOfMembers(members: Declaration[], bIn: TemplateBindings, cacheKey: string, isUnion = false, bases: TypeSpec[] = []): StructLayout {
+        return analysisPart4.layoutOfMembers(this, members, bIn, cacheKey, isUnion, bases);
     }
-    private alignOfTypeB(type: TypeSpec, templateBindings: TemplateBindings): number {
-        return analysisPart5.alignOfTypeB(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+    alignOfTypeB(type: TypeSpec, templateBindings: TemplateBindings): number {
+        return analysisPart5.alignOfTypeB(this, type, templateBindings);
     }
-    private alignOfNameType(typeName: string, templateBindings: TemplateBindings): number {
-        return analysisPart5.alignOfNameType(this as unknown as ProgramAnalysisInternals, typeName, templateBindings);
+    alignOfNameType(typeName: string, templateBindings: TemplateBindings): number {
+        return analysisPart5.alignOfNameType(this, typeName, templateBindings);
     }
-    private typeKey(type: TypeSpec): string {
-        return analysisPart2.typeKey(this as unknown as ProgramAnalysisInternals, type);
+    typeKey(type: TypeSpec): string {
+        return analysisPart2.typeKey(this, type);
     }
-    private alignDepth = 0;
-    private structAlign(members: Declaration[], templateBindings: TemplateBindings): number {
-        return analysisPart5.structAlign(this as unknown as ProgramAnalysisInternals, members, templateBindings);
+    alignDepth = 0;
+    structAlign(members: Declaration[], templateBindings: TemplateBindings): number {
+        return analysisPart5.structAlign(this, members, templateBindings);
     }
     // Evaluate a constant expression, resolving template non-type params (e.g. L) through `b.values`.
     evalConst(expression: Expression, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
-        return analysisPart1.evalConst(this as unknown as ProgramAnalysisInternals, expression, templateBindings);
+        return analysisPart1.evalConst(this, expression, templateBindings);
     }
     // Parse an integer literal token (hex/bin/octal/dec, with optional u/l/ull suffixes) to a bigint.
-    private parseIntLiteral(value: string): bigint {
-        return analysisPart1.parseIntLiteral(this as unknown as ProgramAnalysisInternals, value);
+    parseIntLiteral(value: string): bigint {
+        return analysisPart1.parseIntLiteral(this, value);
     }
     evalConstBig(expression: Expression, templateBindings: TemplateBindings): bigint {
-        return analysisPart1.evalConstBig(this as unknown as ProgramAnalysisInternals, expression, templateBindings);
+        return analysisPart1.evalConstBig(this, expression, templateBindings);
     }
-    private alignUp(count: number, argument: number): number {
-        return analysisPart5.alignUp(this as unknown as ProgramAnalysisInternals, count, argument);
+    alignUp(count: number, argument: number): number {
+        return analysisPart5.alignUp(this, count, argument);
     }
     // ---- collect nested structs ----
     collectNested(contract: StructDecl): void {
-        return analysisPart6.collectNested(this as unknown as ProgramAnalysisInternals, contract);
+        return analysisPart6.collectNested(this, contract);
     }
     // Register nested declarations from a callee contract translation unit under `${name}::`.
     registerCalleeContractDeclarations(name: string, declarations: Declaration[]): void {
-        return analysisPart6.registerCalleeContractDeclarations(this as unknown as ProgramAnalysisInternals, name, declarations);
+        return analysisPart6.registerCalleeContractDeclarations(this, name, declarations);
     }
     // Register nested-struct methods in the shared method table.
-    private captureStructMethods(structDeclaration: StructDecl, names: string[]): void {
-        return analysisPart6.captureStructMethods(this as unknown as ProgramAnalysisInternals, structDeclaration, names);
+    captureStructMethods(structDeclaration: StructDecl, names: string[]): void {
+        return analysisPart6.captureStructMethods(this, structDeclaration, names);
     }
-    private collectNestedStructs(parent: StructDecl, prefix: string): void {
-        return analysisPart6.collectNestedStructs(this as unknown as ProgramAnalysisInternals, parent, prefix);
+    collectNestedStructs(parent: StructDecl, prefix: string): void {
+        return analysisPart6.collectNestedStructs(this, parent, prefix);
     }
     // ---- type → layout / field resolution (used by body codegen for address computation) ----
     alignOfType(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {
-        return analysisPart5.alignOfType(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+        return analysisPart5.alignOfType(this, type, templateBindings);
     }
     // Resolve structs through binding, nested, and global tables.
     structByName(name: string, templateBindings: TemplateBindings): StructDecl | undefined {
-        return analysisPart6.structByName(this as unknown as ProgramAnalysisInternals, name, templateBindings);
+        return analysisPart6.structByName(this, name, templateBindings);
     }
     // Resolve qualified nested types through bindings, typedefs, and structs.
     qualifiedNestedType(name: string, templateBindings: TemplateBindings): TypeSpec | null {
-        return analysisPart6.qualifiedNestedType(this as unknown as ProgramAnalysisInternals, name, templateBindings);
+        return analysisPart6.qualifiedNestedType(this, name, templateBindings);
     }
-    private walkNestedSegments(sd: StructDecl | null, segs: string[], templateBindings: TemplateBindings): TypeSpec | null {
-        return analysisPart6.walkNestedSegments(this as unknown as ProgramAnalysisInternals, sd, segs, templateBindings);
+    walkNestedSegments(sd: StructDecl | null, segs: string[], templateBindings: TemplateBindings): TypeSpec | null {
+        return analysisPart6.walkNestedSegments(this, sd, segs, templateBindings);
     }
     // Strip const and reference wrappers to the underlying type.
     derefType(type: TypeSpec): TypeSpec {
-        return analysisPart2.derefType(this as unknown as ProgramAnalysisInternals, type);
+        return analysisPart2.derefType(this, type);
     }
     // True for a void return type. The parser spells void with both {kind:"void"} nodes and dedicated tokens.
     isVoidType(type: TypeSpec): boolean {
-        return analysisPart2.isVoidType(this as unknown as ProgramAnalysisInternals, type);
+        return analysisPart2.isVoidType(this, type);
     }
     // True if a type is an aggregate (id/m256i/struct/array/container) — passed/returned by address rather than as an i64 value.
     isAggregateType(type: TypeSpec): boolean {
-        return analysisPart2.isAggregateType(this as unknown as ProgramAnalysisInternals, type);
+        return analysisPart2.isAggregateType(this, type);
     }
     // Resolve a struct-ish type to its (cached) field layout, or null for scalars/containers.
     layoutOfType(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): StructLayout | null {
-        return analysisPart5.layoutOfType(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+        return analysisPart5.layoutOfType(this, type, templateBindings);
     }
     // Resolve a type to its StructDecl (for inline member-method lookup), following typedefs/bindings.
     structOf(type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): StructDecl | null {
-        return analysisPart6.structOf(this as unknown as ProgramAnalysisInternals, type, templateBindings);
+        return analysisPart6.structOf(this, type, templateBindings);
     }
     // Look up a field within a struct-ish type, returning its offset/size/type.
     fieldOf(type: TypeSpec, member: string, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): FieldLayout | null {
-        return analysisPart5.fieldOf(this as unknown as ProgramAnalysisInternals, type, member, templateBindings);
+        return analysisPart5.fieldOf(this, type, member, templateBindings);
     }
     // ---- public helpers for compiling instantiated container methods ----
     typeKeyOf(type: TypeSpec): string {
-        return analysisPart2.typeKeyOf(this as unknown as ProgramAnalysisInternals, type);
+        return analysisPart2.typeKeyOf(this, type);
     }
     // The full layout of a container instantiation (HashMap<id,uint64,1024> → _elements/_occupationFlags/...).
     containerLayout(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): StructLayout {
-        return analysisPart8.containerLayout(this as unknown as ProgramAnalysisInternals, name, callArguments, templateBindings);
+        return analysisPart8.containerLayout(this, name, callArguments, templateBindings);
     }
     // template params → concrete args (KeyT→id, L→1024), including authoritative defaults such as
     // HashFunc = HashFunction<KeyT>.
     bindContainer(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): TemplateBindings {
-        return analysisPart3.bindContainer(this as unknown as ProgramAnalysisInternals, name, callArguments, templateBindings);
+        return analysisPart3.bindContainer(this, name, callArguments, templateBindings);
     }
     // Evaluate the container's static constexpr members (e.g. _nEncodedFlags = L>32?32:L) under bindings.
     staticConstsOf(name: string, templateBindings: TemplateBindings): Map<string, bigint> {
-        return analysisPart3.staticConstsOf(this as unknown as ProgramAnalysisInternals, name, templateBindings);
+        return analysisPart3.staticConstsOf(this, name, templateBindings);
     }
     evalConstNum(expression: Expression, templateBindings: TemplateBindings): number {
-        return analysisPart1.evalConstNum(this as unknown as ProgramAnalysisInternals, expression, templateBindings);
+        return analysisPart1.evalConstNum(this, expression, templateBindings);
     }
-    private methodOwnerNames(name: string, seen = new Set<string>()): string[] {
-        return analysisPart7.methodOwnerNames(this as unknown as ProgramAnalysisInternals, name, seen);
+    methodOwnerNames(name: string, seen = new Set<string>()): string[] {
+        return analysisPart7.methodOwnerNames(this, name, seen);
     }
-    private baseTemplateName(type: TypeSpec): string | null {
-        return analysisPart7.baseTemplateName(this as unknown as ProgramAnalysisInternals, type);
+    baseTemplateName(type: TypeSpec): string | null {
+        return analysisPart7.baseTemplateName(this, type);
     }
     hasInstanceMethod(name: string, methodName: string): boolean {
-        return analysisPart7.hasInstanceMethod(this as unknown as ProgramAnalysisInternals, name, methodName);
+        return analysisPart7.hasInstanceMethod(this, name, methodName);
     }
     resolveSourceMethodDefinition(
         ownerTypeName: string,
@@ -355,7 +354,7 @@ export class ProgramAnalysis {
         parameterTypeDiscriminator?: string,
     ): ResolvedSourceMethod | null {
         return analysisPart7.resolveSourceMethodDefinition(
-            this as unknown as ProgramAnalysisInternals,
+            this,
             ownerTypeName,
             ownerTemplateArguments,
             methodName,
@@ -363,51 +362,51 @@ export class ProgramAnalysis {
             parameterTypeDiscriminator,
         );
     }
-    private buildMethodSpecializationKey(
+    buildMethodSpecializationKey(
         methodName: string,
         methodArgumentCount: number | undefined,
         ownerTemplateArguments: TypeSpec[],
         ownerBindings: TemplateBindings,
     ): string | undefined {
         return analysisPart7.buildMethodSpecializationKey(
-            this as unknown as ProgramAnalysisInternals,
+            this,
             methodName,
             methodArgumentCount,
             ownerTemplateArguments,
             ownerBindings,
         );
     }
-    private buildMethodOverloadKey(
+    buildMethodOverloadKey(
         methodName: string,
         methodArgumentCount: number | undefined,
         parameterTypeDiscriminator: string | undefined,
     ): string | undefined {
         return analysisPart7.buildMethodOverloadKey(
-            this as unknown as ProgramAnalysisInternals,
+            this,
             methodName,
             methodArgumentCount,
             parameterTypeDiscriminator,
         );
     }
     // Read hash-container offsets from the parsed qpi.h layout.
-    private hashContainerOffsets(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings, capacity: number): {
+    hashContainerOffsets(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings, capacity: number): {
         elemSize: number;
         occBase: number;
         popOff: number;
         totalSize: number;
     } | null {
-        return analysisPart8.hashContainerOffsets(this as unknown as ProgramAnalysisInternals, name, callArguments, templateBindings, capacity);
+        return analysisPart8.hashContainerOffsets(this, name, callArguments, templateBindings, capacity);
     }
     // Compute HashMap offsets using standard C field layout.
     hashmapInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): ContainerLayoutMetadata | null {
-        return analysisPart8.hashmapInfo(this as unknown as ProgramAnalysisInternals, callArguments, templateBindings);
+        return analysisPart8.hashmapInfo(this, callArguments, templateBindings);
     }
     // HashSet<K,L>: keys-only — same probing/occupancy as HashMap with a zero-width value.
     hashsetInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): ContainerLayoutMetadata | null {
-        return analysisPart8.hashsetInfo(this as unknown as ProgramAnalysisInternals, callArguments, templateBindings);
+        return analysisPart8.hashsetInfo(this, callArguments, templateBindings);
     }
     arrayInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): ContainerLayoutMetadata | null {
-        return analysisPart8.arrayInfo(this as unknown as ProgramAnalysisInternals, callArguments, templateBindings);
+        return analysisPart8.arrayInfo(this, callArguments, templateBindings);
     }
     // Read Collection backing-store geometry from its parsed layout.
     collectionInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): {
@@ -417,7 +416,7 @@ export class ProgramAnalysis {
         valueOff: number;
         elemType: TypeSpec;
     } | null {
-        return analysisPart8.collectionInfo(this as unknown as ProgramAnalysisInternals, callArguments, templateBindings);
+        return analysisPart8.collectionInfo(this, callArguments, templateBindings);
     }
     // Read LinkedList backing-store geometry from its parsed node layout.
     linkedListInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): {
@@ -427,13 +426,13 @@ export class ProgramAnalysis {
         valueOff: number;
         elemType: TypeSpec;
     } | null {
-        return analysisPart8.linkedListInfo(this as unknown as ProgramAnalysisInternals, callArguments, templateBindings);
+        return analysisPart8.linkedListInfo(this, callArguments, templateBindings);
     }
     warn(message: string, at: number | Span): void {
-        return analysisPart9.warn(this as unknown as ProgramAnalysisInternals, message, at);
+        return analysisPart9.warn(this, message, at);
     }
     // Deduplicate hard semantic errors raised during speculative emission.
     error(message: string, at: number | Span): void {
-        return analysisPart9.error(this as unknown as ProgramAnalysisInternals, message, at);
+        return analysisPart9.error(this, message, at);
     }
 }

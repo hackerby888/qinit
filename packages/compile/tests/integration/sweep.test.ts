@@ -2,7 +2,7 @@ import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 // Measures parse, Wasm, engine-load, and state-size coverage across the corpus.
 import { test, expect, beforeAll } from "bun:test";
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { systemContracts } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";

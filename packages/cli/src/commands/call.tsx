@@ -25,7 +25,6 @@ import {
 import { extractIdl } from "@qinit/build";
 import {
   describeTrace,
-  jstr,
   fmtVal,
   type DecodedTrace,
 } from "../trace-format";
@@ -232,8 +231,8 @@ function CallOneShot({ o, rpcBaseUrl }: { o: Record<string, string>; rpcBaseUrl:
             err: await enrichErr(ne),
           });
         } else {
-          const ti: any = await rpc.tickInfo();
-          const tick = (ti.tick ?? ti.currentTick ?? 0) + TX_TICK_OFFSET;
+          const tickInfo = await rpc.tickInfo();
+          const tick = tickInfo.tick + TX_TICK_OFFSET;
           const settle = o["no-settle"] === undefined; // default: wait until the proc actually ran; --no-settle to skip
           const r = await invokeProcedure({
             seed: await resolveSeed(rpc, o.seed),

@@ -36,6 +36,17 @@ export const SYSTEM_PROCEDURES = Object.freeze(
   ),
 ) as Readonly<Record<(typeof WASM_ABI_METADATA.systemProcedures)[number]["name"], number>>;
 
+export const SYSTEM_PROCEDURE_COUNT = WASM_ABI_METADATA.systemProcedures.length;
+
+/** Entry-point identifiers that follow the system-procedure range in core-lite. */
+export const CONTRACT_ENTRY_POINTS = Object.freeze({
+  userProcedure: SYSTEM_PROCEDURE_COUNT + 1,
+  userFunction: SYSTEM_PROCEDURE_COUNT + 2,
+  registerUserFunctionsAndProcedures: SYSTEM_PROCEDURE_COUNT + 3,
+  userProcedureNotification: SYSTEM_PROCEDURE_COUNT + 4,
+  migrateProcedure: SYSTEM_PROCEDURE_COUNT + 5,
+});
+
 /** Contract-visible record written by lhost.assetEnumerate. */
 const assetEntry = WASM_ABI_METADATA.records.AssetEntry;
 export const ASSET_ENUMERATION_RECORD = Object.freeze({
