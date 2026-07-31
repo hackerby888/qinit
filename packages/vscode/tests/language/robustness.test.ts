@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { analyzeContract } from "@qinit/compile/analyzer";
+import { analyzeContract } from "@qinit/compiler/analyzer";
 import { generateClangdConfig, deriveName } from "../../src/clangd-config";
 
 const ADVERSARIAL = [

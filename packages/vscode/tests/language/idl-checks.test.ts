@@ -5,7 +5,7 @@ import {
   analyzeContract,
   SourceAnalysisOrigin,
   type SourceAnalysisDiagnostic,
-} from "@qinit/compile/analyzer";
+} from "@qinit/compiler/analyzer";
 
 const idlCodes = new Set([
   "qpi/dup-fn-index",

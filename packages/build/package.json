@@ -11,7 +11,7 @@
     "./idl": "./src/idl.ts"
   },
   "dependencies": {
-    "@qinit/compile": "workspace:*",
+    "@qinit/compiler": "workspace:*",
     "@qinit/core": "workspace:*",
     "@qinit/proto": "workspace:*"
   }

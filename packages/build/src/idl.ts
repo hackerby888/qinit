@@ -1,4 +1,4 @@
-import { analyzeContract } from "@qinit/compile/analyzer";
+import { analyzeContract } from "@qinit/compiler/analyzer";
 
 export {
   QINIT_IDL_VERSION,

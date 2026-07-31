@@ -3,7 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { resolve, join, basename } from "node:path";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { extractIdl, generateClient, testRuntimeSource } from "@qinit/build";
-import { loadQpiHeader } from "@qinit/compile";
+import { loadQpiHeader } from "@qinit/compiler";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCoreDir } from "../config";
 import { Header, Panel, KV, theme } from "../ui";

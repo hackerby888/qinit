@@ -10,7 +10,7 @@ import {
   DiagnosticSeverity,
   loadQpiHeader,
   type ContractIdl,
-} from "@qinit/compile";
+} from "@qinit/compiler";
 import { initK12 } from "@qinit/core";
 import type { CompilerBackend } from "./config";
 

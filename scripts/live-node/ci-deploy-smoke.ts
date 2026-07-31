@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { deployContract } from "../../packages/cli/src/deploy-ops";
 import { callFunction, invokeProcedure, decodeLog } from "../../packages/proto/src/index";
 import { extractIdl } from "../../packages/build/src/index";
-import { loadQpiHeader } from "../../packages/compile/src/index";
+import { loadQpiHeader } from "../../packages/compiler/src/index";
 import {
   DEFAULT_RPC_BASE,
   LiteRpc,

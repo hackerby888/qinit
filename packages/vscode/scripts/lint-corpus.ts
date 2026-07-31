@@ -5,7 +5,7 @@ import {
   DiagnosticSeverity,
   SourceAnalysisOrigin,
   type SourceAnalysisDiagnostic,
-} from "@qinit/compile/analyzer";
+} from "@qinit/compiler/analyzer";
 import { resolveCoreDir } from "@qinit/core/project";
 
 const DENY = new Set([

@@ -1,5 +1,5 @@
 {
-  "name": "@qinit/compile",
+  "name": "@qinit/compiler",
   "version": "0.1.0",
   "private": true,
   "description": "QPI contract compiler — TypeScript C++ subset → WASM, shared between browser IDE and qinit CLI",

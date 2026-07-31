@@ -6,7 +6,7 @@ import {
   type ContractBuildResult,
   type ContractIdl,
 } from "@qinit/build";
-import { loadQpiHeader } from "@qinit/compile";
+import { loadQpiHeader } from "@qinit/compiler";
 import {
   buildSignedTx,
   LiteRpc,

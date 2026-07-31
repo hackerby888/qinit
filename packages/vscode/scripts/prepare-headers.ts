@@ -36,7 +36,7 @@ const repositories = JSON.parse(
 };
 const snapshotManifest = JSON.parse(
   readFileSync(
-    join(repositoryRoot, "packages", "compile", "core-snapshot.json"),
+    join(repositoryRoot, "packages", "compiler", "core-snapshot.json"),
     "utf8",
   ),
 ) as { coreCommit: string };

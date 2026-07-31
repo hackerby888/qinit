@@ -33,7 +33,7 @@ Qinit does not use Clang internally. It directly compiles a restricted C++/QPI s
 
 ## Example input
 
-This example comes from [`edge-audit-idl.test.ts`](../packages/compile/tests/edge/edge-audit-idl.test.ts):
+This example comes from [`edge-audit-idl.test.ts`](../packages/compiler/tests/edge/edge-audit-idl.test.ts):
 
 ```cpp
 using namespace QPI;
@@ -141,7 +141,7 @@ the resulting contract metadata is:
 
 ## 1. Public compiler entrypoint
 
-The public function in [`index.ts`](../packages/compile/src/index.ts) is:
+The public function in [`index.ts`](../packages/compiler/src/index.ts) is:
 
 ```ts
 export async function compileContract(opts: CompileOptions): Promise<CompileResult> {
@@ -184,7 +184,7 @@ Qinit must know core-lite's:
 assembleQpiHeader(corePath);
 ```
 
-See [`compiler/header.ts`](../packages/compile/src/compiler/header.ts) and [`qpi-snapshot.ts`](../packages/compile/src/qpi-snapshot.ts).
+See [`compiler/header.ts`](../packages/compiler/src/compiler/header.ts) and [`qpi-snapshot.ts`](../packages/compiler/src/qpi-snapshot.ts).
 
 ### 2.1 Why core-lite contains no JSON
 

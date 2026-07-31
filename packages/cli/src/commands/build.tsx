@@ -12,7 +12,7 @@ import {
   type VerifyUpdate,
 } from "@qinit/core";
 import { buildContractWithTypeScript } from "../build-contract-with-typescript";
-import { loadQpiHeader } from "@qinit/compile";
+import { loadQpiHeader } from "@qinit/compiler";
 import {
   loadConfig,
   resolveCoreDir,

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import wabtInit from "../../../compile/node_modules/wabt";
+import wabtInit from "../../../compiler/node_modules/wabt";
 import { SYSTEM_PROCEDURES } from "@qinit/core";
 import { CONTRACT_ENTRY_KIND } from "../../src/runtime";
 import { QubicSimulator } from "../../src/qubic-simulator";

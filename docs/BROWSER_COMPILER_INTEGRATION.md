@@ -9,10 +9,10 @@ import {
   compileContract,
   compilerInfo,
   qpiSnapshot,
-} from "@qinit/compile/browser";
+} from "@qinit/compiler/browser";
 ```
 
-The entry embeds `packages/compile/src/generated/qpi-snapshot.ts`; it does not
+The entry embeds `packages/compiler/src/generated/qpi-snapshot.ts`; it does not
 read files, spawn a compiler, or require a core-lite checkout at runtime.
 `compileContract()` accepts an optional `qpiHeader` only for compatibility tests
 and compiler development.
@@ -23,12 +23,12 @@ generator version, and compiler protocol version used by the bundle.
 ## Snapshot ownership
 
 `config/repositories.json` selects the core source used by compatibility CI.
-`packages/compile/core-snapshot.json` records the snapshot's source commit,
+`packages/compiler/core-snapshot.json` records the snapshot's source commit,
 generator version, and expected hash. Qinit's snapshot generator is the only
 supported way to update the generated module:
 
 ```bash
-bun packages/compile/tools/gen-qpi-snapshot.ts \
+bun packages/compiler/tools/gen-qpi-snapshot.ts \
   --core-dir /path/to/core-lite \
   --verify
 ```
@@ -44,8 +44,8 @@ Use Bun 1.3.14:
 bun install
 (cd packages/core && bun run build)
 (cd packages/proto && bun run build)
-(cd packages/compile && bun run build)
-bun packages/compile/tools/ci-browser-smoke.ts
+(cd packages/compiler && bun run build)
+bun packages/compiler/tools/ci-browser-smoke.ts
 ```
 
 The compile build emits ESM entry files under `dist/`. Browser compilation does

@@ -6,7 +6,7 @@ import {
   type SourceAnalysisDiagnostic,
   type SourceAnalysisResult,
   type SourceFix,
-} from "@qinit/compile/analyzer";
+} from "@qinit/compiler/analyzer";
 import {
   configuredContractIdentity,
   isContractDoc,

@@ -1,5 +1,5 @@
-import type { CompileResult, ContractIdl } from "../packages/compile/src/browser";
-import { compileContract } from "../packages/compile/src/browser";
+import type { CompileResult, ContractIdl } from "../packages/compiler/src/browser";
+import { compileContract } from "../packages/compiler/src/browser";
 import API_PROBE_SOURCE from "../fixtures/ApiProbe.h" with { type: "text" };
 import COUNTER_SOURCE from "../fixtures/Counter.h" with { type: "text" };
 import COUNTER_V2_SOURCE from "../fixtures/CounterV2.h" with { type: "text" };

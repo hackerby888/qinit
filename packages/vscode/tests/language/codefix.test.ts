@@ -4,7 +4,7 @@ import {
   SourceAnalysisOrigin,
   type SourceEdit,
   type SourceFix,
-} from "@qinit/compile/analyzer";
+} from "@qinit/compiler/analyzer";
 
 function fixFor(source: string, code: string): SourceFix | null {
   const diagnostic = analyzeContract({ source }).diagnostics.find(

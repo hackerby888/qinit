@@ -16,7 +16,7 @@ import {
   DiagnosticSeverity,
   inspectWasmModule,
   loadQpiHeader,
-} from "../../packages/compile/src/index";
+} from "../../packages/compiler/src/index";
 import {
   DEFAULT_RPC_BASE,
   hexToBytes,

@@ -1,6 +1,6 @@
 import { DiagnosticSeverity } from "../../src/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
-// PIT (post incoming transfer) flow for @qinit/compile tests.
+// PIT (post incoming transfer) flow for @qinit/compiler tests.
 import { describe, test, expect, beforeAll } from "bun:test";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";

@@ -5,8 +5,8 @@ import {
   analyzeContract,
   DiagnosticSeverity,
   type AnalyzeContractOptions,
-} from "@qinit/compile/analyzer";
-import { loadQpiHeader } from "@qinit/compile";
+} from "@qinit/compiler/analyzer";
+import { loadQpiHeader } from "@qinit/compiler";
 
 export interface CalleeDef {
   type: string;

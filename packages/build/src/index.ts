@@ -16,8 +16,8 @@ import { buildCalleePrelude } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
 import { systemContracts } from "./system-contracts";
 import { k12Hex } from "@qinit/core";
-import { analyzeContract } from "@qinit/compile/analyzer";
-import { loadQpiHeader } from "@qinit/compile";
+import { analyzeContract } from "@qinit/compiler/analyzer";
+import { loadQpiHeader } from "@qinit/compiler";
 
 export type { ContractBuildOptions } from "./recipe";
 export { generateWasmWrapperSource } from "./recipe";

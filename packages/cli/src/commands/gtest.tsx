@@ -10,7 +10,7 @@ import {
   resolveCoreDir,
 } from "../config";
 import { genStdGtest, extractIdl } from "@qinit/build";
-import { loadQpiHeader } from "@qinit/compile";
+import { loadQpiHeader } from "@qinit/compiler";
 import type { TestResult } from "@qinit/engine";
 import { runCorpus, runStdGtest } from "../corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";

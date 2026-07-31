@@ -8,7 +8,7 @@ import {
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { assertSeed, loadConfig, resolveCoreDir } from "@qinit/core";
-import { loadQpiHeader } from "@qinit/compile";
+import { loadQpiHeader } from "@qinit/compiler";
 import { invalidArgs } from "./args";
 
 export { loadConfig, resolveCoreDir };

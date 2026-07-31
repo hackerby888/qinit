@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import wabtInit from "../../../compile/node_modules/wabt";
+import wabtInit from "../../../compiler/node_modules/wabt";
 import { WASM_ABI_VERSION } from "@qinit/core";
 import { encodeDeploy, LITE_TX } from "@qinit/proto";
 import { VirtualNode } from "../../src/transport";

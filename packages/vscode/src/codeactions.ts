@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { SourceFix } from "@qinit/compile/analyzer";
+import type { SourceFix } from "@qinit/compiler/analyzer";
 import type { QpiDiagnostics } from "./diagnostics";
 import { isContractDoc } from "./project-util";
 

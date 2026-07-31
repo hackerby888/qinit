@@ -23,7 +23,7 @@ import {
   formatTrapBacktrace,
 } from "@qinit/core";
 import { testRuntimeSource, sampleTest, generateClient, extractIdl } from "@qinit/build";
-import { loadQpiHeader } from "@qinit/compile";
+import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { loadContractIdlFile } from "../idl-file";

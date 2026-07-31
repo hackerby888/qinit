@@ -14,7 +14,7 @@ import {
   DiagnosticSeverity,
   inspectWasmModule,
   loadQpiHeader,
-} from "../../packages/compile/src/index";
+} from "../../packages/compiler/src/index";
 import { QubicSimulator } from "../../packages/engine/src/index";
 import { deployContract } from "../../packages/cli/src/deploy-ops";
 import { invokeProcedure, resolveDeploymentSlot } from "../../packages/proto/src/index";

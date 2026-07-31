@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@qinit/build": "workspace:*",
-    "@qinit/compile": "workspace:*",
+    "@qinit/compiler": "workspace:*",
     "@qinit/core": "workspace:*",
     "@types/mocha": "^10.0.7",
     "@types/node": "^20.14.0",

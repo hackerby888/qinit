@@ -90,7 +90,7 @@ jobs:
       - name: Verify generated core ABI
         run: bun packages/core/tools/gen-wasm-abi.ts --check
       - name: Verify bundled browser snapshot
-        run: bun packages/compile/tools/gen-qpi-snapshot.ts --verify --check
+        run: bun packages/compiler/tools/gen-qpi-snapshot.ts --verify --check
       - name: Typecheck
         run: bunx tsc --noEmit -p tsconfig.json
       - name: Typecheck VS Code extension
@@ -114,11 +114,11 @@ jobs:
         run: |
           (cd packages/core && bun run build)
           (cd packages/proto && bun run build)
-          (cd packages/compile && bun run build)
+          (cd packages/compiler && bun run build)
           (cd packages/engine && bun run build)
-          test -f packages/compile/dist/browser.d.ts
+          test -f packages/compiler/dist/browser.d.ts
       - name: Smoke browser compiler bundle
-        run: bun packages/compile/tools/ci-browser-smoke.ts
+        run: bun packages/compiler/tools/ci-browser-smoke.ts
       - name: Import each dist under plain Node
         run: |
           node --input-type=module -e '
@@ -338,7 +338,7 @@ jobs:
           mkdir -p wasi-sdk && tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components=1
 
       - name: Native differential and exact-artifact WAMR parity
-        run: bun test packages/compile/tests/differential/container-parity.test.ts
+        run: bun test packages/compiler/tests/differential/container-parity.test.ts
 
   deploy-smoke:
     needs: resolve-core
@@ -480,7 +480,7 @@ jobs:
         shell: bash
         run: |
           echo "repository=$(jq -r .coreLite.repository config/repositories.json)" >> "$GITHUB_OUTPUT"
-          echo "commit=$(jq -r .coreCommit packages/compile/core-snapshot.json)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(jq -r .coreCommit packages/compiler/core-snapshot.json)" >> "$GITHUB_OUTPUT"
       - name: Checkout pinned core-lite
         uses: actions/checkout@v4
         with:
@@ -531,7 +531,7 @@ jobs:
         id: core
         run: |
           echo "repository=$(jq -r .coreLite.repository config/repositories.json)" >> "$GITHUB_OUTPUT"
-          echo "commit=$(jq -r .coreCommit packages/compile/core-snapshot.json)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(jq -r .coreCommit packages/compiler/core-snapshot.json)" >> "$GITHUB_OUTPUT"
       - name: Checkout pinned core-lite
         uses: actions/checkout@v4
         with:

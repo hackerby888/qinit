@@ -13,7 +13,7 @@
       "name": "@qinit/build",
       "version": "0.0.0",
       "dependencies": {
-        "@qinit/compile": "workspace:*",
+        "@qinit/compiler": "workspace:*",
         "@qinit/core": "workspace:*",
         "@qinit/proto": "workspace:*",
       },
@@ -23,7 +23,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@qinit/build": "workspace:*",
-        "@qinit/compile": "workspace:*",
+        "@qinit/compiler": "workspace:*",
         "@qinit/core": "workspace:*",
         "@qinit/engine": "workspace:*",
         "@qinit/proto": "workspace:*",
@@ -35,8 +35,8 @@
         "@types/react": "^18.3.12",
       },
     },
-    "packages/compile": {
-      "name": "@qinit/compile",
+    "packages/compiler": {
+      "name": "@qinit/compiler",
       "version": "0.1.0",
       "dependencies": {
         "@qinit/proto": "workspace:*",
@@ -77,7 +77,7 @@
       "version": "0.1.0",
       "devDependencies": {
         "@qinit/build": "workspace:*",
-        "@qinit/compile": "workspace:*",
+        "@qinit/compiler": "workspace:*",
         "@qinit/core": "workspace:*",
         "@types/mocha": "^10.0.7",
         "@types/node": "^20.14.0",
@@ -199,7 +199,7 @@
 
     "@qinit/cli": ["@qinit/cli@workspace:packages/cli"],
 
-    "@qinit/compile": ["@qinit/compile@workspace:packages/compile"],
+    "@qinit/compiler": ["@qinit/compiler@workspace:packages/compiler"],
 
     "@qinit/core": ["@qinit/core@workspace:packages/core"],
 

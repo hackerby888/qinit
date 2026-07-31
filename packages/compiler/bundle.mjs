@@ -1,4 +1,4 @@
-// Build @qinit/compile to dist/ with Bun's bundler. Browser+Node safe.
+// Build @qinit/compiler to dist/ with Bun's bundler. Browser+Node safe.
 // @qinit/core is aliased to its node-free browser entry.
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";

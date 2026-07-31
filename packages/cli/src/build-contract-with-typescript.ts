@@ -1,4 +1,4 @@
-// Build a contract .h -> wasm with the in-process TS compiler (@qinit/compile) — no clang, no toolchain.
+// Build a contract .h -> wasm with the in-process TS compiler (@qinit/compiler) — no clang, no toolchain.
 // Shared by build, deploy, dev, and test when the TypeScript compiler is selected.
 import { readFileSync, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -7,11 +7,11 @@ import {
   DiagnosticSeverity,
   loadQpiHeader,
   type ContractIdl,
-} from "@qinit/compile";
+} from "@qinit/compiler";
 import {
   analyzeContract,
   type SourceAnalysisResult,
-} from "@qinit/compile/analyzer";
+} from "@qinit/compiler/analyzer";
 import type { ContractBuildResult } from "@qinit/build";
 
 export type TypeScriptContractBuildResult = ContractBuildResult;

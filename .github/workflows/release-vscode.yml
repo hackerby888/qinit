@@ -27,7 +27,7 @@ jobs:
         id: core
         run: |
           echo "repository=$(jq -r .coreLite.repository config/repositories.json)" >> "$GITHUB_OUTPUT"
-          echo "commit=$(jq -r .coreCommit packages/compile/core-snapshot.json)" >> "$GITHUB_OUTPUT"
+          echo "commit=$(jq -r .coreCommit packages/compiler/core-snapshot.json)" >> "$GITHUB_OUTPUT"
 
       - name: Checkout pinned core-lite
         uses: actions/checkout@v4

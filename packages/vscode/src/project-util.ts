@@ -6,7 +6,7 @@ import {
   detectContractName,
   Lexer,
   TokenKind,
-} from "@qinit/compile/analyzer";
+} from "@qinit/compiler/analyzer";
 
 export const QINIT_JSON = "qinit.json";
 

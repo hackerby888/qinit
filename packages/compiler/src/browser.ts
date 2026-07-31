@@ -1,4 +1,4 @@
-// Browser entry for @qinit/compile.
+// Browser entry for @qinit/compiler.
 import type { CompileOptions, CompileResult, GtestCompileResult } from "./compiler/types";
 import { compileContract as compileWithHeader, compileGtest as compileGtestWithHeader } from "./compiler/pipeline";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "./generated/qpi-snapshot";

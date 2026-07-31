@@ -6,7 +6,7 @@ import {
   DiagnosticSeverity,
   SourceAnalysisOrigin,
   type SourceAnalysisDiagnostic,
-} from "@qinit/compile/analyzer";
+} from "@qinit/compiler/analyzer";
 
 const separateRules = new Set([
   "qpi/stack-local",
