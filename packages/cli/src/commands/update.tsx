@@ -10,7 +10,7 @@ import {
 } from "@qinit/core";
 import { VERSION } from "../version";
 import { Header, Status, Spinner, Bar, theme } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 type S = {
   phase: "run" | "done" | "uptodate" | "dev" | "dry" | "err";
@@ -21,10 +21,9 @@ type S = {
   err?: string;
 };
 
-export function Update({ args }: { args: string[] }) {
-  const { flags: o } = parseCommandArgs("self-update", args);
-  const force = o.force !== undefined,
-    dry = o["dry-run"] !== undefined;
+export function Update({ commandArgs }: { commandArgs: CommandArguments }) {
+  const force = commandArgs.has("force"),
+    dry = commandArgs.has("dry-run");
   const { exit } = useApp();
   const [s, setS] = useState<S>({ phase: "run" });
   const [pct, setPct] = useState<number | null>(null);

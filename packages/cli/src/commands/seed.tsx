@@ -3,13 +3,12 @@ import { Box, Text, useApp, useInput } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc, deriveIdentity } from "@qinit/core";
 import { savedSeed, setSavedSeed, clearSavedSeed, seedStorePath, loadConfig } from "../config";
 import { Header, Spinner, GradLine, theme } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 type Item = { seed: string; id: string };
 
-export function Seed({ args }: { args: string[] }) {
-  const { flags: o } = parseCommandArgs("seed", args);
-  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
+  const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [items, setItems] = useState<Item[]>([]);
   const [i, setI] = useState(0);
@@ -30,13 +29,13 @@ export function Seed({ args }: { args: string[] }) {
   useEffect(() => {
     (async () => {
       try {
-        if (o.clear !== undefined) {
+        if (commandArgs.has("clear")) {
           clearSavedSeed();
           add("cleared saved seed (" + seedStorePath() + ")");
           setPhase("done");
           return;
         }
-        if (o.show !== undefined) {
+        if (commandArgs.has("show")) {
           const s = savedSeed();
           add(
             s

@@ -51,20 +51,9 @@ export function optionSyntax(option: OptionMeta): string {
   return `--${option.name}${option.valueLabel ? ` ${option.valueLabel}` : ""}`;
 }
 
-export function commandOptions(command: string, subcommand?: string): OptionMeta[] {
-  const meta = META[command];
-  if (!meta) {
-    return [];
-  }
-  return [
-    ...(meta.options ?? []),
-    ...(subcommand ? (meta.subcommands?.[subcommand]?.options ?? []) : []),
-  ];
-}
-
 export const GROUP_ORDER = ["setup & node", "develop", "deploy & interact", "misc"];
 
-export const META: Record<string, CommandMeta> = {
+const commandMeta = {
   setup: {
     group: "setup & node",
     summary: "download the core headers, node binary, WASI SDK, and contract verifier",
@@ -88,8 +77,7 @@ export const META: Record<string, CommandMeta> = {
     json: true,
     summary:
       "bring up + manage the dev node: run (sync headers+wasm, get node, launch), status, stop, get",
-    usage:
-      "<run|status|stop|get> [--ref <tag>] [--core-dir <path>] [--restart] [--offline] [--node-bin <path>]",
+    usage: "<run|status|stop|get> [--ref <tag>] [--rpc <url>]",
     options: [
       stringOption("ref", "<tag>", "node/headers release to use (default: latest)"),
       stringOption("rpc", "<url>", "node RPC base"),
@@ -123,6 +111,9 @@ export const META: Record<string, CommandMeta> = {
           booleanOption("keep", "preserve existing scratch-directory contents before launch"),
         ],
       },
+      status: { options: [] },
+      stop: { options: [] },
+      get: { options: [] },
     },
   },
   tick: {
@@ -395,7 +386,25 @@ export const META: Record<string, CommandMeta> = {
   smoke: { group: "misc", summary: "run the standalone-binary crypto smoke test" },
   version: { group: "misc", json: true, summary: "print version" },
   help: { group: "misc", summary: "show this help" },
-};
+} satisfies Record<string, CommandMeta>;
+
+export type CommandName = keyof typeof commandMeta;
+export const META: Record<CommandName, CommandMeta> = commandMeta;
+
+export function isCommandName(command: string): command is CommandName {
+  return Object.prototype.hasOwnProperty.call(META, command);
+}
+
+export function commandOptions(
+  command: CommandName,
+  subcommand?: string,
+): OptionMeta[] {
+  const meta: CommandMeta = META[command];
+  return [
+    ...(meta.options ?? []),
+    ...(subcommand ? (meta.subcommands?.[subcommand]?.options ?? []) : []),
+  ];
+}
 
 // Canonical command names (for routing checks + did-you-mean). Aliases (cheat, -v, ...) handled in the router.
-export const COMMANDS = Object.keys(META);
+export const COMMANDS = Object.keys(META) as CommandName[];

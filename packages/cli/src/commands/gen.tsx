@@ -7,29 +7,33 @@ import { loadQpiHeader } from "@qinit/compiler";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCoreDir } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 type State =
   | { ok: true; file: string; name: string; slot: number; fns: number; procs: number }
   | { ok: false; err: string }
   | null;
 
-export function Gen({ args }: { args: string[] }) {
+export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseCommandArgs("gen", args);
   const [s, setS] = useState<State>(null);
 
   useEffect(() => {
     try {
       const cfg = loadConfig();
-      const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
+      const contractPath = resolve(
+        commandArgs.get("contract") ??
+          commandArgs.positionals[0] ??
+          cfg.contract ??
+          "fixtures/Counter.h",
+      );
       const name =
-        o["contract-name"] ??
+        commandArgs.get("contract-name") ??
         cfg.contractName ??
         basename(contractPath).replace(/\.[^.]+$/, "");
-      const core = resolveCoreDir(o["core-dir"], cfg.coreDir);
+      const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
       const defaultSlot = loadCoreWasmSlotLayout(core).slotBase;
-      const slot = Number(o.slot ?? cfg.slot ?? defaultSlot);
+      const slot = Number(commandArgs.get("slot") ?? cfg.slot ?? defaultSlot);
       const idl = extractIdl(readFileSync(contractPath, "utf8"), name, {
         slot,
         qpiHeader: loadQpiHeader(core),
@@ -37,7 +41,7 @@ export function Gen({ args }: { args: string[] }) {
       // Emit a SELF-CONTAINED client: the client pulls LiteRpc/codec from a sibling runtime.ts (only needs the
       // public @qubic-lib), not from the unpublished @qinit/* monorepo packages — so the output works outside it.
       const ts = generateClient(idl, slot, { runtimeImport: "./runtime" });
-      const outDir = resolve(o.out ?? "dist/clients");
+      const outDir = resolve(commandArgs.get("out") ?? "dist/clients");
       mkdirSync(outDir, { recursive: true });
       writeFileSync(join(outDir, "runtime.ts"), testRuntimeSource);
       const file = join(outDir, `${name}.ts`);

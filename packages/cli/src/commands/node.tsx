@@ -3,7 +3,7 @@ import { Box, useApp } from "ink";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
 import { killNode, nodeAlive, fetchNodeBinary, nodeStatus } from "../node-ops";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 const dlLabel = (recv: number, total: number) =>
   total
     ? `downloading node ${(recv / 1e6).toFixed(0)}/${(total / 1e6).toFixed(0)} MB`
@@ -14,11 +14,16 @@ type State =
   | { phase: "run"; spin: string }
   | { phase: "done"; title: string; color: string; lines: Line[]; rows?: [string, string][] };
 
-export function Node({ args }: { args: string[] }) {
+export function Node({
+  commandArgs,
+  subcommand,
+}: {
+  commandArgs: CommandArguments;
+  subcommand?: string;
+}) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseCommandArgs("node", args);
-  const sub = pos[0] ?? "status";
-  const rpcBaseUrl = o.rpc || DEFAULT_RPC_BASE;
+  const sub = subcommand ?? commandArgs.positionals[0] ?? "status";
+  const rpcBaseUrl = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
   const [s, setS] = useState<State>({ phase: "run", spin: sub });
 
   useEffect(() => {
@@ -81,8 +86,9 @@ export function Node({ args }: { args: string[] }) {
         }
 
         if (sub === "get") {
-          setS({ phase: "run", spin: `fetching node ${o.ref || "latest"}` });
-          const { nodeBinaryPath, version } = await fetchNodeBinary(o.ref || "latest", (rc, tt) =>
+          const ref = commandArgs.get("ref") || "latest";
+          setS({ phase: "run", spin: `fetching node ${ref}` });
+          const { nodeBinaryPath, version } = await fetchNodeBinary(ref, (rc, tt) =>
             setS({ phase: "run", spin: dlLabel(rc, tt) }),
           );
           add(`node ${version} cached`, true);

@@ -5,13 +5,12 @@ import { Box, Text, useApp } from "ink";
 import { verifyContract, type VerifyResult } from "@qinit/build";
 import { loadConfig } from "../config";
 import { Header, Panel, Status, theme, termCols } from "../ui";
-import { output, parseCommandArgs } from "../args";
+import { output, type CommandArguments } from "../args";
 import { parseCallees } from "../callees";
 
-export function Verify({ args }: { args: string[] }) {
+export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const { flags: o, pos, multi } = parseCommandArgs("verify", args);
-  const dynCallees = parseCallees(multi.callee);
+  const dynCallees = parseCallees(commandArgs.getAll("callee"));
   const [r, setR] = useState<VerifyResult | null>(null);
   const [err, setErr] = useState("");
 
@@ -19,14 +18,15 @@ export function Verify({ args }: { args: string[] }) {
     (async () => {
       try {
         const cfg = loadConfig();
-        const cpath = o.contract ?? pos[0] ?? cfg.contract;
+        const cpath =
+          commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract;
         if (!cpath)
           throw new Error(
             "no contract: pass `qinit verify <file.h>` (or set contract in qinit.json)",
           );
         const file = resolve(cpath);
         const name =
-          o["contract-name"] ??
+          commandArgs.get("contract-name") ??
           cfg.contractName ??
           basename(file).replace(/\.[^.]+$/, "");
         // Declared inter-contract callees (--callee + CALL/INVOKE_OTHER_CONTRACT) — their scope-resolution

@@ -28,7 +28,7 @@ test("node run --core-dir --node-bin bypasses the release manifest", async () =>
   };
 
   const result = await prepareNodeRunCore(
-    { "core-dir": core, "node-bin": "/tmp/Qubic" },
+    { coreDir: core, nodeBinary: "/tmp/Qubic" },
     false,
     {
       loadManifest: unexpected as NodeRunCoreDeps["loadManifest"],
@@ -51,7 +51,7 @@ test("node run --core-dir --node-bin bypasses the release manifest", async () =>
 test("node run --core-dir accepts the simulator without --node-bin", async () => {
   const core = coreCheckout();
   const result = await prepareNodeRunCore(
-    { "core-dir": core },
+    { coreDir: core },
     true,
     { updateCurrent: (value) => value },
   );
@@ -62,7 +62,7 @@ test("node run --core-dir accepts the simulator without --node-bin", async () =>
 test("node run rejects --core-dir with --ref", async () => {
   await expect(
     prepareNodeRunCore(
-      { "core-dir": coreCheckout(), ref: "qinit-v1", "node-bin": "/tmp/Qubic" },
+      { coreDir: coreCheckout(), ref: "qinit-v1", nodeBinary: "/tmp/Qubic" },
       false,
     ),
   ).rejects.toThrow("--core-dir cannot be combined with --ref");
@@ -70,12 +70,12 @@ test("node run rejects --core-dir with --ref", async () => {
 
 test("node run rejects --core-dir without a path", async () => {
   await expect(
-    prepareNodeRunCore({ "core-dir": "", "node-bin": "/tmp/Qubic" }, false),
+    prepareNodeRunCore({ coreDir: "", nodeBinary: "/tmp/Qubic" }, false),
   ).rejects.toThrow("--core-dir requires a path");
 });
 
 test("the core backend with --core-dir requires --node-bin", async () => {
-  await expect(prepareNodeRunCore({ "core-dir": coreCheckout() }, false)).rejects.toThrow(
+  await expect(prepareNodeRunCore({ coreDir: coreCheckout() }, false)).rejects.toThrow(
     "requires --node-bin <path>",
   );
 });
@@ -85,9 +85,9 @@ test("node run reports missing and malformed --core-dir paths", async () => {
   temporary.push(malformed);
 
   await expect(
-    prepareNodeRunCore({ "core-dir": join(malformed, "missing") }, true),
+    prepareNodeRunCore({ coreDir: join(malformed, "missing") }, true),
   ).rejects.toThrow("--core-dir not found");
-  await expect(prepareNodeRunCore({ "core-dir": malformed }, true)).rejects.toThrow(
+  await expect(prepareNodeRunCore({ coreDir: malformed }, true)).rejects.toThrow(
     "missing src/qpi/qpi.h",
   );
 });
@@ -153,7 +153,7 @@ test("offline and simulator manifest-fallback paths reuse cached headers", async
   const current = { headersVersion: "cached-v1", coreHeaders: "/cache/core" };
   const common = { readCurrent: () => current, existsSync: () => true };
 
-  const offline = await prepareNodeRunCore({ offline: "1" }, false, common);
+  const offline = await prepareNodeRunCore({ offline: true }, false, common);
   expect(offline.detail).toBe("reuse cached-v1");
 
   const simulator = await prepareNodeRunCore({}, true, {

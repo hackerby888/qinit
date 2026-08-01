@@ -4,13 +4,12 @@ import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { advanceTo } from "./tick";
 import { Header, Spinner, Bar, KV, theme } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
-export function Epoch({ args }: { args: string[] }) {
-  const parsed = parseCommandArgs("epoch", args);
+export function Epoch({ commandArgs }: { commandArgs: CommandArguments }) {
   const o = {
-    rpc: parsed.get("rpc"),
-    sub: parsed.pos[0] ?? "",
+    rpc: commandArgs.get("rpc"),
+    sub: commandArgs.positionals[0] ?? "",
   };
   const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();

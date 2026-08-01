@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { savedTheme, setSavedTheme } from "../config";
 import { Header, Grad, GradLine, THEMES, THEME_NAMES, applyTheme, theme } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 function Swatch({ name }: { name: string }) {
   const selectedTheme = THEMES[name];
@@ -27,11 +27,10 @@ function Swatch({ name }: { name: string }) {
   );
 }
 
-export function ThemeCmd({ args }: { args: string[] }) {
-  const parsed = parseCommandArgs("theme", args);
+export function ThemeCmd({ commandArgs }: { commandArgs: CommandArguments }) {
   const o = {
-    name: parsed.pos[0],
-    show: parsed.has("show"),
+    name: commandArgs.positionals[0],
+    show: commandArgs.has("show"),
   };
   const { exit } = useApp();
   const cur = savedTheme() && THEMES[savedTheme()!] ? savedTheme()! : "default";

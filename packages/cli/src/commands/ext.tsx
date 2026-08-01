@@ -3,7 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { Header, Panel, KV, theme } from "../ui";
-import { output, parseCommandArgs } from "../args";
+import { output, type CommandArguments } from "../args";
 
 const EXTENSION_ID = "qinit.qpi-vscode";
 const EDITORS = ["code", "cursor", "windsurf", "codium"];
@@ -15,10 +15,11 @@ interface Result {
   note?: string;
 }
 
-export function Ext({ args }: { args: string[] }) {
+export function Ext({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseCommandArgs("ext", args);
-  const sub = pos[0] ?? "";
+  const sub = commandArgs.positionals[0] ?? "";
+  const editor = commandArgs.get("editor");
+  const vsix = commandArgs.get("vsix");
   const [r, setR] = useState<Result | null>(null);
 
   useEffect(() => {
@@ -33,7 +34,7 @@ export function Ext({ args }: { args: string[] }) {
         });
         return;
       }
-      const editorCmd = o.editor || EDITORS.find((e) => Bun.which(e)) || "";
+      const editorCmd = editor || EDITORS.find((e) => Bun.which(e)) || "";
       const editorPath = (editorCmd && Bun.which(editorCmd)) || editorCmd;
       if (!editorCmd || !editorPath) {
         setR({
@@ -44,8 +45,8 @@ export function Ext({ args }: { args: string[] }) {
         });
         return;
       }
-      const target = o.vsix ? resolve(o.vsix) : EXTENSION_ID;
-      if (o.vsix && !existsSync(target)) {
+      const target = vsix ? resolve(vsix) : EXTENSION_ID;
+      if (vsix && !existsSync(target)) {
         setR({ ok: false, title: "vsix not found", rows: [["path", target]] });
         return;
       }
@@ -61,7 +62,7 @@ export function Ext({ args }: { args: string[] }) {
         title: ok ? "extension installed" : "install failed",
         rows: [
           ["editor", editorCmd],
-          ["source", o.vsix ? target : `marketplace (${EXTENSION_ID})`],
+          ["source", vsix ? target : `marketplace (${EXTENSION_ID})`],
         ],
         note: ok
           ? "Open a QPI contract header to start using IntelliSense and diagnostics."

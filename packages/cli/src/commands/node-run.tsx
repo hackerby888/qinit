@@ -22,18 +22,20 @@ import {
 } from "../node-ops";
 import { loadConfig, resolveNodeBackend } from "../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../ui";
-import { parseCommandArgs, output } from "../args";
+import { output, type CommandArguments } from "../args";
 import { prepareNodeRunCore } from "../node-run-core";
 
 type Phase = { key: string; label: string; state: StepState; detail?: string };
 
-export function NodeRun({ args }: { args: string[] }) {
+export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const { flags: o } = parseCommandArgs("node", args, "run");
-  const rpcBaseUrl = o.rpc || DEFAULT_RPC_BASE;
-  const peerPort = Number(o["peer-port"] || DEFAULT_PEER_PORT);
-  const ref = o.ref || "latest";
-  const useSimulator = resolveNodeBackend(o) === "simulator";
+  const rpcBaseUrl = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
+  const peerPort = Number(commandArgs.get("peer-port") || DEFAULT_PEER_PORT);
+  const ref = commandArgs.get("ref") || "latest";
+  const nodeBinaryOverride = commandArgs.get("node-bin");
+  const offline = commandArgs.has("offline");
+  const useSimulator =
+    resolveNodeBackend(commandArgs.get("node-backend")) === "simulator";
   const [steps, setSteps] = useState<Phase[]>([
     { key: "headers", label: "core headers", state: "pending" },
     { key: "node", label: "node binary", state: "pending" },
@@ -56,7 +58,15 @@ export function NodeRun({ args }: { args: string[] }) {
       try {
         // An explicit core checkout bypasses the release manifest.
         set("headers", "active");
-        const preparedCore = await prepareNodeRunCore(o, useSimulator);
+        const preparedCore = await prepareNodeRunCore(
+          {
+            coreDir: commandArgs.get("core-dir"),
+            nodeBinary: nodeBinaryOverride,
+            ref: commandArgs.get("ref"),
+            offline,
+          },
+          useSimulator,
+        );
         const { version, coreHeaders: currentHeaders } = preparedCore;
         set("headers", "ok", preparedCore.detail);
         const slotLayout = useSimulator ? loadCoreWasmSlotLayout(currentHeaders) : undefined;
@@ -70,13 +80,13 @@ export function NodeRun({ args }: { args: string[] }) {
         let nodeBinary = "";
         if (useSimulator) {
           set("node", "ok", "simulator — no binary");
-        } else if (o["node-bin"]) {
-          nodeBinary = resolve(o["node-bin"]);
+        } else if (nodeBinaryOverride) {
+          nodeBinary = resolve(nodeBinaryOverride);
           if (!existsSync(nodeBinary)) {
             throw new Error(`--node-bin not found: ${nodeBinary}`);
           }
           set("node", "ok", `local ${nodeBinary}`);
-        } else if ("offline" in o) {
+        } else if (offline) {
           const c = cachedNode();
           if (!c) throw new Error("offline: no cached node — run `qinit node run` online first");
           nodeBinary = c;
@@ -90,7 +100,7 @@ export function NodeRun({ args }: { args: string[] }) {
         // native deps. Best-effort — WASM_CLANG/WASI_SYSROOT or a clang on PATH still work.
         set("wasi-sdk", "active");
         try {
-          if ("offline" in o)
+          if (offline)
             set("wasi-sdk", "ok", haveWasiSdkCache() ? "cached" : "offline — skipped");
           else {
             const s = await fetchWasiSdk((rc, tt) =>
@@ -112,7 +122,7 @@ export function NodeRun({ args }: { args: string[] }) {
         let scratch = "",
           ok: boolean,
           tick: number;
-        if (st.up && st.ticking && !("restart" in o)) {
+        if (st.up && st.ticking && !commandArgs.has("restart")) {
           ok = true;
           tick = st.tick;
           set("run", "ok", `reused, ticking at ${tick}`);
@@ -122,24 +132,29 @@ export function NodeRun({ args }: { args: string[] }) {
           await killNode();
           const launched = useSimulator
             ? launchSimulatorNode({
-                scratchDirectory: o["scratch-dir"],
+                scratchDirectory: commandArgs.get("scratch-dir"),
                 rpcBaseUrl: rpcBaseUrl,
                 peerPort,
-                preserveScratchContents: o.keep !== undefined,
-                tickMs: o["tick-ms"] !== undefined ? Number(o["tick-ms"]) : undefined,
+                preserveScratchContents: commandArgs.has("keep"),
+                tickMs: commandArgs.has("tick-ms")
+                  ? Number(commandArgs.get("tick-ms"))
+                  : undefined,
                 system: loadConfig().system,
                 slotBase: slotLayout!.slotBase,
                 slotCount: slotLayout!.slotCount,
               })
             : launchNode({
                 nodeBinary,
-                scratchDirectory: o["scratch-dir"],
-                nodeMode: o["node-mode"],
-                peers: o.peers,
-                preserveScratchContents: o.keep !== undefined,
+                scratchDirectory: commandArgs.get("scratch-dir"),
+                nodeMode: commandArgs.get("node-mode"),
+                peers: commandArgs.get("peers"),
+                preserveScratchContents: commandArgs.has("keep"),
               });
           scratch = launched.scratch;
-          const w = await waitTicking(rpcBaseUrl, Number(o.wait || 90));
+          const w = await waitTicking(
+            rpcBaseUrl,
+            Number(commandArgs.get("wait") || 90),
+          );
           ok = w.ticking;
           tick = w.tick;
           if (w.ticking) {

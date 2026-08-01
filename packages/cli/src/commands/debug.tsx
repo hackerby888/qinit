@@ -16,7 +16,7 @@ import { activeNodeScratchDir } from "../node-ops";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
 import { contractIdlForSlot, loadContractIdlFile } from "../idl-file";
 import { Header, Table, Spinner, theme, type Column } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const LIST_COLS: Column[] = [
@@ -27,10 +27,9 @@ const LIST_COLS: Column[] = [
   { header: "exec", align: "right", max: 8, dim: true },
 ];
 
-export function Debug({ args }: { args: string[] }) {
-  const { flags: o, pos } = parseCommandArgs("debug", args);
-  const target = o.contract ?? pos[0];
-  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
+  const target = commandArgs.get("contract") ?? commandArgs.positionals[0];
+  const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const rpc = useRef(new LiteRpc(rpcBaseUrl)).current;
   const [qpiHeader] = useState(() => {

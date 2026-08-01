@@ -3,7 +3,7 @@ import { Box, Text, useApp } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { Header, Spinner, Bar, KV, theme } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 // qinit tick                     -> show the current-epoch tick window
 // qinit tick advance <n>         -> advance the chain by n ticks (capped at the epoch's last tick)
@@ -30,12 +30,11 @@ export async function advanceTo(
   return { cur, capped };
 }
 
-export function Tick({ args }: { args: string[] }) {
-  const parsed = parseCommandArgs("tick", args);
+export function Tick({ commandArgs }: { commandArgs: CommandArguments }) {
   const o = {
-    rpc: parsed.get("rpc"),
-    sub: parsed.pos[0] ?? "",
-    arg: parsed.pos[1] ?? "",
+    rpc: commandArgs.get("rpc"),
+    sub: commandArgs.positionals[0] ?? "",
+    arg: commandArgs.positionals[1] ?? "",
   };
   const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();

@@ -4,6 +4,7 @@ import {
   setSavedCompilerBackend,
   type CompilerBackend,
 } from "../config";
+import type { CommandArguments } from "../args";
 import { BackendPicker } from "./backend-picker";
 
 const DESC: Record<CompilerBackend, string> = {
@@ -11,10 +12,10 @@ const DESC: Record<CompilerBackend, string> = {
   typescript: "in-process TypeScript compiler (no toolchain; instant)",
 };
 
-export function CompilerCmd({ args }: { args: string[] }) {
+export function CompilerCmd({ commandArgs }: { commandArgs: CommandArguments }) {
   return (
     <BackendPicker
-      args={args}
+      commandArgs={commandArgs}
       command="compiler"
       label="compiler"
       backends={COMPILER_BACKENDS}

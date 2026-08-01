@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 import { GradLine, Header, theme } from "../ui";
 
 export function BackendPicker<Backend extends string>({
-  args,
+  commandArgs,
   command,
   label,
   backends,
@@ -13,7 +13,7 @@ export function BackendPicker<Backend extends string>({
   width,
   save,
 }: {
-  args: string[];
+  commandArgs: CommandArguments;
   command: "compiler" | "node-backend";
   label: string;
   backends: readonly Backend[];
@@ -22,9 +22,8 @@ export function BackendPicker<Backend extends string>({
   width: number;
   save: (backend: Backend) => void;
 }) {
-  const parsed = parseCommandArgs(command, args);
-  const requested = parsed.pos[0];
-  const show = parsed.has("show");
+  const requested = commandArgs.positionals[0];
+  const show = commandArgs.has("show");
   const { exit } = useApp();
   const [selection, setSelection] = useState(
     Math.max(0, backends.indexOf(current)),

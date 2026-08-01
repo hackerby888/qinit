@@ -27,7 +27,7 @@ import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { DEFAULT_IDL_PATH, loadContractIdlFile } from "../idl-file";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const STEP_LABEL: Record<string, string> = {
@@ -62,22 +62,27 @@ type State =
   | { phase: "testing"; lines: Line[] }
   | { phase: "done"; lines: Line[]; ok: boolean; output: string; rows: [string, string][] };
 
-export function Test({ args }: { args: string[] }) {
+export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseCommandArgs("test", args);
   const cfg = loadConfig();
   const root = process.cwd();
-  const rpcBaseUrl = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+  const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
   const contractPath = resolve(
-    o.contract ??
-      pos[0] ??
+    commandArgs.get("contract") ??
+      commandArgs.positionals[0] ??
       cfg.contract ??
       "contracts/" + (cfg.contractName ?? "") + ".h",
   );
   const contractName =
-    o["contract-name"] ??
+    commandArgs.get("contract-name") ??
     cfg.contractName ??
     basename(contractPath).replace(/\.[^.]+$/, "");
+  const requestedCompiler = commandArgs.get("compiler");
+  const seed = commandArgs.get("seed");
+  const filter = commandArgs.get("filter");
+  const timeout = commandArgs.get("timeout") || "60000";
+  const skipVerify = commandArgs.has("skip-verify");
+  const keepNode = commandArgs.has("keep-node");
   const [s, setS] = useState<State>({ phase: "setup", spin: "starting", lines: [] });
 
   useEffect(() => {
@@ -98,14 +103,15 @@ export function Test({ args }: { args: string[] }) {
           setS({ phase: "done", lines, ok: false, output: "", rows: [] });
           return;
         }
-        const core = resolveCoreDir(o["core-dir"], cfg.coreDir);
+        const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
         if (!existsSync(contractPath)) {
           add("contract", false, contractPath + " not found");
           setS({ phase: "done", lines, ok: false, output: "", rows: [] });
           return;
         }
 
-        const useSimulator = resolveNodeBackend(o) === "simulator";
+        const useSimulator =
+          resolveNodeBackend(commandArgs.get("node-backend")) === "simulator";
         if (useSimulator) {
           spin("starting in-process simulator");
           engineSrv = new EngineServer();
@@ -117,14 +123,19 @@ export function Test({ args }: { args: string[] }) {
             spin("starting core node");
             // Prefer the latest release node; fall back to a cached one only offline (don't silently
             // run a stale pinned version against newer tooling).
-            let nodeBinary = o["node-bin"] ? resolve(o["node-bin"]) : "";
+            const requestedNodeBinary = commandArgs.get("node-bin");
+            let nodeBinary = requestedNodeBinary ? resolve(requestedNodeBinary) : "";
             let nodeNote = "";
             if (!nodeBinary) {
               spin("resolving node");
-              const r = await ensureNodeBinary(o.ref || "latest", (rc, tt) =>
-                spin(
-                  tt ? `node ${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB` : `node ${(rc / 1e6) | 0} MB`,
-                ),
+              const r = await ensureNodeBinary(
+                commandArgs.get("ref") || "latest",
+                (rc, tt) =>
+                  spin(
+                    tt
+                      ? `node ${(rc / 1e6) | 0}/${(tt / 1e6) | 0} MB`
+                      : `node ${(rc / 1e6) | 0} MB`,
+                  ),
               );
               nodeBinary = r.nodeBinaryPath;
               if (r.stale) nodeNote = ` · cached ${r.version} (offline)`;
@@ -132,12 +143,12 @@ export function Test({ args }: { args: string[] }) {
             await killNode();
             launchNode({
               nodeBinary,
-              nodeMode: o["node-mode"],
-              peers: o.peers,
+              nodeMode: commandArgs.get("node-mode"),
+              peers: commandArgs.get("peers"),
             });
             ownNode = true;
             spin("waiting for ticking");
-            const w = await waitTicking(activeRpc, Number(o.wait || 60));
+            const w = await waitTicking(activeRpc, Number(commandArgs.get("wait") || 60));
             if (!w.ticking) {
               add("node", false, w.exited ? "exited early — see log" : "not ticking");
               setS({ phase: "done", lines, ok: false, output: "", rows: [] });
@@ -164,9 +175,9 @@ export function Test({ args }: { args: string[] }) {
               name: callee.name,
               core,
               rpcBaseUrl: activeRpc,
-              seed: o.seed,
-              skipVerify: "skip-verify" in o,
-              compiler: resolveCompilerBackend(o),
+              seed,
+              skipVerify,
+              compiler: resolveCompilerBackend(requestedCompiler),
             },
             () => {},
           );
@@ -186,9 +197,9 @@ export function Test({ args }: { args: string[] }) {
             name: contractName,
             core,
             rpcBaseUrl: activeRpc,
-            seed: o.seed,
-            skipVerify: "skip-verify" in o,
-            compiler: resolveCompilerBackend(o),
+            seed,
+            skipVerify,
+            compiler: resolveCompilerBackend(requestedCompiler),
           },
           (e: DeploymentEvent) => {
             if ("note" in e) return;
@@ -259,12 +270,12 @@ export function Test({ args }: { args: string[] }) {
         }
         add("deps", true, "@qubic-lib/qubic-ts-library");
 
-        const seed = o.seed || (await new LiteRpc(activeRpc).fundedSeed()) || "a".repeat(55);
+        const testSeed = seed || (await new LiteRpc(activeRpc).fundedSeed()) || "a".repeat(55);
         setS({ phase: "testing", lines: [...lines] });
         const env = {
           ...process.env,
           QINIT_RPC: activeRpc,
-          QINIT_SEED: seed,
+          QINIT_SEED: testSeed,
           QINIT_CONTRACT: String(dep.slot),
         };
         // generous per-test timeout — procedures wait ~tick offset (settle), well past bun's 5s default.
@@ -272,8 +283,8 @@ export function Test({ args }: { args: string[] }) {
           "test",
           existsSync(testsDir) ? "tests" : ".",
           "--timeout",
-          o.timeout || "60000",
-          ...(o.filter ? ["-t", o.filter] : []),
+          timeout,
+          ...(filter ? ["-t", filter] : []),
         ];
         const p = Bun.spawn(["bun", ...bunArgs], {
           cwd: root,
@@ -318,7 +329,7 @@ export function Test({ args }: { args: string[] }) {
               engineSrv
                 ? "simulator"
                 : ownNode
-                  ? o["keep-node"] === undefined
+                  ? !keepNode
                     ? "launched for test (stopped)"
                     : "launched for test (kept)"
                   : "reused",
@@ -330,7 +341,7 @@ export function Test({ args }: { args: string[] }) {
         setS({ phase: "done", lines, ok: false, output: "", rows: [] });
       } finally {
         try {
-          if (ownNode && o["keep-node"] === undefined) {
+          if (ownNode && !keepNode) {
             await killNode();
           }
         } catch {}

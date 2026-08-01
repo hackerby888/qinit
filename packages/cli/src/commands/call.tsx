@@ -38,7 +38,7 @@ import {
 import { loadContracts, resolveContract } from "../contracts";
 import { contractIdlForSlot, loadContractIdlFile } from "../idl-file";
 import { Header, Spinner, Status, Bar, theme } from "../ui";
-import { invalidArgs, parseCommandArgs } from "../args";
+import { invalidArgs, type CommandArguments } from "../args";
 
 type Result = {
   ok: boolean | null;
@@ -49,38 +49,62 @@ type Result = {
 };
 type Trace = { e: DebugEntry; name: string; view: DecodedTrace };
 type Confirm = { start: number; net: number; target: number };
+type CallMode = "fn" | "proc";
 
 // Non-interactive forms (qubic-cli style):
 //   qinit call --fn   <idx> <functionId>   --in "<fmt>" --out "<fmt>"
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export function Call({ args }: { args: string[] }) {
-  const parsed = parseCommandArgs("call", args);
-  const fn = parsed.has("fn");
-  const proc = parsed.has("proc");
+export function Call({ commandArgs }: { commandArgs: CommandArguments }) {
+  const fn = commandArgs.has("fn");
+  const proc = commandArgs.has("proc");
   if (fn && proc) {
     invalidArgs("choose either --fn or --proc");
   }
 
   const mode = fn ? "fn" : proc ? "proc" : undefined;
-  if (mode && (!parsed.pos[0] || !parsed.pos[1])) {
+  const contract = commandArgs.positionals[0];
+  const entryName = commandArgs.positionals[1];
+  if (mode && (!contract || !entryName)) {
     invalidArgs(`${mode} requires <contract> and <entry>`);
   }
-
-  const o: Record<string, string> = {
-    ...parsed.flags,
-    ...(mode
-      ? { mode, idx: parsed.pos[0], entry: parsed.pos[1] }
-      : {}),
-  };
-  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
-  if (o.mode !== "fn" && o.mode !== "proc")
-    return <CallInteractive rpcBaseUrl={rpcBaseUrl} seed={o.seed} />;
-  return <CallOneShot o={o} rpcBaseUrl={rpcBaseUrl} />;
+  const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
+  if (!mode) {
+    return <CallInteractive rpcBaseUrl={rpcBaseUrl} seed={commandArgs.get("seed")} />;
+  }
+  return (
+    <CallOneShot
+      commandArgs={commandArgs}
+      mode={mode}
+      contract={contract!}
+      entryName={entryName!}
+      rpcBaseUrl={rpcBaseUrl}
+    />
+  );
 }
 
-function CallOneShot({ o, rpcBaseUrl }: { o: Record<string, string>; rpcBaseUrl: string }) {
+function CallOneShot({
+  commandArgs,
+  mode,
+  contract,
+  entryName,
+  rpcBaseUrl,
+}: {
+  commandArgs: CommandArguments;
+  mode: CallMode;
+  contract: string;
+  entryName: string;
+  rpcBaseUrl: string;
+}) {
   const { exit } = useApp();
+  const inputJson = commandArgs.get("args");
+  const inputFormat = commandArgs.get("in");
+  const outputFormat = commandArgs.get("out");
+  const showAll = commandArgs.has("all");
+  const wantTrace = commandArgs.has("trace");
+  const settle = !commandArgs.has("no-settle");
+  const seed = commandArgs.get("seed");
+  const amount = commandArgs.get("amount");
   const [result, setResult] = useState<Result | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -95,10 +119,10 @@ function CallOneShot({ o, rpcBaseUrl }: { o: Record<string, string>; rpcBaseUrl:
 
         // contract: resolve a name or index across user-deployed (first) then built-in system contracts.
         const sets = await loadContracts(rpc);
-        const rc = resolveContract(String(o.idx), sets);
+        const rc = resolveContract(contract, sets);
         if (!rc)
           throw new Error(
-            `no contract '${o.idx}' (deployed or system — run \`qinit node run\` to load system contracts)`,
+            `no contract '${contract}' (deployed or system — run \`qinit node run\` to load system contracts)`,
           );
         const idx = rc.index;
         // entry: accept a fn/proc name or an inputType number. Prefer local qinit.idl.json, else derive from the
@@ -109,50 +133,50 @@ function CallOneShot({ o, rpcBaseUrl }: { o: Record<string, string>; rpcBaseUrl:
           rc.codeHash,
         );
         let contractIdl = localContractIdl;
-        let entries = o.mode === "fn" ? contractIdl?.functions : contractIdl?.procedures;
+        let entries = mode === "fn" ? contractIdl?.functions : contractIdl?.procedures;
         if ((!entries || entries.length === 0) && rc.source) {
           contractIdl = extractIdl(rc.source, rc.name, {
             slot: idx,
             qpiHeader: loadConfiguredQpiHeader(),
           });
-          entries = o.mode === "fn" ? contractIdl.functions : contractIdl.procedures;
+          entries = mode === "fn" ? contractIdl.functions : contractIdl.procedures;
         }
         entries ??= [];
-        let entry = Number(o.entry);
+        let entry = Number(entryName);
         let entryIdl: ContractEntry | undefined = entries.find(
           (candidate) => candidate.inputType === entry,
         );
         if (Number.isNaN(entry)) {
           entryIdl = entries.find(
             (candidate) =>
-              candidate.name.toLowerCase() === String(o.entry).toLowerCase(),
+              candidate.name.toLowerCase() === entryName.toLowerCase(),
           );
           if (!entryIdl) {
             throw new Error(
-              `no ${o.mode} named '${o.entry}' on contract ${idx} (no local IDL and node has no source for this slot)`,
+              `no ${mode} named '${entryName}' on contract ${idx} (no local IDL and node has no source for this slot)`,
             );
           }
           entry = entryIdl.inputType;
         }
         // --args JSON encodes through the IDL schema; otherwise use raw --in format.
         let input: Uint8Array;
-        if (o.args !== undefined) {
+        if (inputJson !== undefined) {
           if (!entryIdl) {
             throw new Error(
-              `--args needs the input schema for ${o.mode} ${idx}/${entry} (build/deploy locally, or the node must have the contract source)`,
+              `--args needs the input schema for ${mode} ${idx}/${entry} (build/deploy locally, or the node must have the contract source)`,
             );
           }
           try {
             input = await encodeInputJson(
               entryIdl.input,
-              JSON.parse(o.args),
+              JSON.parse(inputJson),
             );
           } catch (er: any) {
             throw new Error("--args: " + String(er?.message ?? er));
           }
         } else {
           try {
-            input = await encodeInput(o.in ?? entryIdl?.input.format ?? "");
+            input = await encodeInput(inputFormat ?? entryIdl?.input.format ?? "");
           } catch (enc: any) {
             let z = "";
             try {
@@ -173,7 +197,6 @@ function CallOneShot({ o, rpcBaseUrl }: { o: Record<string, string>; rpcBaseUrl:
         }
 
         // --trace: capture the call in the node debug ring. Enable + note the latest seq BEFORE dispatch.
-        const wantTrace = o.trace !== undefined;
         // Baseline -1, not 0: entry seq is 0-based, and on a freshly-enabled debug ring (the common case) the
         // first captured entry is seq 0 — `seq > sinceSeq` with sinceSeq=0 would drop it ("no trace captured").
         let sinceSeq = -1;
@@ -212,34 +235,33 @@ function CallOneShot({ o, rpcBaseUrl }: { o: Record<string, string>; rpcBaseUrl:
           } catch {}
           return raw;
         };
-        const label = `${o.idx}.${entryIdl?.name ?? (o.mode === "fn" ? "fn#" : "proc#") + entry}`;
+        const label = `${contract}.${entryIdl?.name ?? (mode === "fn" ? "fn#" : "proc#") + entry}`;
 
-        if (o.mode === "fn") {
+        if (mode === "fn") {
           const out = await callFunction(
             rpc,
             idx,
             entry,
             input,
-            o.out ?? entryIdl?.output ?? "",
+            outputFormat ?? entryIdl?.output ?? "",
           );
           const empty = out == null || (typeof out === "object" && Object.keys(out).length === 0);
           const ne = empty ? await nodeErr() : "";
           setResult({
             ok: ne ? false : true,
             label,
-            rows: [["out", fmtVal(out, o.all !== undefined)]],
+            rows: [["out", fmtVal(out, showAll)]],
             err: await enrichErr(ne),
           });
         } else {
           const tickInfo = await rpc.tickInfo();
           const tick = tickInfo.tick + TX_TICK_OFFSET;
-          const settle = o["no-settle"] === undefined; // default: wait until the proc actually ran; --no-settle to skip
           const r = await invokeProcedure({
-            seed: await resolveSeed(rpc, o.seed),
+            seed: await resolveSeed(rpc, seed),
             rpcBaseUrl: rpcBaseUrl,
             contractIndex: idx,
             procedureId: entry,
-            amount: Number(o.amount ?? 0),
+            amount: Number(amount ?? 0),
             input,
             tick,
             confirm: settle,
@@ -280,7 +302,7 @@ function CallOneShot({ o, rpcBaseUrl }: { o: Record<string, string>; rpcBaseUrl:
                 (x) =>
                   x.index === idx &&
                   x.seq > sinceSeq &&
-                  x.kind === (o.mode === "fn" ? 0 : 1) &&
+                  x.kind === (mode === "fn" ? 0 : 1) &&
                   x.entry === entry,
               )
               .pop();

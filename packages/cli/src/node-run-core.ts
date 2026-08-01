@@ -21,6 +21,13 @@ const defaultDeps = {
 
 export type NodeRunCoreDeps = typeof defaultDeps;
 
+export interface NodeRunCoreOptions {
+  coreDir?: string;
+  nodeBinary?: string;
+  ref?: string;
+  offline?: boolean;
+}
+
 export interface PreparedNodeRunCore {
   version: string;
   coreHeaders: string;
@@ -28,27 +35,27 @@ export interface PreparedNodeRunCore {
 }
 
 export async function prepareNodeRunCore(
-  options: Record<string, string>,
+  options: NodeRunCoreOptions,
   useSimulator: boolean,
   injected: Partial<NodeRunCoreDeps> = {},
   onProgress?: (recv: number, total: number) => void,
 ): Promise<PreparedNodeRunCore> {
   const deps = { ...defaultDeps, ...injected };
 
-  if ("core-dir" in options) {
-    if ("ref" in options) {
+  if (options.coreDir !== undefined) {
+    if (options.ref !== undefined) {
       throw new Error("--core-dir cannot be combined with --ref");
     }
-    if (!options["core-dir"]) {
+    if (!options.coreDir) {
       throw new Error("--core-dir requires a path");
     }
-    if (!useSimulator && !options["node-bin"]) {
+    if (!useSimulator && !options.nodeBinary) {
       throw new Error(
         "core backend with --core-dir requires --node-bin <path> to keep node and headers aligned",
       );
     }
 
-    const coreHeaders = resolve(options["core-dir"]);
+    const coreHeaders = resolve(options.coreDir);
     if (!deps.existsSync(coreHeaders)) {
       throw new Error(`--core-dir not found: ${coreHeaders}`);
     }
@@ -64,7 +71,7 @@ export async function prepareNodeRunCore(
 
   let version: string;
   let headersAsset: any;
-  if ("offline" in options) {
+  if (options.offline) {
     const current = deps.readCurrent();
     if (!current?.coreHeaders || !deps.existsSync(current.coreHeaders)) {
       throw new Error("offline: no synced headers — run `qinit node run` online first");
@@ -90,7 +97,7 @@ export async function prepareNodeRunCore(
   }
 
   const current = deps.readCurrent();
-  if ("offline" in options) {
+  if (options.offline) {
     return {
       version,
       coreHeaders: current!.coreHeaders!,

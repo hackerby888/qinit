@@ -6,9 +6,11 @@ import {
   META,
   GROUP_ORDER,
   COMMANDS,
+  commandOptions,
   optionSyntax,
   type OptionMeta,
   type CommandMeta,
+  type CommandName,
 } from "../meta";
 
 // Global help — grouped by workflow stage (from meta.ts) so it reads top-to-bottom as you'd use qinit.
@@ -91,17 +93,21 @@ export function Help({
 }
 
 // Per-command help — `qinit <cmd> --help`: summary + usage line + flags table + examples.
-export function Usage({ cmd }: { cmd: string }) {
+export function Usage({
+  command,
+  subcommand,
+}: {
+  command: CommandName;
+  subcommand?: string;
+}) {
   const { exit } = useApp();
   useEffect(() => {
     exit();
   }, [exit]);
-  const m: CommandMeta | undefined = META[cmd];
-  if (!m) return <Help unknown command={cmd} />;
-  const options: OptionMeta[] = [
-    ...(m.options ?? []),
-    ...Object.values(m.subcommands ?? {}).flatMap((subcommand) => subcommand.options),
-  ].filter((option) => !option.hidden);
+  const m: CommandMeta = META[command];
+  const options: OptionMeta[] = commandOptions(command, subcommand).filter(
+    (option) => !option.hidden,
+  );
   if (m.json) {
     options.push({
       name: "json",
@@ -114,13 +120,13 @@ export function Usage({ cmd }: { cmd: string }) {
     : 0;
   return (
     <Box flexDirection="column">
-      <Header cmd={cmd} />
+      <Header cmd={subcommand ? `${command} ${subcommand}` : command} />
       <Text dimColor>{m.summary}</Text>
       <Box marginTop={1}>
         <Text dimColor>usage: </Text>
         <Text color={theme.info}>
-          qinit {cmd}
-          {m.usage ? " " + m.usage : ""}
+          qinit {command}
+          {subcommand ? ` ${subcommand}` : m.usage ? ` ${m.usage}` : ""}
         </Text>
       </Box>
       {options.length ? (

@@ -8,7 +8,7 @@ import { extractIdl, genStdGtest } from "@qinit/build";
 import { DEFAULT_RPC_BASE } from "@qinit/core";
 import { TEMPLATE_KINDS, TEMPLATE_NOTE, templateSource, type TemplateKind } from "../templates";
 import { loadConfiguredQpiHeader } from "../config";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 // Sanitize a project name into a valid C++ struct identifier (PascalCase-ish).
 function toIdent(name: string): string {
@@ -17,27 +17,25 @@ function toIdent(name: string): string {
   return s[0].toUpperCase() + s.slice(1);
 }
 
-export function New({ args }: { args: string[] }) {
+export function New({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const { flags, pos } = parseCommandArgs("new", args);
-  const o: { name?: string; template?: string; "core-dir"?: string } = {
-    ...flags,
-    name: pos[0],
-  };
+  const projectName = commandArgs.positionals[0];
+  const requestedTemplate = commandArgs.get("template");
+  const requestedCoreDir = commandArgs.get("core-dir");
   const [log, setLog] = useState<string[]>([]);
   const [done, setDone] = useState(false);
   const add = (s: string) => setLog((l) => [...l, s]);
 
   useEffect(() => {
     try {
-      if (!o.name) {
+      if (!projectName) {
         add(
           `usage: qinit new <name> [--template ${TEMPLATE_KINDS.join("|")}] [--core-dir PATH]`,
         );
         setDone(true);
         return;
       }
-      const kind = (o.template || "counter") as TemplateKind;
+      const kind = (requestedTemplate || "counter") as TemplateKind;
       if (!TEMPLATE_KINDS.includes(kind)) {
         add(`✗ unknown template '${kind}' — pick: ${TEMPLATE_KINDS.join(", ")}`);
         setDone(true);
@@ -49,8 +47,8 @@ export function New({ args }: { args: string[] }) {
         setDone(true);
         return;
       }
-      const dir = o.name;
-      const name = toIdent(o.name);
+      const dir = projectName;
+      const name = toIdent(projectName);
       // a contract named after a QPI type (Asset, Entity, …) makes the generated wrapper ambiguous -> won't compile
       const RESERVED = ["Asset", "Entity", "Array", "Collection", "HashMap", "HashSet"];
       if (RESERVED.includes(name)) {
@@ -66,7 +64,7 @@ export function New({ args }: { args: string[] }) {
         setDone(true);
         return;
       }
-      const coreDir = o["core-dir"] ?? process.env.QINIT_CORE;
+      const coreDir = requestedCoreDir ?? process.env.QINIT_CORE;
       if (existsSync(dir)) {
         add(`✗ '${dir}' already exists`);
         setDone(true);
@@ -85,7 +83,7 @@ export function New({ args }: { args: string[] }) {
           join(dir, "tests", `${name}.test.cpp`),
           genStdGtest(
             extractIdl(source, name, {
-              qpiHeader: loadConfiguredQpiHeader(o["core-dir"]),
+              qpiHeader: loadConfiguredQpiHeader(requestedCoreDir),
             }),
             name,
           ),

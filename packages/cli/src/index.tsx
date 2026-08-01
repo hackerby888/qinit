@@ -25,7 +25,7 @@ const [, , command = "help", ...args] = process.argv;
 // no exit — so it stays up serving RPC. Must short-circuit before render().
 if (command === "__serve") {
   const { serveEngine } = await import("./serve");
-  const { flags } = parseArgs(args, {
+  const commandArgs = parseArgs(args, {
     strings: [
       "rpc",
       "tick-ms",
@@ -35,19 +35,21 @@ if (command === "__serve") {
       "slot-count",
     ],
   });
-  const rpc = flags.rpc || DEFAULT_RPC_BASE;
-  const system = flags.system?.split(",").filter(Boolean) ?? [];
+  const rpc = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
+  const system = commandArgs.get("system")?.split(",").filter(Boolean) ?? [];
+  const tickMs = commandArgs.get("tick-ms");
+  const peerPort = commandArgs.get("peer-port");
+  const slotBase = commandArgs.get("slot-base");
+  const slotCount = commandArgs.get("slot-count");
   await serveEngine(
     rpc,
-    flags["tick-ms"] !== undefined ? Number(flags["tick-ms"]) : undefined,
+    tickMs !== undefined ? Number(tickMs) : undefined,
     system,
-    flags["peer-port"] !== undefined
-      ? Number(flags["peer-port"])
-      : DEFAULT_PEER_PORT,
-    flags["slot-base"] !== undefined && flags["slot-count"] !== undefined
+    peerPort !== undefined ? Number(peerPort) : DEFAULT_PEER_PORT,
+    slotBase !== undefined && slotCount !== undefined
       ? {
-          slotBase: Number(flags["slot-base"]),
-          slotCount: Number(flags["slot-count"]),
+          slotBase: Number(slotBase),
+          slotCount: Number(slotCount),
         }
       : undefined,
   );

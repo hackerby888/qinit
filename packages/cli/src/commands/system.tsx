@@ -5,7 +5,7 @@ import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig } from "../config";
 import { systemCatalog, systemWasm } from "../system-wasm";
 import { Header, Spinner, Status } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 // qinit system lists or updates the simulator's selected system contracts.
 type Line = { t: string; ok?: boolean | null };
@@ -20,13 +20,12 @@ function saveSelection(system: string[]): void {
   writeFileSync(path, JSON.stringify(cfg, null, 2) + "\n");
 }
 
-export function System({ args }: { args: string[] }) {
+export function System({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const parsed = parseCommandArgs("system", args);
   const o = {
-    sub: parsed.pos[0] ?? "",
-    names: parsed.pos.slice(1),
-    rpc: parsed.get("rpc"),
+    sub: commandArgs.positionals[0] ?? "",
+    names: commandArgs.positionals.slice(1),
+    rpc: commandArgs.get("rpc"),
   };
   const cfg = loadConfig();
   const rpcBaseUrl = o.rpc || cfg.rpc || DEFAULT_RPC_BASE;

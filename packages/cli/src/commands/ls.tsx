@@ -9,7 +9,7 @@ import type { SystemContract } from "@qinit/build";
 import { loadConfig } from "../config";
 import { loadSystem } from "../contracts";
 import { Header, Spinner, Panel, Table, theme, type Column } from "../ui";
-import { output, parseCommandArgs } from "../args";
+import { output, type CommandArguments } from "../args";
 
 // qinit ls [--rpc <url>]  — user-deployed contracts (dyn-registry) first, then built-in system contracts (catalog).
 const COLS: Column[] = [
@@ -29,9 +29,8 @@ const SYS_COLS: Column[] = [
 const stateOf = (contract: DynamicContractRegistryEntry) =>
   !contract.armed ? "empty" : contract.constructed ? "ready" : "constructing";
 
-export function Ls({ args }: { args: string[] }) {
-  const { flags: o } = parseCommandArgs("ls", args);
-  const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
+export function Ls({ commandArgs }: { commandArgs: CommandArguments }) {
+  const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [s, setS] = useState<{
     phase: "run" | "done";

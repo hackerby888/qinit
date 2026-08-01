@@ -4,6 +4,7 @@ import {
   setSavedNodeBackend,
   type NodeBackend,
 } from "../config";
+import type { CommandArguments } from "../args";
 import { BackendPicker } from "./backend-picker";
 
 const DESC: Record<NodeBackend, string> = {
@@ -11,10 +12,10 @@ const DESC: Record<NodeBackend, string> = {
   simulator: "in-process Qinit simulator (no node binary)",
 };
 
-export function NodeBackendCmd({ args }: { args: string[] }) {
+export function NodeBackendCmd({ commandArgs }: { commandArgs: CommandArguments }) {
   return (
     <BackendPicker
-      args={args}
+      commandArgs={commandArgs}
       command="node-backend"
       label="node backend"
       backends={NODE_BACKENDS}

@@ -18,24 +18,31 @@ import {
 import { nodeContracts } from "../node-ops";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { Header, StepRow, type StepState, Panel, theme } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 import { parseCallees } from "../callees";
 
-export function Dev({ args }: { args: string[] }) {
+export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const { flags: o, pos, multi } = parseCommandArgs("dev", args);
   const cfg = loadConfig();
-  const rpcBaseUrl = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
-  const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
+  const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+  const contractPath = resolve(
+    commandArgs.get("contract") ??
+      commandArgs.positionals[0] ??
+      cfg.contract ??
+      "fixtures/Counter.h",
+  );
   const contractName =
-    o["contract-name"] ??
+    commandArgs.get("contract-name") ??
     cfg.contractName ??
     basename(contractPath).replace(/\.[^.]+$/, "");
-  const dynCallees = parseCallees(multi.callee);
+  const dynCallees = parseCallees(commandArgs.getAll("callee"));
+  const seed = commandArgs.get("seed");
+  const skipVerify = commandArgs.has("skip-verify");
+  const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
   let core = "",
     coreErr = "";
   try {
-    core = resolveCoreDir(o["core-dir"], cfg.coreDir);
+    core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
   } catch (e: any) {
     coreErr = String(e?.message ?? e);
   }
@@ -76,10 +83,10 @@ export function Dev({ args }: { args: string[] }) {
             name: contractName,
             core,
             rpcBaseUrl: rpcBaseUrl,
-            seed: o.seed,
+            seed,
             dynCallees,
-            skipVerify: "skip-verify" in o,
-            compiler: resolveCompilerBackend(o),
+            skipVerify,
+            compiler,
           },
           emit,
         ),

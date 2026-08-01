@@ -16,7 +16,7 @@ import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { runCorpus, runStdGtest } from "../corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 export function resolveGtestSlot(
   core: string,
@@ -70,10 +70,11 @@ type Item =
 type Tail =
   { phase: "work"; spin: string } | { phase: "done"; ok: boolean; rows: [string, string][] };
 
-export function Gtest({ args }: { args: string[] }) {
+export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const { flags: o, pos } = parseCommandArgs("gtest", args);
   const cfg = loadConfig();
+  const filter = commandArgs.get("filter");
+  const firstPositional = commandArgs.positionals[0];
   const [items, setItems] = useState<Item[]>([{ kind: "header" }]);
   const [s, setS] = useState<Tail>({ phase: "work", spin: "starting" });
 
@@ -85,7 +86,7 @@ export function Gtest({ args }: { args: string[] }) {
     const done = (ok: boolean, rows: [string, string][]) => setS({ phase: "done", ok, rows });
 
     const matches = (name: string) =>
-      !o.filter || name.toLowerCase().includes(o.filter.toLowerCase());
+      !filter || name.toLowerCase().includes(filter.toLowerCase());
     let ran = 0;
     // Stream each finished test the moment the engine reports it (engine yields a macrotask per test so
     // this paints). Filtered-out tests still execute engine-side; we just don't surface them.
@@ -98,12 +99,12 @@ export function Gtest({ args }: { args: string[] }) {
 
     (async () => {
       try {
-        const core = resolveCoreDir(o["core-dir"], cfg.coreDir);
-        const backend = resolveCompilerBackend(o);
+        const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
+        const backend = resolveCompilerBackend(commandArgs.get("compiler"));
 
         // Run a core-lite contract_testing.h suite on an isolated engine.
-        if ("corpus" in o) {
-          const scName = o.corpus || pos[0];
+        if (commandArgs.has("corpus")) {
+          const scName = commandArgs.get("corpus") || firstPositional;
           if (!scName) {
             add("corpus", false, "pass a system contract name, e.g. --corpus QUTIL");
             return done(false, []);
@@ -145,7 +146,7 @@ export function Gtest({ args }: { args: string[] }) {
 
         // One accepted source format: core-lite contract_testing.h / ContractTesting.
         const contractPath = resolve(
-          o.contract ??
+          commandArgs.get("contract") ??
             cfg.contract ??
             "contracts/" + (cfg.contractName ?? "") + ".h",
         );
@@ -154,16 +155,16 @@ export function Gtest({ args }: { args: string[] }) {
           return done(false, []);
         }
         const name =
-          o["contract-name"] ??
+          commandArgs.get("contract-name") ??
           cfg.contractName ??
           basename(contractPath).replace(/\.[^.]+$/, "");
-        const stateType = o["state-type"] ?? name;
-        const slot = resolveGtestSlot(core, o.slot);
+        const stateType = commandArgs.get("state-type") ?? name;
+        const slot = resolveGtestSlot(core, commandArgs.get("slot"));
         const contractSrc = readFileSync(contractPath, "utf8");
-        const testPath = resolve(pos[0] ?? join("tests", `${name}.test.cpp`));
+        const testPath = resolve(firstPositional ?? join("tests", `${name}.test.cpp`));
 
         // Scaffold the test when missing (or --new).
-        if (!existsSync(testPath) || o.new !== undefined) {
+        if (!existsSync(testPath) || commandArgs.has("new")) {
           const idl = extractIdl(contractSrc, name, {
             slot,
             qpiHeader: loadQpiHeader(core),
@@ -182,7 +183,7 @@ export function Gtest({ args }: { args: string[] }) {
           slot,
           core,
           backend,
-          shared: "shared-mem" in o,
+          shared: commandArgs.has("shared-mem"),
           scratch: join(tmpdir(), "qinit-corpus"),
           onResult,
           onPhase: backend === "typescript" ? (label) => spin(label) : undefined,

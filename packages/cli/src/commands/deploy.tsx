@@ -17,12 +17,11 @@ import {
   type DeployResult,
 } from "../deploy-ops";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
-import { output, parseCommandArgs } from "../args";
+import { output, type CommandArguments } from "../args";
 import { parseCallees } from "../callees";
 
-export function Deploy({ args }: { args: string[] }) {
-  const { flags: o, pos, multi } = parseCommandArgs("deploy", args);
-  const dynCallees = parseCallees(multi.callee);
+export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
+  const dynCallees = parseCallees(commandArgs.getAll("callee"));
   const { exit } = useApp();
   const [steps, setSteps] = useState<Record<string, DeploymentStepState>>({});
   const [notes, setNotes] = useState<string[]>([]);
@@ -34,18 +33,19 @@ export function Deploy({ args }: { args: string[] }) {
     (async () => {
       try {
         const cfg = loadConfig();
-        const cpath = o.contract ?? pos[0] ?? cfg.contract;
+        const cpath =
+          commandArgs.get("contract") ?? commandArgs.positionals[0] ?? cfg.contract;
         if (!cpath)
           throw new Error(
             "no contract: pass `qinit deploy <file.h>` (or --contract <file.h>, or set contract in qinit.json)",
           );
         const contractPath = resolve(cpath);
         const nm =
-          o["contract-name"] ??
+          commandArgs.get("contract-name") ??
           cfg.contractName ??
           basename(contractPath).replace(/\.[^.]+$/, "");
         setName(nm);
-        const sv = o.slot ?? cfg.slot;
+        const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
         const emit = (e: DeploymentEvent) => {
           if ("note" in e) {
             setNotes((n) => [...n, e.note]);
@@ -57,13 +57,16 @@ export function Deploy({ args }: { args: string[] }) {
           {
             contractPath,
             name: nm,
-            core: resolveCoreDir(o["core-dir"], cfg.coreDir),
-            rpcBaseUrl: o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE,
-            seed: o.seed,
+            core: resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir),
+            rpcBaseUrl: commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE,
+            seed: commandArgs.get("seed"),
             dynCallees,
-            slotOverride: sv !== undefined && sv !== "" ? Number(sv) : undefined,
-            skipVerify: "skip-verify" in o, // parity with `qinit test --skip-verify` (deployContract already supports it)
-            compiler: resolveCompilerBackend(o),
+            slotOverride:
+              requestedSlot !== undefined && requestedSlot !== ""
+                ? Number(requestedSlot)
+                : undefined,
+            skipVerify: commandArgs.has("skip-verify"),
+            compiler: resolveCompilerBackend(commandArgs.get("compiler")),
           },
           emit,
         );

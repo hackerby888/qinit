@@ -10,18 +10,17 @@ import { StateView } from "../views";
 import { loadConfig, loadConfiguredQpiHeader } from "../config";
 import { loadContracts, systemAsDyn } from "../contracts";
 import { Header, Spinner, GradLine, Panel, KV, theme } from "../ui";
-import { output, parseCommandArgs } from "../args";
+import { output, type CommandArguments } from "../args";
 import { readStateDigest, type StateDigestResult } from "../state-digest";
 
 type DigestOutput = StateDigestResult | { ok: false; error: string };
 
-export function State({ args }: { args: string[] }) {
-  const parsed = parseCommandArgs("state", args);
+export function State({ commandArgs }: { commandArgs: CommandArguments }) {
   const o = {
-    target: parsed.pos[0] ?? "",
-    rpc: parsed.get("rpc"),
-    all: parsed.has("all"),
-    digest: parsed.has("digest"),
+    target: commandArgs.positionals[0] ?? "",
+    rpc: commandArgs.get("rpc"),
+    all: commandArgs.has("all"),
+    digest: commandArgs.has("digest"),
   };
   const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();

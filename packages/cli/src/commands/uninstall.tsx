@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { cacheInfo, wipeCache, human } from "../cache-ops";
 import { Header, Status, Spinner, KV, theme } from "../ui";
-import { parseCommandArgs } from "../args";
+import type { CommandArguments } from "../args";
 
 const isWin = process.platform === "win32";
 // the running exe (unless dev: bun/node) + the canonical install path, de-duped.
@@ -33,10 +33,9 @@ type S = {
   err?: string;
 };
 
-export function Uninstall({ args }: { args: string[] }) {
-  const { flags: o } = parseCommandArgs("uninstall", args);
-  const go = o.yes !== undefined && o["dry-run"] === undefined;
-  const keepCache = o["keep-cache"] !== undefined;
+export function Uninstall({ commandArgs }: { commandArgs: CommandArguments }) {
+  const go = commandArgs.has("yes") && !commandArgs.has("dry-run");
+  const keepCache = commandArgs.has("keep-cache");
   const { exit } = useApp();
   const [s, setS] = useState<S>({ phase: "run" });
 

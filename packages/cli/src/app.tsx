@@ -32,8 +32,19 @@ import { Uninstall } from "./commands/uninstall";
 import { New } from "./commands/new";
 import { Help, Usage } from "./commands/help";
 import { Version } from "./commands/version";
-import { nearest } from "./args";
-import { META, COMMANDS } from "./meta";
+import {
+  invalidArgs,
+  nearest,
+  parseCommandInvocation,
+  type CommandInvocation,
+} from "./args";
+import {
+  META,
+  COMMANDS,
+  isCommandName,
+  type CommandMeta,
+  type CommandName,
+} from "./meta";
 
 // Catch a render-time throw so the CLI exits cleanly instead of leaving Ink in raw mode.
 function Crash({ err, command }: { err: Error; command: string }) {
@@ -75,96 +86,131 @@ class ErrorBoundary extends Component<
 }
 
 export function App({ command, args }: { command: string; args: string[] }) {
-  return <ErrorBoundary command={command}>{route(command, args)}</ErrorBoundary>;
+  return (
+    <ErrorBoundary command={command}>
+      <CommandRoute command={command} args={args} />
+    </ErrorBoundary>
+  );
 }
 
 // Commands that were removed/renamed — point the old name at its replacement instead of a fuzzy "did you mean".
-const REMOVED: Record<string, string> = { up: "node run" };
+const REMOVED = new Map([["up", "node run"]]);
 
-function route(command: string, args: string[]): ReactNode {
-  // Per-command help: `qinit <cmd> --help` / `-h` shows that command's usage + flags.
-  const canon =
-    command === "cheat" || command === "--cheat-sheet"
-      ? "cheat-sheet"
-      : command === "--version" || command === "-v"
-        ? "version"
-        : command;
-  if ((args.includes("--help") || args.includes("-h")) && canon in META)
-    return <Usage cmd={canon} />;
-  switch (command) {
-    case "new":
-      return <New args={args} />;
-    case "doctor":
-      return <Doctor />;
-    case "setup":
-      return <Setup />;
-    case "node":
-      return args[0] === "run" ? <NodeRun args={args} /> : <Node args={args} />;
-    case "ext":
-      return <Ext args={args} />;
-    case "dev":
-      return <Dev args={args} />;
-    case "smoke":
-      return <Smoke />;
-    case "build":
-      return <Build args={args} />;
-    case "gen":
-      return <Gen args={args} />;
-    case "deploy":
-      return <Deploy args={args} />;
-    case "verify":
-      return <Verify args={args} />;
-    case "test":
-      return <Test args={args} />;
-    case "gtest":
-      return <Gtest args={args} />;
-    case "call":
-      return <Call args={args} />;
-    case "ls":
-      return <Ls args={args} />;
-    case "debug":
-      return <Debug args={args} />;
-    case "state":
-      return <State args={args} />;
-    case "clean":
-      return <Clean args={args} />;
-    case "seed":
-      return <Seed args={args} />;
-    case "tick":
-      return <Tick args={args} />;
-    case "epoch":
-      return <Epoch args={args} />;
-    case "theme":
-      return <ThemeCmd args={args} />;
-    case "node-backend":
-      return <NodeBackendCmd args={args} />;
-    case "compiler":
-      return <CompilerCmd args={args} />;
-    case "system":
-      return <System args={args} />;
-    case "cheat-sheet":
-    case "cheat":
-    case "--cheat-sheet":
-      return <Cheat />;
-    case "self-update":
-      return <Update args={args} />;
-    case "uninstall":
-      return <Uninstall args={args} />;
-    case "version":
-    case "--version":
-    case "-v":
-      return <Version />;
-    case "help":
-    case "--help":
-    case "-h":
-      return <Help />;
-    default:
-      return (
-        <Help
-          unknown={!command.startsWith("-")}
-          command={command}
-          suggestion={REMOVED[command] ?? nearest(command, COMMANDS)}
-        />
-      );
+const ALIASES = new Map<string, CommandName>([
+  ["cheat", "cheat-sheet"],
+  ["--cheat-sheet", "cheat-sheet"],
+  ["--version", "version"],
+  ["-v", "version"],
+  ["--help", "help"],
+  ["-h", "help"],
+]);
+
+function canonicalCommand(command: string): CommandName | undefined {
+  return isCommandName(command) ? command : ALIASES.get(command);
+}
+
+function unknownCommand(command: string): ReactNode {
+  return (
+    <Help
+      unknown={!command.startsWith("-")}
+      command={command}
+      suggestion={REMOVED.get(command) ?? nearest(command, COMMANDS)}
+    />
+  );
+}
+
+function validateHelpSubcommand(
+  command: CommandName,
+  subcommand?: string,
+): void {
+  if (!subcommand) {
+    return;
   }
+  const meta: CommandMeta = META[command];
+  if (
+    !meta.subcommands ||
+    !Object.prototype.hasOwnProperty.call(meta.subcommands, subcommand)
+  ) {
+    invalidArgs(`unknown subcommand '${subcommand}' for '${command}'`);
+  }
+}
+
+function renderHelp(invocation: CommandInvocation): ReactNode {
+  const [requestedCommand, requestedSubcommand, ...extra] =
+    invocation.commandArgs.positionals;
+  if (!requestedCommand) {
+    return <Help />;
+  }
+  if (extra.length) {
+    invalidArgs("help accepts at most a command and subcommand");
+  }
+
+  const command = canonicalCommand(requestedCommand);
+  if (!command) {
+    return unknownCommand(requestedCommand);
+  }
+
+  validateHelpSubcommand(command, requestedSubcommand);
+  return <Usage command={command} subcommand={requestedSubcommand} />;
+}
+
+type CommandHandler = (invocation: CommandInvocation) => ReactNode;
+
+const HANDLERS = {
+  setup: () => <Setup />,
+  doctor: () => <Doctor />,
+  ext: ({ commandArgs }) => <Ext commandArgs={commandArgs} />,
+  node: ({ commandArgs, subcommand }) =>
+    subcommand === "run" ? (
+      <NodeRun commandArgs={commandArgs} />
+    ) : (
+      <Node commandArgs={commandArgs} subcommand={subcommand} />
+    ),
+  tick: ({ commandArgs }) => <Tick commandArgs={commandArgs} />,
+  epoch: ({ commandArgs }) => <Epoch commandArgs={commandArgs} />,
+  clean: ({ commandArgs }) => <Clean commandArgs={commandArgs} />,
+  "self-update": ({ commandArgs }) => <Update commandArgs={commandArgs} />,
+  uninstall: ({ commandArgs }) => <Uninstall commandArgs={commandArgs} />,
+  new: ({ commandArgs }) => <New commandArgs={commandArgs} />,
+  dev: ({ commandArgs }) => <Dev commandArgs={commandArgs} />,
+  build: ({ commandArgs }) => <Build commandArgs={commandArgs} />,
+  gen: ({ commandArgs }) => <Gen commandArgs={commandArgs} />,
+  verify: ({ commandArgs }) => <Verify commandArgs={commandArgs} />,
+  deploy: ({ commandArgs }) => <Deploy commandArgs={commandArgs} />,
+  call: ({ commandArgs }) => <Call commandArgs={commandArgs} />,
+  seed: ({ commandArgs }) => <Seed commandArgs={commandArgs} />,
+  ls: ({ commandArgs }) => <Ls commandArgs={commandArgs} />,
+  state: ({ commandArgs }) => <State commandArgs={commandArgs} />,
+  debug: ({ commandArgs }) => <Debug commandArgs={commandArgs} />,
+  test: ({ commandArgs }) => <Test commandArgs={commandArgs} />,
+  gtest: ({ commandArgs }) => <Gtest commandArgs={commandArgs} />,
+  "node-backend": ({ commandArgs }) => (
+    <NodeBackendCmd commandArgs={commandArgs} />
+  ),
+  compiler: ({ commandArgs }) => <CompilerCmd commandArgs={commandArgs} />,
+  system: ({ commandArgs }) => <System commandArgs={commandArgs} />,
+  theme: ({ commandArgs }) => <ThemeCmd commandArgs={commandArgs} />,
+  "cheat-sheet": () => <Cheat />,
+  smoke: () => <Smoke />,
+  version: () => <Version />,
+  help: renderHelp,
+} satisfies Record<CommandName, CommandHandler>;
+
+function CommandRoute({ command, args }: { command: string; args: string[] }) {
+  const canonical = canonicalCommand(command);
+  if (!canonical) {
+    return unknownCommand(command);
+  }
+
+  const invocation = parseCommandInvocation(canonical, args);
+  if (canonical !== "help" && invocation.commandArgs.has("help")) {
+    const subcommand =
+      invocation.subcommand ??
+      (META[canonical].subcommands && args[0] && !args[0].startsWith("-")
+        ? args[0]
+        : undefined);
+    validateHelpSubcommand(canonical, subcommand);
+    return <Usage command={canonical} subcommand={subcommand} />;
+  }
+  return HANDLERS[canonical](invocation);
 }

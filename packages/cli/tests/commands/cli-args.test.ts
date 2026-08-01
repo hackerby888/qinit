@@ -67,3 +67,88 @@ test("hidden server options are strict too", async () => {
   expect(result.stdout).toBe("");
   expect(result.stderr).toContain("qinit: fatal error: Unknown option '--bogus'");
 });
+
+test("commands without local options still reject unknown options", async () => {
+  for (const command of ["doctor", "smoke", "version"]) {
+    const result = await run(command, "--bogus");
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain("invalid arguments: Unknown option '--bogus'");
+    expect(result.stderr).toBe("");
+  }
+});
+
+test("command help is parsed strictly before it is shown", async () => {
+  const result = await run("build", "--help", "--bogus");
+
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain("invalid arguments: Unknown option '--bogus'");
+  expect(result.stdout).not.toContain("usage: qinit build <file.h>");
+});
+
+test("help command and help flag share command usage", async () => {
+  const [commandHelp, flagHelp] = await Promise.all([
+    run("help", "build"),
+    run("build", "--help"),
+  ]);
+
+  for (const result of [commandHelp, flagHelp]) {
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("usage: qinit build <file.h>");
+    expect(result.stdout).toContain("--callee <n>=<hdr>@<i>");
+    expect(result.stderr).toBe("");
+  }
+});
+
+test("node subcommand help shows only the resolved option scope", async () => {
+  const [commandHelp, flagHelp, statusHelp, nodeHelp] = await Promise.all([
+    run("help", "node", "run"),
+    run("node", "run", "-h"),
+    run("help", "node", "status"),
+    run("node", "--help"),
+  ]);
+
+  for (const result of [commandHelp, flagHelp]) {
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("usage: qinit node run");
+    expect(result.stdout).toContain("--rpc <url>");
+    expect(result.stdout).toContain("--restart");
+    expect(result.stderr).toBe("");
+  }
+  expect(statusHelp.code).toBe(0);
+  expect(statusHelp.stdout).toContain("usage: qinit node status");
+  expect(statusHelp.stdout).toContain("--rpc <url>");
+  expect(statusHelp.stdout).not.toContain("--restart");
+  expect(nodeHelp.code).toBe(0);
+  expect(nodeHelp.stdout).toContain("usage: qinit node <run|status|stop|get>");
+  expect(nodeHelp.stdout).not.toContain("--core-dir");
+});
+
+test("help rejects an unknown subcommand for a known command", async () => {
+  const results = await Promise.all([
+    run("help", "node", "launch"),
+    run("node", "launch", "--help"),
+  ]);
+
+  for (const result of results) {
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(
+      "invalid arguments: unknown subcommand 'launch' for 'node'",
+    );
+    expect(result.stderr).toBe("");
+  }
+});
+
+test("prototype-shaped command names stay unknown", async () => {
+  const results = await Promise.all([
+    run("toString"),
+    run("__proto__"),
+    run("help", "toString"),
+  ]);
+
+  for (const result of results) {
+    expect(result.stdout).toContain("unknown command:");
+    expect(result.stdout).not.toContain("qinit crashed");
+    expect(result.stderr).toBe("");
+  }
+});

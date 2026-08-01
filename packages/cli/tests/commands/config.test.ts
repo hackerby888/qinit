@@ -81,14 +81,14 @@ test("theme store: round-trip", () => {
 test("node backend store: default undefined, round-trip, ignore unknown value", () => {
   isolate();
   expect(savedNodeBackend()).toBeUndefined();
-  expect(resolveNodeBackend({})).toBe("core");
+  expect(resolveNodeBackend()).toBe("core");
   setSavedNodeBackend("simulator");
   expect(savedNodeBackend()).toBe("simulator");
-  expect(resolveNodeBackend({})).toBe("simulator");
-  expect(resolveNodeBackend({ "node-backend": "core" })).toBe("core");
+  expect(resolveNodeBackend()).toBe("simulator");
+  expect(resolveNodeBackend("core")).toBe("core");
   writeFileSync(nodeBackendStorePath(), "bogus");
   expect(savedNodeBackend()).toBeUndefined();
-  expect(() => resolveNodeBackend({ "node-backend": "bogus" })).toThrow(
+  expect(() => resolveNodeBackend("bogus")).toThrow(
     "--node-backend must be core or simulator",
   );
 });
@@ -96,14 +96,14 @@ test("node backend store: default undefined, round-trip, ignore unknown value", 
 test("compiler backend store: default undefined, round-trip, ignore unknown value", () => {
   isolate();
   expect(savedCompilerBackend()).toBeUndefined();
-  expect(resolveCompilerBackend({})).toBe("clang");
+  expect(resolveCompilerBackend()).toBe("clang");
   setSavedCompilerBackend("typescript");
   expect(savedCompilerBackend()).toBe("typescript");
-  expect(resolveCompilerBackend({})).toBe("typescript");
-  expect(resolveCompilerBackend({ compiler: "clang" })).toBe("clang");
+  expect(resolveCompilerBackend()).toBe("typescript");
+  expect(resolveCompilerBackend("clang")).toBe("clang");
   writeFileSync(compilerBackendStorePath(), "bogus");
   expect(savedCompilerBackend()).toBeUndefined();
-  expect(() => resolveCompilerBackend({ compiler: "bogus" })).toThrow(
+  expect(() => resolveCompilerBackend("bogus")).toThrow(
     "--compiler must be clang or typescript",
   );
 });

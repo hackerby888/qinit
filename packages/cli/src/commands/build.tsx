@@ -17,7 +17,7 @@ import {
   resolveCompilerBackend,
 } from "../config";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
-import { output, parseCommandArgs } from "../args";
+import { output, type CommandArguments } from "../args";
 import { parseCallees, resolveNodeCallees } from "../callees";
 
 type State =
@@ -36,25 +36,31 @@ export function buildJsonResult(r: ContractBuildResult, compiler: string) {
   };
 }
 
-export function Build({ args }: { args: string[] }) {
+export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
-  const { flags: o, pos, multi } = parseCommandArgs("build", args);
-  const dynCallees = parseCallees(multi.callee);
-  const compiler = resolveCompilerBackend(o);
+  const dynCallees = parseCallees(commandArgs.getAll("callee"));
+  const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
   const [s, setS] = useState<State>({ phase: "run" });
 
   useEffect(() => {
     (async () => {
       try {
         const cfg = loadConfig();
-        const core = resolveCoreDir(o["core-dir"], cfg.coreDir);
-        const contractPath = resolve(o.contract ?? pos[0] ?? cfg.contract ?? "fixtures/Counter.h");
+        const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
+        const contractPath = resolve(
+          commandArgs.get("contract") ??
+            commandArgs.positionals[0] ??
+            cfg.contract ??
+            "fixtures/Counter.h",
+        );
         const name =
-          o["contract-name"] ??
+          commandArgs.get("contract-name") ??
           cfg.contractName ??
           basename(contractPath).replace(/\.[^.]+$/, "");
-        const outDir = resolve(o.out ?? "dist/contracts");
-        const slot = Number(o.slot ?? cfg.slot ?? loadCoreWasmSlotLayout(core).slotBase);
+        const outDir = resolve(commandArgs.get("out") ?? "dist/contracts");
+        const slot = Number(
+          commandArgs.get("slot") ?? cfg.slot ?? loadCoreWasmSlotLayout(core).slotBase,
+        );
 
         let r: ContractBuildResult;
         if (compiler === "typescript") {
@@ -67,7 +73,7 @@ export function Build({ args }: { args: string[] }) {
             dynCallees,
           });
         } else {
-          const rpcBaseUrl = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+          const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
           const callees = await resolveNodeCallees(
             new LiteRpc(rpcBaseUrl),
             readFileSync(contractPath, "utf8"),
@@ -88,7 +94,7 @@ export function Build({ args }: { args: string[] }) {
             corePath: core,
             outDir,
             dynCallees: callees,
-            skipVerify: "skip-verify" in o,
+            skipVerify: commandArgs.has("skip-verify"),
           });
         }
         if (r.ok && r.idl)

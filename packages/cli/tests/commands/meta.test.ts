@@ -1,5 +1,12 @@
 import { test, expect } from "bun:test";
-import { META, COMMANDS, GROUP_ORDER, commandOptions, optionSyntax } from "../../src/meta";
+import {
+  META,
+  COMMANDS,
+  GROUP_ORDER,
+  commandOptions,
+  optionSyntax,
+  type CommandName,
+} from "../../src/meta";
 
 test("META: every command has a non-empty summary in a known group", () => {
   for (const m of Object.values(META)) {
@@ -11,12 +18,13 @@ test("META: every command has a non-empty summary in a known group", () => {
 
 test("COMMANDS mirrors the META keys — unique and non-empty", () => {
   expect(COMMANDS.length).toBeGreaterThan(0);
-  expect(COMMANDS).toEqual(Object.keys(META));
+  expect(COMMANDS).toEqual(Object.keys(META) as CommandName[]);
   expect(new Set(COMMANDS).size).toBe(COMMANDS.length);
 });
 
 test("META: options are complete structured parser definitions", () => {
-  for (const [command, meta] of Object.entries(META)) {
+  for (const command of COMMANDS) {
+    const meta = META[command];
     const groups = [meta.options ?? [], ...Object.values(meta.subcommands ?? {}).map((s) => s.options)];
     for (const options of groups) {
       expect(new Set(options.map((option) => option.name)).size).toBe(options.length);
@@ -64,6 +72,15 @@ test("release-smoke flags are exposed in command metadata", () => {
   expect(commandOptions("node", "run").map(optionSyntax)).toContain("--core-dir <path>");
   expect(commandOptions("state").map(optionSyntax)).toContain("--digest");
   expect(META.build.json).toBe(true);
+});
+
+test("node subcommands are declared for routing and option scoping", () => {
+  expect(Object.keys(META.node.subcommands ?? {})).toEqual([
+    "run",
+    "status",
+    "stop",
+    "get",
+  ]);
 });
 
 test("accepted build, dev, gen, and call options are documented", () => {

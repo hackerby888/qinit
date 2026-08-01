@@ -107,13 +107,12 @@ export function setSavedNodeBackend(backend: NodeBackend): void {
   writeFileSync(path, backend + "\n");
 }
 
-export function resolveNodeBackend(options: Record<string, unknown>): NodeBackend {
-  const backend = options["node-backend"];
-  if (backend === undefined) {
+export function resolveNodeBackend(requested?: string): NodeBackend {
+  if (requested === undefined) {
     return savedNodeBackend() ?? "core";
   }
-  if (backend === "core" || backend === "simulator") {
-    return backend;
+  if (requested === "core" || requested === "simulator") {
+    return requested;
   }
   return invalidArgs("--node-backend must be core or simulator");
 }
@@ -140,13 +139,12 @@ export function setSavedCompilerBackend(backend: CompilerBackend): void {
   writeFileSync(path, backend + "\n");
 }
 
-export function resolveCompilerBackend(options: Record<string, unknown>): CompilerBackend {
-  const backend = options.compiler;
-  if (backend === undefined) {
+export function resolveCompilerBackend(requested?: string): CompilerBackend {
+  if (requested === undefined) {
     return savedCompilerBackend() ?? "clang";
   }
-  if (backend === "clang" || backend === "typescript") {
-    return backend;
+  if (requested === "clang" || requested === "typescript") {
+    return requested;
   }
   return invalidArgs("--compiler must be clang or typescript");
 }

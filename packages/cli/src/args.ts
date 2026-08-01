@@ -1,5 +1,10 @@
 import { parseArgs as parseNodeArgs } from "node:util";
-import { commandOptions } from "./meta";
+import {
+  META,
+  commandOptions,
+  type CommandMeta,
+  type CommandName,
+} from "./meta";
 
 export const output = { json: false, plain: false };
 
@@ -12,13 +17,17 @@ export function initOutput(args: string[]): void {
     !!process.env.NO_COLOR;
 }
 
-export interface ParsedArguments {
-  pos: string[];
-  flags: Record<string, string>;
-  multi: Record<string, string[]>;
-  help: boolean;
+export interface CommandArguments {
+  readonly positionals: readonly string[];
   has(name: string): boolean;
-  get(name: string, def?: string): string | undefined;
+  get(name: string): string | undefined;
+  getAll(name: string): readonly string[];
+}
+
+export interface CommandInvocation {
+  readonly command: CommandName;
+  readonly subcommand?: string;
+  readonly commandArgs: CommandArguments;
 }
 
 interface ParseOptions {
@@ -27,29 +36,40 @@ interface ParseOptions {
   multi?: readonly string[];
 }
 
-export function parseCommandArgs(
-  command: string,
-  args: string[],
-  subcommand?: string,
-): ParsedArguments {
+export function parseCommandInvocation(
+  command: CommandName,
+  args: readonly string[],
+): CommandInvocation {
+  const meta: CommandMeta = META[command];
+  const candidate = args[0];
+  const subcommand =
+    candidate &&
+    meta.subcommands &&
+    Object.prototype.hasOwnProperty.call(meta.subcommands, candidate)
+      ? candidate
+      : undefined;
   const options = commandOptions(command, subcommand);
-  return parseArgs(args, {
-    strings: options
-      .filter((option) => option.type === "string" && !option.multiple)
-      .map((option) => option.name),
-    booleans: options
-      .filter((option) => option.type === "boolean")
-      .map((option) => option.name),
-    multi: options
-      .filter((option) => option.type === "string" && option.multiple)
-      .map((option) => option.name),
-  });
+  return {
+    command,
+    subcommand,
+    commandArgs: parseArgs(subcommand ? args.slice(1) : args, {
+      strings: options
+        .filter((option) => option.type === "string" && !option.multiple)
+        .map((option) => option.name),
+      booleans: options
+        .filter((option) => option.type === "boolean")
+        .map((option) => option.name),
+      multi: options
+        .filter((option) => option.type === "string" && option.multiple)
+        .map((option) => option.name),
+    }),
+  };
 }
 
 export function parseArgs(
-  args: string[],
+  args: readonly string[],
   options: ParseOptions = {},
-): ParsedArguments {
+): CommandArguments {
   const definitions: Record<
     string,
     { type: "string" | "boolean"; multiple?: boolean; short?: string }
@@ -70,32 +90,32 @@ export function parseArgs(
   }
 
   const { values, positionals } = parseNodeArgs({
-    args,
+    args: [...args],
     options: definitions,
     allowPositionals: true,
     strict: true,
   });
 
-  const flags: Record<string, string> = {};
-  const multi: Record<string, string[]> = {};
+  const scalarValues = new Map<string, string>();
+  const repeatedValues = new Map<string, readonly string[]>();
+  const present = new Set<string>();
   for (const [name, value] of Object.entries(values)) {
-    if (name === "help" || value === undefined) {
+    if (value === undefined || value === false) {
       continue;
     }
+    present.add(name);
     if (Array.isArray(value)) {
-      multi[name] = value.map(String);
-    } else {
-      flags[name] = typeof value === "boolean" ? "" : String(value);
+      repeatedValues.set(name, value.map(String));
+    } else if (typeof value !== "boolean") {
+      scalarValues.set(name, String(value));
     }
   }
 
   return {
-    pos: positionals,
-    flags,
-    multi,
-    help: values.help === true,
-    has: (name) => name in flags || name in multi,
-    get: (name, defaultValue) => (name in flags ? flags[name] : defaultValue),
+    positionals,
+    has: (name) => present.has(name),
+    get: (name) => scalarValues.get(name),
+    getAll: (name) => repeatedValues.get(name) ?? [],
   };
 }
 
@@ -134,7 +154,7 @@ function editDistance(left: string, right: string): number {
   return distances[leftLength][rightLength];
 }
 
-export function nearest(input: string, options: string[]): string | undefined {
+export function nearest(input: string, options: readonly string[]): string | undefined {
   let best: string | undefined;
   let bestDistance = Infinity;
 
