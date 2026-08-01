@@ -13,56 +13,20 @@ interface Check {
   optional?: boolean;
 }
 
-async function cmdVersion(
-  cmd: string,
-  args: string[],
-  missingHint: string,
-  fix: string,
-  label = cmd,
-): Promise<Check> {
-  try {
-    const p = Bun.spawn([cmd, ...args], { stdout: "pipe", stderr: "pipe" });
-    await p.exited;
-    const firstLine = (await new Response(p.stdout).text()).split("\n")[0]?.trim() ?? "";
-    return {
-      name: label,
-      ok: p.exitCode === 0,
-      detail: p.exitCode === 0 ? firstLine : missingHint,
-      fix: p.exitCode === 0 ? undefined : fix,
-    };
-  } catch {
-    return { name: label, ok: false, detail: missingHint, fix };
-  }
-}
-
 async function runChecks(): Promise<Check[]> {
   const checks: Check[] = [];
-  // wasm compiler: the auto-fetched wasi-sdk, or a WASM_CLANG/WASI_SYSROOT override.
   const sdk = wasiSdkPaths();
-  const envClang = process.env.WASM_CLANG;
   checks.push(
     sdk
       ? { name: "wasi-sdk (wasm compiler)", ok: true, detail: sdk.clang }
-      : envClang
-        ? { name: "wasi-sdk (wasm compiler)", ok: true, detail: `WASM_CLANG=${envClang}` }
-        : {
-            name: "wasi-sdk (wasm compiler)",
-            ok: false,
-            detail: "not cached",
-            fix: "qinit setup   (downloads the host wasi-sdk)",
-          },
-  );
-  checks.push(
-    await cmdVersion(
-      "node",
-      ["--version"],
-      "not found — needed by qinit",
-      "install Node 20+ from nodejs.org or your package manager",
-      "node.js (js runtime)",
-    ),
+      : {
+          name: "wasi-sdk (wasm compiler)",
+          ok: false,
+          detail: "not cached",
+          fix: "qinit setup   (downloads the host wasi-sdk)",
+        },
   );
 
-  // Prefer synced headers, then QINIT_CORE or --core-dir.
   let qpi = "",
     hasQpi = false,
     coreErr = "";
@@ -81,23 +45,6 @@ async function runChecks(): Promise<Check[]> {
       : "qinit setup (fetch published snapshot) or set QINIT_CORE=<core-checkout>",
   });
 
-  try {
-    const m = await import("@qinit/core");
-    checks.push({
-      name: "@qubic-lib/qubic-ts-library",
-      ok: typeof m.deriveIdentity === "function",
-      detail: "import ok",
-    });
-  } catch (e: any) {
-    checks.push({
-      name: "@qubic-lib/qubic-ts-library",
-      ok: false,
-      detail: String(e?.message ?? e),
-      fix: "bun install   (reinstall deps)",
-    });
-  }
-
-  // Optional: the protocol-rule checker. Absent => qinit build still works, just skips the rule gate.
   const vtool = resolveVerifyTool();
   checks.push({
     name: "contract-verify tool",

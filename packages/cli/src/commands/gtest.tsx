@@ -12,9 +12,30 @@ import {
 import { genStdGtest, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import type { TestResult } from "@qinit/engine";
+import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
+import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { runCorpus, runStdGtest } from "../corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { parseCommandArgs } from "../args";
+
+export function resolveGtestSlot(
+  core: string,
+  requestedSlot?: string,
+): number {
+  const slot = requestedSlot === undefined
+    ? loadCoreWasmSlotLayout(core).slotBase
+    : Number(requestedSlot);
+  if (
+    !Number.isInteger(slot) ||
+    slot < 1 ||
+    slot >= MAX_NUMBER_OF_CONTRACTS
+  ) {
+    throw new Error(
+      `contract slot must be an integer from 1 to ${MAX_NUMBER_OF_CONTRACTS - 1}`,
+    );
+  }
+  return slot;
+}
 
 // Render the TS compiler's per-phase timings as a one-line breakdown (short labels, in pipeline order).
 function fmtTimings(t?: Record<string, number>): string | undefined {
@@ -137,7 +158,7 @@ export function Gtest({ args }: { args: string[] }) {
           cfg.contractName ??
           basename(contractPath).replace(/\.[^.]+$/, "");
         const stateType = o["state-type"] ?? name;
-        const slot = Number.isFinite(Number(o.slot)) ? Number(o.slot) : 100; // above the system range (1-28) for dep ordering
+        const slot = resolveGtestSlot(core, o.slot);
         const contractSrc = readFileSync(contractPath, "utf8");
         const testPath = resolve(pos[0] ?? join("tests", `${name}.test.cpp`));
 

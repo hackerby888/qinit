@@ -8,6 +8,7 @@ import { runContractTesting } from "@qinit/engine";
 
 const CORE = CORE_PATH;
 const CONTRACT = `${import.meta.dir}/../../../../fixtures/Counter.h`;
+const SLOT = 100;
 const have =
   existsSync(`${CORE}/test/contract_testing.h`) &&
   existsSync(CONTRACT) &&
@@ -35,6 +36,9 @@ public:
         Counter::Inc_output output{};
         invokeUserProcedure(Counter_CONTRACT_INDEX, 1, input, output, user, 0);
     }
+    void setCounter(uint64 value) {
+        ((Counter::StateData*)contractStates[Counter_CONTRACT_INDEX])->counter = value;
+    }
 };
 
 TEST(Counter, IncrementsTwice) {
@@ -49,6 +53,15 @@ TEST(Counter, IncrementsTwice) {
 TEST(Counter, FreshStatePerTest) {
     ContractTestingCounter t;
     EXPECT_EQ(t.get().value, 0ull);
+}
+TEST(Counter, StateAtSlot100RoundTrips) {
+    ContractTestingCounter t;
+    const id user = id::randomValue();
+    increaseEnergy(user, 1);
+    t.setCounter(40);
+    EXPECT_EQ(t.get().value, 40ull);
+    t.inc(user);
+    EXPECT_EQ(t.get().value, 41ull);
 }
 TEST(Counter, ReportsFailures) {
     ContractTestingCounter t;
@@ -69,7 +82,7 @@ test.skipIf(!have)(
       contractPath: CONTRACT,
       name: "Counter",
       stateType: "Counter",
-      slot: 1,
+      slot: SLOT,
       corePath: CORE,
       outDir: `${outDir}/runner`,
       arenaSizeBytes: 64 * 1024 * 1024,
@@ -79,7 +92,7 @@ test.skipIf(!have)(
     const contract = await buildContractWithWasiClang({
       contractPath: CONTRACT,
       name: "Counter",
-      slot: 1,
+      slot: SLOT,
       corePath: CORE,
       outDir: `${outDir}/contract`,
       skipVerify: true,
@@ -89,11 +102,15 @@ test.skipIf(!have)(
 
     const results = await runContractTesting(
       new Uint8Array(await Bun.file(runner.wasmPath!).arrayBuffer()),
-      { 1: new Uint8Array(await Bun.file(contract.wasmPath!).arrayBuffer()) },
+      { [SLOT]: new Uint8Array(await Bun.file(contract.wasmPath!).arrayBuffer()) },
     );
     const by = Object.fromEntries(results.map((result) => [result.name, result]));
     expect(by["Counter.IncrementsTwice"]?.passed).toBe(true);
     expect(by["Counter.FreshStatePerTest"]?.passed).toBe(true);
+    expect(
+      by["Counter.StateAtSlot100RoundTrips"]?.passed,
+      by["Counter.StateAtSlot100RoundTrips"]?.message,
+    ).toBe(true);
     expect(by["Counter.ReportsFailures"]?.passed).toBe(false);
     expect(by["Counter.ReportsFailures"]?.message).toContain("EXPECT_EQ");
   },

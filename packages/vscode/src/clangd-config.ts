@@ -2,10 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   generateWasmWrapperSource,
-  WASM_CONTRACT_TESTING_HEADER,
   WASM_TEST_UTIL_HEADER,
   type ContractBuildOptions,
 } from "@qinit/build/recipe";
+import { generateWasmContractTestingHeaderForCore } from "@qinit/build";
 import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
@@ -237,7 +237,14 @@ export function generateTestClangdConfig(
     testSource: "\n",
     testPath: "gtest-prefix.h",
   });
-  writeFileSync(join(details.dir, "contract_testing.h"), WASM_CONTRACT_TESTING_HEADER);
+  writeFileSync(
+    join(details.dir, "contract_testing.h"),
+    generateWasmContractTestingHeaderForCore({
+      corePath: o.corePath,
+      name: details.name,
+      slot: details.slot,
+    }),
+  );
   writeFileSync(join(details.dir, "test_util.h"), WASM_TEST_UTIL_HEADER);
 
   const testPath = resolve(o.testPath);

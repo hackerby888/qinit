@@ -23,14 +23,14 @@ export function Node({ args }: { args: string[] }) {
 
   useEffect(() => {
     (async () => {
-      const L: Line[] = [];
-      const add = (t: string, ok?: boolean) => L.push({ t, ok });
+      const lines: Line[] = [];
+      const add = (text: string, ok?: boolean) => lines.push({ t: text, ok });
       try {
         if (sub === "status") {
           const st = await nodeStatus(rpcBaseUrl);
           if (!st.up) {
             add("rpc: down (node not reachable)", false);
-            setS({ phase: "done", title: "node down", color: theme.err, lines: L });
+            setS({ phase: "done", title: "node down", color: theme.err, lines });
             return;
           }
           add(st.ticking ? "rpc: up, ticking" : "rpc: up, not yet ticking", st.ticking);
@@ -56,7 +56,7 @@ export function Node({ args }: { args: string[] }) {
             phase: "done",
             title: st.ticking ? "node up ✓" : "node up (idle)",
             color: st.ticking ? theme.ok : theme.warn,
-            lines: L,
+            lines,
             rows,
           });
           return;
@@ -65,7 +65,7 @@ export function Node({ args }: { args: string[] }) {
         if (sub === "stop") {
           if (!nodeAlive()) {
             add("no node running", true);
-            setS({ phase: "done", title: "stopped", color: theme.info, lines: L });
+            setS({ phase: "done", title: "stopped", color: theme.info, lines });
             return;
           }
           await killNode();
@@ -75,7 +75,7 @@ export function Node({ args }: { args: string[] }) {
             phase: "done",
             title: dead ? "stopped ✓" : "stop failed",
             color: dead ? theme.ok : theme.err,
-            lines: L,
+            lines,
           });
           return;
         }
@@ -90,7 +90,7 @@ export function Node({ args }: { args: string[] }) {
             phase: "done",
             title: "node fetched ✓",
             color: theme.ok,
-            lines: L,
+            lines,
             rows: [
               ["version", version],
               ["binary", nodeBinaryPath],
@@ -100,10 +100,10 @@ export function Node({ args }: { args: string[] }) {
         }
 
         add(`unknown: node ${sub} (run|status|stop|get)`, false);
-        setS({ phase: "done", title: "node", color: theme.warn, lines: L });
+        setS({ phase: "done", title: "node", color: theme.warn, lines });
       } catch (e: any) {
         add("ERROR: " + String(e?.message ?? e), false);
-        setS({ phase: "done", title: "node " + sub + " failed", color: theme.err, lines: L });
+        setS({ phase: "done", title: "node " + sub + " failed", color: theme.err, lines });
       }
     })();
   }, []);

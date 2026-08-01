@@ -7,7 +7,25 @@ import { join } from "node:path";
 import { LITE_TX, UploadBegin } from "@qinit/proto";
 import { VirtualNode } from "@qinit/engine";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { deployContract, tickFailureMessage, classifyConfirm } from "../../src/deploy-ops";
+import {
+  deployContract,
+  tickFailureMessage,
+  classifyConfirm,
+  updateDeploymentSteps,
+} from "../../src/deploy-ops";
+
+test("updateDeploymentSteps preserves detail and records elapsed time", () => {
+  const active = updateDeploymentSteps({}, { step: "build", state: "active", pct: 25 }, 100);
+  const done = updateDeploymentSteps(active, { step: "build", state: "ok", detail: "built" }, 145);
+
+  expect(done.build).toEqual({
+    state: "ok",
+    detail: "built",
+    pct: 25,
+    startedAt: 100,
+    elapsedMs: 45,
+  });
+});
 
 test("tickFailureMessage: unreachable is distinct from not-ticking", () => {
   expect(tickFailureMessage(true, "http://x")).toBe("node not ticking");

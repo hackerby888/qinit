@@ -7,20 +7,19 @@ import {
   resolveCoreDir,
   resolveCompilerBackend,
 } from "../config";
-import { deployContract, STEPS, type DeploymentEvent, type DeployResult } from "../deploy-ops";
+import {
+  deployContract,
+  STEPS,
+  updateDeploymentSteps,
+  type DeploymentEvent,
+  type DeploymentStepState,
+  type DeployResult,
+} from "../deploy-ops";
 import { nodeContracts } from "../node-ops";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { Header, StepRow, type StepState, Panel, theme } from "../ui";
 import { parseCommandArgs } from "../args";
 import { parseCallees } from "../callees";
-
-interface SS {
-  state: StepState;
-  detail?: string;
-  pct?: number;
-  startedAt?: number;
-  elapsedMs?: number;
-}
 
 export function Dev({ args }: { args: string[] }) {
   const { exit } = useApp();
@@ -41,7 +40,7 @@ export function Dev({ args }: { args: string[] }) {
     coreErr = String(e?.message ?? e);
   }
 
-  const [steps, setSteps] = useState<Record<string, SS>>({});
+  const [steps, setSteps] = useState<Record<string, DeploymentStepState>>({});
   const [notes, setNotes] = useState<string[]>([]);
   const [result, setResult] = useState<DeployResult | null>(null);
   const [contracts, setContracts] = useState<string[]>([]);
@@ -56,24 +55,7 @@ export function Dev({ args }: { args: string[] }) {
       setNotes((n) => [...n, e.note]);
       return;
     }
-    setSteps((s) => {
-      const prev = s[e.step] ?? ({} as SS);
-      const startedAt = e.state === "active" && !prev.startedAt ? Date.now() : prev.startedAt;
-      const elapsedMs =
-        (e.state === "ok" || e.state === "fail") && startedAt
-          ? Date.now() - startedAt
-          : prev.elapsedMs;
-      return {
-        ...s,
-        [e.step]: {
-          state: e.state,
-          detail: e.detail ?? prev.detail,
-          pct: e.pct ?? prev.pct,
-          startedAt,
-          elapsedMs,
-        },
-      };
-    });
+    setSteps((steps) => updateDeploymentSteps(steps, e));
   };
 
   const redeploy = async () => {

@@ -4,14 +4,22 @@ import { savedTheme, setSavedTheme } from "../config";
 import { Header, Grad, GradLine, THEMES, THEME_NAMES, applyTheme, theme } from "../ui";
 import { parseCommandArgs } from "../args";
 
-// a row of color blocks for one variant — gradient + brand/accent/info + semantic
 function Swatch({ name }: { name: string }) {
-  const t = THEMES[name];
-  const cols = [t.gradFrom, t.gradTo, t.brand, t.accent, t.info, t.ok, t.warn, t.err];
+  const selectedTheme = THEMES[name];
+  const colors = [
+    selectedTheme.gradFrom,
+    selectedTheme.gradTo,
+    selectedTheme.brand,
+    selectedTheme.accent,
+    selectedTheme.info,
+    selectedTheme.ok,
+    selectedTheme.warn,
+    selectedTheme.err,
+  ];
   return (
     <Text>
-      {cols.map((c, i) => (
-        <Text key={i} color={c}>
+      {colors.map((color, index) => (
+        <Text key={index} color={color}>
           █
         </Text>
       ))}

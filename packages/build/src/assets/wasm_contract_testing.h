@@ -91,7 +91,7 @@ enum : unsigned char {
 
 // contractError[slot]: contract execution status array from contract_exec.h (native harness asserts it).
 // In wasm mode a contract dispatch runs in the engine, so errors are engine-side; treat as always-clean
-static unsigned int contractError[64];
+static unsigned int contractError[MAX_NUMBER_OF_CONTRACTS];
 
 struct QpiContextUserFunctionCall : public QPI::QpiContextFunctionCall {
     QpiContextUserFunctionCall(unsigned int contractIndex)
@@ -144,7 +144,7 @@ struct QpiContextUserProcedureCall : public QPI::QpiContextProcedureCall {
 
 // ---- contractStates: lazy shadow-buffer proxy synced from engine on each access ----
 
-static void* qb_state_bufs[64];
+static void* qb_state_bufs[MAX_NUMBER_OF_CONTRACTS];
 
 static inline void* qb_state_ptr(unsigned int i) {
     // Shared-memory contract (deployed inside this module's memory): the engine hands back the live state
@@ -398,8 +398,7 @@ static inline unsigned int mod(const QbTickProxy& a, unsigned int b) {
 
 static constexpr char CONTRACT_ASSET_UNIT_OF_MEASUREMENT[7] = { 0, 0, 0, 0, 0, 0, 0 };
 
-// ---- contractDescriptions: constructionEpoch values from contract_def.h; stateSize 0 in wasm mode ----
-// Indices mirror the native contract_def.h array. Only constructionEpoch is accessed by EASY-tier corpora.
+// Generated from the selected core's contract_def.h. State size stays engine-owned in Wasm mode.
 
 struct QbContractDescription {
     char assetName[8];
@@ -408,40 +407,11 @@ struct QbContractDescription {
     unsigned long long stateSize;
 };
 
-static const QbContractDescription contractDescriptions[] = {
-    {"",        0,   0,     0},  // index  0
-    {"QX",      66,  10000, 0},  // index  1
-    {"QTRY",    72,  10000, 0},  // index  2
-    {"RANDOM",  88,  10000, 0},  // index  3
-    {"QUTIL",   99,  10000, 0},  // index  4
-    {"MLM",     112, 10000, 0},  // index  5
-    {"GQMPROP", 123, 10000, 0},  // index  6
-    {"SWATCH",  123, 10000, 0},  // index  7
-    {"CCF",     127, 10000, 0},  // index  8
-    {"QEARN",   137, 10000, 0},  // index  9
-    {"QVAULT",  138, 10000, 0},  // index 10
-    {"MSVAULT", 149, 10000, 0},  // index 11
-    {"QBAY",    154, 10000, 0},  // index 12
-    {"QSWAP",   171, 10000, 0},  // index 13
-    {"NOST",    172, 10000, 0},  // index 14
-    {"QDRAW",   179, 10000, 0},  // index 15
-    {"RL",      182, 10000, 0},  // index 16
-    {"QBOND",   182, 10000, 0},  // index 17
-    {"QIP",     189, 10000, 0},  // index 18
-    {"QRAFFLE", 192, 10000, 0},  // index 19
-    {"QRWA",    197, 10000, 0},  // index 20
-    {"QRP",     199, 10000, 0},  // index 21
-    {"QTF",     199, 10000, 0},  // index 22
-    {"QDUEL",   199, 10000, 0},  // index 23
-    {"PULSE",   204, 10000, 0},  // index 24
-    {"VOTTUN",  206, 10000, 0},  // index 25
-    {"QUSINO",  208, 10000, 0},  // index 26
-    {"ESCROW",  210, 10000, 0},  // index 27
-    {"GGWP",    218, 10000, 0},  // index 28
+static const QbContractDescription contractDescriptions[MAX_NUMBER_OF_CONTRACTS] = {
+__QINIT_CONTRACT_DESCRIPTIONS__
 };
 
-static const unsigned int contractCount =
-    sizeof(contractDescriptions) / sizeof(contractDescriptions[0]);
+static const unsigned int contractCount = __QINIT_CONTRACT_COUNT__;
 
 static inline bool isPublicKeyOfContract(const m256i& publicKey) {
     return !publicKey.u64._3 && !publicKey.u64._2 && !publicKey.u64._1 &&

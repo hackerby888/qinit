@@ -13,6 +13,7 @@ import {
   type SourceAnalysisResult,
 } from "@qinit/compiler/analyzer";
 import type { ContractBuildResult } from "@qinit/build";
+import { k12Hex } from "@qinit/core";
 
 export type TypeScriptContractBuildResult = ContractBuildResult;
 
@@ -124,6 +125,7 @@ export async function buildContractWithTypeScript(o: {
     ok: true,
     wasmPath,
     wasmSizeBytes: statSync(wasmPath).size,
+    wasmK12DigestHex: await k12Hex(r.wasm),
     idl: r.idl,
     stderr: warns.length ? warns.map((d) => `warning: ${d.message}`).join("\n") : undefined,
   };

@@ -4,6 +4,7 @@ import { test, expect } from "bun:test";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import {
   buildPreamble,
+  generateWasmContractTestingHeader,
   generateWasmWrapperSource,
   WASM_CONTRACT_TESTING_HEADER,
 } from "../../src/recipe";
@@ -175,4 +176,25 @@ test("Wasm test support resolves its core include through the canonical layout",
     "USER_FUNCTION_CALL = contractSystemProcedureCount + 2",
   );
   expect(WASM_CONTRACT_TESTING_HEADER).not.toMatch(/USER_(?:PROCEDURE|FUNCTION)_CALL\s*=\s*1[34]\b/);
+  expect(WASM_CONTRACT_TESTING_HEADER).toContain(
+    "contractError[MAX_NUMBER_OF_CONTRACTS]",
+  );
+  expect(WASM_CONTRACT_TESTING_HEADER).toContain(
+    "qb_state_bufs[MAX_NUMBER_OF_CONTRACTS]",
+  );
+});
+
+test("Wasm test support generates sparse contract descriptions through the tested slot", () => {
+  const header = generateWasmContractTestingHeader([
+    { index: 1, assetName: "QX", constructionEpoch: 66 },
+    { index: 100, assetName: "Counter", constructionEpoch: 0 },
+  ]);
+
+  expect(header).toContain(
+    "contractDescriptions[MAX_NUMBER_OF_CONTRACTS]",
+  );
+  expect(header).toContain('{"QX", 66, 10000, 0}');
+  expect(header).toContain('{"Counter", 0, 10000, 0}');
+  expect(header.match(/^    \{\},$/gm)).toHaveLength(99);
+  expect(header).toContain("contractCount = 101;");
 });

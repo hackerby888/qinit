@@ -71,7 +71,7 @@ export const META: Record<string, CommandMeta> = {
   },
   doctor: {
     group: "setup & node",
-    summary: "check toolchain (wasi-sdk, node.js, core headers, qubic lib)",
+    summary: "check toolchain (wasi-sdk, core headers, contract verifier)",
   },
   ext: {
     group: "setup & node",
@@ -348,7 +348,7 @@ export const META: Record<string, CommandMeta> = {
       stringOption("contract", "<file.h>", "contract under test (default: qinit.json)"),
       stringOption("contract-name", "<Name>", "contract name override"),
       stringOption("state-type", "<T>", "C++ contract struct type, if it differs from the name"),
-      stringOption("slot", "<n>", "contract slot (default 100)"),
+      stringOption("slot", "<n>", "contract slot (default: core Wasm slot base)"),
       stringOption("filter", "<pat>", "test name substring filter"),
       stringOption("core-dir", "<path>", "core-lite headers (with test/contract_testing.h)"),
       stringOption(

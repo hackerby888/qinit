@@ -6,7 +6,7 @@ import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import {
   compileWasmContract,
-  WASM_CONTRACT_TESTING_HEADER,
+  generateWasmContractTestingHeader,
   type ContractBuildOptions,
 } from "./recipe";
 // Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
@@ -14,7 +14,10 @@ import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
 import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
-import { systemContracts } from "./system-contracts";
+import {
+  systemContractDescriptions,
+  systemContracts,
+} from "./system-contracts";
 import { k12Hex } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
@@ -25,7 +28,13 @@ export { buildCalleePrelude, parseRegisters, scanCallees, parseContractDef } fro
 export type { DynCallees, CalleeDef } from "./intercontract";
 export { extractIdl } from "./idl";
 export type { ContractIdl, IdlEntry, Field, LogStruct, EnumDef } from "./idl";
-export { systemContracts, systemNames, type SystemContract } from "./system-contracts";
+export {
+  systemContractDescriptions,
+  systemContracts,
+  systemNames,
+  type SystemContract,
+  type SystemContractDescription,
+} from "./system-contracts";
 export { generateClient } from "./gen-client";
 export { testRuntimeSource, sampleTest } from "./gen-test";
 export { genStdGtest } from "./gen-std-gtest";
@@ -45,6 +54,28 @@ export interface ContractBuildResult {
   lineMapPath?: string;   // {fileOffset -> file:line:func} map for source-mapped trap backtraces
   stderr?: string;
   idlError?: string;    // set (instead of silently dropping idl) when extractIdl throws on a compiled contract
+}
+
+export function generateWasmContractTestingHeaderForCore(o: {
+  corePath: string;
+  name: string;
+  slot: number;
+}): string {
+  const catalog = systemContractDescriptions(o.corePath);
+  const mainContract = catalog.find((contract) => contract.index === o.slot);
+  const descriptions = catalog
+    .filter((contract) => contract.index !== o.slot)
+    .map((contract) => ({
+      index: contract.index,
+      assetName: contract.name,
+      constructionEpoch: contract.constructionEpoch,
+    }));
+  descriptions.push({
+    index: o.slot,
+    assetName: o.name,
+    constructionEpoch: mainContract?.constructionEpoch ?? 0,
+  });
+  return generateWasmContractTestingHeader(descriptions);
 }
 
 export async function buildContractWithWasiClang(
@@ -166,7 +197,10 @@ export async function buildCorpusRunner(o: {
 
   await mkdir(o.outDir, { recursive: true });
 
-  await writeFile(join(o.outDir, "wasm_contract_testing.h"), WASM_CONTRACT_TESTING_HEADER);
+  await writeFile(
+    join(o.outDir, "wasm_contract_testing.h"),
+    generateWasmContractTestingHeaderForCore(o),
+  );
   // Some corpora also `#include "test_util.h"` (asset-name helpers etc.); provide the wasm-mode stub.
   await writeFile(join(o.outDir, "test_util.h"), TEST_UTIL_H);
 

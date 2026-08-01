@@ -8,24 +8,23 @@ import {
   resolveCoreDir,
   resolveCompilerBackend,
 } from "../config";
-import { deployContract, STEPS, type DeploymentEvent, type DeployResult } from "../deploy-ops";
+import {
+  deployContract,
+  STEPS,
+  updateDeploymentSteps,
+  type DeploymentEvent,
+  type DeploymentStepState,
+  type DeployResult,
+} from "../deploy-ops";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
 import { output, parseCommandArgs } from "../args";
 import { parseCallees } from "../callees";
-
-interface SS {
-  state: StepState;
-  detail?: string;
-  pct?: number;
-  startedAt?: number;
-  elapsedMs?: number;
-}
 
 export function Deploy({ args }: { args: string[] }) {
   const { flags: o, pos, multi } = parseCommandArgs("deploy", args);
   const dynCallees = parseCallees(multi.callee);
   const { exit } = useApp();
-  const [steps, setSteps] = useState<Record<string, SS>>({});
+  const [steps, setSteps] = useState<Record<string, DeploymentStepState>>({});
   const [notes, setNotes] = useState<string[]>([]);
   const [result, setResult] = useState<DeployResult | null>(null);
   const [addr, setAddr] = useState("");
@@ -52,24 +51,7 @@ export function Deploy({ args }: { args: string[] }) {
             setNotes((n) => [...n, e.note]);
             return;
           }
-          setSteps((s) => {
-            const prev = s[e.step] ?? ({} as SS);
-            const startedAt = e.state === "active" && !prev.startedAt ? Date.now() : prev.startedAt;
-            const elapsedMs =
-              (e.state === "ok" || e.state === "fail") && startedAt
-                ? Date.now() - startedAt
-                : prev.elapsedMs;
-            return {
-              ...s,
-              [e.step]: {
-                state: e.state,
-                detail: e.detail ?? prev.detail,
-                pct: e.pct ?? prev.pct,
-                startedAt,
-                elapsedMs,
-              },
-            };
-          });
+          setSteps((steps) => updateDeploymentSteps(steps, e));
         };
         const r = await deployContract(
           {

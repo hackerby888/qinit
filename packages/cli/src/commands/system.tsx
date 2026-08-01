@@ -33,7 +33,8 @@ export function System({ args }: { args: string[] }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [busy, setBusy] = useState("starting");
   const [done, setDone] = useState(false);
-  const add = (t: string, ok?: boolean | null) => setLines((L) => [...L, { t, ok }]);
+  const add = (text: string, ok?: boolean | null) =>
+    setLines((currentLines) => [...currentLines, { t: text, ok }]);
 
   useEffect(() => {
     (async () => {

@@ -17,7 +17,34 @@ const WASM_CONTRACT_TESTING_H = WASM_CONTRACT_TESTING_H_TEMPLATE.replace(
   CORE_WASM_HEADERS.shared.abiMetadata,
 );
 
-export const WASM_CONTRACT_TESTING_HEADER = WASM_CONTRACT_TESTING_H;
+export interface WasmContractDescription {
+  index: number;
+  assetName: string;
+  constructionEpoch: number;
+}
+
+export function generateWasmContractTestingHeader(
+  descriptions: readonly WasmContractDescription[] = [],
+): string {
+  const byIndex = new Map(
+    descriptions.map((description) => [description.index, description]),
+  );
+  const highestIndex = Math.max(0, ...byIndex.keys());
+  const rows = Array.from({ length: highestIndex + 1 }, (_, index) => {
+    const description = byIndex.get(index);
+    if (!description) {
+      return "    {},";
+    }
+    const assetName = JSON.stringify(description.assetName.slice(0, 7));
+    return `    {${assetName}, ${description.constructionEpoch}, 10000, 0},`;
+  }).join("\n");
+
+  return WASM_CONTRACT_TESTING_H
+    .replace("__QINIT_CONTRACT_DESCRIPTIONS__", rows)
+    .replace("__QINIT_CONTRACT_COUNT__", String(highestIndex + 1));
+}
+
+export const WASM_CONTRACT_TESTING_HEADER = generateWasmContractTestingHeader();
 export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
 
 export interface ContractBuildOptions {

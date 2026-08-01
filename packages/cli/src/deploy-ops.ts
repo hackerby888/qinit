@@ -36,9 +36,47 @@ import { resolveNodeCallees } from "./callees";
 export { resolveNodeCallees } from "./callees";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
-export type DeploymentEvent =
-  | { step: StepKey; state: "active" | "ok" | "fail"; detail?: string; pct?: number }
-  | { note: string };
+export type DeploymentStepEvent = {
+  step: StepKey;
+  state: "active" | "ok" | "fail";
+  detail?: string;
+  pct?: number;
+};
+export type DeploymentEvent = DeploymentStepEvent | { note: string };
+
+export interface DeploymentStepState {
+  state: DeploymentStepEvent["state"];
+  detail?: string;
+  pct?: number;
+  startedAt?: number;
+  elapsedMs?: number;
+}
+
+export function updateDeploymentSteps(
+  steps: Record<string, DeploymentStepState>,
+  event: DeploymentStepEvent,
+  now = Date.now(),
+): Record<string, DeploymentStepState> {
+  const previous = steps[event.step];
+  const startedAt =
+    event.state === "active" && !previous?.startedAt
+      ? now
+      : previous?.startedAt;
+  const elapsedMs =
+    (event.state === "ok" || event.state === "fail") && startedAt
+      ? now - startedAt
+      : previous?.elapsedMs;
+  return {
+    ...steps,
+    [event.step]: {
+      state: event.state,
+      detail: event.detail ?? previous?.detail,
+      pct: event.pct ?? previous?.pct,
+      startedAt,
+      elapsedMs,
+    },
+  };
+}
 
 export const STEPS: { key: StepKey; label: string }[] = [
   { key: "tick", label: "node ticking" },

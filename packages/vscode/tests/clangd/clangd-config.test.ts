@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   generateClangdConfig,
+  generateTestClangdConfig,
   deriveName,
   DEFAULT_SLOT,
   ensureEditorSettings,
@@ -14,6 +15,8 @@ import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 
 const COUNTER = resolve("fixtures", "Counter.h");
 const hasFixture = existsSync(COUNTER);
+const CORE = process.env.QINIT_CORE ?? "";
+const QUTIL_TEST = join(CORE, "test", "contract_qutil.cpp");
 
 test("deriveName: basename without extension; explicit override wins", () => {
   expect(deriveName("/a/b/Counter.h")).toBe("Counter");
@@ -108,6 +111,32 @@ test.if(hasFixture)(
       expect(dotClangd).toContain(join(ws, ".qpi", "clangd").replace(/\\/g, "/"));
       expect(dotClangd).toContain("AllScopes: No");
       expect(dotClangd).toContain("HeaderInsertion: Never");
+    } finally {
+      rmSync(ws, { recursive: true, force: true });
+    }
+  },
+);
+
+test.if(hasFixture && existsSync(QUTIL_TEST))(
+  "generateTestClangdConfig uses the selected core contract catalog",
+  () => {
+    const ws = mkdtempSync(join(tmpdir(), "qpi-test-cfg-"));
+    try {
+      generateTestClangdConfig({
+        contractPath: COUNTER,
+        corePath: CORE,
+        workspaceRoot: ws,
+        slot: 100,
+        testPath: QUTIL_TEST,
+      });
+
+      const header = readFileSync(
+        join(ws, ".qpi", "clangd", "contract_testing.h"),
+        "utf8",
+      );
+      expect(header).toContain('{"QX", 66, 10000, 0}');
+      expect(header).toContain('{"Counter", 0, 10000, 0}');
+      expect(header).toContain("contractCount = 101;");
     } finally {
       rmSync(ws, { recursive: true, force: true });
     }

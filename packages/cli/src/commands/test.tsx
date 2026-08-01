@@ -26,7 +26,7 @@ import { testRuntimeSource, sampleTest, generateClient, extractIdl } from "@qini
 import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
-import { loadContractIdlFile } from "../idl-file";
+import { DEFAULT_IDL_PATH, loadContractIdlFile } from "../idl-file";
 import { parseCommandArgs } from "../args";
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -84,28 +84,27 @@ export function Test({ args }: { args: string[] }) {
     let ownNode = false;
     let activeRpc = rpcBaseUrl;
     let engineSrv: EngineServer | null = null;
-    const L: Line[] = [];
+    const lines: Line[] = [];
     const add = (label: string, ok?: boolean | null, detail?: string) => {
-      L.push({ label, ok, detail });
+      lines.push({ label, ok, detail });
     };
-    const spin = (spin: string) => setS({ phase: "setup", spin, lines: [...L] });
+    const spin = (spin: string) => setS({ phase: "setup", spin, lines: [...lines] });
 
     (async () => {
       try {
         // bun is required to run the test files. (Bun.which is cross-platform — no `sh` on Windows.)
         if (!Bun.which("bun")) {
           add("bun", false, "not found — qinit test needs bun (https://bun.sh)");
-          setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
+          setS({ phase: "done", lines, ok: false, output: "", rows: [] });
           return;
         }
         const core = resolveCoreDir(o["core-dir"], cfg.coreDir);
         if (!existsSync(contractPath)) {
           add("contract", false, contractPath + " not found");
-          setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
+          setS({ phase: "done", lines, ok: false, output: "", rows: [] });
           return;
         }
 
-        // 1) Use the selected core-lite node or an in-process simulator.
         const useSimulator = resolveNodeBackend(o) === "simulator";
         if (useSimulator) {
           spin("starting in-process simulator");
@@ -141,7 +140,7 @@ export function Test({ args }: { args: string[] }) {
             const w = await waitTicking(activeRpc, Number(o.wait || 60));
             if (!w.ticking) {
               add("node", false, w.exited ? "exited early — see log" : "not ticking");
-              setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
+              setS({ phase: "done", lines, ok: false, output: "", rows: [] });
               return;
             }
             add("node", true, `launched core node · ticking at ${w.tick}${nodeNote}`);
@@ -150,15 +149,12 @@ export function Test({ args }: { args: string[] }) {
           }
         }
 
-        // 2) deploy inter-contract callees first, so the main contract's CALL_OTHER_CONTRACT names resolve from
-        //    the node registry (deploy submits each callee's .h; the main build then auto-derives type + slot).
+        // Deploy callees first so the main build can resolve their types and slots from the registry.
         for (const callee of cfg.callees ?? []) {
           const cpath = resolve(callee.contract);
           if (!existsSync(cpath)) {
             add("callee", false, `${callee.name}: ${cpath} not found`);
-            if (ownNode && o["keep-node"] === undefined) await killNode();
-            engineSrv?.stop();
-            setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
+            setS({ phase: "done", lines, ok: false, output: "", rows: [] });
             return;
           }
           spin(`deploying callee ${callee.name}`);
@@ -176,15 +172,12 @@ export function Test({ args }: { args: string[] }) {
           );
           if (!cd.ok || cd.slot === undefined) {
             add("callee", false, `${callee.name}: ${cd.error ?? "deploy failed"}`);
-            if (ownNode && o["keep-node"] === undefined) await killNode();
-            engineSrv?.stop();
-            setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
+            setS({ phase: "done", lines, ok: false, output: "", rows: [] });
             return;
           }
           add("callee", true, `${callee.name} @ slot ${cd.slot}`);
         }
 
-        // 3) build + deploy the main contract (also runs the protocol-rule gate).
         spin("deploying contract");
         let depDetail = "";
         const dep = await deployContract(
@@ -206,9 +199,7 @@ export function Test({ args }: { args: string[] }) {
         );
         if (!dep.ok || dep.slot === undefined) {
           add("deploy", false, dep.error || depDetail || "failed");
-          if (ownNode && o["keep-node"] === undefined) await killNode();
-          engineSrv?.stop();
-          setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
+          setS({ phase: "done", lines, ok: false, output: "", rows: [] });
           return;
         }
         add(
@@ -217,7 +208,6 @@ export function Test({ args }: { args: string[] }) {
           `${contractName} @ slot ${dep.slot}${dep.reused ? " (reuse)" : ""}`,
         );
 
-        // 3) emit the self-contained test SDK (runtime + typed client + barrel).
         spin("generating test SDK");
         const idl =
           dep.idl ??
@@ -251,7 +241,6 @@ export function Test({ args }: { args: string[] }) {
           `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc)`,
         );
 
-        // 4) ensure the one public dep + install if needed.
         const pkgPath = join(root, "package.json");
         const pkg: any = existsSync(pkgPath)
           ? JSON.parse(readFileSync(pkgPath, "utf8"))
@@ -270,9 +259,8 @@ export function Test({ args }: { args: string[] }) {
         }
         add("deps", true, "@qubic-lib/qubic-ts-library");
 
-        // 5) run bun test with the provider env injected.
         const seed = o.seed || (await new LiteRpc(activeRpc).fundedSeed()) || "a".repeat(55);
-        setS({ phase: "testing", lines: [...L] });
+        setS({ phase: "testing", lines: [...lines] });
         const env = {
           ...process.env,
           QINIT_RPC: activeRpc,
@@ -303,7 +291,7 @@ export function Test({ args }: { args: string[] }) {
         if (!ok) {
           // append a source-mapped backtrace of the latest node trap (node.log + the slot's line map)
           try {
-            const idl = loadContractIdlFile(join(root, "qinit.idl.json"));
+            const idl = loadContractIdlFile(join(root, DEFAULT_IDL_PATH));
             const log = join(activeNodeScratchDir(), "node.log");
             if (existsSync(log)) {
               const bt = resolveTrapBacktrace(readFileSync(log, "utf8"), {
@@ -317,11 +305,9 @@ export function Test({ args }: { args: string[] }) {
         }
         add("tests", ok, ok ? "all passed" : "failures (see below)");
 
-        if (ownNode && o["keep-node"] === undefined) await killNode();
-        engineSrv?.stop();
         setS({
           phase: "done",
-          lines: L,
+          lines,
           ok,
           output,
           rows: [
@@ -341,12 +327,14 @@ export function Test({ args }: { args: string[] }) {
         });
       } catch (e: any) {
         add("ERROR", false, String(e?.message ?? e));
-        if (ownNode && o["keep-node"] === undefined)
-          try {
+        setS({ phase: "done", lines, ok: false, output: "", rows: [] });
+      } finally {
+        try {
+          if (ownNode && o["keep-node"] === undefined) {
             await killNode();
-          } catch {}
+          }
+        } catch {}
         engineSrv?.stop();
-        setS({ phase: "done", lines: L, ok: false, output: "", rows: [] });
       }
     })();
   }, []);

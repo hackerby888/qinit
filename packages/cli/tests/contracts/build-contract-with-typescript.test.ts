@@ -108,4 +108,5 @@ test("buildContractWithTypeScript analyzes transitive cyclic callees before one 
   expect(result.wasmPath).toBe(join(outDir, "Main.wasm"));
   expect(existsSync(result.wasmPath!)).toBe(true);
   expect(result.wasmSizeBytes).toBeGreaterThan(0);
+  expect(result.wasmK12DigestHex).toMatch(/^[0-9a-f]{64}$/);
 }, 60_000);

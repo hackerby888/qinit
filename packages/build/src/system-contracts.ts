@@ -13,13 +13,50 @@ export interface SystemContract {
   idl: ContractIdl;
 }
 
+export interface SystemContractDescription {
+  index: number;
+  name: string;
+  constructionEpoch: number;
+}
+
 const cache = new Map<string, SystemContract[]>();
 
-function indexToFile(definitionSource: string): Map<number, string> {
+export interface ParsedContractDefinitions {
+  files: Map<number, string>;
+  names: Map<number, string>;
+  epochs: Map<number, number>;
+  stateTypes: Map<number, string>;
+}
+
+export function parseContractDefinitions(
+  definitionSource: string,
+): ParsedContractDefinitions {
   const files = new Map<number, string>();
+  const names = new Map<number, string>();
+  const epochs = new Map<number, number>();
+  const stateTypes = new Map<number, string>();
   let currentIndex = -1;
 
-  for (const line of definitionSource.split("\n")) {
+  const descriptionBlock = definitionSource.match(
+    /contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\r?\n\s*\};/,
+  )?.[1];
+  if (descriptionBlock) {
+    let descriptionIndex = 0;
+    for (const description of descriptionBlock.matchAll(
+      /\{\s*"([^"]*)"([\s\S]*?)\}/g,
+    )) {
+      if (description[1]) {
+        names.set(descriptionIndex, description[1]);
+      }
+      const epoch = description[2].match(/^\s*,\s*(\d+)/)?.[1];
+      if (epoch) {
+        epochs.set(descriptionIndex, Number(epoch));
+      }
+      descriptionIndex++;
+    }
+  }
+
+  for (const line of definitionSource.split(/\r?\n/)) {
     const explicitIndex = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
     if (explicitIndex) {
       currentIndex = Number(explicitIndex[1]);
@@ -39,30 +76,6 @@ function indexToFile(definitionSource: string): Map<number, string> {
     if (include && currentIndex >= 0) {
       files.set(currentIndex, include[1]);
     }
-  }
-
-  return files;
-}
-
-function indexToStateType(definitionSource: string): Map<number, string> {
-  const stateTypes = new Map<number, string>();
-  let currentIndex = -1;
-
-  for (const line of definitionSource.split("\n")) {
-    const explicitIndex = line.match(/#define\s+\w+_CONTRACT_INDEX\s+(\d+)/);
-    if (explicitIndex) {
-      currentIndex = Number(explicitIndex[1]);
-      continue;
-    }
-
-    const incrementsIndex =
-      /\bconstexpr\b.*\w+_CONTRACT_INDEX\s*=\s*\(\s*CONTRACT_INDEX\s*\+\s*1\s*\)/.test(
-        line,
-      );
-    if (incrementsIndex) {
-      currentIndex += 1;
-      continue;
-    }
 
     const stateType = line.match(/#define\s+CONTRACT_STATE_TYPE\s+(\w+)/);
     if (stateType && currentIndex >= 0) {
@@ -70,53 +83,41 @@ function indexToStateType(definitionSource: string): Map<number, string> {
     }
   }
 
-  return stateTypes;
+  return { files, names, epochs, stateTypes };
 }
 
-function descriptionEntries(definitionSource: string): string | undefined {
-  return definitionSource.match(
-    /contractDescriptions\s*\[\s*\]\s*=\s*\{([\s\S]*?)\n\s*\};/,
-  )?.[1];
+function descriptionsFromDefinitions(
+  definitions: ParsedContractDefinitions,
+): SystemContractDescription[] {
+  return [...definitions.names]
+    .sort((left, right) => left[0] - right[0])
+    .flatMap(([index, name]) => {
+      const file = definitions.files.get(index);
+      if (/^LDYN/.test(name) || (file && /^TestExample/.test(file))) {
+        return [];
+      }
+      return [{
+        index,
+        name,
+        constructionEpoch: definitions.epochs.get(index) ?? 0,
+      }];
+    });
 }
 
-function indexToName(definitionSource: string): Map<number, string> {
-  const names = new Map<number, string>();
-  const descriptions = descriptionEntries(definitionSource);
-  if (!descriptions) {
-    return names;
-  }
-
-  let index = 0;
-
-  for (const entry of descriptions.matchAll(/\{\s*"([^"]*)"/g)) {
-    if (entry[1]) {
-      names.set(index, entry[1]);
-    }
-    index++;
-  }
-
-  return names;
+function definitionPath(coreRoot: string): string {
+  return join(coreRoot, "src", "contract_core", "contract_def.h");
 }
 
-function indexToConstructionEpoch(
-  definitionSource: string,
-): Map<number, number> {
-  const epochs = new Map<number, number>();
-  const descriptions = descriptionEntries(definitionSource);
-  if (!descriptions) {
-    return epochs;
+export function systemContractDescriptions(
+  coreRoot: string,
+): SystemContractDescription[] {
+  const path = definitionPath(coreRoot);
+  if (!existsSync(path)) {
+    return [];
   }
-
-  let index = 0;
-
-  for (const entry of descriptions.matchAll(
-    /\{\s*"[^"]*"\s*,\s*(\d+)/g,
-  )) {
-    epochs.set(index, Number(entry[1]));
-    index++;
-  }
-
-  return epochs;
+  return descriptionsFromDefinitions(
+    parseContractDefinitions(readFileSync(path, "utf8")),
+  );
 }
 
 export function systemContracts(coreRoot: string): SystemContract[] {
@@ -125,40 +126,23 @@ export function systemContracts(coreRoot: string): SystemContract[] {
     return cachedContracts;
   }
 
-  const definitionPath = join(
-    coreRoot,
-    "src",
-    "contract_core",
-    "contract_def.h",
-  );
+  const contractDefinitionPath = definitionPath(coreRoot);
   const contractsDir = join(coreRoot, "src", "contracts");
   const contracts: SystemContract[] = [];
 
-  if (existsSync(definitionPath)) {
+  if (existsSync(contractDefinitionPath)) {
     const qpiHeader = loadQpiHeader(coreRoot);
-    const definitionSource = readFileSync(definitionPath, "utf8");
-    const files = indexToFile(definitionSource);
-    const names = indexToName(definitionSource);
-    const epochs = indexToConstructionEpoch(definitionSource);
-    const stateTypes = indexToStateType(definitionSource);
-    const orderedNames = [...names].sort(
-      (left, right) => left[0] - right[0],
+    const definitions = parseContractDefinitions(
+      readFileSync(contractDefinitionPath, "utf8"),
     );
 
-    for (const [index, name] of orderedNames) {
-      if (/^LDYN/.test(name)) {
-        continue;
-      }
-
-      const file = files.get(index);
+    for (const description of descriptionsFromDefinitions(definitions)) {
+      const { index, name, constructionEpoch } = description;
+      const file = definitions.files.get(index);
       if (!file) {
         throw new Error(
           `system contract ${name} (${index}) has no source mapping`,
         );
-      }
-
-      if (/^TestExample/.test(file)) {
-        continue;
       }
 
       const sourcePath = join(contractsDir, file);
@@ -172,11 +156,11 @@ export function systemContracts(coreRoot: string): SystemContract[] {
         /X_MULTIPLIER/g,
         "1",
       );
-      const stateType = stateTypes.get(index) ?? name;
+      const stateType = definitions.stateTypes.get(index) ?? name;
       contracts.push({
         index,
         name,
-        constructionEpoch: epochs.get(index) ?? 0,
+        constructionEpoch,
         stateType,
         file,
         source,

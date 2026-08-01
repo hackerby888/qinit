@@ -6,10 +6,8 @@ import { buildContractWithWasiClang, type ContractBuildResult } from "@qinit/bui
 import {
   DEFAULT_RPC_BASE,
   autoUpdateVerifyTool,
-  k12Hex,
   LiteRpc,
   loadCoreWasmSlotLayout,
-  type VerifyUpdate,
 } from "@qinit/core";
 import { buildContractWithTypeScript } from "../build-contract-with-typescript";
 import { loadQpiHeader } from "@qinit/compiler";
@@ -23,7 +21,7 @@ import { output, parseCommandArgs } from "../args";
 import { parseCallees, resolveNodeCallees } from "../callees";
 
 type State =
-  { phase: "run" } | { phase: "done"; r: ContractBuildResult; vu?: VerifyUpdate; notes?: string[] };
+  { phase: "run" } | { phase: "done"; r: ContractBuildResult };
 
 export function buildJsonResult(r: ContractBuildResult, compiler: string) {
   return {
@@ -58,8 +56,9 @@ export function Build({ args }: { args: string[] }) {
         const outDir = resolve(o.out ?? "dist/contracts");
         const slot = Number(o.slot ?? cfg.slot ?? loadCoreWasmSlotLayout(core).slotBase);
 
+        let r: ContractBuildResult;
         if (compiler === "typescript") {
-          const r = await buildContractWithTypeScript({
+          r = await buildContractWithTypeScript({
             contractPath,
             name,
             slot,
@@ -67,63 +66,36 @@ export function Build({ args }: { args: string[] }) {
             outDir,
             dynCallees,
           });
-          if (!r.ok) {
-            setS({ phase: "done", r: { ok: false, stderr: r.stderr } });
-            return;
-          }
-          if (r.idl)
-            try {
-              writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
-            } catch {}
-          let hash = "";
-          if (r.wasmPath) {
-            try {
-              hash = await k12Hex(new Uint8Array(readFileSync(r.wasmPath)));
-            } catch {}
-          }
-          setS({
-            phase: "done",
-            r: {
-              ok: true,
-              wasmPath: r.wasmPath,
-              wasmSizeBytes: r.wasmSizeBytes,
-              wasmK12DigestHex: hash,
-              idl: r.idl,
-              stderr: r.stderr,
+        } else {
+          const rpcBaseUrl = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+          const callees = await resolveNodeCallees(
+            new LiteRpc(rpcBaseUrl),
+            readFileSync(contractPath, "utf8"),
+            dynCallees,
+            undefined,
+            {
+              name,
+              slot,
+              qpiHeader: loadQpiHeader(core),
             },
-          });
-          return;
-        }
-
-        const notes: string[] = [];
-        const rpcBaseUrl = o.rpc ?? cfg.rpc ?? DEFAULT_RPC_BASE;
-        const callees = await resolveNodeCallees(
-          new LiteRpc(rpcBaseUrl),
-          readFileSync(contractPath, "utf8"),
-          dynCallees,
-          (n) => notes.push(n),
-          {
+            2500,
+          );
+          await autoUpdateVerifyTool();
+          r = await buildContractWithWasiClang({
+            contractPath,
             name,
             slot,
-            qpiHeader: loadQpiHeader(core),
-          },
-          2500,
-        );
-        const vu = await autoUpdateVerifyTool();
-        const r = await buildContractWithWasiClang({
-          contractPath,
-          name,
-          slot,
-          corePath: core,
-          outDir,
-          dynCallees: callees,
-          skipVerify: "skip-verify" in o,
-        });
+            corePath: core,
+            outDir,
+            dynCallees: callees,
+            skipVerify: "skip-verify" in o,
+          });
+        }
         if (r.ok && r.idl)
           try {
             writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));
           } catch {}
-        setS({ phase: "done", r, vu, notes });
+        setS({ phase: "done", r });
       } catch (e: any) {
         setS({ phase: "done", r: { ok: false, stderr: String(e?.message ?? e) } });
       }
