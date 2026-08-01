@@ -4,18 +4,25 @@ import { inspectWasmModule } from "./wasm-inspect";
 import { toWasmFunctionSignatures } from "./wasm-inspection/inspection-types";
 import type { CompileOptions } from "./types";
 
+export async function encodeWat(
+    wat: string,
+    sourceName: string,
+): Promise<Uint8Array> {
+    const wabt = await import("wabt");
+    const wabtModule = await wabt.default();
+    const parsedModule = wabtModule.parseWat(sourceName, wat);
+
+    parsedModule.validate();
+
+    return new Uint8Array(parsedModule.toBinary({}).buffer);
+}
+
 export async function encodeAndInspectWat(
     wat: string,
     options: CompileOptions,
     metadata: GeneratedContractMetadata,
 ): Promise<Uint8Array> {
-    const wabt = await import("wabt");
-    const wabtModule = await wabt.default();
-    const parsedModule = wabtModule.parseWat("contract.wat", wat);
-
-    parsedModule.validate();
-
-    const wasm = new Uint8Array(parsedModule.toBinary({}).buffer);
+    const wasm = await encodeWat(wat, "contract.wat");
 
     if (!WebAssembly.validate(wasm)) {
         throw new Error("generated module failed WebAssembly validation");

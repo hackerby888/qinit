@@ -27,9 +27,8 @@ import {
     emitSystemProcedures,
 } from "./system-procedures";
 import { buildContractIdl } from "./contract-idl";
-import { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "../../../defaults";
 
-interface ModuleGenerationRequest {
+export interface ModuleGenerationRequest {
     translationUnit: {
         declarations: Declaration[];
     };
@@ -46,39 +45,7 @@ interface ModuleGenerationRequest {
     gtestMode: boolean;
 }
 
-export function generateWasmModule(
-    translationUnit: {
-        declarations: Declaration[];
-    },
-    semanticAnalysis: SemanticAnalyzer,
-    contractName: string,
-    contractSlot: number,
-    arenaSize: number = DEFAULT_COMPILE_ARENA_SIZE_BYTES,
-    libraryIndex?: LibrarySymbolIndex,
-    callees?: ContractIdl[],
-    calleeStructs?: Map<string, StructDecl>,
-    calleeTranslationUnits?: CalleeTranslationUnit[],
-    sharedMemoryBase?: number,
-    metadataOutput?: GeneratedContractMetadata,
-    gtestMode = false,
-): string {
-    return generateContractModule({
-        translationUnit,
-        semanticAnalysis,
-        contractName,
-        contractSlot,
-        arenaSize,
-        libraryIndex,
-        callees,
-        calleeStructs,
-        calleeTranslationUnits,
-        sharedMemoryBase,
-        metadataOutput,
-        gtestMode,
-    });
-}
-
-function generateContractModule(request: ModuleGenerationRequest): string {
+export function generateWasmModule(request: ModuleGenerationRequest): string {
     const prepared = prepareContractModule({
         translationUnit: request.translationUnit,
         semanticAnalysis: request.semanticAnalysis,

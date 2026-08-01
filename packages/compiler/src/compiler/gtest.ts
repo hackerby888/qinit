@@ -9,6 +9,7 @@ import { getQpiContext } from "./qpi-context";
 import { parseToAst } from "./parse-ast";
 import type { CompileOptions, GtestCompileResult, GtestDiagnostic, GtestProgram } from "./types";
 import { DEFAULT_GTEST_ARENA_SIZE_BYTES } from "../defaults";
+import { dumpWatIfRequested, encodeWat } from "./wasm-encoder";
 
 interface TestBlock {
   name: string;
@@ -214,18 +215,7 @@ ${registrations}
 };`;
 }
 
-async function assemble(wat: string): Promise<Uint8Array> {
-  const wabt = await import("wabt");
-  const module = await wabt.default();
-  const parsed = module.parseWat("gtest.wat", wat);
-  parsed.validate();
-  const wasm = new Uint8Array(parsed.toBinary({}).buffer);
-  if (!WebAssembly.validate(wasm))
-    throw new Error("generated gtest module failed WebAssembly validation");
-  return wasm;
-}
-
-export async function compileCoreGtest(
+export async function compileGtest(
   options: CompileOptions & { testSource: string },
 ): Promise<GtestCompileResult> {
   const diagnostics: GtestDiagnostic[] = [];
@@ -264,19 +254,16 @@ export async function compileCoreGtest(
   const targetSema = new SemanticAnalyzer();
   const targetMetadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
   try {
-    generateWasmModule(
-      target.ast,
-      targetSema,
-      options.contractName,
-      options.slot,
-      options.arenaSizeBytes ?? DEFAULT_GTEST_ARENA_SIZE_BYTES,
-      qpi.lib,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      targetMetadata,
-    );
+    generateWasmModule({
+      translationUnit: target.ast,
+      semanticAnalysis: targetSema,
+      contractName: options.contractName,
+      contractSlot: options.slot,
+      arenaSize: options.arenaSizeBytes ?? DEFAULT_GTEST_ARENA_SIZE_BYTES,
+      libraryIndex: qpi.lib,
+      metadataOutput: targetMetadata,
+      gtestMode: false,
+    });
   } catch (error) {
     diagnostics.push(
       diagnostic(
@@ -313,20 +300,20 @@ export async function compileCoreGtest(
   const metadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
   let wat: string;
   try {
-    wat = generateWasmModule(
-      { declarations },
-      sema,
-      runnerName,
-      RUNNER_SLOT,
-      options.arenaSizeBytes ?? DEFAULT_GTEST_ARENA_SIZE_BYTES,
-      qpi.lib,
-      undefined,
-      targetTypes,
-      [{ contractName: options.contractName, declarations: target.ast.declarations }],
-      undefined,
-      metadata,
-      true,
-    );
+    wat = generateWasmModule({
+      translationUnit: { declarations },
+      semanticAnalysis: sema,
+      contractName: runnerName,
+      contractSlot: RUNNER_SLOT,
+      arenaSize: options.arenaSizeBytes ?? DEFAULT_GTEST_ARENA_SIZE_BYTES,
+      libraryIndex: qpi.lib,
+      calleeStructs: targetTypes,
+      calleeTranslationUnits: [
+        { contractName: options.contractName, declarations: target.ast.declarations },
+      ],
+      metadataOutput: metadata,
+      gtestMode: true,
+    });
   } catch (error) {
     diagnostics.push(
       diagnostic(`Gtest codegen failed: ${error instanceof Error ? error.message : String(error)}`),
@@ -334,10 +321,7 @@ export async function compileCoreGtest(
     return { diagnostics };
   }
 
-  if ((globalThis as any).process?.env?.QINIT_DUMP_WAT) {
-    const fs = await import("node:fs");
-    fs.writeFileSync((globalThis as any).process.env.QINIT_DUMP_WAT, wat);
-  }
+  await dumpWatIfRequested(wat);
 
   diagnostics.push(...sema.getDiagnostics());
   if (options.strict !== false) {
@@ -350,7 +334,9 @@ export async function compileCoreGtest(
   if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics };
 
   try {
-    const wasm = await assemble(wat);
+    const wasm = await encodeWat(wat, "gtest.wat");
+    if (!WebAssembly.validate(wasm))
+      throw new Error("generated gtest module failed WebAssembly validation");
     const program: GtestProgram = {
       version: 2,
       contract: options.contractName,

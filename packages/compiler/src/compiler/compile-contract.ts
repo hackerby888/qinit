@@ -1,6 +1,9 @@
 import { DiagnosticCategory, DiagnosticSeverity } from "../enums";
 import { SemanticAnalyzer } from "../semantic-analyzer";
-import { generateWasmModule } from "../backend/wasm/module/module-generator";
+import {
+    generateWasmModule,
+    type ModuleGenerationRequest,
+} from "../backend/wasm/module/module-generator";
 import type { GeneratedContractMetadata } from "../backend/wasm/module/library-index";
 import { collectCalleeContext } from "./callees";
 import { CompilationPhaseTracker } from "./compilation-phase-tracker";
@@ -145,25 +148,26 @@ function loadQpiContext(options: CompileOptions) {
 
 function generateContractWat(
     options: CompileOptions,
-    translationUnit: Parameters<typeof generateWasmModule>[0],
+    translationUnit: ModuleGenerationRequest["translationUnit"],
     semanticAnalysis: SemanticAnalyzer,
     qpiContext: ReturnType<typeof getQpiContext>,
     calleeContext: ReturnType<typeof collectCalleeContext>,
     metadata: GeneratedContractMetadata,
 ): string {
-    return generateWasmModule(
+    return generateWasmModule({
         translationUnit,
         semanticAnalysis,
-        options.contractName,
-        options.slot,
-        options.arenaSizeBytes ?? DEFAULT_COMPILE_ARENA_SIZE_BYTES,
-        qpiContext.lib,
-        options.callees,
-        calleeContext.contractStructs,
-        calleeContext.calleeTranslationUnits,
-        options.sharedMemoryBaseOffsetBytes,
-        metadata,
-    );
+        contractName: options.contractName,
+        contractSlot: options.slot,
+        arenaSize: options.arenaSizeBytes ?? DEFAULT_COMPILE_ARENA_SIZE_BYTES,
+        libraryIndex: qpiContext.lib,
+        callees: options.callees,
+        calleeStructs: calleeContext.contractStructs,
+        calleeTranslationUnits: calleeContext.calleeTranslationUnits,
+        sharedMemoryBase: options.sharedMemoryBaseOffsetBytes,
+        metadataOutput: metadata,
+        gtestMode: false,
+    });
 }
 
 function createContractMetadata(

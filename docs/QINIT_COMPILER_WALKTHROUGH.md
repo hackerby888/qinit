@@ -712,19 +712,20 @@ Without this information Qinit could not safely allocate cross-contract buffers 
 The pipeline calls:
 
 ```ts
-generateWasmModule(
-  unit,
-  semanticAnalyzer,
+generateWasmModule({
+  translationUnit: unit,
+  semanticAnalysis: semanticAnalyzer,
   contractName,
-  slot,
-  arenaSizeBytes,
-  qpi.lib,
+  contractSlot: slot,
+  arenaSize: arenaSizeBytes,
+  libraryIndex: qpi.lib,
   callees,
   calleeStructs,
   calleeTranslationUnits,
-  sharedMemoryBaseOffsetBytes,
-  metadata,
-);
+  sharedMemoryBase: sharedMemoryBaseOffsetBytes,
+  metadataOutput: metadata,
+  gtestMode: false,
+});
 ```
 
 This creates:
