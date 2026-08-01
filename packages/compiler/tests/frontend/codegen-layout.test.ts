@@ -1,7 +1,7 @@
 import { AccessSpec, AstKind } from "../../src/enums";
 // Unit coverage for scalar, aggregate, template, and inherited layouts.
 import { describe, test, expect } from "bun:test";
-import { CodeGenerationContext } from "../../src/codegen";
+import { ProgramAnalysis } from "../../src/analysis";
 import { SemanticAnalyzer } from "../../src/semantic-analyzer";
 import type {
   TypeSpec,
@@ -11,9 +11,7 @@ import type {
   Declaration,
   Expression,
 } from "../../src/ast";
-import type { TemplateBindings } from "../../src/codegen";
-
-// ---- helpers ----
+import type { TemplateBindings } from "../../src/backend/wasm/types";
 
 const NO_SPAN = { start: 0, end: 0, line: 0, column: 0 };
 
@@ -41,7 +39,6 @@ const array = (element: TypeSpec, size: number): TypeSpec => ({
   },
 }) as TypeSpec;
 
-/** A non-static data member field. */
 const fld = (name: string, type: TypeSpec): VariableDecl =>
   ({
     kind: AstKind.VARIABLE,
@@ -55,7 +52,6 @@ const fld = (name: string, type: TypeSpec): VariableDecl =>
     span: NO_SPAN,
   }) as VariableDecl;
 
-/** A static constexpr member — skipped by layout. */
 const stat = (name: string, value: number): VariableDecl =>
   ({
     kind: AstKind.VARIABLE,
@@ -70,7 +66,6 @@ const stat = (name: string, value: number): VariableDecl =>
     span: NO_SPAN,
   }) as VariableDecl;
 
-/** Build a StructDecl. */
 const sdecl = (
   name: string,
   members: Declaration[],
@@ -90,7 +85,6 @@ const sdecl = (
     span: NO_SPAN,
   }) as StructDecl;
 
-/** Build a ClassTemplate (the codegen-internal representation). */
 const ctmpl = (params: TemplateParam[], members: Declaration[]) => ({ params, members });
 
 const tparam = (name: string): TemplateParam =>
@@ -99,11 +93,8 @@ const tparam = (name: string): TemplateParam =>
 const ntparam = (name: string): TemplateParam =>
   ({ kind: AstKind.NON_TYPE, name, type: n("uint64"), span: NO_SPAN }) as TemplateParam;
 
-// ---- Codegen instance ----
-
-const makeCg = (): CodeGenerationContext => new CodeGenerationContext(new SemanticAnalyzer());
-
-// -------------------------------------------------------------------------- scalar sizes --------------------------------------------------------------------------
+const makeCg = (): ProgramAnalysis =>
+  new ProgramAnalysis(new SemanticAnalyzer());
 
 describe("Codegen — scalar sizes", () => {
   test.each([
@@ -144,8 +135,6 @@ describe("Codegen — scalar sizes", () => {
     expect(codeGenerationContext.sizeOfType({ kind: AstKind.POINTER, pointee: n("uint64") } as TypeSpec)).toBe(4);
   });
 });
-
-// -------------------------------------------------------------------------- simple structs --------------------------------------------------------------------------
 
 describe("Codegen — simple struct layout", () => {
   test("two uint64 fields", () => {
@@ -246,8 +235,6 @@ describe("Codegen — simple struct layout", () => {
   });
 });
 
-// -------------------------------------------------------------------------- nested structs --------------------------------------------------------------------------
-
 describe("Codegen — nested struct layout", () => {
   test("struct containing another struct as a field", () => {
     const codeGenerationContext = makeCg();
@@ -286,8 +273,6 @@ describe("Codegen — nested struct layout", () => {
     expect(layout.align).toBe(1);
   });
 });
-
-// -------------------------------------------------------------------------- unions --------------------------------------------------------------------------
 
 describe("Codegen — union layout", () => {
   test("empty union has size 1, align 1", () => {
@@ -342,8 +327,6 @@ describe("Codegen — union layout", () => {
     expect(layout.align).toBe(8); // max field align
   });
 });
-
-// -------------------------------------------------------------------------- base class inheritance --------------------------------------------------------------------------
 
 describe("Codegen — base class layout", () => {
   test("empty bases do not shift derived fields", () => {
@@ -415,8 +398,6 @@ describe("Codegen — base class layout", () => {
   });
 });
 
-// -------------------------------------------------------------------------- templates --------------------------------------------------------------------------
-
 describe("Codegen — template layout", () => {
   test("Array<uint64, 4> via layoutOfType", () => {
     const codeGenerationContext = makeCg();
@@ -476,8 +457,6 @@ describe("Codegen — template layout", () => {
   });
 });
 
-// -------------------------------------------------------------------------- wide types (uint128, id, m256i) --------------------------------------------------------------------------
-
 describe("Codegen — wide types", () => {
   test("uint128 aligns to 8 (clamped from 16)", () => {
     const codeGenerationContext = makeCg();
@@ -507,8 +486,6 @@ describe("Codegen — wide types", () => {
     expect(layout.fields.get("b")!.offset).toBe(32);
   });
 });
-
-// -------------------------------------------------------------------------- layoutOfType via global structs --------------------------------------------------------------------------
 
 describe("Codegen — layoutOfType via global structs", () => {
   test("resolves named struct globally", () => {
@@ -585,8 +562,6 @@ describe("Codegen — layoutOfType via global structs", () => {
   });
 });
 
-// -------------------------------------------------------------------------- anonymous struct promotion --------------------------------------------------------------------------
-
 describe("Codegen — anonymous struct promotion", () => {
   test("unnamed struct members are flattened into the parent", () => {
     const codeGenerationContext = makeCg();
@@ -608,8 +583,6 @@ describe("Codegen — anonymous struct promotion", () => {
   });
 });
 
-// -------------------------------------------------------------------------- sizing through bindings --------------------------------------------------------------------------
-
 describe("Codegen — sizeOfType with bindings", () => {
   test("resolves template param through binding", () => {
     const codeGenerationContext = makeCg();
@@ -630,8 +603,6 @@ describe("Codegen — sizeOfType with bindings", () => {
     expect(layout!.size).toBe(64); // uint64(8) * 8
   });
 });
-
-// -------------------------------------------------------------------------- fieldOf helper --------------------------------------------------------------------------
 
 describe("Codegen — fieldOf", () => {
   test("resolves a named field's offset and size", () => {

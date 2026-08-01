@@ -59,23 +59,26 @@ export function structAlign(context: ProgramAnalysisInternals, members: Declarat
         return 8;
     context.alignDepth++;
     try {
-        let argument = 1;
+        let maximumAlignment = 1;
         for (const member of members) {
             if (member.kind === AstKind.VARIABLE &&
                 !(member as VariableDecl).isStatic &&
                 !(member as VariableDecl).isConstexpr) {
-                argument = Math.max(argument, context.alignOfTypeB((member as VariableDecl).type, templateBindings));
+                maximumAlignment = Math.max(
+                    maximumAlignment,
+                    context.alignOfTypeB((member as VariableDecl).type, templateBindings),
+                );
             }
         }
-        return Math.min(argument, 8);
+        return Math.min(maximumAlignment, 8);
     }
     finally {
         context.alignDepth--;
     }
 }
 
-export function alignUp(_context: ProgramAnalysisInternals, count: number, argument: number): number {
-    return Math.ceil(count / argument) * argument;
+export function alignUp(_programAnalysis: ProgramAnalysisInternals, value: number, alignment: number): number {
+    return Math.ceil(value / alignment) * alignment;
 }
 
 export function alignOfType(context: ProgramAnalysisInternals, type: TypeSpec, templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): number {

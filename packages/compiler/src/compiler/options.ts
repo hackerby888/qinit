@@ -2,10 +2,12 @@ import { DiagnosticSeverity } from "../enums";
 import type { Diagnostic as ParserDiagnostic } from "../parser";
 import type { CompileOptions } from "./types";
 import { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "../defaults";
+import {
+  MAX_USER_INPUT_TYPE,
+  MIN_USER_INPUT_TYPE,
+} from "../shared/entry-abi";
 
 const UINT32_MAX = 0xffff_ffff;
-const MIN_INPUT_TYPE = 1;
-const MAX_INPUT_TYPE = 65535;
 const WASM32_SIZE = 0x1_0000_0000;
 const MAX_COMPILER_NAME_LENGTH = 255;
 const COMPILER_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -31,8 +33,8 @@ export function validateCompileOptions(options: CompileOptions): ParserDiagnosti
     Number.isSafeInteger(value) && value >= 0 && value <= UINT32_MAX;
   const validInputType = (value: number) =>
     Number.isSafeInteger(value) &&
-    value >= MIN_INPUT_TYPE &&
-    value <= MAX_INPUT_TYPE;
+    value >= MIN_USER_INPUT_TYPE &&
+    value <= MAX_USER_INPUT_TYPE;
 
   if (typeof options.source !== "string") reject("source must be a string");
   if (!validCompilerName(options.contractName)) {
@@ -84,7 +86,9 @@ export function validateCompileOptions(options: CompileOptions): ParserDiagnosti
           reject(`duplicate callee entry '${callee.name}::${entry.name}'`);
         entryNames.add(entry.name);
         if (!validInputType(entry.inputType))
-          reject(`${kind} '${callee.name}::${entry.name}' inputType must be in the range 1..65535`);
+          reject(
+            `${kind} '${callee.name}::${entry.name}' inputType must be in the range ${MIN_USER_INPUT_TYPE}..${MAX_USER_INPUT_TYPE}`,
+          );
         if (!validSize(entry.inSize))
           reject(`${kind} '${callee.name}::${entry.name}' inSize must be a uint32 integer`);
         if (!validSize(entry.outSize))

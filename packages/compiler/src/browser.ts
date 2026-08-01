@@ -31,7 +31,7 @@ export interface CompilerInfo {
 }
 
 export const compilerInfo: CompilerInfo = {
-  qinitVersion: QPI_SNAPSHOT_META.qinitCompileVersion,
+  qinitVersion: QPI_SNAPSHOT_META.qinitCompilerVersion,
   coreCommit: QPI_SNAPSHOT_META.coreCommit,
   snapshotHash: QPI_SNAPSHOT_META.snapshotHash,
   generatorVersion: QPI_SNAPSHOT_META.generatorVersion,

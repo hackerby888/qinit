@@ -1,3 +1,4 @@
+import "../functions/function-lowering-services";
 import type { Declaration, StructDecl } from "../../../ast";
 import type { SemanticAnalyzer } from "../../../semantic-analyzer";
 import {

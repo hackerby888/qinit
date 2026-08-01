@@ -90,18 +90,22 @@ export interface SourceAnalysisResult {
 export function analyzeContract(
   options: AnalyzeContractOptions,
 ): SourceAnalysisResult {
-  const qpiHeader = options.qpiHeader ?? QPI_SNAPSHOT;
-  const contractName =
-    options.contractName ??
-    detectQpiContractName(options.source) ??
-    "Contract";
+  const normalizedOptions = {
+    ...options,
+    qpiHeader: options.qpiHeader ?? QPI_SNAPSHOT,
+    contractName:
+      options.contractName ??
+      detectQpiContractName(options.source) ??
+      "Contract",
+    slot: options.slot ?? 0,
+  };
   const calls = collectSourceContractCalls(
-    options.source,
-    contractName,
-    options.slot ?? 0,
-    getQpiMacros(qpiHeader),
+    normalizedOptions.source,
+    normalizedOptions.contractName,
+    normalizedOptions.slot,
+    getQpiMacros(normalizedOptions.qpiHeader),
   );
-  const compilerResult = analyzeCompiler(options, calls);
+  const compilerResult = analyzeCompiler(normalizedOptions, calls);
   const diagnostics = compilerResult.diagnostics;
 
   try {
@@ -144,7 +148,11 @@ export function detectContractName(source: string): string | undefined {
 }
 
 function analyzeCompiler(
-  options: AnalyzeContractOptions,
+  options: AnalyzeContractOptions & {
+    contractName: string;
+    slot: number;
+    qpiHeader: string;
+  },
   calls: SourceContractCall[],
 ): {
   diagnostics: SourceAnalysisDiagnostic[];
@@ -161,22 +169,18 @@ function analyzeCompiler(
   }
 
   try {
-    const qpiHeader = options.qpiHeader ?? QPI_SNAPSHOT;
     const compileOptions: CompileOptions = {
       source: options.source,
-      contractName:
-        options.contractName ??
-        detectQpiContractName(options.source) ??
-        "Contract",
-      slot: options.slot ?? 0,
-      qpiHeader,
+      contractName: options.contractName,
+      slot: options.slot,
+      qpiHeader: options.qpiHeader,
       callees: options.callees,
       calleeSources: options.calleeSources,
     };
-    const qpiContext = getQpiContext(qpiHeader);
+    const qpiContext = getQpiContext(options.qpiHeader);
     const preprocessed = preprocessContractSource(
       compileOptions,
-      getQpiMacros(qpiHeader),
+      getQpiMacros(options.qpiHeader),
     );
     const parserDiagnostics: CompilerDiagnostic[] = [];
     const translationUnit = parseContractSource(

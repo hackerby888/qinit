@@ -17,6 +17,7 @@ import type {
   SourceAnalysisDiagnostic,
   SourceFix,
 } from "./analyzer";
+import { USER_FUNCTION_KIND } from "./shared/entry-abi";
 
 const LIFECYCLE = new Set([
   "INITIALIZE",
@@ -29,6 +30,8 @@ const LIFECYCLE = new Set([
   "POST_ACQUIRE_SHARES",
   "PRE_RELEASE_SHARES",
   "POST_RELEASE_SHARES",
+  "SET_SHAREHOLDER_PROPOSAL",
+  "SET_SHAREHOLDER_VOTES",
   "EXPAND",
 ]);
 
@@ -472,7 +475,7 @@ function idlDiagnostics(
 
   if (semanticRegistrations) {
     for (const registration of semanticRegistrations) {
-      const kind = registration.kind === 0
+      const kind = registration.kind === USER_FUNCTION_KIND
         ? QpiMacroKind.FUNCTION
         : QpiMacroKind.PROCEDURE;
 

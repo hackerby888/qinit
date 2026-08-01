@@ -194,18 +194,15 @@ describe("type assertions catch the silent-divergence class", () => {
 });
 
 describe("escape-hatch ratchet", () => {
-  // ir.raw bridges untyped forms; this ratchet keeps its use bounded.
-  test("raw() count in codegen/ does not grow", () => {
-    const dir = join(import.meta.dir, "../../src/codegen");
+  test("rawWatNode count in the Wasm backend does not grow", () => {
+    const dir = join(import.meta.dir, "../../src/backend/wasm");
     let count = 0;
     for (const f of readdirSync(dir, { recursive: true }) as string[]) {
       if (!f.endsWith(".ts")) continue;
       const src = readFileSync(join(dir, f), "utf8");
-      count += (src.match(/ir\.raw\(/g) ?? []).length;
+      count += (src.match(/watIr\.rawWatNode\(/g) ?? []).length;
     }
-    // Source-instantiated uint128/free-function calls carry signatures discovered at
-    // codegen time, so they currently cross the dynamic-call bridge intentionally.
-    expect(count).toBeLessThanOrEqual(35);
+    expect(count).toBeLessThanOrEqual(32);
   });
 });
 
@@ -214,7 +211,7 @@ describe("CALL_SIG agrees with framework.ts", () => {
     const roots = [
       join(import.meta.dir, "../../src/framework.ts"),
       join(import.meta.dir, "../../src/wat-ir.ts"),
-      join(import.meta.dir, "../../src/codegen"),
+      join(import.meta.dir, "../../src/backend/wasm"),
     ];
     const files: string[] = [];
     for (const root of roots) {

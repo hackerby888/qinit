@@ -44,9 +44,8 @@ Dependencies point upward in this diagram toward simpler layers. Frontend code d
 not import analysis or backend code. Analysis does not import the backend. Backend
 code does not import compiler orchestration.
 
-`tests/architecture/module-boundaries.test.ts` enforces the dependency direction,
-detects runtime import cycles, rejects internal imports through legacy `codegen`
-facades, and limits handwritten source files to 500 lines.
+`tests/architecture/module-boundaries.test.ts` enforces the dependency direction
+and detects runtime import cycles.
 
 ## Source Map
 
@@ -54,7 +53,7 @@ facades, and limits handwritten source files to 500 lines.
 | --- | --- |
 | Where is a source file compiled? | `src/compiler/compile-contract.ts` |
 | Where is QPI/core context assembled? | `src/compiler/qpi-context.ts` |
-| Where are preprocessor directives handled? | `src/frontend/preprocessor/directives.ts` |
+| Where are preprocessor directives handled? | `src/frontend/preprocessor/directive-handler.ts` |
 | Where are macros expanded? | `src/frontend/preprocessor/macro-expander.ts` |
 | Where are tokens produced? | `src/frontend/lexer/` |
 | Where are declarations dispatched? | `src/frontend/parser/declarations/declaration-parser.ts` |
@@ -122,10 +121,9 @@ and other framework code surrounding the contract.
 
 ## Compatibility Facades
 
-The files under `src/codegen/` and the root files `ast.ts`, `lexer.ts`, `parser.ts`,
-`preprocess.ts`, `validate.ts`, `sema.ts`, and `framework.ts` preserve existing import
-paths. New implementation code should import the owning module directly rather than
-using these facades.
+The root files `ast.ts`, `lexer.ts`, `parser.ts`, `preprocess.ts`, `validate.ts`, and
+`framework.ts` preserve existing import paths. New implementation code should import
+the owning module directly.
 
 ## Naming Rules
 

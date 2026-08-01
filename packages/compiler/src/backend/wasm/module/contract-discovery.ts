@@ -1,38 +1,36 @@
 import { AstKind } from "../../../enums";
 import type { Declaration, StructDecl, FunctionDecl } from "../../../ast";
-
-// ---- AST helpers ----
 export function findContractStruct(translationUnit: {
     declarations: Declaration[];
 }): StructDecl | null {
     // Search nested namespaces when recovery leaves the user contract wrapped.
-    const all: StructDecl[] = [];
+    const structs: StructDecl[] = [];
     const walk = (declarations: Declaration[]) => {
         for (const declaration of declarations) {
             if (
                 declaration.kind === AstKind.STRUCT &&
                 declaration.hasBody !== false
             )
-                all.push(declaration as StructDecl);
+                structs.push(declaration as StructDecl);
             else if (declaration.kind === AstKind.NAMESPACE)
                 walk((declaration as any).body);
         }
     };
     walk(translationUnit.declarations);
-    for (const allItem of all) {
-        if (allItem.bases.some((baseType) => baseType.kind === AstKind.NAME && baseType.name === "ContractBase"))
-            return allItem;
-        if (allItem.name === "CONTRACT_STATE_TYPE")
-            return allItem;
+    for (const struct of structs) {
+        if (struct.bases.some((baseType) => baseType.kind === AstKind.NAME && baseType.name === "ContractBase"))
+            return struct;
+        if (struct.name === "CONTRACT_STATE_TYPE")
+            return struct;
     }
     // fallback: a struct with a nested StateData that isn't one of the qpi.h library types
-    for (const allItemCandidate of all) {
-        if (allItemCandidate.members.some((member) => (
+    for (const candidate of structs) {
+        if (candidate.members.some((member) => (
             member.kind === AstKind.STRUCT &&
             (member as StructDecl).name === "StateData" &&
             (member as StructDecl).hasBody !== false
         )))
-            return allItemCandidate;
+            return candidate;
     }
     return null;
 }

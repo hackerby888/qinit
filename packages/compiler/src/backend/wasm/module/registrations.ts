@@ -3,20 +3,24 @@ import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type { Expression, StructDecl, FunctionDecl } from "../../../ast";
 import { evalIntegralConst } from "../../../frontend/validation/validation-helpers";
-import type { UserEntry } from "../../../framework";
+import type { UserEntry } from "../framework/framework-types";
 import { emitFunction } from "../functions/function-emitter";
 import { findMemberFn } from "./contract-discovery";
 import type { ContractLayoutResolver } from "./named-layouts";
-
-const MIN_INPUT_TYPE = 1;
-const MAX_INPUT_TYPE = 65535;
-const MAX_PROCEDURE_INPUT_SIZE = 1024;
-const MAX_ENTRY_OUTPUT_SIZE = 65535;
-const MAX_ENTRY_LOCALS_SIZE = 32768;
+import {
+    MAX_ENTRY_LOCALS_SIZE_BYTES,
+    MAX_ENTRY_OUTPUT_SIZE_BYTES,
+    MAX_PROCEDURE_INPUT_SIZE_BYTES,
+    MAX_USER_INPUT_TYPE,
+    MIN_USER_INPUT_TYPE,
+    USER_FUNCTION_KIND,
+    USER_PROCEDURE_KIND,
+    type UserEntryKind,
+} from "../../../shared/entry-abi";
 
 export interface ContractRegistration {
     fnName: string;
-    kind: number;
+    kind: UserEntryKind;
     inputType: number;
     constant: boolean;
     line: number;
@@ -104,7 +108,7 @@ export function extractRegistrations(contract: StructDecl, programAnalysis: Prog
         if (fnName) {
             regs.push({
                 fnName,
-                kind: isFn ? 0 : 1,
+                kind: isFn ? USER_FUNCTION_KIND : USER_PROCEDURE_KIND,
                 inputType,
                 constant: isNotif || evaluated !== null,
                 line: expression.span.line,
@@ -130,11 +134,11 @@ export function validateContractRegistrations(
         }
 
         if (
-            registration.inputType < MIN_INPUT_TYPE ||
-            registration.inputType > MAX_INPUT_TYPE
+            registration.inputType < MIN_USER_INPUT_TYPE ||
+            registration.inputType > MAX_USER_INPUT_TYPE
         ) {
             programAnalysis.error(
-                `registration input type for '${registration.fnName}' must be in the range 1..65535`,
+                `registration input type for '${registration.fnName}' must be in the range ${MIN_USER_INPUT_TYPE}..${MAX_USER_INPUT_TYPE}`,
                 registration.line,
             );
         }
@@ -143,8 +147,8 @@ export function validateContractRegistrations(
     const valid = extracted.filter((registration) => {
         return (
             registration.constant &&
-            registration.inputType >= MIN_INPUT_TYPE &&
-            registration.inputType <= MAX_INPUT_TYPE
+            registration.inputType >= MIN_USER_INPUT_TYPE &&
+            registration.inputType <= MAX_USER_INPUT_TYPE
         );
     });
 
@@ -266,19 +270,19 @@ function validateRegistrationKind(
     const contextType = programAnalysis.derefType(
         declaration.params[0]?.type ?? { kind: AstKind.VOID },
     );
-    const actualKind = (
+    const actualKind: UserEntryKind | undefined = (
         contextType.kind === AstKind.NAME &&
         contextType.name === "QpiContextFunctionCall"
     )
-        ? 0
+        ? USER_FUNCTION_KIND
         : (
             contextType.kind === AstKind.NAME &&
             contextType.name === "QpiContextProcedureCall"
         )
-            ? 1
-            : -1;
+            ? USER_PROCEDURE_KIND
+            : undefined;
 
-    if (actualKind >= 0 && actualKind !== registration.kind) {
+    if (actualKind !== undefined && actualKind !== registration.kind) {
         programAnalysis.error(
             `'${registration.fnName}' is a ${registrationKindName(actualKind)} but is registered as a ${registrationKindName(registration.kind)}`,
             registration.line,
@@ -313,30 +317,33 @@ function validateRegistrationLayouts(
     const outputSize = layouts.resolve(outputName).size;
     const localsSize = layouts.resolve(localsName).size;
 
-    if (registration.kind === 1 && inputSize > MAX_PROCEDURE_INPUT_SIZE) {
+    if (
+        registration.kind === USER_PROCEDURE_KIND &&
+        inputSize > MAX_PROCEDURE_INPUT_SIZE_BYTES
+    ) {
         programAnalysis.error(
-            `${inputName} exceeds MAX_INPUT_SIZE (1024 bytes)`,
+            `${inputName} exceeds MAX_INPUT_SIZE (${MAX_PROCEDURE_INPUT_SIZE_BYTES} bytes)`,
             registration.line,
         );
     }
 
-    if (outputSize > MAX_ENTRY_OUTPUT_SIZE) {
+    if (outputSize > MAX_ENTRY_OUTPUT_SIZE_BYTES) {
         programAnalysis.error(
-            `${outputName} is too large; maximum output size is 65535 bytes`,
+            `${outputName} is too large; maximum output size is ${MAX_ENTRY_OUTPUT_SIZE_BYTES} bytes`,
             registration.line,
         );
     }
 
-    if (localsSize > MAX_ENTRY_LOCALS_SIZE) {
+    if (localsSize > MAX_ENTRY_LOCALS_SIZE_BYTES) {
         programAnalysis.error(
-            `${localsName} exceeds MAX_SIZE_OF_CONTRACT_LOCALS (32768 bytes)`,
+            `${localsName} exceeds MAX_SIZE_OF_CONTRACT_LOCALS (${MAX_ENTRY_LOCALS_SIZE_BYTES} bytes)`,
             registration.line,
         );
     }
 }
 
-function registrationKindName(kind: number): QpiContextKind {
-    return kind === 0
+function registrationKindName(kind: UserEntryKind): QpiContextKind {
+    return kind === USER_FUNCTION_KIND
         ? QpiContextKind.FUNCTION
         : QpiContextKind.PROCEDURE;
 }

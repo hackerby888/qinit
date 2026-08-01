@@ -56,7 +56,7 @@ function render(): { hash: string; module: string; protocolPreludeModule: string
     snapshotHash: hash,
     coreCommit: manifest.coreCommit,
     generatorVersion: GENERATOR_VERSION,
-    qinitCompileVersion: pkg.version as string,
+    qinitCompilerVersion: pkg.version as string,
   };
   return {
     hash,

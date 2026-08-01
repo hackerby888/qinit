@@ -1,5 +1,4 @@
 import { AstKind } from "../../enums";
-// Validation runs after parse and before codegen.
 import type { Statement, Expression } from "../../ast";
 import { evalIntegralConst } from "./validation-helpers";
 import type { ValidatorInternals } from "./validator-context";
@@ -128,8 +127,8 @@ export function walkExpressions(_context: ValidatorInternals, statement: Stateme
                 break;
             case AstKind.CONSTRUCT:
             case AstKind.INITIALIZER_LIST:
-                for (const itemItem of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
-                    walkE(itemItem);
+                for (const item of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
+                    walkE(item);
                 }
                 break;
             case AstKind.SIZEOF_EXPR:

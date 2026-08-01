@@ -8,7 +8,6 @@ import type { LhostAbiSpec } from "../../../lhost";
 import { registerCallSig } from "../../../wat-ir";
 import type { WasmAbiSource } from "@qinit/core/wasm-abi-source";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
-// ---- entry point ----
 export interface LibrarySymbolIndex {
     templates: Map<string, ClassTemplate>;
     specializations: Map<string, {

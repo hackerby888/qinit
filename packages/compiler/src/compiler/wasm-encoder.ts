@@ -1,5 +1,5 @@
 import { WasmModuleMemoryMode } from "../enums";
-import type { GeneratedContractMetadata } from "../codegen";
+import type { GeneratedContractMetadata } from "../backend/wasm/module/library-index";
 import { inspectWasmModule } from "./wasm-inspect";
 import { toWasmFunctionSignatures } from "./wasm-inspection/inspection-types";
 import type { CompileOptions } from "./types";

@@ -1,23 +1,19 @@
 import { DiagnosticSeverity, TokenKind } from "../../enums";
 import type { Declaration } from "../../ast";
-import { Lexer } from "../../lexer";
 import type { Token } from "../../lexer";
 import type { ParserDiagnostic } from "./parser-context";
 
 export class ParserState {
-    readonly lexer: Lexer;
     readonly diagnostics: ParserDiagnostic[] = [];
     readonly bodyDiagnostics: ParserDiagnostic[] = [];
     readonly pendingDeclarations: Declaration[] = [];
+    readonly tokens: Token[];
 
+    position = 0;
     templateAngleDepth = 0;
     lastToken: Token | null = null;
 
     constructor(tokens: Token[]) {
-        this.lexer = new Lexer("");
-        (this.lexer as any).tokens = tokens;
-        (this.lexer as any).index = 0;
-
         if (tokens.length === 0 || tokens[tokens.length - 1].kind !== TokenKind.EOF) {
             tokens.push({
                 kind: TokenKind.EOF,
@@ -30,26 +26,19 @@ export class ParserState {
                 },
             });
         }
-    }
-
-    get position(): number {
-        return (this.lexer as any).index;
-    }
-
-    set position(position: number) {
-        (this.lexer as any).index = position;
-    }
-
-    get tokens(): Token[] {
-        return (this.lexer as any).tokens;
+        this.tokens = tokens;
     }
 
     peek(offset = 0): Token {
-        return this.lexer.peek(offset);
+        const index = this.position + offset;
+        return index >= this.tokens.length
+            ? this.tokens[this.tokens.length - 1]
+            : this.tokens[index];
     }
 
     next(): Token {
-        const token = this.lexer.next();
+        const token = this.peek();
+        this.position++;
         this.lastToken = token;
         return token;
     }

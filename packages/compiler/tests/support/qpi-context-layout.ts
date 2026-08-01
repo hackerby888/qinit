@@ -1,5 +1,5 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
-import { deriveQpiContextLayout } from "../../src/codegen/module";
+import { deriveQpiContextLayout } from "../../src/backend/wasm/module/library-index";
 import { loadQpiHeader } from "../../src/compiler/header";
 import { getQpiContext } from "../../src/compiler/qpi-context";
 

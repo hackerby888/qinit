@@ -1,5 +1,4 @@
 import { AstKind, BinaryOp, UnaryOp } from "../../enums";
-// Validation runs after parse and before codegen.
 import type { Expression, TypeSpec } from "../../ast";
 import { unwrapType, isConstType, isZeroLiteral, isLiteral, typeKey } from "./validation-helpers";
 import type { FnSig, ValidatorInternals } from "./validator-context";
@@ -158,8 +157,8 @@ export function checkExpression(context: ValidatorInternals, root: Expression, m
                 break;
             case AstKind.CONSTRUCT:
             case AstKind.INITIALIZER_LIST:
-                for (const itemItem of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
-                    walk(itemItem);
+                for (const item of (expression as any).callArguments ?? (expression as any).expressions ?? []) {
+                    walk(item);
                 }
                 break;
             case AstKind.SIZEOF_EXPR:

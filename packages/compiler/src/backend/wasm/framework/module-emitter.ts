@@ -17,7 +17,7 @@ export function emitModule(spec: ModuleSpecification): string {
     const sysprocMask = spec.sysprocs.reduce((sysproc, sp) => sysproc | (1 << sp.id), 0);
     return [
         "(module",
-        "  ;; ---- qinit-compile generated module ----",
+        "  ;; qinit-compiler generated module",
         emitImports(spec.gtest, spec.lhostAbi),
         spec.memBase !== undefined
             ? `  (import "env" "memory" (memory ${capacity.pages}))`

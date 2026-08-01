@@ -9,7 +9,10 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
-import { PLATFORM_PRIMITIVES, platformPrimitive } from "../../src/codegen/platform-primitives";
+import {
+  PLATFORM_PRIMITIVES,
+  platformPrimitive,
+} from "../../src/backend/wasm/calls/platform-primitives";
 import { readSourceTree } from "../support/source-tree";
 
 const CORE = CORE_PATH;

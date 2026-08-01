@@ -1,13 +1,17 @@
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
 import { type LhostAbiSpec } from "../../../lhost";
 import type { PlatformCapability } from "../calls/platform-primitives";
+import {
+    USER_ENTRY_IO_BUFFER_SIZE_BYTES,
+    USER_ENTRY_LOCALS_BUFFER_SIZE_BYTES,
+} from "../../../shared/entry-abi";
 
 // WAT assembler for a complete contract module.
-export const IN_SZ = 64 * 1024;
+export const IN_SZ = USER_ENTRY_IO_BUFFER_SIZE_BYTES;
 
-export const OUT_SZ = 64 * 1024;
+export const OUT_SZ = USER_ENTRY_IO_BUFFER_SIZE_BYTES;
 
-export const LOCALS_SZ = 32 * 1024;
+export const LOCALS_SZ = USER_ENTRY_LOCALS_BUFFER_SIZE_BYTES;
 
 export interface QpiContextLayout {
     size: number;

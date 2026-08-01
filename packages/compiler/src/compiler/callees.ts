@@ -1,12 +1,13 @@
 import { AstKind, DiagnosticSeverity } from "../enums";
-import { Lexer } from "../lexer";
-import { Parser, type Diagnostic as ParserDiagnostic } from "../parser";
-import { Preprocessor } from "../preprocess";
-import { SCAFFOLD_MACROS } from "../qpi-scaffold";
+import type { Diagnostic as ParserDiagnostic } from "../parser";
 import type { Declaration, StructDecl } from "../ast";
 import type { CompileOptions } from "./types";
 import type { QpiContext } from "./qpi-context";
-import { makeUserDiagnosticRemapper, scanUnterminatedSource, sourceWithoutLeadingBom, USER_BOUNDARY } from "./diagnostics";
+import { scanUnterminatedSource } from "./diagnostics";
+import {
+  parseContractSource,
+  preprocessContractSource,
+} from "./contract-frontend";
 
 export interface CalleeContext {
   contractStructs: Map<string, StructDecl>;
@@ -35,27 +36,23 @@ export function collectCalleeContext(options: CompileOptions, qpi: QpiContext): 
       continue;
     }
 
-    const source = `${SCAFFOLD_MACROS}\nstruct ${USER_BOUNDARY} {};\n${sourceWithoutLeadingBom(callee.source)}`;
-    const preprocessedSource = new Preprocessor().preprocess({
-      source,
-      qpiHeader: "",
-      contractName: callee.name,
-      contractIndex:
-        callee.slot ??
-        calleeSlots.get(callee.name) ??
-        0,
-      seedMacros: qpi.macros,
-    });
-    const boundaryIndex = preprocessedSource.indexOf(USER_BOUNDARY);
-    const boundaryLine = boundaryIndex >= 0 ? preprocessedSource.slice(0, boundaryIndex).split("\n").length : 0;
-    const remap = makeUserDiagnosticRemapper(callee.source, preprocessedSource, boundaryLine);
-    const parser = new Parser(new Lexer(preprocessedSource).tokenize());
-    const unit = parser.parseTranslationUnit();
-    const parsed = parser
-      .getDiagnostics()
-      .filter((diagnostic) => diagnostic.span.line > boundaryLine)
+    const preprocessed = preprocessContractSource(
+      {
+        source: callee.source,
+        contractName: callee.name,
+        slot:
+          callee.slot ??
+          calleeSlots.get(callee.name) ??
+          0,
+        qpiHeader: options.qpiHeader,
+      },
+      qpi.macros,
+    );
+    const calleeDiagnostics: ParserDiagnostic[] = [];
+    const unit = parseContractSource(preprocessed, calleeDiagnostics);
+    const parsed = calleeDiagnostics
       .map((diagnostic) => ({
-        ...remap(diagnostic),
+        ...diagnostic,
         message: `Callee '${callee.name}': ${diagnostic.message}`,
       }));
     diagnostics.push(...parsed);

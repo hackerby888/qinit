@@ -16,11 +16,11 @@ import { fileURLToPath } from "node:url";
 const SOURCE_ROOT = fileURLToPath(new URL("../../src/", import.meta.url));
 
 const FORBIDDEN_LAYER_IMPORTS: Record<string, Set<string>> = {
-  shared: new Set(["ast", "frontend", "analysis", "backend", "compiler", "codegen"]),
-  ast: new Set(["frontend", "analysis", "backend", "compiler", "codegen"]),
-  frontend: new Set(["analysis", "backend", "compiler", "codegen"]),
-  analysis: new Set(["backend", "compiler", "codegen"]),
-  backend: new Set(["compiler", "codegen"]),
+  shared: new Set(["ast", "frontend", "analysis", "backend", "compiler"]),
+  ast: new Set(["frontend", "analysis", "backend", "compiler"]),
+  frontend: new Set(["analysis", "backend", "compiler"]),
+  analysis: new Set(["backend", "compiler"]),
+  backend: new Set(["compiler"]),
 };
 
 interface ModuleReference {
@@ -175,31 +175,6 @@ describe("compiler module boundaries", () => {
         const dependencyLayer = sourceLayer(dependency);
 
         if (forbiddenLayers.has(dependencyLayer)) {
-          violations.push(
-            `${sourcePath(file)} -> ${sourcePath(dependency)}`,
-          );
-        }
-      }
-    }
-
-    expect(violations).toEqual([]);
-  });
-
-  test("keeps implementations independent from legacy codegen facades", () => {
-    const implementationLayers = new Set(["frontend", "analysis", "backend"]);
-    const violations: string[] = [];
-
-    for (const file of sourceFiles) {
-      if (!implementationLayers.has(sourceLayer(file))) {
-        continue;
-      }
-
-      const source = readFileSync(file, "utf8");
-
-      for (const reference of collectModuleReferences(source)) {
-        const dependency = resolveSourceModule(file, reference.specifier);
-
-        if (dependency !== undefined && sourceLayer(dependency) === "codegen") {
           violations.push(
             `${sourcePath(file)} -> ${sourcePath(dependency)}`,
           );

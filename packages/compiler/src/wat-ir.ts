@@ -29,49 +29,43 @@ export type WatNode =
   | { k: WatNodeKind.CALL; ty: WatNodeType; target: string; callArguments: WatNode[] }
   | { k: WatNodeKind.RAW; ty: WatNodeType; text: string; why?: string };
 
-// ---- printer ----
-
-export function serializeWatNode(count: WatNode): string {
-  switch (count.k) {
+export function serializeWatNode(node: WatNode): string {
+  switch (node.k) {
     case WatNodeKind.CONST:
-      return `(${count.ty}.const ${count.lit})`;
+      return `(${node.ty}.const ${node.lit})`;
     case WatNodeKind.GET:
-      return `(local.get $${count.name})`;
+      return `(local.get $${node.name})`;
     case WatNodeKind.SET:
-      return `(local.set $${count.name} ${serializeWatNode(count.v)})`;
+      return `(local.set $${node.name} ${serializeWatNode(node.v)})`;
     case WatNodeKind.LOAD:
-      return count.offset === null
-        ? `(${count.operator} ${serializeWatNode(count.addr)})`
-        : `(${count.operator} offset=${count.offset} ${serializeWatNode(count.addr)})`;
+      return node.offset === null
+        ? `(${node.operator} ${serializeWatNode(node.addr)})`
+        : `(${node.operator} offset=${node.offset} ${serializeWatNode(node.addr)})`;
     case WatNodeKind.STORE:
-      return count.offset === null
-        ? `(${count.operator} ${serializeWatNode(count.addr)} ${serializeWatNode(count.v)})`
-        : `(${count.operator} offset=${count.offset} ${serializeWatNode(count.addr)} ${serializeWatNode(count.v)})`;
+      return node.offset === null
+        ? `(${node.operator} ${serializeWatNode(node.addr)} ${serializeWatNode(node.v)})`
+        : `(${node.operator} offset=${node.offset} ${serializeWatNode(node.addr)} ${serializeWatNode(node.v)})`;
     case WatNodeKind.OP:
-      return count.callArguments.length === 0 ? `(${count.operator})` : `(${count.operator} ${count.callArguments.map(serializeWatNode).join(" ")})`;
+      return node.callArguments.length === 0 ? `(${node.operator})` : `(${node.operator} ${node.callArguments.map(serializeWatNode).join(" ")})`;
     case WatNodeKind.CALL:
-      return count.callArguments.length === 0
-        ? `(call ${count.target})`
-        : `(call ${count.target} ${count.callArguments.map(serializeWatNode).join(" ")})`;
+      return node.callArguments.length === 0
+        ? `(call ${node.target})`
+        : `(call ${node.target} ${node.callArguments.map(serializeWatNode).join(" ")})`;
     case WatNodeKind.RAW:
-      return count.text;
+      return node.text;
   }
 }
-
-// ---- type assertion ----
 
 // "val" accepts either value type (used by drop and by value-position checks).
 
-export function assertWatType(count: WatNode, want: ExpectedWatType, context?: string): WatNode {
-  const ok = want === WatExpectedType.VALUE ? count.ty !== WatNodeType.VOID : count.ty === want;
+export function assertWatType(node: WatNode, want: ExpectedWatType, context?: string): WatNode {
+  const ok = want === WatExpectedType.VALUE ? node.ty !== WatNodeType.VOID : node.ty === want;
   if (!ok) {
     const where = context ? ` in ${context}` : "";
-    throw new Error(`IR type error${where}: expected ${want}, got ${count.ty}: ${serializeWatNode(count)}`);
+    throw new Error(`IR type error${where}: expected ${want}, got ${node.ty}: ${serializeWatNode(node)}`);
   }
-  return count;
+  return node;
 }
-
-// ---- opcode signatures ----
 
 interface WatOperationSignature {
   res: WatNodeType;
@@ -79,8 +73,8 @@ interface WatOperationSignature {
 }
 
 function binops(prefix: WatValueType): Record<string, WatOperationSignature> {
-  const text: Record<string, WatOperationSignature> = {};
-  for (const itemItem of [
+  const signatures: Record<string, WatOperationSignature> = {};
+  for (const operator of [
     "add",
     "sub",
     "mul",
@@ -97,16 +91,16 @@ function binops(prefix: WatValueType): Record<string, WatOperationSignature> {
     "rotl",
     "rotr",
   ]) {
-    text[`${prefix}.${itemItem}`] = { res: prefix, ops: [prefix, prefix] };
+    signatures[`${prefix}.${operator}`] = { res: prefix, ops: [prefix, prefix] };
   }
-  for (const itemItemCandidate of ["eq", "ne", "lt_s", "lt_u", "gt_s", "gt_u", "le_s", "le_u", "ge_s", "ge_u"]) {
-    text[`${prefix}.${itemItemCandidate}`] = { res: WatNodeType.I32, ops: [prefix, prefix] };
+  for (const operator of ["eq", "ne", "lt_s", "lt_u", "gt_s", "gt_u", "le_s", "le_u", "ge_s", "ge_u"]) {
+    signatures[`${prefix}.${operator}`] = { res: WatNodeType.I32, ops: [prefix, prefix] };
   }
-  for (const itemItemCandidate of ["clz", "ctz", "popcnt"]) {
-    text[`${prefix}.${itemItemCandidate}`] = { res: prefix, ops: [prefix] };
+  for (const operator of ["clz", "ctz", "popcnt"]) {
+    signatures[`${prefix}.${operator}`] = { res: prefix, ops: [prefix] };
   }
-  text[`${prefix}.eqz`] = { res: WatNodeType.I32, ops: [prefix] };
-  return text;
+  signatures[`${prefix}.eqz`] = { res: WatNodeType.I32, ops: [prefix] };
+  return signatures;
 }
 
 export const OP_SIG: Record<string, WatOperationSignature> = {
@@ -122,8 +116,6 @@ export const OP_SIG: Record<string, WatOperationSignature> = {
   "i32.extend16_s": { res: WatNodeType.I32, ops: [WatNodeType.I32] },
   drop: { res: WatNodeType.VOID, ops: [WatExpectedType.VALUE] },
 };
-
-// --- framework call signatures ---- Call signature table for framework static imports only.
 
 export interface WatCallSignature {
   params: readonly WatValueType[];
@@ -193,8 +185,6 @@ export function resetLhostCallSigs(): void {
   Object.assign(CALL_SIG, LHOST_CALL_SIG);
 }
 
-// ---- smart constructors ----
-
 export function i32Constant(lit: string | number | bigint): WatNode {
   return { k: WatNodeKind.CONST, ty: WatNodeType.I32, lit: String(lit) };
 }
@@ -214,33 +204,33 @@ export function localSet(name: string, value: WatNode): WatNode {
 }
 
 export function operation(mnemonic: string, ...callArguments: WatNode[]): WatNode {
-  const OP_SIGItem = OP_SIG[mnemonic];
-  if (!OP_SIGItem) {
+  const signature = OP_SIG[mnemonic];
+  if (!signature) {
     throw new Error(`IR: unknown opcode ${mnemonic}`);
   }
-  if (callArguments.length !== OP_SIGItem.ops.length) {
-    throw new Error(`IR: ${mnemonic} expects ${OP_SIGItem.ops.length} operand(s), got ${callArguments.length}`);
+  if (callArguments.length !== signature.ops.length) {
+    throw new Error(`IR: ${mnemonic} expects ${signature.ops.length} operand(s), got ${callArguments.length}`);
   }
-  callArguments.forEach((argument, argumentIndex) => assertWatType(argument, OP_SIGItem.ops[argumentIndex], `${mnemonic} operand ${argumentIndex}`));
-  return { k: WatNodeKind.OP, ty: OP_SIGItem.res, operator: mnemonic, callArguments };
+  callArguments.forEach((argument, argumentIndex) => assertWatType(argument, signature.ops[argumentIndex], `${mnemonic} operand ${argumentIndex}`));
+  return { k: WatNodeKind.OP, ty: signature.res, operator: mnemonic, callArguments };
 }
 
 // target includes the $ prefix, exactly as it appears in the WAT.
 export function functionCall(target: string, ...callArguments: WatNode[]): WatNode {
-  const CALL_SIGItem = CALL_SIG[target];
-  if (!CALL_SIGItem) {
+  const signature = CALL_SIG[target];
+  if (!signature) {
     throw new Error(`IR: unknown call target ${target} (use callSig for dynamic targets)`);
   }
-  return functionCallWithSignature(CALL_SIGItem, target, ...callArguments);
+  return functionCallWithSignature(signature, target, ...callArguments);
 }
 
 // Call generated targets through an explicit signature.
-export function functionCallWithSignature(size: WatCallSignature, target: string, ...callArguments: WatNode[]): WatNode {
-  if (callArguments.length !== size.params.length) {
-    throw new Error(`IR: call ${target} expects ${size.params.length} arg(s), got ${callArguments.length}`);
+export function functionCallWithSignature(signature: WatCallSignature, target: string, ...callArguments: WatNode[]): WatNode {
+  if (callArguments.length !== signature.params.length) {
+    throw new Error(`IR: call ${target} expects ${signature.params.length} arg(s), got ${callArguments.length}`);
   }
-  callArguments.forEach((argument, argumentIndex) => assertWatType(argument, size.params[argumentIndex], `call ${target} arg ${argumentIndex}`));
-  return { k: WatNodeKind.CALL, ty: size.res, target, callArguments };
+  callArguments.forEach((argument, argumentIndex) => assertWatType(argument, signature.params[argumentIndex], `call ${target} arg ${argumentIndex}`));
+  return { k: WatNodeKind.CALL, ty: signature.res, target, callArguments };
 }
 
 export function rawWatNode(text: string, ty: WatNodeType, why?: string): WatNode {
@@ -248,41 +238,39 @@ export function rawWatNode(text: string, ty: WatNodeType, why?: string): WatNode
 }
 
 // Identify nodes safe for eager Wasm select evaluation.
-export function isPureWatNode(count: WatNode): boolean {
-  switch (count.k) {
+export function isPureWatNode(node: WatNode): boolean {
+  switch (node.k) {
     case WatNodeKind.CONST:
     case WatNodeKind.GET:
       return true;
     case WatNodeKind.LOAD:
-      return isPureWatNode(count.addr);
+      return isPureWatNode(node.addr);
     case WatNodeKind.OP:
       if (
-        count.operator === "i64.div_s" ||
-        count.operator === "i64.div_u" ||
-        count.operator === "i64.rem_s" ||
-        count.operator === "i64.rem_u" ||
-        count.operator === "i32.div_s" ||
-        count.operator === "i32.div_u" ||
-        count.operator === "i32.rem_s" ||
-        count.operator === "i32.rem_u"
+        node.operator === "i64.div_s" ||
+        node.operator === "i64.div_u" ||
+        node.operator === "i64.rem_s" ||
+        node.operator === "i64.rem_u" ||
+        node.operator === "i32.div_s" ||
+        node.operator === "i32.div_u" ||
+        node.operator === "i32.rem_s" ||
+        node.operator === "i32.rem_u"
       ) {
         return false;
       }
-      return count.callArguments.every(isPureWatNode);
+      return node.callArguments.every(isPureWatNode);
     default:
       return false;
   }
 }
 
 // (select a b cond): polymorphic in wasm — both arms must agree, cond is i32, result is the arm type.
-export function selectValue(argument: WatNode, templateBindings: WatNode, condition: WatNode): WatNode {
-  assertWatType(argument, WatExpectedType.VALUE, "select arm 0");
-  assertWatType(templateBindings, argument.ty, "select arm 1");
+export function selectValue(firstValue: WatNode, secondValue: WatNode, condition: WatNode): WatNode {
+  assertWatType(firstValue, WatExpectedType.VALUE, "select arm 0");
+  assertWatType(secondValue, firstValue.ty, "select arm 1");
   assertWatType(condition, WatNodeType.I32, "select condition");
-  return { k: WatNodeKind.OP, ty: argument.ty, operator: "select", callArguments: [argument, templateBindings, condition] };
+  return { k: WatNodeKind.OP, ty: firstValue.ty, operator: "select", callArguments: [firstValue, secondValue, condition] };
 }
-
-// ---- addressing + scalar access ----
 
 // Address arithmetic: offset 0 returns the base unchanged (never wrap in a redundant i32.add).
 export function addressWithOffset(base: WatNode, offset: number): WatNode {

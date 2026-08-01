@@ -9,7 +9,7 @@ test("removed QPI and Wasm ABI mirrors cannot return", () => {
   const framework = readSourceTree("../../src/backend/wasm/framework", import.meta.url);
   const recipe = source("../../../build/src/recipe.ts");
   const runtime = source("../../../engine/src/runtime.ts");
-  const codegen = source("../../src/codegen/index.ts");
+  const backend = readSourceTree("../../src/backend/wasm", import.meta.url);
   const testing = source("../../../build/src/assets/wasm_contract_testing.h");
   const tables = readSourceTree("../../src/backend/wasm/abi", import.meta.url);
 
@@ -23,6 +23,6 @@ test("removed QPI and Wasm ABI mirrors cannot return", () => {
   expect(testing).not.toMatch(/INITIALIZE\s*=\s*0/);
   expect(tables).not.toContain("SYSPROC_IMPL");
   expect(tables).not.toContain("__impl_initialize");
-  expect(codegen).not.toContain("known formulas");
-  expect(codegen).not.toContain("size approximate");
+  expect(backend).not.toContain("known formulas");
+  expect(backend).not.toContain("size approximate");
 });

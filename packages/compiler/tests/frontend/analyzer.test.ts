@@ -8,6 +8,7 @@ import {
   detectContractName,
   type SourceEdit,
 } from "../../src/analyzer";
+import { analyzeQpiPolicy } from "../../src/source-policy";
 
 function qpiDiagnostics(source: string) {
   return analyzeContract({ source }).diagnostics.filter(
@@ -125,6 +126,22 @@ state.mut().total = amount;
       item.code === "qpi/needs-with-locals"
     ),
   ).toEqual([]);
+});
+
+test("recognizes shareholder system procedures when checking locals forms", () => {
+  for (const name of [
+    "SET_SHAREHOLDER_PROPOSAL",
+    "SET_SHAREHOLDER_VOTES",
+  ]) {
+    const diagnostics = analyzeQpiPolicy(`
+struct ${name}_locals { uint64 value; };
+${name}() { locals.value = 1; }
+`);
+
+    expect(diagnostics.map((item) => item.code)).toContain(
+      "qpi/needs-with-locals",
+    );
+  }
 });
 
 test("returns neutral array and safe-math source edits", () => {

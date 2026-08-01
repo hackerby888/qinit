@@ -1,9 +1,7 @@
 import { DiagnosticCategory, DiagnosticSeverity } from "../enums";
 import { SemanticAnalyzer } from "../semantic-analyzer";
-import {
-    generateWasmModule,
-    type GeneratedContractMetadata,
-} from "../codegen";
+import { generateWasmModule } from "../backend/wasm/module/module-generator";
+import type { GeneratedContractMetadata } from "../backend/wasm/module/library-index";
 import { collectCalleeContext } from "./callees";
 import { CompilationPhaseTracker } from "./compilation-phase-tracker";
 import {

@@ -38,6 +38,7 @@ import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { PreparedContractModule } from "./module-analysis";
 import { findMemberFn } from "./contract-discovery";
 import { evalIntegralConst } from "../../../frontend/validation/validation-helpers";
+import { USER_FUNCTION_KIND } from "../../../shared/entry-abi";
 
 export interface BuildContractIdlOptions {
   contractName: string;
@@ -73,7 +74,7 @@ export function buildContractIdl(
       output,
     };
 
-    if (registration.kind === 0) {
+    if (registration.kind === USER_FUNCTION_KIND) {
       functions.push(entry);
     } else {
       procedures.push(entry);

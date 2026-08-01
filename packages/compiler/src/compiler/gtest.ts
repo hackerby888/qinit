@@ -1,6 +1,7 @@
 import { AstKind, DiagnosticCategory, DiagnosticSeverity } from "../enums";
 import type { Declaration } from "../ast";
-import { generateWasmModule, type GeneratedContractMetadata } from "../codegen";
+import { generateWasmModule } from "../backend/wasm/module/module-generator";
+import type { GeneratedContractMetadata } from "../backend/wasm/module/library-index";
 import { findContractStruct } from "../backend/wasm/module/contract-discovery";
 import type { StructDecl } from "../ast";
 import { SemanticAnalyzer } from "../semantic-analyzer";

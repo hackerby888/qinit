@@ -2,7 +2,10 @@ import { AstKind } from "../enums";
 import { Lexer } from "../lexer";
 import { Parser } from "../parser";
 import { Preprocessor, type MacroDef } from "../preprocess";
-import { indexLibraryDeclarations, type LibrarySymbolIndex } from "../codegen";
+import {
+  indexLibraryDeclarations,
+  type LibrarySymbolIndex,
+} from "../backend/wasm/module/library-index";
 import { embeddedWasmAbi, IMPL_BOUNDARY } from "../qpi-snapshot-format";
 import { getQpiPrelude } from "./qpi-macros";
 
