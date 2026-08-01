@@ -7,6 +7,10 @@ import {
   type AnalyzeContractOptions,
 } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
+import {
+  parseContractDefinitionSource,
+  type ParsedContractDefinitionSource,
+} from "./contract-definitions";
 
 export interface CalleeDef {
   type: string;
@@ -14,35 +18,43 @@ export interface CalleeDef {
   include: string;
 }
 
-export function parseContractDef(corePath: string): Map<string, CalleeDef> {
-  const source = readFileSync(
-    join(corePath, "src/contract_core/contract_def.h"),
-    "utf8",
+function readContractDefinitions(
+  corePath: string,
+): ParsedContractDefinitionSource {
+  return parseContractDefinitionSource(
+    readFileSync(
+      join(corePath, "src/contract_core/contract_def.h"),
+      "utf8",
+    ),
   );
+}
+
+function calleeDefinitions(
+  parsed: ParsedContractDefinitionSource,
+): Map<string, CalleeDef> {
   const indexes = new Map<string, number>();
 
-  for (const match of source.matchAll(
-    /#define\s+(\w+)_CONTRACT_INDEX\s+(\d+)/g,
-  )) {
-    indexes.set(match[1], Number(match[2]));
+  for (const constant of parsed.indexConstants) {
+    indexes.set(constant.name, constant.index);
   }
 
   const definitions = new Map<string, CalleeDef>();
-  const blockPattern =
-    /#define\s+CONTRACT_INDEX\s+(\w+)_CONTRACT_INDEX\s*\n\s*#define\s+CONTRACT_STATE_TYPE\s+(\w+)\s*\n\s*#define\s+CONTRACT_STATE2_TYPE\s+\w+\s*\n(?:\s*#ifdef\s+\w+\s*\n\s*#include\s+"[^"]+"\s*\n\s*#else\s*\n)?\s*#include\s+"([^"]+)"/g;
-
-  for (const match of source.matchAll(blockPattern)) {
-    const index = indexes.get(match[1]);
+  for (const block of parsed.contractStateBlocks) {
+    const index = indexes.get(block.indexName);
     if (index !== undefined) {
-      definitions.set(match[2], {
-        type: match[2],
+      definitions.set(block.stateType, {
+        type: block.stateType,
         index,
-        include: match[3],
+        include: block.include,
       });
     }
   }
 
   return definitions;
+}
+
+export function parseContractDef(corePath: string): Map<string, CalleeDef> {
+  return calleeDefinitions(readContractDefinitions(corePath));
 }
 
 type SourceOptions = Pick<
@@ -79,27 +91,22 @@ export function parseRegisters(
 
 export type DynCallees = Record<string, { header: string; index: number }>;
 
-export function contractIndexDefines(corePath: string): string {
-  let source: string;
-
-  try {
-    source = readFileSync(
-      join(corePath, "src/contract_core/contract_def.h"),
-      "utf8",
-    );
-  } catch {
-    return "";
-  }
-
+function indexDefines(parsed: ParsedContractDefinitionSource): string {
   let output =
     "// ---- all contract indices (contract_def.h) so a directly-#included sibling resolves ----\n";
-  for (const match of source.matchAll(
-    /#define\s+(\w+)_CONTRACT_INDEX\s+(\d+)/g,
-  )) {
-    output += `#ifndef ${match[1]}_CONTRACT_INDEX\n#define ${match[1]}_CONTRACT_INDEX ${match[2]}\n#endif\n`;
+  for (const constant of parsed.indexConstants) {
+    output += `#ifndef ${constant.name}_CONTRACT_INDEX\n#define ${constant.name}_CONTRACT_INDEX ${constant.index}\n#endif\n`;
   }
 
   return output;
+}
+
+export function contractIndexDefines(corePath: string): string {
+  try {
+    return indexDefines(readContractDefinitions(corePath));
+  } catch {
+    return "";
+  }
 }
 
 export function buildCalleePrelude(
@@ -108,13 +115,15 @@ export function buildCalleePrelude(
   dynamicCallees: DynCallees = {},
   selfType?: string,
 ): string {
-  const indexBlock = contractIndexDefines(corePath);
-  let definitions: Map<string, CalleeDef>;
+  let indexBlock = "";
+  let definitions = new Map<string, CalleeDef>();
 
   try {
-    definitions = parseContractDef(corePath);
+    const parsed = readContractDefinitions(corePath);
+    indexBlock = indexDefines(parsed);
+    definitions = calleeDefinitions(parsed);
   } catch {
-    definitions = new Map();
+    // Builds without static callees do not require a core contract registry.
   }
 
   let wanted = scanCallees(contractSource, { contractName: selfType });

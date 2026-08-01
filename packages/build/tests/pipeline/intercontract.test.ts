@@ -2,7 +2,80 @@ import { test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildCalleePrelude, scanCallees } from "../../src/intercontract";
+import {
+  buildCalleePrelude,
+  contractIndexDefines,
+  parseContractDef,
+  scanCallees,
+} from "../../src/intercontract";
+
+test("contract_def wrappers keep the existing static contract rules", () => {
+  const root = mkdtempSync(join(tmpdir(), "contract-def-"));
+  try {
+    const contractCore = join(root, "src", "contract_core");
+    mkdirSync(contractCore, { recursive: true });
+    writeFileSync(join(contractCore, "contract_def.h"), `
+#define FIRST_CONTRACT_INDEX 1
+#define CONTRACT_INDEX FIRST_CONTRACT_INDEX
+#define CONTRACT_STATE_TYPE FirstState
+#define CONTRACT_STATE2_TYPE FirstState2
+#include "contracts/First.h"
+
+constexpr TESTEX_CONTRACT_INDEX = (CONTRACT_INDEX + 1);
+#define CONTRACT_INDEX TESTEX_CONTRACT_INDEX
+#define CONTRACT_STATE_TYPE TestState
+#define CONTRACT_STATE2_TYPE TestState2
+#include "contracts/TestExample.h"
+
+#define LITEDYN_CONTRACT_INDEX WASM_RESERVED_SLOT_BASE
+#define CONTRACT_INDEX LITEDYN_CONTRACT_INDEX
+#define CONTRACT_STATE_TYPE DynamicState
+#define CONTRACT_STATE2_TYPE DynamicState2
+#include "extensions/wasm/contract.h"
+
+#define QSWAP_CONTRACT_INDEX 13
+#define CONTRACT_INDEX QSWAP_CONTRACT_INDEX
+#define CONTRACT_STATE_TYPE QSWAP
+#define CONTRACT_STATE2_TYPE QSWAP2
+#ifdef OLD_QSWAP
+#include "contracts/Qswap_old.h"
+#else
+#include "contracts/Qswap.h"
+#endif
+`);
+
+    expect([...parseContractDef(root)]).toEqual([
+      [
+        "FirstState",
+        {
+          type: "FirstState",
+          index: 1,
+          include: "contracts/First.h",
+        },
+      ],
+      [
+        "QSWAP",
+        {
+          type: "QSWAP",
+          index: 13,
+          include: "contracts/Qswap.h",
+        },
+      ],
+    ]);
+    expect(contractIndexDefines(root)).toBe(
+      "// ---- all contract indices (contract_def.h) so a directly-#included sibling resolves ----\n" +
+      "#ifndef FIRST_CONTRACT_INDEX\n#define FIRST_CONTRACT_INDEX 1\n#endif\n" +
+      "#ifndef QSWAP_CONTRACT_INDEX\n#define QSWAP_CONTRACT_INDEX 13\n#endif\n",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("contract_def wrappers preserve missing-file behavior", () => {
+  expect(contractIndexDefines("/no/such/core")).toBe("");
+  expect(() => parseContractDef("/no/such/core")).toThrow();
+});
 
 test("scanCallees finds CALL_OTHER_CONTRACT_FUNCTION + INVOKE_OTHER_CONTRACT_PROCEDURE names", () => {
   const s =
