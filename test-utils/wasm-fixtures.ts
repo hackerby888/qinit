@@ -17,38 +17,32 @@ import TRAP_SOURCE from "../fixtures/Trap.h" with { type: "text" };
 import VAULT_SOURCE from "../fixtures/Vault.h" with { type: "text" };
 import WATCHER_SOURCE from "../fixtures/Watcher.h" with { type: "text" };
 
-export type WasmFixtureName =
-  | "ApiProbe"
-  | "Counter"
-  | "Counter1"
-  | "Counter5"
-  | "Counter29"
-  | "Counter30"
-  | "Counter31"
-  | "Counter40"
-  | "CounterV1"
-  | "CounterV2"
-  | "DigestProbe"
-  | "Dividend"
-  | "Hooks"
-  | "OracleProbe"
-  | "Proxy"
-  | "ShareApprover"
-  | "ShareManager"
-  | "ShareProposer"
-  | "ShareReceiver"
-  | "Token"
-  | "Trap"
-  | "Vault"
-  | "Vault29"
-  | "Watcher";
-
-export interface WasmFixtureDefinition {
+interface FixtureDefinitionBase {
   readonly sourceFile: `${string}.h`;
   readonly source: string;
   readonly contractName: string;
   readonly slot: number;
-  readonly dependencies?: readonly WasmFixtureName[];
+}
+
+interface FixtureDefinition<Dependencies extends readonly string[] | undefined>
+  extends FixtureDefinitionBase {
+  readonly dependencies?: Dependencies;
+}
+
+function fixture<const Dependencies extends readonly string[] | undefined = undefined>(
+  sourceFile: `${string}.h`,
+  source: string,
+  contractName: string,
+  slot: number,
+  dependencies?: Dependencies,
+): FixtureDefinition<Dependencies> {
+  return {
+    sourceFile,
+    source,
+    contractName,
+    slot,
+    ...(dependencies ? { dependencies } : {}),
+  };
 }
 
 export const wasmFixtureManifest = {
@@ -76,7 +70,13 @@ export const wasmFixtureManifest = {
   Vault: fixture("Vault.h", VAULT_SOURCE, "Vault", 28),
   Vault29: fixture("Vault.h", VAULT_SOURCE, "Vault", 29),
   Watcher: fixture("Watcher.h", WATCHER_SOURCE, "Watcher", 28),
-} as const satisfies Record<WasmFixtureName, WasmFixtureDefinition>;
+} as const;
+
+export type WasmFixtureName = keyof typeof wasmFixtureManifest;
+
+export interface WasmFixtureDefinition extends FixtureDefinitionBase {
+  readonly dependencies?: readonly WasmFixtureName[];
+}
 
 export const wasmFixtureNames = Object.freeze(
   Object.keys(wasmFixtureManifest) as WasmFixtureName[],
@@ -84,22 +84,6 @@ export const wasmFixtureNames = Object.freeze(
 
 const compilationCache = new Map<WasmFixtureName, Promise<CompileResult>>();
 const FIXTURE_ARENA_SIZE = 1024 * 1024;
-
-function fixture(
-  sourceFile: `${string}.h`,
-  source: string,
-  contractName: string,
-  slot: number,
-  dependencies?: readonly WasmFixtureName[],
-): WasmFixtureDefinition {
-  return {
-    sourceFile,
-    source,
-    contractName,
-    slot,
-    ...(dependencies ? { dependencies } : {}),
-  };
-}
 
 function toCalleeIdl(
   definition: WasmFixtureDefinition,

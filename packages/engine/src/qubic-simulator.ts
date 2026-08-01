@@ -3,6 +3,7 @@ import {
   SYSTEM_PROCEDURES,
   type DebugTrace,
 } from "@qinit/core";
+import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 import {
   Contract,
   CONTRACT_ENTRY_KIND,
@@ -28,6 +29,7 @@ import {
 } from "./assets";
 import { TickConsensus, type TickRecord } from "./ticking";
 import type { TickData } from "./wire";
+import { first32BytesEqual } from "./bytes";
 import {
   PreManagementRightsTransferInput,
   PreManagementRightsTransferOutput,
@@ -54,7 +56,7 @@ export type { TxRecord } from "./txs";
 const EP_USER_PROCEDURE = CONTRACT_ENTRY_POINTS.userProcedure;
 const EP_USER_PROCEDURE_NOTIFICATION = CONTRACT_ENTRY_POINTS.userProcedureNotification;
 const ZERO32 = new Uint8Array(32);
-const IPO_SHARE_COUNT = 676; // NUMBER_OF_COMPUTORS — a contract's IPO shares: one per computor (0..675)
+const IPO_SHARE_COUNT = MAINNET_COMPUTOR_COUNT;
 const IPO_SHARE_PRICE = 1000000n; // default IPO price per share (Qu)
 
 const TT_STANDARD = 0;
@@ -557,16 +559,6 @@ export class QubicSimulator {
     return remaining;
   }
 
-  private idEq(left: Uint8Array, right: Uint8Array): boolean {
-    for (let i = 0; i < 32; i++) {
-      if (left[i] !== right[i]) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
   transferShareManagementRights(
     name: bigint,
     issuer: Uint8Array,
@@ -638,7 +630,7 @@ export class QubicSimulator {
     offeredFee: bigint,
   ): bigint {
     if (
-      !this.idEq(owner, possessor) ||
+      !first32BytesEqual(owner, possessor) ||
       sourceOwnershipManager !== sourcePossessionManager
     ) {
       return INVALID_AMOUNT;
@@ -743,7 +735,7 @@ export class QubicSimulator {
     offeredFee: bigint,
   ): bigint {
     if (
-      !this.idEq(owner, possessor) ||
+      !first32BytesEqual(owner, possessor) ||
       destinationOwnershipManager !== destinationPossessionManager
     ) {
       return INVALID_AMOUNT;

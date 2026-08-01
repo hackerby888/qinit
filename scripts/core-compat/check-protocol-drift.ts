@@ -15,10 +15,18 @@ import {
   UploadChunkHeader,
 } from "../../packages/proto/src/deploy";
 import {
+  ASSETS_DEPTH,
   CHUNK_DATA_MAX,
   LITE_TX,
   LOG_SEVERITY,
+  MAINNET_COMPUTOR_COUNT,
   MAX_INPUT_SIZE,
+  MAX_NUMBER_OF_CONTRACTS,
+  MAX_ORACLE_QUERY_SIZE,
+  MAX_ORACLE_REPLY_SIZE,
+  ORACLE_STATUS,
+  SPECTRUM_DEPTH,
+  TXS_PER_TICK,
 } from "../../packages/proto/src/protocol";
 
 const core = process.env.QINIT_CORE;
@@ -43,11 +51,18 @@ try {
 }
 
 // Read `#define NAME <int>` while ignoring suffixes such as ULL.
-const readDefine = (file: string, name: string): number | null => {
+const readDefine = (
+  file: string,
+  name: string,
+  occurrence: "first" | "last" = "first",
+): number | null => {
   try {
-    const match = readFileSync(join(core, file), "utf8").match(
-      new RegExp(`#define\\s+${name}\\s+(\\d+)`),
-    );
+    const matches = [
+      ...readFileSync(join(core, file), "utf8").matchAll(
+        new RegExp(`#define\\s+${name}\\s+(\\d+)`, "g"),
+      ),
+    ];
+    const match = occurrence === "last" ? matches.at(-1) : matches[0];
     return match ? Number(match[1]) : null;
   } catch {
     return null;
@@ -55,12 +70,23 @@ const readDefine = (file: string, name: string): number | null => {
 };
 
 // Read `constexpr <type> NAME = <int>;` declarations from a core header.
-const readConstexpr = (file: string, name: string): number | null => {
+const readConstexpr = (
+  file: string,
+  name: string,
+  symbols: Readonly<Record<string, number>> = {},
+): number | null => {
   try {
-    const match = readFileSync(join(core, file), "utf8").match(
-      new RegExp(`constexpr\\s+\\w+\\s+${name}\\s*=\\s*(\\d+)`),
-    );
-    return match ? Number(match[1]) : null;
+    const expression = readFileSync(join(core, file), "utf8").match(
+      new RegExp(`constexpr\\s+\\w+\\s+${name}\\s*=\\s*([^;]+)`),
+    )?.[1].trim();
+    if (!expression) return null;
+    if (/^\d+$/.test(expression)) return Number(expression);
+
+    for (const [symbol, value] of Object.entries(symbols)) {
+      const offset = expression.match(new RegExp(`^${symbol}\\s*-\\s*(\\d+)$`))?.[1];
+      if (offset) return value - Number(offset);
+    }
+    return null;
   } catch {
     return null;
   }
@@ -213,20 +239,56 @@ for (const [code, symbol, name] of [
 
 // transaction input sizing: MAX_INPUT_SIZE must match; CHUNK_DATA_MAX must stay within core's limit.
 expectEqual("MAX_INPUT_SIZE", readDefine(NET, "MAX_INPUT_SIZE"), MAX_INPUT_SIZE);
+expectEqual(
+  "MAX_NUMBER_OF_CONTRACTS",
+  readDefine(NET, "MAX_NUMBER_OF_CONTRACTS"),
+  MAX_NUMBER_OF_CONTRACTS,
+);
+expectEqual(
+  "NUMBER_OF_TRANSACTIONS_PER_TICK",
+  readDefine(NET, "NUMBER_OF_TRANSACTIONS_PER_TICK", "last"),
+  TXS_PER_TICK,
+);
+expectEqual(
+  "NUMBER_OF_COMPUTORS (mainnet)",
+  readDefine(NET, "NUMBER_OF_COMPUTORS", "last"),
+  MAINNET_COMPUTOR_COUNT,
+);
+expectEqual(
+  "SPECTRUM_DEPTH (mainnet)",
+  readDefine(NET, "SPECTRUM_DEPTH", "last"),
+  SPECTRUM_DEPTH,
+);
+expectEqual(
+  "ASSETS_DEPTH (mainnet)",
+  readDefine(NET, "ASSETS_DEPTH", "last"),
+  ASSETS_DEPTH,
+);
 if (CHUNK_DATA_MAX > MAX_INPUT_SIZE - UploadChunkHeader.SIZE) {
   failures.push(
     `CHUNK_DATA_MAX ${CHUNK_DATA_MAX} exceeds MAX_INPUT_SIZE-header ${MAX_INPUT_SIZE - UploadChunkHeader.SIZE}`,
   );
 }
 
+expectEqual(
+  "MAX_ORACLE_QUERY_SIZE",
+  readConstexpr(NET, "MAX_ORACLE_QUERY_SIZE", { MAX_INPUT_SIZE }),
+  MAX_ORACLE_QUERY_SIZE,
+);
+expectEqual(
+  "MAX_ORACLE_REPLY_SIZE",
+  readConstexpr(NET, "MAX_ORACLE_REPLY_SIZE", { MAX_INPUT_SIZE }),
+  MAX_ORACLE_REPLY_SIZE,
+);
+
 // Oracle query statuses are mirrored by the simulator.
 for (const [name, value] of [
-  ["ORACLE_QUERY_STATUS_UNKNOWN", 0],
-  ["ORACLE_QUERY_STATUS_PENDING", 1],
-  ["ORACLE_QUERY_STATUS_COMMITTED", 2],
-  ["ORACLE_QUERY_STATUS_SUCCESS", 3],
-  ["ORACLE_QUERY_STATUS_TIMEOUT", 4],
-  ["ORACLE_QUERY_STATUS_UNRESOLVABLE", 5],
+  ["ORACLE_QUERY_STATUS_UNKNOWN", ORACLE_STATUS.UNKNOWN],
+  ["ORACLE_QUERY_STATUS_PENDING", ORACLE_STATUS.PENDING],
+  ["ORACLE_QUERY_STATUS_COMMITTED", ORACLE_STATUS.COMMITTED],
+  ["ORACLE_QUERY_STATUS_SUCCESS", ORACLE_STATUS.SUCCESS],
+  ["ORACLE_QUERY_STATUS_TIMEOUT", ORACLE_STATUS.TIMEOUT],
+  ["ORACLE_QUERY_STATUS_UNRESOLVABLE", ORACLE_STATUS.UNRESOLVABLE],
 ] as const) {
   expectEqual(name, readConstexpr(NET, name), value);
 }
@@ -235,4 +297,4 @@ if (failures.length) {
   console.error("PROTOCOL DRIFT vs core-lite:\n  " + failures.join("\n  "));
   process.exit(1);
 }
-console.log("protocol-drift OK — entry points, Wasm slots, deployment, logging, input sizing, and oracle status match core");
+console.log("protocol-drift OK — ABI, deployment, logging, network limits, and oracle constants match core");

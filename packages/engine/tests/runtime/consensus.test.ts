@@ -12,14 +12,11 @@ import {
   buildTickVote,
   voteIsAligned,
 } from "../../src/consensus";
+import { readUint64LE } from "../support/helpers";
 
 const GET = 1; // Counter Get function
 const INC = 1; // Counter Inc procedure
 const SEEDS4 = ["b".repeat(55), "c".repeat(55), "d".repeat(55), "e".repeat(55)];
-
-function u64(b: Uint8Array): bigint {
-  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
-}
 
 test("QUORUM formula = floor(N*2/3)+1", () => {
   expect(quorumOf(8)).toBe(6);
@@ -135,7 +132,7 @@ test("consensus is additive — it does not change a contract's StateData digest
     sim.advance();
   }
   expect(sim.digest(28)).toBe(oracle);
-  expect(u64(sim.query(28, GET))).toBe(1n);
+  expect(readUint64LE(sim.query(28, GET))).toBe(1n);
 });
 
 test("chain clock advances with ticks and stamps the tick-vote timestamp", async () => {

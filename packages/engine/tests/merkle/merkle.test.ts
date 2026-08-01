@@ -19,6 +19,14 @@ test("setting a leaf changes the root + yields a 24-sibling proof", async () => 
   expect(t.siblings(5).length).toBe(24);
 });
 
+test("an explicit depth controls the proof layout", async () => {
+  await initK12();
+  const tree = new SparseMerkle(k12Bytes(EMPTY), 3);
+  tree.setLeaf(5, k12Bytes(new Uint8Array([1])));
+
+  expect(tree.siblings(5)).toHaveLength(3);
+});
+
 test("a leaf's siblings reproduce the root (the proof a client verifies)", async () => {
   await initK12();
   const t = new SparseMerkle(k12Bytes(EMPTY));

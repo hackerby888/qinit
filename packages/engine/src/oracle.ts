@@ -1,17 +1,13 @@
 import { packDateAndTime } from "./runtime";
+import {
+  MAX_ORACLE_QUERY_SIZE,
+  MAX_ORACLE_REPLY_SIZE,
+  ORACLE_STATUS,
+} from "@qinit/proto";
 
-export const ORACLE_STATUS = {
-  UNKNOWN: 0,
-  PENDING: 1,
-  COMMITTED: 2,
-  SUCCESS: 3,
-  TIMEOUT: 4,
-  UNRESOLVABLE: 5,
-};
+export { ORACLE_STATUS };
 
 const NOTIFY_HEADER_SIZE = 16;
-const MAX_QUERY_SIZE = 1008;
-const MAX_REPLY_SIZE = 1008;
 const MAX_QUERY_TIMEOUT_MS = 3_600_000;
 const SUBSCRIPTION_TIMEOUT_MS = 60_000;
 const MIN_QUERY_FEE = 10n;
@@ -98,9 +94,9 @@ export class OracleManager {
     fee: bigint,
   ): bigint {
     if (
-      query.length > MAX_QUERY_SIZE ||
+      query.length > MAX_ORACLE_QUERY_SIZE ||
       replySize < 0 ||
-      replySize > MAX_REPLY_SIZE ||
+      replySize > MAX_ORACLE_REPLY_SIZE ||
       timeoutMillisec < 0 ||
       timeoutMillisec > MAX_QUERY_TIMEOUT_MS ||
       fee < MIN_QUERY_FEE ||
@@ -132,9 +128,9 @@ export class OracleManager {
     fee: bigint,
   ): number {
     const valid =
-      query.length <= MAX_QUERY_SIZE &&
+      query.length <= MAX_ORACLE_QUERY_SIZE &&
       replySize >= 0 &&
-      replySize <= MAX_REPLY_SIZE &&
+      replySize <= MAX_ORACLE_REPLY_SIZE &&
       timestampOffset >= 0 &&
       timestampOffset + 8 <= query.length &&
       periodMillisec >= MIN_SUBSCRIPTION_PERIOD_MS &&
@@ -354,7 +350,7 @@ export class OracleManager {
     replySize: number,
     reply?: Uint8Array,
   ): void {
-    const safeReplySize = Math.min(MAX_REPLY_SIZE, Math.max(0, replySize));
+    const safeReplySize = Math.min(MAX_ORACLE_REPLY_SIZE, Math.max(0, replySize));
     const input = new Uint8Array(NOTIFY_HEADER_SIZE + safeReplySize);
     const view = new DataView(input.buffer);
     view.setBigInt64(0, queryId, true);

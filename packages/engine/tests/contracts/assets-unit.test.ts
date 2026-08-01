@@ -2,7 +2,7 @@
 // the issuance / share-transfer / management-rights / universe-merkle logic is exercised directly.
 import { test, expect, beforeAll } from "bun:test";
 import { initK12, toHex } from "../../src/k12";
-import { AssetLedger } from "../../src/assets";
+import { AssetLedger, packAssetName, unpackAssetName } from "../../src/assets";
 import { contractId } from "../support/helpers";
 
 beforeAll(async () => {
@@ -20,6 +20,10 @@ const NAME = 0x5851n; // "QX" packed little-endian ASCII (Q=0x51, X=0x58)
 function ledger(): AssetLedger {
   return new AssetLedger({ contractId });
 }
+
+test("asset names use one packed little-endian decoder", () => {
+  expect(unpackAssetName(packAssetName("QX"))).toBe("QX");
+});
 
 test("issueAsset: mints all shares to the issuer; validates name + issuer", () => {
   const a = ledger();

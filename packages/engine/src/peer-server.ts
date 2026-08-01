@@ -9,6 +9,8 @@ import {
 } from "@qinit/core";
 import * as codec from "./peer-codec";
 import { MSG } from "./peer-codec";
+import { concatBytes } from "./bytes";
+import { unpackAssetName } from "./assets";
 
 interface PeerConnectionState {
   buf: Uint8Array;
@@ -92,7 +94,7 @@ export class PeerServer {
     },
     chunk: Uint8Array<ArrayBufferLike>,
   ): Promise<void> {
-    let buf = concat(socket.data.buf, new Uint8Array(chunk));
+    let buf = concatBytes([socket.data.buf, new Uint8Array(chunk)]);
 
     while (true) {
       const header = codec.readHeader(buf);
@@ -324,7 +326,7 @@ export class PeerServer {
     }
 
     frames.push(codec.endResponse(dejavu));
-    return concatAll(frames);
+    return concatBytes(frames);
   }
 
   // REQUEST_OWNED_ASSETS — stream a RespondOwnedAssets per holding the queried account owns, with
@@ -338,7 +340,7 @@ export class PeerServer {
         {
           owner,
           issuer: p.issuer,
-          name: assetNameToString(p.name),
+          name: unpackAssetName(p.name),
           decimals: p.decimals,
           shares: p.shares,
           managingContractIndex: p.managingContractIndex,
@@ -351,7 +353,7 @@ export class PeerServer {
     }
 
     frames.push(codec.endResponse(dejavu));
-    return concatAll(frames);
+    return concatBytes(frames);
   }
 
   // REQUEST_POSSESSED_ASSETS — stream a RespondPossessedAssets per holding the queried account possesses (with
@@ -366,7 +368,7 @@ export class PeerServer {
           possessor,
           owner: p.owner,
           issuer: p.issuer,
-          name: assetNameToString(p.name),
+          name: unpackAssetName(p.name),
           decimals: p.decimals,
           shares: p.shares,
           possessionManagingContract: p.managingContractIndex,
@@ -380,7 +382,7 @@ export class PeerServer {
     }
 
     frames.push(codec.endResponse(dejavu));
-    return concatAll(frames);
+    return concatBytes(frames);
   }
 
   private respondTxInfo(payload: Uint8Array, dejavu: number): Uint8Array | null {
@@ -407,43 +409,6 @@ export class PeerServer {
     // Stream each computor's signed Tick vote (352 B, the protocol's Tick layout) then END_RESPONSE.
     const frames = rec.votes.map((v) => codec.frame(MSG.BROADCAST_TICK, v.bytes, dejavu));
     frames.push(codec.endResponse(dejavu));
-    return concatAll(frames);
+    return concatBytes(frames);
   }
-}
-
-function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
-}
-
-function concatAll(parts: Uint8Array[]): Uint8Array {
-  let total = 0;
-  for (const p of parts) {
-    total += p.length;
-  }
-
-  const out = new Uint8Array(total);
-  let off = 0;
-  for (const p of parts) {
-    out.set(p, off);
-    off += p.length;
-  }
-  return out;
-}
-
-// Decode a packed little-endian ASCII asset name (uint64) to its string form, for the issuance record.
-function assetNameToString(name: bigint): string {
-  let s = "";
-  let n = name;
-  for (let i = 0; i < 8; i++) {
-    const c = Number(n & 0xffn);
-    n >>= 8n;
-    if (c === 0) {
-      break;
-    }
-    s += String.fromCharCode(c);
-  }
-  return s;
 }

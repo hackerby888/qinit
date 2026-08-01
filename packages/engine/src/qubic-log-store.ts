@@ -1,7 +1,9 @@
 import { k12Bytes } from "./k12";
+import { concatBytes } from "./bytes";
+import { TXS_PER_TICK } from "@qinit/proto";
 
 export const LOG_HEADER_SIZE = 26;
-export const LOG_TXS_PER_TICK = 4096;
+export const LOG_TXS_PER_TICK = TXS_PER_TICK;
 export const LOG_SPECIAL_EVENTS = 6;
 export const LOG_RANGES_PER_TICK = LOG_TXS_PER_TICK + LOG_SPECIAL_EVENTS;
 export const LOG_SC_INITIALIZE = LOG_TXS_PER_TICK;
@@ -20,17 +22,6 @@ const ZERO32 = new Uint8Array(32);
 
 function emptyRanges(): QubicLogRange[] {
   return Array.from({ length: LOG_RANGES_PER_TICK }, () => ({ fromLogId: -1n, length: -1n }));
-}
-
-function concat(parts: Uint8Array[]): Uint8Array {
-  const size = parts.reduce((n, p) => n + p.length, 0);
-  const out = new Uint8Array(size);
-  let off = 0;
-  for (const p of parts) {
-    out.set(p, off);
-    off += p.length;
-  }
-  return out;
 }
 
 // Core-compatible in-memory qLogger storage.
@@ -125,7 +116,7 @@ export class QubicLogStore {
       tick,
       this.currentRanges.map((r) => ({ ...r })),
     );
-    const digest = k12Bytes(concat(this.digestInput));
+    const digest = k12Bytes(concatBytes(this.digestInput));
     this.digests.set(tick, digest);
     this.previousDigest = new Uint8Array(digest);
     this.lastUpdatedTick = tick;
@@ -162,7 +153,7 @@ export class QubicLogStore {
       parts.push(record);
       size += record.length;
     }
-    return parts.length ? concat(parts) : null;
+    return parts.length ? concatBytes(parts) : null;
   }
 
   prune(from: bigint, to: bigint): number {

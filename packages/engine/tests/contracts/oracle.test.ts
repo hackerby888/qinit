@@ -2,6 +2,12 @@ import { expect, test } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
+import {
+  contractId,
+  readInt32LE,
+  readInt64LE,
+  readUint64LE,
+} from "../support/helpers";
 
 const SLOT = 29;
 const QUERY = 2;
@@ -12,12 +18,6 @@ const STATUS = 2;
 const OQ_UNKNOWN = 0n;
 const OQ_PENDING = 1n;
 const OQ_SUCCESS = 3n;
-
-function cid(slot: number): Uint8Array {
-  const id = new Uint8Array(32);
-  new DataView(id.buffer).setBigUint64(0, BigInt(slot), true);
-  return id;
-}
 
 function priceInput(milliseconds: number, notifyPrevious = false): Uint8Array {
   const input = new Uint8Array(112);
@@ -49,18 +49,6 @@ function subscriptionInput(subscriptionId: number): Uint8Array {
   return input;
 }
 
-function i64(bytes: Uint8Array): bigint {
-  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigInt64(0, true);
-}
-
-function i32(bytes: Uint8Array): number {
-  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt32(0, true);
-}
-
-function u64(bytes: Uint8Array): bigint {
-  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(0, true);
-}
-
 function last(sim: QubicSimulator) {
   const bytes = sim.query(SLOT, LAST);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -78,19 +66,19 @@ async function deployProbe(): Promise<QubicSimulator> {
   const sim = new QubicSimulator();
   sim.tickDuration = 60_000;
   sim.deploy(SLOT, await wasm("OracleProbe"));
-  sim.fund(cid(SLOT), 1_000_000n);
+  sim.fund(contractId(SLOT), 1_000_000n);
   return sim;
 }
 
 test("Price query resolves through its notification procedure", async () => {
   const sim = await deployProbe();
-  const queryId = i64(sim.procedure(SLOT, QUERY, priceInput(60_000)));
+  const queryId = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(60_000)));
 
   expect(queryId).toBeGreaterThan(0n);
-  expect(u64(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_PENDING);
-  expect(sim.balance(cid(SLOT))).toBe(999_990n);
+  expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_PENDING);
+  expect(sim.balance(contractId(SLOT))).toBe(999_990n);
   expect(sim.resolveOracle(queryId, priceReply(42n, 1n))).toBe(true);
-  expect(u64(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_SUCCESS);
+  expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_SUCCESS);
   expect(last(sim)).toEqual({
     numerator: 42n,
     denominator: 1n,
@@ -105,10 +93,10 @@ test("Price provider resolves pending queries on advance", async () => {
   sim.setOracleProvider((interfaceIndex) =>
     interfaceIndex === 0 ? priceReply(100n, 3n) : null,
   );
-  const queryId = i64(sim.procedure(SLOT, QUERY, priceInput(60_000)));
+  const queryId = readInt64LE(sim.procedure(SLOT, QUERY, priceInput(60_000)));
 
   sim.advance();
-  expect(u64(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_SUCCESS);
+  expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_SUCCESS);
   expect(last(sim).numerator).toBe(100n);
 });
 
@@ -122,25 +110,25 @@ test("Price subscription uses whole-minute periods and charges once", async () =
     return priceReply(7n, 2n);
   });
 
-  const subscriptionId = i32(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000)));
+  const subscriptionId = readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000)));
   expect(subscriptionId).toBeGreaterThanOrEqual(0);
-  expect(sim.balance(cid(SLOT))).toBe(990_000n);
+  expect(sim.balance(contractId(SLOT))).toBe(990_000n);
 
   sim.advance();
   sim.advance();
   sim.advance();
   expect(timestamps).toHaveLength(3);
   expect(new Set(timestamps).size).toBe(3);
-  expect(sim.balance(cid(SLOT))).toBe(990_000n);
+  expect(sim.balance(contractId(SLOT))).toBe(990_000n);
   expect(last(sim).numerator).toBe(7n);
 });
 
 test("invalid Price subscription periods fail without charging", async () => {
   const sim = await deployProbe();
 
-  expect(i32(sim.procedure(SLOT, SUBSCRIBE, priceInput(59_000)))).toBe(-1);
-  expect(i32(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_001)))).toBe(-1);
-  expect(sim.balance(cid(SLOT))).toBe(1_000_000n);
+  expect(readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(59_000)))).toBe(-1);
+  expect(readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_001)))).toBe(-1);
+  expect(sim.balance(contractId(SLOT))).toBe(1_000_000n);
   expect(last(sim).status).toBe(Number(OQ_UNKNOWN));
 });
 
@@ -151,9 +139,9 @@ test("unsubscribe stops future Price subscription queries", async () => {
     calls++;
     return priceReply(5n, 1n);
   });
-  const subscriptionId = i32(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000)));
+  const subscriptionId = readInt32LE(sim.procedure(SLOT, SUBSCRIBE, priceInput(60_000)));
 
-  expect(i32(sim.procedure(SLOT, UNSUBSCRIBE, subscriptionInput(subscriptionId)))).toBe(1);
+  expect(readInt32LE(sim.procedure(SLOT, UNSUBSCRIBE, subscriptionInput(subscriptionId)))).toBe(1);
   sim.advance();
   sim.advance();
   sim.advance();
@@ -162,6 +150,6 @@ test("unsubscribe stops future Price subscription queries", async () => {
 
 test("unknown query ids stay UNKNOWN", async () => {
   const sim = await deployProbe();
-  expect(u64(sim.query(SLOT, STATUS, statusInput(424242n)))).toBe(OQ_UNKNOWN);
+  expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(424242n)))).toBe(OQ_UNKNOWN);
   expect(sim.resolveOracle(424242n, priceReply(1n, 1n))).toBe(false);
 });

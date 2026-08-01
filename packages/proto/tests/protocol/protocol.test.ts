@@ -1,9 +1,17 @@
 import { test, expect } from "bun:test";
 import {
+  ASSETS_DEPTH,
   LITE_TX,
   LOG_SEVERITY,
   CHUNK_DATA_MAX,
+  MAINNET_COMPUTOR_COUNT,
   MAX_INPUT_SIZE,
+  MAX_NUMBER_OF_CONTRACTS,
+  MAX_ORACLE_QUERY_SIZE,
+  MAX_ORACLE_REPLY_SIZE,
+  ORACLE_STATUS,
+  SPECTRUM_DEPTH,
+  TXS_PER_TICK,
   CHUNK_HEADER_SIZE,
 } from "../../src/protocol";
 
@@ -14,6 +22,35 @@ test("LITE_TX deploy inputTypes", () => {
 
 test("LOG_SEVERITY codes 4-7", () => {
   expect(LOG_SEVERITY).toEqual({ 4: "ERROR", 5: "WARN", 6: "INFO", 7: "DEBUG" });
+});
+
+test("core network constants", () => {
+  expect({
+    MAX_NUMBER_OF_CONTRACTS,
+    TXS_PER_TICK,
+    MAINNET_COMPUTOR_COUNT,
+    SPECTRUM_DEPTH,
+    ASSETS_DEPTH,
+  }).toEqual({
+    MAX_NUMBER_OF_CONTRACTS: 1024,
+    TXS_PER_TICK: 4096,
+    MAINNET_COMPUTOR_COUNT: 676,
+    SPECTRUM_DEPTH: 24,
+    ASSETS_DEPTH: 24,
+  });
+});
+
+test("oracle limits and statuses", () => {
+  expect(MAX_ORACLE_QUERY_SIZE).toBe(MAX_INPUT_SIZE - 16);
+  expect(MAX_ORACLE_REPLY_SIZE).toBe(MAX_INPUT_SIZE - 16);
+  expect(ORACLE_STATUS).toEqual({
+    UNKNOWN: 0,
+    PENDING: 1,
+    COMMITTED: 2,
+    SUCCESS: 3,
+    TIMEOUT: 4,
+    UNRESOLVABLE: 5,
+  });
 });
 
 test("CHUNK_DATA_MAX is the proven 1008, within core's MAX_INPUT_SIZE - header", () => {

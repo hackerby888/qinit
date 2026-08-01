@@ -36,5 +36,18 @@ export {
 } from "./call";
 export type { TypedContractInput } from "./call";
 export * from "./qpi-layout"; // QPI container layout: single source of truth (idl.ts + decoders share it)
-export { LOG_SEVERITY, MAX_INPUT_SIZE, CHUNK_HEADER_SIZE, TX_HEADER_SIZE } from "./protocol"; // LITE_TX/CHUNK_DATA_MAX via ./deploy
+export {
+  LOG_SEVERITY,
+  MAX_INPUT_SIZE,
+  MAX_NUMBER_OF_CONTRACTS,
+  TXS_PER_TICK,
+  MAINNET_COMPUTOR_COUNT,
+  SPECTRUM_DEPTH,
+  ASSETS_DEPTH,
+  MAX_ORACLE_QUERY_SIZE,
+  MAX_ORACLE_REPLY_SIZE,
+  ORACLE_STATUS,
+  CHUNK_HEADER_SIZE,
+  TX_HEADER_SIZE,
+} from "./protocol"; // LITE_TX/CHUNK_DATA_MAX via ./deploy
 export * from "./contract-idl";

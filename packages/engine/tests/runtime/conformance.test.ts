@@ -3,16 +3,12 @@ import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { contractId } from "../support/helpers";
+import { contractId, readUint64LE } from "../support/helpers";
 
 const GET = 1; // Counter/Hooks Get function
 const INC = 1; // Counter Inc procedure
 const ORIG = new Uint8Array(32);
 const EMPTY = new Uint8Array(0);
-
-function u64(b: Uint8Array): bigint {
-  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
-}
 
 // Hooks Get_output: { ticks, endticks, epochs, endepochs } as four uint64 LE.
 function hookCounters(
@@ -87,7 +83,7 @@ test("metered: a user procedure to a dormant contract is skipped and its amount 
   sim.setFeeReserve(28, 0n);
   const gated = sim.applyTx(source, dest, 500n, INC, EMPTY, "tx-gated");
   expect(gated.moneyFlew).toBe(false);
-  expect(u64(sim.query(28, GET))).toBe(0n); // Inc did not run
+  expect(readUint64LE(sim.query(28, GET))).toBe(0n); // Inc did not run
   expect(sim.balance(source)).toBe(1_000_000n); // fully refunded
   expect(sim.balanceOf(28)).toBe(0n);
 
@@ -95,7 +91,7 @@ test("metered: a user procedure to a dormant contract is skipped and its amount 
   sim.setFeeReserve(28, 1_000_000_000n);
   const ok = sim.applyTx(source, dest, 500n, INC, EMPTY, "tx-ok");
   expect(ok.moneyFlew).toBe(true);
-  expect(u64(sim.query(28, GET))).toBe(1n); // Inc ran
+  expect(readUint64LE(sim.query(28, GET))).toBe(1n); // Inc ran
   expect(sim.balance(source)).toBe(999_500n);
   expect(sim.balanceOf(28)).toBe(500n);
 });
@@ -127,7 +123,7 @@ test("metered: fee accounting does not change contract state (digest matches an 
   metered.procedure(28, INC);
   metered.procedure(28, INC);
 
-  expect(u64(metered.query(28, GET))).toBe(2n);
+  expect(readUint64LE(metered.query(28, GET))).toBe(2n);
   expect(metered.digest(28)).toBe(off.digest(28)); // identical StateData -> identical digest
 });
 
@@ -177,12 +173,12 @@ test("metered: contract-to-contract procedure call fails when the callee has no 
   sim.setFeeReserve(28, 0n); // dormant callee
   const denied = sim.doInvokeProcedure(29, 28, INC, EMPTY, 0n, ORIG);
   expect(denied.error).toBe(2); // CallErrorInsufficientFees
-  expect(u64(sim.query(28, GET))).toBe(0n); // callee did not run
+  expect(readUint64LE(sim.query(28, GET))).toBe(0n); // callee did not run
 
   sim.setFeeReserve(28, 1_000_000_000n);
   const ok = sim.doInvokeProcedure(29, 28, INC, EMPTY, 0n, ORIG);
   expect(ok.error).toBe(0);
-  expect(u64(sim.query(28, GET))).toBe(1n);
+  expect(readUint64LE(sim.query(28, GET))).toBe(1n);
 });
 
 test("metered: contract-to-contract function call fails when the callee has no reserve", async () => {
@@ -197,5 +193,5 @@ test("metered: contract-to-contract function call fails when the callee has no r
   sim.setFeeReserve(28, 1_000_000_000n);
   const ok = sim.doCallFunction(29, 28, GET, EMPTY, ORIG);
   expect(ok.error).toBe(0);
-  expect(u64(ok.output)).toBe(0n); // reads Counter == 0
+  expect(readUint64LE(ok.output)).toBe(0n); // reads Counter == 0
 });

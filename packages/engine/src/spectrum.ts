@@ -3,7 +3,7 @@
 import type { Entity } from "./runtime";
 import { toHex, k12Bytes } from "./k12";
 import { SparseMerkle } from "./merkle";
-import { M256i, EntityRecord } from "./wire";
+import { M256i, EntityRecord, SPECTRUM_DEPTH } from "./wire";
 import { hexToBytes } from "@qinit/core";
 
 export class SpectrumLedger {
@@ -125,7 +125,7 @@ export class SpectrumLedger {
   // last call are rehashed (24 nodes each); empty subtrees collapse to a precomputed hash. leaf = K12(EntityRecord).
   getSpectrumDigest(): Uint8Array {
     if (!this.tree) {
-      this.tree = new SparseMerkle(k12Bytes(new Uint8Array(64)));
+      this.tree = new SparseMerkle(k12Bytes(new Uint8Array(64)), SPECTRUM_DEPTH);
     }
 
     for (const k of this.dirty) {

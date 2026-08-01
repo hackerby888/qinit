@@ -16,10 +16,11 @@ import {
   RespondPossessedAssets,
   RespondTxStatusHeader,
 } from "./wire";
+import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 
 export { SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK };
 export const HEADER_SIZE = RequestResponseHeader.SIZE; // 8 — network_messages/header.h
-export const CLI_NUMBER_OF_COMPUTORS = 676; // NUMBER_OF_COMPUTORS — computor-list slot count (mainnet protocol)
+export const CLI_NUMBER_OF_COMPUTORS = MAINNET_COMPUTOR_COUNT;
 
 // network_message_type.h — only the types the bridge handles.
 export const MSG = {

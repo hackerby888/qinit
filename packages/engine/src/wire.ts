@@ -18,13 +18,19 @@ import {
   View,
   defineStruct,
 } from "@qinit/core";
+import {
+  ASSETS_DEPTH as PROTOCOL_ASSETS_DEPTH,
+  MAX_NUMBER_OF_CONTRACTS,
+  SPECTRUM_DEPTH as PROTOCOL_SPECTRUM_DEPTH,
+  TXS_PER_TICK as PROTOCOL_TXS_PER_TICK,
+} from "@qinit/proto";
 
 export const DIGEST_SIZE = 32; // m256i
 export const SIG_SIZE = 64; // signature
-export const TXS_PER_TICK = 4096; // NUMBER_OF_TRANSACTIONS_PER_TICK (common_def.h; must be 2^N)
-export const CONTRACT_FEES_COUNT = 1024; // TickData.contractFees[MAX_NUMBER_OF_CONTRACTS]
-export const SPECTRUM_DEPTH = 24; // common_def.h — spectrum merkle depth
-export const ASSETS_DEPTH = 24; // common_def.h — universe merkle depth
+export const TXS_PER_TICK = PROTOCOL_TXS_PER_TICK;
+export const CONTRACT_FEES_COUNT = MAX_NUMBER_OF_CONTRACTS;
+export const SPECTRUM_DEPTH = PROTOCOL_SPECTRUM_DEPTH;
+export const ASSETS_DEPTH = PROTOCOL_ASSETS_DEPTH;
 export const ASSET_RECORD_SIZE = 48; // assets.h AssetRecord (union)
 
 export const ASSET_TYPE = { ISSUANCE: 1, OWNERSHIP: 2, POSSESSION: 3 } as const;

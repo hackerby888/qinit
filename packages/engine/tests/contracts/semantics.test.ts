@@ -4,13 +4,9 @@ import { bytesToIdentity } from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
+import { contractId } from "../support/helpers";
 
 const USER = new Uint8Array(32).fill(0xab); // a non-contract id (high words != 0)
-function cid(slot: number): Uint8Array {
-  const a = new Uint8Array(32);
-  new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
-  return a;
-}
 function get(sim: QubicSimulator, slot: number) {
   const b = sim.query(slot, 1);
   const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -85,7 +81,7 @@ test("contract-to-contract transfer fires the destination's POST_INCOMING_TRANSF
   sim.deploy(28, await wasm("Vault"));
   sim.deploy(29, await wasm("Vault29"));
   sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
-  expect(send(sim, 28, cid(29), 50n)).toBe(50n);
+  expect(send(sim, 28, contractId(29), 50n)).toBe(50n);
   expect(sim.balanceOf(28)).toBe(50n);
   expect(sim.balanceOf(29)).toBe(50n);
   const g29 = get(sim, 29);

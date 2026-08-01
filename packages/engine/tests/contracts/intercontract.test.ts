@@ -3,10 +3,7 @@ import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
-
-function u64(b: Uint8Array): bigint {
-  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
-}
+import { readUint64LE } from "../support/helpers";
 
 test("Proxy calls Counter: CALL function + INVOKE procedure cross the contract boundary", async () => {
   await initK12();
@@ -16,16 +13,16 @@ test("Proxy calls Counter: CALL function + INVOKE procedure cross the contract b
   sim.deploy(29, await wasm("Proxy")); // caller, built --callee Counter=...@28
 
   // Proxy.ReadCounter (fn 1) -> Counter.Get
-  expect(u64(sim.query(29, 1))).toBe(0n);
-  expect(u64(sim.query(28, 1))).toBe(0n);
+  expect(readUint64LE(sim.query(29, 1))).toBe(0n);
+  expect(readUint64LE(sim.query(28, 1))).toBe(0n);
 
   // Proxy.BumpCounter (proc 1) -> Counter.Inc
   sim.procedure(29, 1);
-  expect(u64(sim.query(28, 1))).toBe(1n); // Counter incremented through Proxy
-  expect(u64(sim.query(29, 1))).toBe(1n); // Proxy reads Counter == 1
+  expect(readUint64LE(sim.query(28, 1))).toBe(1n); // Counter incremented through Proxy
+  expect(readUint64LE(sim.query(29, 1))).toBe(1n); // Proxy reads Counter == 1
 
   sim.procedure(29, 1);
-  expect(u64(sim.query(28, 1))).toBe(2n);
+  expect(readUint64LE(sim.query(28, 1))).toBe(2n);
 });
 
 test("inter-contract guards: missing callee + lower-index rule -> CallErrorContractInactive", async () => {

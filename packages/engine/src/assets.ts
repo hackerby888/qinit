@@ -1,12 +1,13 @@
 import { toHex, k12Bytes } from "./k12";
 import { SparseMerkle } from "./merkle";
-import { AssetRecord, ASSET_RECORD_SIZE } from "./wire";
+import { AssetRecord, ASSET_RECORD_SIZE, ASSETS_DEPTH } from "./wire";
 import { Asset, AssetSelect } from "./abi";
+import { first32BytesEqual, isZeroId } from "./bytes";
 
 export const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
 export const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
 
-const ASSET_CAPACITY = 1 << 24;
+const ASSET_CAPACITY = 1 << ASSETS_DEPTH;
 const ASSET_INDEX_MASK = ASSET_CAPACITY - 1;
 const NO_ASSET_INDEX = -1;
 
@@ -79,7 +80,7 @@ export function packAssetName(name: string): bigint {
   return packed;
 }
 
-function assetNameToString(name: bigint): string {
+export function unpackAssetName(name: bigint): string {
   let text = "";
   let remaining = name;
 
@@ -133,26 +134,6 @@ export class AssetLedger {
 
   constructor(host: AssetHost) {
     this.host = host;
-  }
-
-  private idEq(left: Uint8Array, right: Uint8Array): boolean {
-    for (let index = 0; index < 32; index++) {
-      if (left[index] !== right[index]) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  private isZeroId(id: Uint8Array): boolean {
-    for (let index = 0; index < 32; index++) {
-      if (id[index] !== 0) {
-        return false;
-      }
-    }
-
-    return true;
   }
 
   private startOf(publicKey: Uint8Array): number {
@@ -217,7 +198,7 @@ export class AssetLedger {
       if (
         record.type === ISSUANCE &&
         record.name === name &&
-        this.idEq(record.publicKey, issuer)
+        first32BytesEqual(record.publicKey, issuer)
       ) {
         return index;
       }
@@ -251,7 +232,7 @@ export class AssetLedger {
         if (
           record.type === OWNERSHIP &&
           record.crossRef === issuanceIndex &&
-          this.idEq(record.publicKey, selection.id) &&
+          first32BytesEqual(record.publicKey, selection.id) &&
           (selection.anyMgmt || record.mgmt === selection.mgmt)
         ) {
           indexes.push(index);
@@ -296,7 +277,7 @@ export class AssetLedger {
         if (
           record.type === POSSESSION &&
           record.crossRef === ownershipIndex &&
-          this.idEq(record.publicKey, selection.id) &&
+          first32BytesEqual(record.publicKey, selection.id) &&
           (selection.anyMgmt || record.mgmt === selection.mgmt)
         ) {
           indexes.push(index);
@@ -342,7 +323,7 @@ export class AssetLedger {
       if (
         record.type === ISSUANCE &&
         record.name === name &&
-        this.idEq(record.publicKey, issuer)
+        first32BytesEqual(record.publicKey, issuer)
       ) {
         return 0n;
       }
@@ -451,13 +432,13 @@ export class AssetLedger {
       return 0n;
     }
 
-    if (this.isZeroId(issuer)) {
+    if (isZeroId(issuer)) {
       return 0n;
     }
 
     const isAuthorizedIssuer =
-      this.idEq(issuer, this.host.contractId(slot)) ||
-      this.idEq(issuer, invocator);
+      first32BytesEqual(issuer, this.host.contractId(slot)) ||
+      first32BytesEqual(issuer, invocator);
     if (!isAuthorizedIssuer) {
       return 0n;
     }
@@ -653,7 +634,7 @@ export class AssetLedger {
       if (
         record.type === OWNERSHIP &&
         record.crossRef === issuanceIndex &&
-        this.idEq(record.publicKey, owner) &&
+        first32BytesEqual(record.publicKey, owner) &&
         record.mgmt === ownershipManager
       ) {
         break;
@@ -673,7 +654,7 @@ export class AssetLedger {
       if (
         record.type === POSSESSION &&
         record.crossRef === ownershipIndex &&
-        this.idEq(record.publicKey, possessor) &&
+        first32BytesEqual(record.publicKey, possessor) &&
         record.mgmt === possessionManager
       ) {
         return record.shares;
@@ -707,9 +688,9 @@ export class AssetLedger {
       return false;
     }
 
-    if (this.isZeroId(destination)) {
+    if (isZeroId(destination)) {
       const issuance = this.record(sourceOwnership.crossRef)!;
-      if (this.isZeroId(issuance.publicKey)) {
+      if (isZeroId(issuance.publicKey)) {
         return false;
       }
 
@@ -733,7 +714,7 @@ export class AssetLedger {
           destinationOwnership.mgmt === sourceOwnership.mgmt &&
           destinationOwnership.crossRef ===
             sourceOwnership.crossRef &&
-          this.idEq(destinationOwnership.publicKey, destination))
+          first32BytesEqual(destinationOwnership.publicKey, destination))
       ) {
         break;
       }
@@ -777,7 +758,7 @@ export class AssetLedger {
           destinationPossession.mgmt === sourcePossession.mgmt &&
           destinationPossession.crossRef ===
             destinationOwnershipIndex &&
-          this.idEq(destinationPossession.publicKey, destination))
+          first32BytesEqual(destinationPossession.publicKey, destination))
       ) {
         break;
       }
@@ -849,7 +830,7 @@ export class AssetLedger {
       if (
         record.type === OWNERSHIP &&
         record.crossRef === issuanceIndex &&
-        this.idEq(record.publicKey, owner) &&
+        first32BytesEqual(record.publicKey, owner) &&
         record.mgmt === slot
       ) {
         break;
@@ -869,7 +850,7 @@ export class AssetLedger {
       if (
         possession.type === POSSESSION &&
         possession.crossRef === ownershipIndex &&
-        this.idEq(possession.publicKey, possessor)
+        first32BytesEqual(possession.publicKey, possessor)
       ) {
         if (possession.mgmt !== slot) {
           return -shares;
@@ -931,7 +912,7 @@ export class AssetLedger {
           destinationOwnership.mgmt === destinationOwnershipManager &&
           destinationOwnership.crossRef ===
             sourceOwnership.crossRef &&
-          this.idEq(
+          first32BytesEqual(
             destinationOwnership.publicKey,
             sourceOwnership.publicKey,
           ))
@@ -980,7 +961,7 @@ export class AssetLedger {
           destinationPossession.mgmt === destinationPossessionManager &&
           destinationPossession.crossRef ===
             destinationOwnershipIndex &&
-          this.idEq(
+          first32BytesEqual(
             destinationPossession.publicKey,
             sourcePossession.publicKey,
           ))
@@ -1111,7 +1092,7 @@ export class AssetLedger {
 
       assets.push({
         issuer: toHex(issuance.publicKey),
-        name: assetNameToString(issuance.name),
+        name: unpackAssetName(issuance.name),
         decimals: issuance.decimals,
         unit: issuance.unit.toString(),
         totalShares: totalShares.toString(),
@@ -1164,7 +1145,7 @@ export class AssetLedger {
       const emptyRecordDigest = k12Bytes(
         new Uint8Array(ASSET_RECORD_SIZE),
       );
-      this.tree = new SparseMerkle(emptyRecordDigest);
+      this.tree = new SparseMerkle(emptyRecordDigest, ASSETS_DEPTH);
     }
 
     for (const index of this.dirty) {
@@ -1192,7 +1173,7 @@ export class AssetLedger {
         ANY_SELECT,
       )) {
         const ownership = this.record(ownershipIndex)!;
-        if (!this.idEq(ownership.publicKey, ownerId)) {
+        if (!first32BytesEqual(ownership.publicKey, ownerId)) {
           continue;
         }
 
@@ -1235,7 +1216,7 @@ export class AssetLedger {
           ANY_SELECT,
         )) {
           const possession = this.record(possessionIndex)!;
-          if (!this.idEq(possession.publicKey, possessorId)) {
+          if (!first32BytesEqual(possession.publicKey, possessorId)) {
             continue;
           }
 

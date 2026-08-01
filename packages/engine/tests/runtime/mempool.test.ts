@@ -4,15 +4,11 @@ import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { initK12 } from "../../src/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { contractId } from "../support/helpers";
+import { contractId, readUint64LE } from "../support/helpers";
 
 const INC = 1; // Counter Inc procedure
 const GET = 1; // Counter Get function
 const EMPTY = new Uint8Array(0);
-
-function u64(b: Uint8Array): bigint {
-  return new DataView(b.buffer, b.byteOffset, b.byteLength).getBigUint64(0, true);
-}
 
 test("mempool mode: a tx applies + is recorded at its scheduled tick, not before", async () => {
   await initK12();
@@ -31,14 +27,14 @@ test("mempool mode: a tx applies + is recorded at its scheduled tick, not before
   );
 
   // deferred: not applied, not recorded yet
-  expect(u64(sim.query(28, GET))).toBe(0n);
+  expect(readUint64LE(sim.query(28, GET))).toBe(0n);
   expect(sim.tickTransactions(scheduled).length).toBe(0);
 
   while (sim.currentTick < scheduled) {
     sim.advance();
   }
 
-  expect(u64(sim.query(28, GET))).toBe(1n); // Inc ran at its tick
+  expect(readUint64LE(sim.query(28, GET))).toBe(1n); // Inc ran at its tick
   const recs = sim.tickTransactions(scheduled);
   expect(recs.length).toBe(1);
   expect(recs[0].txId).toBe("tx-sched"); // recorded under the scheduled tick (what checktxontick queries)
@@ -78,7 +74,7 @@ test("mempool mode: a tx scheduled for a past/current tick applies immediately",
     EMPTY,
     "tx-now",
   );
-  expect(u64(sim.query(28, GET))).toBe(1n);
+  expect(readUint64LE(sim.query(28, GET))).toBe(1n);
 });
 
 test("mempool off (default): a tx with a future tick still applies immediately", async () => {
@@ -95,5 +91,5 @@ test("mempool off (default): a tx with a future tick still applies immediately",
     EMPTY,
     "tx-imm",
   );
-  expect(u64(sim.query(28, GET))).toBe(1n); // immediate-apply semantics preserved
+  expect(readUint64LE(sim.query(28, GET))).toBe(1n); // immediate-apply semantics preserved
 });

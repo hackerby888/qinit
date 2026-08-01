@@ -1,10 +1,11 @@
 // Execution-fee reserves mirror core-lite Contract-0 accounting and Qinit's simulation policy.
 import { MAX_NUMBER_OF_CONTRACTS } from "./consensus";
+import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 
 // "off" preserves legacy execution; "metered" enforces live fee reserves.
 export type FeeMode = "off" | "metered";
 
-const IPO_COMPUTORS = 676n; // NUMBER_OF_COMPUTORS — a completed IPO funds the reserve to finalPrice * 676
+const IPO_COMPUTORS = BigInt(MAINNET_COMPUTOR_COUNT);
 export const DEFAULT_FEE_RESERVE = 1000000000n; // seed a metered deploy gets (a faked successful IPO)
 const OFF_MODE_RESERVE = 1000000n; // queryFeeReserve's constant return when fees are off
 

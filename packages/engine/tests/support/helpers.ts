@@ -1,8 +1,18 @@
-// Shared test helpers.
-
-// The 32-byte id of a contract at `slot` — id(slot, 0, 0, 0): the slot as a little-endian uint64 in a zeroed id.
+// Contract IDs store the slot in the first little-endian uint64.
 export function contractId(slot: number): Uint8Array {
-  const a = new Uint8Array(32);
-  new DataView(a.buffer).setBigUint64(0, BigInt(slot), true);
-  return a;
+  const id = new Uint8Array(32);
+  new DataView(id.buffer).setBigUint64(0, BigInt(slot), true);
+  return id;
+}
+
+export function readUint64LE(bytes: Uint8Array, offset = 0): bigint {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigUint64(offset, true);
+}
+
+export function readInt64LE(bytes: Uint8Array, offset = 0): bigint {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getBigInt64(offset, true);
+}
+
+export function readInt32LE(bytes: Uint8Array, offset = 0): number {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt32(offset, true);
 }

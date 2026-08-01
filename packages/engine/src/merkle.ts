@@ -1,8 +1,9 @@
-// Incremental depth-24 sparse Merkle tree.
+// Incremental sparse Merkle tree.
 // Stores occupied paths while precomputed hashes represent empty subtrees.
 import { k12Bytes } from "./k12";
+import { SPECTRUM_DEPTH } from "@qinit/proto";
 
-export const MERKLE_DEPTH = 24;
+export const MERKLE_DEPTH = SPECTRUM_DEPTH;
 const DIGEST_SIZE = 32;
 
 export class SparseMerkle {
@@ -10,9 +11,12 @@ export class SparseMerkle {
   private readonly empty: Uint8Array[]; // empty[level] — the hash of a fully-empty subtree rooted at `level`
 
   // `emptyLeaf` is the level-0 hash of an unoccupied slot (any fixed value; it only has to be used consistently).
-  constructor(emptyLeaf: Uint8Array) {
+  constructor(
+    emptyLeaf: Uint8Array,
+    private readonly depth = MERKLE_DEPTH,
+  ) {
     this.empty = [emptyLeaf.slice(0, DIGEST_SIZE)];
-    for (let level = 1; level <= MERKLE_DEPTH; level++) {
+    for (let level = 1; level <= this.depth; level++) {
       this.empty.push(hashPair(this.empty[level - 1], this.empty[level - 1]));
     }
   }
@@ -21,12 +25,12 @@ export class SparseMerkle {
     return this.nodes.get(level + ":" + index) ?? this.empty[level];
   }
 
-  // Set the leaf at `index` to `leafHash` and rehash its path to the root (24 K12 hashes).
+  // Set a leaf and rehash its path to the root.
   setLeaf(index: number, leafHash: Uint8Array): void {
     this.nodes.set("0:" + index, leafHash.slice(0, DIGEST_SIZE));
 
     let idx = index;
-    for (let level = 0; level < MERKLE_DEPTH; level++) {
+    for (let level = 0; level < this.depth; level++) {
       const left = this.nodeAt(level, idx & ~1);
       const right = this.nodeAt(level, idx | 1);
       idx = Math.floor(idx / 2);
@@ -35,14 +39,14 @@ export class SparseMerkle {
   }
 
   root(): Uint8Array {
-    return this.nodeAt(MERKLE_DEPTH, 0);
+    return this.nodeAt(this.depth, 0);
   }
 
-  // The 24 sibling hashes from the leaf up to the root — the proof for `index`.
+  // The sibling hashes from the leaf up to the root.
   siblings(index: number): Uint8Array[] {
     const out: Uint8Array[] = [];
     let idx = index;
-    for (let level = 0; level < MERKLE_DEPTH; level++) {
+    for (let level = 0; level < this.depth; level++) {
       out.push(this.nodeAt(level, idx ^ 1));
       idx = Math.floor(idx / 2);
     }
