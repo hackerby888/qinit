@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./recipe": "./src/recipe.ts",
+    "./system-contracts": "./src/system-contracts.ts",
     "./intercontract": "./src/intercontract.ts",
     "./idl": "./src/idl.ts"
   },

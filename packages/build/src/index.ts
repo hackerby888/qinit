@@ -6,7 +6,6 @@ import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import {
   compileWasmContract,
-  generateWasmContractTestingHeader,
   type ContractBuildOptions,
 } from "./recipe";
 // Embedded as text by `bun build --compile` (import.meta.dir asset files aren't bundled into the binary).
@@ -15,7 +14,7 @@ import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
 import {
-  systemContractDescriptions,
+  generateWasmContractTestingHeaderForCore,
   systemContracts,
 } from "./system-contracts";
 import { k12Hex } from "@qinit/core";
@@ -29,6 +28,7 @@ export type { DynCallees, CalleeDef } from "./intercontract";
 export { extractIdl } from "./idl";
 export type { ContractIdl, IdlEntry, Field, LogStruct, EnumDef } from "./idl";
 export {
+  generateWasmContractTestingHeaderForCore,
   systemContractDescriptions,
   systemContracts,
   systemNames,
@@ -54,28 +54,6 @@ export interface ContractBuildResult {
   lineMapPath?: string;   // {fileOffset -> file:line:func} map for source-mapped trap backtraces
   stderr?: string;
   idlError?: string;    // set (instead of silently dropping idl) when extractIdl throws on a compiled contract
-}
-
-export function generateWasmContractTestingHeaderForCore(o: {
-  corePath: string;
-  name: string;
-  slot: number;
-}): string {
-  const catalog = systemContractDescriptions(o.corePath);
-  const mainContract = catalog.find((contract) => contract.index === o.slot);
-  const descriptions = catalog
-    .filter((contract) => contract.index !== o.slot)
-    .map((contract) => ({
-      index: contract.index,
-      assetName: contract.name,
-      constructionEpoch: contract.constructionEpoch,
-    }));
-  descriptions.push({
-    index: o.slot,
-    assetName: o.name,
-    constructionEpoch: mainContract?.constructionEpoch ?? 0,
-  });
-  return generateWasmContractTestingHeader(descriptions);
 }
 
 export async function buildContractWithWasiClang(

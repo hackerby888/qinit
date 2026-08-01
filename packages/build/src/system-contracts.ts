@@ -2,6 +2,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadQpiHeader } from "@qinit/compiler";
 import { extractIdl, type ContractIdl } from "./idl";
+import { generateWasmContractTestingHeader } from "./recipe";
 
 export interface SystemContract {
   index: number;
@@ -118,6 +119,28 @@ export function systemContractDescriptions(
   return descriptionsFromDefinitions(
     parseContractDefinitions(readFileSync(path, "utf8")),
   );
+}
+
+export function generateWasmContractTestingHeaderForCore(o: {
+  corePath: string;
+  name: string;
+  slot: number;
+}): string {
+  const catalog = systemContractDescriptions(o.corePath);
+  const mainContract = catalog.find((contract) => contract.index === o.slot);
+  const descriptions = catalog
+    .filter((contract) => contract.index !== o.slot)
+    .map((contract) => ({
+      index: contract.index,
+      assetName: contract.name,
+      constructionEpoch: contract.constructionEpoch,
+    }));
+  descriptions.push({
+    index: o.slot,
+    assetName: o.name,
+    constructionEpoch: mainContract?.constructionEpoch ?? 0,
+  });
+  return generateWasmContractTestingHeader(descriptions);
 }
 
 export function systemContracts(coreRoot: string): SystemContract[] {

@@ -5,7 +5,7 @@ import {
   WASM_TEST_UTIL_HEADER,
   type ContractBuildOptions,
 } from "@qinit/build/recipe";
-import { generateWasmContractTestingHeaderForCore } from "@qinit/build";
+import { generateWasmContractTestingHeaderForCore } from "@qinit/build/system-contracts";
 import { buildCalleePrelude, type DynCallees } from "@qinit/build/intercontract";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
