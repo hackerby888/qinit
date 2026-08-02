@@ -37,7 +37,7 @@ export function Update({ commandArgs }: { commandArgs: CommandArguments }) {
           return;
         }
         const tag = await resolveCliTag();
-        if (!tag) throw new Error("no qinit-cli release found on the API");
+        if (!tag) throw new Error("latest.txt does not contain a valid qinit-cli release tag");
         const to = tag.replace(/^qinit-cli-v?/, "");
         const { asset, sums, name } = cliReleaseUrls(tag);
         if (dry) {

@@ -1,5 +1,5 @@
 // Cover platform-sensitive cache, I/O, tar extraction, and response-stream helpers.
-import { test, expect } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,9 +10,15 @@ import {
   sha256Hex,
   cacheRoot,
   cacheDir,
+  resolveCliTag,
 } from "../../src/index";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "qinit-test-"));
+const originalFetch = globalThis.fetch;
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
 
 test("atomicWrite writes exact bytes and leaves no .tmp sibling", () => {
   const d = tmp();
@@ -58,4 +64,41 @@ test("cacheRoot honors QINIT_CACHE; cacheDir composes under it", () => {
   expect(cacheDir("v1")).toBe(join(tmpdir(), "qinit-cache-x", "v1"));
   if (prev === undefined) delete process.env.QINIT_CACHE;
   else process.env.QINIT_CACHE = prev;
+});
+
+test("resolveCliTag downloads and trims the stable release pointer", async () => {
+  let requestedUrl = "";
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requestedUrl = String(input);
+    return new Response("  qinit-cli-v1.2.3\n");
+  }) as typeof fetch;
+
+  expect(await resolveCliTag("owner/repo")).toBe("qinit-cli-v1.2.3");
+  expect(requestedUrl).toBe(
+    "https://github.com/owner/repo/releases/download/qinit-cli-latest/latest.txt",
+  );
+});
+
+test("resolveCliTag rejects empty and unsafe pointer contents", async () => {
+  for (const content of [
+    "",
+    "   \n",
+    "qinit-cli-v1.2.3/asset",
+    "qinit-cli-v1.2.3\nqinit-cli-v1.2.4",
+    "QINIT-CLI-v1.2.3",
+    "other-v1.2.3",
+  ]) {
+    globalThis.fetch = (async () => new Response(content)) as unknown as typeof fetch;
+    expect(await resolveCliTag("owner/repo")).toBeNull();
+  }
+});
+
+test("resolveCliTag reports pointer HTTP failures", async () => {
+  globalThis.fetch = (async () =>
+    new Response("unavailable", { status: 503 })) as unknown as typeof fetch;
+
+  await expect(resolveCliTag("owner/repo")).rejects.toThrow(
+    "CLI release pointer fetch failed (HTTP 503) from " +
+      "https://github.com/owner/repo/releases/download/qinit-cli-latest/latest.txt",
+  );
 });

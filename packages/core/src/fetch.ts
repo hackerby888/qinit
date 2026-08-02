@@ -101,16 +101,15 @@ export function cliAssetName(): string {
   return `qinit-${os}-${arch}${platform === "win32" ? ".exe" : ""}`;
 }
 
-// Newest qinit-cli-* tag via the GitHub API (NOT /releases/latest — verify-latest hijacks it). null if none.
+// Resolve the newest CLI tag through the stable release pointer. null if its contents are invalid.
 export async function resolveCliTag(repo = CLI_REPO): Promise<string | null> {
-  const response = await fetchWithTimeout(
-    `https://api.github.com/repos/${repo}/releases`,
-    { headers: { "user-agent": "qinit", accept: "application/vnd.github+json" } },
-    15000,
-  );
-  if (!response.ok) throw new Error(`GitHub API ${response.status} listing ${repo} releases`);
-  const releases = (await response.json()) as Array<{ tag_name?: string }>;
-  return releases.map((release) => release.tag_name ?? "").find((tag) => tag.startsWith("qinit-cli-")) || null;
+  const url = `https://github.com/${repo}/releases/download/qinit-cli-latest/latest.txt`;
+  const response = await fetchWithTimeout(url, undefined, 15000);
+  if (!response.ok) {
+    throw new Error(`CLI release pointer fetch failed (HTTP ${response.status}) from ${url}`);
+  }
+  const tag = (await response.text()).trim();
+  return /^qinit-cli-[A-Za-z0-9._-]+$/.test(tag) ? tag : null;
 }
 
 export function cliReleaseUrls(

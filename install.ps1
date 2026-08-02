@@ -26,17 +26,16 @@ if ($arch -eq "AMD64" -or $arch -eq "x86" -or $arch -eq "ARM64") {
 }
 $asset = "qinit-windows-$assetArch.exe"
 
-# Resolve the newest qinit-cli-* tag from the API (NOT /releases/latest - verify-latest can hijack it).
 Show-InstallStep 1 "Resolving latest qinit release"
+$pointer = "https://github.com/$Repo/releases/download/qinit-cli-latest/latest.txt"
 try {
-  $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases" -Headers @{ "User-Agent" = "qinit-installer" }
+  $tag = (Invoke-RestMethod -UseBasicParsing -Uri $pointer).Trim()
 } catch {
-  Write-Error "qinit: GitHub API unreachable ($($_.Exception.Message))"
+  Write-Error "qinit: could not download the qinit CLI release pointer ($($_.Exception.Message))"
   return
 }
-$tag = ($releases | Where-Object { $_.tag_name -like "qinit-cli-*" } | Select-Object -First 1).tag_name
-if (-not $tag) {
-  Write-Error "qinit: could not find a qinit-cli-* release"
+if ($tag -cnotmatch '^qinit-cli-[A-Za-z0-9._-]+$') {
+  Write-Error "qinit: invalid qinit CLI release pointer"
   return
 }
 Write-Host "      found $tag"

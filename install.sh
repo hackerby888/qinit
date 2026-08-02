@@ -42,13 +42,22 @@ case "$arch" in
 esac
 
 asset="qinit-$o-$a"
-# Other release tracks can claim GitHub's "latest" release.
-# Resolve the newest qinit-cli tag explicitly instead.
 task 1 "Resolving latest qinit release"
-TAG=$(curl -fsSL "https://api.github.com/repos/$REPO/releases" 2>/dev/null \
-  | grep -oE '"tag_name": *"qinit-cli-[^"]+"' | head -n1 | sed -E 's/.*"(qinit-cli-[^"]+)".*/\1/')
+pointer="https://github.com/$REPO/releases/download/qinit-cli-latest/latest.txt"
+TAG=$(curl -fsSL "$pointer" 2>/dev/null) || {
+  echo "qinit: could not download the qinit CLI release pointer ($pointer)"
+  exit 1
+}
+case "$TAG" in
+  qinit-cli-?*)
+    case "$TAG" in
+      *[!A-Za-z0-9._-]*) TAG= ;;
+    esac
+    ;;
+  *) TAG= ;;
+esac
 [ -n "$TAG" ] || {
-  echo "qinit: could not resolve a qinit-cli release tag (GitHub API unreachable or rate-limited)"
+  echo "qinit: invalid qinit CLI release pointer"
   exit 1
 }
 status "found $TAG"

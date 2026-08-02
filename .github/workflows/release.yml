@@ -51,3 +51,19 @@ jobs:
           NOTES=$'qinit CLI prebuilt binaries.\nInstall (Linux/macOS): curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh\nInstall (Windows): irm https://raw.githubusercontent.com/${{ github.repository }}/main/install.ps1 | iex'
           gh release create "$TAG" dist/qinit-* dist/SHA256SUMS install.sh install.ps1 --title "$TAG" --notes "$NOTES" \
           || gh release upload "$TAG" dist/qinit-* dist/SHA256SUMS install.sh install.ps1 --clobber
+
+      - name: Update latest pointer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.t.outputs.tag }}"
+          printf '%s\n' "$TAG" > dist/latest.txt
+          if gh release view qinit-cli-latest >/dev/null 2>&1; then
+            gh release upload qinit-cli-latest dist/latest.txt --clobber
+          else
+            gh release create qinit-cli-latest dist/latest.txt \
+              --title "Latest Qinit CLI pointer" \
+              --notes "Points clients to the newest published Qinit CLI release." \
+              --latest=false
+          fi
+          gh release edit qinit-cli-latest --latest=false
