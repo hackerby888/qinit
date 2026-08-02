@@ -60,6 +60,18 @@ test("CLI reports malformed callee declarations as argument errors", async () =>
   expect(result.stderr).toBe("");
 });
 
+test("deploy rejects an invalid slot before core or node work", async () => {
+  const result = await run("deploy", "Counter.h", "--slot", "nope");
+
+  expect(result.code).toBe(1);
+  expect(result.stdout).toContain(
+    "contract slot must be an integer from 1 to 1023",
+  );
+  expect(result.stdout).not.toContain("no core headers");
+  expect(result.stdout).not.toContain("node unreachable");
+  expect(result.stderr).toBe("");
+});
+
 test("hidden server options are strict too", async () => {
   const result = await run("__serve", "--bogus");
 

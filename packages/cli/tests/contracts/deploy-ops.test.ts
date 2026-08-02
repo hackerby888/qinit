@@ -131,6 +131,36 @@ test("deployContract: an active upload fails before tick waiting, slot resolutio
   expect(events).toContainEqual({ step: "upload", state: "fail", detail: error });
 });
 
+test("deployContract rejects an invalid slot before node work", async () => {
+  let nodeCalls = 0;
+  const rpc: any = {
+    dynUpload: async () => {
+      nodeCalls++;
+    },
+    tickInfo: async () => {
+      nodeCalls++;
+    },
+    dynRegistry: async () => {
+      nodeCalls++;
+    },
+  };
+
+  await expect(
+    deployContract(
+      {
+        contractPath: "unused.h",
+        name: "InvalidSlot",
+        core: "unused",
+        rpcBaseUrl: "http://unused",
+        slotOverride: Number.NaN,
+        rpc,
+      },
+      () => {},
+    ),
+  ).rejects.toThrow("contract slot must be an integer from 1 to 1023");
+  expect(nodeCalls).toBe(0);
+});
+
 test("deployContract: racing deployments send chunks only for the winner; the loser works after completion", async () => {
   process.env.QINIT_NO_UPDATE = "1";
   const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));

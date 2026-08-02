@@ -1,7 +1,12 @@
 // resolveContract is the single target-resolution path for call / ls / state: a name or index must map to
 // the same contract everywhere, with user (dyn-registry) entries shadowing built-in system contracts.
 import { test, expect } from "bun:test";
-import { resolveContract, systemAsDyn, type ContractSets } from "../../src/contracts";
+import {
+  parseContractSlot,
+  resolveContract,
+  systemAsDyn,
+  type ContractSets,
+} from "../../src/contracts";
 
 const user = (over: any = {}) => ({
   index: 100,
@@ -25,6 +30,39 @@ const sets = (over: Partial<ContractSets> = {}): ContractSets => ({
   user: [],
   system: [],
   ...over,
+});
+
+test("parseContractSlot accepts contract indices", () => {
+  for (const [value, expected] of [
+    [1, 1],
+    ["29", 29],
+    [" 29 ", 29],
+    [1023, 1023],
+  ] as const) {
+    expect(parseContractSlot(value)).toBe(expected);
+  }
+});
+
+test("parseContractSlot rejects invalid contract indices", () => {
+  for (const value of [
+    undefined,
+    "",
+    "   ",
+    null,
+    false,
+    true,
+    0,
+    -1,
+    1.5,
+    1024,
+    "NaN",
+    Number.NaN,
+    Infinity,
+  ]) {
+    expect(() => parseContractSlot(value)).toThrow(
+      "contract slot must be an integer from 1 to 1023",
+    );
+  }
 });
 
 test("resolveContract: matches a user contract by case-insensitive name", () => {

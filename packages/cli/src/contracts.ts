@@ -4,6 +4,7 @@ import {
   type DynamicContractRegistryEntry,
 } from "@qinit/core";
 import { systemContracts, type SystemContract } from "@qinit/build";
+import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
 import type { ContractEntry } from "@qinit/proto/contract-idl";
 import { resolveCoreDir } from "./config";
 
@@ -11,6 +12,25 @@ export type ContractSets = {
   user: DynamicContractRegistryEntry[];
   system: SystemContract[];
 };
+
+export function parseContractSlot(value: unknown): number {
+  const slot =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim()
+        ? Number(value)
+        : Number.NaN;
+  if (
+    !Number.isInteger(slot) ||
+    slot < 1 ||
+    slot >= MAX_NUMBER_OF_CONTRACTS
+  ) {
+    throw new Error(
+      `contract slot must be an integer from 1 to ${MAX_NUMBER_OF_CONTRACTS - 1}`,
+    );
+  }
+  return slot;
+}
 
 export function loadSystem(): SystemContract[] {
   let core: string;

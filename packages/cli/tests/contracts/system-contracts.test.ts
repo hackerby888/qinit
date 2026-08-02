@@ -6,7 +6,6 @@ import {
   zeroInputFormat,
 } from "@qinit/proto";
 import { parseContractIdl } from "@qinit/proto/contract-idl";
-import { resolveContract, type ContractSets } from "../../src/contracts";
 
 test.skipIf(!process.env.QINIT_CORE)(
   "systemContracts: live contract_def catalog includes typed IDL",
@@ -57,36 +56,3 @@ test.skipIf(!process.env.QINIT_CORE)(
     expect(input).toHaveLength(proposal.inSize);
   },
 );
-
-// --- resolution: user matched before system ---
-test("resolveContract: user before system; by name or index", () => {
-  const sets: ContractSets = {
-    user: [
-      {
-        index: 28,
-        name: "MyTok",
-        armed: true,
-        constructed: true,
-        version: 1,
-        codeHash: "",
-        functions: [],
-        procedures: [],
-        source: "u",
-      } as any,
-    ],
-    system: [
-      {
-        index: 1,
-        name: "QX",
-        file: "Qx.h",
-        source: "s",
-        idl: { name: "QX", functions: [], procedures: [] },
-      } as any,
-    ],
-  };
-  expect(resolveContract("MyTok", sets)?.kind).toBe("user");
-  expect(resolveContract("28", sets)?.index).toBe(28);
-  expect(resolveContract("QX", sets)?.kind).toBe("system");
-  expect(resolveContract("1", sets)?.name).toBe("QX");
-  expect(resolveContract("nope", sets)).toBeNull();
-});

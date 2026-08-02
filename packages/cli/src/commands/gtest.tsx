@@ -12,29 +12,21 @@ import {
 import { genStdGtest, extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import type { TestResult } from "@qinit/engine";
-import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { runCorpus, runStdGtest } from "../corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import type { CommandArguments } from "../args";
+import { parseContractSlot } from "../contracts";
 
 export function resolveGtestSlot(
   core: string,
   requestedSlot?: string,
 ): number {
-  const slot = requestedSlot === undefined
-    ? loadCoreWasmSlotLayout(core).slotBase
-    : Number(requestedSlot);
-  if (
-    !Number.isInteger(slot) ||
-    slot < 1 ||
-    slot >= MAX_NUMBER_OF_CONTRACTS
-  ) {
-    throw new Error(
-      `contract slot must be an integer from 1 to ${MAX_NUMBER_OF_CONTRACTS - 1}`,
-    );
-  }
-  return slot;
+  return parseContractSlot(
+    requestedSlot === undefined
+      ? loadCoreWasmSlotLayout(core).slotBase
+      : requestedSlot,
+  );
 }
 
 // Render the TS compiler's per-phase timings as a one-line breakdown (short labels, in pipeline order).

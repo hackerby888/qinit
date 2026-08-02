@@ -19,6 +19,7 @@ import {
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../ui";
 import { output, type CommandArguments } from "../args";
 import { parseCallees } from "../callees";
+import { parseContractSlot } from "../contracts";
 
 export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
   const dynCallees = parseCallees(commandArgs.getAll("callee"));
@@ -46,6 +47,10 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
           basename(contractPath).replace(/\.[^.]+$/, "");
         setName(nm);
         const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
+        const slotOverride =
+          requestedSlot === undefined
+            ? undefined
+            : parseContractSlot(requestedSlot);
         const emit = (e: DeploymentEvent) => {
           if ("note" in e) {
             setNotes((n) => [...n, e.note]);
@@ -61,10 +66,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
             rpcBaseUrl: commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE,
             seed: commandArgs.get("seed"),
             dynCallees,
-            slotOverride:
-              requestedSlot !== undefined && requestedSlot !== ""
-                ? Number(requestedSlot)
-                : undefined,
+            slotOverride,
             skipVerify: commandArgs.has("skip-verify"),
             compiler: resolveCompilerBackend(commandArgs.get("compiler")),
           },

@@ -8,6 +8,7 @@ import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { loadConfig, resolveCoreDir } from "../config";
 import { Header, Panel, KV, theme } from "../ui";
 import type { CommandArguments } from "../args";
+import { parseContractSlot } from "../contracts";
 
 type State =
   | { ok: true; file: string; name: string; slot: number; fns: number; procs: number }
@@ -32,8 +33,12 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
         cfg.contractName ??
         basename(contractPath).replace(/\.[^.]+$/, "");
       const core = resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir);
-      const defaultSlot = loadCoreWasmSlotLayout(core).slotBase;
-      const slot = Number(commandArgs.get("slot") ?? cfg.slot ?? defaultSlot);
+      const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
+      const slot = parseContractSlot(
+        requestedSlot === undefined
+          ? loadCoreWasmSlotLayout(core).slotBase
+          : requestedSlot,
+      );
       const idl = extractIdl(readFileSync(contractPath, "utf8"), name, {
         slot,
         qpiHeader: loadQpiHeader(core),

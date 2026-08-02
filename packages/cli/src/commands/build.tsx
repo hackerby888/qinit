@@ -19,6 +19,7 @@ import {
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { output, type CommandArguments } from "../args";
 import { parseCallees, resolveNodeCallees } from "../callees";
+import { parseContractSlot } from "../contracts";
 
 type State =
   { phase: "run" } | { phase: "done"; r: ContractBuildResult };
@@ -58,8 +59,11 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
           cfg.contractName ??
           basename(contractPath).replace(/\.[^.]+$/, "");
         const outDir = resolve(commandArgs.get("out") ?? "dist/contracts");
-        const slot = Number(
-          commandArgs.get("slot") ?? cfg.slot ?? loadCoreWasmSlotLayout(core).slotBase,
+        const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
+        const slot = parseContractSlot(
+          requestedSlot === undefined
+            ? loadCoreWasmSlotLayout(core).slotBase
+            : requestedSlot,
         );
 
         let r: ContractBuildResult;

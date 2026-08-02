@@ -33,6 +33,7 @@ import {
 import { buildContractWithTypeScript } from "./build-contract-with-typescript";
 import { saveContractIdl } from "./idl-file";
 import { resolveNodeCallees } from "./callees";
+import { parseContractSlot } from "./contracts";
 export { resolveNodeCallees } from "./callees";
 
 export type StepKey = "tick" | "slot" | "build" | "upload" | "deploy" | "confirm";
@@ -168,6 +169,10 @@ export async function deployContract(
   options: DeployOpts,
   emit: (event: DeploymentEvent) => void,
 ): Promise<DeployResult> {
+  const slotOverride =
+    options.slotOverride === undefined
+      ? undefined
+      : parseContractSlot(options.slotOverride);
   const rpc = options.rpc ?? new LiteRpc(options.rpcBaseUrl);
 
   // Reject a competing upload before doing build or network work.
@@ -268,7 +273,7 @@ export async function deployContract(
   const { slot, reused } = await resolveDeploymentSlot(
     rpc,
     options.name,
-    options.slotOverride,
+    slotOverride,
   );
   emit({
     step: "slot",
