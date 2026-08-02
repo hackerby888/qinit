@@ -12,12 +12,14 @@ on:
   pull_request:
     paths:
       - ".github/workflows/verify-tool.yml"
+      - "config/toolchains.json"
       - "scripts/contractverify/**"
   push:
     branches:
       - main
     paths:
       - ".github/workflows/verify-tool.yml"
+      - "config/toolchains.json"
       - "scripts/contractverify/**"
 
 permissions:
@@ -29,22 +31,43 @@ concurrency:
 
 env:
   TAG: verify-latest
-  UPSTREAM_REPOSITORY: Franziska-Mueller/qubic-contract-verify
 
 jobs:
   prepare:
     name: Resolve upstream release
     runs-on: ubuntu-24.04
     outputs:
+      bun_version: ${{ steps.sources.outputs.bun_version }}
       cppparser_sha: ${{ steps.pin.outputs.cppparser_sha }}
       should_build: ${{ steps.gate.outputs.should_build }}
       upstream_sha: ${{ steps.pin.outputs.upstream_sha }}
+      upstream_repository: ${{ steps.sources.outputs.upstream_repository }}
       version: ${{ steps.pin.outputs.version }}
     steps:
+      - name: Check out Qinit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Read configured sources
+        id: sources
+        run: |
+          set -euo pipefail
+          repository="$(
+            jq -er '
+              .contractVerifier.repository |
+              select(test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"))
+            ' config/toolchains.json
+          )"
+          bun_version="$(jq -er '.bun.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' config/toolchains.json)"
+          printf "bun_version=%s\n" "$bun_version" >> "$GITHUB_OUTPUT"
+          printf "upstream_repository=%s\n" "$repository" >> "$GITHUB_OUTPUT"
+
       - name: Resolve latest stable release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
+          UPSTREAM_REPOSITORY: ${{ steps.sources.outputs.upstream_repository }}
         run: |
           set -euo pipefail
           release_tag="$(gh api "repos/${UPSTREAM_REPOSITORY}/releases/latest" --jq ".tag_name")"
@@ -54,7 +77,7 @@ jobs:
       - name: Check out upstream release
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          repository: ${{ steps.sources.outputs.upstream_repository }}
           ref: ${{ steps.release.outputs.tag }}
           path: upstream
           submodules: recursive
@@ -110,7 +133,7 @@ jobs:
               all(
                 . as $key |
                 $manifest.assets[$key] as $asset |
-                ($asset.url | type == "string" and length > 0) and
+                ($asset.url | type == "string" and test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
                 (($asset.sha256 // "") | test("^[0-9a-f]{64}$")) and
                 ($asset.url | contains($asset.sha256))
               )
@@ -128,11 +151,8 @@ jobs:
             )"; then
               manifest_valid=false
             else
-              release_base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}"
-              while IFS= read -r asset_url; do
-                asset_name="${asset_url##*/}"
-                if [[ "$asset_url" != "$release_base/"* ]] ||
-                  ! grep -Fxq "$asset_name" <<< "$release_assets"; then
+              while IFS= read -r asset_name; do
+                if ! grep -Fxq "$asset_name" <<< "$release_assets"; then
                   manifest_valid=false
                   break
                 fi
@@ -171,7 +191,7 @@ jobs:
       - name: Check out pinned upstream source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          repository: ${{ needs.prepare.outputs.upstream_repository }}
           ref: ${{ needs.prepare.outputs.upstream_sha }}
           path: upstream
           submodules: recursive
@@ -201,7 +221,7 @@ jobs:
         if: matrix.platform == 'linux-x64'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: "1.3.14"
+          bun-version: ${{ needs.prepare.outputs.bun_version }}
 
       - name: Test Qinit contract fixtures
         if: matrix.platform == 'linux-x64'
@@ -234,7 +254,7 @@ jobs:
       - name: Check out pinned upstream source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          repository: ${{ needs.prepare.outputs.upstream_repository }}
           ref: ${{ needs.prepare.outputs.upstream_sha }}
           path: upstream
           submodules: recursive
@@ -285,7 +305,7 @@ jobs:
       - name: Check out pinned upstream source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          repository: ${{ needs.prepare.outputs.upstream_repository }}
           ref: ${{ needs.prepare.outputs.upstream_sha }}
           path: upstream
           submodules: recursive
@@ -328,7 +348,7 @@ jobs:
       - name: Check out pinned upstream source
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: ${{ env.UPSTREAM_REPOSITORY }}
+          repository: ${{ needs.prepare.outputs.upstream_repository }}
           ref: ${{ needs.prepare.outputs.upstream_sha }}
           path: upstream
           submodules: recursive
@@ -406,7 +426,6 @@ jobs:
             test -f "dist/$binary"
           done
 
-          base_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${TAG}"
           linux_x64_sha="$(sha256sum dist/contractverify-linux-x64 | cut -d " " -f 1)"
           linux_arm64_sha="$(sha256sum dist/contractverify-linux-arm64 | cut -d " " -f 1)"
           darwin_sha="$(sha256sum dist/contractverify-darwin-universal2 | cut -d " " -f 1)"
@@ -423,7 +442,6 @@ jobs:
 
           jq -n \
             --arg version "$VERSION" \
-            --arg base "$base_url" \
             --arg linux_x64_asset "$linux_x64_asset" \
             --arg linux_x64_sha "$linux_x64_sha" \
             --arg linux_arm64_asset "$linux_arm64_asset" \
@@ -436,23 +454,23 @@ jobs:
               version: $version,
               assets: {
                 "linux-x64": {
-                  url: ($base + "/" + $linux_x64_asset),
+                  url: $linux_x64_asset,
                   sha256: $linux_x64_sha
                 },
                 "linux-arm64": {
-                  url: ($base + "/" + $linux_arm64_asset),
+                  url: $linux_arm64_asset,
                   sha256: $linux_arm64_sha
                 },
                 "darwin-arm64": {
-                  url: ($base + "/" + $darwin_asset),
+                  url: $darwin_asset,
                   sha256: $darwin_sha
                 },
                 "darwin-x64": {
-                  url: ($base + "/" + $darwin_asset),
+                  url: $darwin_asset,
                   sha256: $darwin_sha
                 },
                 "windows-x64": {
-                  url: ($base + "/" + $windows_asset),
+                  url: $windows_asset,
                   sha256: $windows_sha
                 }
               }
@@ -466,7 +484,13 @@ jobs:
             ) and
             (
               $manifest.assets |
-              all(.[]; . as $asset | $asset.url | contains($asset.sha256))
+              all(
+                .[];
+                . as $asset |
+                ($asset.url | test("^[A-Za-z0-9][A-Za-z0-9._-]*$")) and
+                ($asset.sha256 | test("^[0-9a-f]{64}$")) and
+                ($asset.url | contains($asset.sha256))
+              )
             )
           ' dist/verify-manifest.json >/dev/null
           cat dist/verify-manifest.json
@@ -492,7 +516,7 @@ jobs:
               gh release upload "$TAG" "dist/$asset_name"
             fi
           done < <(
-            jq -r "[.assets[].url | split(\"/\")[-1]] | unique[]" \
+            jq -r "[.assets[].url] | unique[]" \
               dist/verify-manifest.json
           )
 

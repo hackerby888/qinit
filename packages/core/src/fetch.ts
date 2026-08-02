@@ -18,6 +18,7 @@ import {
 } from "./net";
 import { debug } from "./debug";
 import repositories from "../../../config/repositories.json";
+import toolchains from "../../../config/toolchains.json";
 
 export const RELEASE_REPO =
   process.env.QINIT_CORE_REPOSITORY ?? repositories.coreLite.repository;
@@ -60,6 +61,50 @@ export interface Manifest {
   headers?: AssetRef;
 }
 
+function resolveReleaseAsset(
+  asset: AssetRef,
+  repo: string,
+  tag: string,
+  label: string,
+): AssetRef {
+  const value = asset?.url;
+  if (typeof value !== "string") {
+    throw new Error(`${label} URL must be an HTTPS URL or asset filename`);
+  }
+  try {
+    if (/^https:\/\//i.test(value) && new URL(value).protocol === "https:") {
+      return asset;
+    }
+  } catch {}
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value)) {
+    throw new Error(`${label} URL must be an HTTPS URL or asset filename`);
+  }
+  if (typeof tag !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(tag)) {
+    throw new Error(`${label} release tag is invalid: ${tag}`);
+  }
+  return {
+    ...asset,
+    url: `https://github.com/${repo}/releases/download/${tag}/${value}`,
+  };
+}
+
+function resolveReleaseAssets(
+  assets: Record<string, AssetRef>,
+  repo: string,
+  tag: string,
+  label: string,
+): Record<string, AssetRef> {
+  if (!assets || typeof assets !== "object" || Array.isArray(assets)) {
+    throw new Error(`${label} assets must be an object`);
+  }
+  return Object.fromEntries(
+    Object.entries(assets).map(([key, asset]) => [
+      key,
+      resolveReleaseAsset(asset, repo, tag, `${label} asset ${key}`),
+    ]),
+  );
+}
+
 // Pull the release manifest that pins {node, headers} for one version (ABI-consistent set).
 export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise<Manifest> {
   const path = ref === "latest" ? "latest/download" : `download/${ref}`;
@@ -68,7 +113,17 @@ export async function loadManifest(ref = "latest", repo = RELEASE_REPO): Promise
   if (!response.ok) {
     throw new Error(`manifest fetch failed (HTTP ${response.status}) from ${url}`);
   }
-  return (await response.json()) as Manifest;
+  const manifest = (await response.json()) as Manifest;
+  if (manifest.node !== undefined) {
+    manifest.node = resolveReleaseAsset(manifest.node, repo, manifest.version, "core node");
+  }
+  if (manifest.nodes !== undefined) {
+    manifest.nodes = resolveReleaseAssets(manifest.nodes, repo, manifest.version, "core node");
+  }
+  if (manifest.headers !== undefined) {
+    manifest.headers = resolveReleaseAsset(manifest.headers, repo, manifest.version, "core headers");
+  }
+  return manifest;
 }
 
 // ---- qinit CLI self-update / install resolution (the CLI binary release; mirrors install.sh) ----
@@ -259,7 +314,9 @@ export async function loadVerifyManifest(repo = VERIFY_REPO): Promise<VerifyMani
   if (!response.ok) {
     throw new Error(`verify manifest fetch failed (HTTP ${response.status})`);
   }
-  return (await response.json()) as VerifyManifest;
+  const manifest = (await response.json()) as VerifyManifest;
+  manifest.assets = resolveReleaseAssets(manifest.assets, repo, VERIFY_TAG, "verify");
+  return manifest;
 }
 
 export interface VerifyUpdate {
@@ -315,15 +372,15 @@ export async function autoUpdateVerifyTool(opts?: {
 }
 
 // ---- wasi-sdk (clang + wasi-sysroot for `qinit build`) ------------------------------------------
-// Pinned to 29 because version 33 exposes getrusage, breaking the toolchain assumptions.
-const WASI_SDK_VER = "29";
+// Version 33 exposes getrusage, breaking the toolchain assumptions.
+// The supported pin lives in config.
 function wasiSdkAsset(): { url: string; base: string } {
   const arch = process.arch === "arm64" ? "arm64" : "x86_64";
   const os =
     process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
-  const base = `wasi-sdk-${WASI_SDK_VER}.0-${arch}-${os}`;
+  const base = `wasi-sdk-${toolchains.wasiSdk.assetVersion}-${arch}-${os}`;
   return {
-    url: `https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VER}/${base}.tar.gz`,
+    url: `https://github.com/${toolchains.wasiSdk.repository}/releases/download/${toolchains.wasiSdk.releaseTag}/${base}.tar.gz`,
     base,
   };
 }

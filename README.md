@@ -87,10 +87,15 @@ there is currently no npm package release workflow.
 
 ## Cross-repository development
 
-`config/repositories.json` owns the Qinit release repository and core-lite
-development source/production pin. An empty `pinnedCommit` follows the latest
-`developmentRef`; a full commit SHA selects that exact revision. Each CI run
-resolves the selected ref once and uses the resulting commit for every job.
+`config/repositories.json` owns the first-party repositories and branches;
+`config/toolchains.json` owns external repositories and tool versions. After
+editing either file, run `bun run sources:sync`. CI runs
+`bun run sources:check` to reject stale generated values.
+After changing the Bun version, also run `bun install` to regenerate `bun.lock`.
+
+An empty core-lite `pinnedCommit` follows the latest `developmentRef`; a full
+commit SHA selects that exact revision. Each CI run resolves the selected ref
+once and uses the resulting commit for every job.
 
 Manual CI runs accept repository and ref overrides, so a new organization or
 branch can be tested before changing the descriptor. The installers also accept

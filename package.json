@@ -21,7 +21,9 @@
     "test:compiled": "bash scripts/release/check-compiled.sh",
     "test:node": "bash scripts/live-node/smoke-node.sh",
     "check:idl:native": "bun run scripts/core-compat/check-idl-native.ts",
-    "generate:core-abi": "bun packages/core/tools/gen-wasm-abi.ts"
+    "generate:core-abi": "bun packages/core/tools/gen-wasm-abi.ts",
+    "sources:sync": "bun run scripts/config/sync-sources.ts",
+    "sources:check": "bun run scripts/config/sync-sources.ts --check"
   },
   "devDependencies": {
     "bun-types": "1.3.14",

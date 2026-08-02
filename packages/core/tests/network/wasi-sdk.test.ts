@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import toolchains from "../../../../config/toolchains.json";
 import {
   fetchWasiSdk,
   managedWasiSdkStatus,
@@ -71,11 +72,13 @@ function makeArchive(expectedRoot: string, valid = true): Uint8Array {
   return new Uint8Array(tar.stdout);
 }
 
-function serveArchive(archive: Uint8Array): () => number {
+function serveArchive(archive: Uint8Array, requests?: string[]): () => number {
   let requestCount = 0;
   globalThis.fetch = (async (input: string | URL | Request) => {
     requestCount++;
-    if (String(input).endsWith(".sha256")) {
+    const url = String(input);
+    requests?.push(url);
+    if (url.endsWith(".sha256")) {
       return new Response("", { status: 404 });
     }
     return new Response(new Uint8Array(archive));
@@ -135,6 +138,21 @@ test("fetchWasiSdk upgrade replaces an older SDK", async () => {
   expect(readFileSync(join(expectedRoot, "VERSION"), "utf8")).toBe("new");
   expect(existsSync(oldRoot)).toBe(false);
   expect(managedWasiSdkStatus().updateAvailable).toBe(false);
+});
+
+test("fetchWasiSdk uses the configured release asset", async () => {
+  isolateCache();
+  const expectedRoot = managedWasiSdkStatus().expectedRoot;
+  const requests: string[] = [];
+  serveArchive(makeArchive(expectedRoot), requests);
+
+  await fetchWasiSdk();
+
+  const asset = `${basename(expectedRoot)}.tar.gz`;
+  const expectedUrl =
+    `https://github.com/${toolchains.wasiSdk.repository}/releases/download/` +
+    `${toolchains.wasiSdk.releaseTag}/${asset}`;
+  expect(requests).toEqual([`${expectedUrl}.sha256`, expectedUrl]);
 });
 
 test("fetchWasiSdk preserves the old SDK when replacement validation fails", async () => {

@@ -10,6 +10,8 @@ import {
   sha256Hex,
   cacheRoot,
   cacheDir,
+  loadManifest,
+  loadVerifyManifest,
   resolveCliTag,
 } from "../../src/index";
 
@@ -64,6 +66,75 @@ test("cacheRoot honors QINIT_CACHE; cacheDir composes under it", () => {
   expect(cacheDir("v1")).toBe(join(tmpdir(), "qinit-cache-x", "v1"));
   if (prev === undefined) delete process.env.QINIT_CACHE;
   else process.env.QINIT_CACHE = prev;
+});
+
+test("release manifests expand asset filenames and preserve HTTPS URLs", async () => {
+  const requests: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    requests.push(String(input));
+    return Response.json({
+      version: "core-v1.2.3",
+      node: { url: "Qubic-linux-x64", sha256: "node" },
+      nodes: {
+        "linux-arm64": { url: "Qubic-linux-arm64", sha256: "arm" },
+        "darwin-arm64": { url: "https://assets.example/Qubic", sha256: "darwin" },
+      },
+      headers: { url: "core-headers.tar.gz", sha256: "headers" },
+    });
+  }) as typeof fetch;
+
+  const manifest = await loadManifest("moving-pointer", "new-org/core-lite");
+  const base = "https://github.com/new-org/core-lite/releases/download/core-v1.2.3";
+  expect(requests).toEqual([
+    "https://github.com/new-org/core-lite/releases/download/moving-pointer/qinit-manifest.json",
+  ]);
+  expect(manifest.node?.url).toBe(`${base}/Qubic-linux-x64`);
+  expect(manifest.nodes?.["linux-arm64"]?.url).toBe(`${base}/Qubic-linux-arm64`);
+  expect(manifest.nodes?.["darwin-arm64"]?.url).toBe("https://assets.example/Qubic");
+  expect(manifest.headers?.url).toBe(`${base}/core-headers.tar.gz`);
+});
+
+test("release manifests reject unsafe asset references", async () => {
+  for (const url of ["", "../Qubic", "bin/Qubic", "http://example.test/Qubic", "Qubic?raw=1"]) {
+    globalThis.fetch = (async () => Response.json({
+      version: "core-v1",
+      node: { url, sha256: "unused" },
+    })) as unknown as typeof fetch;
+
+    await expect(loadManifest("latest", "new-org/core-lite")).rejects.toThrow(
+      "core node URL must be an HTTPS URL or asset filename",
+    );
+  }
+});
+
+test("release manifests reject an unsafe version used as an asset tag", async () => {
+  globalThis.fetch = (async () => Response.json({
+    version: "../core-v1",
+    node: { url: "Qubic-linux-x64", sha256: "unused" },
+  })) as unknown as typeof fetch;
+
+  await expect(loadManifest("latest", "new-org/core-lite")).rejects.toThrow(
+    "core node release tag is invalid: ../core-v1",
+  );
+});
+
+test("verifier manifests expand filenames against the moving release", async () => {
+  globalThis.fetch = (async () => Response.json({
+    version: "upstream-v1",
+    assets: {
+      "linux-x64": { url: "contractverify-linux-x64-deadbeef", sha256: "deadbeef" },
+      "darwin-arm64": { url: "https://assets.example/contractverify", sha256: "cafe" },
+    },
+  })) as unknown as typeof fetch;
+
+  const manifest = await loadVerifyManifest("new-org/qinit");
+  expect(manifest.assets["linux-x64"]?.url).toBe(
+    "https://github.com/new-org/qinit/releases/download/verify-latest/" +
+      "contractverify-linux-x64-deadbeef",
+  );
+  expect(manifest.assets["darwin-arm64"]?.url).toBe(
+    "https://assets.example/contractverify",
+  );
 });
 
 test("resolveCliTag downloads and trims the stable release pointer", async () => {
