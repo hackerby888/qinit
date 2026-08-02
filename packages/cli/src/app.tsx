@@ -157,7 +157,7 @@ function renderHelp(invocation: CommandInvocation): ReactNode {
 type CommandHandler = (invocation: CommandInvocation) => ReactNode;
 
 const HANDLERS = {
-  setup: () => <Setup />,
+  setup: ({ commandArgs }) => <Setup commandArgs={commandArgs} />,
   doctor: () => <Doctor />,
   ext: ({ commandArgs }) => <Ext commandArgs={commandArgs} />,
   node: ({ commandArgs, subcommand }) =>

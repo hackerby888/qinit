@@ -9,10 +9,15 @@ import {
   fetchWasiSdk,
   haveWasiSdkCache,
   loadCoreWasmSlotLayout,
+  loadManifest,
+  readCurrent,
+  updateCurrent,
 } from "@qinit/core";
 import {
-  fetchNodeBinary,
+  cachedReleaseRef,
   cachedNode,
+  ensureNodeBinary,
+  fetchNodeBinary,
   nodeStatus,
   nodeContracts,
   killNode,
@@ -31,7 +36,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
   const rpcBaseUrl = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
   const peerPort = Number(commandArgs.get("peer-port") || DEFAULT_PEER_PORT);
-  const ref = commandArgs.get("ref") || "latest";
+  const requestedRef = commandArgs.get("ref");
   const nodeBinaryOverride = commandArgs.get("node-bin");
   const offline = commandArgs.has("offline");
   const useSimulator =
@@ -58,14 +63,20 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
       try {
         // An explicit core checkout bypasses the release manifest.
         set("headers", "active");
+        const manifest =
+          requestedRef && !offline && commandArgs.get("core-dir") === undefined
+            ? await loadManifest(requestedRef)
+            : undefined;
         const preparedCore = await prepareNodeRunCore(
           {
             coreDir: commandArgs.get("core-dir"),
             nodeBinary: nodeBinaryOverride,
-            ref: commandArgs.get("ref"),
+            ref: requestedRef,
             offline,
+            updateCurrent: useSimulator,
           },
           useSimulator,
+          manifest ? { loadManifest: async () => manifest } : {},
         );
         const { version, coreHeaders: currentHeaders } = preparedCore;
         set("headers", "ok", preparedCore.detail);
@@ -74,10 +85,10 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
           throw new Error("simulator requires synced core headers for its Wasm slot layout");
         }
 
-        // Node binary: not needed for the simulator backend; otherwise
-        // reuse cached, else fetch (fetchNodeBinary skips download if already cached).
+        // The simulator needs no node binary. An explicit ref selects the same manifest as headers.
         set("node", "active");
         let nodeBinary = "";
+        let nodeVersion = version;
         if (useSimulator) {
           set("node", "ok", "simulator — no binary");
         } else if (nodeBinaryOverride) {
@@ -90,10 +101,41 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
           const c = cachedNode();
           if (!c) throw new Error("offline: no cached node — run `qinit node run` online first");
           nodeBinary = c;
+          nodeVersion = readCurrent()?.nodeVersion ?? "cached";
           set("node", "ok", "reuse cached");
         } else {
-          nodeBinary = (await fetchNodeBinary(ref)).nodeBinaryPath;
-          set("node", "ok", `ready ${version}`);
+          const node = manifest
+            ? {
+                ...await fetchNodeBinary(requestedRef!, undefined, manifest, {
+                  updateCurrent: false,
+                }),
+                cached: false,
+              }
+            : await ensureNodeBinary(
+                cachedNode() ? undefined : cachedReleaseRef(version),
+                undefined,
+                { updateCurrent: false },
+              );
+          nodeBinary = node.nodeBinaryPath;
+          nodeVersion = node.version;
+          set("node", "ok", node.cached ? `cached ${node.version}` : `ready ${node.version}`);
+        }
+        if (!useSimulator && !nodeBinaryOverride && nodeVersion !== version) {
+          throw new Error(
+            `headers/node version drift (${version} != ${nodeVersion}) — run \`qinit setup\``,
+          );
+        }
+        if (!useSimulator) {
+          updateCurrent(
+            nodeBinaryOverride
+              ? { headersVersion: version, coreHeaders: currentHeaders }
+              : {
+                  headersVersion: version,
+                  coreHeaders: currentHeaders,
+                  nodeVersion,
+                  node: nodeBinary,
+                },
+          );
         }
 
         // wasm compiler: fetch the host's wasi-sdk (clang + wasi-sysroot) so `qinit build` needs zero

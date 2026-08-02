@@ -121,15 +121,14 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
           spin("checking node");
           if (!(await isTicking(activeRpc))) {
             spin("starting core node");
-            // Prefer the latest release node; fall back to a cached one only offline (don't silently
-            // run a stale pinned version against newer tooling).
+            // Reuse the selected node unless --ref explicitly asks for another release.
             const requestedNodeBinary = commandArgs.get("node-bin");
             let nodeBinary = requestedNodeBinary ? resolve(requestedNodeBinary) : "";
             let nodeNote = "";
             if (!nodeBinary) {
               spin("resolving node");
               const r = await ensureNodeBinary(
-                commandArgs.get("ref") || "latest",
+                commandArgs.get("ref"),
                 (rc, tt) =>
                   spin(
                     tt
@@ -138,7 +137,7 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
                   ),
               );
               nodeBinary = r.nodeBinaryPath;
-              if (r.stale) nodeNote = ` · cached ${r.version} (offline)`;
+              if (r.cached) nodeNote = ` · cached ${r.version}`;
             }
             await killNode();
             launchNode({

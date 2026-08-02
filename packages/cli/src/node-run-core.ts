@@ -8,6 +8,7 @@ import {
   readCurrent,
   updateCurrent,
 } from "@qinit/core";
+import { cachedReleaseRef } from "./node-ops";
 
 const defaultDeps = {
   existsSync,
@@ -26,6 +27,7 @@ export interface NodeRunCoreOptions {
   nodeBinary?: string;
   ref?: string;
   offline?: boolean;
+  updateCurrent?: boolean;
 }
 
 export interface PreparedNodeRunCore {
@@ -65,56 +67,56 @@ export async function prepareNodeRunCore(
       );
     }
 
-    deps.updateCurrent({ headersVersion: "local", coreHeaders });
+    if (options.updateCurrent !== false) {
+      deps.updateCurrent({ headersVersion: "local", coreHeaders });
+    }
     return { version: "local", coreHeaders, detail: `local ${coreHeaders}` };
   }
 
-  let version: string;
-  let headersAsset: any;
-  if (options.offline) {
-    const current = deps.readCurrent();
-    if (!current?.coreHeaders || !deps.existsSync(current.coreHeaders)) {
-      throw new Error("offline: no synced headers — run `qinit node run` online first");
-    }
-    version = current.headersVersion ?? "cached";
-  } else {
-    try {
-      const manifest = await deps.loadManifest(options.ref || "latest");
-      version = manifest.version;
-      headersAsset = manifest.headers;
-    } catch (error) {
-      if (!useSimulator) {
-        throw error;
-      }
-      const current = deps.readCurrent();
-      if (!current?.coreHeaders || !deps.existsSync(current.coreHeaders)) {
-        throw new Error(
-          "no cached headers — run `qinit node run` online once to sync headers + wasi-sdk",
-        );
-      }
-      version = current.headersVersion ?? "cached";
-    }
+  if (options.offline && options.ref !== undefined) {
+    throw new Error("--offline cannot be combined with --ref");
   }
 
   const current = deps.readCurrent();
+  const cachedHeaders =
+    current?.coreHeaders && deps.existsSync(current.coreHeaders)
+      ? current.coreHeaders
+      : undefined;
   if (options.offline) {
+    if (!cachedHeaders) {
+      throw new Error("offline: no synced headers — run `qinit node run` online first");
+    }
     return {
-      version,
-      coreHeaders: current!.coreHeaders!,
-      detail: `reuse ${version}`,
+      version: current?.headersVersion ?? "cached",
+      coreHeaders: cachedHeaders,
+      detail: `reuse ${current?.headersVersion ?? "cached"}`,
     };
   }
-  if (
-    current?.headersVersion === version &&
-    current.coreHeaders &&
-    deps.existsSync(current.coreHeaders)
-  ) {
+
+  if (options.ref === undefined && cachedHeaders) {
     return {
-      version,
-      coreHeaders: current.coreHeaders,
-      detail: `cached ${version}`,
+      version: current?.headersVersion ?? "cached",
+      coreHeaders: cachedHeaders,
+      detail: `cached ${current?.headersVersion ?? "cached"}`,
     };
   }
+
+  let ref = options.ref;
+  if (ref === undefined && current?.node && deps.existsSync(current.node)) {
+    ref = cachedReleaseRef(current.nodeVersion);
+    if (!ref) {
+      throw new Error(
+        "selected node does not identify a release — run `qinit setup --force` or pass --ref",
+      );
+    }
+  }
+  ref ??= "latest";
+  const manifest = await deps.loadManifest(ref);
+  const version = manifest.version;
+  if (current?.headersVersion === version && cachedHeaders) {
+    return { version, coreHeaders: cachedHeaders, detail: `cached ${version}` };
+  }
+  const headersAsset = manifest.headers;
   if (!headersAsset) {
     throw new Error(`manifest ${version} has no headers asset`);
   }
@@ -124,6 +126,8 @@ export async function prepareNodeRunCore(
     await deps.downloadVerifiedAsset(headersAsset, onProgress),
     coreHeaders,
   );
-  deps.updateCurrent({ headersVersion: version, coreHeaders });
+  if (options.updateCurrent !== false) {
+    deps.updateCurrent({ headersVersion: version, coreHeaders });
+  }
   return { version, coreHeaders, detail: `fetched ${version}` };
 }

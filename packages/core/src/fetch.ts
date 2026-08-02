@@ -225,7 +225,7 @@ export function readCurrent(): CurrentPointer | null {
 export function updateCurrent(patch: Partial<CurrentPointer>): CurrentPointer {
   const next = { ...(readCurrent() ?? {}), ...patch, syncedAt: new Date().toISOString() };
   mkdirSync(cacheRoot(), { recursive: true });
-  writeFileSync(currentPath(), JSON.stringify(next, null, 2));
+  atomicWrite(currentPath(), JSON.stringify(next, null, 2));
   return next;
 }
 export function cacheHeaders(version: string): string {
@@ -332,15 +332,46 @@ export function wasiSdkDir(): string {
   return join(cacheRoot(), "wasi-sdk");
 }
 // Resolve clang++ + wasi-sysroot inside the cached sdk (the tarball keeps a nested top dir, so scan one level).
-function wasiSdkCachePaths(): { root: string; clang: string; sysroot: string } | null {
-  const base = wasiSdkDir();
+function wasiSdkCachePathsAt(
+  base: string,
+): { root: string; clang: string; sysroot: string } | null {
   if (!existsSync(base)) return null;
-  for (const root of [base, ...readdirSync(base).map((d) => join(base, d))]) {
+  let roots: string[];
+  try {
+    const expectedRoot = join(base, wasiSdkAsset().base);
+    roots = [
+      expectedRoot,
+      base,
+      ...readdirSync(base)
+        .map((entry) => join(base, entry))
+        .filter((root) => root !== expectedRoot),
+    ];
+  } catch {
+    return null;
+  }
+  for (const root of roots) {
     const clang = join(root, "bin", process.platform === "win32" ? "clang++.exe" : "clang++");
     const sysroot = join(root, "share", "wasi-sysroot");
     if (existsSync(clang) && existsSync(sysroot)) return { root, clang, sysroot };
   }
   return null;
+}
+function wasiSdkCachePaths(): { root: string; clang: string; sysroot: string } | null {
+  return wasiSdkCachePathsAt(wasiSdkDir());
+}
+export interface ManagedWasiSdkStatus {
+  currentRoot?: string;
+  expectedRoot: string;
+  updateAvailable: boolean;
+}
+export function managedWasiSdkStatus(): ManagedWasiSdkStatus {
+  const currentRoot = wasiSdkCachePaths()?.root;
+  const expectedRoot = join(wasiSdkDir(), wasiSdkAsset().base);
+  return {
+    currentRoot,
+    expectedRoot,
+    updateAvailable: currentRoot !== undefined && currentRoot !== expectedRoot,
+  };
 }
 export function wasiSdkPaths(): { root: string; clang: string; sysroot: string } | null {
   const cached = wasiSdkCachePaths();
@@ -357,13 +388,17 @@ export function wasiSdkPaths(): { root: string; clang: string; sysroot: string }
 export function haveWasiSdkCache(): boolean {
   return wasiSdkCachePaths() !== null;
 }
-// Fetch+extract the host's wasi-sdk into ~/.cache/qinit/wasi-sdk/. No-op if already cached. Best-effort
-// sha256 (upstream publishes a per-asset .sha256; if absent, rely on https transport integrity).
+// Fetch the pinned host SDK. Existing caches stay untouched unless upgrade is requested.
+// Upstream sha256 is best-effort; if absent, rely on HTTPS transport integrity.
 export async function fetchWasiSdk(
   onProgress?: (recv: number, total: number) => void,
+  options?: { upgrade?: boolean },
 ): Promise<{ dir: string; cached: boolean }> {
   const dir = wasiSdkDir();
-  if (haveWasiSdkCache()) return { dir, cached: true };
+  const status = managedWasiSdkStatus();
+  if (status.currentRoot && (!options?.upgrade || !status.updateAvailable)) {
+    return { dir, cached: true };
+  }
   const { url } = wasiSdkAsset();
   let sha256 = "";
   try {
@@ -371,12 +406,43 @@ export async function fetchWasiSdk(
     if (r.ok) sha256 = (await r.text()).trim().split(/\s+/)[0] ?? "";
   } catch {}
   const buf = await downloadVerifiedAsset({ url, sha256 }, onProgress);
-  // Atomic install: extract into a sibling tmp dir, then swap it into place. A kill mid-extract leaves
-  // the tmp (ignored), never a half-populated wasi-sdk/ that haveWasiSdkCache() would accept as valid.
-  const tmp = `${dir}.tmp.${process.pid}`;
+  const suffix = `${process.pid}.${Date.now()}`;
+  const tmp = `${dir}.tmp.${suffix}`;
+  const backup = `${dir}.bak.${suffix}`;
   rmSync(tmp, { recursive: true, force: true });
-  await extractTarGz(buf, tmp);
-  rmSync(dir, { recursive: true, force: true });
-  renameSync(tmp, dir);
-  return { dir, cached: false };
+  rmSync(backup, { recursive: true, force: true });
+  let backedUp = false;
+  try {
+    await extractTarGz(buf, tmp);
+    if (!wasiSdkCachePathsAt(tmp)) {
+      throw new Error("downloaded wasi-sdk is missing clang++ or wasi-sysroot");
+    }
+
+    if (existsSync(dir)) {
+      renameSync(dir, backup);
+      backedUp = true;
+    }
+    try {
+      renameSync(tmp, dir);
+    } catch (activationError) {
+      if (backedUp) {
+        try {
+          renameSync(backup, dir);
+        } catch (rollbackError) {
+          const detail = rollbackError instanceof Error
+            ? rollbackError.message
+            : String(rollbackError);
+          throw new Error(
+            `failed to activate wasi-sdk and restore the previous cache: ${detail}`,
+            { cause: activationError },
+          );
+        }
+      }
+      throw activationError;
+    }
+    if (backedUp) rmSync(backup, { recursive: true, force: true });
+    return { dir, cached: false };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }

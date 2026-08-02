@@ -56,7 +56,8 @@ export const GROUP_ORDER = ["setup & node", "develop", "deploy & interact", "mis
 const commandMeta = {
   setup: {
     group: "setup & node",
-    summary: "download the core headers, node binary, WASI SDK, and contract verifier",
+    summary: "install dependencies and offer available updates",
+    options: [booleanOption("force", "install available updates without prompting")],
   },
   doctor: {
     group: "setup & node",
@@ -76,10 +77,10 @@ const commandMeta = {
     group: "setup & node",
     json: true,
     summary:
-      "bring up + manage the dev node: run (sync headers+wasm, get node, launch), status, stop, get",
+      "bring up + manage the dev node: run (prepare dependencies and launch), status, stop, get",
     usage: "<run|status|stop|get> [--ref <tag>] [--rpc <url>]",
     options: [
-      stringOption("ref", "<tag>", "node/headers release to use (default: latest)"),
+      stringOption("ref", "<tag>", "explicitly fetch/select a node or headers release"),
       stringOption("rpc", "<url>", "node RPC base"),
     ],
     subcommands: {

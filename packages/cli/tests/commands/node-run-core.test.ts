@@ -68,6 +68,12 @@ test("node run rejects --core-dir with --ref", async () => {
   ).rejects.toThrow("--core-dir cannot be combined with --ref");
 });
 
+test("node run rejects --offline with --ref", async () => {
+  await expect(
+    prepareNodeRunCore({ offline: true, ref: "qinit-v1" }, false),
+  ).rejects.toThrow("--offline cannot be combined with --ref");
+});
+
 test("node run rejects --core-dir without a path", async () => {
   await expect(
     prepareNodeRunCore({ coreDir: "", nodeBinary: "/tmp/Qubic" }, false),
@@ -92,20 +98,19 @@ test("node run reports missing and malformed --core-dir paths", async () => {
   );
 });
 
-test("manifest-backed node run keeps the cached-header path", async () => {
-  let fetches = 0;
+test("node run reuses valid headers without loading a manifest", async () => {
+  const unexpected = () => {
+    throw new Error("network must not run");
+  };
   const result = await prepareNodeRunCore(
     {},
     false,
     {
-      loadManifest: async () =>
-        ({ version: "qinit-v7", headers: { url: "headers.tgz", sha256: "abc" } }) as any,
+      loadManifest: unexpected as NodeRunCoreDeps["loadManifest"],
       readCurrent: () => ({ headersVersion: "qinit-v7", coreHeaders: "/cache/qinit-v7" }),
       existsSync: () => true,
-      downloadVerifiedAsset: async () => {
-        fetches++;
-        return new Uint8Array();
-      },
+      downloadVerifiedAsset:
+        unexpected as NodeRunCoreDeps["downloadVerifiedAsset"],
     },
   );
 
@@ -114,7 +119,6 @@ test("manifest-backed node run keeps the cached-header path", async () => {
     coreHeaders: "/cache/qinit-v7",
     detail: "cached qinit-v7",
   });
-  expect(fetches).toBe(0);
 });
 
 test("manifest-backed node run still fetches uncached headers", async () => {
@@ -124,8 +128,13 @@ test("manifest-backed node run still fetches uncached headers", async () => {
     {},
     false,
     {
-      loadManifest: async () =>
-        ({ version: "qinit-v8", headers: { url: "headers.tgz", sha256: "abc" } }) as any,
+      loadManifest: async (ref) => {
+        calls.push(`manifest:${ref}`);
+        return {
+          version: "qinit-v8",
+          headers: { url: "headers.tgz", sha256: "abc" },
+        } as any;
+      },
       readCurrent: () => null,
       cacheHeaders: () => "/cache/qinit-v8",
       downloadVerifiedAsset: async (_asset, onProgress) => {
@@ -145,11 +154,16 @@ test("manifest-backed node run still fetches uncached headers", async () => {
   );
 
   expect(result.detail).toBe("fetched qinit-v8");
-  expect(calls).toEqual(["fetch", "extract:/cache/qinit-v8", "current:qinit-v8"]);
+  expect(calls).toEqual([
+    "manifest:latest",
+    "fetch",
+    "extract:/cache/qinit-v8",
+    "current:qinit-v8",
+  ]);
   expect(progress).toEqual([[1, 3]]);
 });
 
-test("offline and simulator manifest-fallback paths reuse cached headers", async () => {
+test("offline and simulator paths reuse cached headers", async () => {
   const current = { headersVersion: "cached-v1", coreHeaders: "/cache/core" };
   const common = { readCurrent: () => current, existsSync: () => true };
 
@@ -163,4 +177,100 @@ test("offline and simulator manifest-fallback paths reuse cached headers", async
     },
   });
   expect(simulator.detail).toBe("cached cached-v1");
+});
+
+test("node run restores missing headers from the selected node release", async () => {
+  const refs: string[] = [];
+  const result = await prepareNodeRunCore(
+    {},
+    false,
+    {
+      readCurrent: () => ({
+        headersVersion: "qinit-v-old",
+        coreHeaders: "/missing/headers",
+        nodeVersion: "qinit-v-node",
+        node: "/cache/Qubic",
+      }),
+      existsSync: (path) => path === "/cache/Qubic",
+      loadManifest: async (ref) => {
+        refs.push(ref ?? "latest");
+        return {
+          version: "qinit-v-node",
+          headers: { url: "headers.tgz", sha256: "abc" },
+        } as any;
+      },
+      cacheHeaders: () => "/cache/core-headers",
+      downloadVerifiedAsset: async () => new Uint8Array(),
+      extractTarGz: async () => {},
+      updateCurrent: (value) => value,
+    },
+  );
+
+  expect(refs).toEqual(["qinit-v-node"]);
+  expect(result.version).toBe("qinit-v-node");
+});
+
+test("node run does not guess headers for an unknown node release", async () => {
+  let manifestLoads = 0;
+
+  await expect(
+    prepareNodeRunCore(
+      {},
+      false,
+      {
+        readCurrent: () => ({ nodeVersion: "cached", node: "/cache/Qubic" }),
+        existsSync: (path) => path === "/cache/Qubic",
+        loadManifest: async () => {
+          manifestLoads++;
+          throw new Error("network must not run");
+        },
+      },
+    ),
+  ).rejects.toThrow("selected node does not identify a release");
+  expect(manifestLoads).toBe(0);
+});
+
+test("an explicit ref never falls back to cached headers", async () => {
+  await expect(
+    prepareNodeRunCore(
+      { ref: "latest" },
+      true,
+      {
+        readCurrent: () => ({
+          headersVersion: "qinit-v-cached",
+          coreHeaders: "/cache/core",
+        }),
+        existsSync: () => true,
+        loadManifest: async () => {
+          throw new Error("release unavailable");
+        },
+      },
+    ),
+  ).rejects.toThrow("release unavailable");
+});
+
+test("headers can be staged without changing the current pointer", async () => {
+  let updated = false;
+  const result = await prepareNodeRunCore(
+    { ref: "qinit-v-next", updateCurrent: false },
+    false,
+    {
+      readCurrent: () => null,
+      loadManifest: async () =>
+        ({
+          version: "qinit-v-next",
+          headers: { url: "headers.tgz", sha256: "abc" },
+        }) as any,
+      cacheHeaders: () => "/cache/core-headers",
+      downloadVerifiedAsset: async () => new Uint8Array(),
+      extractTarGz: async () => {},
+      updateCurrent: (value) => {
+        updated = true;
+        return value;
+      },
+    },
+  );
+
+  expect(result.version).toBe("qinit-v-next");
+  expect(updated).toBe(false);
 });

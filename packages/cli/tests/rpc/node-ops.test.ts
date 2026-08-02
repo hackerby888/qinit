@@ -15,6 +15,7 @@ import { basename, join } from "node:path";
 import { releasePlatformKey } from "@qinit/core";
 import {
   activeNodeScratchDir,
+  ensureNodeBinary,
   fetchNodeBinary,
   killNode,
   nodeAlive,
@@ -176,6 +177,17 @@ test("fetchNodeBinary downloads a verified raw platform executable and updates c
     expect(current.nodeVersion).toBe(manifest.version);
     expect(current.node).toBe(downloaded.nodeBinaryPath);
 
+    const staged = await fetchNodeBinary(
+      "unused",
+      undefined,
+      { ...manifest, version: "qinit-v-staged-node" },
+      { updateCurrent: false },
+    );
+    expect(existsSync(staged.nodeBinaryPath)).toBe(true);
+    expect(
+      JSON.parse(readFileSync(join(cache, "current.json"), "utf8")).nodeVersion,
+    ).toBe(manifest.version);
+
     const badManifest = {
       ...manifest,
       version: "qinit-v-bad-node",
@@ -199,6 +211,153 @@ test("fetchNodeBinary downloads a verified raw platform executable and updates c
     } else {
       process.env.QINIT_CACHE = originalCache;
     }
+    rmSync(cache, { recursive: true, force: true });
+  }
+});
+
+test("ensureNodeBinary reuses a valid selected node without a network lookup", async () => {
+  const cache = scratch();
+  const originalCache = process.env.QINIT_CACHE;
+  const originalFetch = globalThis.fetch;
+  const filename = process.platform === "win32" ? "Qubic.exe" : "Qubic";
+  const nodeBinaryPath = join(cache, "qinit-v-cached", "node", filename);
+  let requests = 0;
+
+  try {
+    process.env.QINIT_CACHE = cache;
+    mkdirSync(join(cache, "qinit-v-cached", "node"), { recursive: true });
+    writeFileSync(nodeBinaryPath, "node");
+    writeFileSync(
+      join(cache, "current.json"),
+      JSON.stringify({ nodeVersion: "qinit-v-cached", node: nodeBinaryPath }),
+    );
+    globalThis.fetch = (async () => {
+      requests++;
+      throw new Error("network must not run");
+    }) as unknown as typeof fetch;
+
+    expect(await ensureNodeBinary()).toEqual({
+      nodeBinaryPath,
+      version: "qinit-v-cached",
+      cached: true,
+    });
+    expect(requests).toBe(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCache === undefined) delete process.env.QINIT_CACHE;
+    else process.env.QINIT_CACHE = originalCache;
+    rmSync(cache, { recursive: true, force: true });
+  }
+});
+
+test("ensureNodeBinary restores a missing node from the installed headers release", async () => {
+  const cache = scratch();
+  const originalCache = process.env.QINIT_CACHE;
+  const originalFetch = globalThis.fetch;
+  const bytes = new Uint8Array([1, 2, 3]);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const platform = releasePlatformKey();
+  const coreHeaders = join(cache, "qinit-v-headers", "core-headers");
+  const requests: string[] = [];
+
+  try {
+    process.env.QINIT_CACHE = cache;
+    mkdirSync(coreHeaders, { recursive: true });
+    writeFileSync(
+      join(cache, "current.json"),
+      JSON.stringify({ headersVersion: "qinit-v-headers", coreHeaders }),
+    );
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith("qinit-manifest.json")) {
+        return Response.json({
+          version: "qinit-v-headers",
+          nodes: { [platform]: { url: "https://example.invalid/node", sha256 } },
+        });
+      }
+      return new Response(bytes, {
+        headers: { "content-length": String(bytes.length) },
+      });
+    }) as unknown as typeof fetch;
+
+    const node = await ensureNodeBinary();
+    expect(node.version).toBe("qinit-v-headers");
+    expect(node.cached).toBe(false);
+    expect(requests[0]).toContain("/download/qinit-v-headers/qinit-manifest.json");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCache === undefined) delete process.env.QINIT_CACHE;
+    else process.env.QINIT_CACHE = originalCache;
+    rmSync(cache, { recursive: true, force: true });
+  }
+});
+
+test("ensureNodeBinary does not pair a downloaded node with local headers", async () => {
+  const cache = scratch();
+  const originalCache = process.env.QINIT_CACHE;
+  const originalFetch = globalThis.fetch;
+  const coreHeaders = join(cache, "local-core");
+  let requests = 0;
+
+  try {
+    process.env.QINIT_CACHE = cache;
+    mkdirSync(coreHeaders, { recursive: true });
+    writeFileSync(
+      join(cache, "current.json"),
+      JSON.stringify({ headersVersion: "local", coreHeaders }),
+    );
+    globalThis.fetch = (async () => {
+      requests++;
+      throw new Error("network must not run");
+    }) as unknown as typeof fetch;
+
+    await expect(ensureNodeBinary()).rejects.toThrow(
+      "local headers have no matching managed node",
+    );
+
+    writeFileSync(
+      join(cache, "current.json"),
+      JSON.stringify({ headersVersion: "cached", coreHeaders }),
+    );
+    await expect(ensureNodeBinary()).rejects.toThrow(
+      "installed headers do not identify a release",
+    );
+    expect(requests).toBe(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCache === undefined) delete process.env.QINIT_CACHE;
+    else process.env.QINIT_CACHE = originalCache;
+    rmSync(cache, { recursive: true, force: true });
+  }
+});
+
+test("an explicit latest node request never falls back to the selected cache", async () => {
+  const cache = scratch();
+  const originalCache = process.env.QINIT_CACHE;
+  const originalFetch = globalThis.fetch;
+  const nodeBinaryPath = join(cache, "old", "node", "Qubic");
+  const requests: string[] = [];
+
+  try {
+    process.env.QINIT_CACHE = cache;
+    mkdirSync(join(cache, "old", "node"), { recursive: true });
+    writeFileSync(nodeBinaryPath, "old");
+    writeFileSync(
+      join(cache, "current.json"),
+      JSON.stringify({ nodeVersion: "old", node: nodeBinaryPath }),
+    );
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      requests.push(String(input));
+      return new Response("unavailable", { status: 503 });
+    }) as unknown as typeof fetch;
+
+    await expect(ensureNodeBinary("latest")).rejects.toThrow("manifest fetch failed");
+    expect(requests[0]).toContain("/releases/latest/download/qinit-manifest.json");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCache === undefined) delete process.env.QINIT_CACHE;
+    else process.env.QINIT_CACHE = originalCache;
     rmSync(cache, { recursive: true, force: true });
   }
 });

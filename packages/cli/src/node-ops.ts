@@ -136,6 +136,7 @@ export async function fetchNodeBinary(
   ref: string,
   onProgress?: (recv: number, total: number) => void,
   loadedManifest?: Manifest,
+  options: { updateCurrent?: boolean } = {},
 ): Promise<{ nodeBinaryPath: string; version: string }> {
   const manifest = loadedManifest ?? await loadManifest(ref);
   const platform = releasePlatformKey();
@@ -157,7 +158,9 @@ export async function fetchNodeBinary(
     }
   }
 
-  updateCurrent({ nodeVersion: manifest.version, node: nodeBinaryPath });
+  if (options.updateCurrent !== false) {
+    updateCurrent({ nodeVersion: manifest.version, node: nodeBinaryPath });
+  }
   return { nodeBinaryPath, version: manifest.version };
 }
 
@@ -166,27 +169,47 @@ export function cachedNode(): string | undefined {
   return node && existsSync(node) ? node : undefined;
 }
 
+export function cachedReleaseRef(version?: string): string | undefined {
+  return version && !["local", "cached", "unknown"].includes(version)
+    ? version
+    : undefined;
+}
+
 export async function ensureNodeBinary(
-  ref = "latest",
+  ref?: string,
   onProgress?: (recv: number, total: number) => void,
-): Promise<{ nodeBinaryPath: string; version: string; stale: boolean }> {
-  try {
-    const node = await fetchNodeBinary(ref, onProgress);
-    return { ...node, stale: false };
-  } catch {
+  options: { updateCurrent?: boolean } = {},
+): Promise<{ nodeBinaryPath: string; version: string; cached: boolean }> {
+  if (ref === undefined) {
+    const current = readCurrent();
     const nodeBinaryPath = cachedNode();
     if (nodeBinaryPath) {
       return {
         nodeBinaryPath,
-        version: readCurrent()?.nodeVersion ?? "cached",
-        stale: true,
+        version: current?.nodeVersion ?? "cached",
+        cached: true,
       };
     }
 
-    throw new Error(
-      "no node: latest release unreachable and nothing cached (run `qinit node run` online first)",
-    );
+    if (current?.coreHeaders && existsSync(current.coreHeaders)) {
+      if (current.headersVersion === "local") {
+        throw new Error(
+          "local headers have no matching managed node — pass --node-bin or select a release with --ref",
+        );
+      }
+      const headersRef = cachedReleaseRef(current.headersVersion);
+      if (!headersRef) {
+        throw new Error(
+          "installed headers do not identify a release — run `qinit setup --force` or pass --ref",
+        );
+      }
+      ref = headersRef;
+    }
+    ref ??= "latest";
   }
+
+  const node = await fetchNodeBinary(ref, onProgress, undefined, options);
+  return { ...node, cached: false };
 }
 
 export interface LaunchOptions {

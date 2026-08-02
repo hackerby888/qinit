@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Box, useApp } from "ink";
 import { Header, Spinner, Panel, KV, Status, theme } from "../ui";
 import { DEFAULT_RPC_BASE, readCurrent, LiteRpc } from "@qinit/core";
-import { killNode, nodeAlive, fetchNodeBinary, nodeStatus } from "../node-ops";
+import { ensureNodeBinary, killNode, nodeAlive, nodeStatus } from "../node-ops";
 import type { CommandArguments } from "../args";
 const dlLabel = (recv: number, total: number) =>
   total
@@ -56,7 +56,7 @@ export function Node({
               `headers ${cur?.headersVersion ?? "—"} · node ${cur?.nodeVersion ?? "—"}`,
             ]);
           if (cur?.headersVersion && cur?.nodeVersion && cur.headersVersion !== cur.nodeVersion)
-            add("⚠ headers/node version drift — run `qinit node run`", false);
+            add("⚠ headers/node version drift — run `qinit setup`", false);
           setS({
             phase: "done",
             title: st.ticking ? "node up ✓" : "node up (idle)",
@@ -86,15 +86,15 @@ export function Node({
         }
 
         if (sub === "get") {
-          const ref = commandArgs.get("ref") || "latest";
-          setS({ phase: "run", spin: `fetching node ${ref}` });
-          const { nodeBinaryPath, version } = await fetchNodeBinary(ref, (rc, tt) =>
+          const ref = commandArgs.get("ref");
+          setS({ phase: "run", spin: ref ? `fetching node ${ref}` : "resolving node" });
+          const { nodeBinaryPath, version, cached } = await ensureNodeBinary(ref, (rc, tt) =>
             setS({ phase: "run", spin: dlLabel(rc, tt) }),
           );
-          add(`node ${version} cached`, true);
+          add(`node ${version} ${cached ? "reused" : "cached"}`, true);
           setS({
             phase: "done",
-            title: "node fetched ✓",
+            title: "node ready ✓",
             color: theme.ok,
             lines,
             rows: [

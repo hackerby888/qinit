@@ -108,6 +108,12 @@ test("parseCommandInvocation gets definitions from command metadata", () => {
   ]);
 });
 
+test("parseCommandInvocation accepts setup --force", () => {
+  const invocation = parseCommandInvocation("setup", ["--force"]);
+
+  expect(invocation.commandArgs.has("force")).toBe(true);
+});
+
 test("parseCommandInvocation resolves and strips a known first subcommand", () => {
   const invocation = parseCommandInvocation("node", [
     "run",

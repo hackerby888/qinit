@@ -201,7 +201,7 @@ export async function deployContract(
   const pin = readCurrent();
   if (pin?.headersVersion && pin?.nodeVersion && pin.headersVersion !== pin.nodeVersion) {
     emit({
-      note: `⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit node run'`,
+      note: `⚠ version drift: headers ${pin.headersVersion} ≠ node ${pin.nodeVersion} — run 'qinit setup'`,
     });
   }
 

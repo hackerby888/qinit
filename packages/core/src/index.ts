@@ -79,6 +79,7 @@ export {
   loadVerifyManifest,
   autoUpdateVerifyTool,
   wasiSdkDir,
+  managedWasiSdkStatus,
   wasiSdkPaths,
   haveWasiSdkCache,
   fetchWasiSdk,
@@ -95,6 +96,7 @@ export type {
   CurrentPointer,
   VerifyManifest,
   VerifyUpdate,
+  ManagedWasiSdkStatus,
 } from "./fetch";
 export { loadConfig, resolveCoreDir } from "./project";
 export type { QinitConfig } from "./project";

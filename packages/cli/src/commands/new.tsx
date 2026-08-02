@@ -113,7 +113,7 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
       writeFileSync(
         join(dir, "README.md"),
         `# ${name}\n\nQubic dynamic contract (\`qinit new --template ${kind}\`).\n\n` +
-          "```bash\nqinit node run        # sync headers + run a dev node\n" +
+          "```bash\nqinit node run        # prepare headers + run a dev node\n" +
           "qinit dev       # watch contracts/" +
           name +
           ".h -> auto build+deploy on save\n" +
