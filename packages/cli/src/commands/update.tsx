@@ -1,111 +1,51 @@
 import { useEffect, useState } from "react";
 import { Box, Text, useApp } from "ink";
-import { writeFileSync, chmodSync, renameSync, unlinkSync } from "node:fs";
-import { basename } from "node:path";
-import {
-  resolveCliTag,
-  cliReleaseUrls,
-  fetchCliSha,
-  downloadVerifiedAsset,
-} from "@qinit/core";
-import { VERSION } from "../version";
 import { Header, Status, Spinner, Bar, theme } from "../ui";
 import type { CommandArguments } from "../args";
+import { runSelfUpdate, type SelfUpdateResult } from "../update-ops";
 
-type S = {
-  phase: "run" | "done" | "uptodate" | "dev" | "dry" | "err";
-  from?: string;
-  to?: string;
-  tag?: string;
-  asset?: string;
-  err?: string;
-};
+type UpdateState =
+  | { phase: "running" }
+  | SelfUpdateResult
+  | { phase: "error"; message: string };
 
 export function Update({ commandArgs }: { commandArgs: CommandArguments }) {
   const force = commandArgs.has("force"),
     dry = commandArgs.has("dry-run");
   const { exit } = useApp();
-  const [s, setS] = useState<S>({ phase: "run" });
+  const [state, setState] = useState<UpdateState>({ phase: "running" });
   const [pct, setPct] = useState<number | null>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const self = process.execPath;
-        if (basename(self) === "bun" || basename(self) === "node") {
-          setS({ phase: "dev" });
-          return;
+    runSelfUpdate({
+      force,
+      dryRun: dry,
+      onProgress: (received, total) => {
+        if (total > 0) {
+          setPct(received / total);
         }
-        const tag = await resolveCliTag();
-        if (!tag) throw new Error("latest.txt does not contain a valid qinit-cli release tag");
-        const to = tag.replace(/^qinit-cli-v?/, "");
-        const { asset, sums, name } = cliReleaseUrls(tag);
-        if (dry) {
-          setS({ phase: "dry", tag, asset, to });
-          return;
-        }
-        if (to === VERSION && !force) {
-          setS({ phase: "uptodate", to });
-          return;
-        }
-        const sha = await fetchCliSha(sums, name);
-        const buf = await downloadVerifiedAsset(
-          { url: asset, sha256: sha },
-          (received, total) => total && setPct(received / total),
-        );
-        const tmp = self + ".new"; // same dir => atomic rename, no cross-fs copy
-        writeFileSync(tmp, buf);
-        if (process.platform === "win32") {
-          // Windows locks a running .exe against OVERWRITE but ALLOWS RENAME: move self aside, swap .new in.
-          // The running process keeps the renamed handle; the next launch picks up the new binary.
-          const old = self + ".old";
-          try {
-            unlinkSync(old);
-          } catch {} // clear a prior .old (now unlocked)
-          try {
-            renameSync(self, old);
-            renameSync(tmp, self);
-          } catch (e: any) {
-            try {
-              renameSync(old, self);
-            } catch {} // best-effort rollback
-            try {
-              unlinkSync(tmp);
-            } catch {}
-            throw new Error(
-              `could not replace ${self} (${e?.code ?? e}) — close other qinit processes or re-run install.ps1`,
-            );
-          }
-        } else {
-          chmodSync(tmp, 0o755);
-          try {
-            renameSync(tmp, self);
-          } catch (e: any) {
-            try {
-              unlinkSync(tmp);
-            } catch {}
-            throw new Error(
-              `could not replace ${self} (${e?.code ?? e}) — bin dir not writable; re-run install.sh or use sudo`,
-            );
-          }
-        }
-        setS({ phase: "done", from: VERSION, to });
-      } catch (e: any) {
-        setS({ phase: "err", err: String(e?.message ?? e) });
-      }
-    })();
+      },
+    }).then(setState, (error: unknown) => {
+      setState({
+        phase: "error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   }, []);
+
   useEffect(() => {
-    if (s.phase !== "run") {
-      const t = setTimeout(() => exit(), 20);
-      return () => clearTimeout(t);
+    if (state.phase === "running") {
+      return;
     }
-  }, [s.phase]);
+    process.exitCode = state.phase === "error" ? 1 : 0;
+    const timer = setTimeout(() => exit(), 20);
+    return () => clearTimeout(timer);
+  }, [state.phase, exit]);
 
   return (
     <Box flexDirection="column">
       <Header cmd="self-update" />
-      {s.phase === "run" &&
+      {state.phase === "running" &&
         (pct != null ? (
           <Text>
             <Bar pct={pct} /> <Text dimColor>downloading</Text>
@@ -113,28 +53,39 @@ export function Update({ commandArgs }: { commandArgs: CommandArguments }) {
         ) : (
           <Spinner label="checking for updates" />
         ))}
-      {s.phase === "dev" && (
+      {state.phase === "development" && (
         <Text color={theme.warn}>
           self-update only updates the installed binary — in dev, rebuild or use the installer
           (install.sh / install.ps1)
         </Text>
       )}
-      {s.phase === "dry" && (
+      {state.phase === "dry-run" && (
         <Box flexDirection="column">
-          <Status ok={null} label={`latest ${s.tag}`} detail={`current v${VERSION}`} />
-          <Text dimColor> {s.asset}</Text>
+          <Status
+            ok={null}
+            label={`latest ${state.tag}`}
+            detail={`current v${state.currentVersion}`}
+          />
+          <Text dimColor> {state.asset}</Text>
         </Box>
       )}
-      {s.phase === "uptodate" && <Status ok={true} label={`already on the latest (v${s.to})`} />}
-      {s.phase === "done" && (
+      {state.phase === "up-to-date" && (
+        <Status ok={true} label={`already on the latest (v${state.version})`} />
+      )}
+      {state.phase === "updated" && (
         <Box flexDirection="column">
-          <Status ok={true} label={`updated v${s.from} → v${s.to}`} />
+          <Status
+            ok={true}
+            label={`updated v${state.previousVersion} → v${state.version}`}
+          />
           <Box marginTop={1}>
             <Text dimColor>restart qinit to use the new version</Text>
           </Box>
         </Box>
       )}
-      {s.phase === "err" && <Text color={theme.err}>ERROR: {s.err}</Text>}
+      {state.phase === "error" && (
+        <Text color={theme.err}>ERROR: {state.message}</Text>
+      )}
     </Box>
   );
 }

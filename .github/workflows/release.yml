@@ -53,6 +53,7 @@ jobs:
           || gh release upload "$TAG" dist/qinit-* dist/SHA256SUMS install.sh install.ps1 --clobber
 
       - name: Update latest pointer
+        if: startsWith(steps.t.outputs.tag, 'qinit-cli-v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
