@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   generateWasmWrapperSource,
+  WASM_CONTRACT_CLANG_FLAGS,
   WASM_TEST_UTIL_HEADER,
   type ContractBuildOptions,
 } from "@qinit/build/recipe";
@@ -58,12 +59,8 @@ function compileArgs(corePath: string): string[] {
   const sysroot = forwardSlashes(join(corePath, "wasi-sdk", "share", "wasi-sysroot"));
   return [
     "clang++",
-    "--target=wasm32-wasi",
-    "-std=c++20",
-    "-fno-rtti",
-    "-fno-exceptions",
+    ...WASM_CONTRACT_CLANG_FLAGS,
     "-Wno-undefined-inline",
-    "-DLITEDYN_CONTRACT_TU",
     "-include",
     shim,
     `--sysroot=${sysroot}`,

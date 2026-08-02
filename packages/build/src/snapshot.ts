@@ -7,7 +7,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, dirname, relative, resolve } from "node:path";
-import { generateWasmWrapperSource } from "./recipe";
+import {
+  generateWasmWrapperSource,
+  WASM_CONTRACT_CLANG_FLAGS,
+} from "./recipe";
 import {
   CORE_WASM_HEADERS,
   loadCoreWasmSlotLayout,
@@ -87,11 +90,7 @@ export async function buildSnapshot(
 
   const clang = Bun.spawnSync([
     wasmClang,
-    "--target=wasm32-wasi",
-    "-std=c++20",
-    "-fno-exceptions",
-    "-fno-rtti",
-    "-DLITEDYN_CONTRACT_TU",
+    ...WASM_CONTRACT_CLANG_FLAGS,
     `--sysroot=${sysroot}`,
     "-include",
     platformIntrinsics,

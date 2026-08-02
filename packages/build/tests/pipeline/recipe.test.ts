@@ -6,6 +6,7 @@ import {
   buildPreamble,
   generateWasmContractTestingHeader,
   generateWasmWrapperSource,
+  WASM_CONTRACT_CLANG_FLAGS,
   WASM_CONTRACT_TESTING_HEADER,
 } from "../../src/recipe";
 
@@ -36,6 +37,16 @@ const CORE_HEADERS = [
   "oracle_core/oracle_interfaces_def.h",
   "oc_core/oc_interfaces_def.h",
 ];
+
+test("Wasm contract Clang flags define one shared compile profile", () => {
+  expect(WASM_CONTRACT_CLANG_FLAGS).toEqual([
+    "--target=wasm32-wasi",
+    "-std=c++20",
+    "-fno-rtti",
+    "-fno-exceptions",
+    "-DLITEDYN_CONTRACT_TU",
+  ]);
+});
 
 test("buildPreamble: NO_UEFI, std headers, then build define, then core headers — in that order", () => {
   const p = buildPreamble();

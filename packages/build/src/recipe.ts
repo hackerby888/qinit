@@ -47,6 +47,14 @@ export function generateWasmContractTestingHeader(
 export const WASM_CONTRACT_TESTING_HEADER = generateWasmContractTestingHeader();
 export const WASM_TEST_UTIL_HEADER = TEST_UTIL_H;
 
+export const WASM_CONTRACT_CLANG_FLAGS = [
+  "--target=wasm32-wasi",
+  "-std=c++20",
+  "-fno-rtti",
+  "-fno-exceptions",
+  "-DLITEDYN_CONTRACT_TU",
+] as const;
+
 export interface ContractBuildOptions {
   contractPath: string; // absolute path to the contract .h
   name: string;         // contract name (artifact filenames + IDL); also the C++ struct type unless stateType is set
@@ -226,14 +234,10 @@ export async function compileWasmContract(
   const shim = join(src, CORE_WASM_HEADERS.sdk.platformIntrinsics);
   // Build a reactor library and leave lhost imports unresolved for the runtime.
   const compileFlags = [
-    "--target=wasm32-wasi",
-    "-std=c++20",
+    ...WASM_CONTRACT_CLANG_FLAGS,
     "-O0",
     "-g",
-    "-fno-rtti",
-    "-fno-exceptions",
     "-DNDEBUG",
-    "-DLITEDYN_CONTRACT_TU",
     ...(o.arenaSizeBytes ? [`-DWASM_ARENA_SIZE=${o.arenaSizeBytes}`] : []),
     ...(sysroot ? [`--sysroot=${sysroot}`] : []),
     `-I${o.corePath}`,
