@@ -204,13 +204,7 @@ function CommandRoute({ command, args }: { command: string; args: string[] }) {
 
   const invocation = parseCommandInvocation(canonical, args);
   if (canonical !== "help" && invocation.commandArgs.has("help")) {
-    const subcommand =
-      invocation.subcommand ??
-      (META[canonical].subcommands && args[0] && !args[0].startsWith("-")
-        ? args[0]
-        : undefined);
-    validateHelpSubcommand(canonical, subcommand);
-    return <Usage command={canonical} subcommand={subcommand} />;
+    return <Usage command={canonical} subcommand={invocation.subcommand} />;
   }
   return HANDLERS[canonical](invocation);
 }

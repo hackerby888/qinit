@@ -113,14 +113,23 @@ test("help command and help flag share command usage", async () => {
 });
 
 test("node subcommand help shows only the resolved option scope", async () => {
-  const [commandHelp, flagHelp, statusHelp, nodeHelp] = await Promise.all([
+  const [
+    commandHelp,
+    flagHelp,
+    reorderedHelp,
+    statusHelp,
+    nodeHelp,
+    terminatedHelp,
+  ] = await Promise.all([
     run("help", "node", "run"),
     run("node", "run", "-h"),
+    run("node", "--restart", "--rpc", "http://x", "run", "-h"),
     run("help", "node", "status"),
     run("node", "--help"),
+    run("node", "--help", "--", "run"),
   ]);
 
-  for (const result of [commandHelp, flagHelp]) {
+  for (const result of [commandHelp, flagHelp, reorderedHelp]) {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("usage: qinit node run");
     expect(result.stdout).toContain("--rpc <url>");
@@ -134,12 +143,16 @@ test("node subcommand help shows only the resolved option scope", async () => {
   expect(nodeHelp.code).toBe(0);
   expect(nodeHelp.stdout).toContain("usage: qinit node <run|status|stop|get>");
   expect(nodeHelp.stdout).not.toContain("--core-dir");
+  expect(terminatedHelp.code).toBe(0);
+  expect(terminatedHelp.stdout).toContain("usage: qinit node <run|status|stop|get>");
+  expect(terminatedHelp.stdout).not.toContain("--restart");
 });
 
 test("help rejects an unknown subcommand for a known command", async () => {
   const results = await Promise.all([
     run("help", "node", "launch"),
     run("node", "launch", "--help"),
+    run("node", "--rpc", "http://x", "launch", "--help"),
   ]);
 
   for (const result of results) {

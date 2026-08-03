@@ -128,9 +128,39 @@ test("parseCommandInvocation resolves and strips a known first subcommand", () =
   expect(invocation.commandArgs.get("rpc")).toBe("http://x");
 });
 
+test("parseCommandInvocation resolves a subcommand after scoped options", () => {
+  const invocation = parseCommandInvocation("node", [
+    "--restart",
+    "--core-dir",
+    "/tmp/core",
+    "--rpc",
+    "http://x",
+    "run",
+  ]);
+
+  expect(invocation.subcommand).toBe("run");
+  expect(invocation.commandArgs.positionals).toEqual([]);
+  expect(invocation.commandArgs.has("restart")).toBe(true);
+  expect(invocation.commandArgs.get("core-dir")).toBe("/tmp/core");
+  expect(invocation.commandArgs.get("rpc")).toBe("http://x");
+});
+
+test("parseCommandInvocation ignores option values and post-terminator positionals", () => {
+  const optionValue = parseCommandInvocation("node", ["--rpc", "run"]);
+  expect(optionValue.subcommand).toBeUndefined();
+  expect(optionValue.commandArgs.get("rpc")).toBe("run");
+
+  const terminated = parseCommandInvocation("node", ["--", "run"]);
+  expect(terminated.subcommand).toBeUndefined();
+  expect(terminated.commandArgs.positionals).toEqual(["run"]);
+});
+
 test("parseCommandInvocation scopes options to the resolved subcommand", () => {
   expect(() =>
     parseCommandInvocation("node", ["status", "--restart"]),
+  ).toThrow("Unknown option '--restart'");
+  expect(() =>
+    parseCommandInvocation("node", ["--restart", "status"]),
   ).toThrow("Unknown option '--restart'");
 
   const unknown = parseCommandInvocation("node", ["unknown", "--rpc", "http://x"]);

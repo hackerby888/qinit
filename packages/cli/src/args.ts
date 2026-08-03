@@ -4,6 +4,7 @@ import {
   commandOptions,
   type CommandMeta,
   type CommandName,
+  type OptionMeta,
 } from "./meta";
 
 export const output = { json: false, plain: false };
@@ -36,40 +37,21 @@ interface ParseOptions {
   multi?: readonly string[];
 }
 
-export function parseCommandInvocation(
-  command: CommandName,
-  args: readonly string[],
-): CommandInvocation {
-  const meta: CommandMeta = META[command];
-  const candidate = args[0];
-  const subcommand =
-    candidate &&
-    meta.subcommands &&
-    Object.prototype.hasOwnProperty.call(meta.subcommands, candidate)
-      ? candidate
-      : undefined;
-  const options = commandOptions(command, subcommand);
+function parseOptionsFromMetadata(options: readonly OptionMeta[]): ParseOptions {
   return {
-    command,
-    subcommand,
-    commandArgs: parseArgs(subcommand ? args.slice(1) : args, {
-      strings: options
-        .filter((option) => option.type === "string" && !option.multiple)
-        .map((option) => option.name),
-      booleans: options
-        .filter((option) => option.type === "boolean")
-        .map((option) => option.name),
-      multi: options
-        .filter((option) => option.type === "string" && option.multiple)
-        .map((option) => option.name),
-    }),
+    strings: options
+      .filter((option) => option.type === "string" && !option.multiple)
+      .map((option) => option.name),
+    booleans: options
+      .filter((option) => option.type === "boolean")
+      .map((option) => option.name),
+    multi: options
+      .filter((option) => option.type === "string" && option.multiple)
+      .map((option) => option.name),
   };
 }
 
-export function parseArgs(
-  args: readonly string[],
-  options: ParseOptions = {},
-): CommandArguments {
+function optionDefinitions(options: ParseOptions) {
   const definitions: Record<
     string,
     { type: "string" | "boolean"; multiple?: boolean; short?: string }
@@ -89,9 +71,80 @@ export function parseArgs(
     definitions[name] = { type: "string", multiple: true };
   }
 
+  return definitions;
+}
+
+function findSubcommandCandidate(
+  args: readonly string[],
+  meta: CommandMeta,
+): { name: string; index: number } | undefined {
+  if (!meta.subcommands) {
+    return undefined;
+  }
+
+  const options = [
+    ...(meta.options ?? []),
+    ...Object.values(meta.subcommands).flatMap((subcommand) => subcommand.options),
+  ];
+  const { tokens } = parseNodeArgs({
+    args: [...args],
+    options: optionDefinitions(parseOptionsFromMetadata(options)),
+    allowPositionals: true,
+    strict: false,
+    tokens: true,
+  });
+
+  for (const token of tokens) {
+    if (token.kind === "option-terminator") {
+      return undefined;
+    }
+    if (token.kind !== "positional") {
+      continue;
+    }
+    return { name: token.value, index: token.index };
+  }
+
+  return undefined;
+}
+
+export function parseCommandInvocation(
+  command: CommandName,
+  args: readonly string[],
+): CommandInvocation {
+  const meta: CommandMeta = META[command];
+  const candidate = findSubcommandCandidate(args, meta);
+  const subcommand =
+    candidate &&
+    meta.subcommands &&
+    Object.prototype.hasOwnProperty.call(meta.subcommands, candidate.name)
+      ? candidate.name
+      : undefined;
+  const options = commandOptions(command, subcommand);
+  const scopedArgs =
+    subcommand && candidate
+      ? [
+          ...args.slice(0, candidate.index),
+          ...args.slice(candidate.index + 1),
+        ]
+      : args;
+  const commandArgs = parseArgs(scopedArgs, parseOptionsFromMetadata(options));
+  if (candidate && !subcommand && commandArgs.has("help")) {
+    invalidArgs(`unknown subcommand '${candidate.name}' for '${command}'`);
+  }
+  return {
+    command,
+    subcommand,
+    commandArgs,
+  };
+}
+
+export function parseArgs(
+  args: readonly string[],
+  options: ParseOptions = {},
+): CommandArguments {
   const { values, positionals } = parseNodeArgs({
     args: [...args],
-    options: definitions,
+    options: optionDefinitions(options),
     allowPositionals: true,
     strict: true,
   });
