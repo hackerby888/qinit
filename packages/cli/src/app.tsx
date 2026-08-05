@@ -17,6 +17,7 @@ import { Gtest } from "./commands/gtest";
 import { Call } from "./commands/call";
 import { Ls } from "./commands/ls";
 import { Debug } from "./commands/debug";
+import { Explorer } from "./commands/explorer";
 import { State } from "./commands/state";
 import { Clean } from "./commands/clean";
 import { Cheat } from "./commands/cheat";
@@ -182,6 +183,7 @@ const HANDLERS = {
   ls: ({ commandArgs }) => <Ls commandArgs={commandArgs} />,
   state: ({ commandArgs }) => <State commandArgs={commandArgs} />,
   debug: ({ commandArgs }) => <Debug commandArgs={commandArgs} />,
+  explorer: ({ commandArgs }) => <Explorer commandArgs={commandArgs} />,
   test: ({ commandArgs }) => <Test commandArgs={commandArgs} />,
   gtest: ({ commandArgs }) => <Gtest commandArgs={commandArgs} />,
   "node-backend": ({ commandArgs }) => (

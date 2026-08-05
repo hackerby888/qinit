@@ -179,7 +179,7 @@ export const tmplOf = (fields?: AbiField[]) =>
     ? fields.map((field) => `<${field.name}>${field.type.format}`).join(", ")
     : undefined;
 
-function TextPrompt({
+export function TextPrompt({
   label,
   initial,
   onSubmit,
