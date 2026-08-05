@@ -683,7 +683,7 @@ export class QubicSimulator {
     return this.spectrum.prevId(id);
   }
 
-  private contractSlotOf(id: Uint8Array): number {
+  contractSlotOf(id: Uint8Array): number {
     const contractId = ContractId.wrap(id);
     if (
       contractId.lane1 !== 0n ||
@@ -2059,6 +2059,18 @@ export class QubicSimulator {
 
   entityCount(): number {
     return this.spectrum.size;
+  }
+
+  // Txs still waiting for their scheduled tick (mempool mode only — otherwise always empty).
+  mempoolCounts(): { tick: number; count: number }[] {
+    return this.txpool.pendingByTick();
+  }
+
+  spectrumInfo(): { totalAmount: bigint; numberOfEntities: number } {
+    return {
+      totalAmount: this.spectrum.totalAmount(),
+      numberOfEntities: this.spectrum.size,
+    };
   }
 
   txCount(): number {

@@ -235,10 +235,86 @@ export class EngineServer {
             };
 
             return json({
-              transactions: await engine.tickTransactions(
+              transactions: await engine.explorerTickTransactions(
                 Number(body.tickNumber ?? body.tick ?? 0),
               ),
             });
+          }
+
+          // ---- Explorer routes, mirroring core-lite's shapes so one client works against both backends.
+
+          if (path === "/explorer/data") {
+            engine.sim.assertOperational();
+            return json(await engine.explorerData());
+          }
+
+          if (path === "/query/v1/getTickData" && request.method === "POST") {
+            const body = (await request.json()) as { tickNumber?: number };
+            const tickData = await engine.explorerTickData(
+              Number(body.tickNumber ?? 0),
+            );
+
+            return tickData
+              ? json(tickData)
+              : json({ code: 404, message: "Tick data not found" }, 404);
+          }
+
+          if (
+            path === "/query/v1/getTransactionByHash" &&
+            request.method === "POST"
+          ) {
+            const body = (await request.json()) as { hash?: string };
+            const transaction = await engine.explorerTxByHash(body.hash ?? "");
+
+            return transaction
+              ? json(transaction)
+              : json({ code: 404, message: "Transaction not found" }, 404);
+          }
+
+          if (
+            path === "/query/v1/getTransfersForIdentity" &&
+            request.method === "POST"
+          ) {
+            const body = (await request.json()) as {
+              identity?: string;
+              direction?: "in" | "out" | "both";
+              limit?: number;
+            };
+
+            return json(
+              await engine.explorerTransfersForIdentity(
+                body.identity ?? "",
+                body.direction ?? "both",
+                Number(body.limit ?? 50),
+              ),
+            );
+          }
+
+          if (
+            path === "/query/v1/getContractCalls" &&
+            request.method === "POST"
+          ) {
+            const body = (await request.json()) as {
+              fromTick?: number;
+              toTick?: number;
+              contractIndex?: number;
+              page?: number;
+              pageSize?: number;
+            };
+
+            return json(
+              await engine.explorerContractCalls({
+                fromTick: Number(body.fromTick ?? 0),
+                toTick: Number(body.toTick ?? engine.sim.currentTick),
+                contractIndex: body.contractIndex,
+                page: body.page,
+                pageSize: body.pageSize,
+              }),
+            );
+          }
+
+          if (path === "/query/v1/getContracts") {
+            return json(await engine.explorerContracts());
           }
 
           if (path.startsWith("/live/v1/tx-status/")) {
