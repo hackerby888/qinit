@@ -16,7 +16,13 @@ export type { CoreWasmHeaderLayout } from "./wasm-headers";
 export { DEFAULT_WASM_SLOT_LAYOUT } from "./wasm-slot-layout";
 export type { WasmSlotLayout } from "./wasm-slot-layout";
 export { parseWasmSlotLayoutSource } from "./wasm-slot-layout-source";
-export { deriveIdentity, bytesToIdentity, identityToBytes, cryptoSmoke } from "./qubic";
+export {
+  deriveIdentity,
+  bytesToIdentity,
+  identityToBytes,
+  contractIndexFromIdentity,
+  cryptoSmoke,
+} from "./qubic";
 export type { IdentityResult, CryptoSmokeResult } from "./qubic";
 
 export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./tx";
@@ -34,6 +40,13 @@ export type {
   DebugEntry,
   DebugHostCall,
   DebugStateRegion,
+  ExplorerData,
+  ExplorerTx,
+  ExplorerTickData,
+  IdentityTransfer,
+  ContractCall,
+  ContractCallsPage,
+  ContractListEntry,
 } from "./rpc";
 
 export {

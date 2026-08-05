@@ -110,6 +110,27 @@ export function identityToBytes(identity: string): Uint8Array {
   return helper.getIdentityBytes(identity);
 }
 
+// Identity encoding packs the 32-byte public key as four 8-byte chunks, 14 chars each
+// (char = byte % 26 + 'A'), plus a 4-char checksum. A contract's public key is
+// m256i(index, 0, 0, 0), so chunks 1-3 are zero — chars 14..55 are all 'A' — and chunk 0
+// decodes back to the contract index. The all-zero key (60 'A's) is the null/burn address.
+export function contractIndexFromIdentity(identity: string): number | null {
+  if (identity.length !== 60) return null;
+  const upper = identity.toUpperCase();
+  for (let i = 14; i < 56; i++) if (upper[i] !== "A") return null;
+
+  let index = 0;
+  let multiplier = 1;
+  for (let i = 0; i < 14; i++) {
+    const value = upper.charCodeAt(i) - 65;
+    if (value < 0 || value > 25) return null;
+    index += value * multiplier;
+    multiplier *= 26;
+    if (index > Number.MAX_SAFE_INTEGER) return null;
+  }
+  return index >= 1 ? index : null;
+}
+
 const VALID_IDENTITY = /^[A-Z]{60}$/;
 
 export async function cryptoSmoke(): Promise<CryptoSmokeResult> {

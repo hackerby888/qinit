@@ -1,5 +1,11 @@
 import { test, expect } from "bun:test";
-import { k12Hex, deriveIdentity, bytesToIdentity, identityToBytes } from "../../src/qubic";
+import {
+  k12Hex,
+  deriveIdentity,
+  bytesToIdentity,
+  identityToBytes,
+  contractIndexFromIdentity,
+} from "../../src/qubic";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -31,4 +37,23 @@ test("identity codec: pubkey <-> 60-char identity round-trips", async () => {
   expect(idn).toMatch(/^[A-Z]{60}$/);
   expect(hx(identityToBytes(idn))).toBe(PUB); // 32B -> 60-char -> 32B identity
   expect(identityToBytes(idn).length).toBe(32);
+});
+
+test("contractIndexFromIdentity: decodes contract addresses, rejects everything else", async () => {
+  // A contract's public key is m256i(index, 0, 0, 0).
+  const contractAddress = async (index: number) => {
+    const key = new Uint8Array(32);
+    new DataView(key.buffer).setBigUint64(0, BigInt(index), true);
+    return bytesToIdentity(key);
+  };
+
+  for (const index of [1, 12, 28, 1023]) {
+    expect(contractIndexFromIdentity(await contractAddress(index))).toBe(index);
+  }
+
+  // The all-zero key is the null/burn address, not contract 0.
+  expect(contractIndexFromIdentity(await contractAddress(0))).toBeNull();
+  // A real entity identity has non-zero high chunks.
+  expect(contractIndexFromIdentity(await bytesToIdentity(bytes(PUB)))).toBeNull();
+  expect(contractIndexFromIdentity("TOOSHORT")).toBeNull();
 });

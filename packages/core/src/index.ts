@@ -27,6 +27,7 @@ export {
   k12Sync,
   bytesToIdentity,
   identityToBytes,
+  contractIndexFromIdentity,
   deriveKeysSync,
   signSync,
   verifySync,
@@ -46,6 +47,13 @@ export type {
   DebugEntry,
   DebugHostCall,
   DebugStateRegion,
+  ExplorerData,
+  ExplorerTx,
+  ExplorerTickData,
+  IdentityTransfer,
+  ContractCall,
+  ContractCallsPage,
+  ContractListEntry,
 } from "./rpc";
 export type { NodeTransport, TxStatus, StateRead, EntityInfo, TxInfo } from "./transport";
 export {
