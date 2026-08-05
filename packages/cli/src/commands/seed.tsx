@@ -5,7 +5,16 @@ import { savedSeed, setSavedSeed, clearSavedSeed, seedStorePath, loadConfig } fr
 import { Header, Spinner, GradLine, theme } from "../ui";
 import type { CommandArguments } from "../args";
 
-type Item = { seed: string; id: string };
+type Item = { seed: string; id: string; balance: string };
+
+const compactBalance = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumFractionDigits: 2,
+});
+
+export function formatSeedBalance(balance: string): string {
+  return `${compactBalance.format(BigInt(balance))} QUs`;
+}
 
 export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
   const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
@@ -29,6 +38,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
   useEffect(() => {
     (async () => {
       try {
+        const rpc = new LiteRpc(rpcBaseUrl);
         if (commandArgs.has("clear")) {
           clearSavedSeed();
           add("cleared saved seed (" + seedStorePath() + ")");
@@ -37,22 +47,37 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
         }
         if (commandArgs.has("show")) {
           const s = savedSeed();
+          if (!s) {
+            add("no saved seed — run `qinit seed` to pick one");
+            setPhase("done");
+            return;
+          }
+
+          const id = (await deriveIdentity(s)).identity;
+          const balance = await rpc.balance(id);
           add(
-            s
-              ? "saved seed: " + s + "\n  identity: " + (await deriveIdentity(s)).identity
-              : "no saved seed — run `qinit seed` to pick one",
+            `saved seed: ${s}\n  identity: ${id}\n  balance: ${formatSeedBalance(balance.balance)}`,
           );
           setPhase("done");
           return;
         }
-        const r = await new LiteRpc(rpcBaseUrl).fundedSeeds(32);
+        const r = await rpc.fundedSeeds(32);
         if (!r.seeds?.length)
           throw new Error(
             "node returned no funded seeds (needs a testnet node with broadcastedComputorSeeds)",
           );
         setItems(
           await Promise.all(
-            r.seeds.map(async (seed) => ({ seed, id: (await deriveIdentity(seed)).identity })),
+            r.seeds.map(async (seed) => {
+              const id = (await deriveIdentity(seed)).identity;
+              const balance = await rpc.balance(id);
+
+              return {
+                seed,
+                id,
+                balance: formatSeedBalance(balance.balance),
+              };
+            }),
           ),
         );
         setPhase("pick");
@@ -93,6 +118,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
   const cur = savedSeed();
   const WIN = 8; // each item renders 2 lines (full id + full seed) — keep the visible window short
   const start = Math.max(0, Math.min(i - 4, items.length - WIN));
+  const balanceWidth = Math.max(0, ...items.map((item) => item.balance.length));
   return (
     <Box flexDirection="column">
       <Header cmd="seed" />
@@ -121,21 +147,22 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
             {items.slice(Math.max(0, start), Math.max(0, start) + WIN).map((it, k) => {
               const idx = start + k,
                 sel = idx === i;
-              const cm = it.seed === cur ? "  ✓ current" : "";
+              const balance = it.balance.padStart(balanceWidth);
               return (
                 <Box key={idx} flexDirection="column">
                   {sel ? (
-                    <GradLine text={"▸ " + it.id + cm} />
+                    <GradLine text={`▸ ${it.id}  ${balance}`} />
                   ) : (
                     <Text>
                       {"  "}
                       <Text color={theme.info}>{it.id}</Text>
-                      {it.seed === cur ? <Text color={theme.ok}> ✓ current</Text> : null}
+                      <Text color={theme.ok}>{`  ${balance}`}</Text>
                     </Text>
                   )}
                   <Text dimColor>
                     {"  "}
                     {it.seed}
+                    {it.seed === cur ? <Text color={theme.ok}>  ✓ current</Text> : null}
                   </Text>
                 </Box>
               );
