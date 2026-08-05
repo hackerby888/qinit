@@ -30,6 +30,7 @@ async function serve(
 ): Promise<{ port: number; stop: () => void }> {
   await initK12();
   const engine = new VirtualNode({ mempool: true, verifySigs: true });
+  engine.sim.bootstrapEpoch(1);
   if (setup) {
     await setup(engine);
   }
