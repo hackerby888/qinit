@@ -65,11 +65,15 @@ const post = async (base: string, path: string, body: unknown) =>
 test("/explorer/data reports the header, recent ticks, mempool, and spectrum", async () => {
   const { base, stop, engine } = await serveWithTx();
   try {
+    // The engine keeps ticking, so the reported tick is only guaranteed to fall between the readings
+    // either side of the request — comparing it to a single live sample is a race.
+    const before = engine.sim.currentTick;
     const r = await fetch(`${base}/explorer/data`);
     expect(r.status).toBe(200);
 
     const data = await r.json();
-    expect(data.header.tick).toBe(engine.sim.currentTick);
+    expect(data.header.tick).toBeGreaterThanOrEqual(before);
+    expect(data.header.tick).toBeLessThanOrEqual(engine.sim.currentTick);
     expect(data.header.epoch).toBe(engine.sim.currentEpoch);
     expect(data.header.ticksInCurrentEpoch).toBe(
       data.header.tick - data.header.initialTick,

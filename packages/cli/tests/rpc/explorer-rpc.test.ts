@@ -44,9 +44,14 @@ async function explorerFixture() {
 test("explorerData maps the dashboard payload", async () => {
   const { rpc, stop, engine } = await explorerFixture();
   try {
+    // The server keeps ticking, so the reported tick is only guaranteed to fall between the readings
+    // either side of the request — comparing it to a single live sample is a race.
+    const before = engine.sim.currentTick;
     const data = await rpc.explorerData();
+    const after = engine.sim.currentTick;
 
-    expect(data.header.tick).toBe(engine.sim.currentTick);
+    expect(data.header.tick).toBeGreaterThanOrEqual(before);
+    expect(data.header.tick).toBeLessThanOrEqual(after);
     expect(data.recentTicks.length).toBeGreaterThan(0);
     expect(typeof data.spectrum.circulatingSupply).toBe("string");
     expect(BigInt(data.spectrum.circulatingSupply)).toBeGreaterThan(0n);
