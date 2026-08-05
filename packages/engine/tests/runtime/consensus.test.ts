@@ -1,7 +1,7 @@
 // Verifies computor signatures, quorum finalization, and committed state digests.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12, k12Bytes, toHex, deriveKeysSync, verifySync } from "../../src/k12";
+import { initK12, k12Bytes, toHex, deriveKeysSync, verifySync } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import {
   Committee,
@@ -11,7 +11,7 @@ import {
   tickVoteSignature,
   buildTickVote,
   voteIsAligned,
-} from "../../src/consensus";
+} from "../../src/chain/consensus";
 import { readUint64LE } from "../support/helpers";
 
 const GET = 1; // Counter Get function

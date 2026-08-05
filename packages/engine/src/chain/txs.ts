@@ -26,9 +26,18 @@ export class TxPool {
   private byTick = new Map<number, TxRecord[]>();
   private byId = new Map<string, TxRecord>();
   private mempool = new Map<number, QueuedTx[]>(); // scheduled tick -> txs awaiting that tick
+  private knownIds = new Set<string>();
+
+  has(txId: string): boolean {
+    return this.knownIds.has(txId);
+  }
 
   // Record an applied tx under its tick (and by id).
   record(r: TxRecord): void {
+    if (this.byId.has(r.txId)) {
+      throw new Error(`duplicate transaction ${r.txId}`);
+    }
+
     let list = this.byTick.get(r.tick);
     if (!list) {
       list = [];
@@ -37,6 +46,7 @@ export class TxPool {
 
     list.push(r);
     this.byId.set(r.txId, r);
+    this.knownIds.add(r.txId);
   }
 
   tickTransactions(tick: number): TxRecord[] {
@@ -53,6 +63,10 @@ export class TxPool {
 
   // Hold a broadcast tx until the chain reaches its scheduled tick (mempool mode).
   queue(scheduledTick: number, tx: QueuedTx): void {
+    if (this.knownIds.has(tx.txId)) {
+      throw new Error(`duplicate transaction ${tx.txId}`);
+    }
+
     let q = this.mempool.get(scheduledTick);
     if (!q) {
       q = [];
@@ -60,6 +74,7 @@ export class TxPool {
     }
 
     q.push(tx);
+    this.knownIds.add(tx.txId);
   }
 
   // The number of txs scheduled for `tick` still in the mempool — peeked without draining. The tick's pending
@@ -77,5 +92,26 @@ export class TxPool {
 
     this.mempool.delete(tick);
     return q;
+  }
+
+  pruneFinalized(finalizedTick: number, historyTicks: number): string[] {
+    const firstRetainedTick =
+      finalizedTick - Math.max(1, historyTicks) + 1;
+    const removedIds: string[] = [];
+
+    for (const [tick, records] of this.byTick) {
+      if (tick >= firstRetainedTick) {
+        continue;
+      }
+
+      this.byTick.delete(tick);
+      for (const record of records) {
+        this.byId.delete(record.txId);
+        this.knownIds.delete(record.txId);
+        removedIds.push(record.txId);
+      }
+    }
+
+    return removedIds;
   }
 }

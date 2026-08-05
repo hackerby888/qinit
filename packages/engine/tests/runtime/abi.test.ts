@@ -8,7 +8,7 @@ import {
   PreManagementRightsTransferOutput,
   PostIncomingTransferInput,
   ContractId,
-} from "../../src/abi";
+} from "../../src/contract/abi";
 
 test("QpiContext is the 256-byte qpi.h header with named fields at their fixed offsets", () => {
   expect(QpiContext.SIZE).toBe(256);

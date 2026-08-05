@@ -1,16 +1,20 @@
 // Entity balance ledger with an incremental depth-24 spectrum Merkle tree.
 // Mirrors core-lite spectrum energy and iteration behavior.
-import type { Entity } from "./runtime";
-import { toHex, k12Bytes } from "./k12";
+import type { Entity } from "../contract/runtime";
+import { toHex, k12Bytes } from "../support/k12";
 import { SparseMerkle } from "./merkle";
-import { M256i, EntityRecord, SPECTRUM_DEPTH } from "./wire";
+import { M256i, EntityRecord, SPECTRUM_DEPTH } from "../protocol/wire";
 import { hexToBytes } from "@qinit/core";
+
+const SPECTRUM_CAPACITY = 1 << SPECTRUM_DEPTH;
+const SPECTRUM_INDEX_MASK = SPECTRUM_CAPACITY - 1;
+const ZERO_ID_KEY = "00".repeat(32);
 
 export class SpectrumLedger {
   private entities = new Map<string, Entity>(); // hex(id) -> Entity (balance = incoming - outgoing)
   private tree: SparseMerkle | null = null; // incremental 2^24 merkle; root = spectrumDigest
-  private idx = new Map<string, number>(); // entity id -> stable leaf index
-  private dirty = new Set<string>(); // entity ids whose leaf changed since the last digest
+  private slotKeys = new Map<number, string>(); // occupied Core spectrum slots
+  private dirtySlots = new Set<number>(); // leaves changed since the last digest
 
   get size(): number {
     return this.entities.size;
@@ -18,6 +22,40 @@ export class SpectrumLedger {
 
   private key(id: Uint8Array): string {
     return toHex(id.subarray(0, 32));
+  }
+
+  private spectrumIndex(id: Uint8Array, key: string, create: boolean): number {
+    if (key === ZERO_ID_KEY) {
+      return -1;
+    }
+
+    let index =
+      ((id[0] ?? 0) |
+        ((id[1] ?? 0) << 8) |
+        ((id[2] ?? 0) << 16) |
+        ((id[3] ?? 0) << 24)) &
+      SPECTRUM_INDEX_MASK;
+    const initialIndex = index;
+
+    do {
+      const occupiedKey = this.slotKeys.get(index);
+      if (occupiedKey === key) {
+        return index;
+      }
+      if (occupiedKey === undefined) {
+        if (create) {
+          this.slotKeys.set(index, key);
+          return index;
+        }
+        return -1;
+      }
+      index = (index + 1) & SPECTRUM_INDEX_MASK;
+    } while (index !== initialIndex);
+
+    if (create) {
+      throw new Error("spectrum is full");
+    }
+    return -1;
   }
 
   private emptyEntity(): Entity {
@@ -44,6 +82,11 @@ export class SpectrumLedger {
   // increaseEnergy — credit an entity's incoming side (creating the record if new).
   increaseEnergy(id: Uint8Array, amount: bigint, tick: number): void {
     const k = this.key(id);
+    const index = this.spectrumIndex(id, k, true);
+    if (index < 0) {
+      return;
+    }
+
     let e = this.entities.get(k);
     if (!e) {
       e = this.emptyEntity();
@@ -53,12 +96,17 @@ export class SpectrumLedger {
     e.incomingAmount += amount;
     e.numberOfIncomingTransfers++;
     e.latestIncomingTransferTick = tick;
-    this.dirty.add(k);
+    this.dirtySlots.add(index);
   }
 
   // decreaseEnergy — debit an entity's outgoing side.
   decreaseEnergy(id: Uint8Array, amount: bigint, tick: number): void {
     const k = this.key(id);
+    const index = this.spectrumIndex(id, k, true);
+    if (index < 0) {
+      return;
+    }
+
     let e = this.entities.get(k);
     if (!e) {
       e = this.emptyEntity();
@@ -68,29 +116,34 @@ export class SpectrumLedger {
     e.outgoingAmount += amount;
     e.numberOfOutgoingTransfers++;
     e.latestOutgoingTransferTick = tick;
-    this.dirty.add(k);
+    this.dirtySlots.add(index);
   }
 
-  // Spectrum iteration (qpi.nextId/prevId) — the next/previous occupied entity id; zero if none. The node walks
-  // the spectrum hash array; the dev engine uses a deterministic id order over the occupied entities.
+  // Core walks occupied hash slots, not identity byte order.
   nextId(id: Uint8Array): Uint8Array {
-    const target = this.key(id);
-    let best: string | null = null;
-    for (const k of this.entities.keys()) {
-      if (k > target && (best === null || k < best)) best = k;
+    const currentIndex = this.spectrumIndex(id, this.key(id), false);
+    let nextIndex = SPECTRUM_CAPACITY;
+    for (const index of this.slotKeys.keys()) {
+      if (index > currentIndex && index < nextIndex) {
+        nextIndex = index;
+      }
     }
 
-    return best === null ? new Uint8Array(32) : hexToBytes(best, 32);
+    const nextKey = this.slotKeys.get(nextIndex);
+    return nextKey === undefined ? new Uint8Array(32) : hexToBytes(nextKey, 32);
   }
 
   prevId(id: Uint8Array): Uint8Array {
-    const target = this.key(id);
-    let best: string | null = null;
-    for (const k of this.entities.keys()) {
-      if (k < target && (best === null || k > best)) best = k;
+    const currentIndex = this.spectrumIndex(id, this.key(id), false);
+    let previousIndex = -1;
+    for (const index of this.slotKeys.keys()) {
+      if (index < currentIndex && index > previousIndex) {
+        previousIndex = index;
+      }
     }
 
-    return best === null ? new Uint8Array(32) : hexToBytes(best, 32);
+    const previousKey = this.slotKeys.get(previousIndex);
+    return previousKey === undefined ? new Uint8Array(32) : hexToBytes(previousKey, 32);
   }
 
   // The 64-byte EntityRecord whose K12 is the spectrum leaf (the layout a client reads back from getEntity).
@@ -109,18 +162,6 @@ export class SpectrumLedger {
     return rec.bytes;
   }
 
-  // Assign (and remember) a stable leaf index for an entity key.
-  private leafIndex(key: string): number {
-    const existing = this.idx.get(key);
-    if (existing !== undefined) {
-      return existing;
-    }
-
-    const next = this.idx.size;
-    this.idx.set(key, next);
-    return next;
-  }
-
   // getSpectrumDigest — the root of the incremental 2^24 merkle. Only entities whose balance changed since the
   // last call are rehashed (24 nodes each); empty subtrees collapse to a precomputed hash. leaf = K12(EntityRecord).
   getSpectrumDigest(): Uint8Array {
@@ -128,10 +169,13 @@ export class SpectrumLedger {
       this.tree = new SparseMerkle(k12Bytes(new Uint8Array(64)), SPECTRUM_DEPTH);
     }
 
-    for (const k of this.dirty) {
-      this.tree.setLeaf(this.leafIndex(k), k12Bytes(this.entityRecord(k)));
+    for (const index of this.dirtySlots) {
+      const key = this.slotKeys.get(index);
+      if (key !== undefined) {
+        this.tree.setLeaf(index, k12Bytes(this.entityRecord(key)));
+      }
     }
-    this.dirty.clear();
+    this.dirtySlots.clear();
     return this.tree.root();
   }
 
@@ -141,8 +185,8 @@ export class SpectrumLedger {
     this.getSpectrumDigest(); // flush pending leaf updates so the tree reflects the current state
     const k = this.key(id);
     const record = this.entityRecord(k);
-    const index = this.idx.get(k);
-    if (index === undefined || !this.tree) {
+    const index = this.spectrumIndex(id, k, false);
+    if (index < 0 || !this.tree) {
       return { record, index: -1, siblings: [] };
     }
 

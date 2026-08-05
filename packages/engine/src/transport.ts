@@ -8,6 +8,7 @@ import type {
   DynamicContractEntry,
   DynamicContractUploadStatus,
   DebugTrace,
+  EngineFaultInfo,
   BroadcastResult,
   EntityInfo,
   TxInfo,
@@ -23,29 +24,32 @@ import {
 import {
   LITE_TX,
   CHUNK_DATA_MAX,
+  MAX_INPUT_SIZE,
   UploadBegin,
   UploadChunkHeader,
   DeployMessage,
 } from "@qinit/proto";
 import {
   QubicSimulator,
+  EngineFaultedError,
   type AssetSnapshot,
   type FeeMode,
   type ProcedureCallOptions,
 } from "./qubic-simulator";
-import type { LogSink } from "./log";
-import type { CommitteeOpts } from "./consensus";
-import { Contract, CONTRACT_ENTRY_KIND } from "./runtime";
+import type { LogSink } from "./logging/log";
+import type { CommitteeOpts } from "./chain/consensus";
+import { Contract, CONTRACT_ENTRY_KIND } from "./contract/runtime";
 import {
   k12Bytes,
   toHex,
   verifySync,
   deriveKeysSync,
   initK12,
-} from "./k12";
-import { Transaction } from "./wire";
-import { QubicLogStore } from "./qubic-log-store";
-import { bytesEqual } from "./bytes";
+} from "./support/k12";
+import { Transaction } from "./protocol/wire";
+import { QubicLogStore } from "./logging/qubic-log-store";
+import { bytesEqual } from "./support/bytes";
+import { MAX_AMOUNT } from "./ledger/assets";
 
 interface DeployedContractMetadata {
   name: string;
@@ -61,6 +65,14 @@ interface UploadSession {
   finalHash: string;
 }
 
+interface StoredRawTransaction {
+  txId: string;
+  bytes: Uint8Array;
+}
+
+const MAX_WASM_MODULE_SIZE = 4 * 1024 * 1024;
+const DEPLOY_HEADER_SIZE = DeployMessage.SIZE - 32;
+
 export interface VirtualNodeOptions {
   slotBase?: number;
   slotCount?: number;
@@ -70,6 +82,8 @@ export interface VirtualNodeOptions {
   fees?: FeeMode;
   defaultReserve?: bigint;
   liteTicking?: boolean;
+  historyTicks?: number;
+  maxLogBytes?: number;
 }
 
 export class VirtualNode implements NodeTransport {
@@ -81,7 +95,8 @@ export class VirtualNode implements NodeTransport {
   private slotsByName = new Map<string, number>();
   private upload: UploadSession | null = null;
   private contractSources = new Map<number, string>();
-  private rawTransactions = new Map<string, Uint8Array>();
+  private rawTransactions = new Map<string, StoredRawTransaction>();
+  private rawAliasesByTxId = new Map<string, string[]>();
   private fundedSeedPool: string[] | null = null;
   private static readonly FUNDED_POOL_SIZE = 16;
 
@@ -103,7 +118,7 @@ export class VirtualNode implements NodeTransport {
   }
 
   constructor(options: VirtualNodeOptions = {}) {
-    this.logger = new QubicLogStore();
+    this.logger = new QubicLogStore(options.maxLogBytes);
     this.sim = new QubicSimulator({
       consensus: options.consensus,
       mempool: options.mempool ?? true,
@@ -111,6 +126,7 @@ export class VirtualNode implements NodeTransport {
       defaultReserve: options.defaultReserve,
       liteTicking: options.liteTicking,
       logStore: this.logger,
+      historyTicks: options.historyTicks,
     });
     this.slotBase =
       options.slotBase ?? DEFAULT_WASM_SLOT_LAYOUT.slotBase;
@@ -226,6 +242,12 @@ export class VirtualNode implements NodeTransport {
   advanceTick(count = 1): number {
     for (let index = 0; index < count; index++) {
       this.sim.advance();
+      for (const txId of this.sim.takePrunedTransactionIds()) {
+        for (const alias of this.rawAliasesByTxId.get(txId) ?? []) {
+          this.rawTransactions.delete(alias);
+        }
+        this.rawAliasesByTxId.delete(txId);
+      }
     }
 
     return this.sim.currentTick;
@@ -240,8 +262,9 @@ export class VirtualNode implements NodeTransport {
     duration: number;
   } {
     const epochLength = this.sim.epochLength;
-    const tick = this.sim.currentTick;
-    const epoch = this.sim.currentEpoch;
+    const fault = this.sim.faultInfo();
+    const tick = fault?.lastFinalizedTick ?? this.sim.currentTick;
+    const epoch = fault?.lastFinalizedEpoch ?? this.sim.currentEpoch;
     const initialTick = epochLength > 0 ? epoch * epochLength : 0;
     const epochLastTick =
       epochLength > 0 ? (epoch + 1) * epochLength - 1 : tick;
@@ -336,10 +359,16 @@ export class VirtualNode implements NodeTransport {
   }
 
   async tickInfo(): Promise<TickInfo> {
+    const fault = this.sim.faultInfo();
     return {
-      tick: this.sim.currentTick,
-      epoch: this.sim.currentEpoch,
+      tick: fault ? fault.lastFinalizedTick : this.sim.currentTick,
+      epoch: fault ? fault.lastFinalizedEpoch : this.sim.currentEpoch,
+      fault: fault ?? undefined,
     };
+  }
+
+  async faultInfo(): Promise<EngineFaultInfo | null> {
+    return this.sim.faultInfo();
   }
 
   async dynRegistry(): Promise<DynamicContractRegistry> {
@@ -421,9 +450,10 @@ export class VirtualNode implements NodeTransport {
   }
 
   undeploy(slot: number): boolean {
+    this.sim.assertOperational();
     const name = this.slotMeta.get(slot)?.name;
     if (name !== undefined && this.slotsByName.get(name) === slot) {
-    this.slotsByName.delete(name);
+      this.slotsByName.delete(name);
     }
 
     this.slotMeta.delete(slot);
@@ -473,14 +503,17 @@ export class VirtualNode implements NodeTransport {
 
   async txStatus(tick: number, txId: string): Promise<TxStatus> {
     const transaction = this.sim.txByHash(txId);
-    const processed = this.sim.currentTick > tick;
+    const currentTick = this.sim.isFaulted()
+      ? this.sim.finalizedTick()
+      : this.sim.currentTick;
+    const processed = currentTick > tick;
 
     return {
       tick,
-      currentTick: this.sim.currentTick,
+      currentTick,
       txId,
-      found: true,
-      moneyFlew: transaction?.moneyFlew ?? true,
+      found: transaction !== undefined,
+      moneyFlew: transaction?.moneyFlew ?? false,
       processed,
     };
   }
@@ -523,8 +556,32 @@ export class VirtualNode implements NodeTransport {
   }
 
   async broadcastTx(txBytes: Uint8Array): Promise<BroadcastResult> {
+    this.sim.assertOperational();
     try {
+      const signatureSize = 64;
+      const minimumSize = Transaction.HEADER_SIZE + signatureSize;
+      if (txBytes.length < minimumSize) {
+        return { ok: false, message: "transaction is shorter than its fixed fields" };
+      }
+
       const transaction = Transaction.wrap(txBytes);
+      const expectedSize =
+        Transaction.HEADER_SIZE +
+        transaction.inputSize +
+        signatureSize;
+      if (transaction.inputSize > MAX_INPUT_SIZE) {
+        return {
+          ok: false,
+          message: `transaction input exceeds ${MAX_INPUT_SIZE} bytes`,
+        };
+      }
+      if (txBytes.length !== expectedSize) {
+        return {
+          ok: false,
+          message: `transaction size ${txBytes.length} does not match declared size ${expectedSize}`,
+        };
+      }
+
       const source = transaction.sourcePublicKey.bytes.slice();
       const destination =
         transaction.destinationPublicKey.bytes.slice();
@@ -532,22 +589,32 @@ export class VirtualNode implements NodeTransport {
       const scheduledTick = transaction.tick;
       const inputType = transaction.inputType;
       const payload = transaction.input.slice();
-
-      if (bytesEqual(destination, LITE_DEPLOY_ADDRESS)) {
-        this.handleDeployTx(inputType, payload, source);
-        return { ok: true };
+      if (amount < 0n || amount > MAX_AMOUNT) {
+        return { ok: false, message: `invalid transaction amount ${amount}` };
+      }
+      if (this.sim.isContractAddress(source)) {
+        return {
+          ok: false,
+          message: "contract addresses cannot sign transactions",
+        };
       }
 
-      const body =
-        txBytes.length > 64
-          ? txBytes.slice(0, txBytes.length - 64)
-          : txBytes;
+      const epochLastTick = this.epochInfo().epochLastTick;
+      if (
+        scheduledTick <= this.sim.currentTick ||
+        scheduledTick > epochLastTick
+      ) {
+        return {
+          ok: false,
+          message: `transaction tick ${scheduledTick} is outside ${this.sim.currentTick + 1}..${epochLastTick}`,
+        };
+      }
+
+      const body = txBytes.subarray(0, expectedSize - signatureSize);
 
       if (this.verifySignatures) {
-        const signature = txBytes.subarray(txBytes.length - 64);
-        const isValid =
-          txBytes.length > 64 &&
-          verifySync(source, k12Bytes(body), signature);
+        const signature = txBytes.subarray(expectedSize - signatureSize);
+        const isValid = verifySync(source, k12Bytes(body), signature);
 
         if (!isValid) {
           return { ok: false, message: "invalid signature" };
@@ -555,10 +622,24 @@ export class VirtualNode implements NodeTransport {
       }
 
       const txId = await this.txId(txBytes);
+      this.sim.assertOperational();
       const fullDigest = k12Bytes(txBytes);
-      this.rawTransactions.set(toHex(k12Bytes(body)), txBytes);
-      this.rawTransactions.set(toHex(fullDigest), txBytes);
-      this.rawTransactions.set(txId, txBytes);
+      const aliases = [toHex(k12Bytes(body)), toHex(fullDigest), txId];
+      if (aliases.some((alias) => this.rawTransactions.has(alias))) {
+        return { ok: false, message: `duplicate transaction ${txId}` };
+      }
+
+      if (bytesEqual(destination, LITE_DEPLOY_ADDRESS)) {
+        try {
+          this.handleDeployTx(inputType, payload, source);
+        } catch (error) {
+          if (error instanceof EngineFaultedError) {
+            this.sim.attachFaultTransaction(txId);
+          }
+          throw error;
+        }
+        return { ok: true, transactionId: txId };
+      }
 
       const { moneyFlew, queued } = this.sim.enqueueTx(
         scheduledTick,
@@ -570,9 +651,13 @@ export class VirtualNode implements NodeTransport {
         txId,
         fullDigest,
       );
+      this.storeRawTransaction(txId, aliases, txBytes);
 
       return { ok: true, transactionId: txId, moneyFlew, queued };
     } catch (error) {
+      if (error instanceof EngineFaultedError) {
+        throw error;
+      }
       const message = String(
         (error as Error)?.message ?? error,
       );
@@ -580,13 +665,21 @@ export class VirtualNode implements NodeTransport {
     }
   }
 
-  private async txId(txBytes: Uint8Array): Promise<string> {
-    const body =
-      txBytes.length > 64
-        ? txBytes.slice(0, txBytes.length - 64)
-        : txBytes;
+  private storeRawTransaction(
+    txId: string,
+    aliases: string[],
+    txBytes: Uint8Array,
+  ): void {
+    const uniqueAliases = [...new Set(aliases)];
+    const stored = { txId, bytes: txBytes };
+    for (const alias of uniqueAliases) {
+      this.rawTransactions.set(alias, stored);
+    }
+    this.rawAliasesByTxId.set(txId, uniqueAliases);
+  }
 
-    return bytesToIdentity(k12Bytes(body));
+  private async txId(txBytes: Uint8Array): Promise<string> {
+    return (await bytesToIdentity(k12Bytes(txBytes))).toLowerCase();
   }
 
   private handleDeployTx(
@@ -595,6 +688,9 @@ export class VirtualNode implements NodeTransport {
     source?: Uint8Array,
   ): void {
     if (inputType === LITE_TX.UPLOAD_BEGIN) {
+      if (payload.length < UploadBegin.SIZE) {
+        throw new Error("upload begin payload is too short");
+      }
       const message = UploadBegin.wrap(payload);
 
       if (this.upload) {
@@ -608,6 +704,19 @@ export class VirtualNode implements NodeTransport {
       }
 
       const totalSize = message.totalSize;
+      const expectedChunkCount = Math.ceil(
+        totalSize / CHUNK_DATA_MAX,
+      );
+      if (totalSize < 1 || totalSize > MAX_WASM_MODULE_SIZE) {
+        throw new Error(
+          `module size must be between 1 and ${MAX_WASM_MODULE_SIZE} bytes`,
+        );
+      }
+      if (message.chunkCount !== expectedChunkCount) {
+        throw new Error(
+          `upload declares ${message.chunkCount} chunks; expected ${expectedChunkCount}`,
+        );
+      }
       this.upload = {
         sessionId: message.sessionId,
         totalSize,
@@ -625,18 +734,37 @@ export class VirtualNode implements NodeTransport {
       if (!upload) {
         throw new Error("upload chunk without an active session");
       }
+      if (payload.length < UploadChunkHeader.SIZE) {
+        throw new Error("upload chunk payload is too short");
+      }
 
       const message = UploadChunkHeader.wrap(payload);
       if (message.sessionId !== upload.sessionId) {
         throw new Error("upload chunk for a different session");
       }
+      if (message.seq >= upload.chunkCount) {
+        throw new Error(
+          `upload chunk ${message.seq} is outside 0..${upload.chunkCount - 1}`,
+        );
+      }
+
+      const offset = message.seq * CHUNK_DATA_MAX;
+      const expectedLength = Math.min(
+        CHUNK_DATA_MAX,
+        upload.totalSize - offset,
+      );
+      if (
+        message.len !== expectedLength ||
+        payload.length !== UploadChunkHeader.SIZE + message.len
+      ) {
+        throw new Error(
+          `upload chunk ${message.seq} has invalid length ${message.len}; expected ${expectedLength}`,
+        );
+      }
 
       upload.buf.set(
-        payload.subarray(
-          UploadChunkHeader.SIZE,
-          UploadChunkHeader.SIZE + message.len,
-        ),
-        message.seq * CHUNK_DATA_MAX,
+        payload.subarray(UploadChunkHeader.SIZE),
+        offset,
       );
       upload.received.add(message.seq);
 
@@ -648,12 +776,46 @@ export class VirtualNode implements NodeTransport {
       if (!upload) {
         throw new Error("deploy without an active session");
       }
+      if (payload.length < DEPLOY_HEADER_SIZE) {
+        throw new Error("deploy payload is too short");
+      }
 
       const message = DeployMessage.wrap(payload);
+      if (message.sessionId !== upload.sessionId) {
+        throw new Error("deploy references a different upload session");
+      }
       if (message.abiVersion !== WASM_ABI_VERSION) {
         throw new Error(
           `unsupported Wasm ABI version ${message.abiVersion}; expected ${WASM_ABI_VERSION}`,
         );
+      }
+      if (
+        message.targetSlot < this.slotBase ||
+        message.targetSlot >= this.slotBase + this.slotCount
+      ) {
+        throw new Error(
+          `target slot ${message.targetSlot} is outside ${this.slotBase}..${this.slotBase + this.slotCount - 1}`,
+        );
+      }
+      if (upload.received.size !== upload.chunkCount) {
+        throw new Error(
+          `upload is incomplete (${upload.received.size}/${upload.chunkCount} chunks)`,
+        );
+      }
+      if (!bytesEqual(message.finalHash, hexToBytes(upload.finalHash))) {
+        throw new Error("deploy hash does not match the upload session");
+      }
+      if (!bytesEqual(k12Bytes(upload.buf), message.finalHash)) {
+        throw new Error("uploaded module hash verification failed");
+      }
+      if (
+        upload.buf.length < 4 ||
+        upload.buf[0] !== 0x00 ||
+        upload.buf[1] !== 0x61 ||
+        upload.buf[2] !== 0x73 ||
+        upload.buf[3] !== 0x6d
+      ) {
+        throw new Error("uploaded artifact is not a Wasm module");
       }
 
       const rawName =
@@ -768,6 +930,7 @@ export class VirtualNode implements NodeTransport {
   }
 
   async putContractSource(slot: number, source: string): Promise<boolean> {
+    this.sim.assertOperational();
     this.contractSources.set(slot, source);
     return true;
   }
@@ -805,17 +968,34 @@ export class VirtualNode implements NodeTransport {
   }
 
   async seedFaucet(amount = 1000000000000n): Promise<void> {
+    this.sim.assertOperational();
     for (const seed of this.fundedPool()) {
       this.sim.fund(deriveKeysSync(seed).publicKey, amount);
     }
   }
 
   fund(id: string | Uint8Array, amount: bigint): void {
+    this.sim.assertOperational();
     this.sim.fund(this.idToBytes(id), amount);
   }
 
   rawTx(digestHex: string): Uint8Array | undefined {
-    return this.rawTransactions.get(digestHex);
+    const stored = this.rawTransactions.get(digestHex);
+    if (!stored) {
+      return undefined;
+    }
+
+    if (this.sim.isFaulted()) {
+      const transaction = this.sim.txByHash(stored.txId);
+      if (
+        !transaction ||
+        transaction.tick > this.sim.finalizedTick()
+      ) {
+        return undefined;
+      }
+    }
+
+    return stored.bytes;
   }
 
   private idToBytes(id: string | Uint8Array): Uint8Array {

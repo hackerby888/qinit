@@ -1,14 +1,14 @@
 // TickData consensus — each tick's leader (computor[tick % N]) packs the tick's per-tx digests into a signed
 // TickData; the quorum votes commit transaction = K12(TickData), and the bridge serves that exact artifact.
 import { test, expect } from "bun:test";
-import { initK12, k12Bytes, toHex, verifySync } from "../../src/k12";
+import { initK12, k12Bytes, toHex, verifySync } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import {
   TICKDATA_SIZE,
   TXS_PER_TICK,
   tickDataMessage,
   tickDataSignature,
-} from "../../src/consensus";
+} from "../../src/chain/consensus";
 
 const SEEDS4 = ["b".repeat(55), "c".repeat(55), "d".repeat(55), "e".repeat(55)];
 const DIGESTS_OFFSET = 48; // first transactionDigests slot in the TickData
@@ -178,12 +178,14 @@ test("old TickData is pruned past the history window, recent ticks retained", as
   await initK12();
   const sim = new QubicSimulator({
     consensus: { computorSeeds: ["b".repeat(55)] },
+    historyTicks: 3,
   });
-  for (let i = 0; i < 2100; i++) {
+  for (let i = 0; i < 5; i++) {
     sim.advance();
   }
 
-  expect(sim.tickData(1)).toBeUndefined(); // beyond the 2000-tick window
-  expect(sim.tickRecord(1)).toBeUndefined();
+  expect(sim.tickData(2)).toBeUndefined();
+  expect(sim.tickRecord(2)).toBeUndefined();
+  expect(sim.tickData(3)).toBeDefined();
   expect(sim.tickData(sim.currentTick)).toBeDefined();
-}, 30000); // crossing the 2000-tick window is inherently a few seconds — above bun's 5s default
+});

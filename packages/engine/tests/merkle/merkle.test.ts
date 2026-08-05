@@ -1,7 +1,7 @@
 // Verifies sparse Merkle empty roots, proof reconstruction, and incremental leaf updates.
 import { test, expect } from "bun:test";
-import { initK12, k12Bytes, toHex } from "../../src/k12";
-import { SparseMerkle, MERKLE_DEPTH, rootFromSiblings } from "../../src/merkle";
+import { initK12, k12Bytes, toHex } from "../../src/support/k12";
+import { SparseMerkle, MERKLE_DEPTH, rootFromSiblings } from "../../src/ledger/merkle";
 
 const EMPTY = new Uint8Array(32);
 

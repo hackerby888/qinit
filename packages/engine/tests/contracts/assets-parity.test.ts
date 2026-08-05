@@ -1,8 +1,8 @@
 // AssetLedger parity for zero-share retention, burn handling, transfers, and enumeration.
 import { test, expect, beforeAll } from "bun:test";
-import { initK12 } from "../../src/k12";
-import { AssetLedger, packAssetName } from "../../src/assets";
-import { Asset, AssetSelect } from "../../src/abi";
+import { initK12 } from "../../src/support/k12";
+import { AssetLedger, packAssetName } from "../../src/ledger/assets";
+import { Asset, AssetSelect } from "../../src/contract/abi";
 import { contractId } from "../support/helpers";
 
 beforeAll(async () => {

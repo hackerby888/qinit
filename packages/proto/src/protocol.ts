@@ -3,13 +3,33 @@
 // Lite deploy transaction inputTypes — core runtime/deployment_protocol.h WASM_DEPLOYMENT_*.
 export const LITE_TX = { UPLOAD_BEGIN: 240, UPLOAD_CHUNK: 241, DEPLOY: 242 } as const;
 
-// Contract LOG_* severity codes — core src/logging/logging.h CONTRACT_{ERROR,WARNING,INFORMATION,DEBUG}_MESSAGE.
-// (Names are qinit's display labels; the numeric codes are the wire contract.)
+// Core src/logging/logging.h message types.
+export const QUBIC_LOG_TYPE = {
+  QU_TRANSFER: 0,
+  ASSET_ISSUANCE: 1,
+  ASSET_OWNERSHIP_CHANGE: 2,
+  ASSET_POSSESSION_CHANGE: 3,
+  CONTRACT_ERROR_MESSAGE: 4,
+  CONTRACT_WARNING_MESSAGE: 5,
+  CONTRACT_INFORMATION_MESSAGE: 6,
+  CONTRACT_DEBUG_MESSAGE: 7,
+  BURNING: 8,
+  DUST_BURNING: 9,
+  SPECTRUM_STATS: 10,
+  ASSET_OWNERSHIP_MANAGING_CONTRACT_CHANGE: 11,
+  ASSET_POSSESSION_MANAGING_CONTRACT_CHANGE: 12,
+  CONTRACT_RESERVE_DEDUCTION: 13,
+  ORACLE_QUERY_STATUS_CHANGE: 14,
+  ORACLE_SUBSCRIBER_MESSAGE: 15,
+  OC_INVOCATION_STATUS_CHANGE: 16,
+  CUSTOM_MESSAGE: 255,
+} as const;
+
 export const LOG_SEVERITY: Record<number, string> = {
-  4: "ERROR",
-  5: "WARN",
-  6: "INFO",
-  7: "DEBUG",
+  [QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE]: "ERROR",
+  [QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE]: "WARN",
+  [QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE]: "INFO",
+  [QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE]: "DEBUG",
 };
 
 // src/network_messages/common_def.h

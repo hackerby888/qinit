@@ -1,7 +1,7 @@
 // Asset and share flows exercised through the Token and Dividend fixtures.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12, deriveKeysSync, signSync, k12Bytes, toHex } from "../../src/k12";
+import { initK12, deriveKeysSync, signSync, k12Bytes, toHex } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import { contractId, readInt64LE, readUint64LE } from "../support/helpers";
 

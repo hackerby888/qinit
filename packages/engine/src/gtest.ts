@@ -5,9 +5,9 @@ import {
   CONTRACT_ENTRY_KIND,
   dateFields,
   packDateAndTime,
-} from "./runtime";
-import { initK12, k12Bytes } from "./k12";
-import { EntityRecord, M256i } from "./wire";
+} from "./contract/runtime";
+import { initK12, k12Bytes } from "./support/k12";
+import { EntityRecord, M256i } from "./protocol/wire";
 
 export interface TestResult {
   name: string; // "Suite.Name"

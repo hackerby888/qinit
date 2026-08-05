@@ -37,6 +37,7 @@ export {
 export type { TypedContractInput } from "./call";
 export * from "./qpi-layout"; // QPI container layout: single source of truth (idl.ts + decoders share it)
 export {
+  QUBIC_LOG_TYPE,
   LOG_SEVERITY,
   MAX_INPUT_SIZE,
   MAX_NUMBER_OF_CONTRACTS,
@@ -51,3 +52,4 @@ export {
   TX_HEADER_SIZE,
 } from "./protocol"; // LITE_TX/CHUNK_DATA_MAX via ./deploy
 export * from "./contract-idl";
+export * from "./mutation-log";

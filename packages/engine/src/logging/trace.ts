@@ -1,5 +1,5 @@
 // Records VirtualNode debug traces for CLI and IDE inspection.
-import { toHex } from "./k12";
+import { toHex } from "../support/k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
 
 export const TRACE_STATE_CAP = 256 * 1024; // bound the per-entry state scan (node caps too)

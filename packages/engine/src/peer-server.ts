@@ -1,16 +1,15 @@
 // Qubic peer-protocol TCP server backed by an in-process VirtualNode.
 // Lets external clients communicate with the simulation over TCP.
 import { VirtualNode } from "./transport";
-import { initK12, toHex } from "./k12";
+import { initK12, toHex } from "./support/k12";
 import {
   DEFAULT_PEER_PORT,
   LOOPBACK_HOST,
-  identityToBytes,
 } from "@qinit/core";
-import * as codec from "./peer-codec";
-import { MSG } from "./peer-codec";
-import { concatBytes } from "./bytes";
-import { unpackAssetName } from "./assets";
+import * as codec from "./protocol/peer-codec";
+import { MSG } from "./protocol/peer-codec";
+import { concatBytes } from "./support/bytes";
+import { unpackAssetName } from "./ledger/assets";
 
 interface PeerConnectionState {
   buf: Uint8Array;
@@ -32,6 +31,25 @@ export class PeerServer {
     this.engine = engine;
   }
 
+  private stopTicker(): void {
+    if (this.ticker) {
+      clearInterval(this.ticker);
+      this.ticker = null;
+    }
+  }
+
+  private advanceTick(count = 1): void {
+    try {
+      this.engine.advanceTick(count);
+    } catch (error) {
+      this.stopTicker();
+
+      if (!this.engine.sim.isFaulted()) {
+        console.error("peer ticker stopped:", error);
+      }
+    }
+  }
+
   async start(
     port = DEFAULT_PEER_PORT,
     tickMs = 50,
@@ -41,17 +59,13 @@ export class PeerServer {
     await this.engine.seedFaucet();
     this.engine.sim.tickDuration = tickMs;
 
-    // Present a realistic, ticking chain to a client: a non-zero epoch (a client treats epoch 0 as "no data")
-    // and a few finalized ticks so the very first query already carries a tick + quorum votes.
-    if (autoTick && this.engine.sim.currentEpoch === 0) {
-      this.engine.sim.currentEpoch = 1;
-    }
-    if (autoTick) this.engine.advanceTick(5);
-
-    if (autoTick) {
-      this.ticker = setInterval(() => {
-        this.engine.advanceTick(1);
-      }, tickMs);
+    if (
+      autoTick &&
+      this.engine.sim.currentEpoch === 0 &&
+      this.engine.sim.currentTick === 0 &&
+      this.engine.sim.contracts.size === 0
+    ) {
+      this.engine.sim.bootstrapEpoch(1);
     }
 
     const self = this;
@@ -70,14 +84,18 @@ export class PeerServer {
     });
     this.server = server;
 
+    if (autoTick) {
+      this.advanceTick(5);
+      if (!this.engine.sim.isFaulted()) {
+        this.ticker = setInterval(() => this.advanceTick(), tickMs);
+      }
+    }
+
     return { port: server.port, tickMs, stop: () => this.stop() };
   }
 
   stop(): void {
-    if (this.ticker) {
-      clearInterval(this.ticker);
-      this.ticker = null;
-    }
+    this.stopTicker();
     if (this.server) {
       this.server.stop(true);
       this.server = null;
@@ -135,6 +153,26 @@ export class PeerServer {
     payload: Uint8Array,
     dejavu: number,
   ): Promise<Uint8Array | null> {
+    if (this.engine.sim.isFaulted()) {
+      switch (type) {
+        case MSG.REQUEST_CURRENT_TICK_INFO:
+        case MSG.REQUEST_LOG:
+        case MSG.REQUEST_LOG_ID_RANGE_FROM_TX:
+        case MSG.REQUEST_ALL_LOG_ID_RANGES_FROM_TX:
+        case MSG.REQUEST_LOG_STATE_DIGEST:
+        case MSG.REQUEST_TX_STATUS:
+        case MSG.REQUEST_TICK_TRANSACTIONS:
+        case MSG.REQUEST_TICK_DATA:
+        case MSG.REQUEST_TRANSACTION_INFO:
+        case MSG.REQUEST_QUORUM_TICK:
+          break;
+        case MSG.BROADCAST_TRANSACTION:
+          return null;
+        default:
+          return codec.endResponse(dejavu);
+      }
+    }
+
     switch (type) {
       case MSG.REQUEST_CURRENT_TICK_INFO:
         return this.respondTickInfo(dejavu);
@@ -174,7 +212,9 @@ export class PeerServer {
       case MSG.REQUEST_POSSESSED_ASSETS:
         return this.respondPossessedAssets(payload, dejavu);
       case MSG.REQUEST_ISSUED_ASSETS:
-        return codec.endResponse(dejavu); // issued-assets streaming — empty (no client command requests it)
+        return this.respondIssuedAssets(payload, dejavu);
+      case MSG.REQUEST_ASSETS:
+        return this.respondAssets(payload, dejavu);
       case MSG.PROCESS_SPECIAL_COMMAND:
         return codec.frame(MSG.PROCESS_SPECIAL_COMMAND, payload, dejavu); // ack: echo the command struct
       default:
@@ -184,13 +224,16 @@ export class PeerServer {
 
   private respondTickInfo(dejavu: number): Uint8Array {
     const sim = this.engine.sim;
+    const fault = sim.faultInfo();
+    const epoch = fault?.lastFinalizedEpoch ?? sim.currentEpoch;
+    const tick = fault?.lastFinalizedTick ?? sim.currentTick;
     const payload = codec.encodeCurrentTickInfo({
       tickDuration: sim.tickDuration,
-      epoch: sim.currentEpoch,
-      tick: sim.currentTick,
-      numberOfAlignedVotes: sim.alignedVotes(),
+      epoch,
+      tick,
+      numberOfAlignedVotes: sim.alignedVotes(tick),
       numberOfMisalignedVotes: 0,
-      initialTick: 0,
+      initialTick: epoch * sim.epochLength,
     });
     return codec.frame(MSG.RESPOND_CURRENT_TICK_INFO, payload, dejavu);
   }
@@ -231,12 +274,15 @@ export class PeerServer {
 
   private respondSystemInfo(dejavu: number): Uint8Array {
     const sim = this.engine.sim;
+    const fault = sim.faultInfo();
+    const epoch = fault?.lastFinalizedEpoch ?? sim.currentEpoch;
+    const tick = fault?.lastFinalizedTick ?? sim.currentTick;
     const payload = codec.encodeSystemInfo({
       version: 1,
-      epoch: sim.currentEpoch,
-      tick: sim.currentTick,
-      initialTick: sim.currentEpoch * sim.epochLength,
-      latestCreatedTick: sim.currentTick,
+      epoch,
+      tick,
+      initialTick: epoch * sim.epochLength,
+      latestCreatedTick: tick,
       numberOfEntities: sim.entityCount(),
       numberOfTransactions: sim.txCount(),
     });
@@ -294,10 +340,10 @@ export class PeerServer {
     const sim = this.engine.sim;
     const tick = codec.decodeTick(payload);
     const recs = sim.tickTransactions(tick);
-    const digests = recs.map((r) => identityToBytes(r.txId));
+    const digests = recs.map((record) => record.digest);
     const money = recs.map((r) => r.moneyFlew);
     const enc = codec.encodeTxStatus(
-      sim.currentTick,
+      sim.finalizedTick(),
       tick,
       digests,
       money,
@@ -305,21 +351,38 @@ export class PeerServer {
     return codec.frame(MSG.RESPOND_TX_STATUS, enc, dejavu);
   }
 
-  // REQUEST_TICK_DATA — return the leader's stored signed TickData for the tick (the artifact the votes commit
-  // to). An unfinalized / pruned tick has none, so an empty payload is sent (a client reads it as "no data").
+  // Return the leader's signed TickData, or END_RESPONSE when none is retained.
   private respondTickData(payload: Uint8Array, dejavu: number): Uint8Array {
     const tick = codec.decodeTick(payload);
-    const td = this.engine.sim.tickData(tick)?.bytes ?? new Uint8Array(0);
-    return codec.frame(MSG.BROADCAST_FUTURE_TICK_DATA, td, dejavu);
+    const tickData = this.engine.sim.tickData(tick)?.bytes;
+    return tickData
+      ? codec.frame(MSG.BROADCAST_FUTURE_TICK_DATA, tickData, dejavu)
+      : codec.endResponse(dejavu);
   }
 
-  // REQUEST_TICK_TRANSACTIONS — stream the tick's raw txs as BROADCAST_TRANSACTION packets, then END_RESPONSE
-  // (a tick-transactions query scans these for a tx hash).
-  private respondTickTransactions(payload: Uint8Array, dejavu: number): Uint8Array {
-    const tick = codec.decodeTick(payload);
+  // Stream raw transactions whose request flags are clear, then END_RESPONSE.
+  private respondTickTransactions(
+    payload: Uint8Array,
+    dejavu: number,
+  ): Uint8Array | null {
+    const request = codec.decodeTickTransactionsRequest(payload);
+    if (!request) {
+      return null;
+    }
+
     const frames: Uint8Array[] = [];
-    for (const r of this.engine.sim.tickTransactions(tick)) {
-      const raw = this.engine.rawTx(r.txId);
+    const transactions = this.engine.sim.tickTransactions(request.tick);
+    for (
+      let transactionIndex = 0;
+      transactionIndex < transactions.length;
+      transactionIndex++
+    ) {
+      const flag = 1 << (transactionIndex & 7);
+      if ((request.transactionFlags[transactionIndex >> 3] & flag) !== 0) {
+        continue;
+      }
+
+      const raw = this.engine.rawTx(transactions[transactionIndex].txId);
       if (raw) {
         frames.push(codec.frame(MSG.BROADCAST_TRANSACTION, raw, dejavu));
       }
@@ -344,6 +407,8 @@ export class PeerServer {
           decimals: p.decimals,
           shares: p.shares,
           managingContractIndex: p.managingContractIndex,
+          tick: this.engine.sim.currentTick,
+          issuanceRecord: p.issuanceRecord,
         },
         p.index,
         p.siblings,
@@ -371,8 +436,11 @@ export class PeerServer {
           name: unpackAssetName(p.name),
           decimals: p.decimals,
           shares: p.shares,
-          possessionManagingContract: p.managingContractIndex,
-          ownershipManagingContract: p.managingContractIndex,
+          possessionManagingContract: p.possessionManagingContractIndex,
+          ownershipManagingContract: p.ownershipManagingContractIndex,
+          tick: this.engine.sim.currentTick,
+          ownershipRecord: p.ownershipRecord,
+          issuanceRecord: p.issuanceRecord,
         },
         p.index,
         p.siblings,
@@ -385,10 +453,79 @@ export class PeerServer {
     return concatBytes(frames);
   }
 
-  private respondTxInfo(payload: Uint8Array, dejavu: number): Uint8Array | null {
+  private respondIssuedAssets(payload: Uint8Array, dejavu: number): Uint8Array {
+    const issuer = payload.subarray(0, 32);
+    const frames = this.engine.sim.universeProofIssuances({ issuer }).map(
+      (proof) =>
+        codec.frame(
+          MSG.RESPOND_ISSUED_ASSETS,
+          codec.encodeRespondAssets({
+            record: proof.record,
+            tick: this.engine.sim.currentTick,
+            universeIndex: proof.index,
+            siblings: proof.siblings,
+          }),
+          dejavu,
+        ),
+    );
+
+    frames.push(codec.endResponse(dejavu));
+    return concatBytes(frames);
+  }
+
+  private respondAssets(payload: Uint8Array, dejavu: number): Uint8Array {
+    const request = codec.decodeAssetsRequest(payload);
+    if (!request) {
+      return codec.endResponse(dejavu);
+    }
+
+    const sim = this.engine.sim;
+    let proofs: {
+      record: Uint8Array;
+      index: number;
+      siblings: Uint8Array[];
+    }[];
+
+    switch (request.kind) {
+      case "index": {
+        const proof = sim.universeProofAt(request.universeIndex);
+        proofs = proof ? [proof] : [];
+        break;
+      }
+      case "issuance":
+        proofs = sim.universeProofIssuances(request);
+        break;
+      case "ownership":
+        proofs = sim.universeProofOwnerships(request);
+        break;
+      case "possession":
+        proofs = sim.universeProofPossessions(request);
+        break;
+    }
+
+    const frames = proofs.map((proof) =>
+      codec.frame(
+        MSG.RESPOND_ASSETS,
+        codec.encodeRespondAssets({
+          record: proof.record,
+          tick: sim.currentTick,
+          universeIndex: proof.index,
+          siblings: request.includeSiblings
+            ? proof.siblings
+            : undefined,
+        }),
+        dejavu,
+      ),
+    );
+
+    frames.push(codec.endResponse(dejavu));
+    return concatBytes(frames);
+  }
+
+  private respondTxInfo(payload: Uint8Array, dejavu: number): Uint8Array {
     const raw = this.engine.rawTx(toHex(payload.subarray(0, 32)));
     if (!raw) {
-      return null;
+      return codec.endResponse(dejavu);
     }
     return codec.frame(MSG.BROADCAST_TRANSACTION, raw, dejavu);
   }
@@ -399,15 +536,40 @@ export class PeerServer {
     return codec.frame(MSG.BROADCAST_COMPUTORS, list, dejavu);
   }
 
-  private respondQuorumTick(payload: Uint8Array, dejavu: number): Uint8Array {
-    const tick = codec.decodeTick(payload);
-    const rec = this.engine.sim.tickRecord(tick);
+  private respondQuorumTick(
+    payload: Uint8Array,
+    dejavu: number,
+  ): Uint8Array | null {
+    const request = codec.decodeQuorumTickRequest(payload);
+    if (!request) {
+      return null;
+    }
+
+    const rec = this.engine.sim.tickRecord(request.tick);
     if (!rec) {
       return codec.endResponse(dejavu);
     }
 
-    // Stream each computor's signed Tick vote (352 B, the protocol's Tick layout) then END_RESPONSE.
-    const frames = rec.votes.map((v) => codec.frame(MSG.BROADCAST_TICK, v.bytes, dejavu));
+    const frames: Uint8Array[] = [];
+    for (
+      let computorIndex = 0;
+      computorIndex < rec.votes.length;
+      computorIndex++
+    ) {
+      const flag = 1 << (computorIndex & 7);
+      if ((request.voteFlags[computorIndex >> 3] & flag) !== 0) {
+        continue;
+      }
+
+      frames.push(
+        codec.frame(
+          MSG.BROADCAST_TICK,
+          rec.votes[computorIndex].bytes,
+          dejavu,
+        ),
+      );
+    }
+
     frames.push(codec.endResponse(dejavu));
     return concatBytes(frames);
   }

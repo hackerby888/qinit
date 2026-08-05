@@ -2,11 +2,11 @@
 // with Bun.connect, sends raw request packets, and asserts decoded responses including the handshake.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12, k12Bytes, toHex, verifySync } from "../../src/k12";
+import { initK12, k12Bytes, toHex, verifySync } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
 import { PeerServer } from "../../src/peer-server";
-import * as codec from "../../src/peer-codec";
-import { MSG } from "../../src/peer-codec";
+import * as codec from "../../src/protocol/peer-codec";
+import { MSG } from "../../src/protocol/peer-codec";
 import {
   TICKDATA_SIZE,
   TICK_SIZE,
@@ -14,8 +14,8 @@ import {
   tickDataSignature,
   tickVoteMessage,
   tickVoteSignature,
-} from "../../src/consensus";
-import { rootFromSiblings } from "../../src/merkle";
+} from "../../src/chain/consensus";
+import { rootFromSiblings } from "../../src/ledger/merkle";
 
 interface Frame {
   type: number;
@@ -70,6 +70,32 @@ function dv(b: Uint8Array): DataView {
   return new DataView(b.buffer, b.byteOffset, b.byteLength);
 }
 
+function quorumTickRequest(
+  tick: number,
+  knownComputorIndices: number[] = [],
+): Uint8Array {
+  const request = new Uint8Array(codec.REQUEST_QUORUM_TICK_SIZE);
+  dv(request).setUint32(0, tick, true);
+  for (const computorIndex of knownComputorIndices) {
+    request[4 + (computorIndex >> 3)] |= 1 << (computorIndex & 7);
+  }
+  return request;
+}
+
+function tickTransactionsRequest(
+  tick: number,
+  knownTransactionIndices: number[] = [],
+): Uint8Array {
+  const request = new Uint8Array(
+    codec.REQUEST_TICK_TRANSACTIONS_SIZE,
+  );
+  dv(request).setUint32(0, tick, true);
+  for (const transactionIndex of knownTransactionIndices) {
+    request[4 + (transactionIndex >> 3)] |= 1 << (transactionIndex & 7);
+  }
+  return request;
+}
+
 test("handshake + current-tick-info returns the live tick with aligned votes", async () => {
   await initK12();
   const engine = new VirtualNode();
@@ -90,6 +116,8 @@ test("handshake + current-tick-info returns the live tick with aligned votes", a
     const d = dv(tickFrame.payload);
     expect(d.getUint32(4, true)).toBeGreaterThanOrEqual(3); // tick advanced
     expect(d.getUint16(8, true)).toBe(8); // numberOfAlignedVotes == default committee size
+    expect(d.getUint16(2, true)).toBe(1);
+    expect(d.getUint32(12, true)).toBe(engine.sim.epochLength);
   } finally {
     stop();
   }
@@ -102,7 +130,7 @@ test("native logging messages expose core-lite records and tick ranges", async (
   const { port, stop } = await server.start(0, 1000);
 
   try {
-    const tick = engine.sim.currentTick;
+    const tick = engine.sim.currentTick + 1;
     engine.logger.begin(tick, 2);
     engine.logger.log(
       28,
@@ -111,7 +139,7 @@ test("native logging messages expose core-lite records and tick ranges", async (
       engine.sim.currentEpoch,
     );
     engine.logger.end();
-    engine.logger.finalizeTick(tick);
+    engine.advanceTick(1);
 
     const allReq = new Uint8Array(36);
     dv(allReq).setUint32(32, tick, true);
@@ -233,6 +261,32 @@ test("owned-assets request serves a merkle proof that recomputes the universe ro
     expect(toHex(rootFromSiblings(record, index, siblings))).toBe(
       toHex(engine.sim.universeDigest()),
     );
+    expect(f.payload[80]).toBe(1); // linked issuance record
+
+    const issuedFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_ISSUED_ASSETS, id28, 60),
+    );
+    const issued = issuedFrames.find(
+      (frame) => frame.type === MSG.RESPOND_ISSUED_ASSETS,
+    )!;
+    expect(issued.payload[32]).toBe(1);
+    expect(issued.payload.length).toBe(48 + 8 + 24 * 32);
+
+    const byIndex = new Uint8Array(8);
+    const byIndexView = dv(byIndex);
+    byIndexView.setUint16(0, 3, true);
+    byIndexView.setUint16(2, codec.ASSET_REQUEST_FLAG.GET_SIBLINGS, true);
+    byIndexView.setUint32(4, index, true);
+    const modernFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_ASSETS, byIndex, 61),
+    );
+    const modern = modernFrames.find(
+      (frame) => frame.type === MSG.RESPOND_ASSETS,
+    )!;
+    expect(modern.payload.length).toBe(48 + 8 + 24 * 32);
+    expect(toHex(modern.payload.subarray(0, 48))).toBe(toHex(record));
   } finally {
     stop();
   }
@@ -287,7 +341,7 @@ test("tick-data request returns the signed TickData and its leader signature ver
 
   try {
     engine.advanceTick(4);
-    const tick = 3;
+    const tick = engine.sim.currentTick - 1;
     const req = new Uint8Array(4);
     dv(req).setUint32(0, tick, true);
 
@@ -307,7 +361,44 @@ test("tick-data request returns the signed TickData and its leader signature ver
   }
 });
 
-test("quorum-tick request streams the committee's verifiable Tick votes", async () => {
+test("missing tick-data and transaction-info requests return END_RESPONSE", async () => {
+  await initK12();
+  const engine = new VirtualNode();
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0);
+
+  try {
+    const tickRequest = new Uint8Array(4);
+    dv(tickRequest).setUint32(0, engine.sim.currentTick + 100, true);
+    const tickFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_TICK_DATA, tickRequest, 75),
+    );
+    expect(
+      tickFrames.some((frame) => frame.type === MSG.BROADCAST_FUTURE_TICK_DATA),
+    ).toBe(false);
+    expect(
+      tickFrames.some((frame) => frame.type === MSG.END_RESPONSE),
+    ).toBe(true);
+
+    const transactionFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_TRANSACTION_INFO, new Uint8Array(32), 76),
+    );
+    expect(
+      transactionFrames.some(
+        (frame) => frame.type === MSG.BROADCAST_TRANSACTION,
+      ),
+    ).toBe(false);
+    expect(
+      transactionFrames.some((frame) => frame.type === MSG.END_RESPONSE),
+    ).toBe(true);
+  } finally {
+    stop();
+  }
+});
+
+test("quorum-tick request honors vote flags and streams verifiable votes", async () => {
   await initK12();
   const engine = new VirtualNode();
   const server = new PeerServer(engine);
@@ -315,13 +406,16 @@ test("quorum-tick request streams the committee's verifiable Tick votes", async 
 
   try {
     engine.advanceTick(4);
-    const req = new Uint8Array(4);
-    dv(req).setUint32(0, 3, true);
+    const tick = engine.sim.currentTick - 1;
+    const req = quorumTickRequest(tick, [2]);
 
     const frames = await exchange(port, codec.frame(MSG.REQUEST_QUORUM_TICK, req, 8));
     const votes = frames.filter((x) => x.type === MSG.BROADCAST_TICK);
-    expect(votes.length).toBe(8); // one vote per computor
+    expect(votes.length).toBe(7);
     expect(frames.some((x) => x.type === MSG.END_RESPONSE)).toBe(true);
+    expect(
+      votes.some((vote) => dv(vote.payload).getUint16(0, true) === 2),
+    ).toBe(false);
 
     const committee = engine.sim.getCommittee();
     for (const v of votes) {
@@ -335,6 +429,47 @@ test("quorum-tick request streams the committee's verifiable Tick votes", async 
         ),
       ).toBe(true);
     }
+  } finally {
+    stop();
+  }
+});
+
+test("tick-transactions request honors transaction flags", async () => {
+  await initK12();
+  const engine = new VirtualNode({ verifySigs: false });
+  engine.sim.bootstrapEpoch(1);
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0, 1000, false);
+
+  try {
+    const tick = engine.sim.currentTick + 1;
+    const first = new Uint8Array(144);
+    first.fill(0x11, 0, 32);
+    first.fill(0x21, 32, 64);
+    dv(first).setUint32(72, tick, true);
+
+    const second = new Uint8Array(144);
+    second.fill(0x12, 0, 32);
+    second.fill(0x22, 32, 64);
+    dv(second).setUint32(72, tick, true);
+
+    expect((await engine.broadcastTx(first)).ok).toBe(true);
+    expect((await engine.broadcastTx(second)).ok).toBe(true);
+    engine.advanceTick(1);
+
+    const request = tickTransactionsRequest(tick, [0]);
+    const frames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_TICK_TRANSACTIONS, request, 77),
+    );
+    const transactions = frames.filter(
+      (frame) => frame.type === MSG.BROADCAST_TRANSACTION,
+    );
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0].payload).toEqual(second);
+    expect(
+      frames.some((frame) => frame.type === MSG.END_RESPONSE),
+    ).toBe(true);
   } finally {
     stop();
   }
@@ -371,7 +506,7 @@ test("transaction-info request returns the stored raw tx by its digest", async (
     const tx = new Uint8Array(144); // source(32) dest(32) amount(8) tick(4) inputType(2) inputSize(2) ... sig(64)
     tx.fill(0x05, 0, 32);
     tx.fill(0x06, 32, 64);
-    dv(tx).setUint32(72, 1, true); // tick
+    dv(tx).setUint32(72, engine.sim.currentTick + 1, true);
     await engine.broadcastTx(tx);
 
     const full = k12Bytes(tx); // K12(full tx incl. sig) — one of the three keys rawTxs is indexed by
@@ -432,6 +567,74 @@ test("possessed-assets request streams the possession records the account holds"
     expect(recs[0].payload[32]).toBe(3); // possession record type
     expect(d.getUint16(34, true)).toBe(28); // managed by the issuing contract
     expect(d.getBigInt64(40, true)).toBe(1000n); // shares
+  } finally {
+    stop();
+  }
+});
+
+test("a contract fault stops peer ticking and leaves finalized diagnostics available", async () => {
+  await initK12();
+  const engine = new VirtualNode();
+  const server = new PeerServer(engine);
+  const { port, stop } = await server.start(0, 20);
+
+  try {
+    engine.deploy(28, await wasm("Trap"));
+    const input = new Uint8Array(16);
+    const data = dv(input);
+    data.setBigUint64(0, 7n, true);
+    data.setBigUint64(8, 0n, true);
+
+    expect(() => engine.sim.procedure(28, 2, input)).toThrow();
+    const fault = engine.sim.faultInfo()!;
+
+    await Bun.sleep(60);
+    expect(engine.sim.currentTick).toBe(fault.failedTick);
+
+    const tickFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_CURRENT_TICK_INFO, new Uint8Array(0), 70),
+    );
+    const tickInfo = tickFrames.find(
+      (frame) => frame.type === MSG.RESPOND_CURRENT_TICK_INFO,
+    )!;
+    expect(dv(tickInfo.payload).getUint16(2, true)).toBe(
+      fault.lastFinalizedEpoch,
+    );
+    expect(dv(tickInfo.payload).getUint32(4, true)).toBe(
+      fault.lastFinalizedTick,
+    );
+
+    const entityFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_ENTITY, new Uint8Array(32), 71),
+    );
+    expect(
+      entityFrames.some((frame) => frame.type === MSG.RESPOND_ENTITY),
+    ).toBe(false);
+    expect(
+      entityFrames.some((frame) => frame.type === MSG.END_RESPONSE),
+    ).toBe(true);
+
+    const systemFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_SYSTEM_INFO, new Uint8Array(0), 73),
+    );
+    expect(
+      systemFrames.some((frame) => frame.type === MSG.RESPOND_SYSTEM_INFO),
+    ).toBe(false);
+    expect(
+      systemFrames.some((frame) => frame.type === MSG.END_RESPONSE),
+    ).toBe(true);
+
+    const tickRequest = quorumTickRequest(fault.lastFinalizedTick);
+    const quorumFrames = await exchange(
+      port,
+      codec.frame(MSG.REQUEST_QUORUM_TICK, tickRequest, 72),
+    );
+    expect(
+      quorumFrames.filter((frame) => frame.type === MSG.BROADCAST_TICK),
+    ).toHaveLength(8);
   } finally {
     stop();
   }

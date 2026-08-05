@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
 import { EngineServer } from "../../src/server";
 
@@ -16,8 +16,7 @@ test.skipIf(!QLOGGING || !existsSync(QLOGGING))(
     const port = handle.peerPort!;
 
     try {
-      engine.advanceTick(1);
-      const tick = engine.sim.currentTick;
+      const tick = engine.sim.currentTick + 1;
       const message = Uint8Array.of(0, 0, 0, 0, 9, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0);
       engine.logger.begin(tick, 0);
       engine.logger.log(
@@ -27,7 +26,7 @@ test.skipIf(!QLOGGING || !existsSync(QLOGGING))(
         engine.sim.currentEpoch,
       );
       engine.logger.end();
-      engine.logger.finalizeTick(tick);
+      engine.advanceTick(1);
 
       const proc = Bun.spawn(
         [QLOGGING!, "127.0.0.1", String(port), "0", "0", "0", "0", String(tick), "-single"],

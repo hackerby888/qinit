@@ -5,13 +5,13 @@ import {
   type HostServices,
   CONTRACT_ENTRY_KIND,
 } from "./runtime";
-import { k12Bytes } from "./k12";
+import { k12Bytes } from "../support/k12";
 
 // The wasm K12 mallocs its whole input; ~8 MB is the safe ceiling before it overflows. Contract states above
 // this (the mainnet-sized order books of QX/QSWAP) get a zero computer-digest leaf instead — see computerDigest.
 export const K12_MAX_LEAF_BYTES = 8 * 1024 * 1024;
-import { merkleRoot, MAX_NUMBER_OF_CONTRACTS } from "./consensus";
-import { TraceRecorder } from "./trace";
+import { merkleRoot, MAX_NUMBER_OF_CONTRACTS } from "../chain/consensus";
+import { TraceRecorder } from "../logging/trace";
 import { FeeManager } from "./fees";
 
 // The invocation context threaded into a contract entry (the qpi caller/reward + the entry point being run).

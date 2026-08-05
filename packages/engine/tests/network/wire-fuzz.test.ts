@@ -22,8 +22,8 @@ import {
   CONTRACT_FEES_COUNT,
   SPECTRUM_DEPTH,
   ASSETS_DEPTH,
-} from "../../src/wire";
-import { bytesEqual } from "../../src/bytes";
+} from "../../src/protocol/wire";
+import { bytesEqual } from "../../src/support/bytes";
 
 const TRIALS = 64;
 

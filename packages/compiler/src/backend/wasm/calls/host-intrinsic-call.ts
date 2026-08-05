@@ -1,4 +1,5 @@
 import { AstKind, UnaryOp, WatNodeType } from "../../../enums";
+import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import type { Expression } from "../../../ast";
 import * as watIr from "../../../wat-ir";
 import { addrIr } from "../memory/memory-operations";
@@ -6,10 +7,10 @@ import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
 
 const LOG_LEVELS: Readonly<Record<string, number>> = {
-    __qinit_log_error: 4,
-    __qinit_log_warning: 5,
-    __qinit_log_info: 6,
-    __qinit_log_debug: 7,
+    __qinit_log_error: QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE,
+    __qinit_log_warning: QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE,
+    __qinit_log_info: QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE,
+    __qinit_log_debug: QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE,
 };
 
 export function tryEmitHostIntrinsicCall(

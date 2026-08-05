@@ -43,7 +43,7 @@ test("oracle RPC seam: discover a pending query, inject the reply, the notificat
   srv.engine.deploy(SLOT, await loadWasmFixture("OracleProbe"));
   srv.engine.sim.fund(cid(SLOT), 1_000_000n); // balance to burn for the query fee
   srv.engine.sim.procedure(SLOT, QUERY, priceQueryIn(60_000)); // raise a PENDING query (id not visible to a tx sender)
-  const h = await srv.start();
+  const h = await srv.start(0, 60_000);
   try {
     // (a) discover it over RPC — the part a fire-and-forget tx can't hand back
     const pend = await (await fetch(h.rpcBaseUrl + "/live/v1/dev/oracle-pending")).json();
@@ -53,12 +53,13 @@ test("oracle RPC seam: discover a pending query, inject the reply, the notificat
     expect(BigInt(q.queryId)).toBeGreaterThan(0n);
     expect(Buffer.from(q.query, "base64").length).toBeGreaterThan(0); // the contract's OracleQuery bytes
 
-    // (b) inject the reply -> fires the contract's OnReply notification
+    // (b) inject the reply; Core delivers the notification on the next tick.
     const res = await post(h.rpcBaseUrl + "/live/v1/dev/oracle-resolve", {
       queryId: q.queryId,
       reply: Buffer.from(priceReply(42n, 1n)).toString("base64"),
     });
     expect(res.ok).toBe(true);
+    srv.engine.advanceTick(1);
     expect(i64(srv.engine.sim.query(SLOT, LAST, new Uint8Array(0)))).toBe(42n); // OnReply stored the numerator
     expect(
       (await (await fetch(h.rpcBaseUrl + "/live/v1/dev/oracle-pending")).json()).queries.length,

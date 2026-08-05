@@ -6,8 +6,10 @@ import COUNTER_V2_SOURCE from "../fixtures/CounterV2.h" with { type: "text" };
 import DIGEST_PROBE_SOURCE from "../fixtures/DigestProbe.h" with { type: "text" };
 import DIVIDEND_SOURCE from "../fixtures/Dividend.h" with { type: "text" };
 import HOOKS_SOURCE from "../fixtures/Hooks.h" with { type: "text" };
+import INCOMING_LOGGER_SOURCE from "../fixtures/IncomingLogger.h" with { type: "text" };
 import ORACLE_PROBE_SOURCE from "../fixtures/OracleProbe.h" with { type: "text" };
 import PROXY_SOURCE from "../fixtures/Proxy.h" with { type: "text" };
+import REFUND_SOURCE from "../fixtures/Refund.h" with { type: "text" };
 import SHARE_APPROVER_SOURCE from "../fixtures/ShareApprover.h" with { type: "text" };
 import SHARE_MANAGER_SOURCE from "../fixtures/ShareManager.h" with { type: "text" };
 import SHARE_PROPOSER_SOURCE from "../fixtures/ShareProposer.h" with { type: "text" };
@@ -59,8 +61,15 @@ export const wasmFixtureManifest = {
   DigestProbe: fixture("DigestProbe.h", DIGEST_PROBE_SOURCE, "DigestProbe", 29),
   Dividend: fixture("Dividend.h", DIVIDEND_SOURCE, "Dividend", 28),
   Hooks: fixture("Hooks.h", HOOKS_SOURCE, "Hooks", 28),
+  IncomingLogger: fixture(
+    "IncomingLogger.h",
+    INCOMING_LOGGER_SOURCE,
+    "IncomingLogger",
+    29,
+  ),
   OracleProbe: fixture("OracleProbe.h", ORACLE_PROBE_SOURCE, "OracleProbe", 29),
   Proxy: fixture("Proxy.h", PROXY_SOURCE, "Proxy", 29, ["Counter"]),
+  Refund: fixture("Refund.h", REFUND_SOURCE, "Refund", 28),
   ShareApprover: fixture("ShareApprover.h", SHARE_APPROVER_SOURCE, "ShareApprover", 28),
   ShareManager: fixture("ShareManager.h", SHARE_MANAGER_SOURCE, "ShareManager", 29),
   ShareProposer: fixture("ShareProposer.h", SHARE_PROPOSER_SOURCE, "ShareProposer", 29),

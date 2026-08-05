@@ -5,13 +5,13 @@ import {
   TICKDATA_SIZE,
   TXS_PER_TICK,
   TICK_SIZE,
-} from "../../src/consensus";
+} from "../../src/chain/consensus";
 import {
   ASSETS_DEPTH,
   TXS_PER_TICK as CODEC_TXS_PER_TICK,
   CLI_NUMBER_OF_COMPUTORS,
   SPECTRUM_DEPTH,
-} from "../../src/peer-codec";
+} from "../../src/protocol/peer-codec";
 import {
   ASSETS_DEPTH as PROTOCOL_ASSETS_DEPTH,
   MAINNET_COMPUTOR_COUNT,
@@ -19,7 +19,7 @@ import {
   SPECTRUM_DEPTH as PROTOCOL_SPECTRUM_DEPTH,
   TXS_PER_TICK as PROTOCOL_TXS_PER_TICK,
 } from "@qinit/proto";
-import { CONTRACT_FEES_COUNT } from "../../src/wire";
+import { CONTRACT_FEES_COUNT } from "../../src/protocol/wire";
 
 const DIGEST_SIZE = 32;
 const SIG_SIZE = 64;

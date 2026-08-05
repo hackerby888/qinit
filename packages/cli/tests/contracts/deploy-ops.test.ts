@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LITE_TX, UploadBegin } from "@qinit/proto";
 import { VirtualNode } from "@qinit/engine";
-import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
+import {
+  loadWasmFixture as wasm,
+  wasmFixtureManifest,
+} from "../../../../test-utils/wasm-fixtures";
 import {
   deployContract,
   tickFailureMessage,
@@ -167,7 +170,11 @@ test("deployContract: racing deployments send chunks only for the winner; the lo
   dirs.push(core);
   const contractPath = join(core, "Race.h");
   await Bun.write(contractPath, "struct Race {};");
-  const node = await VirtualNode.create({ mempool: false, fees: "off" });
+  const node = await VirtualNode.create({
+    mempool: false,
+    fees: "off",
+    slotBase: wasmFixtureManifest.Counter.slot,
+  });
   let preflights = 0;
   let releasePreflights!: () => void;
   const preflightBarrier = new Promise<void>((resolve) => (releasePreflights = resolve));
@@ -222,7 +229,7 @@ test("deployContract: racing deployments send chunks only for the winner; the lo
     core,
     rpcBaseUrl: "http://unused",
     seed: "a".repeat(55),
-    slotOverride: 28,
+    slotOverride: wasmFixtureManifest.Counter.slot,
     artifact,
     rpc,
   });

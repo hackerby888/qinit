@@ -1,6 +1,6 @@
 // Incremental sparse Merkle tree.
 // Stores occupied paths while precomputed hashes represent empty subtrees.
-import { k12Bytes } from "./k12";
+import { k12Bytes } from "../support/k12";
 import { SPECTRUM_DEPTH } from "@qinit/proto";
 
 export const MERKLE_DEPTH = SPECTRUM_DEPTH;

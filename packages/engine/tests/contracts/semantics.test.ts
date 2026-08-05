@@ -2,7 +2,7 @@
 import { test, expect } from "bun:test";
 import { bytesToIdentity } from "@qinit/core";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import { contractId } from "../support/helpers";
 
@@ -75,12 +75,14 @@ test("transfer host events show eight chars from both ends of a Qubic identity",
   expect(call?.detail).toBe(`→ ${identity.slice(0, 8)}…${identity.slice(-8)} 30`);
 });
 
-test("contract-to-contract transfer fires the destination's POST_INCOMING_TRANSFER", async () => {
+test("contract-to-contract transfer notifies only for positive amounts", async () => {
   await initK12();
   const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Vault"));
   sim.deploy(29, await wasm("Vault29"));
   sim.procedure(28, 1, new Uint8Array(0), { invocator: USER, reward: 100n });
+  expect(send(sim, 28, contractId(29), 0n)).toBe(100n);
+  expect(get(sim, 29).incomingCount).toBe(0n);
   expect(send(sim, 28, contractId(29), 50n)).toBe(50n);
   expect(sim.balanceOf(28)).toBe(50n);
   expect(sim.balanceOf(29)).toBe(50n);

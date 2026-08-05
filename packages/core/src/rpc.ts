@@ -12,7 +12,21 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export interface TickInfo {
   tick: number;
   epoch: number;
+  fault?: EngineFaultInfo;
   [k: string]: unknown;
+}
+
+export interface EngineFaultInfo {
+  message: string;
+  phase: string;
+  failedTick: number;
+  failedEpoch: number;
+  lastFinalizedTick: number;
+  lastFinalizedEpoch: number;
+  slot?: number;
+  kind?: number;
+  entry?: number;
+  txId?: string;
 }
 
 export interface DynamicContractEntry {
@@ -110,7 +124,15 @@ export class LiteRpc implements NodeTransport {
           `node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`,
         );
       }
-      if (!r.ok) throw new Error(`RPC GET ${path} → HTTP ${r.status}`);
+      if (!r.ok) {
+        const body = (await r.json().catch(() => null)) as
+          | { message?: unknown }
+          | null;
+        const detail =
+          typeof body?.message === "string" ? `: ${body.message}` : "";
+
+        throw new Error(`RPC GET ${path} → HTTP ${r.status}${detail}`);
+      }
       try {
         return (await r.json()) as T;
       } catch {
@@ -125,6 +147,9 @@ export class LiteRpc implements NodeTransport {
   }
   latestCreatedTickInfo() {
     return this.get<TickInfo>("/latest-created-tick-info");
+  }
+  faultInfo() {
+    return this.get<EngineFaultInfo | null>("/live/v1/dev/fault");
   }
   /** Escape hatch for any GET route (e.g. a future /dyn/registry). */
   raw<T = unknown>(path: string) {

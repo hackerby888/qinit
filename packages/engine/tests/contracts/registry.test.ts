@@ -1,9 +1,9 @@
 // ContractRegistry's Wasm-free store and computer digest in isolation.
 import { test, expect, beforeAll } from "bun:test";
-import { initK12, toHex } from "../../src/k12";
-import { ContractRegistry } from "../../src/registry";
-import { FeeManager } from "../../src/fees";
-import { TraceRecorder } from "../../src/trace";
+import { initK12, toHex } from "../../src/support/k12";
+import { ContractRegistry } from "../../src/contract/registry";
+import { FeeManager } from "../../src/contract/fees";
+import { TraceRecorder } from "../../src/logging/trace";
 
 beforeAll(async () => {
   await initK12(); // computerDigest hashes through K12

@@ -9,10 +9,10 @@ import {
   voteIsAligned,
   DEFAULT_NUMBER_OF_COMPUTORS,
 } from "./consensus";
-import { k12Bytes } from "./k12";
-import type { Tick, TickData } from "./wire";
+import { k12Bytes } from "../support/k12";
+import type { Tick, TickData } from "../protocol/wire";
 
-const TICK_HISTORY = 2000; // ticks of TickData + quorum records retained (memory bound; each TickData ~41 KB)
+export const DEFAULT_TICK_HISTORY = 128;
 const ZERO32 = new Uint8Array(32);
 
 // A finalized tick's consensus record: the N computor votes, the aligned-vote count, and the etalon digests they
@@ -42,6 +42,7 @@ export class TickConsensus {
   private readonly host: ConsensusHost;
   private readonly opts: CommitteeOpts;
   private readonly lite: boolean; // skip the per-tick quorum (votes/TickData) for EMPTY ticks — see finalizeTick
+  private readonly historyTicks: number;
   private committee: Committee | null = null; // derived lazily on first finalize (needs initK12 resolved)
   private ticks = new Map<number, TickRecord>(); // per-tick quorum record: votes + aligned count + digests
   private lastDigests: { spectrum: Uint8Array; universe: Uint8Array; computer: Uint8Array } = {
@@ -50,10 +51,16 @@ export class TickConsensus {
     computer: ZERO32,
   }; // previous tick's committed roots
 
-  constructor(host: ConsensusHost, opts: CommitteeOpts, lite = false) {
+  constructor(
+    host: ConsensusHost,
+    opts: CommitteeOpts,
+    lite = false,
+    historyTicks = DEFAULT_TICK_HISTORY,
+  ) {
     this.host = host;
     this.opts = opts;
     this.lite = lite;
+    this.historyTicks = Math.max(1, Math.trunc(historyTicks));
   }
 
   // The configured committee size, available without deriving keys (used for dividend payout + quorum sizing).
@@ -103,6 +110,7 @@ export class TickConsensus {
 
     // Empty lite-mode ticks commit no transactions, so skip their expensive quorum records.
     if (this.lite && txDigests.length === 0) {
+      this.pruneTicks(tick);
       return;
     }
 
@@ -142,15 +150,11 @@ export class TickConsensus {
     this.pruneTicks(tick);
   }
 
-  // Bound memory: keep the TickData + votes for the most recent TICK_HISTORY ticks only (each TickData ~41 KB).
+  // Keep only the configured finalized TickData and quorum window.
   private pruneTicks(tick: number): void {
-    if (this.ticks.size <= TICK_HISTORY) {
-      return;
-    }
-
-    const cutoff = tick - TICK_HISTORY;
+    const firstRetainedTick = tick - this.historyTicks + 1;
     for (const t of this.ticks.keys()) {
-      if (t < cutoff) {
+      if (t < firstRetainedTick) {
         this.ticks.delete(t);
       }
     }

@@ -19,6 +19,7 @@ import {
   CHUNK_DATA_MAX,
   LITE_TX,
   LOG_SEVERITY,
+  QUBIC_LOG_TYPE,
   MAINNET_COMPUTOR_COUNT,
   MAX_INPUT_SIZE,
   MAX_NUMBER_OF_CONTRACTS,
@@ -224,14 +225,16 @@ expectEqual(
   DeployMessage.SIZE,
 );
 
-// contract LOG_* severity codes (core define value must equal the qinit map key, and the name be present)
-for (const [code, symbol, name] of [
-  [4, "CONTRACT_ERROR_MESSAGE", "ERROR"],
-  [5, "CONTRACT_WARNING_MESSAGE", "WARN"],
-  [6, "CONTRACT_INFORMATION_MESSAGE", "INFO"],
-  [7, "CONTRACT_DEBUG_MESSAGE", "DEBUG"],
-] as const) {
+for (const [symbol, code] of Object.entries(QUBIC_LOG_TYPE)) {
   expectEqual(symbol, readDefine(LOG, symbol), code);
+}
+
+for (const [code, name] of [
+  [QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE, "ERROR"],
+  [QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE, "WARN"],
+  [QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE, "INFO"],
+  [QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE, "DEBUG"],
+] as const) {
   if (LOG_SEVERITY[code] !== name) {
     failures.push(`LOG_SEVERITY[${code}] = ${LOG_SEVERITY[code]} != ${name}`);
   }

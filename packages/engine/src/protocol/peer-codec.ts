@@ -4,6 +4,7 @@ import {
   M256i,
   RequestResponseHeader,
   ASSET_TYPE,
+  ASSET_RECORD_SIZE,
   SPECTRUM_DEPTH,
   ASSETS_DEPTH,
   TXS_PER_TICK,
@@ -21,6 +22,18 @@ import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 export { SPECTRUM_DEPTH, ASSETS_DEPTH, TXS_PER_TICK };
 export const HEADER_SIZE = RequestResponseHeader.SIZE; // 8 — network_messages/header.h
 export const CLI_NUMBER_OF_COMPUTORS = MAINNET_COMPUTOR_COUNT;
+export const QUORUM_VOTE_FLAGS_SIZE = Math.ceil(
+  CLI_NUMBER_OF_COMPUTORS / 8,
+);
+// Core sends sizeof(RequestQuorumTick), including three bytes of tail padding.
+export const REQUEST_QUORUM_TICK_SIZE =
+  (RequestTickData.SIZE + QUORUM_VOTE_FLAGS_SIZE + 3) & ~3;
+export const TICK_TRANSACTION_FLAGS_SIZE = TXS_PER_TICK / 8;
+export const REQUEST_TICK_TRANSACTIONS_SIZE =
+  RequestTickData.SIZE + TICK_TRANSACTION_FLAGS_SIZE;
+const REQUEST_ASSETS_BY_INDEX_SIZE = 8;
+const REQUEST_ASSETS_FILTER_SIZE = 112;
+const RESPOND_ASSETS_SIZE = ASSET_RECORD_SIZE + 8;
 
 // network_message_type.h — only the types the bridge handles.
 export const MSG = {
@@ -55,6 +68,8 @@ export const MSG = {
   RESPOND_LOG_ID_RANGE_FROM_TX: 49,
   REQUEST_ALL_LOG_ID_RANGES_FROM_TX: 50,
   RESPOND_ALL_LOG_ID_RANGES_FROM_TX: 51,
+  REQUEST_ASSETS: 52,
+  RESPOND_ASSETS: 53,
   REQUEST_PRUNING_LOG: 56,
   RESPOND_PRUNING_LOG: 57,
   REQUEST_LOG_STATE_DIGEST: 58,
@@ -123,9 +138,167 @@ export function decodeContractFunction(p: Uint8Array): ContractFunctionRequest {
   return { contractIndex: r.contractIndex, inputType: r.inputType, inputSize: r.inputSize, input };
 }
 
+export const ASSET_REQUEST_FLAG = {
+  GET_SIBLINGS: 1 << 0,
+  ANY_ISSUER: 1 << 1,
+  ANY_ASSET_NAME: 1 << 2,
+  ANY_OWNER: 1 << 3,
+  ANY_OWNERSHIP_MANAGING_CONTRACT: 1 << 4,
+  ANY_POSSESSOR: 1 << 5,
+  ANY_POSSESSION_MANAGING_CONTRACT: 1 << 6,
+} as const;
+
+export type AssetsRequest =
+  | {
+    kind: "issuance";
+    includeSiblings: boolean;
+    issuer?: Uint8Array;
+    name?: bigint;
+  }
+  | {
+    kind: "ownership";
+    includeSiblings: boolean;
+    issuer: Uint8Array;
+    name: bigint;
+    owner?: Uint8Array;
+    ownershipManagingContractIndex?: number;
+  }
+  | {
+    kind: "possession";
+    includeSiblings: boolean;
+    issuer: Uint8Array;
+    name: bigint;
+    owner?: Uint8Array;
+    possessor?: Uint8Array;
+    ownershipManagingContractIndex?: number;
+    possessionManagingContractIndex?: number;
+  }
+  | {
+    kind: "index";
+    includeSiblings: boolean;
+    universeIndex: number;
+  };
+
+export function decodeAssetsRequest(p: Uint8Array): AssetsRequest | null {
+  if (
+    p.length < REQUEST_ASSETS_BY_INDEX_SIZE ||
+    p.length > REQUEST_ASSETS_FILTER_SIZE
+  ) {
+    return null;
+  }
+
+  const data = new DataView(p.buffer, p.byteOffset, p.byteLength);
+  const requestType = data.getUint16(0, true);
+  const flags = data.getUint16(2, true);
+  const includeSiblings = (flags & ASSET_REQUEST_FLAG.GET_SIBLINGS) !== 0;
+
+  if (requestType === 3) {
+    return {
+      kind: "index",
+      includeSiblings,
+      universeIndex: data.getUint32(4, true),
+    };
+  }
+  if (p.length !== REQUEST_ASSETS_FILTER_SIZE || requestType > 2) {
+    return null;
+  }
+
+  const issuer = p.subarray(8, 40);
+  const name = data.getBigUint64(40, true);
+  const owner = p.subarray(48, 80);
+  const possessor = p.subarray(80, 112);
+
+  if (requestType === 0) {
+    return {
+      kind: "issuance",
+      includeSiblings,
+      issuer: (flags & ASSET_REQUEST_FLAG.ANY_ISSUER) !== 0
+        ? undefined
+        : issuer,
+      name: (flags & ASSET_REQUEST_FLAG.ANY_ASSET_NAME) !== 0
+        ? undefined
+        : name,
+    };
+  }
+
+  const ownershipManagingContractIndex = data.getUint16(4, true);
+  const ownershipRequest = {
+    includeSiblings,
+    issuer,
+    name,
+    owner: (flags & ASSET_REQUEST_FLAG.ANY_OWNER) !== 0
+      ? undefined
+      : owner,
+    ownershipManagingContractIndex:
+      (flags & ASSET_REQUEST_FLAG.ANY_OWNERSHIP_MANAGING_CONTRACT) !== 0
+        ? undefined
+        : ownershipManagingContractIndex,
+  };
+
+  if (requestType === 1) {
+    return { kind: "ownership", ...ownershipRequest };
+  }
+
+  return {
+    kind: "possession",
+    includeSiblings,
+    issuer,
+    name,
+    owner: ownershipRequest.owner,
+    possessor: (flags & ASSET_REQUEST_FLAG.ANY_POSSESSOR) !== 0
+      ? undefined
+      : possessor,
+    ownershipManagingContractIndex:
+      ownershipRequest.ownershipManagingContractIndex,
+    possessionManagingContractIndex:
+      (flags & ASSET_REQUEST_FLAG.ANY_POSSESSION_MANAGING_CONTRACT) !== 0
+        ? undefined
+        : data.getUint16(6, true),
+  };
+}
+
 // A 4-byte little-endian tick (RequestedTickData / RequestTxStatus / RequestedQuorumTick prefix).
 export function decodeTick(p: Uint8Array): number {
   return RequestTickData.wrap(p).tick;
+}
+
+export interface QuorumTickRequest {
+  tick: number;
+  voteFlags: Uint8Array;
+}
+
+export function decodeQuorumTickRequest(
+  p: Uint8Array,
+): QuorumTickRequest | null {
+  if (p.length !== REQUEST_QUORUM_TICK_SIZE) {
+    return null;
+  }
+
+  return {
+    tick: decodeTick(p),
+    voteFlags: p.subarray(
+      RequestTickData.SIZE,
+      RequestTickData.SIZE + QUORUM_VOTE_FLAGS_SIZE,
+    ),
+  };
+}
+
+export interface TickTransactionsRequest {
+  tick: number;
+  transactionFlags: Uint8Array;
+}
+
+export function decodeTickTransactionsRequest(
+  p: Uint8Array,
+): TickTransactionsRequest | null {
+  if (p.length !== REQUEST_TICK_TRANSACTIONS_SIZE) {
+    return null;
+  }
+
+  return {
+    tick: decodeTick(p),
+    transactionFlags: p.subarray(RequestTickData.SIZE),
+  };
 }
 
 export function hasZeroLogPasscode(p: Uint8Array): boolean {
@@ -307,6 +480,8 @@ export interface OwnedAssetView {
   decimals: number;
   shares: bigint;
   managingContractIndex: number;
+  tick?: number;
+  issuanceRecord?: Uint8Array;
 }
 
 // Encode ownership and issuance records with their universe Merkle proof.
@@ -321,7 +496,7 @@ export function encodeRespondOwnedAssets(
   const own = r.asset;
   if (record) {
     // the stored universe record verbatim — a rebuilt one would drop issuanceIndex and break the proof
-    own.bytes.set(record.subarray(0, 48));
+    own.bytes.set(record.subarray(0, ASSET_RECORD_SIZE));
   } else {
     own.publicKey = v.owner;
     own.type = ASSET_TYPE.OWNERSHIP;
@@ -330,12 +505,16 @@ export function encodeRespondOwnedAssets(
   }
 
   const iss = r.issuanceAsset;
-  iss.publicKey = v.issuer;
-  iss.type = ASSET_TYPE.ISSUANCE;
-  iss.nameString = v.name;
-  iss.numberOfDecimalPlaces = v.decimals;
+  if (v.issuanceRecord) {
+    iss.bytes.set(v.issuanceRecord.subarray(0, ASSET_RECORD_SIZE));
+  } else {
+    iss.publicKey = v.issuer;
+    iss.type = ASSET_TYPE.ISSUANCE;
+    iss.nameString = v.name;
+    iss.numberOfDecimalPlaces = v.decimals;
+  }
 
-  // tick stays zero; universeIndex + siblings are the ownership-record merkle proof
+  r.tick = v.tick ?? 0;
   r.universeIndex = universeIndex;
   for (let i = 0; i < siblings.length && i < ASSETS_DEPTH; i++) {
     r.siblings.set(i, siblings[i]);
@@ -352,6 +531,9 @@ export interface PossessedAssetView {
   shares: bigint;
   possessionManagingContract: number;
   ownershipManagingContract: number;
+  tick?: number;
+  ownershipRecord?: Uint8Array;
+  issuanceRecord?: Uint8Array;
 }
 
 // Encode possession, ownership, and issuance records with their universe Merkle proof.
@@ -366,7 +548,7 @@ export function encodeRespondPossessedAssets(
   const pos = r.asset;
   if (record) {
     // the stored universe record verbatim — a rebuilt one would drop ownershipIndex and break the proof
-    pos.bytes.set(record.subarray(0, 48));
+    pos.bytes.set(record.subarray(0, ASSET_RECORD_SIZE));
   } else {
     pos.publicKey = v.possessor;
     pos.type = ASSET_TYPE.POSSESSION;
@@ -375,21 +557,63 @@ export function encodeRespondPossessedAssets(
   }
 
   const own = r.ownershipAsset;
-  own.publicKey = v.owner;
-  own.type = ASSET_TYPE.OWNERSHIP;
-  own.managingContractIndex = v.ownershipManagingContract;
-  own.numberOfShares = v.shares;
+  if (v.ownershipRecord) {
+    own.bytes.set(v.ownershipRecord.subarray(0, ASSET_RECORD_SIZE));
+  } else {
+    own.publicKey = v.owner;
+    own.type = ASSET_TYPE.OWNERSHIP;
+    own.managingContractIndex = v.ownershipManagingContract;
+    own.numberOfShares = v.shares;
+  }
 
   const iss = r.issuanceAsset;
-  iss.publicKey = v.issuer;
-  iss.type = ASSET_TYPE.ISSUANCE;
-  iss.nameString = v.name;
-  iss.numberOfDecimalPlaces = v.decimals;
+  if (v.issuanceRecord) {
+    iss.bytes.set(v.issuanceRecord.subarray(0, ASSET_RECORD_SIZE));
+  } else {
+    iss.publicKey = v.issuer;
+    iss.type = ASSET_TYPE.ISSUANCE;
+    iss.nameString = v.name;
+    iss.numberOfDecimalPlaces = v.decimals;
+  }
 
-  // tick stays zero; universeIndex + siblings are the possession-record merkle proof
+  r.tick = v.tick ?? 0;
   r.universeIndex = universeIndex;
   for (let i = 0; i < siblings.length && i < ASSETS_DEPTH; i++) {
     r.siblings.set(i, siblings[i]);
   }
   return r.bytes;
+}
+
+export interface AssetRecordResponse {
+  record: Uint8Array;
+  tick: number;
+  universeIndex: number;
+  siblings?: Uint8Array[];
+}
+
+export function encodeRespondAssets(v: AssetRecordResponse): Uint8Array {
+  const withSiblings = v.siblings !== undefined;
+  const out = new Uint8Array(
+    RESPOND_ASSETS_SIZE + (withSiblings ? ASSETS_DEPTH * 32 : 0),
+  );
+  out.set(v.record.subarray(0, ASSET_RECORD_SIZE));
+
+  const data = new DataView(out.buffer);
+  data.setUint32(ASSET_RECORD_SIZE, v.tick, true);
+  data.setUint32(ASSET_RECORD_SIZE + 4, v.universeIndex, true);
+
+  if (v.siblings) {
+    for (
+      let index = 0;
+      index < v.siblings.length && index < ASSETS_DEPTH;
+      index++
+    ) {
+      out.set(
+        v.siblings[index].subarray(0, 32),
+        RESPOND_ASSETS_SIZE + index * 32,
+      );
+    }
+  }
+
+  return out;
 }

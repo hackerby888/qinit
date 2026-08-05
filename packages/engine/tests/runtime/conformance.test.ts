@@ -1,7 +1,7 @@
 // Verifies fee gating, exemptions, depletion, refill, IPO seeding, and reserve behavior.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import { contractId, readUint64LE } from "../support/helpers";
 

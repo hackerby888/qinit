@@ -1,5 +1,5 @@
 // Execution-fee reserves mirror core-lite Contract-0 accounting and Qinit's simulation policy.
-import { MAX_NUMBER_OF_CONTRACTS } from "./consensus";
+import { MAX_NUMBER_OF_CONTRACTS } from "../chain/consensus";
 import { MAINNET_COMPUTOR_COUNT } from "@qinit/proto";
 
 // "off" preserves legacy execution; "metered" enforces live fee reserves.

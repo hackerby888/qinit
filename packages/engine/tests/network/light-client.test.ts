@@ -1,8 +1,8 @@
 // Verifies entity Merkle proofs against spectrum roots signed by a computor quorum.
 import { test, expect } from "bun:test";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { verifyEntityProof } from "../../src/consensus";
+import { verifyEntityProof } from "../../src/chain/consensus";
 
 const SEEDS4 = ["b".repeat(55), "c".repeat(55), "d".repeat(55), "e".repeat(55)];
 const A = new Uint8Array(32).fill(0x33);

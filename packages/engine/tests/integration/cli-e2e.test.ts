@@ -2,7 +2,7 @@
 import { test, expect, beforeAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
 import { contractId } from "../support/helpers";
 import { PeerServer } from "../../src/peer-server";
@@ -11,6 +11,7 @@ import { deriveIdentity, bytesToIdentity } from "@qinit/core";
 const CLI = process.env.QUBIC_CLI ?? "";
 const have = CLI !== "" && existsSync(CLI);
 const it = test.skipIf(!have);
+const PRE_ADVANCED_FINALIZED_TICK = 3003;
 
 // Run the CLI against `port` and return its stdout.
 async function runCli(port: number, args: string[]): Promise<string> {
@@ -137,14 +138,18 @@ it("-gettickdata + -readtickdata verify the leader's signed TickData", async () 
     const compFile = "/tmp/qinit-cli-td-comps.bin";
     await runCli(port, ["-getcomputorlist", compFile]);
 
-    // tick 3 is finalized: the server pre-advances 5 ticks before it starts serving.
-    const got = await runCli(port, ["-gettickdata", "3", tdFile]);
+    // Epoch 1 starts at tick 3000; startup finalizes ticks 3001-3005.
+    const got = await runCli(port, [
+      "-gettickdata",
+      String(PRE_ADVANCED_FINALIZED_TICK),
+      tdFile,
+    ]);
     expect(got).toContain("Found");
     expect(got).toContain("written to");
 
     const read = await runCli(port, ["-readtickdata", tdFile, compFile]);
     expect(read).toContain("Epoch: 1"); // the TickData parsed regardless of arbitrator trust
-    expect(read).toMatch(/Tick: 3\b/);
+    expect(read).toMatch(new RegExp(`Tick: ${PRE_ADVANCED_FINALIZED_TICK}\\b`));
     if (arbitratorTrusted) {
       expect(read).toContain("Tick is VERIFIED"); // leader signature checks against computors[tick % N]
     }
@@ -205,9 +210,12 @@ it("-getquorumtick returns the tick's verifiable votes", async () => {
     const compFile = "/tmp/qinit-cli-qt-comps.bin";
     await runCli(port, ["-getcomputorlist", compFile]);
 
-    // tick 3 is finalized (the server pre-advances 5 ticks); the cli parses the 352-byte Tick votes
-    const out = await runCli(port, ["-getquorumtick", compFile, "3"]);
-    expect(out).toContain("quorum tick #3");
+    const out = await runCli(port, [
+      "-getquorumtick",
+      compFile,
+      String(PRE_ADVANCED_FINALIZED_TICK),
+    ]);
+    expect(out).toContain(`quorum tick #${PRE_ADVANCED_FINALIZED_TICK}`);
     expect(out).toContain("Number of unique votes:");
   } finally {
     stop();

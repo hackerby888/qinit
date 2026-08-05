@@ -140,6 +140,7 @@ describe("differential — oracle read / mining / shareholder host calls", () =>
       const pendingState = sim.contracts.get(27)!.state().slice();
 
       sim.resolveOracle(1n, reply);
+      sim.advance();
       sim.procedure(27, 2, undefined, { invocator: user });
       const resolvedState = sim.contracts.get(27)!.state().slice();
 

@@ -22,6 +22,7 @@ import {
 import { VirtualNode } from "../../src/transport";
 
 const SEED = "a".repeat(55);
+const UNSIGNED_SOURCE = new Uint8Array(32).fill(0x99);
 const ORACLE = "4b31b54f2213f1396cec4a1bd633b9409112d5969592c2c5fa66ddc1656f63c9";
 
 // Build an unsigned canonical transaction for deploy-wire tests with real header offsets.
@@ -32,6 +33,7 @@ function wrapTx(
 ): Uint8Array {
   const b = new Uint8Array(80 + payload.length + 64);
   const v = new DataView(b.buffer);
+  b.set(UNSIGNED_SOURCE, 0);
   b.set(destination, 32);
   v.setUint32(72, 10, true); // tick
   v.setUint16(76, inputType, true);
@@ -42,6 +44,7 @@ function wrapTx(
 
 test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)", async () => {
   const eng = await VirtualNode.create({ mempool: false }); // assert apply immediately (not mempool scheduling)
+  await eng.seedFaucet();
   eng.deploy(28, await wasm("Counter"), "Counter");
 
   // The registry exposes the entry input types used by deployment and clients.
@@ -87,7 +90,10 @@ test("seam: qinit codec + a REAL signed tx drive the in-process engine (Counter)
 });
 
 test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe -> oracle)", async () => {
-  const eng = await VirtualNode.create({ mempool: false }); // assert apply immediately (not mempool scheduling)
+  const eng = await VirtualNode.create({
+    mempool: false,
+    verifySigs: false,
+  });
   const so = await wasm("DigestProbe");
   const finalHashHex = await k12Hex(so);
   const sessionId = createUploadSessionId();
@@ -134,6 +140,7 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
       "uint64",
     ),
   ).toBe(0n);
+  eng.fund(UNSIGNED_SOURCE, 1n);
   await eng.broadcastTx(wrapTx(1, new Uint8Array(0), contractAddress(29))); // Inc (procedure it=1)
   expect(
     await decodeOutput(
@@ -149,7 +156,10 @@ test("seam: deploy via the UPLOAD_BEGIN/CHUNK/DEPLOY wire protocol (DigestProbe 
 });
 
 test("deployment routing requires the exact reserved address", async () => {
-  const eng = await VirtualNode.create({ mempool: false });
+  const eng = await VirtualNode.create({
+    mempool: false,
+    verifySigs: false,
+  });
   const otherAddress = LITE_DEPLOY_ADDRESS.slice();
   otherAddress[8] = 1;
 
@@ -178,10 +188,14 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
       encodeUploadBegin({ sessionId, totalSize, chunkCount, finalHashHex: hash }),
     );
 
-  begin(first, 8, 2, "11".repeat(32));
+  begin(first, 1009, 2, "11".repeat(32));
   (eng as any).handleDeployTx(
     LITE_TX.UPLOAD_CHUNK,
-    encodeUploadChunk({ sessionId: first, seq: 0, bytes: new Uint8Array([1, 2, 3]) }),
+    encodeUploadChunk({
+      sessionId: first,
+      seq: 0,
+      bytes: new Uint8Array(1008).fill(1),
+    }),
   );
   const active = (eng as any).upload;
   const buffer = [...active.buf];
@@ -190,7 +204,7 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
   expect((eng as any).upload).toBe(active);
   expect(await eng.dynUpload()).toMatchObject({
     sessionId: "11",
-    totalSize: 8,
+    totalSize: 1009,
     chunkCount: 2,
     receivedCount: 1,
     finalHash: "11".repeat(32),
@@ -205,8 +219,62 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
   expect((await eng.dynUpload()).receivedCount).toBe(1);
 });
 
+test("deployment sessions reject oversized modules, malformed chunks, and mismatched hashes", async () => {
+  const engine = new VirtualNode({ verifySigs: false });
+  const handle = (inputType: number, payload: Uint8Array) =>
+    (engine as any).handleDeployTx(inputType, payload);
+
+  expect(() =>
+    handle(
+      LITE_TX.UPLOAD_BEGIN,
+      encodeUploadBegin({
+        sessionId: 1n,
+        totalSize: 4 * 1024 * 1024 + 1,
+        chunkCount: 4162,
+        finalHashHex: "00".repeat(32),
+      }),
+    ),
+  ).toThrow("module size must be between");
+
+  const artifact = new Uint8Array([0x00, 0x61, 0x73, 0x6d]);
+  const finalHashHex = await k12Hex(artifact);
+  handle(
+    LITE_TX.UPLOAD_BEGIN,
+    encodeUploadBegin({
+      sessionId: 2n,
+      totalSize: artifact.length,
+      chunkCount: 1,
+      finalHashHex,
+    }),
+  );
+  const malformedChunk = encodeUploadChunk({
+    sessionId: 2n,
+    seq: 0,
+    bytes: artifact,
+  }).slice(0, -1);
+  expect(() =>
+    handle(LITE_TX.UPLOAD_CHUNK, malformedChunk),
+  ).toThrow("invalid length");
+
+  handle(
+    LITE_TX.UPLOAD_CHUNK,
+    encodeUploadChunk({ sessionId: 2n, seq: 0, bytes: artifact }),
+  );
+  expect(() =>
+    handle(
+      LITE_TX.DEPLOY,
+      encodeDeploy({
+        sessionId: 2n,
+        targetSlot: 29,
+        finalHashHex: "ff".repeat(32),
+      }),
+    ),
+  ).toThrow("deploy hash does not match");
+});
+
 test("signature verification (opt-in): valid signed tx accepted, tampered one rejected", async () => {
   const eng = await VirtualNode.create({ verifySigs: true, mempool: false }); // assert apply immediately
+  await eng.seedFaucet();
   eng.deploy(28, await wasm("Counter"), "Counter");
 
   const tx = await buildSignedTx(SEED, {
@@ -319,4 +387,77 @@ test("engine emits a diagnostic log stream (deploy/tick/tx events via onLog)", a
   quiet.deploy(28, await wasm("Counter"), "Counter");
   quiet.advanceTick(1);
   expect(true).toBe(true);
+});
+
+test("transaction records and raw bytes share the finalized tick history window", async () => {
+  const engine = await VirtualNode.create({
+    historyTicks: 2,
+  });
+  await engine.seedFaucet();
+  const transaction = await buildSignedTx(SEED, {
+    destination: new Uint8Array(32).fill(0x44),
+    amount: 1,
+    tick: 1,
+    inputType: 0,
+    payload: new Uint8Array(0),
+  });
+  const result = await engine.broadcastTx(transaction.bytes);
+  const transactionId = result.transactionId!;
+
+  expect(result.ok).toBe(true);
+  expect(transactionId).toBe(transaction.id);
+  engine.advanceTick(1);
+  expect(engine.rawTx(transactionId)).toEqual(transaction.bytes);
+  expect(engine.sim.txByHash(transactionId)).toBeDefined();
+
+  engine.advanceTick(2);
+  expect(engine.rawTx(transactionId)).toBeUndefined();
+  expect(engine.sim.txByHash(transactionId)).toBeUndefined();
+});
+
+test("a fault hides raw and indexed transactions from its unfinalized tick", async () => {
+  const engine = await VirtualNode.create({ verifySigs: false });
+  engine.deploy(28, await wasm("Trap"), "Trap");
+  engine.fund(UNSIGNED_SOURCE, 1n);
+
+  const first = wrapTx(
+    0,
+    new Uint8Array(0),
+    new Uint8Array(32).fill(0x77),
+  );
+  new DataView(first.buffer).setUint32(72, 1, true);
+
+  const trapInput = new Uint8Array(16);
+  const trapData = new DataView(trapInput.buffer);
+  trapData.setBigUint64(0, 7n, true);
+  trapData.setBigUint64(8, 0n, true);
+  const second = wrapTx(2, trapInput, contractAddress(28));
+  new DataView(second.buffer).setUint32(72, 1, true);
+
+  const firstResult = await engine.broadcastTx(first);
+  const secondResult = await engine.broadcastTx(second);
+  expect(firstResult.ok).toBe(true);
+  expect(secondResult.ok).toBe(true);
+  expect(engine.rawTx(firstResult.transactionId!)).toBeDefined();
+
+  expect(() => engine.advanceTick(1)).toThrow();
+  expect(engine.sim.faultInfo()?.txId).toBe(secondResult.transactionId);
+  expect(engine.rawTx(firstResult.transactionId!)).toBeUndefined();
+  expect(await engine.tickTransactions(1)).toEqual([]);
+  expect(
+    await engine.txStatus(1, firstResult.transactionId!),
+  ).toMatchObject({ found: false, moneyFlew: false });
+});
+
+test("a post-fault broadcast is not blamed for an earlier fault", async () => {
+  const engine = await VirtualNode.create({ verifySigs: false });
+  engine.deploy(28, await wasm("Trap"), "Trap");
+  const input = new Uint8Array(16);
+  new DataView(input.buffer).setBigUint64(0, 1n, true);
+
+  expect(() => engine.sim.procedure(28, 2, input)).toThrow();
+  expect(engine.sim.faultInfo()?.txId).toBeUndefined();
+
+  await expect(engine.broadcastTx(wrapTx(0, new Uint8Array(0)))).rejects.toThrow();
+  expect(engine.sim.faultInfo()?.txId).toBeUndefined();
 });

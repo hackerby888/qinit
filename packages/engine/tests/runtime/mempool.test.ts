@@ -2,7 +2,7 @@
 // of immediately. Off by default, so the rest of the engine keeps immediate-apply semantics.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import { contractId, readUint64LE } from "../support/helpers";
 
@@ -14,11 +14,13 @@ test("mempool mode: a tx applies + is recorded at its scheduled tick, not before
   await initK12();
   const sim = new QubicSimulator({ mempool: true });
   sim.deploy(28, await wasm("Counter"));
+  const source = new Uint8Array(32).fill(0x11);
+  sim.fund(source, 1n);
 
   const scheduled = sim.currentTick + 3;
   sim.enqueueTx(
     scheduled,
-    new Uint8Array(32).fill(0x11),
+    source,
     contractId(28),
     0n,
     INC,
@@ -44,10 +46,14 @@ test("mempool mode: numberOfTickTransactions reports the scheduled tick's tx-set
   await initK12();
   const sim = new QubicSimulator({ mempool: true });
   sim.deploy(28, await wasm("Counter"));
+  const firstSource = new Uint8Array(32).fill(0x11);
+  const secondSource = new Uint8Array(32).fill(0x22);
+  sim.fund(firstSource, 1n);
+  sim.fund(secondSource, 1n);
 
   const scheduled = sim.currentTick + 2;
-  sim.enqueueTx(scheduled, new Uint8Array(32).fill(0x11), contractId(28), 0n, INC, EMPTY, "a");
-  sim.enqueueTx(scheduled, new Uint8Array(32).fill(0x22), contractId(28), 0n, INC, EMPTY, "b");
+  sim.enqueueTx(scheduled, firstSource, contractId(28), 0n, INC, EMPTY, "a");
+  sim.enqueueTx(scheduled, secondSource, contractId(28), 0n, INC, EMPTY, "b");
 
   while (sim.currentTick < scheduled) {
     sim.advance();
@@ -64,10 +70,12 @@ test("mempool mode: a tx scheduled for a past/current tick applies immediately",
   await initK12();
   const sim = new QubicSimulator({ mempool: true });
   sim.deploy(28, await wasm("Counter"));
+  const source = new Uint8Array(32).fill(0x33);
+  sim.fund(source, 1n);
 
   sim.enqueueTx(
     sim.currentTick,
-    new Uint8Array(32),
+    source,
     contractId(28),
     0n,
     INC,
@@ -81,10 +89,12 @@ test("mempool off (default): a tx with a future tick still applies immediately",
   await initK12();
   const sim = new QubicSimulator();
   sim.deploy(28, await wasm("Counter"));
+  const source = new Uint8Array(32).fill(0x44);
+  sim.fund(source, 1n);
 
   sim.enqueueTx(
     sim.currentTick + 5,
-    new Uint8Array(32),
+    source,
     contractId(28),
     0n,
     INC,

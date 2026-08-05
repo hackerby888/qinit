@@ -2,6 +2,7 @@
 import {
   existsSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -12,6 +13,16 @@ import {
   AbiTypeKind,
   type AbiType,
 } from "@qinit/proto/contract-idl";
+import {
+  AssetIssuance,
+  AssetOwnershipChange,
+  AssetOwnershipManagingContractChange,
+  AssetPossessionChange,
+  AssetPossessionManagingContractChange,
+  Burning,
+  QuTransfer,
+} from "../../packages/proto/src/mutation-log";
+import { ORACLE_INTERFACES } from "../../packages/engine/src/oracle-interfaces/registry";
 
 const coreArg = process.env.QINIT_CORE;
 if (!coreArg) {
@@ -30,6 +41,59 @@ if (!existsSync(contractDefinition)) {
   throw new Error(`${core} is not a core-lite checkout`);
 }
 
+const mutationLogLayouts = [
+  ["QuTransfer", QuTransfer],
+  ["AssetIssuance", AssetIssuance],
+  ["AssetOwnershipChange", AssetOwnershipChange],
+  ["AssetPossessionChange", AssetPossessionChange],
+  [
+    "AssetOwnershipManagingContractChange",
+    AssetOwnershipManagingContractChange,
+  ],
+  [
+    "AssetPossessionManagingContractChange",
+    AssetPossessionManagingContractChange,
+  ],
+  ["Burning", Burning],
+] as const;
+
+function extractStruct(source: string, structName: string): string {
+  const declarationStart = source.indexOf(`struct ${structName}`);
+  if (declarationStart === -1) {
+    throw new Error(`Core logging struct ${structName} not found`);
+  }
+
+  const bodyStart = source.indexOf("{", declarationStart);
+  if (bodyStart === -1) {
+    throw new Error(`Core logging struct ${structName} has no body`);
+  }
+
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index++) {
+    if (source[index] === "{") {
+      depth++;
+    } else if (source[index] === "}") {
+      depth--;
+    }
+
+    if (depth === 0) {
+      const declarationEnd = source.indexOf(";", index);
+      if (declarationEnd === -1) {
+        break;
+      }
+      return source.slice(declarationStart, declarationEnd + 1);
+    }
+  }
+
+  throw new Error(`Core logging struct ${structName} is incomplete`);
+}
+
+const loggingHeader = join(core, "src", "logging", "logging.h");
+if (!existsSync(loggingHeader)) {
+  throw new Error(`${loggingHeader} is missing`);
+}
+const loggingSource = readFileSync(loggingHeader, "utf8");
+
 const lines = [
   "#include <cstddef>",
   "#include <cstdio>",
@@ -37,6 +101,10 @@ const lines = [
   "#include <type_traits>",
   "#include <utility>",
   '#include "contract_core/contract_def.h"',
+  "",
+  ...mutationLogLayouts.map(([structName]) =>
+    extractStruct(loggingSource, structName),
+  ),
   "",
   "template <typename T>",
   "using QinitClean = std::remove_cv_t<std::remove_reference_t<T>>;",
@@ -183,6 +251,46 @@ function assertType(
   }
 }
 
+function assertOracleLayout(
+  interfaceName: string,
+  layoutName: "OracleQuery" | "OracleReply",
+  layout: {
+    readonly SIZE: number;
+    readonly OFFSETS: Readonly<Record<string, number>>;
+  },
+): void {
+  const path = `${interfaceName}.${layoutName}`;
+  const nativeType = `OI::${interfaceName}::${layoutName}`;
+
+  lines.push(
+    `static_assert(sizeof(${nativeType}) == ${layout.SIZE}, ${message("OI", path, "size", layout.SIZE)});`,
+  );
+
+  for (const [fieldName, offset] of Object.entries(layout.OFFSETS)) {
+    lines.push(
+      `static_assert(__builtin_offsetof(${nativeType}, ${fieldName}) == ${offset}, ${message("OI", `${path}.${fieldName}`, "offset", offset)});`,
+    );
+  }
+}
+
+function assertMutationLogLayout(
+  structName: string,
+  layout: {
+    readonly SIZE: number;
+    readonly OFFSETS: Readonly<Record<string, number>>;
+  },
+): void {
+  lines.push(
+    `static_assert(sizeof(::${structName}) == ${layout.SIZE}, ${message("LOG", structName, "size", layout.SIZE)});`,
+  );
+
+  for (const [fieldName, offset] of Object.entries(layout.OFFSETS)) {
+    lines.push(
+      `static_assert(__builtin_offsetof(::${structName}, ${fieldName}) == ${offset}, ${message("LOG", `${structName}.${fieldName}`, "offset", offset)});`,
+    );
+  }
+}
+
 const catalog = systemContracts(core);
 if (!catalog.length) {
   throw new Error("core-lite contract catalog is empty");
@@ -227,6 +335,36 @@ for (const contract of catalog) {
   }
 }
 
+lines.push(
+  `static_assert(OI::oracleInterfacesCount == ${ORACLE_INTERFACES.length}, ${message("OI", "oracleInterfaces", "count", ORACLE_INTERFACES.length)});`,
+);
+
+for (const [interfaceIndex, oracleInterface] of ORACLE_INTERFACES.entries()) {
+  if (oracleInterface.index !== interfaceIndex) {
+    throw new Error(
+      `${oracleInterface.name} registry index ${interfaceIndex} does not match declared index ${oracleInterface.index}`,
+    );
+  }
+
+  lines.push(
+    `static_assert(OI::${oracleInterface.name}::oracleInterfaceIndex == ${oracleInterface.index}, ${message("OI", `${oracleInterface.name}.oracleInterfaceIndex`, "value", oracleInterface.index)});`,
+  );
+  assertOracleLayout(
+    oracleInterface.name,
+    "OracleQuery",
+    oracleInterface.query,
+  );
+  assertOracleLayout(
+    oracleInterface.name,
+    "OracleReply",
+    oracleInterface.reply,
+  );
+}
+
+for (const [structName, layout] of mutationLogLayouts) {
+  assertMutationLogLayout(structName, layout);
+}
+
 lines.push("");
 
 const scratch = mkdtempSync(join(tmpdir(), "qinit-idl-native-"));
@@ -262,7 +400,7 @@ try {
   }
 
   console.log(
-    `native IDL ABI OK — ${catalog.length} contracts, ${typeIndex} checked types`,
+    `native IDL ABI OK — ${catalog.length} contracts, ${typeIndex} checked types, ${ORACLE_INTERFACES.length} oracle interfaces, ${mutationLogLayouts.length} mutation log messages`,
   );
 } finally {
   rmSync(scratch, {

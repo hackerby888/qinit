@@ -1,6 +1,7 @@
 import { LOOPBACK_HOST, initK12 } from "@qinit/core";
 import { VirtualNode } from "./transport";
 import { PeerServer } from "./peer-server";
+import { EngineFaultedError } from "./qubic-simulator";
 
 export interface EngineServerHandle {
   rpcBaseUrl: string;
@@ -19,15 +20,31 @@ export class EngineServer {
     this.engine = engine;
   }
 
-  private applyTickMs(ms: number): number {
-    this.tickMs = Math.max(0, Number.isFinite(ms) ? ms : this.tickMs);
-    this.engine.sim.tickDuration = this.tickMs;
-
+  private stopTicker(): void {
     if (this.ticker) {
       clearInterval(this.ticker);
+      this.ticker = null;
     }
+  }
 
-    this.ticker = setInterval(() => this.engine.advanceTick(1), this.tickMs);
+  private advanceTick(): void {
+    try {
+      this.engine.advanceTick(1);
+    } catch (error) {
+      this.stopTicker();
+
+      if (!this.engine.sim.isFaulted()) {
+        console.error("engine ticker stopped:", error);
+      }
+    }
+  }
+
+  private applyTickMs(ms: number): number {
+    this.engine.sim.assertOperational();
+    this.tickMs = Math.max(0, Number.isFinite(ms) ? ms : this.tickMs);
+    this.engine.sim.tickDuration = this.tickMs;
+    this.stopTicker();
+    this.ticker = setInterval(() => this.advanceTick(), this.tickMs);
     return this.tickMs;
   }
 
@@ -50,7 +67,13 @@ export class EngineServer {
       });
 
     await engine.seedFaucet();
-    this.applyTickMs(tickMs);
+    if (
+      engine.sim.currentEpoch === 0 &&
+      engine.sim.currentTick === 0 &&
+      engine.sim.contracts.size === 0
+    ) {
+      engine.sim.bootstrapEpoch(1);
+    }
 
     const server = Bun.serve({
       port,
@@ -68,19 +91,26 @@ export class EngineServer {
             return json(await engine.tickInfo());
           }
 
+          if (path === "/live/v1/dev/fault") {
+            return json(await engine.faultInfo());
+          }
+
           if (path === "/live/v1/dyn-registry") {
             return json(await engine.dynRegistry());
           }
 
           if (path === "/live/v1/dyn-upload") {
+            engine.sim.assertOperational();
             return json(await engine.dynUpload());
           }
 
           if (path === "/live/v1/dev/funded-seed") {
+            engine.sim.assertOperational();
             return json({ seed: await engine.fundedSeed() });
           }
 
           if (path === "/live/v1/dev/funded-seeds") {
+            engine.sim.assertOperational();
             return json(
               await engine.fundedSeeds(
                 Number(query.get("limit") ?? 32),
@@ -127,6 +157,7 @@ export class EngineServer {
           }
 
           if (path === "/live/v1/dev/oracle-pending") {
+            engine.sim.assertOperational();
             const pendingQueries = await engine.oraclePending();
 
             return json({
@@ -186,6 +217,7 @@ export class EngineServer {
           }
 
           if (path.startsWith("/live/v1/balances/")) {
+            engine.sim.assertOperational();
             return json({
               balance: await engine.balance(
                 decodeURIComponent(path.slice("/live/v1/balances/".length)),
@@ -247,6 +279,7 @@ export class EngineServer {
             path === "/live/v1/querySmartContract" &&
             request.method === "POST"
           ) {
+            engine.sim.assertOperational();
             const body = (await request.json()) as {
               contractIndex: number;
               inputType: number;
@@ -315,8 +348,13 @@ export class EngineServer {
           const message = String(
             (error as Error)?.message ?? error,
           );
+          const status = error instanceof EngineFaultedError ? 503 : 500;
 
-          return json({ code: 500, message }, 500);
+          if (status === 503) {
+            this.stopTicker();
+          }
+
+          return json({ code: status, message }, status);
         }
       },
     });
@@ -328,6 +366,8 @@ export class EngineServer {
       this.peer = new PeerServer(this.engine);
       boundPeerPort = (await this.peer.start(peerPort, tickMs, false)).port;
     }
+
+    this.applyTickMs(tickMs);
 
     return {
       rpcBaseUrl: `http://${LOOPBACK_HOST}:${server.port}`,
@@ -342,10 +382,7 @@ export class EngineServer {
       this.peer = null;
     }
 
-    if (this.ticker) {
-      clearInterval(this.ticker);
-      this.ticker = null;
-    }
+    this.stopTicker();
 
     if (this.server) {
       this.server.stop(true);

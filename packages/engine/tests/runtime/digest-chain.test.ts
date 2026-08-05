@@ -1,11 +1,11 @@
 // Verifies tick votes commit the spectrum, universe, and computer roots reconstructed from proofs.
 import { test, expect, beforeAll } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12, toHex, verifySync } from "../../src/k12";
+import { initK12, toHex, verifySync } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { rootFromSiblings } from "../../src/merkle";
-import { tickVoteMessage, tickVoteSignature } from "../../src/consensus";
-import { Tick, M256i } from "../../src/wire";
+import { rootFromSiblings } from "../../src/ledger/merkle";
+import { tickVoteMessage, tickVoteSignature } from "../../src/chain/consensus";
+import { Tick, M256i } from "../../src/protocol/wire";
 import { contractId } from "../support/helpers";
 
 const SEEDS4 = ["b".repeat(55), "c".repeat(55), "d".repeat(55), "e".repeat(55)];

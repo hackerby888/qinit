@@ -1,7 +1,7 @@
 // Proxy exercises function and procedure calls into a lower-index Counter contract.
 import { test, expect } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import { readUint64LE } from "../support/helpers";
 

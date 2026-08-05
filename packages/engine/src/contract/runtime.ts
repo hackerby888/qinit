@@ -2,11 +2,11 @@ import {
   ASSET_ENUMERATION_RECORD,
   LHOST_ABI,
 } from "@qinit/core";
-import { k12Bytes, toHex } from "./k12";
-import { bytesEqual } from "./bytes";
-import { TRACE_STATE_CAP, type TraceRecorder } from "./trace";
+import { k12Bytes, toHex } from "../support/k12";
+import { bytesEqual } from "../support/bytes";
+import { TRACE_STATE_CAP, type TraceRecorder } from "../logging/trace";
 import { QpiContext } from "./abi";
-import { EntityRecord, M256i } from "./wire";
+import { EntityRecord, M256i } from "../protocol/wire";
 import { validateContractIndexSignature } from "./wasm-contract-index";
 
 const EMPTY = new Uint8Array(0);
@@ -286,6 +286,21 @@ export class ContractAbort extends Error {
   }
 }
 
+export class ContractExecutionError extends Error {
+  readonly cause: unknown;
+
+  constructor(
+    public readonly slot: number,
+    public readonly kind: number,
+    public readonly entry: number,
+    cause: unknown,
+  ) {
+    super(trapMessage(cause));
+    this.name = "ContractExecutionError";
+    this.cause = cause;
+  }
+}
+
 function trapMessage(err: unknown): string {
   if (err instanceof ContractAbort) {
     return `abort(${err.code})`;
@@ -308,6 +323,7 @@ export class Contract {
   sysMask = 0;
   metering = false;
   private dispatchDepth = 0;
+  private executionKinds: number[] = [];
   cost = 0n;
   lastCost = 0n;
   private inSizes = new Map<string, number>();
@@ -623,6 +639,7 @@ export class Contract {
     const startedAt = recorder ? performance.now() : 0;
 
     this.dispatchDepth++;
+    this.executionKinds.push(kind);
     try {
       this.ex.dispatch(
         kind >>> 0,
@@ -645,8 +662,16 @@ export class Contract {
           execNs: (performance.now() - startedAt) * 1e6,
         });
       }
-      throw error;
+      throw error instanceof ContractExecutionError
+        ? error
+        : new ContractExecutionError(
+            this.slot,
+            kind,
+            inputType,
+            error,
+          );
     } finally {
+      this.executionKinds.pop();
       this.dispatchDepth--;
 
       if (nested) {
@@ -695,13 +720,68 @@ export class Contract {
     this.writeCtx({});
     this.arenaStart = this.arenaBase + ((oldState.length + 15) & ~15);
     this.arenaTop = this.arenaStart;
-    this.ex.dispatch(
-      CONTRACT_ENTRY_KIND.MIGRATE >>> 0,
-      0,
-      oldStateOffset >>> 0,
-      0,
-      localsOffset >>> 0,
-    );
+    const recorder = this.trace?.enabled ? this.trace : null;
+    const stateBefore = recorder
+      ? this.stateSnapshot(TRACE_STATE_CAP)
+      : EMPTY;
+    const traceEntry = recorder
+      ? recorder.begin({
+          tick: this.host.tick(),
+          index: this.slot,
+          entry: 0,
+          kind: CONTRACT_ENTRY_KIND.MIGRATE,
+          invocator: undefined,
+          invocationReward: 0n,
+          input: oldState,
+          stateSize: this.stateSize,
+          stateBefore,
+        })
+      : null;
+    const startedAt = recorder ? performance.now() : 0;
+
+    this.executionKinds.push(CONTRACT_ENTRY_KIND.MIGRATE);
+    try {
+      this.ex.dispatch(
+        CONTRACT_ENTRY_KIND.MIGRATE >>> 0,
+        0,
+        oldStateOffset >>> 0,
+        0,
+        localsOffset >>> 0,
+      );
+    } catch (error) {
+      const stateAfter = recorder
+        ? this.stateSnapshot(TRACE_STATE_CAP)
+        : EMPTY;
+      recorder?.end(traceEntry, {
+        output: EMPTY,
+        ok: false,
+        trap: trapMessage(error),
+        stateBefore,
+        stateAfter,
+        execNs: (performance.now() - startedAt) * 1e6,
+      });
+
+      throw error instanceof ContractExecutionError
+        ? error
+        : new ContractExecutionError(
+            this.slot,
+            CONTRACT_ENTRY_KIND.MIGRATE,
+            0,
+            error,
+          );
+    } finally {
+      this.executionKinds.pop();
+    }
+
+    if (recorder) {
+      recorder.end(traceEntry, {
+        output: EMPTY,
+        ok: true,
+        stateBefore,
+        stateAfter: this.stateSnapshot(TRACE_STATE_CAP),
+        execNs: (performance.now() - startedAt) * 1e6,
+      });
+    }
     this.host.markDirty(this.slot);
   }
 
@@ -1123,18 +1203,18 @@ export class Contract {
         ),
       getOracleQuery: (queryId: bigint, outOff: number, size: number) => {
         const q = this.host.getOracleQuery(queryId);
-        if (!q) {
+        if (!q || q.length !== size) {
           return 0;
         }
-        u8().set(q.subarray(0, size), outOff);
+        u8().set(q, outOff);
         return 1;
       },
       getOracleReply: (queryId: bigint, outOff: number, size: number) => {
         const r = this.host.getOracleReply(queryId);
-        if (!r) {
+        if (!r || r.length !== size) {
           return 0;
         }
-        u8().set(r.subarray(0, size), outOff);
+        u8().set(r, outOff);
         return 1;
       },
       distributeDividends: (amountPerShare: bigint) => {
@@ -1239,6 +1319,45 @@ export class Contract {
         );
       },
     };
+
+    const mutatingImports = [
+      "markDirty",
+      "pauseLog",
+      "resumeLog",
+      "logBytes",
+      "transfer",
+      "transferTyped",
+      "burn",
+      "issueAsset",
+      "transferShareOwnershipAndPossession",
+      "acquireShares",
+      "releaseShares",
+      "bidInIPO",
+      "invokeOc",
+      "unsubscribeOracle",
+      "queryOracle",
+      "subscribeOracle",
+      "distributeDividends",
+      "liteInvokeProcedure",
+      "liteSetShareholderProposal",
+      "liteSetShareholderVotes",
+    ];
+
+    for (const name of mutatingImports) {
+      const hostFunction = lhost[name];
+      lhost[name] = (...args: unknown[]) => {
+        if (
+          this.executionKinds.at(-1) ===
+          CONTRACT_ENTRY_KIND.FUNCTION
+        ) {
+          throw new Error(
+            `contract function cannot call mutating host import ${name}`,
+          );
+        }
+
+        return hostFunction(...args);
+      };
+    }
     const missingLhost = Object.keys(LHOST_ABI).filter((name) => !(name in lhost));
     const extraLhost = Object.keys(lhost).filter((name) => !(name in LHOST_ABI));
     if (missingLhost.length || extraLhost.length) {

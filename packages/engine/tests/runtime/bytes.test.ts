@@ -4,7 +4,7 @@ import {
   concatBytes,
   first32BytesEqual,
   isZeroId,
-} from "../../src/bytes";
+} from "../../src/support/bytes";
 
 test("concatBytes preserves part order", () => {
   expect(concatBytes([new Uint8Array([1, 2]), new Uint8Array(), new Uint8Array([3])])).toEqual(

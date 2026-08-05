@@ -1,6 +1,6 @@
 // Unresolved env imports throw when called; the known assert helper remains a no-op.
 import { test, expect } from "bun:test";
-import { envImportStub } from "../../src/runtime";
+import { envImportStub } from "../../src/contract/runtime";
 
 test("an unprovided env import throws on call, naming the symbol", () => {
   const fn = envImportStub("_ZN3QPIL4smulEyy");

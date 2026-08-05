@@ -3,7 +3,7 @@ import { test, expect } from "bun:test";
 import { buildSignedTx, deriveIdentity } from "@qinit/core";
 import { contractAddress, encodeInput } from "@qinit/proto";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import { VirtualNode } from "../../src/transport";
 
@@ -64,6 +64,46 @@ test("insufficient source: moneyFlew false, no balance change (tx still recorded
   expect(sim.tickTransactions(sim.currentTick).length).toBe(1);
 });
 
+test("contract addresses cannot be transaction signers", async () => {
+  await initK12();
+  const sim = new QubicSimulator();
+  const source = contractAddress(28);
+  sim.fund(source, 100n);
+
+  expect(() =>
+    sim.applyTx(
+      source,
+      new Uint8Array(32).fill(0x22),
+      1n,
+      0,
+      new Uint8Array(0),
+      "contract-source",
+    ),
+  ).toThrow("contract addresses cannot sign transactions");
+  expect(sim.txByHash("contract-source")).toBeUndefined();
+});
+
+test("a zero-amount transaction from a missing entity does not invoke a contract", async () => {
+  await initK12();
+  const sim = new QubicSimulator();
+  sim.deploy(28, await wasm("Counter"));
+
+  const result = sim.applyTx(
+    new Uint8Array(32).fill(0x11),
+    contractAddress(28),
+    0n,
+    1,
+    new Uint8Array(0),
+    "missing-source",
+  );
+
+  expect(result.moneyFlew).toBe(false);
+  expect(
+    new DataView(sim.query(28, 1).buffer).getBigUint64(0, true),
+  ).toBe(0n);
+  expect(sim.txByHash("missing-source")).toBeDefined();
+});
+
 test("contract procedure tx (real signed): source debited, procedure runs with invocationReward", async () => {
   await initK12();
 
@@ -110,6 +150,28 @@ test("plain transfer to a contract (inputType 0): POST_INCOMING_TRANSFER fires, 
   expect(g.incomingCount).toBe(1n); // PIT (standardTransaction) fired
   expect(g.lastIncoming).toBe(50n);
   expect(eng.sim.balanceOf(28)).toBe(50n);
+});
+
+test("plain contract transfers report moneyFlew even when PIT returns the amount", async () => {
+  await initK12();
+
+  const sim = new QubicSimulator();
+  sim.deploy(28, await wasm("Refund"));
+  const source = new Uint8Array(32).fill(0x11);
+  sim.fund(source, 100n);
+
+  const result = sim.applyTx(
+    source,
+    contractAddress(28),
+    25n,
+    0,
+    new Uint8Array(0),
+    "returned-transfer",
+  );
+
+  expect(result.moneyFlew).toBe(true);
+  expect(sim.balance(source)).toBe(100n);
+  expect(sim.balanceOf(28)).toBe(0n);
 });
 
 test("getEntity: a contract reads an account's balance from the spectrum", async () => {

@@ -1,9 +1,9 @@
 // Deterministic tick-consensus model where one process plays all honest computors.
 // Each computor signs the same state digests and transaction set.
-import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "./k12";
-import { dateFields } from "./runtime";
-import { rootFromSiblings } from "./merkle";
-import { M256i, Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "./wire";
+import { k12Bytes, deriveKeysSync, signSync, verifySync, type KeyPair } from "../support/k12";
+import { dateFields } from "../contract/runtime";
+import { rootFromSiblings } from "../ledger/merkle";
+import { M256i, Tick, TickData, DIGEST_SIZE, SIG_SIZE, TXS_PER_TICK, TICKDATA_SIZE } from "../protocol/wire";
 import { MAX_NUMBER_OF_CONTRACTS } from "@qinit/proto";
 
 export { MAX_NUMBER_OF_CONTRACTS, TXS_PER_TICK, TICKDATA_SIZE };

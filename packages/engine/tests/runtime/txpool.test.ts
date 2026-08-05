@@ -1,7 +1,7 @@
 // TxPool (txs.ts) in isolation — no QubicSimulator. The per-tick tx history + tx-by-id index + the mempool scheduling
 // extracted from the simulator. Pure storage: no money/contract logic.
 import { test, expect } from "bun:test";
-import { TxPool, type TxRecord, type QueuedTx } from "../../src/txs";
+import { TxPool, type TxRecord, type QueuedTx } from "../../src/chain/txs";
 
 function rec(txId: string, tick: number): TxRecord {
   return {
@@ -68,4 +68,17 @@ test("dueCount peeks a tick's pending tx-set size without draining it (qpi numbe
 
   p.takeDue(10);
   expect(p.dueCount(10)).toBe(0); // drained
+});
+
+test("pruneFinalized removes transaction records outside the history window", () => {
+  const pool = new TxPool();
+  pool.record(rec("old", 3));
+  pool.record(rec("first-retained", 4));
+  pool.record(rec("latest", 5));
+
+  expect(pool.pruneFinalized(5, 2)).toEqual(["old"]);
+  expect(pool.txByHash("old")).toBeUndefined();
+  expect(pool.tickTransactions(3)).toEqual([]);
+  expect(pool.txByHash("first-retained")).toBeDefined();
+  expect(pool.txByHash("latest")).toBeDefined();
 });

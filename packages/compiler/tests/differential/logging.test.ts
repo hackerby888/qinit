@@ -3,6 +3,7 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
 import { QubicSimulator, VirtualNode } from "@qinit/engine";
+import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import { compileContract, loadQpiHeader } from "../../src/index";
 
 const CORE = CORE_PATH;
@@ -53,7 +54,13 @@ describe("QPI LOG_* lowering", () => {
     sim.deploy(28, result.wasm);
     sim.procedure(28, 1, Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0));
     const logs = sim.getTrace().entries.at(-1)?.logs ?? [];
-    expect(logs.map((l) => l.type)).toEqual([4, 5, 6, 7, 6]);
+    expect(logs.map((l) => l.type)).toEqual([
+      QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE,
+      QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE,
+      QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE,
+      QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE,
+      QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE,
+    ]);
     expect(logs.every((l) => l.size === 17)).toBe(true);
     expect(logs.every((l) => l.hex.length === 34)).toBe(true);
   });
@@ -78,10 +85,13 @@ describe("QPI LOG_* lowering", () => {
       Uint8Array.of(42, 0, 0, 0, 0, 0, 0, 0),
       "tx",
     );
-    node.logger.finalizeTick(node.sim.currentTick);
+    node.advanceTick(1);
     const range = node.logger.range(node.sim.currentTick, 0);
-    expect(range).toEqual({ fromLogId: 0n, length: 4n });
-    const records = node.logger.recordsBetween(0n, 3n)!;
+    expect(range).toEqual({ fromLogId: 0n, length: 5n });
+    const records = node.logger.recordsBetween(
+      range.fromLogId + 1n,
+      range.fromLogId + range.length - 1n,
+    )!;
     expect(new DataView(records.buffer).getUint32(26, true)).toBe(28);
   });
 

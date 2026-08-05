@@ -1,8 +1,9 @@
 // AssetLedger (assets.ts) in isolation — no QubicSimulator. A fake AssetHost supplies only the contract-id derivation, so
 // the issuance / share-transfer / management-rights / universe-merkle logic is exercised directly.
 import { test, expect, beforeAll } from "bun:test";
-import { initK12, toHex } from "../../src/k12";
-import { AssetLedger, packAssetName, unpackAssetName } from "../../src/assets";
+import { initK12, toHex } from "../../src/support/k12";
+import { AssetLedger, packAssetName, unpackAssetName } from "../../src/ledger/assets";
+import { ASSET_TYPE, AssetRecord } from "../../src/protocol/wire";
 import { contractId } from "../support/helpers";
 
 beforeAll(async () => {
@@ -112,6 +113,66 @@ test("getUniverseDigest is deterministic and changes with a holding; proofs carr
   expect(proofs.length).toBeGreaterThanOrEqual(1);
   expect(proofs[0].siblings.length).toBe(24); // ASSETS_DEPTH
   expect(proofs[0].record.length).toBe(48); // AssetRecord
+});
+
+test("universe proof helpers retain records, links, and managing contracts", () => {
+  const assets = ledger();
+  const issuer = contractId(1);
+  const bob = userId(0xbb);
+  assets.issueAsset(1, NAME, issuer, 2, 1000n, 0x0102n, issuer);
+  assets.transferShareOwnershipAndPossession(
+    1,
+    NAME,
+    issuer,
+    issuer,
+    issuer,
+    300n,
+    bob,
+  );
+  assets.transferShareManagementRights(NAME, issuer, bob, bob, 1, 7, 100n);
+
+  const issued = assets.universeProofIssued(issuer);
+  expect(issued).toHaveLength(1);
+  expect(AssetRecord.wrap(issued[0].record).type).toBe(ASSET_TYPE.ISSUANCE);
+
+  const ownerships = assets.universeProofOwnerships({
+    issuer,
+    name: NAME,
+    owner: bob,
+    ownershipManagingContractIndex: 7,
+  });
+  expect(ownerships).toHaveLength(1);
+  const ownership = AssetRecord.wrap(ownerships[0].record);
+  expect(ownership.type).toBe(ASSET_TYPE.OWNERSHIP);
+  expect(ownership.managingContractIndex).toBe(7);
+  expect(ownership.numberOfShares).toBe(100n);
+
+  const possessions = assets.universeProofPossessions({
+    issuer,
+    name: NAME,
+    owner: bob,
+    possessor: bob,
+    ownershipManagingContractIndex: 7,
+    possessionManagingContractIndex: 7,
+  });
+  expect(possessions).toHaveLength(1);
+  const possession = AssetRecord.wrap(possessions[0].record);
+  expect(possession.type).toBe(ASSET_TYPE.POSSESSION);
+  expect(possession.ownershipIndex).toBe(ownerships[0].index);
+
+  const legacyProof = assets.universeProofPossessed(bob).find(
+    (proof) => proof.possessionManagingContractIndex === 7,
+  )!;
+  expect(legacyProof.ownershipManagingContractIndex).toBe(7);
+  expect(legacyProof.ownershipIndex).toBe(ownerships[0].index);
+  expect(legacyProof.ownershipRecord).toEqual(ownerships[0].record);
+  expect(
+    AssetRecord.wrap(legacyProof.issuanceRecord).unitOfMeasurement[0],
+  ).toBe(2);
+  expect(assets.universeProofAt(ownerships[0].index)?.record).toEqual(
+    ownerships[0].record,
+  );
+  expect(assets.universeProofAt(-1)).toBeNull();
 });
 
 test("assetUniverse snapshots issued assets with the name decoded", () => {

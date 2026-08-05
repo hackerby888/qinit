@@ -1,6 +1,6 @@
-import { packDateAndTime } from "./runtime";
+import { packDateAndTime } from "../contract/runtime";
+import { ORACLE_INTERFACES } from "../oracle-interfaces/registry";
 import {
-  MAX_ORACLE_QUERY_SIZE,
   MAX_ORACLE_REPLY_SIZE,
   ORACLE_STATUS,
 } from "@qinit/proto";
@@ -91,17 +91,22 @@ export class OracleManager {
     replySize: number,
     notificationProcId: number,
     timeoutMillisec: number,
-    fee: bigint,
+    _wasmFee: bigint,
   ): bigint {
+    const oracleInterface = ORACLE_INTERFACES[interfaceIndex];
     if (
-      query.length > MAX_ORACLE_QUERY_SIZE ||
-      replySize < 0 ||
-      replySize > MAX_ORACLE_REPLY_SIZE ||
+      !oracleInterface ||
+      query.length !== oracleInterface.query.SIZE ||
+      replySize !== oracleInterface.reply.SIZE ||
       timeoutMillisec < 0 ||
-      timeoutMillisec > MAX_QUERY_TIMEOUT_MS ||
-      fee < MIN_QUERY_FEE ||
-      !this.chargeFee(slot, fee)
+      timeoutMillisec > MAX_QUERY_TIMEOUT_MS
     ) {
+      this.fire(slot, notificationProcId, -1n, -1, ORACLE_STATUS.UNKNOWN, replySize);
+      return -1n;
+    }
+
+    const queryFee = oracleInterface.getQueryFee(query);
+    if (queryFee < MIN_QUERY_FEE || !this.chargeFee(slot, queryFee)) {
       this.fire(slot, notificationProcId, -1n, -1, ORACLE_STATUS.UNKNOWN, replySize);
       return -1n;
     }
@@ -127,10 +132,11 @@ export class OracleManager {
     notifyPrevious: boolean,
     fee: bigint,
   ): number {
+    const oracleInterface = ORACLE_INTERFACES[interfaceIndex];
     const valid =
-      query.length <= MAX_ORACLE_QUERY_SIZE &&
-      replySize >= 0 &&
-      replySize <= MAX_ORACLE_REPLY_SIZE &&
+      oracleInterface !== undefined &&
+      query.length === oracleInterface.query.SIZE &&
+      replySize === oracleInterface.reply.SIZE &&
       timestampOffset >= 0 &&
       timestampOffset + 8 <= query.length &&
       periodMillisec >= MIN_SUBSCRIPTION_PERIOD_MS &&

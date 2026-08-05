@@ -1,8 +1,16 @@
-import { toHex, k12Bytes } from "./k12";
+import { toHex, k12Bytes } from "../support/k12";
 import { SparseMerkle } from "./merkle";
-import { AssetRecord, ASSET_RECORD_SIZE, ASSETS_DEPTH } from "./wire";
-import { Asset, AssetSelect } from "./abi";
-import { first32BytesEqual, isZeroId } from "./bytes";
+import { AssetRecord, ASSET_RECORD_SIZE, ASSETS_DEPTH } from "../protocol/wire";
+import { Asset, AssetSelect } from "../contract/abi";
+import { first32BytesEqual, isZeroId } from "../support/bytes";
+import {
+  encodeAssetIssuanceLog,
+  encodeAssetOwnershipChangeLog,
+  encodeAssetOwnershipManagingContractChangeLog,
+  encodeAssetPossessionChangeLog,
+  encodeAssetPossessionManagingContractChangeLog,
+  QUBIC_LOG_TYPE,
+} from "@qinit/proto";
 
 export const MAX_AMOUNT = 1000000000000000n; // ISSUANCE_RATE(1e12) * 1000 — core-lite network_messages/common_def.h
 export const INVALID_AMOUNT = -9223372036854775808n; // qpi.h INVALID_AMOUNT (INT64_MIN)
@@ -49,23 +57,58 @@ export interface AssetSnapshot {
   }[];
 }
 
-export interface OwnedProof {
+export interface AssetRecordProof {
   record: Uint8Array;
-  issuer: Uint8Array;
-  name: bigint;
-  decimals: number;
-  managingContractIndex: number;
-  shares: bigint;
   index: number;
   siblings: Uint8Array[];
 }
 
+export interface IssuedProof extends AssetRecordProof {
+  issuer: Uint8Array;
+  name: bigint;
+  decimals: number;
+}
+
+export interface OwnedProof extends AssetRecordProof {
+  issuanceRecord: Uint8Array;
+  issuer: Uint8Array;
+  name: bigint;
+  decimals: number;
+  managingContractIndex: number;
+  ownershipManagingContractIndex: number;
+  shares: bigint;
+  issuanceIndex: number;
+}
+
 export interface PossessedProof extends OwnedProof {
   owner: Uint8Array;
+  ownershipRecord: Uint8Array;
+  ownershipManagingContractIndex: number;
+  possessionManagingContractIndex: number;
+  ownershipIndex: number;
+  ownershipShares: bigint;
+}
+
+export interface AssetIssuanceFilter {
+  issuer?: Uint8Array;
+  name?: bigint;
+}
+
+export interface AssetOwnershipFilter {
+  issuer: Uint8Array;
+  name: bigint;
+  owner?: Uint8Array;
+  ownershipManagingContractIndex?: number;
+}
+
+export interface AssetPossessionFilter extends AssetOwnershipFilter {
+  possessor?: Uint8Array;
+  possessionManagingContractIndex?: number;
 }
 
 export interface AssetHost {
   contractId(slot: number): Uint8Array;
+  logAssetMutation?(type: number, message: Uint8Array): void;
 }
 
 export function packAssetName(name: string): bigint {
@@ -378,6 +421,18 @@ export class AssetLedger {
     this.addOwnership(issuanceIndex, ownershipIndex);
     this.addPossession(ownershipIndex, possessionIndex);
 
+    this.host.logAssetMutation?.(
+      QUBIC_LOG_TYPE.ASSET_ISSUANCE,
+      encodeAssetIssuanceLog(
+        issuer,
+        shares,
+        managingContractIndex,
+        name,
+        decimals,
+        unit,
+      ),
+    );
+
     return shares;
   }
 
@@ -664,6 +719,41 @@ export class AssetLedger {
     }
   }
 
+  private logOwnershipAndPossessionChange(
+    sourceOwnership: LedgerRecord,
+    sourcePossession: LedgerRecord,
+    destination: Uint8Array,
+    issuance: LedgerRecord,
+    shares: bigint,
+  ): void {
+    this.host.logAssetMutation?.(
+      QUBIC_LOG_TYPE.ASSET_OWNERSHIP_CHANGE,
+      encodeAssetOwnershipChangeLog(
+        sourceOwnership.publicKey,
+        destination,
+        issuance.publicKey,
+        shares,
+        sourceOwnership.mgmt,
+        issuance.name,
+        issuance.decimals,
+        issuance.unit,
+      ),
+    );
+    this.host.logAssetMutation?.(
+      QUBIC_LOG_TYPE.ASSET_POSSESSION_CHANGE,
+      encodeAssetPossessionChangeLog(
+        sourcePossession.publicKey,
+        destination,
+        issuance.publicKey,
+        shares,
+        sourcePossession.mgmt,
+        issuance.name,
+        issuance.decimals,
+        issuance.unit,
+      ),
+    );
+  }
+
   private transferOwnershipAndPossessionIdx(
     sourceOwnershipIndex: number,
     sourcePossessionIndex: number,
@@ -698,6 +788,14 @@ export class AssetLedger {
       sourcePossession.shares -= shares;
       this.markDirty(sourceOwnershipIndex);
       this.markDirty(sourcePossessionIndex);
+
+      this.logOwnershipAndPossessionChange(
+        sourceOwnership,
+        sourcePossession,
+        destination,
+        issuance,
+        shares,
+      );
 
       return true;
     }
@@ -795,6 +893,14 @@ export class AssetLedger {
     this.markDirty(destinationOwnershipIndex);
     this.markDirty(destinationPossessionIndex);
 
+    this.logOwnershipAndPossessionChange(
+      sourceOwnership,
+      sourcePossession,
+      destination,
+      this.record(sourceOwnership.crossRef)!,
+      shares,
+    );
+
     return true;
   }
 
@@ -858,7 +964,6 @@ export class AssetLedger {
         if (possession.shares < shares) {
           return possession.shares - shares;
         }
-
         const transferred = this.transferOwnershipAndPossessionIdx(
           ownershipIndex,
           possessionIndex,
@@ -897,7 +1002,6 @@ export class AssetLedger {
     ) {
       return false;
     }
-
     let destinationOwnershipIndex = this.startOf(
       sourceOwnership.publicKey,
     );
@@ -1000,6 +1104,31 @@ export class AssetLedger {
     this.markDirty(sourcePossessionIndex);
     this.markDirty(destinationOwnershipIndex);
     this.markDirty(destinationPossessionIndex);
+
+    const issuance = this.record(sourceOwnership.crossRef)!;
+    this.host.logAssetMutation?.(
+      QUBIC_LOG_TYPE.ASSET_OWNERSHIP_MANAGING_CONTRACT_CHANGE,
+      encodeAssetOwnershipManagingContractChangeLog(
+        sourceOwnership.publicKey,
+        issuance.publicKey,
+        sourceOwnership.mgmt,
+        destinationOwnershipManager,
+        shares,
+        issuance.name,
+      ),
+    );
+    this.host.logAssetMutation?.(
+      QUBIC_LOG_TYPE.ASSET_POSSESSION_MANAGING_CONTRACT_CHANGE,
+      encodeAssetPossessionManagingContractChangeLog(
+        sourcePossession.publicKey,
+        sourceOwnership.publicKey,
+        issuance.publicKey,
+        sourcePossession.mgmt,
+        destinationPossessionManager,
+        shares,
+        issuance.name,
+      ),
+    );
 
     return true;
   }
@@ -1131,9 +1260,13 @@ export class AssetLedger {
         unitBytes[byteIndex] = Number(remainingUnit & 0xffn);
         remainingUnit >>= 8n;
       }
-    } else {
+    } else if (ledgerRecord.type === OWNERSHIP) {
       wireRecord.managingContractIndex = ledgerRecord.mgmt;
       wireRecord.issuanceIndex = ledgerRecord.crossRef;
+      wireRecord.numberOfShares = ledgerRecord.shares;
+    } else {
+      wireRecord.managingContractIndex = ledgerRecord.mgmt;
+      wireRecord.ownershipIndex = ledgerRecord.crossRef;
       wireRecord.numberOfShares = ledgerRecord.shares;
     }
 
@@ -1154,6 +1287,130 @@ export class AssetLedger {
 
     this.dirty.clear();
     return this.tree.root();
+  }
+
+  private universeProof(index: number): AssetRecordProof {
+    return {
+      record: this.recordBytes(index),
+      index,
+      siblings: this.tree!.siblings(index),
+    };
+  }
+
+  universeProofAt(index: number): AssetRecordProof | null {
+    if (!Number.isInteger(index) || index < 0 || index >= ASSET_CAPACITY) {
+      return null;
+    }
+
+    this.getUniverseDigest();
+    return this.universeProof(index);
+  }
+
+  universeProofIssuances(
+    filter: AssetIssuanceFilter = {},
+  ): IssuedProof[] {
+    this.getUniverseDigest();
+    const proofs: IssuedProof[] = [];
+    const requestedName =
+      filter.name === undefined
+        ? undefined
+        : filter.name & 0xffffffffffffffn;
+
+    for (
+      let issuanceIndex = this.firstIssuanceIndex;
+      issuanceIndex !== NO_ASSET_INDEX;
+      issuanceIndex =
+        this.nextIndex.get(issuanceIndex) ?? NO_ASSET_INDEX
+    ) {
+      const issuance = this.record(issuanceIndex)!;
+      if (
+        filter.issuer &&
+        !first32BytesEqual(issuance.publicKey, filter.issuer)
+      ) {
+        continue;
+      }
+      if (requestedName !== undefined && issuance.name !== requestedName) {
+        continue;
+      }
+
+      proofs.push({
+        ...this.universeProof(issuanceIndex),
+        issuer: issuance.publicKey,
+        name: issuance.name,
+        decimals: issuance.decimals,
+      });
+    }
+
+    return proofs;
+  }
+
+  universeProofIssued(issuer: Uint8Array): IssuedProof[] {
+    return this.universeProofIssuances({ issuer });
+  }
+
+  universeProofOwnerships(
+    filter: AssetOwnershipFilter,
+  ): AssetRecordProof[] {
+    this.getUniverseDigest();
+    const issuanceIndex = this.issuanceIndex(
+      filter.issuer,
+      filter.name & 0xffffffffffffffn,
+    );
+    if (issuanceIndex === NO_ASSET_INDEX) {
+      return [];
+    }
+
+    const selection: AssetSelection = {
+      id: filter.owner ?? new Uint8Array(32),
+      mgmt: filter.ownershipManagingContractIndex ?? 0,
+      anyId: filter.owner === undefined,
+      anyMgmt: filter.ownershipManagingContractIndex === undefined,
+    };
+
+    return this.ownershipIndices(issuanceIndex, selection).map(
+      (index) => this.universeProof(index),
+    );
+  }
+
+  universeProofPossessions(
+    filter: AssetPossessionFilter,
+  ): AssetRecordProof[] {
+    this.getUniverseDigest();
+    const issuanceIndex = this.issuanceIndex(
+      filter.issuer,
+      filter.name & 0xffffffffffffffn,
+    );
+    if (issuanceIndex === NO_ASSET_INDEX) {
+      return [];
+    }
+
+    const ownershipSelection: AssetSelection = {
+      id: filter.owner ?? new Uint8Array(32),
+      mgmt: filter.ownershipManagingContractIndex ?? 0,
+      anyId: filter.owner === undefined,
+      anyMgmt: filter.ownershipManagingContractIndex === undefined,
+    };
+    const possessionSelection: AssetSelection = {
+      id: filter.possessor ?? new Uint8Array(32),
+      mgmt: filter.possessionManagingContractIndex ?? 0,
+      anyId: filter.possessor === undefined,
+      anyMgmt: filter.possessionManagingContractIndex === undefined,
+    };
+    const proofs: AssetRecordProof[] = [];
+
+    for (const ownershipIndex of this.ownershipIndices(
+      issuanceIndex,
+      ownershipSelection,
+    )) {
+      for (const possessionIndex of this.possessionIndices(
+        ownershipIndex,
+        possessionSelection,
+      )) {
+        proofs.push(this.universeProof(possessionIndex));
+      }
+    }
+
+    return proofs;
   }
 
   universeProofOwned(ownerId: Uint8Array): OwnedProof[] {
@@ -1179,11 +1436,14 @@ export class AssetLedger {
 
         proofs.push({
           record: this.recordBytes(ownershipIndex),
+          issuanceRecord: this.recordBytes(issuanceIndex),
           issuer: issuance.publicKey,
           name: issuance.name,
           decimals: issuance.decimals,
           managingContractIndex: ownership.mgmt,
+          ownershipManagingContractIndex: ownership.mgmt,
           shares: ownership.shares,
+          issuanceIndex,
           index: ownershipIndex,
           siblings: this.tree!.siblings(ownershipIndex),
         });
@@ -1222,12 +1482,19 @@ export class AssetLedger {
 
           proofs.push({
             record: this.recordBytes(possessionIndex),
+            issuanceRecord: this.recordBytes(issuanceIndex),
             owner: ownership.publicKey,
+            ownershipRecord: this.recordBytes(ownershipIndex),
             issuer: issuance.publicKey,
             name: issuance.name,
             decimals: issuance.decimals,
             managingContractIndex: possession.mgmt,
+            ownershipManagingContractIndex: ownership.mgmt,
+            possessionManagingContractIndex: possession.mgmt,
             shares: possession.shares,
+            issuanceIndex,
+            ownershipIndex,
+            ownershipShares: ownership.shares,
             index: possessionIndex,
             siblings: this.tree!.siblings(possessionIndex),
           });

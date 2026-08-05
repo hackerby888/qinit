@@ -1,6 +1,6 @@
 // Typed views over Qubic wire structures mirrored from core-lite network_messages.
 // Struct layouts use primitive codecs rather than handwritten offsets.
-import { toHex } from "./k12";
+import { toHex } from "../support/k12";
 import {
   type Codec,
   u8,

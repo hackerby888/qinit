@@ -3,6 +3,7 @@ import {
   ASSETS_DEPTH,
   LITE_TX,
   LOG_SEVERITY,
+  QUBIC_LOG_TYPE,
   CHUNK_DATA_MAX,
   MAINNET_COMPUTOR_COUNT,
   MAX_INPUT_SIZE,
@@ -20,8 +21,13 @@ test("LITE_TX deploy inputTypes", () => {
   expect(LITE_TX).toEqual({ UPLOAD_BEGIN: 240, UPLOAD_CHUNK: 241, DEPLOY: 242 });
 });
 
-test("LOG_SEVERITY codes 4-7", () => {
-  expect(LOG_SEVERITY).toEqual({ 4: "ERROR", 5: "WARN", 6: "INFO", 7: "DEBUG" });
+test("LOG_SEVERITY uses the named Core message types", () => {
+  expect(LOG_SEVERITY).toEqual({
+    [QUBIC_LOG_TYPE.CONTRACT_ERROR_MESSAGE]: "ERROR",
+    [QUBIC_LOG_TYPE.CONTRACT_WARNING_MESSAGE]: "WARN",
+    [QUBIC_LOG_TYPE.CONTRACT_INFORMATION_MESSAGE]: "INFO",
+    [QUBIC_LOG_TYPE.CONTRACT_DEBUG_MESSAGE]: "DEBUG",
+  });
 });
 
 test("core network constants", () => {

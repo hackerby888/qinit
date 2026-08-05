@@ -25,6 +25,7 @@ export type { SignedTx, TxInput } from "./tx";
 export { LiteRpc } from "./rpc";
 export type {
   TickInfo,
+  EngineFaultInfo,
   DynamicContractRegistry,
   DynamicContractRegistryEntry,
   DynamicContractEntry,

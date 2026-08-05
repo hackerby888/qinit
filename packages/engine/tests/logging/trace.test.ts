@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
 import { QubicSimulator } from "../../src/qubic-simulator";
-import { TRACE_STATE_CAP, TraceRecorder } from "../../src/trace";
+import { TRACE_STATE_CAP, TraceRecorder } from "../../src/logging/trace";
 
 test("trace metadata keeps the full state size while snapshots stay capped", () => {
   const recorder = new TraceRecorder();

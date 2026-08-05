@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { QubicSimulator } from "../../src/qubic-simulator";
 import {
   contractId,
@@ -79,6 +79,9 @@ test("Price query resolves through its notification procedure", async () => {
   expect(sim.balance(contractId(SLOT))).toBe(999_990n);
   expect(sim.resolveOracle(queryId, priceReply(42n, 1n))).toBe(true);
   expect(readUint64LE(sim.query(SLOT, STATUS, statusInput(queryId)))).toBe(OQ_SUCCESS);
+  expect(last(sim).status).toBe(Number(OQ_UNKNOWN));
+
+  sim.advance();
   expect(last(sim)).toEqual({
     numerator: 42n,
     denominator: 1n,

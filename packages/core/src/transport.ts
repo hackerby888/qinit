@@ -4,6 +4,7 @@ import type {
   DynamicContractRegistry,
   DynamicContractUploadStatus,
   DebugTrace,
+  EngineFaultInfo,
 } from "./rpc";
 import type { BroadcastResult } from "./net";
 
@@ -47,6 +48,7 @@ export interface TxInfo {
 
 export interface NodeTransport {
   tickInfo(): Promise<TickInfo>;
+  faultInfo(): Promise<EngineFaultInfo | null>;
   dynRegistry(): Promise<DynamicContractRegistry>;
   dynUpload(): Promise<DynamicContractUploadStatus>;
   txStatus(tick: number, txId: string): Promise<TxStatus>;

@@ -1,6 +1,6 @@
 import { SYSTEM_PROCEDURES } from "@qinit/core";
 import { QubicSimulator } from "./qubic-simulator";
-import { CONTRACT_ENTRY_KIND, type Contract } from "./runtime";
+import { CONTRACT_ENTRY_KIND, type Contract } from "./contract/runtime";
 import type { TestResult } from "./gtest";
 
 export interface CompiledGtestProgram {

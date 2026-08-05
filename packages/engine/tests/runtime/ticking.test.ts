@@ -1,8 +1,8 @@
 // TickConsensus (ticking.ts) in isolation — no QubicSimulator. A fake ConsensusHost supplies the three state digests, the
 // tick's tx digests, and the clock/tick/epoch, so the committee + quorum-vote + TickData record logic runs
 import { test, expect, beforeAll } from "bun:test";
-import { initK12, toHex } from "../../src/k12";
-import { TickConsensus, type ConsensusHost } from "../../src/ticking";
+import { initK12, toHex } from "../../src/support/k12";
+import { TickConsensus, type ConsensusHost } from "../../src/chain/ticking";
 
 beforeAll(async () => {
   await initK12(); // committee key derivation + the vote/TickData signatures
@@ -115,6 +115,26 @@ test("lite ticking: a tick WITH transactions still builds the full quorum record
   expect(rec).toBeDefined();
   expect(rec.votes.length).toBe(4); // full committee vote set, even in lite mode
   expect(rec.aligned).toBeGreaterThanOrEqual(3);
+});
+
+test("lite ticking prunes sparse quorum records by finalized tick age", () => {
+  const h = fakeHostTx();
+  const tc = new TickConsensus(
+    h,
+    { computorSeeds: SEEDS },
+    true,
+    3,
+  );
+
+  h.t = 1;
+  h.txs = [fill(0xaa)];
+  tc.finalizeTick();
+  expect(tc.tickRecord(1)).toBeDefined();
+
+  h.t = 10;
+  h.txs = [];
+  tc.finalizeTick();
+  expect(tc.tickRecord(1)).toBeUndefined();
 });
 
 test("non-lite (default): an empty tick still builds the full quorum record", () => {

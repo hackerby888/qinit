@@ -49,6 +49,26 @@ export const u24: Codec<number> = {
   },
 };
 
+// Seven-byte little-endian integer used by Qubic asset names and units.
+export const u56: Codec<bigint> = {
+  size: 7,
+  align: 1,
+  read(v, o) {
+    let value = 0n;
+    for (let byteIndex = 0; byteIndex < 7; byteIndex += 1) {
+      value |= BigInt(v.dv.getUint8(o + byteIndex)) << BigInt(byteIndex * 8);
+    }
+    return value;
+  },
+  write(v, o, x) {
+    let value = x;
+    for (let byteIndex = 0; byteIndex < 7; byteIndex += 1) {
+      v.dv.setUint8(o + byteIndex, Number(value & 0xffn));
+      value >>= 8n;
+    }
+  },
+};
+
 export const u32: Codec<number> = {
   size: 4,
   align: 4,

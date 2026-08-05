@@ -1,9 +1,9 @@
 // Confirms spectrum and universe updates rehash only affected depth-24 Merkle paths.
 import { test, expect, beforeAll } from "bun:test";
-import { initK12, toHex, k12Bytes } from "../../src/k12";
-import { SparseMerkle, MERKLE_DEPTH } from "../../src/merkle";
-import { SpectrumLedger } from "../../src/spectrum";
-import { AssetLedger } from "../../src/assets";
+import { initK12, toHex, k12Bytes } from "../../src/support/k12";
+import { SparseMerkle, MERKLE_DEPTH } from "../../src/ledger/merkle";
+import { SpectrumLedger } from "../../src/ledger/spectrum";
+import { AssetLedger } from "../../src/ledger/assets";
 import { contractId } from "../support/helpers";
 
 const LEAF_SPACE = 1 << MERKLE_DEPTH; // 2^24 — the full leaf index range

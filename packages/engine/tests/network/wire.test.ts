@@ -25,7 +25,7 @@ import {
   RespondOwnedAssets,
   RespondPossessedAssets,
   RespondTxStatusHeader,
-} from "../../src/wire";
+} from "../../src/protocol/wire";
 
 // A DataView over a view's own window — used to read fields at their raw offset, independent of the getters.
 function dvOf(v: { bytes: Uint8Array }): DataView {

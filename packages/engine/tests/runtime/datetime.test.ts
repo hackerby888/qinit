@@ -1,6 +1,6 @@
 // Verifies QPI DateAndTime packing, including full-year bits and zero microseconds.
 import { test, expect } from "bun:test";
-import { packDateAndTime, dateFields } from "../../src/runtime";
+import { packDateAndTime, dateFields } from "../../src/contract/runtime";
 
 test("packDateAndTime lays the fields at the qpi.h DateAndTime bit offsets", () => {
   const ms = Date.UTC(2024, 2, 15, 13, 45, 30, 123); // 2024-03-15 13:45:30.123 UTC

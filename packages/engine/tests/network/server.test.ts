@@ -2,10 +2,10 @@
 // drives qubic-core-lite RPC routes: tick info, faucet balance, and contract query over HTTP.
 import { test, expect, beforeAll } from "bun:test";
 import { loadWasmFixture as wasm } from "../../../../test-utils/wasm-fixtures";
-import { initK12 } from "../../src/k12";
+import { initK12 } from "../../src/support/k12";
 import { VirtualNode } from "../../src/transport";
 import { EngineServer } from "../../src/server";
-import { deriveIdentity } from "@qinit/core";
+import { deriveIdentity, LiteRpc } from "@qinit/core";
 
 beforeAll(async () => {
   await initK12();
@@ -37,6 +37,7 @@ test("/tick-info reports the engine's tick + epoch", async () => {
     const j = await r.json();
     expect(j.epoch).toBe(engine.sim.currentEpoch);
     expect(typeof j.tick).toBe("number");
+    expect(await new LiteRpc(base).faultInfo()).toBeNull();
   } finally {
     stop();
   }
@@ -91,5 +92,90 @@ test("contract-digest matches the engine's own digest; an unknown route 404s", a
     expect((await r.json()).code).toBe(404);
   } finally {
     stop();
+  }
+});
+
+test("a contract fault stops ticking but keeps postmortem routes available", async () => {
+  const engine = new VirtualNode();
+  engine.deploy(28, await wasm("Trap"));
+  const server = new EngineServer(engine);
+  const handle = await server.start(0, 20);
+
+  try {
+    const input = new Uint8Array(16);
+    const data = new DataView(input.buffer);
+    data.setBigUint64(0, 7n, true);
+    data.setBigUint64(8, 0n, true);
+
+    expect(() => engine.sim.procedure(28, 2, input)).toThrow();
+    const fault = engine.sim.faultInfo()!;
+
+    await Bun.sleep(60);
+    expect(engine.sim.currentTick).toBe(fault.failedTick);
+
+    const faultResponse = await fetch(
+      `${handle.rpcBaseUrl}/live/v1/dev/fault`,
+    );
+    expect(faultResponse.status).toBe(200);
+    expect(await faultResponse.json()).toEqual(fault);
+    expect(await new LiteRpc(handle.rpcBaseUrl).faultInfo()).toEqual(
+      fault,
+    );
+
+    const tickResponse = await fetch(`${handle.rpcBaseUrl}/tick-info`);
+    expect(tickResponse.status).toBe(200);
+    expect(await tickResponse.json()).toMatchObject({
+      tick: fault.lastFinalizedTick,
+      epoch: fault.lastFinalizedEpoch,
+      fault: {
+        phase: fault.phase,
+        failedTick: fault.failedTick,
+        lastFinalizedTick: fault.lastFinalizedTick,
+      },
+    });
+
+    const stateResponse = await fetch(
+      `${handle.rpcBaseUrl}/live/v1/dev/state-read?slot=28&len=8`,
+    );
+    expect(stateResponse.status).toBe(200);
+
+    const historyResponse = await fetch(
+      `${handle.rpcBaseUrl}/query/v1/getTransactionsForTick`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tick: fault.lastFinalizedTick }),
+      },
+    );
+    expect(historyResponse.status).toBe(200);
+
+    const currentStateResponse = await fetch(
+      `${handle.rpcBaseUrl}/live/v1/balances/ignored-after-fault`,
+    );
+    expect(currentStateResponse.status).toBe(503);
+
+    const queryResponse = await fetch(
+      `${handle.rpcBaseUrl}/live/v1/querySmartContract`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contractIndex: 28,
+          inputType: 1,
+          requestData: "",
+        }),
+      },
+    );
+    expect(queryResponse.status).toBe(503);
+
+    const advanceResponse = await fetch(
+      `${handle.rpcBaseUrl}/live/v1/dev/advance-tick`,
+    );
+    expect(advanceResponse.status).toBe(503);
+
+    const unknownResponse = await fetch(`${handle.rpcBaseUrl}/unknown`);
+    expect(unknownResponse.status).toBe(404);
+  } finally {
+    handle.stop();
   }
 });
