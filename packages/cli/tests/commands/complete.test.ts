@@ -6,7 +6,12 @@ import {
   type AbiStruct,
   type AbiType,
 } from "@qinit/proto/contract-idl";
-import { completerFor, zeroSample, tmplOf } from "../../src/commands/call-interactive";
+import {
+  completerFor,
+  formatContractPickerRows,
+  zeroSample,
+  tmplOf,
+} from "../../src/commands/call-interactive";
 
 const SIZES: Record<AbiScalarKind, number> = {
   [AbiScalarKind.BIT]: 1,
@@ -134,4 +139,18 @@ test("completerFor falls back to generic scalar types", () => {
 
   const expected = completerFor([field("n", scalar(AbiScalarKind.UINT32))]);
   expect(expected("1uint6")).toBe("1uint64");
+});
+
+test("formatContractPickerRows aligns contract metadata columns", () => {
+  expect(
+    formatContractPickerRows([
+      { name: "Counter", index: 29, functionCount: 1, procedureCount: 1 },
+      { name: "QX", index: 1, functionCount: 5, procedureCount: 7 },
+      { name: "QUTIL", index: 4, functionCount: 14, procedureCount: 17 },
+    ]),
+  ).toEqual([
+    "Counter  [idx 29]   1 fn /  1 proc",
+    "QX       [idx  1]   5 fn /  7 proc",
+    "QUTIL    [idx  4]  14 fn / 17 proc",
+  ]);
 });
