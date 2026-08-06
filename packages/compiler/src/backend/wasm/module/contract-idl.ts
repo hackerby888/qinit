@@ -2,12 +2,15 @@ import {
   AbiScalarKind,
   AbiTypeKind,
   QINIT_IDL_VERSION,
+  abiTypeContainsKind,
   formatAbiType,
   type AbiArray,
+  type AbiBitArray,
   type AbiCollection,
   type AbiField,
   type AbiHashMap,
   type AbiHashSet,
+  type AbiLinkedList,
   type AbiScalar,
   type AbiStruct,
   type AbiType,
@@ -17,9 +20,11 @@ import {
   type ContractLog,
 } from "@qinit/proto/contract-idl";
 import {
+  bitWordCount,
   collectionFmt,
   hashMapFmt,
   hashSetFmt,
+  linkedListFmt,
 } from "@qinit/proto/qpi-layout";
 import { AstKind } from "../../../enums";
 import type {
@@ -65,6 +70,17 @@ export function buildContractIdl(
       prepared.layouts.resolve(`${registration.fnName}_output`),
       nestedStruct(prepared.contract, `${registration.fnName}_output`),
     );
+    for (const [direction, type] of [
+      ["input", input],
+      ["output", output],
+    ] as const) {
+      if (abiTypeContainsKind(type, AbiTypeKind.LINKED_LIST)) {
+        prepared.programAnalysis.error(
+          `LinkedList is forbidden in registered entry '${registration.fnName}_${direction}'`,
+          registration.line,
+        );
+      }
+    }
     const entry: ContractEntry = {
       name: registration.fnName,
       inputType: registration.inputType,
@@ -307,16 +323,7 @@ class AbiTypeBuilder {
     }
 
     if (name === "BitArray") {
-      const bitCount = Number(
-        this.programAnalysis.valueOfTypeArg(type.callArguments[0], bindings),
-      );
-      return this.array(
-        { kind: AstKind.NAME, name: "uint64" },
-        Math.ceil(bitCount / 64),
-        type,
-        bindings,
-        type.callArguments[0],
-      );
+      return this.bitArray(type, bindings);
     }
 
     if (name === "HashMap") {
@@ -329,6 +336,10 @@ class AbiTypeBuilder {
 
     if (name === "Collection") {
       return this.collection(type, bindings);
+    }
+
+    if (name === "LinkedList") {
+      return this.linkedList(type, bindings);
     }
 
     const layout = (
@@ -363,6 +374,28 @@ class AbiTypeBuilder {
       size: this.programAnalysis.sizeOfType(sourceType, bindings),
       align: this.programAnalysis.alignOfType(sourceType, bindings),
       format: `[${count};${formatAbiType(element)}]`,
+    };
+  }
+
+  private bitArray(
+    type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>,
+    bindings: TemplateBindings,
+  ): AbiBitArray {
+    const bitCount = Number(
+      this.programAnalysis.valueOfTypeArg(type.callArguments[0], bindings),
+    );
+    this.validatePowerOfTwoDimension(
+      "BitArray bit count",
+      bitCount,
+      type.callArguments[0],
+      bindings,
+    );
+    return {
+      kind: AbiTypeKind.BIT_ARRAY,
+      bitCount,
+      size: this.programAnalysis.sizeOfType(type, bindings),
+      align: this.programAnalysis.alignOfType(type, bindings),
+      format: `[${bitWordCount(bitCount)};uint64]`,
     };
   }
 
@@ -444,6 +477,30 @@ class AbiTypeBuilder {
     };
   }
 
+  private linkedList(
+    type: Extract<TypeSpec, { kind: AstKind.TEMPLATE_INSTANCE }>,
+    bindings: TemplateBindings,
+  ): AbiLinkedList {
+    const capacity = Number(
+      this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings),
+    );
+    this.validatePowerOfTwoDimension(
+      "LinkedList capacity",
+      capacity,
+      type.callArguments[1],
+      bindings,
+    );
+    const value = this.type(type.callArguments[0], bindings);
+    return {
+      kind: AbiTypeKind.LINKED_LIST,
+      capacity,
+      value,
+      size: this.programAnalysis.sizeOfType(type, bindings),
+      align: this.programAnalysis.alignOfType(type, bindings),
+      format: linkedListFmt(formatAbiType(value), capacity),
+    };
+  }
+
   private struct(
     name: string | undefined,
     layout: StructLayout,
@@ -511,6 +568,25 @@ class AbiTypeBuilder {
     );
   }
 
+  private validatePowerOfTwoDimension(
+    label: string,
+    value: number,
+    sourceType: TypeSpec,
+    bindings: TemplateBindings,
+  ): void {
+    if (
+      isPowerOfTwo(value) &&
+      this.dimensionResolves(sourceType, bindings)
+    ) {
+      return;
+    }
+
+    this.programAnalysis.error(
+      `${label} '${typeLabel(sourceType)}' must resolve to a positive power-of-two integer`,
+      sourceType.span ?? 0,
+    );
+  }
+
   private dimensionResolves(
     sourceType: TypeSpec,
     bindings: TemplateBindings,
@@ -566,6 +642,14 @@ class AbiTypeBuilder {
       ? null
       : this.programAnalysis.resolveConst(name, bindings);
   }
+}
+
+function isPowerOfTwo(value: number): boolean {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    return false;
+  }
+  const integer = BigInt(value);
+  return (integer & (integer - 1n)) === 0n;
 }
 
 function withExactSize(type: AbiType, size: number): AbiType {

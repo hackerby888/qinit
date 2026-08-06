@@ -10,10 +10,12 @@ export {
 } from "@qinit/proto/contract-idl";
 export type {
   AbiArray,
+  AbiBitArray,
   AbiCollection,
   AbiField,
   AbiHashMap,
   AbiHashSet,
+  AbiLinkedList,
   AbiScalar,
   AbiStruct,
   AbiType,

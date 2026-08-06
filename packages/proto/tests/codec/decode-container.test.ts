@@ -1,5 +1,11 @@
 import { test, expect } from "bun:test";
-import { decodeHashMap, decodeHashSet, decodeCollection } from "../../src/decode-container";
+import {
+  decodeCollection,
+  decodeHashMap,
+  decodeHashSet,
+  decodeLinkedList,
+} from "../../src/decode-container";
+import { linkedListGeometry } from "../../src/qpi-layout";
 import {
   AbiScalarKind,
   AbiTypeKind,
@@ -274,4 +280,118 @@ test("Collection: a cyclic BST (left = self) terminates via the guard, no hang",
   const e = await decodeCollection(buf, "uint64", cap);
   expect(Array.isArray(e)).toBe(true);
   expect(e.length).toBeLessThanOrEqual(cap * 2 + 4); // bounded by the guard, did not loop forever
+});
+
+function linkedListFixture(
+  occupied: number[],
+  links: Array<[slot: number, value: number, next: number, previous: number]>,
+  head: number,
+  tail: number,
+  population = occupied.length,
+): Uint8Array {
+  const capacity = 8;
+  const geometry = linkedListGeometry({ size: 8, align: 8 }, capacity);
+  const buf = new Uint8Array(geometry.size);
+  for (const [slot, value, next, previous] of links) {
+    const nodeOffset = slot * geometry.nodeStride;
+    buf.set(le(BigInt(value)), nodeOffset);
+    buf.set(i64(next), nodeOffset + geometry.nextOffset);
+    buf.set(i64(previous), nodeOffset + geometry.prevOffset);
+  }
+  for (const slot of occupied) {
+    buf[geometry.flagsOffset + (slot >> 3)] |= 1 << (slot & 7);
+  }
+  buf.set(i64(head), geometry.headOffset);
+  buf.set(i64(tail), geometry.tailOffset);
+  buf.set(le(BigInt(population)), geometry.populationOffset);
+  return buf;
+}
+
+test("LinkedList follows links rather than reused slot order", async () => {
+  const buf = linkedListFixture(
+    [1, 5, 7],
+    [
+      [5, 50, 1, -1],
+      [1, 10, 7, 5],
+      [7, 70, -1, 1],
+    ],
+    5,
+    7,
+  );
+  expect(await decodeLinkedList(buf, "uint64", 8)).toEqual([
+    { slot: 5, value: 50n },
+    { slot: 1, value: 10n },
+    { slot: 7, value: 70n },
+  ]);
+});
+
+test("LinkedList accepts the zero-filled empty state before reading sentinels", async () => {
+  const geometry = linkedListGeometry({ size: 8, align: 8 }, 8);
+  expect(
+    await decodeLinkedList(new Uint8Array(geometry.size), "uint64", 8),
+  ).toEqual([]);
+});
+
+test("LinkedList rejects malformed topology", async () => {
+  const valid = () => linkedListFixture(
+    [1, 5],
+    [
+      [5, 50, 1, -1],
+      [1, 10, -1, 5],
+    ],
+    5,
+    1,
+  );
+  const geometry = linkedListGeometry({ size: 8, align: 8 }, 8);
+
+  const badPopulation = valid();
+  badPopulation.set(le(3n), geometry.populationOffset);
+  await expect(
+    decodeLinkedList(badPopulation, "uint64", 8),
+  ).rejects.toThrow(/occupied slots.*population/);
+
+  const badPrevious = valid();
+  badPrevious.set(i64(7), 1 * geometry.nodeStride + geometry.prevOffset);
+  await expect(
+    decodeLinkedList(badPrevious, "uint64", 8),
+  ).rejects.toThrow(/has prev/);
+
+  const cycle = linkedListFixture(
+    [1, 5, 7],
+    [
+      [5, 50, 1, -1],
+      [1, 10, 5, 5],
+      [7, 70, -1, -1],
+    ],
+    5,
+    7,
+  );
+  await expect(decodeLinkedList(cycle, "uint64", 8)).rejects.toThrow(
+    /cycle repeats slot/,
+  );
+
+  const badHead = valid();
+  badHead.set(i64(0), geometry.headOffset);
+  await expect(decodeLinkedList(badHead, "uint64", 8)).rejects.toThrow(
+    /head and tail must be occupied/,
+  );
+
+  const badTail = valid();
+  badTail.set(i64(5), geometry.tailOffset);
+  await expect(decodeLinkedList(badTail, "uint64", 8)).rejects.toThrow(
+    /expected tail/,
+  );
+
+  const unreachable = linkedListFixture(
+    [1, 5],
+    [
+      [5, 50, -1, -1],
+      [1, 10, -1, -1],
+    ],
+    5,
+    5,
+  );
+  await expect(decodeLinkedList(unreachable, "uint64", 8)).rejects.toThrow(
+    /invalid next index/,
+  );
 });

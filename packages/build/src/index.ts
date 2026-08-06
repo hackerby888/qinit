@@ -69,14 +69,30 @@ export async function buildContractWithWasiClang(
     qpiHeaderError = String(error?.message ?? error);
   }
 
-  // Protocol-rule gate first (cheap, fails before clang): reject contracts that break the
-  // qpi.h restrictions. Skipped (not failed) when the verify tool isn't synced on this box.
-  const calls = analyzeContract({
+  // LinkedList has no safe public wire representation; reject it even when verification is skipped.
+  const analysis = analyzeContract({
     source,
     contractName: o.stateType ?? o.name,
     slot: o.slot,
     qpiHeader,
-  }).calls;
+  });
+  const linkedListDiagnostics = analysis.diagnostics.filter((diagnostic) => (
+    diagnostic.message.startsWith("LinkedList is forbidden in registered entry") ||
+    (
+      diagnostic.code === "qpi/public-complex-type" &&
+      diagnostic.message.includes("`LinkedList` is forbidden in the public interface")
+    )
+  ));
+  if (linkedListDiagnostics.length) {
+    return {
+      ok: false,
+      stderr: [
+        "Qubic protocol violations:",
+        ...linkedListDiagnostics.map((diagnostic) => `  • ${diagnostic.message}`),
+      ].join("\n"),
+    };
+  }
+  const calls = analysis.calls;
   const calleeNames = [
     ...new Set([
       ...Object.keys(o.dynCallees ?? {}),

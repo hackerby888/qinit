@@ -4,8 +4,11 @@ import {
   encodeInputJson,
   encodeInput,
   decodeOutput,
+  hasOverlappingAbiType,
+  zeroInputFormat,
 } from "../../src/abi-fmt";
 import { callFunction } from "../../src/call";
+import { linkedListGeometry } from "../../src/qpi-layout";
 import {
   AbiScalarKind,
   AbiTypeKind,
@@ -392,4 +395,221 @@ test("typed container decode keeps nested field offsets", async () => {
     2n,
     3n,
   ]);
+});
+
+test("typed BitArray encodes logical bits LSB-first and ignores padding", async () => {
+  const bitArray: AbiType = {
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 128,
+    size: 16,
+    align: 8,
+    format: "wrong",
+  };
+  const bits = Array.from({ length: 128 }, () => 0);
+  bits[0] = 1;
+  bits[63] = 1;
+  bits[64] = 1;
+  bits[127] = 1;
+
+  const bytes = await encodeInputJson(bitArray, bits);
+  expect(new DataView(bytes.buffer).getBigUint64(0, true)).toBe(
+    (1n << 63n) | 1n,
+  );
+  expect(new DataView(bytes.buffer).getBigUint64(8, true)).toBe(
+    (1n << 63n) | 1n,
+  );
+  expect(await decodeOutput(bytes, bitArray)).toEqual(bits);
+  expect(jsonToInputFormat(bitArray, bits)).toBe(
+    "[2; 9223372036854775809uint64, 9223372036854775809uint64]",
+  );
+  expect(zeroInputFormat(bitArray)).toBe("[2; 0uint64 ×2]");
+  expect(hasOverlappingAbiType(bitArray)).toBe(false);
+
+  expect(
+    await decodeOutput(new Uint8Array(8).fill(0xff), {
+      ...bitArray,
+      bitCount: 2,
+      size: 8,
+    }),
+  ).toEqual([1, 1]);
+
+  await expect(encodeInputJson(bitArray, bits.slice(1))).rejects.toThrow(
+    /expects 128 bits/,
+  );
+  const invalid = [...bits];
+  invalid[3] = 2;
+  await expect(encodeInputJson(bitArray, invalid)).rejects.toThrow(
+    /bit 3 must be 0 or 1/,
+  );
+  const booleanBits: unknown[] = [...bits];
+  booleanBits[3] = true;
+  await expect(encodeInputJson(bitArray, booleanBits)).rejects.toThrow(
+    /bit 3 must be 0 or 1/,
+  );
+});
+
+test("typed LinkedList decodes logical order and rejects public input", async () => {
+  const value: AbiType = {
+    kind: AbiTypeKind.SCALAR,
+    scalar: AbiScalarKind.UINT64,
+    size: 8,
+    align: 8,
+    format: "uint64",
+  };
+  const geometry = linkedListGeometry(value, 8);
+  const linkedList: AbiType = {
+    kind: AbiTypeKind.LINKED_LIST,
+    capacity: 8,
+    value,
+    size: geometry.size,
+    align: geometry.align,
+    format: "wrong",
+  };
+  const bytes = new Uint8Array(geometry.size);
+  const view = new DataView(bytes.buffer);
+  const setNode = (
+    slot: number,
+    item: bigint,
+    next: bigint,
+    previous: bigint,
+  ) => {
+    const offset = slot * geometry.nodeStride;
+    view.setBigUint64(offset, item, true);
+    view.setBigInt64(offset + geometry.nextOffset, next, true);
+    view.setBigInt64(offset + geometry.prevOffset, previous, true);
+  };
+  setNode(5, 50n, 1n, -1n);
+  setNode(1, 10n, -1n, 5n);
+  bytes[geometry.flagsOffset] = (1 << 5) | (1 << 1);
+  view.setBigInt64(geometry.headOffset, 5n, true);
+  view.setBigInt64(geometry.tailOffset, 1n, true);
+  view.setBigUint64(geometry.populationOffset, 2n, true);
+
+  expect(await decodeOutput(bytes, linkedList)).toEqual([
+    { slot: 5, value: 50n },
+    { slot: 1, value: 10n },
+  ]);
+  await expect(encodeInputJson(linkedList, bytes)).rejects.toThrow(
+    /linked_list input is not supported/,
+  );
+  expect(() => jsonToInputFormat(linkedList, [])).toThrow(
+    /linked_list input is not supported/,
+  );
+});
+
+test("nested LinkedList cannot bypass an overlapping struct raw input", async () => {
+  const value: AbiType = {
+    kind: AbiTypeKind.SCALAR,
+    scalar: AbiScalarKind.UINT64,
+    size: 8,
+    align: 8,
+    format: "uint64",
+  };
+  const geometry = linkedListGeometry(value, 8);
+  const linkedList: AbiType = {
+    kind: AbiTypeKind.LINKED_LIST,
+    capacity: 8,
+    value,
+    size: geometry.size,
+    align: geometry.align,
+    format: "wrong",
+  };
+  const overlapping: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    size: geometry.size,
+    align: 8,
+    format: "wrong",
+    fields: [
+      {
+        name: "items",
+        offset: 0,
+        size: geometry.size,
+        type: linkedList,
+      },
+      {
+        name: "raw",
+        offset: 0,
+        size: geometry.size,
+        type: {
+          kind: AbiTypeKind.ARRAY,
+          count: geometry.size,
+          size: geometry.size,
+          align: 1,
+          format: "wrong",
+          element: {
+            kind: AbiTypeKind.SCALAR,
+            scalar: AbiScalarKind.UINT8,
+            size: 1,
+            align: 1,
+            format: "uint8",
+          },
+        },
+      },
+    ],
+  };
+  const raw = new Uint8Array(overlapping.size);
+
+  expect(hasOverlappingAbiType(overlapping)).toBe(true);
+  await expect(encodeInputJson(overlapping, raw)).rejects.toThrow(
+    /linked_list input is not supported/,
+  );
+  expect(() => jsonToInputFormat(overlapping, raw)).toThrow(
+    /linked_list input is not supported/,
+  );
+});
+
+test("nested LinkedList cannot bypass opaque container raw inputs", async () => {
+  const scalar: AbiType = {
+    kind: AbiTypeKind.SCALAR,
+    scalar: AbiScalarKind.UINT64,
+    size: 8,
+    align: 8,
+    format: "uint64",
+  };
+  const geometry = linkedListGeometry(scalar, 8);
+  const linkedList: AbiType = {
+    kind: AbiTypeKind.LINKED_LIST,
+    capacity: 8,
+    value: scalar,
+    size: geometry.size,
+    align: geometry.align,
+    format: "wrong",
+  };
+  const containers: AbiType[] = [
+    {
+      kind: AbiTypeKind.HASH_MAP,
+      capacity: 1,
+      key: scalar,
+      value: linkedList,
+      size: 272,
+      align: 8,
+      format: "wrong",
+    },
+    {
+      kind: AbiTypeKind.HASH_SET,
+      capacity: 1,
+      key: linkedList,
+      size: 264,
+      align: 8,
+      format: "wrong",
+    },
+    {
+      kind: AbiTypeKind.COLLECTION,
+      capacity: 1,
+      value: linkedList,
+      size: 368,
+      align: 8,
+      format: "wrong",
+    },
+  ];
+
+  for (const container of containers) {
+    const raw = new Uint8Array(container.size);
+    await expect(encodeInputJson(container, raw)).rejects.toThrow(
+      /linked_list input is not supported/,
+    );
+    expect(() => jsonToInputFormat(container, raw)).toThrow(
+      /linked_list input is not supported/,
+    );
+  }
 });

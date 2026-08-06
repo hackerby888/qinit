@@ -5,6 +5,7 @@ import { roundUp } from "@qinit/core";
 export const SLOTS_PER_FLAG_WORD = 32;
 export const FLAG_BITS_PER_SLOT = 2;
 export const flagWordCount = (capacity: number) => Math.ceil((capacity * FLAG_BITS_PER_SLOT) / 64);
+export const bitWordCount = (bitCount: number) => Math.ceil(bitCount / 64);
 
 interface Layout {
   size: number;
@@ -66,6 +67,43 @@ export function collectionGeometry(value: Layout, capacity: number) {
   };
 }
 
+export function linkedListGeometry(value: Layout, capacity: number) {
+  const nodeAlign = Math.max(value.align, 8);
+  const nextOffset = roundUp(value.size, 8);
+  const prevOffset = nextOffset + 8;
+  const nodeStride = roundUp(prevOffset + 8, nodeAlign);
+  const flagsOffset = capacity * nodeStride;
+  const flagsBytes = bitWordCount(capacity) * 8;
+  const headOffset = flagsOffset + flagsBytes;
+  const tailOffset = headOffset + 8;
+  const freeHeadOffset = tailOffset + 8;
+  const nextUnusedOffset = freeHeadOffset + 8;
+  const populationOffset = nextUnusedOffset + 8;
+  return {
+    nodeAlign,
+    nextOffset,
+    prevOffset,
+    nodeStride,
+    flagsOffset,
+    flagsBytes,
+    headOffset,
+    tailOffset,
+    freeHeadOffset,
+    nextUnusedOffset,
+    populationOffset,
+    size: roundUp(populationOffset + 8, nodeAlign),
+    align: nodeAlign,
+  };
+}
+
+export function bitAt(bytes: Uint8Array, index: number): number {
+  if (!Number.isSafeInteger(index) || index < 0) return 0;
+  const byteOffset = Math.floor(index / 8);
+  return byteOffset < bytes.length
+    ? (bytes[byteOffset] >> (index & 7)) & 1
+    : 0;
+}
+
 export function occupationFlagAt(flags: Uint8Array, index: number): number {
   if (!Number.isSafeInteger(index) || index < 0) return 0;
   const offset = Math.floor(index / SLOTS_PER_FLAG_WORD) * 8;
@@ -83,11 +121,14 @@ export const COLLECTION_ELEM_TRAILER_FMT = "sint64, sint64, sint64, sint64, sint
 // Element-record fmts (used by the decoders for stride + field offsets).
 export const hashMapElemFmt = (keyFmt: string, valFmt: string) => `${keyFmt}, ${valFmt}`;
 export const collectionElemFmt = (valFmt: string) => `${valFmt}, ${COLLECTION_ELEM_TRAILER_FMT}`;
+export const linkedListElemFmt = (valFmt: string) => `${valFmt}, sint64, sint64`;
 
-// Full struct fmts (what typeToken emits + layoutOf/decode consume): elements[L], flags[ceil(2L/64)], counters.
+// Full struct fmts consumed by typeToken, layoutOf, and the logical decoders.
 export const hashMapFmt = (keyFmt: string, valFmt: string, capacity: number) =>
   `{ [${capacity};{ ${hashMapElemFmt(keyFmt, valFmt)} }], [${flagWordCount(capacity)};uint64], uint64, uint64 }`;
 export const hashSetFmt = (keyFmt: string, capacity: number) =>
   `{ [${capacity};${keyFmt}], [${flagWordCount(capacity)};uint64], uint64, uint64 }`;
 export const collectionFmt = (valFmt: string, capacity: number) =>
   `{ [${capacity};{ ${COLLECTION_POV_FMT} }], [${flagWordCount(capacity)};uint64], [${capacity};{ ${collectionElemFmt(valFmt)} }], uint64, uint64 }`;
+export const linkedListFmt = (valFmt: string, capacity: number) =>
+  `{ [${capacity};{ ${linkedListElemFmt(valFmt)} }], [${bitWordCount(capacity)};uint64], sint64, sint64, sint64, uint64, uint64 }`;

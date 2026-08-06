@@ -38,7 +38,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
 const idl = extractIdl(SOURCE, "Test", { slot: 28 });
 
-test("extractIdl returns the compiler-owned v3 contract schema", () => {
+test("extractIdl returns the compiler-owned v4 contract schema", () => {
   expect(idl.version).toBe(QINIT_IDL_VERSION);
   expect(idl.name).toBe("Test");
   expect(idl.slot).toBe(28);
@@ -114,7 +114,7 @@ test("enums, logs, and system procedure mask come from semantic analysis", () =>
   expect(idl.sysprocMask).toBe(1);
 });
 
-test("empty source still returns a complete v3 schema", () => {
+test("empty source still returns a complete v4 schema", () => {
   const empty = extractIdl("", "Empty");
   expect(empty).toMatchObject({
     version: QINIT_IDL_VERSION,

@@ -828,6 +828,11 @@ One-shot mode:
 format language. A numeric entry can be called without IDL if raw formats are
 provided; a named entry cannot.
 
+For `BitArray<N>`, typed `--args` and generated clients use an exact-length JSON
+array of `0` and `1` values in logical bit order. Raw `--in` remains the physical
+`uint64`-word representation. `LinkedList` is state-only: Qinit rejects it
+recursively in public function and procedure inputs and outputs.
+
 ### 9.2 Function flow
 
 ```text
@@ -895,7 +900,7 @@ falls back to numeric registry metadata. After dispatch it prints the equivalent
 one-shot command, making the interactive path a discoverability layer over the
 same protocol helpers.
 
-## 10. State decoding with a counter and HashMap
+## 10. Sparse state decoding
 
 This is the most important flow to understand because the terminal never reads
 C++ state directly. It derives a layout, requests bytes, decodes them, and only
@@ -974,10 +979,11 @@ GET /live/v1/dev/state-read?slot=100&off=0&len=8
   -> { name: "counter", value: "7" }
 ```
 
-Fields are separate HTTP reads. Large arrays are read in 256 KiB pages: every
-nonzero element is displayed, while consecutive all-zero elements become an
-explicit skipped range. A failed read is reported as incomplete rather than
-being mistaken for empty state.
+Fields are separate HTTP reads. Large arrays and compact `BitArray` words are
+read in 256 KiB pages. Arrays display every nonzero element. Bit arrays display
+every set bit in logical LSB-first order and collapse zero runs, ignoring unused
+padding bits above their declared length. A failed read is reported as
+incomplete rather than being mistaken for empty state.
 
 ### Step 4: read the occupied HashMap bytes
 
@@ -1032,6 +1038,11 @@ HashSet uses the same occupation-flag idea without values. Collection uses QPI's
 PoV records and walks each occupied PoV's priority tree in order. Both fetch
 only occupied storage and show unoccupied ranges explicitly.
 
+LinkedList first reads only its population. For a nonempty list it reads the
+one-bit occupation flags, head and tail, then only occupied node records. Entries
+are shown in logical head-to-tail order with both item and physical slot indexes;
+unoccupied physical slot ranges follow. Free-list bookkeeping is not fetched.
+
 ### Step 5: render the decoded model
 
 `readState()` returns:
@@ -1065,9 +1076,12 @@ know field offsets, make RPC calls, or decode container layouts.
 
 - Complete logical state is the default; there is no display-limit flag.
 - Individual RPC requests remain capped at 256 KiB and larger fields are paged.
-- Arrays display every nonzero element and mark all-zero ranges as skipped.
-- HashMap, HashSet, and Collection display every occupied entry and mark
+- Arrays display every nonzero element, and BitArray displays every set bit;
+  zero ranges are marked as skipped.
+- HashMap, HashSet, Collection, and LinkedList display every occupied entry and mark
   unoccupied slot ranges as skipped, without transferring empty entry storage.
+- Nested BitArray and LinkedList values are decoded semantically, including
+  values stored in the existing QPI containers.
 - Scalar fields and containers are read in separate requests. Ticks may advance
   between them, so decoded output is a useful live view, not an atomic snapshot.
 - State values wrap across terminal lines instead of being truncated.

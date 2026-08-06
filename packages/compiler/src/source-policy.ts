@@ -606,6 +606,8 @@ function forbiddenAbiTypes(type: AbiType): string[] {
       return [];
     case AbiTypeKind.ARRAY:
       return forbiddenAbiTypes(type.element);
+    case AbiTypeKind.BIT_ARRAY:
+      return [];
     case AbiTypeKind.STRUCT:
       return [
         ...(type.name === "LinkedList" ? ["LinkedList"] : []),
@@ -621,6 +623,8 @@ function forbiddenAbiTypes(type: AbiType): string[] {
       ];
     case AbiTypeKind.HASH_SET:
       return ["HashSet", ...forbiddenAbiTypes(type.key)];
+    case AbiTypeKind.LINKED_LIST:
+      return ["LinkedList", ...forbiddenAbiTypes(type.value)];
   }
 }
 

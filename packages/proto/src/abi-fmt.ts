@@ -4,11 +4,13 @@ import { bytesToIdentity, hexToBytes, identityToBytes, roundUp } from "@qinit/co
 import {
   AbiScalarKind,
   AbiTypeKind,
+  abiTypeContainsKind,
   formatAbiType,
   type AbiStruct,
   type AbiType,
 } from "./contract-idl";
-import { flagWordCount } from "./qpi-layout";
+import { decodeLinkedList } from "./decode-container";
+import { bitAt, bitWordCount, flagWordCount } from "./qpi-layout";
 
 const SCALAR_SIZE: Record<string, number> = {
   uint8: 1,
@@ -253,12 +255,33 @@ async function decodeAbiType(
       }
       return values;
     }
+    case AbiTypeKind.BIT_ARRAY: {
+      const bytes = new Uint8Array(
+        view.buffer,
+        view.byteOffset + offset,
+        type.size,
+      );
+      return Array.from(
+        { length: type.bitCount },
+        (_, index) => bitAt(bytes, index),
+      );
+    }
     case AbiTypeKind.HASH_MAP:
       return await decodeAbiHashMap(view, offset, type);
     case AbiTypeKind.HASH_SET:
       return await decodeAbiHashSet(view, offset, type);
     case AbiTypeKind.COLLECTION:
       return await decodeAbiCollection(view, offset, type);
+    case AbiTypeKind.LINKED_LIST:
+      return await decodeLinkedList(
+        new Uint8Array(
+          view.buffer,
+          view.byteOffset + offset,
+          type.size,
+        ),
+        type.value,
+        type.capacity,
+      );
   }
 }
 
@@ -512,6 +535,23 @@ async function encodeAbiType(
       }
       return;
     }
+    case AbiTypeKind.BIT_ARRAY: {
+      const bits = bitArrayValue(type.bitCount, value);
+      for (let index = 0; index < type.size; index++) {
+        view.setUint8(offset + index, 0);
+      }
+      for (let index = 0; index < bits.length; index++) {
+        if (!bits[index]) continue;
+        const byteOffset = offset + Math.floor(index / 8);
+        view.setUint8(
+          byteOffset,
+          view.getUint8(byteOffset) | (1 << (index & 7)),
+        );
+      }
+      return;
+    }
+    case AbiTypeKind.LINKED_LIST:
+      throw new Error("linked_list input is not supported");
     default:
       writeRawAbiValue(view, offset, type, value);
   }
@@ -859,7 +899,17 @@ function jsonValueToFmt(typeTok: string, value: any): string {
 
 type InputFields = { name: string; type: string }[] | AbiType;
 
+function rejectLinkedListInput(fields: InputFields): void {
+  if (
+    !Array.isArray(fields) &&
+    abiTypeContainsKind(fields, AbiTypeKind.LINKED_LIST)
+  ) {
+    throw new Error("linked_list input is not supported");
+  }
+}
+
 export function jsonToInputFormat(fields: InputFields, json: any): string {
+  rejectLinkedListInput(fields);
   if (!Array.isArray(fields)) {
     if (fields.kind !== AbiTypeKind.STRUCT) {
       return typedJsonValueToFmt(fields, json);
@@ -882,6 +932,7 @@ export async function encodeInputJson(
   fields: InputFields,
   json: any,
 ): Promise<Uint8Array> {
+  rejectLinkedListInput(fields);
   if (!Array.isArray(fields)) {
     const bytes = new Uint8Array(fields.size);
     await encodeAbiType(
@@ -918,7 +969,39 @@ function typedJsonValueToFmt(type: AbiType, value: any): string {
       .map((item) => typedJsonValueToFmt(type.element, item))
       .join(", ")}]`;
   }
+  if (type.kind === AbiTypeKind.BIT_ARRAY) {
+    const bits = bitArrayValue(type.bitCount, value);
+    const words = Array.from({ length: bitWordCount(type.bitCount) }, () => 0n);
+    for (let index = 0; index < bits.length; index++) {
+      if (bits[index]) {
+        words[Math.floor(index / 64)] |= 1n << BigInt(index & 63);
+      }
+    }
+    return `[${words.length}; ${words
+      .map((word) => `${word}uint64`)
+      .join(", ")}]`;
+  }
+  if (type.kind === AbiTypeKind.LINKED_LIST) {
+    throw new Error("linked_list input is not supported");
+  }
   return jsonValueToFmt(formatAbiType(type), value);
+}
+
+function bitArrayValue(bitCount: number, value: any): number[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`bit_array expects a JSON array with ${bitCount} bits`);
+  }
+  if (value.length !== bitCount) {
+    throw new Error(
+      `bit_array expects ${bitCount} bits, got ${value.length}`,
+    );
+  }
+  for (let index = 0; index < value.length; index++) {
+    if (value[index] !== 0 && value[index] !== 1) {
+      throw new Error(`bit_array bit ${index} must be 0 or 1`);
+    }
+  }
+  return value;
 }
 
 // Build an ALL-ZERO input value-format from a type-format (the input scheme) — same grammar encodeInput
@@ -958,6 +1041,8 @@ export function hasOverlappingAbiType(type: AbiType): boolean {
         type.fields.some((field) => hasOverlappingAbiType(field.type));
     case AbiTypeKind.ARRAY:
       return hasOverlappingAbiType(type.element);
+    case AbiTypeKind.BIT_ARRAY:
+      return false;
     case AbiTypeKind.COLLECTION:
       return hasOverlappingAbiType(type.value);
     case AbiTypeKind.HASH_MAP:
@@ -965,6 +1050,8 @@ export function hasOverlappingAbiType(type: AbiType): boolean {
         hasOverlappingAbiType(type.value);
     case AbiTypeKind.HASH_SET:
       return hasOverlappingAbiType(type.key);
+    case AbiTypeKind.LINKED_LIST:
+      return hasOverlappingAbiType(type.value);
   }
 }
 

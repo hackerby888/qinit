@@ -48,7 +48,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 };
 `;
 
-test("analyzer and compiler publish the same authoritative v3 IDL", async () => {
+test("analyzer and compiler publish the same authoritative v4 IDL", async () => {
   const analyzed = analyzeContract({
     source: SOURCE,
     contractName: "RichIdl",
@@ -125,6 +125,8 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   using Values_output = Array<uint8, 4>;
   typedef Payload Record_input;
   using Record_output = Payload;
+  typedef BitArray<128> Bits_input;
+  using Bits_output = bit_4096;
 
   struct Direct_input { uint8 value; };
   struct Direct_output { uint64 value; };
@@ -133,11 +135,13 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   PUBLIC_FUNCTION(Values) {}
   PUBLIC_FUNCTION(Record) {}
   PUBLIC_FUNCTION(Direct) {}
+  PUBLIC_FUNCTION(Bits) {}
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
     REGISTER_USER_FUNCTION(Scalar, 1);
     REGISTER_USER_FUNCTION(Values, 2);
     REGISTER_USER_FUNCTION(Record, 3);
     REGISTER_USER_FUNCTION(Direct, 4);
+    REGISTER_USER_FUNCTION(Bits, 5);
   }
 };`;
 
@@ -194,6 +198,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     size: 1,
     format: "uint8",
   });
+  expect(entries.get("Bits")?.input).toMatchObject({
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 128,
+    size: 16,
+    format: "[2;uint64]",
+  });
+  expect(entries.get("Bits")?.output).toMatchObject({
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 4096,
+    size: 512,
+    format: "[64;uint64]",
+  });
 });
 
 test("emits rare scalar, enum, array, and migration ABI types", () => {
@@ -205,6 +221,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   enum class Tiny : uint8 { TinyValue = 2 };
   enum class Wide : uint64 { WideValue = 3 };
   using Alias = uint16;
+
+  struct PaddedValue {
+    uint8 tag;
+    uint64 amount;
+  };
 
   struct StateData;
   struct StateData {
@@ -238,6 +259,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     BitArray<2> bits2;
     BitArray<64> bits64;
     BitArray<128> bits128;
+    bit_4096 bits4096;
+    Array<uint64, 2> words;
+    Array<BitArray<128>, 2> nestedBits;
+    LinkedList<PaddedValue, 8> history;
     Array<uint128, 2> wideValues;
     Array<Array<uint16, 2>, 3> nestedValues;
     SlowAnySizeArray<uint16, 3> slowValues;
@@ -308,23 +333,55 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 
   expect(fields.get("bits2")?.type).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 1,
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 2,
     size: 8,
+  });
+  expect(fields.get("bits64")?.type).toMatchObject({
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 64,
+    size: 8,
+  });
+  expect(fields.get("bits128")?.type).toMatchObject({
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 128,
+    size: 16,
+  });
+  expect(fields.get("bits4096")?.type).toMatchObject({
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 4096,
+    size: 512,
+  });
+  expect(fields.get("words")?.type).toMatchObject({
+    kind: AbiTypeKind.ARRAY,
+    count: 2,
+    size: 16,
     element: {
       kind: AbiTypeKind.SCALAR,
       scalar: AbiScalarKind.UINT64,
     },
   });
-  expect(fields.get("bits64")?.type).toMatchObject({
-    kind: AbiTypeKind.ARRAY,
-    count: 1,
-    size: 8,
-  });
-  expect(fields.get("bits128")?.type).toMatchObject({
+  expect(fields.get("nestedBits")?.type).toMatchObject({
     kind: AbiTypeKind.ARRAY,
     count: 2,
-    size: 16,
+    size: 32,
+    element: {
+      kind: AbiTypeKind.BIT_ARRAY,
+      bitCount: 128,
+      size: 16,
+    },
+  });
+  expect(fields.get("history")?.type).toMatchObject({
+    kind: AbiTypeKind.LINKED_LIST,
+    capacity: 8,
+    size: 304,
+    align: 8,
+    value: {
+      kind: AbiTypeKind.STRUCT,
+      name: "PaddedValue",
+      size: 16,
+      align: 8,
+    },
   });
   expect(fields.get("wideValues")?.type).toMatchObject({
     kind: AbiTypeKind.ARRAY,
@@ -694,4 +751,103 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     )),
   ).toBe(true);
   expect(result.idl).toBeUndefined();
+});
+
+test("rejects non-power-of-two BitArray and LinkedList dimensions", () => {
+  for (const [field, label] of [
+    ["BitArray<3> invalid;", "BitArray bit count"],
+    ["BitArray<2251799813685249> invalid;", "BitArray bit count"],
+    ["LinkedList<uint64, 3> invalid;", "LinkedList capacity"],
+  ]) {
+    const result = analyzeContract({
+      source: `
+using namespace QPI;
+struct Contract : public ContractBase {
+  struct StateData { ${field} };
+};`,
+    });
+
+    expect(result.idl).toBeUndefined();
+    expect(result.diagnostics.some((diagnostic) => (
+      diagnostic.message.includes(label) &&
+      diagnostic.message.includes("positive power-of-two")
+    ))).toBe(true);
+  }
+});
+
+test("compileContract rejects LinkedList throughout registered entry ABIs", async () => {
+  const source = `
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData {};
+  typedef LinkedList<uint64, 8> Direct_input;
+  typedef LinkedList<uint64, 8> Direct_output;
+  typedef LinkedList<uint16, 8> ListAlias;
+  typedef ListAlias Alias_input;
+  typedef ListAlias Alias_output;
+  struct Wrapped { ListAlias values; };
+  typedef Array<Wrapped, 2> Nested_input;
+  typedef Array<Wrapped, 2> Nested_output;
+  PUBLIC_FUNCTION(Direct) {}
+  PUBLIC_PROCEDURE(Alias) {}
+  PUBLIC_FUNCTION(Nested) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Direct, 1);
+    REGISTER_USER_PROCEDURE(Alias, 2);
+    REGISTER_USER_FUNCTION(Nested, 3);
+  }
+};`;
+
+  const result = await compileContract({
+    source,
+    contractName: "LinkedListAbi",
+    slot: 28,
+    qpiHeader: QPI_SNAPSHOT,
+    arenaSizeBytes: 1 << 20,
+  });
+
+  expect(result.wasm).toHaveLength(0);
+  expect(result.idl).toBeUndefined();
+  for (const interfaceName of [
+    "Direct_input",
+    "Direct_output",
+    "Alias_input",
+    "Alias_output",
+    "Nested_input",
+    "Nested_output",
+  ]) {
+    expect(result.diagnostics.some((diagnostic) => (
+      diagnostic.message.includes("LinkedList is forbidden") &&
+      diagnostic.message.includes(interfaceName)
+    ))).toBe(true);
+  }
+});
+
+test("compileContract keeps BitArray registered entry ABIs valid", async () => {
+  const source = `
+using namespace QPI;
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData {};
+  typedef BitArray<128> Bits_input;
+  typedef BitArray<128> Bits_output;
+  PUBLIC_FUNCTION(Bits) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Bits, 1);
+  }
+};`;
+
+  const result = await compileContract({
+    source,
+    contractName: "BitArrayAbi",
+    slot: 28,
+    qpiHeader: QPI_SNAPSHOT,
+    arenaSizeBytes: 1 << 20,
+  });
+
+  expect(result.diagnostics).toEqual([]);
+  expect(WebAssembly.validate(result.wasm)).toBe(true);
+  expect(result.idl?.functions[0]).toMatchObject({
+    input: { kind: AbiTypeKind.BIT_ARRAY, bitCount: 128 },
+    output: { kind: AbiTypeKind.BIT_ARRAY, bitCount: 128 },
+  });
 });

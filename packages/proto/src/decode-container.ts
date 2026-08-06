@@ -1,9 +1,11 @@
-// Decode occupied QPI container entries from raw layouts and two-bit flags.
+// Decode occupied QPI container entries from raw layouts.
 import { decodeOutput, structFieldOffsets, layoutOf } from "./abi-fmt";
 import {
+  bitAt,
   collectionGeometry,
   hashMapGeometry,
   hashSetGeometry,
+  linkedListGeometry,
   occupationFlagAt,
   COLLECTION_POV_FMT,
 } from "./qpi-layout";
@@ -22,6 +24,10 @@ export interface CollEntry {
   pov: unknown;
   value: unknown;
   priority: bigint;
+}
+export interface LinkedListEntry {
+  slot: number;
+  value: unknown;
 }
 
 const NULL_INDEX = -1n;
@@ -142,4 +148,103 @@ export async function decodeCollection(
     }
   }
   return out;
+}
+
+export async function decodeLinkedList(
+  buf: Uint8Array,
+  valFmt: string | AbiType,
+  capacity: number,
+): Promise<LinkedListEntry[]> {
+  const valueLayout = layoutOf(valFmt);
+  const geometry = linkedListGeometry(valueLayout, capacity);
+  if (buf.length < geometry.populationOffset + 8) {
+    throw new Error("LinkedList buffer is too short for its population");
+  }
+
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  const population = view.getBigUint64(geometry.populationOffset, true);
+  if (population > BigInt(capacity)) {
+    throw new Error(
+      `LinkedList population ${population} exceeds capacity ${capacity}`,
+    );
+  }
+  if (population === 0n) return [];
+
+  const flags = buf.subarray(
+    geometry.flagsOffset,
+    geometry.flagsOffset + geometry.flagsBytes,
+  );
+  const occupiedSlots: number[] = [];
+  for (let slot = 0; slot < capacity; slot++) {
+    if (bitAt(flags, slot)) occupiedSlots.push(slot);
+  }
+  if (BigInt(occupiedSlots.length) !== population) {
+    throw new Error(
+      `LinkedList has ${occupiedSlots.length} occupied slots but population ${population}`,
+    );
+  }
+
+  const head = view.getBigInt64(geometry.headOffset, true);
+  const tail = view.getBigInt64(geometry.tailOffset, true);
+  const validIndex = (index: bigint) =>
+    index >= 0n && index < BigInt(capacity);
+  if (!validIndex(head) || !validIndex(tail)) {
+    throw new Error(`LinkedList has invalid head ${head} or tail ${tail}`);
+  }
+  if (!bitAt(flags, Number(head)) || !bitAt(flags, Number(tail))) {
+    throw new Error("LinkedList head and tail must be occupied");
+  }
+
+  const entries: LinkedListEntry[] = [];
+  const visited = new Set<number>();
+  let current = head;
+  let previous = NULL_INDEX;
+  for (let position = 0; position < Number(population); position++) {
+    if (!validIndex(current)) {
+      throw new Error(`LinkedList has invalid next index ${current}`);
+    }
+    const slot = Number(current);
+    if (!bitAt(flags, slot)) {
+      throw new Error(`LinkedList slot ${slot} is linked but not occupied`);
+    }
+    if (visited.has(slot)) {
+      throw new Error(`LinkedList cycle repeats slot ${slot}`);
+    }
+
+    const nodeOffset = slot * geometry.nodeStride;
+    const nodePrevious = view.getBigInt64(
+      nodeOffset + geometry.prevOffset,
+      true,
+    );
+    if (nodePrevious !== previous) {
+      throw new Error(
+        `LinkedList slot ${slot} has prev ${nodePrevious}, expected ${previous}`,
+      );
+    }
+
+    const next = view.getBigInt64(nodeOffset + geometry.nextOffset, true);
+    visited.add(slot);
+    entries.push({
+      slot,
+      value: await decodeOutput(
+        buf.slice(nodeOffset, nodeOffset + valueLayout.size),
+        valFmt,
+      ),
+    });
+    previous = current;
+    current = next;
+  }
+
+  if (previous !== tail) {
+    throw new Error(`LinkedList traversal ended at ${previous}, expected tail ${tail}`);
+  }
+  if (current !== NULL_INDEX) {
+    throw new Error(`LinkedList tail has next ${current}, expected -1`);
+  }
+  for (const slot of occupiedSlots) {
+    if (!visited.has(slot)) {
+      throw new Error(`LinkedList occupied slot ${slot} is unreachable`);
+    }
+  }
+  return entries;
 }
