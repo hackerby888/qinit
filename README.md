@@ -3,10 +3,11 @@
 Qinit is a Bun/TypeScript toolkit for Qubic dynamic contracts: scaffold, compile,
 deploy, test, inspect, and generate typed clients from one standalone CLI.
 
-See the [compiler walkthrough](./docs/QINIT_COMPILER_WALKTHROUGH.md) for the
-TypeScript-to-Wasm pipeline and
-[browser compiler guide](./docs/BROWSER_COMPILER_INTEGRATION.md) for browser
-packaging.
+[`docs/`](./docs/README.md) holds the deep dives: the
+[CLI guide](./docs/cli-guide.md), the
+[compiler walkthrough](./docs/compiler-walkthrough.md) for the
+TypeScript-to-Wasm pipeline, and
+[browser packaging](./docs/browser-packaging.md).
 
 ## Install
 

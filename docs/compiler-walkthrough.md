@@ -1,5 +1,12 @@
 # Qinit Compiler: Source to WAT/Wasm
 
+> **Scope** — `packages/compiler`, the `typescript` compiler backend, stage by stage: preprocess, lex,
+> parse, analyze, lay out memory, emit WAT, assemble Wasm.
+> **Read when** — changing code generation, the QPI snapshot, memory layout, or the runtime dispatch
+> the emitted module depends on. Not the place for the `clang` backend (`packages/build`).
+> **Related** — [CLI guide §7.3](./cli-guide.md) for how `qinit build` picks a backend;
+> [browser packaging](./browser-packaging.md) for shipping this compiler to a browser.
+
 The compiler's real job is:
 
 ```text

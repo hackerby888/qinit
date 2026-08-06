@@ -40,7 +40,7 @@ const commitPattern = /^[0-9a-f]{40}$/;
 export const synchronizedSourceFiles = [
   "README.md",
   "AGENTS.md",
-  "docs/BROWSER_COMPILER_INTEGRATION.md",
+  "docs/browser-packaging.md",
   "install.sh",
   "install.ps1",
   "package.json",
@@ -233,7 +233,7 @@ function editsFor(
         pattern: /Use Bun [A-Za-z0-9._-]+, matching CI\./g,
         replacement: `Use Bun ${toolchains.bun.version}, matching CI.`,
       }];
-    case "docs/BROWSER_COMPILER_INTEGRATION.md":
+    case "docs/browser-packaging.md":
       return [{
         pattern: /Use Bun [A-Za-z0-9._-]+:/g,
         replacement: `Use Bun ${toolchains.bun.version}:`,

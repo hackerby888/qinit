@@ -1,5 +1,11 @@
 # Browser Compiler Packaging
 
+> **Scope** — the `@qinit/compiler/browser` entry: what it embeds, who owns the QPI snapshot, how to
+> build and verify the bundle.
+> **Read when** — changing the browser entry, regenerating the QPI snapshot, or answering whether the
+> compiler needs a core-lite checkout at runtime (it does not).
+> **Related** — [compiler walkthrough](./compiler-walkthrough.md) for what the bundle actually runs.
+
 ## Browser entry
 
 Browser applications import:
