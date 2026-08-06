@@ -41,8 +41,9 @@ import type { CommandArguments } from "../args";
 const CONTRACT_CALL_WINDOW = 500;
 const CONTRACT_PAGE_SIZE = 50;
 
-type View =
+export type View =
   | { kind: "overview" }
+  | { kind: "find" }
   | { kind: "tick"; tick: number }
   | { kind: "tx"; hash: string; tick?: number }
   | { kind: "identity"; id?: string }
@@ -58,10 +59,28 @@ interface Frame {
 
 const frameOf = (view: View): Frame => ({ view, selected: 0 });
 
+// One field for every jump target, told apart by shape: identities are 60 uppercase characters and a tx id
+// is the same alphabet lowercased (the engine lowercases it in transport.ts), so nothing has to be typed
+// twice. Anything else is rejected rather than guessed at.
+export function parseFindQuery(value: string): View | null {
+  const query = value.trim();
+  if (/^\d+$/.test(query)) {
+    return { kind: "tick", tick: Number(query) };
+  }
+  if (/^[a-z]{60}$/.test(query)) {
+    return { kind: "tx", hash: query };
+  }
+  if (/^[A-Za-z]{60}$/.test(query)) {
+    return { kind: "identity", id: query.toUpperCase() };
+  }
+  return null;
+}
+
 function initialView(commandArgs: CommandArguments): View {
   const tick = commandArgs.get("tick");
   if (tick != null && tick !== "") {
-    return { kind: "tick", tick: Number(tick) };
+    // A non-numeric --tick would otherwise render as "TICK NaN"; the search prompt is the useful answer.
+    return /^\d+$/.test(tick.trim()) ? { kind: "tick", tick: Number(tick) } : { kind: "find" };
   }
 
   const hash = commandArgs.get("tx");
@@ -126,9 +145,9 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
 
   const top = stack[stack.length - 1];
   const view = top.view;
-  // Derived, not state: the identity view without an id *is* the search prompt. Tracking it in an effect
-  // instead would leave the first frame advertising keys the prompt has already taken.
-  const searching = view.kind === "identity" && !view.id;
+  // Derived, not state: the find view and the identity view without an id *are* prompts. Tracking this in
+  // an effect instead would leave the first frame advertising keys the prompt has already taken.
+  const searching = view.kind === "find" || (view.kind === "identity" && !view.id);
 
   // Contract names, loaded once and reused to label contract addresses across every view.
   const [contractNames, setContractNames] = useState<Map<number, string>>(new Map());
@@ -178,8 +197,8 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
 
   useInput(
     (input, key) => {
-      // While the identity prompt owns the keyboard, esc still has to mean "back" — it is the only way
-      // out of the search. Every other key belongs to the prompt so it can be typed into the field.
+      // While a prompt owns the keyboard, esc still has to mean "back" — it is the only way out of the
+      // search. Every other key belongs to the prompt so it can be typed into the field.
       // ink blanks `input` for escape, so the prompt never sees this keypress itself.
       if (searching) {
         if (key.escape) {
@@ -198,6 +217,10 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
         replaceRoot({ kind: "contracts", page: 0 });
       } else if (input === "3") {
         replaceRoot({ kind: "identity" });
+      } else if (input === "/") {
+        // Pushed, not a new root: the prompt replaces itself with the hit, so esc lands back where / was
+        // pressed rather than on the overview.
+        push({ kind: "find" });
       } else if (input === "t") {
         const next =
           THEME_NAMES[(THEME_NAMES.indexOf(themeName) + 1) % THEME_NAMES.length];
@@ -254,6 +277,11 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
       <Box flexDirection="column" flexGrow={1}>
       {view.kind === "overview" ? (
         <OverviewView {...shared} />
+      ) : view.kind === "find" ? (
+        <FindView
+          {...shared}
+          onSubmit={(target) => setStack((s) => [...s.slice(0, -1), frameOf(target)])}
+        />
       ) : view.kind === "tick" ? (
         <TickView {...shared} tick={view.tick} />
       ) : view.kind === "tx" ? (
@@ -288,6 +316,8 @@ const crumbOf = (view: View): string => {
   switch (view.kind) {
     case "overview":
       return "overview";
+    case "find":
+      return "find";
     case "tick":
       return `tick ${view.tick}`;
     case "tx":
@@ -354,6 +384,7 @@ function keysFor(view: View, depth: number, searching: boolean): KeyHint[] {
     ["1", "overview"],
     ["2", "contracts"],
     ["3", "identity"],
+    ["/", "find"],
   ];
 
   const hasList =
@@ -472,6 +503,68 @@ function windowOf<T>(
   const size = Math.max(1, budget);
   const offset = Math.max(0, Math.min(selected - Math.floor(size / 2), rows.length - size));
   return { win: rows.slice(offset, offset + size), offset: Math.max(0, offset) };
+}
+
+// ---- find ---------------------------------------------------------------------------------------
+
+function FindView({
+  rpc,
+  refreshToken,
+  rowCount,
+  columns,
+  onSubmit,
+}: ViewProps & { onSubmit: (view: View) => void }) {
+  const [head, setHead] = useState<{ first: number; last: number } | null>(null);
+  const [err, setErr] = useState("");
+
+  // Only feeds the placeholder and the range hint, so the prompt is usable before this lands — and still
+  // usable if it never does.
+  useEffect(() => {
+    let alive = true;
+    rpc
+      .explorerData()
+      .then(({ header }) => {
+        if (alive) setHead({ first: header.initialTick, last: header.tick });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [refreshToken]);
+
+  rowCount.current = 0;
+
+  return (
+    <Box marginTop={1} flexDirection="column">
+      <SectionHeader
+        title="find"
+        detail={
+          head
+            ? `ticks ${head.first}–${head.last} · identity · transaction`
+            : "tick · identity · transaction"
+        }
+        width={columns}
+      />
+      <TextPrompt
+        // TextPrompt already advertises → for the placeholder, so the label only names what is accepted.
+        label="tick number, identity, or tx hash"
+        placeholder={head ? String(head.last) : undefined}
+        onSubmit={(value) => {
+          const target = value.trim()
+            ? parseFindQuery(value)
+            : head
+              ? ({ kind: "tick", tick: head.last } as View)
+              : null;
+          if (target) {
+            onSubmit(target);
+          } else {
+            setErr(`not a tick number, identity, or transaction hash: ${truncMid(value.trim(), 24)}`);
+          }
+        }}
+      />
+      {err ? <Text color={theme.err}>{err}</Text> : null}
+    </Box>
+  );
 }
 
 // ---- overview -----------------------------------------------------------------------------------

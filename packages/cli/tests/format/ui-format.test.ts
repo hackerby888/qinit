@@ -2,7 +2,7 @@
 // stay correct past 2^53, where Number-based scaling silently drifts.
 import { test, expect } from "bun:test";
 import { fmtCompact, truncMid, truncEnd } from "../../src/ui";
-import { hintLines } from "../../src/commands/explorer";
+import { hintLines, parseFindQuery } from "../../src/commands/explorer";
 
 const SEPARATOR = 5; // "  ·  " between hints on a line
 const lineWidth = (line: [string, string][]) =>
@@ -58,6 +58,25 @@ test("hintLines wraps to fit the terminal and never drops a hint", () => {
 
   expect(hintLines(keys, 200).length).toBe(1);
   expect(hintLines(keys, 80).length).toBe(2);
+});
+
+// The explorer's one search field routes by the shape of what was typed, so this is the whole dispatch.
+test("find query routes by shape", () => {
+  const identity = "A".repeat(60);
+
+  expect(parseFindQuery(" 12480 ")).toEqual({ kind: "tick", tick: 12480 });
+  expect(parseFindQuery("0")).toEqual({ kind: "tick", tick: 0 });
+  expect(parseFindQuery(identity)).toEqual({ kind: "identity", id: identity });
+  // A tx id is the identity alphabet lowercased, so case is the only thing separating the two.
+  expect(parseFindQuery("a".repeat(60))).toEqual({ kind: "tx", hash: "a".repeat(60) });
+  expect(parseFindQuery(identity.toLowerCase().slice(0, 59) + "A")).toEqual({
+    kind: "identity",
+    id: identity,
+  });
+
+  for (const bad of ["", "  ", "-5", "12.5", "12a", "abc", "A".repeat(59), "A".repeat(61)]) {
+    expect(parseFindQuery(bad)).toBeNull();
+  }
 });
 
 test("truncation helpers keep values inside a fixed cell width", () => {
