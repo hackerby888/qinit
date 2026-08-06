@@ -96,6 +96,19 @@ describe("source configuration sync", () => {
     expect(() => syncSources(root)).toThrow("expected 1 match(es)");
   });
 
+  // Git checks out with CRLF by default on Windows. A replacement that spans newlines must keep the
+  // file's endings, or --check reports drift that syncing can never settle.
+  test("reports no drift in a CRLF checkout", () => {
+    const root = copySources();
+    for (const relativePath of synchronizedSourceFiles) {
+      const path = resolve(root, relativePath);
+      const source = readFileSync(path, "utf8");
+      writeFileSync(path, source.replace(/\r?\n/g, "\r\n"));
+    }
+
+    expect(syncSources(root, true)).toEqual([]);
+  });
+
   test("requires bun.lock to match the configured Bun version", () => {
     const root = copySources();
     const version = JSON.parse(
