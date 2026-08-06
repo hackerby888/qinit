@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { formatSeedBalance } from "../../src/commands/seed";
+import { formatSeedBalance } from "../../src/commands/deploy-interact/seed";
 
 test("formatSeedBalance uses compact QUs labels", () => {
   expect(formatSeedBalance("0")).toBe("0 QUs");

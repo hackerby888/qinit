@@ -1,4 +1,4 @@
-import type { WasmAbiSource } from "@qinit/core/wasm-abi-source";
+import type { WasmAbiSource } from "@qinit/core/wasm/abi-source";
 
 // v11 uses compiler naming in snapshot metadata.
 export const GENERATOR_VERSION = 11;

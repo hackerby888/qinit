@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { assertSeed, buildSignedTx, LITE_DEPLOY_ADDRESS } from "../../src/tx";
+import { assertSeed, buildSignedTx, LITE_DEPLOY_ADDRESS } from "../../src/crypto/tx";
 
 const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 

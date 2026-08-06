@@ -20,7 +20,7 @@ import {
   killNode,
   nodeAlive,
   nodeAssetForPlatform,
-} from "../../src/node-ops";
+} from "../../src/ops/node";
 
 const scratch = () => mkdtempSync(join(tmpdir(), "qinit-nodeops-"));
 const pidFile = (s: string) => join(s, "node.pid");

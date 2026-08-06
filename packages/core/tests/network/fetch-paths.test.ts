@@ -9,15 +9,11 @@ import {
   cacheHeaders,
   currentPath,
   toolsDir,
-  cachedVerifyToolPath,
-  wasiSdkDir,
-  wasiSdkPaths,
-  haveWasiSdkCache,
   releasePlatformKey,
-  CLI_REPO,
-  cliAssetName,
-  cliReleaseUrls,
-} from "../../src/fetch";
+} from "../../src/cache/paths";
+import { cachedVerifyToolPath } from "../../src/cache/verify-tool";
+import { wasiSdkDir, wasiSdkPaths, haveWasiSdkCache } from "../../src/cache/wasi-sdk";
+import { CLI_REPO, cliAssetName, cliReleaseUrls } from "../../src/cache/cli-release";
 
 const prev = {
   QINIT_CACHE: process.env.QINIT_CACHE,

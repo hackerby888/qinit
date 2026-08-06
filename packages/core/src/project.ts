@@ -1,7 +1,7 @@
 // Project config and core resolution shared by the CLI and VS Code extension. Bun-free.
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { readCurrent } from "./fetch";
+import { readCurrent } from "./cache/paths";
 
 export interface QinitConfig {
   contractName?: string;
@@ -39,5 +39,6 @@ export function resolveCoreDir(
 
 // Lean, Bun-free re-exports of the toolchain readers, so a consumer can import everything
 // project-related from "@qinit/core/project" without dragging in the crypto/rpc barrel.
-export { readCurrent, currentPath, cacheRoot, wasiSdkPaths } from "./fetch";
-export type { CurrentPointer } from "./fetch";
+export { readCurrent, currentPath, cacheRoot } from "./cache/paths";
+export type { CurrentPointer } from "./cache/paths";
+export { wasiSdkPaths } from "./cache/wasi-sdk";

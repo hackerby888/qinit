@@ -5,7 +5,7 @@ import {
   fmtDiffVal,
   type StateReader,
   type StateField,
-} from "../../src/trace-format";
+} from "../../src/trace/format";
 
 // LE bytes / hex helpers
 const le = (n: bigint | number, w: number) => {
@@ -208,7 +208,7 @@ test("describeTrace/readState: a stateRead failure degrades gracefully", async (
   expect(state.containers).toHaveLength(0);
 });
 
-import { fmtVal } from "../../src/trace-format";
+import { fmtVal } from "../../src/trace/format";
 test("fmtVal: run-length-group long runs, keep short literal, cap unless full", () => {
   expect(fmtVal([0, 0, 0])).toBe("[0, 0, 0]"); // short run kept literal
   expect(fmtVal(Array(100).fill(0))).toBe("[0 ×100]"); // long run collapsed

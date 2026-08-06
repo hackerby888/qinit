@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { CORE_WASM_HEADERS } from "../src/wasm-headers";
-import { parseWasmAbiSource } from "../src/wasm-abi-source";
-import { parseWasmSlotLayoutSource } from "../src/wasm-slot-layout-source";
+import { CORE_WASM_HEADERS } from "../src/wasm/headers";
+import { parseWasmAbiSource } from "../src/wasm/abi-source";
+import { parseWasmSlotLayoutSource } from "../src/wasm/slot-layout-source";
 
 const args = process.argv.slice(2);
 const coreIndex = args.indexOf("--core-dir");
@@ -15,7 +15,7 @@ const metadata = parseWasmAbiSource(
   readFileSync(metadataPath, "utf8"),
   readFileSync(sharedPath, "utf8"),
 );
-const abiOutput = resolve(import.meta.dir, "..", "src", "generated", "wasm-abi.ts");
+const abiOutput = resolve(import.meta.dir, "..", "src", "wasm", "generated", "wasm-abi.ts");
 const generatedAbi =
   "// Generated from core-lite Wasm shared ABI headers. Do not edit.\n" +
   `export const WASM_ABI_METADATA = ${JSON.stringify(metadata, null, 2)} as const;\n`;
@@ -26,6 +26,7 @@ const layoutOutput = resolve(
   import.meta.dir,
   "..",
   "src",
+  "wasm",
   "generated",
   "wasm-slot-layout.ts",
 );

@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CORE_PATH } from "../../../../test-utils/paths";
-import { buildContractWithTypeScript } from "../../src/build-contract-with-typescript";
+import { buildContractWithTypeScript } from "../../src/ops/typescript-build";
 
 const MAIN = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};

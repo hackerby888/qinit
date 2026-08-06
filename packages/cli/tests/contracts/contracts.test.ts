@@ -6,7 +6,7 @@ import {
   resolveContract,
   systemAsDyn,
   type ContractSets,
-} from "../../src/contracts";
+} from "../../src/contracts/registry";
 
 const user = (over: any = {}) => ({
   index: 100,

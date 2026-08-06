@@ -11,7 +11,7 @@ import {
   formatContractPickerRows,
   zeroSample,
   tmplOf,
-} from "../../src/commands/call-interactive";
+} from "../../src/commands/deploy-interact/call-interactive";
 
 const SIZES: Record<AbiScalarKind, number> = {
   [AbiScalarKind.BIT]: 1,

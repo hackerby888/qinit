@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bytesToHex, hexToBytes } from "../../src/bytes";
+import { bytesToHex, hexToBytes } from "../../src/crypto/bytes";
 
 describe("hex byte conversion", () => {
   test("round-trips prefixed and uppercase hex", () => {

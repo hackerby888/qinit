@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { prepareNodeRunCore, type NodeRunCoreDeps } from "../../src/node-run-core";
+import { prepareNodeRunCore, type NodeRunCoreDeps } from "../../src/ops/node-core";
 
 const temporary: string[] = [];
 

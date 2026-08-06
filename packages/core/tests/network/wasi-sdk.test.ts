@@ -16,7 +16,7 @@ import {
   managedWasiSdkStatus,
   wasiSdkDir,
   wasiSdkPaths,
-} from "../../src/fetch";
+} from "../../src/cache/wasi-sdk";
 
 const originalEnv = {
   QINIT_CACHE: process.env.QINIT_CACHE,

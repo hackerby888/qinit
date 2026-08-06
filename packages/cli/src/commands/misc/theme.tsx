@@ -1,0 +1,135 @@
+import { useEffect, useRef, useState } from "react";
+import { Box, Text, useApp, useInput } from "ink";
+import { savedTheme, setSavedTheme } from "../../config";
+import { Header, Grad, GradLine, THEMES, THEME_NAMES, applyTheme, theme } from "../../ui";
+import type { CommandArguments } from "../../args";
+
+function Swatch({ name }: { name: string }) {
+  const selectedTheme = THEMES[name];
+  const colors = [
+    selectedTheme.gradFrom,
+    selectedTheme.gradTo,
+    selectedTheme.brand,
+    selectedTheme.accent,
+    selectedTheme.info,
+    selectedTheme.ok,
+    selectedTheme.warn,
+    selectedTheme.err,
+  ];
+  return (
+    <Text>
+      {colors.map((color, index) => (
+        <Text key={index} color={color}>
+          █
+        </Text>
+      ))}
+    </Text>
+  );
+}
+
+export function ThemeCmd({ commandArgs }: { commandArgs: CommandArguments }) {
+  const o = {
+    name: commandArgs.positionals[0],
+    show: commandArgs.has("show"),
+  };
+  const { exit } = useApp();
+  const cur = savedTheme() && THEMES[savedTheme()!] ? savedTheme()! : "default";
+  const [i, setI] = useState(Math.max(0, THEME_NAMES.indexOf(cur)));
+  // Mirror selection in a ref so rapid arrow/Enter input uses the latest choice.
+  const sel = useRef(i);
+  const move = (d: number): void => {
+    sel.current = (sel.current + d + THEME_NAMES.length) % THEME_NAMES.length;
+    setI(sel.current);
+  };
+  const [msg, setMsg] = useState<string[]>([]);
+  const [phase, setPhase] = useState<"pick" | "done">(o.name || o.show ? "done" : "pick");
+  const add = (s: string) => setMsg((m) => [...m, s]);
+
+  useEffect(() => {
+    if (o.show) {
+      add(`active theme: ${cur}`);
+      return;
+    }
+    if (o.name) {
+      if (!THEMES[o.name]) {
+        add(`✗ unknown theme '${o.name}' — pick: ${THEME_NAMES.join(", ")}`);
+        return;
+      }
+      setSavedTheme(o.name);
+      applyTheme(o.name);
+      add(`✓ theme set: ${o.name}`);
+    }
+  }, []);
+  useEffect(() => {
+    if (phase === "done") {
+      const t = setTimeout(() => exit(), 30);
+      return () => clearTimeout(t);
+    }
+  }, [phase]);
+
+  useInput(
+    (input, key) => {
+      if (phase !== "pick") return;
+      if (input === "q" || key.escape) {
+        applyTheme(cur);
+        exit();
+      } // cancel -> restore saved
+      else if (key.upArrow) move(-1);
+      else if (key.downArrow) move(1);
+      else if (key.return) {
+        const name = THEME_NAMES[sel.current];
+        setSavedTheme(name);
+        applyTheme(name);
+        add(`✓ theme saved: ${name}`);
+        setPhase("done");
+      }
+    },
+    { isActive: Boolean(process.stdin.isTTY) },
+  );
+
+  // Live preview applied synchronously during render (not in a post-render effect) so the header + preview
+  // gradient + highlighted row reflect the hovered variant in the SAME frame; an effect lagged one move behind.
+  if (phase === "pick") {
+    applyTheme(THEME_NAMES[i]);
+  }
+
+  return (
+    <Box flexDirection="column">
+      <Header cmd="theme" />
+      {phase === "done" &&
+        msg.map((m, k) => (
+          <Text key={k} color={m.startsWith("✗") ? theme.err : theme.ok}>
+            {m}
+          </Text>
+        ))}
+      {phase === "pick" && (
+        <Box flexDirection="column">
+          <Box marginBottom={1}>
+            <Grad text="preview:  qinit" />
+            <Text dimColor> ▸ theme</Text>
+          </Box>
+          <Text dimColor>↑/↓ select · ↵ save · q cancel</Text>
+          <Box borderStyle="round" borderColor={theme.brand} paddingX={1} flexDirection="column">
+            {THEME_NAMES.map((name, idx) => {
+              const sel = idx === i;
+              return (
+                <Text key={name}>
+                  {sel ? (
+                    <GradLine text={"▸ " + name.padEnd(9)} />
+                  ) : (
+                    <Text>
+                      {"  "}
+                      <Text color={theme.brand}>{name.padEnd(9)}</Text>
+                    </Text>
+                  )}{" "}
+                  <Swatch name={name} />
+                  {name === cur ? <Text color={theme.ok}> ✓ current</Text> : null}
+                </Text>
+              );
+            })}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}

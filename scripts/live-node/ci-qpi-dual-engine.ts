@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { buildContractWithWasiClang } from "@qinit/build";
-import { deployContract } from "@qinit/cli/deploy-ops";
+import { deployContract } from "@qinit/cli/ops/deploy";
 import {
   compileContract,
   DEFAULT_COMPILE_ARENA_SIZE_BYTES,

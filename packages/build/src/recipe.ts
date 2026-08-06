@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { wasiSdkPaths } from "@qinit/core/project";
-import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { writeLineMap } from "./linemap";
 import WASM_GTEST_H from "./assets/wasm_gtest.h" with { type: "text" };
 import WASM_CONTRACT_TESTING_H_TEMPLATE from "./assets/wasm_contract_testing.h" with { type: "text" };

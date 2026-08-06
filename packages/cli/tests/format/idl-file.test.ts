@@ -14,7 +14,7 @@ import {
   emptyContractIdlFile,
   loadContractIdlFile,
   saveContractIdl,
-} from "../../src/idl-file";
+} from "../../src/contracts/idl-file";
 
 const emptyStruct: AbiStruct = {
   kind: AbiTypeKind.STRUCT,

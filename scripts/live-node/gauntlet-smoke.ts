@@ -1,6 +1,6 @@
 // Deploy the QPI edge-case fixture and verify its behavior on-chain.
 import { resolve } from "node:path";
-import { deployContract } from "@qinit/cli/deploy-ops";
+import { deployContract } from "@qinit/cli/ops/deploy";
 import { callFunction, invokeProcedure } from "@qinit/proto";
 import {
   DEFAULT_RPC_BASE,

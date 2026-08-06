@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readStateDigest } from "../../src/state-digest";
+import { readStateDigest } from "../../src/contracts/state-digest";
 
 const digest = "ab".repeat(32);
 

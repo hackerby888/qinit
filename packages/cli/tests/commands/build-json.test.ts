@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildJsonResult } from "../../src/commands/build";
+import { buildJsonResult } from "../../src/commands/develop/build";
 
 test("build JSON includes complete failure diagnostics", () => {
   const stderr = Array.from({ length: 80 }, (_, index) => `diagnostic ${index}`).join("\n");

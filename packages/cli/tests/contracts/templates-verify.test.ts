@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { templateSource, TEMPLATE_KINDS } from "../../src/templates";
+import { templateSource, TEMPLATE_KINDS } from "../../src/contracts/templates";
 import { verifyContract, resolveVerifyTool } from "@qinit/build";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";

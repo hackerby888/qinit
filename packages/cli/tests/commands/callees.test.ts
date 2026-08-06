@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { parseCallees } from "../../src/callees";
+import { parseCallees } from "../../src/contracts/callees";
 
 test("parseCallees parses repeated declarations", () => {
   expect(parseCallees(["Counter=contracts/Counter.h@28", "Oracle=Oracle.h@29"])).toEqual({

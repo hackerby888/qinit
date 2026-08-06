@@ -1,14 +1,14 @@
 // Check that qinit's hand-mirrored protocol constants still match core-lite.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import {
   CONTRACT_ENTRY_POINTS,
   SYSTEM_PROCEDURE_COUNT,
-} from "@qinit/core/lhost-abi";
-import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
-import { loadCoreWasmSlotLayout } from "@qinit/core/wasm-slot-layout-node";
-import { LITE_DEPLOY_ADDRESS } from "@qinit/core/tx";
+} from "@qinit/core/wasm/lhost-abi";
+import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm/slot-layout";
+import { loadCoreWasmSlotLayout } from "@qinit/core/wasm/slot-layout-node";
+import { LITE_DEPLOY_ADDRESS } from "@qinit/core/crypto/tx";
 import {
   DeployMessage,
   UploadBegin,

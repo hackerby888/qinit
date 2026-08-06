@@ -5,7 +5,7 @@ import {
   DEFAULT_RPC_BASE,
   broadcastTx,
   readResponseBodyWithTimeout,
-} from "../../src/net";
+} from "../../src/net/http";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {

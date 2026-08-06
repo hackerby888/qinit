@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import {
   runSelfUpdate,
   type SelfUpdateDeps,
-} from "../../src/update-ops";
+} from "../../src/ops/update";
 
 const tag = "qinit-cli-v1.2.3";
 const release = {

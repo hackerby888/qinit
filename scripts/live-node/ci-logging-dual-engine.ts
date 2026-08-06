@@ -16,7 +16,7 @@ import {
   loadQpiHeader,
 } from "@qinit/compiler";
 import { QubicSimulator } from "@qinit/engine";
-import { deployContract } from "@qinit/cli/deploy-ops";
+import { deployContract } from "@qinit/cli/ops/deploy";
 import { invokeProcedure, resolveDeploymentSlot } from "@qinit/proto";
 
 const core = process.env.QINIT_CORE;

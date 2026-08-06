@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { defineStruct, u56 } from "../../src/struct";
+import { defineStruct, u56 } from "../../src/codec/struct";
 
 const SevenByteValue = defineStruct("SevenByteValue", {
   value: u56,

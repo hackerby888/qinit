@@ -11,7 +11,7 @@ import {
   detectStateType,
 } from "../../src/clangd-config";
 import { writeFileSync } from "node:fs";
-import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 
 const COUNTER = resolve("fixtures", "Counter.h");
 const hasFixture = existsSync(COUNTER);

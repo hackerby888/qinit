@@ -4,7 +4,7 @@ import { EngineServer } from "@qinit/engine/server";
 import { initK12, LiteRpc, deriveIdentity } from "@qinit/core";
 import { callFunction, invokeProcedure, TX_TICK_OFFSET } from "@qinit/proto";
 import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
-import { portFromRpc } from "../../src/serve";
+import { portFromRpc } from "../../src/ops/serve";
 
 const SEED = "a".repeat(55);
 const SLOT = 28;

@@ -1,7 +1,7 @@
 // The compile recipe is the contract between qinit and the core headers: a wrong preamble order, a dropped
 // impl include, or a target-specific include leak silently miscompiles. These lock the wrapper structure.
 import { test, expect } from "bun:test";
-import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import {
   buildPreamble,
   generateWasmContractTestingHeader,

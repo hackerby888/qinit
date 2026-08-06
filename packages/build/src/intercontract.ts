@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import {
   analyzeContract,
   DiagnosticSeverity,

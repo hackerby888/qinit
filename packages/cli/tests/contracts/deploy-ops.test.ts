@@ -15,7 +15,7 @@ import {
   tickFailureMessage,
   classifyConfirm,
   updateDeploymentSteps,
-} from "../../src/deploy-ops";
+} from "../../src/ops/deploy";
 
 test("updateDeploymentSteps preserves detail and records elapsed time", () => {
   const active = updateDeploymentSteps({}, { step: "build", state: "active", pct: 25 }, 100);

@@ -5,7 +5,7 @@ import {
   bytesToIdentity,
   identityToBytes,
   contractIndexFromIdentity,
-} from "../../src/qubic";
+} from "../../src/crypto/qubic";
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");

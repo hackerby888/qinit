@@ -1,7 +1,7 @@
 // Deploy Counter to a live node and prove its read, write, debug, and log paths.
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { deployContract } from "@qinit/cli/deploy-ops";
+import { deployContract } from "@qinit/cli/ops/deploy";
 import { callFunction, invokeProcedure, decodeLog } from "@qinit/proto";
 import { extractIdl } from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";

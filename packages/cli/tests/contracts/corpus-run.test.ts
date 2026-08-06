@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { CORE_PATH } from "../../../../test-utils/paths";
-import { systemGtestCorpora, systemGtestTier } from "../../src/corpus-run";
+import { systemGtestCorpora, systemGtestTier } from "../../src/ops/corpus-run";
 
 test("system gtest corpora are discovered from core and split into light and heavy tiers", () => {
   const corpora = systemGtestCorpora(CORE_PATH);

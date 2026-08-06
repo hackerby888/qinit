@@ -2,7 +2,8 @@
 // stay correct past 2^53, where Number-based scaling silently drifts.
 import { test, expect } from "bun:test";
 import { fmtCompact, truncMid, truncEnd } from "../../src/ui";
-import { hintLines, parseFindQuery } from "../../src/commands/explorer";
+import { parseFindQuery } from "../../src/commands/deploy-interact/explorer";
+import { hintLines } from "../../src/commands/deploy-interact/explorer/chrome";
 
 const SEPARATOR = 5; // "  ·  " between hints on a line
 const lineWidth = (line: [string, string][]) =>

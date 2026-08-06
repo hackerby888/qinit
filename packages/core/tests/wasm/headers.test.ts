@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { CORE_PATH } from "../../../../test-utils/paths";
-import { CORE_WASM_HEADERS } from "../../src/wasm-headers";
+import { CORE_WASM_HEADERS } from "../../src/wasm/headers";
 import {
   CONTRACT_ENTRY_POINTS,
   SYSTEM_PROCEDURE_COUNT,
   SYSTEM_PROCEDURES,
-} from "../../src/lhost-abi";
+} from "../../src/wasm/lhost-abi";
 
 test("contract entry points follow the generated system-procedure range", () => {
   expect(Object.keys(SYSTEM_PROCEDURES).length).toBe(SYSTEM_PROCEDURE_COUNT as number);

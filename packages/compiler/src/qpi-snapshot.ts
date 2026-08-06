@@ -3,8 +3,8 @@ import {
   QPI_LANGUAGE_PRELUDE,
   assembleQpiProtocolPrelude,
 } from "./qpi-prelude";
-import { CORE_WASM_HEADERS } from "@qinit/core/wasm-headers";
-import { parseWasmAbiSource } from "@qinit/core/wasm-abi-source";
+import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
+import { parseWasmAbiSource } from "@qinit/core/wasm/abi-source";
 import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "./qpi-snapshot-format";
 
 export {

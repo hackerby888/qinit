@@ -14,7 +14,7 @@ import {
   type SetupDeps,
   type SetupEvent,
   type SetupUpdate,
-} from "../../src/commands/setup";
+} from "../../src/commands/setup-node/setup";
 
 const asset = { url: "https://example.invalid/asset", sha256: "abc" };
 const manifest: Manifest = {
@@ -587,7 +587,7 @@ test("setup --force installs available updates without refreshing current assets
 
 test("setup stays download-only", () => {
   const source = readFileSync(
-    new URL("../../src/commands/setup.tsx", import.meta.url),
+    new URL("../../src/commands/setup-node/setup.tsx", import.meta.url),
     "utf8",
   );
 

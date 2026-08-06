@@ -1,7 +1,7 @@
 // Browser-safe entry for @qinit/core. The package index re-exports ./fetch, ./project, ./backtrace, which
 // pull node:fs / child_process; this entry exposes only browser-safe identity, tx signing, and signing helpers.
-export * from "./struct"; // zero-copy struct-view kit — node-free, safe in the browser bundle
-export * from "./bytes";
+export * from "./codec/struct"; // zero-copy struct-view kit — node-free, safe in the browser bundle
+export * from "./crypto/bytes";
 export {
   LHOST_ABI,
   ASSET_ENUMERATION_RECORD,
@@ -9,26 +9,26 @@ export {
   SYSTEM_PROCEDURES,
   SYSTEM_PROCEDURE_COUNT,
   CONTRACT_ENTRY_POINTS,
-} from "./lhost-abi";
-export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./lhost-abi";
-export { CORE_WASM_HEADERS } from "./wasm-headers";
-export type { CoreWasmHeaderLayout } from "./wasm-headers";
-export { DEFAULT_WASM_SLOT_LAYOUT } from "./wasm-slot-layout";
-export type { WasmSlotLayout } from "./wasm-slot-layout";
-export { parseWasmSlotLayoutSource } from "./wasm-slot-layout-source";
+} from "./wasm/lhost-abi";
+export type { LhostFunctionSignature, LhostImportName, LhostValueType } from "./wasm/lhost-abi";
+export { CORE_WASM_HEADERS } from "./wasm/headers";
+export type { CoreWasmHeaderLayout } from "./wasm/headers";
+export { DEFAULT_WASM_SLOT_LAYOUT } from "./wasm/slot-layout";
+export type { WasmSlotLayout } from "./wasm/slot-layout";
+export { parseWasmSlotLayoutSource } from "./wasm/slot-layout-source";
 export {
   deriveIdentity,
   bytesToIdentity,
   identityToBytes,
   contractIndexFromIdentity,
   cryptoSmoke,
-} from "./qubic";
-export type { IdentityResult, CryptoSmokeResult } from "./qubic";
+} from "./crypto/qubic";
+export type { IdentityResult, CryptoSmokeResult } from "./crypto/qubic";
 
-export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./tx";
-export type { SignedTx, TxInput } from "./tx";
+export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./crypto/tx";
+export type { SignedTx, TxInput } from "./crypto/tx";
 
-export { LiteRpc } from "./rpc";
+export { LiteRpc } from "./net/rpc/client";
 export type {
   TickInfo,
   EngineFaultInfo,
@@ -47,7 +47,7 @@ export type {
   ContractCall,
   ContractCallsPage,
   ContractListEntry,
-} from "./rpc";
+} from "./net/rpc/types";
 
 export {
   LOOPBACK_HOST,
@@ -58,17 +58,17 @@ export {
   broadcastTxs,
   fetchWithTimeout,
   readResponseBodyWithTimeout,
-} from "./net";
-export type { BroadcastResult } from "./net";
+} from "./net/http";
+export type { BroadcastResult } from "./net/http";
 
-export type { NodeTransport, TxStatus, StateRead, EntityInfo, TxInfo } from "./transport";
-export type { KeyPair } from "./qubic";
+export type { NodeTransport, TxStatus, StateRead, EntityInfo, TxInfo } from "./net/transport";
+export type { KeyPair } from "./crypto/qubic";
 
 // K12 (KangarooTwelve): ESM import of @qubic-lib's emscripten crypto (the same module ./qubic uses), so it
 // runs in the page. `default` resolves (once runtime ready) to { K12, schnorrq } where K12(input) is usable.
 import cryptoModule from "@qubic-lib/qubic-ts-library/dist/crypto/index.js";
 import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper.js";
-import type { KeyPair } from "./qubic";
+import type { KeyPair } from "./crypto/qubic";
 
 type RawK12 = (input: Uint8Array, out: Uint8Array, outLen: number) => void;
 interface SchnorrQ {

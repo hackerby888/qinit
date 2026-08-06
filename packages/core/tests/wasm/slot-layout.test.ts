@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { VirtualNode } from "@qinit/engine";
-import { DEFAULT_WASM_SLOT_LAYOUT } from "../../src/wasm-slot-layout";
-import { loadCoreWasmSlotLayout } from "../../src/wasm-slot-layout-node";
-import { parseWasmSlotLayoutSource } from "../../src/wasm-slot-layout-source";
+import { DEFAULT_WASM_SLOT_LAYOUT } from "../../src/wasm/slot-layout";
+import { loadCoreWasmSlotLayout } from "../../src/wasm/slot-layout-node";
+import { parseWasmSlotLayoutSource } from "../../src/wasm/slot-layout-source";
 
 const configuredCore = process.env.QINIT_CORE?.trim();
 const corePath = configuredCore ? resolve(configuredCore) : "";
