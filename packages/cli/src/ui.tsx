@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useStdout } from "ink";
 import { output } from "./args";
 
 export type Theme = {
@@ -143,19 +143,32 @@ export function Grad({
   );
 }
 
+// Blend a color toward black. Lets a themed element recede without leaving the palette.
+export function darken(color: string, amount: number): string {
+  return lerp(color, "#000000", Math.max(0, Math.min(1, amount)));
+}
+
 export function GradLine({
   text,
   from = theme.gradFrom,
   to = theme.gradTo,
   bold = true,
+  color = "#ffffff",
+  plainDim = false,
 }: {
   text: string;
   from?: string;
   to?: string;
   bold?: boolean;
+  color?: string;
+  plainDim?: boolean;
 }) {
   if (output.plain) {
-    return <Text bold={bold}>{text}</Text>;
+    return (
+      <Text bold={bold} dimColor={plainDim}>
+        {text}
+      </Text>
+    );
   }
 
   const length = text.length;
@@ -165,7 +178,7 @@ export function GradLine({
         <Text
           key={index}
           backgroundColor={lerp(from, to, length < 2 ? 0 : index / (length - 1))}
-          color="#ffffff"
+          color={color}
         >
           {character}
         </Text>
@@ -400,6 +413,53 @@ export const fmtMs = (ms?: number) =>
   ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 
 export const termCols = () => Math.max(40, process.stdout.columns || 80);
+
+// Terminal size that re-renders on resize — for full-height layouts that pin something to the last row.
+// termCols() above stays for one-shot commands that only need the width once.
+export function useTerminalSize(): { columns: number; rows: number } {
+  const { stdout } = useStdout();
+  const read = () => ({
+    columns: Math.max(40, stdout?.columns || 80),
+    rows: Math.max(10, stdout?.rows || 24),
+  });
+  const [size, setSize] = useState(read);
+
+  useEffect(() => {
+    if (!stdout) {
+      return;
+    }
+
+    const onResize = () => setSize(read());
+    stdout.on("resize", onResize);
+    return () => {
+      stdout.off("resize", onResize);
+    };
+  }, [stdout]);
+
+  return size;
+}
+
+const COMPACT_UNITS = ["", "K", "M", "B", "T", "P", "E"];
+
+// Compact a decimal amount string for a narrow cell: "32000000000000" -> "32.0 T". Works on the digit
+// string rather than Number, so amounts past 2^53 stay correct.
+export function fmtCompact(amount: string): string {
+  const negative = amount.startsWith("-");
+  const digits = (negative ? amount.slice(1) : amount).replace(/^0+(?=\d)/, "");
+  if (!/^\d+$/.test(digits)) {
+    return amount;
+  }
+
+  const unit = Math.min(COMPACT_UNITS.length - 1, Math.floor((digits.length - 1) / 3));
+  const sign = negative ? "-" : "";
+  if (unit === 0) {
+    return sign + digits;
+  }
+
+  const whole = digits.slice(0, digits.length - unit * 3);
+  const fraction = digits.slice(whole.length, whole.length + 1);
+  return `${sign}${whole}.${fraction} ${COMPACT_UNITS[unit]}`;
+}
 export const truncEnd = (s: string, max: number) =>
   s.length <= max ? s : s.slice(0, Math.max(1, max - 1)) + "…";
 
@@ -457,6 +517,145 @@ export function StepRow({
   );
 }
 
+// A titled section divider: `▌ RECENT TICKS  20 newest first ─────────`. The trailing hairline is what
+// separates one region from the next without spending a whole bordered box on it.
+export function SectionHeader({
+  title,
+  detail,
+  badge,
+  badgeColor,
+  error,
+  width,
+}: {
+  title: string;
+  detail?: string;
+  badge?: string;
+  badgeColor?: string;
+  error?: string;
+  width?: number;
+}) {
+  const total = width ?? termCols();
+  const label = title.toUpperCase();
+  // Badges and errors are variable-width; the rule just fills whatever is left over.
+  const used = 2 + label.length + (detail ? detail.length + 2 : 0) + (badge ? badge.length + 4 : 0);
+  // Leave the terminal's last cell empty: a header filling it exactly wraps on some terminals.
+  const rule = Math.max(0, total - used - (error ? error.length + 2 : 0) - 2);
+
+  return (
+    <Box marginTop={1}>
+      <Text>
+        <Text color={theme.brand}>▌</Text>{" "}
+        <Text bold color={theme.accent}>
+          {label}
+        </Text>
+        {detail ? <Text dimColor>{`  ${detail}`}</Text> : null}
+        {badge ? (
+          <Text>
+            {"  "}
+            <Badge text={badge} color={badgeColor ?? theme.err} />
+          </Text>
+        ) : null}
+        {error ? <Text color={theme.err}>{`  ${error}`}</Text> : null}
+        {rule > 0 ? <Text dimColor>{` ${"─".repeat(rule)}`}</Text> : null}
+      </Text>
+    </Box>
+  );
+}
+
+export interface TileSpec {
+  title: string;
+  value: string;
+  color?: string;
+}
+
+// A stat box with its title drawn into the top border. Ink has no border-title prop, so the box is
+// composed by hand — which also keeps the width exact for row layout.
+export function Tile({ title, value, color = theme.brand, width = 18 }: TileSpec & { width?: number }) {
+  const label = title.toUpperCase();
+  const inner = Math.max(label.length + 4, width - 2);
+  const top = `╭─ ${label} ${"─".repeat(Math.max(0, inner - label.length - 3))}╮`;
+  const shown = truncEnd(value, inner - 2);
+
+  return (
+    <Box flexDirection="column">
+      <Text color={output.plain ? undefined : color} dimColor={output.plain}>
+        {top}
+      </Text>
+      <Text>
+        <Text color={output.plain ? undefined : color} dimColor={output.plain}>
+          │
+        </Text>
+        <Text bold>{` ${shown.padEnd(inner - 2)} `}</Text>
+        <Text color={output.plain ? undefined : color} dimColor={output.plain}>
+          │
+        </Text>
+      </Text>
+      <Text color={output.plain ? undefined : color} dimColor={output.plain}>
+        {`╰${"─".repeat(inner)}╯`}
+      </Text>
+    </Box>
+  );
+}
+
+// Tiles laid out left to right, wrapping to another row when the terminal is too narrow.
+export function TileRow({
+  tiles,
+  columns,
+  tileWidth = 18,
+}: {
+  tiles: TileSpec[];
+  columns?: number;
+  tileWidth?: number;
+}) {
+  const total = columns ?? termCols();
+  const perRow = Math.max(1, Math.floor(total / (tileWidth + 1)));
+  const lines: TileSpec[][] = [];
+  for (let index = 0; index < tiles.length; index += perRow) {
+    lines.push(tiles.slice(index, index + perRow));
+  }
+
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, lineIndex) => (
+        <Box key={lineIndex} flexDirection="row">
+          {line.map((tile, index) => (
+            <Box key={index} marginRight={index < line.length - 1 ? 1 : 0}>
+              <Tile {...tile} width={tileWidth} />
+            </Box>
+          ))}
+        </Box>
+      ))}
+    </Box>
+  );
+}
+
+export interface SparkRow {
+  label: string;
+  value: number;
+}
+
+// Proportional bars scaled to the largest row — a readable stand-in for the web explorer's mempool chart.
+export function Sparkline({ rows, width = 16 }: { rows: SparkRow[]; width?: number }) {
+  const peak = Math.max(1, ...rows.map((row) => row.value));
+  const labelWidth = Math.max(0, ...rows.map((row) => row.label.length));
+
+  return (
+    <Box flexDirection="column">
+      {rows.map((row, index) => {
+        const fill = Math.round((row.value / peak) * width);
+        return (
+          <Text key={index}>
+            <Text dimColor>{row.label.padStart(labelWidth)}</Text>{" "}
+            <Text color={output.plain ? undefined : theme.brand}>{"█".repeat(fill)}</Text>
+            <Text dimColor>{"░".repeat(Math.max(0, width - fill))}</Text>{" "}
+            <Text>{row.value}</Text>
+          </Text>
+        );
+      })}
+    </Box>
+  );
+}
+
 export interface Column {
   header: string;
   align?: "left" | "right";
@@ -469,11 +668,14 @@ export function Table({
   rows,
   selected,
   rowColor,
+  width,
 }: {
   columns: Column[];
   rows: string[][];
   selected?: number;
   rowColor?: (i: number) => string | undefined;
+  // Available width, when the table is not flush against the terminal edge (e.g. inside an indented section).
+  width?: number;
 }) {
   const gap = 2;
   const widths = columns.map((column, index) => {
@@ -486,9 +688,9 @@ export function Table({
   });
 
   let over =
-    widths.reduce((sum, width) => sum + width, 0) +
+    widths.reduce((sum, columnWidth) => sum + columnWidth, 0) +
     gap * Math.max(0, columns.length - 1) -
-    termCols();
+    (width ?? termCols());
 
   while (over > 0) {
     let widest = 0;
@@ -522,9 +724,17 @@ export function Table({
       )
       .join("");
 
+  // The header shares the selected row's gradient, so it needs to read as chrome rather than as a
+  // selection: same palette, darkened and running the other way, with muted text.
   const Header = () => (
     <Box>
-      <GradLine text={rowText(columns.map((column) => column.header))} />
+      <GradLine
+        text={rowText(columns.map((column) => column.header))}
+        from={darken(theme.gradTo, 0.62)}
+        to={darken(theme.gradFrom, 0.62)}
+        color={theme.mute}
+        plainDim
+      />
     </Box>
   );
 

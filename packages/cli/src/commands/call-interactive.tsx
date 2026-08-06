@@ -30,6 +30,33 @@ import { Header, Spinner, Panel, theme } from "../ui";
 
 type SelItem<T> = { label: string; value?: T; header?: boolean };
 
+export function formatContractPickerRows(
+  rows: readonly {
+    name: string;
+    index: number;
+    functionCount: number;
+    procedureCount: number;
+  }[],
+): string[] {
+  const nameWidth = Math.max(0, ...rows.map((row) => row.name.length));
+  const indexWidth = Math.max(0, ...rows.map((row) => String(row.index).length));
+  const functionWidth = Math.max(
+    0,
+    ...rows.map((row) => String(row.functionCount).length),
+  );
+  const procedureWidth = Math.max(
+    0,
+    ...rows.map((row) => String(row.procedureCount).length),
+  );
+
+  return rows.map(
+    (row) =>
+      `${row.name.padEnd(nameWidth)}  [idx ${String(row.index).padStart(indexWidth)}]  ` +
+      `${String(row.functionCount).padStart(functionWidth)} fn / ` +
+      `${String(row.procedureCount).padStart(procedureWidth)} proc`,
+  );
+}
+
 function Select<T>({
   label,
   items,
@@ -87,7 +114,7 @@ function Select<T>({
                   ▸{" "}
                 </Text>
               ) : (
-                <Text> </Text>
+                <Text>{"  "}</Text>
               )}
               <Text
                 color={index === selected ? theme.info : undefined}
@@ -152,7 +179,7 @@ export const tmplOf = (fields?: AbiField[]) =>
     ? fields.map((field) => `<${field.name}>${field.type.format}`).join(", ")
     : undefined;
 
-function TextPrompt({
+export function TextPrompt({
   label,
   initial,
   onSubmit,
@@ -658,20 +685,26 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
   }
 
   if (stage === "contract") {
-    const item = (contract: DynamicContractRegistryEntry) => ({
-      label: `${nameOf(contract)}  [idx ${contract.index}]  ${
-        contract.functions.length
-      } fn / ${contract.procedures.length} proc`,
+    const labels = formatContractPickerRows(
+      contracts.map((contract) => ({
+        name: nameOf(contract),
+        index: contract.index,
+        functionCount: contract.functions.length,
+        procedureCount: contract.procedures.length,
+      })),
+    );
+    const contractItems = contracts.map((contract, index) => ({
+      label: labels[index],
       value: contract,
-    });
-    const deployed = contracts.slice(0, userCount);
-    const system = contracts.slice(userCount);
+    }));
+    const deployed = contractItems.slice(0, userCount);
+    const system = contractItems.slice(userCount);
     const items = [
       ...(deployed.length
-        ? [{ label: "deployed", header: true }, ...deployed.map(item)]
+        ? [{ label: "deployed", header: true }, ...deployed]
         : []),
       ...(system.length
-        ? [{ label: "system", header: true }, ...system.map(item)]
+        ? [{ label: "system", header: true }, ...system]
         : []),
     ];
 

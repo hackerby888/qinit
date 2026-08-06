@@ -296,6 +296,18 @@ const commandMeta = {
       stringOption("rpc", "<url>", "node RPC base"),
     ],
   },
+  explorer: {
+    group: "deploy & interact",
+    summary: "interactive chain explorer — live ticks, transactions, identities, contracts",
+    usage: "[--tick <n> | --tx <hash> | --id <identity>]",
+    options: [
+      stringOption("tick", "<n>", "open a tick"),
+      stringOption("tx", "<hash>", "open a transaction"),
+      stringOption("id", "<identity>", "open an identity"),
+      stringOption("rpc", "<url>", "node RPC base"),
+    ],
+    examples: ["qinit explorer", "qinit explorer --tick 12480"],
+  },
   debug: {
     group: "deploy & interact",
     summary: "live contract-call inspector — input/output, state diff, host-calls, traps",

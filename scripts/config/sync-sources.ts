@@ -180,7 +180,13 @@ export function replaceExactly(
       `${label}: expected ${expected} match(es) for ${edit.pattern}, found ${matches.length}`,
     );
   }
-  return source.replace(pattern, () => edit.replacement);
+
+  // Replacements are written with LF. A checkout with CRLF endings (git's Windows default) would
+  // otherwise be rewritten to LF at every match, so --check reports drift that syncing can never settle.
+  const replacement = source.includes("\r\n")
+    ? edit.replacement.replace(/\r?\n/g, "\r\n")
+    : edit.replacement;
+  return source.replace(pattern, () => replacement);
 }
 
 function editsFor(

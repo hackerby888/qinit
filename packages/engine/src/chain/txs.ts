@@ -83,6 +83,13 @@ export class TxPool {
     return this.mempool.get(tick)?.length ?? 0;
   }
 
+  // Queued-but-unapplied counts per scheduled tick, oldest first — the explorer's mempool view.
+  pendingByTick(): { tick: number; count: number }[] {
+    return [...this.mempool]
+      .map(([tick, queued]) => ({ tick, count: queued.length }))
+      .sort((a, b) => a.tick - b.tick);
+  }
+
   // Remove + return the txs scheduled for `tick` (drained by the orchestrator each advance).
   takeDue(tick: number): QueuedTx[] {
     const q = this.mempool.get(tick);

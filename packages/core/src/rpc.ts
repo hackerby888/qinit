@@ -105,6 +105,90 @@ export interface DebugTrace {
   entries: DebugEntry[];
 }
 
+// Explorer read models. Amounts stay strings end to end: core encodes them as JSON numbers,
+// which loses precision above 2^53, so nothing downstream should widen them back to Number.
+export interface ExplorerTx {
+  hash: string;
+  amount: string;
+  source: string;
+  destination: string;
+  tickNumber: number;
+  timestamp: string; // unix seconds, "" when the node has no tick data
+  inputType: number;
+  inputSize: number;
+  inputData: string; // base64
+  signature: string; // base64
+  moneyFlew: boolean;
+}
+export interface ExplorerTickData {
+  tickNumber: number;
+  epoch: number;
+  computorIndex: number;
+  timestamp: string;
+  timelock: string;
+  transactionDigests: string[];
+  signature: string;
+}
+export interface IdentityTransfer extends ExplorerTx {
+  direction: "in" | "out";
+}
+export interface ContractCall extends ExplorerTx {
+  contractIndex: number;
+}
+export interface ContractCallsPage {
+  fromTick: number;
+  toTick: number;
+  total: number;
+  page: number;
+  pageSize: number;
+  transactions: ContractCall[];
+}
+export interface ContractListEntry {
+  index: number;
+  name: string;
+  constructionEpoch: number;
+  destructionEpoch: number;
+  stateSize: number;
+}
+export interface ExplorerData {
+  header: {
+    tick: number;
+    epoch: number;
+    initialTick: number;
+    alignedVotes: number;
+    ticksInCurrentEpoch: number;
+    latestCreatedTick: number;
+    mainAuxStatus: number;
+    isSavingSnapshot: boolean;
+  };
+  recentTicks: {
+    tick: number;
+    leader: string;
+    empty: boolean;
+    txCount: number;
+    timestamp: string;
+  }[];
+  mempool: { totalPending: number; perTick: { tick: number; count: number }[] };
+  network: { connectedPeers: number; outgoing: number; incoming: number };
+  spectrum: { circulatingSupply: string; activeAddresses: number };
+}
+
+function explorerTx(t: Record<string, unknown>): ExplorerTx {
+  return {
+    hash: String(t.hash ?? t.txId ?? ""),
+    amount: String(t.amount ?? "0"),
+    source: String(t.source ?? t.sourceId ?? ""),
+    destination: String(t.destination ?? t.destId ?? ""),
+    tickNumber: Number(t.tickNumber ?? t.tick ?? 0),
+    timestamp: String(t.timestamp ?? ""),
+    inputType: Number(t.inputType ?? 0),
+    inputSize: Number(t.inputSize ?? 0),
+    inputData: String(t.inputData ?? ""),
+    signature: String(t.signature ?? ""),
+    moneyFlew: Boolean(t.moneyFlew ?? true),
+  };
+}
+
 export class LiteRpc implements NodeTransport {
   constructor(private base = DEFAULT_RPC_BASE) {}
 
@@ -139,6 +223,39 @@ export class LiteRpc implements NodeTransport {
         throw new Error(`RPC GET ${path}: malformed JSON response from the node`);
       }
     }
+  }
+
+  // Explorer queries are POSTs with a JSON body. The status is returned alongside the parsed body so
+  // callers can treat 404 as a real answer ("no such tick/tx") instead of a failure.
+  private async post<T = unknown>(
+    path: string,
+    body: unknown,
+    timeoutMs = 10000,
+  ): Promise<{ status: number; json: T }> {
+    let r: Response;
+    try {
+      r = await fetchWithTimeout(
+        this.base + path,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        timeoutMs,
+      );
+    } catch (e: any) {
+      throw new Error(
+        `node unreachable at ${this.base} — is it running? (qinit node run)  [${e?.message ?? e}]`,
+      );
+    }
+    const json = (await r.json().catch(() => ({}))) as T;
+    if (!r.ok && r.status !== 404) {
+      const detail = (json as { message?: unknown })?.message;
+      throw new Error(
+        `RPC POST ${path} → HTTP ${r.status}${typeof detail === "string" ? `: ${detail}` : ""}`,
+      );
+    }
+    return { status: r.status, json };
   }
 
   /** Current tick / epoch — used to stamp outgoing transactions. */
@@ -376,6 +493,118 @@ export class LiteRpc implements NodeTransport {
     };
   }
 
+  /** Aggregate explorer dashboard payload (GET /explorer/data) — one round trip for the overview. */
+  explorerData() {
+    return this.get<ExplorerData>("/explorer/data");
+  }
+
+  /** Tick header (POST /query/v1/getTickData). Null when the tick is empty or out of range. */
+  async getTickData(tick: number): Promise<ExplorerTickData | null> {
+    const { status, json } = await this.post<Record<string, unknown>>(
+      "/query/v1/getTickData",
+      { tickNumber: tick },
+    );
+    if (status === 404) return null;
+    return {
+      tickNumber: Number(json.tickNumber ?? tick),
+      epoch: Number(json.epoch ?? 0),
+      computorIndex: Number(json.computorIndex ?? 0),
+      timestamp: String(json.timestamp ?? ""),
+      timelock: String(json.timelock ?? ""),
+      transactionDigests: Array.isArray(json.transactionDigests)
+        ? json.transactionDigests.map(String)
+        : [],
+      signature: String(json.signature ?? ""),
+    };
+  }
+
+  /** Every transaction in a tick, in the explorer's full shape (POST /query/v1/getTransactionsForTick). */
+  async explorerTickTransactions(tick: number): Promise<ExplorerTx[]> {
+    const { json } = await this.post<{ transactions?: Record<string, unknown>[] }>(
+      "/query/v1/getTransactionsForTick",
+      { tickNumber: tick },
+    );
+    const txs = Array.isArray(json.transactions) ? json.transactions : [];
+    return txs.map((t) => explorerTx({ tickNumber: tick, ...t }));
+  }
+
+  /** One transaction by hash (POST /query/v1/getTransactionByHash). A tick bounds the node's scan. */
+  async getTransactionByHash(hash: string, tick?: number): Promise<ExplorerTx | null> {
+    const { status, json } = await this.post<Record<string, unknown>>(
+      "/query/v1/getTransactionByHash",
+      tick != null ? { hash, tickNumber: tick } : { hash },
+    );
+    if (status === 404 || typeof json.hash !== "string") return null;
+    return explorerTx(json);
+  }
+
+  /** Recent transfers touching an identity (POST /query/v1/getTransfersForIdentity). */
+  async getTransfersForIdentity(
+    identity: string,
+    limit = 50,
+  ): Promise<{ count: number; transactions: IdentityTransfer[] }> {
+    const { json } = await this.post<{
+      count?: unknown;
+      transactions?: Record<string, unknown>[];
+    }>("/query/v1/getTransfersForIdentity", { identity, direction: "both", limit });
+    const txs = Array.isArray(json.transactions) ? json.transactions : [];
+    return {
+      count: Number(json.count ?? txs.length),
+      transactions: txs.map((t) => ({
+        ...explorerTx(t),
+        direction: t.direction === "out" ? "out" : "in",
+      })),
+    };
+  }
+
+  /** Contract calls in a tick window (POST /query/v1/getContractCalls), optionally one contract. */
+  async getContractCalls(options: {
+    fromTick: number;
+    toTick: number;
+    contractIndex?: number;
+    page?: number;
+    pageSize?: number;
+  }): Promise<ContractCallsPage> {
+    const { json } = await this.post<Record<string, unknown>>("/query/v1/getContractCalls", {
+      fromTick: options.fromTick,
+      toTick: options.toTick,
+      ...(options.contractIndex != null ? { contractIndex: options.contractIndex } : {}),
+      page: options.page ?? 0,
+      pageSize: options.pageSize ?? 50,
+    });
+    const txs = Array.isArray(json.transactions)
+      ? (json.transactions as Record<string, unknown>[])
+      : [];
+    return {
+      fromTick: Number(json.fromTick ?? options.fromTick),
+      toTick: Number(json.toTick ?? options.toTick),
+      total: Number(json.total ?? txs.length),
+      page: Number(json.page ?? options.page ?? 0),
+      pageSize: Number(json.pageSize ?? options.pageSize ?? 50),
+      transactions: txs.map((t) => ({
+        ...explorerTx(t),
+        contractIndex: Number(t.contractIndex ?? 0),
+      })),
+    };
+  }
+
+  /** Contract catalog known to the node (GET /query/v1/getContracts). */
+  async getContracts(): Promise<{ contracts: ContractListEntry[] }> {
+    const json = await this.get<{ contracts?: Record<string, unknown>[] }>(
+      "/query/v1/getContracts",
+    );
+    const list = Array.isArray(json.contracts) ? json.contracts : [];
+    return {
+      contracts: list.map((c) => ({
+        index: Number(c.index ?? 0),
+        name: String(c.name ?? ""),
+        constructionEpoch: Number(c.constructionEpoch ?? 0),
+        destructionEpoch: Number(c.destructionEpoch ?? 0),
+        stateSize: Number(c.stateSize ?? 0),
+      })),
+    };
+  }
+
   /** Transactions in a tick (POST /query/v1/getTransactionsForTick) — lite tickdata. */
   async tickTransactions(tick: number): Promise<TxInfo[]> {
     try {
@@ -391,7 +620,7 @@ export class LiteRpc implements NodeTransport {
       const j = (await r.json().catch(() => ({}))) as { transactions?: Record<string, unknown>[] };
       const txs = Array.isArray(j.transactions) ? j.transactions : [];
       return txs.map((t) => ({
-        txId: String(t.txId ?? t.transactionId ?? ""),
+        txId: String(t.hash ?? t.txId ?? t.transactionId ?? ""),
         tick,
         source: String(t.sourceId ?? t.source ?? ""),
         dest: String(t.destId ?? t.destination ?? ""),

@@ -73,6 +73,16 @@ export class SpectrumLedger {
     return this.entities.get(this.key(id)) ?? null;
   }
 
+  // Sum of every entity's balance — the explorer's circulating supply. Walks the whole map, which
+  // stays small at development scale.
+  totalAmount(): bigint {
+    let total = 0n;
+    for (const e of this.entities.values()) {
+      total += e.incomingAmount - e.outgoingAmount;
+    }
+    return total;
+  }
+
   // energy(index) — the spendable balance.
   energy(id: Uint8Array): bigint {
     const e = this.entities.get(this.key(id));
