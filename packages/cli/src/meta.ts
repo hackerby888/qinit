@@ -51,30 +51,50 @@ export function optionSyntax(option: OptionMeta): string {
   return `--${option.name}${option.valueLabel ? ` ${option.valueLabel}` : ""}`;
 }
 
-export const GROUP_ORDER = ["setup & node", "develop", "deploy & interact", "misc"];
+export const GROUP_ORDER = [
+  "setup",
+  "node",
+  "develop",
+  "deploy & interact",
+  "editor",
+  "misc",
+];
 
 const commandMeta = {
   setup: {
-    group: "setup & node",
+    group: "setup",
     summary: "install dependencies and offer available updates",
     options: [booleanOption("force", "install available updates without prompting")],
   },
   doctor: {
-    group: "setup & node",
+    group: "setup",
     summary: "check toolchain (wasi-sdk, core headers, contract verifier)",
   },
-  ext: {
-    group: "setup & node",
-    json: true,
-    summary: "install the VS Code / Cursor extension (QPI IntelliSense + live diagnostics)",
-    usage: "install [--vsix <path>] [--editor <cmd>]",
+  clean: {
+    group: "setup",
+    summary: "remove all qinit cache (node, headers, wasi-sdk, tools)",
+    options: [booleanOption("dry-run", "preview what would be removed")],
+  },
+  "self-update": {
+    group: "setup",
+    summary: "update qinit to the newest release",
     options: [
-      stringOption("vsix", "<path>", "install a local .vsix instead of the marketplace build"),
-      stringOption("editor", "<cmd>", "code | cursor | windsurf | codium"),
+      booleanOption("force", "update even if already latest"),
+      booleanOption("dry-run", "show what would happen"),
     ],
   },
+  uninstall: {
+    group: "setup",
+    summary: "remove qinit + its cache",
+    options: [
+      booleanOption("yes", "skip the confirmation"),
+      booleanOption("keep-cache", "leave the cache in place"),
+      booleanOption("dry-run", "preview"),
+    ],
+  },
+
   node: {
-    group: "setup & node",
+    group: "node",
     json: true,
     summary:
       "bring up + manage the dev node: run (prepare dependencies and launch), status, stop, get",
@@ -118,42 +138,19 @@ const commandMeta = {
     },
   },
   tick: {
-    group: "setup & node",
+    group: "node",
     json: true,
     summary: "show epoch tick window; advance ticks (testnet); set the simulator tick rate",
     usage: "[show | advance <n> | advance-to-last [gap] | rate <ms>]",
     options: [stringOption("rpc", "<url>", "node RPC base")],
   },
   epoch: {
-    group: "setup & node",
+    group: "node",
     json: true,
     summary: "show epoch info; advance -> next epoch via seamless transition (testnet)",
     usage: "[show | advance]",
     options: [stringOption("rpc", "<url>", "node RPC base")],
   },
-  clean: {
-    group: "setup & node",
-    summary: "remove all qinit cache (node, headers, wasi-sdk, tools)",
-    options: [booleanOption("dry-run", "preview what would be removed")],
-  },
-  "self-update": {
-    group: "setup & node",
-    summary: "update qinit to the newest release",
-    options: [
-      booleanOption("force", "update even if already latest"),
-      booleanOption("dry-run", "show what would happen"),
-    ],
-  },
-  uninstall: {
-    group: "setup & node",
-    summary: "remove qinit + its cache",
-    options: [
-      booleanOption("yes", "skip the confirmation"),
-      booleanOption("keep-cache", "leave the cache in place"),
-      booleanOption("dry-run", "preview"),
-    ],
-  },
-
   new: {
     group: "develop",
     summary: "scaffold a project",
@@ -249,8 +246,8 @@ const commandMeta = {
   call: {
     group: "deploy & interact",
     json: true,
-    summary: "call a fn (--fn) / proc (--proc) on a deployed contract",
-    usage: '<--fn|--proc> <contract> <fn|proc> [--in "<fmt>"] [--out <type>]',
+    summary: "call a fn (--fn) / proc (--proc), or omit both for the interactive picker",
+    usage: '[<--fn|--proc> <contract> <fn|proc>] [--in "<fmt>"] [--out <type>]',
     options: [
       booleanOption("fn", "read-only query"),
       booleanOption("proc", "signs a tx + waits for it to process"),
@@ -265,6 +262,8 @@ const commandMeta = {
       stringOption("seed", "<seed>", "signer seed"),
     ],
     examples: [
+      "qinit call",
+      "no --fn/--proc: pick contract -> entry -> input, then it prints the equivalent one-shot command",
       'qinit call --proc Mytoken 1 --in "<ID>id, 100uint64"',
       'qinit call --fn   Mytoken 1 --in "<ID>id" --out uint64',
     ],
@@ -306,7 +305,6 @@ const commandMeta = {
       stringOption("id", "<identity>", "open an identity"),
       stringOption("rpc", "<url>", "node RPC base"),
     ],
-    examples: ["qinit explorer", "qinit explorer --tick 12480"],
   },
   debug: {
     group: "deploy & interact",
@@ -363,6 +361,17 @@ const commandMeta = {
       booleanOption("new", "(re)scaffold tests/<Name>.test.cpp from the IDL"),
       stringOption("compiler", "<clang|typescript>", "override the saved compiler backend"),
       booleanOption("shared-mem", "run the contract in shared-memory mode"),
+    ],
+  },
+
+  ext: {
+    group: "editor",
+    json: true,
+    summary: "install the VS Code / Cursor extension (QPI IntelliSense + live diagnostics)",
+    usage: "install [--vsix <path>] [--editor <cmd>]",
+    options: [
+      stringOption("vsix", "<path>", "install a local .vsix instead of the marketplace build"),
+      stringOption("editor", "<cmd>", "code | cursor | windsurf | codium"),
     ],
   },
 

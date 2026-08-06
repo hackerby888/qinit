@@ -88,10 +88,12 @@ should not implement itself.
 ```text
 packages/cli/src/
   index.tsx  app.tsx  meta.ts  args.ts  config.ts  version.ts
-  commands/setup-node/        setup doctor ext node node-run tick epoch clean update uninstall
+  commands/setup/             setup doctor clean update uninstall
+  commands/node/              node node-run tick epoch
   commands/develop/           new dev build gen verify
   commands/deploy-interact/   deploy call call-interactive ls state debug seed system test gtest
                               explorer/{index,chrome,find,overview,tick,identity,contracts}
+  commands/editor/            ext
   commands/misc/              node-backend compiler theme cheat smoke version help backend-picker
   ops/                        deploy/{index,steps,upload} node node-core cache update serve
                               corpus-run typescript-build
@@ -331,12 +333,19 @@ The invariants to remember are:
 
 ### 3.3 The command groups
 
+`GROUP_ORDER` in `meta.ts` is the print order, and the directory is the kebab-cased group.
+
 | Workflow | `META` group | Directory | Commands |
 |---|---|---|---|
-| Setup and node | `setup & node` | `commands/setup-node/` | `setup`, `doctor`, `ext`, `node`, `tick`, `epoch`, `clean`, `self-update`, `uninstall` |
+| Install and maintain qinit | `setup` | `commands/setup/` | `setup`, `doctor`, `clean`, `self-update`, `uninstall` |
+| Run the dev chain | `node` | `commands/node/` | `node`, `tick`, `epoch` |
 | Develop | `develop` | `commands/develop/` | `new`, `dev`, `build`, `gen`, `verify` |
 | Deploy and interact | `deploy & interact` | `commands/deploy-interact/` | `deploy`, `call`, `seed`, `ls`, `state`, `explorer`, `debug`, `test`, `gtest`, `system` |
+| Editor integration | `editor` | `commands/editor/` | `ext` |
 | Miscellaneous | `misc` | `commands/misc/` | `node-backend`, `compiler`, `theme`, `cheat-sheet`, `smoke`, `version`, `help` |
+
+Within a group, commands print in `META` declaration order — `Help` filters `COMMANDS`, which is
+`Object.keys(META)`. Keep a new entry beside its group's other entries.
 
 ## 4. Configuration and persistent state
 
@@ -1149,7 +1158,7 @@ The default node backend is selected by:
 --node-backend -> saved node-backend -> core
 ```
 
-The main orchestrator is [`commands/setup-node/node-run.tsx`](../packages/cli/src/commands/setup-node/node-run.tsx).
+The main orchestrator is [`commands/node/node-run.tsx`](../packages/cli/src/commands/node/node-run.tsx).
 
 ### 12.1 `qinit node run`
 
@@ -1213,7 +1222,7 @@ does not make simulator contract state survive a restart.
 
 ### 12.4 `node status`, `stop`, and `get`
 
-[`commands/setup-node/node.tsx`](../packages/cli/src/commands/setup-node/node.tsx) owns the remaining
+[`commands/node/node.tsx`](../packages/cli/src/commands/node/node.tsx) owns the remaining
 subcommands:
 
 - `status` samples ticks, reads the registry and epoch window, and reports
@@ -1392,16 +1401,15 @@ Paths below are relative to `packages/cli/src/`.
 
 | Command | Main implementation | Important downstream owner |
 |---|---|---|
-| `setup` | `commands/setup-node/setup.tsx` | `@qinit/core` cache/downloads |
-| `doctor` | `commands/setup-node/doctor.tsx` | config and tool lookup |
-| `ext` | `commands/setup-node/ext.tsx` | external editor process |
-| `node run` | `commands/setup-node/node-run.tsx` | `ops/node-core.ts`, `ops/node.ts`, engine |
-| `node status/stop/get` | `commands/setup-node/node.tsx` | `ops/node.ts`, `LiteRpc` |
-| `tick` | `commands/setup-node/tick.tsx` | `LiteRpc` testnet controls |
-| `epoch` | `commands/setup-node/epoch.tsx` | `LiteRpc` testnet controls |
-| `clean` | `commands/setup-node/clean.tsx` | `ops/cache.ts`, `ops/node.ts` |
-| `self-update` | `commands/setup-node/update.tsx` | `ops/update.ts`, `@qinit/core` release helpers |
-| `uninstall` | `commands/setup-node/uninstall.tsx` | filesystem/cache helpers |
+| `setup` | `commands/setup/setup.tsx` | `@qinit/core` cache/downloads |
+| `doctor` | `commands/setup/doctor.tsx` | config and tool lookup |
+| `clean` | `commands/setup/clean.tsx` | `ops/cache.ts`, `ops/node.ts` |
+| `self-update` | `commands/setup/update.tsx` | `ops/update.ts`, `@qinit/core` release helpers |
+| `uninstall` | `commands/setup/uninstall.tsx` | filesystem/cache helpers |
+| `node run` | `commands/node/node-run.tsx` | `ops/node-core.ts`, `ops/node.ts`, engine |
+| `node status/stop/get` | `commands/node/node.tsx` | `ops/node.ts`, `LiteRpc` |
+| `tick` | `commands/node/tick.tsx` | `LiteRpc` testnet controls |
+| `epoch` | `commands/node/epoch.tsx` | `LiteRpc` testnet controls |
 | `new` | `commands/develop/new.tsx` | `contracts/templates.ts`, IDL/gtest generators |
 | `dev` | `commands/develop/dev.tsx` | `deployContract()` |
 | `build` | `commands/develop/build.tsx` | `@qinit/build` or `@qinit/compiler` |
@@ -1417,6 +1425,7 @@ Paths below are relative to `packages/cli/src/`.
 | `test` | `commands/deploy-interact/test.tsx` | deploy, generated SDK, Bun tests |
 | `gtest` | `commands/deploy-interact/gtest.tsx` | `ops/corpus-run.ts`, engine |
 | `system` | `commands/deploy-interact/system.tsx` | `contracts/system-wasm.ts`, simulator RPC |
+| `ext` | `commands/editor/ext.tsx` | external editor process |
 | `node-backend` | `commands/misc/node-backend.tsx` | `commands/misc/backend-picker.tsx`, config store |
 | `compiler` | `commands/misc/compiler.tsx` | `commands/misc/backend-picker.tsx`, config store |
 | `theme` | `commands/misc/theme.tsx` | config store and `ui/theme.tsx` |
@@ -1471,8 +1480,10 @@ directory because it writes runtime data relative to its current directory.
 ### Add a command
 
 1. Add the command component under `packages/cli/src/commands/<group>/`, where `<group>` is the
-   kebab-cased `META[command].group` (`setup-node`, `develop`, `deploy-interact`, `misc`).
-2. Add its canonical name, usage, and complete option schema to `META`.
+   kebab-cased `META[command].group` (`setup`, `node`, `develop`, `deploy-interact`, `editor`,
+   `misc`).
+2. Add its canonical name, usage, and complete option schema to `META`, declared beside its group's
+   other entries — declaration order is the print order within a group.
 3. Import it in `app.tsx` and add a `HANDLERS` entry; the `satisfies
    Record<CommandName, CommandHandler>` constraint fails the build otherwise.
 4. Accept a `commandArgs: CommandArguments` prop rather than parsing anything
