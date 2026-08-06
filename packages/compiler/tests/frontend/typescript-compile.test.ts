@@ -64,7 +64,7 @@ describe("TypeScript Counter compilation", () => {
     });
     const sim = new QubicSimulator();
     sim.deploy(28, r.wasm);
-    const id = deriveKeysSync("aaaa").publicKey;
+    const id = deriveKeysSync("a".repeat(55)).publicKey;
     sim.fund(id, 1_000_000_000n);
     sim.procedure(28, 1, undefined, { originator: id, invocator: id, reward: 0n });
 

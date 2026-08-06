@@ -25,6 +25,8 @@
     "build": "bun bundle.mjs && tsc -p tsconfig.build.json"
   },
   "dependencies": {
+    "@qubic.org/crypto": "1.0.0",
+    "@qubic.org/tx": "1.0.0",
     "@qubic-lib/qubic-ts-library": "0.1.6"
   }
 }

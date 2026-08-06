@@ -251,23 +251,13 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
           `tests/.qinit/ (${idl.functions.length} fn / ${idl.procedures.length} proc)`,
         );
 
+        // The generated SDK bundles its own crypto, so the project needs no dependency — only ESM.
         const pkgPath = join(root, "package.json");
         const pkg: any = existsSync(pkgPath)
           ? JSON.parse(readFileSync(pkgPath, "utf8"))
           : { name: basename(root), private: true };
         pkg.type ??= "module";
-        pkg.devDependencies ??= {};
-        let needInstall = !existsSync(join(root, "node_modules", "@qubic-lib", "qubic-ts-library"));
-        if (!pkg.devDependencies["@qubic-lib/qubic-ts-library"]) {
-          pkg.devDependencies["@qubic-lib/qubic-ts-library"] = "latest";
-          needInstall = true;
-        }
         writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
-        if (needInstall) {
-          spin("bun install (@qubic-lib/qubic-ts-library)");
-          Bun.spawnSync(["bun", "install"], { cwd: root, stdout: "ignore", stderr: "ignore" });
-        }
-        add("deps", true, "@qubic-lib/qubic-ts-library");
 
         const testSeed = seed || (await new LiteRpc(activeRpc).fundedSeed()) || "a".repeat(55);
         setS({ phase: "testing", lines: [...lines] });

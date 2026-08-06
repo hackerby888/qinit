@@ -1,6 +1,11 @@
-// Identity and cryptography through @qubic-lib/qubic-ts-library.
-import { QubicHelper } from "@qubic-lib/qubic-ts-library/dist/qubicHelper.js";
-import { KeyHelper } from "@qubic-lib/qubic-ts-library/dist/keyHelper.js";
+// Identity and hashing through @qubic.org/crypto (pure TypeScript over @noble/hashes).
+import {
+  deriveKeys,
+  identityToPublicKey,
+  k12,
+  publicKeyToIdentity,
+  verify,
+} from "@qubic.org/crypto";
 import { bytesToHex } from "./bytes";
 
 export interface IdentityResult {
@@ -9,7 +14,7 @@ export interface IdentityResult {
 }
 
 export interface KeyPair {
-  privateKey: Uint8Array; // 32 bytes
+  privateKey: Uint8Array; // 32-byte FourQ subseed — what SchnorrQ signs with
   publicKey: Uint8Array; // 32 bytes (FourQ)
 }
 
@@ -20,94 +25,56 @@ export interface CryptoSmokeResult {
   note: string;
 }
 
-const helper: any = new QubicHelper();
-
 // KangarooTwelve (KT128, 32-byte digest) matching core content addressing.
-export async function k12Hex(bytes: Uint8Array): Promise<string> {
-  // Static CJS require -> bun bundles + dedups to the SAME crypto instance QubicHelper inits.
-  // ESM `import *` / createRequire resolved a second, uninitialized Emscripten instance under --compile.
-  const cryptoMod: any = require("@qubic-lib/qubic-ts-library/dist/crypto");
-  const { K12 } = await (cryptoMod.default ?? cryptoMod);
-  const out = new Uint8Array(32);
-  K12(bytes, out, 32);
-  return bytesToHex(out);
-}
-
-// Synchronous K12 for host imports and tight loops after initK12 resolves the crypto module.
-let _k12Sync: ((input: Uint8Array, out: Uint8Array, outLen: number) => void) | null = null;
-// The resolved FourQ/SchnorrQ object from the SAME crypto module — captured once so signing/verification run
-// synchronously after initK12() (mirrors k12Sync). Used by the engine's tick-consensus (computor vote signing).
-let _schnorrq: {
-  generatePublicKey(privateKey: Uint8Array): Uint8Array;
-  sign(privateKey: Uint8Array, publicKey: Uint8Array, message: Uint8Array): Uint8Array;
-  verify(publicKey: Uint8Array, message: Uint8Array, signature: Uint8Array): number;
-} | null = null;
-const _keyHelper = new KeyHelper();
-
-export async function initK12(): Promise<void> {
-  if (_k12Sync) return;
-  // @ts-ignore - require is provided by bun (see k12Hex above for the resolution rationale)
-  const cryptoMod: any = require("@qubic-lib/qubic-ts-library/dist/crypto");
-  const { K12, schnorrq } = await (cryptoMod.default ?? cryptoMod);
-  _k12Sync = K12;
-  _schnorrq = schnorrq;
-}
-
 export function k12Sync(bytes: Uint8Array): Uint8Array {
-  if (!_k12Sync) throw new Error("k12 not initialized — await initK12() first");
-  const out = new Uint8Array(32);
-  _k12Sync(bytes, out, 32);
-  return out;
+  return k12(bytes, 32);
 }
 
-// Synchronous FourQ key derivation + signing for callers that run inside a tight, non-async path (the engine's
-// per-tick computor-vote signing). All three require initK12() to have resolved the crypto module first.
+export async function k12Hex(bytes: Uint8Array): Promise<string> {
+  return bytesToHex(k12Sync(bytes));
+}
+
 export function deriveKeysSync(seed: string): KeyPair {
-  if (!_k12Sync || !_schnorrq) {
-    throw new Error("crypto not initialized — await initK12() first");
-  }
-
-  const privateKey = _keyHelper.privateKey(seed, 0, _k12Sync);
-  const publicKey = _schnorrq.generatePublicKey(privateKey);
-  return { privateKey, publicKey };
+  const { subseed, publicKey } = deriveKeys(seed as never);
+  return { privateKey: subseed, publicKey };
 }
 
-export function signSync(
-  privateKey: Uint8Array,
-  publicKey: Uint8Array,
-  digest: Uint8Array,
-): Uint8Array {
-  if (!_schnorrq) {
-    throw new Error("crypto not initialized — await initK12() first");
-  }
-
-  return _schnorrq.sign(privateKey, publicKey, digest);
-}
+const isZero = (bytes: Uint8Array): boolean => bytes.every((byte) => byte === 0);
 
 export function verifySync(
   publicKey: Uint8Array,
   message: Uint8Array,
   signature: Uint8Array,
 ): boolean {
-  if (!_schnorrq) {
-    throw new Error("crypto not initialized — await initK12() first");
+  // An all-zero key and an all-zero signature verify against each other in @qubic.org/crypto. Core
+  // rejects that pair, and the null identity can never be a signer — the native differential over the
+  // signatureValidity host call is what catches the difference.
+  if (isZero(publicKey) || isZero(signature)) {
+    return false;
   }
 
-  return _schnorrq.verify(publicKey, message, signature) === 1;
+  return verify(message, signature, publicKey);
 }
 
-// Deriving an identity exercises K12 and FourQ inside the compiled binary.
 export async function deriveIdentity(seed: string): Promise<IdentityResult> {
-  const idPackage = await helper.createIdPackage(seed);
-  return { identity: idPackage.publicId, publicKeyHex: bytesToHex(idPackage.publicKey) };
+  const { publicKey } = deriveKeys(seed as never);
+  return { identity: publicKeyToIdentity(publicKey), publicKeyHex: bytesToHex(publicKey) };
 }
 
 // id codec: 60-char identity <-> 32-byte public key (for the contract ABI `id` type).
 export async function bytesToIdentity(bytes: Uint8Array): Promise<string> {
-  return helper.getIdentity(bytes, false); // false = uppercase
+  return publicKeyToIdentity(bytes);
 }
+const NULL_IDENTITY = "A".repeat(60);
+
 export function identityToBytes(identity: string): Uint8Array {
-  return helper.getIdentityBytes(identity);
+  // The null/burn address is 60 'A's, whose checksum chars are not 'A' — decoding it through the
+  // checksum-validating path would throw, so answer it directly.
+  if (identity.toUpperCase() === NULL_IDENTITY) {
+    return new Uint8Array(32);
+  }
+
+  return identityToPublicKey(identity as never);
 }
 
 // Identity encoding packs the 32-byte public key as four 8-byte chunks, 14 chars each
@@ -142,7 +109,7 @@ export async function cryptoSmoke(): Promise<CryptoSmokeResult> {
     identity,
     publicKeyHex,
     note: ok
-      ? "wasm crypto (K12 + FourQ) ran and produced a valid identity"
+      ? "K12 + FourQ ran and produced a valid identity"
       : `unexpected identity format: ${identity}`,
   };
 }

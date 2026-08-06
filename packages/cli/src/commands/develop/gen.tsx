@@ -44,7 +44,7 @@ export function Gen({ commandArgs }: { commandArgs: CommandArguments }) {
         qpiHeader: loadQpiHeader(core),
       });
       // Emit a SELF-CONTAINED client: the client pulls LiteRpc/codec from a sibling runtime.ts (only needs the
-      // public @qubic-lib), not from the unpublished @qinit/* monorepo packages — so the output works outside it.
+      // crypto is bundled in), not from the unpublished @qinit/* monorepo packages — so the output works outside it.
       const ts = generateClient(idl, slot, { runtimeImport: "./runtime" });
       const outDir = resolve(commandArgs.get("out") ?? "dist/clients");
       mkdirSync(outDir, { recursive: true });

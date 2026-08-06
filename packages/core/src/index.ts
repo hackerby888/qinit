@@ -1,4 +1,4 @@
-// Qubic protocol primitives for Qinit, wrapping @qubic-lib/qubic-ts-library.
+// Qubic protocol primitives for Qinit, wrapping @qubic.org/crypto and @qubic.org/tx.
 export * from "./codec/struct"; // zero-copy struct-view kit (defineStruct + codecs), shared by @qinit/engine + @qinit/proto
 export { bytesToHex, hexToBytes } from "./crypto/bytes";
 export {
@@ -23,15 +23,14 @@ export {
   deriveIdentity,
   cryptoSmoke,
   k12Hex,
-  initK12,
   k12Sync,
   bytesToIdentity,
   identityToBytes,
   contractIndexFromIdentity,
   deriveKeysSync,
-  signSync,
   verifySync,
 } from "./crypto/qubic";
+export { initK12, signSync } from "./crypto/sign-sync";
 export type { IdentityResult, CryptoSmokeResult, KeyPair } from "./crypto/qubic";
 export { buildSignedTx, assertSeed, LITE_DEPLOY_ADDRESS } from "./crypto/tx";
 export type { SignedTx, TxInput } from "./crypto/tx";

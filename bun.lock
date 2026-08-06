@@ -17,6 +17,10 @@
         "@qinit/core": "workspace:*",
         "@qinit/proto": "workspace:*",
       },
+      "devDependencies": {
+        "@qubic.org/crypto": "1.0.0",
+        "@qubic.org/tx": "1.0.0",
+      },
     },
     "packages/cli": {
       "name": "@qinit/cli",
@@ -51,14 +55,13 @@
       "version": "0.0.0",
       "dependencies": {
         "@qubic-lib/qubic-ts-library": "0.1.6",
+        "@qubic.org/crypto": "1.0.0",
+        "@qubic.org/tx": "1.0.0",
       },
     },
     "packages/engine": {
       "name": "@qinit/engine",
       "version": "0.1.0",
-      "dependencies": {
-        "@qubic-lib/qubic-ts-library": "0.1.6",
-      },
       "devDependencies": {
         "@qinit/core": "workspace:*",
         "@qinit/proto": "workspace:*",
@@ -69,7 +72,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@qinit/core": "workspace:*",
-        "@qubic-lib/qubic-ts-library": "0.1.6",
       },
     },
     "packages/vscode": {
@@ -187,6 +189,8 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
+    "@noble/hashes": ["@noble/hashes@2.3.0", "", {}, "sha512-oN+QwyX7VSHotibwubG3kpzbwKrfnyR6OOO+3Nk/53ADL7FmgHHz4TgrbaYKvvOw09u6QTx0oiH1cNCIOuN0CQ=="],
+
     "@nodelib/fs.scandir": ["@nodelib/fs.scandir@2.1.5", "", { "dependencies": { "@nodelib/fs.stat": "2.0.5", "run-parallel": "^1.1.9" } }, "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g=="],
 
     "@nodelib/fs.stat": ["@nodelib/fs.stat@2.0.5", "", {}, "sha512-RkhPPp2zrqDAQA/2jNhnztcPAlv64XdhIp7a7454A5ovI7Bukxgt7MX7udwAu3zg1DcpPU0rz3VV1SeaqvY4+A=="],
@@ -208,6 +212,12 @@
     "@qinit/proto": ["@qinit/proto@workspace:packages/proto"],
 
     "@qubic-lib/qubic-ts-library": ["@qubic-lib/qubic-ts-library@0.1.6", "", { "dependencies": { "bignumber.js": "^9.1.2", "net": "^1.0.2" } }, "sha512-VbiJxFgmOpSKCgJkvPbUUFG/d8wcOYnh9pci1MXhINvUTD9i9twBKZv2SRc3v0fOTiasvaBeiz3HtUSy0oJfEA=="],
+
+    "@qubic.org/crypto": ["@qubic.org/crypto@1.0.0", "", { "dependencies": { "@noble/hashes": "^2.2.0", "@qubic.org/types": "^1.0.0" } }, "sha512-u4NEQfjthPqsH3R9l9kxRc30piAE009qaM344qPUFoka2IqIMPdcWJL6kpYdj2LhAFMIO3dFT7Udc4pmUueG6g=="],
+
+    "@qubic.org/tx": ["@qubic.org/tx@1.0.0", "", { "dependencies": { "@qubic.org/crypto": "^1.0.0", "@qubic.org/types": "^1.0.0" } }, "sha512-ycpAgZ4h+PRYXesOhCOt83GFyCsLF9fdGsf2dxdc1+WNe3opcR32/RvHCthOLTgh3Ij9o9FV/oi2uq4UWnbtgw=="],
+
+    "@qubic.org/types": ["@qubic.org/types@1.0.0", "", {}, "sha512-WS5soiLiizga3x7i0ccBN+CQnCbDhgFXAlEEiB7Vt6r1rEEGL4n5R/PJRulJSIj5l3DDQC8Fpeln73VeZqSoCQ=="],
 
     "@secretlint/config-creator": ["@secretlint/config-creator@10.2.2", "", { "dependencies": { "@secretlint/types": "^10.2.2" } }, "sha512-BynOBe7Hn3LJjb3CqCHZjeNB09s/vgf0baBaHVw67w7gHF0d25c3ZsZ5+vv8TgwSchRdUCRrbbcq5i2B1fJ2QQ=="],
 

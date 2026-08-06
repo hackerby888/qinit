@@ -15,5 +15,9 @@
     "@qinit/compiler": "workspace:*",
     "@qinit/core": "workspace:*",
     "@qinit/proto": "workspace:*"
+  },
+  "devDependencies": {
+    "@qubic.org/crypto": "1.0.0",
+    "@qubic.org/tx": "1.0.0"
   }
 }
