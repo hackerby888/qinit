@@ -18,7 +18,7 @@ test("local network defaults remain compatible with core-lite", () => {
   expect(LOOPBACK_HOST).toBe("127.0.0.1");
   expect(DEFAULT_RPC_PORT).toBe(41841);
   expect(DEFAULT_RPC_BASE).toBe("http://127.0.0.1:41841");
-  expect(DEFAULT_PEER_PORT).toBe(21841);
+  expect(DEFAULT_PEER_PORT).toBe(31841);
 });
 
 test("LiteRpc uses the shared default endpoint", async () => {

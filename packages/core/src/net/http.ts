@@ -1,7 +1,7 @@
 export const LOOPBACK_HOST = "127.0.0.1";
 export const DEFAULT_RPC_PORT = 41841;
 export const DEFAULT_RPC_BASE = `http://${LOOPBACK_HOST}:${DEFAULT_RPC_PORT}`;
-export const DEFAULT_PEER_PORT = 21841;
+export const DEFAULT_PEER_PORT = 31841;
 
 // Fetch with a timeout until response headers arrive; body streaming has its own watchdog.
 export async function fetchWithTimeout(
