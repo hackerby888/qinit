@@ -1,7 +1,7 @@
 // Deploy the QPI edge-case fixture and verify its behavior on-chain.
 import { resolve } from "node:path";
-import { deployContract } from "../../packages/cli/src/deploy-ops";
-import { callFunction, invokeProcedure } from "../../packages/proto/src/index";
+import { deployContract } from "@qinit/cli/deploy-ops";
+import { callFunction, invokeProcedure } from "@qinit/proto";
 import {
   DEFAULT_RPC_BASE,
   LiteRpc,
@@ -9,7 +9,7 @@ import {
   deriveIdentity,
   identityToBytes,
   bytesToHex,
-} from "../../packages/core/src/index";
+} from "@qinit/core";
 
 const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;

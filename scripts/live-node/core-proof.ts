@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import {
   QPI_SNAPSHOT,
   QPI_SNAPSHOT_META,
-} from "../../packages/compiler/src/generated/qpi-snapshot";
+} from "@qinit/compiler/generated/qpi-snapshot";
 
 export const WASM_NODE_CMAKE_PROFILE = Object.freeze({
   BUILD_BINARY: "ON",

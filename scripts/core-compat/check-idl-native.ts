@@ -21,8 +21,8 @@ import {
   AssetPossessionManagingContractChange,
   Burning,
   QuTransfer,
-} from "../../packages/proto/src/mutation-log";
-import { ORACLE_INTERFACES } from "../../packages/engine/src/oracle-interfaces/registry";
+} from "@qinit/proto/mutation-log";
+import { ORACLE_INTERFACES } from "@qinit/engine/oracle-interfaces/registry";
 
 const coreArg = process.env.QINIT_CORE;
 if (!coreArg) {

@@ -18,6 +18,8 @@
     "paths": {
       "@qinit/build": ["packages/build/src/index.ts"],
       "@qinit/build/*": ["packages/build/src/*"],
+      "@qinit/cli": ["packages/cli/src/index.tsx"],
+      "@qinit/cli/*": ["packages/cli/src/*"],
       "@qinit/compiler": ["packages/compiler/src/index.ts"],
       "@qinit/compiler/*": ["packages/compiler/src/*"],
       "@qinit/core": ["packages/core/src/index.ts"],

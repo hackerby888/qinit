@@ -8,25 +8,25 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { buildContractWithWasiClang } from "../../packages/build/src/index";
-import { deployContract } from "../../packages/cli/src/deploy-ops";
+import { buildContractWithWasiClang } from "@qinit/build";
+import { deployContract } from "@qinit/cli/deploy-ops";
 import {
   compileContract,
   DEFAULT_COMPILE_ARENA_SIZE_BYTES,
   DiagnosticSeverity,
   inspectWasmModule,
   loadQpiHeader,
-} from "../../packages/compiler/src/index";
+} from "@qinit/compiler";
 import {
   DEFAULT_RPC_BASE,
   hexToBytes,
   initK12,
   k12Hex,
   LiteRpc,
-} from "../../packages/core/src/index";
-import { VirtualNode } from "../../packages/engine/src/index";
-import { EngineServer } from "../../packages/engine/src/server";
-import { invokeProcedure } from "../../packages/proto/src/index";
+} from "@qinit/core";
+import { VirtualNode } from "@qinit/engine";
+import { EngineServer } from "@qinit/engine/server";
+import { invokeProcedure } from "@qinit/proto";
 import {
   assertCoreBuildProfile,
   assertPinnedQpiHeader,

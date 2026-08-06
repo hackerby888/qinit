@@ -1,14 +1,14 @@
 // Deploy Counter to a live node and prove its read, write, debug, and log paths.
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { deployContract } from "../../packages/cli/src/deploy-ops";
-import { callFunction, invokeProcedure, decodeLog } from "../../packages/proto/src/index";
-import { extractIdl } from "../../packages/build/src/index";
-import { loadQpiHeader } from "../../packages/compiler/src/index";
+import { deployContract } from "@qinit/cli/deploy-ops";
+import { callFunction, invokeProcedure, decodeLog } from "@qinit/proto";
+import { extractIdl } from "@qinit/build";
+import { loadQpiHeader } from "@qinit/compiler";
 import {
   DEFAULT_RPC_BASE,
   LiteRpc,
-} from "../../packages/core/src/index";
+} from "@qinit/core";
 
 const rpcBaseUrl = process.env.QINIT_RPC ?? DEFAULT_RPC_BASE;
 const core = process.env.QINIT_CORE;

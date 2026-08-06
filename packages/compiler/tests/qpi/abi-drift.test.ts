@@ -4,7 +4,7 @@ import { deriveQpiContextLayout } from "../../src/backend/wasm/module/library-in
 import { getQpiContext } from "../../src/compiler/qpi-context";
 import { loadQpiHeader } from "../../src/compiler/header";
 // Compare compiler and engine context layouts derived from core headers.
-import { QpiContext } from "../../../engine/src/contract/abi";
+import { QpiContext } from "@qinit/engine/contract/abi";
 
 test("live qpi.h context layout matches the engine ABI", () => {
   const layout = deriveQpiContextLayout(getQpiContext(loadQpiHeader(CORE_PATH)).lib);

@@ -8,7 +8,7 @@ import {
   runCorpus,
   systemGtestCorpora,
   type SystemGtestTier,
-} from "../../packages/cli/src/corpus-run";
+} from "@qinit/cli/corpus-run";
 
 type Selection = SystemGtestTier | "all";
 

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { systemContracts } from "@qinit/build";
 import { QubicSimulator } from "@qinit/engine";
 import { initK12 } from "@qinit/core";
-import { parseContractIdl } from "../../../proto/src/contract-idl";
+import { parseContractIdl } from "@qinit/proto/contract-idl";
 import {
   compileContract,
   loadQpiHeader,

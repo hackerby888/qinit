@@ -8,17 +8,17 @@ import {
   initK12,
   k12Hex,
   LiteRpc,
-} from "../../packages/core/src/index";
+} from "@qinit/core";
 import {
   compileContract,
   DEFAULT_COMPILE_ARENA_SIZE_BYTES,
   DiagnosticSeverity,
   inspectWasmModule,
   loadQpiHeader,
-} from "../../packages/compiler/src/index";
-import { QubicSimulator } from "../../packages/engine/src/index";
-import { deployContract } from "../../packages/cli/src/deploy-ops";
-import { invokeProcedure, resolveDeploymentSlot } from "../../packages/proto/src/index";
+} from "@qinit/compiler";
+import { QubicSimulator } from "@qinit/engine";
+import { deployContract } from "@qinit/cli/deploy-ops";
+import { invokeProcedure, resolveDeploymentSlot } from "@qinit/proto";
 import {
   assertCoreBuildProfile,
   assertPinnedQpiHeader,

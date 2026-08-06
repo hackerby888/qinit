@@ -7,13 +7,13 @@ import {
   SYSTEM_PROCEDURE_COUNT,
 } from "@qinit/core/lhost-abi";
 import { DEFAULT_WASM_SLOT_LAYOUT } from "@qinit/core/wasm-slot-layout";
-import { loadCoreWasmSlotLayout } from "../../packages/core/src/wasm-slot-layout-node";
-import { LITE_DEPLOY_ADDRESS } from "../../packages/core/src/tx";
+import { loadCoreWasmSlotLayout } from "@qinit/core/wasm-slot-layout-node";
+import { LITE_DEPLOY_ADDRESS } from "@qinit/core/tx";
 import {
   DeployMessage,
   UploadBegin,
   UploadChunkHeader,
-} from "../../packages/proto/src/deploy";
+} from "@qinit/proto/deploy";
 import {
   ASSETS_DEPTH,
   CHUNK_DATA_MAX,
@@ -28,7 +28,7 @@ import {
   ORACLE_STATUS,
   SPECTRUM_DEPTH,
   TXS_PER_TICK,
-} from "../../packages/proto/src/protocol";
+} from "@qinit/proto/protocol";
 
 const core = process.env.QINIT_CORE;
 if (!core) {

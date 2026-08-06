@@ -1,6 +1,6 @@
 // Compile the fixture corpus and QX/QEARN against core-lite to catch ABI drift.
 import { resolve } from "node:path";
-import { buildContractWithWasiClang } from "../../packages/build/src/index";
+import { buildContractWithWasiClang } from "@qinit/build";
 
 const core = process.env.QINIT_CORE;
 if (!core) {

@@ -3,8 +3,8 @@ import {
   AbiScalarKind,
   AbiTypeKind,
   parseContractIdl,
-} from "../../../proto/src/contract-idl";
-import { layoutOf } from "../../../proto/src/abi-fmt";
+} from "@qinit/proto/contract-idl";
+import { layoutOf } from "@qinit/proto/abi-fmt";
 import { analyzeContract } from "../../src/analyzer";
 import { compileContract } from "../../src/compiler/compile-contract";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";

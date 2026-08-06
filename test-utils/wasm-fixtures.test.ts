@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { initK12 } from "../packages/core/src/index";
-import { QubicSimulator } from "../packages/engine/src/qubic-simulator";
+import { initK12 } from "@qinit/core";
+import { QubicSimulator } from "@qinit/engine/qubic-simulator";
 import {
   loadWasmFixture,
   wasmFixtureManifest,
