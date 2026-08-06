@@ -115,51 +115,67 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
 }
 
 // A contract's decoded current state (scalars + containers), compact.
-export function StateView({
-  name,
-  state,
-  full,
-}: {
-  name: string;
-  state: DecodedState;
-  full?: boolean;
-}) {
-  // full -> wrap (show everything); else truncate each line to the terminal so long values don't trip the output.
-  // truncMid keeps head + tail, so a grouped value's tail (×N / "first K of N" / "+N more (--all)") stays visible.
-  const cell = (s: string, pad: number) =>
-    full ? <Text wrap="wrap">{s}</Text> : <Text>{truncMid(s, termCols() - pad)}</Text>;
+export function StateView({ name, state }: { name: string; state: DecodedState }) {
   return (
     <Box flexDirection="column">
-      <Status ok={null} label={`${name} state`} />
+      <Status
+        ok={state.complete ? null : false}
+        label={`${name} state`}
+        detail={state.complete ? undefined : "incomplete"}
+      />
       {state.fields.length ? (
-        <Rows rows={state.fields.map((f) => ({ label: f.name, node: cell(f.value, 12) }))} />
+        <Rows
+          rows={state.fields.map((field) => ({
+            label: field.name,
+            node: <Text wrap="wrap">{field.value}</Text>,
+          }))}
+        />
       ) : (
         <Box marginLeft={2}>
           <Text dimColor>no scalar fields</Text>
         </Box>
       )}
-      {state.containers.map((container) => (
-        <Box key={container.name} flexDirection="column" marginTop={1}>
-          <Text>
-            <Text color={theme.accent}>{container.name}</Text>{" "}
-            <Text dimColor>
-              ·{" "}
-              {container.entries.length
-                ? container.entries.length + " entries"
-                : "empty"}
+      {state.containers.map((container) => {
+        const total = container.totalEntries ?? container.entries.length;
+        const hasCapacity =
+          container.capacity !== undefined &&
+          container.occupiedSlots !== undefined;
+        const unoccupied = hasCapacity
+          ? container.capacity! - container.occupiedSlots!
+          : 0;
+        const slotLabel = container.kind === "collection" ? "PoV slots" : "slots";
+        const detail = container.error
+          ? "read failed"
+          : hasCapacity
+            ? `${total ? `${total} ${total === 1 ? "entry" : "entries"}` : "empty"} · ${unoccupied}/${container.capacity} ${slotLabel} unoccupied`
+            : total
+              ? `${total} ${total === 1 ? "entry" : "entries"}`
+              : "empty";
+
+        return (
+          <Box key={container.name} flexDirection="column" marginTop={1}>
+            <Text>
+              <Text color={theme.accent}>{container.name}</Text>{" "}
+              <Text dimColor>· {detail}</Text>
             </Text>
-          </Text>
-          <Box flexDirection="column" marginLeft={2}>
-            {container.entries.length ? (
-              container.entries.map((entry, index) => (
-                <Text key={index}>{cell(entry, 4)}</Text>
-              ))
-            ) : (
-              <Text dimColor>empty</Text>
-            )}
+            <Box flexDirection="column" marginLeft={2}>
+              {container.error ? (
+                <Text color={theme.err} wrap="wrap">
+                  {container.error}
+                </Text>
+              ) : container.entries.length ? (
+                container.entries.map((entry, index) => (
+                  <Text key={index} wrap="wrap">
+                    {entry}
+                  </Text>
+                ))
+              ) : (
+                <Text dimColor>empty</Text>
+              )}
+            </Box>
           </Box>
-        </Box>
-      ))}
+        );
+      })}
     </Box>
   );
 }

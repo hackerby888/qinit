@@ -917,7 +917,7 @@ The implementation begins in [`commands/deploy-interact/state.tsx`](../packages/
 
 ```text
 qinit state Counter
-  -> parse target/rpc/all/digest
+  -> parse target/rpc/digest
   -> load user and system contracts
   -> resolve Counter
   -> require source
@@ -953,7 +953,7 @@ counter
 
 balances
   offset   8
-  size     176
+  size     184
   type     HashMap<id, uint64, 4>
   capacity 4
 ```
@@ -974,15 +974,22 @@ GET /live/v1/dev/state-read?slot=100&off=0&len=8
   -> { name: "counter", value: "7" }
 ```
 
-Fields are separate HTTP reads. A failed scalar read becomes `(read failed)` so
-other fields can still be displayed.
+Fields are separate HTTP reads. Large arrays are read in 256 KiB pages: every
+nonzero element is displayed, while consecutive all-zero elements become an
+explicit skipped range. A failed read is reported as incomplete rather than
+being mistaken for empty state.
 
-### Step 4: read the HashMap bytes
+### Step 4: read the occupied HashMap bytes
 
-`readStateContainers()` makes another request:
+`readState()` first reads the container population counter. If it is zero, no
+entry storage is transferred and the full slot range is shown as unoccupied.
+Otherwise it reads the compact two-bit occupation flags, then requests only
+the occupied entry ranges.
 
 ```text
-GET /live/v1/dev/state-read?slot=100&off=8&len=176
+population 1
+flags      slot 0 occupied; slots 1..3 unoccupied
+read       entry slot 0 only
 ```
 
 For `HashMap<id, uint64, 4>`:
@@ -997,7 +1004,7 @@ occupation flags   start at relative offset 160
 ```
 
 Each slot has a two-bit flag. A flag value of `1` means occupied. For occupied
-slot 0, `decodeHashMap()` decodes:
+slot 0, `readState()` decodes the fetched record:
 
 ```text
 key   bytes [0, 32)   -> all-zero id
@@ -1014,14 +1021,16 @@ It returns a semantic entry rather than exposing the storage offsets:
 }
 ```
 
-`readStateContainers()` formats that as:
+`readState()` formats that as:
 
 ```text
 <identity> = 42
+slots[1..3] (unoccupied ×3; skipped)
 ```
 
 HashSet uses the same occupation-flag idea without values. Collection uses QPI's
-PoV records and walks each occupied PoV's priority tree in order.
+PoV records and walks each occupied PoV's priority tree in order. Both fetch
+only occupied storage and show unoccupied ranges explicitly.
 
 ### Step 5: render the decoded model
 
@@ -1035,27 +1044,33 @@ PoV records and walks each occupied PoV's priority tree in order.
   containers: [
     {
       name: "balances",
-      entries: ["<identity> = 42"],
+      kind: "hashmap",
+      capacity: 4,
+      occupiedSlots: 1,
+      totalEntries: 1,
+      entries: [
+        "slot[0] <identity> = 42",
+        "slots[1..3] (unoccupied ×3; skipped)",
+      ],
     },
   ],
+  complete: true,
 }
 ```
 
 [`StateView`](../packages/cli/src/trace/views.tsx) only renders this model. It does not
 know field offsets, make RPC calls, or decode container layouts.
 
-### Limits and consistency
+### Complete sparse output and consistency
 
-- A single state read is capped at 256 KiB.
-- An oversized array decodes the largest whole-element prefix and reports
-  `first N of total`.
-- Container display is capped unless `--all` is used.
-- A large container whose occupation flags fall after the first 256 KiB may
-  appear empty because its read is truncated before the flags.
+- Complete logical state is the default; there is no display-limit flag.
+- Individual RPC requests remain capped at 256 KiB and larger fields are paged.
+- Arrays display every nonzero element and mark all-zero ranges as skipped.
+- HashMap, HashSet, and Collection display every occupied entry and mark
+  unoccupied slot ranges as skipped, without transferring empty entry storage.
 - Scalar fields and containers are read in separate requests. Ticks may advance
   between them, so decoded output is a useful live view, not an atomic snapshot.
-- `--all` currently removes display truncation; ordinary decoding already shows
-  zero-valued scalar fields.
+- State values wrap across terminal lines instead of being truncated.
 
 ### Canonical digest is a different path
 

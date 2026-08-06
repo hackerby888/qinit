@@ -19,7 +19,6 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
   const o = {
     target: commandArgs.positionals[0] ?? "",
     rpc: commandArgs.get("rpc"),
-    all: commandArgs.has("all"),
     digest: commandArgs.has("digest"),
   };
   const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
@@ -32,10 +31,12 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
   const [i, setI] = useState(0);
   const [phase, setPhase] = useState<"loading" | "pick" | "show" | "done">("loading");
   const [digest, setDigest] = useState<DigestOutput | null>(null);
+  const [progress, setProgress] = useState("");
   const add = (s: string) => setLines((l) => [...l, s]);
 
   const load = async (c: DynamicContractRegistryEntry) => {
     setPhase("loading");
+    setProgress("");
     try {
       if (!c.source)
         throw new Error(`node has no source for slot ${c.index} — cannot decode state`);
@@ -48,8 +49,13 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
           c.index,
           c.source,
           c.name || "Contract",
-          o.all,
           loadConfiguredQpiHeader(),
+          (field, completedBytes, totalBytes) => {
+            const percent = totalBytes
+              ? Math.floor((completedBytes * 100) / totalBytes)
+              : 100;
+            setProgress(`reading ${field} · ${percent}%`);
+          },
         ),
       );
       setPhase("show");
@@ -111,11 +117,16 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
       return () => clearTimeout(t);
     }
     if (!o.digest && (phase === "show" || phase === "done")) {
-      if (lines.some((l) => l.startsWith("ERROR"))) process.exitCode = 1;
+      if (
+        lines.some((l) => l.startsWith("ERROR")) ||
+        decodedState?.complete === false
+      ) {
+        process.exitCode = 1;
+      }
       const t = setTimeout(() => exit(), 50);
       return () => clearTimeout(t);
     }
-  }, [phase, digest]);
+  }, [phase, digest, decodedState]);
 
   useInput(
     (input, key) => {
@@ -204,10 +215,8 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
           </Box>
         </Box>
       )}
-      {phase === "loading" && <Spinner label="reading state" />}
-      {decodedState ? (
-        <StateView name={name} state={decodedState} full={o.all} />
-      ) : null}
+      {phase === "loading" && <Spinner label={progress || "reading state"} />}
+      {decodedState ? <StateView name={name} state={decodedState} /> : null}
     </Box>
   );
 }

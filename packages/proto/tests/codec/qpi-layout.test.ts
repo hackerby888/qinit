@@ -6,12 +6,57 @@ import {
   collectionFmt,
   hashMapElemFmt,
   collectionElemFmt,
+  collectionGeometry,
+  hashMapGeometry,
+  hashSetGeometry,
+  occupationFlagAt,
   COLLECTION_POV_FMT,
 } from "../../src/qpi-layout";
 import { layoutOf } from "../../src/abi-fmt";
 
 test("flagWordCount: 2 bits/slot, 32 slots/uint64 word", () => {
   expect([1, 32, 33, 64, 1024].map(flagWordCount)).toEqual([1, 1, 2, 2, 32]);
+});
+
+test("container geometry aligns flags and Collection elements", () => {
+  expect(
+    hashMapGeometry({ size: 1, align: 1 }, { size: 1, align: 1 }, 1),
+  ).toEqual({
+    recordStride: 2,
+    valueOffset: 1,
+    flagsOffset: 8,
+    flagsBytes: 8,
+    populationOffset: 16,
+  });
+  expect(hashSetGeometry({ size: 1, align: 1 }, 4)).toEqual({
+    recordStride: 1,
+    flagsOffset: 8,
+    flagsBytes: 8,
+    populationOffset: 16,
+  });
+  expect(collectionGeometry({ size: 16, align: 16 }, 1)).toEqual({
+    povsOffset: 0,
+    povStride: 64,
+    flagsOffset: 64,
+    flagsBytes: 8,
+    elementsOffset: 80,
+    elementStride: 64,
+    priorityOffset: 16,
+    populationOffset: 144,
+  });
+});
+
+test("occupationFlagAt reads two-bit flags from a flags-only buffer", () => {
+  const bytes = new Uint8Array(16);
+  new DataView(bytes.buffer).setBigUint64(0, 1n | (2n << 4n), true);
+  new DataView(bytes.buffer).setBigUint64(8, 1n << 2n, true);
+  expect([0, 1, 2, 33, 64].map((index) => occupationFlagAt(bytes, index))).toEqual([
+    1,
+    0,
+    2,
+    1,
+    0,
+  ]);
 });
 
 test("hashMapFmt: matches the C++ StateData layout + sizeof pin (41232)", () => {

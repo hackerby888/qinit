@@ -291,7 +291,6 @@ const commandMeta = {
     usage: "[<target>]",
     options: [
       booleanOption("digest", "print the node's canonical full-state K12 digest"),
-      booleanOption("all", "include zero/empty fields"),
       stringOption("rpc", "<url>", "node RPC base"),
     ],
   },

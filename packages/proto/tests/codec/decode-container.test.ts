@@ -1,5 +1,11 @@
 import { test, expect } from "bun:test";
 import { decodeHashMap, decodeHashSet, decodeCollection } from "../../src/decode-container";
+import {
+  AbiScalarKind,
+  AbiTypeKind,
+  type AbiScalar,
+  type AbiStruct,
+} from "../../src/contract-idl";
 
 // little-endian uint64 bytes
 const le = (n: bigint): number[] => {
@@ -73,6 +79,23 @@ test("HashSet<uint64,4>: occupied keys", async () => {
   ]);
 });
 
+test("HashMap and HashSet align flags after byte-sized records", async () => {
+  const map = new Uint8Array(32);
+  map[0] = 7;
+  map[1] = 9;
+  map.set(le(flags([0])), 8);
+  expect(await decodeHashMap(map, "uint8", "uint8", 1)).toEqual([
+    { slot: 0, key: 7, value: 9 },
+  ]);
+
+  const set = new Uint8Array(32);
+  set[0] = 11;
+  set.set(le(flags([0])), 8);
+  expect(await decodeHashSet(set, "uint8", 4)).toEqual([
+    { slot: 0, key: 11 },
+  ]);
+});
+
 test("empty container -> no entries", async () => {
   expect(await decodeHashMap(new Uint8Array(80), "uint64", "uint64", 4)).toEqual([]);
   expect(await decodeHashSet(new Uint8Array(48), "uint64", 4)).toEqual([]);
@@ -128,6 +151,41 @@ test("Collection: empty + single-element root", async () => {
   buf.set(i64(-1), elemsOff + 40); // no children
   const e = await decodeCollection(buf, "uint64", 4);
   expect(e.map((x) => [x.value, x.priority])).toEqual([[7n, 3n]]);
+});
+
+test("Collection aligns its element region to the value alignment", async () => {
+  const uint64Type: AbiScalar = {
+    kind: AbiTypeKind.SCALAR,
+    scalar: AbiScalarKind.UINT64,
+    size: 8,
+    align: 8,
+    format: "uint64",
+  };
+  const alignedValue: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    size: 16,
+    align: 16,
+    format: "{ uint64 }",
+    fields: [
+      {
+        name: "value",
+        offset: 0,
+        size: 8,
+        type: uint64Type,
+      },
+    ],
+  };
+  const buf = new Uint8Array(160);
+  buf.set(i64(0), 56); // PoV0.bstRootIndex
+  buf.set(le(flags([0])), 64);
+  buf.set(le(7n), 80); // flags end at 72; alignas(16) element begins at 80
+  buf.set(i64(3), 96); // priority follows the 16-byte value
+  buf.set(i64(-1), 112);
+  buf.set(i64(-1), 120);
+  buf.set(i64(-1), 128);
+
+  const entries = await decodeCollection(buf, alignedValue, 1);
+  expect(entries.map((entry) => [entry.value, entry.priority])).toEqual([[7n, 3n]]);
 });
 
 test("flags spanning >32 slots use the second flag word", async () => {
