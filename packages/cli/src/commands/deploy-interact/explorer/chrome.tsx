@@ -12,7 +12,8 @@ export type View =
   | { kind: "tx"; hash: string; tick?: number }
   | { kind: "identity"; id?: string }
   | { kind: "contracts"; page: number }
-  | { kind: "contract"; index: number };
+  | { kind: "contract"; index: number }
+  | { kind: "wallet"; to?: string };
 
 // One stack frame per drill-down level. `selected` is kept per frame so popping back to a list restores
 // the row the user came from instead of resetting to the top.
@@ -69,6 +70,8 @@ const crumbOf = (view: View): string => {
       return view.page > 0 ? `contracts p${view.page + 1}` : "contracts";
     case "contract":
       return `contract #${view.index}`;
+    case "wallet":
+      return "wallet";
   }
 };
 
@@ -121,10 +124,18 @@ function keysFor(view: View, depth: number, searching: boolean): KeyHint[] {
     ];
   }
 
+  // The wallet is a form that owns every key, including esc — the shell binds none of its own there.
+  // Its stage lives in component state, which this function cannot see, so only esc (true in every
+  // stage) is advertised here and each stage draws its own keys in-body.
+  if (view.kind === "wallet") {
+    return [["esc", "back"]];
+  }
+
   const keys: KeyHint[] = [
     ["1", "overview"],
     ["2", "contracts"],
     ["3", "identity"],
+    ["4", "wallet"],
     ["/", "find"],
   ];
 
@@ -141,6 +152,8 @@ function keysFor(view: View, depth: number, searching: boolean): KeyHint[] {
     keys.push(["←→", "tick"]);
   } else if (view.kind === "contracts") {
     keys.push(["←→", "page"]);
+  } else if (view.kind === "identity" && view.id) {
+    keys.push(["s", "send to"]);
   }
   // esc leads back to the overview from any section root, so it is only meaningless on the overview itself.
   if (depth > 1 || view.kind !== "overview") {

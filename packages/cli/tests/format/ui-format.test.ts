@@ -4,6 +4,10 @@ import { test, expect } from "bun:test";
 import { fmtCompact, truncMid, truncEnd } from "../../src/ui";
 import { parseFindQuery } from "../../src/commands/deploy-interact/explorer";
 import { hintLines } from "../../src/commands/deploy-interact/explorer/chrome";
+import {
+  classifyWalletInput,
+  poolSeedForIdentity,
+} from "../../src/commands/deploy-interact/explorer/wallet";
 
 const SEPARATOR = 5; // "  ·  " between hints on a line
 const lineWidth = (line: [string, string][]) =>
@@ -78,6 +82,56 @@ test("find query routes by shape", () => {
   for (const bad of ["", "  ", "-5", "12.5", "12a", "abc", "A".repeat(59), "A".repeat(61)]) {
     expect(parseFindQuery(bad)).toBeNull();
   }
+});
+
+// The wallet's one-field-takes-either trick rests entirely on the shapes not overlapping.
+test("wallet input is classified by shape", () => {
+  expect(classifyWalletInput("a".repeat(55))).toBe("seed");
+  expect(classifyWalletInput("  " + "z".repeat(55) + "  ")).toBe("seed");
+  expect(classifyWalletInput("A".repeat(60))).toBe("identity");
+
+  expect(classifyWalletInput("")).toBe("empty");
+  expect(classifyWalletInput("   ")).toBe("empty");
+
+  // Half-typed is not wrong yet — it must not show as an error while the user is still going.
+  // 55 uppercase is a partly typed identity, not a seed: case decides which target it is measured against.
+  expect(classifyWalletInput("a".repeat(54))).toBe("partial");
+  expect(classifyWalletInput("A".repeat(59))).toBe("partial");
+  expect(classifyWalletInput("A".repeat(55))).toBe("partial");
+
+  // Past either target length there is nothing left to become.
+  expect(classifyWalletInput("a".repeat(60))).toBe("invalid");
+  expect(classifyWalletInput("A".repeat(61))).toBe("invalid");
+  expect(classifyWalletInput("a".repeat(30) + "A".repeat(25))).toBe("invalid");
+  expect(classifyWalletInput("a".repeat(54) + "1")).toBe("invalid");
+});
+
+// No live backend reaches these branches: the simulator's pool is small and always present, so a
+// truncated reply and a missing route only ever appear against a real core node.
+test("funded-pool lookup separates a miss from an unreachable route", () => {
+  const identity = "A".repeat(60);
+  const pool = {
+    seedByIdentity: new Map([[identity, "a".repeat(55)]]),
+    received: 1,
+    total: 1,
+  };
+
+  expect(poolSeedForIdentity(identity, pool, "")).toBe("a".repeat(55));
+
+  // A node built without TESTNET 404s the route; saying "not prefunded" there would be a lie.
+  expect(() => poolSeedForIdentity(identity, null, "404 Not Found")).toThrow(
+    /route unavailable/,
+  );
+
+  expect(() => poolSeedForIdentity("B".repeat(60), pool, "")).toThrow(
+    /not in the node's funded-seed pool — the pool holds 1 seed/,
+  );
+
+  // A short reply must report how short it was, so a miss is not mistaken for proof of absence.
+  const truncated = { ...pool, received: 32, total: 676 };
+  expect(() => poolSeedForIdentity("B".repeat(60), truncated, "")).toThrow(
+    /only 32 of 676 pool seeds/,
+  );
 });
 
 test("truncation helpers keep values inside a fixed cell width", () => {
