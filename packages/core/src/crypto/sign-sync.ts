@@ -1,12 +1,5 @@
-// Synchronous SchnorrQ signing, still on @qubic-lib's Emscripten FourQ.
-//
-// @qubic.org/crypto has a synchronous signer internally, but its package exports only the async
-// `sign(message, seed)` wrapper — and the simulator's tick path (finalizeTick -> buildTickVote /
-// buildTickData) is synchronous end to end, so an async signer would have to ripple through the
-// whole engine. Hashing and identity moved to @qubic.org/crypto; only this one call stayed.
-//
-// Nothing here ever sees a large input: SchnorrQ signs 32-byte digests, so the Emscripten module's
-// fixed 16 MiB heap is irrelevant on this path.
+// The last @qubic-lib use: @qubic.org/crypto's schnorrq.sign is sync but unexported (only the async
+// wrapper is), and the tick path is sync end to end.
 import type { KeyPair } from "./qubic";
 
 interface SchnorrQ {
@@ -16,9 +9,11 @@ interface SchnorrQ {
 let _schnorrq: SchnorrQ | null = null;
 
 export async function initK12(): Promise<void> {
-  if (_schnorrq) return;
-  // Static CJS require -> bun bundles a single instance. ESM `import *` / createRequire resolved a
-  // second, uninitialized Emscripten instance under --compile.
+  if (_schnorrq) {
+    return;
+  }
+
+  // Static CJS require so bun bundles one instance; ESM import resolved a second, uninit one under --compile.
   // @ts-ignore - require is provided by bun
   const cryptoMod: any = require("@qubic-lib/qubic-ts-library/dist/crypto");
   _schnorrq = (await (cryptoMod.default ?? cryptoMod)).schnorrq;

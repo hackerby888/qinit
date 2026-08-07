@@ -46,9 +46,8 @@ export function verifySync(
   message: Uint8Array,
   signature: Uint8Array,
 ): boolean {
-  // An all-zero key and an all-zero signature verify against each other in @qubic.org/crypto. Core
-  // rejects that pair, and the null identity can never be a signer — the native differential over the
-  // signatureValidity host call is what catches the difference.
+  // @qubic.org/crypto verifies an all-zero signature against an all-zero key; core rejects that pair,
+  // and the null identity can never be a signer. Caught by the signatureValidity native differential.
   if (isZero(publicKey) || isZero(signature)) {
     return false;
   }
