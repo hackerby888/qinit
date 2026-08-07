@@ -26,6 +26,7 @@ Sections are numbered, so jump with `grep -n '^## ' docs/<file>.md` rather than 
 | How are functions and procedures called, and what does `--trace` do? | cli-guide §9 |
 | How is contract state decoded from raw bytes? | cli-guide §10 |
 | How does the live trace inspector work? The chain explorer? | cli-guide §11, §11.1 |
+| How does the explorer name a call and decode its input bytes? | cli-guide §11.2 |
 | How is a node started, tracked, and stopped? Where does the simulator run? | cli-guide §12 |
 | What are system contracts, and what do `setup` / `clean` / `doctor` own? | cli-guide §13 |
 | Why are `test` and `gtest` different systems? | cli-guide §14 |

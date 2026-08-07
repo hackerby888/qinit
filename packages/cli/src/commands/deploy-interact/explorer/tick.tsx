@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
 import { Box, Text } from "ink";
-import type { ExplorerTickData, ExplorerTx } from "@qinit/core";
+import { contractIndexFromIdentity, type ExplorerTickData, type ExplorerTx } from "@qinit/core";
 import { Badge, Grad, KV, SectionHeader, Spinner, Table, theme, truncMid, type Column } from "../../../ui";
+import {
+  decodeTxInput,
+  entryFor,
+  type ContractIdls,
+  type DecodedInput,
+} from "../../../contracts/idl-lookup";
 import {
   SectionBody,
   contractLabel,
+  entryLabel,
   errText,
   fmtAmount,
   fmtTime,
@@ -20,18 +27,22 @@ const TX_COLS: Column[] = [
   { header: "source", max: 16 },
   { header: "destination", max: 26 },
   { header: "amount", align: "right", max: 16 },
-  { header: "in", align: "right", max: 4 },
+  { header: "in", max: 22 },
   { header: "size", align: "right", max: 6 },
 ];
 
-const txRow = (tx: ExplorerTx, names: Map<number, string>): string[] => {
+const txRow = (
+  tx: ExplorerTx,
+  names: Map<number, string>,
+  idls: ContractIdls,
+): string[] => {
   const label = contractLabel(tx.destination, names);
   return [
     tx.hash,
     tx.source,
     label ? `${truncMid(tx.destination, 10)} ${label}` : tx.destination,
     fmtAmount(tx.amount),
-    String(tx.inputType),
+    entryLabel(contractIndexFromIdentity(tx.destination), tx.inputType, idls),
     String(tx.inputSize),
   ];
 };
@@ -41,6 +52,7 @@ export function TickView({
   refreshToken,
   selected,
   contractNames,
+  contractIdls,
   push,
   rowCount,
   openRow,
@@ -134,7 +146,7 @@ export function TickView({
         ) : (
           <Table
             columns={TX_COLS}
-            rows={win.map((tx) => txRow(tx, contractNames))}
+            rows={win.map((tx) => txRow(tx, contractNames, contractIdls))}
             selected={selected - offset}
             width={sectionTableWidth(columns)}
           />
@@ -146,10 +158,15 @@ export function TickView({
 
 // ---- transaction --------------------------------------------------------------------------------
 
+// A wide input (QUTIL's SendToManyV1 carries 25 identities) would otherwise fill the frame on its own.
+const FIELD_ROWS = 8;
+const NAME_WIDTH = 24;
+
 export function TxView({
   rpc,
   refreshToken,
   contractNames,
+  contractIdls,
   push,
   rowCount,
   openRow,
@@ -159,6 +176,7 @@ export function TxView({
   tick,
 }: ViewProps & { hash: string; tick?: number }) {
   const [tx, setTx] = useState<ExplorerTx | null>(null);
+  const [decoded, setDecoded] = useState<DecodedInput | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -182,6 +200,30 @@ export function TxView({
       alive = false;
     };
   }, [hash, tick, refreshToken]);
+
+  // The payload is decoded off the render path: the IDL map arrives after the transaction does, and
+  // container fields make the decode async. Until it lands the view shows what it shows today.
+  const entry = tx
+    ? entryFor(contractIndexFromIdentity(tx.destination), tx.inputType, contractIdls)
+    : undefined;
+  useEffect(() => {
+    if (!tx || !entry) {
+      setDecoded(null);
+      return;
+    }
+
+    let alive = true;
+    decodeTxInput(entry, Buffer.from(tx.inputData ?? "", "base64"))
+      .then((value) => {
+        if (alive) setDecoded(value);
+      })
+      .catch(() => {
+        if (alive) setDecoded(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [tx, entry]);
 
   // ↵ walks from a transaction to the identities it touches.
   const targets = tx ? [tx.source, tx.destination] : [];
@@ -212,15 +254,36 @@ export function TxView({
 
   const label = contractLabel(tx.destination, contractNames);
   const inputBytes = tx.inputData ? Buffer.from(tx.inputData, "base64") : Buffer.alloc(0);
+  // Every decoded line is variable width, and a line that wraps costs a row this view has not budgeted —
+  // which is what would push the control bar off the screen. Truncate them all to the section's width.
+  const width = sectionTableWidth(columns);
+  const shownFields = decoded ? decoded.fields.slice(0, FIELD_ROWS) : [];
+  const hiddenFields = (decoded?.fields.length ?? 0) - shownFields.length;
+  const nameWidth = Math.min(NAME_WIDTH, Math.max(0, ...shownFields.map(([name]) => name.length)));
+  const valueWidth = Math.max(8, width - nameWidth - 2);
+  const fieldRows = shownFields.map(([name, value]): [string, string] => [
+    truncMid(name, nameWidth).padEnd(nameWidth),
+    truncMid(value, valueWidth),
+  ]);
+  const formatRow = decoded?.format ? truncMid(`--in "${decoded.format}"`, width) : "";
+  const decodedRows =
+    fieldRows.length + (hiddenFields > 0 ? 1 : 0) + (formatRow ? 2 : 0);
+
   // 15 rows are fixed here: the title block with its from/to band (5), the 7-row KV with its margin (8),
   // and the trailing hint (2). The dump then costs its own margin + section header + an overflow line, so
   // it only appears once everything else fits — a short terminal drops dump rows, never the control bar.
-  const hexBudget = Math.max(0, Math.min(8, bodyRows - 19));
+  const hexBudget = Math.max(
+    0,
+    Math.min(8, bodyRows - 19 - decodedRows - (decodedRows > 0 ? 1 : 0)),
+  );
   const hexRows: string[] = [];
   for (let offset = 0; offset < inputBytes.length && hexRows.length < hexBudget; offset += 32) {
     hexRows.push(inputBytes.subarray(offset, offset + 32).toString("hex"));
   }
   const shownBytes = hexRows.length * 32;
+  const entryName = entry
+    ? `${tx.inputType} · ${entry.name}${entry.notification ? " (notification)" : ""}`
+    : String(tx.inputType);
 
   return (
     <Box flexDirection="column">
@@ -252,14 +315,14 @@ export function TxView({
             ["amount", fmtAmount(tx.amount)],
             ["tick", String(tx.tickNumber)],
             ["timestamp", fmtTime(tx.timestamp)],
-            ["input type", String(tx.inputType)],
+            ["input type", entryName],
             ["input size", `${tx.inputSize} bytes`],
             ["money flew", tx.moneyFlew ? "✓ yes" : "◌ no"],
             ["signature", tx.signature ? truncMid(tx.signature, 60) : "—"],
           ]}
         />
       </Box>
-      {hexRows.length > 0 ? (
+      {hexRows.length > 0 || decodedRows > 0 ? (
         <Box marginTop={1} flexDirection="column">
           <SectionHeader
             title="input data"
@@ -267,13 +330,31 @@ export function TxView({
             width={columns}
           />
           <SectionBody>
-            {hexRows.map((row, index) => (
-              <Text key={index} dimColor>
-                {row}
+            {fieldRows.map(([name, value], index) => (
+              <Text key={`field-${index}`}>
+                <Text color={theme.info}>{name}</Text>
+                <Text>{`  ${value}`}</Text>
               </Text>
             ))}
-            {inputBytes.length > shownBytes ? (
-              <Text dimColor>{`… ${inputBytes.length - shownBytes} more bytes`}</Text>
+            {hiddenFields > 0 ? (
+              <Text dimColor>{`… ${hiddenFields} more fields`}</Text>
+            ) : null}
+            {formatRow ? (
+              <Box marginTop={1}>
+                <Text dimColor>{formatRow}</Text>
+              </Box>
+            ) : null}
+            {hexRows.length > 0 ? (
+              <Box marginTop={decodedRows > 0 ? 1 : 0} flexDirection="column">
+                {hexRows.map((row, index) => (
+                  <Text key={index} dimColor>
+                    {row}
+                  </Text>
+                ))}
+                {inputBytes.length > shownBytes ? (
+                  <Text dimColor>{`… ${inputBytes.length - shownBytes} more bytes`}</Text>
+                ) : null}
+              </Box>
             ) : null}
           </SectionBody>
         </Box>

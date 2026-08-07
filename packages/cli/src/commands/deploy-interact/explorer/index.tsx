@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Box, useApp, useInput } from "ink";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig, savedTheme, setSavedTheme } from "../../../config";
+import { loadContractIdls, type ContractIdls } from "../../../contracts/idl-lookup";
 import { Header, THEME_NAMES, applyTheme, useTerminalSize } from "../../../ui";
 import { output, type CommandArguments } from "../../../args";
 import {
@@ -69,18 +70,26 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
   // an effect instead would leave the first frame advertising keys the prompt has already taken.
   const searching = view.kind === "find" || (view.kind === "identity" && !view.id);
 
-  // Contract names, loaded once and reused to label contract addresses across every view.
+  // Contract names and IDLs, loaded once and reused across every view to label contract addresses and to
+  // name and decode the calls made to them. Either can be missing without costing the other.
   const [contractNames, setContractNames] = useState<Map<number, string>>(new Map());
+  const [contractIdls, setContractIdls] = useState<ContractIdls>(new Map());
   useEffect(() => {
     let alive = true;
-    rpc
-      .getContracts()
-      .then(({ contracts }) => {
-        if (alive) {
-          setContractNames(new Map(contracts.map((c) => [c.index, c.name])));
-        }
-      })
-      .catch(() => {});
+    void (async () => {
+      const [names, idls] = await Promise.allSettled([
+        rpc.getContracts(),
+        loadContractIdls(rpc),
+      ]);
+      if (!alive) return;
+
+      if (names.status === "fulfilled") {
+        setContractNames(new Map(names.value.contracts.map((c) => [c.index, c.name])));
+      }
+      if (idls.status === "fulfilled") {
+        setContractIdls(idls.value);
+      }
+    })();
     return () => {
       alive = false;
     };
@@ -178,6 +187,7 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
     refreshToken,
     selected: top.selected,
     contractNames,
+    contractIdls,
     push,
     rowCount,
     openRow,

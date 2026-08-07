@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Box, Text } from "ink";
 import { LiteRpc, contractIndexFromIdentity } from "@qinit/core";
+import { entryFor, type ContractIdls } from "../../../contracts/idl-lookup";
 import { theme, truncMid } from "../../../ui";
 
 export type View =
@@ -46,6 +47,17 @@ export const contractLabel = (identity: string, names: Map<number, string>): str
     return null;
   }
   return `${names.get(index) ?? "contract"} #${index}`;
+};
+
+// A call's inputType, named when the slot's IDL is known. A plain transfer misses the lookup and keeps
+// its bare number, which is also what an unparsed contract falls back to.
+export const entryLabel = (
+  slot: number | null | undefined,
+  inputType: number,
+  idls: ContractIdls,
+): string => {
+  const entry = entryFor(slot, inputType, idls);
+  return entry ? `${inputType} ${entry.name}` : String(inputType);
 };
 
 // Rows the shell owns above the body: the header with its margin, plus the breadcrumb.
@@ -227,6 +239,7 @@ export interface ViewProps {
   refreshToken: number;
   selected: number;
   contractNames: Map<number, string>;
+  contractIdls: ContractIdls;
   push: (view: View) => void;
   rowCount: { current: number };
   openRow: { current: (index: number) => void };
