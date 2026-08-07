@@ -296,7 +296,8 @@ const commandMeta = {
   },
   explorer: {
     group: "deploy & interact",
-    summary: "interactive chain explorer — live ticks, transactions, identities, contracts",
+    summary:
+      "interactive chain explorer — live ticks, transactions, identities, contracts, wallet",
     usage: "[--tick <n> | --tx <hash> | --id <identity>]",
     options: [
       stringOption("tick", "<n>", "open a tick"),

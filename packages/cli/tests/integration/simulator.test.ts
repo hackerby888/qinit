@@ -1,8 +1,8 @@
 // Exercise the simulator through the LiteRpc and protocol helpers used for core nodes.
 import { test, expect, beforeAll } from "bun:test";
 import { EngineServer } from "@qinit/engine/server";
-import { initK12, LiteRpc, deriveIdentity } from "@qinit/core";
-import { callFunction, invokeProcedure, TX_TICK_OFFSET } from "@qinit/proto";
+import { initK12, LiteRpc, deriveIdentity, identityToBytes } from "@qinit/core";
+import { callFunction, invokeProcedure, sendTransfer, TX_TICK_OFFSET } from "@qinit/proto";
 import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 import { portFromRpc } from "../../src/ops/serve";
 
@@ -114,6 +114,43 @@ test("confirm waits for execution: a read right after confirm sees the mutation 
     expect(r.confirmed).toBe(true);
     // no poll loop: confirm must not resolve until the tx's tick executed, so the Inc is already visible
     expect(BigInt(await callFunction(rpc, SLOT, GET, "", "uint64"))).toBe(1n);
+  } finally {
+    stop();
+  }
+});
+
+// The wallet's whole point: move QU between two pool accounts and have the balances actually change.
+test("sendTransfer moves QU between two funded accounts (qinit explorer wallet)", async () => {
+  const { rpc, rpcBaseUrl, stop } = await bootCounter();
+  try {
+    const { seeds } = await rpc.fundedSeeds(32);
+    const senderSeed = seeds[0];
+    const recipientIdentity = (await deriveIdentity(seeds[1])).identity;
+    const senderIdentity = (await deriveIdentity(senderSeed)).identity;
+
+    const balanceOf = async (identity: string) =>
+      BigInt((await rpc.balance(identity)).balance);
+    const senderBefore = await balanceOf(senderIdentity);
+    const recipientBefore = await balanceOf(recipientIdentity);
+
+    const amount = 250_000;
+    const tick = ((await rpc.tickInfo()).tick ?? 0) + TX_TICK_OFFSET;
+    const sent = await sendTransfer({
+      seed: senderSeed,
+      destination: identityToBytes(recipientIdentity),
+      amount,
+      tick,
+      rpcBaseUrl,
+      confirm: true,
+      rpc,
+    });
+
+    expect(sent.ok).toBe(true);
+    expect(sent.confirmed).toBe(true);
+    expect(sent.txId).toMatch(/^[a-z]{60}$/);
+    // confirm must not resolve before the tx's tick executed, so the balances are already settled
+    expect(await balanceOf(recipientIdentity)).toBe(recipientBefore + BigInt(amount));
+    expect(await balanceOf(senderIdentity)).toBe(senderBefore - BigInt(amount));
   } finally {
     stop();
   }

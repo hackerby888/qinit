@@ -1,6 +1,6 @@
 // Keyboard-driven input widgets. Both grab the terminal with useInput, so exactly one may be mounted
 // at a time — a caller that has its own key handling must stand down while a prompt is up.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Box, Text, useInput } from "ink";
 import { theme } from "./theme";
 
@@ -84,18 +84,26 @@ export function Select<T>({
 
 // A single-line editor with a caret, an optional inline completion (⇥ accepts), and an optional
 // placeholder that → fills into the field.
+// `isActive: false` parks the field: it still renders, dimmed, but takes no keys — which is how a form
+// can mount several at once and still honour the one-keyboard-owner rule above.
 export function TextPrompt({
   label,
   initial,
   onSubmit,
   complete,
   placeholder,
+  isActive = true,
+  hint,
+  onChange,
 }: {
   label: string;
   initial?: string;
   onSubmit: (value: string) => void;
   complete?: (value: string) => string | null;
   placeholder?: string;
+  isActive?: boolean;
+  hint?: ReactNode;
+  onChange?: (value: string) => void;
 }) {
   const [value, setValue] = useState(initial ?? "");
   const [caret, setCaret] = useState((initial ?? "").length);
@@ -110,6 +118,7 @@ export function TextPrompt({
     setCaret(
       Math.max(0, Math.min(nextValue.length, nextCaret ?? nextValue.length)),
     );
+    onChange?.(nextValue);
   };
 
   useInput((input, key) => {
@@ -142,49 +151,69 @@ export function TextPrompt({
         caret + input.length,
       );
     }
-  });
+  }, { isActive });
 
   const before = value.slice(0, caret);
   const atCaret = value.slice(caret, caret + 1) || " ";
   const after = value.slice(caret + 1);
 
+  // A parked field shows no caret and no key hints — both would advertise a keyboard it does not own.
+  const caretMarker = isActive ? (
+    <Text inverse>{value === "" && placeholder ? " " : atCaret}</Text>
+  ) : (
+    <Text>{value === "" && placeholder ? " " : atCaret}</Text>
+  );
+
   return (
     <Box flexDirection="column">
-      <Box borderStyle="round" borderColor={theme.brand} paddingX={1}>
+      <Box
+        borderStyle="round"
+        borderColor={isActive ? theme.brand : theme.mute}
+        paddingX={1}
+      >
         {value === "" && placeholder ? (
           <Text>
-            <Text color={theme.brand} bold>
+            <Text color={isActive ? theme.brand : theme.mute} bold={isActive}>
               ❯{" "}
             </Text>
-            <Text inverse> </Text>
+            {caretMarker}
             <Text color={theme.mute} dimColor>
               {placeholder}
             </Text>
           </Text>
         ) : (
           <Text>
-            <Text color={theme.brand} bold>
+            <Text color={isActive ? theme.brand : theme.mute} bold={isActive}>
               ❯{" "}
             </Text>
-            <Text color={theme.ok}>{before}</Text>
-            <Text inverse>{atCaret}</Text>
-            <Text color={theme.ok}>{after}</Text>
+            <Text color={isActive ? theme.ok : undefined} dimColor={!isActive}>
+              {before}
+            </Text>
+            {caretMarker}
+            <Text color={isActive ? theme.ok : undefined} dimColor={!isActive}>
+              {after}
+            </Text>
             <Text color={theme.mute} dimColor>
               {completionSuffix}
             </Text>
           </Text>
         )}
       </Box>
-      <Text dimColor>
-        {" "}
-        {label}
-        {completionSuffix
-          ? `    ⇥ tab → ${completion}`
-          : value === "" && placeholder
-            ? "    → fill template · ↵ submit"
-            : "    ↵ submit"}{" "}
-        esc back
-      </Text>
+      {hint ?? null}
+      {isActive ? (
+        <Text dimColor>
+          {" "}
+          {label}
+          {completionSuffix
+            ? `    ⇥ tab → ${completion}`
+            : value === "" && placeholder
+              ? "    → fill template · ↵ submit"
+              : "    ↵ submit"}{" "}
+          esc back
+        </Text>
+      ) : (
+        <Text dimColor> {label}</Text>
+      )}
     </Box>
   );
 }

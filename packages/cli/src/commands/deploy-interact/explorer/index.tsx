@@ -20,6 +20,7 @@ import { OverviewView } from "./overview";
 import { TickView, TxView } from "./tick";
 import { IdentityView } from "./identity";
 import { ContractView, ContractsView } from "./contracts";
+import { WalletView } from "./wallet";
 
 export type { View } from "./chrome";
 export { parseFindQuery };
@@ -117,6 +118,13 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
 
   useInput(
     (input, key) => {
+      // The wallet is a multi-field form with its own stages and its own esc, so the shell binds nothing
+      // there. It also protects the seed fields: q and r are legal seed characters and must not quit or
+      // refresh mid-typing.
+      if (view.kind === "wallet") {
+        return;
+      }
+
       // While a prompt owns the keyboard, esc still has to mean "back" — it is the only way out of the
       // search. Every other key belongs to the prompt so it can be typed into the field.
       // ink blanks `input` for escape, so the prompt never sees this keypress itself.
@@ -137,6 +145,11 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
         replaceRoot({ kind: "contracts", page: 0 });
       } else if (input === "3") {
         replaceRoot({ kind: "identity" });
+      } else if (input === "4") {
+        replaceRoot({ kind: "wallet" });
+      } else if (input === "s" && view.kind === "identity" && view.id) {
+        // Pushed, so esc returns to the identity the user was reading rather than to the overview.
+        push({ kind: "wallet", to: view.id });
       } else if (input === "/") {
         // Pushed, not a new root: the prompt replaces itself with the hit, so esc lands back where / was
         // pressed rather than on the overview.
@@ -214,6 +227,13 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
         />
       ) : view.kind === "contracts" ? (
         <ContractsView {...shared} page={view.page} />
+      ) : view.kind === "wallet" ? (
+        <WalletView
+          {...shared}
+          rpcBaseUrl={rpcBaseUrl}
+          to={view.to}
+          onExit={pop}
+        />
       ) : (
         <ContractView {...shared} index={view.index} />
       )}

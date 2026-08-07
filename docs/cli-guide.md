@@ -501,6 +501,13 @@ Only one component may own the keyboard at a time, so a view that mounts a
 prompt has to stop handling keys itself while the prompt is up — see the
 `searching` flag in the explorer shell.
 
+`TextPrompt` takes an `isActive` prop for the case where a single screen shows
+several fields at once: every field stays mounted and rendered, but only the
+focused one subscribes to `useInput`. The explorer's wallet is the first form
+built this way, and it also shows the other two prompt props — `onChange`, which
+lifts the live value out so the owner can validate as the user types, and
+`hint`, the line drawn under the field.
+
 Exit behavior is decentralized. Every new or changed command must be reviewed
 for success, handled failure, parser failure, JSON mode, and non-TTY behavior.
 
@@ -1177,6 +1184,7 @@ overview.tsx   tiles and recent ticks (explorerData)
 tick.tsx       tick detail and transaction detail
 identity.tsx   balance plus transfer history
 contracts.tsx  contract catalog and per-contract calls
+wallet.tsx     the send form: resolve sender/recipient, review, broadcast, confirm
 ```
 
 The dependency arrow is one-way: views import `chrome.tsx`, and `chrome.tsx`
@@ -1185,9 +1193,50 @@ imports nothing from the shell, which is what keeps the module graph acyclic.
 know which module they now live in.
 
 Navigation is a frame stack. `esc` pops one frame, then falls back to the
-overview, then exits; `1`/`2`/`3` replace the root; `/` pushes the search
+overview, then exits; `1`/`2`/`3`/`4` replace the root; `/` pushes the search
 prompt; `↑↓` move the selection the current view registered through the shared
-`rowCount`/`openRow` refs; `←→` step a tick or a contract page.
+`rowCount`/`openRow` refs; `←→` step a tick or a contract page; `s` on an
+identity pushes the wallet with that identity prefilled as the recipient.
+
+The wallet is the one view the shell hands the keyboard to completely — its
+`useInput` returns immediately for `view.kind === "wallet"`. That is not only
+because the form runs its own stages with its own `esc`: seed characters are
+`a`-`z`, so a global `q` or `r` would quit or refresh in the middle of typing a
+seed. Since the shell cannot see which stage the form is in — the stage is
+component state, and lifting it into the `View` would remount the view and wipe
+the fields on every transition — the control bar advertises only `esc`, which is
+true in every stage, and each stage draws its own key line in-body.
+
+### 11.2 The wallet's resolution rules
+
+Both wallet fields take either form and are told apart by shape, which is
+unambiguous: 55 lowercase letters is a seed, 60 uppercase is an identity. The
+asymmetry is in what each field must end up with. FROM has to sign, so it always
+resolves to a **seed**; TO is what the transaction carries, so it always resolves
+to an **identity**.
+
+A seed in FROM signs directly. An identity in FROM has no private key, so its
+seed is looked up in the node's funded pool (`/live/v1/dev/funded-seeds`), and a
+miss is an error — there is nothing to sign with. That route is compile-gated on
+core (`TESTNET` and `LITE_WASM_SC`), so `poolSeedForIdentity()` keeps three cases
+apart: the route was unreachable, the reply was truncated (`seeds.length` below
+`count`), or the identity genuinely is not in the pool. Reporting the first as
+the third would be a lie.
+
+Ask for the pool with an explicit limit and never with `0`: core reads `0` as
+"all", the simulator as "none".
+
+The recipient's checksum is validated locally through `identityToBytes()`,
+because the node does not check identities at all — `balancesId` decodes whatever
+string it is given. That check is the only thing between a typo and a transfer
+into an address nobody holds.
+
+Broadcasting is not confirmation. A transfer targets `tick + TX_TICK_OFFSET`, and
+core-lite only registers a transaction if its tick falls inside the pending
+pool's 32-tick window; overshooting is dropped silently, after the HTTP call has
+already returned 200. So the wallet confirms through `sendTransfer(..., {confirm:
+true})` and reports `processed`, `dropped — not included`, or `broadcast ·
+unconfirmed` rather than declaring success at broadcast.
 
 `parseFindQuery()` routes the single search field by the shape of what was
 typed: an unsigned integer is a tick, 60 uppercase characters are an identity,
