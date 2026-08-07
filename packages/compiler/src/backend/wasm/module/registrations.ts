@@ -24,6 +24,7 @@ export interface ContractRegistration {
     inputType: number;
     constant: boolean;
     line: number;
+    notification: boolean; // oracle-reply callback: dispatched by the node, not invoked by users
 }
 export function evalRegistrationConstant(expression: Expression | undefined, programAnalysis: ProgramAnalysis): bigint | null {
     if (!expression)
@@ -100,10 +101,10 @@ export function extractRegistrations(contract: StructDecl, programAnalysis: Prog
         const itArg = expression.callArguments[1];
         const evaluated = evalRegistrationConstant(itArg, programAnalysis);
         let inputType = evaluated === null ? 0 : Number(evaluated);
-        // Use the synthetic procedure ID for oracle-reply notifications.
+        // Use the synthetic procedure ID for oracle-reply notifications. memberFnLine holds the raw-source
+        // line, which is what __LINE__ resolves to inside qpi's PUBLIC/PRIVATE_PROCEDURE macros.
         if (isNotif && fnName) {
-            const def = contract.members.find((member) => member.kind === AstKind.FUNCTION && (member as FunctionDecl).name === fnName) as FunctionDecl | undefined;
-            inputType = (def?.span?.line ?? 0) & 0xffff;
+            inputType = (programAnalysis.memberFnLine.get(fnName) ?? 0) & 0xffff;
         }
         if (fnName) {
             regs.push({
@@ -112,6 +113,7 @@ export function extractRegistrations(contract: StructDecl, programAnalysis: Prog
                 inputType,
                 constant: isNotif || evaluated !== null,
                 line: expression.span.line,
+                notification: isNotif,
             });
         }
     }

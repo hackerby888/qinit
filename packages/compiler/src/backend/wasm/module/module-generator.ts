@@ -43,6 +43,7 @@ export interface ModuleGenerationRequest {
     sharedMemoryBase?: number;
     metadataOutput?: GeneratedContractMetadata;
     gtestMode: boolean;
+    procedureDeclLines?: Map<string, number>;
 }
 
 export function generateWasmModule(request: ModuleGenerationRequest): string {
@@ -55,6 +56,7 @@ export function generateWasmModule(request: ModuleGenerationRequest): string {
         calleeStructs: request.calleeStructs,
         calleeTranslationUnits: request.calleeTranslationUnits,
         gtestMode: request.gtestMode,
+        procedureDeclLines: request.procedureDeclLines,
     });
     const {
         programAnalysis,

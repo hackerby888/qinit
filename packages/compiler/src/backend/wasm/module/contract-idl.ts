@@ -88,6 +88,7 @@ export function buildContractIdl(
       outSize: output.size,
       input,
       output,
+      ...(registration.notification ? { notification: true } : {}),
     };
 
     if (registration.kind === USER_FUNCTION_KIND) {

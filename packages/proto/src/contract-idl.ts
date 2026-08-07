@@ -127,6 +127,7 @@ export interface ContractEntry {
   outSize: number;
   input: AbiType;
   output: AbiType;
+  notification?: boolean; // oracle-reply callback: the node dispatches it, users never invoke it
 }
 
 export interface ContractEnum {
@@ -328,6 +329,7 @@ function contractEntry(value: unknown, label: string): ContractEntry {
     outSize,
     input,
     output,
+    ...(entry.notification === true ? { notification: true } : {}),
   };
 }
 

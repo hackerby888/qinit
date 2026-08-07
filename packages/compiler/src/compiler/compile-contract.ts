@@ -20,7 +20,7 @@ import type { Diagnostic as ParserDiagnostic } from "../parser";
 import type { CompileOptions, CompileResult } from "./types";
 import { emptyResult } from "./compile-result";
 import { dumpWatIfRequested, encodeAndInspectWat } from "./wasm-encoder";
-import { collectSourceContractCalls } from "./semantic-calls";
+import { collectProcedureDeclLines, collectSourceContractCalls } from "./semantic-calls";
 import { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "../defaults";
 
 export async function compileContract(
@@ -159,6 +159,7 @@ function generateContractWat(
         semanticAnalysis,
         contractName: options.contractName,
         contractSlot: options.slot,
+        procedureDeclLines: collectProcedureDeclLines(options.source),
         arenaSize: options.arenaSizeBytes ?? DEFAULT_COMPILE_ARENA_SIZE_BYTES,
         libraryIndex: qpiContext.lib,
         callees: options.callees,

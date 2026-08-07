@@ -61,6 +61,7 @@ export interface PrepareContractModuleRequest {
     calleeStructs?: Map<string, StructDecl>;
     calleeTranslationUnits?: CalleeTranslationUnit[];
     gtestMode: boolean;
+    procedureDeclLines?: Map<string, number>;
 }
 
 export function prepareContractModule(
@@ -110,6 +111,7 @@ export function prepareContractModule(
         programAnalysis,
         contract,
         request.contractSlot,
+        request.procedureDeclLines,
     );
     const registrations = validateContractRegistrations(
         contract,
@@ -213,9 +215,11 @@ export function prepareContractState(
     programAnalysis: ProgramAnalysis,
     contract: StructDecl,
     contractSlot: number,
+    procedureDeclLines?: Map<string, number>,
 ): StructLayout {
     programAnalysis.collectNested(contract);
     programAnalysis.slot = contractSlot;
+    programAnalysis.procedureDeclLines = procedureDeclLines ?? new Map();
 
     recordMemberFunctionLines(programAnalysis, contract);
 
@@ -237,10 +241,13 @@ function recordMemberFunctionLines(
             continue;
         }
 
+        // Prefer the raw-source line: __LINE__ in qpi's macros refers to it, and preprocessing shifts spans.
         const functionDeclaration = member as FunctionDecl;
         programAnalysis.memberFnLine.set(
             functionDeclaration.name,
-            functionDeclaration.span?.line ?? 0,
+            programAnalysis.procedureDeclLines.get(functionDeclaration.name)
+                ?? functionDeclaration.span?.line
+                ?? 0,
         );
     }
 }

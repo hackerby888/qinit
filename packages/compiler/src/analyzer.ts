@@ -20,6 +20,7 @@ import { getQpiMacros } from "./compiler/qpi-macros";
 import type { CompileOptions } from "./compiler/types";
 import { collectCalleeContext } from "./compiler/callees";
 import {
+  collectProcedureDeclLines,
   collectSourceContractCalls,
   type SourceContractCall,
 } from "./compiler/semantic-calls";
@@ -230,6 +231,7 @@ function analyzeCompiler(
       translationUnit,
       semanticAnalysis,
       contractSlot: compileOptions.slot,
+      procedureDeclLines: collectProcedureDeclLines(compileOptions.source),
       libraryIndex: qpiContext.lib,
       callees: compileOptions.callees,
       calleeStructs: calleeContext.contractStructs,

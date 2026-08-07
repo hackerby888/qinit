@@ -146,6 +146,7 @@ type Entry = {
   name?: string;
   input?: ContractEntry["input"];
   output?: ContractEntry["output"];
+  notification?: boolean;
 };
 
 export function zeroSample(entry: Entry): string | null {
@@ -449,6 +450,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         };
       })
       .sort(byId);
+    // Oracle-reply callbacks are dispatched by the node, never invoked by a user, so keep them out.
     const procedures: Entry[] = (contract.procedures ?? [])
       .map((entry) => {
         const metadata = entryIdl("procedures", entry.inputType);
@@ -458,8 +460,10 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
           name: metadata?.name,
           input: metadata?.input,
           output: metadata?.output,
+          notification: metadata?.notification === true,
         };
       })
+      .filter((entry) => !entry.notification)
       .sort(byId);
 
     return [...functions, ...procedures];
