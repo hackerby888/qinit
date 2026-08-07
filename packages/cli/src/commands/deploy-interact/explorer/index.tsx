@@ -230,6 +230,7 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
       </Box>
       <ControlBar
         view={view}
+        rootView={stack[0].view}
         depth={stack.length}
         themeName={themeName}
         rpcBaseUrl={rpcBaseUrl}

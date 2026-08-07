@@ -1197,7 +1197,10 @@ Case is the only thing separating an identity from a tx id.
 The shell budgets terminal rows itself — `rows - 1 - CHROME_ROWS -
 controlBarRows(...)` — so a hint line that wraps unexpectedly pushes the control
 bar off-screen. That is why `hintLines()` is unit-tested against several
-terminal widths in `tests/format/ui-format.test.ts`.
+terminal widths in `tests/format/ui-format.test.ts`. The control bar also lights
+the key of the section the stack is *rooted* in — `TAB_KEY` in `chrome.tsx` — with
+a gradient that sweeps on a `useFrame` tick, so drilling into a tick or a
+transaction still shows `1 overview` as the current tab.
 
 ### 11.2 Naming and decoding a call
 

@@ -114,16 +114,26 @@ export function lerp(from: string, to: string, position: number): string {
   return `#${channel(0)}${channel(1)}${channel(2)}`;
 }
 
+// Offset the gradient and fold it back on itself, so an animated phase sweeps the colors along the text
+// without the seam a plain wrap would leave between the last character and the first.
+function gradPosition(base: number, phase: number): number {
+  const shifted = (base + phase) % 1;
+  return shifted < 0.5 ? shifted * 2 : 2 - shifted * 2;
+}
+
 export function Grad({
   text,
   from = theme.gradFrom,
   to = theme.gradTo,
   bold = true,
+  phase,
 }: {
   text: string;
   from?: string;
   to?: string;
   bold?: boolean;
+  // Drive this from useFrame to animate; omit it for a still gradient.
+  phase?: number;
 }) {
   if (output.plain) {
     return <Text bold={bold}>{text}</Text>;
@@ -132,14 +142,17 @@ export function Grad({
   const length = text.length;
   return (
     <Text bold={bold}>
-      {[...text].map((character, index) => (
-        <Text
-          key={index}
-          color={lerp(from, to, length < 2 ? 0 : index / (length - 1))}
-        >
-          {character}
-        </Text>
-      ))}
+      {[...text].map((character, index) => {
+        const base = length < 2 ? 0 : index / (length - 1);
+        return (
+          <Text
+            key={index}
+            color={lerp(from, to, phase === undefined ? base : gradPosition(base, phase))}
+          >
+            {character}
+          </Text>
+        );
+      })}
     </Text>
   );
 }
