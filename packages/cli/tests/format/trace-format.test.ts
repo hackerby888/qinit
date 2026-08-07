@@ -20,7 +20,7 @@ const le = (n: bigint | number, w: number) => {
 const hx = (b: number[]) => b.map((x) => (x & 0xff).toString(16).padStart(2, "0")).join("");
 // HashMap<id,uint64,4> with slot0 -> value (key = all-zero id): element stride 40, value@32, flags@160
 const hashmapBuf = (value: number) => {
-  const buf = new Array(176).fill(0);
+  const buf = new Array(184).fill(0);
   le(value, 8).forEach((x, i) => (buf[32 + i] = x));
   buf[160] = 1;
   le(1, 8).forEach((x, i) => (buf[168 + i] = x));
@@ -57,6 +57,7 @@ const fakeRpc = (
 };
 
 test("describeTrace: decodes proc input, caller, log _type enum name, and container contents", async () => {
+  const calls: StateReadCall[] = [];
   const entry: any = {
     seq: 1,
     tick: 10,
@@ -77,13 +78,14 @@ test("describeTrace: decodes proc input, caller, log _type enum name, and contai
     entry,
     SRC,
     "Counter",
-    fakeRpc([...le(0, 8), ...hashmapBuf(42)]),
+    fakeRpc([...le(0, 8), ...hashmapBuf(42)], calls),
   );
   expect(v.inDecoded).toBe('"5"'); // single-field input -> scalar (bigint as json string)
   expect(v.caller.length).toBe(60); // proc -> 60-char identity
   expect(v.logs).toHaveLength(1);
   expect(v.logs[0].typeName).toBe("Bumped"); // enum Kind: 1 -> Bumped
   expect(v.logs[0].fields).toEqual({ _contractIndex: 0, _type: 1, value: 9n });
+  expect(calls).toEqual([{ slot: 7, off: 8, len: 184 }]);
   expect(v.containers).toHaveLength(1);
   expect(v.containers[0].name).toBe("bal");
   expect(v.containers[0].entries[0]).toContain("42");
@@ -126,6 +128,24 @@ test("readState: scalar fields decoded + container entries", async () => {
   expect(state.containers[0].entries[0]).toContain("42");
 });
 
+test("readState: rejects a short field-scoped RPC read", async () => {
+  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { uint64 value; }; INITIALIZE() {} };`;
+  const state = await readState(
+    fakeRpc(new Uint8Array(4)),
+    7,
+    source,
+    "ShortRead",
+  );
+
+  expect(state.complete).toBe(false);
+  expect(state.fields).toEqual([
+    {
+      name: "value",
+      value: "(read failed: short state read at 0: expected 8 bytes, got 4)",
+    },
+  ]);
+});
+
 test("readState: reads a complete sparse array across the 256 KiB boundary", async () => {
   const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { Array<uint64, 32769> values; }; INITIALIZE() {} };`;
   const bytes = new Uint8Array(32769 * 8);
@@ -160,6 +180,21 @@ test("readState: reads a complete sparse array across the 256 KiB boundary", asy
     ["values", 262144, 262152],
     ["values", 262152, 262152],
   ]);
+});
+
+test("readState: preserves an empty array as [] without an RPC read", async () => {
+  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { Array<uint64, 0> values; }; INITIALIZE() {} };`;
+  const calls: StateReadCall[] = [];
+  const state = await readState(
+    fakeRpc([], calls),
+    7,
+    source,
+    "EmptyArray",
+  );
+
+  expect(calls).toEqual([]);
+  expect(state.fields).toEqual([{ name: "values", value: "[]" }]);
+  expect(state.complete).toBe(true);
 });
 
 test("readState: BitArray reads compact words in pages and renders logical bits", async () => {
@@ -253,6 +288,22 @@ test("readState: an empty HashMap only reads population", async () => {
       entries: ["slots[0..7] (unoccupied ×8; skipped)"],
     },
   ]);
+});
+
+test("readState: does not retry an incomplete container read", async () => {
+  const calls: StateReadCall[] = [];
+  const state = await readState(
+    fakeRpc([], calls),
+    3,
+    HASHMAP_SOURCE,
+    "ShortMap",
+  );
+
+  expect(calls).toEqual([{ slot: 3, off: 136, len: 8 }]);
+  expect(state.complete).toBe(false);
+  expect(state.containers[0].error).toBe(
+    "short state read at 136: expected 8 bytes, got 0",
+  );
 });
 
 test("readState: a sparse HashMap fetches only occupied record ranges", async () => {
@@ -498,7 +549,9 @@ test("readState: persistent LinkedList topology changes are incomplete", async (
     { slot: 13, off: 192, len: 8 },
   ]);
   expect(state.complete).toBe(false);
-  expect(state.containers[0].error).toContain("population changed");
+  expect(state.containers[0].error).toContain(
+    "2 occupied slots but population 1",
+  );
 });
 
 test("readState: a sparse Collection fetches occupied PoVs and live elements", async () => {
@@ -585,12 +638,15 @@ test("describeTrace: Collection state field is decoded into containers (priority
   const cap = 4,
     elemsOff = cap * 64 + 8;
   const b = new Array(elemsOff + cap * 48 + 16).fill(0);
+  i64(1).forEach((x, i) => (b[32 + i] = x)); // PoV0 population
   i64(0).forEach((x, i) => (b[56 + i] = x)); // PoV0.bstRoot = elem0
   b[cap * 64] = 1; // PoV0 occupied
   i64(7).forEach((x, i) => (b[elemsOff + i] = x)); // elem0 value=7
   i64(3).forEach((x, i) => (b[elemsOff + 8 + i] = x)); // priority=3
+  i64(-1).forEach((x, i) => (b[elemsOff + 24 + i] = x));
   i64(-1).forEach((x, i) => (b[elemsOff + 32 + i] = x));
   i64(-1).forEach((x, i) => (b[elemsOff + 40 + i] = x)); // no children
+  i64(1).forEach((x, i) => (b[elemsOff + cap * 48 + i] = x)); // total population
   const v = await describeTrace(mkEntry({ index: 1 }), SRC_COLL, "Coll", fakeRpc(b));
   expect(v.containers[0].name).toBe("q");
   expect(v.containers[0].entries[0]).toContain("7");
@@ -601,19 +657,22 @@ test("describeTrace: HashSet state field is decoded into containers", async () =
   const SRC_SET = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { HashSet<id, 4> seen; }; struct Mark_input { id who; }; struct Mark_output {}; PUBLIC_PROCEDURE(Mark) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Mark, 1); } INITIALIZE() {} };`;
   const b = new Array(4 * 32 + 8 + 16).fill(0);
   b[4 * 32] = 1; // slot0 (all-zero id) occupied
+  i64(1).forEach((x, i) => (b[4 * 32 + 8 + i] = x)); // population
   const v = await describeTrace(mkEntry({ index: 2 }), SRC_SET, "Set", fakeRpc(b));
   expect(v.containers[0].name).toBe("seen");
   expect(v.containers[0].entries).toHaveLength(1);
 });
 
 test("describeTrace: LinkedList stays compact and follows logical order", async () => {
+  const calls: StateReadCall[] = [];
   const v = await describeTrace(
     mkEntry({ index: 14 }),
     LINKED_LIST_SOURCE,
     "ListTrace",
-    fakeRpc(linkedListState()),
+    fakeRpc(linkedListState(), calls),
   );
 
+  expect(calls).toEqual([{ slot: 14, off: 0, len: 240 }]);
   expect(v.containers).toEqual([
     {
       name: "values",
@@ -621,6 +680,27 @@ test("describeTrace: LinkedList stays compact and follows logical order", async 
         "item[0] slot[6] = 66",
         "item[1] slot[1] = 11",
         "item[2] slot[2] = 22",
+      ],
+    },
+  ]);
+});
+
+test("describeTrace: marks containers larger than the trace-read limit", async () => {
+  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { HashMap<uint64, uint64, 32768> values; }; INITIALIZE() {} };`;
+  const calls: StateReadCall[] = [];
+  const trace = await describeTrace(
+    mkEntry({ index: 15 }),
+    source,
+    "LargeMapTrace",
+    fakeRpc([], calls),
+  );
+
+  expect(calls).toEqual([]);
+  expect(trace.containers).toEqual([
+    {
+      name: "values",
+      entries: [
+        "(incomplete: state exceeds the 256 KiB trace-read limit)",
       ],
     },
   ]);

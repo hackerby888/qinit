@@ -965,6 +965,18 @@ balances
 
 The exact sizes come from the ABI/type layout, not a hardcoded CLI table.
 
+Container decoding lives in
+[`packages/proto/src/qpi-container-view/`](../packages/proto/src/qpi-container-view/).
+Each read-only view receives an ABI type and a `QpiByteSource`, then exposes
+logical `get()` or `entries()` operations. The state command supplies an RPC
+source that reads exact relative ranges; trace decoding supplies a bounded byte
+snapshot. These views interpret QPI's stored layout. They do not execute C++ or
+reimplement the mutable QPI container API.
+
+The older `decodeHashMap()`, `decodeHashSet()`, `decodeCollection()`, and
+`decodeLinkedList()` helpers remain tolerant full-buffer compatibility APIs;
+state and trace rendering use the strict views.
+
 ### Step 3: read and decode scalar fields
 
 `stateFieldsOf()` marks `balances` as a container, so the first loop skips it
@@ -1082,8 +1094,13 @@ know field offsets, make RPC calls, or decode container layouts.
   unoccupied slot ranges as skipped, without transferring empty entry storage.
 - Nested BitArray and LinkedList values are decoded semantically, including
   values stored in the existing QPI containers.
+- Container views validate populations, occupation flags, and linked topology.
+  A consistency failure is retried once because separate range reads may span a
+  state update.
 - Scalar fields and containers are read in separate requests. Ticks may advance
-  between them, so decoded output is a useful live view, not an atomic snapshot.
+  between them, and the node's range endpoint does not lock the whole state
+  across requests. Decoded output is therefore a best-effort live view, not an
+  atomic snapshot.
 - State values wrap across terminal lines instead of being truncated.
 
 ### Canonical digest is a different path
@@ -1129,6 +1146,10 @@ setDebug(true)
 6. Reads and decodes current containers.
 7. Decodes structured logs and enum names.
 8. Leaves raw bytes available when schema derivation fails.
+
+Trace container snapshots remain capped at 256 KiB. A larger container is shown
+as `(incomplete: state exceeds the 256 KiB trace-read limit)` instead of decoding
+a partial prefix as complete state.
 
 The captured `stateDiff` belongs to that invocation. Container contents do not:
 they are fetched from current node state while the detail view is decoded. They

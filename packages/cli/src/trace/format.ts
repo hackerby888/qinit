@@ -1,17 +1,12 @@
 import {
   decodeOutput,
-  decodeHashMap,
-  decodeHashSet,
-  decodeCollection,
-  decodeLinkedList,
   decodeLog,
-  bitAt,
-  collectionGeometry,
-  hashMapGeometry,
-  hashSetGeometry,
-  linkedListGeometry,
-  occupationFlagAt,
+  createQpiContainerView,
+  qpiSnapshotSource,
+  QpiContainerConsistencyError,
+  QpiIncompleteReadError,
   type DecodedLog,
+  type QpiByteSource,
 } from "@qinit/proto";
 import {
   AbiTypeKind,
@@ -22,7 +17,6 @@ import { extractIdl } from "@qinit/build";
 import {
   bytesToIdentity,
   hexToBytes,
-  roundUp,
   type DebugEntry,
 } from "@qinit/core";
 
@@ -253,139 +247,59 @@ function stateReadError(error: unknown): string {
     : String(error);
 }
 
-async function readStateBytes(
+function stateByteSource(
   rpc: StateReader,
   contractIndex: number,
-  offset: number,
-  length: number,
-  onChunk?: (completedBytes: number) => void,
-): Promise<Uint8Array> {
-  if (
-    !Number.isSafeInteger(offset) ||
-    !Number.isSafeInteger(length) ||
-    offset < 0 ||
-    length < 0 ||
-    !Number.isSafeInteger(offset + length)
-  ) {
-    throw new Error("invalid state byte range");
-  }
-
-  const bytes = new Uint8Array(length);
-  let completed = 0;
-
-  while (completed < length) {
-    const chunkLength = Math.min(MAX_STATE_READ, length - completed);
-    const { hex } = await rpc.stateRead(
-      contractIndex,
-      offset + completed,
-      chunkLength,
-    );
-
-    if (
-      hex.length !== chunkLength * 2 ||
-      !/^[0-9a-f]*$/i.test(hex)
-    ) {
-      throw new Error(
-        `short state read at ${offset + completed}: expected ${chunkLength} bytes, got ${Math.floor(hex.length / 2)}`,
-      );
-    }
-
-    bytes.set(hexToBytes(hex), completed);
-    completed += chunkLength;
-    onChunk?.(completed);
-  }
-
-  return bytes;
-}
-
-function uint64At(bytes: Uint8Array, offset = 0): bigint {
-  if (offset < 0 || offset + 8 > bytes.length) {
-    throw new Error("uint64 exceeds state range");
-  }
-  return new DataView(
-    bytes.buffer,
-    bytes.byteOffset + offset,
-    8,
-  ).getBigUint64(0, true);
-}
-
-function sint64At(bytes: Uint8Array, offset: number): bigint {
-  if (offset < 0 || offset + 8 > bytes.length) {
-    throw new Error("sint64 exceeds state range");
-  }
-  return new DataView(
-    bytes.buffer,
-    bytes.byteOffset + offset,
-    8,
-  ).getBigInt64(0, true);
-}
-
-function populationOf(bytes: Uint8Array, capacity: number): number {
-  const population = uint64At(bytes);
-  if (population > BigInt(capacity)) {
-    throw new Error(
-      `container population ${population} exceeds capacity ${capacity}`,
-    );
-  }
-  return Number(population);
-}
-
-function assertContainerRange(
   field: StateField,
-  relativeOffset: number,
-  length: number,
-): void {
-  if (
-    !Number.isSafeInteger(relativeOffset) ||
-    !Number.isSafeInteger(length) ||
-    relativeOffset < 0 ||
-    length < 0 ||
-    relativeOffset + length > field.size
-  ) {
-    throw new Error(`invalid ${field.name} container layout`);
-  }
+  onRead?: (completedBytes: number) => void,
+): QpiByteSource {
+  return {
+    byteLength: field.size,
+    maxReadLength: MAX_STATE_READ,
+    read: async (relativeOffset, length) => {
+      if (
+        !Number.isSafeInteger(relativeOffset) ||
+        !Number.isSafeInteger(length) ||
+        relativeOffset < 0 ||
+        length < 0 ||
+        length > MAX_STATE_READ ||
+        relativeOffset + length > field.size ||
+        !Number.isSafeInteger(field.off + relativeOffset)
+      ) {
+        throw new QpiIncompleteReadError(
+          `invalid ${field.name} state byte range`,
+        );
+      }
+
+      const absoluteOffset = field.off + relativeOffset;
+      const { hex } = await rpc.stateRead(
+        contractIndex,
+        absoluteOffset,
+        length,
+      );
+      if (hex.length !== length * 2 || !/^[0-9a-f]*$/i.test(hex)) {
+        throw new QpiIncompleteReadError(
+          `short state read at ${absoluteOffset}: expected ${length} bytes, got ${Math.floor(hex.length / 2)}`,
+        );
+      }
+
+      onRead?.(Math.min(relativeOffset + length, field.size));
+      return hexToBytes(hex);
+    },
+  };
 }
 
-function occupiedSlots(
-  flags: Uint8Array,
-  capacity: number,
-): number[] {
-  const occupied: number[] = [];
-  for (let slot = 0; slot < capacity; slot++) {
-    const flag = occupationFlagAt(flags, slot);
-    if (flag === 1) {
-      occupied.push(slot);
-    } else if (flag === 3) {
-      throw new Error(`invalid occupation flag at slot ${slot}`);
-    }
+async function readAllBytes(source: QpiByteSource): Promise<Uint8Array> {
+  const bytes = new Uint8Array(source.byteLength);
+  for (let offset = 0; offset < source.byteLength;) {
+    const length = Math.min(
+      source.maxReadLength,
+      source.byteLength - offset,
+    );
+    bytes.set(await source.read(offset, length), offset);
+    offset += length;
   }
-  return occupied;
-}
-
-function occupiedBitSlots(
-  flags: Uint8Array,
-  capacity: number,
-): number[] {
-  const occupied: number[] = [];
-  for (let slot = 0; slot < capacity; slot++) {
-    if (bitAt(flags, slot)) {
-      occupied.push(slot);
-    }
-  }
-  return occupied;
-}
-
-function consecutiveRanges(indices: number[]): { start: number; end: number }[] {
-  const ranges: { start: number; end: number }[] = [];
-  for (const index of indices) {
-    const last = ranges[ranges.length - 1];
-    if (last && index === last.end + 1) {
-      last.end = index;
-    } else {
-      ranges.push({ start: index, end: index });
-    }
-  }
-  return ranges;
+  return bytes;
 }
 
 function containerLines(
@@ -450,8 +364,6 @@ function unoccupiedSlotLines(
   addGap(nextSlot, capacity - 1);
   return lines;
 }
-
-class ContainerChangedError extends Error {}
 
 function containerLayoutOf(type: AbiType): StateContainerLayout | undefined {
   switch (type.kind) {
@@ -556,6 +468,109 @@ export function enumMap(idl: Pick<ContractIdl, "enums">): Record<string, string>
   return names;
 }
 
+type FormattedContainerView = {
+  traceEntries: string[];
+  stateEntries: string[];
+  occupiedSlots: number;
+  totalEntries: number;
+};
+
+async function formatContainerView(
+  field: StateField,
+  source: QpiByteSource,
+  full: boolean,
+): Promise<FormattedContainerView> {
+  const container = field.container;
+  if (!field.abi || !container) {
+    throw new Error(`missing ${field.name} container type`);
+  }
+
+  const type = field.abi;
+  switch (type.kind) {
+    case AbiTypeKind.HASH_MAP:
+    case AbiTypeKind.HASH_SET:
+    case AbiTypeKind.COLLECTION:
+    case AbiTypeKind.LINKED_LIST:
+      break;
+    default:
+      throw new Error(`${field.name} is not a state container`);
+  }
+
+  const view = createQpiContainerView(type, source);
+  switch (view.kind) {
+    case AbiTypeKind.HASH_MAP: {
+      if (container.kind !== "hashmap") {
+        throw new Error(`invalid ${field.name} container type`);
+      }
+      const entries = await view.entries();
+      const formatted = entries.map((entry) => ({
+        slot: entry.slot,
+        text: `${keyLabel(entry.key)} = ${formatStateValue(entry.value, container.value, full)}`,
+      }));
+      return {
+        traceEntries: formatted.map((entry) => entry.text),
+        stateEntries: containerLines(container.capacity, formatted),
+        occupiedSlots: entries.length,
+        totalEntries: entries.length,
+      };
+    }
+    case AbiTypeKind.HASH_SET: {
+      if (container.kind !== "hashset") {
+        throw new Error(`invalid ${field.name} container type`);
+      }
+      const entries = await view.entries();
+      const formatted = entries.map((entry) => ({
+        slot: entry.slot,
+        text: keyLabel(entry.key),
+      }));
+      return {
+        traceEntries: formatted.map((entry) => entry.text),
+        stateEntries: containerLines(container.capacity, formatted),
+        occupiedSlots: entries.length,
+        totalEntries: entries.length,
+      };
+    }
+    case AbiTypeKind.COLLECTION: {
+      if (container.kind !== "collection") {
+        throw new Error(`invalid ${field.name} container type`);
+      }
+      const entries = await view.entries();
+      const formatted = entries.map((entry) => ({
+        slot: entry.povSlot,
+        text: `${keyLabel(entry.pov)}: ${formatStateValue(entry.value, container.value, full)} (p${entry.priority})`,
+      }));
+      return {
+        traceEntries: formatted.map((entry) => entry.text),
+        stateEntries: containerLines(container.capacity, formatted, true),
+        occupiedSlots: new Set(entries.map((entry) => entry.povSlot)).size,
+        totalEntries: entries.length,
+      };
+    }
+    case AbiTypeKind.LINKED_LIST: {
+      if (container.kind !== "linkedlist") {
+        throw new Error(`invalid ${field.name} container type`);
+      }
+      const entries = await view.entries();
+      return {
+        traceEntries: entries.map(
+          (entry, index) =>
+            `item[${index}] slot[${entry.slot}] = ${formatStateValue(entry.value, container.value, full)}`,
+        ),
+        stateEntries: linkedListValueLines(
+          entries,
+          container.value,
+          container.capacity,
+          full,
+        ),
+        occupiedSlots: entries.length,
+        totalEntries: entries.length,
+      };
+    }
+    default:
+      throw new Error(`${field.name} is not a state container`);
+  }
+}
+
 export async function readStateContainers(
   rpc: StateReader,
   contractIndex: number,
@@ -569,69 +584,37 @@ export async function readStateContainers(
       continue;
     }
 
+    if (field.size > MAX_STATE_READ) {
+      containers.push({
+        name: field.name,
+        entries: [
+          "(incomplete: state exceeds the 256 KiB trace-read limit)",
+        ],
+      });
+      continue;
+    }
+
     try {
-      const state = await rpc.stateRead(
-        contractIndex,
-        field.off,
-        Math.min(field.size, 262144),
+      const bytes = await readAllBytes(
+        stateByteSource(rpc, contractIndex, field),
       );
-      const bytes = hexToBytes(state.hex);
-      const container = field.container;
-      let entries: string[];
-      switch (container.kind) {
-        case "hashmap":
-          entries = (
-            await decodeHashMap(
-              bytes,
-              container.key,
-              container.value,
-              container.capacity,
-            )
-          ).map(
-            (entry) =>
-              `${keyLabel(entry.key)} = ${formatStateValue(entry.value, container.value, full)}`,
-          );
-          break;
-        case "hashset":
-          entries = (
-            await decodeHashSet(bytes, container.key, container.capacity)
-          ).map((entry) => keyLabel(entry.key));
-          break;
-        case "collection":
-          entries = (
-            await decodeCollection(
-              bytes,
-              container.value,
-              container.capacity,
-            )
-          ).map(
-            (entry) =>
-              `${keyLabel(entry.pov)}: ${formatStateValue(entry.value, container.value, full)} (p${entry.priority})`,
-          );
-          break;
-        case "linkedlist":
-          entries = (
-            await decodeLinkedList(
-              bytes,
-              container.value,
-              container.capacity,
-            )
-          ).map(
-            (entry, index) =>
-              `item[${index}] slot[${entry.slot}] = ${formatStateValue(entry.value, container.value, full)}`,
-          );
-          break;
-      }
+      const formatted = await formatContainerView(
+        field,
+        qpiSnapshotSource(bytes),
+        full,
+      );
 
       const limit = full ? Infinity : 10;
       containers.push({
         name: field.name,
         entries:
-          entries.length > limit
-            ? entries
+          formatted.traceEntries.length > limit
+            ? formatted.traceEntries
                 .slice(0, limit)
-                .concat(`… +${entries.length - limit} more (--all)`)
-            : entries,
+                .concat(
+                  `… +${formatted.traceEntries.length - limit} more (--all)`,
+                )
+            : formatted.traceEntries,
       });
     } catch {
       // An unreadable container should not hide the rest of the state.
@@ -639,526 +622,6 @@ export async function readStateContainers(
   }
 
   return containers;
-}
-
-async function readCompleteHashMap(
-  rpc: StateReader,
-  contractIndex: number,
-  field: StateField,
-  container: Extract<StateContainerLayout, { kind: "hashmap" }>,
-): Promise<DecodedStateContainer> {
-  const geometry = hashMapGeometry(
-    container.key,
-    container.value,
-    container.capacity,
-  );
-  assertContainerRange(field, geometry.populationOffset, 8);
-  assertContainerRange(field, geometry.flagsOffset, geometry.flagsBytes);
-
-  const population = populationOf(
-    await readStateBytes(
-      rpc,
-      contractIndex,
-      field.off + geometry.populationOffset,
-      8,
-    ),
-    container.capacity,
-  );
-  if (population === 0) {
-    return {
-      name: field.name,
-      kind: container.kind,
-      capacity: container.capacity,
-      occupiedSlots: 0,
-      totalEntries: 0,
-      entries: containerLines(container.capacity, []),
-    };
-  }
-
-  const flags = await readStateBytes(
-    rpc,
-    contractIndex,
-    field.off + geometry.flagsOffset,
-    geometry.flagsBytes,
-  );
-  const slots = occupiedSlots(flags, container.capacity);
-  if (slots.length !== population) {
-    throw new ContainerChangedError(
-      `${field.name} population changed while reading`,
-    );
-  }
-
-  const entries: { slot: number; text: string }[] = [];
-  for (const range of consecutiveRanges(slots)) {
-    const recordCount = range.end - range.start + 1;
-    const rangeOffset = range.start * geometry.recordStride;
-    const rangeLength = recordCount * geometry.recordStride;
-    assertContainerRange(field, rangeOffset, rangeLength);
-    const bytes = await readStateBytes(
-      rpc,
-      contractIndex,
-      field.off + rangeOffset,
-      rangeLength,
-    );
-
-    for (let index = 0; index < recordCount; index++) {
-      const slot = range.start + index;
-      const recordOffset = index * geometry.recordStride;
-      const key = await decodeOutput(
-        bytes.slice(recordOffset, recordOffset + container.key.size),
-        container.key,
-      );
-      const value = await decodeOutput(
-        bytes.slice(
-          recordOffset + geometry.valueOffset,
-          recordOffset + geometry.valueOffset + container.value.size,
-        ),
-        container.value,
-      );
-      entries.push({
-        slot,
-        text: `${keyLabel(key)} = ${formatStateValue(value, container.value, true)}`,
-      });
-    }
-  }
-
-  return {
-    name: field.name,
-    kind: container.kind,
-    capacity: container.capacity,
-    occupiedSlots: slots.length,
-    totalEntries: entries.length,
-    entries: containerLines(container.capacity, entries),
-  };
-}
-
-async function readCompleteHashSet(
-  rpc: StateReader,
-  contractIndex: number,
-  field: StateField,
-  container: Extract<StateContainerLayout, { kind: "hashset" }>,
-): Promise<DecodedStateContainer> {
-  const geometry = hashSetGeometry(container.key, container.capacity);
-  assertContainerRange(field, geometry.populationOffset, 8);
-  assertContainerRange(field, geometry.flagsOffset, geometry.flagsBytes);
-
-  const population = populationOf(
-    await readStateBytes(
-      rpc,
-      contractIndex,
-      field.off + geometry.populationOffset,
-      8,
-    ),
-    container.capacity,
-  );
-  if (population === 0) {
-    return {
-      name: field.name,
-      kind: container.kind,
-      capacity: container.capacity,
-      occupiedSlots: 0,
-      totalEntries: 0,
-      entries: containerLines(container.capacity, []),
-    };
-  }
-
-  const flags = await readStateBytes(
-    rpc,
-    contractIndex,
-    field.off + geometry.flagsOffset,
-    geometry.flagsBytes,
-  );
-  const slots = occupiedSlots(flags, container.capacity);
-  if (slots.length !== population) {
-    throw new ContainerChangedError(
-      `${field.name} population changed while reading`,
-    );
-  }
-
-  const entries: { slot: number; text: string }[] = [];
-  for (const range of consecutiveRanges(slots)) {
-    const recordCount = range.end - range.start + 1;
-    const rangeOffset = range.start * geometry.recordStride;
-    const rangeLength = recordCount * geometry.recordStride;
-    assertContainerRange(field, rangeOffset, rangeLength);
-    const bytes = await readStateBytes(
-      rpc,
-      contractIndex,
-      field.off + rangeOffset,
-      rangeLength,
-    );
-
-    for (let index = 0; index < recordCount; index++) {
-      const recordOffset = index * geometry.recordStride;
-      const key = await decodeOutput(
-        bytes.slice(recordOffset, recordOffset + container.key.size),
-        container.key,
-      );
-      entries.push({
-        slot: range.start + index,
-        text: keyLabel(key),
-      });
-    }
-  }
-
-  return {
-    name: field.name,
-    kind: container.kind,
-    capacity: container.capacity,
-    occupiedSlots: slots.length,
-    totalEntries: entries.length,
-    entries: containerLines(container.capacity, entries),
-  };
-}
-
-type CollectionPov = {
-  slot: number;
-  id: unknown;
-  population: number;
-  root: bigint;
-};
-
-async function readCompleteCollection(
-  rpc: StateReader,
-  contractIndex: number,
-  field: StateField,
-  container: Extract<StateContainerLayout, { kind: "collection" }>,
-): Promise<DecodedStateContainer> {
-  const geometry = collectionGeometry(container.value, container.capacity);
-  assertContainerRange(field, geometry.populationOffset, 8);
-  assertContainerRange(field, geometry.flagsOffset, geometry.flagsBytes);
-
-  const population = populationOf(
-    await readStateBytes(
-      rpc,
-      contractIndex,
-      field.off + geometry.populationOffset,
-      8,
-    ),
-    container.capacity,
-  );
-  if (population === 0) {
-    return {
-      name: field.name,
-      kind: container.kind,
-      capacity: container.capacity,
-      occupiedSlots: 0,
-      totalEntries: 0,
-      entries: containerLines(container.capacity, [], true),
-    };
-  }
-
-  const flags = await readStateBytes(
-    rpc,
-    contractIndex,
-    field.off + geometry.flagsOffset,
-    geometry.flagsBytes,
-  );
-  const slots = occupiedSlots(flags, container.capacity);
-  if (!slots.length || slots.length > population) {
-    throw new ContainerChangedError(
-      `${field.name} population changed while reading`,
-    );
-  }
-
-  const povs: CollectionPov[] = [];
-  for (const range of consecutiveRanges(slots)) {
-    const recordCount = range.end - range.start + 1;
-    const rangeOffset = range.start * geometry.povStride;
-    const rangeLength = recordCount * geometry.povStride;
-    assertContainerRange(field, rangeOffset, rangeLength);
-    const bytes = await readStateBytes(
-      rpc,
-      contractIndex,
-      field.off + rangeOffset,
-      rangeLength,
-    );
-
-    for (let index = 0; index < recordCount; index++) {
-      const recordOffset = index * geometry.povStride;
-      const povPopulation = populationOf(
-        bytes.slice(recordOffset + 32, recordOffset + 40),
-        population,
-      );
-      if (povPopulation === 0) {
-        throw new ContainerChangedError(
-          `occupied PoV ${range.start + index} is empty`,
-        );
-      }
-      povs.push({
-        slot: range.start + index,
-        id: await decodeOutput(
-          bytes.slice(recordOffset, recordOffset + 32),
-          "id",
-        ),
-        population: povPopulation,
-        root: sint64At(bytes, recordOffset + 56),
-      });
-    }
-  }
-
-  if (povs.reduce((sum, pov) => sum + pov.population, 0) !== population) {
-    throw new ContainerChangedError(
-      `${field.name} population changed while reading`,
-    );
-  }
-
-  const elementsLength = population * geometry.elementStride;
-  assertContainerRange(field, geometry.elementsOffset, elementsLength);
-  const elements = await readStateBytes(
-    rpc,
-    contractIndex,
-    field.off + geometry.elementsOffset,
-    elementsLength,
-  );
-  const povSlots = new Set(povs.map((pov) => pov.slot));
-  const seen = new Set<number>();
-  const entries: { slot: number; text: string }[] = [];
-
-  const elementIndex = (value: bigint): number => {
-    if (value < 0n || value >= BigInt(population)) {
-      throw new ContainerChangedError(
-        `invalid Collection element index ${value}`,
-      );
-    }
-    return Number(value);
-  };
-
-  for (const pov of povs) {
-    const stack: number[] = [];
-    let current = pov.root;
-    let count = 0;
-
-    while (current !== -1n || stack.length) {
-      while (current !== -1n) {
-        const index = elementIndex(current);
-        if (seen.has(index)) {
-          throw new ContainerChangedError(
-            `Collection element ${index} is repeated or cyclic`,
-          );
-        }
-        const base = index * geometry.elementStride;
-        const storedPov = sint64At(
-          elements,
-          base + geometry.priorityOffset + 8,
-        );
-        if (!povSlots.has(Number(storedPov)) || Number(storedPov) !== pov.slot) {
-          throw new ContainerChangedError(
-            `Collection element ${index} has invalid PoV`,
-          );
-        }
-        seen.add(index);
-        stack.push(index);
-        current = sint64At(
-          elements,
-          base + geometry.priorityOffset + 3 * 8,
-        );
-      }
-
-      const index = stack.pop()!;
-      const base = index * geometry.elementStride;
-      const value = await decodeOutput(
-        elements.slice(base, base + container.value.size),
-        container.value,
-      );
-      const priority = sint64At(elements, base + geometry.priorityOffset);
-      entries.push({
-        slot: pov.slot,
-        text: `${keyLabel(pov.id)}: ${formatStateValue(value, container.value, true)} (p${priority})`,
-      });
-      count++;
-      current = sint64At(
-        elements,
-        base + geometry.priorityOffset + 4 * 8,
-      );
-    }
-
-    if (count !== pov.population) {
-      throw new ContainerChangedError(
-        `PoV ${pov.slot} contains ${count} entries, expected ${pov.population}`,
-      );
-    }
-  }
-
-  if (seen.size !== population) {
-    throw new ContainerChangedError(
-      `Collection contains ${seen.size} reachable entries, expected ${population}`,
-    );
-  }
-
-  return {
-    name: field.name,
-    kind: container.kind,
-    capacity: container.capacity,
-    occupiedSlots: slots.length,
-    totalEntries: population,
-    entries: containerLines(container.capacity, entries, true),
-  };
-}
-
-type LinkedListNode = {
-  slot: number;
-  value: unknown;
-  next: bigint;
-  previous: bigint;
-};
-
-async function readCompleteLinkedList(
-  rpc: StateReader,
-  contractIndex: number,
-  field: StateField,
-  container: Extract<StateContainerLayout, { kind: "linkedlist" }>,
-): Promise<DecodedStateContainer> {
-  const geometry = linkedListGeometry(container.value, container.capacity);
-  assertContainerRange(field, geometry.populationOffset, 8);
-  assertContainerRange(field, geometry.flagsOffset, geometry.flagsBytes);
-  assertContainerRange(field, geometry.headOffset, 16);
-
-  const populationValue = uint64At(
-    await readStateBytes(
-      rpc,
-      contractIndex,
-      field.off + geometry.populationOffset,
-      8,
-    ),
-  );
-  if (populationValue > BigInt(container.capacity)) {
-    throw new ContainerChangedError(
-      `${field.name} population ${populationValue} exceeds capacity ${container.capacity}`,
-    );
-  }
-  const population = Number(populationValue);
-  if (population === 0) {
-    return {
-      name: field.name,
-      kind: container.kind,
-      capacity: container.capacity,
-      occupiedSlots: 0,
-      totalEntries: 0,
-      entries: unoccupiedSlotLines(container.capacity, []),
-    };
-  }
-
-  const flags = await readStateBytes(
-    rpc,
-    contractIndex,
-    field.off + geometry.flagsOffset,
-    geometry.flagsBytes,
-  );
-  const slots = occupiedBitSlots(flags, container.capacity);
-  if (slots.length !== population) {
-    throw new ContainerChangedError(
-      `${field.name} population changed while reading`,
-    );
-  }
-
-  const header = await readStateBytes(
-    rpc,
-    contractIndex,
-    field.off + geometry.headOffset,
-    16,
-  );
-  const head = sint64At(header, 0);
-  const tail = sint64At(header, 8);
-  const validSlot = (value: bigint) =>
-    value >= 0n && value < BigInt(container.capacity);
-  if (
-    !validSlot(head) ||
-    !validSlot(tail) ||
-    !slots.includes(Number(head)) ||
-    !slots.includes(Number(tail))
-  ) {
-    throw new ContainerChangedError(
-      `${field.name} has an invalid head or tail`,
-    );
-  }
-
-  const nodes = new Map<number, LinkedListNode>();
-  for (const range of consecutiveRanges(slots)) {
-    const nodeCount = range.end - range.start + 1;
-    const rangeOffset = range.start * geometry.nodeStride;
-    const rangeLength = nodeCount * geometry.nodeStride;
-    assertContainerRange(field, rangeOffset, rangeLength);
-    const bytes = await readStateBytes(
-      rpc,
-      contractIndex,
-      field.off + rangeOffset,
-      rangeLength,
-    );
-
-    for (let index = 0; index < nodeCount; index++) {
-      const slot = range.start + index;
-      const nodeOffset = index * geometry.nodeStride;
-      nodes.set(slot, {
-        slot,
-        value: await decodeOutput(
-          bytes.slice(nodeOffset, nodeOffset + container.value.size),
-          container.value,
-        ),
-        next: sint64At(bytes, nodeOffset + geometry.nextOffset),
-        previous: sint64At(bytes, nodeOffset + geometry.prevOffset),
-      });
-    }
-  }
-
-  const ordered: LinkedListNode[] = [];
-  const seen = new Set<number>();
-  let current = head;
-  let previous = -1n;
-
-  for (let itemIndex = 0; itemIndex < population; itemIndex++) {
-    if (!validSlot(current)) {
-      throw new ContainerChangedError(
-        `${field.name} has an invalid next index ${current}`,
-      );
-    }
-    const slot = Number(current);
-    const node = nodes.get(slot);
-    if (!node || seen.has(slot)) {
-      throw new ContainerChangedError(
-        `${field.name} contains an unoccupied, repeated, or cyclic slot ${slot}`,
-      );
-    }
-    if (node.previous !== previous) {
-      throw new ContainerChangedError(
-        `${field.name} slot ${slot} has invalid previous index ${node.previous}`,
-      );
-    }
-    if (node.next < -1n || node.next >= BigInt(container.capacity)) {
-      throw new ContainerChangedError(
-        `${field.name} slot ${slot} has invalid next index ${node.next}`,
-      );
-    }
-
-    seen.add(slot);
-    ordered.push(node);
-    previous = current;
-    current = node.next;
-  }
-
-  if (
-    current !== -1n ||
-    previous !== tail ||
-    seen.size !== slots.length
-  ) {
-    throw new ContainerChangedError(
-      `${field.name} linked-list topology changed while reading`,
-    );
-  }
-
-  return {
-    name: field.name,
-    kind: container.kind,
-    capacity: container.capacity,
-    occupiedSlots: slots.length,
-    totalEntries: ordered.length,
-    entries: linkedListValueLines(
-      ordered.map((node) => ({ slot: node.slot, value: node.value })),
-      container.value,
-      container.capacity,
-      true,
-    ),
-  };
 }
 
 async function readCompleteStateContainers(
@@ -1178,19 +641,26 @@ async function readCompleteStateContainers(
     onProgress?.(field.name, 0, field.size);
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const decoded =
-          container.kind === "hashmap"
-            ? await readCompleteHashMap(rpc, contractIndex, field, container)
-            : container.kind === "hashset"
-              ? await readCompleteHashSet(rpc, contractIndex, field, container)
-              : container.kind === "collection"
-                ? await readCompleteCollection(rpc, contractIndex, field, container)
-                : await readCompleteLinkedList(rpc, contractIndex, field, container);
-        containers.push(decoded);
+        const formatted = await formatContainerView(
+          field,
+          stateByteSource(rpc, contractIndex, field),
+          true,
+        );
+        containers.push({
+          name: field.name,
+          kind: container.kind,
+          capacity: container.capacity,
+          occupiedSlots: formatted.occupiedSlots,
+          totalEntries: formatted.totalEntries,
+          entries: formatted.stateEntries,
+        });
         onProgress?.(field.name, field.size, field.size);
         break;
       } catch (error) {
-        if (error instanceof ContainerChangedError && attempt === 0) {
+        if (
+          error instanceof QpiContainerConsistencyError &&
+          attempt === 0
+        ) {
           continue;
         }
         containers.push({
@@ -1316,27 +786,19 @@ export interface DecodedState {
   complete: boolean;
 }
 
-async function readSparseArray(
-  rpc: StateReader,
-  contractIndex: number,
+async function readArrayView(
   field: StateField,
   type: Extract<AbiType, { kind: AbiTypeKind.ARRAY }>,
-  onProgress?: StateReadProgress,
+  source: QpiByteSource,
 ): Promise<string> {
   if (!type.count) {
     return "[]";
   }
-
-  const stride = Math.max(1, roundUp(type.element.size, type.element.align));
-  if (
-    !Number.isSafeInteger(stride) ||
-    !Number.isSafeInteger(stride * type.count) ||
-    stride * type.count > field.size
-  ) {
-    throw new Error(`invalid ${field.name} array layout`);
+  const view = createQpiContainerView(type, source);
+  if (view.kind !== AbiTypeKind.ARRAY) {
+    throw new Error(`${field.name} is not an Array`);
   }
 
-  const elementsPerChunk = Math.max(1, Math.floor(MAX_STATE_READ / stride));
   const parts: string[] = [];
   let zeroStart: number | undefined;
 
@@ -1354,40 +816,15 @@ async function readSparseArray(
     zeroStart = undefined;
   };
 
-  for (let start = 0; start < type.count; start += elementsPerChunk) {
-    const count = Math.min(elementsPerChunk, type.count - start);
-    const length = count * stride;
-    const bytes = await readStateBytes(
-      rpc,
-      contractIndex,
-      field.off + start * stride,
-      length,
-    );
-
-    for (let localIndex = 0; localIndex < count; localIndex++) {
-      const index = start + localIndex;
-      const elementOffset = localIndex * stride;
-      const encoded = bytes.subarray(elementOffset, elementOffset + stride);
-      const zero = encoded.every((byte) => byte === 0);
-      if (zero) {
-        zeroStart ??= index;
-        continue;
-      }
-
-      flushZeros(index - 1);
-      const decoded = await decodeOutput(
-        encoded.slice(0, type.element.size),
-        type.element,
-      );
-      parts.push(
-        `[${index}]=${formatStateValue(decoded, type.element, true)}`,
-      );
+  for (const entry of await view.entries()) {
+    if (entry.isZeroBytes) {
+      zeroStart ??= entry.index;
+      continue;
     }
 
-    onProgress?.(
-      field.name,
-      Math.min((start + count) * stride, field.size),
-      field.size,
+    flushZeros(entry.index - 1);
+    parts.push(
+      `[${entry.index}]=${formatStateValue(entry.value, type.element, true)}`,
     );
   }
 
@@ -1395,25 +832,21 @@ async function readSparseArray(
   return parts.join(", ");
 }
 
-async function readSparseBitArray(
-  rpc: StateReader,
-  contractIndex: number,
+async function readBitArrayView(
   field: StateField,
   type: Extract<AbiType, { kind: AbiTypeKind.BIT_ARRAY }>,
-  onProgress?: StateReadProgress,
+  source: QpiByteSource,
 ): Promise<string> {
-  if (type.size !== field.size) {
-    throw new Error(`invalid ${field.name} BitArray layout`);
+  const view = createQpiContainerView(type, source);
+  if (view.kind !== AbiTypeKind.BIT_ARRAY) {
+    throw new Error(`${field.name} is not a BitArray`);
   }
-  const bytes = await readStateBytes(
-    rpc,
-    contractIndex,
-    field.off,
-    type.size,
-    (completedBytes) =>
-      onProgress?.(field.name, completedBytes, field.size),
+  const entries = await view.entries();
+  return formatBits(
+    type.bitCount,
+    (index) => entries[index]?.value ?? 0,
+    true,
   );
-  return formatBits(type.bitCount, (index) => bitAt(bytes, index), true);
 }
 
 export async function readState(
@@ -1445,15 +878,20 @@ export async function readState(
 
     try {
       onProgress?.(field.name, 0, field.size);
+      const byteSource = stateByteSource(
+        rpc,
+        contractIndex,
+        field,
+        (completedBytes) =>
+          onProgress?.(field.name, completedBytes, field.size),
+      );
       if (field.abi?.kind === AbiTypeKind.BIT_ARRAY) {
         decodedFields.push({
           name: field.name,
-          value: await readSparseBitArray(
-            rpc,
-            contractIndex,
+          value: await readBitArrayView(
             field,
             field.abi,
-            onProgress,
+            byteSource,
           ),
         });
         continue;
@@ -1461,26 +899,17 @@ export async function readState(
       if (field.abi?.kind === AbiTypeKind.ARRAY) {
         decodedFields.push({
           name: field.name,
-          value: await readSparseArray(
-            rpc,
-            contractIndex,
+          value: await readArrayView(
             field,
             field.abi,
-            onProgress,
+            byteSource,
           ),
         });
         continue;
       }
 
       const decoded = await decodeOutput(
-        await readStateBytes(
-          rpc,
-          contractIndex,
-          field.off,
-          field.size,
-          (completedBytes) =>
-            onProgress?.(field.name, completedBytes, field.size),
-        ),
+        await readAllBytes(byteSource),
         field.abi ?? field.type,
       );
       decodedFields.push({

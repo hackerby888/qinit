@@ -46,6 +46,7 @@ export {
 } from "./call";
 export type { TypedContractInput } from "./call";
 export * from "./qpi-layout"; // QPI container layout: single source of truth (idl.ts + decoders share it)
+export * from "./qpi-container-view";
 export {
   QUBIC_LOG_TYPE,
   LOG_SEVERITY,
