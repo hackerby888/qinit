@@ -1,7 +1,7 @@
-// Replaces core's sign-sync-esm in the generated SDK: dapps sign through buildSignedTx (pure TS), so the
-// Emscripten FourQ it loads is dead weight that would drag node builtins into a bundle that must have none.
+// Replaces ./sign-sync-esm in bundles that never sign (proto, compiler, the generated SDK): signing there
+// goes through buildSignedTx (pure TS), so the Emscripten FourQ would be dead weight with node-only glue.
 export async function initK12(): Promise<void> {}
 
 export function signSync(): Uint8Array {
-  throw new Error("signSync is not available in the generated SDK — use buildSignedTx");
+  throw new Error("signSync is not bundled here — use buildSignedTx");
 }

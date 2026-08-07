@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const coreBrowser = resolve(import.meta.dir, "../core/src/browser.ts");
+const signSyncStub = resolve(import.meta.dir, "../core/src/crypto/sign-sync-stub.ts");
 
 // The browser entry embeds the generated QPI header snapshot — refuse to build without it rather
 // than let the bundler fail on an unresolvable import.
@@ -17,6 +18,8 @@ const aliasCoreBrowser = {
   name: "alias-qinit-core-browser",
   setup(build) {
     build.onResolve({ filter: /^@qinit\/core$/ }, () => ({ path: coreBrowser }));
+    // The compiler never signs — stub the signer so no Emscripten glue lands in the browser bundle.
+    build.onResolve({ filter: /sign-sync-esm$/ }, () => ({ path: signSyncStub }));
   },
 };
 
