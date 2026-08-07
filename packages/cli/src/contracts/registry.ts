@@ -86,6 +86,26 @@ export function systemAsDyn(
   };
 }
 
+// A deployed system contract sits in both the node's dyn registry and the catalog under one slot, and the
+// node holds no .h for it. Merge on index so each slot appears once, taking source from the catalog.
+export function mergeContracts(sets: ContractSets): {
+  all: DynamicContractRegistryEntry[];
+  userCount: number;
+} {
+  const catalog = new Map(sets.system.map((contract) => [contract.index, contract]));
+  const user = sets.user.map((contract) =>
+    contract.source
+      ? contract
+      : { ...contract, source: catalog.get(contract.index)?.source },
+  );
+  const deployed = new Set(user.map((contract) => contract.index));
+  const system = sets.system
+    .filter((contract) => !deployed.has(contract.index))
+    .map(systemAsDyn);
+
+  return { all: [...user, ...system], userCount: user.length };
+}
+
 export type ResolvedContract = {
   index: number;
   name: string;
@@ -107,11 +127,14 @@ export function resolveContract(
   );
 
   if (userContract) {
+    const catalogEntry = sets.system.find(
+      (contract) => contract.index === userContract.index,
+    );
     return {
       index: userContract.index,
       name: userContract.name || String(userContract.index),
       kind: "user",
-      source: userContract.source,
+      source: userContract.source || catalogEntry?.source,
       ...(userContract.codeHash ? { codeHash: userContract.codeHash } : {}),
     };
   }

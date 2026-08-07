@@ -67,6 +67,13 @@ export function System({ commandArgs }: { commandArgs: CommandArguments }) {
                   );
                   continue;
                 }
+                // Matches `qinit deploy`: without it the node has no .h and `qinit state` cannot decode.
+                try {
+                  await rpc.putContractSource(w.index, c.source);
+                } catch {
+                  // Source metadata is optional for a successful deployment.
+                }
+
                 selected.add(c.name);
                 add(`${c.name} @ ${w.index} deployed`, true);
               } else {

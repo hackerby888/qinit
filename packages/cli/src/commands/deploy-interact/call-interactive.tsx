@@ -19,7 +19,7 @@ import {
 } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader, resolveSeed } from "../../config";
-import { loadContracts, systemAsDyn } from "../../contracts/registry";
+import { loadContracts, mergeContracts } from "../../contracts/registry";
 import {
   contractIdlForSlot,
   emptyContractIdlFile,
@@ -205,8 +205,9 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
     (async () => {
       try {
         setIdlFile(loadContractIdlFile());
-        const { user, system } = await loadContracts(new LiteRpc(rpcBaseUrl));
-        const combined = [...user, ...system.map(systemAsDyn)];
+        const { all: combined, userCount: deployed } = mergeContracts(
+          await loadContracts(new LiteRpc(rpcBaseUrl)),
+        );
 
         if (!combined.length) {
           addResult(
@@ -217,7 +218,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
         }
 
         setContracts(combined);
-        setUserCount(user.length);
+        setUserCount(deployed);
         setStage("contract");
       } catch (error: any) {
         addResult("ERROR: " + String(error?.message ?? error));

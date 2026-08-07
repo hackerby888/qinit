@@ -8,7 +8,7 @@ import {
 import { readState, type DecodedState } from "../../trace/format";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
-import { loadContracts, systemAsDyn } from "../../contracts/registry";
+import { loadContracts, mergeContracts } from "../../contracts/registry";
 import { Header, Spinner, GradLine, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { readStateDigest, type StateDigestResult } from "../../contracts/state-digest";
@@ -73,8 +73,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
           setDigest(await readStateDigest(o.target, rpc));
           return;
         }
-        const { user, system } = await loadContracts(rpc); // deployed first, then system (catalog)
-        const all = [...user, ...system.map(systemAsDyn)];
+        const { all, userCount: deployed } = mergeContracts(await loadContracts(rpc));
         if (o.target) {
           const c = all.find(
             (x) =>
@@ -97,7 +96,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
             `specify a contract: qinit state <name|slot> (${all.map((c) => c.name || c.index).join(", ")})`,
           );
         setContracts(all);
-        setUserCount(user.length);
+        setUserCount(deployed);
         setPhase("pick");
       } catch (e: any) {
         if (o.digest) {
