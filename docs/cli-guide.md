@@ -97,7 +97,7 @@ packages/cli/src/
   commands/misc/              node-backend compiler theme cheat smoke version help backend-picker
   ops/                        deploy/{index,steps,upload} node node-core cache update serve
                               corpus-run typescript-build
-  contracts/                  registry templates idl-file callees state-digest system-wasm
+  contracts/                  registry templates idl-file idl-lookup callees state-digest system-wasm
   trace/                      format views
   ui/                         index (barrel) theme format hooks layout feedback data prompt
 ```
@@ -1246,7 +1246,28 @@ Case is the only thing separating an identity from a tx id.
 The shell budgets terminal rows itself — `rows - 1 - CHROME_ROWS -
 controlBarRows(...)` — so a hint line that wraps unexpectedly pushes the control
 bar off-screen. That is why `hintLines()` is unit-tested against several
-terminal widths in `tests/format/ui-format.test.ts`.
+terminal widths in `tests/format/ui-format.test.ts`. The control bar also lights
+the key of the section the stack is *rooted* in — `TAB_KEY` in `chrome.tsx` — with
+a gradient that sweeps on a `useFrame` tick, so drilling into a tick or a
+transaction still shows `1 overview` as the current tab.
+
+### 11.2 Naming and decoding a call
+
+Alongside the contract names it loads once, the shell loads every slot's IDL
+through [`contracts/idl-lookup.ts`](../packages/cli/src/contracts/idl-lookup.ts)
+— local `qinit.idl.json` first, then the system catalog's already-parsed IDL,
+then `extractIdl()` over whatever source the node holds. That map turns a bare
+`inputType` into a procedure name in both list views, and lets the transaction
+view decode the payload: `decodeTxInput()` pads or truncates the bytes to the
+registered input size exactly as the engine's dispatch frame does, then renders
+named fields plus the `--in` value grammar above the hex dump. Both are best
+effort — an unparsed slot or an input with no grammar (linked lists, overlapping
+structs) simply falls back to the raw number and the hex.
+
+Every decoded line is variable width, so `TxView` truncates each one to
+`sectionTableWidth(columns)` and subtracts the block's height from the hex
+budget. Without that the row arithmetic above breaks: QUTIL's `SendToManyV1`
+carries 25 identities and would otherwise wrap far past the frame.
 
 ## 12. Node lifecycle and simulator topology
 
@@ -1518,7 +1539,7 @@ Paths below are relative to `packages/cli/src/`.
 | `seed` | `commands/deploy-interact/seed.tsx` | config store, funded-seed RPC |
 | `ls` | `commands/deploy-interact/ls.tsx` | registry plus system catalog |
 | `state` | `commands/deploy-interact/state.tsx` | `trace/format.ts`, proto decoders |
-| `explorer` | `commands/deploy-interact/explorer/` | `LiteRpc` explorer read models |
+| `explorer` | `commands/deploy-interact/explorer/` | `LiteRpc` explorer read models, `contracts/idl-lookup.ts` |
 | `debug` | `commands/deploy-interact/debug.tsx` | `trace/format.ts`, backtrace helpers |
 | `test` | `commands/deploy-interact/test.tsx` | deploy, generated SDK, Bun tests |
 | `gtest` | `commands/deploy-interact/gtest.tsx` | `ops/corpus-run.ts`, engine |

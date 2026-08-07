@@ -3,7 +3,8 @@
 import type { ReactNode } from "react";
 import { Box, Text } from "ink";
 import { LiteRpc, contractIndexFromIdentity } from "@qinit/core";
-import { theme, truncMid } from "../../../ui";
+import { entryFor, type ContractIdls } from "../../../contracts/idl-lookup";
+import { Grad, theme, truncMid, useFrame } from "../../../ui";
 
 export type View =
   | { kind: "overview" }
@@ -47,6 +48,17 @@ export const contractLabel = (identity: string, names: Map<number, string>): str
     return null;
   }
   return `${names.get(index) ?? "contract"} #${index}`;
+};
+
+// A call's inputType, named when the slot's IDL is known. A plain transfer misses the lookup and keeps
+// its bare number, which is also what an unparsed contract falls back to.
+export const entryLabel = (
+  slot: number | null | undefined,
+  inputType: number,
+  idls: ContractIdls,
+): string => {
+  const entry = entryFor(slot, inputType, idls);
+  return entry ? `${inputType} ${entry.name}` : String(inputType);
 };
 
 // Rows the shell owns above the body: the header with its margin, plus the breadcrumb.
@@ -165,6 +177,21 @@ function keysFor(view: View, depth: number, searching: boolean): KeyHint[] {
 
 const HINT_SEPARATOR = "  ·  ";
 
+// The section a stack is rooted in. Drilling from the overview into a tick and then a transaction never
+// leaves the overview tab, so the lit key follows the root frame rather than the visible view.
+const TAB_KEY: Partial<Record<View["kind"], string>> = {
+  overview: "1",
+  tick: "1",
+  tx: "1",
+  contracts: "2",
+  contract: "2",
+  identity: "3",
+};
+
+// Frames per full sweep of the active tab's gradient, at the interval below.
+const SWEEP_FRAMES = 20;
+const SWEEP_MS = 120;
+
 // Wrap hints into lines that fit the terminal. Labels are never dropped — a row of bare glyphs is harder
 // to use than the bar this replaced. The shell asks for the line count so it can budget the rows.
 export function hintLines(keys: KeyHint[], columns: number): KeyHint[][] {
@@ -196,6 +223,7 @@ export const controlBarRows = (
 
 export function ControlBar({
   view,
+  rootView,
   depth,
   themeName,
   rpcBaseUrl,
@@ -203,6 +231,7 @@ export function ControlBar({
   searching,
 }: {
   view: View;
+  rootView: View;
   depth: number;
   themeName: string;
   rpcBaseUrl: string;
@@ -210,6 +239,9 @@ export function ControlBar({
   searching: boolean;
 }) {
   const lines = hintLines(keysFor(view, depth, searching), columns);
+  const frame = useFrame(SWEEP_MS);
+  // The prompt takes over the keyboard, so no tab is current while it is open.
+  const activeKey = searching ? undefined : TAB_KEY[rootView.kind];
 
   return (
     <Box flexDirection="column">
@@ -222,7 +254,12 @@ export function ControlBar({
               <Text bold color={theme.brand}>
                 {key}
               </Text>
-              <Text>{` ${label}`}</Text>
+              <Text>{" "}</Text>
+              {key === activeKey ? (
+                <Grad text={label} phase={(frame % SWEEP_FRAMES) / SWEEP_FRAMES} />
+              ) : (
+                <Text>{label}</Text>
+              )}
             </Text>
           ))}
         </Text>
@@ -240,6 +277,7 @@ export interface ViewProps {
   refreshToken: number;
   selected: number;
   contractNames: Map<number, string>;
+  contractIdls: ContractIdls;
   push: (view: View) => void;
   rowCount: { current: number };
   openRow: { current: (index: number) => void };

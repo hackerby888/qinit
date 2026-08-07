@@ -4,6 +4,7 @@ import type { ContractCall, ContractListEntry } from "@qinit/core";
 import { Grad, KV, SectionHeader, Spinner, Table, theme, type Column } from "../../../ui";
 import {
   SectionBody,
+  entryLabel,
   errText,
   fmtAmount,
   fmtTime,
@@ -133,7 +134,7 @@ const CALL_COLS: Column[] = [
   { header: "hash", max: 16 },
   { header: "caller", max: 22 },
   { header: "amount", align: "right", max: 16 },
-  { header: "in", align: "right", max: 4 },
+  { header: "in", max: 22 },
   { header: "timestamp", max: 20 },
 ];
 
@@ -141,6 +142,7 @@ export function ContractView({
   rpc,
   refreshToken,
   selected,
+  contractIdls,
   push,
   rowCount,
   openRow,
@@ -235,7 +237,7 @@ export function ContractView({
               call.hash,
               call.source,
               fmtAmount(call.amount),
-              String(call.inputType),
+              entryLabel(call.contractIndex, call.inputType, contractIdls),
               fmtTime(call.timestamp),
             ])}
             selected={selected - offset}
