@@ -1,19 +1,31 @@
-import { roundUp } from "@qinit/core";
-import { decodeOutput } from "../abi-fmt";
-import { AbiTypeKind, type AbiCollection } from "../contract-idl";
+import { decodeAbiValue } from "../abi-fmt";
+import {
+  AbiScalarKind,
+  AbiTypeKind,
+  type AbiCollection,
+  type AbiScalar,
+} from "../contract-idl";
 import { collectionGeometry } from "../qpi-layout";
 import {
-  assertPositivePowerOfTwo,
-  assertQpiSourceSize,
-  consecutiveRanges,
-  NULL_INDEX,
-  occupiedFlagSlots,
-  populationNumber,
+  QpiContainerConsistencyError,
+  QpiIncompleteReadError,
+} from "./errors";
+import {
+  readQpiBytes,
   readUint64,
   sint64At,
-} from "./common";
-import { QpiContainerConsistencyError } from "./errors";
-import { readQpiBytes, type QpiByteSource } from "./source";
+  uint64At,
+  type QpiByteSource,
+} from "./source";
+
+const NULL_INDEX = -1n;
+const POV_TYPE: AbiScalar = {
+  kind: AbiTypeKind.SCALAR,
+  scalar: AbiScalarKind.ID,
+  size: 32,
+  align: 8,
+  format: "id",
+};
 
 export interface QpiCollectionEntry {
   povSlot: number;
@@ -51,20 +63,19 @@ export class QpiCollectionView {
     private readonly source: QpiByteSource,
   ) {
     this.capacity = type.capacity;
-    assertPositivePowerOfTwo(type.capacity, "Collection capacity");
+    assertCapacity(type.capacity);
     this.geometry = collectionGeometry(type.value, type.capacity);
-    const align = Math.max(type.value.align, 8);
     if (
-      type.align !== align ||
-      roundUp(this.geometry.populationOffset + 16, align) !== type.size
+      type.align !== this.geometry.align ||
+      type.size !== this.geometry.size
     ) {
       throw new Error("Collection ABI layout has an invalid size or alignment");
     }
-    assertQpiSourceSize(source, type.size, "Collection");
+    assertSource(source, type.size);
   }
 
   async entries(): Promise<QpiCollectionEntry[]> {
-    const population = populationNumber(
+    const population = populationOf(
       await readUint64(this.source, this.geometry.populationOffset),
       this.capacity,
     );
@@ -77,7 +88,7 @@ export class QpiCollectionView {
       this.geometry.flagsOffset,
       this.geometry.flagsBytes,
     );
-    const povSlots = occupiedFlagSlots(flags, this.capacity);
+    const povSlots = occupiedSlots(flags, this.capacity);
     if (!povSlots.length || povSlots.length > population) {
       throw new QpiContainerConsistencyError(
         "Collection population does not match its active PoVs",
@@ -125,8 +136,11 @@ export class QpiCollectionView {
           elementIndex,
           pov: pov.value,
           priority: elements[elementIndex].priority,
-          value: await decodeOutput(
-            elementBytes.slice(offset, offset + this.type.value.size),
+          value: await decodeAbiValue(
+            elementBytes.slice(
+              offset + this.geometry.elementValueOffset,
+              offset + this.geometry.elementValueOffset + this.type.value.size,
+            ),
             this.type.value,
           ),
         });
@@ -146,7 +160,7 @@ export class QpiCollectionView {
     totalPopulation: number,
   ): Promise<CollectionPov[]> {
     const povs: CollectionPov[] = [];
-    for (const range of consecutiveRanges(slots)) {
+    for (const range of occupiedRanges(slots)) {
       const count = range.end - range.start + 1;
       const bytes = await readQpiBytes(
         this.source,
@@ -155,8 +169,8 @@ export class QpiCollectionView {
       );
       for (let index = 0; index < count; index++) {
         const offset = index * this.geometry.povStride;
-        const population = populationNumber(
-          uint64At(bytes, offset + 32),
+        const population = populationOf(
+          uint64At(bytes, offset + this.geometry.povPopulationOffset),
           totalPopulation,
         );
         if (!population) {
@@ -166,11 +180,17 @@ export class QpiCollectionView {
         }
         povs.push({
           slot: range.start + index,
-          value: await decodeOutput(bytes.slice(offset, offset + 32), "id"),
+          value: await decodeAbiValue(
+            bytes.slice(
+              offset + this.geometry.povValueOffset,
+              offset + this.geometry.povValueOffset + POV_TYPE.size,
+            ),
+            POV_TYPE,
+          ),
           population,
-          head: sint64At(bytes, offset + 40),
-          tail: sint64At(bytes, offset + 48),
-          root: sint64At(bytes, offset + 56),
+          head: sint64At(bytes, offset + this.geometry.povHeadOffset),
+          tail: sint64At(bytes, offset + this.geometry.povTailOffset),
+          root: sint64At(bytes, offset + this.geometry.povBstRootOffset),
         });
       }
     }
@@ -178,14 +198,13 @@ export class QpiCollectionView {
   }
 
   private elementAt(bytes: Uint8Array, index: number): CollectionElement {
-    const offset =
-      index * this.geometry.elementStride + this.geometry.priorityOffset;
+    const offset = index * this.geometry.elementStride;
     return {
-      priority: sint64At(bytes, offset),
-      povSlot: sint64At(bytes, offset + 8),
-      parent: sint64At(bytes, offset + 16),
-      left: sint64At(bytes, offset + 24),
-      right: sint64At(bytes, offset + 32),
+      priority: sint64At(bytes, offset + this.geometry.elementPriorityOffset),
+      povSlot: sint64At(bytes, offset + this.geometry.elementPovIndexOffset),
+      parent: sint64At(bytes, offset + this.geometry.elementBstParentOffset),
+      left: sint64At(bytes, offset + this.geometry.elementBstLeftOffset),
+      right: sint64At(bytes, offset + this.geometry.elementBstRightOffset),
     };
   }
 
@@ -254,15 +273,73 @@ export class QpiCollectionView {
   }
 }
 
-function uint64At(bytes: Uint8Array, offset: number): bigint {
-  if (offset < 0 || offset + 8 > bytes.length) {
-    throw new QpiContainerConsistencyError("uint64 exceeds container range");
+function assertCapacity(capacity: number): void {
+  if (!Number.isSafeInteger(capacity) || capacity <= 0) {
+    throw new Error("Collection capacity must be a positive power of two");
   }
-  return new DataView(
-    bytes.buffer,
-    bytes.byteOffset + offset,
-    8,
-  ).getBigUint64(0, true);
+  const integer = BigInt(capacity);
+  if ((integer & (integer - 1n)) !== 0n) {
+    throw new Error("Collection capacity must be a positive power of two");
+  }
+}
+
+function assertSource(source: QpiByteSource, size: number): void {
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error("Collection ABI has an invalid size");
+  }
+  if (!Number.isSafeInteger(source.byteLength) || source.byteLength < size) {
+    throw new QpiIncompleteReadError(
+      `Collection needs ${size} bytes, source has ${source.byteLength}`,
+    );
+  }
+  if (
+    !Number.isSafeInteger(source.maxReadLength) ||
+    source.maxReadLength <= 0
+  ) {
+    throw new Error("QPI byte source has an invalid maxReadLength");
+  }
+}
+
+function populationOf(population: bigint, capacity: number): number {
+  if (population > BigInt(capacity)) {
+    throw new QpiContainerConsistencyError(
+      `container population ${population} exceeds capacity ${capacity}`,
+    );
+  }
+  return Number(population);
+}
+
+function occupiedSlots(flags: Uint8Array, capacity: number): number[] {
+  const slots: number[] = [];
+  for (let slot = 0; slot < capacity; slot++) {
+    const wordOffset = Math.floor(slot / 32) * 8;
+    const flag = Number(
+      (uint64At(flags, wordOffset) >> BigInt((slot % 32) * 2)) & 3n,
+    );
+    if (flag === 1) {
+      slots.push(slot);
+    } else if (flag === 3) {
+      throw new QpiContainerConsistencyError(
+        `invalid occupation flag at slot ${slot}`,
+      );
+    }
+  }
+  return slots;
+}
+
+function occupiedRanges(
+  slots: number[],
+): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const slot of slots) {
+    const last = ranges[ranges.length - 1];
+    if (last && slot === last.end + 1) {
+      last.end = slot;
+    } else {
+      ranges.push({ start: slot, end: slot });
+    }
+  }
+  return ranges;
 }
 
 function elementIndex(value: bigint, population: number, label: string): number {

@@ -33,7 +33,7 @@ const RELAY = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData {};
-  struct Payload { Array<uint8, CONTRACT_INDEX> bytes; };
+  struct Payload { SlowAnySizeArray<uint8, CONTRACT_INDEX> bytes; };
   struct Read_input { Mirror::Payload value; };
   struct Read_output { uint64 value; };
   struct Read_locals {
@@ -53,7 +53,7 @@ const MIRROR = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData {};
-  struct Payload { Array<uint8, CONTRACT_INDEX> bytes; };
+  struct Payload { SlowAnySizeArray<uint8, CONTRACT_INDEX> bytes; };
   struct Read_input { Relay::Payload value; };
   struct Read_output { uint64 value; };
   struct Read_locals {

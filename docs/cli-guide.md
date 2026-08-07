@@ -973,9 +973,8 @@ source that reads exact relative ranges; trace decoding supplies a bounded byte
 snapshot. These views interpret QPI's stored layout. They do not execute C++ or
 reimplement the mutable QPI container API.
 
-The older `decodeHashMap()`, `decodeHashSet()`, `decodeCollection()`, and
-`decodeLinkedList()` helpers remain tolerant full-buffer compatibility APIs;
-state and trace rendering use the strict views.
+The strict views are the sole logical container decoder. They reject incomplete
+or internally inconsistent layouts instead of presenting them as empty state.
 
 ### Step 3: read and decode scalar fields
 

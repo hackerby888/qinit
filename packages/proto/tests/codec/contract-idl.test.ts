@@ -335,39 +335,53 @@ test("accepts nested empty structs and arrays with one-byte stride", () => {
   expect(parsed.state.fields[1].type.size).toBe(3);
 });
 
-test("accepts a zero-capacity container", () => {
-  const parsed = parseContractIdl({
-    ...idl,
-    state: {
-      kind: AbiTypeKind.STRUCT,
-      size: 16,
-      align: 8,
-      format: "wrong",
-      fields: [
-        {
+test("rejects non-power-of-two HashMap, HashSet, and Collection capacities", () => {
+  const scalar = {
+    kind: AbiTypeKind.SCALAR,
+    scalar: AbiScalarKind.UINT64,
+    size: 8,
+    align: 8,
+    format: "wrong",
+  } as const;
+  for (const type of [
+    {
+      kind: AbiTypeKind.HASH_MAP,
+      capacity: 0,
+      key: scalar,
+      value: scalar,
+    },
+    {
+      kind: AbiTypeKind.HASH_SET,
+      capacity: 3,
+      key: scalar,
+    },
+    {
+      kind: AbiTypeKind.COLLECTION,
+      capacity: 6,
+      value: scalar,
+    },
+  ]) {
+    expect(() => parseContractIdl({
+      ...idl,
+      state: {
+        kind: AbiTypeKind.STRUCT,
+        size: 8,
+        align: 8,
+        format: "wrong",
+        fields: [{
           name: "values",
           offset: 0,
-          size: 16,
+          size: 8,
           type: {
-            kind: AbiTypeKind.HASH_SET,
-            capacity: 0,
-            size: 16,
+            ...type,
+            size: 8,
             align: 8,
             format: "wrong",
-            key: {
-              kind: AbiTypeKind.SCALAR,
-              scalar: AbiScalarKind.UINT64,
-              size: 8,
-              align: 8,
-              format: "wrong",
-            },
           },
-        },
-      ],
-    },
-  });
-
-  expect(parsed.state.fields[0].type.format).toContain("[0;uint64]");
+        }],
+      },
+    })).toThrow(/capacity .* must be a positive power of two/);
+  }
 });
 
 test("accepts overlapping union views with explicit offsets", () => {

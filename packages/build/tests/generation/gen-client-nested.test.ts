@@ -16,7 +16,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   struct Holder { id who; uint64 amt; };
   struct Padded { uint64 a; uint8 b; };
   struct GetPt_input {}; struct GetPt_output { Pt p; };
-  struct ListPts_input {}; struct ListPts_output { Array<Pt, 3> pts; };
+  struct ListPts_input {}; struct ListPts_output { SlowAnySizeArray<Pt, 3> pts; };
   struct Echo_input { Pt to; uint64 speed; }; struct Echo_output { sint64 sum; };
   struct EchoHolder_input { Holder h; }; struct EchoHolder_output { uint64 ok; };
   struct EchoPad_input { Padded p; uint8 c; }; struct EchoPad_output { uint64 ok; };

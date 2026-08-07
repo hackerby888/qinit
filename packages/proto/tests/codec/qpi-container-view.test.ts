@@ -9,7 +9,10 @@ import {
   QpiHashMapView,
   QpiHashSetView,
   QpiLinkedListView,
+  arrayGeometry,
+  bitArrayGeometry,
   collectionGeometry,
+  decodeOutput,
   hashMapGeometry,
   hashSetGeometry,
   linkedListGeometry,
@@ -21,6 +24,7 @@ import {
   type AbiHashSet,
   type AbiLinkedList,
   type AbiScalar,
+  type AbiStruct,
   type QpiByteSource,
 } from "../../src";
 
@@ -68,39 +72,52 @@ function sourceOf(
   };
 }
 
-test("Array and BitArray views expose strict logical indexes", async () => {
+test("Array view preserves nested values and exposes strict indexes", async () => {
+  const element: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    fields: [{ name: "value", offset: 0, size: 1, type: uint8Type }],
+    size: 1,
+    align: 1,
+    format: "{ uint8 }",
+  };
+  const geometry = arrayGeometry(element, 2);
   const arrayType: AbiArray = {
     kind: AbiTypeKind.ARRAY,
-    element: uint8Type,
+    element,
     count: 2,
-    size: 2,
-    align: 1,
-    format: "[2;uint8]",
+    size: geometry.size,
+    align: geometry.align,
+    format: "[2;{ uint8 }]",
   };
   const arrayBytes = Uint8Array.of(0, 9);
   const array = new QpiArrayView(arrayType, qpiSnapshotSource(arrayBytes));
   expect(await array.entries()).toEqual([
-    { index: 0, value: 0, isZeroBytes: true },
-    { index: 1, value: 9, isZeroBytes: false },
+    { index: 0, value: [0], isZeroBytes: true },
+    { index: 1, value: [9], isZeroBytes: false },
   ]);
-  expect(await array.get(1)).toBe(9);
+  expect(await array.get(1)).toEqual([9]);
   await expect(array.get(2)).rejects.toBeInstanceOf(RangeError);
+});
 
+test("BitArray view ignores padding and rejects invalid indexes and capacity", async () => {
+  const geometry = bitArrayGeometry(2);
   const bitType: AbiBitArray = {
     kind: AbiTypeKind.BIT_ARRAY,
     bitCount: 2,
-    size: 8,
-    align: 8,
+    size: geometry.size,
+    align: geometry.align,
     format: "[1;uint64]",
   };
   const bitBytes = new Uint8Array(8);
   bitBytes[0] = 1;
   bitBytes[7] = 0x80;
-  const bits = new QpiBitArrayView(bitType, qpiSnapshotSource(bitBytes));
+  const tracked = sourceOf(bitBytes);
+  const bits = new QpiBitArrayView(bitType, tracked.source);
   const entries = await bits.entries();
   expect(entries).toHaveLength(2);
   expect(entries.filter((entry) => entry.value).map((entry) => entry.index))
     .toEqual([0]);
+  expect(tracked.reads).toEqual([[0, 1]]);
   expect(await bits.get(1)).toBe(0);
   await expect(bits.get(-1)).rejects.toBeInstanceOf(RangeError);
 
@@ -110,25 +127,25 @@ test("Array and BitArray views expose strict logical indexes", async () => {
   )).toThrow("positive power of two");
 });
 
-test("HashMap and HashSet views read only occupied record ranges", async () => {
-  const mapGeometry = hashMapGeometry(uint64Type, uint64Type, 8);
+test("HashMap view groups occupied ranges across flag words", async () => {
+  const mapGeometry = hashMapGeometry(uint64Type, uint64Type, 64);
   const mapType: AbiHashMap = {
     kind: AbiTypeKind.HASH_MAP,
     key: uint64Type,
     value: uint64Type,
-    capacity: 8,
-    size: mapGeometry.populationOffset + 16,
-    align: 8,
+    capacity: 64,
+    size: mapGeometry.size,
+    align: mapGeometry.align,
     format: "",
   };
   const mapBytes = new Uint8Array(mapType.size);
-  mapBytes[mapGeometry.flagsOffset] = (1 << 2) | (1 << 4);
-  mapBytes[mapGeometry.flagsOffset + 1] = 1 << 4;
+  mapBytes[mapGeometry.flagsOffset] = 2 | (1 << 2) | (1 << 4);
+  mapBytes[mapGeometry.flagsOffset + 8] = 1 << 2;
   setUint64(mapBytes, mapGeometry.populationOffset, 3);
   for (const [slot, key, value] of [
     [1, 11, 101],
     [2, 22, 202],
-    [6, 66, 606],
+    [33, 66, 606],
   ]) {
     setUint64(mapBytes, slot * mapGeometry.recordStride, key);
     setUint64(
@@ -142,34 +159,14 @@ test("HashMap and HashSet views read only occupied record ranges", async () => {
     .toEqual([
       { slot: 1, key: 11n, value: 101n },
       { slot: 2, key: 22n, value: 202n },
-      { slot: 6, key: 66n, value: 606n },
+      { slot: 33, key: 66n, value: 606n },
     ]);
   expect(mapSource.reads).toEqual([
     [mapGeometry.populationOffset, 8],
     [mapGeometry.flagsOffset, mapGeometry.flagsBytes],
     [mapGeometry.recordStride, mapGeometry.recordStride * 2],
-    [mapGeometry.recordStride * 6, mapGeometry.recordStride],
+    [mapGeometry.recordStride * 33, mapGeometry.recordStride],
   ]);
-
-  const setGeometry = hashSetGeometry(uint64Type, 4);
-  const setType: AbiHashSet = {
-    kind: AbiTypeKind.HASH_SET,
-    key: uint64Type,
-    capacity: 4,
-    size: setGeometry.populationOffset + 16,
-    align: 8,
-    format: "",
-  };
-  const setBytes = new Uint8Array(setType.size);
-  setUint64(setBytes, setGeometry.recordStride * 3, 33);
-  setBytes[setGeometry.flagsOffset] = 1 << 6;
-  setUint64(setBytes, setGeometry.populationOffset, 1);
-  expect(
-    await new QpiHashSetView(
-      setType,
-      qpiSnapshotSource(setBytes),
-    ).entries(),
-  ).toEqual([{ slot: 3, key: 33n }]);
 
   setUint64(mapBytes, mapGeometry.populationOffset, 2);
   await expect(
@@ -177,23 +174,54 @@ test("HashMap and HashSet views read only occupied record ranges", async () => {
   ).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
-test("Collection view validates and walks each PoV tree", async () => {
+test("HashSet view excludes marked-for-removal slots", async () => {
+  const setGeometry = hashSetGeometry(uint64Type, 4);
+  const setType: AbiHashSet = {
+    kind: AbiTypeKind.HASH_SET,
+    key: uint64Type,
+    capacity: 4,
+    size: setGeometry.size,
+    align: setGeometry.align,
+    format: "",
+  };
+  const setBytes = new Uint8Array(setType.size);
+  setUint64(setBytes, setGeometry.recordStride * 3, 33);
+  setBytes[setGeometry.flagsOffset] = (2 << 2) | (1 << 6);
+  setUint64(setBytes, setGeometry.populationOffset, 1);
+  expect(
+    await new QpiHashSetView(
+      setType,
+      qpiSnapshotSource(setBytes),
+    ).entries(),
+  ).toEqual([{ slot: 3, key: 33n }]);
+  expect(await decodeOutput(setBytes, setType))
+    .toEqual([{ slot: 3, key: 33n }]);
+});
+
+test("Collection view validates and walks each active PoV tree", async () => {
   const geometry = collectionGeometry(uint64Type, 4);
   const type: AbiCollection = {
     kind: AbiTypeKind.COLLECTION,
     value: uint64Type,
     capacity: 4,
-    size: geometry.populationOffset + 16,
-    align: 8,
+    size: geometry.size,
+    align: geometry.align,
     format: "",
   };
   const bytes = new Uint8Array(type.size);
-  bytes[geometry.flagsOffset] = 1;
-  setUint64(bytes, geometry.populationOffset, 3);
-  setUint64(bytes, 32, 3);
-  setInt64(bytes, 40, 1);
-  setInt64(bytes, 48, 2);
-  setInt64(bytes, 56, 0);
+  bytes[geometry.flagsOffset] = 1 | (1 << 4);
+  setUint64(bytes, geometry.populationOffset, 4);
+  setUint64(bytes, geometry.povPopulationOffset, 3);
+  setInt64(bytes, geometry.povHeadOffset, 1);
+  setInt64(bytes, geometry.povTailOffset, 2);
+  setInt64(bytes, geometry.povBstRootOffset, 0);
+
+  const secondPov = geometry.povStride * 2;
+  bytes[secondPov + geometry.povValueOffset] = 1;
+  setUint64(bytes, secondPov + geometry.povPopulationOffset, 1);
+  setInt64(bytes, secondPov + geometry.povHeadOffset, 3);
+  setInt64(bytes, secondPov + geometry.povTailOffset, 3);
+  setInt64(bytes, secondPov + geometry.povBstRootOffset, 3);
 
   const element = (
     index: number,
@@ -202,18 +230,20 @@ test("Collection view validates and walks each PoV tree", async () => {
     parent: number,
     left: number,
     right: number,
+    pov = 0,
   ) => {
     const offset = geometry.elementsOffset + index * geometry.elementStride;
-    setUint64(bytes, offset, value);
-    setInt64(bytes, offset + geometry.priorityOffset, priority);
-    setInt64(bytes, offset + geometry.priorityOffset + 8, 0);
-    setInt64(bytes, offset + geometry.priorityOffset + 16, parent);
-    setInt64(bytes, offset + geometry.priorityOffset + 24, left);
-    setInt64(bytes, offset + geometry.priorityOffset + 32, right);
+    setUint64(bytes, offset + geometry.elementValueOffset, value);
+    setInt64(bytes, offset + geometry.elementPriorityOffset, priority);
+    setInt64(bytes, offset + geometry.elementPovIndexOffset, pov);
+    setInt64(bytes, offset + geometry.elementBstParentOffset, parent);
+    setInt64(bytes, offset + geometry.elementBstLeftOffset, left);
+    setInt64(bytes, offset + geometry.elementBstRightOffset, right);
   };
   element(0, 50, 5, -1, 1, 2);
   element(1, 90, 9, 0, -1, -1);
   element(2, 20, 2, 0, -1, -1);
+  element(3, 70, 7, -1, -1, -1, 2);
 
   const entries = await new QpiCollectionView(
     type,
@@ -227,13 +257,16 @@ test("Collection view validates and walks each PoV tree", async () => {
     { elementIndex: 1, priority: 9n, value: 90n },
     { elementIndex: 0, priority: 5n, value: 50n },
     { elementIndex: 2, priority: 2n, value: 20n },
+    { elementIndex: 3, priority: 7n, value: 70n },
   ]);
-  expect(entries.every((entry) => entry.povSlot === 0)).toBe(true);
+  expect(entries.map((entry) => entry.povSlot)).toEqual([0, 0, 0, 2]);
+  expect(entries[0].pov).not.toBe(entries[3].pov);
+  expect(await decodeOutput(bytes, type)).toEqual(entries);
 
   setInt64(
     bytes,
     geometry.elementsOffset + geometry.elementStride +
-      geometry.priorityOffset + 16,
+      geometry.elementBstParentOffset,
     2,
   );
   await expect(
@@ -248,7 +281,7 @@ test("LinkedList view follows logical order and rejects broken links", async () 
     value: uint64Type,
     capacity: 8,
     size: geometry.size,
-    align: geometry.nodeAlign,
+    align: geometry.align,
     format: "",
   };
   const bytes = new Uint8Array(type.size);
@@ -284,28 +317,31 @@ test("LinkedList view follows logical order and rejects broken links", async () 
   ).rejects.toBeInstanceOf(QpiContainerConsistencyError);
 });
 
-test("snapshot sources copy bytes and empty containers read only population", async () => {
+test("HashMap view reads only population when empty", async () => {
   const geometry = hashMapGeometry(uint64Type, uint64Type, 4);
   const type: AbiHashMap = {
     kind: AbiTypeKind.HASH_MAP,
     key: uint64Type,
     value: uint64Type,
     capacity: 4,
-    size: geometry.populationOffset + 16,
-    align: 8,
+    size: geometry.size,
+    align: geometry.align,
     format: "",
   };
   const bytes = new Uint8Array(type.size);
   const tracked = sourceOf(bytes);
   expect(await new QpiHashMapView(type, tracked.source).entries()).toEqual([]);
   expect(tracked.reads).toEqual([[geometry.populationOffset, 8]]);
+});
 
+test("snapshot sources copy their bytes", async () => {
+  const geometry = arrayGeometry(uint8Type, 1);
   const singleType: AbiArray = {
     kind: AbiTypeKind.ARRAY,
     element: uint8Type,
     count: 1,
-    size: 1,
-    align: 1,
+    size: geometry.size,
+    align: geometry.align,
     format: "[1;uint8]",
   };
   const original = Uint8Array.of(7);

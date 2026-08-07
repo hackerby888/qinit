@@ -1,5 +1,5 @@
 import { AstKind } from "../enums";
-import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, ResolvedCalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, ContainerLayoutMetadata, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
+import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, ResolvedCalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
 import type { SemanticAnalyzer } from "../semantic-analyzer";
 import type { PlatformCapability } from "../shared/platform-capabilities";
@@ -387,46 +387,6 @@ export class ProgramAnalysis {
             methodArgumentCount,
             parameterTypeDiscriminator,
         );
-    }
-    // Read hash-container offsets from the parsed qpi.h layout.
-    hashContainerOffsets(name: string, callArguments: TypeSpec[], templateBindings: TemplateBindings, capacity: number): {
-        elemSize: number;
-        occBase: number;
-        popOff: number;
-        totalSize: number;
-    } | null {
-        return analysisPart8.hashContainerOffsets(this, name, callArguments, templateBindings, capacity);
-    }
-    // Compute HashMap offsets using standard C field layout.
-    hashmapInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): ContainerLayoutMetadata | null {
-        return analysisPart8.hashmapInfo(this, callArguments, templateBindings);
-    }
-    // HashSet<K,L>: keys-only — same probing/occupancy as HashMap with a zero-width value.
-    hashsetInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): ContainerLayoutMetadata | null {
-        return analysisPart8.hashsetInfo(this, callArguments, templateBindings);
-    }
-    arrayInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): ContainerLayoutMetadata | null {
-        return analysisPart8.arrayInfo(this, callArguments, templateBindings);
-    }
-    // Read Collection backing-store geometry from its parsed layout.
-    collectionInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): {
-        L: number;
-        elementsOff: number;
-        stride: number;
-        valueOff: number;
-        elemType: TypeSpec;
-    } | null {
-        return analysisPart8.collectionInfo(this, callArguments, templateBindings);
-    }
-    // Read LinkedList backing-store geometry from its parsed node layout.
-    linkedListInfo(callArguments: TypeSpec[], templateBindings: TemplateBindings = EMPTY_TEMPLATE_BINDINGS): {
-        L: number;
-        nodesOff: number;
-        stride: number;
-        valueOff: number;
-        elemType: TypeSpec;
-    } | null {
-        return analysisPart8.linkedListInfo(this, callArguments, templateBindings);
     }
     warn(message: string, at: number | Span): void {
         return analysisPart9.warn(this, message, at);

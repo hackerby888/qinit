@@ -1,4 +1,7 @@
-import { QpiIncompleteReadError } from "./errors";
+import {
+  QpiContainerConsistencyError,
+  QpiIncompleteReadError,
+} from "./errors";
 
 export interface QpiByteSource {
   readonly byteLength: number;
@@ -61,6 +64,47 @@ export async function readQpiBytes(
     completed += chunkLength;
   }
   return bytes;
+}
+
+export async function readUint64(
+  source: QpiByteSource,
+  offset: number,
+): Promise<bigint> {
+  return uint64At(await readQpiBytes(source, offset, 8), 0);
+}
+
+export function uint64At(bytes: Uint8Array, offset: number): bigint {
+  assertIntegerRange(bytes, offset, "uint64");
+  return new DataView(
+    bytes.buffer,
+    bytes.byteOffset + offset,
+    8,
+  ).getBigUint64(0, true);
+}
+
+export function sint64At(bytes: Uint8Array, offset: number): bigint {
+  assertIntegerRange(bytes, offset, "sint64");
+  return new DataView(
+    bytes.buffer,
+    bytes.byteOffset + offset,
+    8,
+  ).getBigInt64(0, true);
+}
+
+function assertIntegerRange(
+  bytes: Uint8Array,
+  offset: number,
+  label: string,
+): void {
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    offset + 8 > bytes.length
+  ) {
+    throw new QpiContainerConsistencyError(
+      `${label} exceeds container range`,
+    );
+  }
 }
 
 function byteArraySource(bytes: Uint8Array): QpiByteSource {

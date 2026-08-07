@@ -1,8 +1,12 @@
 import {
+  arrayGeometry,
+  bitArrayGeometry,
   bitWordCount,
+  collectionGeometry,
   collectionFmt,
-  flagWordCount,
+  hashMapGeometry,
   hashMapFmt,
+  hashSetGeometry,
   hashSetFmt,
   linkedListFmt,
   linkedListGeometry,
@@ -579,30 +583,29 @@ function validateAbiType(
     case AbiTypeKind.ARRAY:
       assertLayout(
         type,
-        arrayLayout(type.element, type.count, label),
+        arrayGeometry(type.element, type.count),
         label,
       );
       return;
     case AbiTypeKind.BIT_ARRAY:
       validatePositivePowerOfTwo(type.bitCount, `${label} bitCount`);
-      assertLayout(
-        type,
-        { size: bitWordCount(type.bitCount) * 8, align: 8 },
-        label,
-      );
+      assertLayout(type, bitArrayGeometry(type.bitCount), label);
       return;
     case AbiTypeKind.COLLECTION:
-      assertLayout(type, collectionLayout(type.value, type.capacity, label), label);
+      validatePositivePowerOfTwo(type.capacity, `${label} capacity`);
+      assertLayout(type, collectionGeometry(type.value, type.capacity), label);
       return;
     case AbiTypeKind.HASH_MAP:
+      validatePositivePowerOfTwo(type.capacity, `${label} capacity`);
       assertLayout(
         type,
-        hashMapLayout(type.key, type.value, type.capacity, label),
+        hashMapGeometry(type.key, type.value, type.capacity),
         label,
       );
       return;
     case AbiTypeKind.HASH_SET:
-      assertLayout(type, hashSetLayout(type.key, type.capacity, label), label);
+      validatePositivePowerOfTwo(type.capacity, `${label} capacity`);
+      assertLayout(type, hashSetGeometry(type.key, type.capacity), label);
       return;
     case AbiTypeKind.LINKED_LIST:
       validatePositivePowerOfTwo(type.capacity, `${label} capacity`);
@@ -657,119 +660,6 @@ function validateStruct(
   if (type.align !== expectedAlign) {
     throw new Error(`${label} align ${type.align} must be ${expectedAlign}`);
   }
-}
-
-function hashMapLayout(
-  key: AbiType,
-  value: AbiType,
-  capacity: number,
-  label: string,
-): { size: number; align: number } {
-  const element = structLayout([key, value], `${label} element`);
-  return structLayout(
-    [
-      arrayLayout(element, capacity, `${label} elements`),
-      flagLayout(capacity, label),
-      SCALAR_LAYOUT[AbiScalarKind.UINT64],
-      SCALAR_LAYOUT[AbiScalarKind.UINT64],
-    ],
-    label,
-  );
-}
-
-function hashSetLayout(
-  key: AbiType,
-  capacity: number,
-  label: string,
-): { size: number; align: number } {
-  return structLayout(
-    [
-      arrayLayout(key, capacity, `${label} elements`),
-      flagLayout(capacity, label),
-      SCALAR_LAYOUT[AbiScalarKind.UINT64],
-      SCALAR_LAYOUT[AbiScalarKind.UINT64],
-    ],
-    label,
-  );
-}
-
-function collectionLayout(
-  value: AbiType,
-  capacity: number,
-  label: string,
-): { size: number; align: number } {
-  const uint64 = SCALAR_LAYOUT[AbiScalarKind.UINT64];
-  const sint64 = SCALAR_LAYOUT[AbiScalarKind.SINT64];
-  const pov = structLayout(
-    [
-      SCALAR_LAYOUT[AbiScalarKind.ID],
-      uint64,
-      sint64,
-      sint64,
-      sint64,
-    ],
-    `${label} pov`,
-  );
-  const element = structLayout(
-    [value, sint64, sint64, sint64, sint64, sint64],
-    `${label} element`,
-  );
-  return structLayout(
-    [
-      arrayLayout(pov, capacity, `${label} povs`),
-      flagLayout(capacity, label),
-      arrayLayout(element, capacity, `${label} elements`),
-      uint64,
-      uint64,
-    ],
-    label,
-  );
-}
-
-function flagLayout(
-  capacity: number,
-  label: string,
-): { size: number; align: number } {
-  return arrayLayout(
-    SCALAR_LAYOUT[AbiScalarKind.UINT64],
-    flagWordCount(capacity),
-    `${label} flags`,
-  );
-}
-
-function arrayLayout(
-  element: { size: number; align: number },
-  count: number,
-  label: string,
-): { size: number; align: number } {
-  const size = roundUp(element.size, element.align) * count;
-  if (!Number.isSafeInteger(size)) {
-    throw new Error(`${label} size exceeds the safe integer range`);
-  }
-  return {
-    size,
-    align: element.align,
-  };
-}
-
-function structLayout(
-  fields: Array<{ size: number; align: number }>,
-  label: string,
-): { size: number; align: number } {
-  const align = fields.length
-    ? Math.max(...fields.map((field) => field.align))
-    : 1;
-  let size = 0;
-  for (const field of fields) {
-    size = roundUp(size, field.align) + field.size;
-    if (!Number.isSafeInteger(size)) {
-      throw new Error(`${label} size exceeds the safe integer range`);
-    }
-  }
-  return {
-    size: fields.length ? roundUp(size, align) : 0,
-    align,
-  };
 }
 
 function assertLayout(

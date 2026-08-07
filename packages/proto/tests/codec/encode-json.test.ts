@@ -237,6 +237,40 @@ test("typed codec accepts direct scalar and array roots", async () => {
   );
 });
 
+test("typed array preserves nested one-field structs", async () => {
+  const value: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    size: 2,
+    align: 2,
+    format: "{ uint16 }",
+    fields: [
+      {
+        name: "value",
+        offset: 0,
+        size: 2,
+        type: {
+          kind: AbiTypeKind.SCALAR,
+          scalar: AbiScalarKind.UINT16,
+          size: 2,
+          align: 2,
+          format: "uint16",
+        },
+      },
+    ],
+  };
+  const array: AbiType = {
+    kind: AbiTypeKind.ARRAY,
+    count: 2,
+    element: value,
+    size: 4,
+    align: 2,
+    format: "[2;{ uint16 }]",
+  };
+
+  const bytes = await encodeInputJson(array, [[7], [9]]);
+  expect(await decodeOutput(bytes, array)).toEqual([[7], [9]]);
+});
+
 test("typed codec encodes an empty struct as one zero byte", async () => {
   const schema: AbiStruct = {
     kind: AbiTypeKind.STRUCT,
@@ -386,14 +420,10 @@ test("typed container decode keeps nested field offsets", async () => {
   view.setUint8(8, 7);
   view.setBigUint64(24, 99n, true);
   view.setBigUint64(32, 1n, true);
-  view.setBigUint64(40, 2n, true);
-  view.setBigUint64(48, 3n, true);
+  view.setBigUint64(40, 1n, true);
 
   expect(await decodeOutput(bytes, map)).toEqual([
-    [[3, [7, 99n]]],
-    [1n],
-    2n,
-    3n,
+    { slot: 0, key: 3, value: [7, 99n] },
   ]);
 });
 

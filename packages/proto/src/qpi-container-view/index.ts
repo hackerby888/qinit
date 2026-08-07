@@ -1,12 +1,24 @@
-import { AbiTypeKind } from "../contract-idl";
+import { AbiTypeKind, type AbiType } from "../contract-idl";
 import { QpiArrayView } from "./array-view";
 import { QpiBitArrayView } from "./bit-array-view";
 import { QpiCollectionView } from "./collection-view";
-import type { AbiContainerType } from "./common";
 import { QpiHashMapView } from "./hash-map-view";
 import { QpiHashSetView } from "./hash-set-view";
 import { QpiLinkedListView } from "./linked-list-view";
 import type { QpiByteSource } from "./source";
+
+type AbiContainerType = Extract<
+  AbiType,
+  {
+    kind:
+      | AbiTypeKind.ARRAY
+      | AbiTypeKind.BIT_ARRAY
+      | AbiTypeKind.HASH_MAP
+      | AbiTypeKind.HASH_SET
+      | AbiTypeKind.COLLECTION
+      | AbiTypeKind.LINKED_LIST;
+  }
+>;
 
 export type QpiContainerView =
   | QpiArrayView

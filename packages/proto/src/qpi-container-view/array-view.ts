@@ -1,11 +1,8 @@
-import { roundUp } from "@qinit/core";
+import { decodeAbiValue } from "../abi-fmt";
 import { AbiTypeKind, type AbiArray } from "../contract-idl";
-import { assertQpiSourceSize, decodeSourceValue } from "./common";
-import {
-  qpiBorrowedSource,
-  readQpiBytes,
-  type QpiByteSource,
-} from "./source";
+import { arrayGeometry } from "../qpi-layout";
+import { QpiIncompleteReadError } from "./errors";
+import { readQpiBytes, type QpiByteSource } from "./source";
 
 export interface QpiArrayEntry {
   index: number;
@@ -24,24 +21,26 @@ export class QpiArrayView {
     private readonly source: QpiByteSource,
   ) {
     this.capacity = type.count;
-    this.stride = Math.max(
-      1,
-      roundUp(type.element.size, type.element.align),
-    );
+    assertCapacity(type.count);
+    const geometry = arrayGeometry(type.element, type.count);
+    this.stride = geometry.stride;
     if (
-      type.align !== type.element.align ||
-      this.stride * type.count !== type.size
+      type.align !== geometry.align ||
+      type.size !== geometry.size
     ) {
       throw new Error("Array ABI layout has an invalid size or alignment");
     }
-    assertQpiSourceSize(source, type.size, "Array");
+    assertSource(source, type.size);
   }
 
   async get(index: number): Promise<unknown> {
     this.assertIndex(index);
-    return await decodeSourceValue(
-      this.source,
-      index * this.stride,
+    return await decodeAbiValue(
+      await readQpiBytes(
+        this.source,
+        index * this.stride,
+        this.type.element.size,
+      ),
       this.type.element,
     );
   }
@@ -69,9 +68,8 @@ export class QpiArrayView {
         const encoded = bytes.subarray(offset, offset + this.stride);
         entries.push({
           index,
-          value: await decodeSourceValue(
-            qpiBorrowedSource(encoded),
-            0,
+          value: await decodeAbiValue(
+            encoded.slice(0, this.type.element.size),
             this.type.element,
           ),
           isZeroBytes: encoded.every((byte) => byte === 0),
@@ -91,5 +89,28 @@ export class QpiArrayView {
         `Array index ${index} is outside 0..${this.capacity - 1}`,
       );
     }
+  }
+}
+
+function assertCapacity(capacity: number): void {
+  if (!Number.isSafeInteger(capacity) || capacity < 0) {
+    throw new Error("Array capacity must be a non-negative integer");
+  }
+}
+
+function assertSource(source: QpiByteSource, size: number): void {
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error("Array ABI has an invalid size");
+  }
+  if (!Number.isSafeInteger(source.byteLength) || source.byteLength < size) {
+    throw new QpiIncompleteReadError(
+      `Array needs ${size} bytes, source has ${source.byteLength}`,
+    );
+  }
+  if (
+    !Number.isSafeInteger(source.maxReadLength) ||
+    source.maxReadLength <= 0
+  ) {
+    throw new Error("QPI byte source has an invalid maxReadLength");
   }
 }

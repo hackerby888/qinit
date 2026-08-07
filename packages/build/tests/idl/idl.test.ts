@@ -14,7 +14,7 @@ struct CONTRACT_STATE2_TYPE {};
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData {
     uint64 counter;
-    Array<uint32, 2 + 1> nums;
+    SlowAnySizeArray<uint32, 2 + 1> nums;
     HashMap<id, uint64, 1024> balances;
   };
   struct LogMsg {

@@ -147,7 +147,7 @@ test("readState: rejects a short field-scoped RPC read", async () => {
 });
 
 test("readState: reads a complete sparse array across the 256 KiB boundary", async () => {
-  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { Array<uint64, 32769> values; }; INITIALIZE() {} };`;
+  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { SlowAnySizeArray<uint64, 32769> values; }; INITIALIZE() {} };`;
   const bytes = new Uint8Array(32769 * 8);
   bytes.set(le(7, 8), 8);
   bytes.set(le(9, 8), 32768 * 8);
@@ -183,7 +183,7 @@ test("readState: reads a complete sparse array across the 256 KiB boundary", asy
 });
 
 test("readState: preserves an empty array as [] without an RPC read", async () => {
-  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { Array<uint64, 0> values; }; INITIALIZE() {} };`;
+  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { uint64 values[0]; }; INITIALIZE() {} };`;
   const calls: StateReadCall[] = [];
   const state = await readState(
     fakeRpc([], calls),
@@ -238,7 +238,7 @@ test("readState: BitArray ignores high padding bits", async () => {
     "SmallBits",
   );
 
-  expect(calls).toEqual([{ slot: 2, off: 0, len: 8 }]);
+  expect(calls).toEqual([{ slot: 2, off: 0, len: 1 }]);
   expect(state.fields).toEqual([
     { name: "bits", value: "[0]=1, [1]=1" },
   ]);
@@ -376,6 +376,28 @@ test("readState: BitArray values inside HashMap use logical bit ranges", async (
   expect(state.containers[0].entries).toEqual([
     "slots[0..1] (unoccupied ×2; skipped)",
     "slot[2] \"7\" = [0..62]=0 ×63 (skipped), [63]=1, [64..127]=0 ×64 (skipped)",
+    "slot[3] (unoccupied ×1; skipped)",
+  ]);
+});
+
+test("readState: one-field struct values inside HashMap keep their boundary", async () => {
+  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct Value { uint64 number; }; struct StateData { HashMap<uint64, Value, 4> values; }; INITIALIZE() {} };`;
+  const bytes = new Uint8Array(80);
+  bytes.set(le(7, 8), 32); // slot 2 key
+  bytes.set(le(9, 8), 40); // slot 2 value
+  bytes[64] = 1 << 4; // slot 2 occupied (two-bit flag)
+  bytes.set(le(1, 8), 72);
+
+  const state = await readState(
+    fakeRpc(bytes),
+    6,
+    source,
+    "MapStructs",
+  );
+
+  expect(state.containers[0].entries).toEqual([
+    "slots[0..1] (unoccupied ×2; skipped)",
+    "slot[2] \"7\" = [9]",
     "slot[3] (unoccupied ×1; skipped)",
   ]);
 });

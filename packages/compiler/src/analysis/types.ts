@@ -1,5 +1,4 @@
 import {
-    ContainerLayoutKind,
     WatNodeType,
     type WatValueType,
 } from "../enums";
@@ -109,18 +108,4 @@ export interface CompiledMethod {
     retKind: WatNodeType;
     retAgg?: number; // aggregate (id/struct) return size — ABI prepends a $ret dest-address param
     retType?: TypeSpec; // concrete return/referent type
-}
-
-export interface ContainerLayoutMetadata {
-    kind: ContainerLayoutKind;
-    L: number;
-    elemSize: number;
-    keySize?: number;
-    valOff?: number;
-    valSize?: number;
-    occBase?: number;
-    popOff?: number;
-    totalSize?: number;
-    hashMode?: number;
-    elemType?: TypeSpec;
 }

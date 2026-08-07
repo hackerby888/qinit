@@ -9,8 +9,9 @@ import {
   type AbiStruct,
   type AbiType,
 } from "./contract-idl";
-import { decodeLinkedList } from "./decode-container";
-import { bitAt, bitWordCount, flagWordCount } from "./qpi-layout";
+import { createQpiContainerView } from "./qpi-container-view";
+import { qpiBorrowedSource } from "./qpi-container-view/source";
+import { arrayGeometry, bitWordCount } from "./qpi-layout";
 
 const SCALAR_SIZE: Record<string, number> = {
   uint8: 1,
@@ -245,165 +246,51 @@ async function decodeAbiType(
           decodeAbiType(view, offset + field.offset, field.type),
         ),
       );
-    case AbiTypeKind.ARRAY: {
-      const stride = roundUp(type.element.size, type.element.align);
-      const values: any[] = [];
-      for (let index = 0; index < type.count; index++) {
-        values.push(
-          await decodeAbiType(view, offset + index * stride, type.element),
-        );
-      }
-      return values;
-    }
-    case AbiTypeKind.BIT_ARRAY: {
-      const bytes = new Uint8Array(
-        view.buffer,
-        view.byteOffset + offset,
-        type.size,
-      );
-      return Array.from(
-        { length: type.bitCount },
-        (_, index) => bitAt(bytes, index),
-      );
-    }
+    case AbiTypeKind.ARRAY:
+    case AbiTypeKind.BIT_ARRAY:
     case AbiTypeKind.HASH_MAP:
-      return await decodeAbiHashMap(view, offset, type);
     case AbiTypeKind.HASH_SET:
-      return await decodeAbiHashSet(view, offset, type);
     case AbiTypeKind.COLLECTION:
-      return await decodeAbiCollection(view, offset, type);
     case AbiTypeKind.LINKED_LIST:
-      return await decodeLinkedList(
-        new Uint8Array(
-          view.buffer,
-          view.byteOffset + offset,
-          type.size,
-        ),
-        type.value,
-        type.capacity,
-      );
+      return await decodeAbiContainer(view, offset, type);
   }
 }
 
-async function decodeAbiHashMap(
+async function decodeAbiContainer(
   view: DataView,
   offset: number,
-  type: Extract<AbiType, { kind: AbiTypeKind.HASH_MAP }>,
+  type: Extract<
+    AbiType,
+    {
+      kind:
+        | AbiTypeKind.ARRAY
+        | AbiTypeKind.BIT_ARRAY
+        | AbiTypeKind.HASH_MAP
+        | AbiTypeKind.HASH_SET
+        | AbiTypeKind.COLLECTION
+        | AbiTypeKind.LINKED_LIST;
+    }
+  >,
 ): Promise<any[]> {
-  const elementAlign = Math.max(type.key.align, type.value.align);
-  const valueOffset = roundUp(type.key.size, type.value.align);
-  const elementStride = roundUp(
-    valueOffset + type.value.size,
-    elementAlign,
+  const bytes = new Uint8Array(
+    view.buffer,
+    view.byteOffset + offset,
+    type.size,
   );
-  const elements: any[] = [];
-  for (let index = 0; index < type.capacity; index++) {
-    const elementOffset = offset + index * elementStride;
-    elements.push([
-      await decodeAbiType(view, elementOffset, type.key),
-      await decodeAbiType(view, elementOffset + valueOffset, type.value),
-    ]);
+  const container = createQpiContainerView(
+    type,
+    qpiBorrowedSource(bytes),
+  );
+  switch (container.kind) {
+    case AbiTypeKind.ARRAY:
+    case AbiTypeKind.BIT_ARRAY:
+      return (await container.entries()).map((entry) => entry.value);
+    case AbiTypeKind.HASH_MAP:
+    case AbiTypeKind.HASH_SET:
+    case AbiTypeKind.COLLECTION:
+    case AbiTypeKind.LINKED_LIST:
+      return await container.entries();
   }
-
-  const flagsOffset = roundUp(
-    offset + type.capacity * elementStride,
-    8,
-  );
-  const flags = decodeUint64Array(view, flagsOffset, flagWordCount(type.capacity));
-  const countersOffset = flagsOffset + flags.length * 8;
-  return [
-    elements,
-    flags,
-    view.getBigUint64(countersOffset, true),
-    view.getBigUint64(countersOffset + 8, true),
-  ];
-}
-
-async function decodeAbiHashSet(
-  view: DataView,
-  offset: number,
-  type: Extract<AbiType, { kind: AbiTypeKind.HASH_SET }>,
-): Promise<any[]> {
-  const keyStride = roundUp(type.key.size, type.key.align);
-  const keys: any[] = [];
-  for (let index = 0; index < type.capacity; index++) {
-    keys.push(
-      await decodeAbiType(view, offset + index * keyStride, type.key),
-    );
-  }
-
-  const flagsOffset = roundUp(offset + type.capacity * keyStride, 8);
-  const flags = decodeUint64Array(view, flagsOffset, flagWordCount(type.capacity));
-  const countersOffset = flagsOffset + flags.length * 8;
-  return [
-    keys,
-    flags,
-    view.getBigUint64(countersOffset, true),
-    view.getBigUint64(countersOffset + 8, true),
-  ];
-}
-
-async function decodeAbiCollection(
-  view: DataView,
-  offset: number,
-  type: Extract<AbiType, { kind: AbiTypeKind.COLLECTION }>,
-): Promise<any[]> {
-  const povStride = 64;
-  const povs: any[] = [];
-  for (let index = 0; index < type.capacity; index++) {
-    const povOffset = offset + index * povStride;
-    povs.push([
-      await decodeAbiScalar(view, povOffset, AbiScalarKind.ID),
-      view.getBigUint64(povOffset + 32, true),
-      view.getBigInt64(povOffset + 40, true),
-      view.getBigInt64(povOffset + 48, true),
-      view.getBigInt64(povOffset + 56, true),
-    ]);
-  }
-
-  const flagsOffset = offset + type.capacity * povStride;
-  const flags = decodeUint64Array(view, flagsOffset, flagWordCount(type.capacity));
-  const valueOffset = roundUp(
-    flagsOffset + flags.length * 8,
-    Math.max(type.value.align, 8),
-  );
-  const priorityOffset = roundUp(type.value.size, 8);
-  const elementStride = roundUp(
-    priorityOffset + 5 * 8,
-    Math.max(type.value.align, 8),
-  );
-  const elements: any[] = [];
-  for (let index = 0; index < type.capacity; index++) {
-    const elementOffset = valueOffset + index * elementStride;
-    elements.push([
-      await decodeAbiType(view, elementOffset, type.value),
-      view.getBigInt64(elementOffset + priorityOffset, true),
-      view.getBigInt64(elementOffset + priorityOffset + 8, true),
-      view.getBigInt64(elementOffset + priorityOffset + 16, true),
-      view.getBigInt64(elementOffset + priorityOffset + 24, true),
-      view.getBigInt64(elementOffset + priorityOffset + 32, true),
-    ]);
-  }
-
-  const countersOffset = valueOffset + type.capacity * elementStride;
-  return [
-    povs,
-    flags,
-    elements,
-    view.getBigUint64(countersOffset, true),
-    view.getBigUint64(countersOffset + 8, true),
-  ];
-}
-
-function decodeUint64Array(
-  view: DataView,
-  offset: number,
-  count: number,
-): bigint[] {
-  return Array.from(
-    { length: count },
-    (_, index) => view.getBigUint64(offset + index * 8, true),
-  );
 }
 
 async function decodeAbiScalar(
@@ -473,7 +360,7 @@ export async function decodeOutput(
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const decoded = typeof fmt === "string"
     ? (await decodeNode(view, 0, parseLayout(fmt)))[0]
-    : await decodeAbiType(view, 0, fmt);
+    : await decodeAbiValue(bytes, fmt);
   if (typeof fmt !== "string" && fmt.kind === AbiTypeKind.STRUCT) {
     if (fmt.fields.length === 0) {
       return [];
@@ -483,6 +370,17 @@ export async function decodeOutput(
     }
   }
   return decoded;
+}
+
+export async function decodeAbiValue(
+  bytes: Uint8Array,
+  type: AbiType,
+): Promise<any> {
+  return await decodeAbiType(
+    new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+    0,
+    type,
+  );
 }
 
 // ---------- input encode (value-driven, aligned, async for id) ----------
@@ -524,7 +422,7 @@ async function encodeAbiType(
           `array '${formatAbiType(type)}' expects ${type.count} elements, got ${value.length}`,
         );
       }
-      const stride = roundUp(type.element.size, type.element.align);
+      const { stride } = arrayGeometry(type.element, type.count);
       for (let index = 0; index < type.count; index++) {
         await encodeAbiType(
           view,

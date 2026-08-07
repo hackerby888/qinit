@@ -23,18 +23,6 @@ export {
   structFieldOffsets,
   layoutOf,
 } from "./abi-fmt";
-export {
-  decodeHashMap,
-  decodeHashSet,
-  decodeCollection,
-  decodeLinkedList,
-} from "./decode-container";
-export type {
-  MapEntry,
-  SetEntry,
-  CollEntry,
-  LinkedListEntry,
-} from "./decode-container";
 export { decodeLog, loggedSizeOf } from "./decode-log";
 export type { DecodedLog } from "./decode-log";
 export type { TypeNode } from "./abi-fmt";

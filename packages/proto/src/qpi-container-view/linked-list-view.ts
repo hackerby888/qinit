@@ -1,17 +1,18 @@
-import { decodeOutput } from "../abi-fmt";
+import { decodeAbiValue } from "../abi-fmt";
 import { AbiTypeKind, type AbiLinkedList } from "../contract-idl";
-import { bitAt, linkedListGeometry } from "../qpi-layout";
+import { linkedListGeometry } from "../qpi-layout";
 import {
-  assertPositivePowerOfTwo,
-  assertQpiSourceSize,
-  consecutiveRanges,
-  NULL_INDEX,
-  populationNumber,
+  QpiContainerConsistencyError,
+  QpiIncompleteReadError,
+} from "./errors";
+import {
+  readQpiBytes,
   readUint64,
   sint64At,
-} from "./common";
-import { QpiContainerConsistencyError } from "./errors";
-import { readQpiBytes, type QpiByteSource } from "./source";
+  type QpiByteSource,
+} from "./source";
+
+const NULL_INDEX = -1n;
 
 export interface QpiLinkedListEntry {
   slot: number;
@@ -34,19 +35,19 @@ export class QpiLinkedListView {
     private readonly source: QpiByteSource,
   ) {
     this.capacity = type.capacity;
-    assertPositivePowerOfTwo(type.capacity, "LinkedList capacity");
+    assertCapacity(type.capacity);
     this.geometry = linkedListGeometry(type.value, type.capacity);
     if (
-      type.align !== this.geometry.nodeAlign ||
+      type.align !== this.geometry.align ||
       this.geometry.size !== type.size
     ) {
       throw new Error("LinkedList ABI layout has an invalid size or alignment");
     }
-    assertQpiSourceSize(source, type.size, "LinkedList");
+    assertSource(source, type.size);
   }
 
   async entries(): Promise<QpiLinkedListEntry[]> {
-    const population = populationNumber(
+    const population = populationOf(
       await readUint64(this.source, this.geometry.populationOffset),
       this.capacity,
     );
@@ -61,7 +62,7 @@ export class QpiLinkedListView {
     );
     const occupiedSlots: number[] = [];
     for (let slot = 0; slot < this.capacity; slot++) {
-      if (bitAt(flags, slot)) {
+      if (occupiedAt(flags, slot)) {
         occupiedSlots.push(slot);
       }
     }
@@ -134,7 +135,7 @@ export class QpiLinkedListView {
 
   private async readNodes(slots: number[]): Promise<Map<number, LinkedListNode>> {
     const nodes = new Map<number, LinkedListNode>();
-    for (const range of consecutiveRanges(slots)) {
+    for (const range of occupiedRanges(slots)) {
       const count = range.end - range.start + 1;
       const bytes = await readQpiBytes(
         this.source,
@@ -146,7 +147,7 @@ export class QpiLinkedListView {
         const offset = index * this.geometry.nodeStride;
         nodes.set(slot, {
           slot,
-          value: await decodeOutput(
+          value: await decodeAbiValue(
             bytes.slice(offset, offset + this.type.value.size),
             this.type.value,
           ),
@@ -173,6 +174,61 @@ export class QpiLinkedListView {
       );
     }
   }
+}
+
+function assertCapacity(capacity: number): void {
+  if (!Number.isSafeInteger(capacity) || capacity <= 0) {
+    throw new Error("LinkedList capacity must be a positive power of two");
+  }
+  const integer = BigInt(capacity);
+  if ((integer & (integer - 1n)) !== 0n) {
+    throw new Error("LinkedList capacity must be a positive power of two");
+  }
+}
+
+function assertSource(source: QpiByteSource, size: number): void {
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error("LinkedList ABI has an invalid size");
+  }
+  if (!Number.isSafeInteger(source.byteLength) || source.byteLength < size) {
+    throw new QpiIncompleteReadError(
+      `LinkedList needs ${size} bytes, source has ${source.byteLength}`,
+    );
+  }
+  if (
+    !Number.isSafeInteger(source.maxReadLength) ||
+    source.maxReadLength <= 0
+  ) {
+    throw new Error("QPI byte source has an invalid maxReadLength");
+  }
+}
+
+function populationOf(population: bigint, capacity: number): number {
+  if (population > BigInt(capacity)) {
+    throw new QpiContainerConsistencyError(
+      `container population ${population} exceeds capacity ${capacity}`,
+    );
+  }
+  return Number(population);
+}
+
+function occupiedAt(flags: Uint8Array, slot: number): boolean {
+  return ((flags[slot >> 3] >> (slot & 7)) & 1) !== 0;
+}
+
+function occupiedRanges(
+  slots: number[],
+): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const slot of slots) {
+    const last = ranges[ranges.length - 1];
+    if (last && slot === last.end + 1) {
+      last.end = slot;
+    } else {
+      ranges.push({ start: slot, end: slot });
+    }
+  }
+  return ranges;
 }
 
 function isSlot(value: bigint, capacity: number): boolean {

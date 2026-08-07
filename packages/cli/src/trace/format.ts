@@ -184,7 +184,7 @@ function formatStateValue(
   value: unknown,
   type: AbiType,
   full: boolean,
-  topLevel = true,
+  topLevel = false,
 ): string {
   switch (type.kind) {
     case AbiTypeKind.BIT_ARRAY: {
@@ -917,7 +917,7 @@ export async function readState(
         value:
           typeof decoded === "object" && decoded !== null
             ? field.abi
-              ? formatStateValue(decoded, field.abi, true)
+              ? formatStateValue(decoded, field.abi, true, true)
               : fmtVal(decoded, true)
             : String(decoded),
       });

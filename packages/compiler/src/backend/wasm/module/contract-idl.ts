@@ -185,16 +185,22 @@ class AbiTypeBuilder {
 
     if (type.kind === AstKind.ARRAY) {
       const count = this.programAnalysis.evalConst(type.size, bindings);
+      const dimensionType: TypeSpec = {
+        kind: AstKind.EXPR_VALUE,
+        expression: type.size,
+        span: type.span,
+      };
+      this.validateDimension(
+        "array length",
+        count,
+        dimensionType,
+        bindings,
+      );
       return this.array(
         type.element,
         count,
         sourceType,
         bindings,
-        {
-          kind: AstKind.EXPR_VALUE,
-          expression: type.size,
-          span: type.span,
-        },
       );
     }
 
@@ -313,12 +319,26 @@ class AbiTypeBuilder {
       const count = Number(
         this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings),
       );
+      if (name === "Array") {
+        this.validatePowerOfTwoDimension(
+          "Array length",
+          count,
+          type.callArguments[1],
+          bindings,
+        );
+      } else {
+        this.validatePositiveDimension(
+          "SlowAnySizeArray length",
+          count,
+          type.callArguments[1],
+          bindings,
+        );
+      }
       return this.array(
         type.callArguments[0],
         count,
         type,
         bindings,
-        type.callArguments[1],
       );
     }
 
@@ -363,9 +383,7 @@ class AbiTypeBuilder {
     count: number,
     sourceType: TypeSpec,
     bindings: TemplateBindings,
-    dimensionType: TypeSpec = sourceType,
   ): AbiArray {
-    this.validateDimension("array length", count, dimensionType, bindings);
     const element = this.type(elementType, bindings);
     return {
       kind: AbiTypeKind.ARRAY,
@@ -406,7 +424,7 @@ class AbiTypeBuilder {
     const capacity = Number(
       this.programAnalysis.valueOfTypeArg(type.callArguments[2], bindings),
     );
-    this.validateDimension(
+    this.validatePowerOfTwoDimension(
       "HashMap capacity",
       capacity,
       type.callArguments[2],
@@ -436,7 +454,7 @@ class AbiTypeBuilder {
     const capacity = Number(
       this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings),
     );
-    this.validateDimension(
+    this.validatePowerOfTwoDimension(
       "HashSet capacity",
       capacity,
       type.callArguments[1],
@@ -460,7 +478,7 @@ class AbiTypeBuilder {
     const capacity = Number(
       this.programAnalysis.valueOfTypeArg(type.callArguments[1], bindings),
     );
-    this.validateDimension(
+    this.validatePowerOfTwoDimension(
       "Collection capacity",
       capacity,
       type.callArguments[1],
@@ -583,6 +601,26 @@ class AbiTypeBuilder {
 
     this.programAnalysis.error(
       `${label} '${typeLabel(sourceType)}' must resolve to a positive power-of-two integer`,
+      sourceType.span ?? 0,
+    );
+  }
+
+  private validatePositiveDimension(
+    label: string,
+    value: number,
+    sourceType: TypeSpec,
+    bindings: TemplateBindings,
+  ): void {
+    if (
+      Number.isSafeInteger(value) &&
+      value > 0 &&
+      this.dimensionResolves(sourceType, bindings)
+    ) {
+      return;
+    }
+
+    this.programAnalysis.error(
+      `${label} '${typeLabel(sourceType)}' must resolve to a positive integer`,
       sourceType.span ?? 0,
     );
   }

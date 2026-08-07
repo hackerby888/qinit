@@ -30,7 +30,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     HashMap<id, uint64, 4> balances;
     HashSet<uint32, 8> flags;
     Collection<Payload, 2> events;
-    Array<uint16, 3> values;
+    SlowAnySizeArray<uint16, 3> values;
   };
 
   struct Read_input { Payload request; };
@@ -121,7 +121,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   typedef uint64 Scalar_input;
   using Scalar_output = sint64;
-  typedef Array<uint16, 3> Values_input;
+  typedef SlowAnySizeArray<uint16, 3> Values_input;
   using Values_output = Array<uint8, 4>;
   typedef Payload Record_input;
   using Record_output = Payload;
@@ -264,7 +264,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     Array<BitArray<128>, 2> nestedBits;
     LinkedList<PaddedValue, 8> history;
     Array<uint128, 2> wideValues;
-    Array<Array<uint16, 2>, 3> nestedValues;
+    SlowAnySizeArray<Array<uint16, 2>, 3> nestedValues;
     SlowAnySizeArray<uint16, 3> slowValues;
   };
 
@@ -682,7 +682,7 @@ struct FixedValues {
 };
 struct CONTRACT_STATE_TYPE : public ContractBase {
   struct StateData {
-    FixedValues<uint16, 3> fixed;
+    FixedValues<uint16, 4> fixed;
   };
 };`;
 
@@ -698,7 +698,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
       {
         type: {
           kind: AbiTypeKind.ARRAY,
-          count: 3,
+          count: 4,
         },
       },
     ],
@@ -747,17 +747,22 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 
   expect(
     result.diagnostics.some((diagnostic) => (
-      diagnostic.message.includes("array length")
+      diagnostic.message.includes("Array length")
     )),
   ).toBe(true);
   expect(result.idl).toBeUndefined();
 });
 
-test("rejects non-power-of-two BitArray and LinkedList dimensions", () => {
-  for (const [field, label] of [
-    ["BitArray<3> invalid;", "BitArray bit count"],
-    ["BitArray<2251799813685249> invalid;", "BitArray bit count"],
-    ["LinkedList<uint64, 3> invalid;", "LinkedList capacity"],
+test("rejects invalid QPI container dimensions", () => {
+  for (const [field, label, requirement] of [
+    ["Array<uint64, 3> invalid;", "Array length", "positive power-of-two"],
+    ["SlowAnySizeArray<uint64, 0> invalid;", "SlowAnySizeArray length", "positive integer"],
+    ["BitArray<3> invalid;", "BitArray bit count", "positive power-of-two"],
+    ["BitArray<2251799813685249> invalid;", "BitArray bit count", "positive power-of-two"],
+    ["HashMap<uint64, uint64, 3> invalid;", "HashMap capacity", "positive power-of-two"],
+    ["HashSet<uint64, 6> invalid;", "HashSet capacity", "positive power-of-two"],
+    ["Collection<uint64, 0> invalid;", "Collection capacity", "positive power-of-two"],
+    ["LinkedList<uint64, 3> invalid;", "LinkedList capacity", "positive power-of-two"],
   ]) {
     const result = analyzeContract({
       source: `
@@ -770,9 +775,28 @@ struct Contract : public ContractBase {
     expect(result.idl).toBeUndefined();
     expect(result.diagnostics.some((diagnostic) => (
       diagnostic.message.includes(label) &&
-      diagnostic.message.includes("positive power-of-two")
+      diagnostic.message.includes(requirement)
     ))).toBe(true);
   }
+});
+
+test("keeps raw C array dimension validation independent", () => {
+  const result = analyzeContract({
+    source: `
+using namespace QPI;
+struct Contract : public ContractBase {
+  struct StateData {
+    uint64 nonPowerOfTwo[3];
+    uint64 empty[0];
+  };
+};`,
+  });
+
+  expect(result.idl).toBeDefined();
+  expect(result.idl?.state.fields.map((field) => field.type)).toMatchObject([
+    { kind: AbiTypeKind.ARRAY, count: 3 },
+    { kind: AbiTypeKind.ARRAY, count: 0 },
+  ]);
 });
 
 test("compileContract rejects LinkedList throughout registered entry ABIs", async () => {
