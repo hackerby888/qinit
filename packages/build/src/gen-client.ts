@@ -1,6 +1,7 @@
 import {
   AbiScalarKind,
   AbiTypeKind,
+  abiTypeContainsKind,
   type AbiStruct,
   type AbiType,
   type ContractIdl,
@@ -40,6 +41,8 @@ function typescriptType(type: AbiType, input = false): string {
         .join("; ")} }`;
     case AbiTypeKind.ARRAY:
       return `${typescriptType(type.element, input)}[]`;
+    case AbiTypeKind.BIT_ARRAY:
+      return "number[]";
     default:
       return "Uint8Array";
   }
@@ -151,6 +154,17 @@ export function generateClient(
   index: number,
   options?: { runtimeImport?: string },
 ): string {
+  for (const entry of [...idl.functions, ...idl.procedures]) {
+    if (
+      abiTypeContainsKind(entry.input, AbiTypeKind.LINKED_LIST) ||
+      abiTypeContainsKind(entry.output, AbiTypeKind.LINKED_LIST)
+    ) {
+      throw new Error(
+        `LinkedList cannot be used in public contract entry '${entry.name}'`,
+      );
+    }
+  }
+
   const lines: string[] = [];
 
   lines.push(

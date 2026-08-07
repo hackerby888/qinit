@@ -23,8 +23,6 @@ export {
   structFieldOffsets,
   layoutOf,
 } from "./abi-fmt";
-export { decodeHashMap, decodeHashSet, decodeCollection } from "./decode-container";
-export type { MapEntry, SetEntry, CollEntry } from "./decode-container";
 export { decodeLog, loggedSizeOf } from "./decode-log";
 export type { DecodedLog } from "./decode-log";
 export type { TypeNode } from "./abi-fmt";
@@ -36,6 +34,7 @@ export {
 } from "./call";
 export type { TypedContractInput } from "./call";
 export * from "./qpi-layout"; // QPI container layout: single source of truth (idl.ts + decoders share it)
+export * from "./qpi-container-view";
 export {
   QUBIC_LOG_TYPE,
   LOG_SEVERITY,

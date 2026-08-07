@@ -109,7 +109,7 @@ the resulting contract metadata is:
 
 ```ts
 {
-  version: 3,
+  version: 4,
   name: "IdlEdge",
   slot: 27,
   state: {
@@ -145,6 +145,10 @@ the resulting contract metadata is:
   dependencies: []
 }
 ```
+
+IDL v4 identifies `BitArray` and `LinkedList` as first-class ABI types. Existing
+v3 artifacts are rejected deliberately; regenerate `qinit.idl.json` and typed
+clients with the current Qinit before using them.
 
 ## 1. Public compiler entrypoint
 

@@ -32,11 +32,11 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
 test("templated and plain constexpr helpers resolve consistently", () => {
   const source = `
 using namespace QPI;
-constexpr uint64 N = 12;
+constexpr uint64 N = 14;
 constexpr uint64 A = div<uint64>(N, 2);
 constexpr uint64 B = mod(N, 3);
 struct CONTRACT_STATE_TYPE : public ContractBase {
-  struct Measure_input { Array<uint8, A> a; Array<uint8, B> b; };
+  struct Measure_input { SlowAnySizeArray<uint8, A> a; SlowAnySizeArray<uint8, B> b; };
   struct Measure_output {};
   PUBLIC_PROCEDURE(Measure) {}
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
@@ -48,6 +48,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   if (input.kind !== AbiTypeKind.STRUCT) {
     throw new Error("Measure_input must be a struct");
   }
-  expect(input.format).toBe("[6;uint8], [0;uint8]");
-  expect(input.fields.map((field) => field.type.size)).toEqual([6, 0]);
+  expect(input.format).toBe("[7;uint8], [2;uint8]");
+  expect(input.fields.map((field) => field.type.size)).toEqual([7, 2]);
 });

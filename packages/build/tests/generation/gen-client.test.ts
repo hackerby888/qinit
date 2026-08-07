@@ -57,6 +57,13 @@ const uint16ArrayRoot: AbiType = {
     format: "uint16",
   },
 };
+const bitArrayRoot: AbiType = {
+  kind: AbiTypeKind.BIT_ARRAY,
+  bitCount: 128,
+  size: 16,
+  align: 8,
+  format: "[2;uint64]",
+};
 const rowArrayRoot: AbiType = {
   kind: AbiTypeKind.ARRAY,
   count: 2,
@@ -103,8 +110,17 @@ const directRootClient = generateClient(
       },
       {
         ...rootBase.functions[0],
-        name: "Empty",
+        name: "DirectBits",
         inputType: 12,
+        inSize: bitArrayRoot.size,
+        outSize: bitArrayRoot.size,
+        input: bitArrayRoot,
+        output: bitArrayRoot,
+      },
+      {
+        ...rootBase.functions[0],
+        name: "Empty",
+        inputType: 13,
         inSize: rootBase.functions[0].input.size,
         outSize: rootBase.procedures[0].output.size,
         input: rootBase.functions[0].input,
@@ -216,6 +232,13 @@ test("scalar and array roots use direct aliases, arguments, and results", () => 
     "return (r as unknown[]).map((element) => ((s) => ({ amount: s[0] as bigint }))(element as unknown[]));",
   );
 
+  expect(directRootClient).toContain("export type DirectBits_input = number[];");
+  expect(directRootClient).toContain("export type DirectBits_output = number[];");
+  expect(directRootClient).toContain(
+    "async DirectBits(args: DirectBits_input): Promise<DirectBits_output>",
+  );
+  expect(directRootClient).toContain("return r as number[];");
+
   expect(directRootClient).toContain("export interface Empty_input {}");
   expect(directRootClient).toContain("export interface Empty_output {}");
   expect(directRootClient).toContain("async Empty(): Promise<Empty_output>");
@@ -293,4 +316,32 @@ test("overlapping procedure input is exposed as raw bytes", () => {
 
   expect(unionClient).toContain("export type Put_input = Uint8Array;");
   expect(unionClient).toContain("async Put(args: Put_input, opts:");
+});
+
+test("rejects nested LinkedList in hand-authored public IDL", () => {
+  const base = extractIdl(SRC, "Demo");
+  const entry = base.functions[0];
+
+  expect(() => generateClient({
+    ...base,
+    functions: [{
+      ...entry,
+      inSize: 240,
+      input: {
+        kind: AbiTypeKind.ARRAY,
+        count: 1,
+        size: 240,
+        align: 8,
+        format: "wrong",
+        element: {
+          kind: AbiTypeKind.LINKED_LIST,
+          capacity: 8,
+          value: uint64Root,
+          size: 240,
+          align: 8,
+          format: "wrong",
+        },
+      },
+    }],
+  }, 28)).toThrow(/LinkedList cannot be used in public/);
 });

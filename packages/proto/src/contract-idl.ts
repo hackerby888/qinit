@@ -1,19 +1,28 @@
 import {
+  arrayGeometry,
+  bitArrayGeometry,
+  bitWordCount,
+  collectionGeometry,
   collectionFmt,
-  flagWordCount,
+  hashMapGeometry,
   hashMapFmt,
+  hashSetGeometry,
   hashSetFmt,
+  linkedListFmt,
+  linkedListGeometry,
 } from "./qpi-layout";
 
-export const QINIT_IDL_VERSION = 3 as const;
+export const QINIT_IDL_VERSION = 4 as const;
 
 export enum AbiTypeKind {
   SCALAR = "scalar",
   STRUCT = "struct",
   ARRAY = "array",
+  BIT_ARRAY = "bit_array",
   COLLECTION = "collection",
   HASH_MAP = "hash_map",
   HASH_SET = "hash_set",
+  LINKED_LIST = "linked_list",
 }
 
 export enum AbiScalarKind {
@@ -34,9 +43,11 @@ export enum AbiScalarKind {
 
 export enum AbiContainerKind {
   ARRAY = "array",
+  BIT_ARRAY = "bit_array",
   COLLECTION = "collection",
   HASH_MAP = "hash_map",
   HASH_SET = "hash_set",
+  LINKED_LIST = "linked_list",
 }
 
 interface AbiTypeBase {
@@ -62,6 +73,11 @@ export interface AbiArray extends AbiTypeBase {
   element: AbiType;
 }
 
+export interface AbiBitArray extends AbiTypeBase {
+  kind: AbiTypeKind.BIT_ARRAY;
+  bitCount: number;
+}
+
 export interface AbiCollection extends AbiTypeBase {
   kind: AbiTypeKind.COLLECTION;
   capacity: number;
@@ -81,13 +97,21 @@ export interface AbiHashSet extends AbiTypeBase {
   key: AbiType;
 }
 
+export interface AbiLinkedList extends AbiTypeBase {
+  kind: AbiTypeKind.LINKED_LIST;
+  capacity: number;
+  value: AbiType;
+}
+
 export type AbiType =
   | AbiScalar
   | AbiStruct
   | AbiArray
+  | AbiBitArray
   | AbiCollection
   | AbiHashMap
-  | AbiHashSet;
+  | AbiHashSet
+  | AbiLinkedList;
 
 export interface AbiField {
   name: string;
@@ -155,6 +179,8 @@ export function formatAbiType(type: AbiType): string {
     }
     case AbiTypeKind.ARRAY:
       return `[${type.count};${formatAbiType(type.element)}]`;
+    case AbiTypeKind.BIT_ARRAY:
+      return `[${bitWordCount(type.bitCount)};uint64]`;
     case AbiTypeKind.COLLECTION:
       return collectionFmt(formatAbiType(type.value), type.capacity);
     case AbiTypeKind.HASH_MAP:
@@ -165,6 +191,33 @@ export function formatAbiType(type: AbiType): string {
       );
     case AbiTypeKind.HASH_SET:
       return hashSetFmt(formatAbiType(type.key), type.capacity);
+    case AbiTypeKind.LINKED_LIST:
+      return linkedListFmt(formatAbiType(type.value), type.capacity);
+  }
+}
+
+export function abiTypeContainsKind(
+  type: AbiType,
+  kind: AbiTypeKind,
+): boolean {
+  if (type.kind === kind) {
+    return true;
+  }
+  switch (type.kind) {
+    case AbiTypeKind.STRUCT:
+      return type.fields.some((field) => abiTypeContainsKind(field.type, kind));
+    case AbiTypeKind.ARRAY:
+      return abiTypeContainsKind(type.element, kind);
+    case AbiTypeKind.COLLECTION:
+    case AbiTypeKind.LINKED_LIST:
+      return abiTypeContainsKind(type.value, kind);
+    case AbiTypeKind.HASH_MAP:
+      return abiTypeContainsKind(type.key, kind) ||
+        abiTypeContainsKind(type.value, kind);
+    case AbiTypeKind.HASH_SET:
+      return abiTypeContainsKind(type.key, kind);
+    default:
+      return false;
   }
 }
 
@@ -381,6 +434,13 @@ function abiType(
         ...common,
       };
       break;
+    case AbiTypeKind.BIT_ARRAY:
+      type = {
+        kind,
+        bitCount: uintValue(raw.bitCount, `${label} bitCount`),
+        ...common,
+      };
+      break;
     case AbiTypeKind.COLLECTION:
       type = {
         kind,
@@ -403,6 +463,14 @@ function abiType(
         kind,
         capacity: uintValue(raw.capacity, `${label} capacity`),
         key: abiType(raw.key, `${label} key`),
+        ...common,
+      };
+      break;
+    case AbiTypeKind.LINKED_LIST:
+      type = {
+        kind,
+        capacity: uintValue(raw.capacity, `${label} capacity`),
+        value: abiType(raw.value, `${label} value`),
         ...common,
       };
       break;
@@ -515,22 +583,33 @@ function validateAbiType(
     case AbiTypeKind.ARRAY:
       assertLayout(
         type,
-        arrayLayout(type.element, type.count, label),
+        arrayGeometry(type.element, type.count),
         label,
       );
       return;
+    case AbiTypeKind.BIT_ARRAY:
+      validatePositivePowerOfTwo(type.bitCount, `${label} bitCount`);
+      assertLayout(type, bitArrayGeometry(type.bitCount), label);
+      return;
     case AbiTypeKind.COLLECTION:
-      assertLayout(type, collectionLayout(type.value, type.capacity, label), label);
+      validatePositivePowerOfTwo(type.capacity, `${label} capacity`);
+      assertLayout(type, collectionGeometry(type.value, type.capacity), label);
       return;
     case AbiTypeKind.HASH_MAP:
+      validatePositivePowerOfTwo(type.capacity, `${label} capacity`);
       assertLayout(
         type,
-        hashMapLayout(type.key, type.value, type.capacity, label),
+        hashMapGeometry(type.key, type.value, type.capacity),
         label,
       );
       return;
     case AbiTypeKind.HASH_SET:
-      assertLayout(type, hashSetLayout(type.key, type.capacity, label), label);
+      validatePositivePowerOfTwo(type.capacity, `${label} capacity`);
+      assertLayout(type, hashSetGeometry(type.key, type.capacity), label);
+      return;
+    case AbiTypeKind.LINKED_LIST:
+      validatePositivePowerOfTwo(type.capacity, `${label} capacity`);
+      assertLayout(type, linkedListGeometry(type.value, type.capacity), label);
       return;
   }
 }
@@ -583,119 +662,6 @@ function validateStruct(
   }
 }
 
-function hashMapLayout(
-  key: AbiType,
-  value: AbiType,
-  capacity: number,
-  label: string,
-): { size: number; align: number } {
-  const element = structLayout([key, value], `${label} element`);
-  return structLayout(
-    [
-      arrayLayout(element, capacity, `${label} elements`),
-      flagLayout(capacity, label),
-      SCALAR_LAYOUT[AbiScalarKind.UINT64],
-      SCALAR_LAYOUT[AbiScalarKind.UINT64],
-    ],
-    label,
-  );
-}
-
-function hashSetLayout(
-  key: AbiType,
-  capacity: number,
-  label: string,
-): { size: number; align: number } {
-  return structLayout(
-    [
-      arrayLayout(key, capacity, `${label} elements`),
-      flagLayout(capacity, label),
-      SCALAR_LAYOUT[AbiScalarKind.UINT64],
-      SCALAR_LAYOUT[AbiScalarKind.UINT64],
-    ],
-    label,
-  );
-}
-
-function collectionLayout(
-  value: AbiType,
-  capacity: number,
-  label: string,
-): { size: number; align: number } {
-  const uint64 = SCALAR_LAYOUT[AbiScalarKind.UINT64];
-  const sint64 = SCALAR_LAYOUT[AbiScalarKind.SINT64];
-  const pov = structLayout(
-    [
-      SCALAR_LAYOUT[AbiScalarKind.ID],
-      uint64,
-      sint64,
-      sint64,
-      sint64,
-    ],
-    `${label} pov`,
-  );
-  const element = structLayout(
-    [value, sint64, sint64, sint64, sint64, sint64],
-    `${label} element`,
-  );
-  return structLayout(
-    [
-      arrayLayout(pov, capacity, `${label} povs`),
-      flagLayout(capacity, label),
-      arrayLayout(element, capacity, `${label} elements`),
-      uint64,
-      uint64,
-    ],
-    label,
-  );
-}
-
-function flagLayout(
-  capacity: number,
-  label: string,
-): { size: number; align: number } {
-  return arrayLayout(
-    SCALAR_LAYOUT[AbiScalarKind.UINT64],
-    flagWordCount(capacity),
-    `${label} flags`,
-  );
-}
-
-function arrayLayout(
-  element: { size: number; align: number },
-  count: number,
-  label: string,
-): { size: number; align: number } {
-  const size = roundUp(element.size, element.align) * count;
-  if (!Number.isSafeInteger(size)) {
-    throw new Error(`${label} size exceeds the safe integer range`);
-  }
-  return {
-    size,
-    align: element.align,
-  };
-}
-
-function structLayout(
-  fields: Array<{ size: number; align: number }>,
-  label: string,
-): { size: number; align: number } {
-  const align = fields.length
-    ? Math.max(...fields.map((field) => field.align))
-    : 1;
-  let size = 0;
-  for (const field of fields) {
-    size = roundUp(size, field.align) + field.size;
-    if (!Number.isSafeInteger(size)) {
-      throw new Error(`${label} size exceeds the safe integer range`);
-    }
-  }
-  return {
-    size: fields.length ? roundUp(size, align) : 0,
-    align,
-  };
-}
-
 function assertLayout(
   actual: { size: number; align: number },
   expected: { size: number; align: number },
@@ -709,10 +675,20 @@ function assertLayout(
   }
 }
 
+function validatePositivePowerOfTwo(value: number, label: string): void {
+  if (!isPowerOfTwo(value)) {
+    throw new Error(`${label} ${value} must be a positive power of two`);
+  }
+}
+
 function roundUp(value: number, align: number): number {
   return Math.ceil(value / align) * align;
 }
 
 function isPowerOfTwo(value: number): boolean {
-  return value > 0 && (value & (value - 1)) === 0;
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    return false;
+  }
+  const integer = BigInt(value);
+  return (integer & (integer - 1n)) === 0n;
 }

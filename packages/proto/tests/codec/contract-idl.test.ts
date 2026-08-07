@@ -63,7 +63,15 @@ const paddedStruct: ContractIdl["state"] = {
   ],
 };
 
-test("parses typed v3 contract and registry IDL", () => {
+const uint16 = {
+  kind: AbiTypeKind.SCALAR,
+  scalar: AbiScalarKind.UINT16,
+  size: 2,
+  align: 2,
+  format: "stale",
+} as const;
+
+test("parses typed v4 contract and registry IDL", () => {
   expect(parseContractIdl(idl)).toEqual(idl);
   expect(
     parseContractIdlFile({
@@ -156,6 +164,106 @@ test("normalizes formats from the authoritative type tree", () => {
   expect(formatAbiType(paddedStruct)).toBe("{ uint8, uint64 }");
 });
 
+test("parses first-class BitArray and LinkedList physical layouts", () => {
+  const parsed = parseContractIdl({
+    ...idl,
+    state: {
+      kind: AbiTypeKind.STRUCT,
+      size: 256,
+      align: 8,
+      format: "wrong",
+      fields: [
+        {
+          name: "bits",
+          offset: 0,
+          size: 16,
+          type: {
+            kind: AbiTypeKind.BIT_ARRAY,
+            bitCount: 128,
+            size: 16,
+            align: 8,
+            format: "wrong",
+          },
+        },
+        {
+          name: "items",
+          offset: 16,
+          size: 240,
+          type: {
+            kind: AbiTypeKind.LINKED_LIST,
+            capacity: 8,
+            value: uint16,
+            size: 240,
+            align: 8,
+            format: "wrong",
+          },
+        },
+      ],
+    },
+  });
+
+  const [bits, items] = parsed.state.fields.map((field) => field.type);
+  expect(bits).toMatchObject({
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 128,
+    size: 16,
+    align: 8,
+    format: "[2;uint64]",
+  });
+  expect(items).toMatchObject({
+    kind: AbiTypeKind.LINKED_LIST,
+    capacity: 8,
+    size: 240,
+    align: 8,
+  });
+  expect(items.format).toBe(
+    "{ [8;{ uint16, sint64, sint64 }], [1;uint64], sint64, sint64, sint64, uint64, uint64 }",
+  );
+});
+
+test("rejects invalid BitArray and LinkedList dimensions and layouts", () => {
+  const stateWith = (type: unknown) => ({
+    ...idl,
+    state: {
+      kind: AbiTypeKind.STRUCT,
+      size: 8,
+      align: 8,
+      format: "wrong",
+      fields: [{ name: "value", offset: 0, size: 8, type }],
+    },
+  });
+
+  expect(() => parseContractIdl(stateWith({
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 3,
+    size: 8,
+    align: 8,
+    format: "wrong",
+  }))).toThrow(/positive power of two/);
+  expect(() => parseContractIdl(stateWith({
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 2 ** 51 + 1,
+    size: 8,
+    align: 8,
+    format: "wrong",
+  }))).toThrow(/positive power of two/);
+  expect(() => parseContractIdl(stateWith({
+    kind: AbiTypeKind.LINKED_LIST,
+    capacity: 3,
+    value: uint16,
+    size: 8,
+    align: 8,
+    format: "wrong",
+  }))).toThrow(/positive power of two/);
+  expect(() => parseContractIdl(stateWith({
+    kind: AbiTypeKind.BIT_ARRAY,
+    bitCount: 128,
+    size: 8,
+    align: 8,
+    format: "wrong",
+  }))).toThrow(/size 8 must be 16/);
+});
+
 test("accepts a resolved zero-length array", () => {
   const parsed = parseContractIdl({
     ...idl,
@@ -227,39 +335,53 @@ test("accepts nested empty structs and arrays with one-byte stride", () => {
   expect(parsed.state.fields[1].type.size).toBe(3);
 });
 
-test("accepts a zero-capacity container", () => {
-  const parsed = parseContractIdl({
-    ...idl,
-    state: {
-      kind: AbiTypeKind.STRUCT,
-      size: 16,
-      align: 8,
-      format: "wrong",
-      fields: [
-        {
+test("rejects non-power-of-two HashMap, HashSet, and Collection capacities", () => {
+  const scalar = {
+    kind: AbiTypeKind.SCALAR,
+    scalar: AbiScalarKind.UINT64,
+    size: 8,
+    align: 8,
+    format: "wrong",
+  } as const;
+  for (const type of [
+    {
+      kind: AbiTypeKind.HASH_MAP,
+      capacity: 0,
+      key: scalar,
+      value: scalar,
+    },
+    {
+      kind: AbiTypeKind.HASH_SET,
+      capacity: 3,
+      key: scalar,
+    },
+    {
+      kind: AbiTypeKind.COLLECTION,
+      capacity: 6,
+      value: scalar,
+    },
+  ]) {
+    expect(() => parseContractIdl({
+      ...idl,
+      state: {
+        kind: AbiTypeKind.STRUCT,
+        size: 8,
+        align: 8,
+        format: "wrong",
+        fields: [{
           name: "values",
           offset: 0,
-          size: 16,
+          size: 8,
           type: {
-            kind: AbiTypeKind.HASH_SET,
-            capacity: 0,
-            size: 16,
+            ...type,
+            size: 8,
             align: 8,
             format: "wrong",
-            key: {
-              kind: AbiTypeKind.SCALAR,
-              scalar: AbiScalarKind.UINT64,
-              size: 8,
-              align: 8,
-              format: "wrong",
-            },
           },
-        },
-      ],
-    },
-  });
-
-  expect(parsed.state.fields[0].type.format).toContain("[0;uint64]");
+        }],
+      },
+    })).toThrow(/capacity .* must be a positive power of two/);
+  }
 });
 
 test("accepts overlapping union views with explicit offsets", () => {
@@ -355,13 +477,13 @@ test("accepts a log size that omits tail padding", () => {
   expect(parsed.logs[1].type.size).toBe(0);
 });
 
-test("rejects v2, zero-byte empty structs, and inconsistent entry sizes", () => {
+test("rejects v3, zero-byte empty structs, and inconsistent entry sizes", () => {
   expect(() =>
     parseContractIdl({
       ...idl,
-      version: 2,
+      version: 3,
     }),
-  ).toThrow(/version must be 3/);
+  ).toThrow(/version must be 4/);
   expect(() =>
     parseContractIdl({
       ...idl,

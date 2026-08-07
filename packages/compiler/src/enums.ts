@@ -280,11 +280,6 @@ export enum AnalysisPhase {
   SEMANTIC = "semantic",
 }
 
-export enum ContainerLayoutKind {
-  HASH_MAP = "HashMap",
-  ARRAY = "Array",
-}
-
 export enum ContainerEmissionMode {
   STATEMENT = "stmt",
   VALUE = "value",

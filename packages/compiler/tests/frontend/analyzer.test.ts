@@ -207,6 +207,58 @@ struct Contract : public ContractBase {
   ).toBe(true);
 });
 
+test("rejects direct and nested LinkedList inputs and outputs", () => {
+  const source = `
+using namespace QPI;
+struct Contract : public ContractBase {
+  struct Wrapped { LinkedList<uint16, 8> values; };
+  typedef LinkedList<uint64, 8> Read_input;
+  typedef Array<Wrapped, 2> Read_output;
+  typedef Wrapped Write_input;
+  using Write_output = LinkedList<uint16, 8>;
+  PUBLIC_FUNCTION(Read) {}
+  PUBLIC_PROCEDURE(Write) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Read, 1);
+    REGISTER_USER_PROCEDURE(Write, 2);
+  }
+};`;
+
+  const messages = analyzeContract({ source }).diagnostics
+    .map((item) => item.message)
+    .filter((message) => message.includes("LinkedList"));
+
+  for (const interfaceName of [
+    "Read_input",
+    "Read_output",
+    "Write_input",
+    "Write_output",
+  ]) {
+    expect(messages.some((message) => (
+      message.includes("LinkedList") && message.includes(interfaceName)
+    ))).toBe(true);
+  }
+});
+
+test("allows direct and nested BitArray public types", () => {
+  const source = `
+using namespace QPI;
+struct Contract : public ContractBase {
+  typedef BitArray<128> Read_input;
+  typedef Array<BitArray<64>, 2> Read_output;
+  PUBLIC_FUNCTION(Read) {}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Read, 1);
+  }
+};`;
+
+  expect(
+    analyzeContract({ source }).diagnostics.some(
+      (item) => item.code === "qpi/public-complex-type",
+    ),
+  ).toBe(false);
+});
+
 test("includes compiler semantic diagnostics without changing the QPI policy", () => {
   const source = procedure("const uint64 value = 1; value = 2;");
   const diagnostics = analyzeContract({ source }).diagnostics;
