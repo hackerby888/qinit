@@ -42,7 +42,7 @@ const region = (before: Uint8Array, after: Uint8Array, off: number, length: numb
   after: hex(after.slice(off, off + length)),
 });
 
-const rowsFor = async (
+const linesFor = async (
   write: (after: Uint8Array) => void,
   span: { off: number; length: number },
 ) => {
@@ -50,9 +50,14 @@ const rowsFor = async (
   const after = before.slice();
   write(after);
 
-  const lines = await stateDiffLines(FIELDS, [region(before, after, span.off, span.length)]);
-  return lines.map((line) => `${line.label} ${line.text}`);
+  return stateDiffLines(FIELDS, [region(before, after, span.off, span.length)]);
 };
+
+// The default view's form: the short label the reader sees, and its text.
+const rowsFor = async (
+  write: (after: Uint8Array) => void,
+  span: { off: number; length: number },
+) => (await linesFor(write, span)).map((line) => `${line.label} ${line.text}`);
 
 test("a scalar field decodes to its value", async () => {
   expect(await rowsFor((after) => writeLe(after, 0, 92, 8), { off: 0, length: 8 })).toEqual([
@@ -80,10 +85,11 @@ test("a struct element decodes whole, with its member names", async () => {
   ).toEqual(["points[2] 0 → {x: 508, y: 842}"]);
 });
 
-// A HashMap write touches the record, the occupation flags and the population counter.
+// A HashMap write touches the record, the occupation flags and the population counter. The record and the
+// entry total are the contract's own; the flags are bookkeeping the default view leaves out.
 test("HashMap internals resolve to slot, flags and population", async () => {
   const map = offsetOf("map");
-  const rows = await rowsFor(
+  const lines = await linesFor(
     (after) => {
       writeLe(after, map + 4 * 16, 11, 8); // slot 4 key
       writeLe(after, map + 4 * 16 + 8, 101, 8); // slot 4 value
@@ -93,17 +99,23 @@ test("HashMap internals resolve to slot, flags and population", async () => {
     { off: map, length: 152 },
   );
 
-  expect(rows).toEqual([
-    "map.slot[4].key 0 → 11",
-    "map.slot[4].value 0 → 101",
-    "map._occupationFlags[4] 0 → 1",
-    "map._population 0 → 1",
+  expect(lines).toEqual([
+    { label: "map.slot[4].key", detail: "map.slot[4].key", text: "0 → 11", filled: true, internal: false },
+    { label: "map.slot[4].value", detail: "map.slot[4].value", text: "0 → 101", filled: true, internal: false },
+    {
+      label: "map._occupationFlags[4]",
+      detail: "map._occupationFlags[4]",
+      text: "0 → 1",
+      filled: true,
+      internal: true,
+    },
+    { label: "map", detail: "map._population", text: "0 → 1 entries", filled: true, internal: false },
   ]);
 });
 
 test("LinkedList internals resolve to node members and list head", async () => {
   const list = offsetOf("list");
-  const rows = await rowsFor(
+  const lines = await linesFor(
     (after) => {
       writeLe(after, list + 1 * 24, 66, 8); // node 1 value
       writeLe(after, list + 1 * 24 + 8, -1, 8); // node 1 next
@@ -114,13 +126,28 @@ test("LinkedList internals resolve to node members and list head", async () => {
     { off: list, length: 240 },
   );
 
-  expect(rows).toEqual([
-    "list._nodes[1].value 0 → 66",
-    "list._nodes[1].next 0 → -1",
-    "list._occupationFlags[1] 0 → 1",
-    "list._head 0 → 1",
-    "list._population 0 → 1",
+  expect(lines.map((line) => [line.label, line.detail, line.text, line.internal])).toEqual([
+    ["list[1]", "list._nodes[1].value", "0 → 66", false],
+    ["list[1].next", "list._nodes[1].next", "0 → -1", true],
+    ["list._occupationFlags[1]", "list._occupationFlags[1]", "0 → 1", true],
+    ["list._head", "list._head", "0 → 1", true],
+    ["list", "list._population", "0 → 1 entries", false],
   ]);
+});
+
+// A call that only reshuffles a list's links still wrote state — the view must not read as "no change".
+test("a write that touches only bookkeeping resolves to internal rows", async () => {
+  const list = offsetOf("list");
+  const lines = await linesFor(
+    (after) => {
+      writeLe(after, list + 208, 3, 8); // tail
+      writeLe(after, list + 224, 4, 8); // nextUnused
+    },
+    { off: list + 200, length: 40 },
+  );
+
+  expect(lines.map((line) => line.detail)).toEqual(["list._tail", "list._nextUnused"]);
+  expect(lines.every((line) => line.internal)).toBe(true);
 });
 
 // Printing every bit of a BitArray twice to show one flip is exactly the noise this replaces.

@@ -43,6 +43,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
   const [enabled, setEnabled] = useState(false);
   const [err, setErr] = useState("");
   const [sel, setSel] = useState(0);
+  const [fullState, setFullState] = useState(false);
   const follow = useRef(true);
   const since = useRef(0);
   const reg = useRef<DynamicContractRegistryEntry[]>([]);
@@ -83,6 +84,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
       if (input === "q" || key.escape) {
         rpc.setDebug(false).catch(() => {});
         exit();
+      } else if (key.ctrl && input === "t") {
+        setFullState((on) => !on);
       } else if (key.upArrow) {
         follow.current = false;
         setSel((s) => Math.max(0, s - 1));
@@ -112,7 +115,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     <Box flexDirection="column">
       <Header cmd="debug" />
       <Text dimColor>
-        {enabled ? "● capturing" : "toggle off"} · {list.length} calls · ↑/↓ select · q quit
+        {enabled ? "● capturing" : "toggle off"} · {list.length} calls · ↑/↓ select · ctrl+t{" "}
+        {fullState ? "brief" : "full"} state · q quit
         {err ? "   err: " + err : ""}
       </Text>
       {list.length === 0 ? (
@@ -156,6 +160,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                 codeHash={reg.current.find((c) => c.index === cur.index)?.codeHash}
                 rpc={rpc}
                 qpiHeader={qpiHeader}
+                fullState={fullState}
               />
             ) : (
               <Text dimColor>—</Text>
@@ -174,6 +179,7 @@ function Detail({
   codeHash,
   rpc,
   qpiHeader,
+  fullState,
 }: {
   e: DebugEntry;
   name: string;
@@ -181,6 +187,7 @@ function Detail({
   codeHash?: string;
   rpc: LiteRpc;
   qpiHeader?: string;
+  fullState: boolean;
 }) {
   const [v, setV] = useState<DecodedTrace | null>(null);
   const [bt, setBt] = useState<string>("");
@@ -214,7 +221,11 @@ function Detail({
   }, [e.seq, codeHash]);
   return (
     <Box flexDirection="column">
-      {v ? <TraceView e={e} name={name} view={v} /> : <Text dimColor>decoding…</Text>}
+      {v ? (
+        <TraceView e={e} name={name} view={v} fullState={fullState} stateHint="ctrl+t" />
+      ) : (
+        <Text dimColor>decoding…</Text>
+      )}
       {bt ? (
         <Box marginTop={1} flexDirection="column">
           {bt.split("\n").map((l, i) => (

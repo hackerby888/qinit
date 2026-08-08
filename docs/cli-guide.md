@@ -886,8 +886,11 @@ setDebug(true)
   -> setDebug(false)
 ```
 
-The initial sequence is `-1`, not `0`, so the first entry in a newly enabled
-zero-based trace ring is not skipped.
+Entry sequences are 1-based on both backends and `since` is exclusive, so the poll
+starts at `0` and still sees the first entry of a freshly enabled ring.
+
+`--trace-full` implies `--trace` and prints the state block with its container
+internals, the same view `ctrl+t` toggles in `qinit debug` (section 11).
 
 Trap enrichment reads the active Qinit node's `node.log` and the matching local
 line-map artifact. This only works when Qinit knows the launched node's scratch
@@ -1169,6 +1172,22 @@ in [`qpi-layout.ts`](../packages/proto/src/qpi-layout.ts) — so a HashMap write
 byte offsets. Indexed collections always resolve per element; a struct is reported
 whole when the region covers all of it. Occupation flags and `BitArray` fields report
 the indices that flipped instead of the raw words.
+
+Resolving that deep also finds bookkeeping a contract author never wrote — free-list
+heads, BST links, per-PoV counters — so each row is classified and the default view
+keeps only two of the three classes:
+
+| Class | Rows | Default |
+|---|---|---|
+| payload | scalars, struct members, `Array`/`BitArray` elements, `slot[i].key`/`.value`, node and element values, a `Collection` element's `priority`, a PoV id | shown |
+| count | a container's `_population`, rendered as `trail  1 → 2 entries` | shown |
+| internal | occupation flags, `_head`/`_tail`/`_freeHead`/`_nextUnused`, `bst*`, `povIndex`, per-PoV counters, `_markRemovalCounter`, node `next`/`prev` | hidden |
+
+Each row therefore carries two labels: the shown one drops the internal path segments
+(`trail._nodes[1].value` reads as `trail[1]`), and the full path returns with the
+internal rows under `ctrl+t` in `qinit debug` or `--trace-full` on `qinit call`.
+Hidden rows are always counted in a tail line, so a call that touched only bookkeeping
+never reads as "no change". The 40-row cap applies to whichever set is displayed.
 
 Both node backends report changed bytes as 256-byte aligned windows rather than as
 minimal runs, because a small value written into zeroed state dirties too few bytes to

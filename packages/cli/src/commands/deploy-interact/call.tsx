@@ -101,7 +101,8 @@ function CallOneShot({
   const inputFormat = commandArgs.get("in");
   const outputFormat = commandArgs.get("out");
   const showAll = commandArgs.has("all");
-  const wantTrace = commandArgs.has("trace");
+  const fullTrace = commandArgs.has("trace-full");
+  const wantTrace = commandArgs.has("trace") || fullTrace;
   const settle = !commandArgs.has("no-settle");
   const seed = commandArgs.get("seed");
   const amount = commandArgs.get("amount");
@@ -372,7 +373,13 @@ function CallOneShot({
       )}
       {trace && (
         <Box marginTop={1}>
-          <TraceView e={trace.e} name={trace.name} view={trace.view} />
+          <TraceView
+            e={trace.e}
+            name={trace.name}
+            view={trace.view}
+            fullState={fullTrace}
+            stateHint="--trace-full"
+          />
         </Box>
       )}
       {note && <Text dimColor>{note}</Text>}

@@ -256,6 +256,7 @@ const commandMeta = {
       stringOption("out", "<type>", "decode the output as this type"),
       stringOption("amount", "<n>", "procedure transfer amount"),
       booleanOption("trace", "post-call state-diff/host-call view"),
+      booleanOption("trace-full", "same, with the container internals behind each change"),
       booleanOption("all", "show zero and empty output fields"),
       booleanOption("no-settle", "return after broadcasting without waiting"),
       stringOption("rpc", "<url>", "node RPC base"),

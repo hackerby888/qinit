@@ -14,7 +14,7 @@ import {
   type ContractIdl,
 } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
-import { stateDiffLines } from "./state-diff";
+import { stateDiffLines, type StateDiffLine } from "./state-diff";
 import {
   bytesToIdentity,
   hexToBytes,
@@ -656,7 +656,7 @@ export interface DecodedTrace {
   outDecoded: string;
   caller: string;
   fields: StateField[];
-  stateDiff: StateLine[];
+  stateDiff: StateDiffLine[];
   containers: DecodedStateContainer[];
   logs: DecodedLog[];
 }
@@ -681,7 +681,7 @@ export async function describeTrace(
   }
 
   let fields: StateField[] = [];
-  let stateDiff: StateLine[] = [];
+  let stateDiff: StateDiffLine[] = [];
   let containers: DecodedStateContainer[] = [];
   let logs: DecodedLog[] = [];
 

@@ -7,10 +7,12 @@ import {
   type DecodedTrace,
   type DecodedState,
   type StateContainer,
-  type StateLine,
   sevColor,
   jstr,
 } from "./format";
+import { type StateDiffLine } from "./state-diff";
+
+const MAX_STATE_ROWS = 40;
 
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const execµs = (ns: number) =>
@@ -37,9 +39,32 @@ function Rows({
 }
 
 // The call's own state changes, one resolved element per row. Container rows below are current node
-// state instead, so the two must not be read as the same thing.
-function StateDiff({ lines, truncated }: { lines: StateLine[]; truncated: boolean }) {
-  const width = Math.max(1, ...lines.map((line) => line.label.length));
+// state instead, so the two must not be read as the same thing. `full` keeps the container bookkeeping
+// rows and their resolved paths; by default only what the contract itself wrote is shown.
+function StateDiff({
+  lines,
+  truncated,
+  full,
+  hint,
+}: {
+  lines: StateDiffLine[];
+  truncated: boolean;
+  full: boolean;
+  hint: string;
+}) {
+  const visible = full ? lines : lines.filter((line) => !line.internal);
+  const shown = visible.slice(0, MAX_STATE_ROWS);
+  const labelOf = (line: StateDiffLine) => (full ? line.detail : line.label);
+  const width = Math.max(1, ...shown.map((line) => labelOf(line).length));
+
+  const tail: string[] = [];
+  if (visible.length > shown.length) {
+    tail.push(`+${visible.length - shown.length} more`);
+  }
+  if (visible.length < lines.length) {
+    tail.push(`${lines.length - visible.length} container internals hidden · ${hint}`);
+  }
+
   return (
     <Box flexDirection="column" marginLeft={2}>
       <Text>
@@ -48,21 +73,35 @@ function StateDiff({ lines, truncated }: { lines: StateLine[]; truncated: boolea
         {truncated ? <Text color={theme.warn}> (truncated)</Text> : null}
       </Text>
       <Box flexDirection="column" marginLeft={2}>
-        {lines.map((line, index) => (
+        {shown.map((line, index) => (
           <Text key={index} wrap="wrap" dimColor={!line.filled}>
             <Text color={line.filled ? theme.accent : undefined} bold={line.filled}>
-              {line.label.padEnd(width)}
+              {labelOf(line).padEnd(width)}
             </Text>{" "}
             {line.text}
           </Text>
         ))}
+        {tail.length ? <Text dimColor>⋯ {tail.join(" · ")}</Text> : null}
       </Box>
     </Box>
   );
 }
 
-// One decoded contract-call trace, compact. `view` = describeTrace(e, ...).
-export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view: DecodedTrace }) {
+// One decoded contract-call trace, compact. `view` = describeTrace(e, ...). `fullState` shows the state
+// block's container internals, and `stateHint` names whatever turns them on in the calling command.
+export function TraceView({
+  e,
+  name,
+  view,
+  fullState = false,
+  stateHint,
+}: {
+  e: DebugEntry;
+  name: string;
+  view: DecodedTrace;
+  fullState?: boolean;
+  stateHint: string;
+}) {
   const callRows: { label: string; node: React.ReactNode }[] = [
     { label: "in", node: <Text>{truncEnd(view.inDecoded, termCols() - 8)}</Text> },
     { label: "out", node: <Text>{truncEnd(view.outDecoded, termCols() - 8)}</Text> },
@@ -128,7 +167,12 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
         pad={Math.max(14, name.length + 8)}
       />
       <Rows rows={callRows} width={width} />
-      <StateDiff lines={view.stateDiff} truncated={e.stateTruncated} />
+      <StateDiff
+        lines={view.stateDiff}
+        truncated={e.stateTruncated}
+        full={fullState}
+        hint={stateHint}
+      />
       <Rows rows={rows} width={width} />
     </Box>
   );
