@@ -1198,6 +1198,12 @@ prompt; `↑↓` move the selection the current view registered through the shar
 `rowCount`/`openRow` refs; `←→` step a tick or a contract page; `s` on an
 identity pushes the wallet with that identity prefilled as the recipient.
 
+`qinit explorer <tick|txid|identity>` takes one argument and resolves it through
+`parseFindQuery` — the same shape rule `/` applies to what is typed into it, so
+the command line has no `--tick`/`--tx`/`--id` to pick between. `initialView()`
+runs before the first hook, and an argument matching none of the three shapes is
+refused with `invalidArgs` rather than opening the TUI on a guess.
+
 The wallet is the one view the shell hands the keyboard to completely — its
 `useInput` returns immediately for `view.kind === "wallet"`. That is not only
 because the form runs its own stages with its own `esc`: seed characters are

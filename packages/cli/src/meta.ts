@@ -298,13 +298,9 @@ const commandMeta = {
     group: "deploy & interact",
     summary:
       "interactive chain explorer — live ticks, transactions, identities, contracts, wallet",
-    usage: "[--tick <n> | --tx <hash> | --id <identity>]",
-    options: [
-      stringOption("tick", "<n>", "open a tick"),
-      stringOption("tx", "<hash>", "open a transaction"),
-      stringOption("id", "<identity>", "open an identity"),
-      stringOption("rpc", "<url>", "node RPC base"),
-    ],
+    usage: "[<tick|txid|identity>]",
+    options: [stringOption("rpc", "<url>", "node RPC base")],
+    examples: ["qinit explorer 7474", "qinit explorer <identity>"],
   },
   debug: {
     group: "deploy & interact",

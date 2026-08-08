@@ -2,7 +2,8 @@
 // stay correct past 2^53, where Number-based scaling silently drifts.
 import { test, expect } from "bun:test";
 import { fmtCompact, truncMid, truncEnd } from "../../src/ui";
-import { parseFindQuery } from "../../src/commands/deploy-interact/explorer";
+import { initialView, parseFindQuery } from "../../src/commands/deploy-interact/explorer";
+import { parseCommandInvocation } from "../../src/args";
 import { hintLines } from "../../src/commands/deploy-interact/explorer/chrome";
 import {
   classifyWalletInput,
@@ -82,6 +83,34 @@ test("find query routes by shape", () => {
   for (const bad of ["", "  ", "-5", "12.5", "12a", "abc", "A".repeat(59), "A".repeat(61)]) {
     expect(parseFindQuery(bad)).toBeNull();
   }
+});
+
+// The command line runs through the same shape rule the search prompt uses.
+test("the explorer's opening view is resolved from its one argument", () => {
+  const identity = "A".repeat(60);
+  const opening = (args: string[]) =>
+    initialView(parseCommandInvocation("explorer", args).commandArgs);
+
+  expect(opening([])).toEqual({ kind: "overview" });
+  expect(opening(["7474"])).toEqual({ kind: "tick", tick: 7474 });
+  expect(opening(["a".repeat(60)])).toEqual({ kind: "tx", hash: "a".repeat(60) });
+  expect(opening([identity.toLowerCase().slice(0, 59) + "A"])).toEqual({
+    kind: "identity",
+    id: identity,
+  });
+
+  expect(() => opening(["zzz"])).toThrow(
+    "not a tick number, identity, or transaction hash: zzz",
+  );
+  try {
+    opening(["zzz"]);
+  } catch (error) {
+    expect((error as Error & { code?: string }).code).toBe("ERR_PARSE_ARGS_INVALID_POSITIONAL");
+  }
+
+  // The shape flags this replaced are gone; strict parsing keeps them from creeping back.
+  expect(() => parseCommandInvocation("explorer", ["--tick", "5"])).toThrow();
+  expect(() => parseCommandInvocation("explorer", ["--id", identity])).toThrow();
 });
 
 // The wallet's one-field-takes-either trick rests entirely on the shapes not overlapping.

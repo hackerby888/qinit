@@ -7,7 +7,7 @@ import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { loadConfig, savedTheme, setSavedTheme } from "../../../config";
 import { loadContractIdls, type ContractIdls } from "../../../contracts/idl-lookup";
 import { Header, THEME_NAMES, applyTheme, useTerminalSize } from "../../../ui";
-import { output, type CommandArguments } from "../../../args";
+import { invalidArgs, output, type CommandArguments } from "../../../args";
 import {
   Breadcrumb,
   CHROME_ROWS,
@@ -28,24 +28,19 @@ export { parseFindQuery };
 
 const frameOf = (view: View): Frame => ({ view, selected: 0 });
 
-function initialView(commandArgs: CommandArguments): View {
-  const tick = commandArgs.get("tick");
-  if (tick != null && tick !== "") {
-    // A non-numeric --tick would otherwise render as "TICK NaN"; the search prompt is the useful answer.
-    return /^\d+$/.test(tick.trim()) ? { kind: "tick", tick: Number(tick) } : { kind: "find" };
+// The argument is resolved by shape, exactly as the `/` prompt resolves what is typed in.
+export function initialView(commandArgs: CommandArguments): View {
+  const query = commandArgs.positionals[0];
+  if (!query) {
+    return { kind: "overview" };
   }
 
-  const hash = commandArgs.get("tx");
-  if (hash) {
-    return { kind: "tx", hash };
+  const target = parseFindQuery(query);
+  if (!target) {
+    invalidArgs(`not a tick number, identity, or transaction hash: ${query}`);
   }
 
-  const id = commandArgs.get("id");
-  if (id) {
-    return { kind: "identity", id };
-  }
-
-  return { kind: "overview" };
+  return target;
 }
 
 export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
@@ -56,12 +51,15 @@ export function Explorer({ commandArgs }: { commandArgs: CommandArguments }) {
     );
   }
 
+  // Before the first hook, so an unresolvable argument is refused rather than half-rendered.
+  const opening = initialView(commandArgs);
+
   const rpcBaseUrl = commandArgs.get("rpc") || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const rpc = useRef(new LiteRpc(rpcBaseUrl)).current;
   const { columns, rows } = useTerminalSize();
 
-  const [stack, setStack] = useState<Frame[]>(() => [frameOf(initialView(commandArgs))]);
+  const [stack, setStack] = useState<Frame[]>(() => [frameOf(opening)]);
   const [themeName, setThemeName] = useState(() => savedTheme() ?? "default");
   const [refreshToken, setRefreshToken] = useState(0);
 
