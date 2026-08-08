@@ -24,8 +24,10 @@ const aliasCoreBrowser = {
 };
 
 const result = await Bun.build({
-  entrypoints: ["src/index.ts", "src/browser.ts", "src/analyzer.ts"],
+  entrypoints: ["src/index.ts", "src/browser.ts", "src/analyzer/index.ts"],
   outdir: "dist",
+  // Mirror tsc's rootDir so dist/analyzer/index.js sits beside the .d.ts tsc emits for it.
+  root: "src",
   format: "esm",
   target: "browser",
   plugins: [aliasCoreBrowser],
@@ -38,4 +40,4 @@ if (!result.success) {
   process.exit(1);
 }
 
-console.log("built dist/index.js + dist/browser.js + dist/analyzer.js");
+console.log("built dist/index.js + dist/browser.js + dist/analyzer/index.js");

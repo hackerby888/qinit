@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -76,8 +76,8 @@ describe("source-method lowering ratchet", () => {
     const calls = readSourceTree("../../src/backend/wasm/calls", import.meta.url);
     const memory = readSourceTree("../../src/backend/wasm/memory", import.meta.url);
     const framework = readSourceTree("../../src/backend/wasm/framework", import.meta.url);
-    const qpiContext = readSourceTree("../../src/compiler/qpi-context.ts", import.meta.url);
-    const pipeline = readSourceTree("../../src/compiler", import.meta.url);
+    const qpiContext = readSourceTree("../../src/driver/qpi-context.ts", import.meta.url);
+    const pipeline = readSourceTree("../../src/driver", import.meta.url);
     expect(calls).not.toContain('node.type.name === "Array"');
     expect(memory).not.toMatch(/\^\(AssetOwnershipSelect\|AssetPossessionSelect\)::/);
     expect(calls).not.toContain(

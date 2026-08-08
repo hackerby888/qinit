@@ -3,7 +3,7 @@ import {
     DiagnosticCategory,
     DiagnosticSeverity,
     TokenKind,
-} from "../../../enums";
+} from "../../../shared/enums";
 import type {
     ClassTemplateDecl,
     Declaration,

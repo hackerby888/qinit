@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Covers invocator capture, id equality guards, and id-valued state reads.
 import { coreGtest } from "../support/core-gtest";

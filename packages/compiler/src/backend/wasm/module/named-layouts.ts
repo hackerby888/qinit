@@ -1,4 +1,4 @@
-import { AstKind } from "../../../enums";
+import { AstKind } from "../../../shared/enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type { TypeSpec } from "../../../ast";

@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // PIT (post incoming transfer) flow for @qinit/compiler tests.
 import { describe, test, expect, beforeAll } from "bun:test";

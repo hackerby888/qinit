@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { describe, expect, test } from "bun:test";
 import { analyzeContract } from "../../src/analyzer";
 import { compileContract, type CompileOptions } from "../../src/index";

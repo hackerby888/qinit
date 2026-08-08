@@ -6,10 +6,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import { loadQpiHeader } from "../../src/index";
-import { assembleQpiHeader, GENERATOR_VERSION, snapshotInputFiles } from "../../src/qpi-snapshot";
+import { assembleQpiHeader, GENERATOR_VERSION, snapshotInputFiles } from "../../src/driver/qpi/snapshot";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "../../src/generated/qpi-snapshot";
 import { QPI_PROTOCOL_PRELUDE } from "../../src/generated/qpi-protocol-prelude";
-import { assembleQpiProtocolPrelude } from "../../src/qpi-prelude";
+import { assembleQpiProtocolPrelude } from "../../src/driver/qpi/prelude";
 
 const CORE = CORE_PATH;
 const coreOk = existsSync(join(CORE, "src", "qpi", "qpi.h"));

@@ -3,7 +3,7 @@ import {
     BinaryOp,
     DiagnosticSeverity,
     UnaryOp,
-} from "../../enums";
+} from "../../shared/enums";
 import type { ValidateDiagnostic } from "./validator-context";
 
 interface SupplementalFlowContext {

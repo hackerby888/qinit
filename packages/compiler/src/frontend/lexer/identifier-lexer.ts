@@ -1,4 +1,4 @@
-import { TokenKind } from "../../enums";
+import { TokenKind } from "../../shared/enums";
 import { KEYWORDS } from "./keywords";
 import type { LexerInternals } from "./lexer-context";
 import type { Token } from "./tokens";

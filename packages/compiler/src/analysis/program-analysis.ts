@@ -1,8 +1,8 @@
-import { AstKind } from "../enums";
+import { AstKind } from "../shared/enums";
 import { ClassTemplate, CompiledMethod, CompiledHelperMetadata, PrivateFunctionMetadata, ResolvedCalleeIdl, StructLayout, CodeGenerationWarning, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout, NamespaceLookupContext, ResolvedSourceMethod } from "./types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl, Span } from "../ast";
-import type { SemanticAnalyzer } from "../semantic-analyzer";
-import type { PlatformCapability } from "../shared/platform-capabilities";
+import type { SemanticAnalyzer } from "./semantic-analysis";
+import type { PlatformCapability } from "../shared/enums";
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
 import * as analysisPart0 from "./declaration-index";
 import * as analysisPart1 from "./constant-evaluator";

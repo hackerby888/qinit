@@ -1,4 +1,4 @@
-import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
+import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { SCALAR_SIZE, C_SCALAR_NAMES } from "../abi/tables";
 import { isAutoType, resolveAliasType } from "../expressions/conversions";
 import { castInfo } from "../memory/address-resolution";

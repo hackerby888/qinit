@@ -1,4 +1,4 @@
-import { AstKind } from "../../../enums";
+import { AstKind } from "../../../shared/enums";
 import type { Declaration, StructDecl, FunctionDecl } from "../../../ast";
 export function findContractStruct(translationUnit: {
     declarations: Declaration[];

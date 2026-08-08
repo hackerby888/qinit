@@ -1,7 +1,7 @@
-import { AstKind, WatNodeType } from "../../../enums";
+import { AstKind, WatNodeType } from "../../../shared/enums";
 import { FunctionEmissionContext } from "../types";
 import type { Statement, VariableDecl } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import { collectGotosIn, collectLabelsIn } from "./jump-analysis";
 export function emitScratchpadReleases(context: FunctionEmissionContext, from: number, consume: boolean): void {
     if (!context.scratchpadScope || context.scratchpadScope.length <= from)

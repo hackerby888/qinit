@@ -1,6 +1,6 @@
-import { AstKind, TokenKind } from "../../enums";
+import { AstKind, TokenKind } from "../../shared/enums";
 import type { Expression, Statement } from "../../ast";
-import { isTypeKeyword } from "../../lexer";
+import { isTypeKeyword } from "../lexer";
 import type { Parser } from "./parser";
 
 export class StatementParser {

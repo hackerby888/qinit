@@ -1,5 +1,5 @@
-import { AssignOp } from "../../../enums";
-import * as watIr from "../../../wat-ir";
+import { AssignOp } from "../../../shared/enums";
+import * as watIr from "../wat-ir";
 import { isUint128 } from "../memory/address-resolution";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";

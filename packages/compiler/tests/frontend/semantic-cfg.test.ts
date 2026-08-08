@@ -1,8 +1,8 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { describe, expect, test } from "bun:test";
-import { Lexer } from "../../src/lexer";
-import { Parser } from "../../src/parser";
-import { validateAndDesugar } from "../../src/validate";
+import { Lexer } from "../../src/frontend/lexer";
+import { Parser } from "../../src/frontend/parser";
+import { validateAndDesugar } from "../../src/frontend/validation";
 
 function validateSource(source: string) {
   const parser = new Parser(new Lexer(source).tokenize());

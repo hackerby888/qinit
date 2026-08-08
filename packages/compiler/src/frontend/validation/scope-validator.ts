@@ -1,4 +1,4 @@
-import { AstKind } from "../../enums";
+import { AstKind } from "../../shared/enums";
 // Validation runs after parse and before codegen.
 import type { FunctionDecl, Statement } from "../../ast";
 import { isVoidType, isConstType } from "./validation-helpers";

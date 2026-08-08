@@ -1,7 +1,7 @@
 import {
     WatNodeType,
     type WatValueType,
-} from "../enums";
+} from "../shared/enums";
 import type {
     TypeSpec,
     Expression,

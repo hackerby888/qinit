@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 // Measures parse, Wasm, engine-load, and state-size coverage across the corpus.
 import { test, expect, beforeAll } from "bun:test";

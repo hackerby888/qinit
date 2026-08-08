@@ -1,9 +1,9 @@
-import { AstKind, ContainerEmissionMode, WatNodeType } from "../../../enums";
+import { AstKind, ContainerEmissionMode, WatNodeType } from "../../../shared/enums";
 import { addrIr, narrowCast } from "../memory/memory-operations";
 import { isUint128 } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { Expression, Statement, FunctionDecl, VariableDecl } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 export function emitStatement(context: FunctionEmissionContext, statement: Statement): void {
     switch (statement.kind) {
         case AstKind.COMPOUND:

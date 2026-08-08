@@ -1,12 +1,12 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { CORE_WASM_HEADERS, parseWasmAbiSource } from "@qinit/core";
 import { QubicSimulator } from "@qinit/engine";
 import { compileContract, loadQpiHeader } from "../../src";
-import { inspectWasmModule } from "../../src/compiler/wasm-inspect";
-import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/qpi-snapshot";
+import { inspectWasmModule } from "../../src/driver/wasm-inspect";
+import { IMPL_BOUNDARY, WASM_ABI_MARKER } from "../../src/driver/qpi/snapshot";
 
 const HEADER = loadQpiHeader(CORE_PATH);
 const metadata = readFileSync(

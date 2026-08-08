@@ -6,7 +6,7 @@ import {
   TokenKind,
   UnaryOp,
   UpdateOp,
-} from "../../../enums";
+} from "../../../shared/enums";
 import type {
     Expression,
     TypeSpec,

@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Ensures placeholder lowerings fail strict builds instead of silently diverging.
 import { describe, expect, test } from "bun:test";

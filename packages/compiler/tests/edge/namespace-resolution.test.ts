@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Namespace-aware free-helper resolution: using-directives, qualified forms, no accidental QPI fallback.
 import { describe, expect, test } from "bun:test";

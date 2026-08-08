@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks HashMap/HashSet removal-slot reuse and state layout against native behavior.
 import { describe, expect, beforeAll } from "bun:test";

@@ -2,7 +2,7 @@ import type { FunctionLoweringServices } from "./functions/function-lowering-con
 import type { ProgramAnalysis } from "../../analysis/program-analysis";
 import type { TypeSpec } from "../../ast";
 import type { StructLayout, TemplateBindings } from "../../analysis/types";
-import type { QpiContextKind, WatValueType } from "../../enums";
+import type { QpiContextKind, WatValueType } from "../../shared/enums";
 export * from "../../analysis/types";
 
 export interface FunctionEmissionContext {

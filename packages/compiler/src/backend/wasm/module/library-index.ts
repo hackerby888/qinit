@@ -1,11 +1,11 @@
-import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
+import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { ClassTemplate, CompiledHelperMetadata, NamespaceLookupContext } from "../types";
 import type { TypeSpec, Expression, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl } from "../../../ast";
-import type { SemanticAnalyzer } from "../../../semantic-analyzer";
-import { type QpiContextLayout } from "../../../framework";
-import type { LhostAbiSpec } from "../../../lhost";
-import { registerCallSig } from "../../../wat-ir";
+import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
+import { type QpiContextLayout } from "../framework";
+import type { LhostAbiSpec } from "../lhost";
+import { registerCallSig } from "../wat-ir";
 import type { WasmAbiSource } from "@qinit/core/wasm/abi-source";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 export interface LibrarySymbolIndex {

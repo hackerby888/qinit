@@ -195,7 +195,7 @@ Qinit must know core-lite's:
 assembleQpiHeader(corePath);
 ```
 
-See [`compiler/header.ts`](../packages/compiler/src/compiler/header.ts) and [`qpi-snapshot.ts`](../packages/compiler/src/qpi-snapshot.ts).
+See [`driver/header.ts`](../packages/compiler/src/driver/header.ts) and [`driver/qpi/snapshot.ts`](../packages/compiler/src/driver/qpi/snapshot.ts).
 
 ### 2.1 Why core-lite contains no JSON
 

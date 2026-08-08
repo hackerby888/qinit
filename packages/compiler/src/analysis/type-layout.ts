@@ -1,4 +1,4 @@
-import { AstKind } from "../enums";
+import { AstKind } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { StructLayout, EMPTY_TEMPLATE_BINDINGS, TemplateBindings, FieldLayout } from "./types";
 import type { TypeSpec, Declaration, VariableDecl } from "../ast";

@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential gtest for user-defined helper functions: plain value helpers (triple/addThem, called directly) and a PRIVATE_PROCEDURE invoked via CALL()
 import { coreGtest } from "../support/core-gtest";

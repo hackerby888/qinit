@@ -4,11 +4,11 @@ import {
     DiagnosticCategory,
     DiagnosticSeverity,
     UnaryOp,
-} from "../enums";
+} from "../shared/enums";
 // Owns diagnostics and constexpr-only arithmetic evaluation.
 import type { Span, Expression } from "../ast";
 
-import { parseIntLiteral } from "../lexer";
+import { parseIntLiteral } from "../frontend/lexer";
 
 export interface SemanticAnalyzerDiagnostic {
     severity: DiagnosticSeverity.ERROR | DiagnosticSeverity.WARNING;

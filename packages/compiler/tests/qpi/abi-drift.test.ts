@@ -1,8 +1,8 @@
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { test, expect } from "bun:test";
 import { deriveQpiContextLayout } from "../../src/backend/wasm/module/library-index";
-import { getQpiContext } from "../../src/compiler/qpi-context";
-import { loadQpiHeader } from "../../src/compiler/header";
+import { getQpiContext } from "../../src/driver/qpi-context";
+import { loadQpiHeader } from "../../src/driver/header";
 // Compare compiler and engine context layouts derived from core headers.
 import { QpiContext } from "@qinit/engine/contract/abi";
 

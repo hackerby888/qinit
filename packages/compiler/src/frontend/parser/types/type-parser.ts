@@ -1,6 +1,6 @@
-import { AstKind, DiagnosticSeverity, TokenKind } from "../../../enums";
+import { AstKind, DiagnosticSeverity, TokenKind } from "../../../shared/enums";
 import type { Expression, TypeSpec } from "../../../ast";
-import { isTypeKeyword } from "../../../lexer";
+import { isTypeKeyword } from "../../lexer";
 import type { Parser } from "../parser";
 
 const SCALAR_CAST_NAMES = new Set([

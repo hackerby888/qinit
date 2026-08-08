@@ -1,6 +1,6 @@
-import { AstKind, TokenKind } from "../../enums";
+import { AstKind, TokenKind } from "../../shared/enums";
 import type { Statement, TranslationUnit } from "../../ast";
-import type { Token } from "../../lexer";
+import type { Token } from "../lexer";
 import { DeclarationParser } from "./declarations/declaration-parser";
 import { FunctionParser } from "./declarations/function-parser";
 import { RecordParser } from "./declarations/record-parser";

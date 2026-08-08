@@ -6,7 +6,7 @@ import {
 } from "@qinit/proto/contract-idl";
 import { layoutOf } from "@qinit/proto/abi-fmt";
 import { analyzeContract } from "../../src/analyzer";
-import { compileContract } from "../../src/compiler/compile-contract";
+import { compileContract } from "../../src/driver/compile-contract";
 import { QPI_SNAPSHOT } from "../../src/generated/qpi-snapshot";
 
 const SOURCE = `

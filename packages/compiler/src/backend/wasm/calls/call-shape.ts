@@ -1,4 +1,4 @@
-import { AstKind } from "../../../enums";
+import { AstKind } from "../../../shared/enums";
 import type { Expression } from "../../../ast";
 
 // Return the method name for `qpi(aggregate).method(...)` wrappers.

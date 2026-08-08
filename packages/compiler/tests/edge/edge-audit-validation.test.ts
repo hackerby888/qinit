@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Regression inventory: invalid QPI/C++ that the compiler currently accepts silently.
 import { describe, expect, test } from "bun:test";

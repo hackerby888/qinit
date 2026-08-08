@@ -4,10 +4,10 @@ import {
   DiagnosticCategory,
   DiagnosticSeverity,
   UnaryOp,
-} from "../../src/enums";
+} from "../../src/shared/enums";
 // Tests the diagnostics channel's scope-free constexpr evaluator.
 import { describe, test, expect } from "bun:test";
-import { SemanticAnalyzer } from "../../src/semantic-analyzer";
+import { SemanticAnalyzer } from "../../src/analysis/semantic-analysis";
 import type { Expression, TypeSpec, Span } from "../../src/ast";
 
 const NO_SPAN: Span = { start: 0, end: 0, line: 1, column: 1 };

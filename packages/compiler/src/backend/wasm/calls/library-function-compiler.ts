@@ -1,4 +1,4 @@
-import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
+import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { emitHelperFunction } from "../functions/function-emitter";
 import { FunctionEmissionContext, CompiledHelperMetadata, TemplateBindings, EMPTY_TEMPLATE_BINDINGS } from "../types";

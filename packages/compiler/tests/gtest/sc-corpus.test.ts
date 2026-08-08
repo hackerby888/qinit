@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 // Dual-backend corpus verification: clang and TypeScript.
 import { describe, test, expect, beforeAll } from "bun:test";
 import {

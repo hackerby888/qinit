@@ -1,7 +1,7 @@
-import { DiagnosticCategory } from "../../../enums";
+import { DiagnosticCategory } from "../../../shared/enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
-import type { SemanticAnalyzer } from "../../../semantic-analyzer";
-import type { SystemProcedureInfo, UserEntry } from "../../../framework";
+import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
+import type { SystemProcedureInfo, UserEntry } from "../framework";
 import type {
     GeneratedContractMetadata,
 } from "./library-index";

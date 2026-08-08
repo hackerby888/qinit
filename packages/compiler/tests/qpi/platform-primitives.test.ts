@@ -3,7 +3,7 @@ import {
   PlatformCapability,
   PlatformPrimitiveKind,
   PlatformWasmOp,
-} from "../../src/enums";
+} from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";

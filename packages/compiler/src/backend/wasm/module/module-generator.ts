@@ -1,10 +1,10 @@
 import "../functions/function-lowering-services";
 import type { Declaration, StructDecl } from "../../../ast";
-import type { SemanticAnalyzer } from "../../../semantic-analyzer";
+import type { SemanticAnalyzer } from "../../../analysis/semantic-analysis";
 import {
     emitModule,
     type ModuleSpecification,
-} from "../../../framework";
+} from "../framework";
 import { emitFunction, emitHelperFunction } from "../functions/function-emitter";
 import type { ContractIdl } from "@qinit/proto/contract-idl";
 import {
@@ -26,7 +26,7 @@ import {
     emitMigrationFunction,
     emitSystemProcedures,
 } from "./system-procedures";
-import { buildContractIdl } from "./contract-idl";
+import { buildContractIdl } from "../idl";
 
 export interface ModuleGenerationRequest {
     translationUnit: {

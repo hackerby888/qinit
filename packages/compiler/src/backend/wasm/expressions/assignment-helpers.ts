@@ -1,9 +1,9 @@
-import { AstKind, WatNodeType } from "../../../enums";
+import { AstKind, WatNodeType } from "../../../shared/enums";
 import { SCALAR_SIZE } from "../abi/tables";
 import { narrowCastIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import type { AssignmentExpression } from "./assignment-types";
 
 export function newValueTmp(context: FunctionEmissionContext): string {

@@ -1,7 +1,7 @@
 // Preprocessor unit tests: macro expansion, conditional directives, built-in defines, # and ## operators, recursion guard, varargs, backslash continuation.
 import { describe, test, expect } from "bun:test";
-import { Preprocessor } from "../../src/preprocess";
-import type { MacroDef } from "../../src/preprocess";
+import { Preprocessor } from "../../src/frontend/preprocessor";
+import type { MacroDef } from "../../src/frontend/preprocessor";
 
 /** Shortcut: preprocess with minimal opts (no qpiHeader so source controls everything). */
 const pp = (

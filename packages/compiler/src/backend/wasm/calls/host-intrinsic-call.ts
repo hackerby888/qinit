@@ -1,7 +1,7 @@
-import { AstKind, UnaryOp, WatNodeType } from "../../../enums";
+import { AstKind, UnaryOp, WatNodeType } from "../../../shared/enums";
 import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import type { Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";

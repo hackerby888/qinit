@@ -1,9 +1,9 @@
-import { AstKind, BinaryOp, WatNodeType } from "../../../enums";
+import { AstKind, BinaryOp, WatNodeType } from "../../../shared/enums";
 import { MATH_INTRINSIC_NAMES, symbolBaseName } from "../abi/tables";
 import { isUint128 } from "../memory/address-resolution";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, FunctionDecl } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 // Detect uint128 expressions that require 16-byte source-backed operations.
 export function isU128Expr(context: FunctionEmissionContext, expression: Expression): boolean {
     if (expression.kind === AstKind.PAREN)

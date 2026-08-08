@@ -1,8 +1,8 @@
-import { AstKind, BinaryOp, UnaryOp } from "../enums";
+import { AstKind, BinaryOp, UnaryOp } from "../shared/enums";
 import { SCALAR_SIZE } from "../shared/scalar-sizes";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Expression } from "../ast";
-import { parseIntLiteral as lexParseIntLiteral } from "../lexer";
+import { parseIntLiteral as lexParseIntLiteral } from "../frontend/lexer";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
 
 export function typeOfConstant(context: ProgramAnalysisInternals, name: string): TypeSpec | null {

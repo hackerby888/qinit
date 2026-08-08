@@ -1,4 +1,4 @@
-import { AccessSpec, AstKind, TokenKind } from "../../../enums";
+import { AccessSpec, AstKind, TokenKind } from "../../../shared/enums";
 import type {
     Declaration,
     Expression,

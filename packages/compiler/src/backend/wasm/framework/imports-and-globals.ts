@@ -1,4 +1,4 @@
-import { emitLhostImports, type LhostAbiSpec } from "../../../lhost";
+import { emitLhostImports, type LhostAbiSpec } from "../lhost";
 import type { Layout } from "./framework-types";
 
 export function emitImports(gtest = false, lhostAbi?: LhostAbiSpec): string {

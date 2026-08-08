@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Collection rebalancing parity for BST in PoV state.
 import { describe, expect, beforeAll } from "bun:test";

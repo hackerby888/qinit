@@ -1,23 +1,23 @@
 // Stable public surface for @qinit/compiler. Compiler implementation lives under ./compiler.
-import { compileContract as compileContractWithHeader, compileGtest as compileGtestWithHeader, parseToAst as parseToAstWithHeader } from "./compiler/pipeline";
-import { loadQpiHeader } from "./compiler/header";
-import type { CompileOptions, CompileResult, GtestCompileResult } from "./compiler/types";
+import { compileContract as compileContractWithHeader, compileGtest as compileGtestWithHeader, parseToAst as parseToAstWithHeader } from "./driver/pipeline";
+import { loadQpiHeader } from "./driver/header";
+import type { CompileOptions, CompileResult, GtestCompileResult } from "./driver/types";
 
-export { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "./defaults";
+export { DEFAULT_COMPILE_ARENA_SIZE_BYTES } from "./driver/defaults";
 
-export * from "./enums";
+export * from "./shared/enums";
 export type { Span, TypeSpec, Expression, Statement, Declaration, TranslationUnit } from "./ast";
-export { Lexer, TokenKind } from "./lexer";
-export type { Token } from "./lexer";
-export { Preprocessor } from "./preprocess";
-export type { PreprocessOptions } from "./preprocess";
-export { Parser } from "./parser";
-export { formatAst } from "./ast-print";
-export { emitFramework, emitModule } from "./framework";
-export type { FrameworkOptions, UserEntry, SystemProcedureInfo, ModuleSpecification } from "./framework";
+export { Lexer, TokenKind } from "./frontend/lexer";
+export type { Token } from "./frontend/lexer";
+export { Preprocessor } from "./frontend/preprocessor";
+export type { PreprocessOptions } from "./frontend/preprocessor";
+export { Parser } from "./frontend/parser";
+export { formatAst } from "./ast/print";
+export { emitFramework, emitModule } from "./backend/wasm/framework";
+export type { FrameworkOptions, UserEntry, SystemProcedureInfo, ModuleSpecification } from "./backend/wasm/framework";
 
-export type { ParseAstResult } from "./compiler/pipeline";
-export { loadQpiHeader, withPrelude } from "./compiler/header";
+export type { ParseAstResult } from "./driver/pipeline";
+export { loadQpiHeader, withPrelude } from "./driver/header";
 
 export async function compileContract(options: CompileOptions): Promise<CompileResult> {
   return compileContractWithHeader({ ...options, qpiHeader: options.qpiHeader ?? loadQpiHeader() });
@@ -34,7 +34,7 @@ export function parseToAst(
 ): ReturnType<typeof parseToAstWithHeader> {
   return parseToAstWithHeader({ ...options, qpiHeader: options.qpiHeader ?? loadQpiHeader() });
 }
-export { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "./compiler/wasm-inspect";
+export { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "./driver/wasm-inspect";
 export type {
   InspectedWasmExport,
   InspectedWasmImport,
@@ -43,7 +43,7 @@ export type {
   WasmModuleInspectionOptions,
   WasmFunctionSignature,
   WasmInspectionDiagnostic,
-} from "./compiler/wasm-inspect";
+} from "./driver/wasm-inspect";
 export type {
   CompileOptions,
   CompileResult,
@@ -52,4 +52,4 @@ export type {
   GtestCompileResult,
   GtestDiagnostic,
   GtestProgram,
-} from "./compiler/types";
+} from "./driver/types";

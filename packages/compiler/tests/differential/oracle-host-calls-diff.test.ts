@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks oracle host-call payloads and reply decoding against native behavior.
 import { wasiToolchain } from "../support/container-toolchains";

@@ -4,7 +4,7 @@ import {
     BinaryOp,
     UnaryOp,
     UpdateOp,
-} from "../enums";
+} from "../shared/enums";
 import type { Span } from "./source-location";
 import type { TypeSpec } from "./types";
 

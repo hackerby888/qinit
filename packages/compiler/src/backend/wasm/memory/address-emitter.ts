@@ -3,12 +3,12 @@ import {
     ContainerEmissionMode,
     PlatformPrimitiveKind,
     PrimitiveResultChannel,
-} from "../../../enums";
+} from "../../../shared/enums";
 import { qpiWrapperMethod } from "../calls/call-shape";
 import { platformPrimitive } from "../calls/platform-primitives";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, StructDecl, FunctionDecl } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import { addrIr } from "./memory-operations";
 // Address of an lvalue or a materializable aggregate. Returns null if not addressable.
 export function emitAddress(context: FunctionEmissionContext, expression: Expression): string | null {

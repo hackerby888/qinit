@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Positive runtime coverage for legal aggregate copies, returns, and reference binding.
 import { beforeAll, describe, expect, test } from "bun:test";

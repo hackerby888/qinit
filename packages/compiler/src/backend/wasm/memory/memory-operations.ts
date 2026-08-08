@@ -1,9 +1,9 @@
-import { AstKind, WatNodeType } from "../../../enums";
+import { AstKind, WatNodeType } from "../../../shared/enums";
 import { SCALAR_SIZE } from "../abi/tables";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { FunctionEmissionContext } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 // True if a type is an aggregate (id/m256i/struct/array) that lives in memory rather than an i64.
 export function isAggregate(context: FunctionEmissionContext, type: TypeSpec | null, size: number): boolean {
     if (!type)

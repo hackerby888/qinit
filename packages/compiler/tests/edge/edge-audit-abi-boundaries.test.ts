@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Pins inclusive registration bounds and rejects values outside them.
 import { beforeAll, describe, expect, test } from "bun:test";

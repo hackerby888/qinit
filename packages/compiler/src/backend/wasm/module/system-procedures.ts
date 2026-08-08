@@ -1,11 +1,11 @@
-import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
+import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import type { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type { FunctionDecl, StructDecl, TypeSpec } from "../../../ast";
 import type {
     ModuleSpecification,
     SystemProcedureInfo,
-} from "../../../framework";
+} from "../framework";
 import { SYSPROC_IO } from "../abi/tables";
 import { emitFunction } from "../functions/function-emitter";
 import { findMemberFn } from "./contract-discovery";

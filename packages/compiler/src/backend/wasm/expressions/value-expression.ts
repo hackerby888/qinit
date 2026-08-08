@@ -1,10 +1,10 @@
-import { AstKind, UnaryOp, WatNodeType } from "../../../enums";
+import { AstKind, UnaryOp, WatNodeType } from "../../../shared/enums";
 import { SCALAR_SIZE } from "../abi/tables";
 import { describeShape } from "../calls/call-shape";
 import { narrowCastIr, lowerScalarLoad, isSignedScalarType } from "../memory/memory-operations";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, VariableDecl } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import { unsignedScalar } from "./conversions";
 // ---- value (rvalue) codegen — produces an i64 ----
 export function lowerValueExpression(context: FunctionEmissionContext, expression: Expression): watIr.WatNode {

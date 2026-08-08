@@ -1,6 +1,6 @@
-import { DiagnosticSeverity, TokenKind } from "../../enums";
+import { DiagnosticSeverity, TokenKind } from "../../shared/enums";
 import type { Declaration } from "../../ast";
-import type { Token } from "../../lexer";
+import type { Token } from "../lexer";
 import type { ParserDiagnostic } from "./parser-context";
 
 export class ParserState {

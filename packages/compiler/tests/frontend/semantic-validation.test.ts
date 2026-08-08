@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Semantic validation coverage for invalid constructs.
 import { describe, test, expect, beforeAll } from "bun:test";

@@ -1,4 +1,4 @@
-import { AstKind } from "../enums";
+import { AstKind } from "../shared/enums";
 import { EMPTY_TEMPLATE_BINDINGS, TemplateBindings } from "./types";
 import type { TypeSpec, Declaration, StructDecl, FunctionDecl, FunctionTemplateDecl, VariableDecl } from "../ast";
 import type { ProgramAnalysisInternals } from "./program-analysis-context";
