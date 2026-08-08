@@ -198,6 +198,7 @@ test("deployContract: racing deployments send chunks only for the winner; the lo
         return state;
       },
       tickInfo: async () => ({ tick: (tick += 10), epoch: 1 }),
+      hurryToTick: async () => 0, // no dev route: deploy waits the chain out, as it does on mainnet
       fundedSeed: async () => undefined,
       dynRegistry: () => node.dynRegistry(),
       directDeploy: async () => null,

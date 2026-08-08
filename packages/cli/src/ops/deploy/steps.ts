@@ -85,6 +85,6 @@ export function classifyConfirm(state: {
   return {
     reason: "wrong-code",
     detail: "different code — didn't take",
-    note: `on-node ${state.onNode.slice(0, 12)}… ≠ yours ${state.want.slice(0, 12)}…`,
+    note: `on-node ${state.onNode} ≠ yours ${state.want}`,
   };
 }

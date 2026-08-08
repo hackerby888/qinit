@@ -87,11 +87,14 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function broadcastAndConfirm(tx: SignedTx, opts: SubmitOptions): Promise<SubmittedTx> {
   const broadcast = await broadcastTx(tx.bytes, opts.rpcBaseUrl);
   const result = { ...broadcast, txId: tx.id, tick: opts.tick };
+
+  // The tx is in the mempool now, so a dev node can be pulled straight past the tick that executes it.
+  const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
+  await rpc.hurryToTick(opts.tick + 1);
   if (!opts.confirm) {
     return result;
   }
 
-  const rpc = opts.rpc ?? new LiteRpc(opts.rpcBaseUrl);
   const deadline = Date.now() + (opts.confirmTimeoutMs ?? 30000);
   for (;;) {
     try {

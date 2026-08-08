@@ -145,6 +145,8 @@ export async function deployContract(
       currentTick = tickInfo.tick;
       if (initialTick < 0) {
         initialTick = currentTick;
+        // A dev node jumps the readiness margin at once; one that cannot answers 0 and the loop waits.
+        currentTick = Math.max(currentTick, await rpc.hurryToTick(initialTick + 4));
       }
       emit({ step: "tick", state: "active", detail: `tick ${currentTick}` });
       if (currentTick > initialTick + 3) {
@@ -269,7 +271,7 @@ export async function deployContract(
   emit({
     step: "build",
     state: "ok",
-    detail: `${wasm.length}B · k12 ${hash.slice(0, 12)}…`,
+    detail: `${wasm.length}B · k12 ${hash}`,
   });
   if (build.idlError) {
     emit({
@@ -311,7 +313,7 @@ export async function deployContract(
     }
 
     saveIdl();
-    emit({ step: "confirm", state: "ok", detail: `ready · ${hash.slice(0, 12)}…` });
+    emit({ step: "confirm", state: "ok", detail: `ready · ${hash}` });
     return {
       ok: true,
       slot,
@@ -340,8 +342,8 @@ export async function deployContract(
   };
 
   const waitForTick = async (target: number, attempts = 300) => {
-    let tick = currentTick;
-    for (let i = 0; i < attempts; i++) {
+    let tick = await rpc.hurryToTick(target);
+    for (let i = 0; i < attempts && tick < target; i++) {
       tick = await readTick();
       if (tick >= target) {
         break;
@@ -351,7 +353,10 @@ export async function deployContract(
     return tick;
   };
 
-  {
+  // Upload spends a transaction per tick, so a crawling chain fails slowly. Only worth measuring on a
+  // node we cannot drive ourselves.
+  const driveable = (await rpc.hurryToTick(currentTick + 3)) >= currentTick + 3;
+  if (!driveable) {
     const startedAt = Date.now();
     const baseTick = currentTick;
     let ticksAdvanced = 0;
@@ -429,6 +434,8 @@ export async function deployContract(
   });
 
   emit({ step: "confirm", state: "active", detail: "polling arm…" });
+  // The DEPLOY tx sits three ticks out; arming and INITIALIZE follow, so the poll below still runs.
+  await rpc.hurryToTick(deployTick + 1);
   const expectedHash = hash.toLowerCase();
   let armed = false;
   let constructed = false;
@@ -439,7 +446,10 @@ export async function deployContract(
   let registrationMismatch = false;
 
   for (let i = 0; i < 420; i++) {
-    await sleep(1000);
+    // Arming and INITIALIZE each need a tick: drive them when the node allows it, wait otherwise.
+    if (i > 0 && (await rpc.hurryToTick(lastTick + 1)) <= lastTick) {
+      await sleep(1000);
+    }
 
     try {
       const tickInfo = await rpc.tickInfo();
@@ -505,13 +515,13 @@ export async function deployContract(
       emit({
         step: "confirm",
         state: "ok",
-        detail: `ready · ${expectedHash.slice(0, 12)}…`,
+        detail: `ready · ${expectedHash}`,
       });
     } else {
       emit({
         step: "confirm",
         state: "ok",
-        detail: `armed (construct pending) · ${expectedHash.slice(0, 12)}…`,
+        detail: `armed (construct pending) · ${expectedHash}`,
       });
       emit({
         note: "⚠ armed but INITIALIZE hasn't settled — a call now may read pre-init state; retry shortly",

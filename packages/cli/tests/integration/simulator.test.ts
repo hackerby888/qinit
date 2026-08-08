@@ -200,6 +200,47 @@ test("advance-tick caps at the epoch's last tick (qinit tick advance)", async ()
   }
 });
 
+test("hurryToTick pulls the chain to a near target and refuses a far one", async () => {
+  const { rpc, stop } = await bootCounter();
+  try {
+    const from = (await rpc.tickInfo()).tick;
+    expect(await rpc.hurryToTick(from + 4)).toBeGreaterThanOrEqual(from + 4);
+
+    // Past the span cap the chain is left alone — a wide gap means a stale read.
+    const before = (await rpc.tickInfo()).tick;
+    expect(await rpc.hurryToTick(before + 500)).toBeLessThan(before + 500);
+  } finally {
+    stop();
+  }
+});
+
+test("hurryToTick gives up quietly on a node without the dev route", async () => {
+  // A mainnet node: it answers tick-info and 404s the testnet-only advance route.
+  let advanceRequests = 0;
+  const server = Bun.serve({
+    port: 0,
+    fetch: (request) => {
+      if (new URL(request.url).pathname === "/live/v1/dev/advance-tick") {
+        advanceRequests++;
+        return new Response("{}", { status: 404 });
+      }
+
+      return new Response(JSON.stringify({ tick: 100, epoch: 1 }), {
+        headers: { "content-type": "application/json" },
+      });
+    },
+  });
+
+  try {
+    const rpc = new LiteRpc(`http://127.0.0.1:${server.port}`);
+    expect(await rpc.hurryToTick(104)).toBe(100);
+    expect(await rpc.hurryToTick(104)).toBe(0); // remembered as missing — never probed again
+    expect(advanceRequests).toBe(1);
+  } finally {
+    server.stop(true);
+  }
+});
+
 test("advance-epoch crosses into the next epoch (qinit epoch advance)", async () => {
   const { rpc, engine, stop } = await bootCounter();
   try {

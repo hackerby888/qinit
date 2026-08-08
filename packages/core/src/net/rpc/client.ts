@@ -39,6 +39,9 @@ function explorerTx(t: Record<string, unknown>): ExplorerTx {
 }
 
 export class LiteRpc implements NodeTransport {
+  // Set once the dev advance route 404s, so hurryToTick stops probing a node that will never have it.
+  private devAdvanceMissing = false;
+
   constructor(private base = DEFAULT_RPC_BASE) {}
 
   // GETs are idempotent reads: a connect/timeout failure is retried (bounded, backoff) so a momentary
@@ -202,6 +205,43 @@ export class LiteRpc implements NodeTransport {
       cappedAtEpochEnd: boolean;
     }>(`/live/v1/dev/advance-tick?n=${n}`);
   }
+  // Testnet-only: pull the chain to `target` rather than wait out its cadence, and answer with the tick
+  // reached (0 when it cannot). Never throws, and refuses spans past maxSpan — those mean a stale read.
+  async hurryToTick(target: number, maxSpan = 16): Promise<number> {
+    if (this.devAdvanceMissing) {
+      return 0;
+    }
+
+    let tick: number;
+    try {
+      tick = (await this.tickInfo()).tick;
+    } catch {
+      return 0;
+    }
+
+    // Two attempts, not a loop: core-lite's fast-forward runs on a time budget and can come up short.
+    for (let attempt = 0; attempt < 2 && tick < target; attempt++) {
+      if (target - tick > maxSpan) {
+        return tick;
+      }
+
+      try {
+        const advanced = await this.advanceTick(target - tick);
+        if (advanced.reached <= tick) {
+          return advanced.reached;
+        }
+
+        tick = advanced.reached;
+      } catch {
+        // Gone for the life of this client, so later calls skip the probe entirely.
+        this.devAdvanceMissing = true;
+        return tick;
+      }
+    }
+
+    return tick;
+  }
+
   /** Testnet-only: advance to epochLastTick - gap (GET /live/v1/dev/advance-to-last?gap), default gap 3. */
   advanceToLast(gap = 3) {
     return this.get<{
