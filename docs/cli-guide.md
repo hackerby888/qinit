@@ -1157,14 +1157,28 @@ setDebug(true)
 2. Converts a procedure's invocator bytes to an identity.
 3. Derives IDL from source when possible.
 4. Decodes registered input and output.
-5. Maps changed byte offsets to state field names.
+5. Resolves each changed byte window to the element it covers (`trace/state-diff.ts`).
 6. Reads and decodes current containers.
 7. Decodes structured logs and enum names.
 8. Leaves raw bytes available when schema derivation fails.
 
-Trace container snapshots remain capped at 256 KiB. A larger container is shown
-as `(incomplete: state exceeds the 256 KiB trace-read limit)` instead of decoding
-a partial prefix as complete state.
+Step 5 is what makes a diff readable. `stateDiffLines()` walks the ABI type from the
+containing field down to the element the bytes belong to, using the geometry helpers
+in [`qpi-layout.ts`](../packages/proto/src/qpi-layout.ts) — so a HashMap write reports
+`map.slot[31].value`, `map._occupationFlags[31]` and `map._population` rather than
+byte offsets. Indexed collections always resolve per element; a struct is reported
+whole when the region covers all of it. Occupation flags and `BitArray` fields report
+the indices that flipped instead of the raw words.
+
+Both node backends report changed bytes as 256-byte aligned windows rather than as
+minimal runs, because a small value written into zeroed state dirties too few bytes to
+decode. Contiguous regions are joined before resolving, so a record split across two
+dirty pages still decodes whole. A region that still does not cover a whole value keeps
+its bytes as hex under the resolved path rather than guessing the rest.
+
+Neither backend caps how much of a call's state changes it reports: the simulator
+snapshots the whole state, and core-lite sizes its dirty-page buffer from the contract's
+state. `stateTruncated` therefore means bytes were genuinely dropped.
 
 The captured `stateDiff` belongs to that invocation. Container contents do not:
 they are fetched from current node state while the detail view is decoded. They

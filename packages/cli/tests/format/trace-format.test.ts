@@ -2,9 +2,7 @@ import { test, expect } from "bun:test";
 import {
   describeTrace,
   readState,
-  fmtDiffVal,
   type StateReader,
-  type StateField,
   type StateContainer,
 } from "../../src/trace/format";
 
@@ -753,25 +751,19 @@ test("describeTrace: LinkedList stays compact and follows logical order", async 
   ]);
 });
 
-test("describeTrace: marks containers larger than the trace-read limit", async () => {
+// A container bigger than one RPC read used to be skipped outright; reads page, so it is decoded now.
+test("describeTrace: a container larger than one read is paged, not skipped", async () => {
   const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { HashMap<uint64, uint64, 32768> values; }; INITIALIZE() {} };`;
   const calls: StateReadCall[] = [];
   const trace = await describeTrace(
     mkEntry({ index: 15 }),
     source,
     "LargeMapTrace",
-    fakeRpc([], calls),
+    fakeRpc(new Uint8Array(532_496), calls),
   );
 
-  expect(calls).toEqual([]);
-  expect(trace.containers).toEqual([
-    {
-      name: "values",
-      entries: [
-        "(incomplete: state exceeds the 256 KiB trace-read limit)",
-      ],
-    },
-  ]);
+  expect(calls.length).toBeGreaterThan(1); // 256 KiB pages, so more than one request
+  expect(trace.containers).toEqual([{ name: "values", entries: [] }]);
 });
 
 test("describeTrace: no StateData -> empty fields/containers, io still decoded, fn caller (none)", async () => {
@@ -787,18 +779,6 @@ test("describeTrace: no StateData -> empty fields/containers, io still decoded, 
   expect(v.inDecoded).toBe('"5"');
   expect(v.outDecoded).toBe('"9"');
   expect(v.caller).toBe("(none)"); // kind 0 (fn) carries no signer
-});
-
-test("fmtDiffVal: integer fields render the LE byte-run as decimal; ids/bytes stay hex", () => {
-  const fields: StateField[] = [
-    { name: "counter", off: 0, size: 8, type: "uint64" },
-    { name: "owner", off: 8, size: 32, type: "id" },
-  ];
-  expect(fmtDiffVal(fields, 0, "64")).toBe("100"); // 0x64 LE -> 100 (the reported bug)
-  expect(fmtDiffVal(fields, 0, "00")).toBe("0");
-  expect(fmtDiffVal(fields, 0, "2c01")).toBe("300"); // multi-byte LE
-  expect(fmtDiffVal(fields, 8, "ab12")).toBe("ab12"); // id field -> hex passthrough
-  expect(fmtDiffVal(fields, 99, "64")).toBe("64"); // unknown offset -> hex (no field type)
 });
 
 test("describeTrace stays compact while readState reports incomplete reads", async () => {

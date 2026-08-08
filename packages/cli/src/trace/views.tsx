@@ -7,8 +7,7 @@ import {
   type DecodedTrace,
   type DecodedState,
   type StateContainer,
-  labelOff,
-  fmtDiffVal,
+  type StateLine,
   sevColor,
   jstr,
 } from "./format";
@@ -18,8 +17,14 @@ const execµs = (ns: number) =>
   ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`;
 
 // indented label -> value row block (the "compact section")
-function Rows({ rows }: { rows: { label: string; node: React.ReactNode }[] }) {
-  const w = Math.max(1, ...rows.map((r) => r.label.length));
+function Rows({
+  rows,
+  width,
+}: {
+  rows: { label: string; node: React.ReactNode }[];
+  width?: number;
+}) {
+  const w = width ?? Math.max(1, ...rows.map((r) => r.label.length));
   return (
     <Box flexDirection="column" marginLeft={2}>
       {rows.map((r, i) => (
@@ -31,31 +36,40 @@ function Rows({ rows }: { rows: { label: string; node: React.ReactNode }[] }) {
   );
 }
 
+// The call's own state changes, one resolved element per row. Container rows below are current node
+// state instead, so the two must not be read as the same thing.
+function StateDiff({ lines, truncated }: { lines: StateLine[]; truncated: boolean }) {
+  const width = Math.max(1, ...lines.map((line) => line.label.length));
+  return (
+    <Box flexDirection="column" marginLeft={2}>
+      <Text>
+        <Text color={theme.info}>state</Text>
+        {lines.length ? null : <Text dimColor> (no change)</Text>}
+        {truncated ? <Text color={theme.warn}> (truncated)</Text> : null}
+      </Text>
+      <Box flexDirection="column" marginLeft={2}>
+        {lines.map((line, index) => (
+          <Text key={index} wrap="wrap" dimColor={!line.filled}>
+            <Text color={line.filled ? theme.accent : undefined} bold={line.filled}>
+              {line.label.padEnd(width)}
+            </Text>{" "}
+            {line.text}
+          </Text>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
 // One decoded contract-call trace, compact. `view` = describeTrace(e, ...).
 export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view: DecodedTrace }) {
-  const rows: { label: string; node: React.ReactNode }[] = [
+  const callRows: { label: string; node: React.ReactNode }[] = [
     { label: "in", node: <Text>{truncEnd(view.inDecoded, termCols() - 8)}</Text> },
     { label: "out", node: <Text>{truncEnd(view.outDecoded, termCols() - 8)}</Text> },
   ];
-  if (e.kind === 1) rows.push({ label: "caller", node: <Text wrap="wrap">{view.caller}</Text> }); // full id — copy-pasteable
-  rows.push({
-    label: "state",
-    node: e.stateDiff.length ? (
-      <Text>
-        {e.stateDiff.slice(0, 12).map((d, i) => (
-          <Text key={i}>
-            {i ? "  " : ""}
-            <Text bold>{labelOff(view.fields, d.off)}</Text>{" "}
-            <Text color={theme.err}>{fmtDiffVal(view.fields, d.off, d.before)}</Text>→
-            <Text color={theme.ok}>{fmtDiffVal(view.fields, d.off, d.after)}</Text>
-          </Text>
-        ))}
-        {e.stateTruncated ? <Text dimColor> (truncated)</Text> : null}
-      </Text>
-    ) : (
-      <Text dimColor>(no change)</Text>
-    ),
-  });
+  if (e.kind === 1) callRows.push({ label: "caller", node: <Text wrap="wrap">{view.caller}</Text> }); // full id — copy-pasteable
+
+  const rows: { label: string; node: React.ReactNode }[] = [];
   for (const container of view.containers)
     rows.push({
       label: container.name,
@@ -102,6 +116,9 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
         </Text>
       ),
     });
+  // One label column across both blocks, so the state block does not sit at its own indent.
+  const width = Math.max(5, ...[...callRows, ...rows].map((row) => row.label.length));
+
   return (
     <Box flexDirection="column">
       <Status
@@ -110,7 +127,9 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
         detail={`${execµs(e.execNs)} · tick ${e.tick}`}
         pad={Math.max(14, name.length + 8)}
       />
-      <Rows rows={rows} />
+      <Rows rows={callRows} width={width} />
+      <StateDiff lines={view.stateDiff} truncated={e.stateTruncated} />
+      <Rows rows={rows} width={width} />
     </Box>
   );
 }

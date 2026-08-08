@@ -14,6 +14,7 @@ import {
   type ContractIdl,
 } from "@qinit/proto/contract-idl";
 import { extractIdl } from "@qinit/build";
+import { stateDiffLines } from "./state-diff";
 import {
   bytesToIdentity,
   hexToBytes,
@@ -191,7 +192,7 @@ function linkedListValueLines(
   );
 }
 
-function formatStateValue(
+export function formatStateValue(
   value: unknown,
   type: AbiType,
   full: boolean,
@@ -423,48 +424,6 @@ export function stateFieldsOf(idl: Pick<ContractIdl, "state">): StateField[] {
   }));
 }
 
-export function labelOff(fields: StateField[], offset: number): string {
-  const field = fields.find(
-    (candidate) =>
-      offset >= candidate.off && offset < candidate.off + candidate.size,
-  );
-  return field
-    ? field.name + (offset > field.off ? "+" + (offset - field.off) : "")
-    : "@" + offset;
-}
-
-const isIntType = (type: string) =>
-  /^(uint|sint)(8|16|32|64)$/.test(type) || type === "bit";
-
-export function fmtDiffVal(
-  fields: StateField[],
-  offset: number,
-  hex: string,
-): string {
-  const field = fields.find(
-    (candidate) =>
-      offset >= candidate.off && offset < candidate.off + candidate.size,
-  );
-  const type =
-    field?.abi?.kind === AbiTypeKind.SCALAR ? field.abi.scalar : field?.type;
-  if (
-    !field ||
-    !type ||
-    !isIntType(type) ||
-    !/^[0-9a-fA-F]+$/.test(hex)
-  ) {
-    return hex;
-  }
-
-  let value = 0n;
-  for (let i = 0; i + 1 < hex.length; i += 2) {
-    value |=
-      BigInt(parseInt(hex.slice(i, i + 2), 16)) << BigInt((i / 2) * 8);
-  }
-
-  return value.toString();
-}
-
 export function enumMap(idl: Pick<ContractIdl, "enums">): Record<string, string> {
   const names: Record<string, string> = {};
 
@@ -599,16 +558,6 @@ export async function readStateContainers(
       continue;
     }
 
-    if (field.size > MAX_STATE_READ) {
-      containers.push({
-        name: field.name,
-        entries: [
-          "(incomplete: state exceeds the 256 KiB trace-read limit)",
-        ],
-      });
-      continue;
-    }
-
     try {
       const bytes = await readAllBytes(
         stateByteSource(rpc, contractIndex, field),
@@ -707,6 +656,7 @@ export interface DecodedTrace {
   outDecoded: string;
   caller: string;
   fields: StateField[];
+  stateDiff: StateLine[];
   containers: DecodedStateContainer[];
   logs: DecodedLog[];
 }
@@ -731,6 +681,7 @@ export async function describeTrace(
   }
 
   let fields: StateField[] = [];
+  let stateDiff: StateLine[] = [];
   let containers: DecodedStateContainer[] = [];
   let logs: DecodedLog[] = [];
 
@@ -757,6 +708,7 @@ export async function describeTrace(
       }
 
       fields = stateFieldsOf(idl);
+      stateDiff = await stateDiffLines(fields, entry.stateDiff);
       containers = await readStateContainers(rpc, entry.index, fields);
       const enumNames = enumMap(idl);
 
@@ -777,6 +729,7 @@ export async function describeTrace(
     outDecoded: output,
     caller,
     fields,
+    stateDiff,
     containers,
     logs,
   };

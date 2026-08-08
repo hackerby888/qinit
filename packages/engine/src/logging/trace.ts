@@ -2,30 +2,38 @@
 import { toHex } from "../support/k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
 
-export const TRACE_STATE_CAP = 256 * 1024; // bound the per-entry state scan (node caps too)
-export const TRACE_ENTRY_CAP = 4096; // ring-buffer the entries so a long session can't grow unbounded
+export const TRACE_ENTRY_CAP = 256; // ring-buffer the entries so a long session can't grow unbounded
+// Changed bytes alone rarely spell a whole value — writing 3870 into a zeroed uint64 dirties two bytes.
+// Reporting the window around them lets the reader decode the element those bytes belong to.
+export const DIFF_WINDOW = 256;
 
-// Contiguous changed-byte runs between two equal-length state snapshots -> DebugStateRegion[].
+// Aligned windows covering every changed byte between two state snapshots -> DebugStateRegion[].
 export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRegion[] {
-  const out: DebugStateRegion[] = [];
-  const n = Math.min(before.length, after.length);
-  let i = 0;
-  while (i < n) {
-    if (before[i] === after[i]) {
-      i++;
+  const length = Math.min(before.length, after.length);
+  const windows: { start: number; end: number }[] = [];
+
+  for (let index = 0; index < length; index++) {
+    if (before[index] === after[index]) {
       continue;
     }
-    const start = i;
-    while (i < n && before[i] !== after[i]) {
-      i++;
+
+    const start = index - (index % DIFF_WINDOW);
+    const end = Math.min(start + DIFF_WINDOW, length);
+    const last = windows[windows.length - 1];
+    if (last?.end === start) {
+      last.end = end;
+    } else if (!last || last.end < start) {
+      windows.push({ start, end });
     }
-    out.push({
-      off: start,
-      before: toHex(before.slice(start, i)),
-      after: toHex(after.slice(start, i)),
-    });
+
+    index = end - 1; // the rest of this window is already covered
   }
-  return out;
+
+  return windows.map((window) => ({
+    off: window.start,
+    before: toHex(before.slice(window.start, window.end)),
+    after: toHex(after.slice(window.start, window.end)),
+  }));
 }
 
 export interface TraceBeginMetadata {
@@ -92,7 +100,8 @@ export class TraceRecorder {
       inSize: metadata.input.length,
       outSize: 0,
       stateSize,
-      stateTruncated: stateSize > TRACE_STATE_CAP,
+      // Snapshots are whole-state, so this only fires if one came up short.
+      stateTruncated: metadata.stateBefore.length < stateSize,
       invocator: metadata.invocator
         ? toHex(metadata.invocator.subarray(0, 32))
         : "0".repeat(64),
@@ -122,14 +131,9 @@ export class TraceRecorder {
     if (metadata.trap) {
       entry.trap = metadata.trap;
     }
-    const cap = Math.min(
-      metadata.stateBefore.length,
-      metadata.stateAfter.length,
-      TRACE_STATE_CAP,
-    );
     entry.stateDiff = diffRegions(
-      metadata.stateBefore.subarray(0, cap),
-      metadata.stateAfter.subarray(0, cap),
+      metadata.stateBefore,
+      metadata.stateAfter,
     );
 
     this.stack.pop();

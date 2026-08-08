@@ -4,7 +4,7 @@ import {
 } from "@qinit/core";
 import { k12Bytes, toHex } from "../support/k12";
 import { bytesEqual } from "../support/bytes";
-import { TRACE_STATE_CAP, type TraceRecorder } from "../logging/trace";
+import { type TraceRecorder } from "../logging/trace";
 import { QpiContext } from "./abi";
 import { EntityRecord, M256i } from "../protocol/wire";
 import { validateContractIndexSignature } from "./wasm-contract-index";
@@ -621,7 +621,7 @@ export class Contract {
 
     const recorder = this.trace?.enabled ? this.trace : null;
     const wantState = metering || recorder != null;
-    const snapshotLimit = metering ? this.stateSize : TRACE_STATE_CAP;
+    const snapshotLimit = this.stateSize;
     const stateBefore = wantState ? this.stateSnapshot(snapshotLimit) : EMPTY;
     const traceEntry = recorder
       ? recorder.begin({
@@ -722,7 +722,7 @@ export class Contract {
     this.arenaTop = this.arenaStart;
     const recorder = this.trace?.enabled ? this.trace : null;
     const stateBefore = recorder
-      ? this.stateSnapshot(TRACE_STATE_CAP)
+      ? this.stateSnapshot(this.stateSize)
       : EMPTY;
     const traceEntry = recorder
       ? recorder.begin({
@@ -750,7 +750,7 @@ export class Contract {
       );
     } catch (error) {
       const stateAfter = recorder
-        ? this.stateSnapshot(TRACE_STATE_CAP)
+        ? this.stateSnapshot(this.stateSize)
         : EMPTY;
       recorder?.end(traceEntry, {
         output: EMPTY,
@@ -778,7 +778,7 @@ export class Contract {
         output: EMPTY,
         ok: true,
         stateBefore,
-        stateAfter: this.stateSnapshot(TRACE_STATE_CAP),
+        stateAfter: this.stateSnapshot(this.stateSize),
         execNs: (performance.now() - startedAt) * 1e6,
       });
     }
