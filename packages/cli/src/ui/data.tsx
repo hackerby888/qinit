@@ -120,7 +120,9 @@ export function Sparkline({ rows, width = 16 }: { rows: SparkRow[]; width?: numb
 export interface Column {
   header: string;
   align?: "left" | "right";
-  color?: string;
+  // A function is asked per row, and its answer outranks `rowColor` — a column that colors itself row by
+  // row is the more specific signal.
+  color?: string | ((rowIndex: number) => string | undefined);
   dim?: boolean;
   max?: number;
 }
@@ -211,16 +213,22 @@ export function Table({
     const color = rowColor?.(index);
     return (
       <Box>
-        {columns.map((column, columnIndex) => (
-          <Text
-            key={columnIndex}
-            dimColor={column.dim && !color}
-            color={color ?? column.color}
-          >
-            {cell(row[columnIndex] ?? "", columnIndex)}
-            {columnIndex < columns.length - 1 ? spacing : ""}
-          </Text>
-        ))}
+        {columns.map((column, columnIndex) => {
+          const perRowColor =
+            typeof column.color === "function" ? column.color(index) : undefined;
+          const staticColor = typeof column.color === "string" ? column.color : undefined;
+
+          return (
+            <Text
+              key={columnIndex}
+              dimColor={column.dim && !color}
+              color={perRowColor ?? color ?? staticColor}
+            >
+              {cell(row[columnIndex] ?? "", columnIndex)}
+              {columnIndex < columns.length - 1 ? spacing : ""}
+            </Text>
+          );
+        })}
       </Box>
     );
   };

@@ -580,6 +580,11 @@ export class QubicSimulator {
     return this.registry.dirty;
   }
 
+  // How far back finalized ticks are still kept. Anything older has been pruned and reads as an empty tick.
+  get tickHistoryDepth(): number {
+    return this.historyTicks;
+  }
+
   contractId(slot: number): Uint8Array {
     const id = ContractId.alloc();
     id.lane0 = BigInt(slot);

@@ -79,7 +79,7 @@ test("/explorer/data reports the header, recent ticks, mempool, and spectrum", a
       data.header.tick - data.header.initialTick,
     );
     expect(data.recentTicks.length).toBeGreaterThan(0);
-    expect(data.recentTicks.length).toBeLessThanOrEqual(20);
+    expect(data.recentTicks.length).toBeLessThanOrEqual(200);
     // Every recent tick names its leader as a 60-char identity.
     for (const t of data.recentTicks) expect(t.leader).toMatch(/^[A-Z]{60}$/);
     expect(typeof data.mempool.totalPending).toBe("number");

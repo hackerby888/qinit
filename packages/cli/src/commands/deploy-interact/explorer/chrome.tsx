@@ -31,6 +31,12 @@ export const fmtTime = (timestamp: string): string => {
   return new Date(seconds * 1000).toISOString().replace("T", " ").slice(0, 19);
 };
 
+// Every row of a live list is from the same day, so only the clock part of the stamp earns its width.
+export const fmtClock = (timestamp: string): string => {
+  const full = fmtTime(timestamp);
+  return full.length === 19 ? full.slice(11) : full;
+};
+
 // Amounts arrive as decimal strings and can exceed 2^53 — group digits without ever widening to Number.
 export const fmtAmount = (amount: string): string => {
   const negative = amount.startsWith("-");

@@ -80,6 +80,9 @@ interface StoredRawTransaction {
 const MAX_WASM_MODULE_SIZE = 4 * 1024 * 1024;
 const DEPLOY_HEADER_SIZE = DeployMessage.SIZE - 32;
 
+// Ticks the explorer payload reaches back over — enough to fill a tall terminal, which windows the rest.
+const RECENT_TICK_COUNT = 200;
+
 export interface VirtualNodeOptions {
   slotBase?: number;
   slotCount?: number;
@@ -1033,8 +1036,11 @@ export class VirtualNode implements NodeTransport {
     const pending = this.sim.mempoolCounts();
     const spectrum = this.sim.spectrumInfo();
 
+    // Never reach past the retained history: a pruned tick has no record left and would be reported as an
+    // empty tick rather than as one the node no longer remembers.
+    const reach = Math.min(RECENT_TICK_COUNT, this.sim.tickHistoryDepth);
     const recentTicks: ExplorerData["recentTicks"] = [];
-    for (let t = Math.max(initialTick, tick - 19); t <= tick; t++) {
+    for (let t = Math.max(initialTick, tick - reach + 1); t <= tick; t++) {
       const txCount = this.sim.tickTransactions(t).length;
       const leader = committee.computors[t % committee.size];
       recentTicks.push({
