@@ -5,7 +5,12 @@ import {
   fmtDiffVal,
   type StateReader,
   type StateField,
+  type StateContainer,
 } from "../../src/trace/format";
+
+// A block's rows in the one-line form, for assertions where the label/text split adds nothing.
+const flatLines = (container: StateContainer) =>
+  container.lines.map((line) => `${line.label} ${line.text}`);
 
 // LE bytes / hex helpers
 const le = (n: bigint | number, w: number) => {
@@ -125,7 +130,7 @@ test("readState: scalar fields decoded + container entries", async () => {
   expect(state.complete).toBe(true);
   expect(state.containers).toHaveLength(1);
   expect(state.containers[0].name).toBe("bal");
-  expect(state.containers[0].entries[0]).toContain("42");
+  expect(state.containers[0].lines[0].text).toContain("42");
 });
 
 test("readState: rejects a short field-scoped RPC read", async () => {
@@ -163,11 +168,20 @@ test("readState: reads a complete sparse array across the 256 KiB boundary", asy
     (field, completed, total) => progress.push([field, completed, total]),
   );
 
-  expect(state.fields).toEqual([
+  expect(state.fields).toEqual([]); // an Array is a block of its own, not a scalar row
+  expect(state.containers).toEqual([
     {
       name: "values",
-      value:
-        "[0]=0 (skipped), [1]=7, [2..32767]=0 ×32766 (skipped), [32768]=9",
+      kind: "array",
+      capacity: 32769,
+      occupiedSlots: 2,
+      totalEntries: 2,
+      lines: [
+        { label: "[0]", text: "=0 (skipped)", filled: false },
+        { label: "[1]", text: "7", filled: true },
+        { label: "[2..32767]", text: "=0 ×32766 (skipped)", filled: false },
+        { label: "[32768]", text: "9", filled: true },
+      ],
     },
   ]);
   expect(state.complete).toBe(true);
@@ -182,7 +196,7 @@ test("readState: reads a complete sparse array across the 256 KiB boundary", asy
   ]);
 });
 
-test("readState: preserves an empty array as [] without an RPC read", async () => {
+test("readState: preserves an empty array as an empty block without an RPC read", async () => {
   const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { uint64 values[0]; }; INITIALIZE() {} };`;
   const calls: StateReadCall[] = [];
   const state = await readState(
@@ -193,7 +207,17 @@ test("readState: preserves an empty array as [] without an RPC read", async () =
   );
 
   expect(calls).toEqual([]);
-  expect(state.fields).toEqual([{ name: "values", value: "[]" }]);
+  expect(state.fields).toEqual([]);
+  expect(state.containers).toEqual([
+    {
+      name: "values",
+      kind: "array",
+      capacity: 0,
+      occupiedSlots: 0,
+      totalEntries: 0,
+      lines: [],
+    },
+  ]);
   expect(state.complete).toBe(true);
 });
 
@@ -260,7 +284,7 @@ test("readState: nested BitArray keeps one-field struct boundaries", async () =>
     {
       name: "nested",
       value:
-        "[[0..62]=0 ×63 (skipped), [63]=1, [64..127]=0 ×64 (skipped)]",
+        "{value: [0..62]=0 ×63 (skipped), [63]=1, [64..127]=0 ×64 (skipped)}",
     },
   ]);
 });
@@ -285,8 +309,27 @@ test("readState: an empty HashMap only reads population", async () => {
       capacity: 8,
       occupiedSlots: 0,
       totalEntries: 0,
-      entries: ["slots[0..7] (unoccupied ×8; skipped)"],
+      lines: [
+        { label: "slots[0..7]", text: "(unoccupied ×8; skipped)", filled: false },
+      ],
     },
+  ]);
+});
+
+test("readState: blocks keep the order their fields are declared in", async () => {
+  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { uint64 first[2]; HashMap<uint64, uint64, 8> middle; uint64 last[2]; uint64 count; }; INITIALIZE() {} };`;
+  const state = await readState(
+    fakeRpc(new Uint8Array(216)),
+    3,
+    source,
+    "Mixed",
+  );
+
+  expect(state.fields.map((field) => field.name)).toEqual(["count"]);
+  expect(state.containers.map((container) => container.name)).toEqual([
+    "first",
+    "middle",
+    "last",
   ]);
 });
 
@@ -340,13 +383,14 @@ test("readState: a sparse HashMap fetches only occupied record ranges", async ()
       capacity: 8,
       occupiedSlots: 3,
       totalEntries: 3,
-      entries: [
-        "slot[0] (unoccupied ×1; skipped)",
-        "slot[1] \"11\" = 101",
-        "slot[2] \"22\" = 202",
-        "slots[3..5] (unoccupied ×3; skipped)",
-        "slot[6] \"66\" = 606",
-        "slot[7] (unoccupied ×1; skipped)",
+      // `filled` is what the view highlights, so an occupied slot and a skipped range must never share it.
+      lines: [
+        { label: "slot[0]", text: "(unoccupied ×1; skipped)", filled: false },
+        { label: "slot[1]", text: "\"11\" = 101", filled: true },
+        { label: "slot[2]", text: "\"22\" = 202", filled: true },
+        { label: "slots[3..5]", text: "(unoccupied ×3; skipped)", filled: false },
+        { label: "slot[6]", text: "\"66\" = 606", filled: true },
+        { label: "slot[7]", text: "(unoccupied ×1; skipped)", filled: false },
       ],
     },
   ]);
@@ -373,7 +417,7 @@ test("readState: BitArray values inside HashMap use logical bit ranges", async (
     { slot: 6, off: 96, len: 8 },
     { slot: 6, off: 48, len: 24 },
   ]);
-  expect(state.containers[0].entries).toEqual([
+  expect(flatLines(state.containers[0])).toEqual([
     "slots[0..1] (unoccupied ×2; skipped)",
     "slot[2] \"7\" = [0..62]=0 ×63 (skipped), [63]=1, [64..127]=0 ×64 (skipped)",
     "slot[3] (unoccupied ×1; skipped)",
@@ -395,9 +439,9 @@ test("readState: one-field struct values inside HashMap keep their boundary", as
     "MapStructs",
   );
 
-  expect(state.containers[0].entries).toEqual([
+  expect(flatLines(state.containers[0])).toEqual([
     "slots[0..1] (unoccupied ×2; skipped)",
-    "slot[2] \"7\" = [9]",
+    "slot[2] \"7\" = {number: 9}",
     "slot[3] (unoccupied ×1; skipped)",
   ]);
 });
@@ -429,7 +473,7 @@ test("readState: LinkedList values inside HashMap stay semantic", async () => {
     { slot: 7, off: 608, len: 8 },
     { slot: 7, off: 152, len: 152 },
   ]);
-  expect(state.containers[0].entries).toEqual([
+  expect(flatLines(state.containers[0])).toEqual([
     "slot[0] (unoccupied ×1; skipped)",
     "slot[1] \"5\" = item[0] slot[2] = 9, slots[0..1] (unoccupied ×2; skipped), slot[3] (unoccupied ×1; skipped)",
     "slots[2..3] (unoccupied ×2; skipped)",
@@ -477,7 +521,9 @@ test("readState: an empty LinkedList only reads population", async () => {
       capacity: 8,
       occupiedSlots: 0,
       totalEntries: 0,
-      entries: ["slots[0..7] (unoccupied ×8; skipped)"],
+      lines: [
+        { label: "slots[0..7]", text: "(unoccupied ×8; skipped)", filled: false },
+      ],
     },
   ]);
 });
@@ -506,13 +552,13 @@ test("readState: LinkedList reads occupied nodes and renders logical order", asy
       capacity: 8,
       occupiedSlots: 3,
       totalEntries: 3,
-      entries: [
-        "item[0] slot[6] = 66",
-        "item[1] slot[1] = 11",
-        "item[2] slot[2] = 22",
-        "slot[0] (unoccupied ×1; skipped)",
-        "slots[3..5] (unoccupied ×3; skipped)",
-        "slot[7] (unoccupied ×1; skipped)",
+      lines: [
+        { label: "item[0] slot[6]", text: "= 66", filled: true },
+        { label: "item[1] slot[1]", text: "= 11", filled: true },
+        { label: "item[2] slot[2]", text: "= 22", filled: true },
+        { label: "slot[0]", text: "(unoccupied ×1; skipped)", filled: false },
+        { label: "slots[3..5]", text: "(unoccupied ×3; skipped)", filled: false },
+        { label: "slot[7]", text: "(unoccupied ×1; skipped)", filled: false },
       ],
     },
   ]);
@@ -548,7 +594,7 @@ test("readState: LinkedList retries a transient topology change", async () => {
     { slot: 12, off: 232, len: 8 },
     { slot: 12, off: 192, len: 8 },
   ]);
-  expect(state.containers[0].entries[0]).toBe("item[0] slot[0] = 9");
+  expect(flatLines(state.containers[0])[0]).toBe("item[0] slot[0] = 9");
 });
 
 test("readState: persistent LinkedList topology changes are incomplete", async () => {
@@ -612,8 +658,8 @@ test("readState: a sparse Collection fetches occupied PoVs and live elements", a
     occupiedSlots: 1,
     totalEntries: 1,
   });
-  expect(state.containers[0].entries).toHaveLength(3);
-  expect(state.containers[0].entries[1]).toContain(": 7 (p3)");
+  expect(state.containers[0].lines).toHaveLength(3);
+  expect(state.containers[0].lines[1].text).toContain(": 7 (p3)");
 });
 
 // signed i64 LE (for collection BST indices)
@@ -775,7 +821,7 @@ test("describeTrace stays compact while readState reports incomplete reads", asy
       capacity: 4,
       occupiedSlots: 0,
       totalEntries: 0,
-      entries: [],
+      lines: [],
       error: "rpc down",
     },
   ]);

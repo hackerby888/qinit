@@ -56,10 +56,17 @@ export type StateField = {
 export type DecodedStateContainer = {
   name: string;
   entries: string[];
-  kind?: StateContainerLayout["kind"];
-  capacity?: number;
-  occupiedSlots?: number;
-  totalEntries?: number;
+};
+// One rendered row of a state block. The label is the bracket token the view highlights, and `filled`
+// separates an occupied slot from a skipped range.
+export type StateLine = { label: string; text: string; filled: boolean };
+export type StateContainer = {
+  name: string;
+  kind: StateContainerLayout["kind"] | "array";
+  capacity: number;
+  occupiedSlots: number;
+  totalEntries: number;
+  lines: StateLine[];
   error?: string;
 };
 export type StateReader = {
@@ -162,16 +169,20 @@ function formatBits(
   return limitedParts(parts, full).join(", ");
 }
 
+// A block row collapsed back to the one-line form the trace views and nested container values use.
+const flatLine = (line: StateLine) => `${line.label} ${line.text}`;
+
 function linkedListValueLines(
   value: { slot: number; value: unknown }[],
   valueType: AbiType,
   capacity: number,
   full: boolean,
-): string[] {
-  const logical = value.map(
-    (entry, index) =>
-      `item[${index}] slot[${entry.slot}] = ${formatStateValue(entry.value, valueType, full)}`,
-  );
+): StateLine[] {
+  const logical = value.map((entry, index) => ({
+    label: `item[${index}] slot[${entry.slot}]`,
+    text: `= ${formatStateValue(entry.value, valueType, full)}`,
+    filled: true,
+  }));
   return logical.concat(
     unoccupiedSlotLines(
       capacity,
@@ -200,27 +211,31 @@ function formatStateValue(
           type.value,
           type.capacity,
           full,
-        ),
+        ).map(flatLine),
         full,
       ).join(", ");
     case AbiTypeKind.STRUCT: {
       if (!type.fields.length) {
-        return "[]";
+        return "{}";
       }
       const values = topLevel && type.fields.length === 1
         ? [value]
         : Array.isArray(value)
           ? value
           : [];
+      const rawParts = type.fields.map((field, index) =>
+        formatStateValue(values[index], field.type, full, false),
+      );
+      // A one-field struct read as a whole field is its value, so it keeps the bare form.
+      if (topLevel && type.fields.length === 1) {
+        return rawParts[0];
+      }
+
       const parts = limitedParts(
-        type.fields.map((field, index) =>
-          formatStateValue(values[index], field.type, full, false),
-        ),
+        type.fields.map((field, index) => `${field.name || index}: ${rawParts[index]}`),
         full,
       );
-      return topLevel && type.fields.length === 1
-        ? parts[0]
-        : `[${parts.join(", ")}]`;
+      return `{${parts.join(", ")}}`;
     }
     case AbiTypeKind.ARRAY: {
       const values = Array.isArray(value) ? value : [];
@@ -302,34 +317,39 @@ async function readAllBytes(source: QpiByteSource): Promise<Uint8Array> {
   return bytes;
 }
 
+function gapLine(start: number, end: number, collection = false): StateLine {
+  const count = end - start + 1;
+  const noun = collection ? "PoV slots" : "slots";
+  const label = start === end
+    ? `${noun.slice(0, -1)}[${start}]`
+    : `${noun}[${start}..${end}]`;
+  return { label, text: `(unoccupied ×${count}; skipped)`, filled: false };
+}
+
 function containerLines(
   capacity: number,
   entries: { slot: number; text: string }[],
   collection = false,
-): string[] {
-  const lines: string[] = [];
+): StateLine[] {
+  const lines: StateLine[] = [];
   const slots = [...new Set(entries.map((entry) => entry.slot))];
   let nextSlot = 0;
   let entryIndex = 0;
 
   const addGap = (start: number, end: number) => {
-    if (end < start) {
-      return;
+    if (end >= start) {
+      lines.push(gapLine(start, end, collection));
     }
-    const count = end - start + 1;
-    const noun = collection ? "PoV slots" : "slots";
-    const label = start === end
-      ? `${noun.slice(0, -1)}[${start}]`
-      : `${noun}[${start}..${end}]`;
-    lines.push(`${label} (unoccupied ×${count}; skipped)`);
   };
 
   for (const slot of slots) {
     addGap(nextSlot, slot - 1);
     while (entries[entryIndex]?.slot === slot) {
-      lines.push(
-        `${collection ? "PoV" : "slot"}[${slot}] ${entries[entryIndex].text}`,
-      );
+      lines.push({
+        label: `${collection ? "PoV" : "slot"}[${slot}]`,
+        text: entries[entryIndex].text,
+        filled: true,
+      });
       entryIndex++;
     }
     nextSlot = slot + 1;
@@ -341,20 +361,15 @@ function containerLines(
 function unoccupiedSlotLines(
   capacity: number,
   occupied: number[],
-): string[] {
-  const lines: string[] = [];
+): StateLine[] {
+  const lines: StateLine[] = [];
   const slots = [...new Set(occupied)].sort((left, right) => left - right);
   let nextSlot = 0;
 
   const addGap = (start: number, end: number) => {
-    if (end < start) {
-      return;
+    if (end >= start) {
+      lines.push(gapLine(start, end));
     }
-    const count = end - start + 1;
-    const label = start === end
-      ? `slot[${start}]`
-      : `slots[${start}..${end}]`;
-    lines.push(`${label} (unoccupied ×${count}; skipped)`);
   };
 
   for (const slot of slots) {
@@ -470,7 +485,7 @@ export function enumMap(idl: Pick<ContractIdl, "enums">): Record<string, string>
 
 type FormattedContainerView = {
   traceEntries: string[];
-  stateEntries: string[];
+  stateLines: StateLine[];
   occupiedSlots: number;
   totalEntries: number;
 };
@@ -509,7 +524,7 @@ async function formatContainerView(
       }));
       return {
         traceEntries: formatted.map((entry) => entry.text),
-        stateEntries: containerLines(container.capacity, formatted),
+        stateLines: containerLines(container.capacity, formatted),
         occupiedSlots: entries.length,
         totalEntries: entries.length,
       };
@@ -525,7 +540,7 @@ async function formatContainerView(
       }));
       return {
         traceEntries: formatted.map((entry) => entry.text),
-        stateEntries: containerLines(container.capacity, formatted),
+        stateLines: containerLines(container.capacity, formatted),
         occupiedSlots: entries.length,
         totalEntries: entries.length,
       };
@@ -541,7 +556,7 @@ async function formatContainerView(
       }));
       return {
         traceEntries: formatted.map((entry) => entry.text),
-        stateEntries: containerLines(container.capacity, formatted, true),
+        stateLines: containerLines(container.capacity, formatted, true),
         occupiedSlots: new Set(entries.map((entry) => entry.povSlot)).size,
         totalEntries: entries.length,
       };
@@ -556,7 +571,7 @@ async function formatContainerView(
           (entry, index) =>
             `item[${index}] slot[${entry.slot}] = ${formatStateValue(entry.value, container.value, full)}`,
         ),
-        stateEntries: linkedListValueLines(
+        stateLines: linkedListValueLines(
           entries,
           container.value,
           container.capacity,
@@ -624,61 +639,48 @@ export async function readStateContainers(
   return containers;
 }
 
-async function readCompleteStateContainers(
+async function readContainerBlock(
   rpc: StateReader,
   contractIndex: number,
-  fields: StateField[],
-  onProgress?: StateReadProgress,
-): Promise<DecodedStateContainer[]> {
-  const containers: DecodedStateContainer[] = [];
+  field: StateField,
+  container: StateContainerLayout,
+): Promise<StateContainer> {
+  const head = {
+    name: field.name,
+    kind: container.kind,
+    capacity: container.capacity,
+  };
+  let lastError: unknown;
 
-  for (const field of fields) {
-    const container = field.container;
-    if (!container) {
-      continue;
-    }
-
-    onProgress?.(field.name, 0, field.size);
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const formatted = await formatContainerView(
-          field,
-          stateByteSource(rpc, contractIndex, field),
-          true,
-        );
-        containers.push({
-          name: field.name,
-          kind: container.kind,
-          capacity: container.capacity,
-          occupiedSlots: formatted.occupiedSlots,
-          totalEntries: formatted.totalEntries,
-          entries: formatted.stateEntries,
-        });
-        onProgress?.(field.name, field.size, field.size);
-        break;
-      } catch (error) {
-        if (
-          error instanceof QpiContainerConsistencyError &&
-          attempt === 0
-        ) {
-          continue;
-        }
-        containers.push({
-          name: field.name,
-          kind: container.kind,
-          capacity: container.capacity,
-          occupiedSlots: 0,
-          totalEntries: 0,
-          entries: [],
-          error: stateReadError(error),
-        });
-        onProgress?.(field.name, field.size, field.size);
+  // Separate range reads can span a state update, so one inconsistent view is retried before failing.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const formatted = await formatContainerView(
+        field,
+        stateByteSource(rpc, contractIndex, field),
+        true,
+      );
+      return {
+        ...head,
+        occupiedSlots: formatted.occupiedSlots,
+        totalEntries: formatted.totalEntries,
+        lines: formatted.stateLines,
+      };
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof QpiContainerConsistencyError)) {
         break;
       }
     }
   }
 
-  return containers;
+  return {
+    ...head,
+    occupiedSlots: 0,
+    totalEntries: 0,
+    lines: [],
+    error: stateReadError(lastError),
+  };
 }
 
 export const sevColor = (severity: string) =>
@@ -782,24 +784,26 @@ export async function describeTrace(
 
 export interface DecodedState {
   fields: { name: string; value: string }[];
-  containers: DecodedStateContainer[];
+  containers: StateContainer[];
   complete: boolean;
 }
 
-async function readArrayView(
+// An Array field reads as its own block: one row per set element, zero runs collapsed into a skipped row.
+async function readArrayBlock(
   field: StateField,
   type: Extract<AbiType, { kind: AbiTypeKind.ARRAY }>,
   source: QpiByteSource,
-): Promise<string> {
+): Promise<{ lines: StateLine[]; setCount: number }> {
   if (!type.count) {
-    return "[]";
+    return { lines: [], setCount: 0 };
   }
   const view = createQpiContainerView(type, source);
   if (view.kind !== AbiTypeKind.ARRAY) {
     throw new Error(`${field.name} is not an Array`);
   }
 
-  const parts: string[] = [];
+  const lines: StateLine[] = [];
+  let setCount = 0;
   let zeroStart: number | undefined;
 
   const flushZeros = (end: number) => {
@@ -807,12 +811,11 @@ async function readArrayView(
       return;
     }
     const count = end - zeroStart + 1;
-    const range = zeroStart === end
-      ? `[${zeroStart}]`
-      : `[${zeroStart}..${end}]`;
-    parts.push(
-      `${range}=0${count > 1 ? ` ×${count}` : ""} (skipped)`,
-    );
+    lines.push({
+      label: zeroStart === end ? `[${zeroStart}]` : `[${zeroStart}..${end}]`,
+      text: `=0${count > 1 ? ` ×${count}` : ""} (skipped)`,
+      filled: false,
+    });
     zeroStart = undefined;
   };
 
@@ -823,13 +826,16 @@ async function readArrayView(
     }
 
     flushZeros(entry.index - 1);
-    parts.push(
-      `[${entry.index}]=${formatStateValue(entry.value, type.element, true)}`,
-    );
+    lines.push({
+      label: `[${entry.index}]`,
+      text: formatStateValue(entry.value, type.element, true),
+      filled: true,
+    });
+    setCount++;
   }
 
   flushZeros(type.count - 1);
-  return parts.join(", ");
+  return { lines, setCount };
 }
 
 async function readBitArrayView(
@@ -863,7 +869,9 @@ export async function readState(
   });
   const fields = stateFieldsOf(idl);
   const decodedFields: { name: string; value: string }[] = [];
+  const containers: StateContainer[] = [];
 
+  // One pass, so the blocks below the scalar rows keep the order the fields are declared in.
   for (const field of fields) {
     if (field.bad) {
       decodedFields.push({
@@ -872,12 +880,17 @@ export async function readState(
       });
       continue;
     }
+
+    onProgress?.(field.name, 0, field.size);
     if (field.container) {
+      containers.push(
+        await readContainerBlock(rpc, contractIndex, field, field.container),
+      );
+      onProgress?.(field.name, field.size, field.size);
       continue;
     }
 
     try {
-      onProgress?.(field.name, 0, field.size);
       const byteSource = stateByteSource(
         rpc,
         contractIndex,
@@ -897,13 +910,18 @@ export async function readState(
         continue;
       }
       if (field.abi?.kind === AbiTypeKind.ARRAY) {
-        decodedFields.push({
+        const { lines, setCount } = await readArrayBlock(
+          field,
+          field.abi,
+          byteSource,
+        );
+        containers.push({
           name: field.name,
-          value: await readArrayView(
-            field,
-            field.abi,
-            byteSource,
-          ),
+          kind: "array",
+          capacity: field.abi.count,
+          occupiedSlots: setCount,
+          totalEntries: setCount,
+          lines,
         });
         continue;
       }
@@ -922,19 +940,26 @@ export async function readState(
             : String(decoded),
       });
     } catch (error) {
+      // An Array reports its failure as a block so it is not mistaken for a complete read.
+      if (field.abi?.kind === AbiTypeKind.ARRAY) {
+        containers.push({
+          name: field.name,
+          kind: "array",
+          capacity: field.abi.count,
+          occupiedSlots: 0,
+          totalEntries: 0,
+          lines: [],
+          error: stateReadError(error),
+        });
+        continue;
+      }
+
       decodedFields.push({
         name: field.name,
         value: `(read failed: ${stateReadError(error)})`,
       });
     }
   }
-
-  const containers = await readCompleteStateContainers(
-    rpc,
-    contractIndex,
-    fields,
-    onProgress,
-  );
 
   return {
     fields: decodedFields,

@@ -6,6 +6,7 @@ import { Status, theme, truncEnd, truncMid, termCols } from "../ui";
 import {
   type DecodedTrace,
   type DecodedState,
+  type StateContainer,
   labelOff,
   fmtDiffVal,
   sevColor,
@@ -114,6 +115,26 @@ export function TraceView({ e, name, view }: { e: DebugEntry; name: string; view
   );
 }
 
+// An Array counts set elements; every other container counts occupied slots.
+function containerDetail(container: StateContainer): string {
+  if (container.error) {
+    return "read failed";
+  }
+  if (!container.capacity) {
+    return "empty";
+  }
+
+  const free = container.capacity - container.occupiedSlots;
+  if (container.kind === "array") {
+    return `${container.occupiedSlots} set · ${free}/${container.capacity} zero`;
+  }
+
+  const total = container.totalEntries;
+  const slotLabel = container.kind === "collection" ? "PoV slots" : "slots";
+  const count = total ? `${total} ${total === 1 ? "entry" : "entries"}` : "empty";
+  return `${count} · ${free}/${container.capacity} ${slotLabel} unoccupied`;
+}
+
 // A contract's decoded current state (scalars + containers), compact.
 export function StateView({ name, state }: { name: string; state: DecodedState }) {
   return (
@@ -136,37 +157,32 @@ export function StateView({ name, state }: { name: string; state: DecodedState }
         </Box>
       )}
       {state.containers.map((container) => {
-        const total = container.totalEntries ?? container.entries.length;
-        const hasCapacity =
-          container.capacity !== undefined &&
-          container.occupiedSlots !== undefined;
-        const unoccupied = hasCapacity
-          ? container.capacity! - container.occupiedSlots!
-          : 0;
-        const slotLabel = container.kind === "collection" ? "PoV slots" : "slots";
-        const detail = container.error
-          ? "read failed"
-          : hasCapacity
-            ? `${total ? `${total} ${total === 1 ? "entry" : "entries"}` : "empty"} · ${unoccupied}/${container.capacity} ${slotLabel} unoccupied`
-            : total
-              ? `${total} ${total === 1 ? "entry" : "entries"}`
-              : "empty";
+        const width = Math.max(
+          1,
+          ...container.lines.map((line) => line.label.length),
+        );
 
         return (
           <Box key={container.name} flexDirection="column" marginTop={1}>
             <Text>
               <Text color={theme.accent}>{container.name}</Text>{" "}
-              <Text dimColor>· {detail}</Text>
+              <Text dimColor>· {containerDetail(container)}</Text>
             </Text>
             <Box flexDirection="column" marginLeft={2}>
               {container.error ? (
                 <Text color={theme.err} wrap="wrap">
                   {container.error}
                 </Text>
-              ) : container.entries.length ? (
-                container.entries.map((entry, index) => (
-                  <Text key={index} wrap="wrap">
-                    {entry}
+              ) : container.lines.length ? (
+                container.lines.map((line, index) => (
+                  <Text key={index} wrap="wrap" dimColor={!line.filled}>
+                    <Text
+                      color={line.filled ? theme.accent : undefined}
+                      bold={line.filled}
+                    >
+                      {line.label.padEnd(width)}
+                    </Text>{" "}
+                    {line.text}
                   </Text>
                 ))
               ) : (

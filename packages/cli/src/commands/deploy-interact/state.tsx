@@ -34,6 +34,15 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
   const [progress, setProgress] = useState("");
   const add = (s: string) => setLines((l) => [...l, s]);
 
+  // What the user would have typed to skip the picker, echoed the way `qinit call` echoes its own.
+  const equivCmd = (c: DynamicContractRegistryEntry) => {
+    const parts = ["qinit state", c.name || String(c.index)];
+    if (o.rpc) {
+      parts.push(`--rpc ${o.rpc}`);
+    }
+    return parts.join(" ");
+  };
+
   const load = async (c: DynamicContractRegistryEntry) => {
     setPhase("loading");
     setProgress("");
@@ -133,7 +142,10 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
       if (input === "q" || key.escape) exit();
       else if (key.upArrow) setI((p) => (p - 1 + contracts.length) % contracts.length);
       else if (key.downArrow) setI((p) => (p + 1) % contracts.length);
-      else if (key.return) load(contracts[i]);
+      else if (key.return) {
+        add("≡ " + equivCmd(contracts[i]));
+        load(contracts[i]);
+      }
     },
     { isActive: Boolean(process.stdin.isTTY) },
   );

@@ -998,10 +998,12 @@ GET /live/v1/dev/state-read?slot=100&off=0&len=8
 ```
 
 Fields are separate HTTP reads. Large arrays and compact `BitArray` words are
-read in 256 KiB pages. Arrays display every nonzero element. Bit arrays display
-every set bit in logical LSB-first order and collapse zero runs, ignoring unused
-padding bits above their declared length. A failed read is reported as
-incomplete rather than being mistaken for empty state.
+read in 256 KiB pages. An `Array` field is not a scalar row: it becomes a block
+of its own, one row per nonzero element, in the position its field is declared.
+Bit arrays stay inline and display every set bit in logical LSB-first order,
+collapsing zero runs and ignoring unused padding bits above their declared
+length. A failed read is reported as incomplete rather than being mistaken for
+empty state.
 
 ### Step 4: read the occupied HashMap bytes
 
@@ -1045,10 +1047,10 @@ It returns a semantic entry rather than exposing the storage offsets:
 }
 ```
 
-`readState()` formats that as:
+`readState()` formats that as one row per slot:
 
 ```text
-<identity> = 42
+slot[0]     <identity> = 42
 slots[1..3] (unoccupied ×3; skipped)
 ```
 
@@ -1077,15 +1079,20 @@ unoccupied physical slot ranges follow. Free-list bookkeeping is not fetched.
       capacity: 4,
       occupiedSlots: 1,
       totalEntries: 1,
-      entries: [
-        "slot[0] <identity> = 42",
-        "slots[1..3] (unoccupied ×3; skipped)",
+      lines: [
+        { label: "slot[0]", text: "<identity> = 42", filled: true },
+        { label: "slots[1..3]", text: "(unoccupied ×3; skipped)", filled: false },
       ],
     },
   ],
   complete: true,
 }
 ```
+
+`label` is the bracket token the view paints and pads into a column; `filled`
+separates an occupied slot from a skipped range, and is the only thing the
+highlight depends on. An `Array` block uses the same shape with `kind: "array"`,
+`[index]` labels, and `capacity` set to the declared element count.
 
 [`StateView`](../packages/cli/src/trace/views.tsx) only renders this model. It does not
 know field offsets, make RPC calls, or decode container layouts.
@@ -1096,6 +1103,8 @@ know field offsets, make RPC calls, or decode container layouts.
 - Individual RPC requests remain capped at 256 KiB and larger fields are paged.
 - Arrays display every nonzero element, and BitArray displays every set bit;
   zero ranges are marked as skipped.
+- Every block row is its own line, and its bracket token is highlighted when the
+  row is an occupied slot rather than a skipped range.
 - HashMap, HashSet, Collection, and LinkedList display every occupied entry and mark
   unoccupied slot ranges as skipped, without transferring empty entry storage.
 - Nested BitArray and LinkedList values are decoded semantically, including
