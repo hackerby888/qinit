@@ -844,8 +844,8 @@ export class VirtualNode implements NodeTransport {
     throw new Error("unknown deploy-range inputType " + inputType);
   }
 
-  async debugTrace(): Promise<DebugTrace> {
-    return this.sim.getTrace();
+  async debugTrace(since = 0, limit = 64): Promise<DebugTrace> {
+    return this.sim.getTrace(since, limit);
   }
 
   assetUniverse(): AssetSnapshot[] {

@@ -241,6 +241,37 @@ test("hurryToTick gives up quietly on a node without the dev route", async () =>
   }
 });
 
+// `qinit debug` appends what each poll returns, so a route ignoring `since` re-counts every call.
+test("debug-trace honours since and limit (what qinit debug polls with)", async () => {
+  const { rpc, stop } = await bootCounter();
+  try {
+    await rpc.setDebug(true);
+    for (let i = 0; i < 3; i++) {
+      await callFunction(rpc, SLOT, GET, "", "uint64");
+    }
+
+    const all = (await rpc.debugTrace(0, 500)).entries;
+    expect(all.length).toBe(3);
+    expect(all[0].seq).toBe(1); // 1-based, so since=0 does not swallow the first entry
+
+    const latest = all[all.length - 1].seq;
+    expect((await rpc.debugTrace(latest, 500)).entries).toEqual([]);
+    expect((await rpc.debugTrace(all[0].seq, 500)).entries.map((e) => e.seq)).toEqual([
+      all[1].seq,
+      all[2].seq,
+    ]);
+
+    // The limit keeps the newest entries.
+    expect((await rpc.debugTrace(0, 2)).entries.map((e) => e.seq)).toEqual([
+      all[1].seq,
+      all[2].seq,
+    ]);
+  } finally {
+    await rpc.setDebug(false);
+    stop();
+  }
+});
+
 test("advance-epoch crosses into the next epoch (qinit epoch advance)", async () => {
   const { rpc, engine, stop } = await bootCounter();
   try {

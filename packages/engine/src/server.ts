@@ -153,7 +153,10 @@ export class EngineServer {
           }
 
           if (path === "/live/v1/debug-trace") {
-            return json(await engine.debugTrace());
+            const sinceSeq = Number(query.get("since")) || 0;
+            const entryLimit = Number(query.get("limit") ?? 64);
+
+            return json(await engine.debugTrace(sinceSeq, entryLimit));
           }
 
           if (path === "/live/v1/dev/oracle-pending") {

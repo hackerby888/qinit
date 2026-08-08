@@ -3,7 +3,7 @@ import { toHex } from "../support/k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
 
 export const TRACE_STATE_CAP = 256 * 1024; // bound the per-entry state scan (node caps too)
-const ENTRY_CAP = 4096; // ring-buffer the entries so a long session can't grow unbounded
+export const TRACE_ENTRY_CAP = 4096; // ring-buffer the entries so a long session can't grow unbounded
 
 // Contiguous changed-byte runs between two equal-length state snapshots -> DebugStateRegion[].
 export function diffRegions(before: Uint8Array, after: Uint8Array): DebugStateRegion[] {
@@ -65,8 +65,15 @@ export class TraceRecorder {
     this.seq = 0;
   }
 
-  trace(): DebugTrace {
-    return { enabled: this.enabled, entries: this.entries };
+  // Same rules as core-lite's traceSnapshot(): one CLI client polls both backends.
+  trace(since = 0, limit = TRACE_ENTRY_CAP): DebugTrace {
+    const fresh = this.entries.filter((entry) => entry.seq > since);
+    const capped = !(limit > 0) || limit > TRACE_ENTRY_CAP ? TRACE_ENTRY_CAP : limit;
+
+    return {
+      enabled: this.enabled,
+      entries: fresh.length > capped ? fresh.slice(-capped) : fresh,
+    };
   }
 
   begin(metadata: TraceBeginMetadata): DebugEntry | null {
@@ -75,7 +82,7 @@ export class TraceRecorder {
     }
     const stateSize = metadata.stateSize;
     const e: DebugEntry = {
-      seq: this.seq++,
+      seq: ++this.seq, // 1-based, so `since=0` on a fresh ring still yields the first entry
       tick: metadata.tick,
       index: metadata.index,
       entry: metadata.entry,
@@ -127,8 +134,8 @@ export class TraceRecorder {
 
     this.stack.pop();
     this.entries.push(entry);
-    if (this.entries.length > ENTRY_CAP) {
-      this.entries.splice(0, this.entries.length - ENTRY_CAP);
+    if (this.entries.length > TRACE_ENTRY_CAP) {
+      this.entries.splice(0, this.entries.length - TRACE_ENTRY_CAP);
     }
   }
 

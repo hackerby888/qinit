@@ -1248,8 +1248,8 @@ export class QubicSimulator {
     this.recorder.setEnabled(on);
   }
 
-  getTrace(): DebugTrace {
-    return this.recorder.trace();
+  getTrace(since?: number, limit?: number): DebugTrace {
+    return this.recorder.trace(since, limit);
   }
 
   private emit(level: LogLevel, category: string, message: string): void {

@@ -42,6 +42,45 @@ test("trace metadata keeps the full state size while snapshots stay capped", () 
   ]);
 });
 
+// A poller passes back the last seq it saw, so `since` has to exclude it.
+test("trace(since) yields only newer entries, and 1-based seq keeps the first one", () => {
+  const recorder = new TraceRecorder();
+  recorder.setEnabled(true);
+  const record = () =>
+    recorder.end(
+      recorder.begin({
+        tick: 0,
+        index: 2,
+        entry: 0,
+        kind: 2,
+        invocator: undefined,
+        invocationReward: 0n,
+        input: new Uint8Array(0),
+        stateSize: 0,
+        stateBefore: new Uint8Array(0),
+      }),
+      {
+        output: new Uint8Array(0),
+        ok: true,
+        stateBefore: new Uint8Array(0),
+        stateAfter: new Uint8Array(0),
+        execNs: 1,
+      },
+    );
+
+  for (let i = 0; i < 3; i++) {
+    record();
+  }
+
+  expect(recorder.trace().entries.map((entry) => entry.seq)).toEqual([1, 2, 3]);
+  expect(recorder.trace(1).entries.map((entry) => entry.seq)).toEqual([2, 3]);
+  expect(recorder.trace(3).entries).toEqual([]);
+
+  // The limit keeps the newest entries, and a non-positive one means the whole ring.
+  expect(recorder.trace(0, 2).entries.map((entry) => entry.seq)).toEqual([2, 3]);
+  expect(recorder.trace(0, 0).entries).toHaveLength(3);
+});
+
 test("unmetered runtime tracing snapshots only the trace window", async () => {
   const sim = new QubicSimulator({ fees: "off" });
   const contract = sim.deploy(28, await wasm("Counter"));

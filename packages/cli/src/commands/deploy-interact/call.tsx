@@ -197,9 +197,8 @@ function CallOneShot({
         }
 
         // --trace: capture the call in the node debug ring. Enable + note the latest seq BEFORE dispatch.
-        // Baseline -1, not 0: entry seq is 0-based, and on a freshly-enabled debug ring (the common case) the
-        // first captured entry is seq 0 — `seq > sinceSeq` with sinceSeq=0 would drop it ("no trace captured").
-        let sinceSeq = -1;
+        // Entry seq is 1-based on both backends, so 0 means "everything captured from here on".
+        let sinceSeq = 0;
         const traceSrc = rc.source;
         const traceName = rc.name;
         if (wantTrace) {
@@ -207,7 +206,7 @@ function CallOneShot({
             await rpc.setDebug(true);
             sinceSeq = ((await rpc.debugTrace(0, 500)).entries ?? []).reduce(
               (mx, en) => Math.max(mx, en.seq),
-              -1,
+              0,
             );
           } catch {}
         }
