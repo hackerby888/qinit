@@ -111,8 +111,13 @@ for (let i = 0; i < 8; i++) {
     .pop();
   if (inc) {
     console.log("debug: Inc stateDiff " + JSON.stringify(inc.stateDiff));
+    // The node reports changed bytes as a window rather than the minimal run, so the counter is the
+    // leading little-endian uint64 of the region that starts at the state's offset 0.
     debugOk = inc.stateDiff.some(
-      (diff) => diff.off === 0 && diff.before === "00" && diff.after === "01",
+      (diff) =>
+        diff.off === 0 &&
+        diff.before.startsWith("0000000000000000") &&
+        diff.after.startsWith("0100000000000000"),
     );
     break;
   }
