@@ -201,7 +201,7 @@ export function TextPrompt({
       </Box>
       {hint ?? null}
       {isActive ? (
-        <Text dimColor>
+        <Text color={theme.mute} dimColor>
           {" "}
           {label}
           {completionSuffix
@@ -212,7 +212,10 @@ export function TextPrompt({
           esc back
         </Text>
       ) : (
-        <Text dimColor> {label}</Text>
+        <Text color={theme.mute} dimColor>
+          {" "}
+          {label}
+        </Text>
       )}
     </Box>
   );

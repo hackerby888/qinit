@@ -152,7 +152,11 @@ function HintLine({
   const budget = Math.max(20, columns - 4);
 
   if (state.status === "idle") {
-    return <Text dimColor>{truncEnd(extra ?? " ", budget)}</Text>;
+    return (
+      <Text color={theme.mute} dimColor>
+        {truncEnd(extra ?? " ", budget)}
+      </Text>
+    );
   }
   if (state.status === "checking") {
     return (
@@ -171,7 +175,9 @@ function HintLine({
   return (
     <Text>
       <Text color={theme.ok}>✓ </Text>
-      <Text dimColor>{identity}</Text>
+      <Text color={theme.mute} dimColor>
+        {identity}
+      </Text>
       {suffix ? <Text color={theme.info}>{suffix}</Text> : null}
     </Text>
   );
