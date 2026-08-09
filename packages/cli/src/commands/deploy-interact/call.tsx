@@ -102,8 +102,8 @@ function CallOneShot({
   const inputFormat = commandArgs.get("in");
   const outputFormat = commandArgs.get("out");
   const showAll = commandArgs.has("all");
-  const fullTrace = commandArgs.has("trace-full");
-  const wantTrace = commandArgs.has("trace") || fullTrace;
+  const showInternals = commandArgs.has("trace-full");
+  const wantTrace = commandArgs.has("trace") || showInternals;
   const settle = !commandArgs.has("no-settle");
   const seed = commandArgs.get("seed");
   const amount = commandArgs.get("amount");
@@ -332,7 +332,6 @@ function CallOneShot({
                 te,
                 traceSrc,
                 traceName,
-                rpc,
                 traceSrc ? loadConfiguredQpiHeader() : undefined,
               ),
             });
@@ -393,8 +392,8 @@ function CallOneShot({
             e={trace.e}
             name={trace.name}
             view={trace.view}
-            fullState={fullTrace}
-            stateHint="--trace-full"
+            showInternals={showInternals}
+            internalsHint="--trace-full"
           />
         </Box>
       )}

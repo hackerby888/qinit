@@ -1190,9 +1190,8 @@ without available `TickData` shows `—`. Pressing `x` hides the selected record
 3. Derives IDL from source when possible.
 4. Decodes registered input and output.
 5. Resolves each changed byte window to the element it covers (`trace/state-diff.ts`).
-6. Reads and decodes current containers.
-7. Decodes structured logs and enum names.
-8. Leaves raw bytes available when schema derivation fails.
+6. Decodes structured logs and enum names.
+7. Leaves raw bytes available when schema derivation fails.
 
 Step 5 is what makes a diff readable. `stateDiffLines()` walks the ABI type from the
 containing field down to the element the bytes belong to, using the geometry helpers
@@ -1242,9 +1241,8 @@ Neither backend caps how much of a call's state changes it reports: the simulato
 snapshots the whole state, and core-lite sizes its dirty-page buffer from the contract's
 state. `stateTruncated` therefore means bytes were genuinely dropped.
 
-The captured `stateDiff` belongs to that invocation. Container contents do not:
-they are fetched from current node state while the detail view is decoded. They
-must not be presented as historical snapshots.
+The captured `stateDiff` belongs to that invocation. Trace rendering never reads
+live contract state; use `qinit state` to inspect current container contents.
 
 Host calls and trap text already arrive in each `DebugEntry`. For a failed call,
 the detail view also attempts a source-mapped backtrace from `node.log` and the

@@ -132,7 +132,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
   const [selectedSeq, setSelectedSeq] = useState<number | null>(null);
   const [tickTimes, setTickTimes] = useState<Map<number, TickClock>>(() => new Map());
   const [tickTimeRetry, setTickTimeRetry] = useState(0);
-  const [fullState, setFullState] = useState(false);
+  const [showInternals, setShowInternals] = useState(false);
   const selectedSeqRef = useRef<number | null>(null);
   const visibleEntriesRef = useRef<DebugEntry[]>([]);
   const hiddenSeqs = useRef(new Set<number>());
@@ -303,7 +303,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
       if (input === "q" || key.escape) {
         exit();
       } else if (key.ctrl && input === "t") {
-        setFullState((on) => !on);
+        setShowInternals((shown) => !shown);
       } else if (key.upArrow) {
         const visible = visibleEntriesRef.current;
         const index = traceSelectionIndex(visible, selectedSeqRef.current);
@@ -340,7 +340,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
       <Header cmd="debug" />
       <Text dimColor wrap="truncate-end">
         {enabled ? "● capturing" : "toggle off"} · {list.length} calls · ↑/↓ select · x hide
-        · ctrl+t {fullState ? "brief" : "full"} state · q quit
+        · ctrl+t {showInternals ? "hide" : "show"} internals · q quit
         {err ? "   err: " + err : ""}
       </Text>
       {list.length === 0 ? (
@@ -385,9 +385,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                 name={nameOf(cur.index)}
                 source={reg.current.find((c) => c.index === cur.index)?.source}
                 codeHash={reg.current.find((c) => c.index === cur.index)?.codeHash}
-                rpc={rpc}
                 qpiHeader={qpiHeader}
-                fullState={fullState}
+                showInternals={showInternals}
                 width={detailWidth}
                 bodyRows={bodyRows}
               />
@@ -406,9 +405,8 @@ function Detail({
   name,
   source,
   codeHash,
-  rpc,
   qpiHeader,
-  fullState,
+  showInternals,
   width,
   bodyRows,
 }: {
@@ -416,9 +414,8 @@ function Detail({
   name: string;
   source?: string;
   codeHash?: string;
-  rpc: LiteRpc;
   qpiHeader?: string;
-  fullState: boolean;
+  showInternals: boolean;
   width: number;
   bodyRows: number;
 }) {
@@ -427,7 +424,7 @@ function Detail({
   const [stateOffset, setStateOffset] = useState(0);
   useEffect(() => {
     let alive = true;
-    describeTrace(e, qpiHeader ? source : undefined, name, rpc, qpiHeader)
+    describeTrace(e, qpiHeader ? source : undefined, name, qpiHeader)
       .then((view) => {
         if (alive) setV(view);
       })
@@ -454,17 +451,14 @@ function Detail({
     };
   }, [e.seq, codeHash]);
 
-  useEffect(() => setStateOffset(0), [e.seq, fullState]);
+  useEffect(() => setStateOffset(0), [e.seq, showInternals]);
 
   // Bounded by `width`, every row TraceView draws is exactly one line — so the rows around the state
   // block can be counted rather than guessed, and the state block takes whatever is left of `bodyRows`.
-  // Only the state block gives ground: a contract with enough containers to exceed `bodyRows` on its own
-  // still overflows, which needs a terminal under about 20 rows.
   const fixedRows =
     2 + // the status line and the state block's own header
     1 + // the state block's ⋯ tail
     (e.kind === 1 ? 3 : 2) + // in, out, and a proc's caller
-    (v?.containers.length ?? 0) +
     (v?.logs.length ?? 0) +
     e.hostCalls.length +
     (e.trap ? 1 : 0);
@@ -476,7 +470,7 @@ function Detail({
     1,
     bodyRows - fixedRows - btLines.length - (btLines.length ? 1 : 0),
   );
-  const changed = v ? shownStateLines(v.stateDiff, fullState).length : 0;
+  const changed = v ? shownStateLines(v.stateDiff, showInternals).length : 0;
 
   useInput(
     (_, key) => {
@@ -496,8 +490,8 @@ function Detail({
           e={e}
           name={name}
           view={v}
-          fullState={fullState}
-          stateHint="ctrl+t"
+          showInternals={showInternals}
+          internalsHint="ctrl+t"
           maxStateRows={stateRows}
           stateOffset={stateOffset}
           width={width}

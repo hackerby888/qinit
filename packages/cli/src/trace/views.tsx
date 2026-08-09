@@ -39,13 +39,11 @@ function Rows({
   );
 }
 
-// The rows a state block shows: everything in the full view, only what the contract wrote otherwise.
-export const shownStateLines = (lines: StateDiffLine[], full: boolean) =>
-  full ? lines : lines.filter((line) => !line.internal);
+// Internal bookkeeping is opt-in; payload and population changes stay visible.
+export const shownStateLines = (lines: StateDiffLine[], showInternals: boolean) =>
+  showInternals ? lines : lines.filter((line) => !line.internal);
 
-// The call's own state changes, one resolved element per row. Container rows below are current node
-// state instead, so the two must not be read as the same thing. `full` keeps the container bookkeeping
-// rows and their resolved paths; by default only what the contract itself wrote is shown.
+// The call's captured state changes, one resolved element per row. Internal bookkeeping is opt-in.
 //
 // `maxRows` bounds the block to a window starting at `offset`, one line per row. A long-running view has
 // to stay inside the terminal: Ink cannot erase a frame taller than the screen, so an overflowing block
@@ -53,22 +51,23 @@ export const shownStateLines = (lines: StateDiffLine[], full: boolean) =>
 function StateDiff({
   lines,
   truncated,
-  full,
-  hint,
+  showInternals,
+  internalsHint,
   maxRows,
   offset = 0,
 }: {
   lines: StateDiffLine[];
   truncated: boolean;
-  full: boolean;
-  hint: string;
+  showInternals: boolean;
+  internalsHint: string;
   maxRows?: number;
   offset?: number;
 }) {
-  const all = shownStateLines(lines, full);
+  const all = shownStateLines(lines, showInternals);
   const start = maxRows ? Math.min(offset, Math.max(0, all.length - maxRows)) : 0;
   const shown = maxRows ? all.slice(start, start + maxRows) : all;
-  const labelOf = (line: StateDiffLine) => (full ? line.detail : line.label);
+  const labelOf = (line: StateDiffLine) =>
+    showInternals ? line.detail : line.label;
   const width = Math.max(1, ...shown.map((line) => labelOf(line).length));
   const hidden = lines.length - all.length;
 
@@ -83,7 +82,7 @@ function StateDiff({
     tail.push("pgup/pgdn");
   }
   if (hidden) {
-    tail.push(`${hidden} container internals hidden · ${hint}`);
+    tail.push(`${hidden} container internals hidden · ${internalsHint}`);
   }
 
   return (
@@ -116,8 +115,7 @@ function StateDiff({
   );
 }
 
-// One decoded contract-call trace, compact. `view` = describeTrace(e, ...). `fullState` shows the state
-// block's container internals, and `stateHint` names whatever turns them on in the calling command.
+// One decoded contract-call trace. `showInternals` reveals captured container bookkeeping.
 //
 // `width` is the pane this renders into, not the terminal — passing it also pins every row to one line,
 // so a caller that budgets rows against the screen height gets the height it counted on.
@@ -125,8 +123,8 @@ export function TraceView({
   e,
   name,
   view,
-  fullState = false,
-  stateHint,
+  showInternals = false,
+  internalsHint,
   maxStateRows,
   stateOffset,
   width,
@@ -134,8 +132,8 @@ export function TraceView({
   e: DebugEntry;
   name: string;
   view: DecodedTrace;
-  fullState?: boolean;
-  stateHint: string;
+  showInternals?: boolean;
+  internalsHint: string;
   maxStateRows?: number;
   stateOffset?: number;
   width?: number;
@@ -163,15 +161,6 @@ export function TraceView({
     });
 
   const rows: { label: string; node: React.ReactNode }[] = [];
-  for (const container of view.containers)
-    rows.push({
-      label: container.name,
-      node: (
-        <Text dimColor>
-          {truncMid(container.entries.join(", ") || "empty", cols - 12)}
-        </Text>
-      ),
-    });
   for (const l of view.logs)
     rows.push({
       label: "log",
@@ -229,8 +218,8 @@ export function TraceView({
       <StateDiff
         lines={view.stateDiff}
         truncated={e.stateTruncated}
-        full={fullState}
-        hint={stateHint}
+        showInternals={showInternals}
+        internalsHint={internalsHint}
         maxRows={maxStateRows}
         offset={stateOffset}
       />

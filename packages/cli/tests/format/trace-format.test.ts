@@ -59,8 +59,9 @@ const fakeRpc = (
   };
 };
 
-test("describeTrace: decodes proc input, caller, log _type enum name, and container contents", async () => {
-  const calls: StateReadCall[] = [];
+test("describeTrace: decodes proc input, caller, log enum, and captured state diff", async () => {
+  const before = new Array(184).fill(0);
+  const after = hashmapBuf(42);
   const entry: any = {
     seq: 1,
     tick: 10,
@@ -73,25 +74,27 @@ test("describeTrace: decodes proc input, caller, log _type enum name, and contai
     invocationReward: 0,
     inHex: hx(le(5, 8)), // by = 5
     outHex: "",
-    stateDiff: [],
+    stateDiff: [{ off: 8, before: hx(before), after: hx(after) }],
     hostCalls: [],
     logs: [{ type: 6, size: 16, hex: hx([...le(0, 4), ...le(1, 4), ...le(9, 8)]) }], // _type=1, value=9
   };
-  const v = await describeTrace(
-    entry,
-    SRC,
-    "Counter",
-    fakeRpc([...le(0, 8), ...hashmapBuf(42)], calls),
-  );
+  const v = await describeTrace(entry, SRC, "Counter");
   expect(v.inDecoded).toBe('"5"'); // single-field input -> scalar (bigint as json string)
   expect(v.caller.length).toBe(60); // proc -> 60-char identity
   expect(v.logs).toHaveLength(1);
   expect(v.logs[0].typeName).toBe("Bumped"); // enum Kind: 1 -> Bumped
   expect(v.logs[0].fields).toEqual({ _contractIndex: 0, _type: 1, value: 9n });
-  expect(calls).toEqual([{ slot: 7, off: 8, len: 184 }]);
-  expect(v.containers).toHaveLength(1);
-  expect(v.containers[0].name).toBe("bal");
-  expect(v.containers[0].entries[0]).toContain("42");
+  expect(
+    v.stateDiff.map(({ label, text, internal }) => ({ label, text, internal })),
+  ).toEqual([
+    { label: "bal.slot[0].value", text: "0 → 42", internal: false },
+    {
+      label: "bal._occupationFlags[0]",
+      text: "0 → 1",
+      internal: true,
+    },
+    { label: "bal", text: "0 → 1 entries", internal: false },
+  ]);
 });
 
 test("describeTrace: no source -> raw hex passthrough, no decode", async () => {
@@ -111,10 +114,9 @@ test("describeTrace: no source -> raw hex passthrough, no decode", async () => {
     hostCalls: [],
     logs: [],
   };
-  const v = await describeTrace(entry, undefined, "X", fakeRpc([]));
+  const v = await describeTrace(entry, undefined, "X");
   expect(v.inDecoded).toBe("0xabcd");
   expect(v.caller).toBe("(none)");
-  expect(v.containers).toHaveLength(0);
 });
 
 test("readState: scalar fields decoded + container entries", async () => {
@@ -660,16 +662,6 @@ test("readState: a sparse Collection fetches occupied PoVs and live elements", a
   expect(state.containers[0].lines[1].text).toContain(": 7 (p3)");
 });
 
-// signed i64 LE (for collection BST indices)
-const i64 = (n: number | bigint) => {
-  let v = BigInt.asUintN(64, BigInt(n));
-  const b: number[] = [];
-  for (let i = 0; i < 8; i++) {
-    b.push(Number(v & 0xffn));
-    v >>= 8n;
-  }
-  return b;
-};
 const mkEntry = (o: Partial<any>): any => ({
   seq: 1,
   tick: 1,
@@ -694,101 +686,66 @@ test("describeTrace: multi-field input decodes to a tuple", async () => {
     mkEntry({ inHex: hx([...le(5, 8), ...le(7, 8)]) }),
     SRC_MULTI,
     "M",
-    fakeRpc([]),
   );
   expect(v.inDecoded).toBe('["5","7"]');
 });
 
-test("describeTrace: Collection state field is decoded into containers (priority order)", async () => {
-  const SRC_COLL = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { Collection<uint64, 4> q; }; struct Add_input { id pov; uint64 v; sint64 p; }; struct Add_output {}; PUBLIC_PROCEDURE(Add) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Add, 1); } INITIALIZE() {} };`;
-  const cap = 4,
-    elemsOff = cap * 64 + 8;
-  const b = new Array(elemsOff + cap * 48 + 16).fill(0);
-  i64(1).forEach((x, i) => (b[32 + i] = x)); // PoV0 population
-  i64(0).forEach((x, i) => (b[56 + i] = x)); // PoV0.bstRoot = elem0
-  b[cap * 64] = 1; // PoV0 occupied
-  i64(7).forEach((x, i) => (b[elemsOff + i] = x)); // elem0 value=7
-  i64(3).forEach((x, i) => (b[elemsOff + 8 + i] = x)); // priority=3
-  i64(-1).forEach((x, i) => (b[elemsOff + 24 + i] = x));
-  i64(-1).forEach((x, i) => (b[elemsOff + 32 + i] = x));
-  i64(-1).forEach((x, i) => (b[elemsOff + 40 + i] = x)); // no children
-  i64(1).forEach((x, i) => (b[elemsOff + cap * 48 + i] = x)); // total population
-  const v = await describeTrace(mkEntry({ index: 1 }), SRC_COLL, "Coll", fakeRpc(b));
-  expect(v.containers[0].name).toBe("q");
-  expect(v.containers[0].entries[0]).toContain("7");
-  expect(v.containers[0].entries[0]).toContain("p3");
-});
-
-test("describeTrace: HashSet state field is decoded into containers", async () => {
+test("readState: a sparse HashSet fetches only occupied key ranges", async () => {
   const SRC_SET = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { HashSet<id, 4> seen; }; struct Mark_input { id who; }; struct Mark_output {}; PUBLIC_PROCEDURE(Mark) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Mark, 1); } INITIALIZE() {} };`;
   const b = new Array(4 * 32 + 8 + 16).fill(0);
   b[4 * 32] = 1; // slot0 (all-zero id) occupied
-  i64(1).forEach((x, i) => (b[4 * 32 + 8 + i] = x)); // population
-  const v = await describeTrace(mkEntry({ index: 2 }), SRC_SET, "Set", fakeRpc(b));
-  expect(v.containers[0].name).toBe("seen");
-  expect(v.containers[0].entries).toHaveLength(1);
-});
-
-test("describeTrace: LinkedList stays compact and follows logical order", async () => {
   const calls: StateReadCall[] = [];
-  const v = await describeTrace(
-    mkEntry({ index: 14 }),
-    LINKED_LIST_SOURCE,
-    "ListTrace",
-    fakeRpc(linkedListState(), calls),
-  );
+  le(1, 8).forEach((x, i) => (b[4 * 32 + 8 + i] = x)); // population
+  const state = await readState(fakeRpc(b, calls), 2, SRC_SET, "Set");
 
-  expect(calls).toEqual([{ slot: 14, off: 0, len: 240 }]);
-  expect(v.containers).toEqual([
+  expect(calls).toEqual([
+    { slot: 2, off: 136, len: 8 },
+    { slot: 2, off: 128, len: 8 },
+    { slot: 2, off: 0, len: 32 },
+  ]);
+  expect(state.complete).toBe(true);
+  expect(state.containers).toEqual([
     {
-      name: "values",
-      entries: [
-        "item[0] slot[6] = 66",
-        "item[1] slot[1] = 11",
-        "item[2] slot[2] = 22",
+      name: "seen",
+      kind: "hashset",
+      capacity: 4,
+      occupiedSlots: 1,
+      totalEntries: 1,
+      lines: [
+        {
+          label: "slot[0]",
+          text: expect.stringMatching(/^[A-Z]{60}$/),
+          filled: true,
+        },
+        {
+          label: "slots[1..3]",
+          text: "(unoccupied ×3; skipped)",
+          filled: false,
+        },
       ],
     },
   ]);
 });
 
-// A container bigger than one RPC read used to be skipped outright; reads page, so it is decoded now.
-test("describeTrace: a container larger than one read is paged, not skipped", async () => {
-  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { HashMap<uint64, uint64, 32768> values; }; INITIALIZE() {} };`;
-  const calls: StateReadCall[] = [];
-  const trace = await describeTrace(
-    mkEntry({ index: 15 }),
-    source,
-    "LargeMapTrace",
-    fakeRpc(new Uint8Array(532_496), calls),
-  );
-
-  expect(calls.length).toBeGreaterThan(1); // 256 KiB pages, so more than one request
-  expect(trace.containers).toEqual([{ name: "values", entries: [] }]);
-});
-
-test("describeTrace: no StateData -> empty fields/containers, io still decoded, fn caller (none)", async () => {
+test("describeTrace: no StateData -> empty fields, io still decoded, fn caller (none)", async () => {
   const SRC_NS = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct Foo_input { uint64 a; }; struct Foo_output { uint64 r; }; PUBLIC_FUNCTION(Foo) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_FUNCTION(Foo, 1); } INITIALIZE() {} };`;
   const v = await describeTrace(
     mkEntry({ kind: 0, inHex: hx(le(5, 8)), outHex: hx(le(9, 8)) }),
     SRC_NS,
     "NS",
-    fakeRpc([]),
   );
   expect(v.fields).toHaveLength(0);
-  expect(v.containers).toHaveLength(0);
   expect(v.inDecoded).toBe('"5"');
   expect(v.outDecoded).toBe('"9"');
   expect(v.caller).toBe("(none)"); // kind 0 (fn) carries no signer
 });
 
-test("describeTrace stays compact while readState reports incomplete reads", async () => {
+test("readState reports incomplete scalar and container reads", async () => {
   const boom: StateReader = {
     stateRead: async () => {
       throw new Error("rpc down");
     },
   };
-  const v = await describeTrace(mkEntry({ index: 7 }), SRC, "Counter", boom);
-  expect(v.containers).toHaveLength(0); // readStateContainers swallowed the error
   const state = await readState(boom, 7, SRC, "Counter");
   expect(state.complete).toBe(false);
   expect(state.fields).toEqual([

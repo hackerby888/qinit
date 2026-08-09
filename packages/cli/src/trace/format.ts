@@ -2,7 +2,6 @@ import {
   decodeOutput,
   decodeLog,
   createQpiContainerView,
-  qpiSnapshotSource,
   QpiContainerConsistencyError,
   QpiIncompleteReadError,
   type DecodedLog,
@@ -53,10 +52,6 @@ export type StateField = {
   abi?: AbiType;
   container?: StateContainerLayout;
   bad?: boolean;
-};
-export type DecodedStateContainer = {
-  name: string;
-  entries: string[];
 };
 // One rendered row of a state block. The label is the bracket token the view highlights, and `filled`
 // separates an occupied slot from a skipped range.
@@ -443,7 +438,6 @@ export function enumMap(idl: Pick<ContractIdl, "enums">): Record<string, string>
 }
 
 type FormattedContainerView = {
-  traceEntries: string[];
   stateLines: StateLine[];
   occupiedSlots: number;
   totalEntries: number;
@@ -482,7 +476,6 @@ async function formatContainerView(
         text: `${keyLabel(entry.key)} = ${formatStateValue(entry.value, container.value, full)}`,
       }));
       return {
-        traceEntries: formatted.map((entry) => entry.text),
         stateLines: containerLines(container.capacity, formatted),
         occupiedSlots: entries.length,
         totalEntries: entries.length,
@@ -498,7 +491,6 @@ async function formatContainerView(
         text: keyLabel(entry.key),
       }));
       return {
-        traceEntries: formatted.map((entry) => entry.text),
         stateLines: containerLines(container.capacity, formatted),
         occupiedSlots: entries.length,
         totalEntries: entries.length,
@@ -514,7 +506,6 @@ async function formatContainerView(
         text: `${keyLabel(entry.pov)}: ${formatStateValue(entry.value, container.value, full)} (p${entry.priority})`,
       }));
       return {
-        traceEntries: formatted.map((entry) => entry.text),
         stateLines: containerLines(container.capacity, formatted, true),
         occupiedSlots: new Set(entries.map((entry) => entry.povSlot)).size,
         totalEntries: entries.length,
@@ -526,10 +517,6 @@ async function formatContainerView(
       }
       const entries = await view.entries();
       return {
-        traceEntries: entries.map(
-          (entry, index) =>
-            `item[${index}] slot[${entry.slot}] = ${formatStateValue(entry.value, container.value, full)}`,
-        ),
         stateLines: linkedListValueLines(
           entries,
           container.value,
@@ -543,49 +530,6 @@ async function formatContainerView(
     default:
       throw new Error(`${field.name} is not a state container`);
   }
-}
-
-export async function readStateContainers(
-  rpc: StateReader,
-  contractIndex: number,
-  fields: StateField[],
-  full = false,
-): Promise<DecodedStateContainer[]> {
-  const containers: DecodedStateContainer[] = [];
-
-  for (const field of fields) {
-    if (!field.container) {
-      continue;
-    }
-
-    try {
-      const bytes = await readAllBytes(
-        stateByteSource(rpc, contractIndex, field),
-      );
-      const formatted = await formatContainerView(
-        field,
-        qpiSnapshotSource(bytes),
-        full,
-      );
-
-      const limit = full ? Infinity : 10;
-      containers.push({
-        name: field.name,
-        entries:
-          formatted.traceEntries.length > limit
-            ? formatted.traceEntries
-                .slice(0, limit)
-                .concat(
-                  `… +${formatted.traceEntries.length - limit} more (--all)`,
-                )
-            : formatted.traceEntries,
-      });
-    } catch {
-      // An unreadable container should not hide the rest of the state.
-    }
-  }
-
-  return containers;
 }
 
 async function readContainerBlock(
@@ -657,7 +601,6 @@ export interface DecodedTrace {
   caller: string;
   fields: StateField[];
   stateDiff: StateDiffLine[];
-  containers: DecodedStateContainer[];
   logs: DecodedLog[];
 }
 
@@ -665,7 +608,6 @@ export async function describeTrace(
   entry: DebugEntry,
   source: string | undefined,
   name: string,
-  rpc: StateReader,
   qpiHeader?: string,
 ): Promise<DecodedTrace> {
   let input = entry.inHex ? "0x" + entry.inHex : "(none)";
@@ -682,7 +624,6 @@ export async function describeTrace(
 
   let fields: StateField[] = [];
   let stateDiff: StateDiffLine[] = [];
-  let containers: DecodedStateContainer[] = [];
   let logs: DecodedLog[] = [];
 
   if (source) {
@@ -709,7 +650,6 @@ export async function describeTrace(
 
       fields = stateFieldsOf(idl);
       stateDiff = await stateDiffLines(fields, entry.stateDiff);
-      containers = await readStateContainers(rpc, entry.index, fields);
       const enumNames = enumMap(idl);
 
       if (entry.logs?.length) {
@@ -730,7 +670,6 @@ export async function describeTrace(
     caller,
     fields,
     stateDiff,
-    containers,
     logs,
   };
 }
