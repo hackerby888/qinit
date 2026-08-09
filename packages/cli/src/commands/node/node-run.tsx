@@ -6,6 +6,7 @@ import {
   DEFAULT_PEER_PORT,
   DEFAULT_RPC_BASE,
   LOOPBACK_HOST,
+  LiteRpc,
   fetchWasiSdk,
   haveWasiSdkCache,
   loadCoreWasmSlotLayout,
@@ -208,6 +209,12 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
               "fail",
               w.exited ? "exited early — see node.log" : "not ticking — see node.log",
             );
+        }
+
+        // Arm trace capture: a node released before it recorded by default still fills its ring, so a
+        // `qinit debug` opened later can look back at calls it never watched live.
+        if (ok) {
+          await new LiteRpc(rpcBaseUrl).setDebug(true).catch(() => {});
         }
 
         // Trust the run verdict above; just read contracts once (no extra tick sampling).

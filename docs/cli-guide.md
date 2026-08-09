@@ -883,7 +883,6 @@ setDebug(true)
   -> call function/procedure
   -> poll for a newer matching slot/kind/entry
   -> describeTrace()
-  -> setDebug(false)
 ```
 
 Entry sequences are 1-based on both backends and `since` is exclusive, so the poll
@@ -1152,7 +1151,6 @@ setDebug(true)
   -> select an entry
   -> describeTrace()
   -> TraceView
-  -> on unmount setDebug(false)
 ```
 
 The first table column shows age relative to the latest resolved chain timestamp, so
@@ -1227,9 +1225,16 @@ Host calls and trap text already arrive in each `DebugEntry`. For a failed call,
 the detail view also attempts a source-mapped backtrace from `node.log` and the
 local line map.
 
-The node debug toggle is global. Concurrent `debug` and `call --trace` clients
-can change it for each other; each path currently turns capture off during its
-cleanup.
+A node records by default — core-lite's ring starts armed and `EngineServer.start()`
+enables the simulator's, so a `debug` session opened after the fact still finds the
+calls that already ran. `qinit node run` also arms the node over RPC, which covers a
+node release older than that default. No CLI path turns capture off; the toggle is
+global, so one that did would blind every other client. `GET /live/v1/dev/debug?on=0`
+remains for anyone who wants the cycles back.
+
+The ring holds 8192 entries on both backends, and a slot is spent per *dispatch*
+rather than per tick: a contract registering `BEGIN_TICK`/`END_TICK` spends two every
+tick whether or not anything happened, which turns the depth into a time window.
 
 ### 11.1 The chain explorer
 

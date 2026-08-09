@@ -93,6 +93,23 @@ test("invokeProcedure signs + broadcasts Inc; it processes and state advances", 
   }
 });
 
+// A node records from boot, so a `qinit debug` opened after the fact still finds the call.
+test("the node captures a call without anyone enabling debug first", async () => {
+  const { rpc, stop } = await bootCounter();
+  try {
+    const before = await rpc.debugTrace();
+    expect(before.enabled).toBe(true);
+
+    await callFunction(rpc, SLOT, GET, "", "uint64");
+
+    const after = await rpc.debugTrace();
+    expect(after.entries.length).toBeGreaterThan(before.entries.length);
+    expect(after.entries.at(-1)?.index).toBe(SLOT);
+  } finally {
+    stop();
+  }
+});
+
 test("confirm waits for execution: a read right after confirm sees the mutation (no poll)", async () => {
   // Regression: txStatus.processed used to be hard-true on broadcast, so confirm() returned before the tx's
   // tick ran and a read right after saw stale state — which broke the default `await proc(); read()` sample.

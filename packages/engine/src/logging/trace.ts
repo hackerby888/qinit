@@ -2,7 +2,7 @@
 import { toHex } from "../support/k12";
 import type { DebugEntry, DebugTrace, DebugStateRegion } from "@qinit/core";
 
-export const TRACE_ENTRY_CAP = 256; // ring-buffer the entries so a long session can't grow unbounded
+export const TRACE_ENTRY_CAP = 8192; // ring-buffer the entries so a long session can't grow unbounded
 // Changed bytes alone rarely spell a whole value — writing 3870 into a zeroed uint64 dirties two bytes.
 // Reporting the window around them lets the reader decode the element those bytes belong to.
 export const DIFF_WINDOW = 256;

@@ -54,6 +54,23 @@ test("truncation follows the snapshot length, not the state size", () => {
   expect(recordOne(recorder, before, after).stateTruncated).toBe(false);
 });
 
+// The ring used to hold 256 calls, which a node recording from boot burns through in minutes.
+test("the ring keeps far more than the old 256 entries", () => {
+  const recorder = new TraceRecorder();
+  recorder.setEnabled(true);
+  const before = new Uint8Array(8);
+  const after = before.slice();
+  after[0] = 1;
+
+  for (let i = 0; i < 300; i++) {
+    recordOne(recorder, before, after);
+  }
+
+  const entries = recorder.trace().entries;
+  expect(entries.length).toBe(300);
+  expect(entries[0].seq).toBe(1); // the first call is still reachable
+});
+
 // A two-byte write is not a value; the window around it is what lets the reader decode the element.
 test("diffRegions reports aligned windows and merges adjacent ones", () => {
   const before = new Uint8Array(4 * DIFF_WINDOW);

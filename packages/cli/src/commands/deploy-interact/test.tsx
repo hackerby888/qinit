@@ -116,6 +116,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
           spin("starting in-process simulator");
           engineSrv = new EngineServer();
           activeRpc = (await engineSrv.start()).rpcBaseUrl;
+          // A test run reads assertions, not traces — skip the per-call state snapshot a node keeps.
+          engineSrv.engine.setDebug(false);
           add("node", true, `simulator @ ${activeRpc}`);
         } else {
           spin("checking node");

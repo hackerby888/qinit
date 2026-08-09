@@ -172,11 +172,12 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
         setErr(String(e?.message ?? e));
       }
     }, TRACE_POLL_MS);
+    // Capture stays on after this view closes: the node records by default, and turning it off here
+    // would blind the next session (and any other client watching right now).
     return () => {
       mounted.current = false;
       alive = false;
       clearInterval(poll);
-      rpc.setDebug(false).catch(() => {});
     };
   }, []);
 
@@ -300,7 +301,6 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
   useInput(
     (input, key) => {
       if (input === "q" || key.escape) {
-        rpc.setDebug(false).catch(() => {});
         exit();
       } else if (key.ctrl && input === "t") {
         setFullState((on) => !on);

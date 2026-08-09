@@ -59,6 +59,10 @@ export class EngineServer {
   ): Promise<EngineServerHandle> {
     await initK12();
 
+    // A node records from boot: a debugger attached later still finds the calls that already ran. The
+    // ring is bounded, and `setDebug(false)` over RPC remains for anyone who wants the cycles back.
+    this.engine.setDebug(true);
+
     const engine = this.engine;
     const json = (data: unknown, status = 200): Response =>
       new Response(JSON.stringify(data), {
