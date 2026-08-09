@@ -3,6 +3,7 @@ export const fmtMs = (ms?: number) =>
   ms == null ? "" : ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 
 export const termCols = () => Math.max(40, process.stdout.columns || 80);
+export const termRows = () => Math.max(10, process.stdout.rows || 24);
 
 const COMPACT_UNITS = ["", "K", "M", "B", "T", "P", "E"];
 

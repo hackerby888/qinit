@@ -11,11 +11,11 @@ import {
   type DynamicContractRegistryEntry,
 } from "@qinit/core";
 import { describeTrace, type DecodedTrace } from "../../trace/format";
-import { TraceView } from "../../trace/views";
+import { TraceView, shownStateLines } from "../../trace/views";
 import { activeNodeScratchDir } from "../../ops/node";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
-import { Header, Table, Spinner, theme, type Column } from "../../ui";
+import { Header, Table, Spinner, theme, termRows, type Column } from "../../ui";
 import type { CommandArguments } from "../../args";
 
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
@@ -191,6 +191,7 @@ function Detail({
 }) {
   const [v, setV] = useState<DecodedTrace | null>(null);
   const [bt, setBt] = useState<string>("");
+  const [stateOffset, setStateOffset] = useState(0);
   useEffect(() => {
     let alive = true;
     describeTrace(e, qpiHeader ? source : undefined, name, rpc, qpiHeader)
@@ -219,10 +220,42 @@ function Detail({
       alive = false;
     };
   }, [e.seq, codeHash]);
+
+  useEffect(() => setStateOffset(0), [e.seq, fullState]);
+
+  // The whole frame has to fit the terminal, so the state block gets what is left after the rows around
+  // it. Ink cannot erase a frame taller than the screen; an overflowing block leaves stale rows behind.
+  const otherRows = (v?.containers.length ?? 0) + (v?.logs.length ?? 0) + e.hostCalls.length;
+  const chrome = 16; // headers, the call rows, the tail, and slack for whatever the shell left on screen
+  const stateRows = Math.max(
+    4,
+    termRows() - chrome - otherRows - (bt ? bt.split("\n").length : 0),
+  );
+  const changed = v ? shownStateLines(v.stateDiff, fullState).length : 0;
+
+  useInput(
+    (_, key) => {
+      if (key.pageDown) {
+        setStateOffset((offset) => Math.min(offset + stateRows, Math.max(0, changed - stateRows)));
+      } else if (key.pageUp) {
+        setStateOffset((offset) => Math.max(0, offset - stateRows));
+      }
+    },
+    { isActive: Boolean(process.stdin.isTTY) },
+  );
+
   return (
     <Box flexDirection="column">
       {v ? (
-        <TraceView e={e} name={name} view={v} fullState={fullState} stateHint="ctrl+t" />
+        <TraceView
+          e={e}
+          name={name}
+          view={v}
+          fullState={fullState}
+          stateHint="ctrl+t"
+          maxStateRows={stateRows}
+          stateOffset={stateOffset}
+        />
       ) : (
         <Text dimColor>decoding…</Text>
       )}
