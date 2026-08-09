@@ -10,7 +10,6 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { cacheRoot } from "@qinit/core";
 import repositories from "../../config/repositories.json";
 
 interface RunOptions {
@@ -97,7 +96,6 @@ const coreCommit = (
 const scratch = mkdtempSync(join(tmpdir(), "qinit-core-smoke-"));
 const qpiDigestPath = join(scratch, "qpi-digests.txt");
 const project = join(scratch, "project");
-const nodeLog = join(cacheRoot(), "run", "node.log");
 
 const result = {
   platform,
@@ -116,20 +114,6 @@ async function stopNode(): Promise<void> {
     cwd: scratch,
     allowFailure: true,
   });
-}
-
-async function waitForProcessors(): Promise<"ready" | "unsupported"> {
-  for (let attempt = 0; attempt < 150; attempt++) {
-    const log = existsSync(nodeLog) ? readFileSync(nodeLog, "utf8") : "";
-    if (log.includes("processors are being used")) {
-      return "ready";
-    }
-    if (log.includes("At least 4 healthy enabled processors are required")) {
-      return "unsupported";
-    }
-    await Bun.sleep(1000);
-  }
-  throw new Error("core-lite did not finish processor initialization");
 }
 
 try {
@@ -154,91 +138,86 @@ try {
     { cwd: scratch },
   );
 
-  if ((await waitForProcessors()) === "unsupported") {
-    result.skipped = true;
-    result.reason = "runner cannot initialize core-lite processor roles";
-  } else {
-    await run([qinitBin, "doctor", "--plain"], { cwd: scratch });
-    await run(
-      [process.execPath, join(qinitRoot, "scripts/live-node/ci-qpi-dual-engine.ts")],
-      {
-        cwd: qinitRoot,
-        env: {
-          QINIT_CORE: core,
-          QINIT_QPI_DIGEST_FILE: qpiDigestPath,
-        },
+  await run([qinitBin, "doctor", "--plain"], { cwd: scratch });
+  await run(
+    [process.execPath, join(qinitRoot, "scripts/live-node/ci-qpi-dual-engine.ts")],
+    {
+      cwd: qinitRoot,
+      env: {
+        QINIT_CORE: core,
+        QINIT_QPI_DIGEST_FILE: qpiDigestPath,
       },
-    );
+    },
+  );
 
+  await run(
+    [
+      qinitBin,
+      "node",
+      "run",
+      "--node-backend",
+      "core",
+      "--core-dir",
+      core,
+      "--node-bin",
+      nodeBinaryPath,
+      "--restart",
+      "--wait",
+      "150",
+      "--plain",
+    ],
+    { cwd: scratch },
+  );
+
+  mkdirSync(join(project, "contracts"), { recursive: true });
+  copyFileSync(
+    join(qinitRoot, "fixtures", "DigestProbe.h"),
+    join(project, "contracts", "DigestProbe.h"),
+  );
+  await run(
+    [
+      qinitBin,
+      "test",
+      "--node-backend",
+      "core",
+      "--compiler",
+      "clang",
+      "--core-dir",
+      core,
+      "--node-bin",
+      nodeBinaryPath,
+      "--keep-node",
+      "--contract",
+      "contracts/DigestProbe.h",
+      "--contract-name",
+      "DigestProbe",
+      "--skip-verify",
+      "--timeout",
+      "90000",
+      "--plain",
+    ],
+    { cwd: project },
+  );
+
+  const state = JSON.parse(
     await run(
-      [
-        qinitBin,
-        "node",
-        "run",
-        "--node-backend",
-        "core",
-        "--core-dir",
-        core,
-        "--node-bin",
-        nodeBinaryPath,
-        "--restart",
-        "--wait",
-        "150",
-        "--plain",
-      ],
-      { cwd: scratch },
-    );
-
-    mkdirSync(join(project, "contracts"), { recursive: true });
-    copyFileSync(
-      join(qinitRoot, "fixtures", "DigestProbe.h"),
-      join(project, "contracts", "DigestProbe.h"),
-    );
-    await run(
-      [
-        qinitBin,
-        "test",
-        "--node-backend",
-        "core",
-        "--compiler",
-        "clang",
-        "--core-dir",
-        core,
-        "--node-bin",
-        nodeBinaryPath,
-        "--keep-node",
-        "--contract",
-        "contracts/DigestProbe.h",
-        "--contract-name",
-        "DigestProbe",
-        "--skip-verify",
-        "--timeout",
-        "90000",
-        "--plain",
-      ],
-      { cwd: project },
-    );
-
-    const state = JSON.parse(
-      await run(
-        [qinitBin, "state", "DigestProbe", "--digest", "--json"],
-        { cwd: project, capture: true },
-      ),
-    ) as { digest?: string };
-    if (!state.digest) {
-      throw new Error("qinit state returned no digest");
-    }
-
-    const [driver, callee] = readFileSync(qpiDigestPath, "utf8")
-      .trim()
-      .split(/\s+/);
-    if (!driver || !callee) {
-      throw new Error("QPI parity returned incomplete digests");
-    }
-
-    result.stateDigest = state.digest;
-    result.qpiDigests = { driver, callee };
+      [qinitBin, "state", "DigestProbe", "--digest", "--json"],
+      { cwd: project, capture: true },
+    ),
+  ) as { digest?: string };
+  if (!state.digest) {
+    throw new Error("qinit state returned no digest");
   }
+
+  const [driver, callee] = readFileSync(qpiDigestPath, "utf8")
+    .trim()
+    .split(/\s+/);
+  if (!driver || !callee) {
+    throw new Error("QPI parity returned incomplete digests");
+  }
+
+  result.stateDigest = state.digest;
+  result.qpiDigests = { driver, callee };
 
   mkdirSync(dirname(resultPath), { recursive: true });
   writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`);

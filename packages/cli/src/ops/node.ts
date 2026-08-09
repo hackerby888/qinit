@@ -320,29 +320,35 @@ export function launchSimulatorNode(options: {
   return { pid, scratch, log };
 }
 
+// `isAlive` is a seam for the test, which drives a stub RPC with no node process behind it.
 export async function waitTicking(
   rpcBaseUrl: string,
   seconds: number,
+  isAlive: () => boolean = nodeAlive,
 ): Promise<{ ticking: boolean; tick: number; exited: boolean }> {
   const rpc = new LiteRpc(rpcBaseUrl);
-  let initialTick = -1;
+  let previousTick = -1;
   let currentTick = 0;
+  let advances = 0;
 
   for (let i = 0; i < seconds; i++) {
     await sleep(1000);
-    if (!nodeAlive()) {
+    if (!isAlive()) {
       return { ticking: false, tick: currentTick, exited: true };
     }
 
     try {
       const tickInfo = await rpc.tickInfo();
       currentTick = tickInfo.tick;
-      if (initialTick < 0) {
-        initialTick = currentTick;
+      // A node serves RPC before it loads its epoch, so its first jump (0 -> the epoch's initial tick)
+      // happens even when the chain never moves again. Only a second advance proves it is ticking.
+      if (previousTick >= 0 && currentTick > previousTick) {
+        advances++;
+        if (advances >= 2) {
+          return { ticking: true, tick: currentTick, exited: false };
+        }
       }
-      if (currentTick > initialTick + 1) {
-        return { ticking: true, tick: currentTick, exited: false };
-      }
+      previousTick = currentTick;
     } catch {
       // Keep polling while the node starts its RPC server.
     }
