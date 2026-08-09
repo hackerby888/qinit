@@ -1147,12 +1147,18 @@ setDebug(true)
   -> every 1.2 seconds:
        dynRegistry()
        debugTrace(since, 200)
-  -> retain the latest 500 entries
+  -> merge by sequence and retain the latest 500 entries, newest first
+  -> resolve visible tick timestamps through getTickData()
   -> select an entry
   -> describeTrace()
   -> TraceView
   -> on unmount setDebug(false)
 ```
+
+The first table column shows age relative to the latest resolved chain timestamp, so
+the deterministic TypeScript engine and core-lite use the same clock semantics. A tick
+without available `TickData` shows `—`. Pressing `x` hides the selected record for this
+`qinit debug` session only; it does not clear the node's trace ring.
 
 `describeTrace()` in [`trace/format.ts`](../packages/cli/src/trace/format.ts):
 
