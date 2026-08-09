@@ -1723,9 +1723,9 @@ should know them before relying on metadata or a successful exit status.
 - Several handled UI errors do not set exit code 1, including validation paths
   in `new` and compiler selection and RPC errors in tick/epoch.
 - Interactive call errors are rendered without a failing exit status.
-- `qinit seed <seed>` is documented, but the current Seed component ignores the
-  positional value. A non-TTY seed selector also has no keyboard completion
-  path.
+- `qinit seed <seed>` saves that seed directly; without one and without a TTY the
+  picker cannot be driven, so it fails with that hint rather than waiting on input
+  that will never arrive.
 - `doctor` resolves core headers without the project's `qinit.json coreDir`.
 - `node get` fetches only the binary and may intentionally leave header/node
   version drift.

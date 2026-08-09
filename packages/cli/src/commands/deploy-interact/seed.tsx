@@ -61,6 +61,19 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
           setPhase("done");
           return;
         }
+        // `qinit seed <seed>` saves that seed outright; setSavedSeed rejects a malformed one.
+        const given = commandArgs.positionals[0];
+        if (given) {
+          setSavedSeed(given);
+          add("✓ saved → " + seedStorePath());
+          add("identity: " + (await deriveIdentity(given)).identity);
+          setPhase("done");
+          return;
+        }
+        if (!process.stdin.isTTY) {
+          throw new Error("no terminal to pick in — pass the seed instead: qinit seed <seed>");
+        }
+
         const r = await rpc.fundedSeeds(32);
         if (!r.seeds?.length)
           throw new Error(
@@ -83,6 +96,7 @@ export function Seed({ commandArgs }: { commandArgs: CommandArguments }) {
         setPhase("pick");
       } catch (e: any) {
         add("ERROR: " + String(e?.message ?? e));
+        process.exitCode = 1;
         setPhase("err");
       }
     })();
