@@ -1,5 +1,5 @@
-import { AstKind, PlatformPrimitiveKind } from "../../../enums";
-import * as watIr from "../../../wat-ir";
+import { AstKind, PlatformPrimitiveKind } from "../../../shared/enums";
+import * as watIr from "../wat-ir";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";

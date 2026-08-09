@@ -1,4 +1,4 @@
-import { DiagnosticCategory, DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticCategory, DiagnosticSeverity } from "../../src/shared/enums";
 import { describe, expect, test } from "bun:test";
 import { compileContract, parseToAst } from "../../src/index";
 

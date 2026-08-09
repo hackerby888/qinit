@@ -1,4 +1,4 @@
-import { AstKind, BinaryOp, UnaryOp } from "../../../enums";
+import { AstKind, BinaryOp, UnaryOp } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { StructLayout, FieldLayout, FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS, ResolvedLvalue } from "../types";
 import type { TypeSpec, Expression, StructDecl } from "../../../ast";

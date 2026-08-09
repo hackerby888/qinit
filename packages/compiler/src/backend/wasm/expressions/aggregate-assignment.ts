@@ -1,9 +1,9 @@
-import { AssignOp, AstKind, ContainerEmissionMode } from "../../../enums";
+import { AssignOp, AstKind, ContainerEmissionMode } from "../../../shared/enums";
 import { describeShape } from "../calls/call-shape";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import type { AssignmentExpression, AssignmentTarget } from "./assignment-types";
 
 export function tryEmitAggregateAssignment(

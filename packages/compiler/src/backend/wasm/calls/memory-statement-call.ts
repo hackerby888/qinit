@@ -1,6 +1,6 @@
-import { AstKind } from "../../../enums";
+import { AstKind } from "../../../shared/enums";
 import type { Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";

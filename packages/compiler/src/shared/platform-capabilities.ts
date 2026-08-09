@@ -1,1 +1,0 @@
-export { PlatformCapability } from "../enums";

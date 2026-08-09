@@ -1,23 +1,23 @@
 // Browser entry for @qinit/compiler.
-import type { CompileOptions, CompileResult, GtestCompileResult } from "./compiler/types";
-import { compileContract as compileWithHeader, compileGtest as compileGtestWithHeader } from "./compiler/pipeline";
+import type { CompileOptions, CompileResult, GtestCompileResult } from "./driver/types";
+import { compileContract as compileWithHeader, compileGtest as compileGtestWithHeader } from "./driver/pipeline";
 import { QPI_SNAPSHOT, QPI_SNAPSHOT_META } from "./generated/qpi-snapshot";
 
-export * from "./enums";
+export * from "./shared/enums";
 export type {
   CompileOptions,
   CompileResult,
   ContractIdl,
   GtestCompileResult,
   GtestProgram,
-} from "./compiler/types";
-export type { Diagnostic as CompileDiagnostic } from "./parser";
-export { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "./compiler/wasm-inspect";
+} from "./driver/types";
+export type { Diagnostic as CompileDiagnostic } from "./frontend/parser";
+export { inspectWasmModule, LHOST_ABI, WASM_MODULE_EXPORT_ABI } from "./driver/wasm-inspect";
 export type {
   WasmModuleInspection,
   WasmModuleInspectionOptions,
   WasmInspectionDiagnostic,
-} from "./compiler/wasm-inspect";
+} from "./driver/wasm-inspect";
 
 // Increment when the public compile protocol changes incompatibly.
 export const COMPILER_PROTOCOL_VERSION = 2;

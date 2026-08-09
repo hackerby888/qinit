@@ -1,5 +1,5 @@
-import { AssignOp, AstKind } from "../../../enums";
-import * as watIr from "../../../wat-ir";
+import { AssignOp, AstKind } from "../../../shared/enums";
+import * as watIr from "../wat-ir";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
 import { compoundToBinary, narrowLocalValue } from "./assignment-helpers";

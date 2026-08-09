@@ -1,8 +1,8 @@
-import { AstKind, WatNodeType, type WatValueType } from "../../../enums";
+import { AstKind, WatNodeType, type WatValueType } from "../../../shared/enums";
 import { classifyMethodParam } from "../calls/containers";
 import { FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression, Statement, FunctionDecl } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import { addrIr } from "../memory/memory-operations";
 // Resolve reference-returning inline member calls as addresses.
 export function tryInlineStructMethod(context: FunctionEmissionContext, expression: Expression & {

@@ -1,4 +1,4 @@
-import { AstKind, BinaryOp, UnaryOp } from "../../../enums";
+import { AstKind, BinaryOp, UnaryOp } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { SCALAR_SIZE, MATH_INTRINSIC_NAMES } from "../abi/tables";
 import { FunctionEmissionContext } from "../types";

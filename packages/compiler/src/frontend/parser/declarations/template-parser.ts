@@ -1,4 +1,4 @@
-import { AstKind, TokenKind } from "../../../enums";
+import { AstKind, TokenKind } from "../../../shared/enums";
 import type {
     ClassTemplateDecl,
     Declaration,
@@ -7,7 +7,7 @@ import type {
     TemplateParam,
     TypeSpec,
 } from "../../../ast";
-import { isTypeKeyword } from "../../../lexer";
+import { isTypeKeyword } from "../../lexer";
 import type { Parser } from "../parser";
 
 export class TemplateParser {

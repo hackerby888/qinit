@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Drives the upstream QUTIL gtests against deployable QUTIL and QX Wasm.
 import { readFileSync, mkdtempSync, rmSync } from "node:fs";

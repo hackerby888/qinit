@@ -1,5 +1,5 @@
 import { ASSET_ENUMERATION_RECORD } from "@qinit/core";
-import { type LhostAbiSpec } from "../../../lhost";
+import { type LhostAbiSpec } from "../lhost";
 import type { PlatformCapability } from "../calls/platform-primitives";
 import {
     USER_ENTRY_IO_BUFFER_SIZE_BYTES,

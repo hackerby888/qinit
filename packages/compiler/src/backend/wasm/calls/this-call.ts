@@ -1,9 +1,9 @@
-import { AstKind, UnaryOp, WatNodeType } from "../../../enums";
+import { AstKind, UnaryOp, WatNodeType } from "../../../shared/enums";
 import { compileContainerMethod } from "./containers";
 import { addrIr } from "../memory/memory-operations";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 export function emitThisCall(context: FunctionEmissionContext, expression: Expression & {
     kind: AstKind.CALL;
 }, valueWanted: boolean): string | null {

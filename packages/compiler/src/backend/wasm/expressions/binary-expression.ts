@@ -1,7 +1,7 @@
-import { AstKind, BinaryOp, WatNodeType } from "../../../enums";
+import { AstKind, BinaryOp, WatNodeType } from "../../../shared/enums";
 import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import { u128ConstructorExpr } from "./uint128";
 export function lowerBinaryExpression(context: FunctionEmissionContext, expression: Expression & {
     kind: AstKind.BINARY_OP;

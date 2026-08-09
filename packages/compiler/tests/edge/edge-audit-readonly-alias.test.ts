@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Ensures nested aliases from state.get() cannot mutate contract state.
 import { describe, expect, test } from "bun:test";

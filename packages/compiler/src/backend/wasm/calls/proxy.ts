@@ -1,11 +1,11 @@
-import { AstKind, WatNodeType } from "../../../enums";
+import { AstKind, WatNodeType } from "../../../shared/enums";
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { classifyMethodParam } from "./containers";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import { qpiWrapperMethod } from "./call-shape";
 import { FunctionEmissionContext, EMPTY_TEMPLATE_BINDINGS, CompiledMethod, TemplateBindings, FieldLayout } from "../types";
 import type { TypeSpec, Expression, FunctionTemplateDecl } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 export const PROXY_PROCEDURE_METHODS = new Set(["setProposal", "clearProposal", "vote"]);
 // Resolve `qpi(X)`'s wrapped object X to a concrete ProposalVoting<P,D> instance + its address.
 export function resolveProxyTarget(context: FunctionEmissionContext, xExpr: Expression): {

@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Regression test: switch/case fallthrough compiles to correct WASM with proper fallthrough semantics (stacked labels, intentional non-break fallthrough).
 import { test, expect } from "bun:test";

@@ -1,4 +1,4 @@
-import { TokenKind } from "../../enums";
+import { TokenKind } from "../../shared/enums";
 
 // ---- Keyword map ----
 export const KEYWORDS: Record<string, TokenKind> = {

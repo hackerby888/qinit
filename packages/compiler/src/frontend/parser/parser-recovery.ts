@@ -1,4 +1,4 @@
-import { TokenKind } from "../../enums";
+import { TokenKind } from "../../shared/enums";
 import type { Span } from "../../ast";
 import type { Parser } from "./parser";
 

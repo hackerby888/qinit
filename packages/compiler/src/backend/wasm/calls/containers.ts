@@ -3,13 +3,13 @@ import {
     ContainerEmissionMode,
     WatNodeType,
     type WatValueType,
-} from "../../../enums";
+} from "../../../shared/enums";
 import { getFunctionLoweringServices } from "../functions/function-lowering-registry";
 import { emitScalarLoad, addrIr, isSignedScalarType } from "../memory/memory-operations";
 import { TemplateBindings, CompiledMethod, FieldLayout, FunctionEmissionContext } from "../types";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { TypeSpec, Expression, FunctionTemplateDecl, ParamDecl } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 // ---- compiling instantiated container methods from the real qpi.h bodies ----
 // A method parameter's wasm calling convention: references/pointers and aggregates pass by address (i32), scalars pass by value (i64).
 export function classifyMethodParam(programAnalysis: ProgramAnalysis, parameter: ParamDecl, bind: TemplateBindings): {

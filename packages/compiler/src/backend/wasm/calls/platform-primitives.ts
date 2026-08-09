@@ -4,7 +4,7 @@ import {
     PlatformWasmOp,
     PrimitiveOperand,
     PrimitiveResultChannel,
-} from "../../../enums";
+} from "../../../shared/enums";
 
 export {
     PlatformCapability,

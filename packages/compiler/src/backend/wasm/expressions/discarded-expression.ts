@@ -3,12 +3,12 @@ import {
   BinaryOp,
   UpdateOp,
   WatNodeType,
-} from "../../../enums";
+} from "../../../shared/enums";
 import { addrIr, emitScalarLoad, isSignedScalarType, emitScalarStore } from "../memory/memory-operations";
 import { isUint128 } from "../memory/address-resolution";
 import { FunctionEmissionContext } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 // Emit a statement expression; calls and assignments record their own effects.
 export function emitDiscardedExpression(context: FunctionEmissionContext, expression: Expression): string {
     if (expression.kind === AstKind.ASSIGN) {

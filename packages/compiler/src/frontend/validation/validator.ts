@@ -1,4 +1,4 @@
-import { AstKind, DiagnosticSeverity } from "../../enums";
+import { AstKind, DiagnosticSeverity } from "../../shared/enums";
 // Validation runs after parse and before codegen.
 import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Statement, Expression, TypeSpec, Span } from "../../ast";
 import type {

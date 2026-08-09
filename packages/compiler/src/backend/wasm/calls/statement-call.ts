@@ -5,7 +5,7 @@ import { tryEmitContractStatementCall } from "./contract-statement-call";
 import { tryEmitHostIntrinsicCall } from "./host-intrinsic-call";
 import { tryEmitMemoryStatementCall } from "./memory-statement-call";
 import { tryEmitPlatformStatementCall } from "./platform-statement-call";
-import { tryEmitTestHarnessCall } from "./test-harness-call";
+import { tryEmitTestHarnessCall } from "../gtest/harness-call";
 
 export function emitCallStatement(
     context: FunctionEmissionContext,

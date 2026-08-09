@@ -1,4 +1,4 @@
-import { AstKind, QpiContextKind } from "../../../enums";
+import { AstKind, QpiContextKind } from "../../../shared/enums";
 import { ProgramAnalysis } from "../../../analysis/program-analysis";
 import type { StructLayout } from "../../../analysis/types";
 import type { Expression, StructDecl, FunctionDecl } from "../../../ast";

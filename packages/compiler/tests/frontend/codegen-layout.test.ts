@@ -1,8 +1,8 @@
-import { AccessSpec, AstKind } from "../../src/enums";
+import { AccessSpec, AstKind } from "../../src/shared/enums";
 // Unit coverage for scalar, aggregate, template, and inherited layouts.
 import { describe, test, expect } from "bun:test";
 import { ProgramAnalysis } from "../../src/analysis";
-import { SemanticAnalyzer } from "../../src/semantic-analyzer";
+import { SemanticAnalyzer } from "../../src/analysis/semantic-analysis";
 import type {
   TypeSpec,
   StructDecl,

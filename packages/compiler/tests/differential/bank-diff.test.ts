@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 // Differential coverage for Bank's HashMap and Array operations.
 import { coreGtest } from "../support/core-gtest";

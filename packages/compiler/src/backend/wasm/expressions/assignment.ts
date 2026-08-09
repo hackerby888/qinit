@@ -3,7 +3,7 @@ import type { FunctionEmissionContext } from "../types";
 import { tryEmitAggregateAssignment } from "./aggregate-assignment";
 import type { AssignmentExpression } from "./assignment-types";
 import { tryEmitScalarAssignment } from "./scalar-assignment";
-import { tryEmitTestHarnessAssignment } from "./test-harness-assignment";
+import { tryEmitTestHarnessAssignment } from "../gtest/harness-assignment";
 import { tryEmitUint128Assignment } from "./uint128-assignment";
 
 export { compoundToBinary, narrowLocalValue, newValueTmp } from "./assignment-helpers";

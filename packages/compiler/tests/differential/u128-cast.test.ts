@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // u128 cast semantics regression: `(uint128)(scalarExpr)` must evaluate in scalar domain, then zero-extend into low limb.
 import { wasiToolchain } from "../support/container-toolchains";

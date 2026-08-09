@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 import { beforeAll, describe, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";
@@ -7,8 +7,8 @@ import { QubicSimulator } from "@qinit/engine";
 import { compileContract, inspectWasmModule, loadQpiHeader } from "../../src";
 import { ProgramAnalysis } from "../../src/analysis/program-analysis";
 import { registerLibraryMetadata } from "../../src/backend/wasm/module/library-index";
-import { getQpiContext } from "../../src/compiler/qpi-context";
-import { SemanticAnalyzer } from "../../src/semantic-analyzer";
+import { getQpiContext } from "../../src/driver/qpi-context";
+import { SemanticAnalyzer } from "../../src/analysis/semantic-analysis";
 
 const CORE = CORE_PATH;
 const HEADER = loadQpiHeader(CORE);

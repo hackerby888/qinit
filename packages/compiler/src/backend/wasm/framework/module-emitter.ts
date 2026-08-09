@@ -1,5 +1,5 @@
-import { PlatformCapability } from "../../../enums";
-import { resetLhostCallSigs } from "../../../wat-ir";
+import { PlatformCapability } from "../../../shared/enums";
+import { resetLhostCallSigs } from "../wat-ir";
 import type { FrameworkOptions, ModuleSpecification } from "./framework-types";
 import { computeLayout } from "./framework-types";
 import { emitExportList, emitGlobals, emitImports } from "./imports-and-globals";

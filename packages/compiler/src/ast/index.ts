@@ -6,7 +6,7 @@ export {
   StorageClass,
   UnaryOp,
   UpdateOp,
-} from "../enums";
+} from "../shared/enums";
 export * from "./source-location";
 export * from "./types";
 export * from "./expressions";

@@ -3,8 +3,8 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { assembleQpiHeader, GENERATOR_VERSION } from "../src/qpi-snapshot";
-import { assembleQpiProtocolPrelude } from "../src/qpi-prelude";
+import { assembleQpiHeader, GENERATOR_VERSION } from "../src/driver/qpi/snapshot";
+import { assembleQpiProtocolPrelude } from "../src/driver/qpi/prelude";
 
 const callArguments = process.argv.slice(2);
 const flag = (name: string): boolean => callArguments.includes(name);

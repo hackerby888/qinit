@@ -15,13 +15,29 @@ import { fileURLToPath } from "node:url";
 
 const SOURCE_ROOT = fileURLToPath(new URL("../../src/", import.meta.url));
 
-const FORBIDDEN_LAYER_IMPORTS: Record<string, Set<string>> = {
-  shared: new Set(["ast", "frontend", "analysis", "backend", "compiler"]),
-  ast: new Set(["frontend", "analysis", "backend", "compiler"]),
-  frontend: new Set(["analysis", "backend", "compiler"]),
-  analysis: new Set(["backend", "compiler"]),
-  backend: new Set(["compiler"]),
-};
+// The two bundler entry points. Everything else belongs to a layer directory, so the src root cannot
+// become a dumping ground the layer rules below are structurally unable to police.
+const ROOT_ENTRIES = new Set(["index.ts", "browser.ts"]);
+
+// Lowest first. `generated` holds committed build artefacts and depends on nothing.
+const LAYERS = [
+  "generated",
+  "shared",
+  "ast",
+  "frontend",
+  "analysis",
+  "backend",
+  "driver",
+  "analyzer",
+];
+
+const FORBIDDEN_LAYER_IMPORTS: Record<string, Set<string>> = Object.fromEntries(
+  LAYERS.map((layer, index) => [layer, new Set(LAYERS.slice(index + 1))]),
+);
+
+// Cross-layer cycles are the ones that matter; the type-only cycles inside a single layer are the
+// established `*-context.ts` pattern, where a split class hands itself back to its own parts.
+const MAX_FILE_LINES = 700;
 
 interface ModuleReference {
   specifier: string;
@@ -46,8 +62,10 @@ function sourcePath(path: string): string {
   return relative(SOURCE_ROOT, path).split(sep).join("/");
 }
 
-function sourceLayer(path: string): string {
-  return sourcePath(path).split("/")[0];
+// A root entry file has no layer of its own; it is allowed to reach into any of them.
+function sourceLayer(path: string): string | undefined {
+  const segments = sourcePath(path).split("/");
+  return segments.length > 1 ? segments[0] : undefined;
 }
 
 function collectModuleReferences(source: string): ModuleReference[] {
@@ -89,13 +107,13 @@ function resolveSourceModule(importer: string, specifier: string): string | unde
   });
 }
 
-function buildRuntimeGraph(files: string[]): Map<string, string[]> {
+function buildGraph(files: string[], includeTypeOnly: boolean): Map<string, string[]> {
   const graph = new Map<string, string[]>();
 
   for (const file of files) {
     const source = readFileSync(file, "utf8");
     const dependencies = collectModuleReferences(source)
-      .filter((reference) => !reference.typeOnly)
+      .filter((reference) => includeTypeOnly || !reference.typeOnly)
       .map((reference) => resolveSourceModule(file, reference.specifier))
       .filter((dependency): dependency is string => dependency !== undefined);
 
@@ -105,7 +123,7 @@ function buildRuntimeGraph(files: string[]): Map<string, string[]> {
   return graph;
 }
 
-function findRuntimeCycles(graph: Map<string, string[]>): string[][] {
+function findCycles(graph: Map<string, string[]>): string[][] {
   const state = new Map<string, "visiting" | "visited">();
   const stack: string[] = [];
   const cycles: string[][] = [];
@@ -145,11 +163,48 @@ describe("compiler module boundaries", () => {
   const sourceFiles = collectTypeScriptFiles(SOURCE_ROOT);
 
   test("keeps runtime dependencies acyclic", () => {
-    const cycles = findRuntimeCycles(buildRuntimeGraph(sourceFiles)).map((cycle) => {
+    const cycles = findCycles(buildGraph(sourceFiles, false)).map((cycle) => {
       return cycle.map(sourcePath);
     });
 
     expect(cycles).toEqual([]);
+  });
+
+  test("keeps type-only cycles inside a single layer", () => {
+    const crossLayer = findCycles(buildGraph(sourceFiles, true))
+      .filter((cycle) => new Set(cycle.map(sourceLayer)).size > 1)
+      .map((cycle) => cycle.map(sourcePath));
+
+    expect(crossLayer).toEqual([]);
+  });
+
+  test("keeps the source root free of anything but the bundler entry points", () => {
+    const strays = sourceFiles
+      .map(sourcePath)
+      .filter((path) => !path.includes("/") && !ROOT_ENTRIES.has(path));
+
+    expect(strays).toEqual([]);
+  });
+
+  test("keeps every source file in a known layer", () => {
+    const unknown = sourceFiles
+      .map(sourcePath)
+      .filter((path) => path.includes("/") && !LAYERS.includes(path.split("/")[0]));
+
+    expect(unknown).toEqual([]);
+  });
+
+  test("keeps files small enough to read in one sitting", () => {
+    const oversized = sourceFiles
+      .map((file) => ({
+        path: sourcePath(file),
+        lines: readFileSync(file, "utf8").split("\n").length,
+      }))
+      // The generated QPI snapshot is one enormous embedded string, not code anyone reads.
+      .filter((file) => file.lines > MAX_FILE_LINES && !file.path.startsWith("generated/"))
+      .map((file) => `${file.path} (${file.lines} lines)`);
+
+    expect(oversized).toEqual([]);
   });
 
   test("keeps dependencies pointed toward lower compiler layers", () => {
@@ -157,6 +212,11 @@ describe("compiler module boundaries", () => {
 
     for (const file of sourceFiles) {
       const importerLayer = sourceLayer(file);
+
+      if (importerLayer === undefined) {
+        continue;
+      }
+
       const forbiddenLayers = FORBIDDEN_LAYER_IMPORTS[importerLayer];
 
       if (forbiddenLayers === undefined) {
@@ -174,7 +234,7 @@ describe("compiler module boundaries", () => {
 
         const dependencyLayer = sourceLayer(dependency);
 
-        if (forbiddenLayers.has(dependencyLayer)) {
+        if (dependencyLayer !== undefined && forbiddenLayers.has(dependencyLayer)) {
           violations.push(
             `${sourcePath(file)} -> ${sourcePath(dependency)}`,
           );

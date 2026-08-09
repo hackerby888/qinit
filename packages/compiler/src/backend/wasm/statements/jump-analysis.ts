@@ -1,4 +1,4 @@
-import { AstKind } from "../../../enums";
+import { AstKind } from "../../../shared/enums";
 import type { Statement } from "../../../ast";
 
 // Collect goto-target label names appearing anywhere in a statement subtree.

@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH, QINIT_ROOT } from "../../../../test-utils/paths";
 import { loadWasmFixture } from "../../../../test-utils/wasm-fixtures";
 // Share custody sysproc parity (PRE_*_SHARES).

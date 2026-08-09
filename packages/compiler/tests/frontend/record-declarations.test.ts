@@ -3,10 +3,10 @@ import type {
   ClassTemplateDecl,
   StructDecl,
 } from "../../src/ast";
-import { AstKind, DiagnosticSeverity } from "../../src/enums";
-import { Lexer } from "../../src/lexer";
-import { Parser } from "../../src/parser";
-import { validateAndDesugar } from "../../src/validate";
+import { AstKind, DiagnosticSeverity } from "../../src/shared/enums";
+import { Lexer } from "../../src/frontend/lexer";
+import { Parser } from "../../src/frontend/parser";
+import { validateAndDesugar } from "../../src/frontend/validation";
 import { analyzeContract } from "../../src/analyzer";
 
 describe("record declarations", () => {

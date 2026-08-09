@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Covers direct, braced, and parenthesized initialization in helper bodies.
 import { beforeAll, describe, expect, test } from "bun:test";

@@ -1,4 +1,4 @@
-import { AstKind } from "../enums";
+import { AstKind } from "../shared/enums";
 import type { StructDecl } from "./declarations";
 import type { Expression } from "./expressions";
 import type { Span } from "./source-location";

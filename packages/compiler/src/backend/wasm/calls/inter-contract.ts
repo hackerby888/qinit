@@ -1,4 +1,4 @@
-import { AstKind } from "../../../enums";
+import { AstKind } from "../../../shared/enums";
 import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
 // statement call: a container mutation or a side-effecting qpi host call.

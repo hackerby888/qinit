@@ -1,4 +1,4 @@
-import { AstKind, BinaryOp, UnaryOp } from "../../enums";
+import { AstKind, BinaryOp, UnaryOp } from "../../shared/enums";
 import type { Expression, TypeSpec } from "../../ast";
 import { unwrapType, isConstType, isZeroLiteral, isLiteral, typeKey } from "./validation-helpers";
 import type { FnSig, ValidatorInternals } from "./validator-context";

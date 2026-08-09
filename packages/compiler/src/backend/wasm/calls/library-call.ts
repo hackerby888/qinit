@@ -1,4 +1,4 @@
-import { AstKind, WatNodeType } from "../../../enums";
+import { AstKind, WatNodeType } from "../../../shared/enums";
 import { narrowCast } from "../memory/memory-operations";
 import { unsignedScalar } from "../expressions/conversions";
 import { FunctionEmissionContext, CompiledHelperMetadata, EMPTY_TEMPLATE_BINDINGS } from "../types";

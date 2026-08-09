@@ -1,7 +1,7 @@
-import { AccessSpec, AstKind, DiagnosticSeverity } from "../../src/enums";
+import { AccessSpec, AstKind, DiagnosticSeverity } from "../../src/shared/enums";
 // Validator unit tests: validateAndDesugar in isolation.
 import { describe, test, expect } from "bun:test";
-import { validateAndDesugar } from "../../src/validate";
+import { validateAndDesugar } from "../../src/frontend/validation";
 import type {
   Declaration,
   StructDecl,

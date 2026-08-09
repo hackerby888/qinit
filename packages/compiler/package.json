@@ -20,9 +20,9 @@
       "import": "./dist/browser.js"
     },
     "./analyzer": {
-      "types": "./dist/analyzer.d.ts",
-      "bun": "./src/analyzer.ts",
-      "import": "./dist/analyzer.js"
+      "types": "./dist/analyzer/index.d.ts",
+      "bun": "./src/analyzer/index.ts",
+      "import": "./dist/analyzer/index.js"
     }
   },
   "files": ["dist"],

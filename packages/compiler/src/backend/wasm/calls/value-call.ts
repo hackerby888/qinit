@@ -4,12 +4,12 @@ import {
     PlatformPrimitiveKind,
     UnaryOp,
     WatNodeType,
-} from "../../../enums";
+} from "../../../shared/enums";
 import { MATH_INTRINSIC_NAMES, SCALAR_SIZE, symbolBaseName } from "../abi/tables";
 import { addrIr, narrowCastIr } from "../memory/memory-operations";
 import { FunctionEmissionContext } from "../types";
 import type { Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import { platformPrimitive } from "./platform-primitives";
 import { describeShape, qpiWrapperMethod } from "./call-shape";
 // Lower calls used as scalar rvalues.

@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 // QPI header caching must be content-addressed. Length + first 64 bytes is not sufficient:
 import { beforeAll, expect, test } from "bun:test";
 import { initK12 } from "@qinit/core";

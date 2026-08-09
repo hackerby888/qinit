@@ -1,7 +1,7 @@
-import { AstKind, WatNodeType } from "../../../enums";
+import { AstKind, WatNodeType } from "../../../shared/enums";
 import { FunctionEmissionContext, ResolvedAddress, EMPTY_TEMPLATE_BINDINGS } from "../types";
 import type { TypeSpec, Expression } from "../../../ast";
-import * as watIr from "../../../wat-ir";
+import * as watIr from "../wat-ir";
 import { addrIr } from "./memory-operations";
 // Resolve a container element getter to an addressable node: Array.get(i) → T, HashMap value(i) → V / key(i)
 export function resolveContainerElem(context: FunctionEmissionContext, expression: Expression & {

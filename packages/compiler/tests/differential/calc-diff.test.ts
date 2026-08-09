@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Differential gtest for arithmetic body codegen: QPI safe-math (div/mod/sadd/min/max), a for-loop with break/continue, member-lvalue increment, and named constants
 import { coreGtest } from "../support/core-gtest";

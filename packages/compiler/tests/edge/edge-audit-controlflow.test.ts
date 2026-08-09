@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Positive coverage for QPI-legal loops, switches, and short-circuit flow.
 import { beforeAll, describe, expect, test } from "bun:test";

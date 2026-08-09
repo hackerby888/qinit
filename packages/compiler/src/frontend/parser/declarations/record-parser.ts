@@ -1,4 +1,4 @@
-import { AstKind, TokenKind } from "../../../enums";
+import { AstKind, TokenKind } from "../../../shared/enums";
 import type {
     ClassTemplateDecl,
     Declaration,

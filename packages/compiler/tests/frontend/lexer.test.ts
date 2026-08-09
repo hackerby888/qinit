@@ -1,6 +1,6 @@
 // Lexer unit tests: tokenize source text, verify token kinds/text/spans.
 import { describe, test, expect } from "bun:test";
-import { Lexer, TokenKind, isTypeKeyword, parseIntLiteral } from "../../src/lexer";
+import { Lexer, TokenKind, isTypeKeyword, parseIntLiteral } from "../../src/frontend/lexer";
 
 const kinds = (src: string): TokenKind[] => new Lexer(src).tokenize().map((t) => t.kind);
 

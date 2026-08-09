@@ -8,11 +8,11 @@ import {
   LHOST_ABI,
   loadWasmAbiSource,
 } from "@qinit/core";
-import { emitModule } from "../../src/framework";
+import { emitModule } from "../../src/backend/wasm/framework";
 import {
   inspectWasmModule,
   toWasmFunctionSignatures,
-} from "../../src/compiler/wasm-inspect";
+} from "../../src/driver/wasm-inspect";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const CORE = CORE_PATH;

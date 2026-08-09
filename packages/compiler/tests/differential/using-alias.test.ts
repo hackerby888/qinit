@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks allowed C++11 type aliases in struct and function scope.
 import { describe, test, expect, beforeAll } from "bun:test";

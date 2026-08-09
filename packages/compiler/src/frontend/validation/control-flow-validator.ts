@@ -1,4 +1,4 @@
-import { AstKind } from "../../enums";
+import { AstKind } from "../../shared/enums";
 import type { Statement, Expression } from "../../ast";
 import { evalIntegralConst } from "./validation-helpers";
 import type { ValidatorInternals } from "./validator-context";

@@ -1,14 +1,14 @@
 import {
   QpiContextKind,
   SourceAnalysisOrigin,
-} from "../../src/enums";
+} from "../../src/shared/enums";
 import { expect, test } from "bun:test";
 import {
   analyzeContract,
   detectContractName,
   type SourceEdit,
 } from "../../src/analyzer";
-import { analyzeQpiPolicy } from "../../src/source-policy";
+import { analyzeQpiPolicy } from "../../src/analyzer/source-policy";
 
 function qpiDiagnostics(source: string) {
   return analyzeContract({ source }).diagnostics.filter(

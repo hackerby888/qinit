@@ -2,7 +2,7 @@ import {
     AccessSpec,
     AstKind,
     StorageClass,
-} from "../enums";
+} from "../shared/enums";
 import type { Expression } from "./expressions";
 import type { Span } from "./source-location";
 import type { Statement } from "./statements";

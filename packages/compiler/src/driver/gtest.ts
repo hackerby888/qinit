@@ -1,0 +1,357 @@
+import { AstKind, DiagnosticCategory, DiagnosticSeverity } from "../shared/enums";
+import type { Declaration } from "../ast";
+import { generateWasmModule } from "../backend/wasm/module/module-generator";
+import type { GeneratedContractMetadata } from "../backend/wasm/module/library-index";
+import { findContractStruct } from "../backend/wasm/module/contract-discovery";
+import type { StructDecl } from "../ast";
+import { SemanticAnalyzer } from "../analysis/semantic-analysis";
+import { getQpiContext } from "./qpi-context";
+import { parseToAst } from "./parse-ast";
+import type { CompileOptions, GtestCompileResult, GtestDiagnostic, GtestProgram } from "./types";
+import { DEFAULT_GTEST_ARENA_SIZE_BYTES } from "./defaults";
+import { dumpWatIfRequested, encodeWat } from "./wasm-encoder";
+
+interface TestBlock {
+  name: string;
+  body: string;
+  start: number;
+  end: number;
+  line: number;
+}
+
+const RUNNER_SLOT = 65534;
+
+function diagnostic(message: string, line = 1, column = 1): GtestDiagnostic {
+  return { severity: DiagnosticSeverity.ERROR, message, span: { start: 0, end: 0, line, column } };
+}
+
+function matchingBrace(source: string, open: number): number {
+  let depth = 0;
+  let quote = "";
+  for (let sourceItemIndex = open; sourceItemIndex < source.length; sourceItemIndex++) {
+    const ch = source[sourceItemIndex];
+    if (quote) {
+      if (ch === "\\") {
+        sourceItemIndex++;
+      } else if (ch === quote) {
+        quote = "";
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+    } else if (ch === "{") {
+      depth++;
+    } else if (ch === "}" && --depth === 0) {
+      return sourceItemIndex;
+    }
+  }
+  return -1;
+}
+
+function lineAt(source: string, offset: number): number {
+  return source.slice(0, offset).split("\n").length;
+}
+
+// TEST is a source macro boundary, not a second C++ language. We only locate its balanced body here;
+// every statement and expression inside the body is parsed and lowered by the normal compiler frontend.
+function extractTests(source: string): TestBlock[] {
+  const tests: TestBlock[] = [];
+  const testPattern = /\bTEST\s*\(\s*([A-Za-z_]\w*)\s*,\s*([A-Za-z_]\w*)\s*\)\s*\{/g;
+  for (let match = testPattern.exec(source); match; match = testPattern.exec(source)) {
+    const open = source.indexOf("{", match.index);
+    const close = matchingBrace(source, open);
+    if (close < 0) {
+      break;
+    }
+    tests.push({
+      name: `${match[1]}.${match[2]}`,
+      body: source.slice(open + 1, close),
+      start: match.index,
+      end: close + 1,
+      line: lineAt(source, match.index),
+    });
+    testPattern.lastIndex = close + 1;
+  }
+  return tests;
+}
+
+function withoutTests(source: string, tests: TestBlock[]): string {
+  const chars = [...source];
+  for (const test of tests) {
+    for (let testItemIndex = test.start; testItemIndex < test.end; testItemIndex++) {
+      if (chars[testItemIndex] !== "\n") {
+        chars[testItemIndex] = " ";
+      }
+    }
+  }
+  return chars.join("");
+}
+
+function sanitize(name: string, index: number): string {
+  return `__qtest_${index}_${name.replace(/\W/g, "_")}`;
+}
+
+function stripAssertionStreams(source: string): string {
+  const chars = [...source];
+  const assertionPattern = /\b(?:EXPECT|ASSERT)_(?:EQ|NE|LT|LE|GT|GE|TRUE|FALSE)\s*\(/g;
+  for (
+    let match = assertionPattern.exec(source);
+    match;
+    match = assertionPattern.exec(source)
+  ) {
+    const open = source.indexOf("(", match.index);
+    let depth = 0;
+    let quote = "";
+    let close = -1;
+    for (let sourceItemIndex = open; sourceItemIndex < source.length; sourceItemIndex++) {
+      const ch = source[sourceItemIndex];
+      if (quote) {
+        if (ch === "\\") {
+          sourceItemIndex++;
+        } else if (ch === quote) {
+          quote = "";
+        }
+        continue;
+      }
+      if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === "(") {
+        depth++;
+      } else if (ch === ")" && --depth === 0) {
+        close = sourceItemIndex;
+        break;
+      }
+    }
+    if (close < 0) {
+      continue;
+    }
+    let tail = close + 1;
+    while (/\s/.test(source[tail] ?? "")) {
+      tail++;
+    }
+    if (source.slice(tail, tail + 2) !== "<<") {
+      continue;
+    }
+    let end = tail + 2;
+    quote = "";
+    for (; end < source.length; end++) {
+      const ch = source[end];
+      if (quote) {
+        if (ch === "\\") {
+          end++;
+        } else if (ch === quote) {
+          quote = "";
+        }
+      } else if (ch === '"' || ch === "'") {
+        quote = ch;
+      } else if (ch === ";") {
+        break;
+      }
+    }
+    for (let index = close + 1; index < end; index++) {
+      if (chars[index] !== "\n") {
+        chars[index] = " ";
+      }
+    }
+    assertionPattern.lastIndex = end;
+  }
+  return chars.join("");
+}
+
+function assertionMacros(): string {
+  const lines: string[] = ["#define INIT_CONTRACT(x) __qtest_noop()", "#define INITIALIZE 0"];
+  for (const family of ["EXPECT", "ASSERT"] as const) {
+    for (const operator of ["EQ", "NE", "LT", "LE", "GT", "GE"] as const) {
+      lines.push(
+        `#define ${family}_${operator}(a,b) __qtest_${family.toLowerCase()}_${operator.toLowerCase()}((a),(b))`,
+      );
+    }
+    lines.push(`#define ${family}_TRUE(a) __qtest_${family.toLowerCase()}_true((a))`);
+    lines.push(`#define ${family}_FALSE(a) __qtest_${family.toLowerCase()}_false((a))`);
+  }
+  return lines.join("\n");
+}
+
+function testSourceForCompiler(
+  options: CompileOptions & { testSource: string },
+  tests: TestBlock[],
+  stateSize: number,
+): string {
+  const escapedName = options.contractName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const transform = (source: string) =>
+    stripAssertionStreams(source)
+      .replace(new RegExp(`\\b${escapedName}_CONTRACT_INDEX\\b`, "g"), String(options.slot))
+      .replace(/contractStates\s*\[([^\]]+)\]/g, `__qtest_state($1, ${stateSize})`);
+  const support = withoutTests(options.testSource, tests).replace(/^\s*#\s*include[^\n]*$/gm, "");
+  const transformedSupport = transform(support);
+  const members = tests
+    .map((test, index) => {
+      const method = sanitize(test.name, index);
+      return `
+  struct ${method}_input {};
+  struct ${method}_output {};
+  PUBLIC_PROCEDURE(${method}) {
+${transform(test.body)}
+  }`;
+    })
+    .join("\n");
+  const registrations = tests
+    .map(
+      (test, index) => `    REGISTER_USER_PROCEDURE(${sanitize(test.name, index)}, ${index + 1});`,
+    )
+    .join("\n");
+
+  return `${assertionMacros()}
+class ContractTesting {};
+${transformedSupport}
+
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData {};
+${members}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+${registrations}
+  }
+};`;
+}
+
+export async function compileGtest(
+  options: CompileOptions & { testSource: string },
+): Promise<GtestCompileResult> {
+  const diagnostics: GtestDiagnostic[] = [];
+  if (/\bContractTest\b|lite_test\.h/.test(options.testSource)) {
+    diagnostics.push(
+      diagnostic(
+        "legacy ContractTest/lite_test.h tests are not supported; use core-lite contract_testing.h and ContractTesting",
+      ),
+    );
+    return { diagnostics };
+  }
+  if (!/contract_testing\.h|\bContractTesting\b/.test(options.testSource)) {
+    diagnostics.push(
+      diagnostic("gtest source must use core-lite contract_testing.h / ContractTesting"),
+    );
+    return { diagnostics };
+  }
+
+  const tests = extractTests(options.testSource);
+  if (!tests.length) {
+    diagnostics.push(diagnostic("no TEST(Suite, Name) cases found"));
+    return { diagnostics };
+  }
+
+  if (options.qpiHeader === undefined)
+    throw new Error("internal gtest compiler requires a QPI header snapshot");
+  const qpiHeader = options.qpiHeader;
+  const target = parseToAst({
+    source: options.source,
+    qpiHeader,
+    contractName: options.contractName,
+    slot: options.slot,
+  });
+  diagnostics.push(...target.diagnostics);
+  const qpi = getQpiContext(qpiHeader);
+  const targetSema = new SemanticAnalyzer();
+  const targetMetadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
+  try {
+    generateWasmModule({
+      translationUnit: target.ast,
+      semanticAnalysis: targetSema,
+      contractName: options.contractName,
+      contractSlot: options.slot,
+      arenaSize: options.arenaSizeBytes ?? DEFAULT_GTEST_ARENA_SIZE_BYTES,
+      libraryIndex: qpi.lib,
+      metadataOutput: targetMetadata,
+      gtestMode: false,
+    });
+  } catch (error) {
+    diagnostics.push(
+      diagnostic(
+        `Contract codegen failed while compiling gtest: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
+  }
+  diagnostics.push(...targetSema.getDiagnostics());
+  const runnerName = "QinitGtestRunner";
+  const runnerSource = testSourceForCompiler(options, tests, targetMetadata.stateSize);
+  if ((globalThis as any).process?.env?.QINIT_DUMP_GTEST_SOURCE) {
+    const fs = await import("node:fs");
+    fs.writeFileSync((globalThis as any).process.env.QINIT_DUMP_GTEST_SOURCE, runnerSource);
+  }
+  const runner = parseToAst({
+    source: runnerSource,
+    qpiHeader,
+    contractName: runnerName,
+    slot: RUNNER_SLOT,
+  });
+  diagnostics.push(...runner.diagnostics);
+  if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics };
+
+  // Runner declarations come first so findContractStruct selects it. The target contract AST is still present
+  // as a normal global struct, providing the authoritative nested input/output/state layouts used by fixtures.
+  const declarations: Declaration[] = [...runner.ast.declarations, ...target.ast.declarations];
+  const targetStruct = findContractStruct(target.ast);
+  const targetTypes = new Map<string, StructDecl>();
+  for (const member of targetStruct?.members ?? []) {
+    if (member.kind === AstKind.STRUCT)
+      targetTypes.set(`${options.contractName}::${member.name}`, member as StructDecl);
+  }
+  const sema = new SemanticAnalyzer();
+  const metadata: GeneratedContractMetadata = { stateSize: 0, entries: [], sysprocMask: 0 };
+  let wat: string;
+  try {
+    wat = generateWasmModule({
+      translationUnit: { declarations },
+      semanticAnalysis: sema,
+      contractName: runnerName,
+      contractSlot: RUNNER_SLOT,
+      arenaSize: options.arenaSizeBytes ?? DEFAULT_GTEST_ARENA_SIZE_BYTES,
+      libraryIndex: qpi.lib,
+      calleeStructs: targetTypes,
+      calleeTranslationUnits: [
+        { contractName: options.contractName, declarations: target.ast.declarations },
+      ],
+      metadataOutput: metadata,
+      gtestMode: true,
+    });
+  } catch (error) {
+    diagnostics.push(
+      diagnostic(`Gtest codegen failed: ${error instanceof Error ? error.message : String(error)}`),
+    );
+    return { diagnostics };
+  }
+
+  await dumpWatIfRequested(wat);
+
+  diagnostics.push(...sema.getDiagnostics());
+  if (options.strict !== false) {
+    for (const item of diagnostics) {
+      if (item.category === DiagnosticCategory.FIDELITY) {
+        item.severity = DiagnosticSeverity.ERROR;
+      }
+    }
+  }
+  if (diagnostics.some((item) => item.severity === DiagnosticSeverity.ERROR)) return { diagnostics };
+
+  try {
+    const wasm = await encodeWat(wat, "gtest.wat");
+    if (!WebAssembly.validate(wasm))
+      throw new Error("generated gtest module failed WebAssembly validation");
+    const program: GtestProgram = {
+      version: 2,
+      contract: options.contractName,
+      mainSlot: options.slot,
+      runnerSlot: RUNNER_SLOT,
+      mainConstructionEpoch: options.constructionEpoch ?? 0,
+      tests: tests.map((test, index) => ({ name: test.name, inputType: index + 1 })),
+    };
+    return { wasm, program, diagnostics, idl: targetMetadata.idl };
+  } catch (error) {
+    diagnostics.push(
+      diagnostic(
+        `Gtest WAT assembly failed: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    );
+    return { diagnostics };
+  }
+}

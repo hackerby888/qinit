@@ -1,7 +1,7 @@
-import { AstKind, BinaryOp, UnaryOp } from "../../enums";
+import { AstKind, BinaryOp, UnaryOp } from "../../shared/enums";
 // Validation runs after parse and before codegen.
 import type { FunctionDecl, Expression, TypeSpec } from "../../ast";
-import { parseIntLiteral } from "../../lexer";
+import { parseIntLiteral } from "../lexer";
 import { SCALAR_SIZE } from "../../shared/scalar-sizes";
 
 // Strip const/reference wrappers down to the underlying type.

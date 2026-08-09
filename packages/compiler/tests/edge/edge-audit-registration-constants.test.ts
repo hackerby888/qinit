@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../src/enums";
+import { DiagnosticSeverity } from "../../src/shared/enums";
 import { CORE_PATH } from "../../../../test-utils/paths";
 // Checks integral constant expressions in REGISTER_USER_* indices.
 import { beforeAll, describe, expect, test } from "bun:test";

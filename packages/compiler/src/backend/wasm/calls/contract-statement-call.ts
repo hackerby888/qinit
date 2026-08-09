@@ -1,5 +1,5 @@
-import { AstKind, ContainerEmissionMode, WatNodeType } from "../../../enums";
-import * as watIr from "../../../wat-ir";
+import { AstKind, ContainerEmissionMode, WatNodeType } from "../../../shared/enums";
+import * as watIr from "../wat-ir";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
 import { qpiWrapperMethod } from "./call-shape";

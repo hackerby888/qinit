@@ -1,4 +1,4 @@
-import { AstKind } from "../../enums";
+import { AstKind } from "../../shared/enums";
 // Validation runs after parse and before codegen.
 import type { Declaration, StructDecl, FunctionDecl, VariableDecl, Expression, TypeSpec, Span } from "../../ast";
 import { unwrapType, isConstType, evalIntegralConst, typeKey, paramSignature } from "./validation-helpers";

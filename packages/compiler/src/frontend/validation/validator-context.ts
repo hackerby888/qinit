@@ -1,4 +1,4 @@
-import { DiagnosticSeverity } from "../../enums";
+import { DiagnosticSeverity } from "../../shared/enums";
 // Validation runs after parse and before codegen.
 import type { FunctionDecl, Span } from "../../ast";
 export interface ValidateDiagnostic {

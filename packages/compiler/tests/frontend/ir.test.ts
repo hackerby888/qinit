@@ -1,4 +1,4 @@
-import { WatExpectedType, WatNodeType } from "../../src/enums";
+import { WatExpectedType, WatNodeType } from "../../src/shared/enums";
 // Locks typed WAT IR formatting and helper output.
 import { describe, test, expect } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
@@ -21,8 +21,8 @@ import {
   storeScalar,
   CALL_SIG,
   OP_SIG,
-} from "../../src/wat-ir";
-import { emitModule } from "../../src/framework";
+} from "../../src/backend/wasm/wat-ir";
+import { emitModule } from "../../src/backend/wasm/framework";
 import { QPI_CONTEXT_LAYOUT } from "../support/qpi-context-layout";
 
 const p = getL("p", WatNodeType.I32);
@@ -208,11 +208,7 @@ describe("escape-hatch ratchet", () => {
 
 describe("CALL_SIG agrees with framework.ts", () => {
   test("handwritten QPI algorithm kernels cannot return", () => {
-    const roots = [
-      join(import.meta.dir, "../../src/framework.ts"),
-      join(import.meta.dir, "../../src/wat-ir.ts"),
-      join(import.meta.dir, "../../src/backend/wasm"),
-    ];
+    const roots = [join(import.meta.dir, "../../src/backend/wasm")];
     const files: string[] = [];
     for (const root of roots) {
       if (root.endsWith(".ts")) files.push(root);

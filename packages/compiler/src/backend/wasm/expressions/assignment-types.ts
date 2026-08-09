@@ -1,4 +1,4 @@
-import { AstKind } from "../../../enums";
+import { AstKind } from "../../../shared/enums";
 import type { Expression } from "../../../ast";
 
 export type AssignmentExpression = Expression & {
