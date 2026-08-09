@@ -5,6 +5,14 @@ import * as vscode from "vscode";
 import { loadConfig } from "@qinit/core/project";
 import { QpiCodeActions } from "./codeactions";
 import { generateClangdConfig, generateTestClangdConfig } from "./clangd-config";
+import {
+  completionScope,
+  documentIdentifiers,
+  keepCompletionLabel,
+  keepMemberLabel,
+  keepQualifiedScope,
+  qpiAllowedIdentifiers,
+} from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
 import {
@@ -20,6 +28,10 @@ import {
 
 const warned = new Set<string>();
 const restartingRoots = new Set<string>();
+const filteredClients = new WeakSet<object>();
+// The prefix header clangd is using for the active contract: the root of the allowed-identifier walk.
+let contractPrefixPath: string | undefined;
+let filterReported = false;
 
 function warnOnce(key: string, message: string): void {
   if (warned.has(key)) return;
@@ -60,12 +72,104 @@ function reportClangdConfig(
   );
 }
 
-function restartClangd(root: string, out: vscode.OutputChannel): void {
+type CompletionResult =
+  | vscode.CompletionItem[]
+  | vscode.CompletionList
+  | null
+  | undefined;
+
+function labelOf(item: vscode.CompletionItem): string {
+  return typeof item.label === "string" ? item.label : item.label.label;
+}
+
+// clangd offers every symbol the translation unit can see; a contract may write only the QPI surface.
+function filterCompletions(
+  doc: vscode.TextDocument,
+  position: vscode.Position,
+  result: CompletionResult,
+  core: string,
+  out: vscode.OutputChannel,
+): CompletionResult {
+  if (!result || !contractPrefixPath || !isContractDoc(doc)) return result;
+  if (vscode.workspace.getConfiguration("qpi").get<string>("completionFilter") === "off") {
+    return result;
+  }
+
+  const items = Array.isArray(result) ? result : result.items;
+  const linePrefix = doc.lineAt(position.line).text.slice(0, position.character);
+  const scope = completionScope(linePrefix);
+  const allowed = qpiAllowedIdentifiers(contractPrefixPath, core);
+  const documentNames = documentIdentifiers(doc.getText());
+  let kept: vscode.CompletionItem[];
+
+  if (scope.kind === "member") {
+    // A member list is already scoped by its type — only QPI's reserved names have to go.
+    kept = items.filter((item) => keepMemberLabel(labelOf(item)));
+  } else if (scope.kind === "qualified") {
+    // `QPI::`, `OI::Price::` and the contract's own types stay whole; `std::` and friends offer nothing.
+    kept = keepQualifiedScope(scope.qualifier, allowed, documentNames)
+      ? items.filter((item) => keepMemberLabel(labelOf(item)))
+      : [];
+  } else {
+    kept = items.filter((item) => keepCompletionLabel(labelOf(item), allowed, documentNames));
+  }
+
+  if (!filterReported) {
+    filterReported = true;
+    out.appendLine(`completion filtered to the QPI surface: kept ${kept.length} of ${items.length}`);
+  }
+  // clangd truncates its result set, so the list stays incomplete and is re-requested as the user types.
+  return new vscode.CompletionList(kept, Array.isArray(result) ? false : result.isIncomplete);
+}
+
+interface ClangdApi {
+  languageClient?: {
+    middleware?: {
+      provideCompletionItem?: (
+        doc: vscode.TextDocument,
+        position: vscode.Position,
+        context: vscode.CompletionContext,
+        token: vscode.CancellationToken,
+        next: (...args: any[]) => Promise<CompletionResult>,
+      ) => Promise<CompletionResult>;
+    };
+  };
+}
+
+// The clangd extension owns the completion provider, but exposes its language client, and its middleware
+// hook is read per request — so wrapping it here filters the list without taking the provider over.
+// `clangd.restart` builds a fresh client, hence the re-check on every document event.
+function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChannel): void {
+  if (!core) return;
+  const api: ClangdApi | undefined = vscode.extensions
+    .getExtension("llvm-vs-code-extensions.vscode-clangd")
+    ?.exports?.getApi?.(1);
+  const client = api?.languageClient;
+  const middleware = client?.middleware;
+  if (!client || !middleware || filteredClients.has(client)) return;
+
+  const inner = middleware.provideCompletionItem;
+  middleware.provideCompletionItem = async (doc, position, context, token, next) => {
+    const result = inner
+      ? await inner(doc, position, context, token, next)
+      : await next(doc, position, context, token);
+    try {
+      return filterCompletions(doc, position, result, core, out);
+    } catch (error: any) {
+      out.appendLine(`completion filter skipped: ${String(error?.message ?? error)}`);
+      return result;
+    }
+  };
+  filteredClients.add(client);
+}
+
+function restartClangd(root: string, out: vscode.OutputChannel, core?: string): void {
   if (restartingRoots.has(root)) return;
   restartingRoots.add(root);
   void vscode.commands.executeCommand("clangd.restart").then(
     () => {
       restartingRoots.delete(root);
+      ensureCompletionFilter(core, out);
       out.appendLine("clangd restarted with QPI configuration");
     },
     (error) => {
@@ -93,8 +197,9 @@ function regenerateContract(
       name: identity.name,
       slot: identity.slot,
     });
+    contractPrefixPath = result.prefixPath;
     reportClangdConfig(result.clangdConfigured, result.dotClangdPath, result.dir);
-    if (result.clangdConfigured && result.restartRequired) restartClangd(root, out);
+    if (result.clangdConfigured && result.restartRequired) restartClangd(root, out, core);
     out.appendLine(
       `clangd config ready: ${result.name} (slot ${result.slot}) -> ${result.prefixPath}`,
     );
@@ -150,7 +255,7 @@ function regenerateTest(
       result.dotClangdPath,
       dirname(result.dbPath),
     );
-    if (result.clangdConfigured && result.restartRequired) restartClangd(root, out);
+    if (result.clangdConfigured && result.restartRequired) restartClangd(root, out, core);
     out.appendLine(`gtest clangd config ready: ${doc.fileName} -> ${result.prefixPath}`);
   } catch (error: any) {
     out.appendLine(`gtest clangd config failed: ${String(error?.message ?? error)}`);
@@ -187,6 +292,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const onDocument = (doc?: vscode.TextDocument) => {
     if (!doc) return;
     regenerateDocument(doc, context, core, out);
+    ensureCompletionFilter(core, out);
     diagnostics.refresh(doc);
   };
   const onSave = (doc: vscode.TextDocument) => {

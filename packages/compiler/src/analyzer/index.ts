@@ -35,6 +35,7 @@ import {
   detectQpiContractName,
 } from "./source-policy";
 
+export { QPI_BANNED_KEYWORDS } from "./source-policy";
 export { Lexer, TokenKind } from "../frontend/lexer";
 export type { Token } from "../frontend/lexer";
 export {

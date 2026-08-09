@@ -15,7 +15,22 @@
   "contributes": {
     "commands": [
       { "command": "qpi.regenerateConfig", "title": "Regenerate clangd config", "category": "Qubic QPI" }
-    ]
+    ],
+    "configuration": {
+      "title": "Qubic QPI",
+      "properties": {
+        "qpi.completionFilter": {
+          "type": "string",
+          "enum": ["qpi", "off"],
+          "default": "qpi",
+          "enumDescriptions": [
+            "In contracts, complete only what QPI allows a contract to write.",
+            "Leave clangd's completion list untouched."
+          ],
+          "description": "Filter clangd's completions in QPI contracts down to the QPI surface."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "bun esbuild.mjs",

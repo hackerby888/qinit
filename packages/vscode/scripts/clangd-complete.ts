@@ -3,6 +3,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { generateClangdConfig } from "../src/clangd-config";
+import {
+  completionScope,
+  documentIdentifiers,
+  keepCompletionLabel,
+  keepMemberLabel,
+  keepQualifiedScope,
+  qpiAllowedIdentifiers,
+} from "../src/completion-filter";
 
 const CLANGD = process.env.CLANGD ?? "clangd";
 const core =
@@ -25,6 +33,7 @@ struct Probe : public ContractBase {
     state.mut().counter = 0;
     locals.x = state.get().nums.get(0);
     qpi.invocator();
+    locals.x = std::is_same<uint64, uint64>::value;
     locals.x = 0;
   }
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Go, 1); }
@@ -136,6 +145,7 @@ try {
   const stateMembers = await labelsAt(afterDot("state.mut().counter", "state.mut()."));
   const arrayMembers = await labelsAt(afterDot("nums.get(0)", "nums."));
   const qpiMembers = await labelsAt(afterDot("qpi.invocator", "qpi."));
+  const stdScope = await labelsAt(afterDot("std::is_same", "std::"));
   const valueScope = await labelsAt(
     posAt(PROBE.lastIndexOf("locals.x = ") + "locals.x = ".length),
   );
@@ -185,6 +195,66 @@ try {
       "value scope has no cross-scope std:: flood",
     )
   ) {
+    failures++;
+  }
+
+  // What the VS Code extension's completion middleware hands the editor.
+  const allowed = qpiAllowedIdentifiers(config.prefixPath, core);
+  const documentNames = documentIdentifiers(PROBE);
+  const filtered = valueScope.filter((item) =>
+    keepCompletionLabel(item, allowed, documentNames),
+  );
+  console.log(
+    `\nfiltered     -> ${filtered.length} of ${valueScope.length} items: ${filtered.join(", ")}\n`,
+  );
+
+  const noise = /^(simde_|_mm|__|fprintf|fread|fscanf)/;
+  if (!ok(!filtered.some((item) => noise.test(item)), "filtered value scope drops libc/SIMD/internals")) {
+    failures++;
+  }
+  // clangd answers with its top 100 ranked items, so the filter can only keep what it was offered.
+  const mustSurvive = [
+    "state",
+    "locals",
+    "input",
+    "output",
+    "qpi",
+    "Probe",
+    "StateData",
+    "sadd",
+    "CONTRACT_INDEX",
+    "REGISTER_USER_PROCEDURE",
+    "uint64",
+    "Array",
+    "div",
+  ];
+  const offered = (items: string[], name: string) => items.some((item) => item.startsWith(name));
+  const dropped = mustSurvive.filter(
+    (name) => offered(valueScope, name) && !offered(filtered, name),
+  );
+  if (!ok(dropped.length === 0, `filter keeps every QPI symbol clangd offered${dropped.length ? `: lost ${dropped.join(", ")}` : ""}`)) {
+    failures++;
+  }
+  if (
+    !ok(
+      [stateMembers, arrayMembers, qpiMembers].every(
+        (members) => members.filter(keepMemberLabel).length === members.length,
+      ),
+      "member lists survive the filter unchanged",
+    )
+  ) {
+    failures++;
+  }
+
+  // `std::` is a qualified scope, and the standard namespace is not part of the QPI surface — even though
+  // this probe spells `std` in its own source, which is what the document-identifier rescue goes by.
+  const stdScopeKept =
+    completionScope("    locals.x = std::").kind === "qualified" &&
+    keepQualifiedScope("std", allowed, documentNames);
+  console.log(
+    `std::        -> ${stdScope.length} raw, ${stdScopeKept ? stdScope.length : 0} filtered; std offered at value scope: ${filtered.includes("std")}`,
+  );
+  if (!ok(!stdScopeKept && !filtered.includes("std"), "the standard namespace is not offered")) {
     failures++;
   }
 } finally {

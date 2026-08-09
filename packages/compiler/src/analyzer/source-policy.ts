@@ -55,6 +55,9 @@ const KEYWORD_RULES: Record<string, { code: string; message: string }> = {
   },
 };
 
+// Names a contract may not write, for callers that suppress rather than diagnose them.
+export const QPI_BANNED_KEYWORDS: readonly string[] = Object.keys(KEYWORD_RULES);
+
 export function analyzeQpiPolicy(
   source: string,
   registrations?: readonly ContractRegistration[],
