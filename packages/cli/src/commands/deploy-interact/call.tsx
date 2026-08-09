@@ -35,6 +35,7 @@ import {
   loadConfiguredQpiHeader,
   resolveSeed,
 } from "../../config";
+import { resolveFundedSigner, unfundedSignerMessage } from "../../ops/signer";
 import { loadContracts, resolveContract } from "../../contracts/registry";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
 import { Header, Spinner, Status, Bar, theme } from "../../ui";
@@ -256,8 +257,16 @@ function CallOneShot({
         } else {
           const tickInfo = await rpc.tickInfo();
           const tick = tickInfo.tick + TX_TICK_OFFSET;
+          const signer = await resolveFundedSigner(
+            rpc,
+            await resolveSeed(rpc, seed),
+            { explicit: Boolean(seed) },
+          );
+          if (signer.switched) {
+            setNote(`⚠ seed unfunded here — signing as ${signer.identity}`);
+          }
           const r = await invokeProcedure({
-            seed: await resolveSeed(rpc, seed),
+            seed: signer.seed,
             rpcBaseUrl: rpcBaseUrl,
             contractIndex: idx,
             procedureId: entry,
@@ -281,6 +290,8 @@ function CallOneShot({
                   ? "dropped — not included"
                   : "broadcast · unconfirmed";
           const ok = !r.ok ? false : r.confirmed && !r.included ? false : true;
+          // An empty signer is the usual reason a broadcast tx never makes it into a tick.
+          const dropped = r.ok && r.confirmed && !r.included;
           setResult({
             ok,
             label,
@@ -289,7 +300,12 @@ function CallOneShot({
               ["tx", txs],
               ["tick", String(tick)],
             ],
-            err: (await enrichErr(await nodeErr())) || (!r.ok ? r.message : undefined),
+            err:
+              (await enrichErr(await nodeErr())) ||
+              (!r.ok ? r.message : undefined) ||
+              (dropped && signer.unfunded
+                ? unfundedSignerMessage(signer.identity)
+                : undefined),
           });
         }
 

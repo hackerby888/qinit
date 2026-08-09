@@ -31,6 +31,7 @@ import { resolveNodeCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
 import { classifyConfirm, tickFailureMessage, type DeploymentEvent } from "./steps";
 import { activeUploadError, buildUploadTx, uploadContract } from "./upload";
+import { resolveFundedSigner, unfundedSignerMessage } from "../signer";
 export { resolveNodeCallees } from "../../contracts/callees";
 export {
   STEPS,
@@ -323,6 +324,21 @@ export async function deployContract(
       constructed: true,
       idl: build.idl,
     };
+  }
+
+  // Only this path signs anything — the direct route above deploys without a transaction, so a node that
+  // reports no balance for the seed cannot fail a simulator deploy.
+  const signer = await resolveFundedSigner(rpc, seed, {
+    explicit: Boolean(options.seed),
+  });
+  if (signer.switched) {
+    emit({
+      note: `⚠ seed unfunded here — signing with the node's funded seed (${signer.identity})`,
+    });
+    seed = signer.seed;
+  } else if (signer.unfunded) {
+    emit({ step: "upload", state: "fail", detail: "signer unfunded" });
+    return { ok: false, slot, hash, error: unfundedSignerMessage(signer.identity) };
   }
 
   try {

@@ -421,6 +421,13 @@ explicit validated seed
 
 The final value is a development fallback, not a production secret.
 
+Before signing, `deploy` and `call --proc` read the resolved signer's balance
+([`resolveFundedSigner()`](../packages/cli/src/ops/signer.ts)). A node accepts a
+transaction from an identity with no balance and then drops it at tick assembly, so an
+empty signer used to surface only as work that never landed. A balance of zero now
+switches to the node's funded seed with a note — except for a seed passed as `--seed`,
+which is reported rather than replaced. An unreadable balance changes nothing.
+
 ### 4.3 Cache and current pointer
 
 The cache root is `$QINIT_CACHE` or `~/.cache/qinit`. `current.json` separately
