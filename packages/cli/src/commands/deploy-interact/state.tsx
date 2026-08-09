@@ -9,18 +9,25 @@ import { readState, type DecodedState } from "../../trace/format";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
 import { loadContracts, mergeContracts } from "../../contracts/registry";
-import { Header, Spinner, GradLine, Panel, KV, theme } from "../../ui";
-import { output, type CommandArguments } from "../../args";
+import { Header, Spinner, GradLine, Panel, KV, fmtCompact, theme } from "../../ui";
+import { invalidArgs, output, type CommandArguments } from "../../args";
 import { readStateDigest, type StateDigestResult } from "../../contracts/state-digest";
+import { dumpContractState, type StateDumpResult } from "../../contracts/state-dump";
 
 type DigestOutput = StateDigestResult | { ok: false; error: string };
+type DumpOutput = StateDumpResult | { ok: false; error: string };
 
 export function State({ commandArgs }: { commandArgs: CommandArguments }) {
   const o = {
     target: commandArgs.positionals[0] ?? "",
     rpc: commandArgs.get("rpc"),
     digest: commandArgs.has("digest"),
+    dump: commandArgs.has("dump"),
+    out: commandArgs.get("out"),
   };
+  if (o.out && !o.dump) {
+    invalidArgs("--out only applies with --dump");
+  }
   const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [lines, setLines] = useState<string[]>([]);
@@ -31,25 +38,57 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
   const [i, setI] = useState(0);
   const [phase, setPhase] = useState<"loading" | "pick" | "show" | "done">("loading");
   const [digest, setDigest] = useState<DigestOutput | null>(null);
+  const [dump, setDump] = useState<DumpOutput | null>(null);
   const [progress, setProgress] = useState("");
   const add = (s: string) => setLines((l) => [...l, s]);
 
   // What the user would have typed to skip the picker, echoed the way `qinit call` echoes its own.
   const equivCmd = (c: DynamicContractRegistryEntry) => {
     const parts = ["qinit state", c.name || String(c.index)];
+    if (o.dump) {
+      parts.push("--dump");
+    }
+    if (o.out) {
+      parts.push(`--out ${o.out}`);
+    }
     if (o.rpc) {
       parts.push(`--rpc ${o.rpc}`);
     }
     return parts.join(" ");
   };
 
+  // Exact bytes, because that is what `--digest` reports, plus a compact hint once it stops being readable.
+  const dumpSize = (size: number) => {
+    const compact = fmtCompact(String(size));
+    return compact === String(size) ? `${size} bytes` : `${size} bytes (${compact}B)`;
+  };
+
+  const runDump = async (slot: number, label: string) => {
+    setDump(
+      await dumpContractState(new LiteRpc(rpcBaseUrl), slot, label, {
+        out: o.out,
+        onProgress: (writtenBytes, totalBytes) => {
+          const percent = totalBytes
+            ? Math.floor((writtenBytes * 100) / totalBytes)
+            : 100;
+          setProgress(`dumping ${label} · ${percent}%`);
+        },
+      }),
+    );
+  };
+
   const load = async (c: DynamicContractRegistryEntry) => {
     setPhase("loading");
     setProgress("");
     try {
+      const label = c.name || String(c.index);
+      setName(label);
+      if (o.dump) {
+        await runDump(c.index, label);
+        return;
+      }
       if (!c.source)
         throw new Error(`node has no source for slot ${c.index} — cannot decode state`);
-      setName(c.name || String(c.index));
       const rpc = new LiteRpc(rpcBaseUrl);
       await rpc.tickInfo(); // fail fast + loud if the node is unreachable (else readState silently fills "(read failed)")
       setDecodedState(
@@ -69,7 +108,12 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
       );
       setPhase("show");
     } catch (e: any) {
-      add("ERROR: " + String(e?.message ?? e));
+      const message = String(e?.message ?? e);
+      if (o.dump) {
+        setDump({ ok: false, error: message });
+        return;
+      }
+      add("ERROR: " + message);
       setPhase("done");
     }
   };
@@ -89,10 +133,17 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
               String(x.index) === o.target ||
               (x.name || "").toLowerCase() === o.target.toLowerCase(),
           );
-          if (!c)
+          if (!c) {
+            // A dump needs neither IDL nor source, so a slot the registry does not list is still one
+            // the node can hand over byte for byte.
+            if (o.dump && /^\d+$/.test(o.target.trim())) {
+              await runDump(Number(o.target.trim()), o.target.trim());
+              return;
+            }
             throw new Error(
               `no contract '${o.target}' (deployed or system — run \`qinit node run\` for system)`,
             );
+          }
           await load(c);
           return;
         }
@@ -100,7 +151,8 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
           throw new Error(
             "no contracts — deploy one, or run `qinit node run` to load system contracts",
           );
-        if (!process.stdin.isTTY)
+        // `--json` renders nothing, so the picker would be an invisible prompt.
+        if (!process.stdin.isTTY || output.json)
           throw new Error(
             `specify a contract: qinit state <name|slot> (${all.map((c) => c.name || c.index).join(", ")})`,
           );
@@ -108,6 +160,10 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
         setUserCount(deployed);
         setPhase("pick");
       } catch (e: any) {
+        if (o.dump) {
+          setDump({ ok: false, error: String(e?.message ?? e) });
+          return;
+        }
         if (o.digest) {
           setDigest({ ok: false, error: String(e?.message ?? e) });
           return;
@@ -118,13 +174,19 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
     })();
   }, []);
   useEffect(() => {
+    if (dump) {
+      if (output.json) process.stdout.write(JSON.stringify(dump) + "\n");
+      process.exitCode = dump.ok ? 0 : 1;
+      const t = setTimeout(() => exit(), 50);
+      return () => clearTimeout(t);
+    }
     if (digest) {
       if (output.json) process.stdout.write(JSON.stringify(digest) + "\n");
       process.exitCode = digest.ok ? 0 : 1;
       const t = setTimeout(() => exit(), 50);
       return () => clearTimeout(t);
     }
-    if (!o.digest && (phase === "show" || phase === "done")) {
+    if (!o.digest && !o.dump && (phase === "show" || phase === "done")) {
       if (
         lines.some((l) => l.startsWith("ERROR")) ||
         decodedState?.complete === false
@@ -134,7 +196,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
       const t = setTimeout(() => exit(), 50);
       return () => clearTimeout(t);
     }
-  }, [phase, digest, decodedState]);
+  }, [phase, digest, dump, decodedState]);
 
   useInput(
     (input, key) => {
@@ -150,7 +212,36 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
     { isActive: Boolean(process.stdin.isTTY) },
   );
 
-  if (o.digest && output.json) return null;
+  if ((o.digest || o.dump) && output.json) return null;
+  if (o.dump && phase !== "pick") {
+    return (
+      <Box flexDirection="column">
+        <Header cmd="state" />
+        {lines.map((l, k) => (
+          <Text key={k}>{l}</Text>
+        ))}
+        {!dump ? (
+          <Spinner label={progress || "dumping state"} />
+        ) : dump.ok ? (
+          <Panel title="state dump ✓" color={theme.ok}>
+            <KV
+              full
+              rows={[
+                ["slot", String(dump.slot)],
+                ["contract", dump.name],
+                ["size", dumpSize(dump.size)],
+                ["path", dump.path],
+              ]}
+            />
+          </Panel>
+        ) : (
+          <Panel title="state dump failed" color={theme.err}>
+            <Text>{dump.error}</Text>
+          </Panel>
+        )}
+      </Box>
+    );
+  }
   if (o.digest) {
     return (
       <Box flexDirection="column">

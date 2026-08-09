@@ -1133,8 +1133,26 @@ resolves an armed dynamic name or a numeric slot, then calls:
 GET /live/v1/dev/contract-digest?slot=100
 ```
 
-The node returns the state size and canonical full-state K12 digest. This is the
-only state path that currently emits structured JSON.
+The node returns the state size and canonical full-state K12 digest.
+
+### Raw state dump
+
+```bash
+qinit state Counter --dump              # -> <cwd>/state/Counter_dump.bin
+qinit state 29 --dump --out dumps/      # a directory keeps the generated filename
+qinit state 29 --dump --out before.bin  # anything else is the file path
+```
+
+[`dumpContractState()`](../packages/cli/src/contracts/state-dump.ts) pages
+`GET /live/v1/dev/state-read` 256 KiB at a time and streams each chunk to the file, so
+a multi-megabyte state never has to fit in memory. It prints the absolute path and the
+byte count, which equals the `stateSize` that `--digest` reports. The file is the raw
+state image with no header, and a failed read deletes the partial file rather than
+leaving a truncated one.
+
+Dumping derives no IDL and reads no `.h`, so a **numeric** target that the registry
+does not list is still dumpable — the filename is then `<slot>_dump.bin`. `--dump` wins
+over `--digest` when both are given, and `--out` without `--dump` is an argument error.
 
 ## 11. Live debugging
 
@@ -1728,8 +1746,8 @@ should know them before relying on metadata or a successful exit status.
 
 - `META.json` only changes help. `node`, `tick`, `epoch`, `call`, and `state` are
   advertised as JSON-capable, but only `node run` emits node JSON, and only
-  `state --digest` emits state JSON. `tick`, `epoch`, and `call` do not currently
-  emit structured JSON.
+  `state --digest` and `state --dump` emit state JSON. `tick`, `epoch`, and `call`
+  do not currently emit structured JSON.
 - `--json` and `--plain` are accepted by the shared parser for every command,
   while `--plain` is not shown in generated usage. `explorer` is the one command
   that rejects `--json` (and a non-TTY stdin) outright, because it has no

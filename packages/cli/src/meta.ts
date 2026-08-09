@@ -292,6 +292,8 @@ const commandMeta = {
     usage: "[<target>]",
     options: [
       booleanOption("digest", "print the node's canonical full-state K12 digest"),
+      booleanOption("dump", "write the raw state image to state/<Name>_dump.bin"),
+      stringOption("out", "<path>", "dump destination file or directory (with --dump)"),
       stringOption("rpc", "<url>", "node RPC base"),
     ],
   },
