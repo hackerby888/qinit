@@ -11,6 +11,7 @@ import type {
   StructDecl,
   VariableDecl,
 } from "../../../ast";
+import { LOG_TERMINATOR_FIELD } from "../abi/log-payload";
 import type { PreparedContractModule } from "../module/module-analysis";
 import { scalarKindForName } from "./scalars";
 import type { AbiTypeBuilder } from "./abi-type-builder";
@@ -74,7 +75,7 @@ export function contractLogs(
     const struct = declaration as StructDecl;
     const terminatorIndex = struct.members.findIndex((member) => (
       member.kind === AstKind.VARIABLE &&
-      (member as VariableDecl).name === "_terminator"
+      (member as VariableDecl).name === LOG_TERMINATOR_FIELD
     ));
 
     if (terminatorIndex < 0) {
@@ -82,14 +83,14 @@ export function contractLogs(
     }
 
     const fullLayout = prepared.programAnalysis.layoutOf(struct);
-    const terminator = fullLayout.fields.get("_terminator");
+    const terminator = fullLayout.fields.get(LOG_TERMINATOR_FIELD);
 
     if (!terminator) {
       continue;
     }
 
     const fields = new Map(
-      [...fullLayout.fields].filter(([name]) => name !== "_terminator"),
+      [...fullLayout.fields].filter(([name]) => name !== LOG_TERMINATOR_FIELD),
     );
     const align = fields.size === 0
       ? 1

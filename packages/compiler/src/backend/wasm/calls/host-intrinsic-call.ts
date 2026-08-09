@@ -1,7 +1,12 @@
-import { AstKind, UnaryOp, WatNodeType } from "../../../shared/enums";
+import { AstKind, LogPayloadDefect, UnaryOp, WatNodeType } from "../../../shared/enums";
 import { QUBIC_LOG_TYPE } from "@qinit/proto";
 import type { Expression } from "../../../ast";
 import * as watIr from "../wat-ir";
+import {
+    LOG_TERMINATOR_FIELD,
+    logPayloadDefect,
+    logPayloadMessage,
+} from "../abi/log-payload";
 import { addrIr } from "../memory/memory-operations";
 import type { FunctionEmissionContext } from "../types";
 import type { CallExpression } from "./call-expression";
@@ -137,27 +142,38 @@ function emitLogMessage(
     callName: string,
     logLevel: number,
 ): void {
-    const payload = expression.callArguments[0]
-        ? context.lowering.resolveExpressionAddress(context, expression.callArguments[0])
+    const argument = expression.callArguments[0];
+    const payload = argument
+        ? context.lowering.resolveExpressionAddress(context, argument)
         : null;
+    // Report rather than throw, so the diagnostic carries a source location and the remaining
+    // functions still get emitted. The module is discarded either way once an error is present.
+    const span = argument?.span ?? expression.span;
 
     if (!payload) {
-        throw new Error(`${callName} payload must be an addressable aggregate`);
+        context.programAnalysis.error(
+            `${callName} payload must be an addressable aggregate`,
+            span,
+        );
+        return;
     }
 
     if (!payload.layout) {
-        throw new Error(`${callName} payload must be a struct`);
+        context.programAnalysis.error(
+            logPayloadMessage(callName, LogPayloadDefect.NOT_A_STRUCT),
+            span,
+        );
+        return;
     }
 
-    const terminator = payload.layout.fields.get("_terminator");
-    if (!terminator) {
-        throw new Error(`${callName} payload struct must contain _terminator`);
+    const defect = logPayloadDefect(payload.layout);
+
+    if (defect) {
+        context.programAnalysis.error(logPayloadMessage(callName, defect), span);
+        return;
     }
 
-    if (terminator.offset < 8) {
-        throw new Error(`${callName} payload _terminator offset must be at least 8 bytes`);
-    }
-
+    const terminator = payload.layout.fields.get(LOG_TERMINATOR_FIELD)!;
     const payloadAddress = addrIr(payload.addr);
     const loggingCall = watIr.functionCall(
         "$qpi_logBytes",
