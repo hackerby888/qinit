@@ -413,3 +413,77 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     expect(compilerDiagnostics(source)).toEqual([]);
   });
 });
+
+describe("LOG_* call context", () => {
+  const UNREACHABLE = "__qinit_log_info is not available in a function; " +
+    "logs are paired with a transaction";
+
+  // Each case swaps one entry body into the same contract so only the log's context differs.
+  function contractLogging(entries: string): string {
+    return `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct LogMsg { uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator; };
+  struct StateData { uint32 calls; };
+  struct Peek_input {}; struct Peek_output { uint64 n; };
+  struct Peek_locals { LogMsg message; };
+  struct Emit_input {}; struct Emit_output {};
+  struct Emit_locals { LogMsg message; };
+  struct helper_input {}; struct helper_output {};
+  struct helper_locals { LogMsg message; };
+  struct OldStateData { uint64 previous; };
+  struct MIGRATE_locals { LogMsg message; };
+  struct END_TICK_locals { LogMsg message; };
+  ${entries}
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Peek, 1);
+    REGISTER_USER_PROCEDURE(Emit, 1);
+  }
+};`;
+  }
+
+  const QUIET_ENTRIES = `PUBLIC_FUNCTION_WITH_LOCALS(Peek) { output.n = 1; }
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) {}`;
+
+  function compilerMessages(entries: string): string[] {
+    return analyzeContract({ source: contractLogging(entries) })
+      .diagnostics.filter(
+        (item) => item.origin === SourceAnalysisOrigin.COMPILER,
+      )
+      .map((item) => item.message);
+  }
+
+  test("a log in a public function is rejected", () => {
+    expect(compilerMessages(
+      `PUBLIC_FUNCTION_WITH_LOCALS(Peek) { LOG_INFO(locals.message); output.n = 1; }
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) {}`,
+    )).toEqual([UNREACHABLE]);
+  });
+
+  test("a log in a private function is rejected", () => {
+    expect(compilerMessages(
+      `${QUIET_ENTRIES}
+  PRIVATE_FUNCTION_WITH_LOCALS(helper) { LOG_INFO(locals.message); }`,
+    )).toEqual([UNREACHABLE]);
+  });
+
+  test("a log in a procedure is allowed", () => {
+    expect(compilerMessages(
+      `PUBLIC_FUNCTION_WITH_LOCALS(Peek) { output.n = 1; }
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) { LOG_INFO(locals.message); }`,
+    )).toEqual([]);
+  });
+
+  // Lifecycle hooks run inside tick processing, so their logs are recorded despite MIGRATE
+  // sharing the function context type.
+  test("logs in lifecycle hooks are allowed", () => {
+    expect(compilerMessages(
+      `${QUIET_ENTRIES}
+  END_TICK_WITH_LOCALS() { LOG_INFO(locals.message); }`,
+    )).toEqual([]);
+    expect(compilerMessages(
+      `${QUIET_ENTRIES}
+  MIGRATE_WITH_LOCALS() { LOG_INFO(locals.message); }`,
+    )).toEqual([]);
+  });
+});

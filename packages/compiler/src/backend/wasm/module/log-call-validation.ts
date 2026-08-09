@@ -13,6 +13,9 @@ import type { PreparedContractModule } from "./module-analysis";
 
 const MIGRATION_IMPLEMENTATION = "__impl_migrate";
 
+// Entries taking this context are functions; procedures take QpiContextProcedureCall.
+const QPI_FUNCTION_CONTEXT = "QpiContextFunctionCall";
+
 const LOG_INTRINSICS: ReadonlySet<string> = new Set([
     "__qinit_log_error",
     "__qinit_log_warning",
@@ -33,9 +36,9 @@ interface ResolvedPayload {
     type: TypeSpec | null;
 }
 
-// Report LOG_* payload structs that break the host contract. Running here rather than in emission
-// is what lets the editor see them; codegen re-checks and stays the backstop for shapes skipped here.
-export function validateLogPayloads(prepared: PreparedContractModule): void {
+// Report LOG_* calls that cannot reach the chain, and payloads that break the host contract.
+// Running here rather than in emission is what lets the editor see them.
+export function validateLogCalls(prepared: PreparedContractModule): void {
     const contract = prepared.contract;
 
     if (!contract) {
@@ -58,10 +61,43 @@ export function validateLogPayloads(prepared: PreparedContractModule): void {
             continue;
         }
 
+        const unreachable = logsCannotReachTheChain(prepared, declaration);
+
         visitStatement(declaration.body, (statement) => {
-            checkLogStatement(prepared.programAnalysis, roots, statement);
+            checkLogStatement(
+                prepared.programAnalysis,
+                roots,
+                unreachable,
+                statement,
+            );
         });
     }
+}
+
+// A log is recorded against the current transaction, which a function is never invoked by.
+// Lifecycle hooks share the function context type but do run inside tick processing.
+function logsCannotReachTheChain(
+    prepared: PreparedContractModule,
+    declaration: FunctionDecl,
+): boolean {
+    if (
+        declaration.name === MIGRATION_IMPLEMENTATION ||
+        prepared.systemProcedureIndex.idsByImplementation.has(declaration.name)
+    ) {
+        return false;
+    }
+
+    const context = declaration.params[0]?.type;
+
+    if (!context) {
+        return false;
+    }
+
+    const resolved = prepared.programAnalysis.derefType(context);
+    return (
+        resolved.kind === AstKind.NAME &&
+        resolved.name === QPI_FUNCTION_CONTEXT
+    );
 }
 
 // Helper functions are deliberately absent: emission binds them empty layouts, so their bodies
@@ -120,6 +156,7 @@ function collectPayloadRoots(
 function checkLogStatement(
     programAnalysis: ProgramAnalysis,
     roots: PayloadRoots,
+    unreachable: boolean,
     statement: Statement,
 ): void {
     if (statement.kind !== AstKind.EXPRESSION) {
@@ -139,6 +176,14 @@ function checkLogStatement(
     const argument = call.callArguments[0];
 
     if (!argument) {
+        return;
+    }
+
+    if (unreachable) {
+        programAnalysis.error(
+            `${call.callee.name} is not available in a function; logs are paired with a transaction`,
+            argument.span ?? statement.span,
+        );
         return;
     }
 

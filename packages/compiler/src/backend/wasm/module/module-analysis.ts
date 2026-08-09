@@ -20,7 +20,7 @@ import {
     type LibrarySymbolIndex,
     registerLibraryMetadata,
 } from "./library-index";
-import { validateLogPayloads } from "./log-payload-validation";
+import { validateLogCalls } from "./log-call-validation";
 import { ContractLayoutResolver } from "./named-layouts";
 import {
     type ContractRegistration,
@@ -146,7 +146,7 @@ export function prepareContractModule(
         lhostAbi,
     };
 
-    validateLogPayloads(prepared);
+    validateLogCalls(prepared);
     return prepared;
 }
 
