@@ -17,18 +17,21 @@ const execµs = (ns: number) =>
   ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`;
 
 // indented label -> value row block (the "compact section")
+// `truncate` pins every row to a single line, which is what lets a bounded caller budget rows as lines.
 function Rows({
   rows,
   width,
+  truncate,
 }: {
   rows: { label: string; node: React.ReactNode }[];
   width?: number;
+  truncate?: boolean;
 }) {
   const w = width ?? Math.max(1, ...rows.map((r) => r.label.length));
   return (
     <Box flexDirection="column" marginLeft={2}>
       {rows.map((r, i) => (
-        <Text key={i}>
+        <Text key={i} wrap={truncate ? "truncate-end" : undefined}>
           <Text color={theme.info}>{r.label.padEnd(w)}</Text> {r.node}
         </Text>
       ))}
@@ -115,6 +118,9 @@ function StateDiff({
 
 // One decoded contract-call trace, compact. `view` = describeTrace(e, ...). `fullState` shows the state
 // block's container internals, and `stateHint` names whatever turns them on in the calling command.
+//
+// `width` is the pane this renders into, not the terminal — passing it also pins every row to one line,
+// so a caller that budgets rows against the screen height gets the height it counted on.
 export function TraceView({
   e,
   name,
@@ -123,6 +129,7 @@ export function TraceView({
   stateHint,
   maxStateRows,
   stateOffset,
+  width,
 }: {
   e: DebugEntry;
   name: string;
@@ -131,12 +138,29 @@ export function TraceView({
   stateHint: string;
   maxStateRows?: number;
   stateOffset?: number;
+  width?: number;
 }) {
+  const bounded = width != null;
+  const cols = width ?? termCols();
+  // Status has no wrap of its own, so a bounded pane has to size its two halves to fit on one line.
+  const pad = bounded
+    ? Math.max(1, Math.min(Math.max(14, name.length + 8), cols - 14))
+    : Math.max(14, name.length + 8);
+
   const callRows: { label: string; node: React.ReactNode }[] = [
-    { label: "in", node: <Text>{truncEnd(view.inDecoded, termCols() - 8)}</Text> },
-    { label: "out", node: <Text>{truncEnd(view.outDecoded, termCols() - 8)}</Text> },
+    { label: "in", node: <Text>{truncEnd(view.inDecoded, cols - 8)}</Text> },
+    { label: "out", node: <Text>{truncEnd(view.outDecoded, cols - 8)}</Text> },
   ];
-  if (e.kind === 1) callRows.push({ label: "caller", node: <Text wrap="wrap">{view.caller}</Text> }); // full id — copy-pasteable
+  // Unbounded, the caller is the full id so it can be copy-pasted; a pane too narrow for it truncates.
+  if (e.kind === 1)
+    callRows.push({
+      label: "caller",
+      node: bounded ? (
+        <Text>{truncMid(view.caller, Math.max(12, cols - 12))}</Text>
+      ) : (
+        <Text wrap="wrap">{view.caller}</Text>
+      ),
+    });
 
   const rows: { label: string; node: React.ReactNode }[] = [];
   for (const container of view.containers)
@@ -144,7 +168,7 @@ export function TraceView({
       label: container.name,
       node: (
         <Text dimColor>
-          {truncMid(container.entries.join(", ") || "empty", termCols() - 12)}
+          {truncMid(container.entries.join(", ") || "empty", cols - 12)}
         </Text>
       ),
     });
@@ -180,23 +204,28 @@ export function TraceView({
     rows.push({
       label: "trap",
       node: (
-        <Text color={theme.err} wrap="wrap">
+        <Text color={theme.err} wrap={bounded ? undefined : "wrap"}>
           {e.trap}
         </Text>
       ),
     });
   // One label column across both blocks, so the state block does not sit at its own indent.
-  const width = Math.max(5, ...[...callRows, ...rows].map((row) => row.label.length));
+  const labelWidth = Math.max(5, ...[...callRows, ...rows].map((row) => row.label.length));
+  // Status measures its own detail against the terminal, which overflows a narrower pane — pre-cut it.
+  // The glyph and its space are the 3rd column the detail has to leave room for.
+  const detailMax = bounded ? cols - pad - 3 : Math.max(12, cols - pad - 8);
+  const detail = truncMid(`${execµs(e.execNs)} · tick ${e.tick}`, detailMax);
+  const label = `${name} ${kindName(e.kind)}#${e.entry}`;
 
   return (
     <Box flexDirection="column">
       <Status
         ok={e.ok}
-        label={`${name} ${kindName(e.kind)}#${e.entry}`}
-        detail={`${execµs(e.execNs)} · tick ${e.tick}`}
-        pad={Math.max(14, name.length + 8)}
+        label={bounded ? truncEnd(label, pad) : label}
+        detail={detailMax >= 6 ? detail : undefined}
+        pad={pad}
       />
-      <Rows rows={callRows} width={width} />
+      <Rows rows={callRows} width={labelWidth} truncate={bounded} />
       <StateDiff
         lines={view.stateDiff}
         truncated={e.stateTruncated}
@@ -205,7 +234,7 @@ export function TraceView({
         maxRows={maxStateRows}
         offset={stateOffset}
       />
-      <Rows rows={rows} width={width} />
+      <Rows rows={rows} width={labelWidth} truncate={bounded} />
     </Box>
   );
 }

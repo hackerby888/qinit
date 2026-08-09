@@ -1199,6 +1199,16 @@ rest with `pgup`/`pgdn`. That bound is not cosmetic: Ink cannot erase a frame ta
 the screen, so an overflowing block leaves its own stale rows on the next render — which
 is what made `ctrl+t` look like it only worked one way.
 
+`qinit debug` therefore uses the explorer's fixed-height shell — `useTerminalSize()`, an
+outer `height={rows - 1}`, and a row budget handed to both panes. Passing `width` to
+`TraceView` is what makes that budget arithmetic rather than a guess: it truncates against
+the pane instead of `termCols()` and pins every row to a single line, so a row is a line.
+Without it a 60-character identity sets the detail pane's min-content width, and since an
+Ink `Box` shrinks by default, the list pane gives way and every table row wraps. The list
+pane is `flexShrink={0}` and floored at `LIST_MIN_WIDTH`, below which `Table` cannot
+render its columns without wrapping either. `qinit call --trace` passes no `width` and
+keeps wrapping, so the caller stays a full copy-pasteable id there.
+
 Both node backends report changed bytes as 256-byte aligned windows rather than as
 minimal runs, because a small value written into zeroed state dirties too few bytes to
 decode. Contiguous regions are joined before resolving, so a record split across two

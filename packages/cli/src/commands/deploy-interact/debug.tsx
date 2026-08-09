@@ -20,8 +20,8 @@ import {
   Table,
   Spinner,
   theme,
-  termRows,
   useFrame,
+  useTerminalSize,
   type Column,
 } from "../../ui";
 import type { CommandArguments } from "../../args";
@@ -29,6 +29,14 @@ import type { CommandArguments } from "../../args";
 const TRACE_LIST_LIMIT = 500;
 const TRACE_POLL_MS = 1200;
 const TICK_TIME_ATTEMPTS = 2;
+// Rows the shell owns above the body: the header with its margin, the status line, the body's margin.
+const CHROME_ROWS = 4;
+// Table refuses to shrink a column under 6, so LIST_COLS cannot render below 6×5 + 1 + the five gaps.
+// A pane narrower than that wraps every row instead, which is what the width has to be floored against.
+const LIST_MIN_WIDTH = 41;
+const LIST_WIDTH = 48;
+// What the detail pane is owed before the list starts giving up columns for it.
+const DETAIL_WIDTH = 50;
 const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const LIST_COLS: Column[] = [
   { header: "time", max: 10, dim: true },
@@ -133,6 +141,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
   const since = useRef(0);
   const reg = useRef<DynamicContractRegistryEntry[]>([]);
   const nameOf = (idx: number) => reg.current.find((c) => c.index === idx)?.name || String(idx);
+  const { columns, rows } = useTerminalSize();
   useFrame(1000);
 
   const select = (seq: number | null) => {
@@ -180,10 +189,23 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     : entries;
   visibleEntriesRef.current = list;
 
+  // The frame is pinned to the terminal, so both panes are sized from what is left under the chrome.
+  // Ink cannot erase a frame taller than the screen — one that overflows leaves its own rows behind.
+  const bodyRows = Math.max(4, rows - 1 - CHROME_ROWS);
+  const listWidth = Math.max(
+    LIST_MIN_WIDTH,
+    Math.min(LIST_WIDTH, columns - DETAIL_WIDTH - 2),
+  );
+  const detailWidth = Math.max(20, columns - listWidth - 2);
+
   const selectedIndex = traceSelectionIndex(list, selectedSeq);
   const cur = list[selectedIndex];
-  const start = Math.max(0, selectedIndex - 9);
-  const win = list.slice(start, start + 18);
+  const listRows = Math.max(1, bodyRows - 1); // the table draws its own header row
+  const start = Math.max(
+    0,
+    Math.min(selectedIndex - (listRows >> 1), list.length - listRows),
+  );
+  const win = list.slice(start, start + listRows);
 
   const timestampTicks = [
     ...new Set([entries[0]?.tick, ...win.map((entry) => entry.tick)]),
@@ -311,10 +333,12 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     { isActive: Boolean(process.stdin.isTTY) },
   );
 
+  // Fixed height is what keeps the frame repaintable. Sizing it to exactly `rows` makes the terminal
+  // scroll by one line, so the shell takes one less — the same trade the explorer's shell makes.
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" height={rows - 1}>
       <Header cmd="debug" />
-      <Text dimColor>
+      <Text dimColor wrap="truncate-end">
         {enabled ? "● capturing" : "toggle off"} · {list.length} calls · ↑/↓ select · x hide
         · ctrl+t {fullState ? "brief" : "full"} state · q quit
         {err ? "   err: " + err : ""}
@@ -336,8 +360,9 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
           </Text>
         </Box>
       ) : (
-        <Box marginTop={1}>
-          <Box flexDirection="column" width={48} marginRight={2}>
+        <Box marginTop={1} flexGrow={1}>
+          {/* flexShrink=0: without it a wide detail row would squeeze the list and wrap every table line. */}
+          <Box flexDirection="column" width={listWidth} flexShrink={0} marginRight={2}>
             <Table
               columns={LIST_COLS}
               rows={win.map((e) => [
@@ -350,7 +375,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
               ])}
               selected={selectedIndex - start}
               rowColor={(i) => (!win[i].ok ? theme.err : undefined)}
-              width={48}
+              width={listWidth}
             />
           </Box>
           <Box flexDirection="column" flexGrow={1}>
@@ -363,6 +388,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                 rpc={rpc}
                 qpiHeader={qpiHeader}
                 fullState={fullState}
+                width={detailWidth}
+                bodyRows={bodyRows}
               />
             ) : (
               <Text dimColor>—</Text>
@@ -382,6 +409,8 @@ function Detail({
   rpc,
   qpiHeader,
   fullState,
+  width,
+  bodyRows,
 }: {
   e: DebugEntry;
   name: string;
@@ -390,6 +419,8 @@ function Detail({
   rpc: LiteRpc;
   qpiHeader?: string;
   fullState: boolean;
+  width: number;
+  bodyRows: number;
 }) {
   const [v, setV] = useState<DecodedTrace | null>(null);
   const [bt, setBt] = useState<string>("");
@@ -425,13 +456,25 @@ function Detail({
 
   useEffect(() => setStateOffset(0), [e.seq, fullState]);
 
-  // The whole frame has to fit the terminal, so the state block gets what is left after the rows around
-  // it. Ink cannot erase a frame taller than the screen; an overflowing block leaves stale rows behind.
-  const otherRows = (v?.containers.length ?? 0) + (v?.logs.length ?? 0) + e.hostCalls.length;
-  const chrome = 16; // headers, the call rows, the tail, and slack for whatever the shell left on screen
+  // Bounded by `width`, every row TraceView draws is exactly one line — so the rows around the state
+  // block can be counted rather than guessed, and the state block takes whatever is left of `bodyRows`.
+  // Only the state block gives ground: a contract with enough containers to exceed `bodyRows` on its own
+  // still overflows, which needs a terminal under about 20 rows.
+  const fixedRows =
+    2 + // the status line and the state block's own header
+    1 + // the state block's ⋯ tail
+    (e.kind === 1 ? 3 : 2) + // in, out, and a proc's caller
+    (v?.containers.length ?? 0) +
+    (v?.logs.length ?? 0) +
+    e.hostCalls.length +
+    (e.trap ? 1 : 0);
+  // A trap backtrace takes at most half of what is left, so it can never crowd out the state diff.
+  const btLines = bt
+    ? bt.split("\n").slice(0, Math.max(0, Math.floor((bodyRows - fixedRows) / 2)))
+    : [];
   const stateRows = Math.max(
-    4,
-    termRows() - chrome - otherRows - (bt ? bt.split("\n").length : 0),
+    1,
+    bodyRows - fixedRows - btLines.length - (btLines.length ? 1 : 0),
   );
   const changed = v ? shownStateLines(v.stateDiff, fullState).length : 0;
 
@@ -457,14 +500,15 @@ function Detail({
           stateHint="ctrl+t"
           maxStateRows={stateRows}
           stateOffset={stateOffset}
+          width={width}
         />
       ) : (
         <Text dimColor>decoding…</Text>
       )}
-      {bt ? (
+      {btLines.length ? (
         <Box marginTop={1} flexDirection="column">
-          {bt.split("\n").map((l, i) => (
-            <Text key={i} color={theme.err}>
+          {btLines.map((l, i) => (
+            <Text key={i} color={theme.err} wrap="truncate-end">
               {l}
             </Text>
           ))}
