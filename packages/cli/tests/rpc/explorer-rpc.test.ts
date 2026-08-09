@@ -66,6 +66,7 @@ test("getTickData returns a tick header and null for a tick with none", async ()
   try {
     const tickData = await rpc.getTickData(txTick);
     expect(tickData?.tickNumber).toBe(txTick);
+    expect(Number(tickData?.timestamp)).toBeGreaterThan(0);
     expect(tickData?.transactionDigests.length).toBe(1);
 
     expect(await rpc.getTickData(999999)).toBeNull();
