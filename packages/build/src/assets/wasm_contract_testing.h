@@ -4,7 +4,11 @@
 #include <map>
 #include <set>
 #include <vector>
+#if __has_include("platform/common_types.h")
 #include "platform/common_types.h"
+#else
+typedef wchar_t CHAR16;
+#endif
 
 // Routes core-lite ContractTesting helpers to Qinit's "thost" imports.
 

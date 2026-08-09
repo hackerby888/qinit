@@ -11,6 +11,7 @@ import {
   generateWasmWrapperSource,
   WASM_CONTRACT_CLANG_FLAGS,
 } from "./recipe";
+import WASM_CONTRACT_TESTING_H from "./assets/wasm_contract_testing.h" with { type: "text" };
 import {
   CORE_WASM_HEADERS,
   loadCoreWasmSlotLayout,
@@ -122,6 +123,11 @@ export async function buildSnapshot(
   }
   for (const sharedHeader of Object.values(CORE_WASM_HEADERS.shared)) {
     extraFiles.push(join(corePath, "src", sharedHeader));
+  }
+  // The gtest harness includes core headers a contract never pulls, so the stub's closure above misses
+  // them and `qinit gtest` cannot build against a snapshot. Placeholders drop out at the copy step.
+  for (const [, include] of WASM_CONTRACT_TESTING_H.matchAll(/^#include\s+"([^"]+)"/gm)) {
+    extraFiles.push(join(corePath, "src", include));
   }
 
   const root = join(outRoot, "core-headers");
