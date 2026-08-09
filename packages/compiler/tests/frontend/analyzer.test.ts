@@ -1,8 +1,9 @@
 import {
+  DiagnosticSeverity,
   QpiContextKind,
   SourceAnalysisOrigin,
 } from "../../src/shared/enums";
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
   analyzeContract,
   detectContractName,
@@ -339,4 +340,76 @@ struct Caller : public ContractBase {
     "CALL_OTHER_CONTRACT_FUNCTION(Target, Get, input, output)",
     "INVOKE_OTHER_CONTRACT_PROCEDURE_E(Target, Set, input, output, 0, error)",
   ]);
+});
+
+describe("LOG_* payload validation", () => {
+  const LOGGING_SOURCE = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct LogMessage { uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator; };
+  struct StateData { uint32 calls; };
+  struct Emit_input { uint64 value; }; struct Emit_output {};
+  struct Emit_locals { LogMessage message; };
+  PUBLIC_PROCEDURE_WITH_LOCALS(Emit) {
+    LOG_INFO(locals.message);
+    state.mut().calls += 1;
+  }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Emit, 1); }
+};`;
+
+  // The LOG_INFO call sits on line 9 of the raw source. Asserting it proves the span was remapped
+  // back from preprocessed coordinates rather than reported in them.
+  const LOG_CALL_LINE = 9;
+
+  function compilerDiagnostics(source: string) {
+    return analyzeContract({ source }).diagnostics.filter(
+      (item) => item.origin === SourceAnalysisOrigin.COMPILER,
+    );
+  }
+
+  test("a well-formed payload produces no compiler diagnostics", () => {
+    expect(compilerDiagnostics(LOGGING_SOURCE)).toEqual([]);
+  });
+
+  test("a payload struct without _terminator is reported at the call", () => {
+    const source = LOGGING_SOURCE.replace("sint8 _terminator;", "sint8 end;");
+    const findings = compilerDiagnostics(source);
+
+    expect(findings.map((item) => item.message)).toEqual([
+      "__qinit_log_info payload struct must contain _terminator",
+    ]);
+    expect(findings[0].severity).toBe(DiagnosticSeverity.ERROR);
+    expect(findings[0].span.line).toBe(LOG_CALL_LINE);
+  });
+
+  test("a _terminator below the minimum offset is reported", () => {
+    const source = LOGGING_SOURCE.replace(
+      "uint32 _contractIndex; uint32 _type; uint64 value; sint8 _terminator;",
+      "uint32 value; sint8 _terminator;",
+    );
+    const findings = compilerDiagnostics(source);
+
+    expect(findings.map((item) => item.message)).toEqual([
+      "__qinit_log_info payload _terminator offset must be at least 8 bytes",
+    ]);
+    expect(findings[0].span.line).toBe(LOG_CALL_LINE);
+  });
+
+  test("a scalar payload is reported as a non-struct", () => {
+    const source = LOGGING_SOURCE.replace(
+      "LOG_INFO(locals.message);",
+      "LOG_INFO(input.value);",
+    );
+
+    expect(compilerDiagnostics(source).map((item) => item.message)).toEqual([
+      "__qinit_log_info payload must be a struct",
+    ]);
+  });
+
+  test("an unresolvable payload stays silent rather than guessing", () => {
+    const source =
+      "struct X : public ContractBase { PUBLIC_PROCEDURE(Do) { LOG_INFO(locals.msg); } };";
+
+    expect(compilerDiagnostics(source)).toEqual([]);
+  });
 });

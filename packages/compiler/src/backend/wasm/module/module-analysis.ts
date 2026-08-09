@@ -20,6 +20,7 @@ import {
     type LibrarySymbolIndex,
     registerLibraryMetadata,
 } from "./library-index";
+import { validateLogPayloads } from "./log-payload-validation";
 import { ContractLayoutResolver } from "./named-layouts";
 import {
     type ContractRegistration,
@@ -132,7 +133,7 @@ export function prepareContractModule(
     );
     registerEntryDispatchTargets(registrations, programAnalysis, layouts);
 
-    return {
+    const prepared: PreparedContractModule = {
         programAnalysis,
         declarations: request.translationUnit.declarations,
         contract,
@@ -144,6 +145,9 @@ export function prepareContractModule(
         contextLayout,
         lhostAbi,
     };
+
+    validateLogPayloads(prepared);
+    return prepared;
 }
 
 export function createModuleProgramAnalysis(

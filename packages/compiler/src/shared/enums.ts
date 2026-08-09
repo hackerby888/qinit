@@ -406,3 +406,9 @@ export enum ValidationVisitState {
   VISITING = "visiting",
   DONE = "done",
 }
+
+export enum LogPayloadDefect {
+  NOT_A_STRUCT = "not_a_struct",
+  MISSING_TERMINATOR = "missing_terminator",
+  TERMINATOR_TOO_EARLY = "terminator_too_early",
+}
