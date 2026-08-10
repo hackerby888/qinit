@@ -28,6 +28,7 @@ export interface ContainerFixture {
 export interface ExecutionResult {
   operations: OperationResult[];
   outputs: Uint8Array[];
+  checkpoints?: Uint8Array[];
   state: Uint8Array;
 }
 
@@ -63,12 +64,14 @@ export function decodeWords(bytes: Uint8Array): bigint[] {
 export function executeContainerScript(
   wasm: Uint8Array,
   operations: readonly ContainerOperation[],
+  captureCheckpoints = false,
 ): ExecutionResult {
   const sim = new QubicSimulator({ mempool: false, fees: "off", liteTicking: true });
   const user = new Uint8Array(32).fill(7);
   sim.fund(user, 1_000_000n);
   const contract = sim.deploy(CONTAINER_SLOT, wasm);
   const results: OperationResult[] = [];
+  const checkpoints: Uint8Array[] = [];
   for (const operation of operations) {
     try {
       results.push({
@@ -80,12 +83,19 @@ export function executeContainerScript(
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       results.push({ status: /reject|invalid|not found/i.test(message) ? "rejected" : "trap" });
+      if (captureCheckpoints) {
+        checkpoints.push(contract.state().slice());
+      }
       break;
+    }
+    if (captureCheckpoints) {
+      checkpoints.push(contract.state().slice());
     }
   }
   return {
     operations: results,
     outputs: results.flatMap((result) => (result.output ? [result.output] : [])),
+    ...(captureCheckpoints ? { checkpoints } : {}),
     state: contract.state().slice(),
   };
 }
@@ -157,6 +167,24 @@ export function compareExecutions(left: ExecutionResult, right: ExecutionResult)
       return `operation ${index} output differs: ${leftHex} != ${rightHex}`;
     }
   }
+  if (!!left.checkpoints !== !!right.checkpoints) {
+    return "only one execution captured operation checkpoints";
+  }
+  if (left.checkpoints && right.checkpoints) {
+    if (left.checkpoints.length !== right.checkpoints.length) {
+      return `checkpoint count ${left.checkpoints.length} != ${right.checkpoints.length}`;
+    }
+    for (let index = 0; index < left.checkpoints.length; index++) {
+      const leftState = left.checkpoints[index];
+      const rightState = right.checkpoints[index];
+      if (!Buffer.from(leftState).equals(Buffer.from(rightState))) {
+        const firstDifference = leftState.findIndex(
+          (value, byteIndex) => value !== rightState[byteIndex],
+        );
+        return `operation ${index} state differs at byte ${firstDifference}: ${leftState[firstDifference]} != ${rightState[firstDifference]}`;
+      }
+    }
+  }
   if (!Buffer.from(left.state).equals(Buffer.from(right.state))) {
     const firstDifference = left.state.findIndex(
       (value, index) => value !== right.state[index],
@@ -177,6 +205,7 @@ export function executeWamr(
   wasm: Uint8Array,
   operations: readonly ContainerOperation[],
   expectedSlot = CONTAINER_SLOT,
+  captureCheckpoints = false,
 ): ExecutionResult {
   const dir = mkdtempSync(join(tmpdir(), "qinit-container-wamr-"));
   const artifact = join(dir, "fixture.wasm");
@@ -191,6 +220,7 @@ export function executeWamr(
           QINIT_WASM: artifact,
           QINIT_SCRIPT: wamrScript(operations),
           QINIT_EXPECTED_SLOT: String(expectedSlot),
+          ...(captureCheckpoints ? { QINIT_CAPTURE_CHECKPOINTS: "1" } : {}),
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -225,9 +255,23 @@ export function executeWamr(
         `WAMR gtest emitted ${operationResults.length}/${operations.length} operation results:\n${stdout}`,
       );
     }
+    const checkpoints = [...stdout.matchAll(/CROSSHOST_CHECKPOINT=(\d+):([0-9a-f]+)/g)]
+      .map((match, checkpointIndex) => {
+        const index = Number(match[1]);
+        if (index !== checkpointIndex) {
+          throw new Error(`WAMR gtest emitted out-of-order checkpoint ${index}`);
+        }
+        return new Uint8Array(Buffer.from(match[2], "hex"));
+      });
+    if (captureCheckpoints && checkpoints.length !== operationResults.length) {
+      throw new Error(
+        `WAMR gtest emitted ${checkpoints.length}/${operationResults.length} checkpoints:\n${stdout}`,
+      );
+    }
     return {
       operations: operationResults,
       outputs: operationResults.flatMap((result) => (result.output ? [result.output] : [])),
+      ...(captureCheckpoints ? { checkpoints } : {}),
       state: new Uint8Array(Buffer.from(stateMatch[1], "hex")),
     };
   } finally {

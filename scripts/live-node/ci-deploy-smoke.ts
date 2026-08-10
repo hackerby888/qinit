@@ -149,11 +149,65 @@ const nestedCounterCalls = proxyTrace.entries.filter(
   (entry) =>
     entry.index === counterSlot && entry.entry === 1 && entry.kind === 1 && entry.ok,
 );
-if (outerProxyCalls.length !== 2 || nestedCounterCalls.length !== 2) {
+const outerProxyReads = proxyTrace.entries.filter(
+  (entry) =>
+    entry.index === proxySlot && entry.entry === 1 && entry.kind === 0 && entry.ok,
+);
+if (
+  outerProxyCalls.length !== 2 ||
+  nestedCounterCalls.length !== 2 ||
+  outerProxyReads.length !== 2
+) {
   fail(
-    "nested trace records: expected 2 Proxy and 2 Counter procedures, " +
-      `got ${outerProxyCalls.length} and ${nestedCounterCalls.length}`,
+    "nested trace records: expected 2 Proxy procedures, 2 Counter procedures, and 2 Proxy reads, " +
+      `got ${outerProxyCalls.length}, ${nestedCounterCalls.length}, and ${outerProxyReads.length}`,
   );
+}
+
+const counterTransitions = [
+  ["0000000000000000", "0100000000000000"],
+  ["0100000000000000", "0200000000000000"],
+] as const;
+for (const [index, entry] of nestedCounterCalls.entries()) {
+  const [before, after] = counterTransitions[index];
+  const hasExpectedDiff = entry.stateDiff.some(
+    (diff) =>
+      diff.off === 0 &&
+      diff.before.startsWith(before) &&
+      diff.after.startsWith(after),
+  );
+  if (!hasExpectedDiff || entry.stateTruncated) {
+    fail(
+      `nested Counter #${index + 1} missing ${before}->${after} state diff: ` +
+        JSON.stringify(entry),
+    );
+  }
+}
+
+const expectedCallee = `-> ${counterSlot}/1`;
+for (const [index, entry] of outerProxyCalls.entries()) {
+  const invokesCounter = entry.hostCalls.some(
+    (call) =>
+      call.name === "invokeProcedure" && call.detail.includes(expectedCallee),
+  );
+  if (entry.stateDiff.length || entry.stateTruncated || !invokesCounter) {
+    fail(
+      `Proxy BumpCounter #${index + 1} trace ownership is wrong: ` +
+        JSON.stringify(entry),
+    );
+  }
+}
+for (const [index, entry] of outerProxyReads.entries()) {
+  const callsCounter = entry.hostCalls.some(
+    (call) =>
+      call.name === "callFunction" && call.detail.includes(expectedCallee),
+  );
+  if (!callsCounter) {
+    fail(
+      `Proxy ReadCounter #${index + 1} host-call attribution is wrong: ` +
+        JSON.stringify(entry),
+    );
+  }
 }
 
 await invokeEmptyProcedure(counterSlot, "direct Counter Inc");
@@ -197,6 +251,70 @@ for (let i = 0; i < 8; i++) {
 }
 if (!debugOk) {
   fail("debug trace missing the Inc state diff (counter 02->03) — mprotect capture broken?");
+}
+
+console.log("redeploy Counter with the TypeScript compiler…");
+const counterRedeployment = await deployContract(
+  {
+    contractPath: resolve("fixtures/Counter.h"),
+    name: "Counter",
+    core,
+    rpcBaseUrl,
+    seed,
+    compiler: "typescript",
+    slotOverride: counterSlot,
+    rpc,
+  },
+  () => {},
+);
+if (!counterRedeployment.ok || counterRedeployment.slot !== counterSlot) {
+  fail("redeploy Counter: " + JSON.stringify(counterRedeployment));
+}
+if ((await readUint64Value(counterSlot)) !== 3n) {
+  fail("Counter state changed during the same-layout redeploy");
+}
+
+console.log("migrate Counter to CounterV2…");
+const counterMigration = await deployContract(
+  {
+    contractPath: resolve("fixtures/CounterV2.h"),
+    name: "Counter",
+    core,
+    rpcBaseUrl,
+    seed,
+    slotOverride: counterSlot,
+    rpc,
+  },
+  () => {},
+);
+if (!counterMigration.ok || counterMigration.slot !== counterSlot) {
+  fail("migrate Counter: " + JSON.stringify(counterMigration));
+}
+
+const readCounterV2 = async (): Promise<[bigint, bigint]> => {
+  const output = await callFunction(
+    rpc,
+    counterSlot,
+    1,
+    "",
+    "uint64, uint64",
+  );
+  return [BigInt(output[0]), BigInt(output[1])];
+};
+const [migratedCounter, migratedAtTick] = await readCounterV2();
+if (migratedCounter !== 3n || migratedAtTick === 0n) {
+  fail(
+    `CounterV2 migration lost state: counter=${migratedCounter}, tick=${migratedAtTick}`,
+  );
+}
+
+await invokeEmptyProcedure(counterSlot, "CounterV2 Inc");
+const [counterV2Value, migrationTickAfterCall] = await readCounterV2();
+if (counterV2Value !== 4n || migrationTickAfterCall !== migratedAtTick) {
+  fail(
+    `CounterV2 post-migration call failed: counter=${counterV2Value}, ` +
+      `tick=${migrationTickAfterCall}`,
+  );
 }
 
 // Deploy Logger and verify that Emit(2) produces a decoded INFO log.

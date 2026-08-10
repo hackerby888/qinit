@@ -304,6 +304,7 @@ jobs:
       QINIT_CONTAINER_PARITY: "1"
       QINIT_REQUIRE_CONTAINER_TOOLCHAINS: "1"
       QINIT_CONTAINER_SEEDS: ${{ github.event_name == 'schedule' && '32' || '4' }}
+      QINIT_CONTAINER_SEED_START: ${{ github.event_name == 'schedule' && github.run_number || '0' }}
       QINIT_CONTAINER_OPERATIONS: ${{ github.event_name == 'schedule' && '256' || '64' }}
       QINIT_WAMR_GTEST: ${{ github.workspace }}/core/build-container-parity/test/qubic_wasm_tests
       WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
@@ -361,7 +362,12 @@ jobs:
           mkdir -p wasi-sdk && tar -xzf wasi-sdk.tar.gz -C wasi-sdk --strip-components=1
 
       - name: Native differential and exact-artifact WAMR parity
-        run: bun test packages/compiler/tests/differential/container-parity.test.ts
+        run: |
+          export QINIT_CONTAINER_SEED_START=$((QINIT_CONTAINER_SEED_START * QINIT_CONTAINER_SEEDS))
+          bun test \
+            packages/compiler/tests/differential/container-parity.test.ts \
+            packages/compiler/tests/differential/container-view-native.test.ts \
+            packages/cli/tests/integration/cross-host.test.ts
 
   deploy-smoke:
     needs: resolve-core
@@ -423,6 +429,7 @@ jobs:
         env:
           QINIT_CORE: ${{ github.workspace }}/core
           QINIT_RPC: http://127.0.0.1:41841
+          QINIT_NESTED_RECOVERY_RUNS: ${{ github.event_name == 'schedule' && '5' || '1' }}
           WASM_CLANG: ${{ github.workspace }}/wasi-sdk/bin/clang++
           WASI_SYSROOT: ${{ github.workspace }}/wasi-sdk/share/wasi-sysroot
         run: |

@@ -29,6 +29,10 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         uint64 pitCount;
         uint64 calleeValue;
         uint64 calleeCalls;
+        uint64 nestedTrapError;
+        uint64 nestedAfterHealthy;
+        uint64 nestedCalls;
+        uint64 recoveries;
         uint64 runs;
         uint64 initialized;
     };
@@ -42,6 +46,12 @@ struct CONTRACT_STATE_TYPE : public ContractBase
     };
     struct CalleeAdd_input { uint64 amount; };
     struct CalleeAdd_output { uint64 value; };
+    struct CalleeFailAfterWrite_input
+    {
+        uint64 amount;
+        sint64 divisor;
+    };
+    struct CalleeFailAfterWrite_output { sint64 quotient; };
 
     struct Run_input
     {
@@ -83,8 +93,39 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         uint64 listPopulation;
         uint64 calleeValue;
         uint64 calleeCalls;
+        uint64 nestedTrapError;
+        uint64 nestedAfterHealthy;
+        uint64 nestedCalls;
+        uint64 recoveries;
         uint64 runs;
         uint64 initialized;
+    };
+
+    struct Recover_input
+    {
+        uint64 failedAmount;
+        uint64 healthyAmount;
+        sint64 divisor;
+    };
+    struct Recover_output
+    {
+        uint64 trapError;
+        uint64 healthyError;
+        uint64 before;
+        uint64 afterTrap;
+        uint64 afterHealthy;
+        uint64 calls;
+    };
+    struct Recover_locals
+    {
+        CalleeRead_input readInput;
+        CalleeRead_output before;
+        CalleeRead_output afterTrap;
+        CalleeRead_output afterHealthy;
+        CalleeFailAfterWrite_input failedInput;
+        CalleeFailAfterWrite_output failedOutput;
+        CalleeAdd_input healthyInput;
+        CalleeAdd_output healthyOutput;
     };
 
     INITIALIZE()
@@ -99,6 +140,30 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 
     PUBLIC_PROCEDURE_WITH_LOCALS(Run)
     {
+        {
+            CALL_OTHER_CONTRACT_FUNCTION(
+                QpiDualCallee,
+                Read,
+                locals.readInput,
+                locals.before);
+        }
+        locals.addInput.amount = input.seed & 255;
+        {
+            INVOKE_OTHER_CONTRACT_PROCEDURE(
+                QpiDualCallee,
+                Add,
+                locals.addInput,
+                locals.addOutput,
+                0);
+        }
+        {
+            CALL_OTHER_CONTRACT_FUNCTION(
+                QpiDualCallee,
+                Read,
+                locals.readInput,
+                locals.after);
+        }
+
         state.mut().arrayValues.setAll(input.seed);
         state.mut().arrayValues.set(input.seed & 7, input.seed + 99);
         state.mut().bits.setAll(false);
@@ -313,29 +378,6 @@ struct CONTRACT_STATE_TYPE : public ContractBase
             state.mut().list.replace(locals.index, input.seed + 999);
         }
 
-        {
-            CALL_OTHER_CONTRACT_FUNCTION(
-                QpiDualCallee,
-                Read,
-                locals.readInput,
-                locals.before);
-        }
-        locals.addInput.amount = input.seed & 255;
-        {
-            INVOKE_OTHER_CONTRACT_PROCEDURE(
-                QpiDualCallee,
-                Add,
-                locals.addInput,
-                locals.addOutput,
-                0);
-        }
-        {
-            CALL_OTHER_CONTRACT_FUNCTION(
-                QpiDualCallee,
-                Read,
-                locals.readInput,
-                locals.after);
-        }
         if (locals.before.initialized == 0x43414C4C45455741ull
             && locals.after.calls == locals.before.calls + 1
             && locals.after.value == locals.before.value + locals.addInput.amount
@@ -408,13 +450,72 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         output.listPopulation = state.get().list.population();
         output.calleeValue = state.get().calleeValue;
         output.calleeCalls = state.get().calleeCalls;
+        output.nestedTrapError = state.get().nestedTrapError;
+        output.nestedAfterHealthy = state.get().nestedAfterHealthy;
+        output.nestedCalls = state.get().nestedCalls;
+        output.recoveries = state.get().recoveries;
         output.runs = state.get().runs;
         output.initialized = state.get().initialized;
+    }
+
+    PUBLIC_PROCEDURE_WITH_LOCALS(Recover)
+    {
+        CALL_OTHER_CONTRACT_FUNCTION(
+            QpiDualCallee,
+            Read,
+            locals.readInput,
+            locals.before);
+
+        locals.failedInput.amount = input.failedAmount;
+        locals.failedInput.divisor = input.divisor;
+        INVOKE_OTHER_CONTRACT_PROCEDURE_E(
+            QpiDualCallee,
+            FailAfterWrite,
+            locals.failedInput,
+            locals.failedOutput,
+            0,
+            trapError);
+
+        CALL_OTHER_CONTRACT_FUNCTION_E(
+            QpiDualCallee,
+            Read,
+            locals.readInput,
+            locals.afterTrap,
+            readAfterTrapError);
+
+        locals.healthyInput.amount = input.healthyAmount;
+        INVOKE_OTHER_CONTRACT_PROCEDURE_E(
+            QpiDualCallee,
+            Add,
+            locals.healthyInput,
+            locals.healthyOutput,
+            0,
+            healthyError);
+
+        CALL_OTHER_CONTRACT_FUNCTION_E(
+            QpiDualCallee,
+            Read,
+            locals.readInput,
+            locals.afterHealthy,
+            readAfterHealthyError);
+
+        state.mut().nestedTrapError = trapError;
+        state.mut().nestedAfterHealthy = locals.afterHealthy.value;
+        state.mut().nestedCalls = locals.afterHealthy.calls;
+        state.mut().recoveries++;
+
+        output.trapError = trapError;
+        output.healthyError = healthyError;
+        output.before = locals.before.value;
+        output.afterTrap = locals.afterTrap.value;
+        output.afterHealthy = locals.afterHealthy.value;
+        output.calls = locals.afterHealthy.calls;
     }
 
     REGISTER_USER_FUNCTIONS_AND_PROCEDURES()
     {
         REGISTER_USER_PROCEDURE(Run, 1);
+        REGISTER_USER_PROCEDURE(Recover, 2);
         REGISTER_USER_FUNCTION(Read, 1);
     }
 };

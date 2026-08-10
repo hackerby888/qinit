@@ -72,6 +72,19 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         id who;
         sint64 reward;
     };
+    struct QxFees_input {};
+    struct QxFees_output
+    {
+        uint32 assetIssuanceFee;
+        uint32 transferFee;
+        uint32 tradeFee;
+        uint8 callError;
+    };
+    struct QxFees_locals
+    {
+        QX::Fees_input input;
+        QX::Fees_output output;
+    };
 
     // ---- procedures (mutate state) ----
     struct Add_input { uint64 x; };
@@ -151,6 +164,20 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         output.reward = state.get().lastReward;
     }
 
+    PUBLIC_FUNCTION_WITH_LOCALS(QxFees)
+    {
+        CALL_OTHER_CONTRACT_FUNCTION_E(
+            QX,
+            Fees,
+            locals.input,
+            locals.output,
+            callError);
+        output.assetIssuanceFee = locals.output.assetIssuanceFee;
+        output.transferFee = locals.output.transferFee;
+        output.tradeFee = locals.output.tradeFee;
+        output.callError = callError;
+    }
+
     PUBLIC_PROCEDURE(Add)
     {
         state.mut().total += input.x;
@@ -185,6 +212,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase
         REGISTER_USER_FUNCTION(Pop, 8);
         REGISTER_USER_FUNCTION(Slot, 9);
         REGISTER_USER_FUNCTION(LastCaller, 10);
+        REGISTER_USER_FUNCTION(QxFees, 11);
 
         REGISTER_USER_PROCEDURE(Add, 1);
         REGISTER_USER_PROCEDURE(Put, 2);

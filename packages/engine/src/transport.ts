@@ -757,6 +757,11 @@ export class VirtualNode implements NodeTransport {
           `upload chunk ${message.seq} is outside 0..${upload.chunkCount - 1}`,
         );
       }
+      if (message.seq !== upload.received.size) {
+        throw new Error(
+          `upload chunk ${message.seq} is out of order; expected ${upload.received.size}`,
+        );
+      }
 
       const offset = message.seq * CHUNK_DATA_MAX;
       const expectedLength = Math.min(

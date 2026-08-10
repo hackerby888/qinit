@@ -4,10 +4,12 @@ import { inspectWasmModule } from "./wasm-inspect";
 import { toWasmFunctionSignatures } from "./wasm-inspection/inspection-types";
 import type { CompileOptions } from "./types";
 
+// ArrayBuffer-backed, not just `Uint8Array`: the browser's DOM lib types `BufferSource` as
+// ArrayBuffer-only, so a possibly-shared view is not a valid `WebAssembly.validate` argument.
 export async function encodeWat(
     wat: string,
     sourceName: string,
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
     const wabt = await import("wabt");
     const wabtModule = await wabt.default();
     const parsedModule = wabtModule.parseWat(sourceName, wat);

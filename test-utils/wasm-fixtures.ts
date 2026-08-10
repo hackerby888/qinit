@@ -10,6 +10,8 @@ import HOOKS_SOURCE from "../fixtures/Hooks.h" with { type: "text" };
 import INCOMING_LOGGER_SOURCE from "../fixtures/IncomingLogger.h" with { type: "text" };
 import ORACLE_PROBE_SOURCE from "../fixtures/OracleProbe.h" with { type: "text" };
 import PROXY_SOURCE from "../fixtures/Proxy.h" with { type: "text" };
+import QPI_DUAL_SOURCE from "../fixtures/QpiDual.h" with { type: "text" };
+import QPI_DUAL_CALLEE_SOURCE from "../fixtures/QpiDualCallee.h" with { type: "text" };
 import REFUND_SOURCE from "../fixtures/Refund.h" with { type: "text" };
 import SHARE_APPROVER_SOURCE from "../fixtures/ShareApprover.h" with { type: "text" };
 import SHARE_MANAGER_SOURCE from "../fixtures/ShareManager.h" with { type: "text" };
@@ -71,6 +73,19 @@ export const wasmFixtureManifest = {
   ),
   OracleProbe: fixture("OracleProbe.h", ORACLE_PROBE_SOURCE, "OracleProbe", 29),
   Proxy: fixture("Proxy.h", PROXY_SOURCE, "Proxy", 29, ["Counter"]),
+  QpiDualCallee: fixture(
+    "QpiDualCallee.h",
+    QPI_DUAL_CALLEE_SOURCE,
+    "QpiDualCallee",
+    28,
+  ),
+  QpiDual: fixture(
+    "QpiDual.h",
+    QPI_DUAL_SOURCE,
+    "QpiDual",
+    29,
+    ["QpiDualCallee"],
+  ),
   Refund: fixture("Refund.h", REFUND_SOURCE, "Refund", 28),
   ShareApprover: fixture("ShareApprover.h", SHARE_APPROVER_SOURCE, "ShareApprover", 28),
   ShareManager: fixture("ShareManager.h", SHARE_MANAGER_SOURCE, "ShareManager", 29),

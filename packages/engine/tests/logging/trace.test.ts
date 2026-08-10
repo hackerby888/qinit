@@ -137,6 +137,43 @@ test("trace(since) yields only newer entries, and 1-based seq keeps the first on
   expect(recorder.trace(0, 0).entries).toHaveLength(3);
 });
 
+test("nested traces use completion order for sequence, since, and limit", () => {
+  const recorder = new TraceRecorder();
+  recorder.setEnabled(true);
+  const begin = (index: number) =>
+    recorder.begin({
+      tick: 0,
+      index,
+      entry: 1,
+      kind: 1,
+      invocator: undefined,
+      invocationReward: 0n,
+      input: new Uint8Array(0),
+      stateSize: 0,
+      stateBefore: new Uint8Array(0),
+    });
+  const end = (entry: ReturnType<typeof begin>) =>
+    recorder.end(entry, {
+      output: new Uint8Array(0),
+      ok: true,
+      stateBefore: new Uint8Array(0),
+      stateAfter: new Uint8Array(0),
+      execNs: 1,
+    });
+
+  const outer = begin(29);
+  const inner = begin(28);
+  end(inner);
+  end(outer);
+
+  expect(recorder.trace().entries.map((entry) => [entry.seq, entry.index])).toEqual([
+    [1, 28],
+    [2, 29],
+  ]);
+  expect(recorder.trace(1).entries.map((entry) => entry.index)).toEqual([29]);
+  expect(recorder.trace(0, 1).entries.map((entry) => entry.index)).toEqual([29]);
+});
+
 // A write past a fixed prefix used to vanish from the diff; the trace now snapshots the whole state.
 test("unmetered runtime tracing snapshots the whole state", async () => {
   const sim = new QubicSimulator({ fees: "off" });

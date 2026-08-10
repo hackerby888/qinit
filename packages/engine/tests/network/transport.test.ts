@@ -188,7 +188,7 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
       encodeUploadBegin({ sessionId, totalSize, chunkCount, finalHashHex: hash }),
     );
 
-  begin(first, 1009, 2, "11".repeat(32));
+  begin(first, 2017, 3, "11".repeat(32));
   (eng as any).handleDeployTx(
     LITE_TX.UPLOAD_CHUNK,
     encodeUploadChunk({
@@ -200,19 +200,40 @@ test("UPLOAD_BEGIN keeps the active session across retries and rejects a differe
   const active = (eng as any).upload;
   const buffer = [...active.buf];
 
+  expect(() =>
+    (eng as any).handleDeployTx(
+      LITE_TX.UPLOAD_CHUNK,
+      encodeUploadChunk({
+        sessionId: first,
+        seq: 0,
+        bytes: new Uint8Array(1008).fill(2),
+      }),
+    ),
+  ).toThrow("upload chunk 0 is out of order; expected 1");
+  expect(() =>
+    (eng as any).handleDeployTx(
+      LITE_TX.UPLOAD_CHUNK,
+      encodeUploadChunk({
+        sessionId: first,
+        seq: 2,
+        bytes: new Uint8Array(1).fill(3),
+      }),
+    ),
+  ).toThrow("upload chunk 2 is out of order; expected 1");
+
   expect(() => begin(first, 4, 1, "22".repeat(32))).not.toThrow();
   expect((eng as any).upload).toBe(active);
   expect(await eng.dynUpload()).toMatchObject({
     sessionId: "11",
-    totalSize: 1009,
-    chunkCount: 2,
+    totalSize: 2017,
+    chunkCount: 3,
     receivedCount: 1,
     finalHash: "11".repeat(32),
   });
   expect([...(eng as any).upload.buf]).toEqual(buffer);
 
   expect(() => begin(22n, 4, 1, "22".repeat(32))).toThrow(
-    "another contract upload is active (session 11, 1/2 chunks); wait for it to complete",
+    "another contract upload is active (session 11, 1/3 chunks); wait for it to complete",
   );
   expect((eng as any).upload).toBe(active);
   expect([...(eng as any).upload.buf]).toEqual(buffer);

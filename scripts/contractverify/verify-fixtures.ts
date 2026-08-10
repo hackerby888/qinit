@@ -10,6 +10,7 @@ await autoUpdateVerifyTool().catch(() => {});
 // Inter-contract fixtures: the tool flags `<Callee>::Type` scope resolution because it can't see the
 // declared callee. Whitelist those prefixes (verifyContract drops exactly those false positives).
 const CALLEES: Record<string, string[]> = {
+  Gauntlet: ["QX"],
   Proxy: ["Counter"],
   QpiDual: ["QpiDualCallee"],
 };

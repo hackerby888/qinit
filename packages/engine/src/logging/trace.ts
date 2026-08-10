@@ -90,7 +90,7 @@ export class TraceRecorder {
     }
     const stateSize = metadata.stateSize;
     const e: DebugEntry = {
-      seq: ++this.seq, // 1-based, so `since=0` on a fresh ring still yields the first entry
+      seq: 0,
       tick: metadata.tick,
       index: metadata.index,
       entry: metadata.entry,
@@ -137,6 +137,7 @@ export class TraceRecorder {
     );
 
     this.stack.pop();
+    entry.seq = ++this.seq;
     this.entries.push(entry);
     if (this.entries.length > TRACE_ENTRY_CAP) {
       this.entries.splice(0, this.entries.length - TRACE_ENTRY_CAP);

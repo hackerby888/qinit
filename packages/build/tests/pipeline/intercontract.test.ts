@@ -107,6 +107,14 @@ test("scanCallees finds contracts initialized by a gtest", () => {
   ]).toEqual(["Counter"]);
 });
 
+test("scanCallees excludes analyzed calls to the current contract", () => {
+  const source = "INVOKE_OTHER_CONTRACT_PROCEDURE(QUTIL, Run, input, output, 0);";
+
+  expect([
+    ...scanCallees(source, { contractName: "QUTIL" }, ["QUTIL"]),
+  ]).toEqual([]);
+});
+
 test("buildCalleePrelude returns '' when the contract makes no inter-contract calls (no core touched)", () => {
   expect(buildCalleePrelude("/no/such/core", "state.mut().n += 1;")).toBe("");
 });
@@ -159,6 +167,39 @@ test("buildCalleePrelude includes static-only dynamic callees", () => {
 
     expect(prelude).toContain("#define CONTRACT_STATE_TYPE DYNAMIC");
     expect(prelude).toContain(`#include "${callee}"`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("buildCalleePrelude does not reinclude the root through a callee", () => {
+  const root = mkdtempSync(join(tmpdir(), "ic-cycle-"));
+  try {
+    mkdirSync(join(root, "src", "contract_core"), { recursive: true });
+    writeFileSync(join(root, "src", "contract_core", "contract_def.h"), "// empty registry\n");
+    const rootHeader = join(root, "ROOT.h");
+    const childHeader = join(root, "CHILD.h");
+    writeFileSync(rootHeader, "// root header must not be included\n");
+    writeFileSync(
+      childHeader,
+      `struct CONTRACT_STATE_TYPE : public ContractBase {
+      static uint64 helper() { return ROOT_VALUE; }
+      REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {}
+    };`,
+    );
+
+    const prelude = buildCalleePrelude(
+      root,
+      "const auto value = CHILD::helper();",
+      {
+        ROOT: { header: rootHeader, index: 2 },
+        CHILD: { header: childHeader, index: 1 },
+      },
+      "ROOT",
+    );
+
+    expect(prelude).toContain(`#include "${childHeader}"`);
+    expect(prelude).not.toContain(`#include "${rootHeader}"`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -76,10 +76,29 @@ function fail(message: string): never {
   throw new Error(`QPI MATRIX FAIL: ${message}`);
 }
 
+const nestedRecoveryRuns = Number(
+  process.env.QINIT_NESTED_RECOVERY_RUNS ?? "1",
+);
+if (
+  !Number.isInteger(nestedRecoveryRuns) ||
+  nestedRecoveryRuns < 1 ||
+  nestedRecoveryRuns > 25
+) {
+  fail("QINIT_NESTED_RECOVERY_RUNS must be an integer from 1 to 25");
+}
+
 function same(left: Uint8Array, right: Uint8Array, label: string): void {
   if (Buffer.from(left).equals(Buffer.from(right))) return;
   const first = left.findIndex((value, index) => value !== right[index]);
   fail(`${label} differs at byte ${first} (${left.byteLength}B vs ${right.byteLength}B)`);
+}
+
+function uint64(bytes: Uint8Array, index: number): bigint {
+  return new DataView(
+    bytes.buffer,
+    bytes.byteOffset,
+    bytes.byteLength,
+  ).getBigUint64(index * 8, true);
 }
 
 async function artifact(
@@ -265,6 +284,74 @@ async function invoke(
   }
 }
 
+async function recover(
+  base: string,
+  rpc: LiteRpc,
+  slot: number,
+  seed: string,
+): Promise<void> {
+  const tick = (await rpc.tickInfo()).tick + 6;
+  const result = await invokeProcedure({
+    seed,
+    rpcBaseUrl: base,
+    rpc,
+    contractIndex: slot,
+    procedureId: 2,
+    amount: 0,
+    inputFormat: "5uint64, 3uint64, -1sint64",
+    tick,
+    confirm: true,
+    confirmTimeoutMs: 60_000,
+  });
+  if (!result.ok || !result.confirmed || !result.included) {
+    fail(`${base} slot ${slot} Recover was not included: ${JSON.stringify(result)}`);
+  }
+}
+
+async function soakRecoveries(
+  base: string,
+  rpc: LiteRpc,
+  artifacts: Artifact[],
+  compiler: CompilerBackendLabel,
+  seed: string,
+): Promise<void> {
+  const driver = artifacts.find(
+    (item) => item.compiler === compiler && item.role === "driver",
+  )!;
+  const callee = artifacts.find(
+    (item) => item.compiler === compiler && item.role === "callee",
+  )!;
+  const tickBefore = (await rpc.tickInfo()).tick;
+
+  for (let run = 1; run < nestedRecoveryRuns; run++) {
+    await recover(base, rpc, driver.slot, seed);
+  }
+
+  const calleeOutput = await rpc.querySmartContract(
+    callee.slot,
+    1,
+    new Uint8Array(0),
+  );
+  const extraRuns = BigInt(nestedRecoveryRuns - 1);
+  const expectedValue = 65n + 8n * extraRuns;
+  const expectedCalls = 4n + 2n * extraRuns;
+  if (
+    uint64(calleeOutput, 0) !== expectedValue ||
+    uint64(calleeOutput, 1) !== expectedCalls
+  ) {
+    fail(
+      `${base} ${compiler} recovery soak: expected callee ` +
+        `${expectedValue}/${expectedCalls}, got ` +
+        `${uint64(calleeOutput, 0)}/${uint64(calleeOutput, 1)}`,
+    );
+  }
+
+  const tickAfter = (await rpc.tickInfo()).tick;
+  if (tickAfter <= tickBefore) {
+    fail(`${base} ${compiler} recovery soak did not advance the RPC tick`);
+  }
+}
+
 async function plainTransfer(
   base: string,
   rpc: LiteRpc,
@@ -298,8 +385,142 @@ async function execute(
 ): Promise<Result> {
   const driver = artifacts.find((item) => item.compiler === compiler && item.role === "driver")!;
   const callee = artifacts.find((item) => item.compiler === compiler && item.role === "callee")!;
+  await rpc.setDebug(true);
+  const traceBefore = await rpc.debugTrace(0, 256);
+  const traceStart = traceBefore.entries.reduce(
+    (latest, entry) => Math.max(latest, entry.seq),
+    0,
+  );
   await invoke(base, rpc, driver.slot, 17n, seed);
   await invoke(base, rpc, driver.slot, 33n, seed);
+
+  const trace = await rpc.debugTrace(traceStart, 64);
+  const driverCalls = trace.entries.filter(
+    (entry) =>
+      entry.index === driver.slot &&
+      entry.entry === 1 &&
+      entry.kind === 1 &&
+      entry.ok,
+  );
+  const calleeCalls = trace.entries.filter(
+    (entry) =>
+      entry.index === callee.slot &&
+      entry.entry === 1 &&
+      entry.kind === 1 &&
+      entry.ok,
+  );
+  if (driverCalls.length !== 2 || calleeCalls.length !== 2) {
+    fail(
+      `${base} ${compiler} nested traces: expected 2 driver and 2 callee procedures, ` +
+        `got ${driverCalls.length} and ${calleeCalls.length}`,
+    );
+  }
+  for (const [index, entry] of driverCalls.entries()) {
+    const nestedCalls = entry.hostCalls
+      .filter(
+        (call) =>
+          (call.name === "callFunction" ||
+            call.name === "invokeProcedure") &&
+          call.detail.includes(String(callee.slot)),
+      )
+      .map((call) => call.name);
+    if (
+      nestedCalls.join(",") !==
+        "callFunction,invokeProcedure,callFunction" ||
+      entry.stateTruncated ||
+      entry.stateDiff.length === 0
+    ) {
+      fail(
+        `${base} ${compiler} driver trace #${index + 1} is incomplete: ` +
+          JSON.stringify(entry),
+      );
+    }
+  }
+
+  const recoveryTraceStart = trace.entries.reduce(
+    (latest, entry) => Math.max(latest, entry.seq),
+    traceStart,
+  );
+  await recover(base, rpc, driver.slot, seed);
+  const recoveryQuery = await rpc.querySmartContract(
+    callee.slot,
+    1,
+    new Uint8Array(0),
+  );
+  if (uint64(recoveryQuery, 0) !== 65n || uint64(recoveryQuery, 1) !== 4n) {
+    fail(`${base} ${compiler} callee did not recover after its nested trap`);
+  }
+
+  const recoveryTrace = await rpc.debugTrace(recoveryTraceStart, 32);
+  const trappedChild = recoveryTrace.entries.find(
+    (entry) =>
+      entry.index === callee.slot &&
+      entry.entry === 2 &&
+      entry.kind === 1 &&
+      !entry.ok,
+  );
+  if (!trappedChild?.trap || trappedChild.stateDiff.length !== 1) {
+    fail(`${base} ${compiler} trapped child trace is missing: ${JSON.stringify(trappedChild)}`);
+  }
+  const trappedBefore = hexToBytes(trappedChild.stateDiff[0].before);
+  const trappedAfter = hexToBytes(trappedChild.stateDiff[0].after);
+  if (
+    uint64(trappedBefore, 0) !== 57n ||
+    uint64(trappedBefore, 1) !== 2n ||
+    uint64(trappedAfter, 0) !== 62n ||
+    uint64(trappedAfter, 1) !== 3n
+  ) {
+    fail(`${base} ${compiler} trapped child did not retain its partial write`);
+  }
+
+  const healthyChild = recoveryTrace.entries.find(
+    (entry) =>
+      entry.index === callee.slot &&
+      entry.entry === 1 &&
+      entry.kind === 1 &&
+      entry.ok,
+  );
+  if (!healthyChild || healthyChild.stateDiff.length !== 1) {
+    fail(`${base} ${compiler} healthy child invoke is missing after the trap`);
+  }
+  const healthyBefore = hexToBytes(healthyChild.stateDiff[0].before);
+  const healthyAfter = hexToBytes(healthyChild.stateDiff[0].after);
+  if (
+    uint64(healthyBefore, 0) !== 62n ||
+    uint64(healthyBefore, 1) !== 3n ||
+    uint64(healthyAfter, 0) !== 65n ||
+    uint64(healthyAfter, 1) !== 4n
+  ) {
+    fail(`${base} ${compiler} healthy child invoke has the wrong state transition`);
+  }
+
+  const recoveryDriver = recoveryTrace.entries.find(
+    (entry) =>
+      entry.index === driver.slot &&
+      entry.entry === 2 &&
+      entry.kind === 1 &&
+      entry.ok,
+  );
+  const recoveryCalls = recoveryDriver?.hostCalls.map((call) => call.name);
+  if (
+    recoveryCalls?.join(",") !==
+      "callFunction,invokeProcedure,callFunction,invokeProcedure,callFunction" ||
+    recoveryDriver?.stateTruncated ||
+    !recoveryDriver?.stateDiff.length
+  ) {
+    fail(`${base} ${compiler} recovery driver trace is incomplete: ${JSON.stringify(recoveryDriver)}`);
+  }
+  const recoveryOutput = hexToBytes(recoveryDriver.outHex);
+  const recoveryExpected = [0n, 0n, 57n, 62n, 65n, 4n];
+  for (const [index, expected] of recoveryExpected.entries()) {
+    if (uint64(recoveryOutput, index) !== expected) {
+      fail(
+        `${base} ${compiler} recovery output word ${index}: ` +
+          `${uint64(recoveryOutput, index)} != ${expected}`,
+      );
+    }
+  }
+
   await plainTransfer(base, rpc, driver.slot, seed);
   await plainTransfer(base, rpc, driver.slot, seed);
 
@@ -341,7 +562,22 @@ function assertExpected(result: Result, label: string): void {
     result.driverOutput.byteOffset,
     result.driverOutput.byteLength,
   );
-  const expected = [63n, 4n, 16n, 16n, 16n, 11n, 57n, 2n, 2n, 0x51494e4954574153n];
+  const expected = [
+    63n,
+    4n,
+    16n,
+    16n,
+    16n,
+    11n,
+    57n,
+    2n,
+    0n,
+    65n,
+    4n,
+    1n,
+    2n,
+    0x51494e4954574153n,
+  ];
   expected.forEach((value, index) => {
     const actual = driver.getBigUint64((index + 1) * 8, true);
     if (actual !== value) {
@@ -353,7 +589,7 @@ function assertExpected(result: Result, label: string): void {
     result.calleeOutput.byteOffset,
     result.calleeOutput.byteLength,
   );
-  const calleeExpected = [57n, 2n, 0x43414c4c45455741n];
+  const calleeExpected = [65n, 4n, 0x43414c4c45455741n];
   calleeExpected.forEach((value, index) => {
     const actual = callee.getBigUint64(index * 8, true);
     if (actual !== value) {
@@ -407,11 +643,12 @@ try {
   );
   await deployAll(rpcBaseUrl, coreRpc, artifacts, coreSeed);
 
-  const results = new Map<string, Result>();
-  for (const [name, base, rpc, seed] of [
+  const runtimes = [
     ["simulator", simulator.rpcBaseUrl, simulatorRpc, simulatorSeed],
     ["core", rpcBaseUrl, coreRpc, coreSeed],
-  ] as const) {
+  ] as const;
+  const results = new Map<string, Result>();
+  for (const [name, base, rpc, seed] of runtimes) {
     for (const compiler of ["TS", "Clang"] as const) {
       const result = await execute(base, rpc, artifacts, compiler, seed);
       assertExpected(result, `${compiler}/${name}`);
@@ -436,6 +673,13 @@ try {
     }
     if (result.calleeDigest !== canonical.calleeDigest) {
       fail(`${name} callee digest ${result.calleeDigest} != ${canonical.calleeDigest}`);
+    }
+  }
+  if (nestedRecoveryRuns > 1) {
+    for (const [, base, rpc, seed] of runtimes) {
+      for (const compiler of ["TS", "Clang"] as const) {
+        await soakRecoveries(base, rpc, artifacts, compiler, seed);
+      }
     }
   }
   if (process.env.QINIT_QPI_DIGEST_FILE) {

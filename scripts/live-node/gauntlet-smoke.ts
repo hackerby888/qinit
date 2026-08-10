@@ -94,7 +94,19 @@ async function pollUntilEqual(
 
 console.log("deploy Gauntlet…");
 const dep = await deployContract(
-  { contractPath: resolve("fixtures/Gauntlet.h"), name: "Gauntlet", core, rpcBaseUrl },
+  {
+    contractPath: resolve("fixtures/Gauntlet.h"),
+    name: "Gauntlet",
+    core,
+    rpcBaseUrl,
+    compiler: "typescript",
+    dynCallees: {
+      QX: {
+        header: resolve(core, "src/contracts/Qx.h"),
+        index: 1,
+      },
+    },
+  },
   (event: any) => {
     if (!("note" in event)) {
       console.log(
@@ -168,6 +180,55 @@ console.log("qpi.K12 hashing…");
     await k12Hex(le8(1n)),
     "K12(x) == qinit k12Hex(le8(x))",
   );
+}
+
+console.log("native QX call…");
+{
+  const nativeFees = (await callFunction(
+    rpc,
+    1,
+    1,
+    "",
+    "uint32, uint32, uint32",
+  )) as number[];
+  await rpc.setDebug(true);
+  const traceBeforeCall = await rpc.debugTrace(0, 256);
+  const traceStart = Math.max(
+    0,
+    ...traceBeforeCall.entries.map((entry) => entry.seq),
+  );
+  const [assetIssuanceFee, transferFee, tradeFee, callError] = (await call(
+    11,
+    "",
+    "uint32, uint32, uint32, uint8",
+  )) as number[];
+  const trace = await rpc.debugTrace(traceStart, 16);
+  const qxCall = trace.entries.find(
+    (entry) =>
+      entry.index === contractSlot &&
+      entry.kind === 0 &&
+      entry.entry === 11 &&
+      entry.ok,
+  );
+  expectTrue(
+    qxCall?.hostCalls.some(
+      (hostCall) =>
+        hostCall.name === "callFunction" && hostCall.detail.includes("-> 1/1"),
+    ) === true,
+    "Wasm call reaches native QX",
+  );
+  await rpc.setDebug(false);
+
+  expectEqual(assetIssuanceFee, nativeFees[0], "QX asset issuance fee");
+  expectEqual(transferFee, nativeFees[1], "QX transfer fee");
+  expectEqual(tradeFee, nativeFees[2], "QX trade fee");
+  expectEqual(callError, 0, "QX call returns NoCallError");
+  const followUp = (await call(
+    11,
+    "",
+    "uint32, uint32, uint32, uint8",
+  )) as number[];
+  expectEqual(followUp[1], nativeFees[1], "node remains live after QX call");
 }
 
 console.log("state: Add / HashMap / Array masking / context…");

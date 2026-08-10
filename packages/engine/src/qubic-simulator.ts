@@ -1600,6 +1600,13 @@ export class QubicSimulator {
         entryPoint: EP_USER_FUNCTION,
       });
       return { error: CALL_ERR_NONE, output };
+    } catch (error) {
+      return this.nestedTrapResult(
+        callee,
+        CONTRACT_ENTRY_KIND.FUNCTION,
+        inputType,
+        error,
+      );
     } finally {
       this.callDepth--;
     }
@@ -1646,9 +1653,36 @@ export class QubicSimulator {
         false,
       );
       return { error: CALL_ERR_NONE, output };
+    } catch (error) {
+      return this.nestedTrapResult(
+        callee,
+        CONTRACT_ENTRY_KIND.PROCEDURE,
+        inputType,
+        error,
+      );
     } finally {
       this.callDepth--;
     }
+  }
+
+  private nestedTrapResult(
+    callee: Contract,
+    kind: number,
+    inputType: number,
+    error: unknown,
+  ): { error: number; output: Uint8Array } {
+    if (!(error instanceof ContractExecutionError)) {
+      throw error;
+    }
+
+    // Core records a nested Wasm trap but returns NoCallError to the caller.
+    const outputSize = callee.entries.find(
+      (entry) => entry.kind === kind && entry.inputType === inputType,
+    )?.outputSizeBytes;
+    return {
+      error: CALL_ERR_NONE,
+      output: new Uint8Array(outputSize ?? 0),
+    };
   }
 
   private transferInvocationReward(

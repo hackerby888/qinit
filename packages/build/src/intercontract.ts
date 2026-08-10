@@ -71,6 +71,9 @@ export function scanCallees(
 ): Set<string> {
   const analysis = analyzeContract({ source, ...options });
   const callees = new Set(analysis.calls.map((call) => call.callee));
+  if (options.contractName) {
+    callees.delete(options.contractName);
+  }
   const candidates = [...knownCallees]
     .filter((candidate) => candidate !== options.contractName);
   const candidateSet = new Set(candidates);
@@ -207,6 +210,9 @@ export function buildCalleePrelude(
 
   const resolved = new Map<string, ResolvedCallee>();
   const resolveCallee = (type: string) => {
+    if (type === selfType) {
+      return;
+    }
     if (resolved.has(type)) {
       return;
     }

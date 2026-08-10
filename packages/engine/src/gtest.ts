@@ -574,7 +574,8 @@ export async function runContractTesting(
 
   // Bun 1.3.14 has a Proxy + wasm i64-marshalling bug ("Invalid argument type in ToBigInt") when a Proxy
   // serves as the import object for a module with i64-param imports (WASI clock_time_get, lhost helpers).
-  const mod = await WebAssembly.compile(runnerWasm);
+  // The browser's DOM lib excludes SharedArrayBuffer-backed views from `BufferSource`; runner bytes never are.
+  const mod = await WebAssembly.compile(runnerWasm as Uint8Array<ArrayBuffer>);
   const noopVal = (..._args: unknown[]): number => 0;
   const noopBig = (..._args: unknown[]): bigint => 0n;
 
