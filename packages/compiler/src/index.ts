@@ -18,6 +18,7 @@ export type { FrameworkOptions, UserEntry, SystemProcedureInfo, ModuleSpecificat
 
 export type { ParseAstResult } from "./driver/pipeline";
 export { loadQpiHeader, withPrelude } from "./driver/header";
+export { snapshotInputFiles } from "./driver/qpi/snapshot";
 
 export async function compileContract(options: CompileOptions): Promise<CompileResult> {
   return compileContractWithHeader({ ...options, qpiHeader: options.qpiHeader ?? loadQpiHeader() });

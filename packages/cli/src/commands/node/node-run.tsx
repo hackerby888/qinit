@@ -44,8 +44,12 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
   const requestedRef = commandArgs.get("ref");
   const nodeBinaryOverride = commandArgs.get("node-bin");
   const offline = commandArgs.has("offline");
+  const projectConfig = loadConfig();
   const useSimulator =
     resolveNodeBackend(commandArgs.get("node-backend")) === "simulator";
+  const coreDirectory =
+    commandArgs.get("core-dir") ??
+    (useSimulator && !requestedRef ? projectConfig.coreDir : undefined);
   const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
   const [steps, setSteps] = useState<Phase[]>([
     { key: "headers", label: "core headers", state: "pending" },
@@ -70,12 +74,12 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
         // An explicit core checkout bypasses the release manifest.
         set("headers", "active");
         const manifest =
-          requestedRef && !offline && commandArgs.get("core-dir") === undefined
+          requestedRef && !offline && coreDirectory === undefined
             ? await loadManifest(requestedRef)
             : undefined;
         const preparedCore = await prepareNodeRunCore(
           {
-            coreDir: commandArgs.get("core-dir"),
+            coreDir: coreDirectory,
             nodeBinary: nodeBinaryOverride,
             ref: requestedRef,
             offline,
@@ -211,8 +215,9 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                 tickMs: commandArgs.has("tick-ms")
                   ? Number(commandArgs.get("tick-ms"))
                   : undefined,
-                system: loadConfig().system,
+                system: projectConfig.system,
                 compiler,
+                coreDirectory: currentHeaders,
                 slotBase: slotLayout!.slotBase,
                 slotCount: slotLayout!.slotCount,
               })

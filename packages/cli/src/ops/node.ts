@@ -268,6 +268,7 @@ export function launchSimulatorNode(options: {
   slotBase?: number;
   slotCount?: number;
   compiler?: "clang" | "typescript";
+  coreDirectory?: string;
 }): { pid: number; scratch: string; log: string } {
   const scratch = resolve(options.scratchDirectory || defaultNodeScratchDir());
   if (!options.preserveScratchContents) {
@@ -311,6 +312,9 @@ export function launchSimulatorNode(options: {
     stdio: ["ignore", logFd, logFd],
     detached: true,
     windowsHide: true,
+    env: options.coreDirectory
+      ? { ...process.env, QINIT_CORE: options.coreDirectory }
+      : process.env,
   });
 
   child.unref();

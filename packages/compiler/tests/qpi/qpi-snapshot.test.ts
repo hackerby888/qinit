@@ -61,6 +61,9 @@ describe.if(coreOk)("qpi snapshot assembly", () => {
     ).toEqual(wasmInputs.map((path) => join(CORE, "src", path)).sort());
     expect(inputs).toContain(join(CORE, "src", "oc_interfaces", "Mock.h"));
     expect(inputs).toContain(join(CORE, "src", "network_messages", "common_def.h"));
+    expect(inputs).toContain(
+      join(CORE, "src", "qpi", "impl", "qpi_trivial_impl.h"),
+    );
   });
 
   test("protocol prelude is generated from core common definitions", () => {

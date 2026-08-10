@@ -109,3 +109,22 @@ test.skipIf(!existsSync(`${CORE}/src/contracts/QUtil.h`))(
   },
   60_000,
 );
+
+test.skipIf(!existsSync(`${CORE}/src/contracts/Qx.h`))(
+  "TypeScript system build compiles QX",
+  async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "qinit-system-qx-"));
+    try {
+      const built = await buildSystemContract("QX", CORE, {
+        compiler: "typescript",
+        outDir,
+      });
+
+      expect(built.ok).toBe(true);
+      expect(built.wasmPath).toBe(join(outDir, "QX.wasm"));
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  },
+  60_000,
+);

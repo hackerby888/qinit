@@ -17,6 +17,7 @@ import {
   loadCoreWasmSlotLayout,
   wasiSdkPaths,
 } from "@qinit/core";
+import { snapshotInputFiles } from "@qinit/compiler";
 
 const STUB = `using namespace QPI;
 struct CONTRACT_STATE2_TYPE {};
@@ -115,6 +116,8 @@ export async function buildSnapshot(
     .filter((file) => file.endsWith(".h"))
     .map((file) => join(contractsDir, file));
 
+  // TypeScript compilation reads QPI implementation files outside Clang's include graph.
+  extraFiles.push(...snapshotInputFiles(corePath));
   extraFiles.push(
     join(corePath, "src", "contract_core", "contract_def.h"),
   );
