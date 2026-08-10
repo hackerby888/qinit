@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -15,7 +15,9 @@ const canListen = (() => {
 })();
 
 // The command writes into its working directory, so every run gets its own.
-const workDir = mkdtempSync(join(tmpdir(), "qinit-state-dump-cli-"));
+const workDir = realpathSync(
+  mkdtempSync(join(tmpdir(), "qinit-state-dump-cli-")),
+);
 
 afterAll(() => {
   rmSync(workDir, { recursive: true, force: true });
