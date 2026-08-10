@@ -60,7 +60,7 @@ export function resolveProjectPlan(options: {
     dependencies,
     options.slotLayout,
     options.registry,
-  ) as PlannedProjectContract[];
+  );
 }
 
 function transitiveDependencies(

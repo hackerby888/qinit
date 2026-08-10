@@ -40,11 +40,11 @@ function armedDynamicContracts(
   );
 }
 
-export function planProjectSlots(
-  nodes: readonly ProjectSlotNode[],
+export function planProjectSlots<T extends ProjectSlotNode>(
+  nodes: readonly T[],
   layout: ProjectSlotLayout,
   registry?: DynamicContractRegistry,
-): PlannedProjectSlotNode[] {
+): Array<T & PlannedProjectSlotNode> {
   if (layout.slotCount <= 0) {
     throw new Error("no dynamic contract slots are available");
   }

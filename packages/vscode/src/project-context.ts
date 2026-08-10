@@ -53,7 +53,7 @@ export function planEditorProjectSlots(
   nodes: readonly ProjectContractNode[],
   layout: { slotBase: number; slotCount: number },
 ): PlannedProjectNode[] {
-  return planProjectSlots(nodes, layout) as PlannedProjectNode[];
+  return planProjectSlots(nodes, layout);
 }
 
 function transitiveDependencies(
