@@ -26,7 +26,11 @@ import {
   launchSimulatorNode,
   waitTicking,
 } from "../../ops/node";
-import { loadConfig, resolveNodeBackend } from "../../config";
+import {
+  loadConfig,
+  resolveCompilerBackend,
+  resolveNodeBackend,
+} from "../../config";
 import { Header, Step, type StepState, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { prepareNodeRunCore } from "../../ops/node-core";
@@ -42,6 +46,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
   const offline = commandArgs.has("offline");
   const useSimulator =
     resolveNodeBackend(commandArgs.get("node-backend")) === "simulator";
+  const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
   const [steps, setSteps] = useState<Phase[]>([
     { key: "headers", label: "core headers", state: "pending" },
     { key: "node", label: "node binary", state: "pending" },
@@ -162,17 +167,41 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
         // Run: reuse a node that's already ticking (keeps deployed state); else (re)launch.
         set("run", "active", "checking");
         const st = await nodeStatus(rpcBaseUrl);
+        const requestedBackend = useSimulator ? "simulator" : "core";
+        const runningBackend = st.up && st.ticking
+          ? (await new LiteRpc(rpcBaseUrl).whoami()).backend
+          : undefined;
         let scratch = "",
           ok: boolean,
           tick: number;
-        if (st.up && st.ticking && !commandArgs.has("restart")) {
+        if (
+          st.up &&
+          st.ticking &&
+          runningBackend === requestedBackend &&
+          !commandArgs.has("restart")
+        ) {
           ok = true;
           tick = st.tick;
           set("run", "ok", `reused, ticking at ${tick}`);
         } else {
-          const why = !st.up ? "no node" : st.ticking ? "--restart" : "node idle";
+          const why = !st.up
+            ? "no node"
+            : runningBackend && runningBackend !== requestedBackend
+              ? `${runningBackend} is running`
+              : st.ticking
+                ? "--restart"
+                : "node idle";
           set("run", "active", `${why} → launching${useSimulator ? " simulator" : ""}`);
           await killNode();
+          if (
+            runningBackend &&
+            runningBackend !== requestedBackend &&
+            (await nodeStatus(rpcBaseUrl)).up
+          ) {
+            throw new Error(
+              `${rpcBaseUrl} is served by an untracked ${runningBackend} node; stop it or choose another --rpc`,
+            );
+          }
           const launched = useSimulator
             ? launchSimulatorNode({
                 scratchDirectory: commandArgs.get("scratch-dir"),
@@ -183,6 +212,7 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
                   ? Number(commandArgs.get("tick-ms"))
                   : undefined,
                 system: loadConfig().system,
+                compiler,
                 slotBase: slotLayout!.slotBase,
                 slotCount: slotLayout!.slotCount,
               })
@@ -214,7 +244,14 @@ export function NodeRun({ commandArgs }: { commandArgs: CommandArguments }) {
         // Arm trace capture: a node released before it recorded by default still fills its ring, so a
         // `qinit debug` opened later can look back at calls it never watched live.
         if (ok) {
-          await new LiteRpc(rpcBaseUrl).setDebug(true).catch(() => {});
+          const rpc = new LiteRpc(rpcBaseUrl);
+          const identity = await rpc.whoami();
+          if (identity.backend !== requestedBackend) {
+            throw new Error(
+              `expected ${requestedBackend} at ${rpcBaseUrl}, got ${identity.backend}`,
+            );
+          }
+          await rpc.setDebug(true).catch(() => {});
         }
 
         // Trust the run verdict above; just read contracts once (no extra tick sampling).

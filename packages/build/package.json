@@ -9,6 +9,8 @@
     "./recipe": "./src/recipe.ts",
     "./system-contracts": "./src/system-contracts.ts",
     "./intercontract": "./src/intercontract.ts",
+    "./project-dependencies": "./src/project-dependencies.ts",
+    "./project-slots": "./src/project-slots.ts",
     "./idl": "./src/idl.ts"
   },
   "dependencies": {

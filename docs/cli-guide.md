@@ -12,9 +12,8 @@ command enters, how its arguments become typed options, which package owns each
 piece of work, what touches the filesystem or node, how results reach the
 terminal, and which invariants are easy to break.
 
-It describes `main` at commit `b05d671c128cb473ec94b9c90a18a512e6ced89a`.
-Paths and current sharp edges are intentionally explicit so future changes can
-be checked against this baseline.
+It describes the current `main` behavior. Paths and current sharp edges are
+intentionally explicit so future changes can be checked against this baseline.
 
 The TypeScript compiler itself is covered separately in the
 [compiler walkthrough](./compiler-walkthrough.md). This document follows
@@ -69,7 +68,7 @@ qinit __serve
 |---|---|
 | [`packages/cli`](../packages/cli) | Command routing, argument policy, configuration, terminal UI, orchestration |
 | [`packages/core`](../packages/core) | RPC client, signing, Qubic primitives, cache/downloads, core path resolution |
-| [`packages/build`](../packages/build) | Clang build recipe, IDL extraction, source generation, protocol verification |
+| [`packages/build`](../packages/build) | Clang and TypeScript build adapters, dependency graphs, slot planning, IDL, source generation, protocol verification |
 | [`packages/compiler`](../packages/compiler) | In-process TypeScript-to-Wasm compiler and source analysis |
 | [`packages/proto`](../packages/proto) | ABI input/output codecs and deployment/call wire formats |
 | [`packages/engine`](../packages/engine) | In-process simulator, HTTP server, and gtest execution |
@@ -95,8 +94,8 @@ packages/cli/src/
                               explorer/{index,chrome,find,overview,tick,identity,contracts}
   commands/editor/            ext
   commands/misc/              node-backend compiler theme cheat smoke version help backend-picker
-  ops/                        deploy/{index,steps,upload} node node-core cache update serve
-                              corpus-run typescript-build
+  ops/                        deploy/{index,steps,upload} project-build project-deploy
+                              node node-core cache update serve corpus-run typescript-build
   contracts/                  registry templates idl-file idl-lookup callees state-digest system-wasm
   trace/                      format views
   ui/                         index (barrel) theme format hooks layout feedback data prompt
@@ -366,7 +365,6 @@ interface QinitConfig {
   coreDir?: string;
   rpc?: string;
   system?: string[];
-  callees?: { name: string; contract: string }[];
 }
 ```
 
@@ -441,7 +439,7 @@ Typical contents are:
   current.json
   <version>/core-headers/
   <version>/node/Qubic[.exe]
-  <headersVersion>/system-wasm/
+  <headersVersion>/system-wasm/<compiler>/
   wasi-sdk/
   tools/contractverify[.exe]
   run/
@@ -602,9 +600,9 @@ It writes:
   README.md
 ```
 
-The inter-contract template also writes a Counter callee and adds it to
-`qinit.json.callees`. Nested scaffolding is refused when `qinit.json` already
-exists in the working directory.
+The inter-contract template also writes `contracts/Counter.h`. The shared
+dependency resolver discovers it from the caller source. Nested scaffolding is
+refused when `qinit.json` already exists in the working directory.
 
 Gtest generation is best-effort: project creation continues if IDL extraction
 fails.
@@ -612,7 +610,8 @@ fails.
 ### 7.2 `qinit compiler`
 
 This command selects a backend; it does not compile a contract. The selection is
-saved as `clang` or `typescript`, and build/deploy/dev/test resolve:
+saved as `clang` or `typescript`. Build, deploy, dev, test, gtest, `system`,
+and simulator startup resolve:
 
 ```text
 --compiler -> saved compiler-backend -> clang
@@ -628,20 +627,34 @@ It resolves:
 | Contract | `--contract` -> first positional -> config -> `fixtures/Counter.h` |
 | Name | `--contract-name` -> config -> filename without extension |
 | Output | `--out` -> `dist/contracts` |
-| Slot | `--slot` -> config -> core's dynamic slot base |
+| Slot | `--slot` -> config -> live registry plan -> offline hypothetical plan |
 | Core | normal `resolveCoreDir()` chain |
 | Compiler | `--compiler` -> saved choice -> clang |
 
-Then the compiler paths diverge.
+Build never mutates the node. It resolves the complete source graph first:
+
+```text
+Build
+  -> parse optional --callee Name=header[@index] overrides
+  -> recursively scan Main and its callees
+  -> resolve system contracts from Core
+  -> resolve custom contracts from one unique contracts/**/*.h basename
+  -> read the live registry when reachable, otherwise use the Core slot layout
+  -> assign every custom callee below its caller
+  -> compile custom contracts dependency-first
+```
+
+An unavailable node is therefore a normal offline build: Qinit assigns
+deterministic hypothetical slots and still compiles every local dependency.
+When a node is reachable, existing same-name slots and unrelated occupied slots
+are respected.
+
+The selected backend is used for every custom contract in the graph.
 
 #### Clang path
 
 ```text
-Build
-  -> parse explicit --callee declarations
-  -> resolveNodeCallees()
-  -> autoUpdateVerifyTool()
-  -> buildContractWithWasiClang()
+buildContractWithWasiClang()
        -> analyze source calls
        -> protocol verification
        -> generate inter-contract prelude
@@ -659,20 +672,17 @@ and [`packages/build/src/recipe.ts`](../packages/build/src/recipe.ts).
 #### TypeScript path
 
 ```text
-Build
-  -> buildContractWithTypeScript()
+buildContractWithTypeScript()
        -> load resolved qpi.h
-       -> analyze explicit callee sources
+       -> analyze transitive custom and system callee sources
        -> compileContract()
        -> write returned Wasm
-  -> compute K12 hash
+       -> compute K12 hash
 ```
 
-This adapter is [`packages/cli/src/ops/typescript-build.ts`](../packages/cli/src/ops/typescript-build.ts).
-Standalone TypeScript build currently sees only explicitly declared callees.
-Unlike the Clang branch, it does not call `resolveNodeCallees()`. Deployment does
-that before selecting either compiler, so deployment supports node-discovered
-callees with both backends.
+The shared implementation is
+[`packages/build/src/typescript.ts`](../packages/build/src/typescript.ts); the
+CLI compatibility export remains in `ops/typescript-build.ts`.
 
 Successful build artifacts normally include:
 
@@ -684,29 +694,25 @@ dist/contracts/<Name>.debug.wasm           when debug tools succeed
 dist/contracts/<Name>.lines.json            when line-map generation succeeds
 ```
 
-The deployed Wasm's K12 digest is shown and included in build JSON.
+The built Wasm's K12 digest is shown and included in build JSON.
 
 ### 7.4 Dynamic callee resolution
 
 [`packages/cli/src/contracts/callees.ts`](../packages/cli/src/contracts/callees.ts) parses:
 
 ```text
---callee Counter=contracts/Counter.h@100
+--callee Counter=contracts/Counter.h[@100]
 ```
 
-The name must be a C++ identifier, the index must be an unsigned 32-bit integer,
-and duplicate names fail parsing.
+The name must be a C++ identifier, an explicit index must be an unsigned 32-bit
+integer, and duplicate names fail parsing. The index is optional until the slot
+planner assigns one.
 
-`resolveNodeCallees()` then:
-
-1. Uses compiler analysis to find referenced contract names.
-2. Leaves explicitly declared names untouched.
-3. Queries the dynamic registry for unresolved armed contracts with source.
-4. Writes discovered source to a temporary header.
-5. Returns the node's slot for the build prelude.
-
-Node discovery is optional. RPC and timeout failures are swallowed so an
-offline build with explicit callees can continue.
+`resolveProjectDependencies()` scans the caller source, then recursively
+resolves each referenced contract from an explicit `--callee`, the Core system
+catalog, or one unique `contracts/**/*.h` basename. It returns system and custom
+contracts in dependency-first order and reports missing contracts, ambiguous
+workspace matches, reserved system names, and dependency cycles.
 
 ### 7.5 `qinit gen`, `qinit verify`, and `qinit dev`
 
@@ -734,15 +740,33 @@ a protocol failure. Unlike build/deploy, the standalone verify command does not
 auto-download the verifier.
 
 `dev` polls source modification times because filesystem watchers are not
-reliable in the compiled binary. A change invokes the shared `deployContract()`
-state machine. The command remains mounted until the user quits.
+reliable in the compiled binary. A change resolves and synchronizes the same
+project graph as `deploy`. The command remains mounted until the user quits.
 
 ## 8. Deployment, step by step
 
 The display component is [`commands/deploy-interact/deploy.tsx`](../packages/cli/src/commands/deploy-interact/deploy.tsx).
-The reusable state machine is [`ops/deploy/`](../packages/cli/src/ops/deploy/index.ts).
-Keeping those separate lets `deploy`, `dev`, and `test` share behavior without
-sharing Ink state.
+Project orchestration is
+[`ops/project-deploy.ts`](../packages/cli/src/ops/project-deploy.ts); the
+single-contract protocol state machine remains in
+[`ops/deploy/`](../packages/cli/src/ops/deploy/index.ts).
+
+Before the first mutation, project deployment:
+
+```text
+GET /live/v1/whoami + dyn-registry
+  -> resolve and slot the complete dependency graph
+  -> build every custom contract
+  -> simulator: build required system Wasm with the selected compiler
+  -> core: treat native system contracts as already present
+  -> preflight system canonical slots
+  -> skip unchanged custom/system dependencies by code hash
+  -> deploy changed dependencies in dependency-first order
+  -> always deploy Main last
+```
+
+If a later deployment fails, Qinit stops and reports the dependencies that
+already landed; it does not attempt an unsafe rollback.
 
 The state machine reports these steps:
 
@@ -760,7 +784,6 @@ preflight active upload
   -> prove the node advances by more than three ticks
   -> resolve signing seed
   -> resolve target slot
-  -> resolve dynamic callees
   -> compile or validate a prebuilt artifact
   -> calculate code K12
   |
@@ -793,6 +816,11 @@ uses:
 2. The armed slot with the exact same contract name, for an upgrade.
 3. The first unarmed dynamic slot.
 4. An error when no slot is free.
+
+Explicit slots must be inside the advertised dynamic window. Qinit rejects a
+different-name occupant and rejects moving a same-named deployed contract to a
+second slot. The graph planner applies the same rules to all custom contracts
+and additionally enforces `callee slot < caller slot`.
 
 ### 8.2 Simulator versus protocol deployment
 
@@ -1428,9 +1456,12 @@ Bun source run: bun <index.tsx> __serve <private flags>
 new EngineServer(new VirtualNode(slotLayout));
 ```
 
-It starts HTTP RPC, a Qubic peer server, and automatic ticking, then optionally
-compiles/seeds configured system contracts. The process intentionally waits
-forever and is later reaped by `killNode()`.
+It starts HTTP RPC, a Qubic peer server, and automatic ticking, then resolves
+the transitive closure of configured system contracts. The entire closure is
+compiled with the selected `clang` or `typescript` backend before any member is
+seeded at its canonical slot. A build failure aborts startup instead of leaving
+an incomplete system graph. The process intentionally waits forever and is
+later reaped by `killNode()`.
 
 Simulator deployment state is memory-only. `--keep` preserves scratch files; it
 does not make simulator contract state survive a restart.
@@ -1452,17 +1483,27 @@ therefore appear up but not ticking.
 
 ### 13.1 System contracts
 
-`qinit system` is simulator-oriented:
+`qinit system` understands both node backends through `GET /live/v1/whoami`:
+
+- The simulator returns `{ "backend": "simulator" }`; core-lite returns
+  `{ "backend": "core" }`. The `/live/v1/dev/fault` diagnostic route is never
+  used for backend detection.
 
 - `ls` reads the local core-derived catalog and configured selection.
-- `add` compiles system Wasm and calls the simulator's direct deploy route.
-- `rm` calls the simulator-only undeploy route.
+- On core, `add` records the selection but never uploads built-ins; the core
+  already embeds them. `rm` removes only the future simulator selection.
+- On the simulator, `add` resolves and prebuilds the dependency closure with
+  the selected compiler, skips identical hashes, and deploys canonical slots.
+- On the simulator, `rm` removes the requested roots and dependencies no longer
+  required by another selected root, in reverse dependency order.
 - The selected names are persisted in `qinit.json.system` for later simulator
   startup.
 
-[`contracts/system-wasm.ts`](../packages/cli/src/contracts/system-wasm.ts) caches compiled system
-Wasm beneath the current header version. [`packages/build/src/system-contracts.ts`](../packages/build/src/system-contracts.ts)
-parses core contract definitions, source, state types, and IDLs.
+[`contracts/system-wasm.ts`](../packages/cli/src/contracts/system-wasm.ts) caches
+snapshot builds beneath the current header version and compiler. Explicit Core
+checkouts build in a temporary directory so different source trees cannot share
+stale artifacts. [`packages/build/src/system-contracts.ts`](../packages/build/src/system-contracts.ts)
+parses Core contract definitions, dependency closures, source, state types, and IDLs.
 
 `qinit ls` combines live dynamic-registry entries with this local system
 catalog. System entries can therefore still appear while RPC is unavailable.
@@ -1510,8 +1551,12 @@ resolve core/compiler/node backend
   |
   +-- core -> reuse ticking node or launch one
   |
-deploy qinit.json callees
-  -> deploy main contract
+resolve, slot, and build the complete project graph
+  -> core: use native system contracts
+  -> simulator: compile/seed required system contracts
+  -> skip unchanged custom dependencies
+  -> deploy changed custom dependencies
+  -> always deploy Main last
   -> generate tests/.qinit runtime and typed client
   -> scaffold a sample .test.ts when none exists
   -> update/create package.json
@@ -1535,9 +1580,10 @@ peer port and uses the engine server's faster default tick interval.
 
 ```text
 contract_testing.h-style test source
-  -> discover referenced system dependencies recursively
+  -> resolve the same recursive local/system project graph offline
+  -> assign custom callees below Main
   -> compile test harness with clang
-  -> compile contract Wasm with selected clang or TypeScript backend
+  -> compile every contract module with selected clang or TypeScript backend
   -> deploy Wasm modules into an isolated in-process engine
   -> runContractTesting()
   -> stream individual results
@@ -1571,8 +1617,9 @@ Chain and contract routes:
 | `tickInfo()` | `GET /tick-info` | deploy, procedure call, state reachability, node health |
 | `latestCreatedTickInfo()` | `GET /latest-created-tick-info` | tick freshness checks |
 | `faultInfo()` | `GET /live/v1/dev/fault` | simulator fault reporting |
+| `whoami()` | `GET /live/v1/whoami` | explicit core/simulator orchestration |
 | `raw()` | any GET path | escape hatch for routes with no method |
-| `dynRegistry()` | `GET /live/v1/dyn-registry` | deploy, call, state, debug, callee discovery, list |
+| `dynRegistry()` | `GET /live/v1/dyn-registry` | deploy/slot planning, call, state, debug, list |
 | `dynUpload()` | `GET /live/v1/dyn-upload` | upload ownership and assembly |
 | `querySmartContract()` | `POST /live/v1/querySmartContract` | function calls |
 | `broadcastTx()` | `POST /live/v1/broadcast-transaction` | procedures and deployment protocol |
@@ -1626,11 +1673,11 @@ Paths below are relative to `packages/cli/src/`.
 | `tick` | `commands/node/tick.tsx` | `LiteRpc` testnet controls |
 | `epoch` | `commands/node/epoch.tsx` | `LiteRpc` testnet controls |
 | `new` | `commands/develop/new.tsx` | `contracts/templates.ts`, IDL/gtest generators |
-| `dev` | `commands/develop/dev.tsx` | `deployContract()` |
-| `build` | `commands/develop/build.tsx` | `@qinit/build` or `@qinit/compiler` |
+| `dev` | `commands/develop/dev.tsx` | `ops/project-deploy.ts`, `ops/deploy/` |
+| `build` | `commands/develop/build.tsx` | `ops/project-build.ts`, `@qinit/build` |
 | `gen` | `commands/develop/gen.tsx` | IDL/client generator |
 | `verify` | `commands/develop/verify.tsx` | external `contractverify` |
-| `deploy` | `commands/deploy-interact/deploy.tsx` | `ops/deploy/`, proto wire codecs |
+| `deploy` | `commands/deploy-interact/deploy.tsx` | `ops/project-deploy.ts`, `ops/deploy/`, proto wire codecs |
 | `call` | `commands/deploy-interact/call*.tsx` | proto call helpers, `LiteRpc` |
 | `seed` | `commands/deploy-interact/seed.tsx` | config store, funded-seed RPC |
 | `ls` | `commands/deploy-interact/ls.tsx` | registry plus system catalog |
@@ -1639,7 +1686,7 @@ Paths below are relative to `packages/cli/src/`.
 | `debug` | `commands/deploy-interact/debug.tsx` | `trace/format.ts`, backtrace helpers |
 | `test` | `commands/deploy-interact/test.tsx` | deploy, generated SDK, Bun tests |
 | `gtest` | `commands/deploy-interact/gtest.tsx` | `ops/corpus-run.ts`, engine |
-| `system` | `commands/deploy-interact/system.tsx` | `contracts/system-wasm.ts`, simulator RPC |
+| `system` | `commands/deploy-interact/system.tsx` | Core catalog, `contracts/system-wasm.ts`, `LiteRpc` |
 | `ext` | `commands/editor/ext.tsx` | external editor process |
 | `node-backend` | `commands/misc/node-backend.tsx` | `commands/misc/backend-picker.tsx`, config store |
 | `compiler` | `commands/misc/compiler.tsx` | `commands/misc/backend-picker.tsx`, config store |
@@ -1657,16 +1704,18 @@ The smallest useful validation depends on the boundary changed.
 |---|---|
 | Metadata or parsing | `packages/cli/tests/commands/args.test.ts`, `cli-args.test.ts`, `meta.test.ts` |
 | Configuration | `packages/cli/tests/commands/config.test.ts` |
-| Build JSON or compiler adapter | `build-json.test.ts`, `contracts/build-contract-with-typescript.test.ts` |
-| Callee parsing/discovery | `commands/callees.test.ts` |
-| Deployment state machine | `contracts/deploy-ops.test.ts`, `integration/simulator.test.ts` |
+| Build JSON or compiler adapter | `build-json.test.ts`, `build-callee-cli.test.ts`, `contracts/build-contract-with-typescript.test.ts` |
+| Callee parsing/discovery | `commands/callees.test.ts`, `build/tests/pipeline/project-dependencies.test.ts` |
+| Slot planning | `contracts/project-slots.test.ts`, `proto/tests/protocol/call.test.ts` |
+| Deployment state machine | `contracts/deploy-ops.test.ts`, `contracts/project-deploy.test.ts`, `integration/simulator.test.ts` |
 | Contract/IDL selection | `contracts/contracts.test.ts`, `format/idl-file.test.ts` |
 | State and trace decoding | `format/trace-format.test.ts`, `commands/state-digest*.test.ts` |
 | Node preparation/process tracking | `commands/node-run-core.test.ts`, `rpc/node-ops.test.ts` |
-| Simulator RPC behavior | `integration/simulator.test.ts`, engine server/runtime tests |
+| Backend identity and simulator RPC | `core/tests/network/rpc.test.ts`, `engine/tests/network/server.test.ts`, `integration/simulator.test.ts` |
 | Explorer read models or views | `rpc/explorer-rpc.test.ts`, `format/ui-format.test.ts` |
 | Interactive call prompts/completion | `commands/complete.test.ts` |
 | Gtest orchestration | `contracts/corpus-run.test.ts`, `contracts/gtest.test.ts` |
+| VS Code project graph | `vscode/tests/language/project-context.test.ts`, extension integration test |
 | Cross-runtime contract state | `integration/cross-host.test.ts`, `integration/wasm-shim-e2e.test.ts` |
 
 The test folders are grouped by concern, not by the `src/` layout, so a test for

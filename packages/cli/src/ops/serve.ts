@@ -7,6 +7,12 @@ import {
   LOOPBACK_HOST,
   type WasmSlotLayout,
 } from "@qinit/core";
+import { systemContractClosure } from "@qinit/build";
+import type {
+  SystemContract,
+  SystemContractCompiler,
+} from "@qinit/build";
+import { resolveCoreDir } from "../config";
 import { systemWasm } from "../contracts/system-wasm";
 
 // RPC base -> simulator port. Use the standard development port when none is given.
@@ -15,16 +21,27 @@ export function portFromRpc(rpcBaseUrl: string): number {
 }
 
 // Seed configured system contracts after startup without blocking RPC or ticking.
-async function seedSystemContracts(srv: EngineServer, names: string[]): Promise<void> {
+async function seedSystemContracts(
+  srv: EngineServer,
+  names: string[],
+  compiler: SystemContractCompiler,
+): Promise<void> {
+  const core = resolveCoreDir();
+  const contracts = new Map<number, SystemContract>();
   for (const name of names) {
-    try {
-      const w = await systemWasm(name);
-      srv.engine.deploy(w.index, w.wasm, w.name);
-    } catch (e: any) {
-      process.stderr.write(
-        `qinit __serve: system contract '${name}' not seeded: ${String(e?.message ?? e)}\n`,
-      );
+    for (const contract of systemContractClosure(core, name)) {
+      contracts.set(contract.index, contract);
     }
+  }
+
+  const built = [];
+  for (const contract of [...contracts.values()].sort(
+    (left, right) => left.index - right.index,
+  )) {
+    built.push(await systemWasm(contract.name, undefined, compiler));
+  }
+  for (const contract of built) {
+    srv.engine.deploy(contract.index, contract.wasm, contract.name);
   }
 }
 
@@ -37,6 +54,7 @@ export async function serveEngine(
   system: string[] = [],
   peerPort = DEFAULT_PEER_PORT,
   slotLayout?: WasmSlotLayout,
+  compiler: SystemContractCompiler = "clang",
 ): Promise<never> {
   const ms = Number.isFinite(tickMs) ? Math.max(0, tickMs as number) : DEFAULT_TICK_MS;
   const srv = new EngineServer(new VirtualNode(slotLayout));
@@ -44,7 +62,7 @@ export async function serveEngine(
   process.stdout.write(
     `qinit simulator: rpc ${rpcBaseUrl} · peer ${LOOPBACK_HOST}:${peerPort}\n`,
   );
-  await seedSystemContracts(srv, system);
+  await seedSystemContracts(srv, system, compiler);
 
   // Keep the process alive indefinitely — EngineServer auto-advances ticks on its own interval, and the
   // process is reaped by killNode (SIGKILL), so there is nothing to await or clean up here.

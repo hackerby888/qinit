@@ -1,4 +1,8 @@
-import { LOOPBACK_HOST, initK12 } from "@qinit/core";
+import {
+  LOOPBACK_HOST,
+  initK12,
+  type DirectDeploymentKind,
+} from "@qinit/core";
 import { VirtualNode } from "./transport";
 import { PeerServer } from "./peer-server";
 import { EngineFaultedError } from "./qubic-simulator";
@@ -93,6 +97,10 @@ export class EngineServer {
             path === "/latest-created-tick-info"
           ) {
             return json(await engine.tickInfo());
+          }
+
+          if (path === "/live/v1/whoami") {
+            return json({ backend: "simulator" });
           }
 
           if (path === "/live/v1/dev/fault") {
@@ -402,13 +410,58 @@ export class EngineServer {
               slot: number;
               wasm?: string;
               name?: string;
+              kind?: DirectDeploymentKind;
             };
             const slot = Number(body.slot);
+            const name = body.name || "Contract";
+            const kind = body.kind ?? "dynamic";
+            const dynamicEnd = engine.slotBase + engine.slotCount;
+            const validDynamicSlot =
+              Number.isInteger(slot) &&
+              slot >= engine.slotBase &&
+              slot < dynamicEnd;
+            const validSystemSlot =
+              Number.isInteger(slot) &&
+              slot >= 1 &&
+              slot < engine.slotBase;
+
+            if (kind !== "dynamic" && kind !== "system") {
+              return json({
+                ok: false,
+                message: `unknown deployment kind '${String(kind)}'`,
+              }, 400);
+            }
+            if (kind === "dynamic" && !validDynamicSlot) {
+              return json({
+                ok: false,
+                message: `dynamic slot ${slot} is outside ${engine.slotBase}..${dynamicEnd - 1}`,
+              }, 400);
+            }
+            if (kind === "system" && !validSystemSlot) {
+              return json({
+                ok: false,
+                message: `system slot ${slot} is outside 1..${engine.slotBase - 1}`,
+              }, 400);
+            }
+
+            const deployed = (await engine.dynRegistry()).contracts.find(
+              (contract) => contract.index === slot && contract.armed,
+            );
+            if (
+              engine.sim.contracts.has(slot) &&
+              deployed?.name !== name
+            ) {
+              return json({
+                ok: false,
+                message: `slot ${slot} is occupied by '${deployed?.name ?? "unknown"}'`,
+              }, 409);
+            }
+
             const wasm = Uint8Array.from(
               Buffer.from(body.wasm ?? "", "base64"),
             );
 
-            engine.deploy(slot, wasm, body.name || "Contract");
+            engine.deploy(slot, wasm, name);
 
             return json({
               ok: true,

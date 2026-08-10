@@ -69,6 +69,18 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   }
 };`;
 
+const ALIASED = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct ActualState : public ContractBase {
+  struct StateData {};
+  struct Read_input {};
+  struct Read_output { uint64 value; };
+  PUBLIC_FUNCTION(Read) { output.value = 7; }
+  REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
+    REGISTER_USER_FUNCTION(Read, 1);
+  }
+};`;
+
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
@@ -109,4 +121,27 @@ test("buildContractWithTypeScript analyzes transitive cyclic callees before one 
   expect(existsSync(result.wasmPath!)).toBe(true);
   expect(result.wasmSizeBytes).toBeGreaterThan(0);
   expect(result.wasmK12DigestHex).toMatch(/^[0-9a-f]{64}$/);
+}, 60_000);
+
+test("buildContractWithTypeScript supports a state type distinct from the artifact name", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "qinit-build-typescript-alias-"));
+  temporaryDirectories.push(directory);
+
+  const contractPath = join(directory, "Alias.h");
+  const outDir = join(directory, "out");
+  writeFileSync(contractPath, ALIASED);
+
+  const result = await buildContractWithTypeScript({
+    contractPath,
+    name: "ALIAS",
+    stateType: "ActualState",
+    slot: 31,
+    core: CORE_PATH,
+    outDir,
+  });
+
+  expect(result.ok).toBe(true);
+  expect(result.idl?.name).toBe("ALIAS");
+  expect(result.wasmPath).toBe(join(outDir, "ALIAS.wasm"));
+  expect(existsSync(result.wasmPath!)).toBe(true);
 }, 60_000);

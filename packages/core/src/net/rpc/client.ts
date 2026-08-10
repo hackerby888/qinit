@@ -10,6 +10,7 @@ import type {
   ContractCallsPage,
   ContractListEntry,
   DebugTrace,
+  DirectDeploymentKind,
   DynamicContractRegistry,
   DynamicContractUploadStatus,
   EngineFaultInfo,
@@ -17,6 +18,7 @@ import type {
   ExplorerTickData,
   ExplorerTx,
   IdentityTransfer,
+  NodeBackendIdentity,
   TickInfo,
 } from "./types";
 
@@ -119,6 +121,19 @@ export class LiteRpc implements NodeTransport {
   }
   faultInfo() {
     return this.get<EngineFaultInfo | null>("/live/v1/dev/fault");
+  }
+  async whoami(): Promise<NodeBackendIdentity> {
+    try {
+      return await this.get<NodeBackendIdentity>("/live/v1/whoami");
+    } catch (error: any) {
+      const message = String(error?.message ?? error);
+      if (message.includes("/live/v1/whoami") && message.includes("HTTP 404")) {
+        throw new Error(
+          "node does not expose /live/v1/whoami; upgrade core-lite or the Qinit simulator",
+        );
+      }
+      throw error;
+    }
   }
   /** Escape hatch for any GET route (e.g. a future /dyn/registry). */
   raw<T = unknown>(path: string) {
@@ -331,6 +346,7 @@ export class LiteRpc implements NodeTransport {
     slot: number,
     wasm: Uint8Array,
     name: string,
+    kind: DirectDeploymentKind = "dynamic",
   ): Promise<{ ok: boolean; slot: number; digest: string } | null> {
     let r: Response;
     try {
@@ -339,7 +355,12 @@ export class LiteRpc implements NodeTransport {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ slot, name, wasm: Buffer.from(wasm).toString("base64") }),
+          body: JSON.stringify({
+            slot,
+            name,
+            kind,
+            wasm: Buffer.from(wasm).toString("base64"),
+          }),
         },
         30000,
       );

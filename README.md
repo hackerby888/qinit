@@ -73,7 +73,7 @@ runtime data relative to the current directory.
 |---|---|
 | `packages/cli` | Ink command interface and standalone binary entry |
 | `packages/core` | Qubic primitives, signing, RPC, tool downloads, and source metadata |
-| `packages/build` | Contract project generation and native build recipes |
+| `packages/build` | Contract builds, dependency graphs, slot planning, IDL, and project generation |
 | `packages/compiler` | TypeScript-to-Wasm compiler and browser entry |
 | `packages/engine` | In-process contract simulation and protocol adapters |
 | `packages/proto` | Dynamic-contract wire, ABI, and IDL codecs |

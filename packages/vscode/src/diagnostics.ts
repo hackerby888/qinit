@@ -7,6 +7,7 @@ import {
   type SourceAnalysisResult,
   type SourceFix,
 } from "@qinit/compiler/analyzer";
+import type { ProjectAnalysisContext } from "./project-context";
 import {
   configuredContractIdentity,
   isContractDoc,
@@ -51,8 +52,13 @@ export class QpiDiagnostics implements vscode.Disposable {
       version: number;
       name?: string;
       slot?: number;
+      contextKey?: string;
       result: SourceAnalysisResult;
     }
+  >();
+  private readonly contextErrors = new Map<
+    string,
+    { version: number; message: string }
   >();
   private readonly fixes = new Map<
     string,
@@ -61,6 +67,12 @@ export class QpiDiagnostics implements vscode.Disposable {
       items: Map<string, SourceFix[]>;
     }
   >();
+
+  constructor(
+    private readonly resolveContext?: (
+      doc: vscode.TextDocument,
+    ) => ProjectAnalysisContext,
+  ) {}
 
   private applies(doc: vscode.TextDocument): boolean {
     return isContractDoc(doc);
@@ -91,30 +103,50 @@ export class QpiDiagnostics implements vscode.Disposable {
 
   analysisFor(doc: vscode.TextDocument): SourceAnalysisResult | undefined {
     const key = doc.uri.toString();
-    const identity = configuredContractIdentity(doc.fileName);
-    const cached = this.analyses.get(key);
-    if (
-      cached?.version === doc.version &&
-      cached.name === identity.name &&
-      cached.slot === identity.slot
-    ) {
-      return cached.result;
-    }
     if (!this.applies(doc)) {
       this.analyses.delete(key);
+      this.contextErrors.delete(key);
       return undefined;
     }
 
+    const identity = configuredContractIdentity(doc.fileName);
+    let context: ProjectAnalysisContext | undefined;
+    try {
+      context = this.resolveContext?.(doc);
+      this.contextErrors.delete(key);
+    } catch (error: any) {
+      this.analyses.delete(key);
+      this.fixes.delete(key);
+      this.contextErrors.set(key, {
+        version: doc.version,
+        message: String(error?.message ?? error),
+      });
+      return undefined;
+    }
+
+    const cached = this.analyses.get(key);
+    if (
+      cached?.version === doc.version &&
+      cached.name === (context?.contractName ?? identity.name) &&
+      cached.slot === (context?.slot ?? identity.slot) &&
+      cached.contextKey === context?.cacheKey
+    ) {
+      return cached.result;
+    }
     const result = analyzeContract({
       source: doc.getText(),
-      contractName: identity.name,
-      slot: identity.slot,
+      contractName: context?.contractName ?? identity.name,
+      slot: context?.slot ?? identity.slot,
+      qpiHeader: context?.qpiHeader,
+      callees: context?.callees,
+      calleeSources: context?.calleeSources,
     });
     this.fixes.delete(key);
     this.analyses.set(key, {
       version: doc.version,
-      name: identity.name,
-      slot: identity.slot,
+      name: context?.contractName ?? identity.name,
+      slot: context?.slot ?? identity.slot,
+      contextKey: context?.cacheKey,
       result,
     });
     return result;
@@ -123,6 +155,18 @@ export class QpiDiagnostics implements vscode.Disposable {
   refresh(doc: vscode.TextDocument): void {
     const result = this.analysisFor(doc);
     if (!result) {
+      const contextError = this.contextErrors.get(doc.uri.toString());
+      if (contextError?.version === doc.version) {
+        const diagnostic = new vscode.Diagnostic(
+          new vscode.Range(0, 0, 0, Math.min(1, doc.lineAt(0).text.length)),
+          `Project dependency resolution failed: ${contextError.message}`,
+          vscode.DiagnosticSeverity.Error,
+        );
+        diagnostic.source = "qinit-project";
+        diagnostic.code = "qinit/project-dependencies";
+        this.coll.set(doc.uri, [diagnostic]);
+        return;
+      }
       this.clear(doc.uri);
       return;
     }
@@ -166,6 +210,7 @@ export class QpiDiagnostics implements vscode.Disposable {
 
     this.timers.delete(key);
     this.analyses.delete(key);
+    this.contextErrors.delete(key);
     this.coll.delete(uri);
     this.fixes.delete(key);
   }
@@ -174,6 +219,7 @@ export class QpiDiagnostics implements vscode.Disposable {
     for (const t of this.timers.values()) clearTimeout(t);
     this.timers.clear();
     this.analyses.clear();
+    this.contextErrors.clear();
     this.fixes.clear();
     this.coll.dispose();
   }

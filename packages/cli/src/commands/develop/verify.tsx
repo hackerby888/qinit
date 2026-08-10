@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { resolve, basename } from "node:path";
-import { readFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
-import { verifyContract, type VerifyResult } from "@qinit/build";
-import { loadConfig } from "../../config";
+import {
+  resolveProjectDependencies,
+  verifyContract,
+  type VerifyResult,
+} from "@qinit/build";
+import { loadConfig, resolveCoreDir } from "../../config";
 import { Header, Panel, Status, theme, termCols } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
@@ -29,18 +32,19 @@ export function Verify({ commandArgs }: { commandArgs: CommandArguments }) {
           commandArgs.get("contract-name") ??
           cfg.contractName ??
           basename(file).replace(/\.[^.]+$/, "");
-        // Declared inter-contract callees (--callee + CALL/INVOKE_OTHER_CONTRACT) — their scope-resolution
-        // errors are false for declared callees and dropped by verifyContract (same as buildContractWithWasiClang).
-        const calleeNames = [
-          ...new Set([
-            ...Object.keys(dynCallees),
-            ...[
-              ...readFileSync(file, "utf8").matchAll(
-                /(?:CALL|INVOKE)_OTHER_CONTRACT_\w+\s*\(\s*(\w+)/g,
-              ),
-            ].map((m) => m[1]),
-          ]),
-        ];
+        const graph = resolveProjectDependencies({
+          projectRoot: process.cwd(),
+          corePath: resolveCoreDir(
+            commandArgs.get("core-dir"),
+            cfg.coreDir,
+          ),
+          contractName: name,
+          contractPath: file,
+          explicitCallees: dynCallees,
+        });
+        const calleeNames = graph
+          .filter((contract) => contract.stateType !== name)
+          .flatMap((contract) => [contract.name, contract.stateType]);
         setR(await verifyContract(file, name, { allowedPrefixes: calleeNames }));
       } catch (e: any) {
         setErr(String(e?.message ?? e));

@@ -2,6 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseCommandInvocation } from "../../src/args";
 import { resolveGtestSlot } from "../../src/commands/deploy-interact/gtest";
 
 const core = mkdtempSync(join(tmpdir(), "qinit-gtest-slot-"));
@@ -38,4 +39,19 @@ test("gtest accepts only integer contract slots", () => {
       "contract slot must be an integer from 1 to 1023",
     );
   }
+});
+
+test("gtest accepts repeated callee declarations", () => {
+  const invocation = parseCommandInvocation("gtest", [
+    "tests/Proxy.test.cpp",
+    "--callee",
+    "Counter=contracts/Counter.h",
+    "--callee",
+    "Oracle=contracts/Oracle.h@42",
+  ]);
+
+  expect(invocation.commandArgs.getAll("callee")).toEqual([
+    "Counter=contracts/Counter.h",
+    "Oracle=contracts/Oracle.h@42",
+  ]);
 });

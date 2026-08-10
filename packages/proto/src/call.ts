@@ -15,27 +15,68 @@ export interface TypedContractInput {
   value: unknown;
 }
 
-// Resolve which slot to deploy a contract to, by name — the user never picks a slot.
-// Reuse the slot a same-named contract already occupies (upgrade); else the first free slot.
+// Resolve a deployment inside the node's advertised dynamic window.
+// Reuse a same-named contract's slot (upgrade); otherwise use the first free slot.
 export async function resolveDeploymentSlot(
   rpc: LiteRpc,
   name: string,
   override?: number,
 ): Promise<{ slot: number; reused: boolean }> {
-  if (override !== undefined && !Number.isNaN(override)) {
-    return { slot: override, reused: false };
-  }
   const reg = await rpc.dynRegistry();
-  const cs = reg.contracts ?? [];
-  const mine = cs.find((c) => c.armed && c.name === name);
+  const contracts = reg.contracts ?? [];
+  const inDynamicRange = (slot: number): boolean =>
+    Number.isInteger(slot) &&
+    slot >= reg.slotBase &&
+    slot < reg.slotBase + reg.slotCount;
+
+  if (override !== undefined && !Number.isNaN(override)) {
+    if (!inDynamicRange(override)) {
+      throw new Error(
+        `slot ${override} is outside dynamic range ${reg.slotBase}..${reg.slotBase + reg.slotCount - 1}`,
+      );
+    }
+
+    const occupant = contracts.find(
+      (contract) => contract.index === override && contract.armed,
+    );
+    if (occupant && occupant.name !== name) {
+      throw new Error(
+        `slot ${override} is occupied by '${occupant.name}', not '${name}'`,
+      );
+    }
+
+    const matching = contracts.find(
+      (contract) =>
+        inDynamicRange(contract.index) &&
+        contract.armed &&
+        contract.name === name,
+    );
+    if (matching && matching.index !== override) {
+      throw new Error(
+        `'${name}' is already deployed at slot ${matching.index}, not requested slot ${override}`,
+      );
+    }
+
+    return { slot: override, reused: occupant?.name === name };
+  }
+  const mine = contracts.find(
+    (contract) =>
+      inDynamicRange(contract.index) &&
+      contract.armed &&
+      contract.name === name,
+  );
   if (mine) {
     return { slot: mine.index, reused: true };
   }
-  const free = cs.find((c) => !c.armed);
+  const free = contracts.find(
+    (contract) => inDynamicRange(contract.index) && !contract.armed,
+  );
   if (free) {
     return { slot: free.index, reused: false };
   }
-  throw new Error(`no free dynamic slot (all ${reg.slotCount ?? cs.length} in use)`);
+  throw new Error(
+    `no free dynamic slot (all ${reg.slotCount ?? contracts.length} in use)`,
+  );
 }
 
 // A contract's address = id(contractIndex, 0, 0, 0).

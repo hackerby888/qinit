@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { loadQpiHeader } from "@qinit/compiler";
 import { parseContractDefinitionSource } from "./contract-definitions";
 import { extractIdl, type ContractIdl } from "./idl";
+import { scanCallees } from "./intercontract";
 import { generateWasmContractTestingHeader } from "./recipe";
 
 export interface SystemContract {
@@ -80,6 +81,7 @@ export function generateWasmContractTestingHeaderForCore(o: {
   corePath: string;
   name: string;
   slot: number;
+  additionalContracts?: readonly { index: number; name: string }[];
 }): string {
   const catalog = systemContractDescriptions(o.corePath);
   const mainContract = catalog.find((contract) => contract.index === o.slot);
@@ -95,6 +97,20 @@ export function generateWasmContractTestingHeaderForCore(o: {
     assetName: o.name,
     constructionEpoch: mainContract?.constructionEpoch ?? 0,
   });
+  for (const contract of o.additionalContracts ?? []) {
+    const existing = descriptions.find(
+      (description) => description.index === contract.index,
+    );
+    if (existing) {
+      existing.assetName = contract.name;
+      continue;
+    }
+    descriptions.push({
+      index: contract.index,
+      assetName: contract.name,
+      constructionEpoch: 0,
+    });
+  }
   return generateWasmContractTestingHeader(descriptions);
 }
 
@@ -159,4 +175,81 @@ export function systemNames(coreRoot: string): Set<string> {
   return new Set(
     systemContracts(coreRoot).map((contract) => contract.name.toLowerCase()),
   );
+}
+
+export function systemContractClosure(
+  coreRoot: string,
+  name: string,
+): SystemContract[] {
+  const catalog = systemContracts(coreRoot);
+  const contractsByIdentifier = new Map<string, SystemContract>();
+  for (const contract of catalog) {
+    contractsByIdentifier.set(contract.name.toLowerCase(), contract);
+    contractsByIdentifier.set(contract.stateType.toLowerCase(), contract);
+  }
+
+  const target = contractsByIdentifier.get(name.toLowerCase());
+  if (!target) {
+    throw new Error(
+      `unknown system contract '${name}' — have: ${catalog.map((contract) => contract.name).join(", ")}`,
+    );
+  }
+
+  const qpiHeader = loadQpiHeader(coreRoot);
+  const knownCallees = new Set(
+    catalog.flatMap((contract) => [contract.name, contract.stateType]),
+  );
+  const visited = new Set<number>();
+  const visiting: SystemContract[] = [];
+  const ordered: SystemContract[] = [];
+
+  const visit = (contract: SystemContract): void => {
+    if (visited.has(contract.index)) {
+      return;
+    }
+
+    const cycleIndex = visiting.findIndex(
+      (candidate) => candidate.index === contract.index,
+    );
+    if (cycleIndex >= 0) {
+      const cycle = [...visiting.slice(cycleIndex), contract]
+        .map((candidate) => candidate.name)
+        .join(" -> ");
+      throw new Error(`system contract dependency cycle: ${cycle}`);
+    }
+
+    visiting.push(contract);
+    const references = scanCallees(
+      contract.source,
+      {
+        contractName: contract.stateType,
+        slot: contract.index,
+        qpiHeader,
+      },
+      knownCallees,
+    );
+    for (const reference of references) {
+      const dependency = contractsByIdentifier.get(reference.toLowerCase());
+      if (!dependency) {
+        throw new Error(
+          `system contract ${contract.name} references unknown contract '${reference}'`,
+        );
+      }
+      if (dependency.index === contract.index) {
+        continue;
+      }
+      if (dependency.index >= contract.index) {
+        throw new Error(
+          `system contract ${contract.name} (${contract.index}) must call a lower canonical slot, got ${dependency.name} (${dependency.index})`,
+        );
+      }
+      visit(dependency);
+    }
+    visiting.pop();
+    visited.add(contract.index);
+    ordered.push(contract);
+  };
+
+  visit(target);
+  return ordered.sort((left, right) => left.index - right.index);
 }

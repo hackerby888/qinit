@@ -91,18 +91,15 @@ export function New({ commandArgs }: { commandArgs: CommandArguments }) {
         testRel = `tests/${name}.test.cpp`;
       } catch {}
 
-      // No slot: the framework auto-allocates one at deploy by name (reuse-or-first-free).
+      // No slot: project planning assigns dependencies below Main and reuses matching names.
       const cfg: Record<string, unknown> = {
         contractName: name,
         contract: `contracts/${name}.h`,
         rpc: DEFAULT_RPC_BASE,
       };
       if (coreDir) cfg.coreDir = coreDir;
-      // The intercontract template CALLs a Counter — scaffold that callee + register it so `qinit test` deploys
-      // it before the main contract (else the CALL_OTHER_CONTRACT(Counter) names can't resolve at build time).
       if (kind === "intercontract") {
         writeFileSync(join(dir, "contracts", "Counter.h"), templateSource("counter"));
-        cfg.callees = [{ name: "Counter", contract: "contracts/Counter.h" }];
       }
       writeFileSync(join(dir, "qinit.json"), JSON.stringify(cfg, null, 2) + "\n");
       writeFileSync(

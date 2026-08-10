@@ -20,6 +20,12 @@ export interface EngineFaultInfo {
   txId?: string;
 }
 
+export interface NodeBackendIdentity {
+  backend: "core" | "simulator";
+}
+
+export type DirectDeploymentKind = "dynamic" | "system";
+
 export interface DynamicContractEntry {
   inputType: number;
   inputSize: number;

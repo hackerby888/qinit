@@ -33,6 +33,7 @@ if (command === "__serve") {
       "peer-port",
       "slot-base",
       "slot-count",
+      "compiler",
     ],
   });
   const rpc = commandArgs.get("rpc") || DEFAULT_RPC_BASE;
@@ -41,6 +42,7 @@ if (command === "__serve") {
   const peerPort = commandArgs.get("peer-port");
   const slotBase = commandArgs.get("slot-base");
   const slotCount = commandArgs.get("slot-count");
+  const compiler = commandArgs.get("compiler");
   await serveEngine(
     rpc,
     tickMs !== undefined ? Number(tickMs) : undefined,
@@ -52,6 +54,7 @@ if (command === "__serve") {
           slotCount: Number(slotCount),
         }
       : undefined,
+    compiler === "typescript" ? "typescript" : "clang",
   );
 }
 

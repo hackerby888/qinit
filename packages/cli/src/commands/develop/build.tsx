@@ -1,16 +1,14 @@
 import { useEffect, useState } from "react";
 import { resolve, join, basename } from "node:path";
-import { writeFileSync, readFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { Box, Text, useApp } from "ink";
-import { buildContractWithWasiClang, type ContractBuildResult } from "@qinit/build";
+import type { ContractBuildResult } from "@qinit/build";
 import {
   DEFAULT_RPC_BASE,
   autoUpdateVerifyTool,
   LiteRpc,
   loadCoreWasmSlotLayout,
 } from "@qinit/core";
-import { buildContractWithTypeScript } from "../../ops/typescript-build";
-import { loadQpiHeader } from "@qinit/compiler";
 import {
   loadConfig,
   resolveCoreDir,
@@ -18,8 +16,12 @@ import {
 } from "../../config";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
-import { parseCallees, resolveNodeCallees } from "../../contracts/callees";
+import { parseCallees } from "../../contracts/callees";
 import { parseContractSlot } from "../../contracts/registry";
+import {
+  buildProjectContracts,
+  resolveProjectPlan,
+} from "../../ops/project-build";
 
 type State =
   { phase: "run" } | { phase: "done"; r: ContractBuildResult };
@@ -60,47 +62,45 @@ export function Build({ commandArgs }: { commandArgs: CommandArguments }) {
           basename(contractPath).replace(/\.[^.]+$/, "");
         const outDir = resolve(commandArgs.get("out") ?? "dist/contracts");
         const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
-        const slot = parseContractSlot(
-          requestedSlot === undefined
-            ? loadCoreWasmSlotLayout(core).slotBase
-            : requestedSlot,
-        );
+        const slot = requestedSlot === undefined
+          ? undefined
+          : parseContractSlot(requestedSlot);
+        const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
+        const rpc = new LiteRpc(rpcBaseUrl);
+        const registry = await Promise.race([
+          rpc.dynRegistry().catch(() => undefined),
+          new Promise<undefined>((resolveTimeout) =>
+            setTimeout(() => resolveTimeout(undefined), 2500)
+          ),
+        ]);
+        const slotLayout = registry ?? loadCoreWasmSlotLayout(core);
+        const plan = resolveProjectPlan({
+          projectRoot: process.cwd(),
+          core,
+          contractPath,
+          name,
+          slot,
+          explicitCallees: dynCallees,
+          slotLayout,
+          registry,
+        });
 
-        let r: ContractBuildResult;
-        if (compiler === "typescript") {
-          r = await buildContractWithTypeScript({
-            contractPath,
-            name,
-            slot,
-            core,
-            outDir,
-            dynCallees,
-          });
-        } else {
-          const rpcBaseUrl = commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE;
-          const callees = await resolveNodeCallees(
-            new LiteRpc(rpcBaseUrl),
-            readFileSync(contractPath, "utf8"),
-            dynCallees,
-            undefined,
-            {
-              name,
-              slot,
-              qpiHeader: loadQpiHeader(core),
-            },
-            2500,
-          );
+        if (compiler === "clang") {
           await autoUpdateVerifyTool();
-          r = await buildContractWithWasiClang({
-            contractPath,
-            name,
-            slot,
-            corePath: core,
-            outDir,
-            dynCallees: callees,
-            skipVerify: commandArgs.has("skip-verify"),
-          });
         }
+        const project = await buildProjectContracts({
+          plan,
+          core,
+          compiler,
+          outDir,
+          skipVerify: commandArgs.has("skip-verify"),
+        });
+        const r: ContractBuildResult = project.ok
+          ? project.contracts.at(-1)!.result
+          : project.result ?? {
+              ok: false,
+              stderr: `${project.failed?.name ?? "contract"}: compile failed`,
+            };
         if (r.ok && r.idl)
           try {
             writeFileSync(join(outDir, `${name}.idl.json`), JSON.stringify(r.idl, null, 2));

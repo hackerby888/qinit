@@ -12,6 +12,7 @@ import {
   k12Hex,
   readCurrent,
   autoUpdateVerifyTool,
+  type NodeBackendIdentity,
 } from "@qinit/core";
 import {
   encodeDeploy,
@@ -57,8 +58,10 @@ export interface DeployOpts {
   dynCallees?: Record<string, { header: string; index: number }>;
   slotOverride?: number;
   outDir?: string;
+  idlPath?: string;
   skipVerify?: boolean;
   compiler?: CompilerBackend;
+  backend?: NodeBackendIdentity["backend"];
   artifact?: {
     wasm: Uint8Array;
     hash?: string;
@@ -125,11 +128,13 @@ export async function deployContract(
     });
   }
 
-  const verifyUpdate = await autoUpdateVerifyTool();
-  if (verifyUpdate.action === "updated" || verifyUpdate.action === "installed") {
-    emit({
-      note: `↻ contractverify ${verifyUpdate.action} → ${verifyUpdate.version}`,
-    });
+  if (!options.artifact) {
+    const verifyUpdate = await autoUpdateVerifyTool();
+    if (verifyUpdate.action === "updated" || verifyUpdate.action === "installed") {
+      emit({
+        note: `↻ contractverify ${verifyUpdate.action} → ${verifyUpdate.version}`,
+      });
+    }
   }
 
   emit({ step: "tick", state: "active", detail: "waiting for node…" });
@@ -198,7 +203,7 @@ export async function deployContract(
     detail: `slot ${slot} ${reused ? "(reuse)" : "(new)"}`,
   });
 
-  const dynCallees = options.artifact
+  const discoveredCallees = options.artifact
     ? options.dynCallees ?? {}
     : await resolveNodeCallees(
         rpc,
@@ -211,6 +216,16 @@ export async function deployContract(
           qpiHeader: loadQpiHeader(options.core),
         },
       );
+  const dynCallees = Object.fromEntries(
+    Object.entries(discoveredCallees).map(([name, callee]) => {
+      if (callee.index === undefined) {
+        throw new Error(
+          `callee '${name}' has no slot; use the project deployment planner or pass --callee ${name}=path@index`,
+        );
+      }
+      return [name, { header: callee.header, index: callee.index }];
+    }),
+  );
 
   const compiler: CompilerBackend =
     options.compiler ?? savedCompilerBackend() ?? "clang";
@@ -294,16 +309,38 @@ export async function deployContract(
         codeHash: hash,
         debugWasm: build.debugWasmPath ? resolve(build.debugWasmPath) : undefined,
         linesJson: build.lineMapPath ? resolve(build.lineMapPath) : undefined,
-      });
+      }, options.idlPath);
     } catch (error: any) {
       emit({ note: `IDL: ${String(error?.message ?? error)}` });
     }
   };
 
-  const directDeployment = await rpc
-    .directDeploy(slot, new Uint8Array(wasm), options.name)
-    .catch(() => null);
-  if (directDeployment) {
+  const backend = options.backend ?? (await rpc.whoami()).backend;
+  if (backend !== "core" && backend !== "simulator") {
+    return {
+      ok: false,
+      slot,
+      hash,
+      error: `unsupported node backend '${String(backend)}'`,
+    };
+  }
+
+  if (backend === "simulator") {
+    const directDeployment = await rpc.directDeploy(
+      slot,
+      new Uint8Array(wasm),
+      options.name,
+      "dynamic",
+    );
+    if (!directDeployment) {
+      return {
+        ok: false,
+        slot,
+        hash,
+        error: "simulator does not expose direct deployment; upgrade the Qinit simulator",
+      };
+    }
+
     emit({ step: "upload", state: "ok", detail: "direct (simulator)" });
     emit({ step: "deploy", state: "ok", detail: `slot ${slot}` });
 

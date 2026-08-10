@@ -43,6 +43,110 @@ test("/tick-info reports the engine's tick + epoch", async () => {
   }
 });
 
+test("/live/v1/whoami identifies the simulator", async () => {
+  const { base, stop } = await serve();
+  try {
+    const response = await fetch(`${base}/live/v1/whoami`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ backend: "simulator" });
+    expect(await new LiteRpc(base).whoami()).toEqual({
+      backend: "simulator",
+    });
+  } finally {
+    stop();
+  }
+});
+
+test("direct deploy enforces dynamic and system slot ranges", async () => {
+  const { base, stop } = await serve();
+  const rpc = new LiteRpc(base);
+  try {
+    const dynamicAtSystemSlot = await fetch(`${base}/live/v1/dev/deploy`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        slot: 1,
+        name: "Counter",
+        wasm: Buffer.from(await wasm("Counter1")).toString("base64"),
+      }),
+    });
+    expect(dynamicAtSystemSlot.status).toBe(400);
+    expect(await dynamicAtSystemSlot.json()).toMatchObject({
+      ok: false,
+      message: "dynamic slot 1 is outside 29..32",
+    });
+
+    const systemAtDynamicSlot = await fetch(`${base}/live/v1/dev/deploy`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        slot: 29,
+        name: "QX",
+        kind: "system",
+        wasm: Buffer.from(await wasm("Counter29")).toString("base64"),
+      }),
+    });
+    expect(systemAtDynamicSlot.status).toBe(400);
+    expect(await systemAtDynamicSlot.json()).toMatchObject({
+      ok: false,
+      message: "system slot 29 is outside 1..28",
+    });
+
+    expect(
+      await rpc.directDeploy(
+        1,
+        await wasm("Counter1"),
+        "QX",
+        "system",
+      ),
+    ).toMatchObject({ ok: true, slot: 1 });
+  } finally {
+    stop();
+  }
+});
+
+test("direct deploy rejects a different-name replacement without changing state", async () => {
+  const { base, stop, engine } = await serve();
+  const rpc = new LiteRpc(base);
+  const counter = await wasm("Counter29");
+  try {
+    await rpc.directDeploy(29, counter, "Resident");
+    engine.sim.procedure(29, 1);
+    const moduleBeforeRejection = engine.sim.contracts.get(29);
+    const digestBeforeRejection = engine.sim.digest(29);
+
+    const rejected = await fetch(`${base}/live/v1/dev/deploy`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        slot: 29,
+        name: "Replacement",
+        kind: "dynamic",
+        wasm: Buffer.from(counter).toString("base64"),
+      }),
+    });
+
+    expect(rejected.status).toBe(409);
+    expect(await rejected.json()).toMatchObject({
+      ok: false,
+      message: "slot 29 is occupied by 'Resident'",
+    });
+    expect(engine.slotOf("Resident")).toBe(29);
+    expect(engine.slotOf("Replacement")).toBeUndefined();
+    expect(engine.sim.contracts.get(29)).toBe(moduleBeforeRejection);
+    expect(engine.sim.digest(29)).toBe(digestBeforeRejection);
+
+    expect(await rpc.directDeploy(29, counter, "Resident")).toMatchObject({
+      ok: true,
+      slot: 29,
+    });
+    expect(engine.sim.digest(29)).toBe(digestBeforeRejection);
+  } finally {
+    stop();
+  }
+});
+
 test("the funded-seed faucet account is pre-funded", async () => {
   const { base, stop } = await serve();
   try {

@@ -9,6 +9,7 @@ Standalone VS Code language support for Qubic smart contracts.
 - IDL hover for registered functions and procedures
 - Quick fixes for supported QPI violations
 - IntelliSense for `contract_testing.h` test files
+- Automatic cross-contract IntelliSense from the configured Main contract and `contracts/**/*.h`
 
 The extension bundles the Qinit compiler frontend and ships its pinned QPI and C++ headers. Qinit,
 core-lite, a node, and the WASI compiler are not required.
@@ -36,6 +37,11 @@ For test files, the extension finds the contract from:
 3. The only QPI contract in the folder
 
 It does not guess when multiple contracts remain possible.
+
+For a Qinit project, the extension follows cross-contract calls from the Main contract configured in
+`qinit.json`. Custom callees are discovered under `contracts/`, assigned deterministic editor-only
+slots, and never deployed. `coreDir` selects the Core headers and slot layout; clangd still uses the
+WASI sysroot bundled with the extension.
 
 The extension creates `.clangd` when the folder does not already own one. Existing `.clangd` and
 explicit Microsoft C/C++ settings are preserved.

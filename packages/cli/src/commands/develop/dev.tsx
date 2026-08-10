@@ -1,25 +1,28 @@
 import { useEffect, useState, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { resolve, basename } from "node:path";
-import { statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import {
   loadConfig,
   resolveCoreDir,
   resolveCompilerBackend,
 } from "../../config";
 import {
-  deployContract,
   STEPS,
   updateDeploymentSteps,
   type DeploymentEvent,
   type DeploymentStepState,
-  type DeployResult,
 } from "../../ops/deploy";
+import {
+  deployProjectContracts,
+  type ProjectDeployResult,
+} from "../../ops/project-deploy";
 import { nodeContracts } from "../../ops/node";
 import { DEFAULT_RPC_BASE, LiteRpc } from "@qinit/core";
 import { Header, StepRow, type StepState, Panel, theme } from "../../ui";
 import type { CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
+import { parseContractSlot } from "../../contracts/registry";
 
 export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
@@ -39,6 +42,10 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
   const seed = commandArgs.get("seed");
   const skipVerify = commandArgs.has("skip-verify");
   const compiler = resolveCompilerBackend(commandArgs.get("compiler"));
+  const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
+  const slotOverride = requestedSlot === undefined
+    ? undefined
+    : parseContractSlot(requestedSlot);
   let core = "",
     coreErr = "";
   try {
@@ -49,7 +56,7 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
 
   const [steps, setSteps] = useState<Record<string, DeploymentStepState>>({});
   const [notes, setNotes] = useState<string[]>([]);
-  const [result, setResult] = useState<DeployResult | null>(null);
+  const [result, setResult] = useState<ProjectDeployResult | null>(null);
   const [contracts, setContracts] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [runs, setRuns] = useState(0);
@@ -77,14 +84,16 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     setResult(null);
     try {
       setResult(
-        await deployContract(
+        await deployProjectContracts(
           {
+            projectRoot: process.cwd(),
             contractPath,
             name: contractName,
             core,
             rpcBaseUrl: rpcBaseUrl,
             seed,
-            dynCallees,
+            explicitCallees: dynCallees,
+            slotOverride,
             skipVerify,
             compiler,
           },
@@ -110,7 +119,26 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
     if (coreErr) return;
     redeploy();
     // Poll mtimes (fs.watch doesn't fire in the --compile binary; a timer does).
-    const files = [contractPath, ...Object.values(dynCallees).map((c) => c.header)];
+    const contractHeaders = (directory: string): string[] => {
+      try {
+        return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+          const path = resolve(directory, entry.name);
+          if (entry.isDirectory()) {
+            return contractHeaders(path);
+          }
+          return entry.isFile() && entry.name.endsWith(".h") ? [path] : [];
+        });
+      } catch {
+        return [];
+      }
+    };
+    const watchedFiles = () => [
+      ...new Set([
+        contractPath,
+        ...contractHeaders(resolve("contracts")),
+        ...Object.values(dynCallees).map((callee) => callee.header),
+      ]),
+    ];
     const mtime = (f: string) => {
       try {
         return statSync(f).mtimeMs;
@@ -118,16 +146,24 @@ export function Dev({ commandArgs }: { commandArgs: CommandArguments }) {
         return 0;
       }
     };
-    const seen = new Map(files.map((f) => [f, mtime(f)]));
+    const seen = new Map(watchedFiles().map((file) => [file, mtime(file)]));
     let t: ReturnType<typeof setTimeout>;
     const iv = setInterval(() => {
-      for (const f of files) {
-        const m = mtime(f);
-        if (m !== seen.get(f)) {
-          seen.set(f, m);
-          clearTimeout(t);
-          t = setTimeout(redeploy, 300);
+      const current = new Map(
+        watchedFiles().map((file) => [file, mtime(file)]),
+      );
+      const changed =
+        current.size !== seen.size ||
+        [...current].some(([file, modifiedAt]) =>
+          seen.get(file) !== modifiedAt
+        );
+      if (changed) {
+        seen.clear();
+        for (const [file, modifiedAt] of current) {
+          seen.set(file, modifiedAt);
         }
+        clearTimeout(t);
+        t = setTimeout(redeploy, 300);
       }
     }, 700);
     return () => {

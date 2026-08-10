@@ -54,7 +54,7 @@ test("CLI reports malformed callee declarations as argument errors", async () =>
 
   expect(result.code).toBe(1);
   expect(result.stdout).toContain(
-    "invalid arguments: invalid --callee 'broken': expected Name=header@index",
+    "invalid arguments: invalid --callee 'broken': expected Name=header[@index]",
   );
   expect(result.stdout).toContain("qinit build --help");
   expect(result.stderr).toBe("");
@@ -107,7 +107,7 @@ test("help command and help flag share command usage", async () => {
   for (const result of [commandHelp, flagHelp]) {
     expect(result.code).toBe(0);
     expect(result.stdout).toContain("usage: qinit build <file.h>");
-    expect(result.stdout).toContain("--callee <n>=<hdr>@<i>");
+    expect(result.stdout).toContain("--callee <n>=<hdr>[@<i>]");
     expect(result.stderr).toBe("");
   }
 });

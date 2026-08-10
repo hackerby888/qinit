@@ -2,7 +2,12 @@
 // buildCorpusRunner replaces contract_testing.h with the engine-backed test harness.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildContractWithWasiClang, buildCorpusRunner, systemContracts } from "@qinit/build";
+import {
+  buildContractWithWasiClang,
+  buildCorpusRunner,
+  systemContracts,
+  type DynCallees,
+} from "@qinit/build";
 import { runContractTesting, type TestResult } from "@qinit/engine";
 import {
   compileContract,
@@ -28,7 +33,7 @@ const SLACK = 128 * 1024 * 1024;
 const mainArenaSize = (name: string): number => (name === "NOST" ? NOST_ARENA : MAIN_ARENA);
 
 // A contract to build/deploy: the .h path + the identity the recipe needs.
-interface Spec {
+export interface StdGtestContractSpec {
   contractPath: string;
   name: string;
   stateType: string;
@@ -119,8 +124,8 @@ function depSpecs(
   testSrc: string,
   contractSrc: string,
   core: string,
-): Spec[] {
-  const deps: Spec[] = [];
+): StdGtestContractSpec[] {
+  const deps: StdGtestContractSpec[] = [];
   const seen = new Set<string>([mainName]);
   const visit = (source: string) => {
     for (const other of catalog) {
@@ -144,14 +149,15 @@ function depSpecs(
 async function clangWasms(
   core: string,
   scratch: string,
-  main: Spec,
-  deps: Spec[],
+  main: StdGtestContractSpec,
+  deps: readonly StdGtestContractSpec[],
+  dynCallees: DynCallees,
   shared: boolean,
 ): Promise<Record<number, Uint8Array>> {
   const out: Record<number, Uint8Array> = {};
   let nextBase = SHARED_START;
   const build = async (
-    s: Spec,
+    s: StdGtestContractSpec,
     arenaSizeBytes: number,
     isMain: boolean,
     useShared: boolean,
@@ -163,6 +169,7 @@ async function clangWasms(
       slot: s.slot,
       corePath: core,
       skipVerify: true,
+      dynCallees,
     };
     const p1 = await buildContractWithWasiClang({
       ...common,
@@ -207,8 +214,8 @@ async function clangWasms(
 // Build the main contract and dependencies with the TypeScript compiler.
 async function typescriptWasms(
   headers: string,
-  main: Spec,
-  deps: Spec[],
+  main: StdGtestContractSpec,
+  deps: readonly StdGtestContractSpec[],
   shared: boolean,
   onPhase?: (label: string) => void,
 ): Promise<{ wasms: Record<number, Uint8Array>; timings?: Record<string, number> }> {
@@ -268,7 +275,7 @@ async function typescriptWasms(
     // Compile dependencies in order so each sees earlier IDL and source context.
     const depOpts = {
       source: dsrc,
-      contractName: d.name,
+      contractName: d.stateType,
       slot: d.slot,
       qpiHeader: headers,
       callees: callees.length ? callees : undefined,
@@ -294,14 +301,22 @@ async function typescriptWasms(
     }
     out[d.slot] =
       shared && main.name !== "NOST" ? (await emitAt(depOpts, DEP_ARENA)).wasm : dr.wasm;
-    callees.push(dr.idl);
-    calleeSources.push({ name: d.name, source: dsrc });
+    callees.push({
+      ...dr.idl,
+      name: d.stateType,
+      slot: d.slot,
+    });
+    calleeSources.push({
+      name: d.stateType,
+      slot: d.slot,
+      source: dsrc,
+    });
   }
   const csrc = readFileSync(main.contractPath, "utf8");
   const m = await emitAt(
     {
       source: csrc,
-      contractName: main.name,
+      contractName: main.stateType,
       slot: main.slot,
       qpiHeader: headers,
       callees: callees.length ? callees : undefined,
@@ -324,6 +339,8 @@ export async function runStdGtest(opts: {
   backend: CompilerBackend;
   scratch: string;
   shared?: boolean;
+  projectDependencies?: readonly StdGtestContractSpec[];
+  dynCallees?: DynCallees;
   excludeTests?: readonly string[];
   onResult?: (r: TestResult) => void | Promise<void>;
   onPhase?: (label: string) => void;
@@ -331,14 +348,47 @@ export async function runStdGtest(opts: {
   await initK12();
   const testSrc = readFileSync(opts.testPath, "utf8");
   const contractSrc = readFileSync(opts.contractPath, "utf8");
-  const deps = depSpecs(systemContracts(opts.core), opts.name, testSrc, contractSrc, opts.core);
-  const main: Spec = {
+  const detectedSystemDependencies = depSpecs(
+    systemContracts(opts.core),
+    opts.name,
+    testSrc,
+    contractSrc,
+    opts.core,
+  );
+  const deps = [...(opts.projectDependencies ?? [])];
+  for (const dependency of detectedSystemDependencies) {
+    const matchingType = deps.find(
+      (candidate) => candidate.stateType === dependency.stateType,
+    );
+    if (matchingType) {
+      if (matchingType.slot !== dependency.slot) {
+        throw new Error(
+          `${dependency.stateType} has conflicting GTest slots ` +
+            `${matchingType.slot} and ${dependency.slot}`,
+        );
+      }
+      continue;
+    }
+
+    const slotConflict = deps.find(
+      (candidate) => candidate.slot === dependency.slot,
+    );
+    if (slotConflict) {
+      throw new Error(
+        `GTest slot ${dependency.slot} is shared by ` +
+          `${slotConflict.stateType} and ${dependency.stateType}`,
+      );
+    }
+    deps.push(dependency);
+  }
+  const main: StdGtestContractSpec = {
     contractPath: opts.contractPath,
     name: opts.name,
     stateType: opts.stateType,
     slot: opts.slot,
   };
   const shared = !!opts.shared;
+  const dynCallees = opts.dynCallees ?? {};
   const ret = { name: opts.name, slot: opts.slot, heavy: shared, backend: opts.backend };
 
   // contract_testing.h requires clang even when the contract uses the TypeScript compiler.
@@ -352,6 +402,13 @@ export async function runStdGtest(opts: {
     corePath: opts.core,
     outDir: join(opts.scratch, "run_" + opts.name),
     arenaSizeBytes: ARENA,
+    dynCallees,
+    contractDescriptions: deps
+      .filter((dependency) => dynCallees[dependency.stateType])
+      .map((dependency) => ({
+        index: dependency.slot,
+        name: dependency.name,
+      })),
   });
   if (!runner.ok || !runner.wasmPath) {
     const err =
@@ -375,7 +432,14 @@ export async function runStdGtest(opts: {
     contracts = o.wasms;
     timings = o.timings;
   } else {
-    contracts = await clangWasms(opts.core, opts.scratch, main, deps, shared);
+    contracts = await clangWasms(
+      opts.core,
+      opts.scratch,
+      main,
+      deps,
+      dynCallees,
+      shared,
+    );
   }
 
   const assetNames = Object.fromEntries(

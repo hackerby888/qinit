@@ -157,8 +157,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 };
 `;
 
-const intercontract = `// Calls the Counter contract at a LOWER slot. Deploy Counter first, then:
-//   qinit deploy --callee Counter=/abs/path/Counter.h@<counter-slot>
+const intercontract = `// Calls the Counter contract at a lower slot. Qinit discovers contracts/Counter.h.
 using namespace QPI;
 
 struct CONTRACT_STATE2_TYPE
@@ -206,7 +205,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase
 const BODIES: Record<TemplateKind, string> = { counter, hashmap, asset, intercontract };
 export const TEMPLATE_NOTE: Partial<Record<TemplateKind, string>> = {
   intercontract:
-    "Counter callee scaffolded + auto-deployed on `qinit test`; for `qinit deploy`, deploy Counter first (or it resolves from the node registry)",
+    "Counter callee scaffolded in contracts/ for automatic dependency resolution",
 };
 
 export function templateSource(kind: TemplateKind): string {

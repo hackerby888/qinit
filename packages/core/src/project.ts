@@ -10,8 +10,6 @@ export interface QinitConfig {
   coreDir?: string;
   rpc?: string;
   system?: string[]; // built-in system contracts to seed onto the simulator
-  // Inter-contract callees deployed before the main contract.
-  callees?: { name: string; contract: string }[];
 }
 
 // Per-project config (qinit.json). Precedence at the call site: CLI flag > qinit.json > default.

@@ -2,7 +2,13 @@ import { CORE_PATH } from "../../../../test-utils/paths";
 // A system contract's ticker can differ from its C++ state type, such as QTRY and QUOTTERY.
 // The wrapper must use the state type in its contract-state defines.
 import { test, expect } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  buildSystemContract,
+  systemContractClosure,
+} from "../../src/index";
 import { generateWasmWrapperSource } from "../../src/recipe";
 import { systemContracts } from "../../src/system-contracts";
 
@@ -36,4 +42,70 @@ test.skipIf(!existsSync(`${CORE}/src/contract_core/contract_def.h`))(
     const qx = cat.find((c) => c.name === "QX");
     expect(qx?.stateType).toBe("QX");
   },
+);
+
+test.skipIf(!existsSync(`${CORE}/src/contracts/QUtil.h`))(
+  "system dependency closure follows canonical slot order",
+  () => {
+    expect(
+      systemContractClosure(CORE, "QUTIL").map((contract) => ({
+        name: contract.name,
+        index: contract.index,
+      })),
+    ).toEqual([
+      { name: "QX", index: 1 },
+      { name: "QUTIL", index: 4 },
+    ]);
+  },
+);
+
+test.skipIf(!existsSync(`${CORE}/src/contracts/MsVault.h`))(
+  "system dependency closure includes ABI-only references",
+  () => {
+    expect(
+      systemContractClosure(CORE, "MSVAULT").map((contract) => contract.name),
+    ).toContain("QX");
+  },
+);
+
+test.skipIf(!existsSync(`${CORE}/src/contracts/Quottery.h`))(
+  "TypeScript system build uses the state type and keeps the ticker IDL",
+  async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "qinit-system-typescript-"));
+    try {
+      const built = await buildSystemContract("QTRY", CORE, {
+        compiler: "typescript",
+        outDir,
+      });
+
+      expect(built.ok).toBe(true);
+      expect(built.index).toBe(2);
+      expect(built.idl?.name).toBe("QTRY");
+      expect(built.wasmPath).toBe(join(outDir, "QTRY.wasm"));
+      expect(built.wasmSizeBytes).toBeGreaterThan(0);
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  },
+  60_000,
+);
+
+test.skipIf(!existsSync(`${CORE}/src/contracts/QUtil.h`))(
+  "TypeScript system build analyzes transitive callees before the target",
+  async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "qinit-system-closure-"));
+    try {
+      const built = await buildSystemContract("QUTIL", CORE, {
+        compiler: "typescript",
+        outDir,
+      });
+
+      expect(built.ok).toBe(true);
+      expect(built.index).toBe(4);
+      expect(built.wasmPath).toBe(join(outDir, "QUTIL.wasm"));
+    } finally {
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  },
+  60_000,
 );

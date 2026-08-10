@@ -15,8 +15,8 @@ import {
 } from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
+import { resolveProjectSourceDetails } from "./project-context";
 import {
-  configuredContractIdentity,
   findContractCandidates,
   findProjectRoot,
   isContractDoc,
@@ -31,6 +31,7 @@ const restartingRoots = new Set<string>();
 const filteredClients = new WeakSet<object>();
 // The prefix header clangd is using for the active contract: the root of the allowed-identifier walk.
 let contractPrefixPath: string | undefined;
+let contractCorePath: string | undefined;
 let filterReported = false;
 
 function warnOnce(key: string, message: string): void {
@@ -140,7 +141,8 @@ interface ClangdApi {
 // hook is read per request — so wrapping it here filters the list without taking the provider over.
 // `clangd.restart` builds a fresh client, hence the re-check on every document event.
 function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChannel): void {
-  if (!core) return;
+  const initialCore = contractCorePath ?? core;
+  if (!initialCore) return;
   const api: ClangdApi | undefined = vscode.extensions
     .getExtension("llvm-vs-code-extensions.vscode-clangd")
     ?.exports?.getApi?.(1);
@@ -154,7 +156,13 @@ function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChan
       ? await inner(doc, position, context, token, next)
       : await next(doc, position, context, token);
     try {
-      return filterCompletions(doc, position, result, core, out);
+      return filterCompletions(
+        doc,
+        position,
+        result,
+        contractCorePath ?? initialCore,
+        out,
+      );
     } catch (error: any) {
       out.appendLine(`completion filter skipped: ${String(error?.message ?? error)}`);
       return result;
@@ -182,24 +190,41 @@ function restartClangd(root: string, out: vscode.OutputChannel, core?: string): 
 function regenerateContract(
   doc: vscode.TextDocument,
   context: vscode.ExtensionContext,
-  core: string,
+  fallbackCore: string | undefined,
   out: vscode.OutputChannel,
 ): void {
   const root = workspaceRoot(doc);
-  const identity = configuredContractIdentity(doc.fileName);
 
   try {
+    const sourceDetails = resolveProjectSourceDetails({
+      filePath: doc.fileName,
+      workspaceRoot: root,
+      fallbackCorePath: fallbackCore,
+    });
+    if (!sourceDetails.corePath || !sourceDetails.wasiSysrootPath) {
+      warnOnce(
+        "headers",
+        "Qubic QPI: bundled headers are missing. Reinstall the extension from its VSIX or Marketplace.",
+      );
+      return;
+    }
+
     const result = generateClangdConfig({
       contractPath: doc.fileName,
-      corePath: core,
+      corePath: sourceDetails.corePath,
       dataRoot: dataRoot(context, root),
       workspaceRoot: root,
-      name: identity.name,
-      slot: identity.slot,
+      name: sourceDetails.name,
+      slot: sourceDetails.slot,
+      dynCallees: sourceDetails.dynCallees,
+      wasiSysrootPath: sourceDetails.wasiSysrootPath,
     });
     contractPrefixPath = result.prefixPath;
+    contractCorePath = sourceDetails.corePath;
     reportClangdConfig(result.clangdConfigured, result.dotClangdPath, result.dir);
-    if (result.clangdConfigured && result.restartRequired) restartClangd(root, out, core);
+    if (result.clangdConfigured && result.restartRequired) {
+      restartClangd(root, out, sourceDetails.corePath);
+    }
     out.appendLine(
       `clangd config ready: ${result.name} (slot ${result.slot}) -> ${result.prefixPath}`,
     );
@@ -211,7 +236,7 @@ function regenerateContract(
 function regenerateTest(
   doc: vscode.TextDocument,
   context: vscode.ExtensionContext,
-  core: string,
+  fallbackCore: string | undefined,
   out: vscode.OutputChannel,
 ): void {
   const root = workspaceRoot(doc);
@@ -222,14 +247,12 @@ function regenerateTest(
 
   let contractPath =
     configuredContract && existsSync(configuredContract) ? configuredContract : undefined;
-  let name = contractPath ? config.contractName : undefined;
   if (!contractPath) {
     const candidate = selectTestContract(
       doc.getText(),
       findContractCandidates(root),
     );
     contractPath = candidate?.path;
-    name = candidate?.stateType;
   }
 
   if (!contractPath) {
@@ -241,21 +264,38 @@ function regenerateTest(
   }
 
   try {
+    const sourceDetails = resolveProjectSourceDetails({
+      filePath: contractPath,
+      workspaceRoot: root,
+      fallbackCorePath: fallbackCore,
+    });
+    if (!sourceDetails.corePath || !sourceDetails.wasiSysrootPath) {
+      warnOnce(
+        "headers",
+        "Qubic QPI: bundled headers are missing. Reinstall the extension from its VSIX or Marketplace.",
+      );
+      return;
+    }
+
     const result = generateTestClangdConfig({
       contractPath,
       testPath: doc.fileName,
-      corePath: core,
+      corePath: sourceDetails.corePath,
       dataRoot: dataRoot(context, root),
       workspaceRoot: root,
-      name,
-      slot: config.slot,
+      name: sourceDetails.name,
+      slot: sourceDetails.slot,
+      dynCallees: sourceDetails.dynCallees,
+      wasiSysrootPath: sourceDetails.wasiSysrootPath,
     });
     reportClangdConfig(
       result.clangdConfigured,
       result.dotClangdPath,
       dirname(result.dbPath),
     );
-    if (result.clangdConfigured && result.restartRequired) restartClangd(root, out, core);
+    if (result.clangdConfigured && result.restartRequired) {
+      restartClangd(root, out, sourceDetails.corePath);
+    }
     out.appendLine(`gtest clangd config ready: ${doc.fileName} -> ${result.prefixPath}`);
   } catch (error: any) {
     out.appendLine(`gtest clangd config failed: ${String(error?.message ?? error)}`);
@@ -269,13 +309,6 @@ function regenerateDocument(
   out: vscode.OutputChannel,
 ): void {
   if (!isContractDoc(doc) && !isTestDoc(doc)) return;
-  if (!core) {
-    warnOnce(
-      "headers",
-      "Qubic QPI: bundled headers are missing. Reinstall the extension from its VSIX or Marketplace.",
-    );
-    return;
-  }
   if (isContractDoc(doc)) {
     regenerateContract(doc, context, core, out);
   } else {
@@ -285,8 +318,14 @@ function regenerateDocument(
 
 export function activate(context: vscode.ExtensionContext): void {
   const out = vscode.window.createOutputChannel("Qubic QPI");
-  const diagnostics = new QpiDiagnostics();
   const core = bundledCore(context);
+  const diagnostics = new QpiDiagnostics((doc) =>
+    resolveProjectSourceDetails({
+      filePath: doc.fileName,
+      workspaceRoot: workspaceRoot(doc),
+      fallbackCorePath: core,
+    }).analysis
+  );
   context.subscriptions.push(out, diagnostics);
 
   const onDocument = (doc?: vscode.TextDocument) => {
@@ -296,9 +335,19 @@ export function activate(context: vscode.ExtensionContext): void {
     diagnostics.refresh(doc);
   };
   const onSave = (doc: vscode.TextDocument) => {
-    if (doc.uri.scheme === "file" && basename(doc.fileName) === QINIT_JSON) {
+    const project = findProjectRoot(doc.fileName);
+    const refreshProject =
+      doc.uri.scheme === "file" &&
+      (
+        basename(doc.fileName) === QINIT_JSON ||
+        (project !== undefined && isContractDoc(doc))
+      );
+    if (refreshProject) {
+      const configFile = basename(doc.fileName) === QINIT_JSON
+        ? doc.fileName
+        : join(project!, QINIT_JSON);
       for (const contract of projectContractDocuments(
-        doc.fileName,
+        configFile,
         vscode.workspace.textDocuments,
       )) {
         diagnostics.clear(contract.uri);

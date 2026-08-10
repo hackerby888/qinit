@@ -8,7 +8,8 @@ import {
   resolveCoreDir,
   resolveNodeBackend,
 } from "../../config";
-import { deployContract, type DeploymentEvent } from "../../ops/deploy";
+import type { DeploymentEvent } from "../../ops/deploy";
+import { deployProjectContracts } from "../../ops/project-deploy";
 import {
   activeNodeScratchDir,
   ensureNodeBinary,
@@ -27,6 +28,8 @@ import { loadQpiHeader } from "@qinit/compiler";
 import { EngineServer } from "@qinit/engine/server";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import { DEFAULT_IDL_PATH, loadContractIdlFile } from "../../contracts/idl-file";
+import { parseCallees } from "../../contracts/callees";
+import { parseContractSlot } from "../../contracts/registry";
 import type { CommandArguments } from "../../args";
 const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -78,6 +81,8 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
     cfg.contractName ??
     basename(contractPath).replace(/\.[^.]+$/, "");
   const requestedCompiler = commandArgs.get("compiler");
+  const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
+  const explicitCallees = parseCallees(commandArgs.getAll("callee"));
   const seed = commandArgs.get("seed");
   const filter = commandArgs.get("filter");
   const timeout = commandArgs.get("timeout") || "60000";
@@ -121,9 +126,13 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
           add("node", true, `simulator @ ${activeRpc}`);
         } else {
           spin("checking node");
-          if (!(await isTicking(activeRpc))) {
+          const ticking = await isTicking(activeRpc);
+          const runningBackend = ticking
+            ? (await new LiteRpc(activeRpc).whoami()).backend
+            : undefined;
+          if (!ticking || runningBackend !== "core") {
             spin("starting core node");
-            // Reuse the selected node unless --ref explicitly asks for another release.
+            // Reuse a compatible ticking Core node; otherwise launch the selected binary.
             const requestedNodeBinary = commandArgs.get("node-bin");
             let nodeBinary = requestedNodeBinary ? resolve(requestedNodeBinary) : "";
             let nodeNote = "";
@@ -142,6 +151,19 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
               if (r.cached) nodeNote = ` · cached ${r.version}`;
             }
             await killNode();
+            if (
+              runningBackend &&
+              runningBackend !== "core" &&
+              await isTicking(activeRpc)
+            ) {
+              add(
+                "node",
+                false,
+                `${activeRpc} is served by an untracked ${runningBackend} node`,
+              );
+              setS({ phase: "done", lines, ok: false, output: "", rows: [] });
+              return;
+            }
             launchNode({
               nodeBinary,
               nodeMode: commandArgs.get("node-mode"),
@@ -161,44 +183,20 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
           }
         }
 
-        // Deploy callees first so the main build can resolve their types and slots from the registry.
-        for (const callee of cfg.callees ?? []) {
-          const cpath = resolve(callee.contract);
-          if (!existsSync(cpath)) {
-            add("callee", false, `${callee.name}: ${cpath} not found`);
-            setS({ phase: "done", lines, ok: false, output: "", rows: [] });
-            return;
-          }
-          spin(`deploying callee ${callee.name}`);
-          const cd = await deployContract(
-            {
-              contractPath: cpath,
-              name: callee.name,
-              core,
-              rpcBaseUrl: activeRpc,
-              seed,
-              skipVerify,
-              compiler: resolveCompilerBackend(requestedCompiler),
-            },
-            () => {},
-          );
-          if (!cd.ok || cd.slot === undefined) {
-            add("callee", false, `${callee.name}: ${cd.error ?? "deploy failed"}`);
-            setS({ phase: "done", lines, ok: false, output: "", rows: [] });
-            return;
-          }
-          add("callee", true, `${callee.name} @ slot ${cd.slot}`);
-        }
-
         spin("deploying contract");
         let depDetail = "";
-        const dep = await deployContract(
+        const dep = await deployProjectContracts(
           {
+            projectRoot: root,
             contractPath,
             name: contractName,
             core,
             rpcBaseUrl: activeRpc,
             seed,
+            explicitCallees,
+            slotOverride: requestedSlot === undefined
+              ? undefined
+              : parseContractSlot(requestedSlot),
             skipVerify,
             compiler: resolveCompilerBackend(requestedCompiler),
           },
@@ -219,6 +217,20 @@ export function Test({ commandArgs }: { commandArgs: CommandArguments }) {
           true,
           `${contractName} @ slot ${dep.slot}${dep.reused ? " (reuse)" : ""}`,
         );
+        const synchronized = dep.deployments.filter(
+          (deployment) => deployment.kind !== "main",
+        );
+        if (synchronized.length) {
+          add(
+            "dependencies",
+            true,
+            synchronized
+              .map((deployment) =>
+                `${deployment.name}@${deployment.slot} ${deployment.action}`
+              )
+              .join(" · "),
+          );
+        }
 
         spin("generating test SDK");
         const idl =

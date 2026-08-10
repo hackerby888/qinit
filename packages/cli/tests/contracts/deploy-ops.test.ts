@@ -164,7 +164,7 @@ test("deployContract rejects an invalid slot before node work", async () => {
   expect(nodeCalls).toBe(0);
 });
 
-test("deployContract: racing deployments send chunks only for the winner; the loser works after completion", async () => {
+test("deployContract: racing deployments preserve the winner's occupied slot", async () => {
   process.env.QINIT_NO_UPDATE = "1";
   const core = mkdtempSync(join(tmpdir(), "qinit-dep-"));
   dirs.push(core);
@@ -232,6 +232,7 @@ test("deployContract: racing deployments send chunks only for the winner; the lo
     seed: "a".repeat(55),
     slotOverride: wasmFixtureManifest.Counter.slot,
     artifact,
+    backend: "core" as const,
     rpc,
   });
 
@@ -249,7 +250,11 @@ test("deployContract: racing deployments send chunks only for the winner; the lo
   expect(rpcs[winner].stats.chunks).toBeGreaterThan(0);
   expect(rpcs[loser].stats.chunks).toBe(0);
 
-  const retry = await deployContract(opts(loser === 0 ? "RaceA" : "RaceB", rpcs[loser]), () => {});
-  expect(retry.ok).toBe(true);
-  expect(rpcs[loser].stats.chunks).toBeGreaterThan(0);
+  await expect(
+    deployContract(
+      opts(loser === 0 ? "RaceA" : "RaceB", rpcs[loser]),
+      () => {},
+    ),
+  ).rejects.toThrow(/slot \d+ is occupied by 'Race[AB]'/);
+  expect(rpcs[loser].stats.chunks).toBe(0);
 }, 20000);

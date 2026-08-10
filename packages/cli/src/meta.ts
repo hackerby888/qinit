@@ -127,6 +127,11 @@ const commandMeta = {
             "<core|simulator>",
             "override the saved node backend for this run",
           ),
+          stringOption(
+            "compiler",
+            "<clang|typescript>",
+            "compiler for simulator system contracts",
+          ),
           booleanOption("restart", "force a fresh node even if one is ticking"),
           booleanOption("offline", "use only cached node/headers (no network)"),
           booleanOption("keep", "preserve existing scratch-directory contents before launch"),
@@ -163,15 +168,16 @@ const commandMeta = {
   },
   dev: {
     group: "develop",
-    summary: "watch the contract -> auto build+deploy on save (q to quit)",
+    summary: "watch a contract graph -> auto build+deploy on save (q to quit)",
     usage: "[<file.h>]",
     options: [
       stringOption("contract", "<file.h>", "contract header (alternative to the positional)"),
       stringOption("contract-name", "<n>", "contract name"),
+      stringOption("slot", "<n>", "contract slot override"),
       stringOption("core-dir", "<path>", "core-lite headers checkout"),
       stringOption("rpc", "<url>", "node RPC base"),
       stringOption("seed", "<seed>", "signer seed"),
-      stringOption("callee", "<n>=<hdr>@<i>", "declared inter-contract callee", {
+      stringOption("callee", "<n>=<hdr>[@<i>]", "optional callee source/slot override", {
         multiple: true,
       }),
       stringOption("compiler", "<clang|typescript>", "override the saved compiler backend"),
@@ -181,7 +187,7 @@ const commandMeta = {
   build: {
     group: "develop",
     json: true,
-    summary: "compile a contract .h -> wasm (+ K12 hash, IDL)",
+    summary: "compile a contract graph -> wasm (+ K12 hash, IDL)",
     usage: "<file.h>",
     options: [
       stringOption("contract", "<file.h>", "contract header (alternative to the positional)"),
@@ -189,8 +195,12 @@ const commandMeta = {
       stringOption("out", "<dir>", "output dir"),
       stringOption("slot", "<n>", "contract slot"),
       stringOption("core-dir", "<path>", "core-lite headers checkout"),
-      stringOption("rpc", "<url>", "node RPC base used for callee discovery"),
-      stringOption("callee", "<n>=<hdr>@<i>", "declared inter-contract callee", {
+      stringOption(
+        "rpc",
+        "<url>",
+        "node RPC for reusing deployed slots; offline builds use hypothetical slots",
+      ),
+      stringOption("callee", "<n>=<hdr>[@<i>]", "optional callee source/slot override", {
         multiple: true,
       }),
       stringOption("compiler", "<clang|typescript>", "override the saved compiler backend"),
@@ -217,7 +227,8 @@ const commandMeta = {
     options: [
       stringOption("contract", "<file.h>", "contract header (alternative to the positional)"),
       stringOption("contract-name", "<n>", "contract name"),
-      stringOption("callee", "<n>=<hdr>@<i>", "declared inter-contract callee", {
+      stringOption("core-dir", "<path>", "core-lite headers checkout"),
+      stringOption("callee", "<n>=<hdr>[@<i>]", "optional callee source/slot override", {
         multiple: true,
       }),
     ],
@@ -226,7 +237,7 @@ const commandMeta = {
   deploy: {
     group: "deploy & interact",
     json: true,
-    summary: "build + chunk-upload + deploy a contract to a node",
+    summary: "build + synchronize a contract graph, then deploy Main",
     usage: "<file.h> [--contract-name <n>] [--slot <n>]",
     options: [
       stringOption("contract", "<file.h>", "contract header (alternative to the positional)"),
@@ -235,7 +246,7 @@ const commandMeta = {
       stringOption("core-dir", "<path>", "core-lite headers checkout"),
       stringOption("rpc", "<url>", "node RPC base"),
       stringOption("seed", "<seed>", "signer seed"),
-      stringOption("callee", "<n>=<hdr>@<i>", "wire a dynamic inter-contract callee", {
+      stringOption("callee", "<n>=<hdr>[@<i>]", "optional callee source/slot override", {
         multiple: true,
       }),
       stringOption("compiler", "<clang|typescript>", "override the saved compiler backend"),
@@ -316,12 +327,16 @@ const commandMeta = {
   },
   test: {
     group: "deploy & interact",
-    summary: "deploy + run Bun tests using the selected core or simulator backend",
+    summary: "deploy a contract graph + run Bun tests on the selected backend",
     usage: "[<file.h>]",
     options: [
       stringOption("contract", "<file.h>", "contract header (alternative to the positional)"),
       stringOption("contract-name", "<n>", "contract name"),
+      stringOption("slot", "<n>", "contract slot override"),
       stringOption("core-dir", "<path>", "core-lite headers checkout"),
+      stringOption("callee", "<n>=<hdr>[@<i>]", "optional callee source/slot override", {
+        multiple: true,
+      }),
       stringOption("filter", "<pat>", "test name filter"),
       stringOption("node-bin", "<path>", "core-lite node binary"),
       stringOption("ref", "<tag>", "node release to use"),
@@ -349,7 +364,10 @@ const commandMeta = {
       stringOption("contract", "<file.h>", "contract under test (default: qinit.json)"),
       stringOption("contract-name", "<Name>", "contract name override"),
       stringOption("state-type", "<T>", "C++ contract struct type, if it differs from the name"),
-      stringOption("slot", "<n>", "contract slot (default: core Wasm slot base)"),
+      stringOption("slot", "<n>", "main contract slot override (default: auto)"),
+      stringOption("callee", "<Name>=<header>[@<index>]", "optional callee source/slot override", {
+        multiple: true,
+      }),
       stringOption("filter", "<pat>", "test name substring filter"),
       stringOption("core-dir", "<path>", "core-lite headers (with test/contract_testing.h)"),
       stringOption(
@@ -383,15 +401,18 @@ const commandMeta = {
   compiler: {
     group: "misc",
     summary:
-      "pick the contract compiler for build/deploy/dev/test: clang or in-process TypeScript",
+      "pick the compiler for build/deploy/dev/test/gtest and simulator system Wasm",
     usage: "[clang|typescript]",
     options: [booleanOption("show", "print the current compiler")],
   },
   system: {
     group: "deploy & interact",
-    summary: "simulator: deploy chosen built-in system contracts (QX, QEARN, …)",
+    summary: "manage simulator system Wasm; report Core-embedded contracts",
     usage: "[ls | add <name…> | rm <name…>]",
-    options: [stringOption("rpc", "<url>", "node RPC base")],
+    options: [
+      stringOption("rpc", "<url>", "node RPC base"),
+      stringOption("compiler", "<clang|typescript>", "system Wasm compiler"),
+    ],
     examples: ["qinit system add QX QEARN", "qinit system ls"],
   },
   theme: {

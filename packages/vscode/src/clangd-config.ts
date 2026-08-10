@@ -29,6 +29,7 @@ export interface ClangdInputs {
   name?: string;
   slot?: number;
   dynCallees?: DynCallees;
+  wasiSysrootPath?: string;
 }
 
 export interface ClangdConfig {
@@ -53,10 +54,15 @@ export interface TestClangdConfig {
   restartRequired: boolean;
 }
 
-function compileArgs(corePath: string): string[] {
+function compileArgs(
+  corePath: string,
+  wasiSysrootPath?: string,
+): string[] {
   const core = forwardSlashes(corePath);
   const shim = forwardSlashes(join(corePath, "src", CORE_WASM_HEADERS.sdk.platformIntrinsics));
-  const sysroot = forwardSlashes(join(corePath, "wasi-sdk", "share", "wasi-sysroot"));
+  const sysroot = forwardSlashes(
+    wasiSysrootPath ?? join(corePath, "wasi-sdk", "share", "wasi-sysroot"),
+  );
   return [
     "clang++",
     ...WASM_CONTRACT_CLANG_FLAGS,
@@ -126,10 +132,12 @@ function sourceDetails(o: ClangdInputs): {
   const dir = join(o.dataRoot ?? join(o.workspaceRoot, ".qpi"), "clangd");
   mkdirSync(dir, { recursive: true });
 
-  let calleePrelude = "";
-  try {
-    calleePrelude = buildCalleePrelude(o.corePath, source, o.dynCallees ?? {});
-  } catch {}
+  const calleePrelude = buildCalleePrelude(
+    o.corePath,
+    source,
+    o.dynCallees ?? {},
+    name,
+  );
 
   const options: ContractBuildOptions = {
     contractPath: contractFile,
@@ -200,7 +208,7 @@ export function generateClangdConfig(o: ClangdInputs): ClangdConfig {
   writeFileSync(prefixPath, preamble);
 
   const args = [
-    ...compileArgs(o.corePath),
+    ...compileArgs(o.corePath, o.wasiSysrootPath),
     "-include",
     forwardSlashes(prefixPath),
     "-x",
@@ -251,7 +259,7 @@ export function generateTestClangdConfig(
   writeFileSync(prefixPath, preamble);
 
   const args = [
-    ...compileArgs(o.corePath),
+    ...compileArgs(o.corePath, o.wasiSysrootPath),
     "-I",
     forwardSlashes(details.dir),
     "-include",

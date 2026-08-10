@@ -83,6 +83,30 @@ test("scanCallees finds CALL_OTHER_CONTRACT_FUNCTION + INVOKE_OTHER_CONTRACT_PRO
   expect([...scanCallees(s)].sort()).toEqual(["Foo", "QX"]);
 });
 
+test("scanCallees finds qualified types and constants but ignores comments", () => {
+  const source = `
+    QX::Transfer_input input{};
+    const auto fee = RL_MAX_FEE;
+    // COMMENTED::Type ignored{};
+    const char* text = "STRING_VALUE";
+  `;
+
+  expect([
+    ...scanCallees(source, {}, ["QX", "RL", "COMMENTED", "STRING"]),
+  ].sort()).toEqual(["QX", "RL"]);
+});
+
+test("scanCallees finds contracts initialized by a gtest", () => {
+  const source = `
+    INIT_CONTRACT(Counter);
+    INIT_CONTRACT(Main);
+  `;
+
+  expect([
+    ...scanCallees(source, { contractName: "Main" }, ["Counter", "Main"]),
+  ]).toEqual(["Counter"]);
+});
+
 test("buildCalleePrelude returns '' when the contract makes no inter-contract calls (no core touched)", () => {
   expect(buildCalleePrelude("/no/such/core", "state.mut().n += 1;")).toBe("");
 });

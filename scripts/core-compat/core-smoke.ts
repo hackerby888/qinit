@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { DEFAULT_RPC_BASE } from "@qinit/core";
 import repositories from "../../config/repositories.json";
 
 interface RunOptions {
@@ -137,6 +138,14 @@ try {
     ],
     { cwd: scratch },
   );
+
+  const identityResponse = await fetch(`${DEFAULT_RPC_BASE}/live/v1/whoami`);
+  const identity = await identityResponse.json() as { backend?: string };
+  if (!identityResponse.ok || identity.backend !== "core") {
+    throw new Error(
+      `expected core backend identity, got ${identityResponse.status} ${JSON.stringify(identity)}`,
+    );
+  }
 
   await run([qinitBin, "doctor", "--plain"], { cwd: scratch });
   await run(

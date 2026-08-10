@@ -12,23 +12,44 @@ import {
 import TEST_UTIL_H from "./assets/test_util.h" with { type: "text" };
 import { extractIdl, type ContractIdl } from "./idl";
 import { buildCalleePrelude } from "./intercontract";
+import type { DynCallees } from "./intercontract";
 import { verifyContract, type VerifyResult } from "./verify";
 import {
   generateWasmContractTestingHeaderForCore,
+  systemContractClosure,
   systemContracts,
 } from "./system-contracts";
+import { buildContractWithTypeScript } from "./typescript";
 import { k12Hex } from "@qinit/core";
 import { analyzeContract } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
 
 export type { ContractBuildOptions } from "./recipe";
 export { generateWasmWrapperSource } from "./recipe";
+export {
+  buildContractWithTypeScript,
+  type TypeScriptCalleeBuildOptions,
+  type TypeScriptContractBuildResult,
+} from "./typescript";
 export { buildCalleePrelude, parseRegisters, scanCallees, parseContractDef } from "./intercontract";
 export type { DynCallees, CalleeDef } from "./intercontract";
+export { resolveProjectDependencies } from "./project-dependencies";
+export type {
+  ProjectCalleeInput,
+  ProjectContractNode,
+  ResolveProjectDependenciesOptions,
+} from "./project-dependencies";
+export { planProjectSlots } from "./project-slots";
+export type {
+  PlannedProjectSlotNode,
+  ProjectSlotLayout,
+  ProjectSlotNode,
+} from "./project-slots";
 export { extractIdl } from "./idl";
 export type { ContractIdl, IdlEntry, Field, LogStruct, EnumDef } from "./idl";
 export {
   generateWasmContractTestingHeaderForCore,
+  systemContractClosure,
   systemContractDescriptions,
   systemContracts,
   systemNames,
@@ -55,6 +76,8 @@ export interface ContractBuildResult {
   stderr?: string;
   idlError?: string;    // set (instead of silently dropping idl) when extractIdl throws on a compiled contract
 }
+
+export type SystemContractCompiler = "clang" | "typescript";
 
 export async function buildContractWithWasiClang(
   o: ContractBuildOptions,
@@ -182,6 +205,8 @@ export async function buildCorpusRunner(o: {
   corePath: string;
   outDir: string;
   arenaSizeBytes?: number;
+  dynCallees?: DynCallees;
+  contractDescriptions?: readonly { index: number; name: string }[];
 }): Promise<ContractBuildResult> {
   const raw = (await readFile(o.corpusPath, "utf8")).replace(/^﻿/, "");
 
@@ -193,7 +218,10 @@ export async function buildCorpusRunner(o: {
 
   await writeFile(
     join(o.outDir, "wasm_contract_testing.h"),
-    generateWasmContractTestingHeaderForCore(o),
+    generateWasmContractTestingHeaderForCore({
+      ...o,
+      additionalContracts: o.contractDescriptions,
+    }),
   );
   // Some corpora also `#include "test_util.h"` (asset-name helpers etc.); provide the wasm-mode stub.
   await writeFile(join(o.outDir, "test_util.h"), TEST_UTIL_H);
@@ -211,7 +239,12 @@ export async function buildCorpusRunner(o: {
   let calleePrelude: string | undefined;
   try {
     const contractSrc = readFileSync(o.contractPath, "utf8");
-    calleePrelude = buildCalleePrelude(o.corePath, `${contractSrc}\n${testSource}`, {}, o.stateType);
+    calleePrelude = buildCalleePrelude(
+      o.corePath,
+      `${contractSrc}\n${testSource}`,
+      o.dynCallees ?? {},
+      o.stateType,
+    );
   } catch {
     // Fall back to buildContractWithWasiClang's contract-only derivation.
   }
@@ -229,6 +262,7 @@ export async function buildCorpusRunner(o: {
     testPath: basename(o.corpusPath),
     extraCompileFlags,
     calleePrelude,
+    dynCallees: o.dynCallees,
   });
 }
 
@@ -236,7 +270,12 @@ export async function buildCorpusRunner(o: {
 export async function buildSystemContract(
   name: string,
   corePath: string,
-  opts: { outDir?: string; wasmClang?: string; wasmSysroot?: string } = {},
+  opts: {
+    compiler?: SystemContractCompiler;
+    outDir?: string;
+    wasmClang?: string;
+    wasmSysroot?: string;
+  } = {},
 ): Promise<ContractBuildResult & { index?: number }> {
   const catalog = systemContracts(corePath);
   const contract = catalog.find((entry) => entry.name.toLowerCase() === name.toLowerCase());
@@ -244,16 +283,50 @@ export async function buildSystemContract(
     return { ok: false, stderr: `unknown system contract '${name}' — have: ${catalog.map((x) => x.name).join(", ")}` };
   }
 
-  const result = await buildContractWithWasiClang({
+  const compiler = opts.compiler ?? "clang";
+  const outDir = opts.outDir ?? join(tmpdir(), "qinit-system");
+  if (compiler === "clang") {
+    const result = await buildContractWithWasiClang({
+      contractPath: join(corePath, "src", "contracts", contract.file),
+      name: contract.name,
+      stateType: contract.stateType,
+      slot: contract.index,
+      corePath,
+      outDir,
+      skipVerify: true,
+      wasmClang: opts.wasmClang,
+      wasmSysroot: opts.wasmSysroot,
+    });
+    return { ...result, index: contract.index };
+  }
+
+  const dependencies = Object.fromEntries(
+    systemContractClosure(corePath, contract.name)
+      .filter((dependency) => dependency.index !== contract.index)
+      .map((dependency) => [
+        dependency.stateType,
+        {
+          header: join(corePath, "src", "contracts", dependency.file),
+          index: dependency.index,
+          stateType: dependency.stateType,
+        },
+      ]),
+  );
+  const result = await buildContractWithTypeScript({
     contractPath: join(corePath, "src", "contracts", contract.file),
     name: contract.name,
     stateType: contract.stateType,
     slot: contract.index,
-    corePath,
-    outDir: opts.outDir ?? join(tmpdir(), "qinit-system"),
-    skipVerify: true,
-    wasmClang: opts.wasmClang,
-    wasmSysroot: opts.wasmSysroot,
+    core: corePath,
+    outDir,
+    dynCallees: dependencies,
   });
+  if (!result.ok) {
+    return {
+      ...result,
+      index: contract.index,
+      stderr: `compile ${contract.name} failed: ${result.stderr ?? "unknown error"}`,
+    };
+  }
   return { ...result, index: contract.index };
 }

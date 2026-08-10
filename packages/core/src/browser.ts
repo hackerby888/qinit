@@ -32,6 +32,8 @@ export { LiteRpc } from "./net/rpc/client";
 export type {
   TickInfo,
   EngineFaultInfo,
+  NodeBackendIdentity,
+  DirectDeploymentKind,
   DynamicContractRegistry,
   DynamicContractRegistryEntry,
   DynamicContractEntry,

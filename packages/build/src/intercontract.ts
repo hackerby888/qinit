@@ -4,6 +4,8 @@ import { CORE_WASM_HEADERS } from "@qinit/core/wasm/headers";
 import {
   analyzeContract,
   DiagnosticSeverity,
+  Lexer,
+  TokenKind,
   type AnalyzeContractOptions,
 } from "@qinit/compiler/analyzer";
 import { loadQpiHeader } from "@qinit/compiler";
@@ -65,9 +67,49 @@ type SourceOptions = Pick<
 export function scanCallees(
   source: string,
   options: SourceOptions = {},
+  knownCallees: Iterable<string> = [],
 ): Set<string> {
   const analysis = analyzeContract({ source, ...options });
-  return new Set(analysis.calls.map((call) => call.callee));
+  const callees = new Set(analysis.calls.map((call) => call.callee));
+  const candidates = [...knownCallees]
+    .filter((candidate) => candidate !== options.contractName);
+  const candidateSet = new Set(candidates);
+
+  if (candidates.length === 0) {
+    return callees;
+  }
+
+  const tokens = new Lexer(source).tokenize();
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (token.kind !== TokenKind.IDENTIFIER) {
+      continue;
+    }
+
+    const initializedContract =
+      token.text === "INIT_CONTRACT" &&
+      tokens[index + 1]?.kind === TokenKind.L_PAREN &&
+      tokens[index + 2]?.kind === TokenKind.IDENTIFIER
+        ? tokens[index + 2].text
+        : undefined;
+    if (initializedContract && candidateSet.has(initializedContract)) {
+      callees.add(initializedContract);
+    }
+
+    for (const candidate of candidates) {
+      const qualifiedReference =
+        token.text === candidate &&
+        tokens[index + 1]?.kind === TokenKind.D_COLON;
+      const constantReference =
+        token.text.startsWith(`${candidate}_`) &&
+        /^[A-Z]/.test(token.text[candidate.length + 1] ?? "");
+      if (qualifiedReference || constantReference) {
+        callees.add(candidate);
+      }
+    }
+  }
+
+  return callees;
 }
 
 export function parseRegisters(
@@ -126,18 +168,15 @@ export function buildCalleePrelude(
     // Builds without static callees do not require a core contract registry.
   }
 
-  let wanted = scanCallees(contractSource, { contractName: selfType });
-  for (const type of new Set([
+  const knownCallees = new Set([
     ...definitions.keys(),
     ...Object.keys(dynamicCallees),
-  ])) {
-    if (
-      type !== selfType &&
-      new RegExp(`\\b${type}(?:::|_[A-Z])`).test(contractSource)
-    ) {
-      wanted.add(type);
-    }
-  }
+  ]);
+  let wanted = scanCallees(
+    contractSource,
+    { contractName: selfType },
+    knownCallees,
+  );
 
   if (wanted.size === 0) {
     return indexBlock;
@@ -157,19 +196,7 @@ export function buildCalleePrelude(
     name: selfType,
     qpiHeader,
   };
-  wanted = scanCallees(contractSource, sourceOptions);
-
-  for (const type of new Set([
-    ...definitions.keys(),
-    ...Object.keys(dynamicCallees),
-  ])) {
-    if (
-      type !== selfType &&
-      new RegExp(`\\b${type}(?:::|_[A-Z])`).test(contractSource)
-    ) {
-      wanted.add(type);
-    }
-  }
+  wanted = scanCallees(contractSource, sourceOptions, knownCallees);
 
   interface ResolvedCallee {
     type: string;
@@ -213,7 +240,7 @@ export function buildCalleePrelude(
       contractName: type,
       slot: callee.index,
       qpiHeader,
-    });
+    }, knownCallees);
     for (const nestedType of nestedCallees) {
       resolveCallee(nestedType);
     }

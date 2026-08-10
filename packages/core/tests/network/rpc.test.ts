@@ -32,6 +32,54 @@ test("LiteRpc uses the shared default endpoint", async () => {
   expect(requestedUrl).toBe(`${DEFAULT_RPC_BASE}/tick-info`);
 });
 
+test("LiteRpc.whoami reads the backend identity endpoint", async () => {
+  let requestedUrl = "";
+  globalThis.fetch = (async (url: string | URL | Request) => {
+    requestedUrl = String(url);
+    return json({ backend: "simulator" });
+  }) as typeof fetch;
+
+  expect(await new LiteRpc("http://node").whoami()).toEqual({
+    backend: "simulator",
+  });
+  expect(requestedUrl).toBe("http://node/live/v1/whoami");
+});
+
+test("LiteRpc.whoami reports an actionable old-node error", async () => {
+  globalThis.fetch = (async () => json({}, 404)) as unknown as typeof fetch;
+
+  await expect(new LiteRpc("http://node").whoami()).rejects.toThrow(
+    "upgrade core-lite or the Qinit simulator",
+  );
+});
+
+test("LiteRpc.directDeploy marks dynamic and system deployments", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return json({ ok: true, slot: bodies.length, digest: "00" });
+  }) as typeof fetch;
+
+  const rpc = new LiteRpc("http://node");
+  await rpc.directDeploy(29, new Uint8Array([1]), "Counter");
+  await rpc.directDeploy(1, new Uint8Array([2]), "QX", "system");
+
+  expect(bodies).toEqual([
+    {
+      slot: 29,
+      name: "Counter",
+      kind: "dynamic",
+      wasm: "AQ==",
+    },
+    {
+      slot: 1,
+      name: "QX",
+      kind: "system",
+      wasm: "Ag==",
+    },
+  ]);
+});
+
 test("fetchWithTimeout: aborts a hung connection after the timeout", async () => {
   // a fetch that never resolves on its own but honors the abort signal (the real hang scenario)
   globalThis.fetch = ((_url: string, init?: RequestInit) =>

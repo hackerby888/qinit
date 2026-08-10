@@ -301,13 +301,13 @@ test("advance-epoch crosses into the next epoch (qinit epoch advance)", async ()
   }
 });
 
-test("directDeploy arms an arbitrary (system-index) slot, runs, surfaces in registry, undeploys", async () => {
+test("directDeploy arms a system slot, runs, surfaces in registry, undeploys", async () => {
   const wasm = await loadWasmFixture("Counter1");
   const srv = new EngineServer();
   const h = await srv.start(0);
   const rpc = new LiteRpc(h.rpcBaseUrl);
   try {
-    const r = await rpc.directDeploy(1, wasm, "SYSISH"); // low index, like a system contract (outside [28,32))
+    const r = await rpc.directDeploy(1, wasm, "SYSISH", "system");
     expect(r?.ok).toBe(true);
     expect(r?.slot).toBe(1);
 

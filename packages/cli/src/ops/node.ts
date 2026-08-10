@@ -267,6 +267,7 @@ export function launchSimulatorNode(options: {
   system?: string[];
   slotBase?: number;
   slotCount?: number;
+  compiler?: "clang" | "typescript";
 }): { pid: number; scratch: string; log: string } {
   const scratch = resolve(options.scratchDirectory || defaultNodeScratchDir());
   if (!options.preserveScratchContents) {
@@ -298,6 +299,7 @@ export function launchSimulatorNode(options: {
     ...(options.system?.length
       ? ["--system", options.system.join(",")]
       : []),
+    ...(options.compiler ? ["--compiler", options.compiler] : []),
   ];
 
   // A compiled binary can self-exec; Bun needs the source entry point again.

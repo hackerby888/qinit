@@ -9,18 +9,24 @@ import {
   resolveCompilerBackend,
   resolveCoreDir,
 } from "../../config";
-import { genStdGtest, extractIdl } from "@qinit/build";
+import {
+  genStdGtest,
+  extractIdl,
+  resolveProjectDependencies,
+} from "@qinit/build";
 import { loadQpiHeader } from "@qinit/compiler";
 import type { TestResult } from "@qinit/engine";
 import { loadCoreWasmSlotLayout } from "@qinit/core";
 import { runCorpus, runStdGtest } from "../../ops/corpus-run";
 import { Header, Spinner, Panel, KV, Status, theme } from "../../ui";
 import type { CommandArguments } from "../../args";
+import { parseCallees } from "../../contracts/callees";
+import { planProjectSlots } from "../../contracts/project-slots";
 import { parseContractSlot } from "../../contracts/registry";
 
 export function resolveGtestSlot(
   core: string,
-  requestedSlot?: string,
+  requestedSlot?: unknown,
 ): number {
   return parseContractSlot(
     requestedSlot === undefined
@@ -67,6 +73,7 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
   const cfg = loadConfig();
   const filter = commandArgs.get("filter");
   const firstPositional = commandArgs.positionals[0];
+  const explicitCallees = parseCallees(commandArgs.getAll("callee"));
   const [items, setItems] = useState<Item[]>([{ kind: "header" }]);
   const [s, setS] = useState<Tail>({ phase: "work", spin: "starting" });
 
@@ -151,15 +158,61 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
           cfg.contractName ??
           basename(contractPath).replace(/\.[^.]+$/, "");
         const stateType = commandArgs.get("state-type") ?? name;
-        const slot = resolveGtestSlot(core, commandArgs.get("slot"));
+        const requestedSlot = commandArgs.get("slot") ?? cfg.slot;
         const contractSrc = readFileSync(contractPath, "utf8");
-        const testPath = resolve(firstPositional ?? join("tests", `${name}.test.cpp`));
-
+        const testPath = resolve(
+          firstPositional ?? join("tests", `${name}.test.cpp`),
+        );
+        const existingTestSource =
+          existsSync(testPath) && !commandArgs.has("new")
+            ? readFileSync(testPath, "utf8")
+            : undefined;
+        const slotLayout = loadCoreWasmSlotLayout(core);
+        const dependencyGraph = resolveProjectDependencies({
+          projectRoot: process.cwd(),
+          corePath: core,
+          contractName: stateType,
+          contractPath,
+          contractIndex: requestedSlot === undefined
+            ? undefined
+            : resolveGtestSlot(core, requestedSlot),
+          explicitCallees,
+          additionalRootSource: existingTestSource,
+        });
+        const plannedSlots = planProjectSlots(dependencyGraph, slotLayout);
+        const plannedContracts = dependencyGraph.map((contract, index) => ({
+          ...contract,
+          index: plannedSlots[index].index,
+        }));
+        const plannedMain = plannedContracts[plannedContracts.length - 1];
+        if (!plannedMain) {
+          throw new Error(`cannot resolve the ${name} contract graph`);
+        }
+        const slot = plannedMain.index;
+        const plannedDependencies = plannedContracts.slice(0, -1);
+        const projectDependencies = plannedDependencies.map((contract) => ({
+          contractPath: contract.sourcePath,
+          name: contract.name,
+          stateType: contract.stateType,
+          slot: contract.index,
+        }));
+        const dynCallees = Object.fromEntries(
+          plannedDependencies
+            .filter((contract) => contract.kind === "custom")
+            .map((contract) => [
+              contract.stateType,
+              {
+                header: contract.sourcePath,
+                index: contract.index,
+              },
+            ]),
+        );
         // Scaffold the test when missing (or --new).
         if (!existsSync(testPath) || commandArgs.has("new")) {
           const idl = extractIdl(contractSrc, name, {
             slot,
             qpiHeader: loadQpiHeader(core),
+            stateType,
           });
           mkdirSync(join(testPath, ".."), { recursive: true });
           writeFileSync(testPath, genStdGtest(idl, name, stateType));
@@ -175,6 +228,8 @@ export function Gtest({ commandArgs }: { commandArgs: CommandArguments }) {
           slot,
           core,
           backend,
+          projectDependencies,
+          dynCallees,
           shared: commandArgs.has("shared-mem"),
           scratch: join(tmpdir(), "qinit-corpus"),
           onResult,

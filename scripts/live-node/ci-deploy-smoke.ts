@@ -23,6 +23,11 @@ const fail = (message: string) => {
   process.exit(1);
 };
 
+const identity = await rpc.whoami();
+if (identity.backend !== "core") {
+  fail(`expected core backend identity, got ${JSON.stringify(identity)}`);
+}
+
 // Read Counter.Get while tolerating both scalar and named output shapes.
 const readCounterValue = async (slot: number): Promise<bigint> => {
   const output: any = await callFunction(rpc, slot, 1, "", "uint64");

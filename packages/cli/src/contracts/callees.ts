@@ -7,7 +7,7 @@ import { invalidArgs } from "../args";
 
 export interface DynamicCallee {
   header: string;
-  index: number;
+  index?: number;
 }
 
 export function parseCallees(
@@ -16,21 +16,30 @@ export function parseCallees(
   const callees = new Map<string, DynamicCallee>();
 
   for (const value of values ?? []) {
-    const match = /^([A-Za-z_]\w*)=(.+)@(\d+)$/.exec(value);
+    const match = /^([A-Za-z_]\w*)=(.+)$/.exec(value);
     if (!match) {
-      invalidArgs(`invalid --callee '${value}': expected Name=header@index`);
+      invalidArgs(`invalid --callee '${value}': expected Name=header[@index]`);
     }
 
-    const [, name, header, rawIndex] = match;
-    const index = Number(rawIndex);
-    if (!Number.isSafeInteger(index) || index > 0xffffffff) {
+    const [, name, declaration] = match;
+    const indexed = /^(.*)@(\d+)$/.exec(declaration);
+    const header = indexed?.[1] ?? declaration;
+    const rawIndex = indexed?.[2];
+    const index = rawIndex === undefined ? undefined : Number(rawIndex);
+    if (
+      index !== undefined &&
+      (!Number.isSafeInteger(index) || index > 0xffffffff)
+    ) {
       invalidArgs(`invalid --callee '${value}': index must be an unsigned 32-bit integer`);
     }
     if (callees.has(name)) {
       invalidArgs(`duplicate --callee name '${name}'`);
     }
 
-    callees.set(name, { header: resolve(header), index });
+    callees.set(name, {
+      header: resolve(header),
+      ...(index === undefined ? {} : { index }),
+    });
   }
 
   return Object.fromEntries(callees);

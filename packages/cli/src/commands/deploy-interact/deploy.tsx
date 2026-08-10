@@ -9,13 +9,15 @@ import {
   resolveCompilerBackend,
 } from "../../config";
 import {
-  deployContract,
   STEPS,
   updateDeploymentSteps,
   type DeploymentEvent,
   type DeploymentStepState,
-  type DeployResult,
 } from "../../ops/deploy";
+import {
+  deployProjectContracts,
+  type ProjectDeployResult,
+} from "../../ops/project-deploy";
 import { Header, StepRow, type StepState, Panel, KV, theme } from "../../ui";
 import { output, type CommandArguments } from "../../args";
 import { parseCallees } from "../../contracts/callees";
@@ -26,7 +28,7 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
   const [steps, setSteps] = useState<Record<string, DeploymentStepState>>({});
   const [notes, setNotes] = useState<string[]>([]);
-  const [result, setResult] = useState<DeployResult | null>(null);
+  const [result, setResult] = useState<ProjectDeployResult | null>(null);
   const [addr, setAddr] = useState("");
   const [name, setName] = useState("");
 
@@ -58,14 +60,15 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
           }
           setSteps((steps) => updateDeploymentSteps(steps, e));
         };
-        const r = await deployContract(
+        const r = await deployProjectContracts(
           {
+            projectRoot: process.cwd(),
             contractPath,
             name: nm,
             core: resolveCoreDir(commandArgs.get("core-dir"), cfg.coreDir),
             rpcBaseUrl: commandArgs.get("rpc") ?? cfg.rpc ?? DEFAULT_RPC_BASE,
             seed: commandArgs.get("seed"),
-            dynCallees,
+            explicitCallees: dynCallees,
             slotOverride,
             skipVerify: commandArgs.has("skip-verify"),
             compiler: resolveCompilerBackend(commandArgs.get("compiler")),
@@ -80,7 +83,11 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
         setResult(r);
       } catch (e: any) {
         setNotes((n) => [...n, "ERROR: " + String(e?.message ?? e).slice(0, 300)]);
-        setResult({ ok: false, error: String(e?.message ?? e) });
+        setResult({
+          ok: false,
+          deployments: [],
+          error: String(e?.message ?? e),
+        });
       }
     })();
   }, []);
@@ -95,6 +102,10 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
             address: addr || null,
             tx: result.txId ?? null,
             codeHash: result.hash ?? null,
+            dependencies: result.deployments.filter(
+              (deployment) => deployment.kind !== "main",
+            ),
+            remaining: result.remainingContracts ?? [],
             error: result.ok ? null : (result.reason ?? result.error ?? null),
           }) + "\n",
         );
@@ -174,6 +185,16 @@ export function Deploy({ commandArgs }: { commandArgs: CommandArguments }) {
         <Box marginTop={1}>
           <Panel title="deploy failed" color={theme.err}>
             <Text>{result.reason ?? result.error ?? "see steps above"}</Text>
+            {result.deployments.length > 0 && (
+              <Text dimColor>
+                completed: {result.deployments.map((item) => item.name).join(", ")}
+              </Text>
+            )}
+            {(result.remainingContracts?.length ?? 0) > 0 && (
+              <Text dimColor>
+                not run: {result.remainingContracts!.join(", ")}
+              </Text>
+            )}
           </Panel>
         </Box>
       )}

@@ -84,6 +84,64 @@ suite("Qubic QPI extension", function () {
     assert.strictEqual(clang.length, 0, `clean contract should have no clang diagnostics; got ${clang.map((d) => d.code).join(", ")}`);
   });
 
+  test("configured Proxy resolves Counter without a node", async () => {
+    const doc = await open("project/contracts/Proxy.h");
+    await sleep(3000);
+
+    const diagnostics = vscode.languages.getDiagnostics(doc.uri);
+    const errors = diagnostics.filter(
+      (diagnostic) =>
+        diagnostic.severity === vscode.DiagnosticSeverity.Error &&
+        ["qpi", "qinit-compiler", "qinit-project", "clang"].includes(
+          String(diagnostic.source),
+        ),
+    );
+    assert.strictEqual(
+      errors.length,
+      0,
+      `Proxy should resolve Counter; got ${errors.map((d) => `${d.source}:${d.message}`).join(" | ")}`,
+    );
+
+    const clangdConfig = fs.readFileSync(wsUri(".clangd").fsPath, "utf8");
+    const databaseMatch = /CompilationDatabase:\s*("[^"]+")/.exec(clangdConfig);
+    assert.ok(databaseMatch, "generated .clangd should name its compilation database");
+    const databaseDir = JSON.parse(databaseMatch[1]);
+    const prefix = fs.readFileSync(`${databaseDir}/Proxy.prefix.h`, "utf8");
+    assert.match(prefix, /#define CONTRACT_STATE_TYPE Counter/);
+    assert.match(prefix, /#define CONTRACT_STATE_TYPE Proxy/);
+    const counterSlot = Number(
+      /#define Counter_CONTRACT_INDEX (\d+)/.exec(prefix)?.[1],
+    );
+    const proxySlots = [
+      ...prefix.matchAll(/#define CONTRACT_INDEX (\d+)/g),
+    ].map((match) => Number(match[1]));
+    const proxySlot = proxySlots.at(-1);
+    assert.ok(Number.isInteger(counterSlot), "Counter slot should be generated");
+    assert.ok(Number.isInteger(proxySlot), "Proxy slot should be generated");
+    assert.ok(counterSlot < proxySlot, "Counter must be below Proxy");
+  });
+
+  test("an ambiguous project callee is shown as a diagnostic", async () => {
+    const duplicateDir = wsUri("project/contracts/duplicate").fsPath;
+    const duplicate = `${duplicateDir}/Counter.h`;
+    fs.mkdirSync(duplicateDir, { recursive: true });
+    fs.copyFileSync(wsUri("project/contracts/Counter.h").fsPath, duplicate);
+
+    try {
+      const doc = await open("project/contracts/Proxy.h");
+      await vscode.commands.executeCommand("qpi.regenerateConfig");
+      await sleep(500);
+      const diagnostic = vscode.languages
+        .getDiagnostics(doc.uri)
+        .find((item) => String(item.code) === "qinit/project-dependencies");
+      assert.ok(diagnostic, "ambiguous Counter should produce a project diagnostic");
+      assert.match(diagnostic.message, /Counter.*ambiguous/);
+    } finally {
+      fs.rmSync(duplicateDir, { recursive: true, force: true });
+      await vscode.commands.executeCommand("qpi.regenerateConfig");
+    }
+  });
+
   test("plain C++ headers are ignored", async () => {
     const doc = await open("Plain.h");
     await sleep(1000);
