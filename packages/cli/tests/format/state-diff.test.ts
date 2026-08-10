@@ -128,9 +128,9 @@ test("LinkedList internals resolve to node members and list head", async () => {
 
   expect(lines.map((line) => [line.label, line.detail, line.text, line.internal])).toEqual([
     ["list[1]", "list._nodes[1].value", "0 → 66", false],
-    ["list[1].next", "list._nodes[1].next", "0 → -1", true],
-    ["list._occupationFlags[1]", "list._occupationFlags[1]", "0 → 1", true],
-    ["list._head", "list._head", "0 → 1", true],
+    ["list[1].nextIndex", "list._nodes[1].nextIndex", "0 → -1", true],
+    ["list._occupiedFlags[1]", "list._occupiedFlags[1]", "0 → 1", true],
+    ["list._headIndex", "list._headIndex", "0 → 1", true],
     ["list", "list._population", "0 → 1 entries", false],
   ]);
 });
@@ -146,7 +146,10 @@ test("a write that touches only bookkeeping resolves to internal rows", async ()
     { off: list + 200, length: 40 },
   );
 
-  expect(lines.map((line) => line.detail)).toEqual(["list._tail", "list._nextUnused"]);
+  expect(lines.map((line) => line.detail)).toEqual([
+    "list._tailIndex",
+    "list._nextUnusedIndex",
+  ]);
   expect(lines.every((line) => line.internal)).toBe(true);
 });
 
@@ -189,4 +192,49 @@ test("a run that does not cover a whole value keeps its bytes", async () => {
   expect(
     await rowsFor((after) => writeLe(after, nums + 8, 3195, 8), { off: nums + 8, length: 2 }),
   ).toEqual(["nums[1]+0 0x0000 → 0x7b0c"]);
+});
+
+// A value under 8 bytes leaves padding before the next member. That pad has to resolve forward, to the
+// member after it — resolving it back to the value re-reports the value once per padding byte.
+const PADDED_SRC = `using namespace QPI;
+struct CONTRACT_STATE2_TYPE {};
+struct CONTRACT_STATE_TYPE : public ContractBase {
+  struct StateData {
+    LinkedList<uint32, 8> list;
+    Collection<uint32, 4> queue;
+  };
+  INITIALIZE() {}
+};`;
+
+const PADDED_FIELDS = stateFieldsOf(extractIdl(PADDED_SRC, "Padded", { slot: 7 }));
+const paddedOffsetOf = (name: string) =>
+  PADDED_FIELDS.find((field) => field.name === name)!.off;
+
+test("a node value smaller than its slot is reported once", async () => {
+  const list = paddedOffsetOf("list");
+  const before = new Uint8Array(1024);
+  const after = before.slice();
+  writeLe(after, list + 24, 7, 4); // node 1 value; the node stride is 24, with 4 pad bytes after it
+
+  const lines = await stateDiffLines(PADDED_FIELDS, [region(before, after, list, 48)]);
+
+  expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([
+    ["list[1]", "list._nodes[1].value", "0 → 7"],
+  ]);
+});
+
+// The padding after a Collection element's value used to fall back to the whole element, so a value write
+// was reported twice: once decoded, and again as the 8 bytes it shares with the pad read as a sint64.
+test("a Collection element value smaller than its slot is reported once", async () => {
+  const queue = paddedOffsetOf("queue");
+  const elements = queue + 4 * 64 + 8; // PoV records, then the occupation flags
+  const before = new Uint8Array(1024);
+  const after = before.slice();
+  writeLe(after, elements + 48, 9, 4); // element 1 value; the element stride is 48
+
+  const lines = await stateDiffLines(PADDED_FIELDS, [region(before, after, elements, 96)]);
+
+  expect(lines.map((line) => [line.label, line.detail, line.text])).toEqual([
+    ["queue[1]", "queue._elements[1].value", "0 → 9"],
+  ]);
 });

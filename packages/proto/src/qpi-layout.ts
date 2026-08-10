@@ -148,6 +148,204 @@ export function linkedListGeometry(value: Layout, capacity: number) {
   };
 }
 
+// ---------- container members ----------
+// The geometry above says where a container's bytes are; the tables below say what each run of them is
+// called, under the name core gives it in qpi_containers.h. A drift test pins every `source` to that
+// header, so a rename upstream fails a test instead of quietly showing the wrong label.
+
+export type MemberRole = "payload" | "count" | "internal";
+// Container bookkeeping is not in the IDL, so a member either names one of the container's own IDL types
+// or the fixed word it is stored as.
+export type WordType = "sint64" | "uint64" | "id";
+export type MemberType = WordType | "key" | "value";
+
+export interface ContainerMember {
+  off: number;
+  size: number;
+  path: string;
+  short: string;
+  source: string;
+  type: MemberType;
+  role: MemberRole;
+}
+
+export type ContainerRegion =
+  | {
+      kind: "records";
+      off: number;
+      end: number;
+      stride: number;
+      path: string;
+      short: string;
+      source: string;
+      members: ContainerMember[];
+    }
+  | {
+      kind: "flags";
+      off: number;
+      end: number;
+      path: string;
+      source: string;
+      bitsPer: number;
+      count: number;
+    }
+  | {
+      kind: "word";
+      off: number;
+      end: number;
+      path: string;
+      short: string;
+      source: string;
+      type: WordType;
+      role: MemberRole;
+    };
+
+// A displayed name is core's own with a dot in front of it, so the member a path pins is the path
+// without that dot. Only the record arrays are shown under a different name and pass their own.
+const sourceOf = (path: string) => path.replace(/^\./, "");
+
+const member = (
+  off: number,
+  size: number,
+  path: string,
+  type: MemberType,
+  role: MemberRole,
+  short = path,
+): ContainerMember => ({ off, size, path, short, source: sourceOf(path), type, role });
+
+const records = (
+  off: number,
+  stride: number,
+  count: number,
+  path: string,
+  short: string,
+  source: string,
+  members: ContainerMember[],
+): ContainerRegion => ({
+  kind: "records",
+  off,
+  end: off + stride * count,
+  stride,
+  path,
+  short,
+  source,
+  members,
+});
+
+const flags = (
+  off: number,
+  size: number,
+  bitsPer: number,
+  count: number,
+  path: string,
+): ContainerRegion => ({
+  kind: "flags",
+  off,
+  end: off + size,
+  path,
+  source: sourceOf(path),
+  bitsPer,
+  count,
+});
+
+const word = (
+  off: number,
+  path: string,
+  type: WordType,
+  role: MemberRole,
+  short = path,
+): ContainerRegion => ({
+  kind: "word",
+  off,
+  end: off + 8,
+  path,
+  short,
+  source: sourceOf(path),
+  type,
+  role,
+});
+
+export function hashMapMembers(
+  key: Layout,
+  value: Layout,
+  capacity: number,
+): ContainerRegion[] {
+  const geometry = hashMapGeometry(key, value, capacity);
+  return [
+    records(0, geometry.recordStride, capacity, ".slot", ".slot", "_elements", [
+      member(0, key.size, ".key", "key", "payload"),
+      member(geometry.valueOffset, value.size, ".value", "value", "payload"),
+    ]),
+    flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._occupationFlags"),
+    word(geometry.populationOffset, "._population", "uint64", "count", ""),
+    word(geometry.populationOffset + 8, "._markRemovalCounter", "uint64", "internal"),
+  ];
+}
+
+export function hashSetMembers(key: Layout, capacity: number): ContainerRegion[] {
+  const geometry = hashSetGeometry(key, capacity);
+  return [
+    // A slot is the key, with no member below it to name.
+    records(0, geometry.recordStride, capacity, ".slot", ".slot", "_keys", [
+      member(0, key.size, "", "key", "payload"),
+    ]),
+    flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._occupationFlags"),
+    word(geometry.populationOffset, "._population", "uint64", "count", ""),
+    word(geometry.populationOffset + 8, "._markRemovalCounter", "uint64", "internal"),
+  ];
+}
+
+export function collectionMembers(value: Layout, capacity: number): ContainerRegion[] {
+  const geometry = collectionGeometry(value, capacity);
+  return [
+    // The PoV id is the key the contract grouped by; the rest of the record is the priority queue's own.
+    records(0, geometry.povStride, capacity, "._povs", ".pov", "_povs", [
+      member(geometry.povValueOffset, 32, ".value", "id", "payload", ""),
+      member(geometry.povPopulationOffset, 8, ".population", "uint64", "internal"),
+      member(geometry.povHeadOffset, 8, ".headIndex", "sint64", "internal"),
+      member(geometry.povTailOffset, 8, ".tailIndex", "sint64", "internal"),
+      member(geometry.povBstRootOffset, 8, ".bstRootIndex", "sint64", "internal"),
+    ]),
+    flags(geometry.flagsOffset, geometry.flagsBytes, 2, capacity, "._povOccupationFlags"),
+    // Priority is passed in by the contract; the BST links and the PoV index are not.
+    records(
+      geometry.elementsOffset,
+      geometry.elementStride,
+      capacity,
+      "._elements",
+      "",
+      "_elements",
+      [
+        member(geometry.elementValueOffset, value.size, ".value", "value", "payload", ""),
+        member(geometry.elementPriorityOffset, 8, ".priority", "sint64", "payload"),
+        member(geometry.elementPovIndexOffset, 8, ".povIndex", "sint64", "internal"),
+        member(geometry.elementBstParentOffset, 8, ".bstParentIndex", "sint64", "internal"),
+        member(geometry.elementBstLeftOffset, 8, ".bstLeftIndex", "sint64", "internal"),
+        member(geometry.elementBstRightOffset, 8, ".bstRightIndex", "sint64", "internal"),
+      ],
+    ),
+    word(geometry.populationOffset, "._population", "uint64", "count", ""),
+    word(geometry.populationOffset + 8, "._markRemovalCounter", "uint64", "internal"),
+  ];
+}
+
+export function linkedListMembers(value: Layout, capacity: number): ContainerRegion[] {
+  const geometry = linkedListGeometry(value, capacity);
+  return [
+    records(0, geometry.nodeStride, capacity, "._nodes", "", "_nodes", [
+      member(0, value.size, ".value", "value", "payload", ""),
+      member(geometry.nextOffset, 8, ".nextIndex", "sint64", "internal"),
+      member(geometry.prevOffset, 8, ".prevIndex", "sint64", "internal"),
+    ]),
+    flags(geometry.flagsOffset, geometry.flagsBytes, 1, capacity, "._occupiedFlags"),
+    word(geometry.headOffset, "._headIndex", "sint64", "internal"),
+    word(geometry.tailOffset, "._tailIndex", "sint64", "internal"),
+    word(geometry.freeHeadOffset, "._freeHeadIndex", "sint64", "internal"),
+    word(geometry.nextUnusedOffset, "._nextUnusedIndex", "uint64", "internal"),
+    word(geometry.populationOffset, "._population", "uint64", "count", ""),
+  ];
+}
+
 // Sub-record field-token shapes (abi-fmt fmt fragments; alignment handled by abi-fmt's parseLayout).
 //   Collection PoV{ id value; uint64 population; sint64 head, tail, bstRoot }
 export const COLLECTION_POV_FMT = "id, uint64, sint64, sint64, sint64";

@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   arrayGeometry,
   bitArrayGeometry,
@@ -10,10 +11,15 @@ import {
   hashMapElemFmt,
   collectionElemFmt,
   collectionGeometry,
+  collectionMembers,
   hashMapGeometry,
+  hashMapMembers,
   hashSetGeometry,
+  hashSetMembers,
   linkedListGeometry,
+  linkedListMembers,
   COLLECTION_POV_FMT,
+  type ContainerRegion,
 } from "../../src/qpi-layout";
 import { layoutOf } from "../../src/abi-fmt";
 
@@ -130,4 +136,56 @@ test("element fmts (consumed by the decoders) are the single source", () => {
   expect(hashMapElemFmt("id", "uint64")).toBe("id, uint64");
   expect(COLLECTION_POV_FMT).toBe("id, uint64, sint64, sint64, sint64");
   expect(collectionElemFmt("uint64")).toBe("uint64, sint64, sint64, sint64, sint64, sint64");
+});
+
+// Nothing in the ABI carries the names of a container's internals, so the member tables spell them out.
+// The qpi.h snapshot embeds the header verbatim and is regenerated whenever the core-lite pin moves, which
+// makes it the one place a rename upstream can be caught.
+const SNAPSHOT = readFileSync(
+  new URL("../../../compiler/src/generated/qpi-snapshot.ts", import.meta.url),
+  "utf8",
+);
+
+// Only the private block declares members; the public methods below it repeat the same words.
+function privateBlock(declaration: string): string {
+  const start = SNAPSHOT.indexOf(declaration);
+  if (start < 0) {
+    throw new Error(`${declaration} is missing from the qpi.h snapshot`);
+  }
+  return SNAPSHOT.slice(start, SNAPSHOT.indexOf("public:", start));
+}
+
+// A HashSet slot is the key itself, so it has no member name of its own to pin.
+const sourcesOf = (regions: ContainerRegion[]) =>
+  [
+    ...new Set(
+      regions.flatMap((region) =>
+        region.kind === "records"
+          ? [region.source, ...region.members.map((member) => member.source)]
+          : [region.source],
+      ),
+    ),
+  ].filter((source) => source.length > 0);
+
+test("container member names still match the ones core declares", () => {
+  const word = { size: 8, align: 8 };
+  const containers: [string, string[]][] = [
+    ["class HashMap", sourcesOf(hashMapMembers(word, word, 4))],
+    ["class HashSet", sourcesOf(hashSetMembers(word, 4))],
+    ["struct Collection", sourcesOf(collectionMembers(word, 4))],
+    ["class LinkedList", sourcesOf(linkedListMembers(word, 4))],
+  ];
+  const drifted: Record<string, string[]> = {};
+
+  for (const [declaration, names] of containers) {
+    const block = privateBlock(declaration);
+    // The leading boundary rejects a longer name that merely ends with this one — `headIndex` must not
+    // be satisfied by Collection's own `_headIndex()`.
+    const missing = names.filter((name) => !new RegExp(`(?<!\\w)${name}\\b`).test(block));
+    if (missing.length) {
+      drifted[declaration] = missing;
+    }
+  }
+
+  expect(drifted).toEqual({});
 });
