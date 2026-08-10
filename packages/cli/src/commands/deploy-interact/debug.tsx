@@ -11,10 +11,12 @@ import {
   type DynamicContractRegistryEntry,
 } from "@qinit/core";
 import { describeTrace, type DecodedTrace } from "../../trace/format";
+import { entryLabel } from "../../trace/entry-label";
 import { TraceView, shownStateLines } from "../../trace/views";
 import { activeNodeScratchDir } from "../../ops/node";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
 import { contractIdlForSlot, loadContractIdlFile } from "../../contracts/idl-file";
+import { loadContractIdls, type ContractIdls } from "../../contracts/idl-lookup";
 import {
   Header,
   Table,
@@ -34,15 +36,15 @@ const CHROME_ROWS = 4;
 // Table refuses to shrink a column under 6, so LIST_COLS cannot render below 6×5 + 1 + the five gaps.
 // A pane narrower than that wraps every row instead, which is what the width has to be floored against.
 const LIST_MIN_WIDTH = 41;
-const LIST_WIDTH = 48;
+const LIST_WIDTH = 60;
 // What the detail pane is owed before the list starts giving up columns for it.
 const DETAIL_WIDTH = 50;
-const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const LIST_COLS: Column[] = [
   { header: "time", max: 10, dim: true },
   { header: "tick", align: "right", max: 10 },
   { header: "contract", max: 14 },
-  { header: "entry", max: 9 },
+  // A squeezed pane gives up the entry's name before its kind and number, which are what identify it.
+  { header: "entry", max: 20, truncate: "end" },
   { header: "", max: 1 },
   { header: "exec", align: "right", max: 8, dim: true },
 ];
@@ -133,6 +135,8 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
   const [tickTimes, setTickTimes] = useState<Map<number, TickClock>>(() => new Map());
   const [tickTimeRetry, setTickTimeRetry] = useState(0);
   const [showInternals, setShowInternals] = useState(false);
+  const [idls, setIdls] = useState<ContractIdls>(() => new Map());
+  const idlSlots = useRef("");
   const selectedSeqRef = useRef<number | null>(null);
   const visibleEntriesRef = useRef<DebugEntry[]>([]);
   const hiddenSeqs = useRef(new Set<number>());
@@ -159,6 +163,18 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
     const poll = setInterval(async () => {
       try {
         reg.current = (await rpc.dynRegistry()).contracts ?? [];
+        // Entry names come from the IDLs, and resolving one can fall back to re-running the compiler —
+        // so they are reloaded when a slot appears or leaves, not on every poll.
+        const slots = reg.current
+          .map((contract) => contract.index)
+          .sort((left, right) => left - right)
+          .join(",");
+        if (slots !== idlSlots.current) {
+          idlSlots.current = slots;
+          loadContractIdls(rpc)
+            .then((loaded) => alive && setIdls(loaded))
+            .catch(() => {});
+        }
         const t = await rpc.debugTrace(since.current, 200);
         if (!alive || !t.entries.length) return;
         since.current = t.entries.reduce(
@@ -369,7 +385,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
                 formatTraceAge(tickTimes.get(e.tick)?.chainMs, chainNowMs),
                 String(e.tick),
                 nameOf(e.index),
-                kindName(e.kind) + "#" + e.entry,
+                entryLabel(e.kind, e.entry, idls.get(e.index)),
                 e.ok ? "✓" : "✗",
                 ((e.execNs / 1000) | 0) + "µs",
               ])}
@@ -383,6 +399,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
               <Detail
                 e={cur}
                 name={nameOf(cur.index)}
+                entry={entryLabel(cur.kind, cur.entry, idls.get(cur.index))}
                 source={reg.current.find((c) => c.index === cur.index)?.source}
                 codeHash={reg.current.find((c) => c.index === cur.index)?.codeHash}
                 qpiHeader={qpiHeader}
@@ -403,6 +420,7 @@ export function Debug({ commandArgs }: { commandArgs: CommandArguments }) {
 function Detail({
   e,
   name,
+  entry,
   source,
   codeHash,
   qpiHeader,
@@ -412,6 +430,7 @@ function Detail({
 }: {
   e: DebugEntry;
   name: string;
+  entry: string;
   source?: string;
   codeHash?: string;
   qpiHeader?: string;
@@ -489,6 +508,7 @@ function Detail({
         <TraceView
           e={e}
           name={name}
+          entry={entry}
           view={v}
           showInternals={showInternals}
           internalsHint="ctrl+t"

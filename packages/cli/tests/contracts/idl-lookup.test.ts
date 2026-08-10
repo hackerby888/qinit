@@ -18,6 +18,14 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
     state.mut().counter = input.assetName;
   }
 
+  struct Point { sint32 x; sint32 y; };
+  struct Move_input { Point at; uint64 when; };
+  typedef NoData Move_output;
+  PUBLIC_PROCEDURE(Move)
+  {
+    state.mut().counter = input.when;
+  }
+
   typedef NoData Ping_input;
   typedef NoData Ping_output;
   PUBLIC_PROCEDURE(Ping)
@@ -28,6 +36,7 @@ struct CONTRACT_STATE_TYPE : public ContractBase {
   REGISTER_USER_FUNCTIONS_AND_PROCEDURES() {
     REGISTER_USER_PROCEDURE(IssueAsset, 1);
     REGISTER_USER_PROCEDURE(Ping, 2);
+    REGISTER_USER_PROCEDURE(Move, 3);
   }
 };
 `;
@@ -70,6 +79,20 @@ test("a short input is zero-padded the way the engine's dispatch frame pads it",
   const decoded = await decodeTxInput(entry, full.subarray(0, 8));
 
   expect(decoded.fields.map(([, value]) => value)).toEqual(["7", "0", "0"]);
+});
+
+// A struct field is a record, not a list: it has to keep its own field names rather than collapse to
+// the positional array the ABI decoder hands back.
+test("a nested struct field keeps its field names", async () => {
+  const entry = entryNamed("Move");
+  const bytes = await encodeInput("{1sint32, 2sint32}, 3026uint64");
+
+  const decoded = await decodeTxInput(entry, bytes);
+
+  expect(decoded.fields).toEqual([
+    ["at", "{x: 1, y: 2}"],
+    ["when", "3026"],
+  ]);
 });
 
 test("an entry with no input has nothing to show", async () => {

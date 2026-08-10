@@ -25,7 +25,7 @@ import {
   emptyContractIdlFile,
   loadContractIdlFile,
 } from "../../contracts/idl-file";
-import { fmtVal } from "../../trace/format";
+import { fmtVal, formatStateValue } from "../../trace/format";
 import { Header, Spinner, Panel, theme } from "../../ui";
 import { Select, TextPrompt } from "../../ui/prompt";
 
@@ -284,7 +284,11 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
           selected.input ?? "",
           entry.output ?? selected.out ?? "",
         );
-        addResult(`${labelFor(contract, entry)} -> ${fmtVal(output)}`);
+        // The IDL type wins over a typed-in format above, and it is the one that names the fields.
+        const shown = entry.output
+          ? formatStateValue(output, entry.output, false, true)
+          : fmtVal(output);
+        addResult(`${labelFor(contract, entry)} -> ${shown}`);
       } else {
         const tickInfo = await rpc.tickInfo();
         const tick = tickInfo.tick + TX_TICK_OFFSET;

@@ -12,6 +12,10 @@ export interface DecodedLog {
   name?: string;
   typeName?: string;
   fields?: Record<string, unknown>;
+  // The log struct and its field values in declaration order, so a renderer holding both can name every
+  // nested field — `fields` only carries the top level.
+  abi?: AbiStruct;
+  values?: unknown[];
   hex: string;
 }
 
@@ -48,16 +52,25 @@ export async function decodeLog(
       }
       const structBytes = new Uint8Array(hit[0].type.size);
       structBytes.set(loggedBytes.subarray(0, structBytes.length));
-      const decoded = await decodeOutput(structBytes, hit[0].type);
-      const vals = Array.isArray(decoded) ? decoded : [decoded];
+      const struct = hit[0].type;
+      const decoded = await decodeOutput(structBytes, struct);
+      // decodeOutput unwraps a one-field struct to its bare value, which may itself be an array.
+      const vals = struct.fields.length === 1 ? [decoded] : (decoded as unknown[]);
       const fields: Record<string, unknown> = {};
-      hit[0].type.fields.forEach((field, index) => {
+      struct.fields.forEach((field, index) => {
         fields[field.name] = vals[index];
       });
       const tv = fields["_type"];
       const typeName =
         enums && (typeof tv === "number" || typeof tv === "bigint") ? enums[String(tv)] : undefined;
-      return { ...base, name: hit[0].name, ...(typeName ? { typeName } : {}), fields };
+      return {
+        ...base,
+        name: hit[0].name,
+        ...(typeName ? { typeName } : {}),
+        fields,
+        abi: struct,
+        values: vals,
+      };
     } catch {}
   }
   return base; // 0 or >1 size matches, or decode threw -> hex + severity only

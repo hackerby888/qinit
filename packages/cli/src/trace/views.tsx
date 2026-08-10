@@ -8,11 +8,12 @@ import {
   type DecodedState,
   type StateContainer,
   sevColor,
+  formatStateValue,
   jstr,
 } from "./format";
+import { entryLabel } from "./entry-label";
 import { type StateDiffLine } from "./state-diff";
 
-const kindName = (k: number) => (k === 0 ? "fn" : k === 1 ? "proc" : "sys");
 const execµs = (ns: number) =>
   ns < 1_000_000 ? `${(ns / 1000) | 0}µs` : `${(ns / 1e6).toFixed(1)}ms`;
 
@@ -122,6 +123,7 @@ function StateDiff({
 export function TraceView({
   e,
   name,
+  entry,
   view,
   showInternals = false,
   internalsHint,
@@ -131,6 +133,8 @@ export function TraceView({
 }: {
   e: DebugEntry;
   name: string;
+  /** How the invoked entry is spelled, e.g. `proc#1 (Increase)`. Falls back to the kind and its number. */
+  entry?: string;
   view: DecodedTrace;
   showInternals?: boolean;
   internalsHint: string;
@@ -140,10 +144,11 @@ export function TraceView({
 }) {
   const bounded = width != null;
   const cols = width ?? termCols();
+  const label = `${name} ${entry ?? entryLabel(e.kind, e.entry)}`;
   // Status has no wrap of its own, so a bounded pane has to size its two halves to fit on one line.
   const pad = bounded
-    ? Math.max(1, Math.min(Math.max(14, name.length + 8), cols - 14))
-    : Math.max(14, name.length + 8);
+    ? Math.max(1, Math.min(Math.max(14, label.length + 1), cols - 14))
+    : Math.max(14, label.length + 1);
 
   const callRows: { label: string; node: React.ReactNode }[] = [
     { label: "in", node: <Text>{truncEnd(view.inDecoded, cols - 8)}</Text> },
@@ -172,7 +177,10 @@ export function TraceView({
           {l.name ? (
             <Text>
               {l.name}
-              {l.typeName ? "·" + l.typeName : ""} <Text dimColor>{jstr(l.fields)}</Text>
+              {l.typeName ? "·" + l.typeName : ""}{" "}
+              <Text dimColor>
+                {l.abi ? formatStateValue(l.values, l.abi, false) : jstr(l.fields)}
+              </Text>
             </Text>
           ) : (
             <Text dimColor>{l.size}B</Text>
@@ -204,7 +212,6 @@ export function TraceView({
   // The glyph and its space are the 3rd column the detail has to leave room for.
   const detailMax = bounded ? cols - pad - 3 : Math.max(12, cols - pad - 8);
   const detail = truncMid(`${execµs(e.execNs)} · tick ${e.tick}`, detailMax);
-  const label = `${name} ${kindName(e.kind)}#${e.entry}`;
 
   return (
     <Box flexDirection="column">

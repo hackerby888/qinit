@@ -9,7 +9,7 @@ import { extractIdl } from "@qinit/build";
 import { loadConfiguredQpiHeader } from "../config";
 import { contractIdlForSlot, loadContractIdlFile } from "./idl-file";
 import { loadContracts, mergeContracts } from "./registry";
-import { fmtVal } from "../trace/format";
+import { formatStateValue } from "../trace/format";
 
 export type ContractIdls = Map<number, ContractIdl>;
 
@@ -104,7 +104,10 @@ export async function decodeTxInput(
   const decoded = await decodeOutput(padded, type);
   const values = type.fields.length === 1 ? [decoded] : decoded;
   const fields = type.fields.map(
-    (field, index): [string, string] => [field.name, fmtVal(values[index])],
+    (field, index): [string, string] => [
+      field.name,
+      formatStateValue(values[index], field.type, false),
+    ],
   );
 
   // The value grammar is a bonus on top of the named fields — linked_list and overlapping inputs have no

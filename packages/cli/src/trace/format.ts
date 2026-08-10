@@ -249,8 +249,13 @@ export function formatStateValue(
   }
 }
 
-export const keyLabel = (key: unknown) =>
-  typeof key === "string" ? key : jstr(key);
+// A struct key has to read like the value beside it, which takes the type — decoded structs are positional.
+export const keyLabel = (key: unknown, type?: AbiType) =>
+  typeof key === "string"
+    ? key
+    : type
+      ? formatStateValue(key, type, false)
+      : jstr(key);
 
 function stateReadError(error: unknown): string {
   return error instanceof Error && error.message
@@ -473,7 +478,7 @@ async function formatContainerView(
       const entries = await view.entries();
       const formatted = entries.map((entry) => ({
         slot: entry.slot,
-        text: `${keyLabel(entry.key)} = ${formatStateValue(entry.value, container.value, full)}`,
+        text: `${keyLabel(entry.key, container.key)} = ${formatStateValue(entry.value, container.value, full)}`,
       }));
       return {
         stateLines: containerLines(container.capacity, formatted),
@@ -488,7 +493,7 @@ async function formatContainerView(
       const entries = await view.entries();
       const formatted = entries.map((entry) => ({
         slot: entry.slot,
-        text: keyLabel(entry.key),
+        text: keyLabel(entry.key, container.key),
       }));
       return {
         stateLines: containerLines(container.capacity, formatted),
@@ -585,16 +590,6 @@ export const sevColor = (severity: string) =>
         ? "green"
         : undefined;
 
-export const fmtLog = (log: DecodedLog) => {
-  const detail = log.name
-    ? log.name +
-      (log.typeName ? "·" + log.typeName : "") +
-      " " +
-      jstr(log.fields)
-    : `${log.size}B ${log.hex.slice(0, 34)}…`;
-  return `${log.severity} ${detail}`;
-};
-
 export interface DecodedTrace {
   inDecoded: string;
   outDecoded: string;
@@ -638,14 +633,12 @@ export async function describeTrace(
       );
 
       if (metadata && entry.inHex) {
-        input = jstr(
-          await decodeOutput(hexToBytes(entry.inHex), metadata.input),
-        );
+        const decoded = await decodeOutput(hexToBytes(entry.inHex), metadata.input);
+        input = formatStateValue(decoded, metadata.input, false, true);
       }
       if (metadata && entry.outHex) {
-        output = jstr(
-          await decodeOutput(hexToBytes(entry.outHex), metadata.output),
-        );
+        const decoded = await decodeOutput(hexToBytes(entry.outHex), metadata.output);
+        output = formatStateValue(decoded, metadata.output, false, true);
       }
 
       fields = stateFieldsOf(idl);

@@ -125,6 +125,9 @@ export interface Column {
   color?: string | ((rowIndex: number) => string | undefined);
   dim?: boolean;
   max?: number;
+  // Where a cell too wide for its column loses characters. The middle by default, which keeps both ends of
+  // a name; "end" is for values whose head identifies them, like an entry's kind and number.
+  truncate?: "mid" | "end";
 }
 export function Table({
   columns,
@@ -171,7 +174,10 @@ export function Table({
   }
 
   const cell = (value: string, index: number) => {
-    const truncated = truncMid(value ?? "", widths[index]);
+    const truncated =
+      columns[index].truncate === "end"
+        ? truncEnd(value ?? "", widths[index])
+        : truncMid(value ?? "", widths[index]);
     return columns[index].align === "right"
       ? truncated.padStart(widths[index])
       : truncated.padEnd(widths[index]);

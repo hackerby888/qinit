@@ -1,6 +1,8 @@
 import { test, expect } from "bun:test";
+import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-idl";
 import {
   describeTrace,
+  keyLabel,
   readState,
   type StateReader,
   type StateContainer,
@@ -79,7 +81,7 @@ test("describeTrace: decodes proc input, caller, log enum, and captured state di
     logs: [{ type: 6, size: 16, hex: hx([...le(0, 4), ...le(1, 4), ...le(9, 8)]) }], // _type=1, value=9
   };
   const v = await describeTrace(entry, SRC, "Counter");
-  expect(v.inDecoded).toBe('"5"'); // single-field input -> scalar (bigint as json string)
+  expect(v.inDecoded).toBe("5"); // single-field input -> its bare scalar
   expect(v.caller.length).toBe(60); // proc -> 60-char identity
   expect(v.logs).toHaveLength(1);
   expect(v.logs[0].typeName).toBe("Bumped"); // enum Kind: 1 -> Bumped
@@ -386,10 +388,10 @@ test("readState: a sparse HashMap fetches only occupied record ranges", async ()
       // `filled` is what the view highlights, so an occupied slot and a skipped range must never share it.
       lines: [
         { label: "slot[0]", text: "(unoccupied ×1; skipped)", filled: false },
-        { label: "slot[1]", text: "\"11\" = 101", filled: true },
-        { label: "slot[2]", text: "\"22\" = 202", filled: true },
+        { label: "slot[1]", text: "11 = 101", filled: true },
+        { label: "slot[2]", text: "22 = 202", filled: true },
         { label: "slots[3..5]", text: "(unoccupied ×3; skipped)", filled: false },
-        { label: "slot[6]", text: "\"66\" = 606", filled: true },
+        { label: "slot[6]", text: "66 = 606", filled: true },
         { label: "slot[7]", text: "(unoccupied ×1; skipped)", filled: false },
       ],
     },
@@ -419,7 +421,7 @@ test("readState: BitArray values inside HashMap use logical bit ranges", async (
   ]);
   expect(flatLines(state.containers[0])).toEqual([
     "slots[0..1] (unoccupied ×2; skipped)",
-    "slot[2] \"7\" = [0..62]=0 ×63 (skipped), [63]=1, [64..127]=0 ×64 (skipped)",
+    "slot[2] 7 = [0..62]=0 ×63 (skipped), [63]=1, [64..127]=0 ×64 (skipped)",
     "slot[3] (unoccupied ×1; skipped)",
   ]);
 });
@@ -441,7 +443,7 @@ test("readState: one-field struct values inside HashMap keep their boundary", as
 
   expect(flatLines(state.containers[0])).toEqual([
     "slots[0..1] (unoccupied ×2; skipped)",
-    "slot[2] \"7\" = {number: 9}",
+    "slot[2] 7 = {number: 9}",
     "slot[3] (unoccupied ×1; skipped)",
   ]);
 });
@@ -475,7 +477,7 @@ test("readState: LinkedList values inside HashMap stay semantic", async () => {
   ]);
   expect(flatLines(state.containers[0])).toEqual([
     "slot[0] (unoccupied ×1; skipped)",
-    "slot[1] \"5\" = item[0] slot[2] = 9, slots[0..1] (unoccupied ×2; skipped), slot[3] (unoccupied ×1; skipped)",
+    "slot[1] 5 = item[0] slot[2] = 9, slots[0..1] (unoccupied ×2; skipped), slot[3] (unoccupied ×1; skipped)",
     "slots[2..3] (unoccupied ×2; skipped)",
   ]);
 });
@@ -680,14 +682,14 @@ const mkEntry = (o: Partial<any>): any => ({
   ...o,
 });
 
-test("describeTrace: multi-field input decodes to a tuple", async () => {
+test("describeTrace: multi-field input decodes to named fields", async () => {
   const SRC_MULTI = `using namespace QPI; struct CONTRACT_STATE2_TYPE {}; struct CONTRACT_STATE_TYPE : public ContractBase { struct Pair_input { uint64 a; uint64 b; }; struct Pair_output {}; PUBLIC_PROCEDURE(Pair) {} REGISTER_USER_FUNCTIONS_AND_PROCEDURES() { REGISTER_USER_PROCEDURE(Pair, 1); } INITIALIZE() {} };`;
   const v = await describeTrace(
     mkEntry({ inHex: hx([...le(5, 8), ...le(7, 8)]) }),
     SRC_MULTI,
     "M",
   );
-  expect(v.inDecoded).toBe('["5","7"]');
+  expect(v.inDecoded).toBe("{a: 5, b: 7}");
 });
 
 test("readState: a sparse HashSet fetches only occupied key ranges", async () => {
@@ -735,8 +737,8 @@ test("describeTrace: no StateData -> empty fields, io still decoded, fn caller (
     "NS",
   );
   expect(v.fields).toHaveLength(0);
-  expect(v.inDecoded).toBe('"5"');
-  expect(v.outDecoded).toBe('"9"');
+  expect(v.inDecoded).toBe("5");
+  expect(v.outDecoded).toBe("9");
   expect(v.caller).toBe("(none)"); // kind 0 (fn) carries no signer
 });
 
@@ -783,4 +785,31 @@ test("fmtVal: run-length-group long runs, keep short literal, cap unless full", 
       ["A", "0"],
     ]),
   ).toBe(`[["A", "0"] ×6]`); // nested struct run
+});
+
+// A container key is decoded positionally like any other value, so it needs its type to read as a record
+// rather than as the tuple the ABI decoder hands back.
+test("keyLabel names a struct key's fields", () => {
+  const sint32: AbiType = {
+    kind: AbiTypeKind.SCALAR,
+    scalar: AbiScalarKind.SINT32,
+    size: 4,
+    align: 4,
+    format: "sint32",
+  };
+  const point: AbiType = {
+    kind: AbiTypeKind.STRUCT,
+    name: "Point",
+    fields: [
+      { name: "x", offset: 0, size: 4, type: sint32 },
+      { name: "y", offset: 4, size: 4, type: sint32 },
+    ],
+    size: 8,
+    align: 4,
+    format: "sint32, sint32",
+  };
+
+  expect(keyLabel([1, 2], point)).toBe("{x: 1, y: 2}");
+  expect(keyLabel(7n, sint32)).toBe("7");
+  expect(keyLabel("ICZREL")).toBe("ICZREL");
 });

@@ -228,3 +228,50 @@ test("id field decodes to a 60-char identity at its padded offset", async () => 
   expect((d.fields!.who as string).length).toBe(60);
   expect(d.fields!.amt).toBe(1000n);
 });
+
+// A renderer can only name a nested struct's fields if it gets the type back with the value, and
+// `fields` stops at the top level — so the struct and its positional values ride along.
+test("the log struct and its values come back alongside the named top-level fields", async () => {
+  const point = {
+    kind: AbiTypeKind.STRUCT as const,
+    name: "Point",
+    fields: [
+      { name: "x", offset: 0, size: 4, type: scalar(AbiScalarKind.SINT32) },
+      { name: "y", offset: 4, size: 4, type: scalar(AbiScalarKind.SINT32) },
+    ],
+    size: 8,
+    align: 4,
+    format: "ignored",
+  };
+  const cat: ContractLog[] = [
+    {
+      name: "TestLog",
+      type: {
+        kind: AbiTypeKind.STRUCT,
+        fields: [
+          { name: "a", offset: 0, size: 4, type: scalar(AbiScalarKind.UINT32) },
+          { name: "point", offset: 4, size: 8, type: point },
+        ],
+        size: 12,
+        align: 4,
+        format: "ignored",
+      },
+    },
+  ];
+
+  const d = await decodeLog(6, 12, hexOf([...le(0, 4), ...le(1, 4), ...le(2, 4)]), cat);
+
+  expect(d.abi).toBe(cat[0].type);
+  expect(d.values).toEqual([0, [1, 2]]);
+  expect(d.fields).toEqual({ a: 0, point: [1, 2] });
+});
+
+// decodeOutput unwraps a one-field struct to its bare value, which the positional list has to undo.
+test("a one-field log keeps its value in the positional list", async () => {
+  const cat = [log("One", [["only", AbiScalarKind.UINT64]])];
+
+  const d = await decodeLog(6, 8, hexOf(le(7, 8)), cat);
+
+  expect(d.values).toEqual([7n]);
+  expect(d.fields).toEqual({ only: 7n });
+});

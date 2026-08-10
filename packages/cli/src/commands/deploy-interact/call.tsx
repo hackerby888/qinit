@@ -26,8 +26,10 @@ import { extractIdl } from "@qinit/build";
 import {
   describeTrace,
   fmtVal,
+  formatStateValue,
   type DecodedTrace,
 } from "../../trace/format";
+import { entryLabel } from "../../trace/entry-label";
 import { TraceView } from "../../trace/views";
 import { CallInteractive } from "./call-interactive";
 import {
@@ -48,7 +50,7 @@ type Result = {
   rows?: [string, string][];
   err?: string;
 };
-type Trace = { e: DebugEntry; name: string; view: DecodedTrace };
+type Trace = { e: DebugEntry; name: string; entry: string; view: DecodedTrace };
 type Confirm = { start: number; net: number; target: number };
 type CallMode = "fn" | "proc";
 
@@ -251,7 +253,15 @@ function CallOneShot({
           setResult({
             ok: ne ? false : true,
             label,
-            rows: [["out", fmtVal(out, showAll)]],
+            rows: [
+              [
+                "out",
+                // An explicit --out format overrides the IDL, and only the IDL type carries field names.
+                !outputFormat && entryIdl
+                  ? formatStateValue(out, entryIdl.output, showAll, true)
+                  : fmtVal(out, showAll),
+              ],
+            ],
             err: await enrichErr(ne),
           });
         } else {
@@ -328,6 +338,7 @@ function CallOneShot({
             setTrace({
               e: te,
               name: traceName,
+              entry: entryLabel(mode === "fn" ? 0 : 1, entry, entryIdl?.name),
               view: await describeTrace(
                 te,
                 traceSrc,
@@ -391,6 +402,7 @@ function CallOneShot({
           <TraceView
             e={trace.e}
             name={trace.name}
+            entry={trace.entry}
             view={trace.view}
             showInternals={showInternals}
             internalsHint="--trace-full"
