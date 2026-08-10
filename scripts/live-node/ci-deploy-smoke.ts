@@ -1,4 +1,4 @@
-// Deploy Counter to a live node and prove its read, write, debug, and log paths.
+// Deploy live contracts and prove their read, write, debug, and log paths.
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { deployContract } from "@qinit/cli/ops/deploy";
@@ -28,8 +28,8 @@ if (identity.backend !== "core") {
   fail(`expected core backend identity, got ${JSON.stringify(identity)}`);
 }
 
-// Read Counter.Get while tolerating both scalar and named output shapes.
-const readCounterValue = async (slot: number): Promise<bigint> => {
+// Read a single uint64 output while tolerating scalar and named output shapes.
+const readUint64Value = async (slot: number): Promise<bigint> => {
   const output: any = await callFunction(rpc, slot, 1, "", "uint64");
   const value = output && typeof output === "object" ? Object.values(output)[0] : output;
   return BigInt(value as any);
@@ -56,7 +56,7 @@ console.log("deployed slot", counterSlot);
 let initialValue = -1n;
 for (let i = 0; i < 15; i++) {
   try {
-    initialValue = await readCounterValue(counterSlot);
+    initialValue = await readUint64Value(counterSlot);
     if (initialValue === 0n) {
       break;
     }
@@ -68,43 +68,110 @@ if (initialValue !== 0n) {
   fail(`expected 0 after deploy, got ${initialValue}`);
 }
 
-// Enable debugging before Inc to exercise dirty-page capture and trace transport.
+// Enable debugging before inter-contract calls to exercise nested dirty-page capture.
 console.log("enable debug…");
 await rpc.setDebug(true);
 
 const seed = (await rpc.fundedSeed()) ?? "a".repeat(55);
-const tickInfo = await rpc.tickInfo();
-const tick = tickInfo.tick + 6;
-console.log("Inc @tick", tick);
-const invocation: any = await invokeProcedure({
-  seed,
-  rpcBaseUrl,
-  contractIndex: counterSlot,
-  procedureId: 1,
-  amount: 0,
-  inputFormat: "",
-  tick,
-  confirm: true,
-  rpc,
-});
-if (!invocation.ok || !invocation.confirmed || !invocation.included) {
-  fail("Inc not confirmed/included: " + JSON.stringify(invocation));
+const invokeEmptyProcedure = async (slot: number, label: string) => {
+  const tick = (await rpc.tickInfo()).tick + 6;
+  console.log(`${label} @tick`, tick);
+  const result: any = await invokeProcedure({
+    seed,
+    rpcBaseUrl,
+    contractIndex: slot,
+    procedureId: 1,
+    amount: 0,
+    inputFormat: "",
+    tick,
+    confirm: true,
+    rpc,
+  });
+  if (!result.ok || !result.confirmed || !result.included) {
+    fail(`${label} not confirmed/included: ${JSON.stringify(result)}`);
+  }
+};
+
+console.log("deploy Proxy…");
+const proxyDeployment = await deployContract(
+  {
+    contractPath: resolve("fixtures/Proxy.h"),
+    name: "Proxy",
+    core,
+    rpcBaseUrl,
+    seed,
+    compiler: "typescript",
+    dynCallees: {
+      Counter: {
+        header: resolve("fixtures/Counter.h"),
+        index: counterSlot,
+      },
+    },
+    rpc,
+  },
+  (event: any) => {
+    if (!("note" in event)) {
+      console.log(
+        `  ${event.step}: ${event.state}${event.detail ? " — " + event.detail : ""}`,
+      );
+    }
+  },
+);
+if (!proxyDeployment.ok || proxyDeployment.slot == null) {
+  fail("deploy Proxy: " + JSON.stringify(proxyDeployment));
 }
+const proxySlot = proxyDeployment.slot!;
+console.log("deployed Proxy slot", proxySlot);
+
+const traceBeforeProxyCalls = await rpc.debugTrace(0, 256);
+const proxyTraceStart = traceBeforeProxyCalls.entries.reduce(
+  (latest, entry) => Math.max(latest, entry.seq),
+  0,
+);
+for (let expected = 1; expected <= 2; expected++) {
+  await invokeEmptyProcedure(proxySlot, `BumpCounter #${expected}`);
+
+  const value = await readUint64Value(proxySlot);
+  console.log(`ReadCounter after BumpCounter #${expected} =`, value.toString());
+  if (value !== BigInt(expected)) {
+    fail(
+      `ReadCounter after BumpCounter #${expected}: expected ${expected}, got ${value}`,
+    );
+  }
+}
+
+const proxyTrace = await rpc.debugTrace(proxyTraceStart, 64);
+const outerProxyCalls = proxyTrace.entries.filter(
+  (entry) =>
+    entry.index === proxySlot && entry.entry === 1 && entry.kind === 1 && entry.ok,
+);
+const nestedCounterCalls = proxyTrace.entries.filter(
+  (entry) =>
+    entry.index === counterSlot && entry.entry === 1 && entry.kind === 1 && entry.ok,
+);
+if (outerProxyCalls.length !== 2 || nestedCounterCalls.length !== 2) {
+  fail(
+    "nested trace records: expected 2 Proxy and 2 Counter procedures, " +
+      `got ${outerProxyCalls.length} and ${nestedCounterCalls.length}`,
+  );
+}
+
+await invokeEmptyProcedure(counterSlot, "direct Counter Inc");
 
 let updatedValue = -1n;
 for (let i = 0; i < 10; i++) {
-  updatedValue = await readCounterValue(counterSlot);
-  if (updatedValue === 1n) {
+  updatedValue = await readUint64Value(counterSlot);
+  if (updatedValue === 3n) {
     break;
   }
   await sleep(1500);
 }
-console.log("Get after Inc =", updatedValue.toString());
-if (updatedValue !== 1n) {
-  fail(`expected 1 after Inc, got ${updatedValue}`);
+console.log("Get after direct Inc =", updatedValue.toString());
+if (updatedValue !== 3n) {
+  fail(`expected 3 after direct Inc, got ${updatedValue}`);
 }
 
-// debug gate: the Inc proc must appear in the trace with the counter state diff (00 -> 01).
+// The direct Inc must appear in the trace with the counter state diff (02 -> 03).
 let debugOk = false;
 for (let i = 0; i < 8; i++) {
   const trace = await rpc.debugTrace(0, 50);
@@ -121,15 +188,15 @@ for (let i = 0; i < 8; i++) {
     debugOk = inc.stateDiff.some(
       (diff) =>
         diff.off === 0 &&
-        diff.before.startsWith("0000000000000000") &&
-        diff.after.startsWith("0100000000000000"),
+        diff.before.startsWith("0200000000000000") &&
+        diff.after.startsWith("0300000000000000"),
     );
     break;
   }
   await sleep(1500);
 }
 if (!debugOk) {
-  fail("debug trace missing the Inc state diff (counter 00->01) — mprotect capture broken?");
+  fail("debug trace missing the Inc state diff (counter 02->03) — mprotect capture broken?");
 }
 
 // Deploy Logger and verify that Emit(2) produces a decoded INFO log.
@@ -220,5 +287,6 @@ if (!(await rpc.tickInfo())) {
 }
 
 console.log(
-  `SMOKE OK — deploy + read + write + debug-trace + log-decode verified on-chain (slots ${counterSlot},${loggerSlot})`,
+  "SMOKE OK — deploy + read + write + nested debug-trace + log-decode " +
+    `verified on-chain (slots ${counterSlot},${proxySlot},${loggerSlot})`,
 );
