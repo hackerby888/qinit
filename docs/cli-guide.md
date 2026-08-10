@@ -1223,9 +1223,11 @@ without available `TickData` shows `—`. Pressing `x` hides the selected record
 
 Step 5 is what makes a diff readable. `stateDiffLines()` walks the ABI type from the
 containing field down to the element the bytes belong to, using the geometry helpers
-in [`qpi-layout.ts`](../packages/proto/src/qpi-layout.ts) — so a HashMap write reports
-`map.slot[31].value`, `map._occupationFlags[31]` and `map._population` rather than
-byte offsets. Indexed collections always resolve per element; a struct is reported
+and member tables in [`qpi-layout.ts`](../packages/proto/src/qpi-layout.ts) — so a
+HashMap write reports `map.slot[31].value`, `map._occupationFlags[31]` and
+`map._population` rather than byte offsets. Internals are named the way core declares
+them in `qpi_containers.h`, which a test pins against the bundled `qpi.h` snapshot.
+Indexed collections always resolve per element; a struct is reported
 whole when the region covers all of it. Occupation flags and `BitArray` fields report
 the indices that flipped instead of the raw words.
 
@@ -1237,7 +1239,7 @@ keeps only two of the three classes:
 |---|---|---|
 | payload | scalars, struct members, `Array`/`BitArray` elements, `slot[i].key`/`.value`, node and element values, a `Collection` element's `priority`, a PoV id | shown |
 | count | a container's `_population`, rendered as `trail  1 → 2 entries` | shown |
-| internal | occupation flags, `_head`/`_tail`/`_freeHead`/`_nextUnused`, `bst*`, `povIndex`, per-PoV counters, `_markRemovalCounter`, node `next`/`prev` | hidden |
+| internal | occupation flags, `_headIndex`/`_tailIndex`/`_freeHeadIndex`/`_nextUnusedIndex`, `bst*Index`, `povIndex`, per-PoV counters, `_markRemovalCounter`, node `nextIndex`/`prevIndex` | hidden |
 
 Each row therefore carries two labels: the shown one drops the internal path segments
 (`trail._nodes[1].value` reads as `trail[1]`), and the full path returns with the
