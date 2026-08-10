@@ -235,17 +235,33 @@ export function TraceView({
   );
 }
 
-// An Array counts set elements; every other container counts occupied slots.
-function containerDetail(container: StateContainer): string {
-  if (container.error) {
-    return "read failed";
+// Arrays and BitArrays count set elements; other containers count occupied slots.
+function containerDetail(
+  container: StateContainer,
+  hidden: boolean,
+  interactive: boolean,
+): string {
+  const selectionHint = interactive
+    ? `press ${container.index}`
+    : `use --container ${container.index}`;
+  if (container.status === "collapsed") {
+    return `${container.size.toLocaleString("en-US")} bytes · ${selectionHint} to load`;
+  }
+  if (container.status === "loading") {
+    return "loading";
+  }
+  if (container.status === "error") {
+    return `read failed · ${selectionHint} to retry`;
+  }
+  if (hidden) {
+    return `cached · hidden · press ${container.index} to show`;
   }
   if (!container.capacity) {
     return "empty";
   }
 
   const free = container.capacity - container.occupiedSlots;
-  if (container.kind === "array") {
+  if (container.kind === "array" || container.kind === "bitarray") {
     return `${container.occupiedSlots} set · ${free}/${container.capacity} zero`;
   }
 
@@ -256,7 +272,17 @@ function containerDetail(container: StateContainer): string {
 }
 
 // A contract's decoded current state (scalars + containers), compact.
-export function StateView({ name, state }: { name: string; state: DecodedState }) {
+export function StateView({
+  name,
+  state,
+  hiddenContainerIndexes,
+  interactive = false,
+}: {
+  name: string;
+  state: DecodedState;
+  hiddenContainerIndexes?: ReadonlySet<number>;
+  interactive?: boolean;
+}) {
   return (
     <Box flexDirection="column">
       <Status
@@ -277,23 +303,39 @@ export function StateView({ name, state }: { name: string; state: DecodedState }
         </Box>
       )}
       {state.containers.map((container) => {
-        const width = Math.max(
-          1,
-          ...container.lines.map((line) => line.label.length),
-        );
+        const hidden =
+          container.status === "loaded" &&
+          (hiddenContainerIndexes?.has(container.index) ?? false);
+        const width = hidden || container.status !== "loaded"
+          ? 1
+          : container.lines.reduce(
+              (maximum, line) => Math.max(maximum, line.label.length),
+              1,
+            );
 
         return (
-          <Box key={container.name} flexDirection="column" marginTop={1}>
+          <Box key={container.index} flexDirection="column" marginTop={1}>
             <Text>
-              <Text color={theme.accent}>{container.name}</Text>{" "}
-              <Text dimColor>· {containerDetail(container)}</Text>
+              <Text
+                color={theme.accent}
+                dimColor={container.status === "collapsed"}
+              >
+                [{container.index}] {container.name}
+              </Text>{" "}
+              <Text dimColor>
+                · {containerDetail(container, hidden, interactive)}
+              </Text>
             </Text>
             <Box flexDirection="column" marginLeft={2}>
-              {container.error ? (
+              {container.status === "error" ? (
                 <Text color={theme.err} wrap="wrap">
                   {container.error}
                 </Text>
-              ) : container.lines.length ? (
+              ) : container.status === "loading" ? (
+                <Text dimColor>loading…</Text>
+              ) : container.status === "collapsed" ? (
+                <Text dimColor>not read</Text>
+              ) : hidden ? null : container.lines.length ? (
                 container.lines.map((line, index) => (
                   <Text key={index} wrap="wrap" dimColor={!line.filled}>
                     <Text

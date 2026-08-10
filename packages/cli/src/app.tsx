@@ -98,6 +98,7 @@ export function App({ command, args }: { command: string; args: string[] }) {
 const REMOVED = new Map([["up", "node run"]]);
 
 const ALIASES = new Map<string, CommandName>([
+  ["self-update", "update"],
   ["cheat", "cheat-sheet"],
   ["--cheat-sheet", "cheat-sheet"],
   ["--version", "version"],
@@ -170,7 +171,7 @@ const HANDLERS = {
   tick: ({ commandArgs }) => <Tick commandArgs={commandArgs} />,
   epoch: ({ commandArgs }) => <Epoch commandArgs={commandArgs} />,
   clean: ({ commandArgs }) => <Clean commandArgs={commandArgs} />,
-  "self-update": ({ commandArgs }) => <Update commandArgs={commandArgs} />,
+  update: ({ commandArgs }) => <Update commandArgs={commandArgs} />,
   uninstall: ({ commandArgs }) => <Uninstall commandArgs={commandArgs} />,
   new: ({ commandArgs }) => <New commandArgs={commandArgs} />,
   dev: ({ commandArgs }) => <Dev commandArgs={commandArgs} />,

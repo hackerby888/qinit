@@ -58,6 +58,33 @@ export class QpiBitArrayView {
     return entries;
   }
 
+  async *setBits(): AsyncIterable<number> {
+    const logicalBytes = Math.ceil(this.capacity / 8);
+    let byteOffset = 0;
+    while (byteOffset < logicalBytes) {
+      const length = Math.min(
+        this.source.maxReadLength,
+        logicalBytes - byteOffset,
+      );
+      const bytes = await readQpiBytes(this.source, byteOffset, length);
+      const firstBit = byteOffset * 8;
+      for (let localByte = 0; localByte < bytes.length; localByte++) {
+        const value = bytes[localByte];
+        if (!value) {
+          continue;
+        }
+        const byteFirstBit = firstBit + localByte * 8;
+        const bitCount = Math.min(8, this.capacity - byteFirstBit);
+        for (let bit = 0; bit < bitCount; bit++) {
+          if (value & (1 << bit)) {
+            yield byteFirstBit + bit;
+          }
+        }
+      }
+      byteOffset += length;
+    }
+  }
+
   private assertIndex(index: number): void {
     if (
       !Number.isSafeInteger(index) ||

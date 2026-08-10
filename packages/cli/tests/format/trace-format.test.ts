@@ -3,6 +3,8 @@ import { AbiScalarKind, AbiTypeKind, type AbiType } from "@qinit/proto/contract-
 import {
   describeTrace,
   keyLabel,
+  LARGE_STATE_CONTAINER_BYTES,
+  loadStateContainer,
   readState,
   type StateReader,
   type StateContainer,
@@ -153,11 +155,17 @@ test("readState: rejects a short field-scoped RPC read", async () => {
   ]);
 });
 
-test("readState: reads a complete sparse array across the 256 KiB boundary", async () => {
-  const source = `using namespace QPI; struct CONTRACT_STATE_TYPE : public ContractBase { struct StateData { SlowAnySizeArray<uint64, 32769> values; }; INITIALIZE() {} };`;
-  const bytes = new Uint8Array(32769 * 8);
+test("readState: reads a complete sparse array across the 4 MiB boundary", async () => {
+  const source = `
+    using namespace QPI;
+    struct CONTRACT_STATE_TYPE : public ContractBase {
+      struct StateData { SlowAnySizeArray<uint64, 524289> values; };
+      INITIALIZE() {}
+    };
+  `;
+  const bytes = new Uint8Array(524289 * 8);
   bytes.set(le(7, 8), 8);
-  bytes.set(le(9, 8), 32768 * 8);
+  bytes.set(le(9, 8), 524288 * 8);
   const calls: StateReadCall[] = [];
   const progress: [string, number, number][] = [];
 
@@ -171,30 +179,33 @@ test("readState: reads a complete sparse array across the 256 KiB boundary", asy
   );
 
   expect(state.fields).toEqual([]); // an Array is a block of its own, not a scalar row
-  expect(state.containers).toEqual([
+  expect(state.containers).toMatchObject([
     {
       name: "values",
       kind: "array",
-      capacity: 32769,
+      index: 1,
+      size: 4194312,
+      status: "loaded",
+      capacity: 524289,
       occupiedSlots: 2,
       totalEntries: 2,
       lines: [
         { label: "[0]", text: "=0 (skipped)", filled: false },
         { label: "[1]", text: "7", filled: true },
-        { label: "[2..32767]", text: "=0 ×32766 (skipped)", filled: false },
-        { label: "[32768]", text: "9", filled: true },
+        { label: "[2..524287]", text: "=0 ×524286 (skipped)", filled: false },
+        { label: "[524288]", text: "9", filled: true },
       ],
     },
   ]);
   expect(state.complete).toBe(true);
   expect(calls).toEqual([
-    { slot: 7, off: 0, len: 262144 },
-    { slot: 7, off: 262144, len: 8 },
+    { slot: 7, off: 0, len: 4194304 },
+    { slot: 7, off: 4194304, len: 8 },
   ]);
   expect(progress).toEqual([
-    ["values", 0, 262152],
-    ["values", 262144, 262152],
-    ["values", 262152, 262152],
+    ["values", 0, 4194312],
+    ["values", 4194304, 4194312],
+    ["values", 4194312, 4194312],
   ]);
 });
 
@@ -210,7 +221,7 @@ test("readState: preserves an empty array as an empty block without an RPC read"
 
   expect(calls).toEqual([]);
   expect(state.fields).toEqual([]);
-  expect(state.containers).toEqual([
+  expect(state.containers).toMatchObject([
     {
       name: "values",
       kind: "array",
@@ -223,7 +234,219 @@ test("readState: preserves an empty array as an empty block without an RPC read"
   expect(state.complete).toBe(true);
 });
 
-test("readState: BitArray reads compact words in pages and renders logical bits", async () => {
+test("readState: collapses a 10 MiB container without reading it", async () => {
+  const source = `
+    using namespace QPI;
+    struct CONTRACT_STATE_TYPE : public ContractBase {
+      struct StateData {
+        SlowAnySizeArray<uint8, ${LARGE_STATE_CONTAINER_BYTES}> values;
+      };
+      INITIALIZE() {}
+    };
+  `;
+  const calls: StateReadCall[] = [];
+
+  const state = await readState(
+    fakeRpc([], calls),
+    7,
+    source,
+    "Huge",
+    undefined,
+    undefined,
+    { collapseContainersAtBytes: LARGE_STATE_CONTAINER_BYTES },
+  );
+
+  expect(calls).toEqual([]);
+  expect(state.complete).toBe(true);
+  expect(state.containers[0]).toMatchObject({
+    index: 1,
+    name: "values",
+    kind: "array",
+    size: LARGE_STATE_CONTAINER_BYTES,
+    status: "collapsed",
+    lines: [],
+  });
+});
+
+test("readState: direct container indexes follow declaration order", async () => {
+  const source = `
+    using namespace QPI;
+    struct CONTRACT_STATE_TYPE : public ContractBase {
+      struct StateData {
+        BitArray<64> flags;
+        HashMap<uint64, uint64, 4> values;
+        Array<uint64, 4> recent;
+        HashSet<uint64, 4> seen;
+        Collection<uint64, 4> queue;
+        LinkedList<uint64, 4> list;
+      };
+      INITIALIZE() {}
+    };
+  `;
+  const calls: StateReadCall[] = [];
+
+  const state = await readState(
+    fakeRpc([], calls),
+    7,
+    source,
+    "Indexed",
+    undefined,
+    undefined,
+    { collapseContainersAtBytes: 1 },
+  );
+
+  expect(calls).toEqual([]);
+  expect(
+    state.containers.map(({ index, name, kind, status }) => ({
+      index,
+      name,
+      kind,
+      status,
+    })),
+  ).toEqual([
+    { index: 1, name: "flags", kind: "bitarray", status: "collapsed" },
+    { index: 2, name: "values", kind: "hashmap", status: "collapsed" },
+    { index: 3, name: "recent", kind: "array", status: "collapsed" },
+    { index: 4, name: "seen", kind: "hashset", status: "collapsed" },
+    { index: 5, name: "queue", kind: "collection", status: "collapsed" },
+    { index: 6, name: "list", kind: "linkedlist", status: "collapsed" },
+  ]);
+});
+
+test("readState: an explicitly selected large container is loaded", async () => {
+  const source = `
+    using namespace QPI;
+    struct CONTRACT_STATE_TYPE : public ContractBase {
+      struct StateData { Array<uint64, 4> values; };
+      INITIALIZE() {}
+    };
+  `;
+  const bytes = new Uint8Array(32);
+  bytes.set(le(9, 8), 16);
+  const calls: StateReadCall[] = [];
+
+  const state = await readState(
+    fakeRpc(bytes, calls),
+    7,
+    source,
+    "Selected",
+    undefined,
+    undefined,
+    {
+      collapseContainersAtBytes: 1,
+      containerIndexes: new Set([1]),
+    },
+  );
+
+  expect(calls).toEqual([{ slot: 7, off: 0, len: 32 }]);
+  expect(state.containers[0]).toMatchObject({
+    index: 1,
+    status: "loaded",
+    occupiedSlots: 1,
+  });
+  expect(flatLines(state.containers[0])).toEqual([
+    "[0..1] =0 ×2 (skipped)",
+    "[2] 9",
+    "[3] =0 (skipped)",
+  ]);
+});
+
+test("readState: rejects an unknown container index before state reads", async () => {
+  const source = `
+    using namespace QPI;
+    struct CONTRACT_STATE_TYPE : public ContractBase {
+      struct StateData {
+        uint64 count;
+        Array<uint64, 4> values;
+      };
+      INITIALIZE() {}
+    };
+  `;
+  const calls: StateReadCall[] = [];
+
+  await expect(
+    readState(
+      fakeRpc(new Uint8Array(40), calls),
+      7,
+      source,
+      "InvalidSelection",
+      undefined,
+      undefined,
+      { containerIndexes: new Set([2]) },
+    ),
+  ).rejects.toThrow("container index 2 is outside 1..1");
+  expect(calls).toEqual([]);
+});
+
+test("loadStateContainer reads only the collapsed block", async () => {
+  const source = `
+    using namespace QPI;
+    struct CONTRACT_STATE_TYPE : public ContractBase {
+      struct StateData { Array<uint64, 4> values; };
+      INITIALIZE() {}
+    };
+  `;
+  const initial = await readState(
+    fakeRpc([]),
+    7,
+    source,
+    "Deferred",
+    undefined,
+    undefined,
+    { collapseContainersAtBytes: 1 },
+  );
+  const bytes = new Uint8Array(32);
+  bytes.set(le(4, 8), 8);
+  const calls: StateReadCall[] = [];
+
+  const loaded = await loadStateContainer(
+    fakeRpc(bytes, calls),
+    7,
+    initial.containers[0],
+  );
+
+  expect(calls).toEqual([{ slot: 7, off: 0, len: 32 }]);
+  expect(loaded).toMatchObject({
+    index: 1,
+    name: "values",
+    status: "loaded",
+    occupiedSlots: 1,
+  });
+});
+
+test("readState: completes a 4 MiB request from shorter server chunks", async () => {
+  const source = `
+    using namespace QPI;
+    struct CONTRACT_STATE_TYPE : public ContractBase {
+      struct StateData { Array<uint64, 4> values; };
+      INITIALIZE() {}
+    };
+  `;
+  const bytes = new Uint8Array(32);
+  bytes.set(le(5, 8), 24);
+  const calls: StateReadCall[] = [];
+  const rpc: StateReader = {
+    stateRead: async (slot, off, len) => {
+      calls.push({ slot, off, len });
+      return {
+        hex: hx(Array.from(bytes.subarray(off, off + Math.min(len, 8)))),
+      };
+    },
+  };
+
+  const state = await readState(rpc, 7, source, "ShortChunks");
+
+  expect(calls).toEqual([
+    { slot: 7, off: 0, len: 32 },
+    { slot: 7, off: 8, len: 24 },
+    { slot: 7, off: 16, len: 16 },
+    { slot: 7, off: 24, len: 8 },
+  ]);
+  expect(state.complete).toBe(true);
+  expect(state.containers[0].occupiedSlots).toBe(1);
+});
+
+test("readState: BitArray reads compact words and renders logical bits", async () => {
   const bitCount = 4_194_304;
   const bytes = new Uint8Array(bitCount / 8);
   bytes[262143] = 0x80;
@@ -239,15 +462,23 @@ test("readState: BitArray reads compact words in pages and renders logical bits"
   );
 
   expect(calls).toEqual([
-    { slot: 9, off: 0, len: 262144 },
-    { slot: 9, off: 262144, len: 262144 },
+    { slot: 9, off: 0, len: 524288 },
   ]);
-  expect(state.fields).toEqual([
-    {
-      name: "bits",
-      value:
-        "[0..2097150]=0 ×2097151 (skipped), [2097151]=1, [2097152]=1, [2097153..4194303]=0 ×2097151 (skipped)",
-    },
+  expect(state.fields).toEqual([]);
+  expect(state.containers[0]).toMatchObject({
+    index: 1,
+    name: "bits",
+    kind: "bitarray",
+    status: "loaded",
+    capacity: bitCount,
+    occupiedSlots: 2,
+    totalEntries: 2,
+  });
+  expect(flatLines(state.containers[0])).toEqual([
+    "[0..2097150] =0 ×2097151 (skipped)",
+    "[2097151] =1",
+    "[2097152] =1",
+    "[2097153..4194303] =0 ×2097151 (skipped)",
   ]);
   expect(state.complete).toBe(true);
 });
@@ -265,9 +496,15 @@ test("readState: BitArray ignores high padding bits", async () => {
   );
 
   expect(calls).toEqual([{ slot: 2, off: 0, len: 1 }]);
-  expect(state.fields).toEqual([
-    { name: "bits", value: "[0]=1, [1]=1" },
-  ]);
+  expect(state.fields).toEqual([]);
+  expect(state.containers[0]).toMatchObject({
+    kind: "bitarray",
+    occupiedSlots: 2,
+    lines: [
+      { label: "[0]", text: "=1", filled: true },
+      { label: "[1]", text: "=1", filled: true },
+    ],
+  });
 });
 
 test("readState: nested BitArray keeps one-field struct boundaries", async () => {
@@ -304,7 +541,7 @@ test("readState: an empty HashMap only reads population", async () => {
 
   expect(calls).toEqual([{ slot: 3, off: 136, len: 8 }]);
   expect(state.complete).toBe(true);
-  expect(state.containers).toEqual([
+  expect(state.containers).toMatchObject([
     {
       name: "values",
       kind: "hashmap",
@@ -378,7 +615,7 @@ test("readState: a sparse HashMap fetches only occupied record ranges", async ()
     { slot: 4, off: 96, len: 16 },
   ]);
   expect(state.complete).toBe(true);
-  expect(state.containers).toEqual([
+  expect(state.containers).toMatchObject([
     {
       name: "values",
       kind: "hashmap",
@@ -516,7 +753,7 @@ test("readState: an empty LinkedList only reads population", async () => {
 
   expect(calls).toEqual([{ slot: 10, off: 232, len: 8 }]);
   expect(state.complete).toBe(true);
-  expect(state.containers).toEqual([
+  expect(state.containers).toMatchObject([
     {
       name: "values",
       kind: "linkedlist",
@@ -547,7 +784,7 @@ test("readState: LinkedList reads occupied nodes and renders logical order", asy
     { slot: 11, off: 144, len: 24 },
   ]);
   expect(state.complete).toBe(true);
-  expect(state.containers).toEqual([
+  expect(state.containers).toMatchObject([
     {
       name: "values",
       kind: "linkedlist",
@@ -706,7 +943,7 @@ test("readState: a sparse HashSet fetches only occupied key ranges", async () =>
     { slot: 2, off: 0, len: 32 },
   ]);
   expect(state.complete).toBe(true);
-  expect(state.containers).toEqual([
+  expect(state.containers).toMatchObject([
     {
       name: "seen",
       kind: "hashset",
@@ -753,7 +990,7 @@ test("readState reports incomplete scalar and container reads", async () => {
   expect(state.fields).toEqual([
     { name: "counter", value: "(read failed: rpc down)" },
   ]);
-  expect(state.containers).toEqual([
+  expect(state.containers).toMatchObject([
     {
       name: "bal",
       kind: "hashmap",

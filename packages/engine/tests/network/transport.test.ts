@@ -345,6 +345,22 @@ test("VirtualNode exposes the simulator's direct procedure, query, and digest op
   expect(eng.universeDigest()).toEqual(eng.sim.universeDigest());
 });
 
+test("stateRead avoids copying the full contract state", async () => {
+  const eng = await VirtualNode.create({ fees: "off" });
+  const contract = eng.deploy(28, await wasm("Counter"), "Counter");
+  contract.writeState(new Uint8Array([1, 2, 3, 4]));
+  contract.state = () => {
+    throw new Error("full state snapshot requested");
+  };
+
+  expect(await eng.stateRead(28, 1, 2)).toEqual({
+    off: 1,
+    len: 2,
+    stateSize: contract.stateSize,
+    hex: "0203",
+  });
+});
+
 test("fund + balance accept either an id string or raw bytes (unified id type)", async () => {
   const eng = await VirtualNode.create({ fees: "off" });
   const idStr = (await deriveIdentity(SEED)).identity;

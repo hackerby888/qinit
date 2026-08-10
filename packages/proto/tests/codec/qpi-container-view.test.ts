@@ -95,29 +95,108 @@ test("Array view preserves nested values and exposes strict indexes", async () =
     { index: 0, value: [0], isZeroBytes: true },
     { index: 1, value: [9], isZeroBytes: false },
   ]);
+  const nonZeroEntries = [];
+  for await (const entry of array.nonZeroEntries()) {
+    nonZeroEntries.push(entry);
+  }
+  expect(nonZeroEntries).toEqual([
+    { index: 1, value: [9], isZeroBytes: false },
+  ]);
   expect(await array.get(1)).toEqual([9]);
   await expect(array.get(2)).rejects.toBeInstanceOf(RangeError);
 });
 
+test("Array sparse entries inspect the entire encoded stride", async () => {
+  const paddedElement: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    fields: [{ name: "value", offset: 0, size: 1, type: uint8Type }],
+    size: 1,
+    align: 8,
+    format: "{ uint8 }",
+  };
+  const geometry = arrayGeometry(paddedElement, 2);
+  const arrayType: AbiArray = {
+    kind: AbiTypeKind.ARRAY,
+    element: paddedElement,
+    count: 2,
+    size: geometry.size,
+    align: geometry.align,
+    format: "[2;{ uint8 }]",
+  };
+  const bytes = new Uint8Array(arrayType.size);
+  bytes[7] = 1;
+
+  const entries = [];
+  const array = new QpiArrayView(arrayType, qpiSnapshotSource(bytes));
+  for await (const entry of array.nonZeroEntries()) {
+    entries.push(entry);
+  }
+  expect(entries).toEqual([
+    { index: 0, value: [0], isZeroBytes: false },
+  ]);
+});
+
+test("Array sparse entries skip zero strides before decoding", async () => {
+  const malformedElement: AbiStruct = {
+    kind: AbiTypeKind.STRUCT,
+    fields: [{ name: "value", offset: 0, size: 8, type: uint64Type }],
+    size: 1,
+    align: 1,
+    format: "{ uint64 }",
+  };
+  const geometry = arrayGeometry(malformedElement, 2);
+  const arrayType: AbiArray = {
+    kind: AbiTypeKind.ARRAY,
+    element: malformedElement,
+    count: 2,
+    size: geometry.size,
+    align: geometry.align,
+    format: "[2;{ uint64 }]",
+  };
+  const array = new QpiArrayView(
+    arrayType,
+    qpiSnapshotSource(new Uint8Array(arrayType.size)),
+  );
+
+  const entries = [];
+  for await (const entry of array.nonZeroEntries()) {
+    entries.push(entry);
+  }
+  expect(entries).toEqual([]);
+  await expect(array.entries()).rejects.toThrow();
+});
+
 test("BitArray view ignores padding and rejects invalid indexes and capacity", async () => {
-  const geometry = bitArrayGeometry(2);
+  const geometry = bitArrayGeometry(16);
   const bitType: AbiBitArray = {
     kind: AbiTypeKind.BIT_ARRAY,
-    bitCount: 2,
+    bitCount: 16,
     size: geometry.size,
     align: geometry.align,
     format: "[1;uint64]",
   };
   const bitBytes = new Uint8Array(8);
   bitBytes[0] = 1;
+  bitBytes[1] = 2;
   bitBytes[7] = 0x80;
-  const tracked = sourceOf(bitBytes);
+  const tracked = sourceOf(bitBytes, 1);
   const bits = new QpiBitArrayView(bitType, tracked.source);
   const entries = await bits.entries();
-  expect(entries).toHaveLength(2);
+  expect(entries).toHaveLength(16);
   expect(entries.filter((entry) => entry.value).map((entry) => entry.index))
-    .toEqual([0]);
-  expect(tracked.reads).toEqual([[0, 1]]);
+    .toEqual([0, 9]);
+  expect(tracked.reads).toEqual([[0, 1], [1, 1]]);
+  const setBits = [];
+  for await (const index of bits.setBits()) {
+    setBits.push(index);
+  }
+  expect(setBits).toEqual([0, 9]);
+  expect(tracked.reads).toEqual([
+    [0, 1],
+    [1, 1],
+    [0, 1],
+    [1, 1],
+  ]);
   expect(await bits.get(1)).toBe(0);
   await expect(bits.get(-1)).rejects.toBeInstanceOf(RangeError);
 

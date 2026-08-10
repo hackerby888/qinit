@@ -114,6 +114,18 @@ test("parseCommandInvocation accepts setup --force", () => {
   expect(invocation.commandArgs.has("force")).toBe(true);
 });
 
+test("state accepts repeated container indexes", () => {
+  const invocation = parseCommandInvocation("state", [
+    "QUTIL",
+    "--container",
+    "12",
+    "--container=2",
+  ]);
+
+  expect(invocation.commandArgs.positionals).toEqual(["QUTIL"]);
+  expect(invocation.commandArgs.getAll("container")).toEqual(["12", "2"]);
+});
+
 test("parseCommandInvocation resolves and strips a known first subcommand", () => {
   const invocation = parseCommandInvocation("node", [
     "run",

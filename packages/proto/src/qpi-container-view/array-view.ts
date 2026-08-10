@@ -47,8 +47,21 @@ export class QpiArrayView {
 
   async entries(): Promise<QpiArrayEntry[]> {
     const entries: QpiArrayEntry[] = [];
+    for await (const entry of this.readEntries(false)) {
+      entries.push(entry);
+    }
+    return entries;
+  }
+
+  async *nonZeroEntries(): AsyncIterable<QpiArrayEntry> {
+    yield* this.readEntries(true);
+  }
+
+  private async *readEntries(
+    skipZeroBytes: boolean,
+  ): AsyncIterable<QpiArrayEntry> {
     if (!this.capacity) {
-      return entries;
+      return;
     }
 
     const elementsPerPage = Math.max(
@@ -62,21 +75,27 @@ export class QpiArrayView {
         start * this.stride,
         count * this.stride,
       );
+      if (skipZeroBytes && bytes.every((byte) => byte === 0)) {
+        continue;
+      }
       for (let pageIndex = 0; pageIndex < count; pageIndex++) {
         const index = start + pageIndex;
         const offset = pageIndex * this.stride;
         const encoded = bytes.subarray(offset, offset + this.stride);
-        entries.push({
+        const isZeroBytes = encoded.every((byte) => byte === 0);
+        if (skipZeroBytes && isZeroBytes) {
+          continue;
+        }
+        yield {
           index,
           value: await decodeAbiValue(
             encoded.slice(0, this.type.element.size),
             this.type.element,
           ),
-          isZeroBytes: encoded.every((byte) => byte === 0),
-        });
+          isZeroBytes,
+        };
       }
     }
-    return entries;
   }
 
   private assertIndex(index: number): void {

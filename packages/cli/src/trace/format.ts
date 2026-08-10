@@ -24,6 +24,15 @@ export { hexToBytes };
 
 export type StateContainerLayout =
   | {
+      kind: "array";
+      element: AbiType;
+      capacity: number;
+    }
+  | {
+      kind: "bitarray";
+      capacity: number;
+    }
+  | {
       kind: "hashmap";
       key: AbiType;
       value: AbiType;
@@ -57,13 +66,17 @@ export type StateField = {
 // separates an occupied slot from a skipped range.
 export type StateLine = { label: string; text: string; filled: boolean };
 export type StateContainer = {
+  index: number;
   name: string;
-  kind: StateContainerLayout["kind"] | "array";
+  kind: StateContainerLayout["kind"];
+  size: number;
+  status: "collapsed" | "loading" | "loaded" | "error";
   capacity: number;
   occupiedSlots: number;
   totalEntries: number;
   lines: StateLine[];
   error?: string;
+  sourceField: StateField;
 };
 export type StateReader = {
   stateRead(slot: number, off: number, len: number): Promise<{ hex: string }>;
@@ -73,6 +86,11 @@ export type StateReadProgress = (
   completedBytes: number,
   totalBytes: number,
 ) => void;
+export type StateReadOptions = {
+  collapseContainersAtBytes?: number;
+  containerIndexes?: ReadonlySet<number>;
+  loadAllContainers?: boolean;
+};
 
 export const jstr = (value: any) =>
   JSON.stringify(
@@ -82,7 +100,8 @@ export const jstr = (value: any) =>
 
 const RUN_MIN = 6;
 const MAX_ITEMS = 32;
-const MAX_STATE_READ = 262144;
+const MAX_STATE_READ = 4 * 1024 * 1024;
+export const LARGE_STATE_CONTAINER_BYTES = 10 * 1024 * 1024;
 
 function groupedParts(parts: string[]): string[] {
   const groups: { value: string; count: number }[] = [];
@@ -288,19 +307,37 @@ function stateByteSource(
       }
 
       const absoluteOffset = field.off + relativeOffset;
-      const { hex } = await rpc.stateRead(
-        contractIndex,
-        absoluteOffset,
-        length,
-      );
-      if (hex.length !== length * 2 || !/^[0-9a-f]*$/i.test(hex)) {
-        throw new QpiIncompleteReadError(
-          `short state read at ${absoluteOffset}: expected ${length} bytes, got ${Math.floor(hex.length / 2)}`,
+      const bytes = new Uint8Array(length);
+      let completedBytes = 0;
+
+      while (completedBytes < length) {
+        const remainingBytes = length - completedBytes;
+        const { hex } = await rpc.stateRead(
+          contractIndex,
+          absoluteOffset + completedBytes,
+          remainingBytes,
+        );
+        if (hex.length % 2 || !/^[0-9a-f]*$/i.test(hex)) {
+          throw new QpiIncompleteReadError(
+            `invalid state read at ${absoluteOffset + completedBytes}`,
+          );
+        }
+
+        const chunk = hexToBytes(hex);
+        if (!chunk.length || chunk.length > remainingBytes) {
+          throw new QpiIncompleteReadError(
+            `short state read at ${absoluteOffset}: expected ${length} bytes, got ${completedBytes}`,
+          );
+        }
+
+        bytes.set(chunk, completedBytes);
+        completedBytes += chunk.length;
+        onRead?.(
+          Math.min(relativeOffset + completedBytes, field.size),
         );
       }
 
-      onRead?.(Math.min(relativeOffset + length, field.size));
-      return hexToBytes(hex);
+      return bytes;
     },
   };
 }
@@ -383,6 +420,17 @@ function unoccupiedSlotLines(
 
 function containerLayoutOf(type: AbiType): StateContainerLayout | undefined {
   switch (type.kind) {
+    case AbiTypeKind.ARRAY:
+      return {
+        kind: "array",
+        element: type.element,
+        capacity: type.count,
+      };
+    case AbiTypeKind.BIT_ARRAY:
+      return {
+        kind: "bitarray",
+        capacity: type.bitCount,
+      };
     case AbiTypeKind.HASH_MAP:
       return {
         kind: "hashmap",
@@ -460,6 +508,8 @@ async function formatContainerView(
 
   const type = field.abi;
   switch (type.kind) {
+    case AbiTypeKind.ARRAY:
+    case AbiTypeKind.BIT_ARRAY:
     case AbiTypeKind.HASH_MAP:
     case AbiTypeKind.HASH_SET:
     case AbiTypeKind.COLLECTION:
@@ -471,6 +521,28 @@ async function formatContainerView(
 
   const view = createQpiContainerView(type, source);
   switch (view.kind) {
+    case AbiTypeKind.ARRAY: {
+      if (container.kind !== "array") {
+        throw new Error(`invalid ${field.name} container type`);
+      }
+      const formatted = await readArrayBlock(view);
+      return {
+        stateLines: formatted.lines,
+        occupiedSlots: formatted.setCount,
+        totalEntries: formatted.setCount,
+      };
+    }
+    case AbiTypeKind.BIT_ARRAY: {
+      if (container.kind !== "bitarray") {
+        throw new Error(`invalid ${field.name} container type`);
+      }
+      const formatted = await readBitArrayBlock(view);
+      return {
+        stateLines: formatted.lines,
+        occupiedSlots: formatted.setCount,
+        totalEntries: formatted.setCount,
+      };
+    }
     case AbiTypeKind.HASH_MAP: {
       if (container.kind !== "hashmap") {
         throw new Error(`invalid ${field.name} container type`);
@@ -540,13 +612,18 @@ async function formatContainerView(
 async function readContainerBlock(
   rpc: StateReader,
   contractIndex: number,
+  index: number,
   field: StateField,
   container: StateContainerLayout,
+  onRead?: (completedBytes: number) => void,
 ): Promise<StateContainer> {
   const head = {
+    index,
     name: field.name,
     kind: container.kind,
+    size: field.size,
     capacity: container.capacity,
+    sourceField: field,
   };
   let lastError: unknown;
 
@@ -555,11 +632,12 @@ async function readContainerBlock(
     try {
       const formatted = await formatContainerView(
         field,
-        stateByteSource(rpc, contractIndex, field),
+        stateByteSource(rpc, contractIndex, field, onRead),
         true,
       );
       return {
         ...head,
+        status: "loaded",
         occupiedSlots: formatted.occupiedSlots,
         totalEntries: formatted.totalEntries,
         lines: formatted.stateLines,
@@ -574,11 +652,65 @@ async function readContainerBlock(
 
   return {
     ...head,
+    status: "error",
     occupiedSlots: 0,
     totalEntries: 0,
     lines: [],
     error: stateReadError(lastError),
   };
+}
+
+function collapsedContainer(
+  index: number,
+  field: StateField,
+  container: StateContainerLayout,
+): StateContainer {
+  return {
+    index,
+    name: field.name,
+    kind: container.kind,
+    size: field.size,
+    status: "collapsed",
+    capacity: container.capacity,
+    occupiedSlots: 0,
+    totalEntries: 0,
+    lines: [],
+    sourceField: field,
+  };
+}
+
+export async function loadStateContainer(
+  rpc: StateReader,
+  contractIndex: number,
+  container: StateContainer,
+  onProgress?: StateReadProgress,
+): Promise<StateContainer> {
+  const field = container.sourceField;
+  if (!field.container) {
+    throw new Error(`${field.name} is not a state container`);
+  }
+
+  onProgress?.(field.name, 0, field.size);
+  let completedBytes = 0;
+  const reportRead = (value: number) => {
+    completedBytes = value;
+    onProgress?.(field.name, value, field.size);
+  };
+  const tracksReads =
+    field.container.kind === "array" ||
+    field.container.kind === "bitarray";
+  const loaded = await readContainerBlock(
+    rpc,
+    contractIndex,
+    container.index,
+    field,
+    field.container,
+    tracksReads ? reportRead : undefined,
+  );
+  if (!tracksReads && completedBytes < field.size) {
+    onProgress?.(field.name, field.size, field.size);
+  }
+  return loaded;
 }
 
 export const sevColor = (severity: string) =>
@@ -675,69 +807,78 @@ export interface DecodedState {
 
 // An Array field reads as its own block: one row per set element, zero runs collapsed into a skipped row.
 async function readArrayBlock(
-  field: StateField,
-  type: Extract<AbiType, { kind: AbiTypeKind.ARRAY }>,
-  source: QpiByteSource,
+  view: Extract<
+    ReturnType<typeof createQpiContainerView>,
+    { kind: AbiTypeKind.ARRAY }
+  >,
 ): Promise<{ lines: StateLine[]; setCount: number }> {
+  const type = view.type;
   if (!type.count) {
     return { lines: [], setCount: 0 };
-  }
-  const view = createQpiContainerView(type, source);
-  if (view.kind !== AbiTypeKind.ARRAY) {
-    throw new Error(`${field.name} is not an Array`);
   }
 
   const lines: StateLine[] = [];
   let setCount = 0;
-  let zeroStart: number | undefined;
+  let nextIndex = 0;
 
-  const flushZeros = (end: number) => {
-    if (zeroStart === undefined) {
+  const addZeroRange = (start: number, end: number) => {
+    if (end < start) {
       return;
     }
-    const count = end - zeroStart + 1;
+    const count = end - start + 1;
     lines.push({
-      label: zeroStart === end ? `[${zeroStart}]` : `[${zeroStart}..${end}]`,
+      label: start === end ? `[${start}]` : `[${start}..${end}]`,
       text: `=0${count > 1 ? ` ×${count}` : ""} (skipped)`,
       filled: false,
     });
-    zeroStart = undefined;
   };
 
-  for (const entry of await view.entries()) {
-    if (entry.isZeroBytes) {
-      zeroStart ??= entry.index;
-      continue;
-    }
-
-    flushZeros(entry.index - 1);
+  for await (const entry of view.nonZeroEntries()) {
+    addZeroRange(nextIndex, entry.index - 1);
     lines.push({
       label: `[${entry.index}]`,
       text: formatStateValue(entry.value, type.element, true),
       filled: true,
     });
     setCount++;
+    nextIndex = entry.index + 1;
   }
 
-  flushZeros(type.count - 1);
+  addZeroRange(nextIndex, type.count - 1);
   return { lines, setCount };
 }
 
-async function readBitArrayView(
-  field: StateField,
-  type: Extract<AbiType, { kind: AbiTypeKind.BIT_ARRAY }>,
-  source: QpiByteSource,
-): Promise<string> {
-  const view = createQpiContainerView(type, source);
-  if (view.kind !== AbiTypeKind.BIT_ARRAY) {
-    throw new Error(`${field.name} is not a BitArray`);
+async function readBitArrayBlock(
+  view: Extract<
+    ReturnType<typeof createQpiContainerView>,
+    { kind: AbiTypeKind.BIT_ARRAY }
+  >,
+): Promise<{ lines: StateLine[]; setCount: number }> {
+  const lines: StateLine[] = [];
+  let setCount = 0;
+  let nextIndex = 0;
+
+  const addZeroRange = (start: number, end: number) => {
+    if (end < start) {
+      return;
+    }
+    const count = end - start + 1;
+    lines.push({
+      label: start === end ? `[${start}]` : `[${start}..${end}]`,
+      text: `=0${count > 1 ? ` ×${count}` : ""} (skipped)`,
+      filled: false,
+    });
+  };
+
+  for await (const index of view.setBits()) {
+    addZeroRange(nextIndex, index - 1);
+    lines.push({ label: `[${index}]`, text: "=1", filled: true });
+    setCount++;
+    nextIndex = index + 1;
   }
-  const entries = await view.entries();
-  return formatBits(
-    type.bitCount,
-    (index) => entries[index]?.value ?? 0,
-    true,
-  );
+
+  addZeroRange(nextIndex, view.capacity - 1);
+  return { lines, setCount };
 }
 
 export async function readState(
@@ -747,14 +888,28 @@ export async function readState(
   name: string,
   qpiHeader?: string,
   onProgress?: StateReadProgress,
+  options: StateReadOptions = {},
 ): Promise<DecodedState> {
   const idl = extractIdl(source, name, {
     slot: contractIndex,
     qpiHeader,
   });
   const fields = stateFieldsOf(idl);
+  const containerCount = fields.filter((field) => field.container).length;
+  for (const index of options.containerIndexes ?? []) {
+    if (
+      !Number.isSafeInteger(index) ||
+      index < 1 ||
+      index > containerCount
+    ) {
+      throw new RangeError(
+        `container index ${index} is outside 1..${containerCount}`,
+      );
+    }
+  }
   const decodedFields: { name: string; value: string }[] = [];
   const containers: StateContainer[] = [];
+  let containerIndex = 0;
 
   // One pass, so the blocks below the scalar rows keep the order the fields are declared in.
   for (const field of fields) {
@@ -766,15 +921,47 @@ export async function readState(
       continue;
     }
 
-    onProgress?.(field.name, 0, field.size);
     if (field.container) {
-      containers.push(
-        await readContainerBlock(rpc, contractIndex, field, field.container),
-      );
-      onProgress?.(field.name, field.size, field.size);
+      containerIndex++;
+      const selected = options.containerIndexes?.has(containerIndex) ?? false;
+      const collapsed =
+        options.collapseContainersAtBytes !== undefined &&
+        field.size >= options.collapseContainersAtBytes &&
+        !selected &&
+        !options.loadAllContainers;
+
+      if (collapsed) {
+        containers.push(
+          collapsedContainer(containerIndex, field, field.container),
+        );
+      } else {
+        onProgress?.(field.name, 0, field.size);
+        let completedBytes = 0;
+        const reportRead = (value: number) => {
+          completedBytes = value;
+          onProgress?.(field.name, value, field.size);
+        };
+        const tracksReads =
+          field.container.kind === "array" ||
+          field.container.kind === "bitarray";
+        containers.push(
+          await readContainerBlock(
+            rpc,
+            contractIndex,
+            containerIndex,
+            field,
+            field.container,
+            tracksReads ? reportRead : undefined,
+          ),
+        );
+        if (!tracksReads && completedBytes < field.size) {
+          onProgress?.(field.name, field.size, field.size);
+        }
+      }
       continue;
     }
 
+    onProgress?.(field.name, 0, field.size);
     try {
       const byteSource = stateByteSource(
         rpc,
@@ -783,34 +970,6 @@ export async function readState(
         (completedBytes) =>
           onProgress?.(field.name, completedBytes, field.size),
       );
-      if (field.abi?.kind === AbiTypeKind.BIT_ARRAY) {
-        decodedFields.push({
-          name: field.name,
-          value: await readBitArrayView(
-            field,
-            field.abi,
-            byteSource,
-          ),
-        });
-        continue;
-      }
-      if (field.abi?.kind === AbiTypeKind.ARRAY) {
-        const { lines, setCount } = await readArrayBlock(
-          field,
-          field.abi,
-          byteSource,
-        );
-        containers.push({
-          name: field.name,
-          kind: "array",
-          capacity: field.abi.count,
-          occupiedSlots: setCount,
-          totalEntries: setCount,
-          lines,
-        });
-        continue;
-      }
-
       const decoded = await decodeOutput(
         await readAllBytes(byteSource),
         field.abi ?? field.type,
@@ -825,20 +984,6 @@ export async function readState(
             : String(decoded),
       });
     } catch (error) {
-      // An Array reports its failure as a block so it is not mistaken for a complete read.
-      if (field.abi?.kind === AbiTypeKind.ARRAY) {
-        containers.push({
-          name: field.name,
-          kind: "array",
-          capacity: field.abi.count,
-          occupiedSlots: 0,
-          totalEntries: 0,
-          lines: [],
-          error: stateReadError(error),
-        });
-        continue;
-      }
-
       decodedFields.push({
         name: field.name,
         value: `(read failed: ${stateReadError(error)})`,
@@ -846,15 +991,21 @@ export async function readState(
     }
   }
 
-  return {
+  const state = {
     fields: decodedFields,
     containers,
-    complete:
-      !decodedFields.some(
-        (field) =>
-          field.value.includes("read failed") ||
-          field.value.includes("undecodable"),
-      ) &&
-      containers.every((container) => !container.error),
+    complete: false,
   };
+  state.complete = stateIsComplete(state);
+  return state;
+}
+
+export function stateIsComplete(
+  state: Pick<DecodedState, "fields" | "containers">,
+): boolean {
+  return !state.fields.some(
+    (field) =>
+      field.value.includes("read failed") ||
+      field.value.includes("undecodable"),
+  ) && state.containers.every((container) => container.status !== "error");
 }

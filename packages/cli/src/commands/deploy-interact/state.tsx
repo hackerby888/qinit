@@ -1,11 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import {
   DEFAULT_RPC_BASE,
   LiteRpc,
   type DynamicContractRegistryEntry,
 } from "@qinit/core";
-import { readState, type DecodedState } from "../../trace/format";
+import {
+  LARGE_STATE_CONTAINER_BYTES,
+  loadStateContainer,
+  readState,
+  stateIsComplete,
+  type DecodedState,
+  type StateContainer,
+} from "../../trace/format";
 import { StateView } from "../../trace/views";
 import { loadConfig, loadConfiguredQpiHeader } from "../../config";
 import { loadContracts, mergeContracts } from "../../contracts/registry";
@@ -16,18 +23,41 @@ import { dumpContractState, type StateDumpResult } from "../../contracts/state-d
 
 type DigestOutput = StateDigestResult | { ok: false; error: string };
 type DumpOutput = StateDumpResult | { ok: false; error: string };
+type Phase = "loading" | "pick" | "show" | "browse" | "done";
+
+const CONTAINER_INPUT_DELAY_MS = 500;
+
+function parseContainerIndexes(values: readonly string[]): Set<number> {
+  const indexes = new Set<number>();
+  for (const value of values) {
+    if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+      invalidArgs(`--container must be a positive safe integer (got '${value}')`);
+    }
+    indexes.add(Number(value));
+  }
+  return indexes;
+}
 
 export function State({ commandArgs }: { commandArgs: CommandArguments }) {
+  const containerIndexes = parseContainerIndexes(commandArgs.getAll("container"));
   const o = {
     target: commandArgs.positionals[0] ?? "",
     rpc: commandArgs.get("rpc"),
     digest: commandArgs.has("digest"),
     dump: commandArgs.has("dump"),
     out: commandArgs.get("out"),
+    all: commandArgs.has("all"),
   };
   if (o.out && !o.dump) {
     invalidArgs("--out only applies with --dump");
   }
+  if (o.all && containerIndexes.size) {
+    invalidArgs("--all cannot be combined with --container");
+  }
+  if ((o.all || containerIndexes.size) && (o.digest || o.dump)) {
+    invalidArgs("--all and --container only apply to decoded state output");
+  }
+  const explicitContainerSelection = o.all || containerIndexes.size > 0;
   const rpcBaseUrl = o.rpc || loadConfig().rpc || DEFAULT_RPC_BASE;
   const { exit } = useApp();
   const [lines, setLines] = useState<string[]>([]);
@@ -36,11 +66,49 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
   const [contracts, setContracts] = useState<DynamicContractRegistryEntry[]>([]);
   const [userCount, setUserCount] = useState(0); // contracts[0..userCount) deployed, rest system
   const [i, setI] = useState(0);
-  const [phase, setPhase] = useState<"loading" | "pick" | "show" | "done">("loading");
+  const [phase, setPhase] = useState<Phase>("loading");
   const [digest, setDigest] = useState<DigestOutput | null>(null);
   const [dump, setDump] = useState<DumpOutput | null>(null);
   const [progress, setProgress] = useState("");
+  const [containerInput, setContainerInput] = useState("");
+  const [containerHint, setContainerHint] = useState("");
+  const [hiddenContainerIndexes, setHiddenContainerIndexes] = useState<Set<number>>(
+    new Set(),
+  );
+  const decodedStateRef = useRef<DecodedState | null>(null);
+  const containerInputRef = useRef("");
+  const containerInputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadInFlightRef = useRef<number | null>(null);
+  const contractIndexRef = useRef<number | null>(null);
+  const exitingRef = useRef(false);
   const add = (s: string) => setLines((l) => [...l, s]);
+
+  const setCurrentState = (state: DecodedState) => {
+    decodedStateRef.current = state;
+    setDecodedState(state);
+  };
+
+  const replaceContainer = (
+    container: StateContainer,
+    recomputeComplete = false,
+  ): DecodedState | null => {
+    const current = decodedStateRef.current;
+    if (!current) {
+      return null;
+    }
+    const containers = current.containers.map((candidate) =>
+      candidate.index === container.index ? container : candidate,
+    );
+    const next = {
+      ...current,
+      containers,
+      complete: recomputeComplete
+        ? stateIsComplete({ fields: current.fields, containers })
+        : current.complete,
+    };
+    setCurrentState(next);
+    return next;
+  };
 
   // What the user would have typed to skip the picker, echoed the way `qinit call` echoes its own.
   const equivCmd = (c: DynamicContractRegistryEntry) => {
@@ -50,6 +118,12 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
     }
     if (o.out) {
       parts.push(`--out ${o.out}`);
+    }
+    for (const index of containerIndexes) {
+      parts.push(`--container ${index}`);
+    }
+    if (o.all) {
+      parts.push("--all");
     }
     if (o.rpc) {
       parts.push(`--rpc ${o.rpc}`);
@@ -80,6 +154,7 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
   const load = async (c: DynamicContractRegistryEntry) => {
     setPhase("loading");
     setProgress("");
+    contractIndexRef.current = c.index;
     try {
       const label = c.name || String(c.index);
       setName(label);
@@ -91,22 +166,34 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
         throw new Error(`node has no source for slot ${c.index} — cannot decode state`);
       const rpc = new LiteRpc(rpcBaseUrl);
       await rpc.tickInfo(); // fail fast + loud if the node is unreachable (else readState silently fills "(read failed)")
-      setDecodedState(
-        await readState(
-          rpc,
-          c.index,
-          c.source,
-          c.name || "Contract",
-          loadConfiguredQpiHeader(),
-          (field, completedBytes, totalBytes) => {
-            const percent = totalBytes
-              ? Math.floor((completedBytes * 100) / totalBytes)
-              : 100;
-            setProgress(`reading ${field} · ${percent}%`);
-          },
-        ),
+      const state = await readState(
+        rpc,
+        c.index,
+        c.source,
+        c.name || "Contract",
+        loadConfiguredQpiHeader(),
+        (field, completedBytes, totalBytes) => {
+          const percent = totalBytes
+            ? Math.floor((completedBytes * 100) / totalBytes)
+            : 100;
+          setProgress(`reading ${field} · ${percent}%`);
+        },
+        {
+          collapseContainersAtBytes: LARGE_STATE_CONTAINER_BYTES,
+          containerIndexes,
+          loadAllContainers: o.all,
+        },
       );
-      setPhase("show");
+      setCurrentState(state);
+      setProgress("");
+      process.exitCode = state.complete ? 0 : 1;
+      const browse =
+        !explicitContainerSelection &&
+        !output.json &&
+        Boolean(process.stdin.isTTY) &&
+        Boolean(process.stdout.isTTY) &&
+        state.containers.some((container) => container.status === "collapsed");
+      setPhase(browse ? "browse" : "show");
     } catch (e: any) {
       const message = String(e?.message ?? e);
       if (o.dump) {
@@ -116,6 +203,145 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
       add("ERROR: " + message);
       setPhase("done");
     }
+  };
+
+  const activateContainer = async (rawIndex: string) => {
+    const index = Number(rawIndex);
+    const state = decodedStateRef.current;
+    const container = state?.containers.find(
+      (candidate) => candidate.index === index,
+    );
+    if (!Number.isSafeInteger(index) || index < 1 || !container) {
+      setContainerHint(`no state container ${rawIndex}`);
+      return;
+    }
+
+    if (container.status === "loaded") {
+      setHiddenContainerIndexes((current) => {
+        const next = new Set(current);
+        if (next.has(index)) {
+          next.delete(index);
+        } else {
+          next.add(index);
+        }
+        return next;
+      });
+      setContainerHint(`container ${index} toggled from cache`);
+      return;
+    }
+
+    if (container.status === "loading") {
+      setContainerHint(`loading container ${index}`);
+      return;
+    }
+    if (loadInFlightRef.current !== null) {
+      setContainerHint(`loading container ${loadInFlightRef.current}`);
+      return;
+    }
+
+    const contractIndex = contractIndexRef.current;
+    if (contractIndex === null) {
+      setContainerHint("contract state is not ready");
+      return;
+    }
+
+    loadInFlightRef.current = index;
+    setHiddenContainerIndexes((current) => {
+      const next = new Set(current);
+      next.delete(index);
+      return next;
+    });
+    replaceContainer({ ...container, status: "loading", error: undefined });
+    setContainerHint(`loading container ${index}`);
+    setProgress("");
+
+    let loaded: StateContainer;
+    try {
+      const rpc = new LiteRpc(rpcBaseUrl);
+      loaded = await loadStateContainer(
+        {
+          stateRead: async (slot, offset, length) => {
+            if (exitingRef.current) {
+              throw new Error("state view closed");
+            }
+            const result = await rpc.stateRead(slot, offset, length);
+            if (exitingRef.current) {
+              throw new Error("state view closed");
+            }
+            return result;
+          },
+        },
+        contractIndex,
+        container,
+        (field, completedBytes, totalBytes) => {
+          const percent = totalBytes
+            ? Math.floor((completedBytes * 100) / totalBytes)
+            : 100;
+          setProgress(`reading ${field} · ${percent}%`);
+        },
+      );
+    } catch (error: any) {
+      if (exitingRef.current) {
+        return;
+      }
+      loaded = {
+        ...container,
+        status: "error",
+        occupiedSlots: 0,
+        totalEntries: 0,
+        lines: [],
+        error: String(error?.message ?? error),
+      };
+    } finally {
+      loadInFlightRef.current = null;
+    }
+
+    const next = replaceContainer(loaded, true);
+    if (next) {
+      process.exitCode = next.complete ? 0 : 1;
+    }
+    setProgress("");
+    setContainerHint(
+      loaded.status === "loaded"
+        ? `container ${index} loaded`
+        : `container ${index} failed · press ${index} to retry`,
+    );
+  };
+
+  const clearContainerInputTimer = () => {
+    if (containerInputTimerRef.current) {
+      clearTimeout(containerInputTimerRef.current);
+      containerInputTimerRef.current = null;
+    }
+  };
+
+  const commitContainerInput = () => {
+    const value = containerInputRef.current;
+    clearContainerInputTimer();
+    containerInputRef.current = "";
+    setContainerInput("");
+    if (value) {
+      void activateContainer(value);
+    }
+  };
+
+  const updateContainerInput = (value: string) => {
+    clearContainerInputTimer();
+    containerInputRef.current = value;
+    setContainerInput(value);
+    setContainerHint("");
+    if (value) {
+      containerInputTimerRef.current = setTimeout(
+        commitContainerInput,
+        CONTAINER_INPUT_DELAY_MS,
+      );
+    }
+  };
+
+  const close = () => {
+    exitingRef.current = true;
+    clearContainerInputTimer();
+    exit();
   };
 
   useEffect(() => {
@@ -197,16 +423,47 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
       return () => clearTimeout(t);
     }
   }, [phase, digest, dump, decodedState]);
+  useEffect(() => {
+    exitingRef.current = false;
+    return () => {
+      exitingRef.current = true;
+      clearContainerInputTimer();
+    };
+  }, []);
 
   useInput(
     (input, key) => {
-      if (phase !== "pick") return;
-      if (input === "q" || key.escape) exit();
-      else if (key.upArrow) setI((p) => (p - 1 + contracts.length) % contracts.length);
-      else if (key.downArrow) setI((p) => (p + 1) % contracts.length);
-      else if (key.return) {
-        add("≡ " + equivCmd(contracts[i]));
-        load(contracts[i]);
+      if (phase === "pick") {
+        if (input === "q" || key.escape) {
+          close();
+        } else if (key.upArrow) {
+          setI((p) => (p - 1 + contracts.length) % contracts.length);
+        } else if (key.downArrow) {
+          setI((p) => (p + 1) % contracts.length);
+        } else if (key.return) {
+          add("≡ " + equivCmd(contracts[i]));
+          load(contracts[i]);
+        }
+        return;
+      }
+
+      if (phase !== "browse") {
+        return;
+      }
+      if (input === "q") {
+        close();
+      } else if (key.escape) {
+        if (containerInputRef.current) {
+          updateContainerInput("");
+        } else {
+          close();
+        }
+      } else if (key.return) {
+        commitContainerInput();
+      } else if (key.backspace || key.delete) {
+        updateContainerInput(containerInputRef.current.slice(0, -1));
+      } else if (/^\d+$/.test(input) && !key.ctrl && !key.meta) {
+        updateContainerInput(containerInputRef.current + input);
       }
     },
     { isActive: Boolean(process.stdin.isTTY) },
@@ -318,7 +575,35 @@ export function State({ commandArgs }: { commandArgs: CommandArguments }) {
         </Box>
       )}
       {phase === "loading" && <Spinner label={progress || "reading state"} />}
-      {decodedState ? <StateView name={name} state={decodedState} /> : null}
+      {phase === "browse" ? (
+        <Box flexDirection="column">
+          <Text dimColor>
+            type container # · wait 0.5s or ↵ · loaded toggles · Esc/q quit
+          </Text>
+          {containerInput || progress || containerHint ? (
+            <Text color={progress ? theme.info : undefined}>
+              {containerInput
+                ? `container ${containerInput}…`
+                : progress || containerHint}
+            </Text>
+          ) : null}
+        </Box>
+      ) : decodedState?.containers.some(
+          (container) => container.status === "collapsed",
+        ) ? (
+        <Text dimColor>
+          rerun with --container &lt;index&gt; (repeatable) or --all to load large
+          containers
+        </Text>
+      ) : null}
+      {decodedState ? (
+        <StateView
+          name={name}
+          state={decodedState}
+          hiddenContainerIndexes={hiddenContainerIndexes}
+          interactive={phase === "browse"}
+        />
+      ) : null}
     </Box>
   );
 }

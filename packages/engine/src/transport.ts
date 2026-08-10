@@ -882,13 +882,14 @@ export class VirtualNode implements NodeTransport {
     len: number,
   ): Promise<StateRead> {
     const contract = this.sim.contracts.get(slot);
-    const state = contract ? contract.state() : new Uint8Array(0);
+    const stateSize = contract?.stateSize ?? 0;
+    const state = contract?.stateView() ?? new Uint8Array(0);
 
     return {
       off,
       len,
-      stateSize: state.length,
-      hex: toHex(state.slice(off, off + len)),
+      stateSize,
+      hex: toHex(state.subarray(off, off + len)),
     };
   }
 

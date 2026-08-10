@@ -975,6 +975,28 @@ qinit state Counter
   -> StateView
 ```
 
+Top-level QPI containers receive stable one-based indexes in declaration order.
+Containers under 10 MiB load immediately. Containers at least 10 MiB start as
+summaries so opening QX or QUTIL does not scan hundreds of megabytes before the
+first screen appears:
+
+```text
+[1] balances · 1 entry · 3/4 slots unoccupied
+[2] voters · 402,653,184 bytes · press 2 to load
+    not read
+```
+
+In an interactive terminal, type an index to load or hide that container. A
+500 ms pause commits multi-digit indexes; Enter commits immediately, Backspace
+edits, and Escape clears the pending index before quitting. For scripts and
+non-interactive output, select containers explicitly:
+
+```bash
+qinit state QUTIL --container 2
+qinit state QUTIL --container 2 --container 4
+qinit state QUTIL --all
+```
+
 ### Step 1: find source
 
 For a user contract, `loadContracts()` gets source from the dynamic registry.
@@ -1017,6 +1039,10 @@ source that reads exact relative ranges; trace decoding supplies a bounded byte
 snapshot. These views interpret QPI's stored layout. They do not execute C++ or
 reimplement the mutable QPI container API.
 
+Array and BitArray keep dense `entries()` for normal ABI decoding. State output
+uses their sparse iterators, which test zero bytes before decoding values and do
+not retain empty elements.
+
 The strict views are the sole logical container decoder. They reject incomplete
 or internally inconsistent layouts instead of presenting them as empty state.
 
@@ -1035,12 +1061,12 @@ GET /live/v1/dev/state-read?slot=100&off=0&len=8
 ```
 
 Fields are separate HTTP reads. Large arrays and compact `BitArray` words are
-read in 256 KiB pages. An `Array` field is not a scalar row: it becomes a block
+read in 4 MiB pages. An `Array` field is not a scalar row: it becomes a block
 of its own, one row per nonzero element, in the position its field is declared.
-Bit arrays stay inline and display every set bit in logical LSB-first order,
-collapsing zero runs and ignoring unused padding bits above their declared
-length. A failed read is reported as incomplete rather than being mistaken for
-empty state.
+Bit arrays use the same indexed block model and display every set bit in logical
+LSB-first order, collapsing zero runs and ignoring unused padding bits above
+their declared length. A failed read is reported as incomplete rather than
+being mistaken for empty state.
 
 ### Step 4: read the occupied HashMap bytes
 
@@ -1111,8 +1137,11 @@ unoccupied physical slot ranges follow. Free-list bookkeeping is not fetched.
   ],
   containers: [
     {
+      index: 1,
       name: "balances",
       kind: "hashmap",
+      status: "loaded",
+      size: 184,
       capacity: 4,
       occupiedSlots: 1,
       totalEntries: 1,
@@ -1134,10 +1163,13 @@ highlight depends on. An `Array` block uses the same shape with `kind: "array"`,
 [`StateView`](../packages/cli/src/trace/views.tsx) only renders this model. It does not
 know field offsets, make RPC calls, or decode container layouts.
 
-### Complete sparse output and consistency
+### Lazy sparse output and consistency
 
-- Complete logical state is the default; there is no display-limit flag.
-- Individual RPC requests remain capped at 256 KiB and larger fields are paged.
+- Containers below 10 MiB load by default. Containers 10 MiB and larger remain
+  collapsed until selected by index or `--all`; a collapsed block is neither an
+  error nor an incomplete read.
+- Individual RPC requests use up to 4 MiB and larger fields are paged. Qinit
+  continues paging when an older node returns a shorter nonempty chunk.
 - Arrays display every nonzero element, and BitArray displays every set bit;
   zero ranges are marked as skipped.
 - Every block row is its own line, and its bracket token is highlighted when the
@@ -1179,7 +1211,7 @@ qinit state 29 --dump --out before.bin  # anything else is the file path
 ```
 
 [`dumpContractState()`](../packages/cli/src/contracts/state-dump.ts) pages
-`GET /live/v1/dev/state-read` 256 KiB at a time and streams each chunk to the file, so
+`GET /live/v1/dev/state-read` 4 MiB at a time and streams each chunk to the file, so
 a multi-megabyte state never has to fit in memory. It prints the absolute path and the
 byte count, which equals the `stateSize` that `--digest` reports. The file is the raw
 state image with no header, and a failed read deletes the partial file rather than

@@ -71,6 +71,8 @@ test("GROUP_ORDER: every declared group is used by at least one command", () => 
 test("release-smoke flags are exposed in command metadata", () => {
   expect(commandOptions("node", "run").map(optionSyntax)).toContain("--core-dir <path>");
   expect(commandOptions("state").map(optionSyntax)).toContain("--digest");
+  expect(commandOptions("state").map(optionSyntax)).toContain("--container <index>");
+  expect(commandOptions("state").map(optionSyntax)).toContain("--all");
   expect(META.build.json).toBe(true);
 });
 

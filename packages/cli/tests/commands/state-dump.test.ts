@@ -6,6 +6,7 @@ import {
   dumpContractState,
   resolveDumpPath,
   STATE_DUMP_DIR,
+  STATE_READ_CHUNK_BYTES,
   type StateDumpRpc,
 } from "../../src/contracts/state-dump";
 
@@ -15,11 +16,16 @@ afterAll(() => {
   rmSync(workDir, { recursive: true, force: true });
 });
 
-// A node serves at most 256 KiB per request, so anything larger exercises the paging loop.
-function stateRpc(state: Uint8Array, reads: number[] = []): StateDumpRpc {
+// Simulate an older node that still returns at most 256 KiB per request.
+function stateRpc(
+  state: Uint8Array,
+  reads: number[] = [],
+  requestedLengths: number[] = [],
+): StateDumpRpc {
   return {
     stateRead: async (_slot: number, off: number, len: number) => {
       reads.push(off);
+      requestedLengths.push(len);
       const chunk = state.slice(off, off + Math.min(len, 262144));
       return {
         off,
@@ -65,10 +71,14 @@ test("a dump pages the whole state to disk and reports its size", async () => {
   }
 
   const reads: number[] = [];
+  const requestedLengths: number[] = [];
   const path = join(workDir, "paged.bin");
-  const result = await dumpContractState(stateRpc(state, reads), 29, "Counter", {
-    out: path,
-  });
+  const result = await dumpContractState(
+    stateRpc(state, reads, requestedLengths),
+    29,
+    "Counter",
+    { out: path },
+  );
 
   expect(result).toEqual({
     ok: true,
@@ -78,6 +88,10 @@ test("a dump pages the whole state to disk and reports its size", async () => {
     size: state.length,
   });
   expect(reads).toEqual([0, 262144]);
+  expect(requestedLengths).toEqual([
+    STATE_READ_CHUNK_BYTES,
+    STATE_READ_CHUNK_BYTES,
+  ]);
   expect(new Uint8Array(readFileSync(path))).toEqual(state);
 });
 

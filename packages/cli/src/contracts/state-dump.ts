@@ -4,8 +4,7 @@ import { hexToBytes, type LiteRpc } from "@qinit/core";
 
 export const STATE_DUMP_DIR = "state";
 
-// The node clamps a single state-read to this, so asking for more only wastes the request.
-const MAX_STATE_READ = 262144;
+export const STATE_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 
 export type StateDumpRpc = Pick<LiteRpc, "stateRead">;
 
@@ -49,7 +48,7 @@ export function resolveDumpPath(name: string, slot: number, out?: string): strin
   return isDirectoryTarget(out) ? resolve(out, fileName) : resolve(out);
 }
 
-// Stream the state to disk rather than buffering it — an effective state runs to tens of megabytes.
+// Stream rather than buffer state images that can span hundreds of megabytes.
 export async function dumpContractState(
   rpc: StateDumpRpc,
   slot: number,
@@ -65,7 +64,7 @@ export async function dumpContractState(
 
   try {
     do {
-      const read = await rpc.stateRead(slot, written, MAX_STATE_READ);
+      const read = await rpc.stateRead(slot, written, STATE_READ_CHUNK_BYTES);
       if (typeof read?.hex !== "string" || !Number.isSafeInteger(read.stateSize)) {
         throw new Error(`state read failed for slot ${slot}: ${JSON.stringify(read)}`);
       }

@@ -68,16 +68,16 @@ const commandMeta = {
   },
   doctor: {
     group: "setup",
-    summary: "check toolchain (wasi-sdk, core headers, contract verifier)",
+    summary: "check toolchain (sdk, core headers, contract verifier)",
   },
   clean: {
     group: "setup",
-    summary: "remove all qinit cache (node, headers, wasi-sdk, tools)",
+    summary: "remove all qinit cache (node, headers, sdk, tools)",
     options: [booleanOption("dry-run", "preview what would be removed")],
   },
-  "self-update": {
+  "update": {
     group: "setup",
-    summary: "update qinit to the newest release",
+    summary: "update qinit cli binary to the newest release",
     options: [
       booleanOption("force", "update even if already latest"),
       booleanOption("dry-run", "show what would happen"),
@@ -97,7 +97,7 @@ const commandMeta = {
     group: "node",
     json: true,
     summary:
-      "bring up + manage the dev node: run (prepare dependencies and launch), status, stop, get",
+      "start the node, status, stop, get",
     usage: "<run|status|stop|get> [--ref <tag>] [--rpc <url>]",
     options: [
       stringOption("ref", "<tag>", "explicitly fetch/select a node or headers release"),
@@ -145,14 +145,14 @@ const commandMeta = {
   tick: {
     group: "node",
     json: true,
-    summary: "show epoch tick window; advance ticks (testnet); set the simulator tick rate",
+    summary: "show epoch tick window; advance ticks; set the simulator tick rate",
     usage: "[show | advance <n> | advance-to-last [gap] | rate <ms>]",
     options: [stringOption("rpc", "<url>", "node RPC base")],
   },
   epoch: {
     group: "node",
     json: true,
-    summary: "show epoch info; advance -> next epoch via seamless transition (testnet)",
+    summary: "show epoch info; advance -> next epoch via seamless transition",
     usage: "[show | advance]",
     options: [stringOption("rpc", "<url>", "node RPC base")],
   },
@@ -187,7 +187,7 @@ const commandMeta = {
   build: {
     group: "develop",
     json: true,
-    summary: "compile a contract graph -> wasm (+ K12 hash, IDL)",
+    summary: "compile a contract graph -> bytecode (+ K12 hash, IDL)",
     usage: "<file.h>",
     options: [
       stringOption("contract", "<file.h>", "contract header (alternative to the positional)"),
@@ -222,7 +222,7 @@ const commandMeta = {
   verify: {
     group: "develop",
     json: true,
-    summary: "check a contract against the qpi.h protocol rules (contractverify)",
+    summary: "check a contract against the qpi protocol rules",
     usage: "<file.h>",
     options: [
       stringOption("contract", "<file.h>", "contract header (alternative to the positional)"),
@@ -257,8 +257,8 @@ const commandMeta = {
   call: {
     group: "deploy & interact",
     json: true,
-    summary: "call a fn (--fn) / proc (--proc), or omit both for the interactive picker",
-    usage: '[<--fn|--proc> <contract> <fn|proc>] [--in "<fmt>"] [--out <type>]',
+    summary: "call a contract's function or procedure",
+    usage: '[ --fn|--proc <contract> <fn|proc> ] [--in "<fmt>"] [--out <type> ]',
     options: [
       booleanOption("fn", "read-only query"),
       booleanOption("proc", "signs a tx + waits for it to process"),
@@ -274,8 +274,7 @@ const commandMeta = {
       stringOption("seed", "<seed>", "signer seed"),
     ],
     examples: [
-      "qinit call",
-      "no --fn/--proc: pick contract -> entry -> input, then it prints the equivalent one-shot command",
+      "qinit call # interactive mode",
       'qinit call --proc Mytoken 1 --in "<ID>id, 100uint64"',
       'qinit call --fn   Mytoken 1 --in "<ID>id" --out uint64',
     ],
@@ -305,6 +304,10 @@ const commandMeta = {
       booleanOption("digest", "print the node's canonical full-state K12 digest"),
       booleanOption("dump", "write the raw state image to state/<Name>_dump.bin"),
       stringOption("out", "<path>", "dump destination file or directory (with --dump)"),
+      stringOption("container", "<index>", "load a state container by its shown index", {
+        multiple: true,
+      }),
+      booleanOption("all", "load every state container"),
       stringOption("rpc", "<url>", "node RPC base"),
     ],
   },
@@ -314,11 +317,15 @@ const commandMeta = {
       "interactive chain explorer — live ticks, transactions, identities, contracts, wallet",
     usage: "[<tick|txid|identity>]",
     options: [stringOption("rpc", "<url>", "node RPC base")],
-    examples: ["qinit explorer 7474", "qinit explorer <identity>"],
+    examples: [
+      "qinit explorer # interactive mode",
+      "qinit explorer 7474 # quick jump to tick",
+      "qinit explorer <identity> # quick jump ID details",
+    ],
   },
   debug: {
     group: "deploy & interact",
-    summary: "live contract-call inspector — input/output, state diff, host-calls, traps",
+    summary: "live contract call inspector — input/output, state diff, host-calls, traps",
     usage: "<Contract>",
     options: [
       stringOption("contract", "<name|slot>", "show only one contract"),
@@ -394,7 +401,7 @@ const commandMeta = {
 
   "node-backend": {
     group: "misc",
-    summary: "pick the default node backend: core-lite RPC node or in-process simulator",
+    summary: "pick the default node backend: core-lite node or in-process simulator",
     usage: "[core|simulator]",
     options: [booleanOption("show", "print the current node backend")],
   },
