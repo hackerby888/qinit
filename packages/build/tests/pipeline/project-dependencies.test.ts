@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { resolveProjectDependencies } from "../../src/project-dependencies";
 
-const CORE = resolve(
+const CORE = process.env.QINIT_CORE ?? resolve(
   import.meta.dir,
   "../../../vscode/resources/core-headers",
 );
@@ -189,7 +189,7 @@ test("rejects missing and ambiguous workspace callees deterministically", () => 
   });
 });
 
-test("rejects dependency cycles and self-calls with the dependency chain", () => {
+test("rejects dependency cycles and ignores self-calls", () => {
   project({
     "contracts/Main.h": calls("First"),
     "contracts/First.h": calls("Second"),
@@ -206,12 +206,15 @@ test("rejects dependency cycles and self-calls with the dependency chain", () =>
   project({
     "contracts/Main.h": calls("Main"),
   }, (root) => {
-    expect(() => resolveProjectDependencies({
+    const graph = resolveProjectDependencies({
       projectRoot: root,
       corePath: CORE,
       contractName: "Main",
       contractPath: "contracts/Main.h",
-    })).toThrow("inter-contract dependency cycle: Main -> Main");
+    });
+
+    expect(graph.map((node) => node.stateType)).toEqual(["Main"]);
+    expect(graph[0]?.dependencies).toEqual([]);
   });
 });
 

@@ -87,7 +87,7 @@ test.if(hasCore)(
         fallbackCorePath: bundledCore,
       });
       const layout = loadCoreWasmSlotLayout(CORE);
-      expect(details.corePath).toBe(CORE);
+      expect(details.corePath).toBe(resolve(CORE));
       expect(details.wasiSysrootPath).toBe(bundledSysroot);
       expect(details.name).toBe("Proxy");
       expect(details.slot).toBe(layout.slotBase + 1);
