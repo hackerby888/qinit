@@ -18,6 +18,7 @@ import {
   CoreIntegrationMetadataRequiredError,
   inspectCoreIntegration,
   runCoreIntegration,
+  type CoreIntegrationProgress,
 } from "../../src/ops/core-integration";
 
 const temporaryDirectories: string[] = [];
@@ -157,6 +158,21 @@ function expectBomAndCrlf(path: string): void {
   expect(text.replaceAll(CRLF, "")).not.toContain("\n");
 }
 
+function progressRows(events: CoreIntegrationProgress[]): string[] {
+  return events.map((event) => (
+    `${event.step}:${event.state}:${event.detail ?? ""}`
+  ));
+}
+
+function expectTerminalElapsed(events: CoreIntegrationProgress[]): void {
+  for (const event of events) {
+    if (event.state !== "active") {
+      expect(event.elapsedMs).toBeNumber();
+      expect(event.elapsedMs).toBeGreaterThanOrEqual(0);
+    }
+  }
+}
+
 afterEach(() => {
   for (const path of temporaryDirectories.splice(0)) {
     rmSync(path, { recursive: true, force: true });
@@ -179,14 +195,28 @@ describe("runCoreIntegration", () => {
       repositoryUrl,
     };
 
+    const metadataProgress: CoreIntegrationProgress[] = [];
     await expect(runCoreIntegration({
       ...options,
       requireDestructionEpoch: true,
+      onProgress: (event) => metadataProgress.push(event),
     })).rejects.toBeInstanceOf(CoreIntegrationMetadataRequiredError);
+    expect(progressRows(metadataProgress)).toEqual([
+      "contract:active:Main.h",
+      "contract:ok:Main.h",
+      "checkout:active:cloning main",
+      "checkout:ok:cloned main",
+      "wire:active:checking registration",
+    ]);
+    expectTerminalElapsed(metadataProgress);
     expect(runGit(outputPath, "branch", "--show-current")).toBe("main");
     expect(runGit(outputPath, "status", "--porcelain")).toBe("");
 
-    const created = await runCoreIntegration(options);
+    const createProgress: CoreIntegrationProgress[] = [];
+    const created = await runCoreIntegration({
+      ...options,
+      onProgress: (event) => createProgress.push(event),
+    });
 
     expect(created.mode).toBe("created");
     expect(created.contractIndex).toBe(2);
@@ -200,6 +230,17 @@ describe("runCoreIntegration", () => {
       constructionEpoch: 300,
       destructionEpoch: 10000,
     });
+    expect(progressRows(createProgress)).toEqual([
+      "contract:active:Main.h",
+      "contract:ok:Main.h",
+      "checkout:active:checking checkout",
+      "checkout:active:updating main",
+      "checkout:ok:updated main",
+      "wire:active:checking registration",
+      "wire:active:creating qinit/main",
+      "wire:ok:created index 2",
+    ]);
+    expectTerminalElapsed(createProgress);
 
     const definitionPath = join(outputPath, "src", "contract_core", "contract_def.h");
     const definition = readFileSync(definitionPath, "utf8");
@@ -224,7 +265,15 @@ describe("runCoreIntegration", () => {
     expect(readFileSync(join(outputPath, "test", "test.vcxproj"), "utf8"))
       .toContain("contract_main.cpp");
 
-    await expect(runCoreIntegration(options)).rejects.toThrow("Core checkout is dirty");
+    const dirtyProgress: CoreIntegrationProgress[] = [];
+    await expect(runCoreIntegration({
+      ...options,
+      onProgress: (event) => dirtyProgress.push(event),
+    })).rejects.toThrow("Core checkout is dirty");
+    expect(progressRows(dirtyProgress).at(-1)).toBe(
+      "checkout:fail:checking checkout",
+    );
+    expectTerminalElapsed(dirtyProgress);
 
     runGit(outputPath, "add", ".");
     runGit(outputPath, "commit", "-m", "Wire Main");
@@ -233,16 +282,26 @@ describe("runCoreIntegration", () => {
       "struct Main { static constexpr unsigned long long MAIN_FEE = 1; " +
         "struct StateData { Base::StateData* base; unsigned long long value; }; };\n",
     );
+    const updateProgress: CoreIntegrationProgress[] = [];
     const updated = await runCoreIntegration({
       projectRoot,
       contractPath: "contracts/Main.h",
       contractName: "Main",
       outputPath,
       repositoryUrl,
+      onProgress: (event) => updateProgress.push(event),
     });
 
     expect(updated.mode).toBe("updated");
     expect(updated.contractIndex).toBe(2);
+    expect(progressRows(updateProgress)).toContain(
+      "checkout:active:using qinit/main",
+    );
+    expect(progressRows(updateProgress)).toContain(
+      "checkout:ok:using qinit/main",
+    );
+    expect(progressRows(updateProgress).at(-1)).toBe("wire:ok:updated index 2");
+    expectTerminalElapsed(updateProgress);
     expect(readFileSync(join(outputPath, "src", "contracts", "Main.h"), "utf8"))
       .toContain("unsigned long long value");
 
@@ -277,6 +336,7 @@ describe("runCoreIntegration", () => {
       "struct Main { struct StateData { Missing::StateData* missing; }; };\n",
     );
 
+    const failureProgress: CoreIntegrationProgress[] = [];
     await expect(runCoreIntegration({
       projectRoot,
       contractPath: "contracts/Main.h",
@@ -286,7 +346,12 @@ describe("runCoreIntegration", () => {
       constructionEpoch: 300,
       destructionEpoch: 10000,
       repositoryUrl,
+      onProgress: (event) => failureProgress.push(event),
     })).rejects.toThrow("callee 'Missing' must already be registered");
+    expect(progressRows(failureProgress).at(-1)).toBe(
+      "wire:fail:checking registration",
+    );
+    expectTerminalElapsed(failureProgress);
 
     expect(existsSync(join(outputPath, "src", "contracts", "Main.h"))).toBe(false);
     expect(runGit(outputPath, "status", "--porcelain")).toBe("");
@@ -331,17 +396,28 @@ describe("runCoreIntegration", () => {
     runGit(repositoryUrl, "fetch", landedOutputPath, "qinit/main");
     runGit(repositoryUrl, "merge", "--ff-only", "FETCH_HEAD");
 
+    const updateProgress: CoreIntegrationProgress[] = [];
     const updated = await runCoreIntegration({
       projectRoot,
       contractPath: "contracts/Main.h",
       contractName: "Main",
       outputPath: staleOutputPath,
       repositoryUrl,
+      onProgress: (event) => updateProgress.push(event),
     });
 
     expect(updated.mode).toBe("updated");
     expect(updated.contractIndex).toBe(2);
     expect(updated.branch).toBe("qinit/main-update");
+    expect(progressRows(updateProgress)).toContain(
+      "checkout:active:updating main",
+    );
+    expect(progressRows(updateProgress)).toContain("checkout:ok:updated main");
+    expect(progressRows(updateProgress)).toContain(
+      "wire:active:creating qinit/main-update",
+    );
+    expect(progressRows(updateProgress).at(-1)).toBe("wire:ok:updated index 2");
+    expectTerminalElapsed(updateProgress);
   });
 
   test("rejects asset aliases and partial registration artifacts", async () => {

@@ -3,12 +3,21 @@ import { basename, resolve } from "node:path";
 import { Box, Text, useApp, useInput } from "ink";
 import { output, type CommandArguments } from "../../args";
 import { loadConfig } from "../../config";
-import { Header, Spinner, TextPrompt, theme } from "../../ui";
+import {
+  Header,
+  Spinner,
+  StepRow,
+  TextPrompt,
+  theme,
+  type StepState,
+} from "../../ui";
 import {
   CoreIntegrationMetadataRequiredError,
   runCoreIntegration,
   type CoreIntegrationOptions,
+  type CoreIntegrationProgress,
   type CoreIntegrationResult,
+  type CoreIntegrationStep,
 } from "../../ops/core-integration";
 
 type Metadata = Pick<
@@ -23,6 +32,26 @@ interface CoreIntegrationContext {
   contractPath: string;
   contractName: string;
   outputPath: string;
+}
+
+interface IntegrationStepView {
+  state: StepState;
+  detail?: string;
+  elapsedMs?: number;
+}
+
+const INTEGRATION_STEPS = [
+  { key: "contract", label: "check contract" },
+  { key: "checkout", label: "Core checkout" },
+  { key: "wire", label: "wire contract" },
+] as const;
+
+function initialSteps(): Record<CoreIntegrationStep, IntegrationStepView> {
+  return {
+    contract: { state: "pending" },
+    checkout: { state: "pending" },
+    wire: { state: "pending" },
+  };
 }
 
 type State =
@@ -75,6 +104,9 @@ function validateEpochOrder(metadata: Metadata): void {
 export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
   const [state, setState] = useState<State>({ phase: "prepare" });
+  const [steps, setSteps] = useState<
+    Record<CoreIntegrationStep, IntegrationStepView> | null
+  >(null);
 
   const finishWithError = (error: unknown) => {
     process.exitCode = 1;
@@ -88,6 +120,7 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
     context: CoreIntegrationContext,
     metadata: Metadata,
   ): void => {
+    setSteps(null);
     const fields: PromptField[] = [];
     if (metadata.assetName === undefined) {
       fields.push("assetName");
@@ -115,11 +148,22 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
   ): Promise<void> => {
     try {
       validateEpochOrder(metadata);
+      setSteps(initialSteps());
       setState({ phase: "run" });
       const result = await runCoreIntegration({
         ...context,
         ...metadata,
         requireDestructionEpoch: promptWhenMetadataIsRequired,
+        onProgress: (event: CoreIntegrationProgress) => {
+          setSteps((current) => ({
+            ...(current ?? initialSteps()),
+            [event.step]: {
+              state: event.state,
+              detail: event.detail,
+              elapsedMs: event.elapsedMs,
+            },
+          }));
+        },
       });
       setState({ phase: "done", result, contractName: context.contractName });
     } catch (error) {
@@ -127,6 +171,18 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
         if (promptWhenMetadataIsRequired) {
           promptForMetadata(context, metadata);
         } else {
+          setSteps((current) => {
+            if (!current) {
+              return current;
+            }
+            return {
+              ...current,
+              wire: {
+                ...current.wire,
+                state: "fail",
+              },
+            };
+          });
           finishWithError(
             "new integration requires --asset and --construction-epoch without a terminal",
           );
@@ -277,8 +333,18 @@ export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
           {state.error ? <Text color={theme.err}>✗ {state.error}</Text> : null}
         </Box>
       ) : null}
-      {state.phase === "run" ? (
-        <Spinner label="preparing Qubic Core integration" />
+      {steps && state.phase !== "prompt" ? (
+        <Box flexDirection="column">
+          {INTEGRATION_STEPS.map(({ key, label }) => (
+            <StepRow
+              key={key}
+              state={steps[key].state}
+              label={label}
+              detail={steps[key].detail}
+              elapsedMs={steps[key].elapsedMs}
+            />
+          ))}
+        </Box>
       ) : null}
       {state.phase === "error" ? (
         <Text color={theme.err}>✗ {state.message}</Text>

@@ -22,6 +22,15 @@ import {
 const CORE_REPOSITORY_URL = "https://github.com/qubic/core.git";
 const CONTRACT_MARKER = "// new contracts should be added above this line";
 
+export type CoreIntegrationStep = "contract" | "checkout" | "wire";
+
+export interface CoreIntegrationProgress {
+  step: CoreIntegrationStep;
+  state: "active" | "ok" | "fail";
+  detail?: string;
+  elapsedMs?: number;
+}
+
 export interface CoreIntegrationOptions {
   projectRoot: string;
   contractPath: string;
@@ -32,6 +41,7 @@ export interface CoreIntegrationOptions {
   destructionEpoch?: number;
   requireDestructionEpoch?: boolean;
   repositoryUrl?: string;
+  onProgress?: (event: CoreIntegrationProgress) => void;
 }
 
 export interface CoreIntegrationRegistration {
@@ -54,6 +64,46 @@ export class CoreIntegrationMetadataRequiredError extends Error {
   constructor() {
     super("new Core integration requires --asset and --construction-epoch");
     this.name = "CoreIntegrationMetadataRequiredError";
+  }
+}
+
+async function runProgressStep<T>(
+  options: CoreIntegrationOptions,
+  step: CoreIntegrationStep,
+  initialDetail: string,
+  operation: (
+    updateDetail: (detail: string) => void,
+  ) => Promise<{ value: T; detail: string }> | { value: T; detail: string },
+): Promise<T> {
+  const startedAt = Date.now();
+  let activeDetail = initialDetail;
+
+  const emit = (
+    state: CoreIntegrationProgress["state"],
+    detail: string,
+  ): void => {
+    options.onProgress?.({
+      step,
+      state,
+      detail,
+      elapsedMs: state === "active" ? undefined : Date.now() - startedAt,
+    });
+  };
+  const updateDetail = (detail: string): void => {
+    activeDetail = detail;
+    emit("active", detail);
+  };
+
+  emit("active", initialDetail);
+  try {
+    const result = await operation(updateDetail);
+    emit("ok", result.detail);
+    return result.value;
+  } catch (error) {
+    if (!(error instanceof CoreIntegrationMetadataRequiredError)) {
+      emit("fail", activeDetail);
+    }
+    throw error;
   }
 }
 
@@ -810,105 +860,158 @@ export async function runCoreIntegration(
   const contractPath = resolveFromProject(projectRoot, options.contractPath);
   const corePath = resolveFromProject(projectRoot, options.outputPath);
   const contractName = options.contractName;
-
-  validateContractName(contractName);
-  if (
-    !existsSync(contractPath) ||
-    !statSync(contractPath).isFile() ||
-    extname(contractPath).toLowerCase() !== ".h"
-  ) {
-    throw new Error(`contract header not found: ${contractPath}`);
-  }
   const sourceFileName = basename(contractPath);
-  if (!/^[A-Za-z_][A-Za-z0-9_-]*\.h$/.test(sourceFileName)) {
-    throw new Error(`contract header has an unsafe file name: ${sourceFileName}`);
-  }
-  const sourceFromOutput = relative(corePath, contractPath);
-  const sourceOutsideOutput =
-    sourceFromOutput === ".." || sourceFromOutput.startsWith(`..${sep}`);
-  if (
-    sourceFromOutput === "" ||
-    (!sourceOutsideOutput && !isAbsolute(sourceFromOutput))
-  ) {
-    throw new Error("contract source must be outside the Core output checkout");
-  }
+  const contract = await runProgressStep(
+    options,
+    "contract",
+    sourceFileName,
+    () => {
+      validateContractName(contractName);
+      if (
+        !existsSync(contractPath) ||
+        !statSync(contractPath).isFile() ||
+        extname(contractPath).toLowerCase() !== ".h"
+      ) {
+        throw new Error(`contract header not found: ${contractPath}`);
+      }
+      if (!/^[A-Za-z_][A-Za-z0-9_-]*\.h$/.test(sourceFileName)) {
+        throw new Error(
+          `contract header has an unsafe file name: ${sourceFileName}`,
+        );
+      }
 
-  const contractSource = readFileSync(contractPath, "utf8");
-  const localTestPath = join(projectRoot, "tests", `${contractName}.test.cpp`);
-  const testSource = existsSync(localTestPath)
-    ? readFileSync(localTestPath, "utf8")
-    : undefined;
+      const sourceFromOutput = relative(corePath, contractPath);
+      const sourceOutsideOutput =
+        sourceFromOutput === ".." || sourceFromOutput.startsWith(`..${sep}`);
+      if (
+        sourceFromOutput === "" ||
+        (!sourceOutsideOutput && !isAbsolute(sourceFromOutput))
+      ) {
+        throw new Error("contract source must be outside the Core output checkout");
+      }
+
+      const contractSource = readFileSync(contractPath, "utf8");
+      const localTestPath = join(projectRoot, "tests", `${contractName}.test.cpp`);
+      const testSource = existsSync(localTestPath)
+        ? readFileSync(localTestPath, "utf8")
+        : undefined;
+
+      return {
+        value: { contractSource, testSource },
+        detail: sourceFileName,
+      };
+    },
+  );
   const checkoutExists = existsSync(corePath);
+  const checkout = await runProgressStep(
+    options,
+    "checkout",
+    checkoutExists ? "checking checkout" : "cloning main",
+    async (updateDetail) => {
+      if (checkoutExists) {
+        if (!existsSync(join(corePath, ".git"))) {
+          throw new Error(
+            `output path exists but is not a git checkout: ${corePath}`,
+          );
+        }
+        await requireCleanCheckout(corePath);
+      } else {
+        await runGit([
+          "clone",
+          "--branch",
+          "main",
+          "--single-branch",
+          options.repositoryUrl ?? CORE_REPOSITORY_URL,
+          corePath,
+        ]);
+      }
 
-  if (checkoutExists) {
-    if (!existsSync(join(corePath, ".git"))) {
-      throw new Error(`output path exists but is not a git checkout: ${corePath}`);
-    }
-    await requireCleanCheckout(corePath);
-  } else {
-    await runGit([
-      "clone",
-      "--branch",
-      "main",
-      "--single-branch",
-      options.repositoryUrl ?? CORE_REPOSITORY_URL,
-      corePath,
-    ]);
-  }
+      let files = loadCoreFiles(corePath);
+      const branch = (await runGit(["branch", "--show-current"], corePath)).stdout;
+      if (!branch) {
+        throw new Error("Core checkout has a detached HEAD");
+      }
 
-  let files = loadCoreFiles(corePath);
-  let branch = (await runGit(["branch", "--show-current"], corePath)).stdout;
-  if (!branch) {
-    throw new Error("Core checkout has a detached HEAD");
-  }
+      let detail = "cloned main";
+      if (checkoutExists && branch === "main") {
+        updateDetail("updating main");
+        await runGit(["fetch", "origin", "main"], corePath);
+        await runGit(["merge", "--ff-only", "origin/main"], corePath);
+        await requireCleanCheckout(corePath);
+        files = loadCoreFiles(corePath);
+        detail = "updated main";
+      } else if (checkoutExists) {
+        detail = `using ${branch}`;
+        updateDetail(detail);
+      }
 
-  if (checkoutExists && branch === "main") {
-    await runGit(["fetch", "origin", "main"], corePath);
-    await runGit(["merge", "--ff-only", "origin/main"], corePath);
-    await requireCleanCheckout(corePath);
-    files = loadCoreFiles(corePath);
-  }
+      return {
+        value: { files, branch },
+        detail,
+      };
+    },
+  );
 
-  const existing = findRegistration(corePath, contractName, files);
-  if (checkoutExists && branch !== "main" && !existing) {
-    throw new Error(
-      `contract '${contractName}' is not registered on existing branch '${branch}'`,
-    );
-  }
-  validateMetadata(options, existing);
+  return runProgressStep(
+    options,
+    "wire",
+    "checking registration",
+    async (updateDetail) => {
+      const existing = findRegistration(
+        corePath,
+        contractName,
+        checkout.files,
+      );
+      if (checkoutExists && checkout.branch !== "main" && !existing) {
+        throw new Error(
+          `contract '${contractName}' is not registered on existing branch ` +
+            `'${checkout.branch}'`,
+        );
+      }
+      validateMetadata(options, existing);
 
-  const metadata = metadataFor(options, existing);
-  const plan = planMutations({
-    corePath,
-    projectRoot,
-    contractPath,
-    contractName,
-    contractSource,
-    testSource,
-    existing,
-    metadata,
-    files,
-  });
+      const metadata = metadataFor(options, existing);
+      const plan = planMutations({
+        corePath,
+        projectRoot,
+        contractPath,
+        contractName,
+        contractSource: contract.contractSource,
+        testSource: contract.testSource,
+        existing,
+        metadata,
+        files: checkout.files,
+      });
 
-  if (branch === "main") {
-    const suffix = existing ? "-update" : "";
-    branch = `qinit/${contractName.toLowerCase()}${suffix}`;
-    if (await branchExists(corePath, branch)) {
-      throw new Error(`local branch '${branch}' already exists`);
-    }
-    await runGit(["switch", "-c", branch], corePath);
-  }
+      let branch = checkout.branch;
+      if (branch === "main") {
+        const suffix = existing ? "-update" : "";
+        branch = `qinit/${contractName.toLowerCase()}${suffix}`;
+        updateDetail(`creating ${branch}`);
+        if (await branchExists(corePath, branch)) {
+          throw new Error(`local branch '${branch}' already exists`);
+        }
+        await runGit(["switch", "-c", branch], corePath);
+      } else {
+        updateDetail(`using ${branch}`);
+      }
 
-  for (const mutation of plan.mutations) {
-    writeFileSync(mutation.path, mutation.bytes);
-  }
+      for (const mutation of plan.mutations) {
+        writeFileSync(mutation.path, mutation.bytes);
+      }
 
-  return {
-    corePath,
-    branch,
-    contractIndex: plan.contractIndex,
-    mode: existing ? "updated" : "created",
-    testPath: plan.testPath,
-    warnings: plan.warnings,
-  };
+      const mode = existing ? "updated" : "created";
+      return {
+        value: {
+          corePath,
+          branch,
+          contractIndex: plan.contractIndex,
+          mode,
+          testPath: plan.testPath,
+          warnings: plan.warnings,
+        },
+        detail: `${mode} index ${plan.contractIndex}`,
+      };
+    },
+  );
 }
