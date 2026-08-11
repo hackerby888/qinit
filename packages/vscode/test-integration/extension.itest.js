@@ -48,7 +48,7 @@ function fallbackClangAvailable() {
   }
   return false;
 }
-async function completionLabels(doc, marker, dot) {
+async function completionItems(doc, marker, dot) {
   const offset = doc.getText().indexOf(marker);
   assert.ok(offset >= 0, `missing completion marker ${marker}`);
   const pos = doc.positionAt(offset + dot.length);
@@ -57,9 +57,14 @@ async function completionLabels(doc, marker, dot) {
     doc.uri,
     pos,
   );
-  return (list?.items ?? []).map((item) =>
-    (typeof item.label === "string" ? item.label : item.label.label).trim(),
-  );
+  return list?.items ?? [];
+}
+
+const labelOf = (item) =>
+  (typeof item.label === "string" ? item.label : item.label.label).trim();
+
+async function completionLabels(doc, marker, dot) {
+  return (await completionItems(doc, marker, dot)).map(labelOf);
 }
 
 suite("Qubic QPI extension", function () {
@@ -172,16 +177,28 @@ suite("Qubic QPI extension", function () {
       `fallback should complete Get_input members; got [${labels.slice(0, 12).join(", ")}]`,
     );
 
-    const arrayLabels = await completionLabels(
+    const arrayItems = await completionItems(
       doc,
       "locals.input.history.setAll",
       "locals.input.history.",
     );
+    const arrayLabels = arrayItems.map(labelOf);
     assert.ok(
       arrayLabels.some((l) => l.startsWith("setAll")) &&
         arrayLabels.some((l) => l.startsWith("get")),
       `fallback should complete Array members; got [${arrayLabels.slice(0, 12).join(", ")}]`,
     );
+    assert.ok(
+      !arrayLabels.some((l) => l.startsWith("operator") || l.startsWith("~") || l.startsWith("_")),
+      `member lists carry no generated noise; got [${arrayLabels.slice(0, 12).join(", ")}]`,
+    );
+
+    // A method carries its parameters and return type, and inserts a snippet the way clangd's do.
+    const setAll = arrayItems.find((item) => labelOf(item) === "setAll");
+    assert.ok(setAll, `setAll should be offered; got [${arrayLabels.slice(0, 12).join(", ")}]`);
+    assert.match(String(setAll.label.detail), /^\(.*value\)$/);
+    assert.strictEqual(String(setAll.label.description), "void");
+    assert.match(String(setAll.insertText?.value), /^setAll\(\$\{1:/);
 
     // Opening the callee regenerates its own prefix. The caller must keep completing afterwards,
     // and warm completions must stay far below a PCH rebuild (~700ms).
@@ -231,6 +248,17 @@ suite("Qubic QPI extension", function () {
     assert.ok(
       entries.some((entry) => entry.file.endsWith("Counter.test.cpp")),
       "the test file should have its own compile entry",
+    );
+
+    // A gtest is not narrowed to the QPI surface, but its member lists lose the same noise.
+    const members = await completionLabels(doc, "input.history.setAll", "input.history.");
+    assert.ok(
+      members.includes("setAll"),
+      `a gtest should complete Array members; got [${members.slice(0, 12).join(", ")}]`,
+    );
+    assert.ok(
+      !members.some((l) => l.startsWith("operator") || l.startsWith("~") || l.startsWith("_")),
+      `a gtest member list carries no generated noise; got [${members.slice(0, 12).join(", ")}]`,
     );
   });
 

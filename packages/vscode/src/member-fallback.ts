@@ -8,13 +8,24 @@ import { dirname, join } from "node:path";
 import { wasiSdkPaths } from "@qinit/core/cache/wasi-sdk";
 
 export interface FallbackItem {
-  label: string;
-  detail?: string;
+  /** The typed text: what filtering matches and what gets inserted. */
+  name: string;
+  /** One entry per parameter, e.g. `uint64 indexBegin`, each a snippet placeholder. */
+  placeholders: string[];
+  returnType?: string;
+  /** Trailing qualifiers clang reports separately, e.g. `const`. */
+  qualifiers?: string;
   kind: "field" | "method";
 }
 
-const COMPLETION_LINE = /^COMPLETION: (.+?)(?: : (.*))?$/;
-const RESULT_TYPE = /\[#(.*?)#\]/;
+const COMPLETION_LINE = /^COMPLETION: (.+)$/;
+const RESULT_TYPE = /^\[#(.*?)#\]/;
+// Chunks clang appends after the signature, e.g. `get(<#uint64 index#>)[# const#]`.
+const TRAILING_INFORMATIVE = /\[#(.*?)#\]\s*$/;
+// Default arguments, which the author does not type.
+const OPTIONAL_CHUNK = /\{#.*?#\}/g;
+const PLACEHOLDER = /<#(.*?)#>/g;
+const AVAILABILITY = /\s*\((?:Inaccessible|Hidden|Unavailable|NotAccessible|Deprecated)\)/g;
 
 export interface Cancellable {
   isCancellationRequested: boolean;
@@ -189,6 +200,15 @@ const pchBuilds = new Map<string, Promise<string | undefined>>();
 const lastForcedRebuild = new Map<string, number>();
 let bufferSequence = 0;
 
+// clang truncates the buffer at the completion point, so the answer only depends on the text before it:
+// re-asking the same member expression reuses the last result instead of spawning clang again.
+const lastCompletion = new Map<string, { key: string; items: FallbackItem[] }>();
+let completionRuns = 0;
+
+export function completionRunsForTests(): number {
+  return completionRuns;
+}
+
 // Dependencies the key cannot see (core headers, the sysroot) still invalidate the PCH, and clang
 // names the stale file — its report is the signal, not a dependency list we would have to guess.
 const STALE_PCH = /has been modified since the precompiled header|please rebuild precompiled file/;
@@ -255,23 +275,49 @@ export async function ensurePrefixPch(
   return build;
 }
 
-/** clang's `COMPLETION:` lines -> items; `Pattern` rows and reserved names are dropped. */
+// The chunks behind a name: `[#uint64#]setRange(<#uint64 index#>, {#uint64 count#})[# const#]`.
+function parseMeta(name: string, meta: string): FallbackItem {
+  let rest = meta.replace(OPTIONAL_CHUNK, "");
+
+  const result = RESULT_TYPE.exec(rest);
+  if (result) rest = rest.slice(result[0].length);
+
+  const informative = TRAILING_INFORMATIVE.exec(rest);
+  if (informative) rest = rest.slice(0, informative.index);
+
+  const open = rest.indexOf("(");
+  const close = rest.lastIndexOf(")");
+  if (open < 0 || close < open) {
+    return { name, placeholders: [], returnType: result?.[1], kind: "field" };
+  }
+
+  const parameters = rest.slice(open + 1, close);
+  return {
+    name,
+    placeholders: [...parameters.matchAll(PLACEHOLDER)].map((match) => match[1]),
+    returnType: result?.[1],
+    qualifiers: informative?.[1].trim(),
+    kind: "method",
+  };
+}
+
+/** clang's `COMPLETION:` lines -> items; patterns and unreachable members are dropped. */
 export function parseCompletions(stdout: string): FallbackItem[] {
   const items: FallbackItem[] = [];
   for (const line of stdout.split("\n")) {
     const match = COMPLETION_LINE.exec(line.trim());
     if (!match) continue;
 
-    const label = match[1];
-    const meta = match[2] ?? "";
-    if (label === "Pattern" || label.startsWith("_")) continue;
+    const separator = match[1].indexOf(" : ");
+    const declaration = separator < 0 ? match[1] : match[1].slice(0, separator);
+    const meta = separator < 0 ? "" : match[1].slice(separator + 3);
+    const name = declaration.replace(AVAILABILITY, "");
 
-    const resultType = RESULT_TYPE.exec(meta)?.[1];
-    const signature = meta.replace(RESULT_TYPE, "").replace(/<#|#>/g, "");
-    const detail = resultType
-      ? `${resultType} ${signature}`.trim()
-      : signature.trim() || undefined;
-    items.push({ label, detail, kind: signature.includes("(") ? "method" : "field" });
+    // An availability marker means the member cannot be reached from here, and `Get_input::` is how
+    // clang spells the injected class name — neither is something the author can write after a dot.
+    if (name === "Pattern" || name !== declaration || meta === `${name}::`) continue;
+
+    items.push(parseMeta(name, meta));
   }
   return items;
 }
@@ -286,12 +332,42 @@ export interface FallbackRequest {
   cancel?: Cancellable;
 }
 
+function offsetOf(text: string, line: number, character: number): number {
+  let offset = 0;
+  for (let index = 0; index < line; index++) {
+    const newline = text.indexOf("\n", offset);
+    if (newline < 0) return text.length;
+    offset = newline + 1;
+  }
+  return Math.min(offset + character, text.length);
+}
+
+// A rebuilt PCH answers differently, so its mtime joins the text the completion point sits behind.
+function completionKey(request: FallbackRequest, pch: string): string {
+  const offset = offsetOf(request.bufferText, request.line, request.character);
+  let stamp = "";
+  try {
+    stamp = String(statSync(pch).mtimeMs);
+  } catch {}
+
+  return createHash("sha256")
+    .update(pch)
+    .update("\0")
+    .update(stamp)
+    .update("\0")
+    .update(String(offset))
+    .update("\0")
+    .update(request.bufferText.slice(0, offset))
+    .digest("hex");
+}
+
 async function completeOnce(
   clang: string,
   request: FallbackRequest,
   shared: string[],
   pch: string,
 ): Promise<{ items: FallbackItem[]; stalePch: boolean }> {
+  completionRuns++;
   // The live buffer is unsaved, so completion runs on a copy beside the DB, not the file on disk.
   // Typing outruns the subprocess, so each request gets its own copy rather than sharing one path.
   const bufferCopy = join(
@@ -368,6 +444,12 @@ export async function memberFallbackCompletions(
   const pch = await ensurePrefixPch(clang, request.prefixPath, shared);
   if (!pch) return undefined;
 
+  let key = completionKey(request, pch);
+  const cached = lastCompletion.get(request.contractPath);
+  if (cached?.key === key) {
+    return cached.items.length > 0 ? cached.items : undefined;
+  }
+
   let attempt = await completeOnce(clang, request, shared, pch);
 
   // A dependency of the PCH moved (a callee header, qpi.h, the sysroot). Rebuild and ask again.
@@ -375,7 +457,13 @@ export async function memberFallbackCompletions(
     const rebuilt = await ensurePrefixPch(clang, request.prefixPath, shared);
     if (!rebuilt) return undefined;
     attempt = await completeOnce(clang, request, shared, rebuilt);
+    key = completionKey(request, rebuilt);
   }
 
-  return attempt.items.length > 0 ? attempt.items : undefined;
+  // Even an empty struct answers with its operators and destructor, so nothing back means the run was
+  // cancelled or died — caching that would answer every later request at this dot with silence.
+  if (attempt.items.length === 0) return undefined;
+
+  lastCompletion.set(request.contractPath, { key, items: attempt.items });
+  return attempt.items;
 }

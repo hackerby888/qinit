@@ -12,4 +12,6 @@ public:
 TEST(Counter, Initialize)
 {
     ContractTestingCounter test;
+    Counter::get_input input;
+    input.history.setAll(0);
 }

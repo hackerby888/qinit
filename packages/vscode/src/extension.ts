@@ -89,30 +89,68 @@ function labelOf(item: vscode.CompletionItem): string {
   return typeof item.label === "string" ? item.label : item.label.label;
 }
 
-function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
-  const kind =
-    item.kind === "method" ? vscode.CompletionItemKind.Method : vscode.CompletionItemKind.Field;
-  const completion = new vscode.CompletionItem(item.label, kind);
-  completion.detail = item.detail;
-  return completion;
+function memberSnippet(item: FallbackItem): vscode.SnippetString {
+  const snippet = new vscode.SnippetString(`${item.name}(`);
+  item.placeholders.forEach((placeholder, index) => {
+    if (index > 0) snippet.appendText(", ");
+    snippet.appendPlaceholder(placeholder);
+  });
+  snippet.appendText(")");
+  return snippet;
 }
+
+// clangd renders a method as its name, then the parameters, then the return type; the fallback's items
+// carry the same chunks, so they are shown and inserted the same way.
+function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
+  if (item.kind !== "method") {
+    const field = new vscode.CompletionItem(
+      { label: item.name, description: item.returnType },
+      vscode.CompletionItemKind.Field,
+    );
+    field.filterText = item.name;
+    return field;
+  }
+
+  const qualifiers = item.qualifiers ? ` ${item.qualifiers}` : "";
+  const method = new vscode.CompletionItem(
+    {
+      label: item.name,
+      detail: `(${item.placeholders.join(", ")})${qualifiers}`,
+      description: item.returnType,
+    },
+    vscode.CompletionItemKind.Method,
+  );
+  method.filterText = item.name;
+  method.insertText = memberSnippet(item);
+  if (item.placeholders.length > 0) {
+    method.command = { command: "editor.action.triggerParameterHints", title: "Parameter hints" };
+  }
+  return method;
+}
+
+const TYPED_WORD = /[A-Za-z0-9_]*$/;
 
 // clangd's member completion breaks on preamble types with template members (member-fallback.ts);
 // a raw clang++ answers the same query correctly, so an empty member list is retried through it.
 async function fallbackMemberCompletions(
   doc: vscode.TextDocument,
   position: vscode.Position,
+  linePrefix: string,
   token: vscode.CancellationToken,
   out: vscode.OutputChannel,
 ): Promise<vscode.CompletionItem[]> {
   const prefixPath = contractPrefixPaths.get(doc.fileName);
   if (!prefixPath) return [];
+
+  // clang narrows its own answer to what exactly matches the letters already typed. Completing at the
+  // member operator instead returns the whole list and leaves the matching to the editor's scoring.
+  const typed = TYPED_WORD.exec(linePrefix)?.[0] ?? "";
   const items = await memberFallbackCompletions({
     prefixPath,
     contractPath: doc.fileName.replace(/\\/g, "/"),
     bufferText: doc.getText(),
     line: position.line,
-    character: position.character,
+    character: position.character - typed.length,
     cancel: token,
   });
   if (!items) return [];
@@ -120,7 +158,29 @@ async function fallbackMemberCompletions(
     fallbackReported = true;
     out.appendLine(`member completion answered by clang fallback: ${items.length} items`);
   }
-  return items.filter((item) => keepMemberLabel(item.label)).map(fallbackCompletionItem);
+  return items.filter((item) => keepMemberLabel(item.name)).map(fallbackCompletionItem);
+}
+
+// A member list is already scoped by its type, so only the names QPI reserves have to go — and when
+// Sema resolved nothing (an empty list, or one padded with word-list items) clang answers instead.
+async function memberCompletions(
+  doc: vscode.TextDocument,
+  position: vscode.Position,
+  linePrefix: string,
+  items: readonly vscode.CompletionItem[],
+  token: vscode.CancellationToken,
+  out: vscode.OutputChannel,
+): Promise<vscode.CompletionItem[]> {
+  const kept = items.filter((item) => keepMemberLabel(labelOf(item)));
+  const unresolved =
+    items.length === 0 ||
+    items.every(
+      (item) => item.kind === undefined || item.kind === vscode.CompletionItemKind.Text,
+    );
+  if (!unresolved) return kept;
+
+  const fallback = await fallbackMemberCompletions(doc, position, linePrefix, token, out);
+  return fallback.length > 0 ? fallback : kept;
 }
 
 // clangd offers every symbol the translation unit can see; a contract may write only the QPI surface.
@@ -137,40 +197,30 @@ async function filterCompletions(
     return result;
   }
 
-  // A gtest may write std:: and the gtest macros, so only the fallback applies there: narrowing
-  // a test to the QPI surface would hide what it legitimately needs.
-  if (isTestDoc(doc)) {
-    const linePrefix = doc.lineAt(position.line).text.slice(0, position.character);
-    if (completionScope(linePrefix).kind !== "member") return result;
-    const items = result ? (Array.isArray(result) ? result : result.items) : [];
-    if (items.length > 0) return result;
-
-    const fallback = await fallbackMemberCompletions(doc, position, token, out);
-    return fallback.length > 0 ? new vscode.CompletionList(fallback, false) : result;
-  }
-
   // A null result still goes through the member branch: the clangd bug the fallback covers can
   // surface as an absent list, not only as an empty or word-list one.
   const items = result ? (Array.isArray(result) ? result : result.items) : [];
   const linePrefix = doc.lineAt(position.line).text.slice(0, position.character);
   const scope = completionScope(linePrefix);
+  // clangd truncates its result set, so the list stays incomplete and is re-requested as the user types.
+  const incomplete = result !== null && result !== undefined && !Array.isArray(result)
+    ? result.isIncomplete
+    : false;
+
+  // A gtest may write std:: and the gtest macros, so only the member step applies there: narrowing
+  // a test to the QPI surface would hide what it legitimately needs.
+  if (isTestDoc(doc)) {
+    if (scope.kind !== "member") return result;
+    const members = await memberCompletions(doc, position, linePrefix, items, token, out);
+    return new vscode.CompletionList(members, incomplete);
+  }
+
   const allowed = qpiAllowedIdentifiers(contractPrefixPath, core);
   const documentNames = documentIdentifiers(doc.getText());
   let kept: vscode.CompletionItem[];
 
   if (scope.kind === "member") {
-    // A member list is already scoped by its type — only QPI's reserved names have to go.
-    kept = items.filter((item) => keepMemberLabel(labelOf(item)));
-    // Sema found no members when clangd answers empty or pads with word-list items (kind Text).
-    const unresolved =
-      items.length === 0 ||
-      items.every(
-        (item) => item.kind === undefined || item.kind === vscode.CompletionItemKind.Text,
-      );
-    if (unresolved) {
-      const fallback = await fallbackMemberCompletions(doc, position, token, out);
-      if (fallback.length > 0) kept = fallback;
-    }
+    kept = await memberCompletions(doc, position, linePrefix, items, token, out);
   } else if (scope.kind === "qualified") {
     // `QPI::`, `OI::Price::` and the contract's own types stay whole; `std::` and friends offer nothing.
     kept = keepQualifiedScope(scope.qualifier, allowed, documentNames)
@@ -184,10 +234,6 @@ async function filterCompletions(
     filterReported = true;
     out.appendLine(`completion filtered to the QPI surface: kept ${kept.length} of ${items.length}`);
   }
-  // clangd truncates its result set, so the list stays incomplete and is re-requested as the user types.
-  const incomplete = result !== null && result !== undefined && !Array.isArray(result)
-    ? result.isIncomplete
-    : false;
   return new vscode.CompletionList(kept, incomplete);
 }
 

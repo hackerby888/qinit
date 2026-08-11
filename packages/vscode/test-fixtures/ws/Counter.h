@@ -2,7 +2,8 @@
 using namespace QPI;
 
 struct Counter : public ContractBase {
-  struct get_input {};
+  // The Array member arms the clangd field-completion bug the extension's clang fallback covers.
+  struct get_input { Array<uint64, 8> history; };
   struct get_output { uint64 value; };
   struct increment_input { uint64 by; };
   struct increment_output {};

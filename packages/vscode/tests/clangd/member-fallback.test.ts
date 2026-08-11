@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { generateClangdConfig } from "../../src/clangd-config";
 import {
   compileEntryFor,
+  completionRunsForTests,
   ensurePrefixPch,
   findClang,
   memberFallbackCompletions,
@@ -30,36 +31,50 @@ const hasClang = (() => {
   return false;
 })();
 
-// Captured from `clang++ -Xclang -code-completion-at` on the CrossCall repro.
+// Captured from `clang++ -Xclang -code-completion-at` on the CrossCall repro and on an Array member.
 const CLANG_OUTPUT = `COMPLETION: a : [#sint16#]a
 COMPLETION: bc : [#Array<uint64, 8>#]bc
 COMPLETION: Get_input : Get_input::
 COMPLETION: operator= : [#Get_input &#]operator=(<#const Get_input &#>)
 COMPLETION: ~Get_input : [#void#]~Get_input()
+COMPLETION: _values (Inaccessible) : [#unsigned long long[8]#]_values
+COMPLETION: capacity : [#uint64#]capacity()
+COMPLETION: get : [#const unsigned long long &#]get(<#uint64 index#>)[# const#]
+COMPLETION: setRange : [#void#]setRange(<#uint64 indexBegin#>, <#uint64 indexEnd#>, {#const unsigned long long &value#})
 COMPLETION: Pattern : static_cast<<#type#>>(<#expression#>)
-COMPLETION: _Nonnull
 `;
 
-test("parseCompletions keeps members, drops Pattern rows and reserved names", () => {
-  const items = parseCompletions(CLANG_OUTPUT);
-  const labels = items.map((item) => item.label);
+test("parseCompletions drops patterns, injected class names and unreachable members", () => {
+  const names = parseCompletions(CLANG_OUTPUT).map((item) => item.name);
 
-  expect(labels).toContain("a");
-  expect(labels).toContain("bc");
-  expect(labels).toContain("operator=");
-  expect(labels).not.toContain("Pattern");
-  expect(labels).not.toContain("_Nonnull");
+  expect(names).toContain("a");
+  expect(names).toContain("bc");
+  expect(names).not.toContain("Pattern");
+  // `Get_input : Get_input::` is the injected class name, and an inaccessible member is not writable.
+  expect(names).not.toContain("Get_input");
+  expect(names.some((name) => name.includes("_values"))).toBe(false);
 });
 
 test("parseCompletions reads types and tells fields from methods", () => {
-  const items = parseCompletions(CLANG_OUTPUT);
-  const byLabel = new Map(items.map((item) => [item.label, item]));
+  const byName = new Map(parseCompletions(CLANG_OUTPUT).map((item) => [item.name, item]));
 
-  expect(byLabel.get("bc")?.kind).toBe("field");
-  expect(byLabel.get("bc")?.detail).toBe("Array<uint64, 8> bc");
-  expect(byLabel.get("a")?.detail).toBe("sint16 a");
-  expect(byLabel.get("operator=")?.kind).toBe("method");
-  expect(byLabel.get("operator=")?.detail).toBe("Get_input & operator=(const Get_input &)");
+  expect(byName.get("bc")?.kind).toBe("field");
+  expect(byName.get("bc")?.returnType).toBe("Array<uint64, 8>");
+  expect(byName.get("bc")?.placeholders).toEqual([]);
+  expect(byName.get("a")?.returnType).toBe("sint16");
+  expect(byName.get("capacity")?.kind).toBe("method");
+  expect(byName.get("capacity")?.placeholders).toEqual([]);
+});
+
+test("parseCompletions reads parameters, qualifiers and skips default arguments", () => {
+  const byName = new Map(parseCompletions(CLANG_OUTPUT).map((item) => [item.name, item]));
+
+  expect(byName.get("get")?.placeholders).toEqual(["uint64 index"]);
+  expect(byName.get("get")?.returnType).toBe("const unsigned long long &");
+  expect(byName.get("get")?.qualifiers).toBe("const");
+  // The `{#...#}` chunk is a default argument, which the author never types.
+  expect(byName.get("setRange")?.placeholders).toEqual(["uint64 indexBegin", "uint64 indexEnd"]);
+  expect(byName.get("setRange")?.qualifiers).toBeUndefined();
 });
 
 test("parseCompletions of empty or unrelated output yields nothing", () => {
@@ -198,10 +213,72 @@ test.if(hasHeaders && hasClang)(
         character: probeLine.length,
       });
 
-      const labels = (items ?? []).map((item) => item.label);
+      const labels = (items ?? []).map((item) => item.name);
       expect(labels).toContain("bc");
       expect(labels).toContain("a");
       expect(existsSync(pchPathFor(config.prefixPath))).toBe(true);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+  60000,
+);
+
+// clang narrows its own answer to an exact prefix match, so the completion point sits at the member
+// operator: the whole list comes back and the letters after the dot are matched by the editor.
+test.if(hasHeaders && hasClang)(
+  "completing at the member operator returns the whole list, and only once",
+  async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "qpi-fallback-dot-"));
+    try {
+      const contractsDir = join(workspace, "contracts");
+      mkdirSync(contractsDir, { recursive: true });
+      const counterPath = join(contractsDir, "Counter.h");
+      const crossCallPath = join(contractsDir, "CrossCall.h");
+      writeFileSync(counterPath, COUNTER_SOURCE);
+      writeFileSync(crossCallPath, CROSSCALL_SOURCE);
+
+      const config = generateClangdConfig({
+        contractPath: crossCallPath,
+        corePath: BUNDLED_CORE,
+        dataRoot: workspace,
+        workspaceRoot: workspace,
+        name: "CrossCall",
+        slot: 30,
+        dynCallees: { Counter: { header: counterPath, index: 29 } },
+      });
+
+      const markerLine = "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
+      const probeLine = "    locals.gi.a";
+      const buffer = CROSSCALL_SOURCE.replace(markerLine, `${markerLine}\n${probeLine}`);
+      const request = {
+        prefixPath: config.prefixPath,
+        contractPath: config.contractFile,
+        bufferText: buffer,
+        line: buffer.split("\n").findIndex((text) => text === probeLine),
+        character: probeLine.lastIndexOf(".") + 1,
+      };
+
+      const runs = completionRunsForTests();
+      const names = (await memberFallbackCompletions(request))?.map((item) => item.name);
+      // `a` alone is what completing at the cursor would have returned.
+      expect(names).toContain("a");
+      expect(names).toContain("bc");
+      expect(completionRunsForTests()).toBe(runs + 1);
+
+      // The same member expression, asked again: answered from the last result, without a clang run.
+      expect((await memberFallbackCompletions(request))?.map((item) => item.name)).toEqual(names!);
+      expect(completionRunsForTests()).toBe(runs + 1);
+
+      // A cancelled run comes back empty; keeping that would answer its member expression with
+      // silence from then on, so the next request has to reach clang again.
+      const outer = { ...request, character: probeLine.indexOf(".") + 1 };
+      const aborted = {
+        isCancellationRequested: true,
+        onCancellationRequested: () => ({ dispose: () => {} }),
+      };
+      expect(await memberFallbackCompletions({ ...outer, cancel: aborted })).toBeUndefined();
+      expect((await memberFallbackCompletions(outer))?.map((item) => item.name)).toContain("gi");
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
@@ -256,7 +333,7 @@ test.if(hasHeaders && hasClang)(
         character: probeLine.length,
       });
 
-      const labels = (items ?? []).map((item) => item.label);
+      const labels = (items ?? []).map((item) => item.name);
       expect(labels).toContain("bc");
       expect(labels).toContain("a");
     } finally {
@@ -302,7 +379,7 @@ test.if(hasHeaders && hasClang)(
           line,
           character: probeLine.length,
         });
-        return (items ?? []).map((item) => item.label);
+        return (items ?? []).map((item) => item.name);
       };
 
       const first = generate();
@@ -356,14 +433,14 @@ test.if(hasHeaders && hasClang)(
         character: probeLine.length,
       };
 
-      expect((await memberFallbackCompletions(request))?.map((item) => item.label)).toContain("bc");
+      expect((await memberFallbackCompletions(request))?.map((item) => item.name)).toContain("bc");
 
       // Rewriting the PCH's own source with identical bytes moves its mtime, which is exactly what
       // clang refuses to load — without changing anything the cache key hashes.
       const pchSourcePath = pchSourcePathFor(config.prefixPath);
       writeFileSync(pchSourcePath, readFileSync(pchSourcePath, "utf8"));
 
-      const labels = (await memberFallbackCompletions(request))?.map((item) => item.label);
+      const labels = (await memberFallbackCompletions(request))?.map((item) => item.name);
       expect(labels).toContain("bc");
       expect(labels).toContain("a");
     } finally {

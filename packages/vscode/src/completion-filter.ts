@@ -142,9 +142,14 @@ function completionName(label: string): string | undefined {
   return LEADING_IDENTIFIER_PATTERN.exec(label.trim())?.[0];
 }
 
-// Anything without a leading identifier (operators, destructors) is kept: the filter only drops what it
-// recognises. Member lists are already scoped by their type, so there only the reserved names go.
+// Assignment operators and destructors come with every struct and none of them can be written after a
+// dot in QPI, so a member list is the reserved names, the operators and the destructor removed.
+const NOISE_MEMBER_PATTERN = /^(operator\b|~)/;
+
 export function keepMemberLabel(label: string): boolean {
+  if (NOISE_MEMBER_PATTERN.test(label.trim())) {
+    return false;
+  }
   return !completionName(label)?.startsWith("_");
 }
 

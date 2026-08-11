@@ -180,10 +180,14 @@ test("labels are matched by their leading identifier", () => {
   expect(keepCompletionLabel("~Counter()", allowed, documentNames)).toBe(true);
 });
 
-test("member lists only lose the reserved names", () => {
+test("member lists lose the reserved names, the operators and the destructor", () => {
   expect(keepMemberLabel(" get(uint64 index) const")).toBe(true);
   expect(keepMemberLabel(" __reservedSlot")).toBe(false);
   expect(keepMemberLabel(" _internal")).toBe(false);
+  expect(keepMemberLabel(" operator=(const Get_input &)")).toBe(false);
+  expect(keepMemberLabel(" ~Get_input()")).toBe(false);
+  // A member is only an operator when the word ends there.
+  expect(keepMemberLabel(" operatorCount")).toBe(true);
 });
 
 test("document identifiers cover what the author already wrote", () => {
