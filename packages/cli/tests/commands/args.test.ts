@@ -108,6 +108,29 @@ test("parseCommandInvocation gets definitions from command metadata", () => {
   ]);
 });
 
+test("parseCommandInvocation accepts upstream integration options", () => {
+  const invocation = parseCommandInvocation("upstream", [
+    "contracts/Counter.h",
+    "--contract-name",
+    "Counter",
+    "--out",
+    "/tmp/core",
+    "--asset",
+    "COUNTER",
+    "--construction-epoch",
+    "200",
+    "--destruction-epoch",
+    "10000",
+  ]);
+
+  expect(invocation.commandArgs.positionals).toEqual(["contracts/Counter.h"]);
+  expect(invocation.commandArgs.get("contract-name")).toBe("Counter");
+  expect(invocation.commandArgs.get("out")).toBe("/tmp/core");
+  expect(invocation.commandArgs.get("asset")).toBe("COUNTER");
+  expect(invocation.commandArgs.get("construction-epoch")).toBe("200");
+  expect(invocation.commandArgs.get("destruction-epoch")).toBe("10000");
+});
+
 test("parseCommandInvocation accepts setup --force", () => {
   const invocation = parseCommandInvocation("setup", ["--force"]);
 

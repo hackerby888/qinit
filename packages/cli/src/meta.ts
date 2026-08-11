@@ -166,6 +166,30 @@ const commandMeta = {
     ],
     examples: ["qinit new mytoken --template asset"],
   },
+  upstream: {
+    group: "develop",
+    summary: "wire a contract and GTest into Qubic Core",
+    usage: "[<file.h>] [--asset <symbol> --construction-epoch <n>]",
+    options: [
+      stringOption(
+        "contract",
+        "<file.h>",
+        "contract header (alternative to the positional)",
+      ),
+      stringOption("contract-name", "<n>", "contract name"),
+      stringOption("out", "<dir>", "Qubic Core checkout directory"),
+      stringOption("asset", "<symbol>", "contract asset symbol"),
+      stringOption("construction-epoch", "<n>", "first active epoch"),
+      stringOption(
+        "destruction-epoch",
+        "<n>",
+        "first inactive epoch (default: 10000)",
+      ),
+    ],
+    examples: [
+      "qinit upstream ./contracts/Mytoken.h --asset MYTOKEN --construction-epoch 200",
+    ],
+  },
   dev: {
     group: "develop",
     summary: "watch a contract graph -> auto build+deploy on save (q to quit)",

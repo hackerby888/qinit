@@ -67,6 +67,32 @@ QINIT_CORE=/path/to/core-lite bun run test:sc:light
 Run node binaries from a temporary working directory because they create
 runtime data relative to the current directory.
 
+## Prepare an upstream Core checkout
+
+`qinit upstream` copies one Qinit contract into the latest `qubic/core` main
+branch and wires its optional GTest into the Visual Studio projects:
+
+```bash
+qinit upstream contracts/Counter.h
+```
+
+For a new integration, Qinit clones Core into `../Counter-core`, creates
+`qinit/counter`, and prompts for the asset name, construction epoch, and
+destruction epoch (default `10000`). Non-interactive use supplies the required
+metadata explicitly:
+
+```bash
+qinit upstream --contract contracts/Counter.h --contract-name Counter \
+  --out ../Counter-core --asset COUNTER --construction-epoch 250
+```
+
+Re-running the command against a clean existing checkout updates the contract
+source and test while preserving its registered index, asset, and epochs.
+Referenced custom callees must already be registered in that Core checkout at
+lower indices; Qinit does not recursively add them. Core currently builds these
+projects with Visual Studio on Windows, and the command prints the next NuGet,
+MSBuild, and test commands.
+
 ## Workspace
 
 | Path | Responsibility |

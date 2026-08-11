@@ -89,7 +89,7 @@ packages/cli/src/
   index.tsx  app.tsx  meta.ts  args.ts  config.ts  version.ts
   commands/setup/             setup doctor clean update uninstall
   commands/node/              node node-run tick epoch
-  commands/develop/           new dev build gen verify
+  commands/develop/           new upstream dev build gen verify
   commands/deploy-interact/   deploy call call-interactive ls state debug seed system test gtest
                               explorer/{index,chrome,find,overview,tick,identity,contracts}
   commands/editor/            ext
@@ -338,7 +338,7 @@ The invariants to remember are:
 |---|---|---|---|
 | Install and maintain qinit | `setup` | `commands/setup/` | `setup`, `doctor`, `clean`, `self-update`, `uninstall` |
 | Run the dev chain | `node` | `commands/node/` | `node`, `tick`, `epoch` |
-| Develop | `develop` | `commands/develop/` | `new`, `dev`, `build`, `gen`, `verify` |
+| Develop | `develop` | `commands/develop/` | `new`, `upstream`, `dev`, `build`, `gen`, `verify` |
 | Deploy and interact | `deploy & interact` | `commands/deploy-interact/` | `deploy`, `call`, `seed`, `ls`, `state`, `explorer`, `debug`, `test`, `gtest`, `system` |
 | Editor integration | `editor` | `commands/editor/` | `ext` |
 | Miscellaneous | `misc` | `commands/misc/` | `runtime`, `compiler`, `theme`, `cheat-sheet`, `smoke`, `version`, `help` |
@@ -607,7 +607,78 @@ refused when `qinit.json` already exists in the working directory.
 Gtest generation is best-effort: project creation continues if IDL extraction
 fails.
 
-### 7.2 `qinit compiler`
+### 7.2 `qinit upstream`
+
+The implementation is
+[`commands/develop/upstream.tsx`](../packages/cli/src/commands/develop/upstream.tsx),
+with filesystem and Git work in
+[`ops/upstream.ts`](../packages/cli/src/ops/upstream.ts).
+
+```text
+qinit upstream [<contract.h>]
+  [--contract <path>]
+  [--contract-name <name>]
+  [--out <core-dir>]
+  [--asset <name>]
+  [--construction-epoch <epoch>]
+  [--destruction-epoch <epoch>]
+```
+
+Contract selection is `--contract`, then the positional, then `qinit.json`.
+Name selection is `--contract-name`, then `qinit.json`, then the header basename.
+Output defaults to `../<ContractName>-core`. A new output is a full,
+single-branch clone of the latest `qubic/core` `main`, followed by a
+`qinit/<lowercase-name>` integration branch. In a TTY, initial integration
+prompts for:
+
+- an asset name matching `[A-Z][A-Z0-9]{0,6}`;
+- the construction epoch (the IPO is normally one epoch earlier);
+- the destruction epoch, prefilled with `10000`.
+
+Non-TTY use must pass `--asset` and `--construction-epoch`; destruction still
+defaults to `10000`. Epochs must fit Core's unsigned 16-bit fields, and the
+destruction epoch must be later than construction.
+
+An existing target must be a clean Core checkout. On `main`, Qinit fast-forwards
+from `origin/main` before creating the integration branch; an already-wired
+feature branch is updated in place. Re-runs recognize the existing registration
+and synchronize source instead of allocating another contract index. Its asset,
+construction epoch, and destruction epoch are immutable: omitted flags reuse
+them, while conflicting flags fail before writes. Qinit never resets, cleans,
+commits, pushes, or overwrites a dirty checkout.
+
+The command wires exactly one selected contract. It does not recursively add
+local custom callees: every referenced custom callee must already be registered
+in the target Core checkout at a lower index. A same-name local header alone is
+not enough. A referenced callee in the GTest should also have
+`INIT_CONTRACT(Callee)`.
+
+Qinit updates only the files Core currently needs:
+
+- `src/contracts/<Name>.h`;
+- the three registration sections in `src/contract_core/contract_def.h`;
+- `src/Qubic.vcxproj` and `src/Qubic.vcxproj.filters`;
+- `test/contract_<name>.cpp`, `test/test.vcxproj`, and
+  `test/test.vcxproj.filters` when `tests/<Name>.test.cpp` exists locally.
+
+The GTest is optional. A missing local test does not fail initial integration
+and does not delete an already-wired Core test during an update. The command
+does not edit `Qubic.sln` or any CMake file, and preserves the BOM and CRLF
+format used by Core's Visual Studio project files.
+
+Core currently supports this generated build path on Windows:
+
+```powershell
+nuget restore Qubic.sln
+msbuild /m /p:Configuration=Release Qubic.sln /t:Qubic:Rebuild /warnaserror
+msbuild /m /p:Configuration=Release Qubic.sln /t:test:Rebuild /warnaserror
+.\x64\Release\test.exe --gtest_filter=<Contract>.*
+```
+
+The `qinit upstream` preparation itself may run on any Qinit-supported OS; it
+prints these commands rather than invoking them.
+
+### 7.3 `qinit compiler`
 
 This command selects a backend; it does not compile a contract. The selection is
 saved as `clang` or `typescript`. Build, deploy, dev, test, gtest, `system`,
@@ -617,7 +688,7 @@ and simulator startup resolve:
 --compiler -> saved compiler-backend -> clang
 ```
 
-### 7.3 `qinit build`
+### 7.4 `qinit build`
 
 The UI component is [`commands/develop/build.tsx`](../packages/cli/src/commands/develop/build.tsx).
 It resolves:
@@ -696,7 +767,7 @@ dist/contracts/<Name>.lines.json            when line-map generation succeeds
 
 The built Wasm's K12 digest is shown and included in build JSON.
 
-### 7.4 Dynamic callee resolution
+### 7.5 Dynamic callee resolution
 
 [`packages/cli/src/contracts/callees.ts`](../packages/cli/src/contracts/callees.ts) parses:
 
@@ -714,7 +785,7 @@ catalog, or one unique `contracts/**/*.h` basename. It returns system and custom
 contracts in dependency-first order and reports missing contracts, ambiguous
 workspace matches, reserved system names, and dependency cycles.
 
-### 7.5 `qinit gen`, `qinit verify`, and `qinit dev`
+### 7.6 `qinit gen`, `qinit verify`, and `qinit dev`
 
 `gen` does not compile or contact the node:
 
@@ -1707,6 +1778,7 @@ Paths below are relative to `packages/cli/src/`.
 | `tick` | `commands/node/tick.tsx` | `LiteRpc` testnet controls |
 | `epoch` | `commands/node/epoch.tsx` | `LiteRpc` testnet controls |
 | `new` | `commands/develop/new.tsx` | `contracts/templates.ts`, IDL/gtest generators |
+| `upstream` | `commands/develop/upstream.tsx` | `ops/upstream.ts`, Git, Core Visual Studio projects |
 | `dev` | `commands/develop/dev.tsx` | `ops/project-deploy.ts`, `ops/deploy/` |
 | `build` | `commands/develop/build.tsx` | `ops/project-build.ts`, `@qinit/build` |
 | `gen` | `commands/develop/gen.tsx` | IDL/client generator |
@@ -1740,6 +1812,7 @@ The smallest useful validation depends on the boundary changed.
 | Configuration | `packages/cli/tests/commands/config.test.ts` |
 | Build JSON or compiler adapter | `build-json.test.ts`, `build-callee-cli.test.ts`, `contracts/build-contract-with-typescript.test.ts` |
 | Callee parsing/discovery | `commands/callees.test.ts`, `build/tests/pipeline/project-dependencies.test.ts` |
+| Upstream Core integration | `contracts/upstream.test.ts`, `commands/args.test.ts`, `commands/meta.test.ts` |
 | Slot planning | `contracts/project-slots.test.ts`, `proto/tests/protocol/call.test.ts` |
 | Deployment state machine | `contracts/deploy-ops.test.ts`, `contracts/project-deploy.test.ts`, `integration/simulator.test.ts` |
 | Contract/IDL selection | `contracts/contracts.test.ts`, `format/idl-file.test.ts` |

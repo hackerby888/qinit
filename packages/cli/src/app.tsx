@@ -31,6 +31,7 @@ import { System } from "./commands/deploy-interact/system";
 import { Update } from "./commands/setup/update";
 import { Uninstall } from "./commands/setup/uninstall";
 import { New } from "./commands/develop/new";
+import { Upstream } from "./commands/develop/upstream";
 import { Help, Usage } from "./commands/misc/help";
 import { Version } from "./commands/misc/version";
 import {
@@ -174,6 +175,7 @@ const HANDLERS = {
   update: ({ commandArgs }) => <Update commandArgs={commandArgs} />,
   uninstall: ({ commandArgs }) => <Uninstall commandArgs={commandArgs} />,
   new: ({ commandArgs }) => <New commandArgs={commandArgs} />,
+  upstream: ({ commandArgs }) => <Upstream commandArgs={commandArgs} />,
   dev: ({ commandArgs }) => <Dev commandArgs={commandArgs} />,
   build: ({ commandArgs }) => <Build commandArgs={commandArgs} />,
   gen: ({ commandArgs }) => <Gen commandArgs={commandArgs} />,

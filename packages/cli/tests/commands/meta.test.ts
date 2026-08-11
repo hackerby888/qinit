@@ -91,7 +91,7 @@ test("node subcommands are declared for routing and option scoping", () => {
   ]);
 });
 
-test("accepted build, dev, gen, and call options are documented", () => {
+test("accepted develop and call options are documented", () => {
   expect(commandOptions("build").map((option) => option.name)).toEqual(
     expect.arrayContaining(["contract", "rpc", "callee"]),
   );
@@ -104,6 +104,14 @@ test("accepted build, dev, gen, and call options are documented", () => {
   expect(commandOptions("call").map((option) => option.name)).toEqual(
     expect.arrayContaining(["args", "amount", "all", "no-settle"]),
   );
+  expect(commandOptions("upstream").map((option) => option.name)).toEqual([
+    "contract",
+    "contract-name",
+    "out",
+    "asset",
+    "construction-epoch",
+    "destruction-epoch",
+  ]);
 });
 
 test("legacy backend and path flags are not accepted", () => {
