@@ -108,8 +108,8 @@ test("parseCommandInvocation gets definitions from command metadata", () => {
   ]);
 });
 
-test("parseCommandInvocation accepts upstream integration options", () => {
-  const invocation = parseCommandInvocation("upstream", [
+test("parseCommandInvocation accepts Core integration options", () => {
+  const invocation = parseCommandInvocation("integrate", [
     "contracts/Counter.h",
     "--contract-name",
     "Counter",

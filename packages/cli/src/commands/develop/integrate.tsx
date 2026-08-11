@@ -5,20 +5,20 @@ import { output, type CommandArguments } from "../../args";
 import { loadConfig } from "../../config";
 import { Header, Spinner, TextPrompt, theme } from "../../ui";
 import {
-  runUpstream,
-  UpstreamMetadataRequiredError,
-  type UpstreamOptions,
-  type UpstreamResult,
-} from "../../ops/upstream";
+  CoreIntegrationMetadataRequiredError,
+  runCoreIntegration,
+  type CoreIntegrationOptions,
+  type CoreIntegrationResult,
+} from "../../ops/core-integration";
 
 type Metadata = Pick<
-  UpstreamOptions,
+  CoreIntegrationOptions,
   "assetName" | "constructionEpoch" | "destructionEpoch"
 >;
 
 type PromptField = keyof Metadata;
 
-interface UpstreamContext {
+interface CoreIntegrationContext {
   projectRoot: string;
   contractPath: string;
   contractName: string;
@@ -29,14 +29,14 @@ type State =
   | { phase: "prepare" }
   | {
       phase: "prompt";
-      context: UpstreamContext;
+      context: CoreIntegrationContext;
       metadata: Metadata;
       fields: PromptField[];
       index: number;
       error?: string;
     }
   | { phase: "run" }
-  | { phase: "done"; result: UpstreamResult; contractName: string }
+  | { phase: "done"; result: CoreIntegrationResult; contractName: string }
   | { phase: "error"; message: string };
 
 function parseAssetName(value: string): string {
@@ -72,7 +72,7 @@ function validateEpochOrder(metadata: Metadata): void {
   }
 }
 
-export function Upstream({ commandArgs }: { commandArgs: CommandArguments }) {
+export function Integrate({ commandArgs }: { commandArgs: CommandArguments }) {
   const { exit } = useApp();
   const [state, setState] = useState<State>({ phase: "prepare" });
 
@@ -85,7 +85,7 @@ export function Upstream({ commandArgs }: { commandArgs: CommandArguments }) {
   };
 
   const promptForMetadata = (
-    context: UpstreamContext,
+    context: CoreIntegrationContext,
     metadata: Metadata,
   ): void => {
     const fields: PromptField[] = [];
@@ -109,21 +109,21 @@ export function Upstream({ commandArgs }: { commandArgs: CommandArguments }) {
   };
 
   const execute = async (
-    context: UpstreamContext,
+    context: CoreIntegrationContext,
     metadata: Metadata,
     promptWhenMetadataIsRequired = false,
   ): Promise<void> => {
     try {
       validateEpochOrder(metadata);
       setState({ phase: "run" });
-      const result = await runUpstream({
+      const result = await runCoreIntegration({
         ...context,
         ...metadata,
         requireDestructionEpoch: promptWhenMetadataIsRequired,
       });
       setState({ phase: "done", result, contractName: context.contractName });
     } catch (error) {
-      if (error instanceof UpstreamMetadataRequiredError) {
+      if (error instanceof CoreIntegrationMetadataRequiredError) {
         if (promptWhenMetadataIsRequired) {
           promptForMetadata(context, metadata);
         } else {
@@ -141,7 +141,7 @@ export function Upstream({ commandArgs }: { commandArgs: CommandArguments }) {
     (async () => {
       try {
         if (commandArgs.positionals.length > 1) {
-          throw new Error("upstream accepts at most one contract path");
+          throw new Error("integrate accepts at most one contract path");
         }
 
         const projectRoot = process.cwd();
@@ -151,7 +151,7 @@ export function Upstream({ commandArgs }: { commandArgs: CommandArguments }) {
           commandArgs.positionals[0] ??
           config.contract;
         if (!selectedContract) {
-          throw new Error("pass a contract header: qinit upstream <file.h>");
+          throw new Error("pass a contract header: qinit integrate <file.h>");
         }
 
         const contractPath = resolve(projectRoot, selectedContract);
@@ -163,7 +163,7 @@ export function Upstream({ commandArgs }: { commandArgs: CommandArguments }) {
           projectRoot,
           commandArgs.get("out") ?? `../${contractName}-core`,
         );
-        const context: UpstreamContext = {
+        const context: CoreIntegrationContext = {
           projectRoot,
           contractPath,
           contractName,
@@ -262,7 +262,7 @@ export function Upstream({ commandArgs }: { commandArgs: CommandArguments }) {
 
   return (
     <Box flexDirection="column">
-      <Header cmd="upstream" />
+      <Header cmd="integrate" />
       {state.phase === "prepare" ? (
         <Spinner label="checking Qubic Core target" />
       ) : null}

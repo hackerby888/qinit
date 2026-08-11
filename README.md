@@ -67,13 +67,13 @@ QINIT_CORE=/path/to/core-lite bun run test:sc:light
 Run node binaries from a temporary working directory because they create
 runtime data relative to the current directory.
 
-## Prepare an upstream Core checkout
+## Integrate with Qubic Core
 
-`qinit upstream` copies one Qinit contract into the latest `qubic/core` main
+`qinit integrate` copies one Qinit contract into the latest `qubic/core` main
 branch and wires its optional GTest into the Visual Studio projects:
 
 ```bash
-qinit upstream contracts/Counter.h
+qinit integrate contracts/Counter.h
 ```
 
 For a new integration, Qinit clones Core into `../Counter-core`, creates
@@ -82,7 +82,7 @@ destruction epoch (default `10000`). Non-interactive use supplies the required
 metadata explicitly:
 
 ```bash
-qinit upstream --contract contracts/Counter.h --contract-name Counter \
+qinit integrate --contract contracts/Counter.h --contract-name Counter \
   --out ../Counter-core --asset COUNTER --construction-epoch 250
 ```
 
