@@ -22,7 +22,7 @@ import {
 const CORE_REPOSITORY_URL = "https://github.com/qubic/core.git";
 const CONTRACT_MARKER = "// new contracts should be added above this line";
 
-export interface UpstreamOptions {
+export interface CoreIntegrationOptions {
   projectRoot: string;
   contractPath: string;
   contractName: string;
@@ -34,14 +34,14 @@ export interface UpstreamOptions {
   repositoryUrl?: string;
 }
 
-export interface UpstreamRegistration {
+export interface CoreIntegrationRegistration {
   index: number;
   assetName: string;
   constructionEpoch: number;
   destructionEpoch: number;
 }
 
-export interface UpstreamResult {
+export interface CoreIntegrationResult {
   corePath: string;
   branch: string;
   contractIndex: number;
@@ -50,10 +50,10 @@ export interface UpstreamResult {
   warnings: string[];
 }
 
-export class UpstreamMetadataRequiredError extends Error {
+export class CoreIntegrationMetadataRequiredError extends Error {
   constructor() {
     super("new Core integration requires --asset and --construction-epoch");
-    this.name = "UpstreamMetadataRequiredError";
+    this.name = "CoreIntegrationMetadataRequiredError";
   }
 }
 
@@ -63,7 +63,7 @@ interface TextFile {
   text: string;
 }
 
-interface ContractDescription extends UpstreamRegistration {
+interface ContractDescription extends CoreIntegrationRegistration {
   stateExpression: string;
 }
 
@@ -210,7 +210,7 @@ function findRegistration(
   corePath: string,
   contractName: string,
   files: CoreFiles,
-): (UpstreamRegistration & { include: string }) | null {
+): (CoreIntegrationRegistration & { include: string }) | null {
   const definitions = parseContractDef(corePath);
   const caseInsensitiveMatch = [...definitions.entries()].find(
     ([stateType]) => stateType.toLowerCase() === contractName.toLowerCase(),
@@ -250,10 +250,10 @@ function findRegistration(
   };
 }
 
-export function inspectUpstream(
+export function inspectCoreIntegration(
   corePath: string,
   contractName: string,
-): UpstreamRegistration | null {
+): CoreIntegrationRegistration | null {
   const resolvedCorePath = resolve(corePath);
   const files = loadCoreFiles(resolvedCorePath);
   const registration = findRegistration(
@@ -281,8 +281,8 @@ function validateContractName(contractName: string): void {
 }
 
 function validateMetadata(
-  options: UpstreamOptions,
-  existing: UpstreamRegistration | null,
+  options: CoreIntegrationOptions,
+  existing: CoreIntegrationRegistration | null,
 ): void {
   const metadata = {
     assetName: options.assetName ?? existing?.assetName,
@@ -298,7 +298,7 @@ function validateMetadata(
     metadata.constructionEpoch === undefined ||
     metadata.destructionEpoch === undefined
   ) {
-    throw new UpstreamMetadataRequiredError();
+    throw new CoreIntegrationMetadataRequiredError();
   }
   if (!/^[A-Z][A-Z0-9]{0,6}$/.test(metadata.assetName)) {
     throw new Error(
@@ -516,10 +516,10 @@ function addXmlEntry(
 }
 
 function metadataFor(
-  options: UpstreamOptions,
-  existing: UpstreamRegistration | null,
+  options: CoreIntegrationOptions,
+  existing: CoreIntegrationRegistration | null,
 ): Required<Pick<
-  UpstreamOptions,
+  CoreIntegrationOptions,
   "assetName" | "constructionEpoch" | "destructionEpoch"
 >> {
   return {
@@ -537,7 +537,7 @@ function planMutations(options: {
   contractName: string;
   contractSource: string;
   testSource?: string;
-  existing: (UpstreamRegistration & { include: string }) | null;
+  existing: (CoreIntegrationRegistration & { include: string }) | null;
   metadata: ReturnType<typeof metadataFor>;
   files: CoreFiles;
 }): {
@@ -803,9 +803,9 @@ function planMutations(options: {
   };
 }
 
-export async function runUpstream(
-  options: UpstreamOptions,
-): Promise<UpstreamResult> {
+export async function runCoreIntegration(
+  options: CoreIntegrationOptions,
+): Promise<CoreIntegrationResult> {
   const projectRoot = resolve(options.projectRoot);
   const contractPath = resolveFromProject(projectRoot, options.contractPath);
   const corePath = resolveFromProject(projectRoot, options.outputPath);

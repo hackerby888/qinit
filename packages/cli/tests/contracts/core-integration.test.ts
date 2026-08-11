@@ -15,16 +15,16 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  inspectUpstream,
-  runUpstream,
-  UpstreamMetadataRequiredError,
-} from "../../src/ops/upstream";
+  CoreIntegrationMetadataRequiredError,
+  inspectCoreIntegration,
+  runCoreIntegration,
+} from "../../src/ops/core-integration";
 
 const temporaryDirectories: string[] = [];
 const CRLF = "\r\n";
 
 function temporaryDirectory(): string {
-  const path = mkdtempSync(join(tmpdir(), "qinit-upstream-test-"));
+  const path = mkdtempSync(join(tmpdir(), "qinit-core-integration-test-"));
   temporaryDirectories.push(path);
   return path;
 }
@@ -156,7 +156,7 @@ afterEach(() => {
   }
 });
 
-describe("runUpstream", () => {
+describe("runCoreIntegration", () => {
   test("creates and safely updates a Core integration", async () => {
     const root = temporaryDirectory();
     const repositoryUrl = createCoreRepository(root);
@@ -172,14 +172,14 @@ describe("runUpstream", () => {
       repositoryUrl,
     };
 
-    await expect(runUpstream({
+    await expect(runCoreIntegration({
       ...options,
       requireDestructionEpoch: true,
-    })).rejects.toBeInstanceOf(UpstreamMetadataRequiredError);
+    })).rejects.toBeInstanceOf(CoreIntegrationMetadataRequiredError);
     expect(runGit(outputPath, "branch", "--show-current")).toBe("main");
     expect(runGit(outputPath, "status", "--porcelain")).toBe("");
 
-    const created = await runUpstream(options);
+    const created = await runCoreIntegration(options);
 
     expect(created.mode).toBe("created");
     expect(created.contractIndex).toBe(2);
@@ -187,7 +187,7 @@ describe("runUpstream", () => {
     expect(created.warnings).toEqual([
       "contract_main.cpp references Base without INIT_CONTRACT(Base)",
     ]);
-    expect(inspectUpstream(outputPath, "Main")).toEqual({
+    expect(inspectCoreIntegration(outputPath, "Main")).toEqual({
       index: 2,
       assetName: "MAIN",
       constructionEpoch: 300,
@@ -217,7 +217,7 @@ describe("runUpstream", () => {
     expect(readFileSync(join(outputPath, "test", "test.vcxproj"), "utf8"))
       .toContain("contract_main.cpp");
 
-    await expect(runUpstream(options)).rejects.toThrow("Core checkout is dirty");
+    await expect(runCoreIntegration(options)).rejects.toThrow("Core checkout is dirty");
 
     runGit(outputPath, "add", ".");
     runGit(outputPath, "commit", "-m", "Wire Main");
@@ -226,7 +226,7 @@ describe("runUpstream", () => {
       "struct Main { static constexpr unsigned long long MAIN_FEE = 1; " +
         "struct StateData { Base::StateData* base; unsigned long long value; }; };\n",
     );
-    const updated = await runUpstream({
+    const updated = await runCoreIntegration({
       projectRoot,
       contractPath: "contracts/Main.h",
       contractName: "Main",
@@ -246,7 +246,7 @@ describe("runUpstream", () => {
       join(projectRoot, "contracts", "Main.h"),
       "struct Main { struct StateData { Base::StateData* base; unsigned long long next; }; };\n",
     );
-    await runUpstream({
+    await runCoreIntegration({
       projectRoot,
       contractPath: "contracts/Main.h",
       contractName: "Main",
@@ -270,7 +270,7 @@ describe("runUpstream", () => {
       "struct Main { struct StateData { Missing::StateData* missing; }; };\n",
     );
 
-    await expect(runUpstream({
+    await expect(runCoreIntegration({
       projectRoot,
       contractPath: "contracts/Main.h",
       contractName: "Main",
@@ -289,7 +289,7 @@ describe("runUpstream", () => {
       join(projectRoot, "contracts", "Main.h"),
       "struct Main { struct StateData {}; };\n",
     );
-    await expect(runUpstream({
+    await expect(runCoreIntegration({
       projectRoot,
       contractPath: "contracts/Main.h",
       contractName: "Main",
@@ -310,7 +310,7 @@ describe("runUpstream", () => {
     runGit(root, "clone", repositoryUrl, staleOutputPath);
 
     const landedOutputPath = join(root, "landed-core");
-    await runUpstream({
+    await runCoreIntegration({
       projectRoot,
       contractPath: "contracts/Main.h",
       contractName: "Main",
@@ -324,7 +324,7 @@ describe("runUpstream", () => {
     runGit(repositoryUrl, "fetch", landedOutputPath, "qinit/main");
     runGit(repositoryUrl, "merge", "--ff-only", "FETCH_HEAD");
 
-    const updated = await runUpstream({
+    const updated = await runCoreIntegration({
       projectRoot,
       contractPath: "contracts/Main.h",
       contractName: "Main",
@@ -342,7 +342,7 @@ describe("runUpstream", () => {
     const aliasRepository = createCoreRepository(aliasRoot, "ALIAS");
     const aliasProject = createProject(aliasRoot);
 
-    await expect(runUpstream({
+    await expect(runCoreIntegration({
       projectRoot: aliasProject,
       contractPath: "contracts/Main.h",
       contractName: "ALIAS",
@@ -377,7 +377,7 @@ describe("runUpstream", () => {
 
     const partialProject = createProject(partialRoot);
     const partialOutput = join(partialRoot, "Partial-core");
-    await expect(runUpstream({
+    await expect(runCoreIntegration({
       projectRoot: partialProject,
       contractPath: "contracts/Main.h",
       contractName: "Main",

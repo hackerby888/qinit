@@ -20,12 +20,36 @@ test("COMMANDS mirrors the META keys — unique and non-empty", () => {
   expect(COMMANDS.length).toBeGreaterThan(0);
   expect(COMMANDS).toEqual(Object.keys(META) as CommandName[]);
   expect(new Set(COMMANDS).size).toBe(COMMANDS.length);
+  expect(COMMANDS).toContain("integrate");
+  expect(COMMANDS).not.toContain("upstream");
+});
+
+test("command summaries describe outcomes without implementation details", () => {
+  const summaries = Object.values(META)
+    .map((meta) => meta.summary)
+    .join(" ");
+
+  for (const internalTerm of [
+    /\bgraph\b/,
+    /\bbytecode\b/,
+    /\bK12\b/,
+    /\bIDL\b/,
+    /\bWasm\b/,
+    /\bcontract_testing\.h\b/,
+    /\bin-process\b/,
+    /\bsynchronize\b/,
+  ]) {
+    expect(summaries).not.toMatch(internalTerm);
+  }
 });
 
 test("META: options are complete structured parser definitions", () => {
   for (const command of COMMANDS) {
     const meta = META[command];
-    const groups = [meta.options ?? [], ...Object.values(meta.subcommands ?? {}).map((s) => s.options)];
+    const groups = [
+      meta.options ?? [],
+      ...Object.values(meta.subcommands ?? {}).map((subcommand) => subcommand.options),
+    ];
     for (const options of groups) {
       expect(new Set(options.map((option) => option.name)).size).toBe(options.length);
       for (const option of options) {
@@ -104,7 +128,7 @@ test("accepted develop and call options are documented", () => {
   expect(commandOptions("call").map((option) => option.name)).toEqual(
     expect.arrayContaining(["args", "amount", "all", "no-settle"]),
   );
-  expect(commandOptions("upstream").map((option) => option.name)).toEqual([
+  expect(commandOptions("integrate").map((option) => option.name)).toEqual([
     "contract",
     "contract-name",
     "out",

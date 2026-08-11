@@ -112,6 +112,21 @@ test("help command and help flag share command usage", async () => {
   }
 });
 
+test("integrate help is canonical and upstream is unknown", async () => {
+  const [integrateHelp, legacyCommand] = await Promise.all([
+    run("integrate", "--help"),
+    run("upstream"),
+  ]);
+
+  expect(integrateHelp.code).toBe(0);
+  expect(integrateHelp.stdout).toContain("usage: qinit integrate");
+  expect(integrateHelp.stdout).toContain("--construction-epoch <n>");
+  expect(integrateHelp.stderr).toBe("");
+
+  expect(legacyCommand.stdout).toContain("unknown command: upstream");
+  expect(legacyCommand.stderr).toBe("");
+});
+
 test("node subcommand help shows only the resolved option scope", async () => {
   const [
     commandHelp,

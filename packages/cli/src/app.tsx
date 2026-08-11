@@ -31,7 +31,7 @@ import { System } from "./commands/deploy-interact/system";
 import { Update } from "./commands/setup/update";
 import { Uninstall } from "./commands/setup/uninstall";
 import { New } from "./commands/develop/new";
-import { Upstream } from "./commands/develop/upstream";
+import { Integrate } from "./commands/develop/integrate";
 import { Help, Usage } from "./commands/misc/help";
 import { Version } from "./commands/misc/version";
 import {
@@ -95,7 +95,8 @@ export function App({ command, args }: { command: string; args: string[] }) {
   );
 }
 
-// Commands that were removed/renamed — point the old name at its replacement instead of a fuzzy "did you mean".
+// Point removed or renamed commands at their replacement instead of a fuzzy
+// "did you mean" suggestion.
 const REMOVED = new Map([["up", "node run"]]);
 
 const ALIASES = new Map<string, CommandName>([
@@ -175,7 +176,7 @@ const HANDLERS = {
   update: ({ commandArgs }) => <Update commandArgs={commandArgs} />,
   uninstall: ({ commandArgs }) => <Uninstall commandArgs={commandArgs} />,
   new: ({ commandArgs }) => <New commandArgs={commandArgs} />,
-  upstream: ({ commandArgs }) => <Upstream commandArgs={commandArgs} />,
+  integrate: ({ commandArgs }) => <Integrate commandArgs={commandArgs} />,
   dev: ({ commandArgs }) => <Dev commandArgs={commandArgs} />,
   build: ({ commandArgs }) => <Build commandArgs={commandArgs} />,
   gen: ({ commandArgs }) => <Gen commandArgs={commandArgs} />,
