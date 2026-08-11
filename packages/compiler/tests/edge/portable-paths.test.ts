@@ -6,10 +6,14 @@ const ROOT = resolve(import.meta.dir, "../../../..");
 const SEARCH_ROOTS = ["packages", "scripts", ".github"];
 const TEXT_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".mjs", ".json", ".md", ".yml", ".yaml"]);
 
+// .vscode-test is the integration runner's download and profile cache; its extension registry and
+// generated compile database hold absolute paths by design, and none of it is source.
+const IGNORED_DIRECTORIES = ["node_modules", "dist", ".git", ".vscode-test"];
+
 function sourceFiles(directory: string): string[] {
   const files: string[] = [];
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (["node_modules", "dist", ".git"].includes(entry.name) || entry.name.startsWith("build-"))
+    if (IGNORED_DIRECTORIES.includes(entry.name) || entry.name.startsWith("build-"))
       continue;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push(...sourceFiles(path));
