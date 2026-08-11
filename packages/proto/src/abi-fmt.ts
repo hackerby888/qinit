@@ -701,9 +701,10 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
   if (tok.endsWith("id")) {
     const v = tok.slice(0, -2).trim();
     let b: Uint8Array;
-    if (/^(0x)?[0-9a-fA-F]{64}$/.test(v)) b = hexToBytes(v);
+    if (v === "0") b = new Uint8Array(32);
+    else if (/^(0x)?[0-9a-fA-F]{64}$/.test(v)) b = hexToBytes(v);
     else if (/^[A-Z]{60}$/.test(v)) b = identityToBytes(v);
-    else throw new Error(`id must be a 60-char identity (A-Z) or a 64-hex pubkey, got '${v}'`);
+    else throw new Error(`id must be 0, a 60-char identity (A-Z), or a 64-hex pubkey, got '${v}'`);
     if (b.length !== 32) throw new Error(`id did not resolve to 32 bytes: '${v}'`);
     padTo(out, 8);
     for (const x of b) out.push(x);
@@ -711,10 +712,11 @@ async function encodeToken(tok: string, out: number[]): Promise<void> {
   }
   if (tok.endsWith("m256i")) {
     const v = tok.slice(0, -5).trim().replace(/^0x/, "");
-    if (!/^[0-9a-fA-F]{64}$/.test(v))
-      throw new Error(`m256i must be 64 hex chars (32 bytes), got '${v}'`);
+    const hex = v === "0" ? "0".repeat(64) : v;
+    if (!/^[0-9a-fA-F]{64}$/.test(hex))
+      throw new Error(`m256i must be 0 or 64 hex chars (32 bytes), got '${v}'`);
     padTo(out, 8);
-    for (const x of hexToBytes(v)) out.push(x);
+    for (const x of hexToBytes(hex)) out.push(x);
     return;
   }
   if (tok.endsWith("uint128")) {
@@ -915,9 +917,9 @@ export function zeroInputFormat(fmt: string | AbiType): string {
       case "uint128":
         return "0uint128";
       case "id":
-        return `${"0".repeat(64)}id`;
+        return "0id";
       case "bytes":
-        if (n.size === 32) return `${"0".repeat(64)}m256i`;
+        if (n.size === 32) return "0m256i";
         throw new Error(`no input token for ${n.size}-byte field`);
       case "array":
         return `[${n.count}; ${emit(n.elem)} ×${n.count}]`;

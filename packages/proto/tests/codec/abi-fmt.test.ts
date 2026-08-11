@@ -114,6 +114,11 @@ test("m256i (digest) round-trips as hex, not an identity", async () => {
   expect(await decodeOutput(b, "m256i")).toBe(dg);
 });
 
+test("id and m256i accept compact zero values", async () => {
+  expect(await encodeInput("0id")).toEqual(new Uint8Array(32));
+  expect(await encodeInput("0m256i")).toEqual(new Uint8Array(32));
+});
+
 test("deep nested: array of structs with an inner array", async () => {
   const b = await encodeInput(
     "[2; { 1uint32, [2; 2uint16, 3uint16] }, { 4uint32, [2; 5uint16, 6uint16] }]",
@@ -126,6 +131,7 @@ test("deep nested: array of structs with an inner array", async () => {
 
 test("rejects a malformed id (not 60-char identity nor 64-hex)", async () => {
   await expect(encodeInput("abcid")).rejects.toThrow(/id must be/);
+  await expect(encodeInput("1id")).rejects.toThrow(/id must be/);
   await expect(
     encodeInput("notavalidlowercaseidentitynotavalidlowercaseidentitynotavaid"),
   ).rejects.toThrow(/id must be/);
@@ -133,6 +139,7 @@ test("rejects a malformed id (not 60-char identity nor 64-hex)", async () => {
 
 test("rejects a malformed m256i (not 64 hex)", async () => {
   await expect(encodeInput("zzzm256i")).rejects.toThrow(/m256i must be/);
+  await expect(encodeInput("1m256i")).rejects.toThrow(/m256i must be/);
   await expect(encodeInput("00112233m256i")).rejects.toThrow(/m256i must be/);
 });
 
@@ -217,10 +224,10 @@ test("repeat shorthand: struct + top-level reps; non-repeat tokens untouched", a
 
 test("zeroInputFormat: builds a schema-matched all-zero sample (scalar/id/array/struct)", async () => {
   expect(zeroInputFormat("uint64")).toBe("0uint64");
-  expect(zeroInputFormat("[64; uint64], id")).toBe(`[64; 0uint64 ×64], ${"0".repeat(64)}id`);
-  expect(zeroInputFormat("{ uint32, id }")).toBe(`0uint32, ${"0".repeat(64)}id`); // top-level struct -> implicit field list (no braces, encodeInput-consistent)
+  expect(zeroInputFormat("[64; uint64], id")).toBe("[64; 0uint64 ×64], 0id");
+  expect(zeroInputFormat("{ uint32, id }")).toBe("0uint32, 0id"); // top-level struct -> implicit field list (no braces, encodeInput-consistent)
   expect(zeroInputFormat("uint16, uint32")).toBe("0uint16, 0uint32");
-  expect(zeroInputFormat("m256i")).toBe(`${"0".repeat(64)}m256i`);
+  expect(zeroInputFormat("m256i")).toBe("0m256i");
   expect(zeroInputFormat("uint128")).toBe("0uint128");
 });
 

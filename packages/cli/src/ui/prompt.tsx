@@ -1,8 +1,10 @@
 // Keyboard-driven input widgets. Both grab the terminal with useInput, so exactly one may be mounted
 // at a time — a caller that has its own key handling must stand down while a prompt is up.
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Box, Text, useInput } from "ink";
 import { theme } from "./theme";
+
+const COMPLETION_DELAY_MS = 300;
 
 export type SelItem<T> = { label: string; value?: T; header?: boolean };
 
@@ -99,7 +101,7 @@ export function TextPrompt({
   label: string;
   initial?: string;
   onSubmit: (value: string) => void;
-  complete?: (value: string) => string | null;
+  complete?: (value: string, idle: boolean) => string | null;
   placeholder?: string;
   isActive?: boolean;
   hint?: ReactNode;
@@ -107,19 +109,32 @@ export function TextPrompt({
 }) {
   const [value, setValue] = useState(initial ?? "");
   const [caret, setCaret] = useState((initial ?? "").length);
-  const completion = complete?.(value) ?? null;
+  const [completionIdle, setCompletionIdle] = useState(false);
+  const completion = complete?.(value, completionIdle) ?? null;
   const completionSuffix =
     completion && completion.length > value.length && completion.startsWith(value)
       ? completion.slice(value.length)
       : "";
 
   const update = (nextValue: string, nextCaret?: number) => {
+    setCompletionIdle(false);
     setValue(nextValue);
     setCaret(
       Math.max(0, Math.min(nextValue.length, nextCaret ?? nextValue.length)),
     );
     onChange?.(nextValue);
   };
+
+  useEffect(() => {
+    if (!complete || !isActive) {
+      return;
+    }
+    const timer = setTimeout(
+      () => setCompletionIdle(true),
+      COMPLETION_DELAY_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [value, complete, isActive]);
 
   useInput((input, key) => {
     if (key.return) {

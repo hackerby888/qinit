@@ -82,7 +82,7 @@ test("zeroSample builds typed schema-matched values", () => {
         ),
       ),
     ),
-  ).toBe(`[64; 0uint64 ×64], ${"0".repeat(64)}id`);
+  ).toBe("[64; 0uint64 ×64], 0id");
 });
 
 test("zeroSample handles empty and uint128 inputs", () => {
@@ -139,6 +139,33 @@ test("completerFor falls back to generic scalar types", () => {
 
   const expected = completerFor([field("n", scalar(AbiScalarKind.UINT32))]);
   expect(expected("1uint6")).toBe("1uint64");
+});
+
+test("completerFor adds schema types to bare values only after idle", () => {
+  const complete = completerFor([
+    field("unsigned", scalar(AbiScalarKind.UINT64)),
+    field("signed", scalar(AbiScalarKind.SINT64), 8),
+  ], true);
+
+  expect(complete("1")).toBe(null);
+  expect(complete("1u")).toBe("1uint64");
+  expect(complete("1", true)).toBe("1uint64");
+  expect(complete("1uint64, -2", true)).toBe("1uint64, -2sint64");
+  expect(complete("-1", true)).toBe(null);
+});
+
+test("completerFor suggests only valid bit and zero-value shorthand", () => {
+  const complete = completerFor([
+    field("bit", scalar(AbiScalarKind.BIT)),
+    field("identity", scalar(AbiScalarKind.ID), 1),
+    field("digest", scalar(AbiScalarKind.M256I), 40),
+  ], true);
+
+  expect(complete("1", true)).toBe("1bit");
+  expect(complete("2", true)).toBe(null);
+  expect(complete("1bit, 0", true)).toBe("1bit, 0id");
+  expect(complete("1bit, 1", true)).toBe(null);
+  expect(complete("1bit, 0id, 0", true)).toBe("1bit, 0id, 0m256i");
 });
 
 test("formatContractPickerRows aligns contract metadata columns", () => {

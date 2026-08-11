@@ -70,31 +70,56 @@ const QPI_TYPES = [
   "m256i",
 ];
 
-export function completerFor(fields?: AbiField[]) {
-  return (value: string): string | null => {
+export function completerFor(
+  fields?: AbiField[],
+  completeBareValue = false,
+) {
+  return (value: string, idle = false): string | null => {
     const separator = value.lastIndexOf(",");
     const completed = value.slice(0, separator + 1);
     const current = value.slice(separator + 1);
+    const fieldIndex = (completed.match(/,/g) || []).length;
+    const expectedType = fields?.[fieldIndex]?.type.format;
     const fragment = current.match(/[a-z][a-z0-9]*$/);
-    if (!fragment) {
+    if (fragment) {
+      const candidates =
+        expectedType && QPI_TYPES.includes(expectedType)
+          ? [expectedType, ...QPI_TYPES]
+          : QPI_TYPES;
+      const match = candidates.find(
+        (type) => type.startsWith(fragment[0]) && type !== fragment[0],
+      );
+
+      return match
+        ? completed +
+            current.slice(0, current.length - fragment[0].length) +
+            match
+        : null;
+    }
+
+    if (
+      !idle ||
+      !completeBareValue ||
+      !expectedType ||
+      !QPI_TYPES.includes(expectedType)
+    ) {
       return null;
     }
 
-    const fieldIndex = (completed.match(/,/g) || []).length;
-    const expectedType = fields?.[fieldIndex]?.type.format;
-    const candidates =
-      expectedType && QPI_TYPES.includes(expectedType)
-        ? [expectedType, ...QPI_TYPES]
-        : QPI_TYPES;
-    const match = candidates.find(
-      (type) => type.startsWith(fragment[0]) && type !== fragment[0],
-    );
+    const integer = current.match(/^(\s*)(-?\d+)$/);
+    if (!integer) {
+      return null;
+    }
+    const number = integer[2];
+    if (
+      (expectedType.startsWith("uint") && number.startsWith("-")) ||
+      (expectedType === "bit" && number !== "0" && number !== "1") ||
+      ((expectedType === "id" || expectedType === "m256i") && number !== "0")
+    ) {
+      return null;
+    }
 
-    return match
-      ? completed +
-          current.slice(0, current.length - fragment[0].length) +
-          match
-      : null;
+    return completed + integer[1] + number + expectedType;
   };
 }
 
@@ -594,6 +619,7 @@ export function CallInteractive({ rpcBaseUrl, seed }: { rpcBaseUrl: string; seed
             selection.e!.input?.kind === AbiTypeKind.STRUCT
               ? selection.e!.input.fields
               : undefined,
+            true,
           )}
           onSubmit={(input) => {
             const next = { ...selection, input };
