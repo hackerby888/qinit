@@ -175,6 +175,22 @@ suite("Qubic QPI extension", function () {
         arrayLabels.some((l) => l.startsWith("get")),
       `fallback should complete Array members; got [${arrayLabels.slice(0, 12).join(", ")}]`,
     );
+
+    // Opening the callee regenerates its own prefix. The caller must keep completing afterwards,
+    // and warm completions must stay far below a PCH rebuild (~700ms).
+    await open("project/contracts/Counter.h");
+    await sleep(2000);
+
+    const started = Date.now();
+    const afterCallee = await completionLabels(doc, "locals.input.offset", "locals.input.");
+    const elapsedMs = Date.now() - started;
+    console.log(`fallback completion after opening the callee: ${elapsedMs}ms`);
+
+    assert.ok(
+      afterCallee.includes("history") && afterCallee.includes("offset"),
+      `caller should still complete after the callee opened; got [${afterCallee.slice(0, 8)}]`,
+    );
+    assert.ok(elapsedMs < 500, `warm completion should stay fast; took ${elapsedMs}ms`);
   });
 
   test("an ambiguous project callee is shown as a diagnostic", async () => {

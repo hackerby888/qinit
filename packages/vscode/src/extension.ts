@@ -15,7 +15,7 @@ import {
 } from "./completion-filter";
 import { QpiDiagnostics } from "./diagnostics";
 import { IdlHover } from "./idl-hover";
-import { memberFallbackCompletions, type FallbackItem } from "./member-fallback";
+import { memberFallbackCompletions, prewarmPch, type FallbackItem } from "./member-fallback";
 import { resolveProjectSourceDetails } from "./project-context";
 import {
   findContractCandidates,
@@ -35,6 +35,9 @@ let contractPrefixPath: string | undefined;
 let contractCorePath: string | undefined;
 let filterReported = false;
 let fallbackReported = false;
+// Each contract compiles against its own prefix, so the fallback resolves the one for the document
+// being completed; the last-regenerated global paired it with a foreign compile entry.
+const contractPrefixPaths = new Map<string, string>();
 
 function warnOnce(key: string, message: string): void {
   if (warned.has(key)) return;
@@ -98,15 +101,18 @@ function fallbackCompletionItem(item: FallbackItem): vscode.CompletionItem {
 async function fallbackMemberCompletions(
   doc: vscode.TextDocument,
   position: vscode.Position,
+  token: vscode.CancellationToken,
   out: vscode.OutputChannel,
 ): Promise<vscode.CompletionItem[]> {
-  if (!contractPrefixPath) return [];
+  const prefixPath = contractPrefixPaths.get(doc.fileName);
+  if (!prefixPath) return [];
   const items = await memberFallbackCompletions({
-    prefixPath: contractPrefixPath,
+    prefixPath,
     contractPath: doc.fileName.replace(/\\/g, "/"),
     bufferText: doc.getText(),
     line: position.line,
     character: position.character,
+    cancel: token,
   });
   if (!items) return [];
   if (!fallbackReported) {
@@ -122,6 +128,7 @@ async function filterCompletions(
   position: vscode.Position,
   result: CompletionResult,
   core: string,
+  token: vscode.CancellationToken,
   out: vscode.OutputChannel,
 ): Promise<CompletionResult> {
   if (!contractPrefixPath || !isContractDoc(doc)) return result;
@@ -148,7 +155,7 @@ async function filterCompletions(
         (item) => item.kind === undefined || item.kind === vscode.CompletionItemKind.Text,
       );
     if (unresolved) {
-      const fallback = await fallbackMemberCompletions(doc, position, out);
+      const fallback = await fallbackMemberCompletions(doc, position, token, out);
       if (fallback.length > 0) kept = fallback;
     }
   } else if (scope.kind === "qualified") {
@@ -171,8 +178,14 @@ async function filterCompletions(
   return new vscode.CompletionList(kept, incomplete);
 }
 
+// `State` from vscode-languageclient, which this extension does not depend on directly.
+const CLANGD_CLIENT_RUNNING = 2;
+// A restart issued about a second into the client's life crashed it; several seconds in is safe.
+const CLANGD_SETTLE_MS = 4000;
+
 interface ClangdApi {
   languageClient?: {
+    state?: number;
     middleware?: {
       provideCompletionItem?: (
         doc: vscode.TextDocument,
@@ -210,6 +223,7 @@ function ensureCompletionFilter(core: string | undefined, out: vscode.OutputChan
         position,
         result,
         contractCorePath ?? initialCore,
+        token,
         out,
       );
     } catch (error: any) {
@@ -237,20 +251,38 @@ function scheduleCompletionFilter(core: string | undefined, out: vscode.OutputCh
   }, 1000);
 }
 
-function restartClangd(root: string, out: vscode.OutputChannel, core?: string): void {
+function clangdClient(): ClangdApi["languageClient"] {
+  return vscode.extensions
+    .getExtension("llvm-vs-code-extensions.vscode-clangd")
+    ?.exports?.getApi?.(1)?.languageClient;
+}
+
+// clangd never re-reads a database that appears after it resolved a file, so a new entry does need
+// the restart. Restarting a client that is still starting kills it instead (the fresh client
+// re-registers `clangd.applyFix` first), so wait for it to settle. A client that has not come up by
+// then reads the finished database on its own.
+function refreshClangd(root: string, out: vscode.OutputChannel, core?: string): void {
   if (restartingRoots.has(root)) return;
   restartingRoots.add(root);
-  void vscode.commands.executeCommand("clangd.restart").then(
-    () => {
+
+  setTimeout(() => {
+    if (clangdClient()?.state !== CLANGD_CLIENT_RUNNING) {
       restartingRoots.delete(root);
       scheduleCompletionFilter(core, out);
-      out.appendLine("clangd restarted with QPI configuration");
-    },
-    (error) => {
-      restartingRoots.delete(root);
-      out.appendLine(`clangd restart failed: ${String(error?.message ?? error)}`);
-    },
-  );
+      return;
+    }
+    void vscode.commands.executeCommand("clangd.restart").then(
+      () => {
+        restartingRoots.delete(root);
+        scheduleCompletionFilter(core, out);
+        out.appendLine("clangd restarted with QPI configuration");
+      },
+      (error) => {
+        restartingRoots.delete(root);
+        out.appendLine(`clangd restart failed: ${String(error?.message ?? error)}`);
+      },
+    );
+  }, CLANGD_SETTLE_MS);
 }
 
 function regenerateContract(
@@ -286,10 +318,14 @@ function regenerateContract(
       wasiSysrootPath: sourceDetails.wasiSysrootPath,
     });
     contractPrefixPath = result.prefixPath;
+    contractPrefixPaths.set(doc.fileName, result.prefixPath);
     contractCorePath = sourceDetails.corePath;
+    // Off the completion path: a saved callee invalidates the PCH, and rebuilding it here keeps the
+    // next `.` at a few tens of milliseconds instead of a second.
+    void prewarmPch(result.prefixPath, result.contractFile).catch(() => {});
     reportClangdConfig(result.clangdConfigured, result.dotClangdPath, result.dir);
     if (result.clangdConfigured && result.restartRequired) {
-      restartClangd(root, out, sourceDetails.corePath);
+      refreshClangd(root, out, sourceDetails.corePath);
     }
     out.appendLine(
       `clangd config ready: ${result.name} (slot ${result.slot}) -> ${result.prefixPath}`,
@@ -360,7 +396,7 @@ function regenerateTest(
       dirname(result.dbPath),
     );
     if (result.clangdConfigured && result.restartRequired) {
-      restartClangd(root, out, sourceDetails.corePath);
+      refreshClangd(root, out, sourceDetails.corePath);
     }
     out.appendLine(`gtest clangd config ready: ${doc.fileName} -> ${result.prefixPath}`);
   } catch (error: any) {

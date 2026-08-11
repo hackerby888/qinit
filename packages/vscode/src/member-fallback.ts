@@ -3,7 +3,7 @@
 // empty member list is re-asked of a real clang++ against a PCH built from the same prefix header.
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { wasiSdkPaths } from "@qinit/core/cache/wasi-sdk";
 
@@ -16,21 +16,35 @@ export interface FallbackItem {
 const COMPLETION_LINE = /^COMPLETION: (.+?)(?: : (.*))?$/;
 const RESULT_TYPE = /\[#(.*?)#\]/;
 
+export interface Cancellable {
+  isCancellationRequested: boolean;
+  onCancellationRequested(listener: () => void): { dispose(): void };
+}
+
 function run(
   command: string,
   args: string[],
   timeoutMs: number,
-): Promise<{ ok: boolean; stdout: string }> {
+  cancel?: Cancellable,
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolvePromise) => {
-    execFile(
+    const child = execFile(
       command,
       args,
       { timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
-      (error, stdout) => {
+      (error, stdout, stderr) => {
+        subscription?.dispose();
         // clang exits non-zero when the buffer has parse errors, but completions still stream out.
-        resolvePromise({ ok: !error || stdout.length > 0, stdout: stdout ?? "" });
+        resolvePromise({
+          ok: !error || stdout.length > 0,
+          stdout: stdout ?? "",
+          stderr: stderr ?? "",
+        });
       },
     );
+    // Typing outruns the process: an abandoned request must not keep a clang alive.
+    const subscription = cancel?.onCancellationRequested(() => child.kill());
+    if (cancel?.isCancellationRequested) child.kill();
   });
 }
 
@@ -142,6 +156,23 @@ export function cxxIncludeArgs(shared: string[]): string[] {
   return args;
 }
 
+const QUOTED_INCLUDE = /^[ \t]*#[ \t]*include[ \t]+"([^"]+)"/gm;
+
+// Editing a callee leaves the prefix text unchanged, so its size and mtime join the key: a saved
+// callee then rebuilds the PCH before the next completion instead of during one.
+function includedFileStamps(prefixText: string): string[] {
+  const stamps: string[] = [];
+  for (const [, spec] of prefixText.matchAll(QUOTED_INCLUDE)) {
+    try {
+      const stats = statSync(spec);
+      stamps.push(`${spec}:${stats.size}:${stats.mtimeMs}`);
+    } catch {
+      // Relative to an include path rather than the workspace: clang's staleness report covers it.
+    }
+  }
+  return stamps;
+}
+
 function pchKey(clang: string, prefixText: string, shared: string[]): string {
   return createHash("sha256")
     .update(clang)
@@ -149,11 +180,35 @@ function pchKey(clang: string, prefixText: string, shared: string[]): string {
     .update(shared.join("\0"))
     .update("\0")
     .update(prefixText)
+    .update("\0")
+    .update(includedFileStamps(prefixText).join("\0"))
     .digest("hex");
 }
 
 const pchBuilds = new Map<string, Promise<string | undefined>>();
+const lastForcedRebuild = new Map<string, number>();
 let bufferSequence = 0;
+
+// Dependencies the key cannot see (core headers, the sysroot) still invalidate the PCH, and clang
+// names the stale file — its report is the signal, not a dependency list we would have to guess.
+const STALE_PCH = /has been modified since the precompiled header|please rebuild precompiled file/;
+
+// A PCH that stays stale after a rebuild must not cost a rebuild per keystroke.
+const FORCED_REBUILD_COOLDOWN_MS = 5000;
+
+function invalidatePch(prefixPath: string): boolean {
+  const pchPath = pchPathFor(prefixPath);
+  const previous = lastForcedRebuild.get(pchPath) ?? 0;
+  if (Date.now() - previous < FORCED_REBUILD_COOLDOWN_MS) return false;
+
+  lastForcedRebuild.set(pchPath, Date.now());
+  try {
+    rmSync(`${pchPath}.key`, { force: true });
+  } catch {
+    return false;
+  }
+  return true;
+}
 
 /** Build (or reuse) the prefix PCH; keyed on clang binary + args + prefix content. */
 export async function ensurePrefixPch(
@@ -228,24 +283,15 @@ export interface FallbackRequest {
   /** 0-based cursor position, VS Code convention (character in UTF-16 units). */
   line: number;
   character: number;
+  cancel?: Cancellable;
 }
 
-/** Completion at the cursor via a clang subprocess; undefined when unavailable or empty. */
-export async function memberFallbackCompletions(
+async function completeOnce(
+  clang: string,
   request: FallbackRequest,
-): Promise<FallbackItem[] | undefined> {
-  const clang = await findClang();
-  if (!clang) return undefined;
-
-  const entry = compileEntryFor(request.prefixPath, request.contractPath);
-  if (!entry) return undefined;
-  const split = splitCompileArgs(entry.args, request.prefixPath);
-  if (!split) return undefined;
-  const shared = [...split.shared, ...cxxIncludeArgs(split.shared)];
-
-  const pch = await ensurePrefixPch(clang, request.prefixPath, shared);
-  if (!pch) return undefined;
-
+  shared: string[],
+  pch: string,
+): Promise<{ items: FallbackItem[]; stalePch: boolean }> {
   // The live buffer is unsaved, so completion runs on a copy beside the DB, not the file on disk.
   // Typing outruns the subprocess, so each request gets its own copy rather than sharing one path.
   const bufferCopy = join(
@@ -255,7 +301,7 @@ export async function memberFallbackCompletions(
   try {
     writeFileSync(bufferCopy, request.bufferText);
   } catch {
-    return undefined;
+    return { items: [], stalePch: false };
   }
 
   // clang wants 1-based line:column with the column counted in bytes.
@@ -279,12 +325,57 @@ export async function memberFallbackCompletions(
       bufferCopy,
     ],
     5000,
+    request.cancel,
   );
 
   try {
     rmSync(bufferCopy, { force: true });
   } catch {}
 
-  const items = parseCompletions(result.stdout);
-  return items.length > 0 ? items : undefined;
+  return { items: parseCompletions(result.stdout), stalePch: STALE_PCH.test(result.stderr) };
+}
+
+async function resolveRun(
+  prefixPath: string,
+  contractPath: string,
+): Promise<{ clang: string; shared: string[] } | undefined> {
+  const clang = await findClang();
+  if (!clang) return undefined;
+
+  const entry = compileEntryFor(prefixPath, contractPath);
+  if (!entry) return undefined;
+  const split = splitCompileArgs(entry.args, prefixPath);
+  if (!split) return undefined;
+
+  return { clang, shared: [...split.shared, ...cxxIncludeArgs(split.shared)] };
+}
+
+/** Build the PCH ahead of the first completion, so typing never waits for it. */
+export async function prewarmPch(prefixPath: string, contractPath: string): Promise<void> {
+  const resolved = await resolveRun(prefixPath, contractPath);
+  if (!resolved) return;
+  await ensurePrefixPch(resolved.clang, prefixPath, resolved.shared);
+}
+
+/** Completion at the cursor via a clang subprocess; undefined when unavailable or empty. */
+export async function memberFallbackCompletions(
+  request: FallbackRequest,
+): Promise<FallbackItem[] | undefined> {
+  const resolved = await resolveRun(request.prefixPath, request.contractPath);
+  if (!resolved) return undefined;
+  const { clang, shared } = resolved;
+
+  const pch = await ensurePrefixPch(clang, request.prefixPath, shared);
+  if (!pch) return undefined;
+
+  let attempt = await completeOnce(clang, request, shared, pch);
+
+  // A dependency of the PCH moved (a callee header, qpi.h, the sysroot). Rebuild and ask again.
+  if (attempt.stalePch && invalidatePch(request.prefixPath)) {
+    const rebuilt = await ensurePrefixPch(clang, request.prefixPath, shared);
+    if (!rebuilt) return undefined;
+    attempt = await completeOnce(clang, request, shared, rebuilt);
+  }
+
+  return attempt.items.length > 0 ? attempt.items : undefined;
 }

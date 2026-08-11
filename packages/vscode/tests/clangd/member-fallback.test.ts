@@ -11,6 +11,7 @@ import {
   memberFallbackCompletions,
   parseCompletions,
   pchPathFor,
+  pchSourcePathFor,
   splitCompileArgs,
 } from "../../src/member-fallback";
 
@@ -201,6 +202,170 @@ test.if(hasHeaders && hasClang)(
       expect(labels).toContain("bc");
       expect(labels).toContain("a");
       expect(existsSync(pchPathFor(config.prefixPath))).toBe(true);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+  60000,
+);
+
+// Opening a second contract regenerates its own prefix. Resolving the prefix per document is what
+// keeps the caller working afterwards; a single last-wins global paired it with a foreign entry.
+test.if(hasHeaders && hasClang)(
+  "the caller still completes after the callee gets its own clangd config",
+  async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "qpi-fallback-multi-"));
+    try {
+      const contractsDir = join(workspace, "contracts");
+      mkdirSync(contractsDir, { recursive: true });
+      const counterPath = join(contractsDir, "Counter.h");
+      const crossCallPath = join(contractsDir, "CrossCall.h");
+      writeFileSync(counterPath, COUNTER_SOURCE);
+      writeFileSync(crossCallPath, CROSSCALL_SOURCE);
+
+      const shared = {
+        corePath: BUNDLED_CORE,
+        dataRoot: workspace,
+        workspaceRoot: workspace,
+      };
+      const callerConfig = generateClangdConfig({
+        ...shared,
+        contractPath: crossCallPath,
+        name: "CrossCall",
+        slot: 30,
+        dynCallees: { Counter: { header: counterPath, index: 29 } },
+      });
+      const calleeConfig = generateClangdConfig({
+        ...shared,
+        contractPath: counterPath,
+        name: "Counter",
+        slot: 29,
+      });
+      expect(calleeConfig.prefixPath).not.toBe(callerConfig.prefixPath);
+
+      const markerLine = "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
+      const probeLine = "    locals.gi.";
+      const buffer = CROSSCALL_SOURCE.replace(markerLine, `${markerLine}\n${probeLine}`);
+      const line = buffer.split("\n").findIndex((text) => text === probeLine);
+
+      const items = await memberFallbackCompletions({
+        prefixPath: callerConfig.prefixPath,
+        contractPath: callerConfig.contractFile,
+        bufferText: buffer,
+        line,
+        character: probeLine.length,
+      });
+
+      const labels = (items ?? []).map((item) => item.label);
+      expect(labels).toContain("bc");
+      expect(labels).toContain("a");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+  60000,
+);
+
+// The prefix includes the callee by path, so its text survives a callee edit unchanged.
+test.if(hasHeaders && hasClang)(
+  "editing the callee refreshes the completions",
+  async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "qpi-fallback-edit-"));
+    try {
+      const contractsDir = join(workspace, "contracts");
+      mkdirSync(contractsDir, { recursive: true });
+      const counterPath = join(contractsDir, "Counter.h");
+      const crossCallPath = join(contractsDir, "CrossCall.h");
+      writeFileSync(counterPath, COUNTER_SOURCE);
+      writeFileSync(crossCallPath, CROSSCALL_SOURCE);
+
+      const generate = () =>
+        generateClangdConfig({
+          contractPath: crossCallPath,
+          corePath: BUNDLED_CORE,
+          dataRoot: workspace,
+          workspaceRoot: workspace,
+          name: "CrossCall",
+          slot: 30,
+          dynCallees: { Counter: { header: counterPath, index: 29 } },
+        });
+
+      const markerLine = "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
+      const probeLine = "    locals.gi.";
+      const buffer = CROSSCALL_SOURCE.replace(markerLine, `${markerLine}\n${probeLine}`);
+      const line = buffer.split("\n").findIndex((text) => text === probeLine);
+      const complete = async (prefixPath: string, contractFile: string) => {
+        const items = await memberFallbackCompletions({
+          prefixPath,
+          contractPath: contractFile,
+          bufferText: buffer,
+          line,
+          character: probeLine.length,
+        });
+        return (items ?? []).map((item) => item.label);
+      };
+
+      const first = generate();
+      expect(await complete(first.prefixPath, first.contractFile)).toContain("bc");
+
+      writeFileSync(counterPath, COUNTER_SOURCE.replace("sint16 a;", "sint16 a;\n    sint16 zz;"));
+      const second = generate();
+      const labels = await complete(second.prefixPath, second.contractFile);
+      expect(labels).toContain("zz");
+      expect(labels).toContain("bc");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  },
+  60000,
+);
+
+// Dependencies the key cannot see (core headers, the sysroot) still invalidate the PCH. Clang
+// reports it, and the fallback rebuilds and retries rather than going silent.
+test.if(hasHeaders && hasClang)(
+  "a PCH clang reports as stale is rebuilt and retried",
+  async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "qpi-fallback-stale-"));
+    try {
+      const contractsDir = join(workspace, "contracts");
+      mkdirSync(contractsDir, { recursive: true });
+      const counterPath = join(contractsDir, "Counter.h");
+      const crossCallPath = join(contractsDir, "CrossCall.h");
+      writeFileSync(counterPath, COUNTER_SOURCE);
+      writeFileSync(crossCallPath, CROSSCALL_SOURCE);
+
+      const config = generateClangdConfig({
+        contractPath: crossCallPath,
+        corePath: BUNDLED_CORE,
+        dataRoot: workspace,
+        workspaceRoot: workspace,
+        name: "CrossCall",
+        slot: 30,
+        dynCallees: { Counter: { header: counterPath, index: 29 } },
+      });
+
+      const markerLine = "    CALL_OTHER_CONTRACT_FUNCTION(Counter, Get, locals.gi, locals.go);";
+      const probeLine = "    locals.gi.";
+      const buffer = CROSSCALL_SOURCE.replace(markerLine, `${markerLine}\n${probeLine}`);
+      const line = buffer.split("\n").findIndex((text) => text === probeLine);
+      const request = {
+        prefixPath: config.prefixPath,
+        contractPath: config.contractFile,
+        bufferText: buffer,
+        line,
+        character: probeLine.length,
+      };
+
+      expect((await memberFallbackCompletions(request))?.map((item) => item.label)).toContain("bc");
+
+      // Rewriting the PCH's own source with identical bytes moves its mtime, which is exactly what
+      // clang refuses to load — without changing anything the cache key hashes.
+      const pchSourcePath = pchSourcePathFor(config.prefixPath);
+      writeFileSync(pchSourcePath, readFileSync(pchSourcePath, "utf8"));
+
+      const labels = (await memberFallbackCompletions(request))?.map((item) => item.label);
+      expect(labels).toContain("bc");
+      expect(labels).toContain("a");
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }
