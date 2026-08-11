@@ -113,14 +113,21 @@ suite("Qubic QPI extension", function () {
     const doc = await open("project/contracts/Proxy.h");
     await sleep(3000);
 
-    const diagnostics = vscode.languages.getDiagnostics(doc.uri);
-    const errors = diagnostics.filter(
-      (diagnostic) =>
-        diagnostic.severity === vscode.DiagnosticSeverity.Error &&
-        ["qpi", "qinit-compiler", "qinit-project", "clang"].includes(
-          String(diagnostic.source),
-        ),
-    );
+    // On a fresh profile clangd resolves the file before the database exists and reports undeclared
+    // identifiers until the extension restarts it, so wait for that rather than sampling an instant.
+    const contractErrors = () =>
+      vscode.languages.getDiagnostics(doc.uri).filter(
+        (diagnostic) =>
+          diagnostic.severity === vscode.DiagnosticSeverity.Error &&
+          ["qpi", "qinit-compiler", "qinit-project", "clang"].includes(
+            String(diagnostic.source),
+          ),
+      );
+    let errors = contractErrors();
+    for (let attempt = 0; attempt < 20 && errors.length > 0; attempt++) {
+      await sleep(1500);
+      errors = contractErrors();
+    }
     assert.strictEqual(
       errors.length,
       0,

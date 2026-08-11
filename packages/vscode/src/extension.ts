@@ -180,8 +180,11 @@ async function filterCompletions(
 
 // `State` from vscode-languageclient, which this extension does not depend on directly.
 const CLANGD_CLIENT_RUNNING = 2;
-// A restart issued about a second into the client's life crashed it; several seconds in is safe.
-const CLANGD_SETTLE_MS = 4000;
+// vscode-clangd replaces the client without waiting for the old one to release its commands, which
+// only completes promptly once that client is past its own startup. Grace after it reports Running.
+const CLANGD_SETTLE_MS = 1500;
+const CLANGD_SETTLE_POLL_MS = 250;
+const CLANGD_SETTLE_TIMEOUT_MS = 15000;
 
 interface ClangdApi {
   languageClient?: {
@@ -261,28 +264,38 @@ function clangdClient(): ClangdApi["languageClient"] {
 // the restart. Restarting a client that is still starting kills it instead (the fresh client
 // re-registers `clangd.applyFix` first), so wait for it to settle. A client that has not come up by
 // then reads the finished database on its own.
+async function clangdSettled(): Promise<boolean> {
+  const deadline = Date.now() + CLANGD_SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (clangdClient()?.state === CLANGD_CLIENT_RUNNING) {
+      await new Promise((done) => setTimeout(done, CLANGD_SETTLE_MS));
+      return clangdClient()?.state === CLANGD_CLIENT_RUNNING;
+    }
+    await new Promise((done) => setTimeout(done, CLANGD_SETTLE_POLL_MS));
+  }
+  return false;
+}
+
 function refreshClangd(root: string, out: vscode.OutputChannel, core?: string): void {
   if (restartingRoots.has(root)) return;
   restartingRoots.add(root);
 
-  setTimeout(() => {
-    if (clangdClient()?.state !== CLANGD_CLIENT_RUNNING) {
+  void clangdSettled().then(async (settled) => {
+    // A client that never came up reads the finished database when it starts, so leave it alone.
+    if (!settled) {
       restartingRoots.delete(root);
       scheduleCompletionFilter(core, out);
       return;
     }
-    void vscode.commands.executeCommand("clangd.restart").then(
-      () => {
-        restartingRoots.delete(root);
-        scheduleCompletionFilter(core, out);
-        out.appendLine("clangd restarted with QPI configuration");
-      },
-      (error) => {
-        restartingRoots.delete(root);
-        out.appendLine(`clangd restart failed: ${String(error?.message ?? error)}`);
-      },
-    );
-  }, CLANGD_SETTLE_MS);
+    try {
+      await vscode.commands.executeCommand("clangd.restart");
+      out.appendLine("clangd restarted with QPI configuration");
+    } catch (error: any) {
+      out.appendLine(`clangd restart failed: ${String(error?.message ?? error)}`);
+    }
+    restartingRoots.delete(root);
+    scheduleCompletionFilter(core, out);
+  });
 }
 
 function regenerateContract(
